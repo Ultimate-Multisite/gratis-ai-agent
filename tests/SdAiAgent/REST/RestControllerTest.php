@@ -1418,4 +1418,170 @@ class RestControllerTest extends WP_UnitTestCase {
 		$response = $this->dispatch( 'GET', '/sd-ai-agent/v1/knowledge/collections' );
 		$this->assertStatus( 401, $response );
 	}
+
+	// ─── /chat/tool-result regression: 409 loop fix (sd-ai-9ip) ──────────────
+
+	/**
+	 * Test POST /chat/tool-result returns 409 when no paused_state exists AND
+	 * downgrades a stale 'awaiting_client_tools' job transient/DB row to
+	 * 'error'.
+	 *
+	 * Regression for the infinite 409 loop: before the fix, a duplicate POST
+	 * (or a TTL-expiry replay) would return 409 but leave the job transient
+	 * advertising 'awaiting_client_tools' with the same pending_client_tool_calls.
+	 * The browser would then poll, re-execute the screenshot ability,
+	 * POST again, get 409 again, and loop forever.
+	 *
+	 * @group t-409-loop
+	 */
+	public function test_tool_result_409_clears_stale_awaiting_client_tools_transient(): void {
+		wp_set_current_user( $this->admin_id );
+
+		$session_id = Database::create_session( [
+			'user_id' => $this->admin_id,
+			'title'   => '409 loop regression session',
+		] );
+		$job_id = '11111111-2222-3333-4444-555555555555';
+
+		// Simulate a job that is mid-pause: transient + DB row both say
+		// 'awaiting_client_tools' with one pending screenshot call. The
+		// session has NO paused_state — that is the failure scenario.
+		ActiveJobRepository::create( $session_id, $job_id, $this->admin_id, 'awaiting_client_tools' );
+		set_transient(
+			RestController::JOB_PREFIX . $job_id,
+			[
+				'status'                    => 'awaiting_client_tools',
+				'pending_client_tool_calls' => [
+					[
+						'id'   => 'call_screenshot_1',
+						'name' => 'sd-ai-agent-js/screenshot-url',
+						'args' => [ 'url' => '/about/' ],
+					],
+				],
+				'tool_calls'                => [],
+			],
+			RestController::JOB_TTL
+		);
+
+		$request = new WP_REST_Request( 'POST', '/sd-ai-agent/v1/chat/tool-result' );
+		$request->set_body( wp_json_encode( [
+			'session_id'   => $session_id,
+			'job_id'       => $job_id,
+			'tool_results' => [
+				[
+					'id'     => 'call_screenshot_1',
+					'name'   => 'sd-ai-agent-js/screenshot-url',
+					'result' => [ 'success' => true, 'image' => 'data:image/jpeg;base64,/9j/...' ],
+				],
+			],
+		] ) );
+		$request->set_header( 'Content-Type', 'application/json' );
+		$response = $this->server->dispatch( $request );
+
+		// Endpoint still returns 409 — the contract is unchanged for the
+		// browser's retry loop, which already treats 409 as "already done".
+		$this->assertStatus( 409, $response );
+
+		// The transient must be downgraded to 'error' so the next poll sees
+		// a terminal state and stops re-executing the pending call.
+		$transient_after = get_transient( RestController::JOB_PREFIX . $job_id );
+		$this->assertIsArray( $transient_after );
+		$this->assertSame( 'error', $transient_after['status'], 'Transient must be downgraded to error to break the 409 loop.' );
+		$this->assertArrayNotHasKey(
+			'pending_client_tool_calls',
+			$transient_after,
+			'Stale pending client tool calls must be cleared so the next poll cannot re-emit awaiting_client_tools.'
+		);
+
+		// And the DB row must match so that transient-expiry fallback also
+		// serves 'error' rather than the stale 'awaiting_client_tools'.
+		$db_row = ActiveJobRepository::get_by_job_id( $job_id );
+		$this->assertNotNull( $db_row );
+		$this->assertSame( 'error', $db_row->status );
+	}
+
+	/**
+	 * Test POST /chat/tool-result on a 'complete' transient does NOT
+	 * downgrade it to 'error'. A duplicate POST after the original already
+	 * succeeded must leave the prior result intact for the browser to read.
+	 *
+	 * @group t-409-loop
+	 */
+	public function test_tool_result_409_preserves_complete_transient(): void {
+		wp_set_current_user( $this->admin_id );
+
+		$session_id = Database::create_session( [
+			'user_id' => $this->admin_id,
+			'title'   => '409 loop regression — complete preserved',
+		] );
+		$job_id = '22222222-3333-4444-5555-666666666666';
+
+		ActiveJobRepository::create( $session_id, $job_id, $this->admin_id, 'complete' );
+		set_transient(
+			RestController::JOB_PREFIX . $job_id,
+			[
+				'status' => 'complete',
+				'result' => [ 'reply' => 'Done.', 'history' => [], 'tool_calls' => [] ],
+			],
+			RestController::JOB_TTL
+		);
+
+		$request = new WP_REST_Request( 'POST', '/sd-ai-agent/v1/chat/tool-result' );
+		$request->set_body( wp_json_encode( [
+			'session_id'   => $session_id,
+			'job_id'       => $job_id,
+			'tool_results' => [
+				[
+					'id'     => 'call_x',
+					'name'   => 'sd-ai-agent-js/screenshot-url',
+					'result' => [ 'success' => true ],
+				],
+			],
+		] ) );
+		$request->set_header( 'Content-Type', 'application/json' );
+		$response = $this->server->dispatch( $request );
+
+		$this->assertStatus( 409, $response );
+
+		$transient_after = get_transient( RestController::JOB_PREFIX . $job_id );
+		$this->assertIsArray( $transient_after );
+		$this->assertSame(
+			'complete',
+			$transient_after['status'],
+			'A complete transient must not be stomped by a duplicate tool-result POST.'
+		);
+	}
+
+	/**
+	 * Test POST /chat/tool-result with an empty job_id still returns 409
+	 * without raising an error — the helper short-circuits when no job_id
+	 * is supplied (defence in depth for older clients).
+	 *
+	 * @group t-409-loop
+	 */
+	public function test_tool_result_409_no_job_id_is_safe(): void {
+		wp_set_current_user( $this->admin_id );
+
+		$session_id = Database::create_session( [
+			'user_id' => $this->admin_id,
+			'title'   => '409 loop regression — no job_id',
+		] );
+
+		$request = new WP_REST_Request( 'POST', '/sd-ai-agent/v1/chat/tool-result' );
+		$request->set_body( wp_json_encode( [
+			'session_id'   => $session_id,
+			// job_id intentionally omitted.
+			'tool_results' => [
+				[
+					'id'     => 'call_x',
+					'name'   => 'sd-ai-agent-js/screenshot-url',
+					'result' => [ 'success' => true ],
+				],
+			],
+		] ) );
+		$request->set_header( 'Content-Type', 'application/json' );
+		$response = $this->server->dispatch( $request );
+
+		$this->assertStatus( 409, $response );
+	}
 }

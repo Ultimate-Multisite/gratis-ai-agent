@@ -377,6 +377,19 @@ Assistant: %s',
 		$paused_state = Database::load_and_clear_paused_state( $session_id );
 
 		if ( null === $paused_state ) {
+			// Sync the job transient/DB row to a terminal state so the
+			// browser's poll loop stops re-issuing the same pending client
+			// tool call. Without this, a poll → execute → POST → 409 cycle
+			// can loop indefinitely (the transient still says
+			// 'awaiting_client_tools' with the stale pending calls).
+			//
+			// We do NOT downgrade to 'error' here when the same session has
+			// already produced a 'complete' result on a prior POST — in that
+			// case the transient already reflects 'complete' and this call
+			// is a no-op. When the transient is missing (TTL expiry) the
+			// helper updates the DB row only.
+			self::clear_pending_client_tool_calls( $job_id );
+
 			return new WP_Error(
 				'sd_ai_agent_no_paused_state',
 				__( 'No paused agent state found for this session. The session may have already been resumed or expired.', 'superdav-ai-agent' ),
@@ -422,6 +435,13 @@ Assistant: %s',
 		$result             = $loop->resume_after_client_tools( $tool_results_typed, $iterations_remaining );
 
 		if ( is_wp_error( $result ) ) {
+			// Sync the job transient/DB row to 'error' so the browser's poll
+			// loop sees a terminal state and stops re-issuing the same
+			// pending client tool call. Without this, the transient still
+			// says 'awaiting_client_tools' and the next poll cycle produces
+			// an infinite 409 loop on /chat/tool-result.
+			self::mark_job_error_after_resume( $job_id, $result->get_error_message() );
+
 			return $result;
 		}
 
@@ -604,5 +624,102 @@ Assistant: %s',
 		// Update the DB row so the fallback path serves 'complete' (with from_db=true)
 		// if the transient expires before the browser polls.
 		ActiveJobRepository::update_status( $job_id, 'complete' );
+	}
+
+	/**
+	 * Mark a job as 'error' on both the transient and the DB row.
+	 *
+	 * Called from /chat/tool-result when resume_after_client_tools() returns
+	 * a WP_Error. Without this sync, the job transient/DB row still says
+	 * 'awaiting_client_tools' with the same pending_client_tool_calls, so the
+	 * browser's next poll re-executes the client tools and POSTs again,
+	 * producing an infinite 409 loop on the next /chat/tool-result attempt
+	 * (paused_state was already consumed before resume_after_client_tools
+	 * ran).
+	 *
+	 * @param string $job_id        Job UUID supplied by the browser. No-op when empty.
+	 * @param string $error_message Human-readable error from the WP_Error.
+	 */
+	private static function mark_job_error_after_resume( string $job_id, string $error_message ): void {
+		if ( '' === $job_id ) {
+			return;
+		}
+
+		$transient_key = self::JOB_PREFIX . $job_id;
+		$job           = get_transient( $transient_key );
+
+		if ( is_array( $job ) ) {
+			unset( $job['token'] );
+			$job['status'] = 'error';
+			$job['error']  = $error_message;
+
+			// Drop stale pending-call hints so a transient-served poll cannot
+			// re-emit 'awaiting_client_tools' for the next browser poll.
+			unset( $job['pending_client_tool_calls'] );
+
+			set_transient( $transient_key, $job, self::JOB_TTL );
+		}
+
+		// Update the DB row so the transient-expiry fallback also serves
+		// 'error' rather than the stale 'awaiting_client_tools'.
+		ActiveJobRepository::update_status( $job_id, 'error' );
+	}
+
+	/**
+	 * Clear pending client tool calls from the job transient/DB row.
+	 *
+	 * Called from /chat/tool-result when paused_state is null (a duplicate
+	 * POST after the original was already processed, or a TTL expiry). The
+	 * server has nothing to resume, so the job MUST NOT continue advertising
+	 * 'awaiting_client_tools' — otherwise the browser polls, re-executes the
+	 * same client tools, POSTs again, gets 409 again, and loops forever.
+	 *
+	 * Behaviour:
+	 *   - If the transient already says 'complete' or 'error', leave it
+	 *     alone (the prior POST or background job already produced the
+	 *     terminal state).
+	 *   - If the transient says 'awaiting_client_tools' (stale), downgrade
+	 *     to 'error' with a synthetic message so the browser surfaces it
+	 *     and stops polling.
+	 *   - If the transient is missing entirely, only update the DB row when
+	 *     it currently says 'awaiting_client_tools'.
+	 *
+	 * @param string $job_id Job UUID supplied by the browser. No-op when empty.
+	 */
+	private static function clear_pending_client_tool_calls( string $job_id ): void {
+		if ( '' === $job_id ) {
+			return;
+		}
+
+		$transient_key = self::JOB_PREFIX . $job_id;
+		$job           = get_transient( $transient_key );
+
+		if ( is_array( $job ) ) {
+			$current_status = (string) ( $job['status'] ?? '' );
+
+			// Only act on stale 'awaiting_client_tools' entries; do not stomp
+			// on 'complete' or 'error' that a prior POST already produced.
+			if ( 'awaiting_client_tools' === $current_status ) {
+				unset( $job['token'], $job['pending_client_tool_calls'] );
+				$job['status'] = 'error';
+				$job['error']  = __(
+					'Client tool result arrived after the agent state had already been resumed or expired.',
+					'superdav-ai-agent'
+				);
+
+				set_transient( $transient_key, $job, self::JOB_TTL );
+
+				ActiveJobRepository::update_status( $job_id, 'error' );
+			}
+
+			return;
+		}
+
+		// Transient is gone — only update the DB row when it still
+		// advertises the stale 'awaiting_client_tools' status.
+		$db_row = ActiveJobRepository::get_by_job_id( $job_id );
+		if ( null !== $db_row && 'awaiting_client_tools' === $db_row->status ) {
+			ActiveJobRepository::update_status( $job_id, 'error' );
+		}
 	}
 }
