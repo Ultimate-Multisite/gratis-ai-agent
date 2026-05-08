@@ -338,18 +338,29 @@ class AgentLoop {
 		IdenticalFailureTracker::reset();
 		ModelHealthTracker::set_current_model( $this->model_id );
 
+		// Make session_id available to event-log emitters in sub-layers
+		// (AbilityFunctionResolver, ProviderTraceLogger) that don't carry
+		// a session reference through their call chain. Always cleared on exit
+		// via try/finally so a thrown exception cannot leak attribution into
+		// a subsequent unrelated run.
+		AgentEventLog::set_session( $this->session_id );
+
 		// Ensure provider auth is available (critical for loopback requests).
 		ProviderCredentialLoader::load();
 
 		// Append the new user message to history.
 		$this->history[] = new UserMessage( array( new MessagePart( $this->user_message ) ) );
 
-		$result = $this->run_loop( $this->max_iterations );
+		try {
+			$result = $this->run_loop( $this->max_iterations );
 
-		// Apply Phase-1 outcome heuristic to skill usage rows for this session.
-		$this->evaluate_skill_outcomes( $result );
+			// Apply Phase-1 outcome heuristic to skill usage rows for this session.
+			$this->evaluate_skill_outcomes( $result );
 
-		return $result;
+			return $result;
+		} finally {
+			AgentEventLog::clear_session();
+		}
 	}
 
 	/**
@@ -369,33 +380,39 @@ class AgentLoop {
 
 		ProviderCredentialLoader::load();
 
-		if ( $confirmed ) {
-			// The last message in history is the model's tool call message.
-			$assistant_message = end( $this->history );
-			ChangeLogger::begin( $this->session_id, 'confirmed-tool' );
-			try {
-				$response_message = $this->get_ability_resolver()->execute_abilities( $assistant_message );
-				/** @var \WordPress\AiClient\Messages\DTO\Message $response_message */
-			} finally {
-				ChangeLogger::end();
-			}
-			// Truncate then split for OpenAI-compatible providers.
-			$truncated_message = self::truncate_tool_results( $response_message );
-			$this->append_tool_response_to_history( $truncated_message );
-			$this->log_tool_responses( $response_message );
-		} else {
-			// Remove the model's tool call message and tell the model the call was rejected.
-			array_pop( $this->history );
-			$this->history[] = new UserMessage(
-				array(
-					new MessagePart(
-						'The user declined the requested tool calls. Please respond directly without using those tools.'
-					),
-				)
-			);
-		}
+		AgentEventLog::set_session( $this->session_id );
 
-		return $this->run_loop( $remaining_iterations );
+		try {
+			if ( $confirmed ) {
+				// The last message in history is the model's tool call message.
+				$assistant_message = end( $this->history );
+				ChangeLogger::begin( $this->session_id, 'confirmed-tool' );
+				try {
+					$response_message = $this->get_ability_resolver()->execute_abilities( $assistant_message );
+					/** @var \WordPress\AiClient\Messages\DTO\Message $response_message */
+				} finally {
+					ChangeLogger::end();
+				}
+				// Truncate then split for OpenAI-compatible providers.
+				$truncated_message = self::truncate_tool_results( $response_message );
+				$this->append_tool_response_to_history( $truncated_message );
+				$this->log_tool_responses( $response_message );
+			} else {
+				// Remove the model's tool call message and tell the model the call was rejected.
+				array_pop( $this->history );
+				$this->history[] = new UserMessage(
+					array(
+						new MessagePart(
+							'The user declined the requested tool calls. Please respond directly without using those tools.'
+						),
+					)
+				);
+			}
+
+			return $this->run_loop( $remaining_iterations );
+		} finally {
+			AgentEventLog::clear_session();
+		}
 	}
 
 	/**
@@ -418,6 +435,8 @@ class AgentLoop {
 		}
 
 		ProviderCredentialLoader::load();
+
+		AgentEventLog::set_session( $this->session_id );
 
 		// Build a tool-response message from the client results.
 		$parts = array();
@@ -463,7 +482,11 @@ class AgentLoop {
 			$this->fire_progress();
 		}
 
-		return $this->run_loop( $remaining_iterations );
+		try {
+			return $this->run_loop( $remaining_iterations );
+		} finally {
+			AgentEventLog::clear_session();
+		}
 	}
 
 	/**
@@ -486,6 +509,19 @@ class AgentLoop {
 
 			// Wall-clock timeout check.
 			if ( microtime( true ) >= $deadline ) {
+				AgentEventLog::log(
+					'agent_loop_aborted',
+					AgentEventLog::SEVERITY_WARNING,
+					array(
+						'session_id'      => $this->session_id,
+						'reason'          => 'timeout',
+						'iterations_used' => $this->iterations_used,
+						'iterations_max'  => (int) $this->max_iterations,
+						'model_id'        => (string) $this->model_id,
+						'provider_id'     => (string) $this->provider_id,
+					)
+				);
+
 				return array(
 					'reply'           => __(
 						'This request took longer than expected and was stopped to protect your usage budget. You can continue the conversation to pick up where it left off.',
@@ -521,6 +557,20 @@ class AgentLoop {
 			$result = $this->send_prompt();
 
 			if ( is_wp_error( $result ) ) {
+				/** @var WP_Error $result */
+				AgentEventLog::log(
+					'agent_loop_aborted',
+					AgentEventLog::SEVERITY_ERROR,
+					array(
+						'session_id'      => $this->session_id,
+						'reason'          => (string) $result->get_error_code(),
+						'iterations_used' => $this->iterations_used,
+						'iterations_max'  => (int) $this->max_iterations,
+						'model_id'        => (string) $this->model_id,
+						'provider_id'     => (string) $this->provider_id,
+						'message'         => (string) $result->get_error_message(),
+					)
+				);
 				return $result;
 			}
 
@@ -685,6 +735,19 @@ class AgentLoop {
 			// Spin detection: delegate to SpinDetector which encapsulates
 			// the idle-round state (last_tool_signature + idle_rounds counter).
 			if ( $this->spin_detector->record( $assistant_message, self::MAX_IDLE_ROUNDS ) ) {
+				AgentEventLog::log(
+					'agent_loop_aborted',
+					AgentEventLog::SEVERITY_WARNING,
+					array(
+						'session_id'      => $this->session_id,
+						'reason'          => 'spin_detected',
+						'iterations_used' => $this->iterations_used,
+						'iterations_max'  => (int) $this->max_iterations,
+						'model_id'        => (string) $this->model_id,
+						'provider_id'     => (string) $this->provider_id,
+					)
+				);
+
 				return array(
 					'reply'           => __(
 						'I\'ve been repeating the same operations without making progress. Here\'s what I found so far. Try rephrasing your request or providing more specifics.',
@@ -744,6 +807,18 @@ class AgentLoop {
 		}
 
 		// Exhausted iterations — return what we have so callers can inspect the log.
+		AgentEventLog::log(
+			'tool_limit_reached',
+			AgentEventLog::SEVERITY_WARNING,
+			array(
+				'session_id'      => $this->session_id,
+				'iterations_used' => $this->iterations_used,
+				'iterations_max'  => (int) $this->max_iterations,
+				'model_id'        => (string) $this->model_id,
+				'provider_id'     => (string) $this->provider_id,
+			)
+		);
+
 		return new WP_Error(
 			'sd_ai_agent_max_iterations',
 			sprintf(

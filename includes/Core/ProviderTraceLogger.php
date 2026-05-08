@@ -14,6 +14,7 @@ declare(strict_types=1);
 
 namespace SdAiAgent\Core;
 
+use SdAiAgent\Core\AgentEventLog;
 use SdAiAgent\Models\ProviderTrace;
 
 /**
@@ -87,12 +88,50 @@ class ProviderTraceLogger {
 	/**
 	 * Hook: http_response — capture response and write trace record.
 	 *
+	 * Two-tier logging:
+	 * - When {@see ProviderTrace::is_enabled()} (debug mode), the full
+	 *   request/response is written to the `provider_trace` DB table.
+	 * - When the response is a 4xx/5xx, a single greppable line is emitted
+	 *   to PHP `error_log` via {@see AgentEventLog} **regardless of debug
+	 *   mode**, so operators on production multisite installs can still
+	 *   diagnose provider issues without enabling `WP_DEBUG`.
+	 *
 	 * @param array<string, mixed> $response    HTTP response array.
 	 * @param array<string, mixed> $parsed_args HTTP request arguments.
 	 * @param string               $url         The request URL.
 	 * @return array<string, mixed> Unchanged response.
 	 */
 	public static function on_http_response( array $response, array $parsed_args, string $url ): array {
+		// Always check whether this URL is a known AI provider — even when
+		// trace is disabled — so we can emit the lightweight error line.
+		$provider_id = self::match_provider( $url );
+		if ( '' === $provider_id ) {
+			return $response;
+		}
+
+		// Emit lightweight error line independent of debug mode. No body,
+		// no headers — just status + provider + model.
+		$status_code_for_log = (int) wp_remote_retrieve_response_code( $response );
+		if ( $status_code_for_log >= 400 ) {
+			$model_id_for_log = '';
+			if ( isset( $parsed_args['body'] ) ) {
+				$body_for_log     = is_string( $parsed_args['body'] )
+					? $parsed_args['body']
+					: (string) wp_json_encode( $parsed_args['body'] );
+				$model_id_for_log = self::extract_model_id( $body_for_log );
+			}
+
+			AgentEventLog::log(
+				'provider_http_error',
+				AgentEventLog::SEVERITY_ERROR,
+				array(
+					'provider_id' => $provider_id,
+					'model_id'    => $model_id_for_log,
+					'status_code' => $status_code_for_log,
+				)
+			);
+		}
+
 		if ( ! ProviderTrace::is_enabled() ) {
 			return $response;
 		}

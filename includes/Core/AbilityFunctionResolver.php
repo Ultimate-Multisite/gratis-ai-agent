@@ -140,6 +140,16 @@ class AbilityFunctionResolver extends \WP_AI_Client_Ability_Function_Resolver {
 					. ' ' . ( $frame['function'] ?? '' ) . '()';
 			}
 
+			AgentEventLog::log(
+				'ability_failed',
+				AgentEventLog::SEVERITY_ERROR,
+				array(
+					'ability' => $ability_name,
+					'code'    => 'ability_exception',
+					'message' => $e->getMessage(),
+				)
+			);
+
 			return new FunctionResponse(
 				$function_id,
 				$function_name,
@@ -161,6 +171,19 @@ class AbilityFunctionResolver extends \WP_AI_Client_Ability_Function_Resolver {
 			$response_data = array(
 				'error' => $result->get_error_message(),
 				'code'  => $error_code,
+			);
+
+			// Emit a single greppable line for operators reviewing failures
+			// across the network. Session attribution comes from
+			// AgentEventLog's thread-local set by AgentLoop::run().
+			AgentEventLog::log(
+				'ability_failed',
+				AgentEventLog::SEVERITY_ERROR,
+				array(
+					'ability' => $ability_name,
+					'code'    => $error_code,
+					'message' => (string) $result->get_error_message(),
+				)
 			);
 
 			// When our AbstractAbility::do_execute() catches an exception,
