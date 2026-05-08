@@ -756,7 +756,7 @@ test.describe( 'Scheduled Automations (t080)', () => {
 			.locator( '.sdaa-skill-card' )
 			.filter( { hasText: disabledAutomation.name } );
 
-		await expect( card ).toHaveClass( /ai-agent-skill-card--disabled/ );
+		await expect( card ).toHaveClass( /sdaa-skill-card--disabled/ );
 	} );
 
 	test( 'Cancel button hides the creation form', async ( { page } ) => {
@@ -1179,7 +1179,7 @@ test.describe( 'Event-Driven Automations (t081)', () => {
 			.locator( '.sdaa-skill-card' )
 			.filter( { hasText: disabledEvent.name } );
 
-		await expect( card ).toHaveClass( /ai-agent-skill-card--disabled/ );
+		await expect( card ).toHaveClass( /sdaa-skill-card--disabled/ );
 	} );
 
 	test( 'empty state shows when no event automations exist', async ( {
