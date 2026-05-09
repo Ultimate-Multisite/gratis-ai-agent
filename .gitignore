@@ -10,6 +10,7 @@ coverage-html/
 playwright-report/
 test-results/
 blob-report/
+.playwright-mcp/
 # Benchmark results (contain API-specific data, regenerated on demand)
 tests/benchmark/results/
 # Local AI tooling artifacts

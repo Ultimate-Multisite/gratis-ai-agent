@@ -72,6 +72,26 @@ rsync -a --delete \
 	"$PLUGIN_DIR/" "$DEST/"
 echo "    Done."
 
+# ── 4a. Post-copy sweep: prune dev-metadata files that vendor packages may
+# carry inside their own directories (rsync excludes are gitignore-style and
+# should match at any depth, but we belt-and-brace this so the WP.org
+# plugin-check never re-flags non-permitted files such as .codex,
+# .cursorrules, etc., shipped *inside* a vendor package). Also strips any
+# transient playwright-mcp directory left over from a local E2E run.
+echo "==> Pruning stray dev-metadata files inside vendor/..."
+find "$DEST" \
+	\( -name '.codex' \
+	-o -name '.cursorrules' \
+	-o -name '.clinerules' \
+	-o -name '.windsurfrules' \
+	-o -name '.editorconfig' \
+	-o -name '.eslintrc*' \
+	-o -name '.prettierrc*' \
+	-o -name '.stylelintrc*' \
+	-o -name '.playwright-mcp' \
+	\) -print -exec rm -rf {} + 2>/dev/null || true
+echo "    Done."
+
 # ── 5. Create zip ──
 ZIP_NAME="superdav-ai-agent-${VERSION}.zip"
 ZIP_PATH="${PLUGIN_DIR}/${ZIP_NAME}"

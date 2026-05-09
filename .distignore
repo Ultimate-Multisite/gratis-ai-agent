@@ -43,6 +43,11 @@ phpstan.neon.dist
 .cursorrules
 .clinerules
 .windsurfrules
+.codex
+
+# Transient AI / browser-automation session artefacts
+# (Playwright MCP writes console logs and screenshots here during E2E runs.)
+.playwright-mcp
 
 # WordPress local dev environment
 .wp-env.json
