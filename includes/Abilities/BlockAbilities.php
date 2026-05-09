@@ -113,7 +113,9 @@ class BlockAbilities {
 					],
 				],
 				'execute_callback'    => [ __CLASS__, 'handle_list_block_types' ],
-				'permission_callback' => '__return_true',
+				'permission_callback' => function () {
+					return current_user_can( 'edit_posts' );
+				},
 			]
 		);
 
@@ -155,7 +157,9 @@ class BlockAbilities {
 					],
 				],
 				'execute_callback'    => [ __CLASS__, 'handle_get_block_type' ],
-				'permission_callback' => '__return_true',
+				'permission_callback' => function () {
+					return current_user_can( 'edit_posts' );
+				},
 			]
 		);
 

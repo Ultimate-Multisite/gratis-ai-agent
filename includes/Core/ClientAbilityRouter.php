@@ -114,15 +114,18 @@ final class ClientAbilityRouter {
 			wp_register_ability(
 				$name,
 				array(
-					'label'        => (string) ( $descriptor['label'] ?? $name ),
-					'description'  => (string) ( $descriptor['description'] ?? '' ),
-					'category'     => 'sd-ai-agent-js',
-					'callback'     => static function ( array $args ): array {
+					'label'               => (string) ( $descriptor['label'] ?? $name ),
+					'description'         => (string) ( $descriptor['description'] ?? '' ),
+					'category'            => 'sd-ai-agent-js',
+					'callback'            => static function ( array $args ): array {
 						// No-op: client-side abilities are never executed server-side.
 						return array( 'error' => 'Client-side ability cannot be executed server-side.' );
 					},
-					'input_schema' => $descriptor['input_schema'] ?? array(),
-					'annotations'  => array(
+					// Client-side stubs are never meant to execute server-side, so deny
+					// any server-side execution attempt at the permission layer.
+					'permission_callback' => '__return_false',
+					'input_schema'        => $descriptor['input_schema'] ?? array(),
+					'annotations'         => array(
 						'readonly' => (bool) ( $descriptor['annotations']['readonly'] ?? true ),
 					),
 				)
