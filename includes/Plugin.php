@@ -43,6 +43,7 @@ use SdAiAgent\Infrastructure\WordPress\Abilities\AbilitySchemaFilter;
 use SdAiAgent\Infrastructure\WordPress\Abilities\UsageInstructionsFilter;
 use SdAiAgent\REST\AgentController;
 use SdAiAgent\REST\AutomationController;
+use SdAiAgent\REST\BannerController;
 use SdAiAgent\REST\ConnectorsController;
 use SdAiAgent\REST\ChangesController;
 use SdAiAgent\REST\FeedbackController;
@@ -100,6 +101,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 		FrontendAssetsHandler::class,
 		MemoryController::class,
 		SkillController::class,
+		BannerController::class,
 		FeedbackController::class,
 		TraceController::class,
 		McpController::class,

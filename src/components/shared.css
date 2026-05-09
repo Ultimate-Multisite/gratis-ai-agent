@@ -804,3 +804,74 @@
 .is-compact .sdaa-changes-bar {
 	padding: 4px 10px;
 }
+
+/* ── Chat banners (generic) ──────────────────────────────────────────────── */
+
+/* Generic banner stack rendered at the top of the chat panel. Banners are
+   contributed by other plugins via the `sd_ai_agent_chat_banners` PHP filter
+   and the `/sd-ai-agent/v1/chat-banners` REST endpoint. */
+.sdaa-chat-banners {
+	display: flex;
+	flex-direction: column;
+	gap: 1px;
+}
+
+.sdaa-chat-banner {
+	display: flex;
+	align-items: center;
+	flex-wrap: wrap;
+	gap: 12px;
+	padding: 10px 16px;
+	border-left: 4px solid;
+	font-size: 13px;
+	line-height: 1.5;
+}
+
+.sdaa-chat-banner--info {
+	background: #f0f6fc;
+	border-left-color: #2271b1;
+	color: #1d2327;
+}
+
+.sdaa-chat-banner--warning {
+	background: #fcf9e8;
+	border-left-color: #dba617;
+	color: #674a00;
+}
+
+.sdaa-chat-banner--error {
+	background: #fcf0f1;
+	border-left-color: #cc1818;
+	color: #8a1f11;
+}
+
+.sdaa-chat-banner__message {
+	flex: 1 1 auto;
+	min-width: 0;
+}
+
+.sdaa-chat-banner__cta {
+	display: inline-block;
+	padding: 4px 12px;
+	border-radius: 3px;
+	background: #2271b1;
+	color: #fff;
+	text-decoration: none;
+	font-weight: 500;
+	white-space: nowrap;
+}
+
+.sdaa-chat-banner__cta:hover,
+.sdaa-chat-banner__cta:focus {
+	background: #135e96;
+	color: #fff;
+}
+
+.sdaa-chat-banner--error .sdaa-chat-banner__cta {
+	background: #cc1818;
+}
+
+.sdaa-chat-banner--error .sdaa-chat-banner__cta:hover,
+.sdaa-chat-banner--error .sdaa-chat-banner__cta:focus {
+	background: #a00d0d;
+}

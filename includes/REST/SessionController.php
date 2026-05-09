@@ -1032,7 +1032,33 @@ final class SessionController {
 		}
 
 		if ( 'error' === $job['status'] && isset( $job['error'] ) ) {
-			$response['message'] = $job['error'];
+			$error_context = array(
+				'job_id'        => $job_id,
+				'session_id'    => isset( $job['session_id'] ) ? (int) $job['session_id'] : 0,
+				'error_context' => $job['error_context'] ?? null,
+			);
+
+			/**
+			 * Filter the error message returned to the chat client.
+			 *
+			 * Companion plugins that raise their own AI-related errors
+			 * (usage caps, billing, content-policy gates, etc.) can hook
+			 * here to rewrite the message into something more actionable
+			 * for the user — for example, by appending a Markdown link to
+			 * a checkout or settings page. The frontend renders the
+			 * returned string through its Markdown pipeline, so producers
+			 * may use Markdown syntax including links.
+			 *
+			 * @since 1.11.0
+			 *
+			 * @param string               $message       Raw error message from AgentLoop.
+			 * @param array<string, mixed> $error_context Context: job_id, session_id, error_context.
+			 */
+			$response['message'] = (string) apply_filters(
+				'sd_ai_agent_chat_error_message',
+				(string) $job['error'],
+				$error_context
+			);
 
 			// Forward backtrace context so the frontend can display
 			// actionable debugging details (file, line, abbreviated stack).

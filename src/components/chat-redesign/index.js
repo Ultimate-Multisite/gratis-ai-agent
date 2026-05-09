@@ -11,6 +11,7 @@ import { __ } from '@wordpress/i18n';
 import apiFetch from '@wordpress/api-fetch';
 
 import STORE_NAME from '../../store';
+import ChatBanners from '../chat-banners';
 import ErrorBoundary from '../error-boundary';
 import ToolConfirmationDialog from '../tool-confirmation-dialog';
 import Sidebar from './Sidebar';
@@ -133,6 +134,12 @@ export default function ChatRedesign() {
 						changesCount={ changesCount }
 						onShowChanges={ () => setShowChanges( true ) }
 					/>
+
+					<ErrorBoundary
+						label={ __( 'Chat banners', 'sd-ai-agent' ) }
+					>
+						<ChatBanners />
+					</ErrorBoundary>
 
 					{ showChanges && (
 						<ChangesDrawer
