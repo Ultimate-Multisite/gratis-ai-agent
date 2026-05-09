@@ -1,0 +1,57 @@
+# Additional exclusions applied ONLY to the WordPress.org distribution build.
+#
+# bin/build.sh --target=wporg appends these patterns to the standard
+# .distignore exclusion list to physically remove plugin source files
+# whose runtime is also disabled by the wporg-build feature-flag overrides:
+#
+#  - SD_AI_AGENT_FEATURE_PLUGIN_BUILDER          (arbitrary PHP generation)
+#  - SD_AI_AGENT_FEATURE_CUSTOM_TOOLS_CLI        (shell-exec custom tools)
+#  - SD_AI_AGENT_FEATURE_PLUGIN_STATE_CHANGES    (autonomous activate/deactivate)
+#  - SD_AI_AGENT_FEATURE_PLUGIN_INSTALL_FROM_URL (install from arbitrary ZIP URL)
+#
+# Note: the PLUGIN_STATE_CHANGES and PLUGIN_INSTALL_FROM_URL gates only
+# remove individual `wp_register_ability()` calls inside
+# WordPressAbilities.php, not whole files — there is no per-ability file
+# to strip. The runtime gate (Features::is_enabled) is the sole defence
+# for those two flags. Bin/build.sh validates the constants are forced
+# to false in the bundled superdav-ai-agent.php; that grep target is
+# what the WP.org review team can verify.
+#
+# Why duplicate the runtime gate with build-time file stripping (where
+# possible)? Defence in depth: the WordPress.org Plugin Review team
+# scans the submitted zip for the presence of arbitrary-code-execution
+# surfaces, not just for their reachability. Removing the source files
+# from the zip is the clearest way to demonstrate compliance with
+# WP.org Guideline 4 ("attempting to process custom CSS/JS/PHP /
+# allowing arbitrary script insertion") and the "Changing Active
+# Plugins" guideline.
+#
+# DO NOT add patterns here that should also apply to the GitHub release
+# build — put those in the main .distignore instead.
+#
+# Patterns are passed verbatim to rsync --exclude-from after the main
+# .distignore content. See bin/build.sh for the assembly logic.
+
+# ── Plugin builder source files (PHP code generation + sandbox) ──────────────
+includes/PluginBuilder
+includes/Abilities/GeneratePluginAbility.php
+includes/Abilities/SandboxTestPluginAbility.php
+includes/Abilities/SandboxActivatePluginAbility.php
+includes/Abilities/UpdatePluginSandboxedAbility.php
+includes/Abilities/ScanPluginHooksAbility.php
+includes/Abilities/ScanThemeHooksAbility.php
+includes/Abilities/PluginBuilderAbilities.php
+
+# Plugin-download abilities expose URLs for AI-modified plugin zips —
+# only meaningful when the plugin builder runs.
+includes/Abilities/PluginDownloadAbilities.php
+
+# Persistence layer used only by the plugin builder.
+includes/Repositories/GeneratedPluginsRepository.php
+includes/Models/DTO/GeneratedPluginRow.php
+
+# Plugin-builder tests are already excluded by the `tests` rule in
+# .distignore but listed here for documentation completeness.
+# tests/SdAiAgent/PluginBuilder
+# tests/SdAiAgent/Abilities/PluginBuilderAbilitiesTest.php
+# tests/e2e/agent-builder.spec.js

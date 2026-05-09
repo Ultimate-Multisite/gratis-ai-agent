@@ -13,6 +13,7 @@ declare(strict_types=1);
 namespace SdAiAgent\Abilities;
 
 use SdAiAgent\Core\AbilityPluginRegistry;
+use SdAiAgent\Core\Features;
 use WP_Error;
 
 if ( ! defined( 'ABSPATH' ) ) {
@@ -259,11 +260,29 @@ class WordPressAbilities {
 
 	/**
 	 * Register all WordPress management abilities.
+	 *
+	 * Plugin-management abilities are split across two feature flags so the
+	 * WordPress.org distribution can comply with the "Changing Active
+	 * Plugins" guideline (no autonomous activate/deactivate/delete/switch/
+	 * update) and the WP.org-directory-only install rule (no installs from
+	 * arbitrary ZIP URLs) without removing all plugin tooling:
+	 *
+	 *  - Always registered (read-only or WP.org-directory only):
+	 *    get-plugins, get-themes, recommend-plugin, search-plugin-directory,
+	 *    list-plugin-updates, install-plugin (WP.org slug),
+	 *    run-php (whitelisted function calls only).
+	 *  - Gated by SD_AI_AGENT_FEATURE_PLUGIN_STATE_CHANGES:
+	 *    activate-plugin, deactivate-plugin, delete-plugin, switch-plugin,
+	 *    update-plugin.
+	 *  - Gated by SD_AI_AGENT_FEATURE_PLUGIN_INSTALL_FROM_URL:
+	 *    install-plugin-from-url.
 	 */
 	public static function register_abilities(): void {
 		if ( ! function_exists( 'wp_register_ability' ) ) {
 			return;
 		}
+
+		// ─── Always-registered: read-only / discovery / WP.org-only install ────
 
 		wp_register_ability(
 			'sd-ai-agent/get-plugins',
@@ -293,56 +312,11 @@ class WordPressAbilities {
 		);
 
 		wp_register_ability(
-			'sd-ai-agent/update-plugin',
-			[
-				'label'         => __( 'Update Plugin', 'superdav-ai-agent' ),
-				'description'   => __( 'Update an installed plugin to the latest version available from its source.', 'superdav-ai-agent' ),
-				'ability_class' => UpdatePluginAbility::class,
-			]
-		);
-
-		wp_register_ability(
 			'sd-ai-agent/recommend-plugin',
 			[
 				'label'         => __( 'Recommend Plugin', 'superdav-ai-agent' ),
 				'description'   => __( 'Given a need category, return ranked plugin recommendations from the curated abilities registry. Preference order: has abilities > has blocks > popular.', 'superdav-ai-agent' ),
 				'ability_class' => RecommendPluginAbility::class,
-			]
-		);
-
-		wp_register_ability(
-			'sd-ai-agent/install-plugin-from-url',
-			[
-				'label'         => __( 'Install Plugin from URL', 'superdav-ai-agent' ),
-				'description'   => __( 'Install a plugin from any direct ZIP URL, including GitHub release assets. Optionally activate after installation.', 'superdav-ai-agent' ),
-				'ability_class' => InstallPluginFromUrlAbility::class,
-			]
-		);
-
-		wp_register_ability(
-			'sd-ai-agent/activate-plugin',
-			[
-				'label'         => __( 'Activate Plugin', 'superdav-ai-agent' ),
-				'description'   => __( 'Activate an installed WordPress plugin by slug or plugin file.', 'superdav-ai-agent' ),
-				'ability_class' => ActivatePluginAbility::class,
-			]
-		);
-
-		wp_register_ability(
-			'sd-ai-agent/deactivate-plugin',
-			[
-				'label'         => __( 'Deactivate Plugin', 'superdav-ai-agent' ),
-				'description'   => __( 'Deactivate an active WordPress plugin by slug or plugin file.', 'superdav-ai-agent' ),
-				'ability_class' => DeactivatePluginAbility::class,
-			]
-		);
-
-		wp_register_ability(
-			'sd-ai-agent/delete-plugin',
-			[
-				'label'         => __( 'Delete Plugin', 'superdav-ai-agent' ),
-				'description'   => __( 'Permanently delete an inactive WordPress plugin. The plugin must be deactivated first.', 'superdav-ai-agent' ),
-				'ability_class' => DeletePluginAbility::class,
 			]
 		);
 
@@ -365,15 +339,6 @@ class WordPressAbilities {
 		);
 
 		wp_register_ability(
-			'sd-ai-agent/switch-plugin',
-			[
-				'label'         => __( 'Switch Plugin', 'superdav-ai-agent' ),
-				'description'   => __( 'Activate one plugin and optionally deactivate one or more others. Rolls back if activation fails.', 'superdav-ai-agent' ),
-				'ability_class' => SwitchPluginAbility::class,
-			]
-		);
-
-		wp_register_ability(
 			'sd-ai-agent/run-php',
 			[
 				'label'         => __( 'Call WordPress Function', 'superdav-ai-agent' ),
@@ -381,6 +346,68 @@ class WordPressAbilities {
 				'ability_class' => RunPhpAbility::class,
 			]
 		);
+
+		// ─── Gated: changes the active plugin set ──────────────────────────────
+
+		if ( Features::is_enabled( Features::PLUGIN_STATE_CHANGES ) ) {
+			wp_register_ability(
+				'sd-ai-agent/update-plugin',
+				[
+					'label'         => __( 'Update Plugin', 'superdav-ai-agent' ),
+					'description'   => __( 'Update an installed plugin to the latest version available from its source.', 'superdav-ai-agent' ),
+					'ability_class' => UpdatePluginAbility::class,
+				]
+			);
+
+			wp_register_ability(
+				'sd-ai-agent/activate-plugin',
+				[
+					'label'         => __( 'Activate Plugin', 'superdav-ai-agent' ),
+					'description'   => __( 'Activate an installed WordPress plugin by slug or plugin file.', 'superdav-ai-agent' ),
+					'ability_class' => ActivatePluginAbility::class,
+				]
+			);
+
+			wp_register_ability(
+				'sd-ai-agent/deactivate-plugin',
+				[
+					'label'         => __( 'Deactivate Plugin', 'superdav-ai-agent' ),
+					'description'   => __( 'Deactivate an active WordPress plugin by slug or plugin file.', 'superdav-ai-agent' ),
+					'ability_class' => DeactivatePluginAbility::class,
+				]
+			);
+
+			wp_register_ability(
+				'sd-ai-agent/delete-plugin',
+				[
+					'label'         => __( 'Delete Plugin', 'superdav-ai-agent' ),
+					'description'   => __( 'Permanently delete an inactive WordPress plugin. The plugin must be deactivated first.', 'superdav-ai-agent' ),
+					'ability_class' => DeletePluginAbility::class,
+				]
+			);
+
+			wp_register_ability(
+				'sd-ai-agent/switch-plugin',
+				[
+					'label'         => __( 'Switch Plugin', 'superdav-ai-agent' ),
+					'description'   => __( 'Activate one plugin and optionally deactivate one or more others. Rolls back if activation fails.', 'superdav-ai-agent' ),
+					'ability_class' => SwitchPluginAbility::class,
+				]
+			);
+		}
+
+		// ─── Gated: install from arbitrary ZIP URLs / GitHub ──────────────────
+
+		if ( Features::is_enabled( Features::PLUGIN_INSTALL_FROM_URL ) ) {
+			wp_register_ability(
+				'sd-ai-agent/install-plugin-from-url',
+				[
+					'label'         => __( 'Install Plugin from URL', 'superdav-ai-agent' ),
+					'description'   => __( 'Install a plugin from any direct ZIP URL, including GitHub release assets. Optionally activate after installation.', 'superdav-ai-agent' ),
+					'ability_class' => InstallPluginFromUrlAbility::class,
+				]
+			);
+		}
 	}
 }
 

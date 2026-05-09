@@ -22,6 +22,8 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
+use SdAiAgent\Core\Features;
+
 class CustomTools {
 
 	const TYPE_HTTP   = 'http';
@@ -246,6 +248,15 @@ class CustomTools {
 			return new \WP_Error( 'invalid_type', __( 'Tool type must be http, action, or cli.', 'superdav-ai-agent' ) );
 		}
 
+		// Reject CLI tools when the feature is disabled (e.g. WordPress.org
+		// distribution build). HTTP and Action tools remain creatable.
+		if ( self::TYPE_CLI === $data['type'] && ! Features::is_enabled( Features::CUSTOM_TOOLS_CLI ) ) {
+			return new \WP_Error(
+				'cli_tools_disabled',
+				__( 'WP-CLI custom tools are disabled in this distribution of Superdav AI Agent. Use HTTP or Action tools instead.', 'superdav-ai-agent' )
+			);
+		}
+
 		// Auto-generate slug from name if not provided.
 		if ( empty( $data['slug'] ) ) {
 			// @phpstan-ignore-next-line
@@ -401,7 +412,14 @@ class CustomTools {
 			],
 		];
 
+		// Skip CLI examples when the feature is disabled so the
+		// WordPress.org distribution build does not seed shell-exec tools.
+		$cli_enabled = Features::is_enabled( Features::CUSTOM_TOOLS_CLI );
+
 		foreach ( $examples as $example ) {
+			if ( ! $cli_enabled && self::TYPE_CLI === $example['type'] ) {
+				continue;
+			}
 			self::create( $example );
 		}
 

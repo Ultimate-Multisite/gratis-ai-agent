@@ -49,6 +49,7 @@ use SdAiAgent\Abilities\PluginBuilderAbilities;
 use SdAiAgent\Abilities\PluginDownloadAbilities;
 use SdAiAgent\PluginBuilder\PluginSandbox;
 use SdAiAgent\Abilities\PostAbilities;
+use SdAiAgent\Core\Features;
 use SdAiAgent\Abilities\SeoAbilities;
 use SdAiAgent\Abilities\SiteBuilderAbilities;
 use SdAiAgent\Abilities\SiteHealthAbilities;
@@ -102,8 +103,28 @@ final class AbilitiesHandler {
 		GlobalStylesAbilities::register_abilities();
 		FileAbilities::register_abilities();
 		GitAbilities::register_abilities();
-		PluginDownloadAbilities::register_abilities();
-		PluginBuilderAbilities::register_abilities();
+		// Plugin-download abilities expose download URLs for AI-modified
+		// plugins, so they only make sense when the plugin builder is
+		// available. Gated under the same flag, and the class_exists()
+		// guard handles the case where bin/build.sh --target=wporg has
+		// also stripped the source file.
+		if (
+			Features::is_enabled( Features::PLUGIN_BUILDER )
+			&& class_exists( PluginDownloadAbilities::class )
+		) {
+			PluginDownloadAbilities::register_abilities();
+		}
+		// Plugin builder abilities are gated behind a feature flag so the
+		// WordPress.org distribution build can disable arbitrary PHP code
+		// generation/execution. The class_exists() guard handles the case
+		// where the source files are also stripped from the zip — see
+		// bin/build.sh --target=wporg.
+		if (
+			Features::is_enabled( Features::PLUGIN_BUILDER )
+			&& class_exists( PluginBuilderAbilities::class )
+		) {
+			PluginBuilderAbilities::register_abilities();
+		}
 		DatabaseAbilities::register_abilities();
 		WordPressAbilities::register_abilities();
 		WpCliAbilities::register_ability();
@@ -157,9 +178,20 @@ final class AbilitiesHandler {
 	 *
 	 * Previously wired by PluginBuilderAbilities::register() via add_action() —
 	 * that register() stub has been removed.
+	 *
+	 * Skipped when the plugin-builder feature is disabled (the safety net only
+	 * matters when this plugin is actively installing plugins it generated)
+	 * or when the PluginSandbox class has been stripped from the build.
 	 */
 	#[Action( tag: 'init', priority: 10 )]
 	public function auto_deactivate_fatal_plugins(): void {
+		if (
+			! Features::is_enabled( Features::PLUGIN_BUILDER )
+			|| ! class_exists( PluginSandbox::class )
+		) {
+			return;
+		}
+
 		PluginSandbox::auto_deactivate_fatal_plugins();
 	}
 }

@@ -51,6 +51,46 @@ defined( 'SD_AI_AGENT_FEATURE_BRANDING' ) || define( 'SD_AI_AGENT_FEATURE_BRANDI
  */
 defined( 'SD_AI_AGENT_FEATURE_ACCESS_CONTROL' ) || define( 'SD_AI_AGENT_FEATURE_ACCESS_CONTROL', true );
 
+/**
+ * Feature: AI plugin builder — generate, sandbox-test, activate, and update
+ * WordPress plugins from natural-language descriptions. When false, all six
+ * plugin-builder abilities are skipped during registration and the related
+ * `init` hook (`auto_deactivate_fatal_plugins`) becomes a no-op.
+ *
+ * This constant is forced to `false` in the WordPress.org distribution zip
+ * built by `bin/build.sh --target=wporg` because the WP.org plugin
+ * guidelines prohibit plugins that allow arbitrary PHP code insertion.
+ * The full GitHub release zip leaves it `true`.
+ */
+defined( 'SD_AI_AGENT_FEATURE_PLUGIN_BUILDER' ) || define( 'SD_AI_AGENT_FEATURE_PLUGIN_BUILDER', true );
+
+/**
+ * Feature: WP-CLI custom-tool type — lets administrators register custom
+ * tools that execute `wp` CLI commands via PHP `exec()`. When false,
+ * `cli`-type custom tools are not registered as abilities and any attempt
+ * to execute one returns a `WP_Error`. HTTP and Action custom tools are
+ * unaffected. Forced to `false` in the WordPress.org distribution build.
+ */
+defined( 'SD_AI_AGENT_FEATURE_CUSTOM_TOOLS_CLI' ) || define( 'SD_AI_AGENT_FEATURE_CUSTOM_TOOLS_CLI', true );
+
+/**
+ * Feature: autonomous changes to the active plugin set. When false, the
+ * activate-plugin, deactivate-plugin, delete-plugin, switch-plugin, and
+ * update-plugin abilities are not registered, so the agent cannot
+ * change which plugins are active without the user clicking through the
+ * WP admin Plugins screen. Forced to `false` in the WordPress.org
+ * distribution build per the WP.org "Changing Active Plugins" guideline.
+ */
+defined( 'SD_AI_AGENT_FEATURE_PLUGIN_STATE_CHANGES' ) || define( 'SD_AI_AGENT_FEATURE_PLUGIN_STATE_CHANGES', true );
+
+/**
+ * Feature: install plugins from arbitrary ZIP URLs (including GitHub).
+ * When false, the install-plugin-from-url ability is not registered;
+ * the WP.org-directory `install-plugin` ability remains available.
+ * Forced to `false` in the WordPress.org distribution build.
+ */
+defined( 'SD_AI_AGENT_FEATURE_PLUGIN_INSTALL_FROM_URL' ) || define( 'SD_AI_AGENT_FEATURE_PLUGIN_INSTALL_FROM_URL', true );
+
 // Load Jetpack Autoloader for PSR-4 autoloading with version conflict resolution.
 // Jetpack Autoloader ensures the newest version of shared packages (like php-ai-client) is used.
 if ( file_exists( SD_AI_AGENT_DIR . '/vendor/autoload_packages.php' ) ) {

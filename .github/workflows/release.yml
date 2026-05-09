@@ -36,21 +36,43 @@ jobs:
       - name: Install Node dependencies
         run: npm ci
 
+      - name: Install Composer dependencies (production only)
+        run: composer install --no-dev --prefer-dist --no-progress
+
       - name: Build assets
         run: npm run build
 
-      - name: Create ZIP files
+      - name: Create distribution ZIPs (full + wporg)
         run: |
-          # npm run build → archive.js → composer archive-project → superdav-ai-agent.zip
-          cp superdav-ai-agent.zip superdav-ai-agent-${{ steps.version.outputs.VERSION }}.zip
+          # bin/build.sh produces:
+          #   superdav-ai-agent-${VERSION}.zip       (full feature set)
+          #   superdav-ai-agent-${VERSION}-wporg.zip (WP.org-compliant variant
+          #                                           — strips AI plugin
+          #                                           builder, WP-CLI custom
+          #                                           tools, autonomous
+          #                                           plugin-state changes,
+          #                                           and install-from-URL)
+          bin/build.sh --target=both
+
+          # Keep a slug-only copy of the full zip as the primary artefact for
+          # users who download "the latest" without specifying a version.
+          cp "superdav-ai-agent-${{ steps.version.outputs.VERSION }}.zip" superdav-ai-agent.zip
 
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
           files: |
             superdav-ai-agent-${{ steps.version.outputs.VERSION }}.zip
+            superdav-ai-agent-${{ steps.version.outputs.VERSION }}-wporg.zip
             superdav-ai-agent.zip
           name: Superdav AI Agent v${{ steps.version.outputs.VERSION }}
+          body: |
+            ## Downloads
+
+            - **`superdav-ai-agent-${{ steps.version.outputs.VERSION }}.zip`** — Full feature set, recommended for self-hosted users. Includes the AI plugin builder, WP-CLI custom tools, autonomous plugin activate/deactivate, and install-plugin-from-URL.
+            - **`superdav-ai-agent-${{ steps.version.outputs.VERSION }}-wporg.zip`** — WordPress.org-compliant build. The four feature classes above are removed at build time and the matching `SD_AI_AGENT_FEATURE_*` constants are hard-defined to `false` so they cannot be re-enabled via `wp-config.php`. This is the artefact submitted via `bin/deploy-wporg.sh`.
+
+            See `docs/wordpress-org-submission.md` for the build-matrix rationale.
           draft: false
           prerelease: false
           generate_release_notes: true

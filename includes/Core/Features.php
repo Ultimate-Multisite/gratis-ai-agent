@@ -10,10 +10,31 @@ declare(strict_types=1);
  * `false` disables the corresponding UI and REST surface.
  *
  * Defined constants (all default true):
- *  - SD_AI_AGENT_FEATURE_BRANDING      — White-label / branding settings:
+ *  - SD_AI_AGENT_FEATURE_BRANDING            — White-label / branding settings:
  *    agent name, brand colours, logo URL, greeting message.
- *  - SD_AI_AGENT_FEATURE_ACCESS_CONTROL — Role-based access control:
+ *  - SD_AI_AGENT_FEATURE_ACCESS_CONTROL      — Role-based access control:
  *    the Role Permissions manager and its /role-permissions REST routes.
+ *  - SD_AI_AGENT_FEATURE_PLUGIN_BUILDER      — AI plugin generation, sandboxed
+ *    activation, sandboxed updates, and hook scanning. Disabled in the
+ *    WordPress.org distribution because WP.org Guideline 4 prohibits
+ *    plugins that "process custom CSS/JS/PHP" or "allow arbitrary
+ *    script insertion".
+ *  - SD_AI_AGENT_FEATURE_CUSTOM_TOOLS_CLI    — The WP-CLI custom tool type,
+ *    which executes shell commands via PHP `exec()`. Disabled in the
+ *    WordPress.org distribution for the same reason as above.
+ *  - SD_AI_AGENT_FEATURE_PLUGIN_STATE_CHANGES — Abilities that change the
+ *    active plugin set without explicit per-action user intervention:
+ *    activate-plugin, deactivate-plugin, delete-plugin, switch-plugin,
+ *    and update-plugin. Disabled in the WordPress.org distribution
+ *    because the WP.org "Changing Active Plugins" guideline forbids
+ *    plugins from activating or deactivating other plugins
+ *    autonomously, even with capability checks.
+ *  - SD_AI_AGENT_FEATURE_PLUGIN_INSTALL_FROM_URL — The
+ *    install-plugin-from-url ability, which fetches and installs a
+ *    plugin from any direct ZIP URL (e.g. GitHub release assets).
+ *    Disabled in the WordPress.org distribution because the
+ *    "Changing Active Plugins" guideline only exempts WP.org-directory
+ *    installs from the no-autonomous-state-change rule.
  *
  * Usage example (wp-config.php):
  *   define( 'SD_AI_AGENT_FEATURE_BRANDING', false );
@@ -43,13 +64,85 @@ final class Features {
 	const ACCESS_CONTROL = 'access_control';
 
 	/**
+	 * Feature: AI plugin builder (generate / sandbox / activate / update).
+	 *
+	 * Gates registration of the `sd-ai-agent/generate-plugin`,
+	 * `sd-ai-agent/sandbox-test-plugin`, `sd-ai-agent/sandbox-activate-plugin`,
+	 * `sd-ai-agent/update-plugin-sandboxed`, `sd-ai-agent/scan-plugin-hooks`,
+	 * and `sd-ai-agent/scan-theme-hooks` abilities, plus the
+	 * `auto_deactivate_fatal_plugins` init hook.
+	 *
+	 * Disabled in the WordPress.org distribution build (`bin/build.sh
+	 * --target=wporg`) because the WP.org plugin guidelines prohibit
+	 * plugins that allow arbitrary PHP insertion. The full feature set
+	 * remains available in the GitHub release zip.
+	 *
+	 * Constant: SD_AI_AGENT_FEATURE_PLUGIN_BUILDER
+	 */
+	const PLUGIN_BUILDER = 'plugin_builder';
+
+	/**
+	 * Feature: WP-CLI custom-tool type.
+	 *
+	 * Gates registration and execution of custom tools whose `type` is
+	 * `cli` — these tools shell out to `wp` via PHP `exec()`. Disabled in
+	 * the WordPress.org distribution for the same arbitrary-code-execution
+	 * reason as PLUGIN_BUILDER. HTTP and Action tool types remain
+	 * available in both builds.
+	 *
+	 * Constant: SD_AI_AGENT_FEATURE_CUSTOM_TOOLS_CLI
+	 */
+	const CUSTOM_TOOLS_CLI = 'custom_tools_cli';
+
+	/**
+	 * Feature: autonomous changes to the active plugin set.
+	 *
+	 * Gates the `sd-ai-agent/activate-plugin`,
+	 * `sd-ai-agent/deactivate-plugin`, `sd-ai-agent/delete-plugin`,
+	 * `sd-ai-agent/switch-plugin`, and `sd-ai-agent/update-plugin`
+	 * abilities. With this disabled the agent can still list, recommend,
+	 * and search plugins, and can install from the WordPress.org
+	 * directory (the WP.org-only exception); it cannot change which
+	 * plugins are active without the user clicking through the standard
+	 * WP admin Plugins screen.
+	 *
+	 * Disabled in the WordPress.org distribution build to comply with
+	 * the WP.org "Changing Active Plugins" guideline.
+	 *
+	 * Constant: SD_AI_AGENT_FEATURE_PLUGIN_STATE_CHANGES
+	 */
+	const PLUGIN_STATE_CHANGES = 'plugin_state_changes';
+
+	/**
+	 * Feature: install plugins from arbitrary ZIP URLs / GitHub.
+	 *
+	 * Gates the `sd-ai-agent/install-plugin-from-url` ability. With this
+	 * disabled the agent can still install plugins from the official
+	 * WordPress.org directory by slug (`sd-ai-agent/install-plugin`),
+	 * but cannot fetch a ZIP from any third-party URL.
+	 *
+	 * Disabled in the WordPress.org distribution build because the
+	 * "Changing Active Plugins" guideline restricts plugin-installation
+	 * automation to the WP.org-directory channel. The full GitHub
+	 * release zip retains the broader URL-install ability for
+	 * self-hosted users.
+	 *
+	 * Constant: SD_AI_AGENT_FEATURE_PLUGIN_INSTALL_FROM_URL
+	 */
+	const PLUGIN_INSTALL_FROM_URL = 'plugin_install_from_url';
+
+	/**
 	 * Map of feature name → backing constant name.
 	 *
 	 * @var array<string, string>
 	 */
 	private const CONSTANT_MAP = array(
-		self::BRANDING       => 'SD_AI_AGENT_FEATURE_BRANDING',
-		self::ACCESS_CONTROL => 'SD_AI_AGENT_FEATURE_ACCESS_CONTROL',
+		self::BRANDING                => 'SD_AI_AGENT_FEATURE_BRANDING',
+		self::ACCESS_CONTROL          => 'SD_AI_AGENT_FEATURE_ACCESS_CONTROL',
+		self::PLUGIN_BUILDER          => 'SD_AI_AGENT_FEATURE_PLUGIN_BUILDER',
+		self::CUSTOM_TOOLS_CLI        => 'SD_AI_AGENT_FEATURE_CUSTOM_TOOLS_CLI',
+		self::PLUGIN_STATE_CHANGES    => 'SD_AI_AGENT_FEATURE_PLUGIN_STATE_CHANGES',
+		self::PLUGIN_INSTALL_FROM_URL => 'SD_AI_AGENT_FEATURE_PLUGIN_INSTALL_FROM_URL',
 	);
 
 	/**

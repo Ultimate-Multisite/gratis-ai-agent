@@ -17,6 +17,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 use SdAiAgent\Abilities\ToolCapabilities;
+use SdAiAgent\Core\Features;
 use WP_Error;
 
 class CustomToolExecutor {
@@ -38,7 +39,18 @@ class CustomToolExecutor {
 
 		$tools = CustomTools::list( true );
 
+		// When the WP-CLI custom-tool feature is disabled (e.g. WordPress.org
+		// distribution build) skip registration of any cli-type tools so they
+		// never become callable abilities. HTTP and Action tools register as
+		// normal regardless of the flag.
+		$cli_enabled = Features::is_enabled( Features::CUSTOM_TOOLS_CLI );
+
 		foreach ( $tools as $tool ) {
+			// @phpstan-ignore-next-line
+			if ( ! $cli_enabled && CustomTools::TYPE_CLI === ( $tool['type'] ?? '' ) ) {
+				continue;
+			}
+
 			// @phpstan-ignore-next-line
 			$ability_name = 'sd-ai-agent-custom/' . $tool['slug'];
 
@@ -87,6 +99,12 @@ class CustomToolExecutor {
 				return self::execute_action( $tool, $input );
 
 			case CustomTools::TYPE_CLI:
+				if ( ! Features::is_enabled( Features::CUSTOM_TOOLS_CLI ) ) {
+					return new WP_Error(
+						'cli_tools_disabled',
+						__( 'WP-CLI custom tools are disabled in this distribution of Superdav AI Agent. Use HTTP or Action tools instead, or install the GitHub release zip.', 'superdav-ai-agent' )
+					);
+				}
 				return self::execute_cli( $tool, $input );
 
 			default:
