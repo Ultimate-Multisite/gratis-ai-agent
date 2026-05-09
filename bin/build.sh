@@ -78,7 +78,7 @@ echo "    Done."
 # plugin-check never re-flags non-permitted files such as .codex,
 # .cursorrules, etc., shipped *inside* a vendor package). Also strips any
 # transient playwright-mcp directory left over from a local E2E run.
-echo "==> Pruning stray dev-metadata files inside vendor/..."
+echo "==> Pruning stray dev-metadata and AI-session artefacts across distribution (incl. .playwright-mcp)..."
 find "$DEST" \
 	\( -name '.codex' \
 	-o -name '.cursorrules' \
