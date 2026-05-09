@@ -293,15 +293,23 @@ abstract class AbstractFileAbility extends AbstractAbility {
 	/**
 	 * Lint PHP content for syntax errors.
 	 *
+	 * Uses {@see token_get_all()} with `TOKEN_PARSE` to surface syntax errors as
+	 * `\ParseError`. A scoped `set_error_handler()` converts any notices/warnings
+	 * emitted by the tokeniser into `\ErrorException` so they do not leak to the
+	 * site-wide error log. The handler is always restored in a `finally` block.
+	 *
+	 * Note: this intentionally does NOT call `error_reporting()` — toggling the
+	 * global reporting level would interfere with the host site's debugging
+	 * configuration. The custom error handler already intercepts emitted errors
+	 * regardless of the configured reporting level.
+	 *
 	 * @param string $content PHP source code.
 	 * @return array{valid: bool, error?: string, line?: int}
 	 */
-	// phpcs:disable WordPress.PHP.DevelopmentFunctions, WordPress.PHP.DiscouragedPHPFunctions -- Intentional: error_reporting and set_error_handler used for PHP syntax validation.
 	protected function lint_php( string $content ): array {
-		$previous = error_reporting( 0 );
-
+		// phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_set_error_handler -- Scoped error handler is required to convert tokeniser notices into exceptions; restored in finally.
 		set_error_handler(
-			function ( $severity, $message, $file, $line ) {
+			static function ( int $severity, string $message, string $file, int $line ): bool {
 				// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- ErrorException constructor arguments are not output; PHPCS false positive.
 				throw new \ErrorException( $message, 0, $severity, $file, $line );
 			}
@@ -310,36 +318,23 @@ abstract class AbstractFileAbility extends AbstractAbility {
 		try {
 			$tokens = token_get_all( $content, TOKEN_PARSE );
 			unset( $tokens ); // Result unused — we only care about parse errors.
-			restore_error_handler();
-			error_reporting( $previous );
 			return [ 'valid' => true ];
-		} catch ( \ParseError $e ) {
-			restore_error_handler();
-			error_reporting( $previous );
-			return [
-				'valid' => false,
-				'error' => $e->getMessage(),
-				'line'  => $e->getLine(),
-			];
-		} catch ( \ErrorException $e ) {
-			restore_error_handler();
-			error_reporting( $previous );
+		} catch ( \ParseError | \ErrorException $e ) {
 			return [
 				'valid' => false,
 				'error' => $e->getMessage(),
 				'line'  => $e->getLine(),
 			];
 		} catch ( \Throwable $e ) {
-			restore_error_handler();
-			error_reporting( $previous );
 			return [
 				'valid' => false,
 				'error' => $e->getMessage(),
 				'line'  => $e->getLine(),
 			];
+		} finally {
+			restore_error_handler();
 		}
 	}
-	// phpcs:enable WordPress.PHP.DevelopmentFunctions, WordPress.PHP.DiscouragedPHPFunctions
 }
 
 /**
