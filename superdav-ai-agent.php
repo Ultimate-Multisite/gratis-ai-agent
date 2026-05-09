@@ -91,6 +91,19 @@ defined( 'SD_AI_AGENT_FEATURE_PLUGIN_STATE_CHANGES' ) || define( 'SD_AI_AGENT_FE
  */
 defined( 'SD_AI_AGENT_FEATURE_PLUGIN_INSTALL_FROM_URL' ) || define( 'SD_AI_AGENT_FEATURE_PLUGIN_INSTALL_FROM_URL', true );
 
+/**
+ * Feature: arbitrary filesystem writes inside wp-content. When false, the
+ * file-write, file-edit, file-delete, git-restore, and git-revert-package
+ * abilities are not registered; read-only file operations (file-read,
+ * file-list, file-search, content-search, git-list, git-diff,
+ * git-package-summary, git-snapshot) remain available. Forced to `false`
+ * in the WordPress.org distribution build because direct writes to
+ * `wp-content/plugins/` and `wp-content/themes/` constitute arbitrary
+ * code modification of other plugins/themes — the same class of risk
+ * covered by the WP.org "Changing Active Plugins" guideline.
+ */
+defined( 'SD_AI_AGENT_FEATURE_FILE_WRITE' ) || define( 'SD_AI_AGENT_FEATURE_FILE_WRITE', true );
+
 // Load Jetpack Autoloader for PSR-4 autoloading with version conflict resolution.
 // Jetpack Autoloader ensures the newest version of shared packages (like php-ai-client) is used.
 if ( file_exists( SD_AI_AGENT_DIR . '/vendor/autoload_packages.php' ) ) {

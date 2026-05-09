@@ -29,8 +29,9 @@ created by WordPress.org only after the plugin passes manual review.
 This repository produces **two** distribution zips on every release. The
 WordPress.org plugin guidelines prohibit features that the GitHub-channel
 audience legitimately needs (the AI plugin builder, WP-CLI custom tools,
-autonomous plugin state changes, install-from-arbitrary-URL), so we ship the
-full feature set on GitHub and a stripped-but-still-useful variant on WP.org.
+autonomous plugin state changes, install-from-arbitrary-URL, and arbitrary
+filesystem writes inside `wp-content`), so we ship the full feature set on
+GitHub and a stripped-but-still-useful variant on WP.org.
 
 | Feature surface                              | Full (`*.zip`) | WP.org (`*-wporg.zip`) | Why gated                                                                                |
 | -------------------------------------------- | :------------: | :--------------------: | ---------------------------------------------------------------------------------------- |
@@ -38,7 +39,10 @@ full feature set on GitHub and a stripped-but-still-useful variant on WP.org.
 | WP-CLI custom tools (shell `exec`)            |       ✅       |          ❌            | Same as above (arbitrary command execution)                                              |
 | Autonomous activate / deactivate / delete / switch / update plugin | ✅ |    ❌    | WP.org "Changing Active Plugins" — plugins must not change other plugins' state without per-action user intervention |
 | Install plugin from arbitrary ZIP URL / GitHub |     ✅       |          ❌            | "Changing Active Plugins" only exempts WP.org-directory installs                          |
+| `file-write` / `file-edit` / `file-delete`, plus `git-restore` / `git-revert-package` | ✅ | ❌ | Writes resolve under `WP_CONTENT_DIR`, which includes `plugins/` and `themes/` — same arbitrary third-party-code modification risk as "Changing Active Plugins" |
 | Install plugin from WordPress.org directory by slug | ✅      |          ✅            | Allowed exception under "Changing Active Plugins"                                        |
+| Read-only file ops (`file-read`, `file-list`, `file-search`, `content-search`) | ✅ | ✅ | Read-only — cannot mutate plugin/theme source                                            |
+| Read-only git ops (`git-snapshot`, `git-diff`, `git-list`, `git-package-summary`) | ✅ | ✅ | `git-snapshot` writes only to the plugin's own DB tracking table, not to the filesystem  |
 | List / search / recommend plugins (read-only) |       ✅       |          ✅            | Read-only operations are unrestricted                                                    |
 | `run-php` (whitelisted WordPress functions only) |   ✅      |          ✅            | Whitelist excludes `activate_plugin`, `deactivate_plugins`, etc.                         |
 | Memory, knowledge, automations, abilities, chat | ✅           |          ✅            | Core agent functionality — no policy concerns                                            |
@@ -60,23 +64,31 @@ The WP.org build (`bin/build.sh --target=wporg`) does two extra things
 on top of the runtime gates, both as defence-in-depth for the WP.org
 review:
 
-1. **Hard-defines the four constants to `false`** in the bundled
+1. **Hard-defines the five constants to `false`** in the bundled
    `superdav-ai-agent.php`. Because each constant uses
    `defined( 'NAME' ) || define( 'NAME', true )`, hard-defining the
    constant earlier in the file prevents any later override (including
-   from `wp-config.php`).
+   from `wp-config.php`). The five constants are
+   `SD_AI_AGENT_FEATURE_PLUGIN_BUILDER`,
+   `SD_AI_AGENT_FEATURE_CUSTOM_TOOLS_CLI`,
+   `SD_AI_AGENT_FEATURE_PLUGIN_STATE_CHANGES`,
+   `SD_AI_AGENT_FEATURE_PLUGIN_INSTALL_FROM_URL`, and
+   `SD_AI_AGENT_FEATURE_FILE_WRITE`.
 2. **Strips the gated source files** from the zip via
    `.distignore-wporg`. The `PluginBuilder/`, `GeneratePluginAbility`,
    `SandboxActivatePluginAbility`, etc. files are not present in the
    submitted zip, so the WP.org reviewer can `grep` for the offending
-   class names and see they are absent.
+   class names and see they are absent. (The `FileAbilities` and
+   `GitAbilities` source files cannot be stripped because they also
+   contain read-only abilities that remain available on WP.org; their
+   write surfaces are gated at runtime via `Features::FILE_WRITE`.)
 
 The WP.org Plugin Review team can therefore verify compliance with a
 single command:
 
 ```bash
 unzip -p superdav-ai-agent-X.Y.Z-wporg.zip superdav-ai-agent/superdav-ai-agent.php \
-    | grep "SD_AI_AGENT_FEATURE_PLUGIN_BUILDER\|SD_AI_AGENT_FEATURE_PLUGIN_STATE_CHANGES"
+    | grep -E "SD_AI_AGENT_FEATURE_(PLUGIN_BUILDER|CUSTOM_TOOLS_CLI|PLUGIN_STATE_CHANGES|PLUGIN_INSTALL_FROM_URL|FILE_WRITE)"
 # Expected: each constant is hard-defined to false with a "wporg-build:" comment.
 ```
 

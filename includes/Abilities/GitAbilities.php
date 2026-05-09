@@ -11,17 +11,28 @@ declare(strict_types=1);
  *   - Restore original content (sd-ai-agent/git-restore)
  *   - List all tracked files (sd-ai-agent/git-list)
  *   - Get a summary for a package (sd-ai-agent/git-package-summary)
+ *   - Revert all changes for a package (sd-ai-agent/git-revert-package)
  *
  * Note: FileAbilities automatically fires `sd_ai_agent_before_file_write`
  * and `sd_ai_agent_before_file_edit` hooks, which GitTrackerManager hooks
  * into to snapshot files transparently. These abilities provide explicit
  * control and visibility for the AI agent.
  *
+ * Mutation gating: `git-restore` and `git-revert-package` write to
+ * tracked files via `$wp_filesystem->put_contents()`, so they are gated
+ * behind `Features::FILE_WRITE` and disabled in the WordPress.org
+ * distribution build. Read-only abilities (`git-snapshot`, `git-diff`,
+ * `git-list`, `git-package-summary`) remain available — `git-snapshot`
+ * only writes to the plugin's own DB tracking table, not to the
+ * filesystem.
+ *
  * @package SdAiAgent
  * @license GPL-2.0-or-later
  */
 
 namespace SdAiAgent\Abilities;
+
+use SdAiAgent\Core\Features;
 
 if ( ! defined( 'ABSPATH' ) ) {
 	exit;
@@ -55,14 +66,20 @@ class GitAbilities {
 			]
 		);
 
-		wp_register_ability(
-			'sd-ai-agent/git-restore',
-			[
-				'label'         => __( 'Restore File', 'superdav-ai-agent' ),
-				'description'   => __( 'Restore a file to its original snapshotted content, undoing all AI modifications.', 'superdav-ai-agent' ),
-				'ability_class' => GitRestoreAbility::class,
-			]
-		);
+		// git-restore and git-revert-package mutate tracked files via
+		// $wp_filesystem->put_contents() inside wp-content (including
+		// plugins/ and themes/), so they are gated behind FILE_WRITE
+		// alongside the FileAbilities mutation surface.
+		if ( Features::is_enabled( Features::FILE_WRITE ) ) {
+			wp_register_ability(
+				'sd-ai-agent/git-restore',
+				[
+					'label'         => __( 'Restore File', 'superdav-ai-agent' ),
+					'description'   => __( 'Restore a file to its original snapshotted content, undoing all AI modifications.', 'superdav-ai-agent' ),
+					'ability_class' => GitRestoreAbility::class,
+				]
+			);
+		}
 
 		wp_register_ability(
 			'sd-ai-agent/git-list',
@@ -82,13 +99,15 @@ class GitAbilities {
 			]
 		);
 
-		wp_register_ability(
-			'sd-ai-agent/git-revert-package',
-			[
-				'label'         => __( 'Revert Package', 'superdav-ai-agent' ),
-				'description'   => __( 'Revert all modified files in a plugin or theme back to their original snapshotted content.', 'superdav-ai-agent' ),
-				'ability_class' => GitRevertPackageAbility::class,
-			]
-		);
+		if ( Features::is_enabled( Features::FILE_WRITE ) ) {
+			wp_register_ability(
+				'sd-ai-agent/git-revert-package',
+				[
+					'label'         => __( 'Revert Package', 'superdav-ai-agent' ),
+					'description'   => __( 'Revert all modified files in a plugin or theme back to their original snapshotted content.', 'superdav-ai-agent' ),
+					'ability_class' => GitRevertPackageAbility::class,
+				]
+			);
+		}
 	}
 }

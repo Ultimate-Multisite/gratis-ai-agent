@@ -179,10 +179,10 @@ EXTRA
 	# prevents trivial bypass and gives the WP.org review team a single
 	# grep target to verify compliance.
 	if [ "$variant" = "wporg" ]; then
-		echo "==> [${variant}] Forcing plugin-builder + CLI + plugin-state + URL-install feature flags to false..."
+		echo "==> [${variant}] Forcing plugin-builder + CLI + plugin-state + URL-install + file-write feature flags to false..."
 		local main_file="${dest}/superdav-ai-agent.php"
 
-		# The four feature flags this build target forces off, paired with a
+		# The five feature flags this build target forces off, paired with a
 		# short rationale that ends up as an inline comment in the bundled
 		# main plugin file (a grep target the WP.org review team can use).
 		local -a flags=(
@@ -190,6 +190,7 @@ EXTRA
 			"SD_AI_AGENT_FEATURE_CUSTOM_TOOLS_CLI:shell-exec custom tools disabled per WP.org Guideline 4"
 			"SD_AI_AGENT_FEATURE_PLUGIN_STATE_CHANGES:autonomous activate\/deactivate disabled per WP.org Changing Active Plugins guideline"
 			"SD_AI_AGENT_FEATURE_PLUGIN_INSTALL_FROM_URL:install-from-arbitrary-ZIP disabled per WP.org Changing Active Plugins guideline"
+			"SD_AI_AGENT_FEATURE_FILE_WRITE:arbitrary wp-content writes disabled per WP.org Changing Active Plugins guideline"
 		)
 
 		# Replace each `defined() || define( 'NAME', true )` line with a

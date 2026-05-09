@@ -35,6 +35,15 @@ declare(strict_types=1);
  *    Disabled in the WordPress.org distribution because the
  *    "Changing Active Plugins" guideline only exempts WP.org-directory
  *    installs from the no-autonomous-state-change rule.
+ *  - SD_AI_AGENT_FEATURE_FILE_WRITE — Arbitrary filesystem writes
+ *    inside wp-content (file-write, file-edit, file-delete, plus the
+ *    git-restore and git-revert-package abilities that revert tracked
+ *    files via $wp_filesystem->put_contents). Disabled in the
+ *    WordPress.org distribution because writes can target
+ *    wp-content/plugins/ and wp-content/themes/, which is the same
+ *    arbitrary-code-modification risk covered by the WP.org "Changing
+ *    Active Plugins" guideline. Read-only file/git abilities remain
+ *    available.
  *
  * Usage example (wp-config.php):
  *   define( 'SD_AI_AGENT_FEATURE_BRANDING', false );
@@ -132,6 +141,26 @@ final class Features {
 	const PLUGIN_INSTALL_FROM_URL = 'plugin_install_from_url';
 
 	/**
+	 * Feature: arbitrary filesystem writes inside wp-content.
+	 *
+	 * Gates the `sd-ai-agent/file-write`, `sd-ai-agent/file-edit`,
+	 * `sd-ai-agent/file-delete`, `sd-ai-agent/git-restore`, and
+	 * `sd-ai-agent/git-revert-package` abilities. Read-only file/git
+	 * abilities (file-read, file-list, file-search, content-search,
+	 * git-list, git-diff, git-package-summary, git-snapshot) remain
+	 * available because they cannot mutate plugin/theme source.
+	 *
+	 * Disabled in the WordPress.org distribution build because writes
+	 * resolve under `WP_CONTENT_DIR`, which includes `plugins/` and
+	 * `themes/` — direct edits there are the same class of arbitrary
+	 * third-party-code modification covered by the WP.org "Changing
+	 * Active Plugins" guideline.
+	 *
+	 * Constant: SD_AI_AGENT_FEATURE_FILE_WRITE
+	 */
+	const FILE_WRITE = 'file_write';
+
+	/**
 	 * Map of feature name → backing constant name.
 	 *
 	 * @var array<string, string>
@@ -143,6 +172,7 @@ final class Features {
 		self::CUSTOM_TOOLS_CLI        => 'SD_AI_AGENT_FEATURE_CUSTOM_TOOLS_CLI',
 		self::PLUGIN_STATE_CHANGES    => 'SD_AI_AGENT_FEATURE_PLUGIN_STATE_CHANGES',
 		self::PLUGIN_INSTALL_FROM_URL => 'SD_AI_AGENT_FEATURE_PLUGIN_INSTALL_FROM_URL',
+		self::FILE_WRITE              => 'SD_AI_AGENT_FEATURE_FILE_WRITE',
 	);
 
 	/**

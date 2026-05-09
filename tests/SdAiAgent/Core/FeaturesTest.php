@@ -28,7 +28,7 @@ use WP_UnitTestCase;
 class FeaturesTest extends WP_UnitTestCase {
 
 	/**
-	 * The four feature flags that the WordPress.org build forces to
+	 * The five feature flags that the WordPress.org build forces to
 	 * `false`. If you remove one of these, also remove the matching
 	 * `flags=()` entry in `bin/build.sh` and the row in
 	 * `docs/wordpress-org-submission.md` Build Matrix.
@@ -41,6 +41,7 @@ class FeaturesTest extends WP_UnitTestCase {
 			[ Features::CUSTOM_TOOLS_CLI, 'SD_AI_AGENT_FEATURE_CUSTOM_TOOLS_CLI' ],
 			[ Features::PLUGIN_STATE_CHANGES, 'SD_AI_AGENT_FEATURE_PLUGIN_STATE_CHANGES' ],
 			[ Features::PLUGIN_INSTALL_FROM_URL, 'SD_AI_AGENT_FEATURE_PLUGIN_INSTALL_FROM_URL' ],
+			[ Features::FILE_WRITE, 'SD_AI_AGENT_FEATURE_FILE_WRITE' ],
 		];
 	}
 
