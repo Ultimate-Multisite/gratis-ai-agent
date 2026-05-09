@@ -4,7 +4,7 @@ Tags: ai, chatbot, assistant, automation, tools
 Requires at least: 6.9
 Tested up to: 7.0
 Requires PHP: 8.2
-Stable tag: 1.11.0
+Stable tag: 1.11.1
 License: GPL-2.0-or-later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -117,19 +117,49 @@ The Superdav AI Agent discovers abilities at runtime from any plugin that regist
 
 == External Services ==
 
-This plugin uses third-party services to provide AI capabilities. Each service is used only when you configure it as your AI provider.
+This plugin connects to several third-party services to provide AI, search, and stock-image capabilities. Each service below is **optional** and is only contacted when you (a) configure the relevant API key or feature, or (b) ask the agent to perform an action that requires it. No data is sent to any of these services on plugin activation, page load, or in the background.
 
-* **OpenAI** (api.openai.com) - Provides AI chat completions when using OpenAI models. Sends conversation context and user queries. Terms: https://openai.com/terms/ Privacy: https://openai.com/privacy/
+= AI providers (chat completions) =
 
-* **Anthropic** (api.anthropic.com) - Provides AI chat completions when using Claude models. Sends conversation context and user queries. Terms: https://www.anthropic.com/terms Privacy: https://www.anthropic.com/privacy/
+These are contacted only when you configure the corresponding connector in **Settings > AI Credentials** and the agent generates a response. Each request sends the conversation messages, system prompt, attached files (if any), and tool definitions to the chosen provider so it can produce a reply.
 
-* **Google AI** (generativelanguage.googleapis.com) - Provides AI chat completions when using Gemini models. Sends conversation context. Terms: https://policies.google.com/terms Privacy: https://policies.google.com/privacy/
+* **OpenAI** (api.openai.com) — Provides AI chat completions when using OpenAI models. Sends the conversation context and your user queries. Terms: https://openai.com/policies/terms-of-use/ Privacy: https://openai.com/policies/privacy-policy/
 
-* **Lorem Flickr** (loremflickr.com) - Stock image service for the image generation ability. Sends image dimensions and search keyword only. Terms: https://loremflickr.com/terms
+* **Anthropic** (api.anthropic.com) — Provides AI chat completions when using Claude models. Sends the conversation context and your user queries. Terms: https://www.anthropic.com/legal/consumer-terms Privacy: https://www.anthropic.com/legal/privacy
 
-* **Picsum Photos** (picsum.photos) - Fallback stock image service. Sends image dimensions only.
+* **Google AI / Gemini** (generativelanguage.googleapis.com) — Provides AI chat completions when using Gemini models. Sends the conversation context and your user queries. Terms: https://policies.google.com/terms Privacy: https://policies.google.com/privacy
 
-* **Discord** (discord.com) - Optional: sends webhook notifications when configured. No data sent unless you set up a Discord webhook.
+= Internet search providers =
+
+The internet-search ability is used when you (or the agent on your behalf) explicitly run a web search. The first configured provider wins. Only your search query is sent — no WordPress site data, user data, or conversation history is transmitted.
+
+* **Tavily Search API** (api.tavily.com) — Web search results for the agent. Used only when a Tavily API key is configured in **Settings > Internet Search**. Sends the search query only. Terms: https://tavily.com/terms Privacy: https://tavily.com/privacy
+
+* **Brave Search API** (api.search.brave.com) — Web search results for the agent. Used only when a Brave Search API key is configured in **Settings > Internet Search**. Sends the search query only. Terms: https://brave.com/terms-of-use/ Privacy: https://brave.com/privacy/browser/
+
+* **DuckDuckGo Instant Answer API** (api.duckduckgo.com) — Free fallback web search used when no Tavily or Brave key is configured. Sends the search query only; no API key is required. Terms: https://duckduckgo.com/terms Privacy: https://duckduckgo.com/privacy
+
+= Stock-image services =
+
+These are contacted only when you (or the agent) request a stock image via the image-generation ability. Each request sends image dimensions and the search keyword you supply — no site data, user data, or conversation history is transmitted.
+
+* **Openverse** (api.openverse.org) — CC0 / openly-licensed image search hosted by the WordPress Foundation. Used only when an image-search request is made. Sends the search keyword and requested dimensions. No API key required. Terms: https://openverse.org/terms Privacy: https://wordpress.org/about/privacy/
+
+* **Pixabay** (pixabay.com) — Free stock-image service. Used only when a Pixabay API key is configured and an image-search request is made. Sends the search keyword, requested dimensions, and your API key. Terms: https://pixabay.com/service/terms/ Privacy: https://pixabay.com/service/privacy/
+
+* **Lorem Flickr** (loremflickr.com) — Random Creative Commons placeholder images. Used only when generating placeholder/lorem-ipsum-style images. Sends the requested dimensions and an optional search keyword. No API key required. Service info: https://loremflickr.com/
+
+* **Picsum Photos** (picsum.photos) — Fallback random-image placeholder service. Used only when generating placeholder images. Sends the requested dimensions. No API key required. Service info: https://picsum.photos/
+
+= Analytics =
+
+* **Google Analytics Data API** (analyticsdata.googleapis.com) — Reads traffic, top-page, and realtime statistics from your own Google Analytics 4 property when you ask the agent for analytics insights. Used only when you upload a Google service-account JSON key in **Settings > Analytics** and explicitly request a report. Sends the GA4 property ID and the date range / metrics you requested, authenticated with your service-account credentials. The plugin reads from your own GA property; it does not send any WordPress site data to Google. Terms: https://policies.google.com/terms Privacy: https://policies.google.com/privacy Google Analytics terms: https://marketingplatform.google.com/about/analytics/terms/us/
+
+= Notifications (optional) =
+
+* **Discord** (discord.com) — Optional webhook notifications for automation results. Used only when you configure a Discord webhook URL on a specific automation. Sends the automation summary text you configured to the webhook URL. No data is sent unless you create a webhook entry. Terms: https://discord.com/terms Privacy: https://discord.com/privacy
+
+* **Slack** (slack.com / hooks.slack.com) — Optional webhook notifications for automation results. Used only when you configure a Slack incoming-webhook URL on a specific automation. Sends the automation summary text you configured to the webhook URL. No data is sent unless you create a webhook entry. Terms: https://slack.com/terms-of-service Privacy: https://slack.com/privacy-policy
 
 == Frequently Asked Questions ==
 
@@ -173,6 +203,10 @@ Yes, the plugin works on both single-site and multisite WordPress installations.
 8. Settings page with 12 configuration tabs
 
 == Changelog ==
+
+= 1.11.1 - Released on 2026-05-09 =
+* Docs: Fix invalid Google AI privacy URL in readme (trailing-slash 404) and remove non-existent Lorem Flickr terms link
+* Docs: Disclose all third-party / external services in the External Services section per WordPress.org plugin directory guidelines — Google Analytics, Tavily, Brave Search, DuckDuckGo, Openverse, Pixabay, and Slack now documented alongside the existing OpenAI, Anthropic, Google AI, Lorem Flickr, Picsum Photos, and Discord entries
 
 = 1.11.0 - Released on 2026-05-09 =
 * New: Generic chat-banner and chat-error-message extension points for third-party UI integrations
@@ -445,6 +479,9 @@ Yes, the plugin works on both single-site and multisite WordPress installations.
 * WordPress 7.0 AI Client SDK integration (native core API)
 
 == Upgrade Notice ==
+
+= 1.11.1 =
+Documentation-only update: corrects two broken links in the External Services section and adds disclosures for all remaining third-party services (search providers, stock-image services, analytics, notifications) in line with WordPress.org plugin directory guidelines. No code or database changes.
 
 = 1.6.0 =
 Architecture release: dependency injection via x-wp/di, domain repositories, typed DTOs, service extraction, and new interfaces. Adds inline tool call details in chat, always-on message input with queue, and bug fixes.

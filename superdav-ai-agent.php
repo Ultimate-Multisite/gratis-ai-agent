@@ -3,7 +3,7 @@
  * Plugin Name: Superdav AI Agent
  * Plugin URI:  https://github.com/Ultimate-Multisite/superdav-ai-agent
  * Description: Agentic AI loop for WordPress — chat with an AI that can call WordPress abilities (tools) autonomously.
- * Version:     1.11.0
+ * Version:     1.11.1
  * Author:      superdav42
  * Author URI:  https://github.com/superdav42
  * License:     GPL-2.0-or-later
@@ -20,7 +20,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
-define( 'SD_AI_AGENT_VERSION', '1.11.0' );
+define( 'SD_AI_AGENT_VERSION', '1.11.1' );
 define( 'SD_AI_AGENT_DIR', __DIR__ );
 define( 'SD_AI_AGENT_URL', plugin_dir_url( __FILE__ ) );
 
