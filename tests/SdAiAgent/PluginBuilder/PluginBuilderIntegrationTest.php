@@ -90,7 +90,7 @@ class PluginBuilderIntegrationTest extends WP_UnitTestCase {
 		}
 
 		$src = trailingslashit( $this->fixtures_dir . $fixture_slug );
-		$dst = trailingslashit( WP_CONTENT_DIR . '/plugins/' . $target_slug );
+		$dst = trailingslashit( WP_PLUGIN_DIR . '/' . $target_slug );
 
 		$this->copy_dir( $src, $dst );
 		$this->created_dirs[] = $dst;
@@ -106,7 +106,7 @@ class PluginBuilderIntegrationTest extends WP_UnitTestCase {
 	 * @return string Absolute plugin directory path (with trailing slash).
 	 */
 	private function create_temp_plugin( string $slug, string $content ): string {
-		$plugin_dir = trailingslashit( WP_CONTENT_DIR . '/plugins/' . $slug );
+		$plugin_dir = trailingslashit( WP_PLUGIN_DIR . '/' . $slug );
 		wp_mkdir_p( $plugin_dir );
 		file_put_contents( $plugin_dir . $slug . '.php', $content );
 		$this->created_dirs[] = $plugin_dir;
@@ -353,7 +353,7 @@ class PluginBuilderIntegrationTest extends WP_UnitTestCase {
 		$files  = [
 			$slug . '.php' => '<?php' . PHP_EOL . '/* Plugin Name: Test Install */' . PHP_EOL,
 		];
-		$this->created_dirs[] = trailingslashit( WP_CONTENT_DIR . '/plugins/' . $slug );
+		$this->created_dirs[] = trailingslashit( WP_PLUGIN_DIR . '/' . $slug );
 
 		$result = PluginInstaller::install(
 			$slug,
@@ -371,7 +371,7 @@ class PluginBuilderIntegrationTest extends WP_UnitTestCase {
 		$this->created_ids[] = $result['id'];
 
 		// Verify file on disk.
-		$expected_path = trailingslashit( WP_CONTENT_DIR . '/plugins/' . $slug ) . $slug . '.php';
+		$expected_path = trailingslashit( WP_PLUGIN_DIR . '/' . $slug ) . $slug . '.php';
 		$this->assertFileExists( $expected_path );
 	}
 
@@ -401,7 +401,7 @@ class PluginBuilderIntegrationTest extends WP_UnitTestCase {
 	public function test_get_returns_record_created_by_install(): void {
 		$slug   = 'sd-pb-test-get-' . uniqid();
 		$files  = [ $slug . '.php' => '<?php /* Plugin Name: Test Get */' ];
-		$this->created_dirs[] = trailingslashit( WP_CONTENT_DIR . '/plugins/' . $slug );
+		$this->created_dirs[] = trailingslashit( WP_PLUGIN_DIR . '/' . $slug );
 
 		$install = PluginInstaller::install( $slug, $files, 'Desc', 'Plan', $slug . '/' . $slug . '.php' );
 		$this->assertIsArray( $install );
@@ -421,7 +421,7 @@ class PluginBuilderIntegrationTest extends WP_UnitTestCase {
 	public function test_update_status_changes_status_in_db(): void {
 		$slug   = 'sd-pb-test-status-' . uniqid();
 		$files  = [ $slug . '.php' => '<?php /* Plugin Name: Test Status */' ];
-		$this->created_dirs[] = trailingslashit( WP_CONTENT_DIR . '/plugins/' . $slug );
+		$this->created_dirs[] = trailingslashit( WP_PLUGIN_DIR . '/' . $slug );
 
 		$install = PluginInstaller::install( $slug, $files, 'Desc', 'Plan', $slug . '/' . $slug . '.php' );
 		$this->assertIsArray( $install );
@@ -443,7 +443,7 @@ class PluginBuilderIntegrationTest extends WP_UnitTestCase {
 	public function test_db_status_transitions_installed_to_active(): void {
 		$slug   = 'sd-pb-test-transitions-' . uniqid();
 		$files  = [ $slug . '.php' => '<?php /* Plugin Name: Test Transitions */' ];
-		$this->created_dirs[] = trailingslashit( WP_CONTENT_DIR . '/plugins/' . $slug );
+		$this->created_dirs[] = trailingslashit( WP_PLUGIN_DIR . '/' . $slug );
 
 		$install = PluginInstaller::install( $slug, $files, 'Desc', 'Plan', $slug . '/' . $slug . '.php' );
 		$this->assertIsArray( $install );
@@ -475,7 +475,7 @@ class PluginBuilderIntegrationTest extends WP_UnitTestCase {
 		];
 
 		foreach ( $slugs as $slug ) {
-			$this->created_dirs[] = trailingslashit( WP_CONTENT_DIR . '/plugins/' . $slug );
+			$this->created_dirs[] = trailingslashit( WP_PLUGIN_DIR . '/' . $slug );
 			$files                = [ $slug . '.php' => '<?php /* Plugin Name: ' . $slug . ' */' ];
 			$result               = PluginInstaller::install( $slug, $files, 'Desc', 'Plan', $slug . '/' . $slug . '.php' );
 			if ( is_array( $result ) ) {
@@ -494,7 +494,7 @@ class PluginBuilderIntegrationTest extends WP_UnitTestCase {
 	public function test_delete_removes_db_record(): void {
 		$slug   = 'sd-pb-test-delete-' . uniqid();
 		$files  = [ $slug . '.php' => '<?php /* Plugin Name: Test Delete */' ];
-		$this->created_dirs[] = trailingslashit( WP_CONTENT_DIR . '/plugins/' . $slug );
+		$this->created_dirs[] = trailingslashit( WP_PLUGIN_DIR . '/' . $slug );
 
 		$install = PluginInstaller::install( $slug, $files, 'Desc', 'Plan', $slug . '/' . $slug . '.php' );
 		$this->assertIsArray( $install );
@@ -647,7 +647,10 @@ PHP
 		$this->assertStringContainsString( '// original', (string) $current );
 
 		// Clean up any backup directory left by the updater (new path: sd-ai-backups/).
-		$backup_glob = glob( WP_CONTENT_DIR . '/sd-ai-backups/' . $slug . '-*', GLOB_ONLYDIR );
+		// Backups now live under uploads basedir per wp.org guidelines.
+		$uploads      = wp_upload_dir( null, false );
+		$basedir      = ! empty( $uploads['basedir'] ) ? (string) $uploads['basedir'] : WP_CONTENT_DIR . '/uploads';
+		$backup_glob  = glob( trailingslashit( $basedir ) . 'sd-ai-backups/' . $slug . '-*', GLOB_ONLYDIR );
 		if ( is_array( $backup_glob ) ) {
 			foreach ( $backup_glob as $backup_dir ) {
 				$this->rmdir_recursive( $backup_dir );
@@ -767,7 +770,7 @@ OUTPUT;
 		} else {
 			// If sanitize_title produced a safe non-empty slug, the install
 			// directory must still be confined inside WP_CONTENT_DIR/plugins/.
-			$this->assertStringStartsWith( WP_CONTENT_DIR . '/plugins/', $result['plugin_dir'] );
+			$this->assertStringStartsWith( trailingslashit( WP_PLUGIN_DIR ), $result['plugin_dir'] );
 			PluginInstaller::delete( $result['id'], true );
 		}
 	}
@@ -802,7 +805,7 @@ OUTPUT;
 			$this->assertSame( 'sd_ai_agent_invalid_slug', $result->get_error_code() );
 		} else {
 			// Must be inside plugins dir.
-			$this->assertStringStartsWith( WP_CONTENT_DIR . '/plugins/', $result['plugin_dir'] );
+			$this->assertStringStartsWith( trailingslashit( WP_PLUGIN_DIR ), $result['plugin_dir'] );
 			$this->created_dirs[] = $result['plugin_dir'];
 			$this->created_ids[]  = $result['id'];
 		}

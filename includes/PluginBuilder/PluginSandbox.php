@@ -310,12 +310,14 @@ class PluginSandbox {
 	 * @return string Path to wp binary, or empty string if not found.
 	 */
 	private static function find_wp_cli(): string {
-		// Check common locations.
+		// Check common locations. The ABSPATH-relative candidate covers the
+		// common composer-installed-WordPress layout (vendor/ as a sibling of
+		// the WordPress root) without depending on WP_CONTENT_DIR's location.
 		$candidates = [
 			'wp', // PATH
 			'/usr/local/bin/wp',
 			'/usr/bin/wp',
-			WP_CONTENT_DIR . '/../../../vendor/bin/wp',
+			ABSPATH . '../vendor/bin/wp',
 		];
 
 		foreach ( $candidates as $candidate ) {

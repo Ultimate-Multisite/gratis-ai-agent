@@ -41,7 +41,9 @@ class HookScanner {
 			);
 		}
 
-		$plugin_dir = WP_CONTENT_DIR . '/plugins/' . $plugin_slug . '/';
+		// Use WP_PLUGIN_DIR per wp.org guidelines so this works when the
+		// plugins directory has been relocated.
+		$plugin_dir = trailingslashit( WP_PLUGIN_DIR ) . $plugin_slug . '/';
 
 		if ( ! is_dir( $plugin_dir ) ) {
 			return new WP_Error(
@@ -70,7 +72,9 @@ class HookScanner {
 			);
 		}
 
-		$theme_dir = WP_CONTENT_DIR . '/themes/' . $theme_slug . '/';
+		// Use get_theme_root() per wp.org guidelines so this works with
+		// custom theme roots and multisite theme directories.
+		$theme_dir = trailingslashit( get_theme_root( $theme_slug ) ) . $theme_slug . '/';
 
 		if ( ! is_dir( $theme_dir ) ) {
 			return new WP_Error(

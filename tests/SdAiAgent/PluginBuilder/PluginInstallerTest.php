@@ -36,7 +36,7 @@ class PluginInstallerTest extends WP_UnitTestCase {
 	 */
 	public function setUp(): void {
 		parent::setUp();
-		$this->plugin_dir = WP_CONTENT_DIR . '/plugins/' . $this->test_slug . '/';
+		$this->plugin_dir = trailingslashit( WP_PLUGIN_DIR ) . $this->test_slug . '/';
 		$this->cleanup_plugin_dir();
 	}
 

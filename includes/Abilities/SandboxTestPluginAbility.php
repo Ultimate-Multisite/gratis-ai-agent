@@ -78,7 +78,8 @@ class SandboxTestPluginAbility extends AbstractAbility {
 			return new WP_Error( 'sd_ai_agent_invalid_plugin_file', __( 'plugin_file is required.', 'superdav-ai-agent' ) );
 		}
 
-		$plugin_dir = WP_CONTENT_DIR . '/plugins/' . $slug . '/';
+		// Use WP_PLUGIN_DIR per wp.org guidelines for referencing other plugins.
+		$plugin_dir = trailingslashit( WP_PLUGIN_DIR ) . $slug . '/';
 
 		return PluginSandbox::run_all( $plugin_dir, $plugin_file );
 	}

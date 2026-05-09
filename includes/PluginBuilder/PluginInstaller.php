@@ -46,7 +46,7 @@ class PluginInstaller {
 	 *  - Path is not empty.
 	 *  - Path contains no null bytes.
 	 *  - Path does not contain traversal sequences (../).
-	 *  - Resolved absolute path starts with WP_CONTENT_DIR/plugins/{slug}/.
+	 *  - Resolved absolute path starts with WP_PLUGIN_DIR/{slug}/.
 	 *
 	 * @param string $slug          Validated plugin slug.
 	 * @param string $relative_path Relative file path (relative to the plugin directory).
@@ -92,7 +92,9 @@ class PluginInstaller {
 		}
 
 		// Build the expected plugin directory path for boundary validation.
-		$plugin_dir = WP_CONTENT_DIR . '/plugins/' . $slug . '/';
+		// Use WP_PLUGIN_DIR (not WP_CONTENT_DIR.'/plugins/') so this works on
+		// installs that relocate the plugins directory.
+		$plugin_dir = trailingslashit( WP_PLUGIN_DIR ) . $slug . '/';
 
 		// Ensure the plugin directory exists before using realpath.
 		if ( is_dir( $plugin_dir ) ) {
@@ -244,7 +246,7 @@ class PluginInstaller {
 			);
 		}
 
-		$plugin_dir = WP_CONTENT_DIR . '/plugins/' . $slug . '/';
+		$plugin_dir = trailingslashit( WP_PLUGIN_DIR ) . $slug . '/';
 		if ( ! is_dir( $plugin_dir ) ) {
 			return new WP_Error(
 				'sd_ai_agent_plugin_not_found',
@@ -355,7 +357,7 @@ class PluginInstaller {
 		}
 
 		// Remove directory from disk.
-		$plugin_dir = WP_CONTENT_DIR . '/plugins/' . $slug . '/';
+		$plugin_dir = trailingslashit( WP_PLUGIN_DIR ) . $slug . '/';
 		if ( is_dir( $plugin_dir ) ) {
 			require_once ABSPATH . 'wp-admin/includes/class-wp-filesystem-base.php';
 			require_once ABSPATH . 'wp-admin/includes/class-wp-filesystem-direct.php';
@@ -412,7 +414,7 @@ class PluginInstaller {
 			);
 		}
 
-		$plugins_dir = WP_CONTENT_DIR . '/plugins/';
+		$plugins_dir = trailingslashit( WP_PLUGIN_DIR );
 		$plugin_dir  = $plugins_dir . $slug . '/';
 
 		// Validate paths to prevent directory traversal.
@@ -604,7 +606,7 @@ class PluginInstaller {
 		}
 
 		if ( $delete_files && ! empty( $record['slug'] ) ) {
-			$plugin_dir = WP_CONTENT_DIR . '/plugins/' . sanitize_title( $record['slug'] ) . '/';
+			$plugin_dir = trailingslashit( WP_PLUGIN_DIR ) . sanitize_title( $record['slug'] ) . '/';
 			if ( is_dir( $plugin_dir ) ) {
 				// Use WP Filesystem for safe deletion.
 				require_once ABSPATH . 'wp-admin/includes/class-wp-filesystem-base.php';

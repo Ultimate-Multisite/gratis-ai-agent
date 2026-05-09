@@ -46,7 +46,7 @@ class PluginUpdaterTest extends WP_UnitTestCase {
 	 */
 	public function setUp(): void {
 		parent::setUp();
-		$this->plugin_dir = WP_CONTENT_DIR . '/plugins/' . $this->slug . '/';
+		$this->plugin_dir = trailingslashit( WP_PLUGIN_DIR ) . $this->slug . '/';
 		$this->updater    = new PluginUpdater();
 		$this->cleanup_all();
 		$this->create_minimal_plugin();
@@ -227,7 +227,7 @@ class PluginUpdaterTest extends WP_UnitTestCase {
 	 */
 	public function test_cleanup_old_backups_preserves_most_recent(): void {
 		// Create two backup directories for the slug.
-		$backups_root = WP_CONTENT_DIR . '/sd-ai-backups/';
+		$backups_root = $this->backups_root();
 		wp_mkdir_p( $backups_root );
 
 		$old_dir = $backups_root . $this->slug . '-2020-01-01-000001/';
@@ -307,9 +307,9 @@ class PluginUpdaterTest extends WP_UnitTestCase {
 	 */
 	private function cleanup_all(): void {
 		$dirs_to_clean = [
-			WP_CONTENT_DIR . '/plugins/' . $this->slug . '/',
-			WP_CONTENT_DIR . '/plugins/non-existent-plugin-phpunit/',
-			WP_CONTENT_DIR . '/sd-ai-staging/' . $this->slug . '/',
+			trailingslashit( WP_PLUGIN_DIR ) . $this->slug . '/',
+			trailingslashit( WP_PLUGIN_DIR ) . 'non-existent-plugin-phpunit/',
+			$this->staging_root() . $this->slug . '/',
 		];
 
 		foreach ( $dirs_to_clean as $dir ) {
@@ -317,7 +317,7 @@ class PluginUpdaterTest extends WP_UnitTestCase {
 		}
 
 		// Remove all backup directories for this slug.
-		$backups_root = WP_CONTENT_DIR . '/sd-ai-backups/';
+		$backups_root = $this->backups_root();
 		if ( is_dir( $backups_root ) ) {
 			$entries = glob( $backups_root . $this->slug . '-*', GLOB_ONLYDIR );
 			if ( false !== $entries ) {
@@ -326,6 +326,24 @@ class PluginUpdaterTest extends WP_UnitTestCase {
 				}
 			}
 		}
+	}
+
+	/**
+	 * Mirror PluginUpdater::backups_root() so tests can locate backup dirs.
+	 */
+	private function backups_root(): string {
+		$uploads = wp_upload_dir( null, false );
+		$basedir = ! empty( $uploads['basedir'] ) ? (string) $uploads['basedir'] : WP_CONTENT_DIR . '/uploads';
+		return trailingslashit( $basedir ) . 'sd-ai-backups/';
+	}
+
+	/**
+	 * Mirror PluginUpdater::staging_root() so tests can locate staging dirs.
+	 */
+	private function staging_root(): string {
+		$uploads = wp_upload_dir( null, false );
+		$basedir = ! empty( $uploads['basedir'] ) ? (string) $uploads['basedir'] : WP_CONTENT_DIR . '/uploads';
+		return trailingslashit( $basedir ) . 'sd-ai-staging/';
 	}
 
 	/**

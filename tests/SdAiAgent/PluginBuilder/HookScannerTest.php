@@ -43,13 +43,13 @@ class HookScannerTest extends WP_UnitTestCase {
 	// ─── Helpers ────────────────────────────────────────────────────
 
 	/**
-	 * Create an isolated temp directory under WP_CONTENT_DIR/plugins/ and track for cleanup.
+	 * Create an isolated temp directory under WP_PLUGIN_DIR and track for cleanup.
 	 *
 	 * @param string $slug Plugin slug to use as the directory name.
 	 * @return string Absolute path to the plugin directory.
 	 */
 	private function make_temp_plugin( string $slug ): string {
-		$dir = WP_CONTENT_DIR . '/plugins/' . $slug . '/';
+		$dir = trailingslashit( WP_PLUGIN_DIR ) . $slug . '/';
 		if ( ! is_dir( $dir ) ) {
 			mkdir( $dir, 0755, true );
 		}
@@ -58,13 +58,13 @@ class HookScannerTest extends WP_UnitTestCase {
 	}
 
 	/**
-	 * Create an isolated temp directory under WP_CONTENT_DIR/themes/ and track for cleanup.
+	 * Create an isolated temp directory under the active theme root and track for cleanup.
 	 *
 	 * @param string $slug Theme slug to use as the directory name.
 	 * @return string Absolute path to the theme directory.
 	 */
 	private function make_temp_theme( string $slug ): string {
-		$dir = WP_CONTENT_DIR . '/themes/' . $slug . '/';
+		$dir = trailingslashit( get_theme_root( $slug ) ) . $slug . '/';
 		if ( ! is_dir( $dir ) ) {
 			mkdir( $dir, 0755, true );
 		}

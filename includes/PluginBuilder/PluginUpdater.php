@@ -6,8 +6,10 @@ declare(strict_types=1);
  *
  * Flow: backup → stage → test → swap → verify → rollback on failure.
  *
- * Backups land in wp-content/sd-ai-backups/{slug}-{timestamp}/.
- * Staging uses    wp-content/sd-ai-staging/{slug}/.
+ * Backups and staging directories live inside the uploads basedir under
+ * `sd-ai-backups/` and `sd-ai-staging/` respectively, so they survive
+ * relocated wp-content / plugins directories and follow WordPress's
+ * recommended writeable-area convention.
  *
  * @package SdAiAgent\PluginBuilder
  * @license GPL-2.0-or-later
@@ -29,6 +31,43 @@ if ( ! defined( 'ABSPATH' ) ) {
 class PluginUpdater {
 
 	/**
+	 * Get the absolute path to the backups root directory.
+	 *
+	 * Uses uploads basedir per WP guidelines for plugin-managed writeable
+	 * locations, so it works on installs that relocate WP_CONTENT_DIR.
+	 *
+	 * @return string Trailing-slashed absolute path.
+	 */
+	private function backups_root(): string {
+		$uploads = wp_upload_dir( null, false );
+		$basedir = ! empty( $uploads['basedir'] ) ? (string) $uploads['basedir'] : WP_CONTENT_DIR . '/uploads';
+		return trailingslashit( $basedir ) . 'sd-ai-backups/';
+	}
+
+	/**
+	 * Get the absolute path to the staging root directory.
+	 *
+	 * @return string Trailing-slashed absolute path.
+	 */
+	private function staging_root(): string {
+		$uploads = wp_upload_dir( null, false );
+		$basedir = ! empty( $uploads['basedir'] ) ? (string) $uploads['basedir'] : WP_CONTENT_DIR . '/uploads';
+		return trailingslashit( $basedir ) . 'sd-ai-staging/';
+	}
+
+	/**
+	 * Get the trailing-slashed absolute path to an installed plugin's directory.
+	 *
+	 * Uses WP_PLUGIN_DIR per wp.org guidelines for referencing other plugins.
+	 *
+	 * @param string $slug Plugin slug (already validated by caller).
+	 * @return string
+	 */
+	private function plugin_dir_path( string $slug ): string {
+		return trailingslashit( WP_PLUGIN_DIR ) . $slug . '/';
+	}
+
+	/**
 	 * Backup an installed plugin to wp-content/sd-ai-backups/{slug}-{timestamp}/.
 	 *
 	 * @param string $slug Plugin slug (directory name under wp-content/plugins/).
@@ -43,7 +82,7 @@ class PluginUpdater {
 			);
 		}
 
-		$plugin_dir = WP_CONTENT_DIR . '/plugins/' . $slug . '/';
+		$plugin_dir = $this->plugin_dir_path( $slug );
 		if ( ! is_dir( $plugin_dir ) ) {
 			return new WP_Error(
 				'sd_ai_agent_plugin_not_found',
@@ -53,7 +92,7 @@ class PluginUpdater {
 		}
 
 		$timestamp  = gmdate( 'Y-m-d-His' );
-		$backup_dir = WP_CONTENT_DIR . '/sd-ai-backups/' . $slug . '-' . $timestamp . '/';
+		$backup_dir = $this->backups_root() . $slug . '-' . $timestamp . '/';
 
 		$result = $this->copy_directory( $plugin_dir, $backup_dir );
 		if ( is_wp_error( $result ) ) {
@@ -82,7 +121,7 @@ class PluginUpdater {
 			);
 		}
 
-		$plugin_dir = WP_CONTENT_DIR . '/plugins/' . $slug . '/';
+		$plugin_dir = $this->plugin_dir_path( $slug );
 		if ( ! is_dir( $plugin_dir ) ) {
 			return new WP_Error(
 				'sd_ai_agent_plugin_not_found',
@@ -91,7 +130,7 @@ class PluginUpdater {
 			);
 		}
 
-		$staging_dir = WP_CONTENT_DIR . '/sd-ai-staging/' . $slug . '/';
+		$staging_dir = $this->staging_root() . $slug . '/';
 
 		// Remove stale staging dir if it exists.
 		if ( is_dir( $staging_dir ) ) {
@@ -165,7 +204,7 @@ class PluginUpdater {
 		}
 
 		$plugin_file = $slug . '/' . $slug . '.php';
-		$plugin_dir  = WP_CONTENT_DIR . '/plugins/' . $slug . '/';
+		$plugin_dir  = $this->plugin_dir_path( $slug );
 
 		require_once ABSPATH . 'wp-admin/includes/plugin.php';
 
@@ -232,7 +271,7 @@ class PluginUpdater {
 			);
 		}
 
-		$plugin_dir = WP_CONTENT_DIR . '/plugins/' . sanitize_title( $slug ) . '/';
+		$plugin_dir = $this->plugin_dir_path( sanitize_title( $slug ) );
 
 		if ( is_dir( $plugin_dir ) ) {
 			$this->remove_directory( $plugin_dir );
@@ -266,7 +305,7 @@ class PluginUpdater {
 		 * @param int $max_age_days Default retention in days.
 		 */
 		$max_age_days = (int) apply_filters( 'sd_ai_agent_backup_retention_days', $max_age_days );
-		$backups_root = WP_CONTENT_DIR . '/sd-ai-backups/';
+		$backups_root = $this->backups_root();
 
 		if ( ! is_dir( $backups_root ) ) {
 			return 0;
