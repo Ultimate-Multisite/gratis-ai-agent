@@ -16,6 +16,7 @@ namespace SdAiAgent\Bootstrap;
 use SdAiAgent\Abilities\ToolCapabilities;
 use SdAiAgent\Admin\FloatingWidget;
 use SdAiAgent\Admin\UnifiedAdminMenu;
+use SdAiAgent\Compat\GutenbergConnectorsBridge;
 use SdAiAgent\Core\Database;
 use SdAiAgent\REST\ConnectorsController;
 use SdAiAgent\REST\SettingsController;
@@ -43,6 +44,22 @@ final class AdminHandler {
 	#[Action( tag: 'admin_menu', priority: 10 )]
 	public function register_menus(): void {
 		UnifiedAdminMenu::register();
+	}
+
+	/**
+	 * Restore the Gutenberg-backed Connectors page on WP 6.9 installs where
+	 * Gutenberg's own gate skipped registration due to plugin-load-order
+	 * (Gutenberg loads alphabetically before us, so its `class_exists` check
+	 * for `\WordPress\AiClient\AiClient` fails before our SdkLoader runs).
+	 *
+	 * Priority 12 runs one tick after Gutenberg's own priority 11 hook so we
+	 * can detect — and not duplicate — its registration when it does succeed.
+	 *
+	 * @see GutenbergConnectorsBridge::maybe_register()
+	 */
+	#[Action( tag: 'admin_menu', priority: 12 )]
+	public function register_gutenberg_connectors_bridge(): void {
+		GutenbergConnectorsBridge::maybe_register();
 	}
 
 	/**
