@@ -103,6 +103,27 @@ echo "==> Building production JS/CSS assets..."
 npx wp-scripts build
 echo "    Done."
 
+# ── 2. Install production-only composer deps so the bundled autoloader
+# filemap (vendor/composer/jetpack_autoload_filemap.php) does not reference
+# dev-only packages (e.g. myclabs/deep-copy via phpunit). Otherwise the
+# Jetpack autoloader hard-fatals at activate time when those files are
+# absent from the zip. We restore the dev install at the end of the script
+# (or on early exit, via trap) so the working tree is unchanged after the
+# build completes.
+DEV_VENDOR_RESTORED=0
+restore_dev_vendor() {
+	if [ "$DEV_VENDOR_RESTORED" -eq 0 ]; then
+		echo "==> Restoring composer dev dependencies..."
+		composer install --quiet || true
+		DEV_VENDOR_RESTORED=1
+	fi
+}
+trap restore_dev_vendor EXIT
+
+echo "==> Installing production-only composer dependencies (--no-dev -o)..."
+composer install --no-dev --optimize-autoloader --quiet
+echo "    Done."
+
 # ── Build one zip variant (full or wporg) ────────────────────────────────────
 build_variant() {
 	local variant="$1" # full | wporg
@@ -129,17 +150,15 @@ build_variant() {
 	fi
 
 	# Additional exclusions not in .distignore (always applied).
+	# These patterns are intentionally tree-wide: they sweep dotfiles that
+	# vendor packages ship for their own dev tooling. Build artefacts
+	# (`*.map`) and source-tree directory anchors (e.g. `/tests`) are
+	# already declared in .distignore, so we don't repeat them here —
+	# repeating without a leading `/` would over-match (see GH#1310).
 	cat >>"$exclude_file" <<'EXTRA'
-.claude
-*.map
-tests
-test
-.phpunit*
-phpunit*
-.editorconfig
-.eslintrc*
-.prettierrc*
-.stylelintrc*
+**/.eslintrc*
+**/.prettierrc*
+**/.stylelintrc*
 EXTRA
 
 	# WP.org variant: also append .distignore-wporg patterns to physically
