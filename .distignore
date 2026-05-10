@@ -79,6 +79,18 @@
 
 # Dev scripts (top-level only — vendor/bin is dev-only and handled separately)
 /bin
+/scripts
+
+# WordPress.org SVN-only assets and Playground blueprints. WordPress.org reads
+# `.wordpress-org/{assets,blueprints}/` from the SVN repository root, NOT from
+# the plugin zip — shipping it inside the zip wastes bytes and exposes dev
+# blueprint scaffolding to end-user installs.
+/.wordpress-org
+
+# Playwright is dev-only end-to-end testing (configured in webpack.config.js
+# alongside @wordpress/scripts); the runtime plugin never references it.
+/playwright.config.js
+/playwright.config.ts
 
 # Playground / local dev blueprints
 /playground
