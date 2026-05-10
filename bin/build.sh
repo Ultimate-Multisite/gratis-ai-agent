@@ -373,7 +373,17 @@ PYGUARD
 	fi
 	zip_path="${PLUGIN_DIR}/${zip_name}"
 
+	# Remove any pre-existing zip with the same name so `zip -qr` produces a
+	# fresh archive instead of UPDATING the old one. `zip` in update mode
+	# silently retains every file already in the archive even when it is no
+	# longer present in the source tree, which means stale paths added in
+	# earlier builds (e.g. before a new .distignore entry was added) leak
+	# into every subsequent zip until the file is manually deleted. This
+	# previously shipped /scripts, /playwright.config.js, and /.wordpress-org
+	# inside multiple WP.org submission attempts even after .distignore was
+	# updated to exclude them.
 	echo "==> [${variant}] Creating ${zip_name}..."
+	rm -f "$zip_path"
 	(cd "$build_dir" && zip -qr "$zip_path" superdav-ai-agent/)
 	echo "    Done."
 
