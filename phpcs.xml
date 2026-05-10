@@ -141,4 +141,39 @@
         </properties>
     </rule>
 
+    <!--
+    ════════════════════════════════════════════════════════════════════════════
+    Re-firing WordPress core hooks (rest_api_init, etc.) in benchmark/CLI code
+    ════════════════════════════════════════════════════════════════════════════
+
+    `rest_api_init` is a WordPress *core* hook. The PrefixAllGlobals rule is
+    designed to flag custom hooks invented by a plugin that aren't prefixed —
+    not core hooks the plugin re-fires. WPCS's built-in $allowed_core_hooks
+    list only includes `widget_title` and `add_meta_boxes` and is `protected`
+    (not extensible from XML across all PHPCS versions), so we scope the
+    exclusion to the specific files where re-firing is intentional and
+    necessary:
+
+      - includes/Benchmark/AssertionEngine.php  — assertions inspect
+        rest_get_server() before the normal request lifecycle has fired
+        rest_api_init, so we re-fire it manually.
+      - includes/CLI/BenchmarkCommand.php       — same, in CLI context.
+
+    Do NOT add new files here without a similar justification — prefer
+    prefixing custom hooks correctly. See PR #1316 for the original context.
+
+    Note: WP.org Plugin Check has its own mirror of this rule
+    (PluginCheck.CodeAnalysis.Hook.NonPrefixedHooknameFound) and Plugin
+    Check's DB rule (PluginCheck.Security.DirectDB.UnescapedDBParameter).
+    Those standards are NOT installed in our local PHPCS sniffer pool —
+    they only run server-side when WP.org runs Plugin Check on submission.
+    The inline `phpcs:ignore PluginCheck.*` comments at the relevant call
+    sites are what suppress those server-side warnings; the XML rules below
+    are what suppress the equivalent WPCS warning in our CI. Both layers
+    are needed because they are evaluated by different tools. -->
+    <rule ref="WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedHooknameFound">
+        <exclude-pattern>*/includes/Benchmark/AssertionEngine\.php</exclude-pattern>
+        <exclude-pattern>*/includes/CLI/BenchmarkCommand\.php</exclude-pattern>
+    </rule>
+
 </ruleset>
