@@ -254,6 +254,114 @@ EXTRA
 			fi
 		done
 		echo "    Stripped plugin-builder source files and forced feature flags to false."
+
+		# ── Neutralise forbidden move_uploaded_file() in bundled PSR-7 ───────
+		# WP.org's plugin-check tool hard-fails on any literal occurrence of
+		# move_uploaded_file() (Generic.PHP.ForbiddenFunctions.Found). The
+		# only hit in our tree is dead code: lib/php-ai-client/third-party/
+		# Nyholm/Psr7/UploadedFile.php::moveTo(). Our plugin acts purely as
+		# an outbound HTTP client (PSR-18) — Psr17Factory::createUploadedFile()
+		# is never invoked, so this method is unreachable at runtime.
+		#
+		# We replace the entire method body with a single throw so the
+		# literal move_uploaded_file token is removed from the shipped zip.
+		# Class + interface contract stay intact for any reflection/typecheck
+		# code that may inspect Psr17Factory's UploadedFileFactoryInterface
+		# implementation. Receiving a file upload was never a feature of this
+		# plugin; the behavioural change (RuntimeException instead of move)
+		# is therefore unobservable to plugin users.
+		#
+		# Why patch at build time rather than physically removing the file:
+		# Psr17Factory `use`s the UploadedFile symbol at the top. The `use`
+		# alone does not trigger autoload, but a future code path that calls
+		# class_exists() or instantiates the factory's createUploadedFile()
+		# would hit a Class-not-found fatal. Keeping the class but emptying
+		# the dangerous method is the lowest-blast-radius fix.
+		local uploaded_file="${dest}/lib/php-ai-client/third-party/Nyholm/Psr7/UploadedFile.php"
+		if [ -f "$uploaded_file" ]; then
+			echo "==> [${variant}] Neutralising move_uploaded_file() in bundled Nyholm UploadedFile.php..."
+
+			# Use python for a reliable multi-line replacement of the moveTo()
+			# method body; portable POSIX sed cannot match across newlines on
+			# all platforms (BSD vs GNU). Python 3 is required by wp-scripts
+			# tooling and is therefore already available on any build host.
+			python3 - "$uploaded_file" <<'PYEOF'
+import re, sys, pathlib
+p = pathlib.Path(sys.argv[1])
+src = p.read_text()
+pattern = re.compile(
+    r"public function moveTo\(\$targetPath\): void\s*\{.*?\n    \}",
+    re.DOTALL,
+)
+replacement = (
+    "public function moveTo($targetPath): void\n"
+    "    {\n"
+    "        // wporg-build: file-upload handling removed. This plugin only\n"
+    "        // acts as an outbound HTTP client and never receives uploads,\n"
+    "        // so this method is unreachable. The original implementation\n"
+    "        // called a forbidden PHP upload-mover (per WP.org plugin-check\n"
+    "        // ForbiddenFunctions ruleset), so the entire method body has\n"
+    "        // been replaced with this throw at WP.org build time.\n"
+    "        throw new \\RuntimeException('UploadedFile::moveTo() is not available in the WP.org build of Superdav AI Agent.');\n"
+    "    }"
+)
+new_src, count = pattern.subn(lambda _m: replacement, src, count=1)
+if count != 1:
+    sys.stderr.write(
+        "ERROR: failed to locate moveTo() body in UploadedFile.php — "
+        "upstream Nyholm/Psr7 source format may have changed.\n"
+    )
+    sys.exit(1)
+p.write_text(new_src)
+PYEOF
+
+			# Belt-and-braces: confirm the literal is gone from the shipped file.
+			if grep -q "move_uploaded_file" "$uploaded_file"; then
+				echo "ERROR: move_uploaded_file still present in $uploaded_file after patch." >&2
+				return 1
+			fi
+			echo "    UploadedFile::moveTo() neutralised; move_uploaded_file token removed."
+		fi
+
+		# Final tree-wide guard: WP.org's PHPCS-based plugin-check uses the
+		# Generic.PHP.ForbiddenFunctions sniff, which inspects PHP function-
+		# call tokens (T_STRING followed by T_OPEN_PARENTHESIS) and ignores
+		# occurrences inside comments and strings. We therefore only need to
+		# fail the build when the literal appears as an actual call site, not
+		# when it shows up in PSR-7 interface docblocks (UploadedFileInterface
+		# legitimately references the function name in its `@see` and prose).
+		#
+		# We approximate "call site" by looking for the literal followed by
+		# `(` after stripping single-line `//` and `#` comments and `/* */`
+		# blocks. Anything left is a real reference that would trip PHPCS.
+		echo "==> [${variant}] Final tree-wide check for forbidden upload-mover call sites..."
+		if python3 - "$dest" <<'PYGUARD'
+import pathlib, re, sys
+root = pathlib.Path(sys.argv[1])
+# Strip /* ... */ blocks and // / # line comments before searching.
+block = re.compile(r"/\*.*?\*/", re.DOTALL)
+line_comment = re.compile(r"(?m)(?://|\#).*$")
+hits = []
+for php in root.rglob("*.php"):
+    text = php.read_text(errors="replace")
+    stripped = line_comment.sub("", block.sub("", text))
+    # A call site looks like: optional `\` + name + `(`.
+    if re.search(r"\\?move_uploaded_file\s*\(", stripped):
+        hits.append(str(php))
+if hits:
+    print("CALL_SITES:")
+    for h in hits:
+        print(h)
+    sys.exit(1)
+sys.exit(0)
+PYGUARD
+		then
+			echo "    No forbidden upload-mover call sites in wporg build tree."
+		else
+			echo "ERROR: forbidden upload-mover call site still present in wporg build tree (see paths above)." >&2
+			echo "       Add the offending file(s) to .distignore-wporg or extend the build patch." >&2
+			return 1
+		fi
 	fi
 	echo "    Done."
 

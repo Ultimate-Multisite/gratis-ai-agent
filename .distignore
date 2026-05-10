@@ -31,8 +31,13 @@
 /package-lock.json
 /webpack.config.js
 
-# Composer dev metadata (vendor/ itself is included; only the manifests are excluded)
-/composer.json
+# Composer dev metadata.
+#
+# We intentionally SHIP /composer.json with the plugin zip — the WP.org
+# plugin-check tool warns ("missing_composer_json_file") when /vendor is
+# present without a sibling composer.json, and shipping the manifest is
+# explicitly allowed and helps reviewers verify dependency provenance.
+# composer.lock is dev-only and stays excluded.
 /composer.lock
 
 # PHP quality / test tooling (top-level config only — do not touch vendor copies)
