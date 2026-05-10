@@ -386,7 +386,9 @@ class BenchmarkCommand extends WP_CLI_Command {
 				return $log;
 			}
 
-			// Run assertions against live WordPress state.
+			// Run assertions against live WordPress state. `rest_api_init` is
+			// a WP core hook — not a plugin hook needing a prefix.
+			// phpcs:ignore WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedHooknameFound -- WP core hook, not a custom plugin hook.
 			do_action( 'rest_api_init' );
 			$assertion_ctx['tool_call_log'] = $log['tool_call_log'] ?? array();
 			$log['assertions']              = AssertionEngine::run( $question['assertions'], $assertion_ctx );

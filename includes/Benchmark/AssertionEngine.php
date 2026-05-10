@@ -309,7 +309,12 @@ class AssertionEngine {
 	 * @return array{pass: bool, expected: string, actual: string}
 	 */
 	private static function assert_rest_endpoint_registered( string $method, string $path ): array {
-		// Force REST route registration.
+		// Force REST route registration. `rest_api_init` is a WordPress core
+		// hook (not a plugin-owned hook), so the prefix rule does not apply —
+		// we are intentionally re-firing core's own hook in benchmark context
+		// because rest_get_server() may be called before the normal request
+		// lifecycle would have triggered it.
+		// phpcs:ignore WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedHooknameFound -- WP core hook, not a custom plugin hook.
 		do_action( 'rest_api_init' );
 
 		$server = rest_get_server();
@@ -357,6 +362,8 @@ class AssertionEngine {
 		array $expected_body_keys,
 		?int $as_user = null
 	): array {
+		// `rest_api_init` is a WP core hook — not a plugin hook needing a prefix.
+		// phpcs:ignore WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedHooknameFound -- WP core hook, not a custom plugin hook.
 		do_action( 'rest_api_init' );
 
 		$request = new \WP_REST_Request( $method, $path );
@@ -455,7 +462,30 @@ class AssertionEngine {
 			$table = $wpdb->prefix . $table;
 		}
 
-		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+		// Defence in depth: DESCRIBE cannot use prepared placeholders for the
+		// table identifier, so validate the name is a plain MySQL identifier
+		// (alphanumerics + underscore) and that it actually exists in this
+		// database before interpolating it into the query. This eliminates
+		// any path from a benchmark assertion definition to arbitrary SQL.
+		if ( ! preg_match( '/^[A-Za-z0-9_]+$/', $table ) ) {
+			return array(
+				'pass'     => false,
+				'expected' => 'table name to contain only [A-Za-z0-9_]',
+				'actual'   => "rejected unsafe table name: {$table}",
+			);
+		}
+
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+		$exists = $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $table ) );
+		if ( $exists !== $table ) {
+			return array(
+				'pass'     => false,
+				'expected' => "table {$table} exists with columns: " . implode( ', ', $columns ),
+				'actual'   => "table {$table} does not exist",
+			);
+		}
+
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.InterpolatedNotPrepared, PluginCheck.Security.DirectDB.UnescapedDBParameter -- $table is validated against /^[A-Za-z0-9_]+$/ AND confirmed to exist via SHOW TABLES above; DESCRIBE does not accept prepared placeholders for identifiers.
 		$rows = (array) $wpdb->get_results( "DESCRIBE `{$table}`", ARRAY_A );
 
 		if ( empty( $rows ) ) {
