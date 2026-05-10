@@ -457,6 +457,14 @@ class Agent {
 	 * The meta-tools (ability-search/ability-call) are always appended by
 	 * ToolDiscovery regardless, so they don't need to be listed here.
 	 *
+	 * The post-management abilities (create-post / update-post / list-posts)
+	 * and update-global-styles are intentionally part of the shared base:
+	 * the General agent's system prompt and SystemInstructionBuilder both
+	 * direct the model to chain create → update on the same page and to
+	 * apply theme colors via update-global-styles. Omitting them here causes
+	 * the resolver to reject the calls with `ability_not_allowed`, the model
+	 * loops, and `max_iterations` is depleted with an empty result. See #1295.
+	 *
 	 * @return list<string>
 	 */
 	public static function get_general_tier_1_tools(): array {
@@ -469,6 +477,9 @@ class Agent {
 			'sd-ai-agent/knowledge-search',
 			'wp-cli/execute',
 			'sd-ai-agent/create-post',
+			'sd-ai-agent/update-post',
+			'sd-ai-agent/list-posts',
+			'sd-ai-agent/update-global-styles',
 		];
 	}
 
@@ -611,7 +622,7 @@ class Agent {
 				. "- Include `categories` and `tags` arrays for blog posts.\n"
 				. "- Include `excerpt` for SEO meta descriptions.\n"
 				. "- To add a featured image: first call `sd-ai-agent/stock-image` or `sd-ai-agent/generate-image`, then pass the returned attachment_id as `featured_image_id`.\n"
-				. "- For WooCommerce products, use `sd-ai-agent/woo-create-product` instead.\n\n"
+				. "- For WooCommerce products, search for a `woo-create-product` ability via `sd-ai-agent/ability-search` (only available when WooCommerce is active).\n\n"
 				. "## Tips\n"
 				. "- Chain operations: create content first, then configure settings.\n"
 				. "- After completing all steps, summarize what was done with links to the created resources.\n\n"
@@ -625,7 +636,22 @@ class Agent {
 				. '- Always provide a helpful text response explaining what you tried before calling the ability.',
 			'greeting'      => __( 'What can I help you with?', 'superdav-ai-agent' ),
 			'avatar_icon'   => 'dashicons-admin-generic',
-			'tier_1_tools'  => $base_tools,
+			'tier_1_tools'  => array_values(
+				array_unique(
+					array_merge(
+						$base_tools,
+						[
+							// Mentioned in the "Content Creation" and
+							// "Reporting Inability" sections of this prompt;
+							// must be in tier_1 so the resolver does not
+							// reject them with `ability_not_allowed`. See #1295.
+							'sd-ai-agent/stock-image',
+							'sd-ai-agent/generate-image',
+							'sd-ai-agent/report-inability',
+						]
+					)
+				)
+			),
 			'suggestions'   => [
 				[
 					'title'       => __( 'Site health check', 'superdav-ai-agent' ),
@@ -698,6 +724,7 @@ class Agent {
 							'sd-ai-agent/list-posts',
 							'sd-ai-agent/update-post',
 							'sd-ai-agent/stock-image',
+							'sd-ai-agent/generate-image',
 						]
 					)
 				)
@@ -773,6 +800,7 @@ class Agent {
 							'sd-ai-agent/list-posts',
 							'sd-ai-agent/update-post',
 							'sd-ai-agent/list-options',
+							'sd-ai-agent/update-option',
 							'sd-ai-agent/get-plugins',
 						]
 					)
@@ -849,7 +877,9 @@ class Agent {
 						$base_tools,
 						[
 							'sd-ai-agent/woo-create-product',
+							'sd-ai-agent/woo-update-product',
 							'sd-ai-agent/woo-get-products',
+							'sd-ai-agent/woo-get-orders',
 							'sd-ai-agent/stock-image',
 							'sd-ai-agent/get-plugins',
 						]

@@ -423,4 +423,69 @@ class AgentTest extends WP_UnitTestCase {
 		$this->assertNull( $arr['temperature'] );
 		$this->assertNull( $arr['max_iterations'] );
 	}
+
+	// ─── built-in definitions ───────────────────────────────────────────────
+
+	/**
+	 * General agent must include the post-iteration abilities its system
+	 * prompt directs the model to call.
+	 *
+	 * Regression test for #1295: General agent's prompt told the model to
+	 * iterate via update-post / update-global-styles, but those abilities
+	 * were absent from tier_1_tools. The resolver rejected the calls, the
+	 * model looped, max_iterations was depleted, and pages came out empty.
+	 */
+	public function test_general_tier_1_tools_includes_post_iteration_abilities(): void {
+		$tools = Agent::get_general_tier_1_tools();
+
+		$this->assertContains( 'sd-ai-agent/create-post', $tools );
+		$this->assertContains( 'sd-ai-agent/update-post', $tools );
+		$this->assertContains( 'sd-ai-agent/list-posts', $tools );
+		$this->assertContains( 'sd-ai-agent/update-global-styles', $tools );
+	}
+
+	/**
+	 * Every ability mentioned in a built-in agent's system prompt must be
+	 * present in that agent's tier_1_tools (or in the meta-tools that the
+	 * resolver always exposes). Catches drift between prompt and tool surface
+	 * — see #1295.
+	 */
+	public function test_builtin_agent_prompts_only_reference_their_own_tools(): void {
+		$reflection = new \ReflectionClass( Agent::class );
+		$method     = $reflection->getMethod( 'get_builtin_definitions' );
+		$method->setAccessible( true );
+		$definitions = $method->invoke( null );
+
+		$this->assertIsArray( $definitions );
+
+		foreach ( $definitions as $def ) {
+			$slug          = $def['slug'];
+			$prompt        = $def['system_prompt'];
+			$tier_1        = $def['tier_1_tools'];
+
+			// Extract every ability mentioned in the prompt: matches
+			// `sd-ai-agent/<name>` inside backticks, with optional trailing
+			// punctuation. Excludes plain words like "sd-ai-agent" alone.
+			preg_match_all(
+				'#`(sd-ai-agent/[a-z0-9-]+)`#',
+				$prompt,
+				$matches
+			);
+
+			$mentioned = array_values( array_unique( $matches[1] ) );
+
+			foreach ( $mentioned as $ability ) {
+				$this->assertContains(
+					$ability,
+					$tier_1,
+					sprintf(
+						"Built-in agent '%s' system prompt references `%s` but it is not in tier_1_tools. "
+						. 'Either add it to tier_1_tools or stop telling the model to call it (see #1295).',
+						$slug,
+						$ability
+					)
+				);
+			}
+		}
+	}
 }

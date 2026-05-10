@@ -123,6 +123,12 @@ class WP_AI_Client_Ability_Function_Resolver {
 		$ability_name = self::function_name_to_ability_name( $function_name );
 
 		if ( ! isset( $this->allowed_abilities[ $ability_name ] ) ) {
+			// Include the actual allowed list in the response so the model
+			// can self-correct instead of looping with ability-search and
+			// burning iterations against an unknown surface. See #1295.
+			$allowed_list = array_keys( $this->allowed_abilities );
+			sort( $allowed_list );
+
 			return new FunctionResponse(
 				$function_id,
 				$function_name,
@@ -130,6 +136,10 @@ class WP_AI_Client_Ability_Function_Resolver {
 					/* translators: %s: ability name */
 					'error' => sprintf( __( 'Ability "%s" was not specified in the allowed abilities list.', 'superdav-ai-agent' ), $ability_name ),
 					'code'  => 'ability_not_allowed',
+					'data'  => array(
+						'allowed_abilities' => $allowed_list,
+						'hint'              => __( 'Pick a different ability from allowed_abilities, or call sd-ai-agent/ability-search to discover others. Do not retry the same name.', 'superdav-ai-agent' ),
+					),
 				)
 			);
 		}
