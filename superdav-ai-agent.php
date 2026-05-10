@@ -128,6 +128,7 @@ if ( file_exists( SD_AI_AGENT_DIR . '/vendor/autoload_packages.php' ) ) {
 
 use SdAiAgent\Bootstrap\LifecycleHandler;
 use SdAiAgent\Compat\AiBridgeLoader;
+use SdAiAgent\Compat\GutenbergConnectorsBridge;
 use SdAiAgent\Compat\SdkLoader;
 use SdAiAgent\Plugin;
 
@@ -147,6 +148,18 @@ AiBridgeLoader::maybe_load();
 // using the same connectors_ai_{provider}_api_key option names as WP 7.0.
 // On WP 7.0+ the function_exists() guards in the file prevent double-definition.
 require_once SD_AI_AGENT_DIR . '/includes/Compat/wp-connectors-polyfill.php';
+
+// Phase 4 (#1311): Force-load Gutenberg's Connectors subsystem on WP 6.9.
+// Gutenberg gates the entire `lib/experimental/connectors/` subsystem on a
+// `class_exists('\WordPress\AiClient\AiClient')` check evaluated at
+// plugin file-load time. Because plugins load alphabetically, our
+// `SdkLoader::register()` above runs *after* Gutenberg's gate, so the gate
+// always fails and the connectors registry is never populated. Hooking
+// `plugins_loaded:1` runs after every plugin's main file but well before
+// Gutenberg's `init:15` registry initialiser — exactly the window where
+// directly requiring Gutenberg's loader restores the full subsystem.
+// On WP 7.0+ (or without Gutenberg ≥ 22.8.0) this hook is a no-op.
+add_action( 'plugins_loaded', [ GutenbergConnectorsBridge::class, 'force_load_connectors_subsystem' ], 1 );
 
 // Activation / deactivation hooks fire *before* `plugins_loaded`, so they
 // cannot be wired through the DI container. `LifecycleHandler` consolidates

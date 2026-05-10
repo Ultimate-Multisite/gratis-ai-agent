@@ -47,14 +47,23 @@ final class AdminHandler {
 	}
 
 	/**
-	 * Restore the Gutenberg-backed Connectors page on WP 6.9 installs where
-	 * Gutenberg's own gate skipped registration due to plugin-load-order
-	 * (Gutenberg loads alphabetically before us, so its `class_exists` check
-	 * for `\WordPress\AiClient\AiClient` fails before our SdkLoader runs).
+	 * Belt-and-braces fallback for the Gutenberg Connectors page on WP 6.9.
 	 *
-	 * Priority 12 runs one tick after Gutenberg's own priority 11 hook so we
-	 * can detect — and not duplicate — its registration when it does succeed.
+	 * The PRIMARY fix for the missing-Connectors-page bug runs at
+	 * `plugins_loaded:1` from `superdav-ai-agent.php`, where we directly
+	 * require Gutenberg's `lib/experimental/connectors/load.php`. That
+	 * loader registers Gutenberg's own `admin_menu:11` callback which adds
+	 * the Settings → Connectors menu item normally.
 	 *
+	 * This admin-only fallback runs at `admin_menu:12` (one tick after
+	 * Gutenberg's own callback) and registers the menu item directly —
+	 * but ONLY if it has not already been registered. So in the normal
+	 * happy path (primary fix worked) this method is a no-op; it only
+	 * creates a menu item if a future Gutenberg release moves the loader
+	 * path or otherwise breaks the primary fix, ensuring the page is at
+	 * least reachable while we ship a follow-up.
+	 *
+	 * @see GutenbergConnectorsBridge::force_load_connectors_subsystem()
 	 * @see GutenbergConnectorsBridge::maybe_register()
 	 */
 	#[Action( tag: 'admin_menu', priority: 12 )]
