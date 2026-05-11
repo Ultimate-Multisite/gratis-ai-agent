@@ -38,6 +38,19 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
+// Idempotent include guard. The Jetpack autoloader's PHP_Autoloader uses
+// `require` (not `require_once`) on line 102 of class-php-autoloader.php, so
+// if this file is autoloaded through two distinct path representations of
+// the same on-disk file (a real risk when the plugin is symlinked into
+// `wp-content/plugins/` and `__FILE__` realpath differs from the include
+// path used by Composer/Jetpack autoload manifests), PHP fatals with
+// "Cannot redeclare class". The guard makes the file safe to evaluate
+// twice without changing observable behaviour: the class was already
+// declared on the first pass, so we have nothing to do on the second.
+if ( class_exists( __NAMESPACE__ . '\\SdkLoader', false ) ) {
+	return;
+}
+
 /**
  * Registers the bundled wordpress/php-ai-client SDK autoloader.
  *
