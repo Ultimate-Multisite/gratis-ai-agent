@@ -318,6 +318,14 @@ class WpCliAbilities {
 			return $perm_check;
 		}
 
+		if ( ! self::is_proc_open_available() ) {
+			return new WP_Error(
+				'proc_open_unavailable',
+				__( 'WP-CLI execution is unavailable because PHP proc_open() is disabled on this host. Use the REST, posts, options, media, or other WordPress abilities instead.', 'superdav-ai-agent' ),
+				array( 'status' => 501 )
+			);
+		}
+
 		// Find WP-CLI binary.
 		$wp_binary = self::find_wp_cli();
 
@@ -582,6 +590,24 @@ class WpCliAbilities {
 			}
 		}
 		return false;
+	}
+
+	/**
+	 * Determine whether PHP can spawn a WP-CLI subprocess.
+	 *
+	 * @return bool
+	 */
+	private static function is_proc_open_available(): bool {
+		$available = function_exists( 'proc_open' ) && is_callable( 'proc_open' );
+
+		/**
+		 * Filter whether the WP-CLI ability may use proc_open().
+		 *
+		 * Primarily useful for tests and hosts that wrap proc_open availability.
+		 *
+		 * @param bool $available Whether proc_open() is available.
+		 */
+		return (bool) apply_filters( 'sd_ai_agent_wp_cli_proc_open_available', $available );
 	}
 
 	/**
