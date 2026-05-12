@@ -54,12 +54,12 @@ const REFRESH_MS = 5 * 60 * 1000;
  */
 function severityClass( severity ) {
 	if ( 'error' === severity ) {
-		return 'sdaa-chat-banner--error';
+		return 'sd-ai-agent-chat-banner--error';
 	}
 	if ( 'warning' === severity ) {
-		return 'sdaa-chat-banner--warning';
+		return 'sd-ai-agent-chat-banner--warning';
 	}
-	return 'sdaa-chat-banner--info';
+	return 'sd-ai-agent-chat-banner--info';
 }
 
 /**
@@ -129,7 +129,7 @@ export default function ChatBanners() {
 	}
 
 	return (
-		<div className="sdaa-chat-banners">
+		<div className="sd-ai-agent-chat-banners">
 			{ banners.map( ( banner, index ) => {
 				// Producers SHOULD supply a stable id; fall back to the
 				// array index so React doesn't warn when they don't.
@@ -137,19 +137,19 @@ export default function ChatBanners() {
 					banner.id && 'string' === typeof banner.id
 						? banner.id
 						: `banner-${ index }`;
-				const className = `sdaa-chat-banner ${ severityClass(
+				const className = `sd-ai-agent-chat-banner ${ severityClass(
 					banner.severity
 				) }`;
 				const role = 'error' === banner.severity ? 'alert' : 'status';
 
 				return (
 					<div key={ key } className={ className } role={ role }>
-						<span className="sdaa-chat-banner__message">
+						<span className="sd-ai-agent-chat-banner__message">
 							{ banner.message }
 						</span>
 						{ banner.cta_url && banner.cta_label && (
 							<a
-								className="sdaa-chat-banner__cta"
+								className="sd-ai-agent-chat-banner__cta"
 								href={ banner.cta_url }
 								target="_blank"
 								rel="noopener noreferrer"

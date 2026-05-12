@@ -106,7 +106,7 @@ describe( 'ChatBanners', () => {
 				},
 			],
 		} );
-		expect( html ).toContain( 'sdaa-chat-banner--info' );
+		expect( html ).toContain( 'sd-ai-agent-chat-banner--info' );
 		expect( html ).toContain( 'Heads up!' );
 		expect( html ).not.toContain( '<a' );
 	} );
@@ -123,7 +123,7 @@ describe( 'ChatBanners', () => {
 				},
 			],
 		} );
-		expect( html ).toContain( 'sdaa-chat-banner--warning' );
+		expect( html ).toContain( 'sd-ai-agent-chat-banner--warning' );
 		expect( html ).toContain( 'Approaching limit' );
 		expect( html ).toContain( 'href="https://example.test/upgrade"' );
 		expect( html ).toContain( 'target="_blank"' );
@@ -141,7 +141,7 @@ describe( 'ChatBanners', () => {
 				},
 			],
 		} );
-		expect( html ).toContain( 'sdaa-chat-banner--error' );
+		expect( html ).toContain( 'sd-ai-agent-chat-banner--error' );
 		expect( html ).toContain( 'role="alert"' );
 	} );
 
@@ -182,7 +182,7 @@ describe( 'ChatBanners', () => {
 		} );
 		expect( html ).toContain( 'Visible' );
 		// No second banner element rendered.
-		expect( html.match( /sdaa-chat-banner--/g ) ).toHaveLength( 1 );
+		expect( html.match( /sd-ai-agent-chat-banner--/g ) ).toHaveLength( 1 );
 	} );
 
 	test( 'drops banners with an unknown severity', async () => {
