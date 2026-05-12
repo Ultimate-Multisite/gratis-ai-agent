@@ -120,7 +120,7 @@ export default function ChatRedesign() {
 					sidebarCollapsed ? ' is-sidebar-collapsed' : ''
 				}` }
 			>
-				<ErrorBoundary label={ __( 'Sidebar', 'sd-ai-agent' ) }>
+				<ErrorBoundary label={ __( 'Sidebar', 'superdav-ai-agent' ) }>
 					<Sidebar
 						collapsed={ sidebarCollapsed }
 						onToggleCollapse={ toggleSidebar }
@@ -136,7 +136,7 @@ export default function ChatRedesign() {
 					/>
 
 					<ErrorBoundary
-						label={ __( 'Chat banners', 'sd-ai-agent' ) }
+						label={ __( 'Chat banners', 'superdav-ai-agent' ) }
 					>
 						<ChatBanners />
 					</ErrorBoundary>
@@ -150,13 +150,13 @@ export default function ChatRedesign() {
 					) }
 
 					<ErrorBoundary
-						label={ __( 'Message list', 'sd-ai-agent' ) }
+						label={ __( 'Message list', 'superdav-ai-agent' ) }
 					>
 						<MessageList />
 					</ErrorBoundary>
 
 					<ErrorBoundary
-						label={ __( 'Message input', 'sd-ai-agent' ) }
+						label={ __( 'Message input', 'superdav-ai-agent' ) }
 					>
 						<InputArea />
 					</ErrorBoundary>
