@@ -111,7 +111,9 @@ final class RestController {
 							'properties' => array(
 								'id'     => array( 'type' => 'string' ),
 								'name'   => array( 'type' => 'string' ),
-								'result' => array(),
+								'result' => array(
+									'type' => array( 'string', 'number', 'integer', 'boolean', 'array', 'object', 'null' ),
+								),
 								'error'  => array( 'type' => 'string' ),
 							),
 						),
