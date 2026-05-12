@@ -25,13 +25,13 @@ class ReportSanitizer {
 	 * @var array<string, string>
 	 */
 	private const CREDENTIAL_PATTERNS = array(
-		'bearer_token'   => '/\bBearer\s+[A-Za-z0-9\-._~+\/]+=*/i',
+		'bearer_token'   => '/\bBearer\s+[A-Za-z0-9\-._~+\/]{20,}=*/i',
 		'basic_auth'     => '/\bBasic\s+[A-Za-z0-9+\/]+=*/i',
-		'api_key_param'  => '/\b(?:api[_-]?key|apikey|access[_-]?token|secret[_-]?key)\s*[=:]\s*[^\s&"\']{8,}/i',
+		'api_key_param'  => '/\b(?:api[_-]?key|apikey|access[_-]?token|auth[_-]?token|secret[_-]?key|token)\s*[=:]\s*[^\s&"\']{8,}/i',
 		'password_param' => '/\b(?:password|passwd|pwd)\s*[=:]\s*[^\s&"\']{3,}/i',
 		'aws_key_id'     => '/\bAKIA[0-9A-Z]{16}\b/',
-		'aws_secret'     => '/\b[A-Za-z0-9\/+]{40}\b/',
-		'openai_key'     => '/\bsk-[A-Za-z0-9]{20,}\b/',
+		'high_entropy'   => '/(?:(?<=[=:]\s)|\b)([A-Za-z0-9+\/_=-]{40,})(?=\b|\s|$)/',
+		'openai_key'     => '/\bsk-(?:proj-)?[A-Za-z0-9_\-]{20,}\b/',
 		'anthropic_key'  => '/\bsk-ant-[A-Za-z0-9\-]{20,}\b/',
 		'jwt_token'      => '/\beyJ[A-Za-z0-9\-_]+\.[A-Za-z0-9\-_]+\.[A-Za-z0-9\-_]+\b/',
 	);
@@ -49,6 +49,12 @@ class ReportSanitizer {
 				/** @var array<int, array<string, mixed>> $messages */
 				$messages                            = $session_data['messages'];
 				$payload['session_data']['messages'] = self::sanitize_messages( $messages );
+			}
+
+			if ( isset( $session_data['session_messages'] ) && is_array( $session_data['session_messages'] ) ) {
+				/** @var array<int, array<string, mixed>> $session_messages */
+				$session_messages                            = $session_data['session_messages'];
+				$payload['session_data']['session_messages'] = self::sanitize_messages( $session_messages );
 			}
 
 			if ( isset( $session_data['tool_calls'] ) && is_array( $session_data['tool_calls'] ) ) {
@@ -111,8 +117,8 @@ class ReportSanitizer {
 				// Sanitize input arguments (may contain user-supplied data).
 				if ( is_array( $entry['input'] ?? null ) ) {
 					$entry['input'] = array_map(
-						static function ( $value ): mixed {
-							return is_string( $value ) ? self::sanitize_string( $value ) : $value;
+						static function ( mixed $value ): mixed {
+							return self::sanitize_value( $value );
 						},
 						$entry['input']
 					);
@@ -127,6 +133,29 @@ class ReportSanitizer {
 			},
 			$tool_calls
 		);
+	}
+
+	/**
+	 * Sanitize a mixed payload value recursively.
+	 *
+	 * @param mixed $value Value to sanitize.
+	 * @return mixed Sanitized value.
+	 */
+	private static function sanitize_value( mixed $value ): mixed {
+		if ( is_string( $value ) ) {
+			return self::sanitize_string( $value );
+		}
+
+		if ( is_array( $value ) ) {
+			return array_map(
+				static function ( mixed $nested_value ): mixed {
+					return self::sanitize_value( $nested_value );
+				},
+				$value
+			);
+		}
+
+		return $value;
 	}
 
 	/**
