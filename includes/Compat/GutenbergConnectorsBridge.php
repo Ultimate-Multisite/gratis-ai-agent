@@ -267,7 +267,22 @@ final class GutenbergConnectorsBridge {
 			return null;
 		}
 
-		return $render_fn;
+		return array( self::class, 'render_gutenberg_connectors_page' );
+	}
+
+	/**
+	 * Render Gutenberg's Connectors admin page through a stable callback.
+	 *
+	 * @return void
+	 */
+	private static function render_gutenberg_connectors_page(): void {
+		$render_fn = 'gutenberg_options_connectors_wp_admin_render_page';
+		if ( ! function_exists( $render_fn ) ) {
+			return;
+		}
+
+		$reflection = new \ReflectionFunction( $render_fn );
+		$reflection->invoke();
 	}
 
 	/**
