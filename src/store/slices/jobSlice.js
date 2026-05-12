@@ -182,12 +182,12 @@ export const actions = {
 					role: 'system',
 					parts: [
 						{
-							text: `${ __( 'Error:', 'sd-ai-agent' ) } ${
+							text: `${ __( 'Error:', 'superdav-ai-agent' ) } ${
 								lastErr instanceof Error
 									? lastErr.message
 									: __(
 											'Failed to submit client tool results.',
-											'sd-ai-agent'
+											'superdav-ai-agent'
 									  )
 							}`,
 						},
@@ -405,7 +405,7 @@ export const actions = {
 										name: call.name,
 										error: __(
 											'Client-side ability requires user confirmation (not yet supported for non-readonly abilities).',
-											'sd-ai-agent'
+											'superdav-ai-agent'
 										),
 									};
 								}
@@ -506,17 +506,17 @@ export const actions = {
 										{
 											text: `${ __(
 												'Error:',
-												'sd-ai-agent'
+												'superdav-ai-agent'
 											) } ${
 												postErr instanceof Error
 													? postErr.message
 													: __(
 															'Failed to submit client tool results.',
-															'sd-ai-agent'
+															'superdav-ai-agent'
 													  )
 											} ${ __(
 												'Use the Retry button to resubmit without re-running the tools.',
-												'sd-ai-agent'
+												'superdav-ai-agent'
 											) }`,
 										},
 									],
@@ -557,15 +557,18 @@ export const actions = {
 					}
 
 					if ( result.status === 'error' ) {
-						let errorText = `${ __( 'Error:', 'sd-ai-agent' ) } ${
+						let errorText = `${ __(
+							'Error:',
+							'superdav-ai-agent'
+						) } ${
 							result.message ||
-							__( 'Unknown error', 'sd-ai-agent' )
+							__( 'Unknown error', 'superdav-ai-agent' )
 						}`;
 						if ( result.error_context ) {
 							const ctx = result.error_context;
 							errorText += `\n\n**${ __(
 								'Location:',
-								'sd-ai-agent'
+								'superdav-ai-agent'
 							) }** \`${ ctx.file }:${ ctx.line }\``;
 							if (
 								Array.isArray( ctx.trace ) &&
@@ -573,7 +576,7 @@ export const actions = {
 							) {
 								errorText +=
 									'\n\n**' +
-									__( 'Stack trace:', 'sd-ai-agent' ) +
+									__( 'Stack trace:', 'superdav-ai-agent' ) +
 									'**\n```\n' +
 									ctx.trace.join( '\n' ) +
 									'\n```';
