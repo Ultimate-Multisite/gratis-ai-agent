@@ -213,4 +213,41 @@ class ContentAbilitiesTest extends WP_UnitTestCase {
 
 		$this->assertSame( 365, $result['period_days'] );
 	}
+
+	// ─── create contact form ───────────────────────────────────────
+
+	/**
+	 * Test handle_create_contact_form returns a dependency-free HTML block fallback.
+	 */
+	public function test_handle_create_contact_form_returns_html_block_fallback() {
+		$result = ContentAbilities::handle_create_contact_form( [
+			'title'           => 'Get In Touch',
+			'recipient_email' => 'hello@example.test',
+			'submit_label'    => 'Send Now',
+		] );
+
+		$this->assertIsArray( $result );
+		$this->assertSame( 'html', $result['provider'] );
+		$this->assertSame( 'Get In Touch', $result['title'] );
+		$this->assertSame( '', $result['shortcode'] );
+		$this->assertSame( 0, $result['form_id'] );
+		$this->assertStringContainsString( '<!-- wp:html -->', $result['block'] );
+		$this->assertStringContainsString( 'sd-ai-agent-contact-form', $result['block'] );
+		$this->assertStringContainsString( 'Send Now', $result['block'] );
+	}
+
+	/**
+	 * Test handle_create_contact_form falls back to defaults for empty inputs.
+	 */
+	public function test_handle_create_contact_form_uses_defaults_for_empty_inputs() {
+		$result = ContentAbilities::handle_create_contact_form( [
+			'title'           => '',
+			'recipient_email' => 'not-an-email',
+			'submit_label'    => '',
+		] );
+
+		$this->assertIsArray( $result );
+		$this->assertSame( 'Contact Form', $result['title'] );
+		$this->assertStringContainsString( 'Send Message', $result['block'] );
+	}
 }

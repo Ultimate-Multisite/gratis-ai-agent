@@ -334,6 +334,92 @@ class PostAbilitiesTest extends WP_UnitTestCase {
 		$this->assertArrayHasKey( 'status', $result );
 	}
 
+	// ─── handle_batch_create_posts ──────────────────────────────────
+
+	/**
+	 * Test handle_batch_create_posts creates multiple posts and reports counts.
+	 */
+	public function test_handle_batch_create_posts_creates_multiple_posts() {
+		$result = PostAbilities::handle_batch_create_posts( [
+			'posts' => [
+				[
+					'title'  => 'Batch Draft',
+					'status' => 'draft',
+				],
+				[
+					'title'     => 'Batch Page',
+					'post_type' => 'page',
+					'status'    => 'publish',
+				],
+			],
+		] );
+
+		$this->assertIsArray( $result );
+		$this->assertSame( 2, $result['created_count'] );
+		$this->assertSame( 0, $result['error_count'] );
+		$this->assertCount( 2, $result['results'] );
+		$this->assertSame( 'Batch Draft', get_the_title( $result['results'][0]['post_id'] ) );
+		$this->assertSame( 'page', get_post_type( $result['results'][1]['post_id'] ) );
+	}
+
+	/**
+	 * Test handle_batch_create_posts captures per-item errors without failing the whole batch.
+	 */
+	public function test_handle_batch_create_posts_returns_partial_errors() {
+		$result = PostAbilities::handle_batch_create_posts( [
+			'posts' => [
+				[ 'title' => '' ],
+				[ 'title' => 'Valid Batch Post' ],
+			],
+		] );
+
+		$this->assertIsArray( $result );
+		$this->assertSame( 1, $result['created_count'] );
+		$this->assertSame( 1, $result['error_count'] );
+		$this->assertSame( 0, $result['results'][0]['post_id'] );
+		$this->assertNotEmpty( $result['results'][0]['error'] );
+		$this->assertGreaterThan( 0, $result['results'][1]['post_id'] );
+	}
+
+	/**
+	 * Test handle_batch_create_posts requires a non-empty posts array.
+	 */
+	public function test_handle_batch_create_posts_requires_posts() {
+		$result = PostAbilities::handle_batch_create_posts( [ 'posts' => [] ] );
+
+		$this->assertInstanceOf( \WP_Error::class, $result );
+		$this->assertSame( 'ai_agent_batch_empty', $result->get_error_code() );
+	}
+
+	// ─── handle_set_featured_image ──────────────────────────────────
+
+	/**
+	 * Test handle_set_featured_image requires post_id.
+	 */
+	public function test_handle_set_featured_image_requires_post_id() {
+		$result = PostAbilities::handle_set_featured_image( [ 'featured_image_id' => 0 ] );
+
+		$this->assertInstanceOf( \WP_Error::class, $result );
+		$this->assertSame( 'ai_agent_empty_post_id', $result->get_error_code() );
+	}
+
+	/**
+	 * Test handle_set_featured_image removes thumbnails idempotently.
+	 */
+	public function test_handle_set_featured_image_removes_without_existing_thumbnail() {
+		$post_id = $this->factory->post->create( [ 'post_status' => 'publish' ] );
+
+		$result = PostAbilities::handle_set_featured_image( [
+			'post_id'           => $post_id,
+			'featured_image_id' => 0,
+		] );
+
+		$this->assertIsArray( $result );
+		$this->assertSame( $post_id, $result['post_id'] );
+		$this->assertSame( 0, $result['featured_image_id'] );
+		$this->assertSame( 'removed', $result['result'] );
+	}
+
 	// ─── handle_delete_post ───────────────────────────────────────
 
 	/**

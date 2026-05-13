@@ -1151,7 +1151,8 @@ class PostAbilities {
 		}
 
 		if ( 0 === $featured_image_id ) {
-			$result = delete_post_thumbnail( $post_id );
+			delete_post_thumbnail( $post_id );
+			$result = true;
 			$action = 'removed';
 		} else {
 			$result = set_post_thumbnail( $post_id, $featured_image_id );
