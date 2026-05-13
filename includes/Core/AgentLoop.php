@@ -237,8 +237,15 @@ class AgentLoop {
 		// }
 		// @phpstan-ignore-next-line
 		$this->temperature = $options['temperature'] ?? ( $settings['temperature'] ?? 0.7 );
+		// max_output_tokens semantics:
+		// - 0 (Settings::MAX_OUTPUT_TOKENS_AUTO) means "resolve per model at
+		// request time" — see send_prompt(). This is the default for new
+		// installs; existing installs may have a saved 4096 from the
+		// pre-7rl default, which we honour as an explicit override.
+		// - a positive value is treated as an explicit user override and
+		// passed to the provider (clamped to MAX_OUTPUT_TOKENS_CEILING).
 		// @phpstan-ignore-next-line
-		$this->max_output_tokens = $options['max_output_tokens'] ?? ( $settings['max_output_tokens'] ?? 4096 );
+		$this->max_output_tokens = (int) ( $options['max_output_tokens'] ?? ( $settings['max_output_tokens'] ?? Settings::MAX_OUTPUT_TOKENS_AUTO ) );
 
 		// If an agent_system_prompt is provided, inject it into settings so
 		// build_system_instruction() uses it as the base instead of the global prompt.
@@ -918,7 +925,22 @@ class AgentLoop {
 		}
 
 		if ( method_exists( $builder, 'using_max_tokens' ) ) {
-			$builder->using_max_tokens( (int) $this->max_output_tokens );
+			// Resolve the effective max_tokens for this request.
+			//
+			// AUTO (0): consult the per-model catalog so each provider/model
+			// gets a sensible value (e.g. 32K for Claude 4.x, 16K for GPT-4o,
+			// 8K for Gemini Flash). The legacy 4096 default truncated tool_use
+			// input JSON for any non-trivial payload — see sd-ai-7rl.
+			//
+			// EXPLICIT (>0): honour the user's saved override but clamp at
+			// MAX_OUTPUT_TOKENS_CEILING to defend against runaway generations.
+			$max_tokens = $this->max_output_tokens;
+			if ( $max_tokens <= Settings::MAX_OUTPUT_TOKENS_AUTO ) {
+				$max_tokens = Settings::get_max_output_tokens_for_model( $this->model_id );
+			} elseif ( $max_tokens > Settings::MAX_OUTPUT_TOKENS_CEILING ) {
+				$max_tokens = Settings::MAX_OUTPUT_TOKENS_CEILING;
+			}
+			$builder->using_max_tokens( $max_tokens );
 		}
 
 		$abilities = $this->resolve_abilities();

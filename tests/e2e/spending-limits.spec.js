@@ -44,7 +44,7 @@ const MOCK_SETTINGS = {
 	knowledge_auto_index: false,
 	system_prompt: '',
 	temperature: 0.7,
-	max_output_tokens: 4096,
+	max_output_tokens: 0, // 0 = auto per-model (sd-ai-7rl). Was 4096.
 	context_window_default: 128000,
 	tool_discovery_mode: 'auto',
 	tool_discovery_threshold: 20,

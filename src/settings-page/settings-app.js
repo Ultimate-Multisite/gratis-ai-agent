@@ -1785,20 +1785,34 @@ export default function SettingsApp() {
 														<TextControl
 															id="sd-max-output-tokens"
 															type="number"
-															min={ 256 }
-															max={ 32768 }
+															min={ 0 }
+															max={ 131072 }
 															value={
 																local.max_output_tokens
 															}
-															onChange={ ( v ) =>
-																updateField(
-																	'max_output_tokens',
+															onChange={ (
+																v
+															) => {
+																const parsed =
 																	parseInt(
 																		v,
 																		10
-																	) || 4096
-																)
-															}
+																	);
+																updateField(
+																	'max_output_tokens',
+																	Number.isFinite(
+																		parsed
+																	) &&
+																		parsed >=
+																			0
+																		? parsed
+																		: 0
+																);
+															} }
+															help={ __(
+																'0 = auto (resolve per model — e.g. 32K for Claude 4.x, 16K for GPT-4o, 8K for Gemini Flash). Set explicitly only if you need to cap or extend a specific model.',
+																'sd-ai-agent'
+															) }
 															__nextHasNoMarginBottom
 														/>
 													</td>

@@ -58,7 +58,9 @@ class SettingsTest extends WP_UnitTestCase {
 		$this->assertSame( 50, $defaults['max_iterations'] );
 		$this->assertSame( true, $defaults['auto_memory'] );
 		$this->assertSame( 0.2, $defaults['temperature'] );
-		$this->assertSame( 4096, $defaults['max_output_tokens'] );
+		// 0 is the "auto / per-model" sentinel — see Settings::MAX_OUTPUT_TOKENS_AUTO
+		// and Settings::get_max_output_tokens_for_model(). Was 4096 until sd-ai-7rl.
+		$this->assertSame( 0, $defaults['max_output_tokens'] );
 		$this->assertSame( 20, $defaults['max_history_turns'] );
 	}
 
@@ -175,5 +177,109 @@ class SettingsTest extends WP_UnitTestCase {
 		$this->assertSame( 'auto', $permissions['woocommerce/orders-list'] );
 		$this->assertArrayNotHasKey( 'sd-ai-agent/woo-get-products', $permissions );
 		$this->assertTrue( (bool) get_option( Settings::WOO_AUTO_ENABLED_OPTION ) );
+	}
+
+	// ─────────────────────────────────────────────────────────────────────
+	// get_max_output_tokens_for_model() — sd-ai-7rl
+	// ─────────────────────────────────────────────────────────────────────
+
+	/**
+	 * Empty model id falls back to the safe default, not 0.
+	 */
+	public function test_max_output_tokens_for_empty_model_returns_fallback(): void {
+		$this->assertSame(
+			Settings::MAX_OUTPUT_TOKENS_FALLBACK,
+			Settings::get_max_output_tokens_for_model( '' )
+		);
+	}
+
+	/**
+	 * Unknown model id falls back to the safe default rather than 0 or the
+	 * ceiling — protects against the SDK refusing requests when a third-party
+	 * connector advertises an ID we don't catalogue.
+	 */
+	public function test_max_output_tokens_for_unknown_model_returns_fallback(): void {
+		$this->assertSame(
+			Settings::MAX_OUTPUT_TOKENS_FALLBACK,
+			Settings::get_max_output_tokens_for_model( 'wholly-made-up-model-9000' )
+		);
+	}
+
+	/**
+	 * Exact-match Claude Opus 4.x resolves to its 32K family entry.
+	 *
+	 * Specifically guards the session-16 regression: claude-opus-4-7 was
+	 * silently using the 4096 default, which truncated tool_use input JSON
+	 * mid-payload and caused the agent loop to spin.
+	 */
+	public function test_max_output_tokens_resolves_claude_opus_4_family(): void {
+		// Bare family prefix.
+		$this->assertSame(
+			32000,
+			Settings::get_max_output_tokens_for_model( 'claude-opus-4' )
+		);
+		// Dated variant — longest-prefix match must still resolve.
+		$this->assertSame(
+			32000,
+			Settings::get_max_output_tokens_for_model( 'claude-opus-4-7' )
+		);
+		$this->assertSame(
+			32000,
+			Settings::get_max_output_tokens_for_model( 'claude-opus-4-7-20260513' )
+		);
+	}
+
+	/**
+	 * GPT-4.1 family and o-series resolve via longest-prefix matching.
+	 */
+	public function test_max_output_tokens_resolves_openai_families(): void {
+		$this->assertSame( 32000, Settings::get_max_output_tokens_for_model( 'gpt-4.1' ) );
+		$this->assertSame( 32000, Settings::get_max_output_tokens_for_model( 'gpt-4.1-mini' ) );
+		$this->assertSame( 32000, Settings::get_max_output_tokens_for_model( 'gpt-4.1-nano' ) );
+		$this->assertSame( 16000, Settings::get_max_output_tokens_for_model( 'gpt-4o' ) );
+		$this->assertSame( 16000, Settings::get_max_output_tokens_for_model( 'gpt-4o-mini' ) );
+		$this->assertSame( 32000, Settings::get_max_output_tokens_for_model( 'o3-mini' ) );
+		$this->assertSame( 32000, Settings::get_max_output_tokens_for_model( 'o4-mini' ) );
+	}
+
+	/**
+	 * Gemini Flash family is appropriately conservative at 8K.
+	 */
+	public function test_max_output_tokens_resolves_gemini_families(): void {
+		$this->assertSame( 32000, Settings::get_max_output_tokens_for_model( 'gemini-2.5-pro' ) );
+		$this->assertSame( 8192, Settings::get_max_output_tokens_for_model( 'gemini-2.5-flash' ) );
+		$this->assertSame( 8192, Settings::get_max_output_tokens_for_model( 'gemini-2.0-flash' ) );
+		$this->assertSame( 8192, Settings::get_max_output_tokens_for_model( 'gemini-1.5-pro' ) );
+	}
+
+	/**
+	 * The filter can raise or lower the value, but the result is clamped to
+	 * [1, MAX_OUTPUT_TOKENS_CEILING]. Bad filter returns fall back to the
+	 * safe default.
+	 */
+	public function test_max_output_tokens_filter_is_clamped(): void {
+		add_filter(
+			'sd_ai_agent_max_output_tokens_for_model',
+			static function () {
+				return 9999999;
+			}
+		);
+		$this->assertSame(
+			Settings::MAX_OUTPUT_TOKENS_CEILING,
+			Settings::get_max_output_tokens_for_model( 'gpt-4o' )
+		);
+		remove_all_filters( 'sd_ai_agent_max_output_tokens_for_model' );
+
+		add_filter(
+			'sd_ai_agent_max_output_tokens_for_model',
+			static function () {
+				return -50;
+			}
+		);
+		$this->assertSame(
+			Settings::MAX_OUTPUT_TOKENS_FALLBACK,
+			Settings::get_max_output_tokens_for_model( 'gpt-4o' )
+		);
+		remove_all_filters( 'sd_ai_agent_max_output_tokens_for_model' );
 	}
 }

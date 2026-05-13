@@ -78,6 +78,138 @@ class Settings {
 	);
 
 	/**
+	 * Sentinel value for `max_output_tokens` settings meaning "resolve
+	 * automatically per model" via {@see Settings::get_max_output_tokens_for_model()}.
+	 */
+	const MAX_OUTPUT_TOKENS_AUTO = 0;
+
+	/**
+	 * Hard ceiling for `max_output_tokens`. Above this we refuse to send
+	 * the value to the provider — primarily a guard against pathologically
+	 * large outputs causing latency spikes or billing surprises. Modern
+	 * reasoning models (o3, Claude with extended thinking) can usefully
+	 * emit up to ~100K output tokens, so the ceiling is generous.
+	 */
+	const MAX_OUTPUT_TOKENS_CEILING = 131072;
+
+	/**
+	 * Fallback output cap used when the model is unknown to the per-model
+	 * catalog. Lifted from the legacy 4096 default — 8192 is supported by
+	 * every modern chat model in the catalog while still bounding generation.
+	 */
+	const MAX_OUTPUT_TOKENS_FALLBACK = 8192;
+
+	/**
+	 * Per-model output-tokens cap (max tokens we will request the provider
+	 * to generate in a single response). Keys are model IDs as advertised
+	 * by the provider SDK and white-label connectors.
+	 *
+	 * The Anthropic Messages API requires `max_tokens` to be sent on every
+	 * request, so a sensible per-model value is mandatory there. OpenAI and
+	 * Gemini accept it as optional; we still send a value as a safety belt
+	 * against runaway generations and pathological tool-call loops.
+	 *
+	 * Values are conservative upper bounds (typically ≤ 32K) chosen so that:
+	 *   - tool_use input JSON has room to complete without truncation,
+	 *   - reasoning models retain enough budget for internal thinking,
+	 *   - users can opt out via the Settings UI (raises to {@see MAX_OUTPUT_TOKENS_CEILING}).
+	 *
+	 * Look-up uses longest-prefix match so dated model variants (e.g.
+	 * `claude-sonnet-4-7-20260513`) resolve to their family entry.
+	 *
+	 * @var array<string, int>
+	 */
+	const MODEL_MAX_OUTPUT_TOKENS = array(
+		// Anthropic — Claude 4.x supports 32K output across the family;
+		// Sonnet 4.6+ documents 64K but 32K is the practical sweet spot
+		// once tool_use input JSON and extended thinking are counted.
+		'claude-opus-4'     => 32000,
+		'claude-sonnet-4'   => 32000,
+		'claude-haiku-4'    => 16000,
+		'claude-3-5-sonnet' => 8192,
+		'claude-3-5-haiku'  => 8192,
+		'claude-3-opus'     => 4096,
+		'claude-3-sonnet'   => 4096,
+		'claude-3-haiku'    => 4096,
+		// OpenAI — GPT-4.1 family supports 32K, GPT-4o/turbo 16K, o-series
+		// reasoning models 65-100K incl. thinking tokens (cap at 32K).
+		'gpt-5'             => 32000,
+		'gpt-4.1'           => 32000,
+		'gpt-4o'            => 16000,
+		'gpt-4-turbo'       => 16000,
+		'gpt-4'             => 8192,
+		'gpt-3.5-turbo'     => 4096,
+		'o1'                => 32000,
+		'o3'                => 32000,
+		'o4'                => 32000,
+		// Google Gemini — 2.5 Pro supports 65K output, others cap at 8192.
+		'gemini-2.5-pro'    => 32000,
+		'gemini-2.5-flash'  => 8192,
+		'gemini-2.0'        => 8192,
+		'gemini-1.5'        => 8192,
+	);
+
+	/**
+	 * Resolve the appropriate `max_tokens` value for a given model.
+	 *
+	 * Falls back through, in order:
+	 *   1. exact match in {@see MODEL_MAX_OUTPUT_TOKENS},
+	 *   2. longest prefix match (so dated/quantized variants resolve to
+	 *      their family entry),
+	 *   3. {@see MAX_OUTPUT_TOKENS_FALLBACK} (8192).
+	 *
+	 * Filterable via `sd_ai_agent_max_output_tokens_for_model` to let
+	 * deployments override the catalog for custom or self-hosted models.
+	 *
+	 * @param string $model_id Provider-advertised model identifier. May be
+	 *                         empty when no model has been selected yet, in
+	 *                         which case the fallback is returned.
+	 * @return int Tokens. Always positive.
+	 */
+	public static function get_max_output_tokens_for_model( string $model_id ): int {
+		$model_id = trim( $model_id );
+		$resolved = self::MAX_OUTPUT_TOKENS_FALLBACK;
+
+		if ( '' !== $model_id ) {
+			if ( isset( self::MODEL_MAX_OUTPUT_TOKENS[ $model_id ] ) ) {
+				$resolved = self::MODEL_MAX_OUTPUT_TOKENS[ $model_id ];
+			} else {
+				// Longest-prefix match so e.g. `claude-opus-4-7-20260513`
+				// resolves to `claude-opus-4` and `gpt-4.1-mini` to `gpt-4.1`.
+				$best_len = 0;
+				foreach ( self::MODEL_MAX_OUTPUT_TOKENS as $prefix => $value ) {
+					$prefix_len = strlen( $prefix );
+					if (
+						$prefix_len > $best_len
+						&& 0 === strncmp( $model_id, $prefix, $prefix_len )
+					) {
+						$best_len = $prefix_len;
+						$resolved = $value;
+					}
+				}
+			}
+		}
+
+		/**
+		 * Filter the resolved max-output-tokens value for a model.
+		 *
+		 * @param int    $resolved Tokens chosen from the catalog/fallback.
+		 * @param string $model_id Model identifier being resolved.
+		 */
+		$filtered = (int) apply_filters( 'sd_ai_agent_max_output_tokens_for_model', $resolved, $model_id );
+
+		// Clamp to ceiling and ensure positive — defends against rogue filters.
+		if ( $filtered < 1 ) {
+			$filtered = self::MAX_OUTPUT_TOKENS_FALLBACK;
+		}
+		if ( $filtered > self::MAX_OUTPUT_TOKENS_CEILING ) {
+			$filtered = self::MAX_OUTPUT_TOKENS_CEILING;
+		}
+
+		return $filtered;
+	}
+
+	/**
 	 * Built-in catalog of provider IDs, display names, default models, and
 	 * model lists for OpenAI, Anthropic, and Google.
 	 *
@@ -286,7 +418,10 @@ class Settings {
 			'auto_memory'              => true,
 			'tool_permissions'         => array(),
 			'temperature'              => 0.2,
-			'max_output_tokens'        => 4096,
+			// 0 = auto-resolve per model via Settings::get_max_output_tokens_for_model().
+			// A user-saved positive value overrides the per-model default (clamped to
+			// MAX_OUTPUT_TOKENS_CEILING at request time). See AgentLoop::send_prompt().
+			'max_output_tokens'        => self::MAX_OUTPUT_TOKENS_AUTO,
 			'context_window_default'   => 128000,
 			'onboarding_complete'      => false,
 			'knowledge_enabled'        => true,
