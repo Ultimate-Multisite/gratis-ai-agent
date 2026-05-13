@@ -430,7 +430,13 @@ Assistant: %s',
 			$history = array();
 		}
 
-		$iterations_remaining = (int) ( $paused_state['iterations_remaining'] ?? 5 );
+		// Fallback to 100 (the same default as Settings::get_defaults() and
+		// SessionController::handle_run()) when paused_state is missing the
+		// key. A small default (e.g. 5) is dangerous here: a single missing
+		// key silently truncates the resumed loop and produces the false
+		// "maximum number of tool calls" injection at AgentLoop.php:769-779
+		// even though the user-configured budget was much higher.
+		$iterations_remaining = (int) ( $paused_state['iterations_remaining'] ?? 100 );
 
 		// Reconstruct the AgentLoop with the persisted state.
 		$options = array(

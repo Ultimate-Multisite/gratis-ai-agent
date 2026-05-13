@@ -625,7 +625,7 @@ export default function SettingsApp() {
 															id="sd-max-iterations"
 															type="number"
 															min={ 1 }
-															max={ 50 }
+															max={ 500 }
 															value={
 																local.max_iterations
 															}
@@ -635,7 +635,7 @@ export default function SettingsApp() {
 																	parseInt(
 																		v,
 																		10
-																	) || 10
+																	) || 100
 																)
 															}
 															help={ __(

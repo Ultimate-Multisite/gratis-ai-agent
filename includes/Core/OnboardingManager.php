@@ -301,7 +301,7 @@ class OnboardingManager {
 				),
 				'session_id'       => $session_id,
 				'bootstrap_prompt' => BootstrapPrompt::generate(),
-				'max_iterations'   => 20,
+				'max_iterations'   => 100,
 			],
 		];
 

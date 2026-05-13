@@ -1446,7 +1446,7 @@ final class SessionController {
 		}
 
 		$options = array(
-			'max_iterations' => $params['max_iterations'] ?? 10,
+			'max_iterations' => $params['max_iterations'] ?? 100,
 		);
 
 		if ( ! empty( $params['system_instruction'] ) ) {
@@ -1551,8 +1551,12 @@ final class SessionController {
 				);
 
 				$loop = new AgentLoop( '', array(), $resume_history, $resume_options );
-				// @phpstan-ignore-next-line
-				$result = $loop->resume_after_confirmation( $confirmed, $state['iterations_remaining'] ?? 5 );
+				// Fallback to 100 matches the rest of the codebase
+				// (Settings defaults, run-endpoint fallback, REST
+				// tool-result resume). A small default truncates the
+				// resumed loop and surfaces a false "max tool calls"
+				// error to the user when the key is merely absent.
+				$result = $loop->resume_after_confirmation( $confirmed, (int) ( $state['iterations_remaining'] ?? 100 ) );
 			} else {
 				$abilities = $params['abilities'] ?? array();
 				// @phpstan-ignore-next-line
