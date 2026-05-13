@@ -400,6 +400,24 @@ Assistant: %s',
 		}
 
 		// Reconstruct history from the paused state.
+		//
+		// We intentionally do NOT run ConversationTrimmer::validate_tool_pairs()
+		// here. The paused-state history ends with an assistant tool_use
+		// message whose matching tool_result is exactly what this request is
+		// delivering (in $tool_results). Running the orphan-stripper now
+		// would delete the assistant tool_use as "unanswered", and then
+		// resume_after_client_tools() would append the tool_results onto a
+		// history that no longer has the matching tool_use — they would be
+		// stripped as orphan tool_responses on the next iteration's
+		// validate_tool_pairs() inside run_loop(), erasing the JS tool cycle
+		// entirely. The model would never see the tool feedback and would
+		// emit the same calls again, producing an infinite loop that only
+		// terminated when max_iterations was reached.
+		//
+		// The next validate_tool_pairs() call happens at the top of
+		// run_loop() (AgentLoop.php), AFTER resume_after_client_tools() has
+		// appended the tool_result messages, so the cycle is complete by
+		// then and the validator keeps it.
 		$history = array();
 		try {
 			$raw_history = $paused_state['history'] ?? array();
@@ -407,9 +425,6 @@ Assistant: %s',
 				/** @var list<array<string, mixed>> $raw_history_typed */
 				$raw_history_typed = array_values( $raw_history );
 				$history           = ConversationSerializer::deserialize( $raw_history_typed );
-				// Strip any orphaned tool_use blocks (no matching tool_result) that
-				// may have been saved to the paused state mid-cycle.
-				$history = ConversationTrimmer::validate_tool_pairs( $history );
 			}
 		} catch ( \Exception $e ) {
 			$history = array();

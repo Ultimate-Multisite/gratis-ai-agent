@@ -238,6 +238,52 @@ class AgentLoopClientToolsTest extends WP_UnitTestCase {
 		$this->assertCount( 0, $result['client'] );
 	}
 
+	/**
+	 * partition_tool_calls() drops text/narration parts from `php`.
+	 *
+	 * Regression test for the "last message must have content parts" crash:
+	 * when an assistant turn contained text + only-JS tool_uses, text parts
+	 * were being routed into `php`. AgentLoop then called execute_abilities()
+	 * on a text-only sub-message, which returns a zero-part UserMessage, and
+	 * that empty UserMessage was appended to history. The next send_prompt()
+	 * would throw because the last message had no parts.
+	 *
+	 * `php` must only contain function-call parts; narration parts are
+	 * already preserved in history via the assistant_message append in
+	 * AgentLoop::run_loop(), so dropping them from `php` is loss-less.
+	 */
+	public function test_partition_drops_non_function_call_parts_from_php(): void {
+		$loop = new AgentLoop(
+			'test',
+			array(),
+			array(),
+			array(
+				'client_abilities' => array(
+					array(
+						'name'  => 'sd-ai-agent-js/screenshot-url',
+						'label' => 'Screenshot URL',
+					),
+				),
+			)
+		);
+
+		$reflection = new \ReflectionClass( $loop );
+		$method     = $reflection->getMethod( 'partition_tool_calls' );
+		$method->setAccessible( true );
+
+		// Build a mock message with text narration + a JS-only tool_use.
+		$text_part = $this->create_mock_text_part( "Let me screenshot the page." );
+		$js_call   = $this->create_mock_message_part( 'sd-ai-agent-js/screenshot-url', 'call-1', array( 'url' => '/' ) );
+
+		$message = $this->create_mock_message( array( $text_part, $js_call ) );
+
+		$result = $method->invoke( $loop, $message, array( 'sd-ai-agent-js/screenshot-url' ) );
+
+		$this->assertCount( 0, $result['php'], 'text/narration parts must NOT be routed to PHP execution.' );
+		$this->assertCount( 1, $result['client'] );
+		$this->assertSame( 'sd-ai-agent-js/screenshot-url', $result['client'][0]['name'] );
+	}
+
 	// ── resume_after_client_tools tests ──────────────────────────────────
 
 	/**
@@ -275,6 +321,19 @@ class AgentLoopClientToolsTest extends WP_UnitTestCase {
 		$part = $this->createMock( \WordPress\AiClient\Messages\DTO\MessagePart::class );
 		$part->method( 'getFunctionCall' )->willReturn( $call );
 
+		return $part;
+	}
+
+	/**
+	 * Create a mock MessagePart with text (no function call).
+	 *
+	 * @param string $text The text content.
+	 * @return object Mock MessagePart.
+	 */
+	private function create_mock_text_part( string $text ): object {
+		$part = $this->createMock( \WordPress\AiClient\Messages\DTO\MessagePart::class );
+		// getFunctionCall() returns null for text parts.
+		$part->method( 'getFunctionCall' )->willReturn( null );
 		return $part;
 	}
 

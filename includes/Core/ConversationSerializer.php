@@ -67,6 +67,16 @@ class ConversationSerializer {
 	public static function append_tool_response( array &$history, Message $message ): void {
 		$parts = $message->getParts();
 
+		// Defensive: never append a zero-parts message. The SDK's
+		// PromptBuilder::validateMessages() throws "The last message must
+		// have content parts" when it sees one, so silently dropping it
+		// here is preferable to a downstream exception that bubbles up
+		// as a bare error to the user. The empty case can arise if an
+		// upstream resolver was handed only non-function-call parts.
+		if ( empty( $parts ) ) {
+			return;
+		}
+
 		$has_function_response = false;
 		foreach ( $parts as $part ) {
 			$fr = method_exists( $part, 'getFunctionResponse' ) ? $part->getFunctionResponse() : null;

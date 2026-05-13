@@ -149,6 +149,13 @@ final class ClientAbilityRouter {
 	 * - 'php':    list of MessagePart objects for PHP-executable calls.
 	 * - 'client': list of pending call descriptors for JS execution.
 	 *
+	 * Only function-call parts are routed; text parts and other narration on
+	 * the assistant message are intentionally dropped from `php` because
+	 * `AbilityFunctionResolver::execute_abilities()` only emits responses
+	 * for function-call parts. Including text here would cause the resolver
+	 * to return a zero-part UserMessage that gets appended to history and
+	 * later trips the SDK's "last message must have content parts" guard.
+	 *
 	 * @param Message  $message      The assistant message containing tool calls.
 	 * @param string[] $client_names Names of client-side abilities.
 	 * @return array{php: list<\WordPress\AiClient\Messages\DTO\MessagePart>, client: list<array<string, mixed>>}
@@ -169,7 +176,11 @@ final class ClientAbilityRouter {
 		foreach ( $message->getParts() as $part ) {
 			$call = $part->getFunctionCall();
 			if ( ! $call ) {
-				$php_parts[] = $part;
+				// Non-function-call parts (text, etc.) are not executable
+				// and the resolver would skip them anyway — exclude from
+				// `php` so an all-JS-tools-plus-narration message does not
+				// trigger an empty tool-response append (which would later
+				// throw "last message must have content parts").
 				continue;
 			}
 
