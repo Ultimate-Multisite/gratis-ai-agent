@@ -836,6 +836,16 @@ class AgentLoopTest extends WP_UnitTestCase {
 		$this->assertStringContainsString( 'WordPress', $prompt );
 	}
 
+	public function test_site_builder_prompt_includes_ability_manifest(): void {
+		$builder = new SystemInstructionBuilder();
+		$prompt  = $builder->build( [ 'site_builder_mode' => true ] );
+
+		$this->assertStringContainsString( 'WordPress site builder assistant', $prompt );
+		$this->assertStringContainsString( '## Available Abilities', $prompt );
+		$this->assertStringContainsString( 'sd-ai-agent/ability-search', $prompt );
+		$this->assertStringContainsString( 'sd-ai-agent/ability-call', $prompt );
+	}
+
 	/**
 	 * Test custom system_instruction option is used when provided.
 	 */

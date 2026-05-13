@@ -47,6 +47,14 @@ class ToolDiscoveryTest extends WP_UnitTestCase {
 		$this->assertContains( 'sd-ai-agent/ability-call', $tier_1 );
 	}
 
+	public function test_tier_1_includes_site_builder_cold_start_tools(): void {
+		$tier_1 = ToolDiscovery::tier_1_for_run();
+
+		$this->assertContains( 'sd-ai-agent/update-post', $tier_1 );
+		$this->assertContains( 'sd-ai-agent/update-global-styles', $tier_1 );
+		$this->assertContains( 'sd-ai-agent/complete-site-builder', $tier_1 );
+	}
+
 	public function test_tier_1_promotes_recently_used_abilities(): void {
 		// Pick an ability that exists in this install.
 		AbilityUsageTracker::record( 'sd-ai-agent/get-plugins' );

@@ -52,6 +52,15 @@ class SystemInstructionBuilder {
 				$base .= "\n\n" . $memory_text;
 			}
 
+			// Site builder mode still needs the discoverability manifest. Without
+			// it the bespoke prompt can mention tools by name, but the model cannot
+			// see the broader catalog or the ability-search/ability-call workflow for
+			// abilities that are not loaded as direct Tier-1 tools.
+			$manifest = ToolDiscovery::build_manifest_section();
+			if ( '' !== $manifest ) {
+				$base .= "\n\n" . $manifest;
+			}
+
 			return $base;
 		}
 
