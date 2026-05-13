@@ -18,7 +18,6 @@ use SdAiAgent\Core\AgentLoop;
 use SdAiAgent\Core\BudgetManager;
 use SdAiAgent\Core\Database;
 use SdAiAgent\Core\Features;
-use SdAiAgent\Core\FreshInstallDetector;
 use SdAiAgent\Core\ProviderCredentialLoader;
 use SdAiAgent\Core\RolePermissions;
 use SdAiAgent\Core\Settings;
@@ -161,19 +160,6 @@ final class SettingsController {
 				)
 			);
 		}
-
-		// Fresh install detection endpoint.
-		register_rest_route(
-			RestController::NAMESPACE,
-			'/fresh-install',
-			array(
-				array(
-					'methods'             => WP_REST_Server::DELETABLE,
-					'callback'            => array( $this, 'handle_clear_ga_credentials' ),
-					'permission_callback' => array( __CLASS__, 'check_admin_permission' ),
-				),
-			)
-		);
 
 		// Google Search Console credentials endpoint.
 		register_rest_route(
@@ -451,23 +437,6 @@ final class SettingsController {
 	 */
 	public function handle_get_roles(): WP_REST_Response {
 		return new WP_REST_Response( RolePermissions::get_all_roles(), 200 );
-	}
-
-	/**
-	 * Handle GET /fresh-install — return fresh-install detection status.
-	 */
-	public function handle_fresh_install_status(): WP_REST_Response {
-		$status                      = FreshInstallDetector::getStatus();
-		$status['site_builder_mode'] = (bool) $this->settings->get( 'site_builder_mode' );
-
-		// Auto-enable site_builder_mode when a fresh install is detected and
-		// the flag has not been explicitly set by the user yet.
-		if ( $status['is_fresh_install'] && ! $status['site_builder_mode'] ) {
-			$this->settings->update( array( 'site_builder_mode' => true ) );
-			$status['site_builder_mode'] = true;
-		}
-
-		return new WP_REST_Response( $status, 200 );
 	}
 
 	/**
@@ -946,22 +915,12 @@ final class SettingsController {
 			);
 		}
 
-		// Check whether site builder mode is active.
 		$settings = $this->settings->get();
-		// @phpstan-ignore-next-line
-		if ( ! empty( $settings['site_builder_mode'] ) ) {
-			$alerts[] = array(
-				'type'    => 'site_builder_mode',
-				'message' => __( 'Site builder mode is active. Open the chat to build your site.', 'superdav-ai-agent' ),
-			);
-		}
 
 		return new WP_REST_Response(
 			array(
 				'count'               => count( $alerts ),
 				'alerts'              => $alerts,
-				// @phpstan-ignore-next-line
-				'site_builder_mode'   => ! empty( $settings['site_builder_mode'] ),
 				// @phpstan-ignore-next-line
 				'onboarding_complete' => ! empty( $settings['onboarding_complete'] ),
 			),

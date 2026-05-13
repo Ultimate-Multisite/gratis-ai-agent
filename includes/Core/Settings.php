@@ -294,7 +294,6 @@ class Settings {
 			'max_history_turns'        => 20,
 			'suggestion_count'         => 3,
 			'yolo_mode'                => false,
-			'site_builder_mode'        => false,
 			'show_on_frontend'         => false,
 			'keyboard_shortcut'        => 'alt+a',
 			'image_generation_size'    => '1024x1024',

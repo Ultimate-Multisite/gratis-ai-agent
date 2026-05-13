@@ -183,8 +183,7 @@ class AgentLoop {
 	 * @param string               $user_message     The user's prompt.
 	 * @param string[]             $abilities         Ability names to enable (empty = all).
 	 * @param Message[]            $history           Prior messages for multi-turn.
-	 * @param array<string, mixed> $options           Optional overrides: system_instruction, bootstrap_prompt, max_iterations, provider_id, model_id, temperature, max_output_tokens, page_context.
-	 *                                                bootstrap_prompt: prepended to the built system instruction for this run only (one-shot onboarding discovery).
+	 * @param array<string, mixed> $options           Optional overrides: system_instruction, max_iterations, provider_id, model_id, temperature, max_output_tokens, page_context.
 	 * @param Settings|null        $settings_service  Injected Settings service (uses Settings::instance() when null).
 	 */
 	public function __construct( string $user_message, array $abilities = array(), array $history = array(), array $options = array(), ?Settings $settings_service = null ) {
@@ -302,15 +301,6 @@ class AgentLoop {
 			$this->system_instruction_locked = true;
 		} else {
 			$this->system_instruction = $this->instruction_builder->build( $settings );
-		}
-
-		// Prepend bootstrap_prompt if provided — one-shot onboarding discovery only.
-		// Locks the instruction so the per-turn rebuild in send_prompt() preserves
-		// the bootstrap context for all iterations of this single run.
-		if ( ! empty( $options['bootstrap_prompt'] ) && ! $this->system_instruction_locked ) {
-			// @phpstan-ignore-next-line
-			$this->system_instruction        = (string) $options['bootstrap_prompt'] . "\n\n" . $this->system_instruction;
-			$this->system_instruction_locked = true;
 		}
 	}
 

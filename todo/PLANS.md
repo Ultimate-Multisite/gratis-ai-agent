@@ -232,22 +232,13 @@ Tasks:
 **Goal:** The agent can execute a multi-step site build from a single prompt,
 using all available abilities (built-in + discovered from plugins).
 
-Tasks:
-- [ ] Site builder system prompt v2 -- rewrite the site builder interview prompt
-  to use the new abilities. The prompt should guide the agent through: (1) interview
-  the user, (2) plan the site structure, (3) install needed plugins, (4) register
-  CPTs/taxonomies if needed, (5) create pages with block content, (6) set up
-  navigation, (7) configure global styles, (8) set site identity (title, tagline,
-  logo), (9) verify the result.
-- [ ] Site build plan generation -- before executing, the agent should output a
-  structured plan: pages to create, plugins to install, CPTs to register, menu
-  structure. User confirms before execution begins.
-- [ ] Progress tracking -- during multi-step builds, report progress to the user
-  ("Creating About page... 3/6 pages done"). Use the existing streaming response
-  infrastructure.
-- [ ] Error recovery -- if a step fails (plugin install fails, page creation fails),
-  the agent should report the error and continue with remaining steps, then
-  summarize what succeeded and what needs manual attention.
+**Status (2026-05-13):** Obsolete. Site Builder mode was removed in beads
+`sd-ai-dh0`. Onboarding now consolidates into the Setup Assistant agent
+(`Models/Agent::ONBOARDING_AGENT_SLUG`); its stored system prompt drives the
+discovery flow. Multi-step orchestration is now an Agent-driven concern, not
+a dedicated builder mode. If a future task revives orchestrated builds, it
+should extend the Setup Assistant prompt and abilities rather than reintroduce
+a parallel `site_builder_mode` setting.
 
 #### Phase 4: Design System & Styling Abilities
 
@@ -285,8 +276,9 @@ Tasks:
 - bjornfix/mcp-expose-abilities is the most complete: 66 core + 12 add-ons
 - Biggest ecosystem gaps: form creation, CPT registration (without ACF), theme.json
 - Our agent already has: PostAbilities, BlockAbilities, ContentAbilities, MediaAbilities,
-  StockImageAbilities, SiteBuilderAbilities, WordPressAbilities (install_plugin),
+  StockImageAbilities, WordPressAbilities (install_plugin),
   NavigationAbilities, SeoAbilities, WooCommerceAbilities
+  (SiteBuilderAbilities was removed 2026-05-13 alongside Site Builder mode.)
 - Community plugins that register abilities: mcp-expose-abilities, ACF Pro, WooCommerce,
   Yoast SEO, designsetgo, filter-abilities, elementor-mcp, wp-agentic-admin
 - Agent capabilities benchmark (ac-016 through ac-024) defines the target: restaurant

@@ -11,9 +11,10 @@ declare(strict_types=1);
  *    memories, and presents findings + starter prompts to the site owner.
  *
  * REST endpoints:
- *   GET  /sd-ai-agent/v1/onboarding/status    — scan status + completion flag
- *   POST /sd-ai-agent/v1/onboarding/rescan    — reset and schedule a new scan
- *   POST /sd-ai-agent/v1/onboarding/bootstrap — create the bootstrap discovery session
+ *   GET  /sd-ai-agent/v1/onboarding/status          — scan status + completion flag
+ *   POST /sd-ai-agent/v1/onboarding/rescan          — reset and schedule a new scan
+ *   POST /sd-ai-agent/v1/onboarding/bootstrap-start — create the bootstrap discovery session
+ *                                                     (attaches the Setup Assistant agent)
  *
  * @package SdAiAgent
  * @license GPL-2.0-or-later
@@ -21,9 +22,8 @@ declare(strict_types=1);
 
 namespace SdAiAgent\Core;
 
-use SdAiAgent\Models\ActiveJobRepository;
+use SdAiAgent\Models\Agent;
 use SdAiAgent\Models\Memory;
-use SdAiAgent\REST\RestController;
 
 if ( ! defined( 'ABSPATH' ) ) {
 	exit;
@@ -67,10 +67,60 @@ class OnboardingManager {
 	}
 
 	/**
-	 * Called on plugin activation — schedule the scan immediately.
+	 * Called on plugin activation.
+	 *
+	 * Two paths:
+	 *
+	 * 1. Genuine fresh install (no existing sessions and no existing memories):
+	 *    schedule the background site scan so the bootstrap discovery has
+	 *    context to work with.
+	 *
+	 * 2. Upgrade on an install that already has user-generated data: mark
+	 *    onboarding complete in both persistence layers so the
+	 *    OnboardingBootstrap UI never opens. Existing installs should never
+	 *    be dropped into the Setup Assistant discovery flow on upgrade.
+	 *
+	 * Detection rule: if either Memory rows or chat sessions exist, this is
+	 * not a fresh install. We deliberately do not rely on the value of
+	 * `onboarding_complete` itself because legacy installs may have
+	 * never set it.
 	 */
 	public static function on_activation(): void {
+		if ( self::install_has_existing_data() ) {
+			update_option( self::TRIGGERED_OPTION, true, false );
+			self::mark_complete();
+
+			$settings = Settings::instance();
+			$current  = $settings->get();
+			if ( empty( $current['onboarding_complete'] ) ) {
+				$settings->update( [ 'onboarding_complete' => true ] );
+			}
+			return;
+		}
+
 		self::trigger();
+	}
+
+	/**
+	 * Whether this install already has user-generated agent data.
+	 *
+	 * Used by on_activation() to distinguish a genuine fresh install from
+	 * an upgrade of an already-used install. We check both Memory rows
+	 * (set by any prior onboarding or normal use) and chat sessions
+	 * (set by any prior conversation) so a single positive signal in
+	 * either store is enough to flag the install as non-fresh.
+	 */
+	private static function install_has_existing_data(): bool {
+		$existing_memories = Memory::get_all();
+		if ( ! empty( $existing_memories ) ) {
+			return true;
+		}
+
+		global $wpdb;
+		$sessions_table = $wpdb->prefix . 'sd_ai_agent_sessions';
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching,WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+		$session_count = (int) $wpdb->get_var( "SELECT COUNT(*) FROM `{$sessions_table}`" );
+		return $session_count > 0;
 	}
 
 	// ── Trigger logic ─────────────────────────────────────────────────────
@@ -175,16 +225,6 @@ class OnboardingManager {
 
 		register_rest_route(
 			'sd-ai-agent/v1',
-			'/onboarding/bootstrap',
-			[
-				'methods'             => 'POST',
-				'callback'            => [ __CLASS__, 'rest_create_bootstrap_session' ],
-				'permission_callback' => [ __CLASS__, 'rest_permission' ],
-			]
-		);
-
-		register_rest_route(
-			'sd-ai-agent/v1',
 			'/onboarding/bootstrap-start',
 			[
 				'methods'             => 'POST',
@@ -255,90 +295,7 @@ class OnboardingManager {
 		);
 	}
 
-	/**
-	 * POST /sd-ai-agent/v1/onboarding/bootstrap
-	 *
-	 * Creates a new session and dispatches the AI-driven auto-discovery job.
-	 *
-	 * The job uses BootstrapPrompt::generate() as a prepended system instruction
-	 * alongside the regular prompt, explores the site with available abilities,
-	 * stores memories for future sessions, and presents findings + starter prompts.
-	 *
-	 * Returns { session_id, job_id, bootstrap_session: true } so the frontend
-	 * can open the session and poll the job via the standard job-polling mechanism.
-	 *
-	 * @return \WP_REST_Response|\WP_Error
-	 */
-	public static function rest_create_bootstrap_session() {
-		$user_id    = get_current_user_id();
-		$session_id = Database::create_session(
-			[
-				'user_id' => $user_id,
-				'title'   => __( 'Site Discovery', 'superdav-ai-agent' ),
-			]
-		);
-
-		if ( ! $session_id ) {
-			return new \WP_Error(
-				'bootstrap_session_failed',
-				__( 'Failed to create bootstrap session.', 'superdav-ai-agent' ),
-				[ 'status' => 500 ]
-			);
-		}
-
-		$job_id = wp_generate_uuid4();
-		$token  = wp_generate_password( 40, false );
-
-		$job = [
-			'status'     => 'processing',
-			'token'      => $token,
-			'user_id'    => $user_id,
-			'tool_calls' => [],
-			'params'     => [
-				'message'          => __(
-					'Please explore this WordPress site and present your findings.',
-					'superdav-ai-agent'
-				),
-				'session_id'       => $session_id,
-				'bootstrap_prompt' => BootstrapPrompt::generate(),
-				'max_iterations'   => 20,
-			],
-		];
-
-		set_transient( RestController::JOB_PREFIX . $job_id, $job, RestController::JOB_TTL );
-		ActiveJobRepository::create( $session_id, $job_id, $user_id );
-
-		// Mark onboarding complete — prevents re-dispatching on subsequent calls.
-		self::mark_complete();
-
-		// Spawn the background worker via a non-blocking loopback request.
-		// This mirrors the pattern in SessionController::handle_run().
-		wp_remote_post(
-			rest_url( RestController::NAMESPACE . '/process' ),
-			[
-				'timeout'  => 0.01,
-				'blocking' => false,
-				'body'     => (string) wp_json_encode(
-					[
-						'job_id' => $job_id,
-						'token'  => $token,
-					]
-				),
-				'headers'  => [ 'Content-Type' => 'application/json' ],
-			]
-		);
-
-		return new \WP_REST_Response(
-			[
-				'session_id'        => $session_id,
-				'job_id'            => $job_id,
-				'bootstrap_session' => true,
-			],
-			200
-		);
-	}
-
-	// ── Bootstrap-start REST handler (onboarding v2) ──────────────────────
+	// ── Bootstrap-start REST handler ──────────────────────────────────────
 
 	/**
 	 * POST /sd-ai-agent/v1/onboarding/bootstrap-start
@@ -353,8 +310,9 @@ class OnboardingManager {
 	 *  4. Persists the session ID and marks onboarding complete via both the
 	 *     COMPLETE_OPTION WordPress option and the Settings store so that
 	 *     is_complete() and /onboarding/status stay consistent.
-	 *  5. Returns the session ID, bootstrap system prompt, and kickoff message
-	 *     so the frontend can auto-send the first message.
+	 *  5. Returns the session ID, the Setup Assistant agent_id, and a kickoff
+	 *     message so the frontend can attach the agent and auto-send the first
+	 *     message — the agent's own system prompt drives the discovery flow.
 	 *
 	 * Idempotent: repeat calls return the originally-created session ID with
 	 * already_complete=true instead of creating a duplicate session.
@@ -364,6 +322,17 @@ class OnboardingManager {
 	public static function rest_bootstrap_start(): \WP_REST_Response|\WP_Error {
 		$settings = Settings::instance();
 		$all      = $settings->get();
+
+		// Resolve the Setup Assistant agent so the frontend can attach it to
+		// the bootstrap session. The agent's stored system prompt is the
+		// canonical source of truth — no parallel bootstrap prompt is needed.
+		$onboarding_agent    = Agent::get_by_slug( Agent::ONBOARDING_AGENT_SLUG );
+		$onboarding_agent_id = $onboarding_agent ? (int) $onboarding_agent->id : 0;
+
+		$kickoff_message = __(
+			"Hi! I just set up this plugin and I'm ready to get started.",
+			'superdav-ai-agent'
+		);
 
 		// Early-return if onboarding was already completed. Reuse the persisted
 		// session ID so the frontend can resume the same conversation.
@@ -376,20 +345,14 @@ class OnboardingManager {
 				$settings->update( [ 'onboarding_complete' => true ] );
 			}
 
-			$bootstrap_prompt = SystemInstructionBuilder::get_onboarding_bootstrap_prompt();
-			$kickoff_message  = __(
-				"Hi! I just set up this plugin and I'm ready to get started.",
-				'superdav-ai-agent'
-			);
-
 			return new \WP_REST_Response(
 				[
-					'success'                 => true,
-					'onboarding_complete'     => true,
-					'already_complete'        => true,
-					'session_id'              => $existing_session_id ?: null,
-					'bootstrap_system_prompt' => $bootstrap_prompt,
-					'kickoff_message'         => $kickoff_message,
+					'success'             => true,
+					'onboarding_complete' => true,
+					'already_complete'    => true,
+					'session_id'          => $existing_session_id ?: null,
+					'agent_id'            => $onboarding_agent_id,
+					'kickoff_message'     => $kickoff_message,
 				],
 				200
 			);
@@ -409,15 +372,27 @@ class OnboardingManager {
 			);
 		}
 
-		// Create the bootstrap session.
-		$session_id = Database::create_session(
-			[
-				'user_id'     => get_current_user_id(),
-				'title'       => __( 'Getting started', 'superdav-ai-agent' ),
-				'provider_id' => $all['default_provider'] ?? '',
-				'model_id'    => $all['default_model'] ?? '',
-			]
-		);
+		// Create the bootstrap session, applying the Setup Assistant agent's
+		// provider/model overrides if present so the session starts with the
+		// right model for the first turn.
+		$session_data = [
+			'user_id'     => get_current_user_id(),
+			'title'       => __( 'Getting started', 'superdav-ai-agent' ),
+			'provider_id' => $all['default_provider'] ?? '',
+			'model_id'    => $all['default_model'] ?? '',
+		];
+
+		if ( $onboarding_agent_id > 0 ) {
+			$agent_options = Agent::get_loop_options( $onboarding_agent_id );
+			if ( ! empty( $agent_options['provider_id'] ) ) {
+				$session_data['provider_id'] = $agent_options['provider_id'];
+			}
+			if ( ! empty( $agent_options['model_id'] ) ) {
+				$session_data['model_id'] = $agent_options['model_id'];
+			}
+		}
+
+		$session_id = Database::create_session( $session_data );
 
 		if ( ! $session_id ) {
 			return new \WP_Error(
@@ -433,23 +408,14 @@ class OnboardingManager {
 		self::mark_complete();
 		$settings->update( [ 'onboarding_complete' => true ] );
 
-		$bootstrap_prompt = SystemInstructionBuilder::get_onboarding_bootstrap_prompt();
-
-		// The kickoff message is sent by the frontend as the first user turn.
-		// Keeping it short and natural — the system prompt handles exploration.
-		$kickoff_message = __(
-			"Hi! I just set up this plugin and I'm ready to get started.",
-			'superdav-ai-agent'
-		);
-
 		return new \WP_REST_Response(
 			[
-				'success'                 => true,
-				'onboarding_complete'     => true,
-				'session_id'              => $session_id,
-				'bootstrap_system_prompt' => $bootstrap_prompt,
-				'kickoff_message'         => $kickoff_message,
-				'woo_detected'            => $woo_active,
+				'success'             => true,
+				'onboarding_complete' => true,
+				'session_id'          => $session_id,
+				'agent_id'            => $onboarding_agent_id,
+				'kickoff_message'     => $kickoff_message,
+				'woo_detected'        => $woo_active,
 			],
 			200
 		);

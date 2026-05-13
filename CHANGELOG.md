@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Removed
+
+- Site Builder mode and all related plumbing (`SiteBuilderAbilities`,
+  `FreshInstallDetector`, `FreshInstallHandler`, `BootstrapPrompt`,
+  `SystemInstructionBuilder::get_site_builder_system_prompt()`,
+  `SystemInstructionBuilder::get_onboarding_bootstrap_prompt()`,
+  `site_builder_mode` setting, `/site-builder/start` + `/site-builder/status`
+  + `/onboarding/bootstrap` REST routes, `sdAiAgentSiteBuilder` JS global,
+  `siteBuilderMode` / `isFreshInstall` UI state, and the
+  `complete-site-builder` tier-1 cold-start ability). The fresh-install
+  onboarding flow now goes through the Setup Assistant agent
+  (`Models/Agent::ONBOARDING_AGENT_SLUG`) instead of a parallel bootstrap
+  prompt; `OnboardingManager::rest_bootstrap_start()` returns the
+  Setup Assistant `agent_id` and the React `OnboardingBootstrap` component
+  selects that agent before sending the kickoff message, so the agent's
+  stored system prompt drives the conversation.
+
+### Changed
+
+- `OnboardingManager::on_activation()` now distinguishes a genuine fresh
+  install from an upgrade. Upgrades of installs that already have memories
+  or chat sessions are flagged as onboarded so the bootstrap discovery UI
+  never opens on plugin update.
+
 ## [1.3.0] - 2026-03-24
 
 ### Added

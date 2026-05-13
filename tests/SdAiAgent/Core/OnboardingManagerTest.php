@@ -369,17 +369,20 @@ class OnboardingManagerTest extends WP_UnitTestCase {
 	}
 
 	/**
-	 * register_rest_routes() registers the onboarding/bootstrap route (Phase 2, t223).
-	 * The interview route was removed; bootstrap replaces it.
+	 * register_rest_routes() registers the onboarding/bootstrap-start route.
+	 *
+	 * The interview route and the deprecated /onboarding/bootstrap route were
+	 * both removed when the Setup Assistant agent took over the discovery flow.
 	 */
-	public function test_register_rest_routes_registers_bootstrap_route(): void {
+	public function test_register_rest_routes_registers_bootstrap_start_route(): void {
 		do_action( 'rest_api_init' );
 		OnboardingManager::register_rest_routes();
 
 		$server = rest_get_server();
 		$routes = $server->get_routes();
 
-		$this->assertArrayHasKey( '/sd-ai-agent/v1/onboarding/bootstrap', $routes );
+		$this->assertArrayHasKey( '/sd-ai-agent/v1/onboarding/bootstrap-start', $routes );
+		$this->assertArrayNotHasKey( '/sd-ai-agent/v1/onboarding/bootstrap', $routes );
 		$this->assertArrayNotHasKey( '/sd-ai-agent/v1/onboarding/interview', $routes );
 	}
 }

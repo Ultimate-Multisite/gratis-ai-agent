@@ -51,7 +51,6 @@ use SdAiAgent\PluginBuilder\PluginSandbox;
 use SdAiAgent\Abilities\PostAbilities;
 use SdAiAgent\Core\Features;
 use SdAiAgent\Abilities\SeoAbilities;
-use SdAiAgent\Abilities\SiteBuilderAbilities;
 use SdAiAgent\Abilities\SiteHealthAbilities;
 use SdAiAgent\Abilities\SkillAbilities;
 use SdAiAgent\Abilities\UserAbilities;
@@ -143,7 +142,6 @@ final class AbilitiesHandler {
 		MediaAbilities::register_abilities();
 		EditorialAbilities::register_abilities();
 		ImageAbilities::register_abilities();
-		SiteBuilderAbilities::register_abilities();
 		DesignSystemAbilities::register_abilities();
 	}
 

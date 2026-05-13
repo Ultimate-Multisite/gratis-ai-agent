@@ -346,7 +346,7 @@ Goal: clean, minimal design that matches wp-admin conventions. Replace custom da
   - Apply fixes identified in t234: improve descriptions, align namespaces (ai-agent/ vs sd-ai-agent/), update system prompt
   - Verify: `composer phpstan && composer phpcs`
 
-- [ ] t233 Site builder ability improvements #parent #plan → [todo/PLANS.md#site-builder-ability-improvements] ~9h logged:2026-04-26
+- [-] t233 Site builder ability improvements #parent #plan → [todo/PLANS.md#site-builder-ability-improvements] ~9h logged:2026-04-26 obsolete:2026-05-13 (Site Builder mode removed in beads sd-ai-dh0)
 - [ ] t236 Stock image fallback chain: retry all free sources on download failure (Phase 1) #bugfix #auto-dispatch ~1.5h For #t233 logged:2026-04-26
   - EDIT: includes/Abilities/ImageSources/ImageSourceFactory.php — in import_image(), on download failure iterate to next free source before AI generate fallback
   - EDIT: includes/Abilities/ImageAbilities/StockImageAbility.php — surface source tried + fallback info in error response

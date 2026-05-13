@@ -14,7 +14,6 @@ declare(strict_types=1);
 namespace SdAiAgent\Admin;
 
 use SdAiAgent\Core\Features;
-use SdAiAgent\Core\FreshInstallDetector;
 use SdAiAgent\Core\OnboardingManager;
 use SdAiAgent\Core\Settings;
 
@@ -141,25 +140,6 @@ class FloatingWidget {
 			wp_enqueue_script_module( '@wordpress/abilities' );
 			wp_enqueue_script_module( '@wordpress/core-abilities' );
 		}
-
-		// Detect fresh install and pass site-builder context to the widget.
-		$is_fresh     = FreshInstallDetector::isFreshInstall();
-		$site_builder = (bool) Settings::instance()->get( 'site_builder_mode' );
-
-		// Auto-enable site_builder_mode on first detection of a fresh install.
-		if ( $is_fresh && ! $site_builder ) {
-			Settings::instance()->update( [ 'site_builder_mode' => true ] );
-			$site_builder = true;
-		}
-
-		wp_localize_script(
-			'sd-ai-agent-floating-widget',
-			'sdAiAgentSiteBuilder',
-			[
-				'isFreshInstall'  => $is_fresh,
-				'siteBuilderMode' => $site_builder,
-			]
-		);
 
 		// Pass white-label branding values to the widget (t075).
 		// Only applied when the branding feature is enabled.

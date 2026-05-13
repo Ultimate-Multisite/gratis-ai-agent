@@ -3,7 +3,7 @@
 declare(strict_types=1);
 /**
  * REST API controller for sessions, messages, folders, sharing, export/import,
- * site-builder, job-status, process, and tool confirmation.
+ * job-status, process, and tool confirmation.
  *
  * @package SdAiAgent
  * @license GPL-2.0-or-later
@@ -17,8 +17,6 @@ use SdAiAgent\Core\ConversationTrimmer;
 use SdAiAgent\Core\CostCalculator;
 use SdAiAgent\Core\Database;
 use SdAiAgent\Core\Export;
-use SdAiAgent\Core\Settings;
-use SdAiAgent\Core\SystemInstructionBuilder;
 use SdAiAgent\Core\ToolPermissionResolver;
 use SdAiAgent\Models\ActiveJobRepository;
 use SdAiAgent\Models\Agent;
@@ -35,11 +33,11 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 /**
- * Manages sessions, messages, folders, sharing, export/import, site-builder,
- * job-status, process, and tool confirmation via REST.
+ * Manages sessions, messages, folders, sharing, export/import, job-status,
+ * process, and tool confirmation via REST.
  *
  * Uses #[Handler] + #[Action] because this controller serves multiple
- * basenames (/sessions, /run, /process, /job, /site-builder).
+ * basenames (/sessions, /run, /process, /job).
  */
 #[Handler(
 	container: 'sd-ai-agent',
@@ -50,20 +48,19 @@ final class SessionController {
 
 	use PermissionTrait;
 
-	/** @var Settings Injected settings dependency. */
-	private Settings $settings;
-
 	/** @var Database Injected database dependency. */
 	private Database $database;
 
 	/**
 	 * Constructor — receives injected dependencies from the DI container.
 	 *
-	 * @param Settings $settings  Injected Settings service.
+	 * The Settings dependency was previously injected here for the Site
+	 * Builder routes; those routes were removed in beads sd-ai-dh0 along
+	 * with Site Builder mode, so the property is no longer needed.
+	 *
 	 * @param Database $database  Injected Database service.
 	 */
-	public function __construct( Settings $settings, Database $database ) {
-		$this->settings = $settings;
+	public function __construct( Database $database ) {
 		$this->database = $database;
 	}
 
@@ -529,27 +526,6 @@ final class SessionController {
 						'sanitize_callback' => 'absint',
 					),
 				),
-			)
-		);
-
-		// Site builder endpoints.
-		register_rest_route(
-			RestController::NAMESPACE,
-			'/site-builder/start',
-			array(
-				'methods'             => WP_REST_Server::CREATABLE,
-				'callback'            => array( $this, 'handle_site_builder_start' ),
-				'permission_callback' => array( $this, 'check_permission' ),
-			)
-		);
-
-		register_rest_route(
-			RestController::NAMESPACE,
-			'/site-builder/status',
-			array(
-				'methods'             => WP_REST_Server::READABLE,
-				'callback'            => array( $this, 'handle_site_builder_status' ),
-				'permission_callback' => array( $this, 'check_permission' ),
 			)
 		);
 	}
@@ -1870,62 +1846,5 @@ final class SessionController {
 		);
 
 		return new WP_REST_Response( array_values( $data ), 200 );
-	}
-
-	/**
-	 * Handle POST /site-builder/start.
-	 *
-	 * @return WP_REST_Response
-	 */
-	public function handle_site_builder_start(): WP_REST_Response {
-		// Enable site builder mode in settings.
-		$this->settings->update( array( 'site_builder_mode' => true ) );
-
-		// Create a dedicated session for the site builder conversation.
-		$session_id = Database::create_session(
-			array(
-				'user_id'     => get_current_user_id(),
-				'title'       => __( 'Site Builder', 'superdav-ai-agent' ),
-				'provider_id' => $this->settings->get( 'default_provider' ) ?: '',
-				'model_id'    => $this->settings->get( 'default_model' ) ?: '',
-			)
-		);
-
-		return new WP_REST_Response(
-			array(
-				'started'           => true,
-				'site_builder_mode' => true,
-				'session_id'        => $session_id,
-				'system_prompt'     => SystemInstructionBuilder::get_site_builder_system_prompt(),
-				'message'           => __( 'Site builder mode enabled. The widget will open automatically.', 'superdav-ai-agent' ),
-			),
-			200
-		);
-	}
-
-	/**
-	 * Handle GET /site-builder/status.
-	 *
-	 * @return WP_REST_Response
-	 */
-	public function handle_site_builder_status(): WP_REST_Response {
-		$settings = $this->settings->get();
-
-		// Run fresh install detection.
-		$fresh_install = \SdAiAgent\Abilities\SiteBuilderAbilities::check_fresh_install();
-
-		return new WP_REST_Response(
-			array(
-				// @phpstan-ignore-next-line
-				'site_builder_mode'   => (bool) ( $settings['site_builder_mode'] ?? false ),
-				// @phpstan-ignore-next-line
-				'onboarding_complete' => (bool) ( $settings['onboarding_complete'] ?? false ),
-				'is_fresh_install'    => $fresh_install['is_fresh'],
-				'post_count'          => $fresh_install['post_count'],
-				'page_count'          => $fresh_install['page_count'],
-				'site_title'          => get_bloginfo( 'name' ),
-			),
-			200
-		);
 	}
 }
