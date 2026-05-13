@@ -336,11 +336,21 @@ Goal: clean, minimal design that matches wp-admin conventions. Replace custom da
 
 ## Backlog
 
-- [ ] t170 Block theme generation in onboarding (Automattic wp-site-creator inspired) #enhancement #parent-task #plan → [todo/PLANS.md#onboarding-theme-builder] ~24h logged:2026-05-13
-  - 4 phases: site-spec skill, block-themes skill expansion, theme-builder onboarding branch (2 new abilities + REST + UI), design-system aesthetics skill
-  - Brief: todo/tasks/t170-brief.md
+- [ ] t226 Block theme generation in onboarding (Automattic wp-site-creator inspired) #enhancement #parent-task #plan → [todo/PLANS.md#onboarding-theme-builder] ~24h logged:2026-05-13
+  - 4 phases: site-spec skill (t226a), block-themes skill expansion (t226b), theme-builder onboarding branch (t226c, 2 new abilities + REST + UI), design-system aesthetics skill (t226d)
+  - Brief: todo/tasks/t226-brief.md
   - Source: github.com/Automattic/wordpress-agent-skills/tree/trunk/claude-code/wp-site-creator (architecture only — not the Claude-Code packaging or Studio CLI deps)
   - Closes the PLANS.md "AI site generation from prompt" P0 gap on the visual-container side (t060-t062 cover pages)
+  - Renumbered from t170 in PR; t170 was already used (PR #848, completed 2026-04-09)
+
+- [ ] t226a Site-specification skill — markdown + memory category #enhancement #auto-dispatch ~3h For #t226 logged:2026-05-13
+  - NEW: includes/Models/skills/site-specification.md — site-type inference patterns, worked examples, presentation format
+  - EDIT: includes/Models/Skill.php — register in BUILTIN_META (enabled by default)
+  - EDIT: includes/Enums/MemoryCategory.php — add SiteBrief = 'site_brief'
+  - EDIT: includes/Models/Memory.php — add 'site_brief' to CATEGORIES
+  - EDIT: tests/SdAiAgent/Models/MemoryTest.php — assert new category accepted
+  - EDIT: src/settings-page/memory-manager.js — add Site Brief category option
+  - Verify: `composer phpcs && npm run lint:js && npm run test:php` (MemoryTest)
 
 - [ ] t232 Ability discovery investigation: why agent misses registered abilities #investigation #parent #plan → [todo/PLANS.md#ability-discovery-investigation] ~5h logged:2026-04-26
 - [x] t234 Audit ability injection pipeline and tool catalog (Phase 1) #investigation #auto-dispatch ~3h For #t232 logged:2026-04-26 pr:#1204 completed:2026-04-27

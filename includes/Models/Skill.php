@@ -695,6 +695,11 @@ class Skill {
 			'description' => 'SEO auditing, on-page optimization, meta tags, technical SEO checks',
 			'enabled'     => true,
 		],
+		'site-specification'   => [
+			'name'        => 'Site Specification',
+			'description' => 'Extract a structured site spec (name, type, audience, tone, sections, typography) from a user description. Foundation for theme generation and content workflows.',
+			'enabled'     => true,
+		],
 		'content-marketing'    => [
 			'name'        => 'Content Marketing',
 			'description' => 'Content strategy, editorial workflows, content audits, publishing analysis',

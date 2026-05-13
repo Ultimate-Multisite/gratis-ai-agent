@@ -18,6 +18,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 enum MemoryCategory: string {
 
 	case SiteInfo        = 'site_info';
+	case SiteBrief       = 'site_brief';
 	case UserPreferences = 'user_preferences';
 	case TechnicalNotes  = 'technical_notes';
 	case Workflows       = 'workflows';

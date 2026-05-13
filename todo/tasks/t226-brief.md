@@ -1,4 +1,6 @@
-# t170 — Block theme generation in onboarding (inspired by Automattic wp-site-creator)
+# t226 — Block theme generation in onboarding (inspired by Automattic wp-site-creator)
+
+> **ID note:** filed 2026-05-13 as t170, renumbered to t226 in this PR to avoid collision with a completed t170 ("Benchmark validation: ac-016 restaurant website end-to-end test", merged 2026-04-09 as PR #848). Phase children use the t226a–t226d suffix scheme to keep the parent-child relationship visible in TODO.md without colliding with adjacent numeric IDs (t227+ were already taken).
 
 ## Pre-flight
 
@@ -153,8 +155,8 @@ guard, the following globs cover all phases:
 - `src/components/__tests__/OnboardingThemeBuilder.test.js`
 - `tests/e2e/onboarding-theme-builder.spec.js`
 - `todo/PLANS.md`
-- `todo/tasks/t170-brief.md`
-- `todo/tasks/t170[a-z]-*.md`
+- `todo/tasks/t226-brief.md`
+- `todo/tasks/t226[a-z]-*.md`
 - `TODO.md`
 
 ## Acceptance Criteria

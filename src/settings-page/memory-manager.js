@@ -15,6 +15,7 @@ import STORE_NAME from '../store';
 const CATEGORIES = [
 	{ label: __( 'General', 'sd-ai-agent' ), value: 'general' },
 	{ label: __( 'Site Info', 'sd-ai-agent' ), value: 'site_info' },
+	{ label: __( 'Site Brief', 'sd-ai-agent' ), value: 'site_brief' },
 	{
 		label: __( 'User Preferences', 'sd-ai-agent' ),
 		value: 'user_preferences',
