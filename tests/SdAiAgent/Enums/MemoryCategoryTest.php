@@ -23,8 +23,9 @@ class MemoryCategoryTest extends WP_UnitTestCase {
 	public function test_memory_category_cases_exist() {
 		$cases = MemoryCategory::cases();
 
-		$this->assertCount(5, $cases);
+		$this->assertCount(6, $cases);
 		$this->assertContains(MemoryCategory::SiteInfo, $cases);
+		$this->assertContains(MemoryCategory::SiteBrief, $cases);
 		$this->assertContains(MemoryCategory::UserPreferences, $cases);
 		$this->assertContains(MemoryCategory::TechnicalNotes, $cases);
 		$this->assertContains(MemoryCategory::Workflows, $cases);
@@ -36,6 +37,7 @@ class MemoryCategoryTest extends WP_UnitTestCase {
 	 */
 	public function test_memory_category_values() {
 		$this->assertSame('site_info', MemoryCategory::SiteInfo->value);
+		$this->assertSame('site_brief', MemoryCategory::SiteBrief->value);
 		$this->assertSame('user_preferences', MemoryCategory::UserPreferences->value);
 		$this->assertSame('technical_notes', MemoryCategory::TechnicalNotes->value);
 		$this->assertSame('workflows', MemoryCategory::Workflows->value);
@@ -49,8 +51,9 @@ class MemoryCategoryTest extends WP_UnitTestCase {
 		$values = MemoryCategory::values();
 
 		$this->assertIsArray($values);
-		$this->assertCount(5, $values);
+		$this->assertCount(6, $values);
 		$this->assertContains('site_info', $values);
+		$this->assertContains('site_brief', $values);
 		$this->assertContains('user_preferences', $values);
 		$this->assertContains('technical_notes', $values);
 		$this->assertContains('workflows', $values);
@@ -62,6 +65,7 @@ class MemoryCategoryTest extends WP_UnitTestCase {
 	 */
 	public function test_is_valid_with_valid_values() {
 		$this->assertTrue(MemoryCategory::isValid('site_info'));
+		$this->assertTrue(MemoryCategory::isValid('site_brief'));
 		$this->assertTrue(MemoryCategory::isValid('user_preferences'));
 		$this->assertTrue(MemoryCategory::isValid('technical_notes'));
 		$this->assertTrue(MemoryCategory::isValid('workflows'));
@@ -83,6 +87,7 @@ class MemoryCategoryTest extends WP_UnitTestCase {
 	 */
 	public function test_try_from_with_valid_values() {
 		$this->assertSame(MemoryCategory::SiteInfo, MemoryCategory::tryFrom('site_info'));
+		$this->assertSame(MemoryCategory::SiteBrief, MemoryCategory::tryFrom('site_brief'));
 		$this->assertSame(MemoryCategory::General, MemoryCategory::tryFrom('general'));
 	}
 
@@ -115,6 +120,7 @@ class MemoryCategoryTest extends WP_UnitTestCase {
 	 */
 	public function test_from_string_or_default_with_valid_values() {
 		$this->assertSame(MemoryCategory::SiteInfo, MemoryCategory::fromStringOrDefault('site_info'));
+		$this->assertSame(MemoryCategory::SiteBrief, MemoryCategory::fromStringOrDefault('site_brief'));
 		$this->assertSame(MemoryCategory::Workflows, MemoryCategory::fromStringOrDefault('workflows'));
 	}
 

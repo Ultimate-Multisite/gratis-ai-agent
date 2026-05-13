@@ -61,13 +61,11 @@ class ToolDiscovery {
 		'sd-ai-agent/memory-list',
 		'sd-ai-agent/skill-load',
 		'sd-ai-agent/knowledge-search',
-		// Site-builder cold-start operations. These must be directly visible in
-		// fresh-site sessions so the agent updates existing generated pages,
-		// applies theme styles, and exits site-builder mode without falling back
-		// to WP-CLI or PHP snippets.
+		// Setup Assistant / general-purpose cold-start operations. Kept in tier 1
+		// so the agent updates existing pages and applies theme styles without
+		// falling back to WP-CLI or PHP snippets on fresh installs.
 		'sd-ai-agent/update-post',
 		'sd-ai-agent/update-global-styles',
-		'sd-ai-agent/complete-site-builder',
 		// WP-CLI is the proper tool for admin commands like `wp site list`,
 		// `wp plugin list`, etc. Registered by the cli-abilities-bridge plugin.
 		'wp-cli/execute',

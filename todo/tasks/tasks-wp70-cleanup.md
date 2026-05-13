@@ -14,7 +14,7 @@ Based on [ai-dev-tasks](https://github.com/snarktank/ai-dev-tasks) task format, 
 - `src/settings-page/providers-manager.js` - Custom provider key management UI (to be removed)
 - `src/unified-admin/routes/settings.js` - Outer 3-tab TabPanel wrapping SettingsApp (to be flattened)
 - `src/components/onboarding-wizard.js` - Provider key entry during onboarding
-- `src/floating-widget/site-builder-overlay.js` - Provider key entry in site builder
+- `src/floating-widget/site-builder-overlay.js` - Provider key entry in site builder (deleted 2026-05-13 with Site Builder mode removal — beads sd-ai-dh0)
 - `src/store/index.js` - fetchProviders action and provider state
 - `includes/Core/Settings.php` - DIRECT_PROVIDERS constant, get/set_provider_key methods
 - `includes/Core/CredentialResolver.php` - OpenAI compat endpoint/key/timeout options
@@ -58,7 +58,7 @@ Update after completing each sub-task, not just parent tasks.
   - [ ] 3.2 Remove `src/settings-page/providers-manager.js` (entire file)
   - [ ] 3.3 Remove the "Providers" tab from `settings-app.js` tab list and its `case 'providers':` switch branch
   - [ ] 3.4 Remove provider key entry from `src/components/onboarding-wizard.js` — replace with a notice linking to Settings > Connectors
-  - [ ] 3.5 Remove provider key entry from `src/floating-widget/site-builder-overlay.js` — replace with a notice linking to Settings > Connectors
+  - [x] 3.5 Remove provider key entry from `src/floating-widget/site-builder-overlay.js` — N/A: the overlay file and Site Builder mode were removed entirely (beads sd-ai-dh0, 2026-05-13). Fresh installs now use the Setup Assistant agent bootstrap flow, which never asks for provider keys (Settings > Connectors only).
   - [x] 3.6 Remove `get_provider_key()` / `set_provider_key()` / `get_configured_direct_providers()` from `includes/Core/Settings.php` and remove the `PROVIDER_KEYS_OPTION` constant. **Scope deviation:** keep `Settings::DIRECT_PROVIDERS` as a static catalog of provider IDs and model lists — without it, bare-WP installs (no third-party AI provider plugin) cannot enumerate available models. Add `Settings::get_connectors_api_key()` to read the WP 7.0 Connectors API option (`connectors_ai_{provider}_api_key`).
   - [x] 3.7 Remove REST endpoints `POST /settings/provider-key` and `POST /settings/provider-key/test` from `includes/REST/SettingsController.php`. (There was never a `GET /settings/provider-keys` route — the original plan was wrong; presence flags were carried inside `GET /settings`.)
   - [x] 3.8 Remove `_provider_keys` from the `GET /settings` REST response.

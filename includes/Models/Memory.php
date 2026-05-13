@@ -16,8 +16,14 @@ class Memory {
 
 	/**
 	 * Valid memory categories.
+	 *
+	 * `site_brief` is a dedicated category for the structured site
+	 * specification captured by the `site-specification` skill: site
+	 * type, audience, tone, brand keywords, sections, typography. It is
+	 * kept separate from `site_info` so future sessions can re-load the
+	 * full brief without scanning every site_info memory.
 	 */
-	const CATEGORIES = [ 'site_info', 'user_preferences', 'technical_notes', 'workflows', 'general' ];
+	const CATEGORIES = [ 'site_info', 'site_brief', 'user_preferences', 'technical_notes', 'workflows', 'general' ];
 
 	/**
 	 * Get the memories table name.

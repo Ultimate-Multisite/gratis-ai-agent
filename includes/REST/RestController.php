@@ -5,7 +5,7 @@ declare(strict_types=1);
  * REST API controller for the AI Agent.
  *
  * This is now a thin orchestrator. Domain-specific routes are handled by:
- *   - SessionController    — sessions, jobs, process, run, site-builder
+ *   - SessionController    — sessions, jobs, process, run
  *   - SettingsController   — settings, providers, budget, usage, roles, alerts
  *   - MemoryController     — memories
  *   - SkillController      — skills

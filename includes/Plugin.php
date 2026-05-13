@@ -24,7 +24,6 @@ use SdAiAgent\Bootstrap\WooCommerceIntegrationHandler;
 use SdAiAgent\Bootstrap\AutomationsHandler;
 use SdAiAgent\Bootstrap\ChangeLoggingHandler;
 use SdAiAgent\Bootstrap\CliHandler;
-use SdAiAgent\Bootstrap\FreshInstallHandler;
 use SdAiAgent\Bootstrap\FrontendAssetsHandler;
 use SdAiAgent\Bootstrap\GitTrackingHandler;
 use SdAiAgent\Bootstrap\HttpTraceHandler;
@@ -97,7 +96,6 @@ if ( ! defined( 'ABSPATH' ) ) {
 		AutomationsHandler::class,
 		GitTrackingHandler::class,
 		OnboardingHandler::class,
-		FreshInstallHandler::class,
 		FrontendAssetsHandler::class,
 		MemoryController::class,
 		SkillController::class,

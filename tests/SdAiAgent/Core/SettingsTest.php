@@ -13,6 +13,11 @@ use SdAiAgent\Core\Settings;
 use WP_UnitTestCase;
 
 /**
+ * Test double used to satisfy Settings::maybe_auto_enable_woo_abilities().
+ */
+final class WooCommerceTestDouble {}
+
+/**
  * Test Settings functionality.
  */
 class SettingsTest extends WP_UnitTestCase {
@@ -23,6 +28,7 @@ class SettingsTest extends WP_UnitTestCase {
 	public function tear_down(): void {
 		parent::tear_down();
 		delete_option( Settings::OPTION_NAME );
+		delete_option( Settings::WOO_AUTO_ENABLED_OPTION );
 	}
 
 	/**
@@ -143,5 +149,31 @@ class SettingsTest extends WP_UnitTestCase {
 
 		$result = Settings::instance()->get( 'tool_permissions' );
 		$this->assertSame( $perms, $result );
+	}
+
+	/**
+	 * Test WooCommerce auto-enable grants native WooCommerce REST abilities.
+	 */
+	public function test_maybe_auto_enable_woo_abilities_grants_native_woocommerce_abilities(): void {
+		if ( ! class_exists( 'WooCommerce' ) ) {
+			class_alias( WooCommerceTestDouble::class, 'WooCommerce' );
+		}
+
+		Settings::instance()->update(
+			[
+				'default_provider'  => 'openai',
+				'tool_permissions' => [ 'sd-ai-agent/create-post' => 'confirm' ],
+			]
+		);
+
+		Settings::instance()->maybe_auto_enable_woo_abilities();
+
+		$permissions = Settings::instance()->get( 'tool_permissions' );
+		$this->assertSame( 'confirm', $permissions['sd-ai-agent/create-post'] );
+		$this->assertSame( 'auto', $permissions['woocommerce/products-list'] );
+		$this->assertSame( 'auto', $permissions['woocommerce/products-create'] );
+		$this->assertSame( 'auto', $permissions['woocommerce/orders-list'] );
+		$this->assertArrayNotHasKey( 'sd-ai-agent/woo-get-products', $permissions );
+		$this->assertTrue( (bool) get_option( Settings::WOO_AUTO_ENABLED_OPTION ) );
 	}
 }

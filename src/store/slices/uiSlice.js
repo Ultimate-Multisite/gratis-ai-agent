@@ -1,6 +1,6 @@
 /**
  * UI slice — floating panel, alerts, page context,
- * site builder mode, text-to-speech, and send timestamp.
+ * text-to-speech, and send timestamp.
  */
 
 import apiFetch from '@wordpress/api-fetch';
@@ -23,14 +23,6 @@ export const initialState = {
 	// Shows a friendly error screen instead of an infinite request loop.
 	// { message: string, status: number } or null.
 	bootError: null,
-
-	// Site builder mode — true when a fresh WordPress install is detected.
-	// Seeded from the PHP-injected global so the widget can open immediately
-	// without waiting for a REST round-trip.
-	siteBuilderMode: window.sdAiAgentSiteBuilder?.siteBuilderMode ?? false,
-	isFreshInstall: window.sdAiAgentSiteBuilder?.isFreshInstall ?? false,
-	siteBuilderStep: 0,
-	siteBuilderTotalSteps: 0,
 
 	// Bootstrap session flag (t223) — true when the current session is the
 	// AI-driven auto-discovery run. Prevents the empty-state placeholder from
@@ -73,16 +65,6 @@ export const actions = {
 	},
 
 	/**
-	 * Enable or disable site builder mode.
-	 *
-	 * @param {boolean} enabled - Whether site builder mode should be active.
-	 * @return {Object} Redux action.
-	 */
-	setSiteBuilderMode( enabled ) {
-		return { type: 'SET_SITE_BUILDER_MODE', enabled };
-	},
-
-	/**
 	 * Set structured page context for the AI.
 	 *
 	 * @param {string|Object} context - Page context object or string.
@@ -107,26 +89,6 @@ export const actions = {
 	 */
 	setShowShortcutsHelp( show ) {
 		return { type: 'SET_SHOW_SHORTCUTS_HELP', show };
-	},
-
-	/**
-	 * Set the current step number in the site builder progress indicator.
-	 *
-	 * @param {number} step - Current step (0-based).
-	 * @return {Object} Redux action.
-	 */
-	setSiteBuilderStep( step ) {
-		return { type: 'SET_SITE_BUILDER_STEP', step };
-	},
-
-	/**
-	 * Set the total number of steps in the site builder progress indicator.
-	 *
-	 * @param {number} total - Total step count.
-	 * @return {Object} Redux action.
-	 */
-	setSiteBuilderTotalSteps( total ) {
-		return { type: 'SET_SITE_BUILDER_TOTAL_STEPS', total };
 	},
 
 	// ─── Text-to-speech (t084) ───────────────────────────────────
@@ -314,38 +276,6 @@ export const selectors = {
 
 	/**
 	 * @param {import('../../types').StoreState} state
-	 * @return {boolean} Whether site builder mode is active.
-	 */
-	isSiteBuilderMode( state ) {
-		return state.siteBuilderMode;
-	},
-
-	/**
-	 * @param {import('../../types').StoreState} state
-	 * @return {boolean} Whether the current site is a fresh WordPress install.
-	 */
-	isFreshInstall( state ) {
-		return state.isFreshInstall;
-	},
-
-	/**
-	 * @param {import('../../types').StoreState} state
-	 * @return {number} Current step in the site builder progress indicator.
-	 */
-	getSiteBuilderStep( state ) {
-		return state.siteBuilderStep ?? 0;
-	},
-
-	/**
-	 * @param {import('../../types').StoreState} state
-	 * @return {number} Total steps in the site builder progress indicator.
-	 */
-	getSiteBuilderTotalSteps( state ) {
-		return state.siteBuilderTotalSteps ?? 0;
-	},
-
-	/**
-	 * @param {import('../../types').StoreState} state
 	 * @return {string|Object} Structured page context for the AI.
 	 */
 	getPageContext( state ) {
@@ -463,8 +393,6 @@ export function reducer( state, action ) {
 			return { ...state, floatingOpen: action.open };
 		case 'SET_FLOATING_MINIMIZED':
 			return { ...state, floatingMinimized: action.minimized };
-		case 'SET_SITE_BUILDER_MODE':
-			return { ...state, siteBuilderMode: action.enabled };
 		case 'SET_PAGE_CONTEXT':
 			return { ...state, pageContext: action.context };
 		case 'SET_ALERT_COUNT':
@@ -473,10 +401,6 @@ export function reducer( state, action ) {
 			return { ...state, isBootstrapSession: action.isBootstrap };
 		case 'SET_BOOT_ERROR':
 			return { ...state, bootError: action.error };
-		case 'SET_SITE_BUILDER_STEP':
-			return { ...state, siteBuilderStep: action.step };
-		case 'SET_SITE_BUILDER_TOTAL_STEPS':
-			return { ...state, siteBuilderTotalSteps: action.total };
 		case 'SET_TTS_ENABLED':
 			return { ...state, ttsEnabled: action.enabled };
 		case 'SET_TTS_VOICE_URI':

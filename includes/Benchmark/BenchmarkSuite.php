@@ -86,7 +86,7 @@ class BenchmarkSuite {
 			array(
 				'slug'           => 'abilities-utility-v1',
 				'name'           => 'Abilities Coverage — Utility',
-				'description'    => 'Targets site-health, navigate, get-page-html, internet-search, fetch-url, analyze-headers, knowledge-search, seo-* , memory-* , skill-* , git-* , site-builder, report-inability.',
+				'description'    => 'Targets site-health, navigate, get-page-html, internet-search, fetch-url, analyze-headers, knowledge-search, seo-* , memory-* , skill-* , git-* , report-inability.',
 				'question_count' => count( self::get_abilities_utility_questions() ),
 			),
 			array(
@@ -1782,7 +1782,7 @@ class BenchmarkSuite {
 	}
 
 	/**
-	 * Utility abilities — site-health, navigation, search, seo, memory, skills, git, site-builder.
+	 * Utility abilities — site-health, navigation, search, seo, memory, skills, git.
 	 *
 	 * @return array<int, array<string, mixed>>
 	 */
@@ -2006,29 +2006,6 @@ class BenchmarkSuite {
 						'type'        => 'tool_called',
 						'tools'       => array( 'sd-ai-agent/git-revert-package' ),
 						'description' => 'git-revert-package called',
-					),
-				),
-			),
-			array(
-				'id'         => 'au-013',
-				'category'   => 'site-builder',
-				'max_turns'  => 8,
-				'prompt'     => 'Use get-site-builder-status to read the current site-builder mode. Then set-site-builder-mode to "active". Then complete-site-builder to mark the site builder as complete. Finally use get-site-builder-status again to confirm the final state.',
-				'assertions' => array(
-					array(
-						'type'        => 'tool_called',
-						'tools'       => array( 'sd-ai-agent/get-site-builder-status' ),
-						'description' => 'get-site-builder-status called',
-					),
-					array(
-						'type'        => 'tool_called',
-						'tools'       => array( 'sd-ai-agent/set-site-builder-mode' ),
-						'description' => 'set-site-builder-mode called',
-					),
-					array(
-						'type'        => 'tool_called',
-						'tools'       => array( 'sd-ai-agent/complete-site-builder' ),
-						'description' => 'complete-site-builder called',
 					),
 				),
 			),

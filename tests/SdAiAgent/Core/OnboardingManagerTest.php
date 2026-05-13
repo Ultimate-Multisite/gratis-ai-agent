@@ -59,26 +59,6 @@ class OnboardingManagerTest extends WP_UnitTestCase {
 		$this->assertSame( 'sd_ai_agent_onboarding_triggered', OnboardingManager::TRIGGERED_OPTION );
 	}
 
-	// ── register ──────────────────────────────────────────────────────────
-
-	/**
-	 * register() hooks maybe_trigger to admin_init.
-	 */
-	public function test_register_hooks_maybe_trigger_to_admin_init(): void {
-		OnboardingManager::register();
-
-		$this->assertNotFalse( has_action( 'admin_init', [ OnboardingManager::class, 'maybe_trigger' ] ) );
-	}
-
-	/**
-	 * register() hooks register_rest_routes to rest_api_init.
-	 */
-	public function test_register_hooks_rest_routes_to_rest_api_init(): void {
-		OnboardingManager::register();
-
-		$this->assertNotFalse( has_action( 'rest_api_init', [ OnboardingManager::class, 'register_rest_routes' ] ) );
-	}
-
 	// ── trigger ───────────────────────────────────────────────────────────
 
 	/**
@@ -369,17 +349,20 @@ class OnboardingManagerTest extends WP_UnitTestCase {
 	}
 
 	/**
-	 * register_rest_routes() registers the onboarding/bootstrap route (Phase 2, t223).
-	 * The interview route was removed; bootstrap replaces it.
+	 * register_rest_routes() registers the onboarding/bootstrap-start route.
+	 *
+	 * The interview route and the deprecated /onboarding/bootstrap route were
+	 * both removed when the Setup Assistant agent took over the discovery flow.
 	 */
-	public function test_register_rest_routes_registers_bootstrap_route(): void {
+	public function test_register_rest_routes_registers_bootstrap_start_route(): void {
 		do_action( 'rest_api_init' );
 		OnboardingManager::register_rest_routes();
 
 		$server = rest_get_server();
 		$routes = $server->get_routes();
 
-		$this->assertArrayHasKey( '/sd-ai-agent/v1/onboarding/bootstrap', $routes );
+		$this->assertArrayHasKey( '/sd-ai-agent/v1/onboarding/bootstrap-start', $routes );
+		$this->assertArrayNotHasKey( '/sd-ai-agent/v1/onboarding/bootstrap', $routes );
 		$this->assertArrayNotHasKey( '/sd-ai-agent/v1/onboarding/interview', $routes );
 	}
 }

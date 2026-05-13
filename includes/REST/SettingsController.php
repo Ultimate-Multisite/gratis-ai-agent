@@ -18,7 +18,6 @@ use SdAiAgent\Core\AgentLoop;
 use SdAiAgent\Core\BudgetManager;
 use SdAiAgent\Core\Database;
 use SdAiAgent\Core\Features;
-use SdAiAgent\Core\FreshInstallDetector;
 use SdAiAgent\Core\ProviderCredentialLoader;
 use SdAiAgent\Core\RolePermissions;
 use SdAiAgent\Core\Settings;
@@ -161,19 +160,6 @@ final class SettingsController {
 				)
 			);
 		}
-
-		// Fresh install detection endpoint.
-		register_rest_route(
-			RestController::NAMESPACE,
-			'/fresh-install',
-			array(
-				array(
-					'methods'             => WP_REST_Server::DELETABLE,
-					'callback'            => array( $this, 'handle_clear_ga_credentials' ),
-					'permission_callback' => array( __CLASS__, 'check_admin_permission' ),
-				),
-			)
-		);
 
 		// Google Search Console credentials endpoint.
 		register_rest_route(
@@ -454,23 +440,6 @@ final class SettingsController {
 	}
 
 	/**
-	 * Handle GET /fresh-install — return fresh-install detection status.
-	 */
-	public function handle_fresh_install_status(): WP_REST_Response {
-		$status                      = FreshInstallDetector::getStatus();
-		$status['site_builder_mode'] = (bool) $this->settings->get( 'site_builder_mode' );
-
-		// Auto-enable site_builder_mode when a fresh install is detected and
-		// the flag has not been explicitly set by the user yet.
-		if ( $status['is_fresh_install'] && ! $status['site_builder_mode'] ) {
-			$this->settings->update( array( 'site_builder_mode' => true ) );
-			$status['site_builder_mode'] = true;
-		}
-
-		return new WP_REST_Response( $status, 200 );
-	}
-
-	/**
 	 * Handle GET /settings/google-analytics — return whether credentials are configured.
 	 */
 	public function handle_get_ga_credentials(): WP_REST_Response {
@@ -728,64 +697,20 @@ final class SettingsController {
 	}
 
 	/**
-	 * Site option that stores the cache version counter.
-	 *
-	 * Bumping this value effectively orphans all existing per-user transients,
-	 * ensuring every admin sees a fresh providers list on the next request.
-	 */
-	const PROVIDERS_CACHE_VERSION_OPTION = 'sd_ai_providers_cache_version';
-
-	/**
-	 * Transient key for the cached providers list.
-	 *
-	 * Incorporates a site-wide version counter so that bumping the version in
-	 * flush_providers_cache() immediately invalidates every admin's cached copy
-	 * without needing to enumerate all user IDs.  The per-user suffix is
-	 * retained for compatibility with ProviderCredentialLoader, which may
-	 * resolve different credentials per user in future.
-	 *
-	 * @return string
-	 */
-	private static function providers_cache_key(): string {
-		$version = (int) get_option( self::PROVIDERS_CACHE_VERSION_OPTION, 0 );
-		return 'sd_ai_providers_' . $version . '_' . get_current_user_id();
-	}
-
-	/**
-	 * Flush the cached providers list for ALL admins.
-	 *
-	 * Increments the site-wide version counter so every existing per-user
-	 * transient (keyed on the previous version) is abandoned.  The orphaned
-	 * transients expire naturally within 5 minutes; no need to enumerate users.
-	 *
-	 * Call whenever provider credentials are added, changed, or removed so the
-	 * next GET /providers rebuilds the list from live data.
-	 */
-	public static function flush_providers_cache(): void {
-		update_option(
-			self::PROVIDERS_CACHE_VERSION_OPTION,
-			(int) get_option( self::PROVIDERS_CACHE_VERSION_OPTION, 0 ) + 1,
-			false
-		);
-	}
-
-	/**
 	 * Handle the /providers endpoint — list registered AI providers and models.
 	 *
-	 * The result is cached in a 5-minute transient because `listModelMetadata()`
-	 * on WP SDK providers can make a live HTTP call to the upstream API to
-	 * enumerate available models, adding ~1 s on every page load. The cache is
-	 * invalidated by flush_providers_cache() whenever credentials change.
+	 * No caching layer is needed here: the underlying WP AI Client SDK already
+	 * caches `listModelMetadata()` results for 24 hours via
+	 * `AbstractApiBasedModelMetadataDirectory::getModelMetadataMap()`. Adding a
+	 * second cache on top forced us to invent invalidation rules per provider
+	 * option key, which broke whenever a new third-party provider plugin
+	 * (e.g. `ai-provider-for-anthropic-max`) stored credentials under an
+	 * option we did not know about. Dropping the layer keeps `/providers`
+	 * fresh by construction and removes the entire stale-cache class of bugs.
 	 *
 	 * @return WP_REST_Response
 	 */
 	public function handle_providers(): WP_REST_Response {
-		$cache_key = self::providers_cache_key();
-		$cached    = get_transient( $cache_key );
-		if ( false !== $cached && is_array( $cached ) ) {
-			return new WP_REST_Response( $cached, 200 );
-		}
-
 		$providers = array();
 
 		// Built-in providers (OpenAI, Anthropic, Google) — listed first when a
@@ -891,10 +816,6 @@ final class SettingsController {
 			}
 		}
 
-		// Cache for 5 minutes. Provider lists rarely change during a session;
-		// flush_providers_cache() is called whenever credentials are updated.
-		set_transient( $cache_key, $providers, 5 * MINUTE_IN_SECONDS );
-
 		return new WP_REST_Response( $providers, 200 );
 	}
 
@@ -994,22 +915,12 @@ final class SettingsController {
 			);
 		}
 
-		// Check whether site builder mode is active.
 		$settings = $this->settings->get();
-		// @phpstan-ignore-next-line
-		if ( ! empty( $settings['site_builder_mode'] ) ) {
-			$alerts[] = array(
-				'type'    => 'site_builder_mode',
-				'message' => __( 'Site builder mode is active. Open the chat to build your site.', 'superdav-ai-agent' ),
-			);
-		}
 
 		return new WP_REST_Response(
 			array(
 				'count'               => count( $alerts ),
 				'alerts'              => $alerts,
-				// @phpstan-ignore-next-line
-				'site_builder_mode'   => ! empty( $settings['site_builder_mode'] ),
 				// @phpstan-ignore-next-line
 				'onboarding_complete' => ! empty( $settings['onboarding_complete'] ),
 			),

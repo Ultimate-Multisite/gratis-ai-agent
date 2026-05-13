@@ -142,6 +142,18 @@ Key gotchas: `compile_class` required for hyphenated IDs, `REST_Handler` support
 - Provider/model selection via WordPress Connectors API (Settings > Connectors)
 - Abilities extend `AbstractAbility` which extends core `WP_Ability`
 
+### Provider Credentials and Model Discovery
+- Do **not** add a plugin-level cache around provider/model discovery. The WP AI
+  Client SDK already caches model metadata, and an extra cache requires brittle
+  invalidation rules for unknown third-party provider option names.
+- When provider availability must reflect newly saved keys (for example,
+  `ai-provider-for-anthropic-max` or other connector plugins), reload credentials
+  from the registry/options at request time via `ProviderCredentialLoader::load()`
+  and let `/providers` build its response fresh.
+- If provider discovery appears stale, fix the credential-loading path or remove
+  redundant caching; do not whitelist individual option keys as a cache
+  invalidation strategy.
+
 ## Local Development Environment
 
 The shared WordPress dev install for testing this plugin is at `../wordpress` (relative to this repo root).

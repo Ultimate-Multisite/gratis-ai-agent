@@ -225,7 +225,7 @@ class Skill {
 	/**
 	 * Create a new skill.
 	 *
-	 * @param array<string, mixed> $data Skill data: slug, name, description, content, is_builtin, enabled, version, content_hash, source_url.
+	 * @param array<string, mixed> $data Skill data: slug, name, description, content, is_builtin, enabled, version, content_hash, source_url, user_modified.
 	 * @return int|false Inserted row ID or false on failure.
 	 */
 	public static function create( array $data ) {
@@ -257,7 +257,7 @@ class Skill {
 				'content_hash'  => '' !== $content ? hash( 'sha256', $content ) : (string) ( $data['content_hash'] ?? '' ),
 				// @phpstan-ignore-next-line
 				'source_url'    => esc_url_raw( (string) ( $data['source_url'] ?? '' ) ),
-				'user_modified' => 0,
+				'user_modified' => ! empty( $data['user_modified'] ) ? 1 : 0,
 				'created_at'    => $now,
 				'updated_at'    => $now,
 			],
@@ -693,6 +693,11 @@ class Skill {
 		'seo-optimization'     => [
 			'name'        => 'SEO Optimization',
 			'description' => 'SEO auditing, on-page optimization, meta tags, technical SEO checks',
+			'enabled'     => true,
+		],
+		'site-specification'   => [
+			'name'        => 'Site Specification',
+			'description' => 'Extract a structured site spec (name, type, audience, tone, sections, typography) from a user description. Foundation for theme generation and content workflows.',
 			'enabled'     => true,
 		],
 		'content-marketing'    => [

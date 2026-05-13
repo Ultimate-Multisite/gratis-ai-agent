@@ -21,8 +21,37 @@ class MemoryTest extends WP_UnitTestCase {
 	 * Test CATEGORIES constant has expected values.
 	 */
 	public function test_categories_constant() {
-		$expected = [ 'site_info', 'user_preferences', 'technical_notes', 'workflows', 'general' ];
+		$expected = [ 'site_info', 'site_brief', 'user_preferences', 'technical_notes', 'workflows', 'general' ];
 		$this->assertSame( $expected, Memory::CATEGORIES );
+	}
+
+	/**
+	 * Test site_brief is accepted as a valid memory category.
+	 *
+	 * site_brief is the dedicated category used by the site-specification
+	 * skill to persist the structured site spec (name, type, audience, tone,
+	 * sections, typography). Memories saved under this category are looked
+	 * up by future sessions to rebuild context without re-interviewing the
+	 * user. Regression cover: ensure adding new categories does not silently
+	 * fall through to the General default.
+	 */
+	public function test_create_memory_site_brief_category() {
+		$id = Memory::create( 'site_brief', 'Bean & Brew — coffee shop, warm artisanal tone, Playfair + Lato.' );
+
+		$this->assertIsInt( $id );
+		$this->assertGreaterThan( 0, $id );
+
+		// Verify it landed under site_brief, not the general fallback.
+		$memories = Memory::get_by_category( 'site_brief' );
+		$found    = false;
+		foreach ( $memories as $memory ) {
+			if ( (int) $memory->id === $id ) {
+				$found = true;
+				$this->assertSame( 'site_brief', $memory->category );
+				break;
+			}
+		}
+		$this->assertTrue( $found, 'site_brief category should be accepted and persisted.' );
 	}
 
 	/**

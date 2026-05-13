@@ -336,11 +336,21 @@ Goal: clean, minimal design that matches wp-admin conventions. Replace custom da
 
 ## Backlog
 
-- [ ] t170 Block theme generation in onboarding (Automattic wp-site-creator inspired) #enhancement #parent-task #plan → [todo/PLANS.md#onboarding-theme-builder] ~24h logged:2026-05-13
-  - 4 phases: site-spec skill, block-themes skill expansion, theme-builder onboarding branch (2 new abilities + REST + UI), design-system aesthetics skill
-  - Brief: todo/tasks/t170-brief.md
+- [ ] t226 Block theme generation in onboarding (Automattic wp-site-creator inspired) #enhancement #parent-task #plan → [todo/PLANS.md#onboarding-theme-builder] ~24h logged:2026-05-13
+  - 4 phases: site-spec skill (t226a), block-themes skill expansion (t226b), theme-builder onboarding branch (t226c, 2 new abilities + REST + UI), design-system aesthetics skill (t226d)
+  - Brief: todo/tasks/t226-brief.md
   - Source: github.com/Automattic/wordpress-agent-skills/tree/trunk/claude-code/wp-site-creator (architecture only — not the Claude-Code packaging or Studio CLI deps)
   - Closes the PLANS.md "AI site generation from prompt" P0 gap on the visual-container side (t060-t062 cover pages)
+  - Renumbered from t170 in PR; t170 was already used (PR #848, completed 2026-04-09)
+
+- [ ] t226a Site-specification skill — markdown + memory category #enhancement #auto-dispatch ~3h For #t226 logged:2026-05-13
+  - NEW: includes/Models/skills/site-specification.md — site-type inference patterns, worked examples, presentation format
+  - EDIT: includes/Models/Skill.php — register in BUILTIN_META (enabled by default)
+  - EDIT: includes/Enums/MemoryCategory.php — add SiteBrief = 'site_brief'
+  - EDIT: includes/Models/Memory.php — add 'site_brief' to CATEGORIES
+  - EDIT: tests/SdAiAgent/Models/MemoryTest.php — assert new category accepted
+  - EDIT: src/settings-page/memory-manager.js — add Site Brief category option
+  - Verify: `composer phpcs && npm run lint:js && npm run test:php` (MemoryTest)
 
 - [ ] t232 Ability discovery investigation: why agent misses registered abilities #investigation #parent #plan → [todo/PLANS.md#ability-discovery-investigation] ~5h logged:2026-04-26
 - [x] t234 Audit ability injection pipeline and tool catalog (Phase 1) #investigation #auto-dispatch ~3h For #t232 logged:2026-04-26 pr:#1204 completed:2026-04-27
@@ -352,7 +362,7 @@ Goal: clean, minimal design that matches wp-admin conventions. Replace custom da
   - Apply fixes identified in t234: improve descriptions, align namespaces (ai-agent/ vs sd-ai-agent/), update system prompt
   - Verify: `composer phpstan && composer phpcs`
 
-- [ ] t233 Site builder ability improvements #parent #plan → [todo/PLANS.md#site-builder-ability-improvements] ~9h logged:2026-04-26
+- [-] t233 Site builder ability improvements #parent #plan → [todo/PLANS.md#site-builder-ability-improvements] ~9h logged:2026-04-26 obsolete:2026-05-13 (Site Builder mode removed in beads sd-ai-dh0)
 - [ ] t236 Stock image fallback chain: retry all free sources on download failure (Phase 1) #bugfix #auto-dispatch ~1.5h For #t233 logged:2026-04-26
   - EDIT: includes/Abilities/ImageSources/ImageSourceFactory.php — in import_image(), on download failure iterate to next free source before AI generate fallback
   - EDIT: includes/Abilities/ImageAbilities/StockImageAbility.php — surface source tried + fallback info in error response
@@ -440,18 +450,18 @@ Goal: clean, minimal design that matches wp-admin conventions. Replace custom da
   - EDIT: includes/Core/AgentLoop.php — after loop completes, evaluate outcome heuristic (no exit_reason error + skill domain match = helpful)
   - Verify: `composer phpstan && composer phpcs`
 
-- [ ] t217 Model-aware tiered skill injection (Phase 2) #enhancement #auto-dispatch ~4h For #t215 blocked-by:t216 logged:2026-04-18
-  - EDIT: includes/Core/SystemInstructionBuilder.php:78-84 — wrap SkillAutoInjector::inject_for_message() in ModelHealthTracker::is_weak() check. Strong models get index only (~150 tokens), weak models get auto-injected content
-  - EDIT: includes/Core/SkillAutoInjector.php — reduce MAX_INJECTED_SKILLS from 2 to 1
-  - EDIT: includes/Abilities/SkillAbilities.php — record skill-load calls as ModelHealthTracker::record_success() signal
+- [x] t217 Model-aware tiered skill injection (Phase 2) #enhancement #auto-dispatch ~4h For #t215 blocked-by:t216 logged:2026-04-18 ref=GH#1358 pr:#1099 completed:2026-05-13
+  - Implemented: SystemInstructionBuilder now routes strong models to the lean skill index plus targeted skill-load hints and weak models to capped full skill auto-injection.
+  - Implemented: SkillAutoInjector caps auto-injection at one skill and exposes get_index_description() for the strong-model hint path.
+  - Implemented: SkillAbilities records voluntary skill-load calls through ModelHealthTracker::record_skill_load() so tier decisions can use model skill-loading telemetry.
   - Verify: `composer phpstan && composer phpcs`
 
-- [ ] t218 Skill versioning schema + remote update checker (Phase 3a) #feature #auto-dispatch ~4h For #t215 logged:2026-04-18
+- [x] t218 Skill versioning schema + remote update checker (Phase 3a) #feature #auto-dispatch ~4h For #t215 logged:2026-04-18 ref=GH#1359 completed:2026-05-13
   - EDIT: includes/Core/Database.php — ALTER TABLE skills ADD version, content_hash, source_url, user_modified columns, bump DB_VERSION
   - EDIT: includes/Models/Skill.php — set user_modified=1 on update() when skill is_builtin, add check_for_updates() and apply_update() methods
   - EDIT: includes/Models/DTO/SkillRow.php — add version, content_hash, source_url, user_modified properties
   - EDIT: includes/Core/Settings.php — add skill_auto_update and skill_manifest_url settings
-  - Verify: `composer phpstan && composer phpcs`
+  - Verify: `composer phpstan && composer phpcs && composer phpunit -- --filter SkillTest`
 
 - [ ] t219 WP-Cron skill update checker + conditional HTTP (Phase 3b) #feature #auto-dispatch ~4h For #t215 blocked-by:t218 logged:2026-04-18
   - NEW: includes/Core/SkillUpdateChecker.php — WP-Cron callback: fetch manifest JSON from skill_manifest_url, compare content_hash per slug, update is_builtin=1 AND user_modified=0 skills. Use wp_remote_get with If-None-Match/If-Modified-Since headers. Model on Knowledge.php hash-comparison pattern (line 44)

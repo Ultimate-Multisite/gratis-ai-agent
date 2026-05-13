@@ -181,11 +181,10 @@ jobs:
 
       - name: Configure plugin for E2E tests
         run: |
-          # Mark onboarding complete so the main chat UI renders (not the wizard).
-          # Disable site_builder_mode so the FAB renders instead of the full-screen
-          # SiteBuilderOverlay (wp-env is a fresh install, which auto-enables it).
+          # Mark onboarding complete so the main chat UI renders instead of
+          # the bootstrap discovery session (Setup Assistant agent).
           npx wp-env run cli wp option update sd_ai_agent_settings \
-            '{"onboarding_complete":true,"site_builder_mode":false}' --format=json
+            '{"onboarding_complete":true}' --format=json
 
           # Configure a fake OpenAI key via the WP 7.0 Connectors API option
           # so the /providers endpoint returns at least one provider. Without
@@ -197,15 +196,7 @@ jobs:
           # SettingsController::handle_providers() to include OpenAI in the
           # list returned to the React app.
           npx wp-env run cli wp option update connectors_ai_openai_api_key \
-            'sk-test-fake-key-for-e2e'
-
-          # Prevent FreshInstallDetector from re-enabling site_builder_mode on
-          # every page load. The wp-env environment is always a "fresh install"
-          # (default theme, only sample posts), so isFreshInstall() returns true
-          # and FloatingWidget::enqueue_widget_assets() re-enables site_builder_mode
-          # even after we set it to false above. Setting this transient to '0'
-          # caches the detection result as "not fresh" for 5 minutes.
-          npx wp-env run cli wp transient set sd_ai_agent_fresh_install 0 300
+            '[redacted-credential]'
 
           # Create a real post so the site is no longer detected as a fresh install
           # even after the transient expires (belt-and-suspenders).

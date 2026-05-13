@@ -29,9 +29,18 @@ class GenerateImageAbility extends \SdAiAgent\Abilities\AbstractAbility {
 
 	/**
 	 * Register this ability.
+	 *
+	 * Only registers when an image-capable AI provider is actually configured.
+	 * Without one, exposing the ability would mislead the model into calling a
+	 * tool that can only return an error.
 	 */
 	public static function register(): void {
 		if ( ! function_exists( 'wp_register_ability' ) ) {
+			return;
+		}
+
+		if ( ! function_exists( 'wp_ai_client_prompt' )
+			|| ! wp_ai_client_prompt()->is_supported_for_image_generation() ) {
 			return;
 		}
 

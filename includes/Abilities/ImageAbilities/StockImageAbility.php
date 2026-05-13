@@ -158,16 +158,26 @@ class StockImageAbility extends \SdAiAgent\Abilities\AbstractAbility {
 			}
 		}
 
+		// Only suggest the AI-generation fallback when an image-capable
+		// provider is actually configured; otherwise the tip points at a
+		// dead end. Mirrors the gate used inside GenerateImageAbility itself.
+		$can_generate = function_exists( 'wp_ai_client_prompt' )
+			&& wp_ai_client_prompt()->is_supported_for_image_generation();
+		$generate_tip = 'Use sd-ai-agent/generate-image to create an AI-generated image instead.';
+
 		if ( ! $has_free ) {
-			return [
+			$response = [
 				'attachment_id' => 0,
 				'url'           => '',
 				'alt'           => '',
 				'title'         => '',
 				'source'        => '',
 				'error'         => 'No free stock image source is available. Configure Openverse or Pixabay.',
-				'tip'           => 'Use sd-ai-agent/generate-image to create an AI-generated image instead.',
 			];
+			if ( $can_generate ) {
+				$response['tip'] = $generate_tip;
+			}
+			return $response;
 		}
 
 		// Let the factory try all available free sources in priority order
@@ -181,7 +191,7 @@ class StockImageAbility extends \SdAiAgent\Abilities\AbstractAbility {
 		$result = ImageSourceFactory::import_image( $keyword, '', $width, $height, $options );
 
 		if ( is_wp_error( $result ) ) {
-			return [
+			$response = [
 				'attachment_id' => 0,
 				'url'           => '',
 				'alt'           => '',
@@ -189,8 +199,11 @@ class StockImageAbility extends \SdAiAgent\Abilities\AbstractAbility {
 				'source'        => '',
 				// Error message from the factory lists each source tried and why it failed.
 				'error'         => $result->get_error_message(),
-				'tip'           => 'Use sd-ai-agent/generate-image to create an AI-generated image instead.',
 			];
+			if ( $can_generate ) {
+				$response['tip'] = $generate_tip;
+			}
+			return $response;
 		}
 
 		$result['tip'] = 'Use attachment_id as featured_image_id when calling create-post or update-post.';

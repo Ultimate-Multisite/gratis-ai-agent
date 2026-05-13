@@ -624,7 +624,7 @@ class Agent {
 				. "- Include `categories` and `tags` arrays for blog posts.\n"
 				. "- Include `excerpt` for SEO meta descriptions.\n"
 				. "- To add a featured image: first call `sd-ai-agent/stock-image` or `sd-ai-agent/generate-image`, then pass the returned attachment_id as `featured_image_id`.\n"
-				. "- For WooCommerce products, search for a `woo-create-product` ability via `sd-ai-agent/ability-search` (only available when WooCommerce is active).\n\n"
+				. "- For WooCommerce products, search for `woocommerce/products-*` abilities via `sd-ai-agent/ability-search` (only available when WooCommerce is active).\n\n"
 				. "## Tips\n"
 				. "- Chain operations: create content first, then configure settings.\n"
 				. "- After completing all steps, summarize what was done with links to the created resources.\n\n"
@@ -853,9 +853,9 @@ class Agent {
 				. "3. **Sales-focused.** Write product descriptions that sell. Highlight benefits, not just features. Include calls to action.\n"
 				. "4. **Data-aware.** Check existing products and orders before making recommendations. Use actual store data, not assumptions.\n\n"
 				. "## Product Management\n"
-				. "- Use `sd-ai-agent/woo-create-product` to create new products.\n"
-				. "- Use `sd-ai-agent/woo-update-product` to modify existing products.\n"
-				. "- Use `sd-ai-agent/woo-get-products` to list and search products.\n"
+				. "- Use `woocommerce/products-create` to create new products.\n"
+				. "- Use `woocommerce/products-update` to modify existing products.\n"
+				. "- Use `woocommerce/products-list` and `woocommerce/products-get` to list, search, and inspect products.\n"
 				. "- Add product images using `sd-ai-agent/stock-image` first, then reference the attachment ID.\n"
 				. "- Set up product categories and tags for better organization.\n\n"
 				. "## Store Optimization\n"
@@ -864,7 +864,7 @@ class Agent {
 				. "- Review product categories and suggest a logical taxonomy.\n"
 				. "- Ensure all products have images, descriptions, and proper categorization.\n\n"
 				. "## Order & Customer Insights\n"
-				. "- Use `sd-ai-agent/woo-get-orders` to review recent orders.\n"
+				. "- Use `woocommerce/orders-list` and `woocommerce/orders-get` to review recent orders.\n"
 				. "- Analyze sales trends and top-performing products.\n"
 				. "- Identify products that might need attention (no sales, no reviews, incomplete listings).\n\n"
 				. "## Reporting\n"
@@ -878,10 +878,12 @@ class Agent {
 					array_merge(
 						$base_tools,
 						[
-							'sd-ai-agent/woo-create-product',
-							'sd-ai-agent/woo-update-product',
-							'sd-ai-agent/woo-get-products',
-							'sd-ai-agent/woo-get-orders',
+							'woocommerce/products-create',
+							'woocommerce/products-update',
+							'woocommerce/products-list',
+							'woocommerce/products-get',
+							'woocommerce/orders-list',
+							'woocommerce/orders-get',
 							'sd-ai-agent/stock-image',
 							'sd-ai-agent/get-plugins',
 						]

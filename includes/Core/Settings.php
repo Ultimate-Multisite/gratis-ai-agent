@@ -294,7 +294,6 @@ class Settings {
 			'max_history_turns'        => 20,
 			'suggestion_count'         => 3,
 			'yolo_mode'                => false,
-			'site_builder_mode'        => false,
 			'show_on_frontend'         => false,
 			'keyboard_shortcut'        => 'alt+a',
 			'image_generation_size'    => '1024x1024',
@@ -476,12 +475,15 @@ class Settings {
 	 * @var string[]
 	 */
 	const WOO_ABILITY_IDS = array(
-		'sd-ai-agent/woo-get-products',
-		'sd-ai-agent/woo-create-product',
-		'sd-ai-agent/woo-update-product',
-		'sd-ai-agent/woo-delete-product',
-		'sd-ai-agent/woo-get-orders',
-		'sd-ai-agent/woo-get-store-stats',
+		'woocommerce/products-list',
+		'woocommerce/products-get',
+		'woocommerce/products-create',
+		'woocommerce/products-update',
+		'woocommerce/products-delete',
+		'woocommerce/orders-list',
+		'woocommerce/orders-get',
+		'woocommerce/orders-create',
+		'woocommerce/orders-update',
 	);
 
 	/**
