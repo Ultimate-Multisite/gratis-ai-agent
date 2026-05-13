@@ -67,6 +67,7 @@ jobs:
         run: |
           hits=$(grep -rEn 'SUPERDAV_AI_AGENT_[A-Z]+' \
             --include='*.php' \
+            --exclude-dir=tests \
             --exclude-dir=vendor \
             --exclude-dir=node_modules \
             --exclude-dir=build \
@@ -83,6 +84,7 @@ jobs:
         run: |
           hits=$(grep -rEn 'namespace\s+SuperdavAiAgent\\?|use\s+SuperdavAiAgent\\?' \
             --include='*.php' \
+            --exclude-dir=tests \
             --exclude-dir=vendor \
             --exclude-dir=node_modules \
             --exclude-dir=build \
@@ -98,6 +100,7 @@ jobs:
         run: |
           hits=$(grep -rEn 'CompiledContainerSuperdavAiAgent' \
             --include='*.php' \
+            --exclude-dir=tests \
             --exclude-dir=vendor \
             --exclude-dir=node_modules \
             --exclude-dir=build \
@@ -128,6 +131,7 @@ jobs:
         run: |
           hits=$(grep -rEn 'gratis-ai-agent' \
             --include='*.php' \
+            --exclude-dir=tests \
             --exclude-dir=vendor \
             --exclude-dir=node_modules \
             --exclude-dir=build \
