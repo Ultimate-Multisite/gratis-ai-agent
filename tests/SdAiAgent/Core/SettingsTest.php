@@ -55,7 +55,7 @@ class SettingsTest extends WP_UnitTestCase {
 	public function test_get_defaults_returns_expected_values() {
 		$defaults = Settings::instance()->get_defaults();
 
-		$this->assertSame( 50, $defaults['max_iterations'] );
+		$this->assertSame( 100, $defaults['max_iterations'] );
 		$this->assertSame( true, $defaults['auto_memory'] );
 		$this->assertSame( 0.2, $defaults['temperature'] );
 		$this->assertSame( 4096, $defaults['max_output_tokens'] );
@@ -79,7 +79,7 @@ class SettingsTest extends WP_UnitTestCase {
 	public function test_get_returns_single_setting() {
 		$max_iterations = Settings::instance()->get( 'max_iterations' );
 
-		$this->assertSame( 50, $max_iterations );
+		$this->assertSame( 100, $max_iterations );
 	}
 
 	/**

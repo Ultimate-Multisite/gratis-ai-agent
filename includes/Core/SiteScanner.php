@@ -263,7 +263,7 @@ class SiteScanner {
 	 * @return array<string, mixed>
 	 */
 	private static function collect_woocommerce(): array {
-		if ( ! class_exists( 'WooCommerce' ) ) {
+		if ( ! class_exists( 'WooCommerce' ) || ! function_exists( 'get_woocommerce_currency' ) ) {
 			return [ 'active' => false ];
 		}
 
