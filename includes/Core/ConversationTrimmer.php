@@ -101,13 +101,24 @@ class ConversationTrimmer {
 	/**
 	 * Validate and repair tool_use/tool_result pairing in conversation history.
 	 *
-	 * Scans for assistant messages containing FunctionCall parts and verifies
-	 * that the immediately following message(s) contain matching FunctionResponse
-	 * parts. If a tool_use has no matching tool_result, the assistant message is
-	 * removed (along with any orphaned tool_results) to prevent API 400 errors.
+	 * Two-pass scrub to satisfy the Anthropic API invariant that every
+	 * tool_result has a matching tool_use earlier in the same request:
 	 *
-	 * This is a defensive safety net — the primary fix is in find_turn_boundaries()
-	 * which avoids cutting mid-tool-cycle. This method catches edge cases.
+	 *   Pass 1 — forward: drop assistant messages whose FunctionCall parts
+	 *   do not all have matching FunctionResponse messages immediately after
+	 *   them. Also drops the partial response cluster.
+	 *
+	 *   Pass 2 — orphan tool_result scrub: walk the post-pass-1 history and
+	 *   drop any FunctionResponse whose tool_use_id is not present in the
+	 *   kept history. This catches the mirror case of pass 1 (orphan
+	 *   tool_results with no preceding tool_use) which can arise when
+	 *   trimming, serialization round-trips, or interrupt injection severs
+	 *   a tool_use from its tool_result. Without this pass, Anthropic
+	 *   returns: "messages.N.content.M: unexpected `tool_use_id` found in
+	 *   `tool_result` blocks".
+	 *
+	 * Messages reduced to zero parts after stripping are removed entirely;
+	 * mixed-content messages keep their non-orphan parts.
 	 *
 	 * @param Message[] $history The conversation history to validate.
 	 * @return Message[] The validated history with orphaned tool cycles removed.
@@ -163,7 +174,73 @@ class ConversationTrimmer {
 			$i = $response_end;
 		}
 
-		return $result;
+		return self::strip_orphan_tool_responses( $result );
+	}
+
+	/**
+	 * Strip FunctionResponse parts whose tool_use_id has no matching tool_use.
+	 *
+	 * Pass 2 of validate_tool_pairs(). Builds the set of valid tool_use IDs
+	 * (FunctionCall IDs from earlier messages in the history) and drops any
+	 * FunctionResponse part whose ID is not in that set.
+	 *
+	 * Behaviour:
+	 *  - A pure tool-response message (all parts are FunctionResponse) whose
+	 *    parts are all orphans is dropped entirely.
+	 *  - A mixed-content user message (e.g. text + orphan FunctionResponse)
+	 *    is rebuilt with only the non-orphan parts. If the remaining parts
+	 *    include at least one non-FunctionResponse part, the rebuilt
+	 *    UserMessage is kept; otherwise it is dropped.
+	 *  - Non-tool messages are passed through unchanged.
+	 *
+	 * @param Message[] $history The history after pass 1.
+	 * @return Message[] History with orphan tool_results removed.
+	 */
+	private static function strip_orphan_tool_responses( array $history ): array {
+		$valid_tool_use_ids = [];
+		foreach ( $history as $message ) {
+			foreach ( self::extract_tool_call_ids( $message ) as $cid ) {
+				$valid_tool_use_ids[ $cid ] = true;
+			}
+		}
+
+		$cleaned = [];
+		foreach ( $history as $message ) {
+			$parts          = $message->getParts();
+			$has_response   = false;
+			$has_orphan     = false;
+			$retained_parts = [];
+
+			foreach ( $parts as $part ) {
+				$fr = method_exists( $part, 'getFunctionResponse' ) ? $part->getFunctionResponse() : null;
+				if ( $fr ) {
+					$has_response = true;
+					$fr_id        = (string) $fr->getId();
+					if ( ! isset( $valid_tool_use_ids[ $fr_id ] ) ) {
+						$has_orphan = true;
+						continue;
+					}
+				}
+				$retained_parts[] = $part;
+			}
+
+			if ( ! $has_response || ! $has_orphan ) {
+				// Nothing to strip — pass through unchanged.
+				$cleaned[] = $message;
+				continue;
+			}
+
+			if ( empty( $retained_parts ) ) {
+				// All parts were orphan tool_results — drop the message.
+				continue;
+			}
+
+			// Rebuild as a UserMessage with the retained parts. Tool-response
+			// messages are always UserMessage-roled per the SDK contract.
+			$cleaned[] = new UserMessage( $retained_parts );
+		}
+
+		return $cleaned;
 	}
 
 	/**

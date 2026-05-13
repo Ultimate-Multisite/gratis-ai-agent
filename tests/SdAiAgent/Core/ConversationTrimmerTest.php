@@ -453,6 +453,133 @@ class ConversationTrimmerTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * Test validate_tool_pairs drops orphan tool_result messages at history start.
+	 *
+	 * Regression test for the 400 error: "messages.0.content.1: unexpected
+	 * `tool_use_id` found in `tool_result` blocks: toolu_...". This happens
+	 * when trimming or session round-tripping leaves a tool_result message
+	 * at the start of history without its originating tool_use.
+	 */
+	public function test_validate_tool_pairs_drops_orphan_tool_result_at_start() {
+		$history = [
+			// Orphan tool_result — its tool_use was already trimmed away.
+			$this->create_tool_response_message( 'toolu_orphan', 'some-tool' ),
+			$this->create_user_message_mock( 'Hello' ),
+			$this->create_assistant_message_mock( 'Hi there!' ),
+		];
+
+		$result = ConversationTrimmer::validate_tool_pairs( $history );
+
+		// Orphan tool_result removed; remaining messages preserved.
+		$this->assertCount( 2, $result );
+		// No FunctionResponse parts remain.
+		foreach ( $result as $message ) {
+			foreach ( $message->getParts() as $part ) {
+				if ( method_exists( $part, 'getFunctionResponse' ) ) {
+					$this->assertNull(
+						$part->getFunctionResponse(),
+						'No FunctionResponse parts should remain after orphan scrub'
+					);
+				}
+			}
+		}
+	}
+
+	/**
+	 * Test validate_tool_pairs drops orphan tool_results mid-history.
+	 */
+	public function test_validate_tool_pairs_drops_orphan_tool_results_mid_history() {
+		$history = [
+			$this->create_user_message_mock( 'First question' ),
+			$this->create_assistant_message_mock( 'First answer' ),
+			// Orphan tool_result not preceded by a tool_use.
+			$this->create_tool_response_message( 'toolu_stray', 'lost-tool' ),
+			$this->create_user_message_mock( 'Second question' ),
+			$this->create_assistant_message_mock( 'Second answer' ),
+		];
+
+		$result = ConversationTrimmer::validate_tool_pairs( $history );
+
+		// The orphan tool_result is dropped; everything else is preserved.
+		$this->assertCount( 4, $result );
+	}
+
+	/**
+	 * Test validate_tool_pairs keeps matched tool_result even if scrub pass runs.
+	 *
+	 * Verifies pass 2 (orphan scrub) does not falsely strip valid tool_results
+	 * whose tool_use is still present in the kept history.
+	 */
+	public function test_validate_tool_pairs_keeps_matched_tool_result_after_scrub() {
+		$history = [
+			$this->create_user_message_mock( 'Search' ),
+			$this->create_tool_call_message( [
+				[ 'id' => 'call_keep', 'name' => 'search' ],
+			] ),
+			$this->create_tool_response_message( 'call_keep', 'search' ),
+			$this->create_assistant_message_mock( 'Done.' ),
+			// Another orphan in the same history should still get dropped.
+			$this->create_tool_response_message( 'call_lost', 'lost' ),
+		];
+
+		$result = ConversationTrimmer::validate_tool_pairs( $history );
+
+		// 4 messages remain: user, assistant(tool_use), user(tool_result), assistant.
+		$this->assertCount( 4, $result );
+	}
+
+	/**
+	 * Test validate_tool_pairs strips orphan FunctionResponse parts from mixed-content messages.
+	 *
+	 * Anthropic accepts user messages with multiple content blocks. If a
+	 * single UserMessage has both text and a FunctionResponse part whose
+	 * tool_use is no longer in history, only the orphan part should be
+	 * stripped — the text part must be preserved.
+	 */
+	public function test_validate_tool_pairs_strips_orphan_parts_from_mixed_message() {
+		$history = [
+			// Mixed message: text + orphan FunctionResponse.
+			$this->create_mixed_user_message_mock( 'Carry on', 'toolu_lost', 'gone' ),
+			$this->create_assistant_message_mock( 'OK.' ),
+		];
+
+		$result = ConversationTrimmer::validate_tool_pairs( $history );
+
+		// The mixed message is rebuilt with only the text part; assistant kept.
+		$this->assertCount( 2, $result );
+		$first_parts = $result[0]->getParts();
+		// Exactly one part remains — the text.
+		$this->assertCount( 1, $first_parts );
+		// No FunctionResponse left on the rebuilt message.
+		foreach ( $first_parts as $part ) {
+			if ( method_exists( $part, 'getFunctionResponse' ) ) {
+				$this->assertNull( $part->getFunctionResponse() );
+			}
+		}
+	}
+
+	/**
+	 * Build a mixed-content UserMessage mock (real, not mocked) with one text
+	 * part and one FunctionResponse part.
+	 *
+	 * Unlike create_tool_response_message() which uses createMock(), this
+	 * helper returns a real UserMessage so we can verify post-strip rebuild
+	 * behaviour through the real DTO contract.
+	 *
+	 * @param string $text          The text content for part 0.
+	 * @param string $orphan_id     The tool_use_id (orphan) for part 1.
+	 * @param string $orphan_name   The tool name for the FunctionResponse.
+	 * @return UserMessage A real UserMessage with mixed parts.
+	 */
+	private function create_mixed_user_message_mock( string $text, string $orphan_id, string $orphan_name ): UserMessage {
+		$text_part      = new MessagePart( $text );
+		$response       = new FunctionResponse( $orphan_id, $orphan_name, '{"ok":true}' );
+		$response_part  = new MessagePart( $response );
+
+		return new UserMessage( [ $text_part, $response_part ] );
+	}
+
+	/**
 	 * Assert that all tool_use messages in a history have matching tool_results.
 	 *
 	 * @param array $history The conversation history to validate.
