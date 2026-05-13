@@ -1,0 +1,89 @@
+name: Worker Model Allowlist
+
+# Inspects aidevops PR signature footers and fails the PR if the model that
+# produced it is on the denylist of weak/free-tier models.
+#
+# History: PRs #1283/#1289/#1290/#1291 were produced by free OpenCode meta
+# models (`nemotron-3-super-free`, `minimax-m2.5-free`) and renamed canonical
+# identifiers in violation of AGENTS.md. Those models are now blocked from
+# producing merged PRs in this repo.
+#
+# Signature format (from gh-signature-helper.sh):
+#   [aidevops.sh](https://aidevops.sh) v3.x.y plugin for [OpenCode](https://opencode.ai) v1.x.y with <model> spent ...
+#
+# Human-authored PRs (no aidevops:sig marker) are not affected — this only
+# fires when an aidevops signature is present.
+
+on:
+  pull_request_target:
+    types: [opened, edited, synchronize, reopened]
+
+concurrency:
+  group: worker-model-allowlist-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  check-signature-model:
+    name: Reject weak-model worker PRs
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Inspect PR body for denylisted model
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
+        run: |
+          set -eu
+
+          if [ -z "${PR_BODY:-}" ]; then
+            echo "PR body is empty — nothing to check."
+            exit 0
+          fi
+
+          if ! printf '%s' "$PR_BODY" | grep -q 'aidevops:sig'; then
+            echo "No aidevops:sig marker — human-authored PR, skipping."
+            exit 0
+          fi
+
+          # Models that have demonstrably produced rogue rename PRs in this
+          # repo (#1283, #1289, #1290, #1291). DO NOT remove an entry without
+          # documented evidence the model has improved on naming/refactor
+          # tasks. ADD new entries when a future weak model misfires.
+          DENY_MODELS=(
+            "nemotron-3-super-free"
+            "nemotron-3-super"
+            "minimax-m2.5-free"
+            "minimax-m2.5"
+            "big-pickle"
+            "hy3-preview-free"
+            "gpt-5.4-mini"
+          )
+
+          # Extract the worker model from the canonical signature line.
+          # Format: "with <model-id> spent ..." — anchored on the framework
+          # signature so we don't false-positive on body prose.
+          model_line=$(printf '%s' "$PR_BODY" | grep -oE 'with [^ ]+ spent' | head -1 || true)
+          if [ -z "$model_line" ]; then
+            echo "::warning::aidevops:sig present but worker-model line not found — allowing through (fix gh-signature-helper if recurring)."
+            exit 0
+          fi
+
+          model=$(printf '%s' "$model_line" | sed -E 's/^with (.+) spent$/\1/')
+          echo "Detected worker model: $model"
+
+          for deny in "${DENY_MODELS[@]}"; do
+            if printf '%s' "$model" | grep -qF "$deny"; then
+              echo "::error::Worker model '$model' is on the denylist for this repo (matched '$deny')."
+              echo "::error::PRs #1283/#1289/#1290/#1291 demonstrated this model class cannot reliably handle naming/refactor briefs."
+              echo "::error::Re-dispatch with an Anthropic-tier model (sonnet/opus), or open the PR interactively after manual review."
+              echo "::error::See repo issue #1293 for the full incident analysis."
+              exit 1
+            fi
+          done
+
+          echo "OK: worker model '$model' is not on the denylist."

@@ -1,0 +1,147 @@
+name: Canonical Naming Guard
+
+# Defence-in-depth against rogue rename PRs.
+#
+# History: PRs #1289, #1290, #1291 were headless-worker submissions that
+# renamed canonical sd-ai-agent / SdAiAgent / SD_AI_AGENT_ identifiers to the
+# WP.org slug 'superdav-ai-agent'. AGENTS.md documents the rules; this workflow
+# enforces the high-signal rename checks at PR-time so a future weak model can't
+# slip the same change through review.
+#
+# See AGENTS.md → "CANONICAL NAMING - DO NOT CHANGE".
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: canonical-naming-guard-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  canonical-naming:
+    name: Verify canonical identifiers
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout PR head
+        uses: actions/checkout@v6
+
+      - name: Plugin DI container ID must be 'sd-ai-agent'
+        run: |
+          if ! grep -qE "'id'\s*=>\s*'sd-ai-agent'" superdav-ai-agent.php; then
+            echo "::error file=superdav-ai-agent.php::Missing required line: 'id' => 'sd-ai-agent'"
+            echo "::error::The DI container ID must remain 'sd-ai-agent'. AGENTS.md forbids renaming it to 'superdav-ai-agent' (that string is only the WP.org slug + text domain)."
+            exit 1
+          fi
+          echo "OK: DI container ID is 'sd-ai-agent'"
+
+      - name: Compile class must be 'CompiledContainerSdAiAgent'
+        run: |
+          if ! grep -qE "'compile_class'\s*=>\s*'CompiledContainerSdAiAgent'" superdav-ai-agent.php; then
+            echo "::error file=superdav-ai-agent.php::Missing required line: 'compile_class' => 'CompiledContainerSdAiAgent'"
+            echo "::error::See AGENTS.md → CANONICAL NAMING."
+            exit 1
+          fi
+          echo "OK: compile_class is 'CompiledContainerSdAiAgent'"
+
+      - name: Constants must use SD_AI_AGENT_ prefix
+        run: |
+          for c in SD_AI_AGENT_DIR SD_AI_AGENT_VERSION; do
+            if ! grep -q "$c" superdav-ai-agent.php; then
+              echo "::error file=superdav-ai-agent.php::Missing required constant: $c"
+              echo "::error::AGENTS.md requires the SD_AI_AGENT_ constant prefix. Do not rename to SUPERDAV_AI_AGENT_."
+              exit 1
+            fi
+          done
+          echo "OK: SD_AI_AGENT_DIR and SD_AI_AGENT_VERSION present"
+
+      - name: Forbid SUPERDAV_AI_AGENT_ constant prefix
+        # The plugin slug 'superdav-ai-agent' is correct for text-domain strings
+        # only. Renaming SD_AI_AGENT_ constants to SUPERDAV_AI_AGENT_ is exactly
+        # the rogue pattern from PR #1289 — block it explicitly.
+        run: |
+          hits=$(grep -rEn 'SUPERDAV_AI_AGENT_[A-Z]+' \
+            --include='*.php' \
+            --exclude-dir=vendor \
+            --exclude-dir=node_modules \
+            --exclude-dir=build \
+            . || true)
+          if [ -n "$hits" ]; then
+            echo "::error::Forbidden constant prefix SUPERDAV_AI_AGENT_ found:"
+            echo "$hits"
+            echo "::error::Use SD_AI_AGENT_ instead. See AGENTS.md → CANONICAL NAMING."
+            exit 1
+          fi
+          echo "OK: no SUPERDAV_AI_AGENT_ constant references"
+
+      - name: Forbid SuperdavAiAgent\\ namespace
+        run: |
+          hits=$(grep -rEn 'namespace\s+SuperdavAiAgent\\?|use\s+SuperdavAiAgent\\?' \
+            --include='*.php' \
+            --exclude-dir=vendor \
+            --exclude-dir=node_modules \
+            --exclude-dir=build \
+            . || true)
+          if [ -n "$hits" ]; then
+            echo "::error::Forbidden namespace SuperdavAiAgent\\ found (use SdAiAgent\\):"
+            echo "$hits"
+            exit 1
+          fi
+          echo "OK: no SuperdavAiAgent namespace references"
+
+      - name: Forbid CompiledContainerSuperdavAiAgent
+        run: |
+          hits=$(grep -rEn 'CompiledContainerSuperdavAiAgent' \
+            --include='*.php' \
+            --exclude-dir=vendor \
+            --exclude-dir=node_modules \
+            --exclude-dir=build \
+            . || true)
+          if [ -n "$hits" ]; then
+            echo "::error::Forbidden compile class name CompiledContainerSuperdavAiAgent found (use CompiledContainerSdAiAgent):"
+            echo "$hits"
+            echo "::error::This is the rogue pattern from PR #1289. See AGENTS.md."
+            exit 1
+          fi
+          echo "OK: no CompiledContainerSuperdavAiAgent references"
+
+      - name: Forbid 'id' => 'superdav-ai-agent' in xwp_load_app
+        # Specifically blocks the PR #1289 pattern. We can't blanket-ban the
+        # string 'superdav-ai-agent' (it's the legitimate text domain), so
+        # this catches the high-signal context.
+        run: |
+          if grep -qE "'id'\s*=>\s*'superdav-ai-agent'" superdav-ai-agent.php; then
+            echo "::error file=superdav-ai-agent.php::Forbidden: 'id' => 'superdav-ai-agent' (PR #1289 rogue pattern)"
+            echo "::error::The DI container ID must be 'sd-ai-agent'. See AGENTS.md."
+            exit 1
+          fi
+          echo "OK: no 'id' => 'superdav-ai-agent' in main plugin file"
+
+      - name: Forbid gratis-ai-agent rename code
+        # PR #1290 tried to rename gratis-ai-agent → superdav-ai-agent.
+        # The correct historical-name policy is "ignore", not "migrate".
+        run: |
+          hits=$(grep -rEn 'gratis-ai-agent' \
+            --include='*.php' \
+            --exclude-dir=vendor \
+            --exclude-dir=node_modules \
+            --exclude-dir=build \
+            . || true)
+          if [ -n "$hits" ]; then
+            echo "::error::Forbidden 'gratis-ai-agent' references found (PR #1290 rogue pattern):"
+            echo "$hits"
+            echo "::error::AGENTS.md rule 3: no legacy-name handling. Remove these references."
+            exit 1
+          fi
+          echo "OK: no gratis-ai-agent references"
+
+      - name: Summary
+        run: |
+          echo "All canonical naming checks passed."
+          echo "Plugin slug (text domain): superdav-ai-agent"
+          echo "Code prefixes / DI / namespace: sd-ai-agent / SdAiAgent / SD_AI_AGENT_"
