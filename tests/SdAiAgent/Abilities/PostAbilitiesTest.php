@@ -17,6 +17,34 @@ use WP_UnitTestCase;
  */
 class PostAbilitiesTest extends WP_UnitTestCase {
 
+	public function set_up(): void {
+		parent::set_up();
+
+		add_filter( 'theme_page_templates', [ $this, 'register_test_page_templates' ] );
+	}
+
+	public function tear_down(): void {
+		remove_filter( 'theme_page_templates', [ $this, 'register_test_page_templates' ] );
+
+		parent::tear_down();
+	}
+
+	/**
+	 * Register synthetic page templates used by page-template assignment tests.
+	 *
+	 * WordPress trunk validates `page_template` during `wp_insert_post()` and
+	 * `wp_update_post()`, so tests must expose the template slugs they assign.
+	 *
+	 * @param array<string, string> $post_templates Existing template map.
+	 * @return array<string, string>
+	 */
+	public function register_test_page_templates( array $post_templates ): array {
+		$post_templates['templates/full-width.php'] = 'Full Width';
+		$post_templates['templates/landing.php']    = 'Landing';
+
+		return $post_templates;
+	}
+
 	// ─── handle_get_post ──────────────────────────────────────────
 
 	/**
