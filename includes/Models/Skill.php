@@ -225,7 +225,7 @@ class Skill {
 	/**
 	 * Create a new skill.
 	 *
-	 * @param array<string, mixed> $data Skill data: slug, name, description, content, is_builtin, enabled, version, content_hash, source_url.
+	 * @param array<string, mixed> $data Skill data: slug, name, description, content, is_builtin, enabled, version, content_hash, source_url, user_modified.
 	 * @return int|false Inserted row ID or false on failure.
 	 */
 	public static function create( array $data ) {
@@ -257,7 +257,7 @@ class Skill {
 				'content_hash'  => '' !== $content ? hash( 'sha256', $content ) : (string) ( $data['content_hash'] ?? '' ),
 				// @phpstan-ignore-next-line
 				'source_url'    => esc_url_raw( (string) ( $data['source_url'] ?? '' ) ),
-				'user_modified' => 0,
+				'user_modified' => ! empty( $data['user_modified'] ) ? 1 : 0,
 				'created_at'    => $now,
 				'updated_at'    => $now,
 			],
