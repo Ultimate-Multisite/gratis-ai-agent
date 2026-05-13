@@ -77,10 +77,80 @@ verify_gh_cli() {
 	return 0
 }
 
+_gh_signature_footer() {
+	local helper="${HOME}/.aidevops/agents/scripts/gh-signature-helper.sh"
+	local footer=""
+	if [[ -x "$helper" ]]; then
+		if command -v timeout &>/dev/null; then
+			footer=$(timeout 10 "$helper" footer 2>/dev/null || true)
+		else
+			footer=$("$helper" footer 2>/dev/null || true)
+		fi
+	fi
+	if [[ -n "$footer" ]]; then
+		printf '%s\n' "$footer"
+	else
+		printf '<!-- aidevops:sig -->\n---\n[aidevops.sh](https://aidevops.sh) signature unavailable: gh-signature-helper.sh timed out or failed.\n'
+	fi
+	return 0
+}
+
+_with_gh_signature() {
+	local body="$1"
+	if printf '%s' "$body" | grep -q 'aidevops:sig'; then
+		printf '%s\n' "$body"
+		return 0
+	fi
+	printf '%s\n\n%s\n' "$body" "$(_gh_signature_footer)"
+	return 0
+}
+
+_write_signed_gh_body_file() {
+	local body="$1"
+	local body_file
+	body_file=$(mktemp "${TMPDIR:-/tmp}/issue-sync-body.XXXXXX") || return 1
+	_with_gh_signature "$body" >"$body_file"
+	printf '%s\n' "$body_file"
+	return 0
+}
+
+_gh_issue_create_signed() {
+	local repo="$1"
+	local title="$2"
+	local body="$3"
+	local labels="$4"
+	local assignee="$5"
+	local body_file
+	body_file=$(_write_signed_gh_body_file "$body") || return 1
+	local -a args=("issue" "create" "--repo" "$repo" "--title" "$title" "--body-file" "$body_file" "--label" "$labels")
+	[[ -n "$assignee" ]] && args+=("--assignee" "$assignee")
+	local status=0
+	gh "${args[@]}" || status=$?
+	rm -f "$body_file"
+	return "$status"
+}
+
+_gh_issue_edit_signed() {
+	local repo="$1"
+	local num="$2"
+	local title="$3"
+	local body="$4"
+	local body_file
+	body_file=$(_write_signed_gh_body_file "$body") || return 1
+	local status=0
+	gh issue edit "$num" --repo "$repo" --title "$title" --body-file "$body_file" || status=$?
+	rm -f "$body_file"
+	return "$status"
+}
+
 # Common preamble for commands that need project_root, repo, todo_file, gh auth
 _init_cmd() {
 	_CMD_ROOT=$(find_project_root) || return 1
-	_CMD_REPO="${REPO_SLUG:-$(detect_repo_slug "$_CMD_ROOT")}"
+	if [[ -n "$REPO_SLUG" ]]; then
+		_CMD_REPO="$REPO_SLUG"
+	else
+		_CMD_REPO=$(detect_repo_slug "$_CMD_ROOT")
+	fi
 	_CMD_TODO="$_CMD_ROOT/TODO.md"
 	verify_gh_cli || return 1
 }
@@ -233,6 +303,7 @@ _do_close() {
 
 	local comment
 	comment=$(_close_comment "$task_id" "$task_with_notes" "$pr_num" "$pr_url")
+	comment=$(_with_gh_signature "$comment")
 	if [[ "$DRY_RUN" == "true" ]]; then
 		print_info "[DRY-RUN] Would close #$issue_number ($task_id)"
 		return 0
@@ -349,10 +420,8 @@ cmd_push() {
 			continue
 		fi
 
-		local -a args=("issue" "create" "--repo" "$repo" "--title" "$title" "--body" "$body" "--label" "$all_labels")
-		[[ -n "$assignee" ]] && args+=("--assignee" "$assignee")
 		local url
-		url=$(gh "${args[@]}" 2>/dev/null || echo "")
+		url=$(_gh_issue_create_signed "$repo" "$title" "$body" "$all_labels" "$assignee" 2>/dev/null || echo "")
 		[[ -z "$url" ]] && {
 			print_error "Failed to create issue for $task_id"
 			continue
@@ -425,7 +494,7 @@ cmd_enrich() {
 			ensure_labels_exist "$labels" "$repo"
 			_gh_edit_labels "add" "$repo" "$num" "$labels"
 		}
-		if gh issue edit "$num" --repo "$repo" --title "$title" --body "$body" 2>/dev/null; then
+		if _gh_issue_edit_signed "$repo" "$num" "$title" "$body" 2>/dev/null; then
 			print_success "Enriched #$num ($task_id)"
 			enriched=$((enriched + 1))
 		else print_error "Failed to enrich #$num ($task_id)"; fi
