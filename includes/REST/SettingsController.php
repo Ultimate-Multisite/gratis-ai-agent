@@ -143,56 +143,6 @@ final class SettingsController {
 			)
 		);
 
-		// Direct provider API key endpoint.
-		register_rest_route(
-			RestController::NAMESPACE,
-			'/settings/provider-key',
-			array(
-				array(
-					'methods'             => WP_REST_Server::CREATABLE,
-					'callback'            => array( $this, 'handle_set_provider_key' ),
-					'permission_callback' => array( __CLASS__, 'check_admin_permission' ),
-					'args'                => array(
-						'provider' => array(
-							'required'          => true,
-							'type'              => 'string',
-							'sanitize_callback' => 'sanitize_text_field',
-						),
-						'api_key'  => array(
-							'required'          => true,
-							'type'              => 'string',
-							'sanitize_callback' => 'sanitize_text_field',
-						),
-					),
-				),
-			)
-		);
-
-		// Direct provider API key test endpoint.
-		register_rest_route(
-			RestController::NAMESPACE,
-			'/settings/provider-key/test',
-			array(
-				array(
-					'methods'             => WP_REST_Server::CREATABLE,
-					'callback'            => array( $this, 'handle_test_provider_key' ),
-					'permission_callback' => array( __CLASS__, 'check_admin_permission' ),
-					'args'                => array(
-						'provider' => array(
-							'required'          => true,
-							'type'              => 'string',
-							'sanitize_callback' => 'sanitize_text_field',
-						),
-						'api_key'  => array(
-							'required'          => false,
-							'type'              => 'string',
-							'sanitize_callback' => 'sanitize_text_field',
-						),
-					),
-				),
-			)
-		);
-
 		// Role permissions endpoints — only registered when access control feature is enabled.
 		if ( Features::is_enabled( Features::ACCESS_CONTROL ) ) {
 			register_rest_route(
@@ -422,14 +372,6 @@ final class SettingsController {
 		// @phpstan-ignore-next-line
 		$settings['_has_claude_max_token'] = '' !== $this->settings->get_claude_max_token();
 
-		// Indicate which direct provider keys are configured (boolean per provider, no values).
-		$provider_keys = array();
-		foreach ( array_keys( Settings::DIRECT_PROVIDERS ) as $provider_id ) {
-			$provider_keys[ $provider_id ] = '' !== $this->settings->get_provider_key( $provider_id );
-		}
-		// @phpstan-ignore-next-line
-		$settings['_provider_keys'] = $provider_keys;
-
 		// Indicate whether GSC credentials are configured (boolean + type only, no credential values).
 		$gsc_creds = $this->settings->get_gsc_credentials();
 		// @phpstan-ignore-next-line
@@ -557,189 +499,6 @@ final class SettingsController {
 				'saved'        => true,
 				'has_token'    => ! empty( $token ),
 				'token_prefix' => ! empty( $token ) ? substr( $token, 0, 20 ) . '…' : '',
-			),
-			200
-		);
-	}
-
-	/**
-	 * Handle POST /settings/provider-key — save or clear a direct provider API key.
-	 *
-	 * @param WP_REST_Request $request The request object.
-	 */
-	public function handle_set_provider_key( WP_REST_Request $request ): WP_REST_Response {
-		// @phpstan-ignore-next-line
-		$provider = (string) $request->get_param( 'provider' );
-		// @phpstan-ignore-next-line
-		$api_key = (string) $request->get_param( 'api_key' );
-		$api_key = trim( $api_key );
-
-		if ( ! array_key_exists( $provider, Settings::DIRECT_PROVIDERS ) ) {
-			return new WP_REST_Response( array( 'error' => 'Unknown provider.' ), 400 );
-		}
-
-		$success = $this->settings->set_provider_key( $provider, $api_key );
-
-		if ( ! $success && ! empty( $api_key ) ) {
-			return new WP_REST_Response( array( 'error' => 'Failed to save API key.' ), 500 );
-		}
-
-		// Credentials changed — the cached providers list is now stale.
-		self::flush_providers_cache();
-
-		return new WP_REST_Response(
-			array(
-				'saved'   => true,
-				'has_key' => ! empty( $api_key ),
-			),
-			200
-		);
-	}
-
-	/**
-	 * Handle POST /settings/provider-key/test — test a direct provider API key.
-	 *
-	 * @param WP_REST_Request $request The request object.
-	 */
-	public function handle_test_provider_key( WP_REST_Request $request ): WP_REST_Response {
-		// @phpstan-ignore-next-line
-		$provider = (string) $request->get_param( 'provider' );
-		// @phpstan-ignore-next-line
-		$api_key = (string) $request->get_param( 'api_key' );
-		$api_key = trim( $api_key );
-
-		if ( ! array_key_exists( $provider, Settings::DIRECT_PROVIDERS ) ) {
-			return new WP_REST_Response(
-				array(
-					'success' => false,
-					'error'   => 'Unknown provider.',
-				),
-				400
-			);
-		}
-
-		// Use the provided key or fall back to the stored key.
-		$key_to_test = '' !== $api_key ? $api_key : $this->settings->get_provider_key( $provider );
-
-		if ( '' === $key_to_test ) {
-			return new WP_REST_Response(
-				array(
-					'success' => false,
-					'error'   => 'No API key configured.',
-				),
-				400
-			);
-		}
-
-		$meta          = Settings::DIRECT_PROVIDERS[ $provider ];
-		$default_model = $meta['default_model'];
-
-		// Send a minimal test prompt.
-		$test_body = array(
-			'model'      => $default_model,
-			'max_tokens' => 16,
-			'messages'   => array(
-				array(
-					'role'    => 'user',
-					'content' => 'Say "ok".',
-				),
-			),
-		);
-
-		if ( 'anthropic' === $provider ) {
-			$response = wp_remote_post(
-				'https://api.anthropic.com/v1/messages',
-				[
-					'timeout' => 30,
-					'headers' => [
-						'Content-Type'      => 'application/json',
-						'x-api-key'         => $key_to_test,
-						'anthropic-version' => '2023-06-01',
-					],
-					'body'    => (string) wp_json_encode( $test_body ),
-				]
-			);
-		} elseif ( 'google' === $provider ) {
-			$openai_body = [
-				'model'      => $default_model,
-				'max_tokens' => 16,
-				'messages'   => [
-					[
-						'role'    => 'user',
-						'content' => 'Say "ok".',
-					],
-				],
-			];
-			$response    = wp_remote_post(
-				'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions',
-				[
-					'timeout' => 30,
-					'headers' => [
-						'Content-Type'  => 'application/json',
-						'Authorization' => 'Bearer ' . $key_to_test,
-					],
-					'body'    => (string) wp_json_encode( $openai_body ),
-				]
-			);
-		} else {
-			// OpenAI.
-			$openai_body = [
-				'model'      => $default_model,
-				'max_tokens' => 16,
-				'messages'   => [
-					[
-						'role'    => 'user',
-						'content' => 'Say "ok".',
-					],
-				],
-			];
-			$response    = wp_remote_post(
-				'https://api.openai.com/v1/chat/completions',
-				[
-					'timeout' => 30,
-					'headers' => [
-						'Content-Type'  => 'application/json',
-						'Authorization' => 'Bearer ' . $key_to_test,
-					],
-					'body'    => (string) wp_json_encode( $openai_body ),
-				]
-			);
-		}
-
-		if ( is_wp_error( $response ) ) {
-			return new WP_REST_Response(
-				[
-					'success' => false,
-					'error'   => $response->get_error_message(),
-				],
-				200
-			);
-		}
-
-		$code = wp_remote_retrieve_response_code( $response );
-		$body = wp_remote_retrieve_body( $response );
-		$data = json_decode( $body, true );
-
-		if ( 200 !== $code ) {
-			// @phpstan-ignore-next-line
-			$error_msg = isset( $data['error']['message'] ) ? $data['error']['message'] : "HTTP $code";
-			return new WP_REST_Response(
-				array(
-					'success' => false,
-					'error'   => $error_msg,
-				),
-				200
-			);
-		}
-
-		// Extract model name from response.
-		// @phpstan-ignore-next-line
-		$model_name = $data['model'] ?? $default_model;
-
-		return new WP_REST_Response(
-			array(
-				'success' => true,
-				'model'   => $model_name,
 			),
 			200
 		);
@@ -1080,9 +839,11 @@ final class SettingsController {
 
 		$providers = array();
 
-		// Direct providers (OpenAI, Anthropic, Google) — listed first, no WP SDK required.
+		// Built-in providers (OpenAI, Anthropic, Google) — listed first when a
+		// WP 7.0 Connectors API key is set, so sites without a third-party
+		// AI provider plugin still have a usable provider/model list.
 		foreach ( Settings::DIRECT_PROVIDERS as $provider_id => $meta ) {
-			$key = $this->settings->get_provider_key( $provider_id );
+			$key = $this->settings->get_connectors_api_key( $provider_id );
 			if ( '' === $key ) {
 				continue;
 			}
@@ -1250,9 +1011,9 @@ final class SettingsController {
 		// Check whether at least one AI provider is configured.
 		$has_provider = false;
 
-		// Direct providers (API key stored in plugin options).
-		foreach ( Settings::DIRECT_PROVIDERS as $provider_id => $meta ) {
-			if ( '' !== $this->settings->get_provider_key( $provider_id ) ) {
+		// Built-in providers (API key stored by the WP 7.0 Connectors API).
+		foreach ( array_keys( Settings::DIRECT_PROVIDERS ) as $provider_id ) {
+			if ( '' !== $this->settings->get_connectors_api_key( $provider_id ) ) {
 				$has_provider = true;
 				break;
 			}

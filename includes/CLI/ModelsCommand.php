@@ -157,9 +157,10 @@ class ModelsCommand extends WP_CLI_Command {
 		$settings  = new Settings();
 		$providers = array();
 
-		// Direct providers (OpenAI, Anthropic, Google) — only include if a key is configured.
+		// Built-in providers (OpenAI, Anthropic, Google) — only include when a
+		// WP 7.0 Connectors API key is set.
 		foreach ( Settings::DIRECT_PROVIDERS as $provider_id => $meta ) {
-			if ( '' === $settings->get_provider_key( $provider_id ) ) {
+			if ( '' === $settings->get_connectors_api_key( $provider_id ) ) {
 				continue;
 			}
 

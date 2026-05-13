@@ -37,22 +37,12 @@ class Settings {
 	const CLAUDE_MAX_TOKEN_OPTION = 'sd_ai_agent_claude_max_token';
 
 	/**
-	 * Option name for directly-configured provider API keys.
-	 * Stored separately from general settings to avoid leaking credentials
-	 * through the GET /settings endpoint.
-	 */
-	const PROVIDER_KEYS_OPTION = 'sd_ai_agent_provider_keys';
-
-	/**
 	 * Option name for Google Search Console credentials.
 	 * Stored separately from general settings to avoid leaking credentials
 	 * through the GET /settings endpoint.
 	 */
 	const GSC_CREDENTIALS_OPTION = 'sd_ai_agent_gsc_credentials';
 
-	/**
-	 * Supported direct providers with their metadata.
-	 */
 	/**
 	 * Known context window sizes per model (tokens).
 	 * Used as a fallback lookup for WP SDK provider models that do not carry
@@ -95,6 +85,23 @@ class Settings {
 		'gemini-1.5-flash'              => 1048576,
 	);
 
+	/**
+	 * Built-in catalog of provider IDs, display names, default models, and
+	 * model lists for OpenAI, Anthropic, and Google.
+	 *
+	 * This is a static catalog of metadata only — it does NOT imply that any
+	 * of these providers are configured. Credentials are stored exclusively by
+	 * the WordPress 7.0 Connectors API in `connectors_ai_{provider}_api_key`
+	 * options; see {@see Settings::get_connectors_api_key()} and
+	 * {@see ProviderCredentialLoader::load()}.
+	 *
+	 * The catalog is consulted by `/providers`, `/alerts`, and the
+	 * `wp ai-agent models` CLI command so that sites without a third-party
+	 * AI provider plugin (`ai-provider-for-openai` etc.) can still discover
+	 * which models exist for a connector that has a key set.
+	 *
+	 * @var array<string, array{name: string, default_model: string, models: list<array{id: string, name: string, context_window: int}>}>
+	 */
 	const DIRECT_PROVIDERS = array(
 		'openai'    => array(
 			'name'          => 'OpenAI',
@@ -322,68 +329,24 @@ class Settings {
 	}
 
 	/**
-	 * Get the API key for a directly-configured provider.
+	 * Read the API key stored by the WordPress 7.0 Connectors API for a
+	 * built-in provider in {@see Settings::DIRECT_PROVIDERS}.
 	 *
-	 * Keys are stored in a dedicated option, never in the general settings blob,
-	 * so they are not exposed through GET /settings.
+	 * Reads the `connectors_ai_{provider}_api_key` option directly. This is the
+	 * same naming convention used by core on WP 7.0+ and by the 6.9 polyfill
+	 * in `includes/Compat/wp-connectors-polyfill.php`, so credentials entered
+	 * through the Connectors admin page are picked up here without any further
+	 * migration.
 	 *
-	 * @param string $provider_id One of 'openai', 'anthropic', 'google'.
+	 * Note: this helper is intentionally read-only — credential writes flow
+	 * through {@see ConnectorsController}, never through the Settings class.
+	 *
+	 * @param string $provider_id One of the keys of {@see Settings::DIRECT_PROVIDERS}.
 	 * @return string Empty string when not configured.
 	 */
-	public function get_provider_key( string $provider_id ): string {
-		$keys = get_option( self::PROVIDER_KEYS_OPTION, array() );
-		// @phpstan-ignore-next-line
-		return isset( $keys[ $provider_id ] ) ? (string) $keys[ $provider_id ] : '';
-	}
-
-	/**
-	 * Persist an API key for a directly-configured provider.
-	 *
-	 * Pass an empty string to clear the credential.
-	 *
-	 * @param string $provider_id One of 'openai', 'anthropic', 'google'.
-	 * @param string $api_key     The API key value.
-	 * @return bool True on success.
-	 */
-	public function set_provider_key( string $provider_id, string $api_key ): bool {
-		if ( ! array_key_exists( $provider_id, self::DIRECT_PROVIDERS ) ) {
-			return false;
-		}
-
-		$keys = get_option( self::PROVIDER_KEYS_OPTION, array() );
-
-		if ( '' === $api_key ) {
-			// @phpstan-ignore-next-line
-			unset( $keys[ $provider_id ] );
-		} else {
-			// @phpstan-ignore-next-line
-			$keys[ $provider_id ] = $api_key;
-		}
-
-		return update_option( self::PROVIDER_KEYS_OPTION, $keys );
-	}
-
-	/**
-	 * Get all configured direct providers (those with a non-empty API key).
-	 *
-	 * Returns an array of provider metadata arrays, each with:
-	 *   - id, name, configured (bool), models (array), has_key (bool)
-	 *
-	 * @return array<int, array<string, mixed>>
-	 */
-	public function get_configured_direct_providers(): array {
-		$result = array();
-		foreach ( self::DIRECT_PROVIDERS as $id => $meta ) {
-			$key      = $this->get_provider_key( $id );
-			$result[] = array(
-				'id'         => $id,
-				'name'       => $meta['name'],
-				'configured' => '' !== $key,
-				'has_key'    => '' !== $key,
-				'models'     => $meta['models'],
-			);
-		}
-		return $result;
+	public function get_connectors_api_key( string $provider_id ): string {
+		$sanitized_id = str_replace( '-', '_', $provider_id );
+		return (string) get_option( "connectors_ai_{$sanitized_id}_api_key", '' );
 	}
 
 	/**
@@ -607,7 +570,8 @@ class Settings {
 	 *
 	 * Resolution order:
 	 *  1. `default_provider` saved via the WP SDK Connectors settings page.
-	 *  2. Any directly-configured provider API key (OpenAI, Anthropic, Google).
+	 *  2. A WP 7.0 Connectors API key for any built-in provider in
+	 *     {@see Settings::DIRECT_PROVIDERS}.
 	 *  3. Claude Max OAuth token.
 	 *
 	 * @return bool
@@ -619,9 +583,9 @@ class Settings {
 			return true;
 		}
 
-		// Direct API keys.
+		// WP 7.0 Connectors API key for a built-in provider.
 		foreach ( array_keys( self::DIRECT_PROVIDERS ) as $provider_id ) {
-			if ( '' !== $this->get_provider_key( $provider_id ) ) {
+			if ( '' !== $this->get_connectors_api_key( $provider_id ) ) {
 				return true;
 			}
 		}

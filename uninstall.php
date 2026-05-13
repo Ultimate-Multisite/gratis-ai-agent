@@ -48,6 +48,8 @@ $sd_ai_agent_options = [
 	'sd_ai_agent_settings',
 	'sd_ai_agent_db_version',
 	'sd_ai_agent_claude_max_token',
+	// Legacy option removed in v1.x — kept here so uninstall cleans up rows on
+	// sites that upgraded from before the WP 7.0 Connectors API migration.
 	'sd_ai_agent_provider_keys',
 	'sd_ai_agent_gsc_credentials',
 	'sd_ai_agent_tool_profiles',

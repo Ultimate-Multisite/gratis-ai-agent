@@ -59,14 +59,14 @@ Update after completing each sub-task, not just parent tasks.
   - [ ] 3.3 Remove the "Providers" tab from `settings-app.js` tab list and its `case 'providers':` switch branch
   - [ ] 3.4 Remove provider key entry from `src/components/onboarding-wizard.js` — replace with a notice linking to Settings > Connectors
   - [ ] 3.5 Remove provider key entry from `src/floating-widget/site-builder-overlay.js` — replace with a notice linking to Settings > Connectors
-  - [ ] 3.6 Remove `Settings::DIRECT_PROVIDERS` constant and `get_provider_key()`/`set_provider_key()` methods from `includes/Core/Settings.php`
-  - [ ] 3.7 Remove REST endpoints: `POST /settings/provider-key`, `POST /settings/provider-key/test`, `GET /settings/provider-keys` from `includes/REST/RestController.php`
-  - [ ] 3.8 Remove `_provider_keys` from the settings REST response
-  - [ ] 3.9 Update `handle_providers()` REST endpoint to read exclusively from `ProviderRegistry::getRegisteredProviderIds()` — remove the `DIRECT_PROVIDERS` loop
+  - [x] 3.6 Remove `get_provider_key()` / `set_provider_key()` / `get_configured_direct_providers()` from `includes/Core/Settings.php` and remove the `PROVIDER_KEYS_OPTION` constant. **Scope deviation:** keep `Settings::DIRECT_PROVIDERS` as a static catalog of provider IDs and model lists — without it, bare-WP installs (no third-party AI provider plugin) cannot enumerate available models. Add `Settings::get_connectors_api_key()` to read the WP 7.0 Connectors API option (`connectors_ai_{provider}_api_key`).
+  - [x] 3.7 Remove REST endpoints `POST /settings/provider-key` and `POST /settings/provider-key/test` from `includes/REST/SettingsController.php`. (There was never a `GET /settings/provider-keys` route — the original plan was wrong; presence flags were carried inside `GET /settings`.)
+  - [x] 3.8 Remove `_provider_keys` from the `GET /settings` REST response.
+  - [x] 3.9 Update `handle_providers()` and `handle_alerts()` to read keys via `Settings::get_connectors_api_key()` instead of `get_provider_key()`. The `DIRECT_PROVIDERS` loop stays as the provider catalog when no third-party AI provider plugin is active.
   - [ ] 3.10 Remove or simplify `CredentialResolver` — remove `openai_compat_*` options and `AI_EXPERIMENTS_CREDENTIALS_OPTION`; keep only `getClaudeMaxToken()`/`setClaudeMaxToken()` if Claude Max OAuth is still needed
   - [ ] 3.11 Update `AgentLoop::ensure_provider_credentials_static()` — remove Source 2 (AI Experiments) and Source 3 (OpenAI compat); keep Source 1 (WP 7.0 Connectors API)
   - [ ] 3.12 Remove provider key tests from `tests/SdAiAgent/Core/CredentialResolverTest.php` (openai_compat tests)
-  - [ ] 3.13 Update `src/store/index.js` — simplify `fetchProviders` to only read from the `/providers` REST endpoint (no more `_provider_keys` state)
+  - [x] 3.13 Update `src/store/index.js` — simplify `fetchProviders` to only read from the `/providers` REST endpoint (no more `_provider_keys` state). Confirmed already done in a prior JS cleanup; no `_provider_keys` references remain in `src/`.
   - [ ] 3.14 Build and verify: no provider key UI in settings, onboarding points to Connectors, chat still shows available providers from registry
 
 - [ ] 4.0 Remove direct provider HTTP paths ~3h (ai:2.5h test:30m)

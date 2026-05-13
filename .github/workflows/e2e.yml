@@ -187,16 +187,17 @@ jobs:
           npx wp-env run cli wp option update sd_ai_agent_settings \
             '{"onboarding_complete":true,"site_builder_mode":false}' --format=json
 
-          # Configure a fake OpenAI key so the /providers endpoint returns at
-          # least one provider. Without a provider the AdminPageApp renders the
-          # ConnectorGate instead of the chat layout, breaking all tests that
-          # look for .sd-ai-agent-layout or .sd-ai-agent-chat-panel.
+          # Configure a fake OpenAI key via the WP 7.0 Connectors API option
+          # so the /providers endpoint returns at least one provider. Without
+          # a provider the AdminPageApp renders the ConnectorGate instead of
+          # the chat layout, breaking all tests that look for
+          # .sd-ai-agent-layout or .sd-ai-agent-chat-panel.
           # The key is never used for real API calls — E2E specs mock the
-          # /stream endpoint — but its non-empty value is enough for the
+          # /stream endpoint — but its non-empty value is enough for
           # SettingsController::handle_providers() to include OpenAI in the
           # list returned to the React app.
-          npx wp-env run cli wp option update sd_ai_agent_provider_keys \
-            '{"openai":"sk-test-fake-key-for-e2e"}' --format=json
+          npx wp-env run cli wp option update connectors_ai_openai_api_key \
+            'sk-test-fake-key-for-e2e'
 
           # Prevent FreshInstallDetector from re-enabling site_builder_mode on
           # every page load. The wp-env environment is always a "fresh install"

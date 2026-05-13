@@ -132,7 +132,6 @@ const MOCK_SETTINGS = {
 	image_generation_style: 'vivid',
 	tool_permissions: {},
 	_defaults: {},
-	_provider_keys: {},
 };
 
 /**
