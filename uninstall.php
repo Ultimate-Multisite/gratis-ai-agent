@@ -56,6 +56,9 @@ $sd_ai_agent_options = [
 	'sd_ai_agent_tool_profiles',
 	'sd_ai_agent_custom_tools_seeded',
 	'sd_ai_agent_migrated_from_ai_agent',
+	// Removed when the /providers transient cache was dropped — kept so the
+	// stranded counter row is cleaned up on sites that ran earlier versions.
+	'sd_ai_providers_cache_version',
 ];
 
 foreach ( $sd_ai_agent_options as $sd_ai_agent_option ) {

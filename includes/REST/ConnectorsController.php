@@ -196,10 +196,6 @@ final class ConnectorsController {
 		$option_key = self::PROVIDERS[ $provider_id ]['option_key'];
 		update_option( $option_key, $api_key, false );
 
-		// Connector credentials changed — invalidate the site-wide providers cache
-		// so every admin sees the updated list on the next /providers request.
-		SettingsController::flush_providers_cache();
-
 		return new WP_REST_Response(
 			array(
 				'success'    => true,
@@ -231,10 +227,6 @@ final class ConnectorsController {
 
 		$option_key = self::PROVIDERS[ $provider_id ]['option_key'];
 		delete_option( $option_key );
-
-		// Connector credentials removed — invalidate the site-wide providers cache
-		// so every admin sees the updated list on the next /providers request.
-		SettingsController::flush_providers_cache();
 
 		return new WP_REST_Response(
 			array(
