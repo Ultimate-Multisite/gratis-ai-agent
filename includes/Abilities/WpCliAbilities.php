@@ -151,6 +151,19 @@ class WpCliAbilities {
 	private static string $current_site_url = '';
 
 	/**
+	 * Cached resolved WP-CLI binary path for the current request.
+	 *
+	 * Populated lazily by {@see find_wp_cli()}. A non-empty string is a
+	 * successfully resolved path; an empty string means "not yet resolved".
+	 * A failed resolution returns a fresh WP_Error each time so the caller
+	 * sees the latest filesystem reality (cheap because the negative path
+	 * still finishes in microseconds).
+	 *
+	 * @var string
+	 */
+	private static string $cached_binary = '';
+
+	/**
 	 * Register the wp-cli ability category.
 	 *
 	 * @return void
@@ -341,7 +354,19 @@ class WpCliAbilities {
 		}
 
 		// Build the process argument array.
-		$proc_args = array( $wp_binary );
+		//
+		// `wp-cli.phar` is a PHP archive, not a native executable. Even when
+		// the file is marked executable and starts with `#!/usr/bin/env php`,
+		// many shared-hosting environments either (a) have no `php` on the
+		// PATH visible to the web user, or (b) refuse to exec scripts owned
+		// by a different UID. Both fail silently with exit code 255 (the
+		// symptom reported in GH-1335). Invoking `PHP_BINARY` explicitly
+		// short-circuits both problems because PHP_BINARY is the exact
+		// interpreter already running WordPress.
+		$proc_args = self::is_phar( $wp_binary )
+			? array( PHP_BINARY, $wp_binary )
+			: array( $wp_binary );
+
 		$proc_args = array_merge( $proc_args, $tokens );
 
 		if ( ! self::tokens_have_flag( $tokens, '--path' ) ) {
@@ -613,48 +638,291 @@ class WpCliAbilities {
 	/**
 	 * Find the WP-CLI binary path.
 	 *
+	 * Resolution order (first match wins):
+	 *   1. `sd_ai_agent_wp_cli_binary` runtime filter.
+	 *   2. `SD_AI_AGENT_WP_CLI_PATH` constant from `wp-config.php`.
+	 *   3. Per-request cache.
+	 *   4. Common system locations (`/usr/local/bin/wp`, `/usr/bin/wp`,
+	 *      `$HOME/.local/bin/wp`).
+	 *   5. WordPress install candidates (`ABSPATH . 'wp-cli.phar'`,
+	 *      `ABSPATH . 'wp'`, `ABSPATH . '../wp-cli.phar'`,
+	 *      `WP_CONTENT_DIR . '/mu-plugins/wp-cli.phar'`,
+	 *      `WP_CONTENT_DIR . '/wp-cli.phar'`).
+	 *   6. Pure-PHP scan of every directory in `getenv('PATH')`.
+	 *   7. `shell_exec('command -v wp')` — only if `shell_exec` is actually
+	 *      callable (not blocked by `disable_functions`).
+	 *
+	 * `.phar` candidates are accepted even when the file is not executable
+	 * (it will be invoked via {@see PHP_BINARY} in {@see execute()}).
+	 *
 	 * @return string|WP_Error
 	 */
 	private static function find_wp_cli() {
+		if ( '' !== self::$cached_binary && self::path_is_usable( self::$cached_binary ) ) {
+			return self::$cached_binary;
+		}
+
 		/**
 		 * Filter the WP-CLI binary path.
 		 *
+		 * Takes precedence over the `SD_AI_AGENT_WP_CLI_PATH` constant.
+		 *
 		 * @param string $path Path to the WP-CLI binary.
 		 */
-		$path = (string) apply_filters( 'sd_ai_agent_wp_cli_binary', '' );
+		$filtered = (string) apply_filters( 'sd_ai_agent_wp_cli_binary', '' );
 
-		if ( '' !== $path && is_executable( $path ) ) {
-			return $path;
+		if ( '' !== $filtered && self::path_is_usable( $filtered ) ) {
+			self::$cached_binary = $filtered;
+			return $filtered;
 		}
 
-		$candidates = array(
-			'/usr/local/bin/wp',
-			'/usr/bin/wp',
-			ABSPATH . 'wp-cli.phar',
-		);
-
-		$home = getenv( 'HOME' );
-		if ( is_string( $home ) && '' !== $home ) {
-			$candidates[] = $home . '/.local/bin/wp';
+		if ( defined( 'SD_AI_AGENT_WP_CLI_PATH' ) ) {
+			// constant() (vs. the bare name) avoids PHPStan constant-folding
+			// the literal empty-string default from superdav-ai-agent.php and
+			// short-circuiting the rest of the resolver at analysis time.
+			$constant_path = (string) constant( 'SD_AI_AGENT_WP_CLI_PATH' );
+			if ( '' !== $constant_path && self::path_is_usable( $constant_path ) ) {
+				self::$cached_binary = $constant_path;
+				return $constant_path;
+			}
 		}
+
+		$candidates = self::candidate_paths();
 
 		foreach ( $candidates as $candidate ) {
-			if ( file_exists( $candidate ) && is_executable( $candidate ) ) {
+			if ( '' === $candidate ) {
+				continue;
+			}
+			if ( self::path_is_usable( $candidate ) ) {
+				self::$cached_binary = $candidate;
 				return $candidate;
 			}
 		}
 
-		// Try which.
-		// phpcs:ignore WordPress.PHP.DiscouragedPHPFunctions.system_calls_shell_exec -- shell_exec is required to locate the WP-CLI binary at runtime.
-		$which = trim( (string) shell_exec( 'which wp 2>/dev/null' ) );
+		/**
+		 * Filter whether to scan `$PATH` (and fall back to `shell_exec`)
+		 * after the candidate list has been exhausted.
+		 *
+		 * Useful for:
+		 *   - Deterministic tests that need the resolver to stop after the
+		 *     candidate list.
+		 *   - Locked-down hosts that prefer to fail fast with the actionable
+		 *     "not found" error rather than risk discovering an unsupported
+		 *     `wp` somewhere on `$PATH`.
+		 *
+		 * Default: true.
+		 *
+		 * @param bool $enabled Whether to perform the PATH scan + shell_exec fallback.
+		 */
+		$scan_enabled = (bool) apply_filters( 'sd_ai_agent_wp_cli_scan_path', true );
 
-		if ( '' !== $which && is_executable( $which ) ) {
-			return $which;
+		if ( $scan_enabled ) {
+			$path_scan = self::find_in_path( 'wp' );
+			if ( '' !== $path_scan ) {
+				self::$cached_binary = $path_scan;
+				return $path_scan;
+			}
+
+			if ( self::shell_exec_available() ) {
+				// phpcs:ignore WordPress.PHP.DiscouragedPHPFunctions.system_calls_shell_exec -- last-resort PATH lookup; gated on shell_exec_available().
+				$which = trim( (string) shell_exec( 'command -v wp 2>/dev/null' ) );
+
+				if ( '' !== $which && is_executable( $which ) ) {
+					self::$cached_binary = $which;
+					return $which;
+				}
+			}
 		}
 
 		return new WP_Error(
 			'wp_cli_not_found',
-			__( 'WP-CLI binary not found. Install WP-CLI or set the path via the sd_ai_agent_wp_cli_binary filter.', 'superdav-ai-agent' )
+			self::not_found_message( $candidates ),
+			array(
+				'searched_paths'    => $candidates,
+				'abspath'           => ABSPATH,
+				'download_url'      => 'https://raw.githubusercontent.com/wp-cli/builds/gh-pages/phar/wp-cli.phar',
+				'override_constant' => 'SD_AI_AGENT_WP_CLI_PATH',
+				'override_filter'   => 'sd_ai_agent_wp_cli_binary',
+			)
+		);
+	}
+
+	/**
+	 * Reset the cached WP-CLI binary path.
+	 *
+	 * Exposed for tests and for the (out-of-scope-for-this-patch) admin
+	 * "Re-detect WP-CLI" action.
+	 *
+	 * @return void
+	 */
+	public static function reset_binary_cache(): void {
+		self::$cached_binary = '';
+	}
+
+	/**
+	 * Determine whether a candidate path is usable as a WP-CLI binary.
+	 *
+	 * `.phar` files are accepted even without the executable bit because
+	 * {@see execute()} invokes them via `PHP_BINARY`. Everything else must
+	 * be executable.
+	 *
+	 * @param string $path Candidate filesystem path.
+	 * @return bool
+	 */
+	private static function path_is_usable( string $path ): bool {
+		if ( '' === $path || ! is_file( $path ) ) {
+			return false;
+		}
+
+		if ( self::is_phar( $path ) ) {
+			return is_readable( $path );
+		}
+
+		return is_executable( $path );
+	}
+
+	/**
+	 * Whether a path looks like a PHP Archive (`.phar`).
+	 *
+	 * @param string $path Filesystem path.
+	 * @return bool
+	 */
+	private static function is_phar( string $path ): bool {
+		return str_ends_with( strtolower( $path ), '.phar' );
+	}
+
+	/**
+	 * Build the static candidate path list (system + WordPress install).
+	 *
+	 * Ordered by expected hit rate, cheapest first.
+	 *
+	 * @return string[]
+	 */
+	private static function candidate_paths(): array {
+		$candidates = array(
+			'/usr/local/bin/wp',
+			'/usr/bin/wp',
+			ABSPATH . 'wp-cli.phar',
+			ABSPATH . 'wp',
+		);
+
+		// Sibling of ABSPATH — e.g. WP in `/public_html/wp/`, .phar in `/public_html/`.
+		$parent = rtrim( dirname( rtrim( ABSPATH, '/\\' ) ), '/\\' );
+		if ( '' !== $parent && '/' !== $parent ) {
+			$candidates[] = $parent . '/wp-cli.phar';
+		}
+
+		if ( defined( 'WP_CONTENT_DIR' ) ) {
+			$content = (string) WP_CONTENT_DIR;
+			if ( '' !== $content ) {
+				$candidates[] = rtrim( $content, '/\\' ) . '/mu-plugins/wp-cli.phar';
+				$candidates[] = rtrim( $content, '/\\' ) . '/wp-cli.phar';
+			}
+		}
+
+		$home = getenv( 'HOME' );
+		if ( is_string( $home ) && '' !== $home ) {
+			$candidates[] = rtrim( $home, '/\\' ) . '/.local/bin/wp';
+			$candidates[] = rtrim( $home, '/\\' ) . '/bin/wp';
+			$candidates[] = rtrim( $home, '/\\' ) . '/wp-cli.phar';
+		}
+
+		/**
+		 * Filter the list of candidate WP-CLI binary paths.
+		 *
+		 * The filter runs AFTER the `sd_ai_agent_wp_cli_binary` and
+		 * `SD_AI_AGENT_WP_CLI_PATH` overrides have been consulted, so it
+		 * affects only the auto-discovery fallback list.
+		 *
+		 * @param string[] $candidates Ordered list of candidate file paths.
+		 */
+		return (array) apply_filters( 'sd_ai_agent_wp_cli_candidates', $candidates );
+	}
+
+	/**
+	 * Scan every directory in `getenv('PATH')` for an executable file.
+	 *
+	 * Replaces a `shell_exec('which …')` call so the discovery flow works
+	 * on hosts where `shell_exec` is in `disable_functions`.
+	 *
+	 * @param string $name Executable name to look for (e.g. `wp`).
+	 * @return string Absolute path on success, empty string on miss.
+	 */
+	private static function find_in_path( string $name ): string {
+		$path_env = (string) getenv( 'PATH' );
+		if ( '' === $path_env ) {
+			return '';
+		}
+
+		foreach ( explode( PATH_SEPARATOR, $path_env ) as $dir ) {
+			$dir = trim( $dir );
+			if ( '' === $dir ) {
+				continue;
+			}
+			$candidate = rtrim( $dir, '/\\' ) . DIRECTORY_SEPARATOR . $name;
+			if ( is_file( $candidate ) && is_executable( $candidate ) ) {
+				return $candidate;
+			}
+		}
+
+		return '';
+	}
+
+	/**
+	 * Whether `shell_exec()` is callable on this host.
+	 *
+	 * `function_exists()` alone is insufficient: PHP keeps the symbol in
+	 * place even when the function is in `disable_functions`, then emits
+	 * a warning and returns `null` at call time. We check the ini directive
+	 * explicitly.
+	 *
+	 * @return bool
+	 */
+	private static function shell_exec_available(): bool {
+		if ( ! function_exists( 'shell_exec' ) ) {
+			return false;
+		}
+
+		$disabled = (string) ini_get( 'disable_functions' );
+		if ( '' === $disabled ) {
+			return true;
+		}
+
+		$disabled_list = array_map( 'trim', explode( ',', $disabled ) );
+		return ! in_array( 'shell_exec', $disabled_list, true );
+	}
+
+	/**
+	 * Build an actionable "WP-CLI not found" error message.
+	 *
+	 * The message tells the admin user (a) exactly which paths were
+	 * searched, (b) where to download the .phar from, (c) where to upload
+	 * it, and (d) how to pin a different path via `wp-config.php`.
+	 *
+	 * @param string[] $searched List of paths that were checked.
+	 * @return string
+	 */
+	private static function not_found_message( array $searched ): string {
+		$abspath        = ABSPATH;
+		$expected_phar  = rtrim( $abspath, '/\\' ) . '/wp-cli.phar';
+		$download_url   = 'https://raw.githubusercontent.com/wp-cli/builds/gh-pages/phar/wp-cli.phar';
+		$searched_lines = '';
+		foreach ( $searched as $path ) {
+			if ( '' !== $path ) {
+				$searched_lines .= '  - ' . $path . "\n";
+			}
+		}
+
+		return sprintf(
+			/* translators: 1: download URL, 2: target upload path, 3: list of searched paths, 4: WordPress root path. */
+			__(
+				"WP-CLI binary not found. To enable WP-CLI commands on this host:\n\n1. Download wp-cli.phar:\n   %1\$s\n\n2. Upload it to your WordPress root (next to wp-config.php):\n   %2\$s\n\nThe plugin will auto-detect it on the next request. No executable bit or PHP-on-PATH required — wp-cli.phar is invoked via the same PHP interpreter that runs WordPress.\n\nAlternatively, add this to wp-config.php to pin a specific path:\n   define( 'SD_AI_AGENT_WP_CLI_PATH', '/absolute/path/to/wp-cli.phar' );\n\nPaths searched:\n%3\$sWordPress root (ABSPATH): %4\$s",
+				'superdav-ai-agent'
+			),
+			$download_url,
+			$expected_phar,
+			$searched_lines,
+			$abspath
 		);
 	}
 

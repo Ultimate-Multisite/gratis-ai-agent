@@ -33,6 +33,32 @@ define( 'SD_AI_AGENT_URL', plugin_dir_url( __FILE__ ) );
  */
 define( 'SD_AI_AGENT_DEFAULT_MODEL', 'claude-sonnet-4' );
 
+/**
+ * Absolute filesystem path to the WP-CLI binary (`wp` wrapper or `wp-cli.phar`).
+ *
+ * When empty (default), the plugin auto-discovers WP-CLI by checking common
+ * system locations, the WordPress install root (`ABSPATH`), `wp-content/`,
+ * and every directory in `$PATH`. On shared hosting where `wp` is not in
+ * `$PATH`, drop `wp-cli.phar` into the WordPress root (next to `wp-config.php`)
+ * and the plugin will find it automatically.
+ *
+ * Download URL:
+ *   https://raw.githubusercontent.com/wp-cli/builds/gh-pages/phar/wp-cli.phar
+ *
+ * To pin an exact path, define this in `wp-config.php` before WordPress loads
+ * plugins, e.g.:
+ *
+ *   define( 'SD_AI_AGENT_WP_CLI_PATH', '/home/user/bin/wp-cli.phar' );
+ *
+ * `.phar` files are detected by extension and executed via `PHP_BINARY` (the
+ * same PHP that runs WordPress), so they do not need to be marked executable
+ * and do not need a `php` interpreter on `$PATH`.
+ *
+ * The `sd_ai_agent_wp_cli_binary` runtime filter takes precedence over this
+ * constant when both are set.
+ */
+defined( 'SD_AI_AGENT_WP_CLI_PATH' ) || define( 'SD_AI_AGENT_WP_CLI_PATH', '' );
+
 // ── Feature flags ─────────────────────────────────────────────────────────────
 // Each constant defaults to `true` (enabled) when not defined.
 // Resellers / site owners can disable individual features by adding
