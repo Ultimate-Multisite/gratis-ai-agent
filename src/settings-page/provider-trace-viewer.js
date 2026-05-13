@@ -355,6 +355,14 @@ export default function ProviderTraceViewer() {
 								<th>{ __( 'Model', 'sd-ai-agent' ) }</th>
 								<th>{ __( 'Status', 'sd-ai-agent' ) }</th>
 								<th>{ __( 'Duration', 'sd-ai-agent' ) }</th>
+								<th
+									title={ __(
+										'Prompt cache read / write tokens reported by the provider.',
+										'sd-ai-agent'
+									) }
+								>
+									{ __( 'Cache R/W', 'sd-ai-agent' ) }
+								</th>
 								<th>{ __( 'Error', 'sd-ai-agent' ) }</th>
 								<th>{ __( 'Actions', 'sd-ai-agent' ) }</th>
 							</tr>
@@ -383,6 +391,20 @@ export default function ProviderTraceViewer() {
 										/>
 									</td>
 									<td>{ trace.duration_ms }ms</td>
+									<td
+										className="sdaa-trace-cache-cell"
+										title={ __(
+											'Read tokens (cache hits) / Write tokens (cache creation)',
+											'sd-ai-agent'
+										) }
+									>
+										{ ( trace.cache_read_tokens || 0 ) +
+											( trace.cache_creation_tokens ||
+												0 ) >
+										0
+											? `${ trace.cache_read_tokens || 0 } / ${ trace.cache_creation_tokens || 0 }`
+											: '—' }
+									</td>
 									<td
 										className="sdaa-trace-error-cell"
 										title={ trace.error || '' }
@@ -541,6 +563,36 @@ export default function ProviderTraceViewer() {
 											</th>
 											<td>
 												{ selectedTrace.error || '—' }
+											</td>
+										</tr>
+										<tr>
+											<th>
+												{ __(
+													'Cache read',
+													'sd-ai-agent'
+												) }
+											</th>
+											<td>
+												{ selectedTrace.cache_read_tokens ||
+													0 }{ ' ' }
+												{ __(
+													'tokens',
+													'sd-ai-agent'
+												) }
+											</td>
+											<th>
+												{ __(
+													'Cache write',
+													'sd-ai-agent'
+												) }
+											</th>
+											<td>
+												{ selectedTrace.cache_creation_tokens ||
+													0 }{ ' ' }
+												{ __(
+													'tokens',
+													'sd-ai-agent'
+												) }
 											</td>
 										</tr>
 									</tbody>

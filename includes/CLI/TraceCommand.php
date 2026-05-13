@@ -122,17 +122,23 @@ class TraceCommand extends \WP_CLI_Command {
 			}
 
 			$rows[] = [
-				'ID'       => $trace->id,
-				'Time'     => $trace->created_at,
-				'Provider' => $trace->provider_id,
-				'Model'    => $trace->model_id,
-				'Status'   => $status_display,
-				'Duration' => $trace->duration_ms . 'ms',
-				'Error'    => $trace->error ? substr( $trace->error, 0, 60 ) : '',
+				'ID'         => $trace->id,
+				'Time'       => $trace->created_at,
+				'Provider'   => $trace->provider_id,
+				'Model'      => $trace->model_id,
+				'Status'     => $status_display,
+				'Duration'   => $trace->duration_ms . 'ms',
+				'CacheRead'  => $trace->cache_read_tokens,
+				'CacheWrite' => $trace->cache_creation_tokens,
+				'Error'      => $trace->error ? substr( $trace->error, 0, 60 ) : '',
 			];
 		}
 
-		WP_CLI\Utils\format_items( $format, $rows, [ 'ID', 'Time', 'Provider', 'Model', 'Status', 'Duration', 'Error' ] );
+		WP_CLI\Utils\format_items(
+			$format,
+			$rows,
+			[ 'ID', 'Time', 'Provider', 'Model', 'Status', 'Duration', 'CacheRead', 'CacheWrite', 'Error' ]
+		);
 	}
 
 	/**
@@ -193,6 +199,8 @@ class TraceCommand extends \WP_CLI_Command {
 			'Method'           => $trace->method,
 			'Status'           => $trace->status_code,
 			'Duration'         => $trace->duration_ms . 'ms',
+			'Cache Read'       => $trace->cache_read_tokens . ' tokens',
+			'Cache Write'      => $trace->cache_creation_tokens . ' tokens',
 			'Error'            => $trace->error ?: '(none)',
 			'Request Headers'  => json_decode( $trace->request_headers ?? '{}', true ),
 			'Request Body'     => $request_body ?: $trace->request_body,

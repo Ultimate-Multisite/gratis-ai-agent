@@ -15,6 +15,7 @@ declare(strict_types=1);
 namespace SdAiAgent\Core;
 
 use SdAiAgent\Core\AgentEventLog;
+use SdAiAgent\Core\PromptCache\CacheUsageExtractor;
 use SdAiAgent\Models\ProviderTrace;
 
 /**
@@ -182,19 +183,37 @@ class ProviderTraceLogger {
 			$response_headers_json = (string) wp_json_encode( $response_headers );
 		}
 
+		// Extract provider-agnostic cache token counts from the response
+		// usage block (Anthropic / OpenAI / DeepSeek / Google all use
+		// different field names — see CacheUsageExtractor). Returns
+		// zeroes on error responses or providers that don't report.
+		$cache_tokens = array(
+			'creation' => 0,
+			'read'     => 0,
+		);
+		if ( $status_code >= 200 && $status_code < 300 ) {
+			$decoded_response = json_decode( $response_body, true );
+			$cache_tokens     = CacheUsageExtractor::extract(
+				(string) ( $inflight['provider_id'] ?? '' ),
+				$decoded_response
+			);
+		}
+
 		ProviderTrace::insert(
 			[
-				'provider_id'      => $inflight['provider_id'] ?? '',
-				'model_id'         => $model_id,
-				'url'              => $inflight['url'] ?? $url,
-				'method'           => $inflight['method'] ?? 'POST',
-				'status_code'      => $status_code,
-				'duration_ms'      => $duration_ms,
-				'request_headers'  => $inflight['request_headers'] ?? '{}',
-				'request_body'     => $inflight['request_body'] ?? '',
-				'response_headers' => $response_headers_json,
-				'response_body'    => $response_body,
-				'error'            => $error,
+				'provider_id'           => $inflight['provider_id'] ?? '',
+				'model_id'              => $model_id,
+				'url'                   => $inflight['url'] ?? $url,
+				'method'                => $inflight['method'] ?? 'POST',
+				'status_code'           => $status_code,
+				'duration_ms'           => $duration_ms,
+				'cache_creation_tokens' => $cache_tokens['creation'],
+				'cache_read_tokens'     => $cache_tokens['read'],
+				'request_headers'       => $inflight['request_headers'] ?? '{}',
+				'request_body'          => $inflight['request_body'] ?? '',
+				'response_headers'      => $response_headers_json,
+				'response_body'         => $response_body,
+				'error'                 => $error,
 			]
 		);
 

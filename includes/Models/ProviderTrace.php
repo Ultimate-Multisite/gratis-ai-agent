@@ -53,6 +53,12 @@ class ProviderTrace {
 	public static function get_schema( string $charset ): string {
 		$table = self::table_name();
 
+		// `cache_creation_tokens` / `cache_read_tokens` were added in
+		// DB version 19.2.0 (sd-ai-bjv). They are populated from the
+		// normalised provider response usage block — see
+		// {@see \SdAiAgent\Core\PromptCache\CacheUsageExtractor}. dbDelta
+		// adds the columns to existing tables on upgrade; pre-19.2.0 rows
+		// retain the default of 0.
 		return "\n\nCREATE TABLE {$table} (
 			id bigint(20) unsigned NOT NULL AUTO_INCREMENT,
 			created_at datetime NOT NULL,
@@ -62,6 +68,8 @@ class ProviderTrace {
 			method varchar(10) NOT NULL DEFAULT 'POST',
 			status_code int(11) NOT NULL DEFAULT 0,
 			duration_ms bigint(20) unsigned NOT NULL DEFAULT 0,
+			cache_creation_tokens bigint(20) unsigned NOT NULL DEFAULT 0,
+			cache_read_tokens bigint(20) unsigned NOT NULL DEFAULT 0,
 			request_headers longtext NOT NULL,
 			request_body longtext NOT NULL,
 			response_headers longtext NOT NULL,
@@ -183,20 +191,22 @@ class ProviderTrace {
 		$result = $wpdb->insert(
 			self::table_name(),
 			[
-				'created_at'       => current_time( 'mysql', true ),
-				'provider_id'      => $data['provider_id'] ?? '',
-				'model_id'         => $data['model_id'] ?? '',
-				'url'              => $data['url'] ?? '',
-				'method'           => $data['method'] ?? 'POST',
-				'status_code'      => $data['status_code'] ?? 0,
-				'duration_ms'      => $data['duration_ms'] ?? 0,
-				'request_headers'  => $request_headers,
-				'request_body'     => $request_body,
-				'response_headers' => $response_headers,
-				'response_body'    => $response_body,
-				'error'            => $data['error'] ?? '',
+				'created_at'            => current_time( 'mysql', true ),
+				'provider_id'           => $data['provider_id'] ?? '',
+				'model_id'              => $data['model_id'] ?? '',
+				'url'                   => $data['url'] ?? '',
+				'method'                => $data['method'] ?? 'POST',
+				'status_code'           => $data['status_code'] ?? 0,
+				'duration_ms'           => $data['duration_ms'] ?? 0,
+				'cache_creation_tokens' => max( 0, (int) ( $data['cache_creation_tokens'] ?? 0 ) ),
+				'cache_read_tokens'     => max( 0, (int) ( $data['cache_read_tokens'] ?? 0 ) ),
+				'request_headers'       => $request_headers,
+				'request_body'          => $request_body,
+				'response_headers'      => $response_headers,
+				'response_body'         => $response_body,
+				'error'                 => $data['error'] ?? '',
 			],
-			[ '%s', '%s', '%s', '%s', '%s', '%d', '%d', '%s', '%s', '%s', '%s', '%s' ]
+			[ '%s', '%s', '%s', '%s', '%s', '%d', '%d', '%d', '%d', '%s', '%s', '%s', '%s', '%s' ]
 		);
 
 		if ( ! $result ) {
@@ -302,7 +312,8 @@ class ProviderTrace {
 		// phpcs:disable WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.InterpolatedNotPrepared, PluginCheck.Security.DirectDB.UnescapedDBParameter -- Custom table query; built from prepared fragments.
 		$rows = $wpdb->get_results(
 			$wpdb->prepare(
-				"SELECT id, created_at, provider_id, model_id, url, method, status_code, duration_ms, error,
+				"SELECT id, created_at, provider_id, model_id, url, method, status_code, duration_ms,
+					cache_creation_tokens, cache_read_tokens, error,
 					LENGTH(request_body) AS request_body_size,
 					LENGTH(response_body) AS response_body_size
 				FROM {$table} {$where_sql}

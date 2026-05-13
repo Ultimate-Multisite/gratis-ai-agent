@@ -312,10 +312,38 @@ class Settings {
 			// Provider trace / debug mode (GH#830).
 			'provider_trace_enabled'   => false,
 			'provider_trace_max_rows'  => 200,
+			// Prompt caching — provider-side KV-cache opt-in (sd-ai-bjv).
+			// When true, the HttpTraceHandler injects provider-specific
+			// cache markers into outgoing LLM requests (only Anthropic
+			// requires explicit markers today; OpenAI/DeepSeek/etc. cache
+			// automatically). Safe to leave on — workers without cache
+			// support ignore the markers.
+			'prompt_caching_enabled'   => true,
 			// Skill auto-update settings (t218).
 			'skill_auto_update'        => true,
 			'skill_manifest_url'       => '',
 		);
+	}
+
+	/**
+	 * Whether prompt caching is enabled for outgoing LLM requests.
+	 *
+	 * Provider-aware: Anthropic requests get explicit `cache_control`
+	 * markers; providers with automatic server-side caching (OpenAI,
+	 * DeepSeek, xAI, Groq, etc.) pass through unchanged. Disabling this
+	 * setting opts out entirely — markers are not injected.
+	 *
+	 * Static helper so HttpTraceHandler can consult the flag without
+	 * needing DI access to a Settings instance during filter execution.
+	 *
+	 * @return bool
+	 */
+	public static function is_prompt_caching_enabled(): bool {
+		$option = get_option( self::OPTION_NAME, array() );
+		if ( ! is_array( $option ) || ! array_key_exists( 'prompt_caching_enabled', $option ) ) {
+			return true; // Default-on.
+		}
+		return (bool) $option['prompt_caching_enabled'];
 	}
 
 	/**
