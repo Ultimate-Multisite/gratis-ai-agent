@@ -436,6 +436,29 @@ class SkillTest extends WP_UnitTestCase {
 		$this->assertArrayHasKey( 'wordpress-admin', $definitions );
 	}
 
+	/**
+	 * get_builtin_definitions() includes the site-specification skill with
+	 * the Phase 1 inference tables, worked examples, and site_brief guidance.
+	 */
+	public function test_get_builtin_definitions_includes_site_specification_acceptance_content(): void {
+		$definitions = Skill::get_builtin_definitions();
+
+		$this->assertArrayHasKey( 'site-specification', $definitions );
+
+		$content = $definitions['site-specification']['content'];
+
+		foreach ( [ 'SaaS', 'E-commerce', 'Professional Services', 'Restaurant', 'Portfolio', 'Blog', 'Non-profit' ] as $site_type ) {
+			$this->assertStringContainsString( $site_type, $content );
+		}
+
+		foreach ( [ 'Coffee Shop', 'Law Firm', 'Esports Team' ] as $example ) {
+			$this->assertStringContainsString( $example, $content );
+		}
+
+		$this->assertStringContainsString( 'category: site_brief', $content );
+		$this->assertStringContainsString( 'sd-ai-agent/memory-save', $content );
+	}
+
 	// ─── seed_builtins() ─────────────────────────────────────────────────────
 
 	/**
@@ -774,6 +797,7 @@ class SkillTest extends WP_UnitTestCase {
 			'site-troubleshooting' => [ 'site-troubleshooting', [ 'errors', 'debug', 'health', 'performance', 'diagnosis' ] ],
 			'multisite-management' => [ 'multisite-management', [ 'multisite', 'network' ] ],
 			'seo-optimization'     => [ 'seo-optimization', [ 'seo', 'meta', 'optimization', 'on-page' ] ],
+			'site-specification'   => [ 'site-specification', [ 'site spec', 'theme generation', 'audience', 'tone' ] ],
 			'content-marketing'    => [ 'content-marketing', [ 'strategy', 'editorial', 'content', 'audit' ] ],
 			'competitive-analysis' => [ 'competitive-analysis', [ 'competitor', 'analysis', 'tech stack' ] ],
 			'analytics-reporting'  => [ 'analytics-reporting', [ 'performance', 'metrics', 'analytics', 'reporting' ] ],
