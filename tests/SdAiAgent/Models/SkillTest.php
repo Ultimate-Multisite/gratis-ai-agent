@@ -259,6 +259,97 @@ class SkillTest extends WP_UnitTestCase {
 		$this->assertFalse( $skill->enabled );
 	}
 
+	/**
+	 * update() tracks built-in skill edits as admin customisations.
+	 */
+	public function test_update_marks_builtin_content_as_user_modified(): void {
+		$id = $this->create_skill( [
+			'slug'       => 'builtin-update-marker',
+			'content'    => 'Original built-in content.',
+			'is_builtin' => true,
+		] );
+
+		$result = Skill::update( $id, [ 'content' => 'Admin customised content.' ] );
+
+		$this->assertTrue( $result );
+		$skill = Skill::get( $id );
+		$this->assertNotNull( $skill );
+		$this->assertTrue( $skill->user_modified );
+		$this->assertSame( hash( 'sha256', 'Admin customised content.' ), $skill->content_hash );
+	}
+
+	/**
+	 * check_for_updates() returns a manifest entry only when remote content differs.
+	 */
+	public function test_check_for_updates_compares_remote_content_hash(): void {
+		$id    = $this->create_skill( [ 'content' => 'Current content.' ] );
+		$skill = Skill::get( $id );
+		$this->assertNotNull( $skill );
+
+		$this->assertNull( Skill::check_for_updates( $skill, [ 'content' => 'Current content.' ] ) );
+
+		$update = [
+			'content'    => 'Remote content.',
+			'version'    => '1.2.3',
+			'source_url' => 'https://example.com/skills/test.md',
+		];
+
+		$this->assertSame( $update, Skill::check_for_updates( $skill, $update ) );
+	}
+
+	/**
+	 * apply_update() updates unmodified built-in skills without setting user_modified.
+	 */
+	public function test_apply_update_updates_unmodified_builtin_skill(): void {
+		$id = $this->create_skill( [
+			'slug'       => 'builtin-remote-update',
+			'content'    => 'Original remote-managed content.',
+			'is_builtin' => true,
+		] );
+
+		$result = Skill::apply_update(
+			$id,
+			[
+				'content'    => 'Updated remote content.',
+				'version'    => '2.0.0',
+				'source_url' => 'https://example.com/skills/builtin-remote-update.md',
+			]
+		);
+
+		$this->assertTrue( $result );
+		$skill = Skill::get( $id );
+		$this->assertNotNull( $skill );
+		$this->assertSame( 'Updated remote content.', $skill->content );
+		$this->assertSame( '2.0.0', $skill->version );
+		$this->assertFalse( $skill->user_modified );
+	}
+
+	/**
+	 * apply_update() does not overwrite admin-customised built-in skills.
+	 */
+	public function test_apply_update_skips_user_modified_builtin_skill(): void {
+		$id = $this->create_skill( [
+			'slug'          => 'builtin-customised-skip',
+			'content'       => 'Admin custom content.',
+			'is_builtin'    => true,
+			'user_modified' => true,
+		] );
+
+		$result = Skill::apply_update(
+			$id,
+			[
+				'content' => 'Remote replacement content.',
+				'version' => '3.0.0',
+			]
+		);
+
+		$this->assertFalse( $result );
+		$skill = Skill::get( $id );
+		$this->assertNotNull( $skill );
+		$this->assertSame( 'Admin custom content.', $skill->content );
+		$this->assertTrue( $skill->user_modified );
+	}
+
 	// ─── delete() ────────────────────────────────────────────────────────────
 
 	/**

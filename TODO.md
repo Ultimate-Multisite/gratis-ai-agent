@@ -440,12 +440,12 @@ Goal: clean, minimal design that matches wp-admin conventions. Replace custom da
   - Implemented: SkillAbilities records voluntary skill-load calls through ModelHealthTracker::record_skill_load() so tier decisions can use model skill-loading telemetry.
   - Verify: `composer phpstan && composer phpcs`
 
-- [ ] t218 Skill versioning schema + remote update checker (Phase 3a) #feature #auto-dispatch ~4h For #t215 logged:2026-04-18
+- [x] t218 Skill versioning schema + remote update checker (Phase 3a) #feature #auto-dispatch ~4h For #t215 logged:2026-04-18 ref=GH#1359 completed:2026-05-13
   - EDIT: includes/Core/Database.php — ALTER TABLE skills ADD version, content_hash, source_url, user_modified columns, bump DB_VERSION
   - EDIT: includes/Models/Skill.php — set user_modified=1 on update() when skill is_builtin, add check_for_updates() and apply_update() methods
   - EDIT: includes/Models/DTO/SkillRow.php — add version, content_hash, source_url, user_modified properties
   - EDIT: includes/Core/Settings.php — add skill_auto_update and skill_manifest_url settings
-  - Verify: `composer phpstan && composer phpcs`
+  - Verify: `composer phpstan && composer phpcs && composer phpunit -- --filter SkillTest`
 
 - [ ] t219 WP-Cron skill update checker + conditional HTTP (Phase 3b) #feature #auto-dispatch ~4h For #t215 blocked-by:t218 logged:2026-04-18
   - NEW: includes/Core/SkillUpdateChecker.php — WP-Cron callback: fetch manifest JSON from skill_manifest_url, compare content_hash per slug, update is_builtin=1 AND user_modified=0 skills. Use wp_remote_get with If-None-Match/If-Modified-Since headers. Model on Knowledge.php hash-comparison pattern (line 44)
