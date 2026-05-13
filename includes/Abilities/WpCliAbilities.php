@@ -598,7 +598,7 @@ class WpCliAbilities {
 	 * @return bool
 	 */
 	private static function is_proc_open_available(): bool {
-		$available = function_exists( 'proc_open' ) && is_callable( 'proc_open' );
+		$available = function_exists( 'proc_open' );
 
 		/**
 		 * Filter whether the WP-CLI ability may use proc_open().
