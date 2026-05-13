@@ -46,6 +46,20 @@ between the user-facing plugin slug and the code-level prefixes/namespaces.
 6. Headless agents that propose these renames are operating outside scope. File
    an issue describing the rogue behaviour rather than merging the PR.
 
+### WordPress.org Review Responses
+
+When drafting replies to WordPress.org plugin review emails, use a concise,
+professional, issue-by-issue format:
+
+- Acknowledge the review and state that each reported item was investigated.
+- For every reviewer finding, cite the exact fix or rationale, including file or
+  pattern references when available.
+- Include verification evidence such as `wp plugin check`, PHPCS, PHPUnit, build,
+  or manual review commands that were run.
+- Avoid defensive language, marketing copy, emojis, and broad claims that are not
+  backed by a concrete change or test.
+- Close with the resubmission status and any specific reviewer action requested.
+
 ## Build Commands
 - **Build**: `npm run build` or `npx wp-scripts build` (production)
 - **Dev**: `npm start` or `npx wp-scripts start` (watch mode)

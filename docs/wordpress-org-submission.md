@@ -228,6 +228,20 @@ Client SDK, Abilities API).
 - The review team may request changes — respond promptly via the ticket system
 - Do not resubmit the same plugin while a review is pending
 
+### Responding to review requests
+
+Use a concise, evidence-backed reply when automated or manual review tools report
+that the plugin is not ready for approval:
+
+1. Thank the reviewer and confirm that each reported item was investigated.
+2. List each finding separately, with the fix or rationale and file/pattern
+   references where possible.
+3. Include the verification commands that passed, such as `wp plugin check`,
+   `composer phpcs`, `composer phpstan`, `npm run build`, or relevant tests.
+4. Avoid defensive wording, marketing language, emojis, or unsupported claims.
+5. State whether the updated ZIP has been resubmitted and whether any item needs
+   reviewer confirmation.
+
 ### Common rejection reasons to pre-empt
 
 | Issue | Our status |
