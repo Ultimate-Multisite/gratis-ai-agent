@@ -1264,8 +1264,8 @@ Closes the PLANS.md "AI site generation from prompt" P0 gap on the visual-contai
 
 #### Progress
 
-- [ ] (2026-05-13) Phase 1: `site-specification` skill — markdown + new memory category `site_brief` ~3h — t226a (in progress)
-- [ ] (2026-05-13) Phase 2: `block-themes.md` skill expansion (theme.json presets, animation classes, editor-visibility CSS) ~4h — t226b (TBF)
+- [x] (2026-05-13) Phase 1: `site-specification` skill — markdown + new memory category `site_brief` ~3h — t226a (merged in PR #1371)
+- [ ] (2026-05-13) Phase 2: `block-themes.md` skill expansion (theme.json presets, animation classes, editor-visibility CSS) ~4h — t226b (in progress)
 - [ ] (2026-05-13) Phase 3: Theme-builder onboarding branch — new ThemeBuilderPrompt, REST endpoint, 2 abilities (scaffold-block-theme + activate-theme), wizard mode-picker, React component, E2E test ~12h — t226c (TBF)
 - [ ] (2026-05-13) Phase 4: `design-system-aesthetics.md` skill (topic-grounded visual worlds framework) ~5h — t226d (TBF)
 

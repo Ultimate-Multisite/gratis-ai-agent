@@ -343,7 +343,7 @@ Goal: clean, minimal design that matches wp-admin conventions. Replace custom da
   - Closes the PLANS.md "AI site generation from prompt" P0 gap on the visual-container side (t060-t062 cover pages)
   - Renumbered from t170 in PR; t170 was already used (PR #848, completed 2026-04-09)
 
-- [ ] t226a Site-specification skill — markdown + memory category #enhancement #auto-dispatch ~3h For #t226 logged:2026-05-13
+- [x] t226a Site-specification skill — markdown + memory category #enhancement #auto-dispatch ~3h For #t226 logged:2026-05-13 pr:#1371 completed:2026-05-13
   - NEW: includes/Models/skills/site-specification.md — site-type inference patterns, worked examples, presentation format
   - EDIT: includes/Models/Skill.php — register in BUILTIN_META (enabled by default)
   - EDIT: includes/Enums/MemoryCategory.php — add SiteBrief = 'site_brief'
@@ -351,6 +351,12 @@ Goal: clean, minimal design that matches wp-admin conventions. Replace custom da
   - EDIT: tests/SdAiAgent/Models/MemoryTest.php — assert new category accepted
   - EDIT: src/settings-page/memory-manager.js — add Site Brief category option
   - Verify: `composer phpcs && npm run lint:js && npm run test:php` (MemoryTest)
+
+- [ ] t226b Block-themes skill expansion — theme.json presets, animation classes, editor-visibility CSS #enhancement #auto-dispatch ~4h For #t226 logged:2026-05-13
+  - EDIT: includes/Models/skills/block-themes.md — expand from 150 → ~400 lines (target 350-450)
+  - Add: Absolute Rules (no html-blocks, no decorative comments, no stock images), theme.json color/typography presets, Landing Page Composition, Cover Block Pitfalls, Card layouts, Visual Richness Without Images, Animation & Motion (className pattern, entrance animations, staggered children, hover transitions, ambient motion), Scroll-triggered reveals (IntersectionObserver), prefers-reduced-motion (required), Editor Visibility / .editor-styles-wrapper override (required), functions.php essentials
+  - Source: Automattic wordpress-block-theming reference (29KB → ~280 lines added) at github.com/Automattic/wordpress-agent-skills/blob/trunk/claude-code/wp-site-creator/references/wordpress-block-theming.md
+  - Verify: `wc -l includes/Models/skills/block-themes.md` is 350-450, and `grep -E "Editor Visibility|editor-styles-wrapper|prefers-reduced-motion" includes/Models/skills/block-themes.md` returns matches
 
 - [ ] t232 Ability discovery investigation: why agent misses registered abilities #investigation #parent #plan → [todo/PLANS.md#ability-discovery-investigation] ~5h logged:2026-04-26
 - [x] t234 Audit ability injection pipeline and tool catalog (Phase 1) #investigation #auto-dispatch ~3h For #t232 logged:2026-04-26 pr:#1204 completed:2026-04-27
