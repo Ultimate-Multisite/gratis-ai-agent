@@ -17,8 +17,6 @@ declare(strict_types=1);
 
 namespace SdAiAgent\Core;
 
-use SdAiAgent\Core\CredentialResolver;
-
 if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
@@ -29,12 +27,6 @@ class Settings {
 	 * Option name in the wp_options table.
 	 */
 	const OPTION_NAME = 'sd_ai_agent_settings';
-
-	/**
-	 * Separate option name for the Claude Max OAuth token (stored apart from
-	 * general settings so it can be given stricter access control).
-	 */
-	const CLAUDE_MAX_TOKEN_OPTION = 'sd_ai_agent_claude_max_token';
 
 	/**
 	 * Option name for Google Search Console credentials.
@@ -297,7 +289,6 @@ class Settings {
 			'max_output_tokens'        => 4096,
 			'context_window_default'   => 128000,
 			'onboarding_complete'      => false,
-			'use_claude_max'           => false,
 			'knowledge_enabled'        => true,
 			'knowledge_auto_index'     => true,
 			'max_history_turns'        => 20,
@@ -393,31 +384,6 @@ class Settings {
 	public function has_gsc_credentials(): bool {
 		$creds = $this->get_gsc_credentials();
 		return ! empty( $creds['type'] );
-	}
-
-	/**
-	 * Get the stored Claude Max OAuth access token.
-	 *
-	 * Delegates to {@see CredentialResolver::getClaudeMaxToken()} so that all
-	 * credential reads are centralised in one place.
-	 *
-	 * @return string Empty string when not configured.
-	 */
-	public function get_claude_max_token(): string {
-		return CredentialResolver::getClaudeMaxToken();
-	}
-
-	/**
-	 * Persist the Claude Max OAuth access token.
-	 *
-	 * Delegates to {@see CredentialResolver::setClaudeMaxToken()}.
-	 * Pass an empty string to clear the credential.
-	 *
-	 * @param string $token The OAuth access token (sk-ant-oat01-… or similar).
-	 * @return bool True on success.
-	 */
-	public function set_claude_max_token( string $token ): bool {
-		return CredentialResolver::setClaudeMaxToken( $token );
 	}
 
 	/**
@@ -572,7 +538,6 @@ class Settings {
 	 *  1. `default_provider` saved via the WP SDK Connectors settings page.
 	 *  2. A WP 7.0 Connectors API key for any built-in provider in
 	 *     {@see Settings::DIRECT_PROVIDERS}.
-	 *  3. Claude Max OAuth token.
 	 *
 	 * @return bool
 	 */
@@ -588,11 +553,6 @@ class Settings {
 			if ( '' !== $this->get_connectors_api_key( $provider_id ) ) {
 				return true;
 			}
-		}
-
-		// Claude Max OAuth token.
-		if ( '' !== $this->get_claude_max_token() ) {
-			return true;
 		}
 
 		return false;

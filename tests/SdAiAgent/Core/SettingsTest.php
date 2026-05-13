@@ -23,7 +23,6 @@ class SettingsTest extends WP_UnitTestCase {
 	public function tear_down(): void {
 		parent::tear_down();
 		delete_option( Settings::OPTION_NAME );
-		delete_option( Settings::CLAUDE_MAX_TOKEN_OPTION );
 	}
 
 	/**
@@ -115,35 +114,6 @@ class SettingsTest extends WP_UnitTestCase {
 
 		$this->assertSame( 30, Settings::instance()->get( 'max_iterations' ) );
 		$this->assertSame( 0.5, Settings::instance()->get( 'temperature' ) );
-	}
-
-	/**
-	 * Test get_claude_max_token returns empty string when not set.
-	 */
-	public function test_get_claude_max_token_returns_empty_when_not_set() {
-		$token = Settings::instance()->get_claude_max_token();
-
-		$this->assertSame( '', $token );
-	}
-
-	/**
-	 * Test set_claude_max_token stores token.
-	 */
-	public function test_set_claude_max_token_stores_token() {
-		$result = Settings::instance()->set_claude_max_token( 'sk-ant-test-token' );
-
-		$this->assertTrue( $result );
-		$this->assertSame( 'sk-ant-test-token', Settings::instance()->get_claude_max_token() );
-	}
-
-	/**
-	 * Test set_claude_max_token clears token when empty string.
-	 */
-	public function test_set_claude_max_token_clears_on_empty() {
-		Settings::instance()->set_claude_max_token( 'sk-ant-test-token' );
-		Settings::instance()->set_claude_max_token( '' );
-
-		$this->assertSame( '', Settings::instance()->get_claude_max_token() );
 	}
 
 	/**

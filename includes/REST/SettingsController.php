@@ -3,7 +3,7 @@
 declare(strict_types=1);
 /**
  * REST API controller for settings, providers, budget, usage, roles/permissions,
- * Claude Max token, WooCommerce status, and alerts.
+ * WooCommerce status, and alerts.
  *
  * @package SdAiAgent
  * @license GPL-2.0-or-later
@@ -119,26 +119,6 @@ final class SettingsController {
 					'methods'             => WP_REST_Server::CREATABLE,
 					'callback'            => array( $this, 'handle_update_settings' ),
 					'permission_callback' => array( $this, 'check_permission' ),
-				),
-			)
-		);
-
-		// Claude Max token endpoint.
-		register_rest_route(
-			RestController::NAMESPACE,
-			'/settings/claude-max-token',
-			array(
-				array(
-					'methods'             => WP_REST_Server::CREATABLE,
-					'callback'            => array( $this, 'handle_set_claude_max_token' ),
-					'permission_callback' => array( $this, 'check_permission' ),
-					'args'                => array(
-						'token' => array(
-							'required'          => true,
-							'type'              => 'string',
-							'sanitize_callback' => 'sanitize_text_field',
-						),
-					),
 				),
 			)
 		);
@@ -368,10 +348,6 @@ final class SettingsController {
 			'greeting_message' => __( 'Send a message to start a conversation.', 'superdav-ai-agent' ),
 		);
 
-		// Indicate whether a Claude Max token is stored without exposing the token itself.
-		// @phpstan-ignore-next-line
-		$settings['_has_claude_max_token'] = '' !== $this->settings->get_claude_max_token();
-
 		// Indicate whether GSC credentials are configured (boolean + type only, no credential values).
 		$gsc_creds = $this->settings->get_gsc_credentials();
 		// @phpstan-ignore-next-line
@@ -475,33 +451,6 @@ final class SettingsController {
 	 */
 	public function handle_get_roles(): WP_REST_Response {
 		return new WP_REST_Response( RolePermissions::get_all_roles(), 200 );
-	}
-
-	/**
-	 * Handle POST /settings/claude-max-token — store the Claude Max OAuth token.
-	 *
-	 * @param WP_REST_Request $request The request object.
-	 */
-	public function handle_set_claude_max_token( WP_REST_Request $request ): WP_REST_Response {
-		$token = $request->get_param( 'token' );
-
-		// Allow clearing the token by passing an empty string.
-		$token = is_string( $token ) ? trim( $token ) : '';
-
-		$success = $this->settings->set_claude_max_token( $token );
-
-		if ( ! $success && ! empty( $token ) ) {
-			return new WP_REST_Response( array( 'error' => 'Failed to save token.' ), 500 );
-		}
-
-		return new WP_REST_Response(
-			array(
-				'saved'        => true,
-				'has_token'    => ! empty( $token ),
-				'token_prefix' => ! empty( $token ) ? substr( $token, 0, 20 ) . '…' : '',
-			),
-			200
-		);
 	}
 
 	/**

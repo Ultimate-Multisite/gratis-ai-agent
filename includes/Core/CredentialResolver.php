@@ -9,7 +9,6 @@ declare(strict_types=1);
  * directly for secrets.  Handles:
  *
  *  - AI Experiments plugin provider credentials array
- *  - Claude Max OAuth token
  *  - WordPress 7.0 Connectors API (read-only, delegated to WP functions)
  *
  * @package SdAiAgent\Core
@@ -35,11 +34,6 @@ class CredentialResolver {
 	 * See: https://developer.wordpress.org/plugins/wordpress-api/ai-client-sdk/
 	 */
 	const AI_EXPERIMENTS_CREDENTIALS_OPTION = 'wp_ai_client_provider_credentials';
-
-	/**
-	 * WordPress option that stores the Claude Max OAuth access token.
-	 */
-	const CLAUDE_MAX_TOKEN_OPTION = 'sd_ai_agent_claude_max_token';
 
 	/**
 	 * Sentinel value used when no real API key is available but a non-empty
@@ -93,43 +87,7 @@ class CredentialResolver {
 		return (bool) update_option( self::AI_EXPERIMENTS_CREDENTIALS_OPTION, $credentials );
 	}
 
-	// ── Claude Max OAuth token ────────────────────────────────────────────────
-
-	/**
-	 * Return the stored Claude Max OAuth access token.
-	 *
-	 * @return string Empty string when not configured.
-	 */
-	public static function getClaudeMaxToken(): string {
-		// @phpstan-ignore-next-line
-		return (string) get_option( self::CLAUDE_MAX_TOKEN_OPTION, '' );
-	}
-
-	/**
-	 * Persist the Claude Max OAuth access token.
-	 *
-	 * Pass an empty string to clear the credential.
-	 *
-	 * @param string $token The OAuth access token (sk-ant-oat01-… or similar).
-	 * @return bool True on success.
-	 */
-	public static function setClaudeMaxToken( string $token ): bool {
-		if ( '' === $token ) {
-			return (bool) delete_option( self::CLAUDE_MAX_TOKEN_OPTION );
-		}
-		return (bool) update_option( self::CLAUDE_MAX_TOKEN_OPTION, $token );
-	}
-
 	// ── Validation helpers ────────────────────────────────────────────────────
-
-	/**
-	 * Return true when a Claude Max token is stored.
-	 *
-	 * @return bool
-	 */
-	public static function hasClaudeMaxToken(): bool {
-		return '' !== self::getClaudeMaxToken();
-	}
 
 	/**
 	 * Return true when the given API key is a real key (not empty and not the

@@ -25,7 +25,9 @@ class CredentialResolverTest extends WP_UnitTestCase {
 	public function tear_down(): void {
 		parent::tear_down();
 		delete_option( CredentialResolver::AI_EXPERIMENTS_CREDENTIALS_OPTION );
-		delete_option( CredentialResolver::CLAUDE_MAX_TOKEN_OPTION );
+		// Legacy option removed in v1.x — kept here so test cleanup still purges
+		// any rows leftover from the WP 7.0 Claude Max OAuth migration.
+		delete_option( 'sd_ai_agent_claude_max_token' );
 	}
 
 	// ── OpenAI-compatible endpoint ────────────────────────────────────────────
@@ -163,51 +165,6 @@ class CredentialResolverTest extends WP_UnitTestCase {
 
 		$this->assertSame( '', CredentialResolver::getAiExperimentsApiKey( 'openai' ) );
 		$this->assertArrayNotHasKey( 'openai', CredentialResolver::getAiExperimentsCredentials() );
-	}
-
-	// ── Claude Max token ──────────────────────────────────────────────────────
-
-	/**
-	 * Test getClaudeMaxToken returns empty string when not configured.
-	 */
-	public function test_get_claude_max_token_returns_empty_when_not_set(): void {
-		$this->assertSame( '', CredentialResolver::getClaudeMaxToken() );
-	}
-
-	/**
-	 * Test setClaudeMaxToken stores token.
-	 */
-	public function test_set_claude_max_token_stores_token(): void {
-		$result = CredentialResolver::setClaudeMaxToken( 'sk-ant-oat01-test' );
-
-		$this->assertTrue( $result );
-		$this->assertSame( 'sk-ant-oat01-test', CredentialResolver::getClaudeMaxToken() );
-	}
-
-	/**
-	 * Test setClaudeMaxToken clears token when empty string passed.
-	 */
-	public function test_set_claude_max_token_clears_on_empty(): void {
-		CredentialResolver::setClaudeMaxToken( 'sk-ant-oat01-test' );
-		CredentialResolver::setClaudeMaxToken( '' );
-
-		$this->assertSame( '', CredentialResolver::getClaudeMaxToken() );
-	}
-
-	/**
-	 * Test hasClaudeMaxToken returns false when not configured.
-	 */
-	public function test_has_claude_max_token_returns_false_when_not_set(): void {
-		$this->assertFalse( CredentialResolver::hasClaudeMaxToken() );
-	}
-
-	/**
-	 * Test hasClaudeMaxToken returns true when token is stored.
-	 */
-	public function test_has_claude_max_token_returns_true_when_set(): void {
-		CredentialResolver::setClaudeMaxToken( 'sk-ant-oat01-test' );
-
-		$this->assertTrue( CredentialResolver::hasClaudeMaxToken() );
 	}
 
 	// ── isValidApiKey ─────────────────────────────────────────────────────────

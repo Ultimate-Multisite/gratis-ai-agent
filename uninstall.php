@@ -47,9 +47,10 @@ foreach ( $sd_ai_agent_tables as $sd_ai_agent_table ) {
 $sd_ai_agent_options = [
 	'sd_ai_agent_settings',
 	'sd_ai_agent_db_version',
-	'sd_ai_agent_claude_max_token',
-	// Legacy option removed in v1.x — kept here so uninstall cleans up rows on
+	// Legacy options removed in v1.x — kept here so uninstall cleans up rows on
 	// sites that upgraded from before the WP 7.0 Connectors API migration.
+	// Claude Max OAuth is now owned by the separate ai-provider-for-anthropic-max plugin.
+	'sd_ai_agent_claude_max_token',
 	'sd_ai_agent_provider_keys',
 	'sd_ai_agent_gsc_credentials',
 	'sd_ai_agent_tool_profiles',
