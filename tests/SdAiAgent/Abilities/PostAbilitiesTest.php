@@ -215,6 +215,20 @@ class PostAbilitiesTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * Test handle_create_post assigns a page template when provided.
+	 */
+	public function test_handle_create_post_assigns_page_template() {
+		$result = PostAbilities::handle_create_post( [
+			'title'         => 'Templated Page',
+			'post_type'     => 'page',
+			'page_template' => 'templates/full-width.php',
+		] );
+
+		$this->assertIsArray( $result );
+		$this->assertSame( 'templates/full-width.php', get_page_template_slug( $result['post_id'] ) );
+	}
+
+	/**
 	 * Test handle_create_post with meta sets post meta.
 	 */
 	public function test_handle_create_post_sets_meta() {
@@ -286,6 +300,24 @@ class PostAbilitiesTest extends WP_UnitTestCase {
 
 		$this->assertIsArray( $result );
 		$this->assertSame( 'publish', $result['status'] );
+	}
+
+	/**
+	 * Test handle_update_post assigns a page template when provided.
+	 */
+	public function test_handle_update_post_assigns_page_template() {
+		$post_id = $this->factory->post->create( [
+			'post_type'   => 'page',
+			'post_status' => 'draft',
+		] );
+
+		$result = PostAbilities::handle_update_post( [
+			'post_id'       => $post_id,
+			'page_template' => 'templates/landing.php',
+		] );
+
+		$this->assertIsArray( $result );
+		$this->assertSame( 'templates/landing.php', get_page_template_slug( $post_id ) );
 	}
 
 	/**
