@@ -122,6 +122,39 @@ class AbilityFunctionResolver extends \WP_AI_Client_Ability_Function_Resolver {
 		// associative arrays. Abilities expect plain PHP arrays throughout.
 		$args = self::normalize_args( $args );
 
+		// Meta-tool argument coercion for `sd-ai-agent/ability-call`:
+		// Claude (and other LLMs) sometimes emits the nested `arguments`
+		// field as a JSON-encoded STRING instead of an object — e.g.
+		// {"ability": "...", "arguments": "{\"post_id\": 19, ...}"}
+		// rather than
+		// {"ability": "...", "arguments": {"post_id": 19, ...}}.
+		//
+		// The outer Abilities API schema for `ability-call` declares
+		// `arguments` as `type: object`, so this string fails
+		// `validate_input()` with `input[arguments] is not of type object`
+		// and the inner `handle_ability_call()` JSON-decode fallback is
+		// never reached. Coerce here, before `$ability->execute()`, so
+		// the meta-tool call succeeds on the first try instead of burning
+		// iterations on retries.
+		//
+		// Only applies to the `ability-call` meta-tool — every other
+		// ability declares its own concrete schema and a string value for
+		// any field should remain a string.
+		if (
+			'sd-ai-agent/ability-call' === $ability_name
+			&& isset( $args['arguments'] )
+			&& is_string( $args['arguments'] )
+			&& '' !== $args['arguments']
+		) {
+			$decoded = json_decode( $args['arguments'], true );
+			if ( JSON_ERROR_NONE === json_last_error() && is_array( $decoded ) ) {
+				$args['arguments'] = $decoded;
+			}
+			// If decoding failed, leave the string in place so the
+			// downstream validator surfaces a clear error and the
+			// model can correct on the next turn.
+		}
+
 		// Wrap execute() in a try/catch to capture errors that occur
 		// OUTSIDE WP core's invoke_callback() — e.g. in validate_input()
 		// or validate_output(). Our AbstractAbility::do_execute() override
