@@ -1254,3 +1254,54 @@ Five genuine capability gaps found in the site builder audit. Most critical is t
 #### Surprises & Discoveries
 
 (To be populated during implementation)
+
+### [2026-05-13] Block Theme Generation in Onboarding (Automattic wp-site-creator inspired) {#onboarding-theme-builder}
+
+**Status:** Planning
+**Estimate:** ~24h (ai:20h test:3h read:1h) over 3-5 calendar weeks
+**Brief:** [todo/tasks/t170-brief.md](tasks/t170-brief.md)
+**Tasks:** t170 (parent), t170a–t170d (phases, to be filed when each predecessor merges)
+
+#### Purpose
+
+Add a "Design a custom theme" branch to onboarding. After provider setup, fresh-install users can opt into a 4-phase agent conversation that interviews them about their site, presents 3 distinct topic-grounded design directions as HTML previews, and on selection generates a complete block theme (theme.json, style.css, functions.php, templates/, parts/) deployed to `wp-content/themes/<slug>/` and activated — all inside the existing chat UI.
+
+Architecture adapted from [Automattic/wordpress-agent-skills/claude-code/wp-site-creator](https://github.com/Automattic/wordpress-agent-skills/tree/trunk/claude-code/wp-site-creator). We take the 4-phase flow, the site-specification skill, and the topic-grounded design thinking. We do NOT take their Claude-Code-plugin packaging, WordPress Studio CLI dependency, parallel Task() subagent pattern, or block-fixer Node script (we have `validate-block-content` already).
+
+Closes the PLANS.md "AI site generation from prompt" P0 gap on the visual-container side (t060-t062 handle pages; this handles themes).
+
+#### Progress
+
+- [ ] (2026-05-13) Phase 1: `site-specification` skill — markdown + new memory category `site_brief` ~3h — t170a (TBF)
+- [ ] (2026-05-13) Phase 2: `block-themes.md` skill expansion (theme.json presets, animation classes, editor-visibility CSS) ~4h — t170b (TBF)
+- [ ] (2026-05-13) Phase 3: Theme-builder onboarding branch — new ThemeBuilderPrompt, REST endpoint, 2 abilities (scaffold-block-theme + activate-theme), wizard mode-picker, React component, E2E test ~12h — t170c (TBF)
+- [ ] (2026-05-13) Phase 4: `design-system-aesthetics.md` skill (topic-grounded visual worlds framework) ~5h — t170d (TBF)
+
+#### Context from Discussion
+
+**Source comparison.** Studied [Automattic's `/quick-build` command](https://raw.githubusercontent.com/Automattic/wordpress-agent-skills/trunk/claude-code/wp-site-creator/commands/quick-build.md), [`/preview-designs`](https://raw.githubusercontent.com/Automattic/wordpress-agent-skills/trunk/claude-code/wp-site-creator/commands/preview-designs.md), and [site-specification SKILL](https://raw.githubusercontent.com/Automattic/wordpress-agent-skills/trunk/claude-code/wp-site-creator/skills/site-specification/SKILL.md) against our `OnboardingManager` + `BootstrapPrompt` + `OnboardingWizard` + `OnboardingBootstrap`. Our existing flow is discovery-only: explores the site, presents 4 starter prompts. Their flow generates a complete theme. Fresh-install conversion is the opportunity.
+
+**Capability gap.** We have most of what we need: `create-block-content`, `validate-block-content`, `list-block-templates`, `list-block-patterns`, `update-global-styles`, `get-theme-json`, and `FileAbilities` (writes anywhere under wp-content when `FILE_WRITE` cap is on). Missing: directory + theme.json scaffold ability and a switch_theme wrapper. That's two new abilities, both small.
+
+**Why phases not one PR.** Phase 1 (site-spec skill) alone improves every content-creation interaction (post drafts, page builds, product descriptions). Phase 2 (block-themes skill expansion) compounds for all theme-aware work, not just onboarding. Phases 3-4 are where the theme-builder onboarding actually lights up. Each phase ships value independently — if we stop after Phase 2 we've still made the agent meaningfully better.
+
+**What we explicitly are NOT doing:**
+- Generating Gutenberg patterns library (separate work — t060-t062)
+- WooCommerce-aware theme variants (Phase 3 ships a generic theme; Woo-specific templates are follow-up)
+- Multi-language theme generation
+- Child-theme generation
+- AI-redesigning existing themes
+- Adopting WordPress Studio CLI (irrelevant inside a running WP install)
+- Telemetry scripts from the Automattic plugin
+
+**Topic-grounded design thinking.** Their key insight: don't generate "modern dark theme / minimalist light theme / colorful theme" — instead, ask what aesthetic worlds the *topic* could authentically inhabit. A craft brewery is not "generic dark/light/colorful"; it's taproom-warmth vs label-art-maximalism vs industrial-grain-and-steel. This is what Phase 4's skill captures.
+
+**No stock image URLs ever.** Their prompts repeat this rule; we adopt it. Generated themes rely on CSS gradients, color blocks, and typography when the user hasn't supplied imagery.
+
+#### Decision Log
+
+(To be populated during implementation)
+
+#### Surprises & Discoveries
+
+(To be populated during implementation)

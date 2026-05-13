@@ -336,6 +336,12 @@ Goal: clean, minimal design that matches wp-admin conventions. Replace custom da
 
 ## Backlog
 
+- [ ] t170 Block theme generation in onboarding (Automattic wp-site-creator inspired) #enhancement #parent-task #plan → [todo/PLANS.md#onboarding-theme-builder] ~24h logged:2026-05-13
+  - 4 phases: site-spec skill, block-themes skill expansion, theme-builder onboarding branch (2 new abilities + REST + UI), design-system aesthetics skill
+  - Brief: todo/tasks/t170-brief.md
+  - Source: github.com/Automattic/wordpress-agent-skills/tree/trunk/claude-code/wp-site-creator (architecture only — not the Claude-Code packaging or Studio CLI deps)
+  - Closes the PLANS.md "AI site generation from prompt" P0 gap on the visual-container side (t060-t062 cover pages)
+
 - [ ] t232 Ability discovery investigation: why agent misses registered abilities #investigation #parent #plan → [todo/PLANS.md#ability-discovery-investigation] ~5h logged:2026-04-26
 - [x] t234 Audit ability injection pipeline and tool catalog (Phase 1) #investigation #auto-dispatch ~3h For #t232 logged:2026-04-26 pr:#1204 completed:2026-04-27
   - Trace how abilities reach the model: ToolCapabilities.php → AgentLoop.php → wp_ai_client_prompt() injection
