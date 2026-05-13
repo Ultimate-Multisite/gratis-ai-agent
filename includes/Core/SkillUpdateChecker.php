@@ -77,6 +77,12 @@ class SkillUpdateChecker {
 			return;
 		}
 
+		// Match the manual update endpoint's HTTPS-only policy before any
+		// background HTTP request is made from WP-Cron.
+		if ( ! str_starts_with( strtolower( $manifest_url ), 'https://' ) ) {
+			return;
+		}
+
 		if ( ! (bool) ( $settings['skill_auto_update'] ?? true ) ) {
 			return;
 		}
