@@ -206,12 +206,36 @@ class AgentLoop {
 		// @phpstan-ignore-next-line
 		$this->max_iterations = $options['max_iterations'] ?? ( $settings['max_iterations'] ?: 25 );
 
-		// Cap iterations harder for known-weak models — they burn through
-		// rounds on dead-end paths, so failing fast surfaces a model
-		// limitation to the user instead of timing out at 2 minutes.
-		if ( ModelHealthTracker::is_weak( (string) ( $options['model_id'] ?? ( $settings['default_model'] ?? '' ) ) ) ) {
-			$this->max_iterations = min( (int) $this->max_iterations, 10 );
-		}
+		// NOTE: The weak-model iteration cap is currently DISABLED.
+		//
+		// The previous implementation hard-capped max_iterations at 10 when
+		// ModelHealthTracker::is_weak() returned true. That tracker uses a
+		// telemetry score (success / (success + validation_error + 5*nudge))
+		// with a 0.7 threshold, which turned out to be unreliable in
+		// practice:
+		//
+		// 1. Framework bugs (empty-parts crashes, JS-tool-cycle stripping)
+		// counted as validation_errors and nudges, dragging legitimate
+		// models (Opus 4.7, Sonnet 4.6) below 0.7 — score 0.59-0.68 —
+		// even though the model itself was healthy.
+		// 2. Once a model dropped below 0.7 it got capped at 10
+		// iterations, which made user-visible task failures more
+		// likely, which fed more nudges into the telemetry, which
+		// kept the model flagged — a self-reinforcing trap.
+		// 3. The hard 10 silently overrode the user's max_iterations
+		// setting (e.g. 100 for landing-page builds), making the
+		// setting feel broken with no surfaced explanation.
+		//
+		// Until ModelHealthTracker telemetry can distinguish "model burned
+		// rounds on dead ends" from "framework bug crashed the loop", and
+		// until weak-cap behaviour is surfaced to the user, the cap is
+		// disabled in favour of the user's configured budget. The original
+		// code is preserved here in comments so it can be restored once
+		// the telemetry pipeline is reliable:
+		//
+		// if ( ModelHealthTracker::is_weak( $model_id ) ) {
+		// $this->max_iterations = min( (int) $this->max_iterations, 10 );
+		// }
 		// @phpstan-ignore-next-line
 		$this->temperature = $options['temperature'] ?? ( $settings['temperature'] ?? 0.7 );
 		// @phpstan-ignore-next-line
@@ -892,19 +916,15 @@ class AgentLoop {
 		$builder->using_system_instruction( $this->system_instruction );
 		$this->configure_model( $builder );
 
-		// For known-weak models, force temperature 0 (less hallucination
-		// of arg shapes) and disable parallel tool calls (single-track
-		// models lose track of which result corresponds to which call).
-		$is_weak     = ModelHealthTracker::is_weak( $this->model_id );
-		$temperature = $is_weak ? 0.0 : (float) $this->temperature;
-
+		// NOTE: weak-model temperature/parallel-tool overrides are disabled
+		// alongside the weak-model iteration cap (see constructor comment).
+		// The same telemetry-reliability concerns apply: flagging Opus 4.7
+		// or Sonnet 4.6 as weak because of past framework bugs would force
+		// temperature=0 and disable parallel tool calls, making real model
+		// usage noticeably slower and lower-quality without surfacing why
+		// to the user. Restore once telemetry is reliable.
 		if ( method_exists( $builder, 'using_temperature' ) ) {
-			$builder->using_temperature( $temperature );
-		}
-
-		if ( $is_weak && method_exists( $builder, 'using_custom_options' ) ) {
-			// @phpstan-ignore-next-line — using_custom_options() exists at runtime in WP 7.0.
-			$builder->using_custom_options( array( 'parallel_tool_calls' => false ) );
+			$builder->using_temperature( (float) $this->temperature );
 		}
 
 		if ( method_exists( $builder, 'using_max_tokens' ) ) {
