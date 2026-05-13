@@ -286,13 +286,13 @@
 
 Goal: clean, minimal design that matches wp-admin conventions. Replace custom dark sidebar nav, reduce visual noise, align spacing/typography with core wp-admin patterns.
 
-- [x] t153 Redesign unified admin nav sidebar to match wp-admin aesthetic #ui ~3h logged:2026-04-03 ref:GH#748 #auto-dispatch pr:#758 completed:2026-04-04
+- [x] t153 Redesign unified admin nav sidebar to match wp-admin aesthetic #ui ~3h logged:2026-04-03 ref:GH#748 #auto-dispatch closed:PR#758 completed:2026-04-04
   - Current: custom dark (#1e1e1e) sidebar with blue active state — looks like a separate app, not a WP admin page
   - Replace with wp-admin-style left nav: white/light background, standard WP submenu link styles, no custom dark theme
   - Use `--wp-admin-theme-color` for active state only; remove hardcoded #1e1e1e, #333, #a7aaad
   - Consider replacing custom nav entirely with WP's native submenu structure (registered via add_submenu_page)
 
-- [x] t154 Simplify chat panel header — reduce clutter, align with wp-admin toolbar style #ui ~2h logged:2026-04-03 ref:GH#749 #auto-dispatch pr:#759 completed:2026-04-04
+- [x] t154 Simplify chat panel header — reduce clutter, align with wp-admin toolbar style #ui ~2h logged:2026-04-03 ref:GH#749 #auto-dispatch closed:PR#759 completed:2026-04-04
   - Current: provider selector + agent selector + budget badge + TTS button + debug badge + YOLO badge all in one row
   - Move secondary controls (TTS, debug badge) to a settings popover or collapse into a single "options" button
   - Provider/agent selectors: use compact inline selects without labels (labels add height, break the toolbar feel)
@@ -304,32 +304,32 @@ Goal: clean, minimal design that matches wp-admin conventions. Replace custom da
   - FAB button is fine; keep the circular shape and theme color
   - Session tabs: current pill style is ok but font-size 11px is too small — bump to 12px
 
-- [x] t156 Settings page: reduce tab count, improve section spacing and form layout #ui ~3h logged:2026-04-03 ref:GH#751 #auto-dispatch pr:#760 completed:2026-04-04
+- [x] t156 Settings page: reduce tab count, improve section spacing and form layout #ui ~3h logged:2026-04-03 ref:GH#751 #auto-dispatch closed:PR#760 completed:2026-04-04
   - 18 tabs is too many — group into 5-6 top-level tabs with sub-sections inside each panel
   - Section padding (20px 24px) and gap (16px) are good; keep
   - Form fields: use WP's `<BaseControl>` with proper label/help text instead of raw inputs
   - Skill cards and memory cards: border-radius 4px is fine; consider removing the card border on hover-only items
 
-- [x] t157 Session sidebar: tighten spacing, improve active/hover states #ui ~1h logged:2026-04-03 ref:GH#752 #auto-dispatch pr:#761 completed:2026-04-04
+- [x] t157 Session sidebar: tighten spacing, improve active/hover states #ui ~1h logged:2026-04-03 ref:GH#752 #auto-dispatch closed:PR#761 completed:2026-04-04
   - Active item uses `border-left: 3px solid` + background — the left border is a good WP pattern, keep it
   - Session item padding (10px 36px 10px 12px) is generous — reduce to 8px 32px 8px 10px
   - Folder tabs (pill shape, #e0e0e0 background) look out of place — replace with plain text tabs matching filter tabs
   - Context menu: already clean; no changes needed
 
-- [x] t158 Message bubbles and input area: align with wp-admin form conventions #ui ~2h logged:2026-04-03 ref:GH#753 #auto-dispatch pr:#762 completed:2026-04-04
+- [x] t158 Message bubbles and input area: align with wp-admin form conventions #ui ~2h logged:2026-04-03 ref:GH#753 #auto-dispatch closed:PR#762 completed:2026-04-04
   - User bubble (blue, right-aligned) is fine — standard chat convention
   - Assistant bubble (#f0f0f1 background) is fine — keep
   - Input area: background #f6f7f7 with border-top is correct; the textarea border (#8c8f94) is slightly dark — use #c3c4c7 to match WP inputs
   - Send button (circular, absolute positioned) is non-standard for wp-admin — consider a standard rectangular "Send" button or keep circle but ensure it doesn't overlap text
   - Token counter below input: good addition, ensure it uses wp-admin muted text color (#646970)
 
-- [x] t159 Welcome screen / empty state: simplify and reduce visual weight #ui ~1h logged:2026-04-03 ref:GH#754 #auto-dispatch pr:#763 completed:2026-04-04
+- [x] t159 Welcome screen / empty state: simplify and reduce visual weight #ui ~1h logged:2026-04-03 ref:GH#754 #auto-dispatch closed:PR#763 completed:2026-04-04
   - Current: 3-column card grid with border + hover shadow — looks like a marketing page
   - Replace with a simple centered text + 2-3 plain suggestion links (no cards, no borders)
   - Greeting text (18px, font-weight 600) is too large for an admin tool — reduce to 15px, normal weight
   - Hint text (#a7aaad) is too light — use #646970
 
-- [x] t160 Benchmark and changes pages: apply consistent wp-admin card/table layout #ui ~2h logged:2026-04-03 ref:GH#755 #auto-dispatch pr:#764 completed:2026-04-04
+- [x] t160 Benchmark and changes pages: apply consistent wp-admin card/table layout #ui ~2h logged:2026-04-03 ref:GH#755 #auto-dispatch closed:PR#764 completed:2026-04-04
   - Benchmark page: use WP's `<Card>` component for run list items instead of custom styling
   - Changes page: ensure it uses standard WP admin table markup (widefat, striped classes) where applicable
   - Both pages: max-width 1200px container is fine; ensure headings use wp-admin h2 style (not custom font-size)
