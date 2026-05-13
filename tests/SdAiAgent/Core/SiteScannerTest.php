@@ -258,7 +258,7 @@ class SiteScannerTest extends WP_UnitTestCase {
 		$data = SiteScanner::collect();
 
 		// WooCommerce is not installed in test environment.
-		if ( ! class_exists( 'WooCommerce' ) ) {
+		if ( ! class_exists( 'WooCommerce' ) || ! function_exists( 'get_woocommerce_currency' ) ) {
 			$this->assertIsArray( $data['woocommerce'] );
 			$this->assertFalse( $data['woocommerce']['active'] );
 		} else {
@@ -293,7 +293,7 @@ class SiteScannerTest extends WP_UnitTestCase {
 		$data = SiteScanner::collect();
 
 		// With no WooCommerce and no special plugins, >20 posts = blog.
-		if ( ! class_exists( 'WooCommerce' ) ) {
+		if ( ! class_exists( 'WooCommerce' ) || ! function_exists( 'get_woocommerce_currency' ) ) {
 			$this->assertSame( 'blog', $data['site_type'] );
 		}
 	}
@@ -309,7 +309,7 @@ class SiteScannerTest extends WP_UnitTestCase {
 
 		$data = SiteScanner::collect();
 
-		if ( ! class_exists( 'WooCommerce' ) ) {
+		if ( ! class_exists( 'WooCommerce' ) || ! function_exists( 'get_woocommerce_currency' ) ) {
 			$this->assertSame( 'brochure', $data['site_type'] );
 		}
 	}

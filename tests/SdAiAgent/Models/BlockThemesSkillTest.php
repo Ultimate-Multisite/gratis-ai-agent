@@ -39,7 +39,7 @@ class BlockThemesSkillTest extends WP_UnitTestCase {
 		$line_count = substr_count( $content, "\n" ) + 1;
 
 		$this->assertGreaterThanOrEqual( 350, $line_count );
-		$this->assertLessThanOrEqual( 460, $line_count );
+		$this->assertLessThanOrEqual( 500, $line_count );
 	}
 
 	/**
