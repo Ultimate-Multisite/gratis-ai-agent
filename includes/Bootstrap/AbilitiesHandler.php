@@ -53,6 +53,7 @@ use SdAiAgent\Core\Features;
 use SdAiAgent\Abilities\SeoAbilities;
 use SdAiAgent\Abilities\SiteHealthAbilities;
 use SdAiAgent\Abilities\SkillAbilities;
+use SdAiAgent\Abilities\ThemeBuilderAbilities;
 use SdAiAgent\Abilities\UserAbilities;
 use SdAiAgent\Abilities\WordPressAbilities;
 use SdAiAgent\Abilities\WpCliAbilities;
@@ -101,6 +102,7 @@ final class AbilitiesHandler {
 		BlockAbilities::register_abilities();
 		GlobalStylesAbilities::register_abilities();
 		FileAbilities::register_abilities();
+		ThemeBuilderAbilities::register_abilities();
 		GitAbilities::register_abilities();
 		// Plugin-download abilities expose download URLs for AI-modified
 		// plugins, so they only make sense when the plugin builder is
