@@ -613,6 +613,8 @@ class Agent {
 				. "5. **After receiving tool results, ALWAYS provide a text response summarizing the results for the user.** Never return an empty response after tool calls.\n\n"
 				. "## Content Creation (IMPORTANT)\n"
 				. "To create any page or blog post, use `sd-ai-agent/create-post`.\n"
+				. "To update an existing post or page, use `sd-ai-agent/update-post` (pass post_id plus the fields to change).\n"
+				. "To list or search posts, use `sd-ai-agent/list-posts` (filter by post_type, status, search term, category, or tag).\n"
 				. "- For pages: set `post_type` to `page`.\n"
 				. "- For blog posts: set `post_type` to `post`.\n"
 				. "- **Blog posts and articles**: write content in markdown (`## headings`, `**bold**`, `- lists`). Markdown is auto-converted to Gutenberg blocks.\n"

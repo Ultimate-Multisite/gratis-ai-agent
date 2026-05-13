@@ -43,21 +43,16 @@ class ToolCapabilities {
 	 * Derive the tool-specific capability name from an ability ID.
 	 *
 	 * Examples:
-	 *   sd-ai-agent/memory-save  → sd_ai_agent_tool_memory_save
-	 *  sd-ai-agent/memory-save         → sd_ai_agent_tool_memory_save
-	 *   sd-ai-agent/db-query     → sd_ai_agent_tool_db_query
-	 *   sd-ai-agent/run-php      → sd_ai_agent_tool_run_php
-	 *
-	 * Both "sd-ai-agent/" and the WordPress core "sd-ai-agent/" namespace
-	 * prefixes are stripped so that abilities registered under either prefix
-	 * resolve to the same capability name.
+	 *   sd-ai-agent/memory-save → sd_ai_agent_tool_memory_save
+	 *   sd-ai-agent/db-query    → sd_ai_agent_tool_db_query
+	 *   sd-ai-agent/run-php     → sd_ai_agent_tool_run_php
 	 *
 	 * @param string $ability_id The ability ID (e.g. "sd-ai-agent/memory-save" or "sd-ai-agent/create-post").
 	 * @return string The derived capability name.
 	 */
 	public static function cap_name( string $ability_id ): string {
-		// Strip either the "sd-ai-agent/" or the WP core "sd-ai-agent/" namespace prefix.
-		$name = str_replace( [ 'sd-ai-agent/', 'sd-ai-agent/' ], '', $ability_id );
+		// Strip the canonical Superdav AI Agent ability namespace prefix.
+		$name = str_replace( 'sd-ai-agent/', '', $ability_id );
 
 		// Replace hyphens and slashes with underscores.
 		$name = str_replace( [ '-', '/' ], '_', $name );
@@ -194,6 +189,8 @@ class ToolCapabilities {
 			'sd-ai-agent/create-menu',
 			'sd-ai-agent/delete-menu',
 			'sd-ai-agent/add-menu-item',
+			'sd-ai-agent/remove-menu-item',
+			'sd-ai-agent/assign-menu-location',
 			// Images.
 			'sd-ai-agent/stock-image',
 			'sd-ai-agent/generate-image',
