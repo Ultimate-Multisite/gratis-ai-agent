@@ -70,6 +70,35 @@ Template parts are referenced inside templates via `wp:template-part`:
 <!-- wp:template-part {"slug":"header","tagName":"header"} /-->
 ```
 
+### Template Part Composition
+
+Generate template parts as reusable, editor-friendly block assemblies. A part should provide the structural frame only; page-specific hero, content, and CTA sections belong in templates or patterns.
+
+**Header requirements:**
+
+- Use a constrained or wide Group wrapper with site-appropriate padding from the spacing scale.
+- Compose a flex Row or Group containing `wp:site-title` (usually level `0`, so it renders as non-heading text) and `wp:navigation`.
+- Add a `className` for design-specific styling (`site-header`, `sticky-header`, `transparent-header`) rather than inline HTML.
+- Keep menus editable through the Navigation block; do not hard-code link lists in HTML blocks.
+
+**Footer requirements:**
+
+- Use a Group wrapper whose background complements the header or final CTA band.
+- Include editor-editable core blocks: site title, paragraph copy, navigation, social links, or columns as needed for the site type.
+- Reset the default top margin with `.wp-site-blocks > footer { margin-block-start: 0; }` in `style.css` so the footer sits flush after full-bleed sections.
+
+**Page-title part:**
+
+For non-landing templates, create a reusable page-title part or pattern that uses the dynamic `wp:post-title` block. Matching its spacing, typography, and background treatment to the homepage hero makes generated pages feel cohesive instead of bolted on.
+
+```html
+<!-- wp:group {"className":"page-title-band","align":"full","layout":{"type":"constrained"}} -->
+<div class="wp-block-group alignfull page-title-band">
+  <!-- wp:post-title {"level":1,"textAlign":"center"} /-->
+</div>
+<!-- /wp:group -->
+```
+
 ## Available Tools
 
 - `sd-ai-agent/list-block-templates` — List all templates with slugs and descriptions

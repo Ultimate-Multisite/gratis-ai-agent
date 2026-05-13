@@ -740,6 +740,37 @@ class SkillTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * Block themes skill covers the Phase 2 theme generation guidance.
+	 */
+	public function test_block_themes_skill_covers_phase_two_theme_generation_guidance(): void {
+		$definitions = Skill::get_builtin_definitions();
+
+		$this->assertArrayHasKey( 'block-themes', $definitions );
+
+		$content = $definitions['block-themes']['content'];
+		$lines   = preg_split( '/\R/', $content );
+
+		$this->assertIsArray( $lines );
+		$this->assertGreaterThanOrEqual( 350, count( $lines ) );
+		$this->assertLessThanOrEqual( 500, count( $lines ) );
+
+		foreach (
+			[
+				'theme.json Overview',
+				'Template Parts',
+				'wp:template-part',
+				'The className pattern',
+				'prefers-reduced-motion',
+				'Editor Visibility',
+				'editor-styles-wrapper',
+				'enqueue_block_assets',
+			] as $required_phrase
+		) {
+			$this->assertStringContainsString( $required_phrase, $content );
+		}
+	}
+
+	/**
 	 * Each built-in skill has a non-empty description.
 	 */
 	public function test_builtin_skills_have_non_empty_description(): void {
