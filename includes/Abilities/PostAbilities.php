@@ -787,9 +787,6 @@ class PostAbilities {
 
 		// @phpstan-ignore-next-line
 		$page_template = sanitize_text_field( $input['page_template'] ?? '' );
-		if ( '' !== $page_template ) {
-			$post_data['page_template'] = $page_template;
-		}
 
 		$post_id = wp_insert_post( $post_data, true );
 
@@ -814,6 +811,10 @@ class PostAbilities {
 			// @phpstan-ignore-next-line
 			$tag_names = array_map( 'sanitize_text_field', $tags );
 			wp_set_post_tags( $post_id, $tag_names );
+		}
+
+		if ( '' !== $page_template ) {
+			update_post_meta( $post_id, '_wp_page_template', $page_template );
 		}
 
 		// Set featured image if provided.
@@ -979,9 +980,10 @@ class PostAbilities {
 				$post_data['post_status'] = $new_status;
 			}
 		}
+		$page_template = null;
 		if ( isset( $input['page_template'] ) ) {
 			// @phpstan-ignore-next-line
-			$post_data['page_template'] = sanitize_text_field( $input['page_template'] );
+			$page_template = sanitize_text_field( $input['page_template'] );
 		}
 
 		$result = wp_update_post( $post_data, true );
@@ -1005,6 +1007,10 @@ class PostAbilities {
 			// @phpstan-ignore-next-line
 			$tag_names = array_map( 'sanitize_text_field', $input['tags'] );
 			wp_set_post_tags( $post_id, $tag_names );
+		}
+
+		if ( null !== $page_template ) {
+			update_post_meta( $post_id, '_wp_page_template', $page_template );
 		}
 
 		// Update featured image if provided.
