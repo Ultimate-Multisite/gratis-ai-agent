@@ -797,7 +797,7 @@ so skill content can improve between plugin releases.
 #### Progress
 
 - [ ] (2026-04-18) Phase 1: Skill usage tracking table + telemetry ~4h
-- [ ] (2026-04-18) Phase 2: Model-aware tiered injection ~4h
+- [x] (2026-04-18) Phase 2: Model-aware tiered injection ~4h — completed via GH#1358 / PR #1099
 - [ ] (2026-04-18) Phase 3: Skill versioning + remote update channel ~8h
 - [ ] (2026-04-18) Phase 4: Settings UI + admin dashboard ~6h
 - [ ] (2026-04-18) Phase 5: Skill directory endpoint (server-side) ~8h

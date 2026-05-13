@@ -434,10 +434,10 @@ Goal: clean, minimal design that matches wp-admin conventions. Replace custom da
   - EDIT: includes/Core/AgentLoop.php — after loop completes, evaluate outcome heuristic (no exit_reason error + skill domain match = helpful)
   - Verify: `composer phpstan && composer phpcs`
 
-- [ ] t217 Model-aware tiered skill injection (Phase 2) #enhancement #auto-dispatch ~4h For #t215 blocked-by:t216 logged:2026-04-18
-  - EDIT: includes/Core/SystemInstructionBuilder.php:78-84 — wrap SkillAutoInjector::inject_for_message() in ModelHealthTracker::is_weak() check. Strong models get index only (~150 tokens), weak models get auto-injected content
-  - EDIT: includes/Core/SkillAutoInjector.php — reduce MAX_INJECTED_SKILLS from 2 to 1
-  - EDIT: includes/Abilities/SkillAbilities.php — record skill-load calls as ModelHealthTracker::record_success() signal
+- [x] t217 Model-aware tiered skill injection (Phase 2) #enhancement #auto-dispatch ~4h For #t215 blocked-by:t216 logged:2026-04-18 ref=GH#1358 pr:#1099 completed:2026-05-13
+  - Implemented: SystemInstructionBuilder now routes strong models to the lean skill index plus targeted skill-load hints and weak models to capped full skill auto-injection.
+  - Implemented: SkillAutoInjector caps auto-injection at one skill and exposes get_index_description() for the strong-model hint path.
+  - Implemented: SkillAbilities records voluntary skill-load calls through ModelHealthTracker::record_skill_load() so tier decisions can use model skill-loading telemetry.
   - Verify: `composer phpstan && composer phpcs`
 
 - [ ] t218 Skill versioning schema + remote update checker (Phase 3a) #feature #auto-dispatch ~4h For #t215 logged:2026-04-18
