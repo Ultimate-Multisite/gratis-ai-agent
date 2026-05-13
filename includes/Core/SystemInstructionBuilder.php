@@ -201,7 +201,7 @@ class SystemInstructionBuilder {
 			. "- Include `categories` and `tags` arrays for blog posts.\n"
 			. "- Include `excerpt` for SEO meta descriptions.\n"
 			. "- To add a featured image: first call `sd-ai-agent/stock-image` or `sd-ai-agent/generate-image`, then pass the returned attachment_id as `featured_image_id` in create-post or update-post.\n"
-			. "- For WooCommerce products, use `sd-ai-agent/woo-create-product` instead.\n\n"
+			. "- For WooCommerce products, use WooCommerce's native `woocommerce/products-create` ability instead.\n\n"
 			. "## Tips\n"
 			. "- Chain operations: create content first, then configure settings.\n"
 			. "- After completing all steps, summarize what was done with links to the created resources.\n\n"

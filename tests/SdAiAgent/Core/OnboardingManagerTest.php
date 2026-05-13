@@ -59,26 +59,6 @@ class OnboardingManagerTest extends WP_UnitTestCase {
 		$this->assertSame( 'sd_ai_agent_onboarding_triggered', OnboardingManager::TRIGGERED_OPTION );
 	}
 
-	// ── register ──────────────────────────────────────────────────────────
-
-	/**
-	 * register() hooks maybe_trigger to admin_init.
-	 */
-	public function test_register_hooks_maybe_trigger_to_admin_init(): void {
-		OnboardingManager::register();
-
-		$this->assertNotFalse( has_action( 'admin_init', [ OnboardingManager::class, 'maybe_trigger' ] ) );
-	}
-
-	/**
-	 * register() hooks register_rest_routes to rest_api_init.
-	 */
-	public function test_register_hooks_rest_routes_to_rest_api_init(): void {
-		OnboardingManager::register();
-
-		$this->assertNotFalse( has_action( 'rest_api_init', [ OnboardingManager::class, 'register_rest_routes' ] ) );
-	}
-
 	// ── trigger ───────────────────────────────────────────────────────────
 
 	/**

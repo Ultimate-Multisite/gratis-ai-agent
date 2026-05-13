@@ -50,22 +50,6 @@ class OnboardingManager {
 	 */
 	const BOOTSTRAP_SESSION_OPTION = 'sd_ai_agent_bootstrap_session_id';
 
-	// ── Bootstrap ─────────────────────────────────────────────────────────
-
-	/**
-	 * Register all hooks.
-	 */
-	public static function register(): void {
-		// Register the cron handler.
-		SiteScanner::register();
-
-		// On every admin_init, check whether we should trigger onboarding.
-		add_action( 'admin_init', [ __CLASS__, 'maybe_trigger' ] );
-
-		// REST endpoint for status polling.
-		add_action( 'rest_api_init', [ __CLASS__, 'register_rest_routes' ] );
-	}
-
 	/**
 	 * Called on plugin activation.
 	 *

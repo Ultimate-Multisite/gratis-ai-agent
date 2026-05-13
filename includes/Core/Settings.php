@@ -475,12 +475,15 @@ class Settings {
 	 * @var string[]
 	 */
 	const WOO_ABILITY_IDS = array(
-		'sd-ai-agent/woo-get-products',
-		'sd-ai-agent/woo-create-product',
-		'sd-ai-agent/woo-update-product',
-		'sd-ai-agent/woo-delete-product',
-		'sd-ai-agent/woo-get-orders',
-		'sd-ai-agent/woo-get-store-stats',
+		'woocommerce/products-list',
+		'woocommerce/products-get',
+		'woocommerce/products-create',
+		'woocommerce/products-update',
+		'woocommerce/products-delete',
+		'woocommerce/orders-list',
+		'woocommerce/orders-get',
+		'woocommerce/orders-create',
+		'woocommerce/orders-update',
 	);
 
 	/**
