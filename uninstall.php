@@ -36,6 +36,7 @@ $sd_ai_agent_tables = [
 	$wpdb->prefix . 'sd_ai_agent_shared_sessions',
 	$wpdb->prefix . 'sd_ai_agent_benchmark_runs',
 	$wpdb->prefix . 'sd_ai_agent_benchmark_results',
+	$wpdb->prefix . 'sd_ai_agent_skill_usage',
 ];
 
 foreach ( $sd_ai_agent_tables as $sd_ai_agent_table ) {

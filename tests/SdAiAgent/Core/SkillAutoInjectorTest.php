@@ -11,6 +11,7 @@ namespace SdAiAgent\Tests\Core;
 
 use SdAiAgent\Core\SkillAutoInjector;
 use SdAiAgent\Models\Skill;
+use SdAiAgent\Repositories\SkillUsageRepository;
 use WP_UnitTestCase;
 
 /**
@@ -60,6 +61,31 @@ class SkillAutoInjectorTest extends WP_UnitTestCase {
 		$result = SkillAutoInjector::inject_for_message( 'How do I add a product to my WooCommerce store?' );
 
 		$this->assertStringContainsString( 'Active Skill Guide', $result );
+	}
+
+	/**
+	 * Auto-injection records telemetry when model and session context are provided.
+	 */
+	public function test_inject_records_skill_usage_telemetry(): void {
+		$skill = Skill::get_by_slug( 'gutenberg-blocks' );
+		$this->assertNotNull( $skill );
+
+		$result = SkillAutoInjector::inject_for_message(
+			'Create a landing page with Gutenberg blocks',
+			'gpt-test-model',
+			123
+		);
+
+		$this->assertStringContainsString( 'Active Skill Guide', $result );
+
+		$rows = SkillUsageRepository::get_by_skill( (int) $skill->id, 1 );
+		$this->assertNotEmpty( $rows );
+		$this->assertSame( (int) $skill->id, $rows[0]->skill_id );
+		$this->assertSame( 123, $rows[0]->session_id );
+		$this->assertSame( 'auto', $rows[0]->trigger_type );
+		$this->assertSame( 'unknown', $rows[0]->outcome );
+		$this->assertSame( 'gpt-test-model', $rows[0]->model_id );
+		$this->assertGreaterThan( 0, $rows[0]->injected_tokens );
 	}
 
 	/**

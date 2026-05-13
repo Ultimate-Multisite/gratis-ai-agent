@@ -11,6 +11,7 @@ namespace SdAiAgent\Tests\Abilities;
 
 use SdAiAgent\Abilities\SkillAbilities;
 use SdAiAgent\Models\Skill;
+use SdAiAgent\Repositories\SkillUsageRepository;
 use WP_UnitTestCase;
 
 /**
@@ -151,6 +152,27 @@ class SkillAbilitiesTest extends WP_UnitTestCase {
 		$this->assertArrayHasKey( 'content', $result );
 		$this->assertSame( 'enabled-load-test', $result['slug'] );
 		$this->assertSame( 'Skill content here', $result['content'] );
+	}
+
+	/**
+	 * Loading a skill through the ability records tool-call telemetry.
+	 */
+	public function test_handle_skill_load_records_tool_call_usage() {
+		$skill_id = Skill::create( [ 'slug' => 'telemetry-load-test', 'name' => 'Telemetry Load Test', 'description' => 'Description', 'content' => 'Skill content for telemetry', 'enabled' => true ] );
+		$this->assertIsInt( $skill_id );
+
+		$result = SkillAbilities::handle_skill_load( [
+			'slug' => 'telemetry-load-test',
+		] );
+
+		$this->assertIsArray( $result );
+
+		$rows = SkillUsageRepository::get_by_skill( $skill_id, 1 );
+		$this->assertNotEmpty( $rows );
+		$this->assertSame( $skill_id, $rows[0]->skill_id );
+		$this->assertSame( 'tool_call', $rows[0]->trigger_type );
+		$this->assertSame( 'unknown', $rows[0]->outcome );
+		$this->assertGreaterThan( 0, $rows[0]->injected_tokens );
 	}
 
 	// ─── Built-in Skill Loading ──────────────────────────────────────────────

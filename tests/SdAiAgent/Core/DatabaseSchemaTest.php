@@ -175,6 +175,28 @@ class DatabaseSchemaTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * Skill usage telemetry table has the required columns and indexes.
+	 */
+	public function test_skill_usage_table_has_required_columns_and_indexes(): void {
+		global $wpdb;
+
+		Database::install();
+
+		$table   = Database::skill_usage_table_name();
+		$columns = $this->get_column_names( $table );
+
+		foreach ( [ 'id', 'skill_id', 'session_id', 'trigger_type', 'injected_tokens', 'outcome', 'model_id', 'created_at' ] as $col ) {
+			$this->assertContains( $col, $columns, "Skill usage table missing column '{$col}'." );
+		}
+
+		foreach ( [ 'skill_id', 'session_id', 'trigger_type', 'outcome', 'model_id', 'created_at' ] as $index ) {
+			// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- Test-only introspection query.
+			$index_exists = $wpdb->get_var( "SHOW INDEX FROM {$table} WHERE Key_name = '{$index}'" );
+			$this->assertNotNull( $index_exists, "Skill usage table missing index '{$index}'." );
+		}
+	}
+
+	/**
 	 * Custom tools table has a UNIQUE KEY on slug.
 	 */
 	public function test_custom_tools_table_has_unique_slug_index(): void {
