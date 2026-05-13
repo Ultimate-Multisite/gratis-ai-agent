@@ -31,6 +31,12 @@ if ( ! defined( 'ABSPATH' ) ) {
 class ImageSourceFactory {
 
 	/**
+	 * Number of candidate results to request from each free source before falling
+	 * through to the next provider in the stock-image fallback chain.
+	 */
+	private const FREE_SOURCE_SEARCH_LIMIT = 3;
+
+	/**
 	 * Registered sources.
 	 *
 	 * @var array<string, ImageSourceInterface>
@@ -257,7 +263,7 @@ class ImageSourceFactory {
 		$tried = [];
 
 		foreach ( $free_sources as $try_source ) {
-			$search_result = $try_source->search( $keyword, 1 );
+			$search_result = $try_source->search( $keyword, self::FREE_SOURCE_SEARCH_LIMIT );
 
 			if ( is_wp_error( $search_result ) ) {
 				$tried[ $try_source->get_id() ] = sprintf(
@@ -274,21 +280,35 @@ class ImageSourceFactory {
 				continue;
 			}
 
-			$hit      = $hits[0];
-			$image_id = (string) ( $hit['id'] ?? '' );
+			$download_failures = [];
 
-			$tmp_file = $try_source->download( $image_id, $width, $height );
+			foreach ( $hits as $hit ) {
+				$image_id = (string) ( $hit['id'] ?? '' );
 
-			if ( is_wp_error( $tmp_file ) ) {
-				$tried[ $try_source->get_id() ] = sprintf(
-					'download failed: %s',
-					$tmp_file->get_error_message()
-				);
-				continue;
+				if ( '' === $image_id ) {
+					$download_failures[] = 'missing image ID';
+					continue;
+				}
+
+				$tmp_file = $try_source->download( $image_id, $width, $height );
+
+				if ( is_wp_error( $tmp_file ) ) {
+					$download_failures[] = sprintf(
+						'%s: %s',
+						$image_id,
+						$tmp_file->get_error_message()
+					);
+					continue;
+				}
+
+				// Success — sideload and return.
+				return self::handle_sideload( $tmp_file, $keyword, $options, $hit );
 			}
 
-			// Success — sideload and return.
-			return self::handle_sideload( $tmp_file, $keyword, $options, $hit );
+			$tried[ $try_source->get_id() ] = sprintf(
+				'download failed: %s',
+				implode( '; ', $download_failures )
+			);
 		}
 
 		// All free sources failed (or none were available).
