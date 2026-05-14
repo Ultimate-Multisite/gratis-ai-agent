@@ -199,6 +199,29 @@ export default function ProviderTraceViewer() {
 		return <span className={ className }>{ code }</span>;
 	};
 
+	// Error/event badge.
+	const TraceEventBadge = ( { error } ) => {
+		if ( ! error ) {
+			return '—';
+		}
+
+		if ( error === 'truncated_tool_call' ) {
+			return (
+				<span
+					className="sdaa-trace-event-badge sdaa-trace-event-badge-truncated"
+					title={ __(
+						'The provider stopped at the output token cap while returning a tool call. The call was discarded before execution.',
+						'superdav-ai-agent'
+					) }
+				>
+					{ __( 'Truncated tool call', 'superdav-ai-agent' ) }
+				</span>
+			);
+		}
+
+		return error.substring( 0, 50 ) + ( error.length > 50 ? '...' : '' );
+	};
+
 	if ( ! traceSettings ) {
 		return (
 			<div className="sdaa-settings-loading">
@@ -402,19 +425,21 @@ export default function ProviderTraceViewer() {
 											( trace.cache_creation_tokens ||
 												0 ) >
 										0
-											? `${ trace.cache_read_tokens || 0 } / ${ trace.cache_creation_tokens || 0 }`
+											? `${
+													trace.cache_read_tokens || 0
+											  } / ${
+													trace.cache_creation_tokens ||
+													0
+											  }`
 											: '—' }
 									</td>
 									<td
 										className="sdaa-trace-error-cell"
 										title={ trace.error || '' }
 									>
-										{ trace.error
-											? trace.error.substring( 0, 50 ) +
-											  ( trace.error.length > 50
-													? '...'
-													: '' )
-											: '—' }
+										<TraceEventBadge
+											error={ trace.error }
+										/>
 									</td>
 									<td>
 										<Button

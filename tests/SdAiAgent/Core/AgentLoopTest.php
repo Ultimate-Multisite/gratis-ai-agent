@@ -770,6 +770,100 @@ class AgentLoopTest extends WP_UnitTestCase {
 		$this->assertSame( 'wpab__sd-ai-agent__memory-list', $first_call['name'] );
 	}
 
+	/**
+	 * Test length-capped tool calls are discarded and converted to guidance.
+	 */
+	public function test_run_discards_truncated_tool_call_and_continues(): void {
+		$this->skip_if_sdk_unavailable();
+		if ( ! class_exists( 'WP_AI_Client_Ability_Function_Resolver' ) ) {
+			$this->markTestSkipped( 'WP_AI_Client_Ability_Function_Resolver not available.' );
+		}
+
+		$call_count          = 0;
+		$second_request_body = '';
+		$truncated_body      = wp_json_encode(
+			[
+				'id'      => 'chatcmpl-truncated',
+				'object'  => 'chat.completion',
+				'choices' => [
+					[
+						'index'         => 0,
+						'message'       => [
+							'role'       => 'assistant',
+							'content'    => null,
+							'tool_calls' => [
+								[
+									'id'       => 'call_truncated',
+									'type'     => 'function',
+									'function' => [
+										'name'      => 'wpab__sd-ai-agent__memory-list',
+										'arguments' => '{"arguments":{"query":"unterminated',
+									],
+								],
+							],
+						],
+						'finish_reason' => 'length',
+					],
+				],
+				'usage'   => [ 'prompt_tokens' => 10, 'completion_tokens' => 4096, 'total_tokens' => 4106 ],
+			]
+		);
+
+		$reply_body = wp_json_encode(
+			[
+				'id'      => 'chatcmpl-recovered',
+				'object'  => 'chat.completion',
+				'choices' => [
+					[
+						'index'         => 0,
+						'message'       => [ 'role' => 'assistant', 'content' => 'Recovered with smaller work.' ],
+						'finish_reason' => 'stop',
+					],
+				],
+				'usage'   => [ 'prompt_tokens' => 20, 'completion_tokens' => 8, 'total_tokens' => 28 ],
+			]
+		);
+
+		add_filter(
+			'pre_http_request',
+			static function ( $preempt, $args, $url ) use ( &$call_count, &$second_request_body, $truncated_body, $reply_body ) {
+				if ( false !== strpos( $url, 'fake-ai-proxy.test' ) ) {
+					++$call_count;
+					if ( 2 === $call_count ) {
+						$second_request_body = is_string( $args['body'] ?? null ) ? $args['body'] : (string) wp_json_encode( $args['body'] ?? [] );
+					}
+
+					return [
+						'headers'  => [ 'content-type' => 'application/json' ],
+						'body'     => ( 1 === $call_count ) ? $truncated_body : $reply_body,
+						'response' => [ 'code' => 200, 'message' => 'OK' ],
+						'cookies'  => [],
+						'filename' => '',
+					];
+				}
+
+				return $preempt;
+			},
+			10,
+			3
+		);
+
+		$loop   = new AgentLoop( 'List memories with a large filter', [], [], [ 'max_iterations' => 3 ] );
+		$result = $loop->run();
+
+		$this->assertIsArray( $result );
+		$this->assertSame( 'Recovered with smaller work.', $result['reply'] );
+		$this->assertSame( 2, $call_count );
+		$this->assertStringContainsString( 'previous response was truncated', $second_request_body );
+		$this->assertStringContainsString( 'max_tokens cap', $second_request_body );
+
+		$calls = array_filter( $result['tool_calls'], fn( $entry ) => 'call' === $entry['type'] );
+		$this->assertEmpty( $calls, 'The truncated tool call must not be dispatched or logged as a call.' );
+
+		$events = array_filter( $result['tool_calls'], fn( $entry ) => 'truncated_tool_call' === ( $entry['reason'] ?? '' ) );
+		$this->assertNotEmpty( $events, 'The truncation should be visible in the tool-call log.' );
+	}
+
 	// -------------------------------------------------------------------------
 	// Max iterations
 	// -------------------------------------------------------------------------

@@ -622,10 +622,16 @@ class AgentLoop {
 
 			/** @var \WordPress\AiClient\Results\DTO\GenerativeAiResult $result */
 			$assistant_message = $result->toMessage();
-			$this->history[]   = $assistant_message;
 
 			// Accumulate token usage if available.
 			$this->accumulate_tokens( $result );
+
+			if ( $this->is_truncated_tool_call_result( $result, $assistant_message ) ) {
+				$this->inject_truncated_tool_call_guidance( $assistant_message );
+				continue;
+			}
+
+			$this->history[] = $assistant_message;
 
 			// Check if the model wants to call tools.
 			if ( ! $this->get_ability_resolver()->has_ability_calls( $assistant_message ) ) {
@@ -950,22 +956,7 @@ class AgentLoop {
 		}
 
 		if ( method_exists( $builder, 'using_max_tokens' ) ) {
-			// Resolve the effective max_tokens for this request.
-			//
-			// AUTO (0): consult the per-model catalog so each provider/model
-			// gets a sensible value (e.g. 32K for Claude 4.x, 16K for GPT-4o,
-			// 8K for Gemini Flash). The legacy 4096 default truncated tool_use
-			// input JSON for any non-trivial payload — see sd-ai-7rl.
-			//
-			// EXPLICIT (>0): honour the user's saved override but clamp at
-			// MAX_OUTPUT_TOKENS_CEILING to defend against runaway generations.
-			$max_tokens = $this->max_output_tokens;
-			if ( $max_tokens <= Settings::MAX_OUTPUT_TOKENS_AUTO ) {
-				$max_tokens = Settings::get_max_output_tokens_for_model( $this->model_id );
-			} elseif ( $max_tokens > Settings::MAX_OUTPUT_TOKENS_CEILING ) {
-				$max_tokens = Settings::MAX_OUTPUT_TOKENS_CEILING;
-			}
-			$builder->using_max_tokens( $max_tokens );
+			$builder->using_max_tokens( $this->get_effective_max_output_tokens() );
 		}
 
 		$abilities = $this->resolve_abilities();
@@ -1538,6 +1529,125 @@ class AgentLoop {
 		}
 
 		$this->fire_progress();
+	}
+
+	/**
+	 * Detect provider length-cap finishes that include tool calls.
+	 *
+	 * @param mixed   $result  Provider result object.
+	 * @param Message $message Assistant message converted from the result.
+	 */
+	private function is_truncated_tool_call_result( $result, Message $message ): bool {
+		if ( ! $this->get_ability_resolver()->has_ability_calls( $message ) ) {
+			return false;
+		}
+
+		$reason = $this->get_result_finish_reason( $result );
+		if ( '' === $reason ) {
+			return false;
+		}
+
+		$normalized = strtolower( str_replace( [ '-', ' ' ], '_', $reason ) );
+		return in_array( $normalized, [ 'max_tokens', 'length', 'max_output_tokens' ], true );
+	}
+
+	/**
+	 * Extract a provider-agnostic finish reason from SDK and direct-call results.
+	 *
+	 * @param mixed $result Provider result object.
+	 * @return string Finish reason or empty string when unavailable.
+	 */
+	private function get_result_finish_reason( $result ): string {
+		if ( is_object( $result ) && method_exists( $result, 'getFinishReason' ) ) {
+			$reason = $result->getFinishReason();
+			return is_string( $reason ) ? $reason : '';
+		}
+
+		if ( is_object( $result ) && method_exists( $result, 'getCandidates' ) ) {
+			$candidates = $result->getCandidates();
+			$candidate  = is_array( $candidates ) ? ( $candidates[0] ?? null ) : null;
+			if ( is_object( $candidate ) && method_exists( $candidate, 'getFinishReason' ) ) {
+				$reason = $candidate->getFinishReason();
+				if ( is_object( $reason ) && method_exists( $reason, '__toString' ) ) {
+					return (string) $reason;
+				}
+				if ( is_string( $reason ) ) {
+					return $reason;
+				}
+			}
+		}
+
+		return '';
+	}
+
+	/**
+	 * Replace an unsafe truncated tool-use turn with guidance for the next model turn.
+	 */
+	private function inject_truncated_tool_call_guidance( Message $message ): void {
+		$tool_name = $this->get_first_tool_call_name( $message );
+		$cap       = $this->get_effective_max_output_tokens();
+		$guidance  = sprintf(
+			/* translators: 1: max token cap, 2: tool/ability name. */
+			__( 'Your previous response was truncated because it hit the max_tokens cap (current cap: %1$d). The tool call you started (%2$s) was discarded because its input JSON was incomplete. Either split this work into smaller tool calls, reduce the payload size, or use a tool that accepts file/post references instead of inline content.', 'superdav-ai-agent' ),
+			$cap,
+			$tool_name
+		);
+
+		$this->tool_call_log[] = array(
+			'type'       => 'event',
+			'reason'     => 'truncated_tool_call',
+			'name'       => $tool_name,
+			'max_tokens' => $cap,
+			'message'    => $guidance,
+		);
+
+		AgentEventLog::log(
+			'truncated_tool_call',
+			AgentEventLog::SEVERITY_WARNING,
+			array(
+				'session_id'  => $this->session_id,
+				'ability'     => $tool_name,
+				'max_tokens'  => $cap,
+				'model_id'    => (string) $this->model_id,
+				'provider_id' => (string) $this->provider_id,
+			)
+		);
+
+		$this->history[] = new UserMessage( [ new MessagePart( $guidance ) ] );
+		$this->fire_progress();
+	}
+
+	/**
+	 * Get the first tool call name from a message.
+	 */
+	private function get_first_tool_call_name( Message $message ): string {
+		foreach ( $message->getParts() as $part ) {
+			$call = $part->getFunctionCall();
+			if ( $call ) {
+				return $call->getName();
+			}
+		}
+
+		return __( 'unknown tool', 'superdav-ai-agent' );
+	}
+
+	/**
+	 * Resolve the effective max output token cap used for provider requests.
+	 */
+	private function get_effective_max_output_tokens(): int {
+		// AUTO (0): consult the per-model catalog so each provider/model gets a
+		// sensible value. EXPLICIT (>0): honour the saved override but clamp at
+		// MAX_OUTPUT_TOKENS_CEILING to defend against runaway generations.
+		$max_tokens = $this->max_output_tokens;
+		if ( $max_tokens <= Settings::MAX_OUTPUT_TOKENS_AUTO ) {
+			return Settings::get_max_output_tokens_for_model( $this->model_id );
+		}
+
+		if ( $max_tokens > Settings::MAX_OUTPUT_TOKENS_CEILING ) {
+			return Settings::MAX_OUTPUT_TOKENS_CEILING;
+		}
+
+		return $max_tokens;
 	}
 
 	/**

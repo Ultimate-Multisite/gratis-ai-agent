@@ -155,7 +155,12 @@ class ProviderTraceLogger {
 		// Extract model_id from request body if possible.
 		$model_id = self::extract_model_id( $inflight['request_body'] ?? '' );
 
-		// Detect errors.
+		$decoded_response = null;
+		if ( $status_code >= 200 && $status_code < 300 ) {
+			$decoded_response = json_decode( $response_body, true );
+		}
+
+		// Detect errors and provider-side truncation events.
 		$error = '';
 		if ( $status_code < 200 || $status_code >= 300 ) {
 			$decoded = json_decode( $response_body, true );
@@ -171,6 +176,8 @@ class ProviderTraceLogger {
 			if ( '' === $error ) {
 				$error = "HTTP {$status_code}";
 			}
+		} elseif ( self::is_truncated_tool_call_response( $decoded_response ) ) {
+			$error = 'truncated_tool_call';
 		}
 
 		// Format response headers as JSON.
@@ -192,8 +199,7 @@ class ProviderTraceLogger {
 			'read'     => 0,
 		);
 		if ( $status_code >= 200 && $status_code < 300 ) {
-			$decoded_response = json_decode( $response_body, true );
-			$cache_tokens     = CacheUsageExtractor::extract(
+			$cache_tokens = CacheUsageExtractor::extract(
 				(string) ( $inflight['provider_id'] ?? '' ),
 				$decoded_response
 			);
@@ -280,6 +286,91 @@ class ProviderTraceLogger {
 
 		$result = wp_json_encode( $headers );
 		return false !== $result ? $result : '{}';
+	}
+
+	/**
+	 * Detect successful provider responses that ended at the output cap mid tool call.
+	 *
+	 * @param mixed $decoded Decoded JSON response body.
+	 */
+	private static function is_truncated_tool_call_response( $decoded ): bool {
+		if ( ! is_array( $decoded ) ) {
+			return false;
+		}
+
+		$candidates = [];
+		if ( isset( $decoded['choices'] ) && is_array( $decoded['choices'] ) ) {
+			$candidates = $decoded['choices'];
+		} elseif ( isset( $decoded['candidates'] ) && is_array( $decoded['candidates'] ) ) {
+			$candidates = $decoded['candidates'];
+		} elseif ( isset( $decoded['content'] ) && is_array( $decoded['content'] ) ) {
+			$candidates = [ $decoded ];
+		}
+
+		foreach ( $candidates as $candidate ) {
+			if ( ! is_array( $candidate ) ) {
+				continue;
+			}
+
+			$reason = self::extract_finish_reason( $candidate );
+			if ( ! in_array( $reason, [ 'max_tokens', 'length', 'max_output_tokens' ], true ) ) {
+				continue;
+			}
+
+			if ( self::candidate_has_tool_call( $candidate ) ) {
+				return true;
+			}
+		}
+
+		return false;
+	}
+
+	/**
+	 * Extract a normalized finish reason from a provider response candidate.
+	 *
+	 * @param array<string, mixed> $candidate Provider response candidate.
+	 */
+	private static function extract_finish_reason( array $candidate ): string {
+		foreach ( [ 'finish_reason', 'stop_reason', 'finishReason' ] as $key ) {
+			$reason = $candidate[ $key ] ?? null;
+			if ( is_string( $reason ) && '' !== $reason ) {
+				return strtolower( str_replace( [ '-', ' ' ], '_', $reason ) );
+			}
+		}
+
+		return '';
+	}
+
+	/**
+	 * Detect common OpenAI, Anthropic, and Gemini tool-call payload shapes.
+	 *
+	 * @param array<string, mixed> $candidate Provider response candidate.
+	 */
+	private static function candidate_has_tool_call( array $candidate ): bool {
+		$message = $candidate['message'] ?? [];
+		if ( is_array( $message ) && ! empty( $message['tool_calls'] ) ) {
+			return true;
+		}
+
+		$content = $candidate['content'] ?? ( is_array( $message ) ? ( $message['content'] ?? [] ) : [] );
+		if ( is_array( $content ) ) {
+			foreach ( $content as $part ) {
+				if ( is_array( $part ) && in_array( $part['type'] ?? '', [ 'tool_use', 'function_call' ], true ) ) {
+					return true;
+				}
+			}
+		}
+
+		$parts = $candidate['content']['parts'] ?? $candidate['parts'] ?? [];
+		if ( is_array( $parts ) ) {
+			foreach ( $parts as $part ) {
+				if ( is_array( $part ) && isset( $part['functionCall'] ) ) {
+					return true;
+				}
+			}
+		}
+
+		return false;
 	}
 
 	/**

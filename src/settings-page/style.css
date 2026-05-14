@@ -1083,3 +1083,18 @@
 	z-index: 99999;
 }
 
+.sdaa-trace-event-badge {
+	display: inline-block;
+	padding: 2px 6px;
+	border-radius: 3px;
+	font-size: 11px;
+	font-weight: 600;
+	line-height: 1.4;
+	white-space: nowrap;
+}
+
+.sdaa-trace-event-badge-truncated {
+	border: 1px solid #dba617;
+	background: #fcf9e8;
+	color: #8a6500;
+}

@@ -50,6 +50,32 @@ class SimpleAiResult {
 	}
 
 	/**
+	 * Get the provider finish/stop reason from the raw response when available.
+	 *
+	 * @return string Finish reason or an empty string when unavailable.
+	 */
+	public function getFinishReason(): string {
+		$choice = $this->raw['choices'][0] ?? [];
+		if ( is_array( $choice ) ) {
+			foreach ( [ 'finish_reason', 'stop_reason', 'finishReason' ] as $key ) {
+				$reason = $choice[ $key ] ?? null;
+				if ( is_string( $reason ) && '' !== $reason ) {
+					return $reason;
+				}
+			}
+		}
+
+		foreach ( [ 'finish_reason', 'stop_reason', 'finishReason' ] as $key ) {
+			$reason = $this->raw[ $key ] ?? null;
+			if ( is_string( $reason ) && '' !== $reason ) {
+				return $reason;
+			}
+		}
+
+		return '';
+	}
+
+	/**
 	 * Convert the response to a Message object for the conversation history.
 	 *
 	 * Parses OpenAI-format tool_calls from the raw response and creates
