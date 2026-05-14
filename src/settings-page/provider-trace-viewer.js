@@ -402,7 +402,12 @@ export default function ProviderTraceViewer() {
 											( trace.cache_creation_tokens ||
 												0 ) >
 										0
-											? `${ trace.cache_read_tokens || 0 } / ${ trace.cache_creation_tokens || 0 }`
+											? `${
+													trace.cache_read_tokens || 0
+											  } / ${
+													trace.cache_creation_tokens ||
+													0
+											  }`
 											: '—' }
 									</td>
 									<td
