@@ -149,18 +149,57 @@ final class AbilityExplorerService {
 			'category'        => $ability->get_category(),
 			'param_count'     => $param_count,
 			'required_params' => $required_params,
-			'annotations'     => array(
-				// @phpstan-ignore-next-line
-				'readonly'    => (bool) ( $annotations['readonly'] ?? false ),
-				// @phpstan-ignore-next-line
-				'destructive' => (bool) ( $annotations['destructive'] ?? false ),
-				// @phpstan-ignore-next-line
-				'idempotent'  => (bool) ( $annotations['idempotent'] ?? false ),
-			),
+			'annotations'     => self::normalise_annotations( $annotations ),
 			// @phpstan-ignore-next-line
 			'output_schema'   => $ability->get_output_schema(),
 			'show_in_rest'    => (bool) ( $meta['show_in_rest'] ?? false ),
 		);
+	}
+
+	/**
+	 * Normalise an ability's MCP annotation set to a strict tri-state shape.
+	 *
+	 * The MCP specification (and {@see \SdAiAgent\Abilities\AbstractAbility::meta()})
+	 * defines `readonly`, `destructive`, and `idempotent` as a tri-state where
+	 * `null` means "the ability author did not declare this hint, treat as
+	 * unknown". Coercing those nulls to `false` silently mis-classifies
+	 * unknown-destructive abilities as safe.
+	 *
+	 * This helper:
+	 *   - Returns `true`/`false` only when the source value is a real boolean.
+	 *   - Returns `null` for any other value (missing key, null, junk).
+	 *
+	 * Downstream consumers (e.g. the abilities-explorer React component) MUST
+	 * render the `null` state distinctly from `false` and treat it as
+	 * "assume destructive" for any safety decision.
+	 *
+	 * @since 1.9.0
+	 *
+	 * @param mixed $annotations Raw annotations slot from `WP_Ability::get_meta()`.
+	 * @return array{readonly: bool|null, destructive: bool|null, idempotent: bool|null}
+	 */
+	private static function normalise_annotations( $annotations ): array {
+		if ( ! is_array( $annotations ) ) {
+			$annotations = array();
+		}
+
+		return array(
+			'readonly'    => self::read_tristate( $annotations, 'readonly' ),
+			'destructive' => self::read_tristate( $annotations, 'destructive' ),
+			'idempotent'  => self::read_tristate( $annotations, 'idempotent' ),
+		);
+	}
+
+	/**
+	 * Read a single tri-state annotation slot.
+	 *
+	 * @param array<string,mixed> $annotations Annotations array.
+	 * @param string              $key         Slot to read.
+	 * @return bool|null
+	 */
+	private static function read_tristate( array $annotations, string $key ): ?bool {
+		$value = $annotations[ $key ] ?? null;
+		return is_bool( $value ) ? $value : null;
 	}
 
 	/**
@@ -182,11 +221,7 @@ final class AbilityExplorerService {
 			'category'        => $descriptor['category'],
 			'param_count'     => $param_count,
 			'required_params' => $required_params,
-			'annotations'     => array(
-				'readonly'    => (bool) ( $annotations['readonly'] ?? false ),
-				'destructive' => false,
-				'idempotent'  => false,
-			),
+			'annotations'     => self::normalise_annotations( $annotations ),
 			'output_schema'   => $descriptor['output_schema'] ?? array(),
 			'show_in_rest'    => false,
 		);

@@ -80,18 +80,70 @@ function Badge( { intent = 'default', children } ) {
 }
 
 /**
- * Renders a badge only when the annotation is active.
+ * Renders a tri-state annotation badge.
  *
- * @param {Object}  props
- * @param {string}  props.label  Badge label text.
- * @param {boolean} props.active Whether to render the badge.
- * @param {string}  props.intent Badge colour intent.
+ * The MCP annotation slots (`readonly`, `destructive`, `idempotent`) are a
+ * tri-state where `null` means "the ability author did not declare this hint".
+ * Coercing `null` to `false` silently mis-classifies unknown-destructive
+ * abilities as safe, so this component renders three visually-distinct states:
+ *
+ *  - `true`  -> coloured badge with the supplied intent (e.g. `error` for
+ *               destructive abilities).
+ *  - `false` -> muted "not <label>" badge so reviewers can see the author
+ *               explicitly declared the hint as off.
+ *  - `null`/undefined -> warning-coloured "<label>?" badge with a tooltip
+ *               telling the operator to assume the worst (destructive).
+ *
+ * @param {Object}       props
+ * @param {string}       props.label  Annotation slot label (e.g. "destructive").
+ * @param {boolean|null} props.active Tri-state annotation value.
+ * @param {string}       props.intent Badge colour intent for the `true` state.
  */
 function AnnotationBadge( { label, active, intent } ) {
-	if ( ! active ) {
-		return null;
+	if ( true === active ) {
+		return <Badge intent={ intent }>{ label }</Badge>;
 	}
-	return <Badge intent={ intent }>{ label }</Badge>;
+
+	if ( false === active ) {
+		return (
+			<Badge intent="default">
+				<span
+					style={ { opacity: 0.7 } }
+					title={ sprintf(
+						/* translators: %s: annotation name (e.g. "destructive") */
+						__(
+							'Ability author declared this hint as off (not %s).',
+							'superdav-ai-agent'
+						),
+						label
+					) }
+				>
+					{ sprintf(
+						/* translators: %s: annotation name (e.g. "destructive") */
+						__( 'not %s', 'superdav-ai-agent' ),
+						label
+					) }
+				</span>
+			</Badge>
+		);
+	}
+
+	return (
+		<Badge intent="warning">
+			<span
+				title={ __(
+					'Not declared by ability author — assume destructive for safety.',
+					'superdav-ai-agent'
+				) }
+			>
+				{ sprintf(
+					/* translators: %s: annotation name (e.g. "destructive") */
+					__( '%s?', 'superdav-ai-agent' ),
+					label
+				) }
+			</span>
+		</Badge>
+	);
 }
 
 /**
