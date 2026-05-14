@@ -58,15 +58,19 @@ export default function OnboardingBootstrap() {
 				}
 
 				// Activate the bootstrap session in the store.
-				openSession( data.session_id ).then( () => {
-					sendMessage(
-						data.kickoff_message ||
-							__(
-								"Hello! I'm just getting set up. Please explore this WordPress site and introduce yourself — tell me what you notice and what you can help with.",
-								'superdav-ai-agent'
-							)
-					);
-				} );
+				openSession( data.session_id )
+					.then( () =>
+						sendMessage(
+							data.kickoff_message ||
+								__(
+									"Hello! I'm just getting set up. Please explore this WordPress site and introduce yourself — tell me what you notice and what you can help with.",
+									'superdav-ai-agent'
+								)
+						)
+					)
+					.catch( () => {
+						// Non-fatal: user can continue manually from chat UI.
+					} );
 			} )
 			.catch( () => {
 				// Non-fatal: the user can start chatting manually.
