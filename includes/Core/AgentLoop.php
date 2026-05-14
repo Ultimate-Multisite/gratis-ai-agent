@@ -67,6 +67,15 @@ class AgentLoop {
 	 */
 	const MAX_TOOL_RESULT_CHARS = 40000;
 
+	/** Maximum provider-call attempts for retryable transient failures. */
+	private const PROVIDER_RETRY_MAX_ATTEMPTS = 10;
+
+	/** Retryable upstream/network statuses. */
+	private const PROVIDER_RETRYABLE_STATUS_CODES = array( 408, 429, 500, 502, 503, 504 );
+
+	/** Default exponential backoff schedule in seconds, capped at 60 seconds. */
+	private const PROVIDER_RETRY_DELAYS = array( 1, 2, 4, 8, 16, 32, 60, 60, 60, 60 );
+
 	/** @var string */
 	private $user_message;
 
@@ -129,6 +138,12 @@ class AgentLoop {
 
 	/** @var int Session ID for change attribution (0 = no session). */
 	private int $session_id = 0;
+
+	/** @var int Maximum attempts for retryable provider failures. */
+	private int $provider_retry_max_attempts = self::PROVIDER_RETRY_MAX_ATTEMPTS;
+
+	/** @var list<int> Retry delay schedule in seconds. */
+	private array $provider_retry_delays = self::PROVIDER_RETRY_DELAYS;
 
 	/** @var list<string> Per-agent Tier 1 tool override (empty = use global default). */
 	private array $agent_tier_1_tools = array();
@@ -271,6 +286,16 @@ class AgentLoop {
 		$this->tool_call_log = $options['tool_call_log'] ?? array();
 		// @phpstan-ignore-next-line
 		$this->session_id = (int) ( $options['session_id'] ?? 0 );
+		// @phpstan-ignore-next-line -- Test/job callers may lower attempts or delays; production defaults remain 10 attempts.
+		$this->provider_retry_max_attempts = max( 1, (int) ( $options['provider_retry_max_attempts'] ?? self::PROVIDER_RETRY_MAX_ATTEMPTS ) );
+		// @phpstan-ignore-next-line -- Values are normalised below to non-negative integer seconds.
+		$retry_delays = $options['provider_retry_delays'] ?? self::PROVIDER_RETRY_DELAYS;
+		if ( is_array( $retry_delays ) ) {
+			$this->provider_retry_delays = array_map(
+				static fn( $delay ): int => max( 0, min( 60, (int) $delay ) ),
+				array_values( $retry_delays )
+			);
+		}
 		// @phpstan-ignore-next-line
 		$this->token_usage = $options['token_usage'] ?? array(
 			'prompt'     => 0,
@@ -952,7 +977,271 @@ class AgentLoop {
 			$builder->with_history( ...$this->history );
 		}
 
-		return $builder->generate_text_result();
+		$started_at = microtime( true );
+		$last_error = null;
+
+		for ( $attempt = 1; $attempt <= $this->provider_retry_max_attempts; ++$attempt ) {
+			try {
+				$result = $builder->generate_text_result();
+				if ( is_wp_error( $result ) ) {
+					/** @var WP_Error $result */
+					$last_error = $result;
+				} else {
+					return $result;
+				}
+			} catch ( \Throwable $e ) {
+				$last_error = $e;
+			}
+
+			$status_code = $this->extract_provider_error_status( $last_error );
+			if ( ! $this->is_retryable_provider_error( $last_error, $status_code ) ) {
+				return $this->provider_error_to_wp_error( $last_error, $status_code );
+			}
+
+			if ( $attempt >= $this->provider_retry_max_attempts ) {
+				break;
+			}
+
+			$delay = $this->get_provider_retry_delay( $attempt, $last_error );
+			$this->log_provider_retry_progress( $status_code, $attempt + 1, $delay );
+
+			if ( $delay > 0 ) {
+				sleep( $delay );
+			}
+		}
+
+		$elapsed_seconds = max( 0, (int) round( microtime( true ) - $started_at ) );
+		return $this->build_provider_retry_failed_error( $last_error, $elapsed_seconds );
+	}
+
+	/**
+	 * Determine whether a provider failure is retryable.
+	 *
+	 * @param WP_Error|\Throwable|null $error       Last provider error.
+	 * @param int                      $status_code HTTP status code, or 0 when unknown.
+	 */
+	private function is_retryable_provider_error( $error, int $status_code ): bool {
+		if ( in_array( $status_code, self::PROVIDER_RETRYABLE_STATUS_CODES, true ) ) {
+			return true;
+		}
+
+		if ( $status_code >= 400 ) {
+			return false;
+		}
+
+		$message = $this->get_provider_error_message( $error );
+		if ( '' === $message ) {
+			return false;
+		}
+
+		return (bool) preg_match( '/\b(timeout|timed out|connection reset|connection refused|network|cURL error|internal server error|bad gateway|service unavailable|gateway timeout|too many requests|rate limit)\b/i', $message );
+	}
+
+	/**
+	 * Extract an HTTP status code from provider errors produced by SDK layers.
+	 *
+	 * @param WP_Error|\Throwable|null $error Last provider error.
+	 */
+	private function extract_provider_error_status( $error ): int {
+		if ( $error instanceof WP_Error ) {
+			$code = $error->get_error_code();
+			if ( is_numeric( $code ) ) {
+				return (int) $code;
+			}
+
+			$data = $error->get_error_data();
+			if ( is_array( $data ) ) {
+				foreach ( [ 'status', 'status_code', 'code' ] as $key ) {
+					if ( isset( $data[ $key ] ) && is_numeric( $data[ $key ] ) ) {
+						return (int) $data[ $key ];
+					}
+				}
+			}
+		}
+
+		if ( $error instanceof \Throwable ) {
+			$code = $error->getCode();
+			if ( $code >= 400 && $code <= 599 ) {
+				return (int) $code;
+			}
+		}
+
+		$message = $this->get_provider_error_message( $error );
+		if ( preg_match( '/\((\d{3})\)|\bHTTP\s+(\d{3})\b|\bstatus\s*(?:code)?\s*[:=]?\s*(\d{3})\b/i', $message, $matches ) ) {
+			foreach ( array_slice( $matches, 1 ) as $match ) {
+				if ( '' !== $match ) {
+					return (int) $match;
+				}
+			}
+		}
+
+		return 0;
+	}
+
+	/**
+	 * Build a user-facing message for a provider error.
+	 *
+	 * @param WP_Error|\Throwable|null $error Last provider error.
+	 */
+	private function get_provider_error_message( $error ): string {
+		if ( $error instanceof WP_Error ) {
+			return $error->get_error_message();
+		}
+
+		if ( $error instanceof \Throwable ) {
+			return $error->getMessage();
+		}
+
+		return '';
+	}
+
+	/**
+	 * Return retry delay in seconds, honouring Retry-After metadata when present.
+	 *
+	 * @param int                      $attempt Current one-based attempt number.
+	 * @param WP_Error|\Throwable|null $error   Last provider error.
+	 */
+	private function get_provider_retry_delay( int $attempt, $error ): int {
+		$retry_after = $this->extract_retry_after_seconds( $error );
+		if ( null !== $retry_after ) {
+			return min( 60, max( 0, $retry_after ) );
+		}
+
+		$index = max( 0, $attempt - 1 );
+		return (int) ( $this->provider_retry_delays[ $index ] ?? 60 );
+	}
+
+	/**
+	 * Extract Retry-After from WP_Error data when the SDK preserves headers.
+	 *
+	 * @param WP_Error|\Throwable|null $error Last provider error.
+	 */
+	private function extract_retry_after_seconds( $error ): ?int {
+		if ( ! $error instanceof WP_Error ) {
+			return null;
+		}
+
+		$data = $error->get_error_data();
+		if ( ! is_array( $data ) ) {
+			return null;
+		}
+
+		$headers = $data['headers'] ?? $data['response_headers'] ?? null;
+		if ( ! is_array( $headers ) ) {
+			return null;
+		}
+
+		foreach ( $headers as $name => $value ) {
+			if ( 'retry-after' !== strtolower( (string) $name ) ) {
+				continue;
+			}
+			if ( is_array( $value ) ) {
+				$value = reset( $value );
+			}
+			if ( is_numeric( $value ) ) {
+				return (int) $value;
+			}
+			$timestamp = strtotime( (string) $value );
+			if ( false !== $timestamp ) {
+				return max( 0, $timestamp - time() );
+			}
+		}
+
+		return null;
+	}
+
+	/**
+	 * Log provider retry progress so jobs and chat streams can render it.
+	 */
+	private function log_provider_retry_progress( int $status_code, int $next_attempt, int $delay ): void {
+		$status_label = $status_code > 0 ? (string) $status_code : __( 'a transient network error', 'superdav-ai-agent' );
+		$message      = sprintf(
+			/* translators: 1: status/error label, 2: delay seconds, 3: next attempt number, 4: maximum attempt number */
+			__( 'Provider returned %1$s. Retrying in %2$ds (attempt %3$d/%4$d)…', 'superdav-ai-agent' ),
+			$status_label,
+			$delay,
+			$next_attempt,
+			$this->provider_retry_max_attempts
+		);
+
+		$this->tool_call_log[] = [
+			'type'         => 'provider_retry',
+			'message'      => $message,
+			'status_code'  => $status_code,
+			'attempt'      => $next_attempt,
+			'max_attempts' => $this->provider_retry_max_attempts,
+			'delay'        => $delay,
+		];
+		$this->fire_progress();
+	}
+
+	/**
+	 * Convert a non-retryable provider failure into a WP_Error without retry noise.
+	 *
+	 * @param WP_Error|\Throwable|null $error       Last provider error.
+	 * @param int                      $status_code HTTP status code, or 0 when unknown.
+	 */
+	private function provider_error_to_wp_error( $error, int $status_code ): WP_Error {
+		if ( $error instanceof WP_Error ) {
+			return $error;
+		}
+
+		$message = $this->get_provider_error_message( $error );
+		if ( '' === $message ) {
+			$message = __( 'AI provider request failed.', 'superdav-ai-agent' );
+		}
+
+		return new WP_Error(
+			'sd_ai_agent_provider_error',
+			$message,
+			[
+				'status_code' => $status_code,
+			]
+		);
+	}
+
+	/**
+	 * Build the exhausted-retry WP_Error and persist resumable state if possible.
+	 *
+	 * @param WP_Error|\Throwable|null $error           Last provider error.
+	 * @param int                      $elapsed_seconds Total elapsed seconds.
+	 */
+	private function build_provider_retry_failed_error( $error, int $elapsed_seconds ): WP_Error {
+		$message = sprintf(
+			/* translators: 1: attempts, 2: elapsed seconds, 3: provider error message */
+			__( 'Provider retry failed after %1$d attempts over %2$ds — try resending your last message. Last error: %3$s', 'superdav-ai-agent' ),
+			$this->provider_retry_max_attempts,
+			$elapsed_seconds,
+			$this->get_provider_error_message( $error )
+		);
+
+		if ( $this->session_id > 0 ) {
+			Database::save_paused_state(
+				$this->session_id,
+				[
+					'history'          => $this->serialize_history(),
+					'tool_call_log'    => $this->tool_call_log,
+					'token_usage'      => $this->token_usage,
+					'model_id'         => $this->model_id,
+					'provider_id'      => $this->provider_id,
+					'client_abilities' => $this->client_abilities,
+					'exit_reason'      => 'provider_retry_failed',
+				]
+			);
+		}
+
+		return new WP_Error(
+			'sd_ai_agent_provider_retry_failed',
+			$message,
+			[
+				'tool_calls'      => $this->tool_call_log,
+				'token_usage'     => $this->token_usage,
+				'iterations_used' => $this->iterations_used,
+				'model_id'        => $this->model_id,
+				'history'         => $this->serialize_history(),
+				'elapsed_seconds' => $elapsed_seconds,
+			]
+		);
 	}
 
 	/**

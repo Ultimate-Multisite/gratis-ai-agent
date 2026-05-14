@@ -223,6 +223,73 @@ class AgentLoopTest extends WP_UnitTestCase {
 		);
 	}
 
+	/**
+	 * Options that keep retry tests fast by disabling sleep between attempts.
+	 *
+	 * @param int $max_attempts Maximum provider attempts.
+	 * @return array<string, mixed>
+	 */
+	private function no_sleep_retry_options( int $max_attempts = 4 ): array {
+		return [
+			'provider_retry_max_attempts' => $max_attempts,
+			'provider_retry_delays'       => array_fill( 0, $max_attempts, 0 ),
+		];
+	}
+
+	/**
+	 * Register a `pre_http_request` filter that returns queued responses.
+	 *
+	 * @param list<array<string,mixed>> $responses HTTP response specs.
+	 * @param int                       $call_count Number of intercepted provider calls.
+	 */
+	private function mock_ai_response_sequence( array $responses, int &$call_count ): void {
+		add_filter(
+			'pre_http_request',
+			static function ( $preempt, $args, $url ) use ( $responses, &$call_count ) {
+				if ( false === strpos( $url, 'fake-ai-proxy.test' ) ) {
+					return $preempt;
+				}
+
+				$index = min( $call_count, count( $responses ) - 1 );
+				++$call_count;
+				$spec = $responses[ $index ];
+
+				if ( isset( $spec['wp_error'] ) && $spec['wp_error'] instanceof \WP_Error ) {
+					return $spec['wp_error'];
+				}
+
+				$status = (int) ( $spec['status'] ?? 200 );
+				$body   = (string) ( $spec['body'] ?? '' );
+				if ( '' === $body ) {
+					$body = wp_json_encode(
+						[
+							'id'      => 'chatcmpl-sequence',
+							'object'  => 'chat.completion',
+							'choices' => [
+								[
+									'index'         => 0,
+									'message'       => [ 'role' => 'assistant', 'content' => (string) ( $spec['reply'] ?? 'Recovered' ) ],
+									'finish_reason' => 'stop',
+								],
+							],
+							'usage'   => [ 'prompt_tokens' => 10, 'completion_tokens' => 5, 'total_tokens' => 15 ],
+						]
+					);
+				}
+
+				return [
+					'headers'  => [ 'content-type' => 'application/json' ],
+					'body'     => $body,
+					'response' => [ 'code' => $status, 'message' => (string) ( $spec['message'] ?? 'OK' ) ],
+					'cookies'  => [],
+					'filename' => '',
+				];
+			},
+			10,
+			3
+		);
+	}
+
 	// -------------------------------------------------------------------------
 	// Constructor / configuration tests
 	// -------------------------------------------------------------------------
@@ -441,16 +508,89 @@ class AgentLoopTest extends WP_UnitTestCase {
 	/**
 	 * Test run() returns WP_Error when the AI proxy returns an HTTP error.
 	 */
-	public function test_run_returns_wp_error_on_http_error_response(): void {
+	public function test_run_retries_http_error_response_then_succeeds(): void {
 		$this->skip_if_sdk_unavailable();
-		$this->mock_ai_error_response( 500, 'Internal server error' );
+		$call_count = 0;
+		$progress   = [];
+		$this->mock_ai_response_sequence(
+			[
+				[
+					'status'  => 500,
+					'message' => 'Internal Server Error',
+					'body'    => wp_json_encode( [ 'error' => [ 'message' => 'Internal server error' ] ] ),
+				],
+				[
+					'status'  => 502,
+					'message' => 'Bad Gateway',
+					'body'    => wp_json_encode( [ 'error' => [ 'message' => 'Bad gateway' ] ] ),
+				],
+				[
+					'status'  => 503,
+					'message' => 'Service Unavailable',
+					'body'    => wp_json_encode( [ 'error' => [ 'message' => 'Unavailable' ] ] ),
+				],
+				[
+					'status' => 200,
+					'reply'  => 'Recovered after retry',
+				],
+			],
+			$call_count
+		);
 
-		$loop   = new AgentLoop( 'Hello' );
+		$options                      = $this->no_sleep_retry_options( 4 );
+		$options['progress_callback'] = static function ( array $tool_call_log ) use ( &$progress ): void {
+			$progress[] = $tool_call_log;
+		};
+
+		$loop   = new AgentLoop(
+			'Hello',
+			[],
+			[],
+			$options
+		);
+		$result = $loop->run();
+
+		$this->assertIsArray( $result );
+		$this->assertSame( 'Recovered after retry', $result['reply'] );
+		$this->assertSame( 4, $call_count );
+		$retry_entries = array_filter( $result['tool_calls'], static fn( $entry ) => 'provider_retry' === ( $entry['type'] ?? '' ) );
+		$this->assertCount( 3, $retry_entries );
+		$this->assertCount( 3, $progress );
+	}
+
+	/**
+	 * Test run() returns clear WP_Error after retry attempts are exhausted.
+	 */
+	public function test_run_returns_clear_wp_error_after_retry_exhaustion(): void {
+		$this->skip_if_sdk_unavailable();
+		$call_count = 0;
+		$this->mock_ai_response_sequence(
+			[
+				[
+					'status'  => 503,
+					'message' => 'Service Unavailable',
+					'body'    => wp_json_encode( [ 'error' => [ 'message' => 'Service unavailable' ] ] ),
+				],
+			],
+			$call_count
+		);
+
+		$loop   = new AgentLoop(
+			'Hello',
+			[],
+			[],
+			$this->no_sleep_retry_options( 3 )
+		);
 		$result = $loop->run();
 
 		$this->assertInstanceOf( \WP_Error::class, $result );
-		$this->assertSame( 'sd_ai_agent_provider_unavailable', $result->get_error_code() );
-		$this->assertStringContainsString( 'Internal server error', $result->get_error_message() );
+		$this->assertSame( 'sd_ai_agent_provider_retry_failed', $result->get_error_code() );
+		$this->assertStringContainsString( 'Provider retry failed after 3 attempts', $result->get_error_message() );
+		$this->assertSame( 3, $call_count );
+		$data = $result->get_error_data();
+		$this->assertIsArray( $data );
+		$retry_entries = array_filter( $data['tool_calls'], static fn( $entry ) => 'provider_retry' === ( $entry['type'] ?? '' ) );
+		$this->assertCount( 2, $retry_entries );
 	}
 
 	/**
@@ -460,11 +600,11 @@ class AgentLoopTest extends WP_UnitTestCase {
 		$this->skip_if_sdk_unavailable();
 		$this->mock_ai_network_failure();
 
-		$loop   = new AgentLoop( 'Hello' );
+		$loop   = new AgentLoop( 'Hello', [], [], $this->no_sleep_retry_options( 1 ) );
 		$result = $loop->run();
 
 		$this->assertInstanceOf( \WP_Error::class, $result );
-		$this->assertSame( 'http_request_failed', $result->get_error_code() );
+		$this->assertSame( 'sd_ai_agent_provider_retry_failed', $result->get_error_code() );
 	}
 
 	/**
@@ -472,13 +612,24 @@ class AgentLoopTest extends WP_UnitTestCase {
 	 */
 	public function test_run_returns_wp_error_on_unauthorized(): void {
 		$this->skip_if_sdk_unavailable();
-		$this->mock_ai_error_response( 401, 'Invalid API key' );
+		$call_count = 0;
+		$this->mock_ai_response_sequence(
+			[
+				[
+					'status'  => 401,
+					'message' => 'Unauthorized',
+					'body'    => wp_json_encode( [ 'error' => [ 'message' => 'Invalid API key' ] ] ),
+				],
+			],
+			$call_count
+		);
 
 		$loop   = new AgentLoop( 'Hello' );
 		$result = $loop->run();
 
 		$this->assertInstanceOf( \WP_Error::class, $result );
 		$this->assertSame( 'sd_ai_agent_provider_unavailable', $result->get_error_code() );
+		$this->assertSame( 1, $call_count );
 	}
 
 	// -------------------------------------------------------------------------
