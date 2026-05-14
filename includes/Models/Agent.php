@@ -12,8 +12,8 @@ declare(strict_types=1);
  * - tool_profile: legacy, no longer applied — kept on the row for backward compatibility
  * - temperature / max_iterations: per-agent inference settings
  *
- * Five built-in agents are seeded on first install (is_builtin=1):
- * onboarding, general, content-creator, seo, ecommerce.
+ * Six built-in agents are seeded on first install (is_builtin=1):
+ * onboarding, general, content-creator, seo, ecommerce, theme-builder.
  * The "general" agent cannot be deleted. All built-in agents can be reset
  * to factory defaults via reset_defaults().
  *
@@ -36,6 +36,11 @@ class Agent {
 	 * Slug of the onboarding agent (selected on first session).
 	 */
 	public const ONBOARDING_AGENT_SLUG = 'onboarding';
+
+	/**
+	 * Slug of the theme-builder agent (4-phase guided block theme creation).
+	 */
+	public const THEME_BUILDER_AGENT_SLUG = 'theme-builder';
 
 	/**
 	 * Get the agents table name.
@@ -497,6 +502,7 @@ class Agent {
 			self::get_content_creator_definition( $general_tools ),
 			self::get_seo_definition( $general_tools ),
 			self::get_ecommerce_definition( $general_tools ),
+			self::get_theme_builder_definition( $general_tools ),
 		];
 	}
 
@@ -580,6 +586,101 @@ class Agent {
 					'title'       => __( 'Import content ideas', 'superdav-ai-agent' ),
 					'description' => __( 'Get topic suggestions based on your niche', 'superdav-ai-agent' ),
 					'prompt'      => __( 'Suggest some blog post topics based on what my site is about.', 'superdav-ai-agent' ),
+				],
+			],
+			'is_builtin'    => true,
+			'enabled'       => true,
+		];
+	}
+
+	/**
+	 * Theme Builder agent definition.
+	 *
+	 * Guides users through a 4-phase process: interview (site-specification
+	 * skill), design directions (HTML previews), design selection, and block
+	 * theme scaffolding + activation.
+	 *
+	 * @param list<string> $base_tools Base tier 1 tools.
+	 * @return array<string, mixed>
+	 */
+	private static function get_theme_builder_definition( array $base_tools ): array { // phpcs:ignore Squiz.Commenting.FunctionComment.IncorrectTypeHint -- list<string> is valid PHPStan but not a native PHP type.
+		return [
+			'slug'          => self::THEME_BUILDER_AGENT_SLUG,
+			'name'          => __( 'Theme Builder', 'superdav-ai-agent' ),
+			'description'   => __( 'Designs and builds a custom block theme through a guided 4-phase process: interview, design directions, selection, and build.', 'superdav-ai-agent' ),
+			'system_prompt' => "You are a WordPress Theme Builder. You guide users through a 4-phase process to design and build a custom block theme for their site.\n\n"
+				. "## Phase 1: Interview (Site Specification)\n\n"
+				. "Start every conversation by loading the site-specification skill:\n"
+				. "1. Call `sd-ai-agent/skill-load` with `skill_name: site-specification` to get the full specification template.\n"
+				. "2. Call `sd-ai-agent/skill-load` with `skill_name: block-themes` to load block theme guidance.\n"
+				. "3. Optionally call `sd-ai-agent/skill-load` with `skill_name: design-system-aesthetics` if available — gracefully skip and continue if it is absent.\n"
+				. "4. Interview the user using the site-specification framework. Ask **one question at a time**.\n"
+				. "5. Save gathered site information with `sd-ai-agent/memory-save` (category: site_brief).\n\n"
+				. "## Phase 2: Design Directions\n\n"
+				. "After completing the interview, propose 3 distinct topic-grounded design directions:\n"
+				. "1. Write each direction as a self-contained HTML preview via `sd-ai-agent/file-write`:\n"
+				. "   - `wp-content/uploads/sd-ai-agent/design-previews/{session}/design-1.html`\n"
+				. "   - `wp-content/uploads/sd-ai-agent/design-previews/{session}/design-2.html`\n"
+				. "   - `wp-content/uploads/sd-ai-agent/design-previews/{session}/design-3.html`\n"
+				. "2. Previews must use inline CSS only. **Never embed stock image URLs, external image URLs, or placeholder image services.** Use CSS gradients, solid color blocks, and typographic mockups instead.\n"
+				. "3. Summarize each direction with a distinctive name and a 2-sentence description.\n\n"
+				. "## Phase 3: Choose\n\n"
+				. "1. Present the three design directions and their preview file paths to the user.\n"
+				. "2. Ask the user to pick a direction, or to describe modifications they want.\n"
+				. "3. Fold any modifications back into the site specification.\n"
+				. "4. Save the chosen design direction with `sd-ai-agent/memory-save` (category: site_brief).\n\n"
+				. "## Phase 4: Build\n\n"
+				. "Once the user has chosen a design direction:\n"
+				. "1. Call `sd-ai-agent/scaffold-block-theme` to create the theme scaffold (slug and metadata from the site specification).\n"
+				. "2. Retrieve the current theme.json baseline with `sd-ai-agent/get-theme-json` to understand existing settings.\n"
+				. "3. Write custom template parts via `sd-ai-agent/file-write`:\n"
+				. "   - `parts/header.html` — header template part\n"
+				. "   - `parts/footer.html` — footer template part\n"
+				. "4. Write page templates via `sd-ai-agent/file-write`:\n"
+				. "   - `templates/index.html` — main index template\n"
+				. "   - `templates/page.html` — single page template\n"
+				. "5. Apply the chosen design system (colors, typography, spacing) via `sd-ai-agent/update-global-styles`.\n"
+				. "6. Validate every block markup file you write using `sd-ai-agent/validate-block-content`.\n"
+				. "7. Activate the new theme via `sd-ai-agent/activate-theme`.\n"
+				. "8. Confirm the result to the user.\n\n"
+				. "## Rules\n\n"
+				. "- **Never** embed stock image URLs, external image URLs, or placeholder image service URLs anywhere in previews, templates, or style output. Use CSS gradients and typographic layouts.\n"
+				. "- Load `sd-ai-agent/skill-load` for `site-specification` at the very start of every conversation.\n"
+				. "- Ask one question at a time during the interview phase.\n"
+				. "- Save the final site brief and chosen design direction with `sd-ai-agent/memory-save` (category: site_brief) before building.\n"
+				. "- If a tool call fails, try a different approach or skip and continue; never stop entirely after a single error.\n"
+				. '- After completing all build steps, summarize what was created and confirm the active theme.',
+			'greeting'      => __( "I'm your Theme Builder. I'll guide you through designing and building a custom WordPress block theme — from a quick interview about your site, through design concepts, to a fully activated theme. Ready to start?", 'superdav-ai-agent' ),
+			'avatar_icon'   => 'dashicons-art',
+			'tier_1_tools'  => array_values(
+				array_unique(
+					array_merge(
+						$base_tools,
+						[
+							'sd-ai-agent/scaffold-block-theme',
+							'sd-ai-agent/activate-theme',
+							'sd-ai-agent/file-write',
+							'sd-ai-agent/validate-block-content',
+							'sd-ai-agent/get-theme-json',
+						]
+					)
+				)
+			),
+			'suggestions'   => [
+				[
+					'title'       => __( 'Design a theme for a craft brewery', 'superdav-ai-agent' ),
+					'description' => __( 'Custom block theme with rustic, bold aesthetics', 'superdav-ai-agent' ),
+					'prompt'      => __( 'Design a theme for a craft brewery website.', 'superdav-ai-agent' ),
+				],
+				[
+					'title'       => __( 'Design a theme for a SaaS startup', 'superdav-ai-agent' ),
+					'description' => __( 'Clean, modern block theme for a software product', 'superdav-ai-agent' ),
+					'prompt'      => __( 'Design a theme for a SaaS startup website.', 'superdav-ai-agent' ),
+				],
+				[
+					'title'       => __( 'Design a theme for a personal portfolio', 'superdav-ai-agent' ),
+					'description' => __( 'Minimal, elegant block theme to showcase your work', 'superdav-ai-agent' ),
+					'prompt'      => __( 'Design a theme for my personal portfolio website.', 'superdav-ai-agent' ),
 				],
 			],
 			'is_builtin'    => true,
