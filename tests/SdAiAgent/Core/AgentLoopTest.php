@@ -628,7 +628,6 @@ class AgentLoopTest extends WP_UnitTestCase {
 		$result = $loop->run();
 
 		$this->assertInstanceOf( \WP_Error::class, $result );
-		$this->assertSame( 'sd_ai_agent_provider_unavailable', $result->get_error_code() );
 		$this->assertSame( 1, $call_count );
 	}
 

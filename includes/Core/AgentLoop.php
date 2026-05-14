@@ -1034,7 +1034,7 @@ class AgentLoop {
 			return false;
 		}
 
-		return (bool) preg_match( '/\b(timeout|timed out|connection reset|connection refused|network|cURL error|internal server error|bad gateway|service unavailable|gateway timeout|too many requests|rate limit)\b/i', $message );
+		return (bool) preg_match( '/\b(timeout|timed out|connection reset|connection refused|network|cURL error|internal server error|bad gateway|service unavailable|unavailable|gateway timeout|too many requests|rate limit)\b/i', $message );
 	}
 
 	/**
