@@ -142,6 +142,7 @@ class DatabaseQueryAbility extends AbstractAbility {
 
 	protected function meta(): array {
 		return [
+			'mcp'          => [ 'public' => true ],
 			'annotations'  => [
 				'readonly'    => true,
 				'destructive' => false,

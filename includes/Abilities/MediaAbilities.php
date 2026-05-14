@@ -68,6 +68,7 @@ class MediaAbilities {
 					],
 				],
 				'meta'                => [
+					'mcp'          => [ 'public' => true ],
 					'annotations'  => [
 						'readonly'   => true,
 						'idempotent' => true,
@@ -132,6 +133,7 @@ class MediaAbilities {
 					],
 				],
 				'meta'                => [
+					'mcp'          => [ 'public' => true ],
 					'annotations'  => [
 						'readonly'    => false,
 						'destructive' => false,
@@ -174,6 +176,7 @@ class MediaAbilities {
 					],
 				],
 				'meta'                => [
+					'mcp'          => [ 'public' => true ],
 					'annotations'  => [
 						'readonly'    => false,
 						'destructive' => true,

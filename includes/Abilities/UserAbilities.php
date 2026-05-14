@@ -62,6 +62,7 @@ class UserAbilities {
 					],
 				],
 				'meta'                => [
+					'mcp'          => [ 'public' => true ],
 					'annotations'  => [
 						'readonly'   => true,
 						'idempotent' => true,
@@ -118,6 +119,7 @@ class UserAbilities {
 					],
 				],
 				'meta'                => [
+					'mcp'          => [ 'public' => true ],
 					'annotations'  => [
 						'readonly'    => false,
 						'destructive' => false,
@@ -165,6 +167,7 @@ class UserAbilities {
 					],
 				],
 				'meta'                => [
+					'mcp'          => [ 'public' => true ],
 					'annotations'  => [
 						'readonly'    => false,
 						'destructive' => false,

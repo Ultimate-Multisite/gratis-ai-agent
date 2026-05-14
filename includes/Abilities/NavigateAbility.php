@@ -126,6 +126,7 @@ class NavigateAbility extends AbstractAbility {
 
 	protected function meta(): array {
 		return [
+			'mcp'          => [ 'public' => true ],
 			'annotations'  => [
 				'readonly'    => false,
 				'destructive' => false,

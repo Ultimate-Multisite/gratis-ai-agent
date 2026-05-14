@@ -65,6 +65,7 @@ class ContentAbilities {
 					],
 				],
 				'meta'                => [
+					'mcp'         => [ 'public' => true ],
 					'annotations' => [
 						'readonly'    => true,
 						'destructive' => false,
@@ -113,6 +114,7 @@ class ContentAbilities {
 					],
 				],
 				'meta'                => [
+					'mcp'         => [ 'public' => true ],
 					'annotations' => [
 						'readonly'    => true,
 						'destructive' => false,
@@ -166,6 +168,7 @@ class ContentAbilities {
 					],
 				],
 				'meta'                => [
+					'mcp'         => [ 'public' => true ],
 					'annotations' => [
 						'readonly'    => false,
 						'destructive' => false,

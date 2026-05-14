@@ -56,6 +56,7 @@ class KnowledgeAbilities {
 					],
 				],
 				'meta'                => [
+					'mcp'         => [ 'public' => true ],
 					'annotations' => [
 						'readonly'    => true,
 						'destructive' => false,

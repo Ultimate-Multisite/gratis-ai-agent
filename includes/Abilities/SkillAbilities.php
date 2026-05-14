@@ -54,6 +54,7 @@ class SkillAbilities {
 					],
 				],
 				'meta'                => [
+					'mcp'         => [ 'public' => true ],
 					'annotations' => [
 						'readonly'    => true,
 						'destructive' => false,
@@ -84,6 +85,7 @@ class SkillAbilities {
 					],
 				],
 				'meta'                => [
+					'mcp'         => [ 'public' => true ],
 					'annotations' => [
 						'readonly'    => true,
 						'destructive' => false,

@@ -96,6 +96,7 @@ class EditorialAbilities {
 				'execute_callback'    => [ __CLASS__, 'handle_generate_title' ],
 				'permission_callback' => [ __CLASS__, 'permission_edit_posts' ],
 				'meta'                => [
+					'mcp'          => [ 'public' => true ],
 					'annotations'  => [
 						'readonly'    => true,
 						'destructive' => false,
@@ -212,6 +213,7 @@ INSTRUCTION;
 				'execute_callback'    => [ __CLASS__, 'handle_generate_excerpt' ],
 				'permission_callback' => [ __CLASS__, 'permission_edit_posts' ],
 				'meta'                => [
+					'mcp'          => [ 'public' => true ],
 					'annotations'  => [
 						'readonly'    => true,
 						'destructive' => false,
@@ -329,6 +331,7 @@ INSTRUCTION;
 				'execute_callback'    => [ __CLASS__, 'handle_summarize_content' ],
 				'permission_callback' => [ __CLASS__, 'permission_edit_posts' ],
 				'meta'                => [
+					'mcp'          => [ 'public' => true ],
 					'annotations'  => [
 						'readonly'    => true,
 						'destructive' => false,
@@ -471,6 +474,7 @@ INSTRUCTION;
 				'execute_callback'    => [ __CLASS__, 'handle_review_block' ],
 				'permission_callback' => [ __CLASS__, 'permission_edit_posts' ],
 				'meta'                => [
+					'mcp'          => [ 'public' => true ],
 					'annotations'  => [
 						'readonly'    => true,
 						'destructive' => false,

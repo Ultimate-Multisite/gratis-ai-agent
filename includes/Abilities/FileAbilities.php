@@ -425,6 +425,7 @@ class FileReadAbility extends AbstractFileAbility {
 
 	protected function meta(): array {
 		return [
+			'mcp'          => [ 'public' => true ],
 			'annotations'  => [
 				'readonly'    => true,
 				'destructive' => false,
@@ -576,6 +577,7 @@ class FileWriteAbility extends AbstractFileAbility {
 
 	protected function meta(): array {
 		return [
+			'mcp'          => [ 'public' => true ],
 			'annotations'  => [
 				'readonly'    => false,
 				'destructive' => true,
@@ -809,6 +811,7 @@ class FileEditAbility extends AbstractFileAbility {
 
 	protected function meta(): array {
 		return [
+			'mcp'          => [ 'public' => true ],
 			'annotations'  => [
 				'readonly'    => false,
 				'destructive' => true,
@@ -919,6 +922,7 @@ class FileDeleteAbility extends AbstractFileAbility {
 
 	protected function meta(): array {
 		return [
+			'mcp'          => [ 'public' => true ],
 			'annotations'  => [
 				'readonly'    => false,
 				'destructive' => true,
@@ -1019,6 +1023,7 @@ class FileListAbility extends AbstractFileAbility {
 
 	protected function meta(): array {
 		return [
+			'mcp'          => [ 'public' => true ],
 			'annotations'  => [
 				'readonly'    => true,
 				'destructive' => false,
@@ -1101,6 +1106,7 @@ class FileSearchAbility extends AbstractFileAbility {
 
 	protected function meta(): array {
 		return [
+			'mcp'          => [ 'public' => true ],
 			'annotations'  => [
 				'readonly'    => true,
 				'destructive' => false,
@@ -1196,6 +1202,7 @@ class ContentSearchAbility extends AbstractFileAbility {
 
 	protected function meta(): array {
 		return [
+			'mcp'          => [ 'public' => true ],
 			'annotations'  => [
 				'readonly'    => true,
 				'destructive' => false,

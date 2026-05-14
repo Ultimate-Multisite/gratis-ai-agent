@@ -142,6 +142,7 @@ class InternetSearchAbilities {
 					],
 				],
 				'meta'                => [
+					'mcp'         => [ 'public' => true ],
 					'annotations' => [
 						'readonly'    => true,
 						'destructive' => false,
@@ -200,6 +201,7 @@ class InternetSearchAbilities {
 					],
 				],
 				'meta'                => [
+					'mcp'         => [ 'public' => true ],
 					'annotations' => [
 						'readonly'    => false,
 						'destructive' => false,

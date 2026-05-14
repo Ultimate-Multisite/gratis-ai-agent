@@ -58,6 +58,7 @@ class BlockAbilities {
 					return current_user_can( 'edit_posts' );
 				},
 				'meta'                => [
+					'mcp'         => [ 'public' => true ],
 					'annotations' => [
 						'readonly'    => true,
 						'destructive' => false,
@@ -106,6 +107,7 @@ class BlockAbilities {
 					],
 				],
 				'meta'                => [
+					'mcp'         => [ 'public' => true ],
 					'annotations' => [
 						'readonly'    => true,
 						'destructive' => false,
@@ -150,6 +152,7 @@ class BlockAbilities {
 					],
 				],
 				'meta'                => [
+					'mcp'         => [ 'public' => true ],
 					'annotations' => [
 						'readonly'    => true,
 						'destructive' => false,
@@ -200,6 +203,7 @@ class BlockAbilities {
 					],
 				],
 				'meta'                => [
+					'mcp'         => [ 'public' => true ],
 					'annotations' => [
 						'readonly'    => true,
 						'destructive' => false,
@@ -237,6 +241,7 @@ class BlockAbilities {
 					],
 				],
 				'meta'                => [
+					'mcp'         => [ 'public' => true ],
 					'annotations' => [
 						'readonly'    => true,
 						'destructive' => false,
@@ -279,6 +284,7 @@ class BlockAbilities {
 					return current_user_can( 'edit_posts' );
 				},
 				'meta'                => [
+					'mcp'         => [ 'public' => true ],
 					'annotations' => [
 						'readonly'    => false,
 						'destructive' => false,
@@ -321,6 +327,7 @@ class BlockAbilities {
 					],
 				],
 				'meta'                => [
+					'mcp'         => [ 'public' => true ],
 					'annotations' => [
 						'readonly'    => true,
 						'destructive' => false,
@@ -363,6 +370,7 @@ class BlockAbilities {
 					],
 				],
 				'meta'                => [
+					'mcp'         => [ 'public' => true ],
 					'annotations' => [
 						'readonly'    => true,
 						'destructive' => false,

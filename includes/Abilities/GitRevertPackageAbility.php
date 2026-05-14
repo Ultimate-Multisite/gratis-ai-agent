@@ -97,6 +97,7 @@ class GitRevertPackageAbility extends AbstractAbility {
 
 	protected function meta(): array {
 		return [
+			'mcp'          => [ 'public' => true ],
 			'annotations'  => [
 				'readonly'    => false,
 				'destructive' => true,

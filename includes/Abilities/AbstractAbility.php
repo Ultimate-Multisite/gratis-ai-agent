@@ -190,6 +190,7 @@ abstract class AbstractAbility extends \WP_Ability {
 	 */
 	protected function meta(): array {
 		return array(
+			'mcp'          => [ 'public' => true ],
 			'annotations'  => array(
 				'readonly'    => null,
 				'destructive' => null,

@@ -167,6 +167,7 @@ class ListModifiedPluginsAbility extends AbstractAbility {
 
 	protected function meta(): array {
 		return [
+			'mcp'          => [ 'public' => true ],
 			'annotations'  => [
 				'readonly'   => true,
 				'idempotent' => true,
@@ -279,6 +280,7 @@ class GetPluginDownloadUrlAbility extends AbstractAbility {
 
 	protected function meta(): array {
 		return [
+			'mcp'          => [ 'public' => true ],
 			'annotations'  => [
 				'readonly'   => true,
 				'idempotent' => true,

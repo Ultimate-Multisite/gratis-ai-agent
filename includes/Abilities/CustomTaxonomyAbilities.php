@@ -132,6 +132,7 @@ class CustomTaxonomyAbilities {
 					],
 				],
 				'meta'                => [
+					'mcp'          => [ 'public' => true ],
 					'annotations'  => [
 						'readonly'    => false,
 						'destructive' => false,
@@ -168,6 +169,7 @@ class CustomTaxonomyAbilities {
 					],
 				],
 				'meta'                => [
+					'mcp'          => [ 'public' => true ],
 					'annotations'  => [
 						'readonly'   => true,
 						'idempotent' => true,
@@ -205,6 +207,7 @@ class CustomTaxonomyAbilities {
 					],
 				],
 				'meta'                => [
+					'mcp'          => [ 'public' => true ],
 					'annotations'  => [
 						'readonly'    => false,
 						'destructive' => true,

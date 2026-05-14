@@ -71,6 +71,7 @@ class PostAbilities {
 					],
 				],
 				'meta'                => [
+					'mcp'          => [ 'public' => true ],
 					'annotations'  => [
 						'readonly'   => true,
 						'idempotent' => true,
@@ -158,6 +159,7 @@ class PostAbilities {
 					],
 				],
 				'meta'                => [
+					'mcp'          => [ 'public' => true ],
 					'annotations'  => [
 						'readonly'    => false,
 						'destructive' => false,
@@ -245,6 +247,7 @@ class PostAbilities {
 					],
 				],
 				'meta'                => [
+					'mcp'          => [ 'public' => true ],
 					'annotations'  => [
 						'readonly'    => false,
 						'destructive' => false,
@@ -336,6 +339,7 @@ class PostAbilities {
 					],
 				],
 				'meta'                => [
+					'mcp'          => [ 'public' => true ],
 					'annotations'  => [
 						'readonly'   => true,
 						'idempotent' => true,
@@ -444,6 +448,7 @@ class PostAbilities {
 					],
 				],
 				'meta'                => [
+					'mcp'          => [ 'public' => true ],
 					'annotations'  => [
 						'readonly'    => false,
 						'destructive' => false,
@@ -491,6 +496,7 @@ class PostAbilities {
 					],
 				],
 				'meta'                => [
+					'mcp'          => [ 'public' => true ],
 					'annotations'  => [
 						'readonly'    => false,
 						'destructive' => true,
@@ -537,6 +543,7 @@ class PostAbilities {
 					],
 				],
 				'meta'                => [
+					'mcp'          => [ 'public' => true ],
 					'annotations'  => [
 						'readonly'    => false,
 						'destructive' => false,

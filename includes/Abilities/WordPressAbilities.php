@@ -480,6 +480,7 @@ class GetPluginsAbility extends AbstractAbility {
 
 	protected function meta(): array {
 		return [
+			'mcp'          => [ 'public' => true ],
 			'annotations'  => [
 				'readonly'    => true,
 				'destructive' => false,
@@ -553,6 +554,7 @@ class GetThemesAbility extends AbstractAbility {
 
 	protected function meta(): array {
 		return [
+			'mcp'          => [ 'public' => true ],
 			'annotations'  => [
 				'readonly'    => true,
 				'destructive' => false,
@@ -724,6 +726,7 @@ class InstallPluginAbility extends AbstractAbility {
 
 	protected function meta(): array {
 		return [
+			'mcp'          => [ 'public' => true ],
 			'annotations'  => [
 				'readonly'    => false,
 				'destructive' => false,
@@ -885,6 +888,7 @@ class UpdatePluginAbility extends AbstractAbility {
 
 	protected function meta(): array {
 		return [
+			'mcp'          => [ 'public' => true ],
 			'annotations'  => [
 				'readonly'    => false,
 				'destructive' => false,
@@ -1115,6 +1119,7 @@ class RunPhpAbility extends AbstractAbility {
 
 	protected function meta(): array {
 		return [
+			'mcp'          => [ 'public' => true ],
 			'annotations'  => [
 				'readonly'    => false,
 				'destructive' => true,
@@ -1269,6 +1274,7 @@ class RecommendPluginAbility extends AbstractAbility {
 
 	protected function meta(): array {
 		return [
+			'mcp'          => [ 'public' => true ],
 			'annotations'  => [
 				'readonly'    => true,
 				'destructive' => false,
@@ -1413,6 +1419,7 @@ class InstallPluginFromUrlAbility extends AbstractAbility {
 
 	protected function meta(): array {
 		return [
+			'mcp'          => [ 'public' => true ],
 			'annotations'  => [
 				'readonly'    => false,
 				'destructive' => false,
@@ -1541,6 +1548,7 @@ class ActivatePluginAbility extends AbstractAbility {
 
 	protected function meta(): array {
 		return [
+			'mcp'          => [ 'public' => true ],
 			'annotations'  => [
 				'readonly'    => false,
 				'destructive' => false,
@@ -1665,6 +1673,7 @@ class DeactivatePluginAbility extends AbstractAbility {
 
 	protected function meta(): array {
 		return [
+			'mcp'          => [ 'public' => true ],
 			'annotations'  => [
 				'readonly'    => false,
 				'destructive' => false,
@@ -1796,6 +1805,7 @@ class DeletePluginAbility extends AbstractAbility {
 
 	protected function meta(): array {
 		return [
+			'mcp'          => [ 'public' => true ],
 			'annotations'  => [
 				'readonly'    => false,
 				'destructive' => true,
@@ -1895,6 +1905,7 @@ class ListPluginUpdatesAbility extends AbstractAbility {
 
 	protected function meta(): array {
 		return [
+			'mcp'          => [ 'public' => true ],
 			'annotations'  => [
 				'readonly'    => true,
 				'destructive' => false,
@@ -2041,6 +2052,7 @@ class SearchPluginDirectoryAbility extends AbstractAbility {
 
 	protected function meta(): array {
 		return [
+			'mcp'          => [ 'public' => true ],
 			'annotations'  => [
 				'readonly'    => true,
 				'destructive' => false,
@@ -2215,6 +2227,7 @@ class SwitchPluginAbility extends AbstractAbility {
 
 	protected function meta(): array {
 		return [
+			'mcp'          => [ 'public' => true ],
 			'annotations'  => [
 				'readonly'    => false,
 				'destructive' => false,

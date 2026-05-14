@@ -74,6 +74,7 @@ class SiteHealthAbilities {
 					],
 				],
 				'meta'                => [
+					'mcp'          => [ 'public' => true ],
 					'annotations'  => [
 						'readonly'   => true,
 						'idempotent' => true,
@@ -130,6 +131,7 @@ class SiteHealthAbilities {
 					],
 				],
 				'meta'                => [
+					'mcp'          => [ 'public' => true ],
 					'annotations'  => [
 						'readonly'   => true,
 						'idempotent' => true,
@@ -171,6 +173,7 @@ class SiteHealthAbilities {
 					],
 				],
 				'meta'                => [
+					'mcp'          => [ 'public' => true ],
 					'annotations'  => [
 						'readonly'   => true,
 						'idempotent' => true,
@@ -209,6 +212,7 @@ class SiteHealthAbilities {
 					],
 				],
 				'meta'                => [
+					'mcp'          => [ 'public' => true ],
 					'annotations'  => [
 						'readonly'   => true,
 						'idempotent' => true,
@@ -250,6 +254,7 @@ class SiteHealthAbilities {
 					],
 				],
 				'meta'                => [
+					'mcp'          => [ 'public' => true ],
 					'annotations'  => [
 						'readonly'   => true,
 						'idempotent' => true,
@@ -297,6 +302,7 @@ class SiteHealthAbilities {
 					],
 				],
 				'meta'                => [
+					'mcp'          => [ 'public' => true ],
 					'annotations'  => [
 						'readonly'   => true,
 						'idempotent' => true,

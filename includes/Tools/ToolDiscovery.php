@@ -160,6 +160,7 @@ class ToolDiscovery {
 					'required'   => array( 'query' ),
 				),
 				'meta'                => array(
+					'mcp'          => [ 'public' => true ],
 					'show_in_rest' => true,
 					'annotations'  => array(
 						'readonly'    => true,
@@ -196,6 +197,7 @@ class ToolDiscovery {
 					'required'   => array( 'ability', 'arguments' ),
 				),
 				'meta'                => array(
+					'mcp'          => [ 'public' => true ],
 					'show_in_rest' => true,
 					'annotations'  => array(
 						'readonly'    => false,

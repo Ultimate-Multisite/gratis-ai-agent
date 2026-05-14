@@ -70,6 +70,7 @@ class DesignSystemAbilities {
 					return current_user_can( 'edit_theme_options' );
 				},
 				'meta'                => [
+					'mcp'         => [ 'public' => true ],
 					'annotations' => [
 						'readonly'    => false,
 						'destructive' => false,
@@ -134,6 +135,7 @@ class DesignSystemAbilities {
 					return current_user_can( 'edit_posts' );
 				},
 				'meta'                => [
+					'mcp'         => [ 'public' => true ],
 					'annotations' => [
 						'readonly'    => false,
 						'destructive' => false,
@@ -182,6 +184,7 @@ class DesignSystemAbilities {
 					return current_user_can( 'manage_options' );
 				},
 				'meta'                => [
+					'mcp'         => [ 'public' => true ],
 					'annotations' => [
 						'readonly'    => false,
 						'destructive' => false,
@@ -228,6 +231,7 @@ class DesignSystemAbilities {
 					return current_user_can( 'edit_theme_options' );
 				},
 				'meta'                => [
+					'mcp'         => [ 'public' => true ],
 					'annotations' => [
 						'readonly'    => false,
 						'destructive' => false,

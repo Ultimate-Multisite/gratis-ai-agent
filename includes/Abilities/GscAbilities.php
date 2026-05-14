@@ -89,6 +89,7 @@ class GscAbilities {
 					'required'   => [],
 				],
 				'meta'                => [
+					'mcp'          => [ 'public' => true ],
 					'annotations'  => [
 						'readonly'    => true,
 						'destructive' => false,
@@ -144,6 +145,7 @@ class GscAbilities {
 					'required'   => [],
 				],
 				'meta'                => [
+					'mcp'          => [ 'public' => true ],
 					'annotations'  => [
 						'readonly'    => true,
 						'destructive' => false,
@@ -187,6 +189,7 @@ class GscAbilities {
 					'required'   => [ 'query' ],
 				],
 				'meta'                => [
+					'mcp'          => [ 'public' => true ],
 					'annotations'  => [
 						'readonly'    => true,
 						'destructive' => false,
@@ -230,6 +233,7 @@ class GscAbilities {
 					'required'   => [],
 				],
 				'meta'                => [
+					'mcp'          => [ 'public' => true ],
 					'annotations'  => [
 						'readonly'    => true,
 						'destructive' => false,

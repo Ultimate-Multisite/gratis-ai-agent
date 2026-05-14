@@ -99,6 +99,7 @@ class ImageAbilities {
 				'execute_callback'    => [ __CLASS__, 'handle_generate_alt_text' ],
 				'permission_callback' => [ __CLASS__, 'permission_upload_files' ],
 				'meta'                => [
+					'mcp'          => [ 'public' => true ],
 					'annotations'  => [
 						'readonly'    => true,
 						'destructive' => false,
@@ -226,6 +227,7 @@ INSTRUCTION;
 				'execute_callback'    => [ __CLASS__, 'handle_generate_image_prompt' ],
 				'permission_callback' => [ __CLASS__, 'permission_edit_posts' ],
 				'meta'                => [
+					'mcp'          => [ 'public' => true ],
 					'annotations'  => [
 						'readonly'    => true,
 						'destructive' => false,
@@ -421,6 +423,7 @@ INSTRUCTION;
 				'execute_callback'    => [ __CLASS__, 'handle_import_base64_image' ],
 				'permission_callback' => [ __CLASS__, 'permission_upload_files' ],
 				'meta'                => [
+					'mcp'          => [ 'public' => true ],
 					'annotations'  => [
 						'readonly'    => false,
 						'destructive' => false,

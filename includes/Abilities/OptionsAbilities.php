@@ -211,6 +211,7 @@ class GetOptionAbility extends AbstractAbility {
 
 	protected function meta(): array {
 		return [
+			'mcp'          => [ 'public' => true ],
 			'annotations'  => [
 				'readonly'    => true,
 				'destructive' => false,
@@ -365,6 +366,7 @@ class UpdateOptionAbility extends AbstractAbility {
 
 	protected function meta(): array {
 		return [
+			'mcp'          => [ 'public' => true ],
 			'annotations'  => [
 				'readonly'    => false,
 				'destructive' => false,
@@ -488,6 +490,7 @@ class DeleteOptionAbility extends AbstractAbility {
 
 	protected function meta(): array {
 		return [
+			'mcp'          => [ 'public' => true ],
 			'annotations'  => [
 				'readonly'    => false,
 				'destructive' => true,
@@ -676,6 +679,7 @@ class ListOptionsAbility extends AbstractAbility {
 
 	protected function meta(): array {
 		return [
+			'mcp'          => [ 'public' => true ],
 			'annotations'  => [
 				'readonly'    => true,
 				'destructive' => false,

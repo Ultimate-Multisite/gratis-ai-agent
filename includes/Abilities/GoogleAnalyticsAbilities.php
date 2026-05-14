@@ -656,6 +656,7 @@ class GaTrafficSummaryAbility extends AbstractAbility {
 
 	protected function meta(): array {
 		return [
+			'mcp'          => [ 'public' => true ],
 			'annotations'  => [
 				'readonly'    => true,
 				'destructive' => false,
@@ -815,6 +816,7 @@ class GaTopPagesAbility extends AbstractAbility {
 
 	protected function meta(): array {
 		return [
+			'mcp'          => [ 'public' => true ],
 			'annotations'  => [
 				'readonly'    => true,
 				'destructive' => false,
@@ -963,6 +965,7 @@ class GaRealtimeAbility extends AbstractAbility {
 
 	protected function meta(): array {
 		return [
+			'mcp'          => [ 'public' => true ],
 			'annotations'  => [
 				'readonly'    => true,
 				'destructive' => false,
