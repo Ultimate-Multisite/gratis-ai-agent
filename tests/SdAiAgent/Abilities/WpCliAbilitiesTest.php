@@ -297,7 +297,9 @@ class WpCliAbilitiesTest extends WP_UnitTestCase {
 	private function make_temp_dir(): string {
 		if ( '' === $this->temp_dir ) {
 			$this->temp_dir = sys_get_temp_dir() . '/sd_wp_cli_test_' . uniqid( '', true );
-			mkdir( $this->temp_dir, 0755, true );
+			$created        = mkdir( $this->temp_dir, 0755, true );
+			$this->assertTrue( $created || is_dir( $this->temp_dir ), "Failed to create temp directory: {$this->temp_dir}" );
+			$this->assertTrue( is_writable( $this->temp_dir ), "Temp directory is not writable: {$this->temp_dir}" );
 		}
 		return $this->temp_dir;
 	}
