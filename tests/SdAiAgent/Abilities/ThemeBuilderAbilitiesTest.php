@@ -260,6 +260,56 @@ class ThemeBuilderAbilitiesTest extends WP_UnitTestCase {
 		$this->assertSame( '#abcdef', $decoded['settings']['color']['palette'][0]['color'] );
 	}
 
+	/**
+	 * ScaffoldBlockThemeAbility resolves `..` segments in WP_CONTENT_DIR
+	 * before passing the target path to wp_mkdir_p().
+	 *
+	 * Regression test for PR #1392 follow-up: dev installs where
+	 * WP_CONTENT_DIR is defined with a relative ".." segment (e.g. plugin
+	 * worktrees symlinked into the install) caused wp_mkdir_p() to refuse
+	 * the create even when the parent themes directory was writable and a
+	 * raw mkdir() on the same path succeeded.
+	 */
+	public function test_scaffold_handles_theme_root_with_parent_dir_segments(): void {
+		$canonical = untrailingslashit( get_theme_root() );
+
+		// Simulate a WP_CONTENT_DIR defined with a `..` segment by routing
+		// the theme_root filter through "<parent>/<basename>/../<basename>".
+		$dirname  = dirname( $canonical );
+		$basename = basename( $canonical );
+		$bouncy   = $dirname . '/../' . basename( $dirname ) . '/' . $basename;
+
+		$filter = static function () use ( $bouncy ) {
+			return $bouncy;
+		};
+		add_filter( 'theme_root', $filter );
+
+		try {
+			$slug    = $this->unique_slug( 'realpath-fix' );
+			$ability = new ScaffoldBlockThemeAbility( 'sd-ai-agent/scaffold-block-theme' );
+
+			$result = $ability->run(
+				[
+					'slug' => $slug,
+					'name' => 'Realpath Fix',
+				]
+			);
+
+			$this->assertIsArray(
+				$result,
+				is_wp_error( $result )
+					? 'Expected scaffold to succeed despite ".." segments in theme_root. Got: ' . $result->get_error_code() . ' / ' . $result->get_error_message()
+					: ''
+			);
+
+			$canonical_theme_dir = $canonical . '/' . $slug;
+			$this->assertDirectoryExists( $canonical_theme_dir );
+			$this->assertFileExists( $canonical_theme_dir . '/theme.json' );
+		} finally {
+			remove_filter( 'theme_root', $filter );
+		}
+	}
+
 	// ── ActivateThemeAbility ──────────────────────────────────────────────
 
 	/**

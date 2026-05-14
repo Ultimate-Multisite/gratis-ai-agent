@@ -148,6 +148,17 @@ class ScaffoldBlockThemeAbility extends AbstractAbility {
 			);
 		}
 
+		// Resolve any `..` segments from WP_CONTENT_DIR before passing the
+		// path to wp_mkdir_p(). WordPress core's wp_mkdir_p() refuses to
+		// create directories whose path contains unresolved parent-dir
+		// references even when the parent itself is writable — a real
+		// failure mode on dev installs and some shared-host configs where
+		// WP_CONTENT_DIR is defined with a relative ".." segment.
+		$resolved_root = realpath( $theme_root );
+		if ( false !== $resolved_root ) {
+			$theme_root = $resolved_root;
+		}
+
 		$theme_dir   = trailingslashit( $theme_root ) . $slug;
 		$existed     = is_dir( $theme_dir );
 		$overwritten = false;
