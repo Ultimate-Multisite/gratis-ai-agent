@@ -22,6 +22,17 @@ if ( ! defined( 'ABSPATH' ) ) {
 
 define( 'SD_AI_AGENT_VERSION', '1.11.1' );
 define( 'SD_AI_AGENT_DIR', __DIR__ );
+
+// Allow the plugin to load from a symlinked path. Without this, WordPress
+// resolves `__FILE__` to the realpath outside `WP_PLUGIN_DIR` and
+// `plugin_dir_url()` returns a malformed URL containing the absolute
+// filesystem path — admin asset URLs then 404 and the React chat panel
+// fails to mount. The function is a no-op when the plugin is not loaded
+// via a symlink (standard production installs).
+if ( function_exists( 'wp_register_plugin_realpath' ) ) {
+	wp_register_plugin_realpath( __FILE__ );
+}
+
 define( 'SD_AI_AGENT_URL', plugin_dir_url( __FILE__ ) );
 
 /**
