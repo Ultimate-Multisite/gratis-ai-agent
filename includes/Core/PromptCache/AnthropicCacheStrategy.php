@@ -83,6 +83,16 @@ final class AnthropicCacheStrategy implements CacheStrategyInterface {
 
 	/**
 	 * @inheritDoc
+	 *
+	 * Matches:
+	 *   - Direct Anthropic API: `api.anthropic.com` and regional subdomains
+	 *     such as `eu.api.anthropic.com`.
+	 *   - Vertex AI Anthropic endpoints: hosts ending in
+	 *     `-aiplatform.googleapis.com` with a path containing
+	 *     `/publishers/anthropic/models/`. Vertex relays the request body
+	 *     verbatim to Anthropic so the same `cache_control` markers apply.
+	 *     Example URL:
+	 *     `https://us-central1-aiplatform.googleapis.com/v1/projects/p/locations/us-central1/publishers/anthropic/models/claude-3-5-sonnet:rawPredict`
 	 */
 	public function matches( string $url ): bool {
 		$parsed = wp_parse_url( $url );
@@ -91,7 +101,22 @@ final class AnthropicCacheStrategy implements CacheStrategyInterface {
 		}
 
 		$host = strtolower( (string) $parsed['host'] );
-		return 'api.anthropic.com' === $host || str_ends_with( $host, '.api.anthropic.com' );
+
+		// Direct Anthropic API and regional subdomains (e.g. eu.api.anthropic.com).
+		if ( 'api.anthropic.com' === $host || str_ends_with( $host, '.api.anthropic.com' ) ) {
+			return true;
+		}
+
+		// Vertex AI Anthropic endpoints relay the standard Anthropic request
+		// body verbatim, so cache_control markers work identically.
+		// Host pattern: {region}-aiplatform.googleapis.com
+		// Path pattern:  .../publishers/anthropic/models/...
+		if ( str_ends_with( $host, '-aiplatform.googleapis.com' ) ) {
+			$path = (string) ( $parsed['path'] ?? '' );
+			return str_contains( $path, '/publishers/anthropic/models/' );
+		}
+
+		return false;
 	}
 
 	/**

@@ -40,6 +40,12 @@ final class CacheStrategyResolver {
 	 *   - xAI Grok: automatic prompt caching since late 2025.
 	 *   - Groq / Cerebras / Together / Fireworks: most have automatic
 	 *     caching; surface in usage varies but no client opt-in needed.
+	 *   - Azure OpenAI Service: OpenAI-shape response, automatic caching
+	 *     for >=1024 tok. Subdomain matching covers `*.openai.azure.com`.
+	 *   - OpenRouter: pass-through aggregator; exposes OpenAI-shape usage
+	 *     so the default CacheUsageExtractor picks up cached_tokens already.
+	 *     Registering it here ensures the resolver classifies it as a known
+	 *     LLM endpoint (non-null strategy) for future gating logic.
 	 *
 	 * @var array<int,string>
 	 */
@@ -51,6 +57,8 @@ final class CacheStrategyResolver {
 		'api.cerebras.ai',
 		'api.together.xyz',
 		'api.fireworks.ai',
+		'openai.azure.com',
+		'openrouter.ai',
 	);
 
 	/**

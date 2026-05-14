@@ -113,4 +113,73 @@ class CacheStrategyResolverTest extends WP_UnitTestCase {
 		$this->assertSame( $body, $noop->apply( $body ) );
 		$this->assertSame( 'noop', $noop->id() );
 	}
+
+	public function test_resolves_noop_for_azure_openai_chat_completions(): void {
+		// Azure OpenAI uses an OpenAI-compatible wire format with automatic
+		// server-side caching. The subdomain matching covers any resource name.
+		$resolver = new CacheStrategyResolver();
+		$strategy = $resolver->resolve(
+			'https://my-resource.openai.azure.com/openai/deployments/gpt-4o/chat/completions?api-version=2024-02-01'
+		);
+
+		$this->assertInstanceOf( NoopCacheStrategy::class, $strategy );
+	}
+
+	public function test_resolves_noop_for_azure_openai_embeddings(): void {
+		// Embeddings endpoints on Azure are also OpenAI-shape; noop is a
+		// safe pass-through so registering them here is harmless.
+		$resolver = new CacheStrategyResolver();
+		$strategy = $resolver->resolve(
+			'https://my-resource.openai.azure.com/openai/deployments/text-embedding-3-small/embeddings?api-version=2024-02-01'
+		);
+
+		$this->assertInstanceOf( NoopCacheStrategy::class, $strategy );
+	}
+
+	public function test_resolves_noop_for_openrouter(): void {
+		// OpenRouter is a pass-through aggregator exposing an OpenAI-compatible
+		// API. The CacheUsageExtractor already reads cached_tokens from the
+		// OpenAI-shape usage; registering the host ensures a non-null strategy
+		// is returned for future logic that gates on resolve() result.
+		$resolver = new CacheStrategyResolver();
+		$strategy = $resolver->resolve( 'https://openrouter.ai/api/v1/chat/completions' );
+
+		$this->assertInstanceOf( NoopCacheStrategy::class, $strategy );
+	}
+
+	public function test_resolves_anthropic_for_vertex_raw_predict(): void {
+		// Vertex AI's Anthropic endpoint relays the standard Anthropic request
+		// body verbatim, so cache_control markers work identically.
+		$resolver = new CacheStrategyResolver();
+		$strategy = $resolver->resolve(
+			'https://us-central1-aiplatform.googleapis.com/v1/projects/p/locations/us-central1/publishers/anthropic/models/claude-3-5-sonnet:rawPredict'
+		);
+
+		$this->assertInstanceOf( AnthropicCacheStrategy::class, $strategy );
+	}
+
+	public function test_resolves_anthropic_for_vertex_stream_raw_predict(): void {
+		// Streaming variant of the Vertex AI Anthropic endpoint.
+		$resolver = new CacheStrategyResolver();
+		$strategy = $resolver->resolve(
+			'https://europe-west4-aiplatform.googleapis.com/v1/projects/my-project/locations/europe-west4/publishers/anthropic/models/claude-3-5-haiku:streamRawPredict'
+		);
+
+		$this->assertInstanceOf( AnthropicCacheStrategy::class, $strategy );
+	}
+
+	public function test_returns_null_for_vertex_non_anthropic_publisher(): void {
+		// A Vertex endpoint for a non-Anthropic publisher should NOT match
+		// the AnthropicCacheStrategy and should return null (unknown host).
+		$resolver = new CacheStrategyResolver();
+		$strategy = $resolver->resolve(
+			'https://us-central1-aiplatform.googleapis.com/v1/projects/p/locations/us-central1/publishers/google/models/gemini-2.0-flash:generateContent'
+		);
+
+		// The Gemini strategy should handle google publisher endpoints via
+		// the generateContent path pattern, not AnthropicCacheStrategy.
+		// (Gemini strategy is tested separately — here we only confirm
+		// AnthropicCacheStrategy is NOT selected for google publisher paths.)
+		$this->assertNotInstanceOf( AnthropicCacheStrategy::class, $strategy );
+	}
 }

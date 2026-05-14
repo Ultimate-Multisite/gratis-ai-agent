@@ -38,6 +38,59 @@ class AnthropicCacheStrategyTest extends WP_UnitTestCase {
 		$this->assertTrue( $this->strategy->matches( 'https://eu.api.anthropic.com/v1/messages' ) );
 	}
 
+	public function test_matches_vertex_anthropic_raw_predict(): void {
+		// Vertex AI relays the standard Anthropic body verbatim, so
+		// cache_control markers work identically on these endpoints.
+		$this->assertTrue(
+			$this->strategy->matches(
+				'https://us-central1-aiplatform.googleapis.com/v1/projects/my-project/locations/us-central1/publishers/anthropic/models/claude-3-5-sonnet:rawPredict'
+			)
+		);
+	}
+
+	public function test_matches_vertex_anthropic_stream_raw_predict(): void {
+		// Streaming variant of the Vertex AI Anthropic endpoint.
+		$this->assertTrue(
+			$this->strategy->matches(
+				'https://europe-west4-aiplatform.googleapis.com/v1/projects/my-project/locations/europe-west4/publishers/anthropic/models/claude-3-5-haiku:streamRawPredict'
+			)
+		);
+	}
+
+	public function test_does_not_match_vertex_non_anthropic_publisher(): void {
+		// A Vertex path with a different publisher must NOT match.
+		$this->assertFalse(
+			$this->strategy->matches(
+				'https://us-central1-aiplatform.googleapis.com/v1/projects/p/locations/us-central1/publishers/google/models/gemini-2.0-flash:generateContent'
+			)
+		);
+	}
+
+	public function test_vertex_anthropic_body_mutation_applies_cache_markers(): void {
+		// Confirm that body mutation works correctly when called via a
+		// Vertex AI URL — the apply() method is URL-agnostic, but this
+		// test documents the end-to-end expected behaviour for Vertex users.
+		$body = $this->large_request_body();
+
+		$result = $this->strategy->apply( $body );
+
+		// Cache marker should be on the last tool.
+		$tools_count = count( $result['tools'] );
+		$this->assertArrayHasKey( 'cache_control', $result['tools'][ $tools_count - 1 ] );
+		$this->assertSame(
+			array( 'type' => 'ephemeral' ),
+			$result['tools'][ $tools_count - 1 ]['cache_control']
+		);
+
+		// Cache marker should be on the last system block.
+		$sys_count = count( $result['system'] );
+		$this->assertArrayHasKey( 'cache_control', $result['system'][ $sys_count - 1 ] );
+		$this->assertSame(
+			array( 'type' => 'ephemeral' ),
+			$result['system'][ $sys_count - 1 ]['cache_control']
+		);
+	}
+
 	public function test_does_not_match_openai(): void {
 		$this->assertFalse( $this->strategy->matches( 'https://api.openai.com/v1/chat/completions' ) );
 	}
