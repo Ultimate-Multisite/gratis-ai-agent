@@ -367,11 +367,14 @@ class AbilityVisibilityTest extends WP_UnitTestCase {
 	public function test_legacy_mode_classifies_unknown_namespace_as_public_explicit(): void {
 		update_option( Settings::OPTION_NAME, array( 'third_party_mode' => 'legacy' ) );
 
+		// Use 'random-plugin' (not a partner category) and a whitespace-only
+		// description so this ability would be private-unknown in auto mode.
+		// In legacy mode it must be public-explicit instead.
 		$ability = $this->make_ability(
 			'random-unknown/some-ability',
 			array(
 				'description' => "   \t  ", // Would be private-unknown in auto mode.
-				'category'    => '',
+				'category'    => 'random-plugin',
 			)
 		);
 

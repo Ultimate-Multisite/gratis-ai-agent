@@ -102,6 +102,28 @@ class McpControllerVisibilityTest extends WP_UnitTestCase {
 			global $wp_current_filter;
 			$wp_current_filter[] = 'wp_abilities_api_init';
 
+			// Register custom categories that are NOT on the partner allowlist.
+			// This satisfies WP 7.0+ requirement that categories be pre-registered
+			// before assigning them to abilities (prevents _doing_it_wrong errors).
+			if ( function_exists( 'wp_register_ability_category' ) ) {
+				// Category for the hidden and private-unknown abilities.
+				wp_register_ability_category(
+					'test-visibility-plugin',
+					array(
+						'label'       => 'Test Visibility Plugin',
+						'description' => 'Test category for visibility testing.',
+					)
+				);
+				// Category for the explicit mcp.public ability.
+				wp_register_ability_category(
+					'another-plugin',
+					array(
+						'label'       => 'Another Plugin',
+						'description' => 'Test category for mcp.public testing.',
+					)
+				);
+			}
+
 			// First-party ability — always visible via partner namespace.
 			wp_register_ability(
 				self::FIRST_PARTY_ABILITY,
@@ -115,6 +137,7 @@ class McpControllerVisibilityTest extends WP_UnitTestCase {
 			);
 
 			// Explicitly hidden ability — must be filtered out in every mode.
+			// Uses sd-ai-agent category (registered by plugin) but ai_hidden=true.
 			wp_register_ability(
 				self::HIDDEN_ABILITY,
 				array(
@@ -127,13 +150,14 @@ class McpControllerVisibilityTest extends WP_UnitTestCase {
 				)
 			);
 
-			// Private-unknown ability — unknown namespace, no mcp.public flag.
+			// Private-unknown ability — unknown namespace, no mcp.public flag,
+			// whitespace-only description so heuristic fails in auto mode.
 			wp_register_ability(
 				self::PRIVATE_UNKNOWN_ABILITY,
 				array(
 					'label'               => 'Unknown No Declaration',
 					'description'         => "   \t  ", // Whitespace-only so heuristic fails.
-					'category'            => '',
+					'category'            => 'test-visibility-plugin', // Not a partner category.
 					'execute_callback'    => '__return_true',
 					'permission_callback' => '__return_true',
 				)
