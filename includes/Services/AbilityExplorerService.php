@@ -15,6 +15,7 @@ declare(strict_types=1);
 namespace SdAiAgent\Services;
 
 use SdAiAgent\Abilities\Js\JsAbilityCatalog;
+use SdAiAgent\Core\AbilityVisibility;
 
 if ( ! defined( 'ABSPATH' ) ) {
 	exit;
@@ -139,6 +140,12 @@ final class AbilityExplorerService {
 		// @phpstan-ignore-next-line
 		$ability_name = $ability->get_name();
 
+		// Surface the visibility classification so the admin can see what
+		// tier each ability falls into, even though the explorer itself
+		// always shows everything (the admin has full visibility).
+		// @phpstan-ignore-next-line
+		$visibility = AbilityVisibility::classify( $ability );
+
 		return array(
 			'name'            => $ability_name,
 			// @phpstan-ignore-next-line
@@ -153,6 +160,7 @@ final class AbilityExplorerService {
 			// @phpstan-ignore-next-line
 			'output_schema'   => $ability->get_output_schema(),
 			'show_in_rest'    => (bool) ( $meta['show_in_rest'] ?? false ),
+			'visibility'      => $visibility,
 		);
 	}
 

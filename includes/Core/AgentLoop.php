@@ -24,6 +24,7 @@ namespace SdAiAgent\Core;
 
 use SdAiAgent\Admin\UnifiedAdminMenu;
 use SdAiAgent\Abilities\FeedbackAbilities;
+use SdAiAgent\Core\AbilityVisibility;
 use SdAiAgent\Core\BudgetManager;
 use SdAiAgent\Core\ChangeLogger;
 use SdAiAgent\Repositories\SkillUsageRepository;
@@ -1418,8 +1419,7 @@ class AgentLoop {
 			if ( ! $ability instanceof \WP_Ability ) {
 				continue;
 			}
-			$meta = $ability->get_meta();
-			if ( ! empty( $meta['ai_hidden'] ) ) {
+			if ( ! AbilityVisibility::for_ai_chat( $ability ) ) {
 				continue;
 			}
 			$resolved[] = $ability;

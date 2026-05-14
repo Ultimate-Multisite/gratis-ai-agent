@@ -23,6 +23,7 @@ declare(strict_types=1);
 
 namespace SdAiAgent\REST;
 
+use SdAiAgent\Core\AbilityVisibility;
 use WP_Error;
 use WP_REST_Request;
 use WP_REST_Response;
@@ -234,6 +235,11 @@ final class McpController extends XWP_REST_Controller {
 		$tools     = [];
 
 		foreach ( $abilities as $ability ) {
+			// Only expose abilities the site owner has sanctioned for MCP access.
+			if ( ! AbilityVisibility::for_mcp( $ability ) ) {
+				continue;
+			}
+
 			$name         = self::ability_name_to_mcp_name( $ability->get_name() );
 			$description  = $ability->get_description();
 			$input_schema = $ability->get_input_schema();

@@ -10,6 +10,7 @@ declare(strict_types=1);
 
 namespace SdAiAgent\REST;
 
+use SdAiAgent\Core\AbilityVisibility;
 use SdAiAgent\Models\Agent;
 use SdAiAgent\Models\ConversationTemplate;
 use SdAiAgent\Models\DTO\AgentRow;
@@ -577,10 +578,9 @@ final class AgentController {
 
 		foreach ( wp_get_abilities() as $ability ) {
 			$name = $ability->get_name();
-			$meta = $ability->get_meta();
 
-			// Skip hidden abilities.
-			if ( ! empty( $meta['ai_hidden'] ) ) {
+			// Skip abilities the admin picker should not show.
+			if ( ! AbilityVisibility::for_admin_picker( $ability ) ) {
 				continue;
 			}
 

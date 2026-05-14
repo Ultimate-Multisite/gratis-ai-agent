@@ -15,6 +15,7 @@ declare(strict_types=1);
 namespace SdAiAgent\Tests\Core;
 
 use SdAiAgent\Core\AbilityVisibility;
+use SdAiAgent\Core\Settings;
 use WP_Ability;
 use WP_UnitTestCase;
 
@@ -25,20 +26,26 @@ class AbilityVisibilityTest extends WP_UnitTestCase {
 
 	/**
 	 * Skip the suite when WP 7.0+ Abilities API is unavailable.
+	 * Set third_party_mode to 'auto' so classification-tree tests exercise the
+	 * full tiered resolver rather than the legacy all-pass shim.
 	 */
 	public function setUp(): void {
 		parent::setUp();
 		if ( ! class_exists( 'WP_Ability' ) ) {
 			$this->markTestSkipped( 'WP_Ability not available — requires WP 7.0+.' );
 		}
+		// Drive the resolver with the full tiered model so classification
+		// tier assertions (partner, heuristic, private-unknown) are exercised.
+		update_option( Settings::OPTION_NAME, array( 'third_party_mode' => 'auto' ) );
 	}
 
 	/**
-	 * Drop test-registered filters between cases.
+	 * Drop test-registered filters and restore default settings between cases.
 	 */
 	public function tearDown(): void {
 		remove_all_filters( 'sd_ai_agent_partner_namespaces' );
 		remove_all_filters( 'sd_ai_agent_partner_categories' );
+		delete_option( Settings::OPTION_NAME );
 		parent::tearDown();
 	}
 
@@ -345,6 +352,128 @@ class AbilityVisibilityTest extends WP_UnitTestCase {
 		);
 
 		$this->assertFalse( AbilityVisibility::for_admin_picker( $ability ) );
+	}
+
+	// ─── Helper invariants ───────────────────────────────────────────────
+
+	// ─── Legacy mode shim ───────────────────────────────────────────────
+
+	/**
+	 * In legacy mode every non-hidden ability is treated as public-explicit.
+	 *
+	 * The legacy shim preserves the pre-1.9.0 behaviour where only the
+	 * `ai_hidden` meta key controlled visibility.
+	 */
+	public function test_legacy_mode_classifies_unknown_namespace_as_public_explicit(): void {
+		update_option( Settings::OPTION_NAME, array( 'third_party_mode' => 'legacy' ) );
+
+		$ability = $this->make_ability(
+			'random-unknown/some-ability',
+			array(
+				'description' => "   \t  ", // Would be private-unknown in auto mode.
+				'category'    => '',
+			)
+		);
+
+		$this->assertSame(
+			AbilityVisibility::CLASSIFICATION_PUBLIC_EXPLICIT,
+			AbilityVisibility::classify( $ability )
+		);
+		$this->assertTrue( AbilityVisibility::for_ai_chat( $ability ) );
+		$this->assertTrue( AbilityVisibility::for_mcp( $ability ) );
+	}
+
+	/**
+	 * In legacy mode explicit-private abilities (ai_hidden) are still hidden.
+	 */
+	public function test_legacy_mode_still_hides_ai_hidden(): void {
+		update_option( Settings::OPTION_NAME, array( 'third_party_mode' => 'legacy' ) );
+
+		$ability = $this->make_ability(
+			'random-unknown/hidden',
+			array(
+				'meta' => array( 'ai_hidden' => true ),
+			)
+		);
+
+		$this->assertSame(
+			AbilityVisibility::CLASSIFICATION_PRIVATE_EXPLICIT,
+			AbilityVisibility::classify( $ability )
+		);
+		$this->assertFalse( AbilityVisibility::for_ai_chat( $ability ) );
+		$this->assertFalse( AbilityVisibility::for_mcp( $ability ) );
+	}
+
+	/**
+	 * In strict mode only mcp.public === true passes; all others are private-unknown.
+	 */
+	public function test_strict_mode_hides_partner_namespace_without_mcp_public(): void {
+		update_option( Settings::OPTION_NAME, array( 'third_party_mode' => 'strict' ) );
+
+		// A first-party ability that is not explicitly flagged mcp.public.
+		$ability = $this->make_ability(
+			'sd-ai-agent/some-ability',
+			array(
+				'category' => 'sd-ai-agent',
+			)
+		);
+
+		$this->assertSame(
+			AbilityVisibility::CLASSIFICATION_PRIVATE_UNKNOWN,
+			AbilityVisibility::classify( $ability )
+		);
+		$this->assertFalse( AbilityVisibility::for_mcp( $ability ) );
+		// Admin picker still shows it (not explicit-private).
+		$this->assertTrue( AbilityVisibility::for_admin_picker( $ability ) );
+	}
+
+	/**
+	 * In strict mode mcp.public === true still passes.
+	 */
+	public function test_strict_mode_allows_explicit_mcp_public(): void {
+		update_option( Settings::OPTION_NAME, array( 'third_party_mode' => 'strict' ) );
+
+		$ability = $this->make_ability(
+			'random-plugin/opted-in',
+			array(
+				'meta' => array( 'mcp' => array( 'public' => true ) ),
+			)
+		);
+
+		$this->assertSame(
+			AbilityVisibility::CLASSIFICATION_PUBLIC_EXPLICIT,
+			AbilityVisibility::classify( $ability )
+		);
+		$this->assertTrue( AbilityVisibility::for_mcp( $ability ) );
+	}
+
+	// ─── Settings helper ──────────────────────────────────────────────────────
+
+	/**
+	 * get_third_party_mode() returns 'legacy' when no setting is stored.
+	 */
+	public function test_get_third_party_mode_defaults_to_legacy(): void {
+		delete_option( Settings::OPTION_NAME );
+		$this->assertSame( 'legacy', Settings::get_third_party_mode() );
+	}
+
+	/**
+	 * get_third_party_mode() returns the stored value when valid.
+	 */
+	public function test_get_third_party_mode_returns_stored_value(): void {
+		update_option( Settings::OPTION_NAME, array( 'third_party_mode' => 'auto' ) );
+		$this->assertSame( 'auto', Settings::get_third_party_mode() );
+
+		update_option( Settings::OPTION_NAME, array( 'third_party_mode' => 'strict' ) );
+		$this->assertSame( 'strict', Settings::get_third_party_mode() );
+	}
+
+	/**
+	 * get_third_party_mode() rejects invalid values and falls back to 'legacy'.
+	 */
+	public function test_get_third_party_mode_rejects_invalid_values(): void {
+		update_option( Settings::OPTION_NAME, array( 'third_party_mode' => 'unknown-value' ) );
+		$this->assertSame( 'legacy', Settings::get_third_party_mode() );
 	}
 
 	// ─── Helper invariants ───────────────────────────────────────────────

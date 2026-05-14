@@ -34,6 +34,7 @@ declare(strict_types=1);
 namespace SdAiAgent\Tools;
 
 use SdAiAgent\Abilities\Js\JsAbilityCatalog;
+use SdAiAgent\Core\AbilityVisibility;
 use SdAiAgent\Core\Settings;
 use WP_Error;
 
@@ -339,8 +340,7 @@ class ToolDiscovery {
 				continue;
 			}
 
-			$meta = $ability->get_meta();
-			if ( ! empty( $meta['ai_hidden'] ) ) {
+			if ( ! AbilityVisibility::for_ai_chat( $ability ) ) {
 				continue;
 			}
 
@@ -989,8 +989,7 @@ class ToolDiscovery {
 		$perms = self::tool_permissions();
 		$out   = array();
 		foreach ( wp_get_abilities() as $ability ) {
-			$meta = $ability->get_meta();
-			if ( ! empty( $meta['ai_hidden'] ) ) {
+			if ( ! AbilityVisibility::for_ai_chat( $ability ) ) {
 				continue;
 			}
 			if ( 'disabled' === ( $perms[ $ability->get_name() ] ?? 'auto' ) ) {

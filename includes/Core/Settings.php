@@ -457,7 +457,39 @@ class Settings {
 			// Skill auto-update settings (t218).
 			'skill_auto_update'        => true,
 			'skill_manifest_url'       => '',
+			// Third-party ability visibility mode (sd-ai-3ns / #1405).
+			// Controls which abilities are exposed to AI surfaces by AbilityVisibility.
+			// 'legacy'  — current behaviour: everything except ai_hidden is public.
+			// The AbilityVisibility resolver is forced to allow regardless
+			// of namespace/category/heuristic tiers. Zero behavioural
+			// change for existing sites.
+			// 'auto'    — full tiered-trust model: namespace allowlist + heuristics.
+			// Ships in a follow-up PR (sd-ai-u21).
+			// 'strict'  — only meta.mcp.public === true passes. Future use.
+			'third_party_mode'         => 'legacy',
 		);
+	}
+
+	/**
+	 * Return the current third-party ability visibility mode.
+	 *
+	 * Controls which abilities AbilityVisibility exposes to AI and MCP surfaces.
+	 * Values: 'legacy' (default) | 'auto' | 'strict'.
+	 *
+	 * Static helper so AbilityVisibility can call it without DI.
+	 *
+	 * @return string One of 'legacy', 'auto', 'strict'.
+	 */
+	public static function get_third_party_mode(): string {
+		$option = get_option( self::OPTION_NAME, array() );
+		if ( ! is_array( $option ) || ! isset( $option['third_party_mode'] ) ) {
+			return 'legacy';
+		}
+		$mode = (string) $option['third_party_mode'];
+		if ( ! in_array( $mode, array( 'legacy', 'auto', 'strict' ), true ) ) {
+			return 'legacy';
+		}
+		return $mode;
 	}
 
 	/**

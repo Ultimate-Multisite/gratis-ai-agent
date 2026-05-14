@@ -60,6 +60,7 @@ declare(strict_types=1);
 namespace SdAiAgent\Core;
 
 use SdAiAgent\Abilities\ThirdParty\PartnerAllowlist;
+use SdAiAgent\Core\Settings;
 use WP_Ability;
 
 if ( ! defined( 'ABSPATH' ) ) {
@@ -145,6 +146,19 @@ final class AbilityVisibility {
 	/**
 	 * Return the classification tier for an ability.
 	 *
+	 * The result depends on the `sd_ai_agent_third_party_mode` setting:
+	 *
+	 *   - 'legacy' (default): preserves pre-1.9.0 behaviour. Any ability
+	 *     that is not explicitly hidden via `ai_hidden` is treated as
+	 *     `public-explicit`, matching the flat `! empty( $meta['ai_hidden'] )`
+	 *     checks it replaces. Zero behavioural change for existing sites.
+	 *
+	 *   - 'auto': full tiered-trust model — namespace allowlist, partner
+	 *     categories, and the description+category heuristic all apply.
+	 *
+	 *   - 'strict': only abilities with `meta.mcp.public === true` pass.
+	 *     Everything else is treated as `private-unknown`.
+	 *
 	 * @param WP_Ability $ability The ability under consideration.
 	 * @return string One of the `CLASSIFICATION_*` constants.
 	 */
@@ -154,7 +168,7 @@ final class AbilityVisibility {
 			$meta = array();
 		}
 
-		// 1. Explicit private wins over everything else.
+		// Step 1: Explicit private always wins regardless of mode.
 		if ( ! empty( $meta['ai_hidden'] ) ) {
 			return self::CLASSIFICATION_PRIVATE_EXPLICIT;
 		}
@@ -164,30 +178,45 @@ final class AbilityVisibility {
 			return self::CLASSIFICATION_PRIVATE_EXPLICIT;
 		}
 
-		// 2. Explicit public.
+		$mode = Settings::get_third_party_mode();
+
+		// Legacy mode: treat every non-hidden ability as public-explicit.
+		// This is a zero-behavioural-change shim for sites on the default setting.
+		if ( 'legacy' === $mode ) {
+			return self::CLASSIFICATION_PUBLIC_EXPLICIT;
+		}
+
+		// Step 2: Explicit public (all modes).
 		if ( true === $mcp_public ) {
 			return self::CLASSIFICATION_PUBLIC_EXPLICIT;
 		}
 
-		// 3. & 4. Partner-allowlist (first-party + verified partners).
+		// Strict mode: only explicit mcp.public passes; everything else is private.
+		if ( 'strict' === $mode ) {
+			return self::CLASSIFICATION_PRIVATE_UNKNOWN;
+		}
+
+		// Auto mode — full tiered-trust resolution follows.
+
+		// Steps 3 & 4: Partner-allowlist (first-party + verified partners).
 		$name = (string) $ability->get_name();
 		if ( PartnerAllowlist::is_partner_namespace( $name ) ) {
 			return self::CLASSIFICATION_PUBLIC_PARTNER;
 		}
 
-		// 5. Partner category.
+		// Step 5: Partner category.
 		$category = (string) $ability->get_category();
 		if ( '' !== $category && PartnerAllowlist::is_partner_category( $category ) ) {
 			return self::CLASSIFICATION_PUBLIC_PARTNER;
 		}
 
-		// 6. Heuristic: well-formed registration.
+		// Step 6: Heuristic — well-formed registration.
 		$description = trim( (string) $ability->get_description() );
 		if ( '' !== $description && '' !== $category ) {
 			return self::CLASSIFICATION_PUBLIC_HEURISTIC;
 		}
 
-		// 7. Fall-through.
+		// Step 7: Fall-through.
 		return self::CLASSIFICATION_PRIVATE_UNKNOWN;
 	}
 
