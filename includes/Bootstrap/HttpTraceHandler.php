@@ -19,6 +19,7 @@ declare(strict_types=1);
 namespace SdAiAgent\Bootstrap;
 
 use SdAiAgent\Core\PromptCache\CacheStrategyResolver;
+use SdAiAgent\Core\PromptCache\RequestContextAwareCacheStrategyInterface;
 use SdAiAgent\Core\ProviderTraceLogger;
 use SdAiAgent\Core\Settings;
 use SdAiAgent\Models\ProviderTrace;
@@ -138,6 +139,15 @@ final class HttpTraceHandler {
 		$decoded = json_decode( $body, true );
 		if ( ! is_array( $decoded ) ) {
 			return $parsed_args;
+		}
+
+		// Strategies that need HTTP context (headers, URL) to resolve their
+		// API key or other request-level data must implement
+		// RequestContextAwareCacheStrategyInterface so we can supply that
+		// context before body mutation happens.
+		if ( $strategy instanceof RequestContextAwareCacheStrategyInterface ) {
+			$headers = is_array( $parsed_args['headers'] ?? null ) ? $parsed_args['headers'] : array();
+			$strategy->set_request_context( $headers, $url );
 		}
 
 		$mutated = $strategy->apply( $decoded );

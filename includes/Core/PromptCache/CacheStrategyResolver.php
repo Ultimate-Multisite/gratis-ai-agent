@@ -5,7 +5,7 @@
  *
  * Lookup order:
  *   1. {@see CacheStrategyInterface::matches()} — strategies that need
- *      explicit body mutation (currently only Anthropic).
+ *      explicit body mutation (Anthropic and Gemini).
  *   2. Known automatic-cache hosts → {@see NoopCacheStrategy}.
  *   3. Filter `sd_ai_agent_resolve_cache_strategy` for custom providers.
  *   4. Null when no strategy applies (URL is not an LLM endpoint).
@@ -76,6 +76,7 @@ final class CacheStrategyResolver {
 		if ( null === $strategies ) {
 			$strategies = array(
 				new AnthropicCacheStrategy(),
+				new GeminiCacheStrategy(),
 			);
 		}
 		$this->strategies = $strategies;

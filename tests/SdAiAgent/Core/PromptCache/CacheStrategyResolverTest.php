@@ -14,6 +14,7 @@ namespace SdAiAgent\Tests\Core\PromptCache;
 use SdAiAgent\Core\PromptCache\AnthropicCacheStrategy;
 use SdAiAgent\Core\PromptCache\CacheStrategyInterface;
 use SdAiAgent\Core\PromptCache\CacheStrategyResolver;
+use SdAiAgent\Core\PromptCache\GeminiCacheStrategy;
 use SdAiAgent\Core\PromptCache\NoopCacheStrategy;
 use WP_UnitTestCase;
 
@@ -83,6 +84,26 @@ class CacheStrategyResolverTest extends WP_UnitTestCase {
 		remove_filter( 'sd_ai_agent_resolve_cache_strategy', $filter, 10 );
 
 		$this->assertSame( $stub, $resolved );
+	}
+
+	public function test_resolves_gemini_for_generate_content_url(): void {
+		$resolver = new CacheStrategyResolver();
+		$strategy = $resolver->resolve(
+			'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:generateContent'
+		);
+
+		$this->assertInstanceOf( GeminiCacheStrategy::class, $strategy );
+	}
+
+	public function test_returns_null_for_gemini_cached_contents_endpoint(): void {
+		// The cachedContents URL should NOT be treated as an LLM endpoint —
+		// it's an internal management API call made by GeminiCacheManager.
+		$resolver = new CacheStrategyResolver();
+		$strategy = $resolver->resolve(
+			'https://generativelanguage.googleapis.com/v1beta/cachedContents?key=abc'
+		);
+
+		$this->assertNull( $strategy );
 	}
 
 	public function test_noop_strategy_is_pass_through(): void {
