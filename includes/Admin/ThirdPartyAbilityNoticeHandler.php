@@ -135,8 +135,8 @@ final class ThirdPartyAbilityNoticeHandler {
 				<strong><?php esc_html_e( 'Superdav AI Agent', 'superdav-ai-agent' ); ?></strong>
 				<?php
 				printf(
-					/* translators: %d is the number of plugins */
 					esc_html(
+						/* translators: %d is the number of plugins */
 						_n(
 							'%d plugin has registered AI abilities that have not been classified.',
 							'%d plugins have registered AI abilities that have not been classified.',

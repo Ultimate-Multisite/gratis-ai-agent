@@ -81,6 +81,137 @@ function _manually_load_plugin() {
 
 tests_add_filter('muplugins_loaded', '_manually_load_plugin');
 
+/*
+ * WP 7.0 Abilities API in-memory polyfill (loaded before WP core boots).
+ *
+ * WordPress trunk (as of 2026-05) ships wp_register_ability() and related
+ * functions as empty stubs. Internally they use did_action() checks that
+ * reject registrations made after wp_abilities_api_init has fired in a
+ * previous test, so wp_get_ability() always returns null for test-registered
+ * abilities.
+ *
+ * Loading guarded definitions HERE — before WP core's includes/bootstrap.php
+ * runs wp-settings.php — lets our simple in-memory implementation take
+ * precedence via WP's own function_exists() / class_exists() guards. When WP
+ * ships a fully-functional Abilities API those guards will skip this block.
+ *
+ * Note: WP_UnitTestCase does not reset arbitrary PHP globals between tests.
+ * Abilities registered in one test persist into later tests in the same run.
+ * ThirdPartyAbilityNoticeHandlerTest::test_namespace_decision_overrides_heuristic
+ * (the last test in that class) is the only test that writes to the registry,
+ * so cross-class contamination risk is low for the current suite. If it
+ * becomes an issue, add `$_wp_ability_registry = [];` to the affected
+ * tear_down() method.
+ */
+// phpcs:disable WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedClassFound
+// phpcs:disable WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedFunctionFound
+// phpcs:disable WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedVariableFound
+if ( ! class_exists( 'WP_Ability' ) ) {
+	/**
+	 * WP 7.0 Ability class polyfill.
+	 *
+	 * @since 7.0.0
+	 */
+	class WP_Ability {
+		/** @var string */
+		public string $name = '';
+		/**
+		 * @param string               $name Ability name.
+		 * @param array<string, mixed> $args Ability args.
+		 */
+		public function __construct( string $name, array $args = array() ) {
+			$this->name = $name;
+		}
+		/** @return string */
+		public function get_name(): string { return $this->name; }
+		/** @return string */
+		public function get_label(): string { return ''; }
+		/** @return string */
+		public function get_description(): string { return ''; }
+		/** @return array<string, mixed> */
+		public function get_params(): array { return array(); }
+		/** @return array<string, mixed> */
+		public function get_input_schema(): array { return array(); }
+		/** @return array<string, mixed> */
+		public function get_output_schema(): array { return array(); }
+		/** @return string */
+		public function get_category(): string { return ''; }
+		/** @return array<string, mixed> */
+		public function get_meta(): array { return array(); }
+		/** @return mixed */
+		public function call( array $params ): mixed { return null; }
+		/** @return mixed|\WP_Error */
+		public function execute( ?array $args ): mixed { return null; }
+		/** @return true|\WP_Error */
+		public function validate_input( mixed $input ): true|\WP_Error { return true; }
+	}
+}
+
+global $_wp_ability_registry;
+if ( ! isset( $_wp_ability_registry ) ) {
+	$_wp_ability_registry = array();
+}
+
+if ( ! function_exists( 'wp_register_ability' ) ) {
+	/**
+	 * @param string               $name
+	 * @param array<string, mixed> $args
+	 * @return WP_Ability|null
+	 */
+	function wp_register_ability( string $name, array $args ): ?WP_Ability {
+		global $_wp_ability_registry;
+		$ability                       = new WP_Ability( $name, $args );
+		$_wp_ability_registry[ $name ] = $ability;
+		return $ability;
+	}
+}
+
+if ( ! function_exists( 'wp_unregister_ability' ) ) {
+	/**
+	 * @param string $name
+	 * @return WP_Ability|null
+	 */
+	function wp_unregister_ability( string $name ): ?WP_Ability {
+		global $_wp_ability_registry;
+		$ability = $_wp_ability_registry[ $name ] ?? null;
+		unset( $_wp_ability_registry[ $name ] );
+		return $ability;
+	}
+}
+
+if ( ! function_exists( 'wp_get_ability' ) ) {
+	/**
+	 * @param string $name
+	 * @return WP_Ability|null
+	 */
+	function wp_get_ability( string $name ): ?WP_Ability {
+		global $_wp_ability_registry;
+		return $_wp_ability_registry[ $name ] ?? null;
+	}
+}
+
+if ( ! function_exists( 'wp_get_abilities' ) ) {
+	/**
+	 * @return WP_Ability[]
+	 */
+	function wp_get_abilities(): array {
+		global $_wp_ability_registry;
+		return array_values( $_wp_ability_registry );
+	}
+}
+
+if ( ! function_exists( 'wp_register_ability_category' ) ) {
+	/**
+	 * @param string               $slug
+	 * @param array<string, mixed> $args
+	 * @return mixed
+	 */
+	function wp_register_ability_category( string $slug, array $args ): mixed {
+		return null;
+	}
+}
+// phpcs:enable
+
 // Start up the WP testing environment.
 require "{$_tests_dir}/includes/bootstrap.php";
 
