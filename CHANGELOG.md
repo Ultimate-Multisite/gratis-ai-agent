@@ -31,6 +31,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   or chat sessions are flagged as onboarded so the bootstrap discovery UI
   never opens on plugin update.
 
+## [1.12.0] - 2026-05-15
+
+### Added
+
+- Admin notice for unclassified third-party abilities, grouped by namespace
+  with one decision per namespace (allow/block) rather than per-ability
+  toggling (#1406)
+- `ThirdPartyAbilityNoticeHandler` to surface and manage third-party ability
+  visibility decisions
+- `third_party_namespace_decisions` setting to store namespace-level visibility
+  overrides
+
+### Changed
+
+- Default `sd_ai_agent_third_party_mode` flipped from `legacy` to `auto`. The
+  tiered-trust model is now the default, requiring explicit namespace decisions
+  for unclassified third-party abilities. Site owners who want the previous
+  opt-out behaviour can set the mode back to `legacy` from settings.
+- `AbilityVisibility::classify()` now consults namespace-level decisions before
+  applying heuristics, allowing site owners to override the default
+  classification
+
 ## [1.3.0] - 2026-03-24
 
 ### Added

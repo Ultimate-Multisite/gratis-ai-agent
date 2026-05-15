@@ -457,16 +457,15 @@ class Settings {
 			// Skill auto-update settings (t218).
 			'skill_auto_update'        => true,
 			'skill_manifest_url'       => '',
-			// Third-party ability visibility mode (sd-ai-3ns / #1405).
+			// Third-party ability visibility mode (sd-ai-3ns / #1405, sd-ai-u21 / #1407).
 			// Controls which abilities are exposed to AI surfaces by AbilityVisibility.
-			// 'legacy'  — current behaviour: everything except ai_hidden is public.
+			// 'legacy'  — opt-out behaviour: everything except ai_hidden is public.
 			// The AbilityVisibility resolver is forced to allow regardless
-			// of namespace/category/heuristic tiers. Zero behavioural
-			// change for existing sites.
+			// of namespace/category/heuristic tiers.
 			// 'auto'    — full tiered-trust model: namespace allowlist + heuristics.
-			// Ships in a follow-up PR (sd-ai-u21).
+			// Default since 1.12.0.
 			// 'strict'  — only meta.mcp.public === true passes. Future use.
-			'third_party_mode'         => 'legacy',
+			'third_party_mode'         => 'auto',
 
 			// Third-party namespace visibility decisions (sd-ai-0zq / #1406).
 			// Maps namespace slugs to visibility decisions: 'allow', 'block', or 'pending'.
