@@ -53,6 +53,7 @@
 /.eslintrc
 /.eslintrc.json
 /.eslintrc.js
+/.eslintignore
 /.stylelintrc
 /.stylelintrc.json
 /.stylelintrc.js

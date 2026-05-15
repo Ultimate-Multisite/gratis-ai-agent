@@ -157,6 +157,7 @@ build_variant() {
 	# repeating without a leading `/` would over-match (see GH#1310).
 	cat >>"$exclude_file" <<'EXTRA'
 **/.eslintrc*
+**/.eslintignore
 **/.prettierrc*
 **/.stylelintrc*
 EXTRA
@@ -187,6 +188,7 @@ EXTRA
 		-o -name '.windsurfrules' \
 		-o -name '.editorconfig' \
 		-o -name '.eslintrc*' \
+		-o -name '.eslintignore' \
 		-o -name '.prettierrc*' \
 		-o -name '.stylelintrc*' \
 		-o -name '.playwright-mcp' \
