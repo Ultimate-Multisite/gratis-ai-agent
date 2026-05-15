@@ -231,7 +231,7 @@ final class GeminiCacheManager implements GeminiCacheManagerInterface {
 		string $system
 	): ?string {
 		// Gemini requires the model in `models/{id}` form.
-		$model_uri = 'models/' . ltrim( $model, 'models/' );
+		$model_uri = 'models/' . ( str_starts_with( $model, 'models/' ) ? substr( $model, 7 ) : $model );
 
 		$body = array(
 			'model'    => $model_uri,
