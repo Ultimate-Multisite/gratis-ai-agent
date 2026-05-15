@@ -188,7 +188,7 @@ final class AbilityVisibility {
 		$name = (string) $ability->get_name();
 		if ( str_contains( $name, '/' ) ) {
 			[ $namespace ] = explode( '/', $name, 2 );
-			$namespace = strtolower( trim( $namespace ) );
+			$namespace     = strtolower( trim( $namespace ) );
 			if ( '' !== $namespace ) {
 				$decisions = Settings::get_third_party_namespace_decisions();
 				if ( isset( $decisions[ $namespace ] ) ) {

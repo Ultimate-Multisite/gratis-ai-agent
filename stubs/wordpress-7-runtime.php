@@ -398,7 +398,8 @@ namespace {
 	 *
 	 * @since 7.0.0
 	 */
-	class WP_Ability {
+	if ( ! class_exists( 'WP_Ability' ) ) {
+		class WP_Ability {
 		/**
 		 * The namespaced ability name (e.g. 'sd-ai-agent/memory-save').
 		 *
@@ -482,6 +483,7 @@ namespace {
 		 * @return true|\WP_Error
 		 */
 		public function validate_input( mixed $input ): true|\WP_Error { return true; }
+		}
 	}
 
 	/**
