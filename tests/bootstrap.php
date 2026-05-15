@@ -103,9 +103,34 @@ tests_add_filter('muplugins_loaded', '_manually_load_plugin');
  * becomes an issue, add `$_wp_ability_registry = [];` to the affected
  * tear_down() method.
  */
+// Start up the WP testing environment.
+require "{$_tests_dir}/includes/bootstrap.php";
+
 // phpcs:disable WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedClassFound
 // phpcs:disable WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedFunctionFound
 // phpcs:disable WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedVariableFound
+/*
+ * WP 7.0 Abilities API in-memory polyfill (loaded AFTER WP core boots).
+ *
+ * WordPress trunk (as of 2026-05) ships wp_register_ability() and related
+ * functions as empty stubs. Internally they use did_action() checks that
+ * reject registrations made after wp_abilities_api_init has fired in a
+ * previous test, so wp_get_ability() always returns null for test-registered
+ * abilities.
+ *
+ * Loading guarded definitions HERE — after WP core's includes/bootstrap.php
+ * runs wp-settings.php — lets our simple in-memory implementation take
+ * precedence via WP's own function_exists() / class_exists() guards. When WP
+ * ships a fully-functional Abilities API those guards will skip this block.
+ *
+ * Note: WP_UnitTestCase does not reset arbitrary PHP globals between tests.
+ * Abilities registered in one test persist into later tests in the same run.
+ * ThirdPartyAbilityNoticeHandlerTest::test_namespace_decision_overrides_heuristic
+ * (the last test in that class) is the only test that writes to the registry,
+ * so cross-class contamination risk is low for the current suite. If it
+ * becomes an issue, add `$_wp_ability_registry = [];` to the affected
+ * tear_down() method.
+ */
 if ( ! class_exists( 'WP_Ability' ) ) {
 	/**
 	 * WP 7.0 Ability class polyfill.
@@ -211,9 +236,6 @@ if ( ! function_exists( 'wp_register_ability_category' ) ) {
 	}
 }
 // phpcs:enable
-
-// Start up the WP testing environment.
-require "{$_tests_dir}/includes/bootstrap.php";
 
 /*
  * Prime the DI framework's REST route hooks into $wp_filter BEFORE any test
