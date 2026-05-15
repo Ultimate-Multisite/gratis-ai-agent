@@ -91,7 +91,7 @@ class CliCommand extends \WP_CLI_Command {
 	 * @param array $args       Positional arguments.
 	 * @param array $assoc_args Associative arguments.
 	 */
-	public function prompt( array $args, array $assoc_args ): void {
+	public function __invoke( array $args, array $assoc_args ): void {
 		$prompt     = $args[0];
 		$agent_slug = \WP_CLI\Utils\get_flag_value( $assoc_args, 'agent', '' );
 		$no_tools   = \WP_CLI\Utils\get_flag_value( $assoc_args, 'skip-tools', false );
