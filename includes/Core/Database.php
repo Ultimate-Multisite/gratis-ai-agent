@@ -36,7 +36,7 @@ use SdAiAgent\Tools\CustomTools;
 class Database {
 
 	const DB_VERSION_OPTION = 'sd_ai_agent_db_version';
-	const DB_VERSION        = '19.2.0';
+	const DB_VERSION        = '19.2.1';
 
 	// ─── Table Name Registry ──────────────────────────────────────────────────
 
@@ -578,6 +578,8 @@ class Database {
 			method varchar(10) NOT NULL DEFAULT 'POST',
 			status_code int(11) NOT NULL DEFAULT 0,
 			duration_ms bigint(20) unsigned NOT NULL DEFAULT 0,
+			cache_creation_tokens bigint(20) unsigned NOT NULL DEFAULT 0,
+			cache_read_tokens bigint(20) unsigned NOT NULL DEFAULT 0,
 			request_headers longtext NOT NULL,
 			request_body longtext NOT NULL,
 			response_headers longtext NOT NULL,

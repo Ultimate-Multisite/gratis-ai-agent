@@ -312,6 +312,31 @@ class DatabaseSchemaTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * Provider trace table has the cache-token columns introduced in DB 19.2.0.
+	 *
+	 * Regression for sd-ai-34u: PR #1387 added the columns to
+	 * {@see \SdAiAgent\Models\ProviderTrace::get_schema()} and bumped DB_VERSION
+	 * to 19.2.0, but the inline schema in {@see Database::install()} was not
+	 * updated, so dbDelta never created the columns on existing sites.
+	 * Inserts into the table then failed with "Unknown column
+	 * 'cache_creation_tokens' in 'INSERT INTO'". Asserting the columns exist
+	 * after install() guards against the same drift recurring.
+	 */
+	public function test_provider_trace_table_has_cache_token_columns(): void {
+		Database::install();
+
+		$columns = $this->get_column_names( Database::provider_trace_table_name() );
+
+		foreach ( [ 'cache_creation_tokens', 'cache_read_tokens' ] as $col ) {
+			$this->assertContains(
+				$col,
+				$columns,
+				"Provider trace table missing column '{$col}' — see sd-ai-34u."
+			);
+		}
+	}
+
+	/**
 	 * Knowledge tables are created with correct structure.
 	 */
 	public function test_knowledge_tables_have_required_columns(): void {
