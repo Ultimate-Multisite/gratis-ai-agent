@@ -69,7 +69,67 @@ test.describe( 'Changes Page - Page Load', () => {
 
 // ─── REST endpoint ────────────────────────────────────────────────────────────
 
+/**
+ * Fetch the modified-plugins REST endpoint from within the browser context.
+ *
+ * The fetch is issued with a 15 s AbortSignal so a cold-start or slow
+ * endpoint on a CI runner cannot silently consume the entire test budget.
+ * Network errors and AbortError are caught and returned as a sentinel
+ * value { status: 0, body: null } rather than letting page.evaluate()
+ * reject, which would lose the timeout context entirely.
+ *
+ * @param {import('@playwright/test').Page} page - Playwright page object.
+ * @return {Promise<{status: number, body: object|null}>} Resolved fetch result or sentinel on error.
+ */
+async function fetchModifiedPlugins( page ) {
+	return page.evaluate( async () => {
+		const nonce = window.sdAiAgentData?.nonce || '';
+		if ( ! nonce ) {
+			return { status: 0, body: null };
+		}
+		// Use wpApiSettings.root (set by wp_localize_script for wp-api-fetch)
+		// which handles both pretty-permalink (/wp-json/) and plain-permalink
+		// (?rest_route=) environments. Fall back to the plain-permalink format
+		// if wpApiSettings is unavailable (e.g. wp-env without pretty permalinks).
+		const apiRoot =
+			window.wpApiSettings?.root ||
+			window.location.origin + '/?rest_route=/';
+		const endpoint = `${ apiRoot }sd-ai-agent/v1/modified-plugins`;
+
+		// AbortSignal.timeout() cancels the fetch after 15 s so a slow
+		// endpoint does not exhaust the test budget. Wrapping in try/catch
+		// converts AbortError and network failures into the sentinel value
+		// instead of an unhandled rejection.
+		let res;
+		try {
+			res = await fetch( endpoint, {
+				headers: {
+					'X-WP-Nonce': nonce,
+				},
+				signal: AbortSignal.timeout( 15_000 ),
+			} );
+		} catch ( e ) {
+			return { status: 0, body: null };
+		}
+
+		let body = null;
+		try {
+			body = await res.json();
+		} catch ( e ) {
+			body = null;
+		}
+		return { status: res.status, body };
+	} );
+}
+
 test.describe( 'Changes Page - REST Endpoint', () => {
+	// These tests navigate to the changes page (≤45 s SPA mount wait) and
+	// then issue a fetch to the modified-plugins endpoint. 120 s gives
+	// loginToWordPress (≤60 s), goToChangesPage (≤45 s), and the fetch
+	// (≤15 s) enough combined headroom on CI runners under load without
+	// being so large that genuinely broken tests take forever to fail.
+	test.setTimeout( 120_000 );
+
 	test.beforeEach( async ( { page } ) => {
 		await loginToWordPress( page );
 	} );
@@ -81,32 +141,7 @@ test.describe( 'Changes Page - REST Endpoint', () => {
 		// available in the page context.
 		await goToChangesPage( page );
 
-		const apiResponse = await page.evaluate( async () => {
-			const nonce = window.sdAiAgentData?.nonce || '';
-			if ( ! nonce ) {
-				return { status: 0, body: null };
-			}
-			// Use wpApiSettings.root (set by wp_localize_script for wp-api-fetch)
-			// which handles both pretty-permalink (/wp-json/) and plain-permalink
-			// (?rest_route=) environments. Fall back to the plain-permalink format
-			// if wpApiSettings is unavailable (e.g. wp-env without pretty permalinks).
-			const apiRoot =
-				window.wpApiSettings?.root ||
-				window.location.origin + '/?rest_route=/';
-			const endpoint = `${ apiRoot }sd-ai-agent/v1/modified-plugins`;
-			const res = await fetch( endpoint, {
-				headers: {
-					'X-WP-Nonce': nonce,
-				},
-			} );
-			let body = null;
-			try {
-				body = await res.json();
-			} catch ( e ) {
-				body = null;
-			}
-			return { status: res.status, body };
-		} );
+		const apiResponse = await fetchModifiedPlugins( page );
 
 		// Endpoint must return 200.
 		expect( apiResponse.status ).toBe( 200 );
@@ -121,28 +156,7 @@ test.describe( 'Changes Page - REST Endpoint', () => {
 	test( 'each modified plugin entry has a download_url', async ( { page } ) => {
 		await goToChangesPage( page );
 
-		const apiResponse = await page.evaluate( async () => {
-			const nonce = window.sdAiAgentData?.nonce || '';
-			if ( ! nonce ) {
-				return { status: 0, body: null };
-			}
-			const apiRoot =
-				window.wpApiSettings?.root ||
-				window.location.origin + '/?rest_route=/';
-			const endpoint = `${ apiRoot }sd-ai-agent/v1/modified-plugins`;
-			const res = await fetch( endpoint, {
-				headers: {
-					'X-WP-Nonce': nonce,
-				},
-			} );
-			let body = null;
-			try {
-				body = await res.json();
-			} catch ( e ) {
-				body = null;
-			}
-			return { status: res.status, body };
-		} );
+		const apiResponse = await fetchModifiedPlugins( page );
 
 		expect( apiResponse.status ).toBe( 200 );
 
