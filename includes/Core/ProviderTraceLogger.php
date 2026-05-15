@@ -35,7 +35,14 @@ class ProviderTraceLogger {
 	private static array $inflight = [];
 
 	/**
-	 * Known AI provider URL patterns and their provider IDs.
+	 * Known AI provider URL patterns and their canonical provider IDs.
+	 *
+	 * These IDs are used by the lightweight error-log path that runs even
+	 * when tracing is disabled, and by the trace UI's provider filter to
+	 * group rows under stable provider names. Connector plugins that proxy
+	 * to other backends (HuggingFace Inference, OpenRouter, custom OpenAI-
+	 * compatible endpoints, etc.) are matched by host heuristic in
+	 * {@see self::resolve_provider_for_trace()} when tracing is enabled.
 	 *
 	 * @var array<string, string>
 	 */
@@ -45,6 +52,34 @@ class ProviderTraceLogger {
 		'generativelanguage.googleapis.com' => 'google',
 		'localhost:11434'                   => 'ollama',
 		'127.0.0.1:11434'                   => 'ollama',
+	];
+
+	/**
+	 * URL path fragments that indicate an LLM/inference endpoint.
+	 *
+	 * Used only when tracing is explicitly enabled — see
+	 * {@see self::resolve_provider_for_trace()}. Matched case-insensitively
+	 * against the URL path so connector-plugin endpoints that forward to
+	 * arbitrary OpenAI-compatible hosts still get captured.
+	 *
+	 * Kept deliberately conservative: catching `/chat/completions`,
+	 * `/completions`, `/messages`, `/responses`, `/embeddings`,
+	 * `/generateContent`, `/generate`, `/predict`, plus the HuggingFace
+	 * Inference path `/models/` covers every shape the connector plugins
+	 * we ship with use today, without sweeping in unrelated REST traffic.
+	 *
+	 * @var list<string>
+	 */
+	private static array $llm_path_fragments = [
+		'/chat/completions',
+		'/completions',
+		'/messages',
+		'/responses',
+		'/embeddings',
+		'/generatecontent',
+		'/generate',
+		'/predict',
+		'/models/',
 	];
 
 	/**
@@ -68,7 +103,17 @@ class ProviderTraceLogger {
 			return $response;
 		}
 
-		$provider_id = self::match_provider( $url );
+		$request_body = is_string( $parsed_args['body'] ?? null )
+			? $parsed_args['body']
+			: (string) wp_json_encode( $parsed_args['body'] ?? '' );
+
+		// When tracing is enabled we cast a wider net than the canonical
+		// allowlist so connector plugins that proxy to HuggingFace,
+		// OpenRouter, custom OpenAI-compatible endpoints, etc. are also
+		// captured. The error-log path on `on_http_response()` still uses
+		// the strict allowlist so we don't spam logs for unrelated 4xx
+		// responses.
+		$provider_id = self::resolve_provider_for_trace( $url, $request_body );
 		if ( '' === $provider_id ) {
 			return $response;
 		}
@@ -79,7 +124,7 @@ class ProviderTraceLogger {
 			'url'             => $url,
 			'method'          => strtoupper( $parsed_args['method'] ?? 'POST' ),
 			'request_headers' => self::extract_headers( $parsed_args['headers'] ?? [] ),
-			'request_body'    => is_string( $parsed_args['body'] ?? null ) ? $parsed_args['body'] : (string) wp_json_encode( $parsed_args['body'] ?? '' ),
+			'request_body'    => $request_body,
 			'start_time'      => microtime( true ),
 		];
 
@@ -103,41 +148,42 @@ class ProviderTraceLogger {
 	 * @return array<string, mixed> Unchanged response.
 	 */
 	public static function on_http_response( array $response, array $parsed_args, string $url ): array {
-		// Always check whether this URL is a known AI provider — even when
-		// trace is disabled — so we can emit the lightweight error line.
-		$provider_id = self::match_provider( $url );
-		if ( '' === $provider_id ) {
-			return $response;
-		}
+		// Lightweight error-log path: emit a greppable line for 4xx/5xx
+		// responses from canonical AI providers regardless of debug mode.
+		// Uses the strict allowlist so unrelated 4xx responses (update
+		// checks, WP.org, etc.) never produce noise here.
+		$canonical_provider_id = self::match_provider( $url );
+		if ( '' !== $canonical_provider_id ) {
+			$status_code_for_log = (int) wp_remote_retrieve_response_code( $response );
+			if ( $status_code_for_log >= 400 ) {
+				$model_id_for_log = '';
+				if ( isset( $parsed_args['body'] ) ) {
+					$body_for_log     = is_string( $parsed_args['body'] )
+						? $parsed_args['body']
+						: (string) wp_json_encode( $parsed_args['body'] );
+					$model_id_for_log = self::extract_model_id( $body_for_log );
+				}
 
-		// Emit lightweight error line independent of debug mode. No body,
-		// no headers — just status + provider + model.
-		$status_code_for_log = (int) wp_remote_retrieve_response_code( $response );
-		if ( $status_code_for_log >= 400 ) {
-			$model_id_for_log = '';
-			if ( isset( $parsed_args['body'] ) ) {
-				$body_for_log     = is_string( $parsed_args['body'] )
-					? $parsed_args['body']
-					: (string) wp_json_encode( $parsed_args['body'] );
-				$model_id_for_log = self::extract_model_id( $body_for_log );
+				AgentEventLog::log(
+					'provider_http_error',
+					AgentEventLog::SEVERITY_ERROR,
+					array(
+						'provider_id' => $canonical_provider_id,
+						'model_id'    => $model_id_for_log,
+						'status_code' => $status_code_for_log,
+					)
+				);
 			}
-
-			AgentEventLog::log(
-				'provider_http_error',
-				AgentEventLog::SEVERITY_ERROR,
-				array(
-					'provider_id' => $provider_id,
-					'model_id'    => $model_id_for_log,
-					'status_code' => $status_code_for_log,
-				)
-			);
 		}
 
 		if ( ! ProviderTrace::is_enabled() ) {
 			return $response;
 		}
 
-		// Look up in-flight data.
+		// Trace persistence path: look up the in-flight entry recorded by
+		// `on_pre_http_request()`. Presence of the entry means the broader
+		// `resolve_provider_for_trace()` matcher already approved the URL;
+		// absence means this request is not an LLM call we care about.
 		if ( ! isset( self::$inflight[ $url ] ) ) {
 			return $response;
 		}
@@ -267,6 +313,99 @@ class ProviderTraceLogger {
 		 * @param string $host        The parsed hostname.
 		 */
 		return (string) apply_filters( 'sd_ai_agent_trace_match_provider', '', $url, $host );
+	}
+
+	/**
+	 * Resolve a provider ID for a request when tracing is enabled.
+	 *
+	 * Wider matcher than {@see self::match_provider()}. Used only when
+	 * provider tracing is explicitly enabled by the operator, so capturing
+	 * a non-LLM HTTP request occasionally is preferable to silently
+	 * dropping a stalled Kimi / OpenRouter / HuggingFace call.
+	 *
+	 * Resolution precedence:
+	 *   1. Canonical pattern match (`anthropic`, `openai`, `google`, `ollama`).
+	 *   2. The `sd_ai_agent_trace_match_provider` filter (extension point).
+	 *   3. Heuristic: the URL path matches a known LLM endpoint fragment
+	 *      (`/chat/completions`, `/messages`, `/generateContent`, etc.)
+	 *      OR the JSON body contains a `model` field. When matched, the
+	 *      provider ID is derived from the hostname as
+	 *      `host:<hostname>` so rows from the same backend group together
+	 *      in the trace UI without colliding with canonical IDs.
+	 *
+	 * A final filter `sd_ai_agent_trace_resolve_provider` allows operators
+	 * to override the resolved ID or veto a match entirely by returning
+	 * an empty string.
+	 *
+	 * @param string $url  The request URL.
+	 * @param string $body The (already-stringified) request body.
+	 * @return string Provider ID, or empty string when the request should not be traced.
+	 */
+	public static function resolve_provider_for_trace( string $url, string $body ): string {
+		// Step 1 + 2: canonical pattern match (includes filter hook).
+		$canonical = self::match_provider( $url );
+		if ( '' !== $canonical ) {
+			return self::apply_resolve_filter( $canonical, $url, $body );
+		}
+
+		$parsed = wp_parse_url( $url );
+		if ( ! is_array( $parsed ) || empty( $parsed['host'] ) ) {
+			return '';
+		}
+
+		$host = strtolower( (string) $parsed['host'] );
+		$path = strtolower( (string) ( $parsed['path'] ?? '' ) );
+
+		// Step 3a: path heuristic.
+		$path_match = false;
+		foreach ( self::$llm_path_fragments as $fragment ) {
+			if ( '' !== $fragment && str_contains( $path, $fragment ) ) {
+				$path_match = true;
+				break;
+			}
+		}
+
+		// Step 3b: body heuristic — JSON body with a `model` field is a
+		// near-certain LLM call regardless of endpoint shape.
+		$body_match = false;
+		if ( '' !== $body ) {
+			$decoded = json_decode( $body, true );
+			if ( is_array( $decoded ) && array_key_exists( 'model', $decoded ) ) {
+				$body_match = true;
+			}
+		}
+
+		if ( ! $path_match && ! $body_match ) {
+			return self::apply_resolve_filter( '', $url, $body );
+		}
+
+		$derived = 'host:' . $host;
+		return self::apply_resolve_filter( $derived, $url, $body );
+	}
+
+	/**
+	 * Apply the resolve filter consistently across return paths.
+	 *
+	 * @param string $provider_id Provider ID resolved by the matcher (may be empty).
+	 * @param string $url         The request URL.
+	 * @param string $body        Request body string.
+	 * @return string Possibly-overridden provider ID.
+	 */
+	private static function apply_resolve_filter( string $provider_id, string $url, string $body ): string {
+		/**
+		 * Filter to override the resolved provider ID for tracing, or to
+		 * veto a match entirely by returning an empty string.
+		 *
+		 * Runs after the canonical allowlist, the legacy
+		 * `sd_ai_agent_trace_match_provider` filter, and the path/body
+		 * heuristics. Receives the URL and request body so operators can
+		 * inspect either when deciding.
+		 *
+		 * @param string $provider_id The resolved provider ID (may be empty).
+		 * @param string $url         The request URL.
+		 * @param string $body        The request body (JSON string when applicable).
+		 */
+		return (string) apply_filters( 'sd_ai_agent_trace_resolve_provider', $provider_id, $url, $body );
 	}
 
 	/**
