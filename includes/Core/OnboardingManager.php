@@ -51,6 +51,13 @@ class OnboardingManager {
 	const BOOTSTRAP_SESSION_OPTION = 'sd_ai_agent_bootstrap_session_id';
 
 	/**
+	 * Option key that persists the theme-builder session ID.
+	 * Stored on first call to rest_theme_builder_start; reused on subsequent calls
+	 * to make the endpoint idempotent — repeat calls return the same session.
+	 */
+	const THEME_BUILDER_SESSION_OPTION = 'sd_ai_agent_theme_builder_session_id';
+
+	/**
 	 * Called on plugin activation.
 	 *
 	 * Two paths:
@@ -213,6 +220,16 @@ class OnboardingManager {
 			[
 				'methods'             => 'POST',
 				'callback'            => [ __CLASS__, 'rest_bootstrap_start' ],
+				'permission_callback' => [ __CLASS__, 'rest_permission' ],
+			]
+		);
+
+		register_rest_route(
+			'sd-ai-agent/v1',
+			'/onboarding/theme-builder-start',
+			[
+				'methods'             => 'POST',
+				'callback'            => [ __CLASS__, 'rest_theme_builder_start' ],
 				'permission_callback' => [ __CLASS__, 'rest_permission' ],
 			]
 		);
@@ -400,6 +417,104 @@ class OnboardingManager {
 				'agent_id'            => $onboarding_agent_id,
 				'kickoff_message'     => $kickoff_message,
 				'woo_detected'        => $woo_active,
+			],
+			200
+		);
+	}
+
+	// ── Theme-builder-start REST handler ──────────────────────────────────
+
+	/**
+	 * POST /sd-ai-agent/v1/onboarding/theme-builder-start
+	 *
+	 * Called by the frontend when a user chooses the theme-builder onboarding
+	 * path. This handler mirrors rest_bootstrap_start but:
+	 *
+	 *  1. Resolves the theme-builder agent instead of the onboarding agent.
+	 *  2. Does NOT mark onboarding complete (the user may still want the
+	 *     bootstrap discovery flow after building the theme).
+	 *  3. Does NOT auto-detect WooCommerce.
+	 *  4. Persists the session ID under THEME_BUILDER_SESSION_OPTION so
+	 *     repeat calls return the same session.
+	 *  5. Returns the same JSON shape as bootstrap-start so the React entry
+	 *     component can use a single helper.
+	 *
+	 * Idempotent: repeat calls return the originally-created session ID
+	 * instead of creating a duplicate session.
+	 *
+	 * @return \WP_REST_Response|\WP_Error
+	 */
+	public static function rest_theme_builder_start(): \WP_REST_Response|\WP_Error {
+		$settings = Settings::instance();
+		$all      = $settings->get();
+
+		// Resolve the theme-builder agent so the frontend can attach it to
+		// the theme-builder session. The agent's stored system prompt is the
+		// canonical source of truth — no parallel theme-builder prompt is needed.
+		$theme_builder_agent    = Agent::get_by_slug( Agent::THEME_BUILDER_AGENT_SLUG );
+		$theme_builder_agent_id = $theme_builder_agent ? (int) $theme_builder_agent->id : 0;
+
+		$kickoff_message = __(
+			"I'd like to design a custom block theme for my site. Please start the interview.",
+			'superdav-ai-agent'
+		);
+
+		// Early-return if a theme-builder session was already created. Reuse the
+		// persisted session ID so the frontend can resume the same conversation.
+		$existing_session_id = get_option( self::THEME_BUILDER_SESSION_OPTION );
+		if ( ! empty( $existing_session_id ) ) {
+			return new \WP_REST_Response(
+				[
+					'success'         => true,
+					'session_id'      => $existing_session_id,
+					'agent_id'        => $theme_builder_agent_id,
+					'kickoff_message' => $kickoff_message,
+				],
+				200
+			);
+		}
+
+		// Create the theme-builder session, applying the theme-builder agent's
+		// provider/model overrides if present so the session starts with the
+		// right model for the first turn.
+		$session_data = [
+			'user_id'     => get_current_user_id(),
+			'title'       => __( 'Theme Builder', 'superdav-ai-agent' ),
+			'provider_id' => $all['default_provider'] ?? '',
+			'model_id'    => $all['default_model'] ?? '',
+		];
+
+		if ( $theme_builder_agent_id > 0 ) {
+			$agent_options = Agent::get_loop_options( $theme_builder_agent_id );
+			if ( ! empty( $agent_options['provider_id'] ) ) {
+				$session_data['provider_id'] = $agent_options['provider_id'];
+			}
+			if ( ! empty( $agent_options['model_id'] ) ) {
+				$session_data['model_id'] = $agent_options['model_id'];
+			}
+		}
+
+		$session_id = Database::create_session( $session_data );
+
+		if ( ! $session_id ) {
+			return new \WP_Error(
+				'theme_builder_session_failed',
+				__( 'Failed to create theme-builder session.', 'superdav-ai-agent' ),
+				[ 'status' => 500 ]
+			);
+		}
+
+		// Persist the session ID so repeat calls return the same session.
+		// Note: we do NOT mark onboarding complete — the user may still want
+		// the bootstrap discovery flow after building the theme.
+		update_option( self::THEME_BUILDER_SESSION_OPTION, $session_id, false );
+
+		return new \WP_REST_Response(
+			[
+				'success'         => true,
+				'session_id'      => $session_id,
+				'agent_id'        => $theme_builder_agent_id,
+				'kickoff_message' => $kickoff_message,
 			],
 			200
 		);
