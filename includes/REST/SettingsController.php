@@ -786,7 +786,7 @@ final class SettingsController {
 					) {
 						$fake_request = new WP_REST_Request( 'GET' );
 						$fake_request->set_param( 'provider_id', $provider_id );
-						$result       = \OpenAiCompatibleConnector\rest_list_models( $fake_request );
+						$result = \OpenAiCompatibleConnector\rest_list_models( $fake_request );
 						if ( ! is_wp_error( $result ) ) {
 							$data = $result->get_data();
 							if ( is_array( $data ) ) {
