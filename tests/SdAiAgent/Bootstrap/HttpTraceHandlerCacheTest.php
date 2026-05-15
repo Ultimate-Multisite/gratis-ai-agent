@@ -133,6 +133,92 @@ class HttpTraceHandlerCacheTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * Regression for sd-ai-0nm: the cache decorator's json_decode/encode
+	 * round-trip used to collapse JSON Schema empty `{"properties":{}}`
+	 * into `[]`, triggering Anthropic 400
+	 * (`tools.N.custom.input_schema: JSON schema is invalid`).
+	 *
+	 * The handler now re-applies SchemaNormalizer::to_json_safe() to every
+	 * tool's input_schema before re-encoding so empty properties survive
+	 * as `{}`.
+	 */
+	public function test_anthropic_empty_input_schema_properties_survive_round_trip(): void {
+		$body = $this->anthropic_body_with_empty_properties();
+
+		$args = array(
+			'method' => 'POST',
+			'body'   => (string) wp_json_encode( $body ),
+		);
+
+		// Sanity: original bytes already encode `{}` (not `[]`).
+		$this->assertStringContainsString( '"properties":{}', $args['body'] );
+		$this->assertStringNotContainsString( '"properties":[]', $args['body'] );
+
+		$result = $this->handler->on_http_request_args( $args, 'https://api.anthropic.com/v1/messages' );
+
+		// After cache marker injection, body must still encode `{}` for
+		// every empty `properties` and never `[]`.
+		$this->assertStringContainsString( '"properties":{}', (string) $result['body'] );
+		$this->assertStringNotContainsString( '"properties":[]', (string) $result['body'] );
+
+		// Cache markers should still be applied (verifies we didn't
+		// accidentally short-circuit the strategy).
+		$decoded   = json_decode( (string) $result['body'], true );
+		$last_tool = end( $decoded['tools'] );
+		$this->assertArrayHasKey( 'cache_control', $last_tool );
+	}
+
+	/**
+	 * Build a request body that mirrors the real wire shape produced by
+	 * the WP-AI-Client SDK polyfill: every tool's input_schema is a
+	 * JSON-Schema draft-2020-12 object with `properties` represented as
+	 * an EmptyJsonObject (which serialises to `{}`).
+	 *
+	 * @return array<string,mixed>
+	 */
+	private function anthropic_body_with_empty_properties(): array {
+		$empty_schema = array(
+			'type'                 => 'object',
+			'properties'           => new \SdAiAgent\Infrastructure\Schema\EmptyJsonObject(),
+			'additionalProperties' => false,
+			'$schema'              => 'http://json-schema.org/draft-07/schema#',
+		);
+
+		return array(
+			'model'    => 'claude-sonnet-4-6',
+			'system'   => array(
+				array( 'type' => 'text', 'text' => str_repeat( 'long system. ', 400 ) ),
+			),
+			'tools'    => array(
+				array(
+					'name'         => 'wpab__sd-ai-agent__memory-list',
+					'description'  => str_repeat( 'list memories ', 30 ),
+					'input_schema' => $empty_schema,
+				),
+				array(
+					'name'         => 'wpab__sd-ai-agent__ability-search',
+					'description'  => str_repeat( 'search abilities ', 30 ),
+					'input_schema' => array(
+						'type'       => 'object',
+						'properties' => array(
+							'query' => array( 'type' => 'string' ),
+						),
+						'required'   => array( 'query' ),
+					),
+				),
+				array(
+					'name'         => 'wpab__sd-ai-agent__skill-list',
+					'description'  => str_repeat( 'list skills ', 30 ),
+					'input_schema' => $empty_schema,
+				),
+			),
+			'messages' => array(
+				array( 'role' => 'user', 'content' => 'hi' ),
+			),
+		);
+	}
+
+	/**
 	 * @return array<string,mixed>
 	 */
 	private function large_anthropic_body(): array {

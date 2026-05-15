@@ -22,6 +22,7 @@ use SdAiAgent\Core\PromptCache\CacheStrategyResolver;
 use SdAiAgent\Core\PromptCache\RequestContextAwareCacheStrategyInterface;
 use SdAiAgent\Core\ProviderTraceLogger;
 use SdAiAgent\Core\Settings;
+use SdAiAgent\Infrastructure\Schema\SchemaNormalizer;
 use SdAiAgent\Models\ProviderTrace;
 use XWP\DI\Decorators\Filter;
 use XWP\DI\Decorators\Handler;
@@ -156,6 +157,17 @@ final class HttpTraceHandler {
 			return $parsed_args;
 		}
 
+		// Repair tool input schemas BEFORE re-encoding. The json_decode/
+		// json_encode round-trip above collapses every JSON `{}` (including
+		// the canonical empty `properties` / `items` objects required by
+		// JSON Schema draft-2020-12) into a PHP empty array, which then
+		// re-serialises as `[]` and triggers Anthropic 400 responses
+		// (`tools.N.custom.input_schema: JSON schema is invalid`).
+		// SchemaNormalizer::to_json_safe() restores `EmptyJsonObject`
+		// markers in the known schema-bearing positions so the re-encoded
+		// body matches the wire format the SDK originally produced.
+		$mutated = $this->repair_tool_schemas( $mutated );
+
 		$encoded = wp_json_encode( $mutated );
 		if ( false === $encoded ) {
 			return $parsed_args;
@@ -163,6 +175,73 @@ final class HttpTraceHandler {
 
 		$parsed_args['body'] = $encoded;
 		return $parsed_args;
+	}
+
+	/**
+	 * Restore JSON-Schema empty-object encoding in tool input schemas.
+	 *
+	 * The provider-cache decorator decodes the outgoing body with
+	 * `json_decode($body, true)`, mutates a few keys, and re-encodes via
+	 * `wp_json_encode()`. The decode step destroys every `{}` (empty
+	 * object) by collapsing it to a PHP `[]` (empty array), which then
+	 * re-encodes as `[]` — a different JSON type that breaks JSON Schema
+	 * draft-2020-12 validators in Anthropic and others.
+	 *
+	 * This walker reapplies {@see SchemaNormalizer::to_json_safe()} to the
+	 * known schema-bearing positions across all major provider body shapes:
+	 *
+	 *   - Anthropic: `tools[*].input_schema`
+	 *   - OpenAI:    `tools[*].function.parameters`
+	 *   - Gemini:    `tools[*].functionDeclarations[*].parameters`
+	 *
+	 * Other body regions are left untouched, so this is safe to call
+	 * regardless of which strategy ran (or whether one ran at all).
+	 *
+	 * @param array<string,mixed> $body Decoded request body.
+	 * @return array<string,mixed> Body with empty-object placeholders restored.
+	 */
+	private function repair_tool_schemas( array $body ): array {
+		if ( ! isset( $body['tools'] ) || ! is_array( $body['tools'] ) ) {
+			return $body;
+		}
+
+		foreach ( $body['tools'] as $i => $tool ) {
+			if ( ! is_array( $tool ) ) {
+				continue;
+			}
+
+			// Anthropic shape: tools[*].input_schema is a JSON Schema.
+			if ( isset( $tool['input_schema'] ) && is_array( $tool['input_schema'] ) ) {
+				$tool['input_schema'] = SchemaNormalizer::to_json_safe( $tool['input_schema'] );
+			}
+
+			// OpenAI shape: tools[*].function.parameters is a JSON Schema.
+			if (
+				isset( $tool['function'] ) && is_array( $tool['function'] ) &&
+				isset( $tool['function']['parameters'] ) && is_array( $tool['function']['parameters'] )
+			) {
+				$tool['function']['parameters'] = SchemaNormalizer::to_json_safe(
+					$tool['function']['parameters']
+				);
+			}
+
+			// Gemini shape: tools[*].functionDeclarations[*].parameters.
+			if ( isset( $tool['functionDeclarations'] ) && is_array( $tool['functionDeclarations'] ) ) {
+				foreach ( $tool['functionDeclarations'] as $j => $decl ) {
+					if (
+						is_array( $decl ) &&
+						isset( $decl['parameters'] ) && is_array( $decl['parameters'] )
+					) {
+						$decl['parameters']                 = SchemaNormalizer::to_json_safe( $decl['parameters'] );
+						$tool['functionDeclarations'][ $j ] = $decl;
+					}
+				}
+			}
+
+			$body['tools'][ $i ] = $tool;
+		}
+
+		return $body;
 	}
 
 	/**
