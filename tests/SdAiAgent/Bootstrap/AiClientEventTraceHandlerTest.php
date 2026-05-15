@@ -279,6 +279,42 @@ class AiClientEventTraceHandlerTest extends WP_UnitTestCase {
 		$this->assertGreaterThan( 0, $row->duration_ms );
 	}
 
+	public function test_sdk_trace_has_source_sdk(): void {
+		$model = $this->create_mock_model( 'openai', 'gpt-4o' );
+		$messages = [ $this->create_mock_message( 'user', 'Test' ) ];
+
+		$before_event = new BeforeGenerateResultEvent( $messages, $model, null );
+		$this->handler->on_before_generate_result( $before_event );
+
+		$token_usage = new TokenUsage(
+			inputTokens: 10,
+			outputTokens: 20,
+			cacheCreationTokens: 0,
+			cacheReadTokens: 0
+		);
+
+		$candidate = new Candidate(
+			content: 'Response',
+			finishReason: FinishReasonEnum::Stop
+		);
+
+		$result = new GenerativeAiResult(
+			id: 'result-123',
+			model: 'gpt-4o',
+			candidates: [ $candidate ],
+			tokenUsage: $token_usage
+		);
+
+		$after_event = new AfterGenerateResultEvent( $messages, $model, null, $result );
+		$this->handler->on_after_generate_result( $after_event );
+
+		$rows = ProviderTrace::list();
+		$this->assertCount( 1, $rows );
+
+		$row = $rows[0];
+		$this->assertSame( 'sdk', $row->source, 'SDK traces should have source=sdk' );
+	}
+
 	/**
 	 * Create a mock model object for testing.
 	 *
