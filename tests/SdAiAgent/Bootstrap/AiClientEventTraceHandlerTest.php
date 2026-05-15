@@ -255,6 +255,30 @@ class AiClientEventTraceHandlerTest extends WP_UnitTestCase {
 		$this->assertCount( 0, $rows );
 	}
 
+	public function test_stalled_before_event_writes_synthetic_row(): void {
+		$model = $this->create_mock_model( 'anthropic', 'claude-3-5-sonnet' );
+		$messages = [ $this->create_mock_message( 'user', 'Stalled' ) ];
+
+		// Record a Before event but don't dispatch the After event.
+		$before_event = new BeforeGenerateResultEvent( $messages, $model, null );
+		$this->handler->on_before_generate_result( $before_event );
+
+		// Simulate the watchdog cleanup (normally called on shutdown).
+		AiClientEventTraceLogger::cleanup_stalled_events();
+
+		// Verify a synthetic trace row was written with error='no_result_event'.
+		$rows = ProviderTrace::list();
+		$this->assertCount( 1, $rows );
+
+		$row = $rows[0];
+		$this->assertSame( 'anthropic', $row->provider_id );
+		$this->assertSame( 'claude-3-5-sonnet', $row->model_id );
+		$this->assertSame( 'SDK', $row->method );
+		$this->assertSame( 0, $row->status_code );
+		$this->assertSame( 'no_result_event', $row->error );
+		$this->assertGreaterThan( 0, $row->duration_ms );
+	}
+
 	/**
 	 * Create a mock model object for testing.
 	 *

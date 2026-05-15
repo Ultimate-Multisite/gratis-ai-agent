@@ -49,6 +49,14 @@ if ( ! defined( 'ABSPATH' ) ) {
 final class AiClientEventTraceHandler {
 
 	/**
+	 * Constructor — register the shutdown hook for watchdog cleanup.
+	 */
+	public function __construct() {
+		// Register shutdown hook to clean up stalled Before events.
+		add_action( 'shutdown', [ AiClientEventTraceLogger::class, 'cleanup_stalled_events' ], 10 );
+	}
+
+	/**
 	 * Capture Before event and record request metadata.
 	 *
 	 * Stores the event timestamp and request details keyed by a stable
