@@ -553,7 +553,14 @@ class Settings {
 		if ( ! is_array( $decisions ) ) {
 			return array();
 		}
-		return $decisions;
+		// Sanitize to ensure all keys and values are strings.
+		$sanitized = array();
+		foreach ( $decisions as $key => $value ) {
+			if ( is_string( $key ) && is_string( $value ) ) {
+				$sanitized[ $key ] = $value;
+			}
+		}
+		return $sanitized;
 	}
 
 	/**
