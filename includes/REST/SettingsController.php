@@ -774,10 +774,18 @@ final class SettingsController {
 					// directory (which can fail due to SDK transporter issues).
 					// Use str_starts_with to handle multi-endpoint setups where each
 					// endpoint gets a unique ID (e.g., ai-provider-for-any-openai-compatible-1).
+					//
+					// Pass the SDK provider_id so the connector can resolve the
+					// correct per-provider endpoint URL and API key. Without
+					// provider_id, the connector falls back to its primary
+					// configured provider and every OpenAI-compatible provider
+					// would return the same model list — see PR #127 on
+					// ai-provider-for-any-compatible-endpoint.
 					if ( str_starts_with( $provider_id, 'ai-provider-for-any-openai-compatible' )
 						&& function_exists( 'OpenAiCompatibleConnector\\rest_list_models' )
 					) {
 						$fake_request = new WP_REST_Request( 'GET' );
+						$fake_request->set_param( 'provider_id', $provider_id );
 						$result       = \OpenAiCompatibleConnector\rest_list_models( $fake_request );
 						if ( ! is_wp_error( $result ) ) {
 							$data = $result->get_data();

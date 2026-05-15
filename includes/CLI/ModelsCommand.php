@@ -203,10 +203,19 @@ class ModelsCommand extends WP_CLI_Command {
 					$models   = array();
 
 					// OpenAI-compatible connectors expose a model list endpoint.
+					// Pass the SDK provider_id so the connector can resolve the
+					// correct per-provider endpoint URL and API key in
+					// multi-provider setups. Without provider_id, the connector
+					// always falls back to its primary configured provider and
+					// every OpenAI-compatible provider would return the same
+					// model list — see ai-provider-for-any-compatible-endpoint
+					// PR #127.
 					if ( str_starts_with( $provider_id, 'ai-provider-for-any-openai-compatible' )
 						&& function_exists( 'OpenAiCompatibleConnector\\rest_list_models' )
 					) {
-						$result = \OpenAiCompatibleConnector\rest_list_models( new \WP_REST_Request( 'GET' ) );
+						$req = new \WP_REST_Request( 'GET' );
+						$req->set_param( 'provider_id', $provider_id );
+						$result = \OpenAiCompatibleConnector\rest_list_models( $req );
 						if ( ! is_wp_error( $result ) ) {
 							$data = $result->get_data();
 							if ( is_array( $data ) ) {
