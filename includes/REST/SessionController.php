@@ -395,7 +395,14 @@ final class SessionController {
 					'max_iterations'     => array(
 						'required'          => false,
 						'type'              => 'integer',
-						'default'           => 10,
+						// No 'default' here: when the client omits this param,
+						// $request->get_param('max_iterations') returns null and
+						// handle_run()/handle_process() fall back to the saved
+						// Settings value (default 100). A REST default of 10
+						// would short-circuit that fallback and cap user-facing
+						// tool calls at ~10, surfacing as a spurious
+						// "maximum number of tool calls" exit after a handful
+						// of tool calls even when Settings is set to 100.
 						'sanitize_callback' => 'absint',
 					),
 					'session_id'         => array(
@@ -1421,9 +1428,16 @@ final class SessionController {
 			}
 		}
 
-		$options = array(
-			'max_iterations' => $params['max_iterations'] ?? 100,
-		);
+		// Only forward max_iterations when the client explicitly supplied one.
+		// Passing it unconditionally (with a hardcoded fallback) would override
+		// the saved Settings value inside AgentLoop, which already falls back
+		// to $settings['max_iterations'] (default 100). The /run endpoint
+		// schema deliberately has no REST default for this param so
+		// $request->get_param() returns null when omitted — see handle_run().
+		$options = array();
+		if ( null !== $params['max_iterations'] && '' !== $params['max_iterations'] ) {
+			$options['max_iterations'] = (int) $params['max_iterations'];
+		}
 
 		if ( ! empty( $params['system_instruction'] ) ) {
 			$options['system_instruction'] = $params['system_instruction'];
