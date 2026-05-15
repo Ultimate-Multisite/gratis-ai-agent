@@ -187,9 +187,6 @@ export async function registerCategory() {
  * @return {Promise<void>}
  */
 export async function registerClientAbility( def ) {
-	if ( ! abilitiesApiAvailable() ) {
-		return;
-	}
 	if ( ! def || typeof def.name !== 'string' || def.name === '' ) {
 		// eslint-disable-next-line no-console
 		console.warn(
@@ -205,8 +202,28 @@ export async function registerClientAbility( def ) {
 	// Store the callback so executeClientAbility() can invoke it by name
 	// without going through the WP abilities API (which may not expose the
 	// raw return value needed for tool-result forwarding).
+	//
+	// IMPORTANT (sd-ai-86a): this MUST happen BEFORE the
+	// abilitiesApiAvailable() guard. jobSlice's executeClientAbility()
+	// reads only from this local map, so even on pages where the WP 7.0
+	// `@wordpress/abilities` script module did not load in time (or at
+	// all — e.g. some frontend contexts in WP 7.0-RC2), the chat job's
+	// pending_client_tool_calls handler can still invoke
+	// screenshot-url, navigate-to, capture-screenshot, and insert-block.
+	// Without this ordering, executeClientAbility throws
+	// 'Client ability "..." is not registered on this page' even though
+	// the callback function is present in the bundle.
 	if ( typeof def.callback === 'function' ) {
 		clientCallbacks.set( def.name, def.callback );
+	}
+
+	// The WP 7.0 store is only updated when the abilities API is present
+	// on this page. If it is not, the local callback above is sufficient
+	// to keep client-side tool execution working; snapshotDescriptors()
+	// will fall back to an empty descriptor list and the server-side
+	// JsAbilityCatalog still advertises the abilities for tool calls.
+	if ( ! abilitiesApiAvailable() ) {
+		return;
 	}
 
 	try {
@@ -310,11 +327,33 @@ export async function snapshotDescriptors() {
  */
 export async function executeClientAbility( name, args ) {
 	const callback = clientCallbacks.get( name );
-	if ( ! callback ) {
-		throw new Error(
-			`Client ability "${ name }" is not registered on this page. ` +
-				'Ensure the ability was registered via registerClientAbility() before the job completed.'
-		);
+	if ( callback ) {
+		return callback( args );
 	}
-	return callback( args );
+
+	// Defensive fallback (sd-ai-86a): if the local callback map missed
+	// (e.g. another bundle on the same page registered the ability but
+	// this bundle's module scope did not), try the shared WP 7.0
+	// abilities API. This is rare in practice — both bundles import
+	// the same `src/abilities` tree — but keeps execution resilient
+	// when only the WP store has the ability.
+	if (
+		typeof wp !== 'undefined' &&
+		!! wp.abilities &&
+		typeof wp.abilities.executeAbility === 'function'
+	) {
+		try {
+			return await wp.abilities.executeAbility( name, args );
+		} catch ( err ) {
+			// Surface the WP error message rather than the generic
+			// "not registered" string so the model gets actionable
+			// feedback in the tool result.
+			throw err instanceof Error ? err : new Error( String( err ) );
+		}
+	}
+
+	throw new Error(
+		`Client ability "${ name }" is not registered on this page. ` +
+			'Ensure the ability was registered via registerClientAbility() before the job completed.'
+	);
 }
