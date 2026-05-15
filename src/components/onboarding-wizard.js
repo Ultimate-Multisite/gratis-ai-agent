@@ -94,17 +94,26 @@ function GutenbergInstallButton() {
 /**
  * Multi-step onboarding wizard shown on first activation.
  *
- * Steps: Welcome → Set Up AI Provider → Configure Abilities → All Set.
+ * Steps: Welcome → Set Up AI Provider → Choose Your Start →
+ *        Configure Abilities → WooCommerce Store → All Set.
  *
  * The provider step directs users to the WordPress Connectors page to
  * configure their API keys. Once at least one provider is available the
  * ProviderSelector appears to choose the default provider/model.
  *
- * Saves settings (default provider/model, disabled abilities,
- * onboarding_complete) on finish or skip.
+ * The "Choose your start" step lets the user pick between three modes:
+ * - 'explore'       → existing bootstrap flow (OnboardingBootstrap)
+ * - 'theme-builder' → new theme-builder flow (OnboardingThemeBuilder)
+ * - 'skip'          → skip onboarding, go straight to chat
+ *
+ * Saves settings (default provider/model, onboarding_complete for skip mode)
+ * on finish or skip. For explore/theme-builder modes, onboarding_complete is
+ * set by the bootstrapper REST endpoint rather than here.
  *
  * @param {Object}   props            - Component props.
- * @param {Function} props.onComplete - Called when the wizard is finished or skipped.
+ * @param {Function} props.onComplete - Called when the wizard is finished.
+ *                                    Receives the chosen mode string:
+ *                                    'explore' | 'theme-builder' | 'skip'.
  * @return {JSX.Element} The onboarding wizard element.
  */
 export default function OnboardingWizard( { onComplete } ) {
@@ -113,6 +122,24 @@ export default function OnboardingWizard( { onComplete } ) {
 	const [ wooStatus, setWooStatus ] = useState( null );
 	const [ wooLoading, setWooLoading ] = useState( false );
 	const [ wooOfferAccepted, setWooOfferAccepted ] = useState( false );
+
+	/**
+	 * The user's chosen onboarding mode.
+	 * 'explore'       — explore and bootstrap the existing site.
+	 * 'theme-builder' — design a custom theme with the Theme Builder agent.
+	 * 'skip'          — skip onboarding and go straight to chat.
+	 *
+	 * Initialised to 'explore'. Updated to 'theme-builder' when the mode-picker
+	 * step mounts and the site is found to have no published content.
+	 */
+	const [ onboardingMode, setOnboardingMode ] = useState( 'explore' );
+
+	/**
+	 * Whether the site has any published posts or pages.
+	 * null = still loading, true/false = resolved.
+	 * Used to pick the default mode in the mode-picker step.
+	 */
+	const [ siteHasPosts, setSiteHasPosts ] = useState( null );
 
 	const { saveSettings } = useDispatch( STORE_NAME );
 	const { providers, selectedProviderId, selectedModelId } = useSelect(
@@ -130,9 +157,9 @@ export default function OnboardingWizard( { onComplete } ) {
 			.catch( () => {} );
 	}, [] );
 
-	// Fetch WooCommerce status when we reach the WooCommerce step (step 3).
+	// Fetch WooCommerce status when we reach the WooCommerce step (step 4).
 	useEffect( () => {
-		if ( step !== 3 ) {
+		if ( step !== 4 ) {
 			return;
 		}
 		setWooLoading( true );
@@ -147,15 +174,66 @@ export default function OnboardingWizard( { onComplete } ) {
 			} );
 	}, [ step ] );
 
+	// Probe for published content when we reach the mode-picker step (step 2).
+	// Sets the default onboarding mode: 'theme-builder' for an empty install,
+	// 'explore' when the site already has content.
+	useEffect( () => {
+		if ( step !== 2 ) {
+			return;
+		}
+		apiFetch( { path: '/wp/v2/posts?per_page=1&status=publish' } )
+			.then( ( posts ) => {
+				const hasPosts = Array.isArray( posts ) && posts.length > 0;
+				setSiteHasPosts( hasPosts );
+				if ( ! hasPosts ) {
+					// Empty install — default to theme-builder.
+					setOnboardingMode( 'theme-builder' );
+				}
+			} )
+			.catch( () => {
+				// On error keep the 'explore' default.
+				setSiteHasPosts( true );
+			} );
+	}, [ step ] );
+
 	const hasAnyProvider = providers.length > 0;
 
+	/**
+	 * Finish the wizard for explore/theme-builder modes.
+	 *
+	 * Saves the default provider/model. Does NOT set onboarding_complete —
+	 * that is handled by the bootstrapper REST endpoint (bootstrap-start or
+	 * theme-builder-start). Calls onComplete with the chosen mode so the
+	 * parent can mount the correct bootstrapper component.
+	 */
 	const handleFinish = useCallback( async () => {
+		await saveSettings( {
+			default_provider: selectedProviderId,
+			default_model: selectedModelId,
+		} );
+		onComplete( onboardingMode );
+	}, [
+		saveSettings,
+		selectedProviderId,
+		selectedModelId,
+		onComplete,
+		onboardingMode,
+	] );
+
+	/**
+	 * Skip all remaining onboarding and go straight to chat.
+	 *
+	 * Sets onboarding_complete on the server so the wizard is not shown
+	 * again on the next visit. Calls onComplete('skip') so the parent can
+	 * proceed immediately to the ChatRedesign shell.
+	 */
+	const handleSkipAll = useCallback( async () => {
 		await saveSettings( {
 			onboarding_complete: true,
 			default_provider: selectedProviderId,
 			default_model: selectedModelId,
 		} );
-		onComplete();
+		onComplete( 'skip' );
 	}, [ saveSettings, selectedProviderId, selectedModelId, onComplete ] );
 
 	/**
@@ -323,6 +401,118 @@ export default function OnboardingWizard( { onComplete } ) {
 		);
 	};
 
+	/**
+	 * Render the mode-picker step content.
+	 *
+	 * Shows three option buttons. The recommended default is highlighted
+	 * based on whether the site has any published content:
+	 * - non-empty install → "Explore my existing site" pre-selected
+	 * - empty install     → "Design a custom theme" pre-selected
+	 *
+	 * Clicking "Explore" or "Design" stores the choice and advances to the
+	 * next step. Clicking "Skip — just chat" marks onboarding complete and
+	 * exits the wizard immediately.
+	 */
+	const renderModePickerStep = () => {
+		const isLoadingDefault = siteHasPosts === null;
+
+		return (
+			<div className="sd-ai-agent-onboarding-mode-picker">
+				<p>
+					{ __(
+						'How would you like to get started with Superdav AI Agent?',
+						'superdav-ai-agent'
+					) }
+				</p>
+
+				{ isLoadingDefault && (
+					<div className="sd-ai-agent-onboarding-mode-picker__loading">
+						<Spinner />
+					</div>
+				) }
+
+				<div className="sd-ai-agent-onboarding-mode-picker__options">
+					{ /* Explore option */ }
+					<button
+						type="button"
+						className={ [
+							'sd-ai-agent-onboarding-mode-picker__button',
+							onboardingMode === 'explore'
+								? 'sd-ai-agent-onboarding-mode-picker__button--selected'
+								: '',
+						]
+							.filter( Boolean )
+							.join( ' ' ) }
+						onClick={ () => {
+							setOnboardingMode( 'explore' );
+							setStep( step + 1 );
+						} }
+					>
+						<span className="sd-ai-agent-onboarding-mode-picker__button-title">
+							{ __(
+								'Explore my existing site',
+								'superdav-ai-agent'
+							) }
+						</span>
+						<span className="sd-ai-agent-onboarding-mode-picker__button-description">
+							{ __(
+								'The AI agent will analyse your site, introduce itself, and help you get the most out of your existing content.',
+								'superdav-ai-agent'
+							) }
+						</span>
+					</button>
+
+					{ /* Theme builder option */ }
+					<button
+						type="button"
+						className={ [
+							'sd-ai-agent-onboarding-mode-picker__button',
+							onboardingMode === 'theme-builder'
+								? 'sd-ai-agent-onboarding-mode-picker__button--selected'
+								: '',
+						]
+							.filter( Boolean )
+							.join( ' ' ) }
+						onClick={ () => {
+							setOnboardingMode( 'theme-builder' );
+							setStep( step + 1 );
+						} }
+					>
+						<span className="sd-ai-agent-onboarding-mode-picker__button-title">
+							{ __(
+								'Design a custom theme',
+								'superdav-ai-agent'
+							) }
+						</span>
+						<span className="sd-ai-agent-onboarding-mode-picker__button-description">
+							{ __(
+								'Work with the Theme Builder agent to design a WordPress theme that matches your vision, colours, and style.',
+								'superdav-ai-agent'
+							) }
+						</span>
+					</button>
+
+					{ /* Skip option */ }
+					<button
+						type="button"
+						className="sd-ai-agent-onboarding-mode-picker__button sd-ai-agent-onboarding-mode-picker__button--skip"
+						onClick={ handleSkipAll }
+					>
+						<span className="sd-ai-agent-onboarding-mode-picker__button-title">
+							{ __( 'Skip — just chat', 'superdav-ai-agent' ) }
+						</span>
+						<span className="sd-ai-agent-onboarding-mode-picker__button-description">
+							{ __(
+								'Go straight to the chat interface. You can always start a guided flow later from the chat.',
+								'superdav-ai-agent'
+							) }
+						</span>
+					</button>
+				</div>
+			</div>
+		);
+	};
+
 	const steps = [
 		// Step 0: Welcome
 		{
@@ -401,7 +591,15 @@ export default function OnboardingWizard( { onComplete } ) {
 				</div>
 			),
 		},
-		// Step 2: Abilities overview (auto-discovery — no curation needed).
+		// Step 2: Choose your start — mode picker (NEW).
+		// Inserted after Provider setup so the user only sees the picker once
+		// a provider is configured. Default selection follows site-content
+		// heuristic: non-empty install → explore, empty install → theme-builder.
+		{
+			title: __( 'Choose Your Start', 'superdav-ai-agent' ),
+			content: renderModePickerStep(),
+		},
+		// Step 3: Abilities overview (auto-discovery — no curation needed).
 		{
 			title: __( 'Abilities', 'sd-ai-agent' ),
 			content: (
@@ -427,12 +625,12 @@ export default function OnboardingWizard( { onComplete } ) {
 				</div>
 			),
 		},
-		// Step 3: WooCommerce (content adapts based on detection result)
+		// Step 4: WooCommerce (content adapts based on detection result)
 		{
 			title: __( 'WooCommerce Store', 'sd-ai-agent' ),
 			content: renderWooCommerceStep(),
 		},
-		// Step 4: Done
+		// Step 5: Done
 		{
 			title: __( 'All Set!', 'sd-ai-agent' ),
 			content: (
@@ -492,7 +690,7 @@ export default function OnboardingWizard( { onComplete } ) {
 				) }
 				<Button
 					variant="link"
-					onClick={ handleFinish }
+					onClick={ handleSkipAll }
 					className="sdaa-wizard-skip"
 				>
 					{ __( 'Skip', 'sd-ai-agent' ) }
@@ -502,12 +700,16 @@ export default function OnboardingWizard( { onComplete } ) {
 						{ __( 'Start Chatting', 'sd-ai-agent' ) }
 					</Button>
 				) : (
-					<Button
-						variant="primary"
-						onClick={ () => setStep( step + 1 ) }
-					>
-						{ __( 'Next', 'sd-ai-agent' ) }
-					</Button>
+					// Hide Next on the mode-picker step (step 2): the user
+					// advances by clicking one of the three mode buttons.
+					step !== 2 && (
+						<Button
+							variant="primary"
+							onClick={ () => setStep( step + 1 ) }
+						>
+							{ __( 'Next', 'sd-ai-agent' ) }
+						</Button>
+					)
 				) }
 			</div>
 		</div>

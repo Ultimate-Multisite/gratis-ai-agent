@@ -5,6 +5,7 @@ import {
 	createRoot,
 	useEffect,
 	useMemo,
+	useState,
 	lazy,
 	Suspense,
 } from '@wordpress/element';
@@ -24,9 +25,11 @@ import '../components/shared.css';
 import './style.css';
 
 // These components are rendered only in specific, uncommon states:
-//  - ConnectorGate   → zero providers configured (first install)
-//  - OnboardingBootstrap → provider exists but onboarding not yet done (once per site)
-//  - ShortcutsHelp   → user presses Mod+/ (explicitly intentional)
+//  - ConnectorGate          → zero providers configured (first install)
+//  - OnboardingWizard       → provider exists but onboarding not yet done (once per site)
+//  - OnboardingBootstrap    → user chose "explore" in the mode picker
+//  - OnboardingThemeBuilder → user chose "theme-builder" in the mode picker
+//  - ShortcutsHelp          → user presses Mod+/ (explicitly intentional)
 // None of them appear during a normal chat session, so they are lazy-loaded.
 const ConnectorGate = lazy( () =>
 	import(
@@ -34,10 +37,22 @@ const ConnectorGate = lazy( () =>
 		'../components/connector-gate'
 	)
 );
+const OnboardingWizard = lazy( () =>
+	import(
+		/* webpackChunkName: "onboarding-wizard", webpackPrefetch: true */
+		'../components/onboarding-wizard'
+	)
+);
 const OnboardingBootstrap = lazy( () =>
 	import(
 		/* webpackChunkName: "onboarding-bootstrap", webpackPrefetch: true */
 		'../components/onboarding-bootstrap'
+	)
+);
+const OnboardingThemeBuilder = lazy( () =>
+	import(
+		/* webpackChunkName: "onboarding-theme-builder", webpackPrefetch: true */
+		'../components/onboarding-theme-builder'
 	)
 );
 const ShortcutsHelp = lazy( () =>
@@ -50,21 +65,33 @@ const ShortcutsHelp = lazy( () =>
 /**
  * Root admin page application component.
  *
- * Implements a two-state onboarding flow:
+ * Implements a three-state onboarding flow:
  *
  * 1. **Connector gate** — shown when no AI provider is configured. The user
  *    is directed to the WordPress Connectors page. The gate polls every 5 s
  *    so it disappears automatically once a provider becomes available.
  *
- * 2. **Onboarding bootstrap** — shown when a provider exists but onboarding
- *    has not yet completed. Auto-sends a kickoff message so the AI explores
- *    the site before asking any questions.
+ * 2. **Onboarding wizard** — shown when a provider exists but onboarding has
+ *    not yet completed. Guides the user through provider selection and a
+ *    mode picker:
+ *    - 'explore'       → OnboardingBootstrap (existing site exploration)
+ *    - 'theme-builder' → OnboardingThemeBuilder (custom theme design)
+ *    - 'skip'          → ChatRedesign directly (wizard marks onboarding done)
  *
- * After onboarding completes the full redesigned chat layout is shown.
+ * 3. After onboarding completes the full redesigned chat layout is shown.
  *
  * @return {JSX.Element|null} Admin page app element, or null while settings are loading.
  */
 function AdminPageApp() {
+	/**
+	 * The onboarding mode chosen by the user in the wizard.
+	 * null            = wizard not yet completed.
+	 * 'explore'       = mount OnboardingBootstrap.
+	 * 'theme-builder' = mount OnboardingThemeBuilder.
+	 * 'skip'          = wizard already marked onboarding done; fall through.
+	 */
+	const [ onboardingMode, setOnboardingMode ] = useState( null );
+
 	const {
 		fetchProviders,
 		fetchSessions,
@@ -180,14 +207,38 @@ function AdminPageApp() {
 		);
 	}
 
-	// Phase 2 gate: connector exists but onboarding not yet started → bootstrap.
+	// Phase 2 gate: connector exists but onboarding not yet complete.
 	const onboardingComplete = settings?.onboarding_complete !== false;
 	if ( ! onboardingComplete ) {
-		return (
-			<Suspense fallback={ null }>
-				<OnboardingBootstrap />
-			</Suspense>
-		);
+		// No mode chosen yet → show the onboarding wizard.
+		if ( onboardingMode === null ) {
+			return (
+				<Suspense fallback={ null }>
+					<OnboardingWizard onComplete={ setOnboardingMode } />
+				</Suspense>
+			);
+		}
+
+		// Mode chosen: mount the appropriate bootstrapper.
+		if ( onboardingMode === 'theme-builder' ) {
+			return (
+				<Suspense fallback={ null }>
+					<OnboardingThemeBuilder />
+				</Suspense>
+			);
+		}
+
+		if ( onboardingMode === 'explore' ) {
+			return (
+				<Suspense fallback={ null }>
+					<OnboardingBootstrap />
+				</Suspense>
+			);
+		}
+
+		// 'skip' mode: the wizard saved onboarding_complete=true, so the
+		// store settings will update and re-render with onboardingComplete=true.
+		// Fall through to ChatRedesign as a synchronous safety net.
 	}
 
 	// Normal chat layout — redesigned shell.
