@@ -382,6 +382,18 @@ namespace {
 	}
 
 	/**
+	 * In-memory ability registry for PHPUnit test environments.
+	 *
+	 * Shared across wp_register_ability(), wp_get_ability(),
+	 * wp_unregister_ability(), and wp_get_abilities() via `global`.
+	 * Using a named global avoids the PHP `static`-per-function isolation
+	 * problem (PHP `static` variables are per-function, not shared).
+	 *
+	 * @var array<string, WP_Ability>
+	 */
+	$_wp_ability_registry = array();
+
+	/**
 	 * WordPress Ability class (stub).
 	 *
 	 * @since 7.0.0
@@ -400,7 +412,9 @@ namespace {
 		 * @param string               $name       The namespaced ability name.
 		 * @param array<string, mixed> $args       Ability configuration args.
 		 */
-		public function __construct( string $name, array $args = array() ) {}
+		public function __construct( string $name, array $args = array() ) {
+			$this->name = $name;
+		}
 
 		/**
 		 * Prepare and validate ability properties from args.
@@ -411,7 +425,7 @@ namespace {
 		protected function prepare_properties( array $args ): array { return $args; }
 
 		/** @return string */
-		public function get_name(): string { return ''; }
+		public function get_name(): string { return $this->name; }
 
 		/** @return string */
 		public function get_label(): string { return ''; }
@@ -540,7 +554,12 @@ namespace {
 	 * @param array<string, mixed> $args Ability configuration.
 	 * @return WP_Ability|null
 	 */
-	function wp_register_ability( string $name, array $args ): ?WP_Ability { return null; }
+	function wp_register_ability( string $name, array $args ): ?WP_Ability {
+		global $_wp_ability_registry;
+		$ability                       = new WP_Ability( $name, $args );
+		$_wp_ability_registry[ $name ] = $ability;
+		return $ability;
+	}
 
 	/**
 	 * Unregister a WordPress ability.
@@ -550,7 +569,12 @@ namespace {
 	 * @param string $name Namespaced ability name.
 	 * @return WP_Ability|null
 	 */
-	function wp_unregister_ability( string $name ): ?WP_Ability { return null; }
+	function wp_unregister_ability( string $name ): ?WP_Ability {
+		global $_wp_ability_registry;
+		$ability = $_wp_ability_registry[ $name ] ?? null;
+		unset( $_wp_ability_registry[ $name ] );
+		return $ability;
+	}
 
 	/**
 	 * Get a registered WordPress ability by name.
@@ -560,7 +584,10 @@ namespace {
 	 * @param string $name Namespaced ability name.
 	 * @return WP_Ability|null
 	 */
-	function wp_get_ability( string $name ): ?WP_Ability { return null; }
+	function wp_get_ability( string $name ): ?WP_Ability {
+		global $_wp_ability_registry;
+		return $_wp_ability_registry[ $name ] ?? null;
+	}
 
 	/**
 	 * Get all registered WordPress abilities.
@@ -569,7 +596,10 @@ namespace {
 	 *
 	 * @return WP_Ability[]
 	 */
-	function wp_get_abilities(): array { return array(); }
+	function wp_get_abilities(): array {
+		global $_wp_ability_registry;
+		return array_values( $_wp_ability_registry );
+	}
 
 	/**
 	 * Register a WordPress ability category.

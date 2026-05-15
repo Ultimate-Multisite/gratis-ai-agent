@@ -123,7 +123,7 @@ final class ThirdPartyAbilityNoticeHandler {
 			? __( 'plugin', 'superdav-ai-agent' )
 			: __( 'plugins', 'superdav-ai-agent' );
 
-		$review_url = admin_url( 'admin.php?page=sd-ai-agent#abilities/third-party-review' );
+		$review_url  = admin_url( 'admin.php?page=sd-ai-agent#abilities/third-party-review' );
 		$dismiss_url = wp_nonce_url(
 			add_query_arg( 'sd_ai_agent_dismiss_third_party_notice', '1' ),
 			'sd_ai_agent_dismiss_third_party_notice'
@@ -136,12 +136,14 @@ final class ThirdPartyAbilityNoticeHandler {
 				<?php
 				printf(
 					/* translators: %d is the number of plugins */
-					esc_html( _n(
-						'%d plugin has registered AI abilities that have not been classified.',
-						'%d plugins have registered AI abilities that have not been classified.',
-						$count,
-						'superdav-ai-agent'
-					) ),
+					esc_html(
+						_n(
+							'%d plugin has registered AI abilities that have not been classified.',
+							'%d plugins have registered AI abilities that have not been classified.',
+							$count,
+							'superdav-ai-agent'
+						)
+					),
 					intval( $count )
 				);
 				?>
