@@ -467,6 +467,12 @@ class Settings {
 			// Ships in a follow-up PR (sd-ai-u21).
 			// 'strict'  — only meta.mcp.public === true passes. Future use.
 			'third_party_mode'         => 'legacy',
+
+			// Third-party namespace visibility decisions (sd-ai-0zq / #1406).
+			// Maps namespace slugs to visibility decisions: 'allow', 'block', or 'pending'.
+			// Used by ThirdPartyAbilityNoticeHandler to override the heuristic for
+			// unclassified abilities. Format: { 'namespace-slug': 'allow|block|pending' }
+			'third_party_namespace_decisions' => array(),
 		);
 	}
 
@@ -490,6 +496,29 @@ class Settings {
 			return 'legacy';
 		}
 		return $mode;
+	}
+
+	/**
+	 * Get the namespace-level visibility decisions for third-party abilities.
+	 *
+	 * Returns a map of namespace slugs to decisions: 'allow', 'block', or 'pending'.
+	 * Used by AbilityVisibility::classify() to override the heuristic for
+	 * unclassified abilities when the site owner has made an explicit decision.
+	 *
+	 * Static helper so AbilityVisibility can call it without DI.
+	 *
+	 * @return array<string, string> Map of namespace => decision.
+	 */
+	public static function get_third_party_namespace_decisions(): array {
+		$option = get_option( self::OPTION_NAME, array() );
+		if ( ! is_array( $option ) || ! isset( $option['third_party_namespace_decisions'] ) ) {
+			return array();
+		}
+		$decisions = $option['third_party_namespace_decisions'];
+		if ( ! is_array( $decisions ) ) {
+			return array();
+		}
+		return $decisions;
 	}
 
 	/**

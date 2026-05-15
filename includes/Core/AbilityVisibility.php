@@ -159,6 +159,10 @@ final class AbilityVisibility {
 	 *   - 'strict': only abilities with `meta.mcp.public === true` pass.
 	 *     Everything else is treated as `private-unknown`.
 	 *
+	 * Site owners can override the heuristic for unclassified abilities via
+	 * the `sd_ai_agent_third_party_namespace_decisions` setting, which maps
+	 * namespace slugs to explicit 'allow' or 'block' decisions.
+	 *
 	 * @param WP_Ability $ability The ability under consideration.
 	 * @return string One of the `CLASSIFICATION_*` constants.
 	 */
@@ -180,6 +184,25 @@ final class AbilityVisibility {
 
 		$mode = Settings::get_third_party_mode();
 
+		// Step 1.5: Check for explicit namespace-level decision (site owner override).
+		$name = (string) $ability->get_name();
+		if ( str_contains( $name, '/' ) ) {
+			[ $namespace ] = explode( '/', $name, 2 );
+			$namespace = strtolower( trim( $namespace ) );
+			if ( '' !== $namespace ) {
+				$decisions = Settings::get_third_party_namespace_decisions();
+				if ( isset( $decisions[ $namespace ] ) ) {
+					$decision = (string) $decisions[ $namespace ];
+					if ( 'allow' === $decision ) {
+						return self::CLASSIFICATION_PUBLIC_EXPLICIT;
+					}
+					if ( 'block' === $decision ) {
+						return self::CLASSIFICATION_PRIVATE_EXPLICIT;
+					}
+				}
+			}
+		}
+
 		// Legacy mode: treat every non-hidden ability as public-explicit.
 		// This is a zero-behavioural-change shim for sites on the default setting.
 		if ( 'legacy' === $mode ) {
@@ -199,7 +222,6 @@ final class AbilityVisibility {
 		// Auto mode — full tiered-trust resolution follows.
 
 		// Steps 3 & 4: Partner-allowlist (first-party + verified partners).
-		$name = (string) $ability->get_name();
 		if ( PartnerAllowlist::is_partner_namespace( $name ) ) {
 			return self::CLASSIFICATION_PUBLIC_PARTNER;
 		}

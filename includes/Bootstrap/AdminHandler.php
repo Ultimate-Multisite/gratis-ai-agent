@@ -15,6 +15,7 @@ namespace SdAiAgent\Bootstrap;
 
 use SdAiAgent\Abilities\ToolCapabilities;
 use SdAiAgent\Admin\FloatingWidget;
+use SdAiAgent\Admin\ThirdPartyAbilityNoticeHandler;
 use SdAiAgent\Admin\UnifiedAdminMenu;
 use SdAiAgent\Compat\GutenbergConnectorsBridge;
 use SdAiAgent\Core\Database;
@@ -75,12 +76,22 @@ final class AdminHandler {
 	 * - DB schema safety-net (dbDelta is no-op when schema is current).
 	 * - Per-tool capabilities for role-management plugins.
 	 * - Legacy URL redirects to unified menu.
+	 * - Handle third-party ability notice dismissal.
 	 */
 	#[Action( tag: 'admin_init', priority: 10 )]
 	public function on_admin_init(): void {
 		Database::install();
 		ToolCapabilities::register_capabilities( ToolCapabilities::all_ability_ids() );
 		UnifiedAdminMenu::handleLegacyRedirects();
+		ThirdPartyAbilityNoticeHandler::handle_dismiss();
+	}
+
+	/**
+	 * Display admin notice for unclassified third-party abilities.
+	 */
+	#[Action( tag: 'admin_notices', priority: 10 )]
+	public function display_third_party_notice(): void {
+		ThirdPartyAbilityNoticeHandler::maybe_display_notice();
 	}
 
 	/**
