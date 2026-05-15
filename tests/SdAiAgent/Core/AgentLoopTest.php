@@ -1189,6 +1189,162 @@ class AgentLoopTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * Capture the next outgoing wp_remote_post() body for assertion.
+	 *
+	 * Used by the builder-config regression tests below so we can prove the
+	 * `max_tokens` and `temperature` values computed by AgentLoop actually
+	 * land in the outgoing request body. Without capture, those values are
+	 * unobservable from a passing/failing assertion on the parsed reply
+	 * alone — which is exactly what hid the
+	 * `method_exists()`-vs-`__call` bug for months.
+	 *
+	 * @param string|null &$captured_body Reference populated with the JSON body string.
+	 */
+	private function capture_next_request_body( ?string &$captured_body ): void {
+		$body = wp_json_encode(
+			[
+				'id'      => 'chatcmpl-capture',
+				'object'  => 'chat.completion',
+				'choices' => [
+					[
+						'index'         => 0,
+						'message'       => [ 'role' => 'assistant', 'content' => 'ok' ],
+						'finish_reason' => 'stop',
+					],
+				],
+				'usage'   => [ 'prompt_tokens' => 5, 'completion_tokens' => 1, 'total_tokens' => 6 ],
+			]
+		);
+
+		add_filter(
+			'pre_http_request',
+			static function ( $preempt, $args, $url ) use ( &$captured_body, $body ) {
+				if ( false !== strpos( $url, 'fake-ai-proxy.test' ) && null === $captured_body ) {
+					$captured_body = is_string( $args['body'] ?? null )
+						? $args['body']
+						: (string) wp_json_encode( $args['body'] ?? [] );
+				}
+
+				if ( false !== strpos( $url, 'fake-ai-proxy.test' ) ) {
+					return [
+						'headers'  => [ 'content-type' => 'application/json' ],
+						'body'     => $body,
+						'response' => [ 'code' => 200, 'message' => 'OK' ],
+						'cookies'  => [],
+						'filename' => '',
+					];
+				}
+
+				return $preempt;
+			},
+			10,
+			3
+		);
+	}
+
+	/**
+	 * Regression test: builder config calls must NOT be guarded by
+	 * `method_exists()`, because the underlying builder routes its
+	 * snake_case API (`using_max_tokens`, `using_temperature`) through
+	 * `__call` — which `method_exists()` does not detect.
+	 *
+	 * Before the fix:
+	 *   - `method_exists( $builder, 'using_max_tokens' )` returned false,
+	 *   - both `using_*` calls were silently skipped,
+	 *   - `$config->getMaxTokens()` was null at provider time,
+	 *   - the anthropic-max connector fell back to its hard-coded 4096
+	 *     default, causing frequent `stop_reason=max_tokens` truncations
+	 *     and slow retry-with-guidance round-trips.
+	 *
+	 * After the fix (`is_callable()` instead of `method_exists()`):
+	 *   - both setters are invoked,
+	 *   - the outgoing request body carries `max_tokens` and `temperature`.
+	 *
+	 * The fake endpoint is OpenAI-compatible (chat.completion), so the
+	 * body is JSON with `max_tokens` and `temperature` at the top level.
+	 */
+	public function test_builder_receives_max_tokens_and_temperature(): void {
+		$this->skip_if_sdk_unavailable();
+
+		// Pick an explicit, non-legacy value so the resolver short-circuits
+		// to the honoured-override branch and we can pin the exact number.
+		Settings::instance()->update(
+			[
+				'max_output_tokens' => 9999,
+				'temperature'       => 0.42,
+			]
+		);
+
+		$captured = null;
+		$this->capture_next_request_body( $captured );
+
+		$loop   = new AgentLoop( 'Reply succinctly' );
+		$result = $loop->run();
+
+		$this->assertIsArray( $result );
+		$this->assertIsString( $captured, 'Expected to capture an outgoing request body.' );
+
+		$decoded = json_decode( (string) $captured, true );
+		$this->assertIsArray( $decoded, 'Outgoing body should be JSON.' );
+
+		$this->assertArrayHasKey(
+			'max_tokens',
+			$decoded,
+			'max_tokens must reach the provider — the builder magic-method guard regressed.'
+		);
+		$this->assertSame(
+			9999,
+			(int) $decoded['max_tokens'],
+			'The configured max_output_tokens must reach the provider unchanged.'
+		);
+
+		$this->assertArrayHasKey(
+			'temperature',
+			$decoded,
+			'temperature must reach the provider — the builder magic-method guard regressed.'
+		);
+		$this->assertEqualsWithDelta(
+			0.42,
+			(float) $decoded['temperature'],
+			0.0001,
+			'The configured temperature must reach the provider unchanged.'
+		);
+	}
+
+	/**
+	 * Regression test: the legacy 4096 default must NOT reach the provider.
+	 *
+	 * Existing installs that upgraded from pre-7rl carry a saved
+	 * `max_output_tokens=4096` they never explicitly chose. AgentLoop's
+	 * resolver maps that exact value to AUTO so the per-model catalog
+	 * picks a sensible cap (64K for Sonnet 4). This test proves the
+	 * resolver's output actually reaches the outgoing request body — i.e.
+	 * that the builder's `using_max_tokens()` call is wired up.
+	 */
+	public function test_builder_emits_catalog_value_when_legacy_4096_saved(): void {
+		$this->skip_if_sdk_unavailable();
+
+		Settings::instance()->update( [ 'max_output_tokens' => 4096 ] );
+
+		$captured = null;
+		$this->capture_next_request_body( $captured );
+
+		$loop = new AgentLoop( 'Reply succinctly', [], [], [ 'model_id' => 'claude-sonnet-4-6' ] );
+		$loop->run();
+
+		$this->assertIsString( $captured, 'Expected to capture an outgoing request body.' );
+		$decoded = json_decode( (string) $captured, true );
+		$this->assertIsArray( $decoded );
+
+		$this->assertArrayHasKey( 'max_tokens', $decoded );
+		$this->assertGreaterThan(
+			4096,
+			(int) $decoded['max_tokens'],
+			'Saved 4096 must be remapped via the catalog (Sonnet 4 documents 64K), not honoured verbatim.'
+		);
+	}
+
+	/**
 	 * Resolve the private get_effective_max_output_tokens() with a given
 	 * saved value and model_id so we can exercise the legacy / AUTO / ceiling
 	 * branches without spinning up the full agent loop.

@@ -958,13 +958,19 @@ class AgentLoop {
 		// temperature=0 and disable parallel tool calls, making real model
 		// usage noticeably slower and lower-quality without surfacing why
 		// to the user. Restore once telemetry is reliable.
-		if ( method_exists( $builder, 'using_temperature' ) ) {
-			$builder->using_temperature( (float) $this->temperature );
-		}
-
-		if ( method_exists( $builder, 'using_max_tokens' ) ) {
-			$builder->using_max_tokens( $this->get_effective_max_output_tokens() );
-		}
+		//
+		// The builder is `WP_AI_Client_Prompt_Builder`, a thin wrapper that
+		// forwards snake_case calls (e.g. `using_max_tokens`) to the SDK's
+		// camelCase `usingMaxTokens` via PHP's `__call`. An earlier version
+		// of this block guarded both setters with `method_exists()`, which
+		// does NOT detect `__call`-routed methods and silently skipped them
+		// — leaving `max_tokens` unset (so the anthropic-max connector fell
+		// back to its hard-coded 4096 default) and `temperature` absent
+		// from the outgoing request body. The guards are removed because
+		// the wrapper's `__call` is guaranteed to exist and the `@method`
+		// declarations on the wrapper enumerate the supported API.
+		$builder->using_temperature( (float) $this->temperature );
+		$builder->using_max_tokens( $this->get_effective_max_output_tokens() );
 
 		$abilities = $this->resolve_abilities();
 		if ( ! empty( $abilities ) ) {
