@@ -19,7 +19,7 @@ abstract class AbstractApiProvider extends AbstractProvider
      * Gets the base URL for the provider's API.
      *
      * The base URL should include the protocol and domain, and may include
-     * the API version path (e.g., "https://api.example.com/v1").
+     * the API version path.
      *
      * @since 0.2.0
      *

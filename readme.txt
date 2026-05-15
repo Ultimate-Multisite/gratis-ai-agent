@@ -4,7 +4,7 @@ Tags: ai, chatbot, assistant, automation, tools
 Requires at least: 6.9
 Tested up to: 7.0
 Requires PHP: 8.2
-Stable tag: 1.11.1
+Stable tag: 1.12.0
 License: GPL-2.0-or-later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -143,7 +143,7 @@ The internet-search ability is used when you (or the agent on your behalf) expli
 
 These are contacted only when you (or the agent) request a stock image via the image-generation ability. Each request sends image dimensions and the search keyword you supply — no site data, user data, or conversation history is transmitted.
 
-* **Openverse** (api.openverse.org) — CC0 / openly-licensed image search hosted by the WordPress Foundation. Used only when an image-search request is made. Sends the search keyword and requested dimensions. No API key required. Terms: https://openverse.org/terms Privacy: https://wordpress.org/about/privacy/
+* **Openverse** (api.openverse.org) — CC0 / openly-licensed image search hosted by the WordPress Foundation. Used only when an image-search request is made. Sends the search keyword and requested dimensions. No API key required. Terms: https://docs.openverse.org/terms_of_service.html Privacy: https://wordpress.org/about/privacy/
 
 * **Pixabay** (pixabay.com) — Free stock-image service. Used only when a Pixabay API key is configured and an image-search request is made. Sends the search keyword, requested dimensions, and your API key. Terms: https://pixabay.com/service/terms/ Privacy: https://pixabay.com/service/privacy/
 
@@ -160,6 +160,10 @@ These are contacted only when you (or the agent) request a stock image via the i
 * **Discord** (discord.com) — Optional webhook notifications for automation results. Used only when you configure a Discord webhook URL on a specific automation. Sends the automation summary text you configured to the webhook URL. No data is sent unless you create a webhook entry. Terms: https://discord.com/terms Privacy: https://discord.com/privacy
 
 * **Slack** (slack.com / hooks.slack.com) — Optional webhook notifications for automation results. Used only when you configure a Slack incoming-webhook URL on a specific automation. Sends the automation summary text you configured to the webhook URL. No data is sent unless you create a webhook entry. Terms: https://slack.com/terms-of-service Privacy: https://slack.com/privacy-policy
+
+= Feedback and issue reporting (optional, opt-in) =
+
+* **Superdav AI Agent feedback service** (ultimateagentwp.ai) — Optional service that receives user-submitted feedback and issue reports about the plugin so the maintainers can diagnose problems and improve the product. Nothing is sent automatically. A report is transmitted only when you explicitly click the thumbs-down button on an AI response or run the `/report-issue` command **and** accept the feedback-consent modal that previews the exact payload. Each report contains the sanitized conversation excerpt and metadata you reviewed in the consent modal (with secrets and PII redacted before display). No background telemetry, analytics, or automatic error reporting is ever sent. Terms: https://ultimateagentwp.ai/terms/ Privacy: https://ultimateagentwp.ai/privacy/
 
 == Frequently Asked Questions ==
 
@@ -203,6 +207,13 @@ Yes, the plugin works on both single-site and multisite WordPress installations.
 8. Settings page with 12 configuration tabs
 
 == Changelog ==
+
+= 1.12.0 - Released on 2026-05-15 =
+* Docs: Disclose the optional, opt-in feedback / issue-reporting service hosted at ultimateagentwp.ai in the External Services section (what is sent, when, and links to Terms and Privacy)
+* Docs: Replace the outdated Openverse Terms link (openverse.org/terms now redirects with a 4xx) with the current docs.openverse.org/terms_of_service.html URL
+* Cleanup: Remove `api.example.com` placeholder example text from a php-ai-client SDK docblock and the Custom Tools "URL" input placeholder so static reviewers no longer flag a non-existent external service
+* CLI: `wp sd-ai-agent benchmark run` now writes log files to `{uploads}/sd-ai-agent/benchmark-logs/` by default instead of inside the plugin folder, so logs survive plugin upgrades; `--log-dir=<abs-path>` still overrides
+* Deps: Update bundled libraries to current stable releases — automattic/jetpack-autoloader 5.0.16 → 5.0.17, psr/simple-cache 2.0.0 → 3.0.0, smalot/pdfparser 2.12.4 → 2.12.5, x-wp/di pulled to current fork HEAD (REST-context plain-permalink fix + rest() request-handling refinement, on top of upstream v1.10.0)
 
 = 1.11.1 - Released on 2026-05-09 =
 * Docs: Fix invalid Google AI privacy URL in readme (trailing-slash 404) and remove non-existent Lorem Flickr terms link
@@ -479,6 +490,9 @@ Yes, the plugin works on both single-site and multisite WordPress installations.
 * WordPress 7.0 AI Client SDK integration (native core API)
 
 == Upgrade Notice ==
+
+= 1.12.0 =
+Documentation and dependency-maintenance release in response to WordPress.org plugin review feedback. Discloses the optional opt-in feedback service, fixes an outdated Openverse Terms link, removes placeholder example URLs that triggered false-positive "undocumented external service" warnings, moves the WP-CLI benchmark log directory out of the plugin folder, and updates four bundled libraries to current stable releases. No database changes.
 
 = 1.11.1 =
 Documentation-only update: corrects two broken links in the External Services section and adds disclosures for all remaining third-party services (search providers, stock-image services, analytics, notifications) in line with WordPress.org plugin directory guidelines. No code or database changes.

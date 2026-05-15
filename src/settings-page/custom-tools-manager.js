@@ -214,7 +214,6 @@ export default function CustomToolsManager() {
 							label={ __( 'URL', 'sd-ai-agent' ) }
 							value={ cfg.url || '' }
 							onChange={ ( v ) => updateConfig( 'url', v ) }
-							placeholder="https://api.example.com/endpoint?q={{query}}"
 							help={ __(
 								'Use {{param}} placeholders for dynamic values.',
 								'sd-ai-agent'

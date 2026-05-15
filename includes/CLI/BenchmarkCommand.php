@@ -6,7 +6,8 @@ declare(strict_types=1);
  *
  * Drives the full AI agent loop against live WordPress and writes a structured
  * log file for every question run.  No database writes — results live entirely
- * in log files under tests/benchmark/logs/.
+ * in log files under the uploads directory ({uploads}/sd-ai-agent/benchmark-logs/)
+ * by default, or any absolute path passed via --log-dir.
  *
  * Usage:
  *   wp sd-ai-agent benchmark run --suite=functional-v1 --provider=anthropic --model=claude-sonnet-4-6
@@ -52,9 +53,15 @@ if ( ! defined( 'ABSPATH' ) ) {
 class BenchmarkCommand extends WP_CLI_Command {
 
 	/**
-	 * Directory where log files are written (relative to plugin root).
+	 * Subdirectory inside the WordPress uploads directory where benchmark
+	 * log files are written by default. The full default path is therefore
+	 * `{uploads_basedir}/sd-ai-agent/benchmark-logs/`, which is outside the
+	 * plugin folder (so it survives plugin upgrades) and outside the document
+	 * root's reach for direct download (governed by the uploads dir policy).
+	 *
+	 * Operators can override the absolute path per-run via `--log-dir=<path>`.
 	 */
-	private const LOG_DIR = 'tests/benchmark/logs';
+	private const LOG_SUBDIR = 'sd-ai-agent/benchmark-logs';
 
 	/**
 	 * System prompt injected for every benchmark question.
@@ -131,8 +138,10 @@ class BenchmarkCommand extends WP_CLI_Command {
 	 * Run benchmark questions against the AI agent.
 	 *
 	 * Runs each question through the full AgentLoop with all tools available.
-	 * A log file is written for every question under tests/benchmark/logs/.
-	 * Plugins created during functional tests are cleaned up after each question.
+	 * A log file is written for every question under
+	 * `{uploads_basedir}/sd-ai-agent/benchmark-logs/` (typically
+	 * `wp-content/uploads/sd-ai-agent/benchmark-logs/`). Plugins created
+	 * during functional tests are cleaned up after each question.
 	 *
 	 * ## OPTIONS
 	 *
@@ -149,7 +158,8 @@ class BenchmarkCommand extends WP_CLI_Command {
 	 * : Model ID (e.g. claude-sonnet-4-6, gpt-4o).
 	 *
 	 * [--log-dir=<path>]
-	 * : Absolute path for log output. Defaults to tests/benchmark/logs/ inside the plugin.
+	 * : Absolute path for log output. Defaults to
+	 * `{uploads_basedir}/sd-ai-agent/benchmark-logs/`.
 	 *
 	 * [--keep-plugins]
 	 * : Keep generated sandbox plugins on disk after the run for debugging.
@@ -196,9 +206,22 @@ class BenchmarkCommand extends WP_CLI_Command {
 		}
 
 		// Resolve log directory.
+		//
+		// The default lives inside the WordPress uploads directory, NOT inside
+		// the plugin folder, so logs survive plugin upgrades (which delete the
+		// plugin directory) and are compatible with multisite/uploads-relocation
+		// configurations. Operators can pass --log-dir=<abs-path> to override.
 		if ( '' === $log_dir ) {
-			$plugin_root = dirname( __DIR__, 2 );
-			$log_dir     = $plugin_root . '/' . self::LOG_DIR;
+			$uploads = wp_upload_dir( null, false );
+			if ( ! empty( $uploads['error'] ) || empty( $uploads['basedir'] ) ) {
+				WP_CLI::error(
+					sprintf(
+						'Could not resolve the WordPress uploads directory for benchmark logs: %s',
+						(string) ( $uploads['error'] ?? 'unknown error' )
+					)
+				);
+			}
+			$log_dir = trailingslashit( $uploads['basedir'] ) . self::LOG_SUBDIR;
 		}
 
 		$run_id  = gmdate( 'Y-m-d_His' ) . '_' . ( $model_id ?: 'default' );
