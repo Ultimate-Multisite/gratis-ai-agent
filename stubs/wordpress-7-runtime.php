@@ -400,89 +400,89 @@ namespace {
 	 */
 	if ( ! class_exists( 'WP_Ability' ) ) {
 		class WP_Ability {
-		/**
-		 * The namespaced ability name (e.g. 'sd-ai-agent/memory-save').
-		 *
-		 * @var string
-		 */
-		public string $name = '';
+			/**
+			 * The namespaced ability name (e.g. 'sd-ai-agent/memory-save').
+			 *
+			 * @var string
+			 */
+			public string $name = '';
 
-		/**
-		 * Constructor.
-		 *
-		 * @param string               $name       The namespaced ability name.
-		 * @param array<string, mixed> $args       Ability configuration args.
-		 */
-		public function __construct( string $name, array $args = array() ) {
-			$this->name = $name;
-		}
+			/**
+			 * Constructor.
+			 *
+			 * @param string               $name       The namespaced ability name.
+			 * @param array<string, mixed> $args       Ability configuration args.
+			 */
+			public function __construct( string $name, array $args = array() ) {
+				$this->name = $name;
+			}
 
-		/**
-		 * Prepare and validate ability properties from args.
-		 *
-		 * @param array<string, mixed> $args The ability args array.
-		 * @return array<string, mixed> The validated and prepared properties.
-		 */
-		protected function prepare_properties( array $args ): array { return $args; }
+			/**
+			 * Prepare and validate ability properties from args.
+			 *
+			 * @param array<string, mixed> $args The ability args array.
+			 * @return array<string, mixed> The validated and prepared properties.
+			 */
+			protected function prepare_properties( array $args ): array { return $args; }
 
-		/** @return string */
-		public function get_name(): string { return $this->name; }
+			/** @return string */
+			public function get_name(): string { return $this->name; }
 
-		/** @return string */
-		public function get_label(): string { return ''; }
+			/** @return string */
+			public function get_label(): string { return ''; }
 
-		/** @return string */
-		public function get_description(): string { return ''; }
+			/** @return string */
+			public function get_description(): string { return ''; }
 
-		/** @return array<string, mixed> */
-		public function get_params(): array { return array(); }
+			/** @return array<string, mixed> */
+			public function get_params(): array { return array(); }
 
-		/**
-		 * Get the JSON Schema for the ability's input parameters.
-		 *
-		 * @return array<string, mixed>
-		 */
-		public function get_input_schema(): array { return array(); }
+			/**
+			 * Get the JSON Schema for the ability's input parameters.
+			 *
+			 * @return array<string, mixed>
+			 */
+			public function get_input_schema(): array { return array(); }
 
-		/**
-		 * Get the JSON Schema for the ability's output.
-		 *
-		 * @return array<string, mixed>
-		 */
-		public function get_output_schema(): array { return array(); }
+			/**
+			 * Get the JSON Schema for the ability's output.
+			 *
+			 * @return array<string, mixed>
+			 */
+			public function get_output_schema(): array { return array(); }
 
-		/**
-		 * Get the ability category slug.
-		 *
-		 * @return string
-		 */
-		public function get_category(): string { return ''; }
+			/**
+			 * Get the ability category slug.
+			 *
+			 * @return string
+			 */
+			public function get_category(): string { return ''; }
 
-		/**
-		 * Get ability metadata.
-		 *
-		 * @return array<string, mixed>
-		 */
-		public function get_meta(): array { return array(); }
+			/**
+			 * Get ability metadata.
+			 *
+			 * @return array<string, mixed>
+			 */
+			public function get_meta(): array { return array(); }
 
-		/** @return mixed */
-		public function call( array $params ): mixed { return null; }
+			/** @return mixed */
+			public function call( array $params ): mixed { return null; }
 
-		/**
-		 * Execute the ability with the given arguments.
-		 *
-		 * @param array<string, mixed>|null $args Input arguments.
-		 * @return mixed|\WP_Error
-		 */
-		public function execute( ?array $args ): mixed { return null; }
+			/**
+			 * Execute the ability with the given arguments.
+			 *
+			 * @param array<string, mixed>|null $args Input arguments.
+			 * @return mixed|\WP_Error
+			 */
+			public function execute( ?array $args ): mixed { return null; }
 
-		/**
-		 * Validate input against the ability's input schema.
-		 *
-		 * @param mixed $input Input to validate.
-		 * @return true|\WP_Error
-		 */
-		public function validate_input( mixed $input ): true|\WP_Error { return true; }
+			/**
+			 * Validate input against the ability's input schema.
+			 *
+			 * @param mixed $input Input to validate.
+			 * @return true|\WP_Error
+			 */
+			public function validate_input( mixed $input ): true|\WP_Error { return true; }
 		}
 	}
 
