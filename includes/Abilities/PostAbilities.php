@@ -119,10 +119,7 @@ class PostAbilities {
 							'type'        => 'array',
 							'description' => 'Array of category IDs (integers) or names (strings) to assign.',
 							'items'       => [
-								'oneOf' => [
-									[ 'type' => 'string' ],
-									[ 'type' => 'integer' ],
-								],
+								'type' => [ 'string', 'integer' ],
 							],
 						],
 						'tags'              => [
@@ -207,10 +204,7 @@ class PostAbilities {
 							'type'        => 'array',
 							'description' => 'Replace categories with this array of IDs (integers) or names (strings).',
 							'items'       => [
-								'oneOf' => [
-									[ 'type' => 'string' ],
-									[ 'type' => 'integer' ],
-								],
+								'type' => [ 'string', 'integer' ],
 							],
 						],
 						'tags'              => [
@@ -397,10 +391,7 @@ class PostAbilities {
 										'type'        => 'array',
 										'description' => 'Array of category IDs (integers) or names (strings).',
 										'items'       => [
-											'oneOf' => [
-												[ 'type' => 'string' ],
-												[ 'type' => 'integer' ],
-											],
+											'type' => [ 'string', 'integer' ],
 										],
 									],
 									'tags'              => [
