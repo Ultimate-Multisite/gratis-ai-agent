@@ -36,7 +36,7 @@ use SdAiAgent\Tools\CustomTools;
 class Database {
 
 	const DB_VERSION_OPTION = 'sd_ai_agent_db_version';
-	const DB_VERSION        = '19.2.1';
+	const DB_VERSION        = '19.3.0';
 
 	// ─── Table Name Registry ──────────────────────────────────────────────────
 
@@ -585,10 +585,12 @@ class Database {
 			response_headers longtext NOT NULL,
 			response_body longtext NOT NULL,
 			error text NOT NULL DEFAULT '',
+			source varchar(10) NOT NULL DEFAULT 'http',
 			PRIMARY KEY  (id),
 			KEY created_at (created_at),
 			KEY provider_id (provider_id),
-			KEY status_code (status_code)
+			KEY status_code (status_code),
+			KEY source (source)
 		) {$charset};
 
 		CREATE TABLE {$generated_plugins_table} (

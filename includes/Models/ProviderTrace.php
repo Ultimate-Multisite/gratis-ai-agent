@@ -59,6 +59,11 @@ class ProviderTrace {
 		// {@see \SdAiAgent\Core\PromptCache\CacheUsageExtractor}. dbDelta
 		// adds the columns to existing tables on upgrade; pre-19.2.0 rows
 		// retain the default of 0.
+		//
+		// `source` was added in DB version 19.3.0 to distinguish between
+		// HTTP-level traces (source='http') and SDK-level traces (source='sdk').
+		// dbDelta adds the column to existing tables on upgrade; pre-19.3.0 rows
+		// default to 'http' (inferred from method='POST' or method='GET').
 		return "\n\nCREATE TABLE {$table} (
 			id bigint(20) unsigned NOT NULL AUTO_INCREMENT,
 			created_at datetime NOT NULL,
@@ -75,10 +80,12 @@ class ProviderTrace {
 			response_headers longtext NOT NULL,
 			response_body longtext NOT NULL,
 			error text NOT NULL DEFAULT '',
+			source varchar(10) NOT NULL DEFAULT 'http',
 			PRIMARY KEY  (id),
 			KEY created_at (created_at),
 			KEY provider_id (provider_id),
-			KEY status_code (status_code)
+			KEY status_code (status_code),
+			KEY source (source)
 		) {$charset};";
 	}
 
@@ -187,6 +194,9 @@ class ProviderTrace {
 		$request_body     = self::redact_sensitive_data( $request_body );
 		$response_body    = self::redact_sensitive_data( $response_body );
 
+		// Determine source: 'sdk' if method is 'SDK', otherwise 'http'.
+		$source = 'SDK' === ( $data['method'] ?? '' ) ? 'sdk' : 'http';
+
 		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery -- Custom table insert; caching not applicable.
 		$result = $wpdb->insert(
 			self::table_name(),
@@ -205,8 +215,9 @@ class ProviderTrace {
 				'response_headers'      => $response_headers,
 				'response_body'         => $response_body,
 				'error'                 => $data['error'] ?? '',
+				'source'                => $source,
 			],
-			[ '%s', '%s', '%s', '%s', '%s', '%d', '%d', '%d', '%d', '%s', '%s', '%s', '%s', '%s' ]
+			[ '%s', '%s', '%s', '%s', '%s', '%d', '%d', '%d', '%d', '%s', '%s', '%s', '%s', '%s', '%s' ]
 		);
 
 		if ( ! $result ) {

@@ -21,7 +21,7 @@ readonly class ProviderTraceRow {
 	 * @param string $provider_id           AI provider slug.
 	 * @param string $model_id              Model slug.
 	 * @param string $url                   Request URL.
-	 * @param string $method                HTTP method (GET, POST, etc.).
+	 * @param string $method                HTTP method (GET, POST, SDK, etc.).
 	 * @param int    $status_code           HTTP response status code.
 	 * @param int    $duration_ms           Round-trip duration in milliseconds.
 	 * @param int    $cache_creation_tokens Prompt-cache write tokens reported by the
@@ -35,6 +35,7 @@ readonly class ProviderTraceRow {
 	 * @param string $response_headers      JSON-encoded response headers.
 	 * @param string $response_body         Raw response body.
 	 * @param string $error                 Error message, or empty string.
+	 * @param string $source                Trace source: 'http' or 'sdk'.
 	 */
 	public function __construct(
 		public int $id,
@@ -52,6 +53,7 @@ readonly class ProviderTraceRow {
 		public string $response_headers,
 		public string $response_body,
 		public string $error,
+		public string $source = 'http',
 	) {}
 
 	/**
@@ -77,6 +79,7 @@ readonly class ProviderTraceRow {
 			response_headers:      (string) ( $row->response_headers ?? '{}' ),
 			response_body:         (string) ( $row->response_body ?? '' ),
 			error:                 (string) ( $row->error ?? '' ),
+			source:                (string) ( $row->source ?? 'http' ),
 		);
 	}
 }
