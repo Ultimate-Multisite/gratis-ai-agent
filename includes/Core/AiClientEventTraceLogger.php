@@ -39,13 +39,6 @@ class AiClientEventTraceLogger {
 	private static array $inflight = [];
 
 	/**
-	 * Hook tag for the watchdog cleanup action.
-	 *
-	 * @var string
-	 */
-	private static string $watchdog_hook = 'sd_ai_agent_sdk_event_trace_watchdog';
-
-	/**
 	 * Hook: wp_ai_client_before_generate_result — capture request metadata.
 	 *
 	 * Records the event timestamp, messages, model, and capability so the
@@ -228,16 +221,27 @@ class AiClientEventTraceLogger {
 	 * Converts the Message[] array to a JSON string for storage in the
 	 * request_body field of the trace row.
 	 *
-	 * @param array<int, object> $messages The messages array.
+	 * @param mixed $messages The messages array (from Before event).
 	 * @return string JSON-encoded messages.
 	 */
-	private static function serialize_messages( array $messages ): string {
+	private static function serialize_messages( mixed $messages ): string {
+		if ( ! is_array( $messages ) ) {
+			return '[]';
+		}
+
 		$serialized = [];
 		foreach ( $messages as $message ) {
-			$serialized[] = [
-				'role'    => $message->getRole()->value ?? '',
-				'content' => $message->getContent(),
-			];
+			if ( ! is_object( $message ) ) {
+				continue;
+			}
+			// Message objects have getRole() and getContent() methods.
+			if ( method_exists( $message, 'getRole' ) && method_exists( $message, 'getContent' ) ) {
+				$role = $message->getRole();
+				$serialized[] = [
+					'role'    => is_object( $role ) && method_exists( $role, 'value' ) ? $role->value : '',
+					'content' => $message->getContent(),
+				];
+			}
 		}
 		$encoded = wp_json_encode( $serialized );
 		return false !== $encoded ? $encoded : '[]';
@@ -249,30 +253,46 @@ class AiClientEventTraceLogger {
 	 * Converts the GenerativeAiResult object to a JSON string for storage in
 	 * the response_body field of the trace row.
 	 *
-	 * @param object $result The GenerativeAiResult object.
+	 * @param mixed $result The GenerativeAiResult object.
 	 * @return string JSON-encoded result.
 	 */
-	private static function serialize_result( object $result ): string {
+	private static function serialize_result( mixed $result ): string {
+		if ( ! is_object( $result ) ) {
+			return '{}';
+		}
+
+		// Check if result has the expected methods.
+		if ( ! method_exists( $result, 'getId' ) || ! method_exists( $result, 'getModel' ) ) {
+			return '{}';
+		}
+
+		$token_usage = method_exists( $result, 'getTokenUsage' ) ? $result->getTokenUsage() : null;
+
 		$serialized = [
 			'id'    => $result->getId(),
 			'model' => $result->getModel(),
 			'usage' => [
-				'input_tokens'          => $result->getTokenUsage()->getInputTokens(),
-				'output_tokens'         => $result->getTokenUsage()->getOutputTokens(),
-				'cache_creation_tokens' => $result->getTokenUsage()->getCacheCreationTokens() ?? 0,
-				'cache_read_tokens'     => $result->getTokenUsage()->getCacheReadTokens() ?? 0,
+				'input_tokens'          => is_object( $token_usage ) && method_exists( $token_usage, 'getInputTokens' ) ? $token_usage->getInputTokens() : 0,
+				'output_tokens'         => is_object( $token_usage ) && method_exists( $token_usage, 'getOutputTokens' ) ? $token_usage->getOutputTokens() : 0,
+				'cache_creation_tokens' => is_object( $token_usage ) && method_exists( $token_usage, 'getCacheCreationTokens' ) ? ( $token_usage->getCacheCreationTokens() ?? 0 ) : 0,
+				'cache_read_tokens'     => is_object( $token_usage ) && method_exists( $token_usage, 'getCacheReadTokens' ) ? ( $token_usage->getCacheReadTokens() ?? 0 ) : 0,
 			],
 		];
 
 		// Add candidates with finish reasons.
-		$candidates = $result->getCandidates();
-		if ( ! empty( $candidates ) ) {
-			$serialized['candidates'] = [];
-			foreach ( $candidates as $candidate ) {
-				$serialized['candidates'][] = [
-					'finish_reason' => $candidate->getFinishReason()->value ?? '',
-					'content'       => $candidate->getContent(),
-				];
+		if ( method_exists( $result, 'getCandidates' ) ) {
+			$candidates = $result->getCandidates();
+			if ( ! empty( $candidates ) ) {
+				$serialized['candidates'] = [];
+				foreach ( $candidates as $candidate ) {
+					if ( is_object( $candidate ) && method_exists( $candidate, 'getFinishReason' ) && method_exists( $candidate, 'getContent' ) ) {
+						$finish_reason = $candidate->getFinishReason();
+						$serialized['candidates'][] = [
+							'finish_reason' => is_object( $finish_reason ) && method_exists( $finish_reason, 'value' ) ? $finish_reason->value : '',
+							'content'       => $candidate->getContent(),
+						];
+					}
+				}
 			}
 		}
 
