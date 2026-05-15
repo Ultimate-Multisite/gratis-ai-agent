@@ -1189,6 +1189,132 @@ class AgentLoopTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * Resolve the private get_effective_max_output_tokens() with a given
+	 * saved value and model_id so we can exercise the legacy / AUTO / ceiling
+	 * branches without spinning up the full agent loop.
+	 *
+	 * @param int    $saved    Value as it would be saved in settings.
+	 * @param string $model_id Model the loop thinks it is talking to.
+	 * @return int Effective cap after resolution.
+	 */
+	private function resolve_effective_tokens( int $saved, string $model_id ): int {
+		$rc        = new \ReflectionClass( AgentLoop::class );
+		$loop      = $rc->newInstanceWithoutConstructor();
+		$model_p   = $rc->getProperty( 'model_id' );
+		$tokens_p  = $rc->getProperty( 'max_output_tokens' );
+		$method    = $rc->getMethod( 'get_effective_max_output_tokens' );
+		$model_p->setAccessible( true );
+		$tokens_p->setAccessible( true );
+		$method->setAccessible( true );
+
+		$model_p->setValue( $loop, $model_id );
+		$tokens_p->setValue( $loop, $saved );
+
+		return (int) $method->invoke( $loop );
+	}
+
+	/**
+	 * Test AUTO sentinel (0) resolves via the per-model catalog.
+	 */
+	public function test_effective_max_tokens_auto_resolves_via_catalog(): void {
+		$this->assertSame(
+			64000,
+			$this->resolve_effective_tokens( 0, 'claude-sonnet-4-6' ),
+			'AUTO should prefix-match claude-sonnet-4 -> 64000 (documented Sonnet 4 output cap).'
+		);
+	}
+
+	/**
+	 * Test the legacy 4096 default is treated as AUTO so existing installs
+	 * benefit from the per-model catalog without a settings migration.
+	 *
+	 * Regression test for the truncated-tool-call class of bug where existing
+	 * installs upgraded from pre-7rl carry max_output_tokens=4096 that they
+	 * never explicitly chose, and modern models cannot complete a single
+	 * landing-page tool call within that budget.
+	 */
+	public function test_effective_max_tokens_legacy_4096_treated_as_auto(): void {
+		$this->assertSame(
+			64000,
+			$this->resolve_effective_tokens( 4096, 'claude-sonnet-4-6' ),
+			'Saved 4096 (the legacy default) should resolve via catalog, not be honoured as an explicit cap.'
+		);
+	}
+
+	/**
+	 * Test that a deliberately chosen non-legacy value is honoured verbatim.
+	 *
+	 * Anything that is not exactly the legacy 4096 sentinel must be treated
+	 * as an explicit user override (subject to the ceiling clamp).
+	 */
+	public function test_effective_max_tokens_explicit_override_honored(): void {
+		$this->assertSame(
+			8000,
+			$this->resolve_effective_tokens( 8000, 'claude-sonnet-4-6' ),
+			'A non-legacy explicit cap should pass through unchanged.'
+		);
+		$this->assertSame(
+			4095,
+			$this->resolve_effective_tokens( 4095, 'claude-sonnet-4-6' ),
+			'4095 is not the legacy default and must be honoured as an explicit cap.'
+		);
+		$this->assertSame(
+			4097,
+			$this->resolve_effective_tokens( 4097, 'claude-sonnet-4-6' ),
+			'4097 is not the legacy default and must be honoured as an explicit cap.'
+		);
+	}
+
+	/**
+	 * Test ceiling clamp applies to absurdly large saved values.
+	 */
+	public function test_effective_max_tokens_clamped_at_ceiling(): void {
+		$this->assertSame(
+			Settings::MAX_OUTPUT_TOKENS_CEILING,
+			$this->resolve_effective_tokens( 9_999_999, 'claude-sonnet-4-6' ),
+			'Values above MAX_OUTPUT_TOKENS_CEILING must be clamped.'
+		);
+	}
+
+	/**
+	 * Regression test: Opus 4.6 and 4.7 document a 128K output cap, which
+	 * is HIGHER than Sonnet 4.6's 64K. An earlier version of the catalog
+	 * inverted this (all Opus = 32K, Sonnet = 64K) which would have made
+	 * the more capable model artificially worse at long-form generation.
+	 */
+	public function test_effective_max_tokens_opus_47_higher_than_sonnet_46(): void {
+		$opus_47   = $this->resolve_effective_tokens( 0, 'claude-opus-4-7' );
+		$sonnet_46 = $this->resolve_effective_tokens( 0, 'claude-sonnet-4-6' );
+
+		$this->assertSame( 128000, $opus_47, 'Opus 4.7 documents 128K output.' );
+		$this->assertSame( 64000, $sonnet_46, 'Sonnet 4.6 documents 64K output.' );
+		$this->assertGreaterThan(
+			$sonnet_46,
+			$opus_47,
+			'Opus must not have a lower cap than Sonnet of the same generation.'
+		);
+	}
+
+	/**
+	 * Regression test: the longest-prefix matcher must pick the most
+	 * specific Opus point release rather than falling back to the family
+	 * default. `claude-opus-4-1` documents 32K while `claude-opus-4-5`
+	 * documents 64K and `claude-opus-4-7` documents 128K — these must
+	 * each resolve independently.
+	 */
+	public function test_effective_max_tokens_opus_point_releases_resolve_independently(): void {
+		$this->assertSame( 32000, $this->resolve_effective_tokens( 0, 'claude-opus-4-1' ) );
+		$this->assertSame( 64000, $this->resolve_effective_tokens( 0, 'claude-opus-4-5' ) );
+		$this->assertSame( 128000, $this->resolve_effective_tokens( 0, 'claude-opus-4-6' ) );
+		$this->assertSame( 128000, $this->resolve_effective_tokens( 0, 'claude-opus-4-7' ) );
+		// Dated snapshot suffix must still resolve to the right point release.
+		$this->assertSame(
+			128000,
+			$this->resolve_effective_tokens( 0, 'claude-opus-4-7-20260513' )
+		);
+	}
+
+	/**
 	 * Test AgentLoop respects temperature from settings.
 	 */
 	public function test_run_respects_temperature_option(): void {

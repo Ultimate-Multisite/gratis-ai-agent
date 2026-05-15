@@ -421,18 +421,38 @@ Using custom values:
 
 Write content in markdown format and pass to `sd-ai-agent/create-post`. The markdown is automatically converted to blocks.
 
-### Build a page with layout (use block markup)
+### Build a short page (single tool call)
+
+For a page that fits comfortably in one response (under ~6KB of block markup, roughly a hero + 2 short sections):
 
 1. Write the full page content as serialized block markup following the examples above
 2. Pass the block markup string to `sd-ai-agent/create-post` with `post_type: page`
 3. Use `sd-ai-agent/validate-block-content` to check for errors before creating
+
+### Build a LONG landing page
+
+Modern frontier models (Claude Sonnet 4+, GPT-5, Gemini 2.5 Pro) can emit 32–128K output tokens in a single response, which is more than enough for a full hero + features + how-it-works + use-cases + pricing + FAQ + CTA landing page in one `create-post` call. Prefer that when you can — one tool call, one verified result, no concatenation logic.
+
+Reach for incremental building only when:
+
+- You are using a weaker / older model with a low per-response cap (Claude 3.x, GPT-4o, Gemini 1.5/2.0) and the page genuinely will not fit.
+- You are extending or editing an existing page rather than authoring a new one.
+- You want to stream visible progress to the user section by section.
+
+Incremental workflow when needed:
+
+1. Call `sd-ai-agent/create-post` with the hero + intro. Capture the returned `post_id`.
+2. For each remaining section, call `sd-ai-agent/append-post-content` with `{post_id, content: "<one section of block markup>"}`. Server-side concatenation means you never re-send existing content.
+3. Optionally call `sd-ai-agent/get-post` at the end to verify total length and structure.
+
+Never use `update-post` to "append" by re-sending the full accumulated content — it wastes tokens and reintroduces truncation risk. Use `append-post-content` instead.
 
 ### Analyze and improve existing content
 
 1. Use `sd-ai-agent/parse-block-content` with a post_id to see the current structure
 2. Identify issues (missing layout blocks, unstyled sections)
 3. Build improved content using block markup
-4. Use `sd-ai-agent/update-post` to replace the content
+4. Use `sd-ai-agent/update-post` to replace the content (only if the new content fits in one call — otherwise rebuild incrementally as above)
 
 ## Verifying generated markup
 

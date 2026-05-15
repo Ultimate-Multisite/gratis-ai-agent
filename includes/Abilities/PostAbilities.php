@@ -89,7 +89,7 @@ class PostAbilities {
 			'sd-ai-agent/create-post',
 			[
 				'label'               => __( 'Create Post', 'superdav-ai-agent' ),
-				'description'         => __( 'Create a new WordPress post or page. This is the PRIMARY tool for creating any content — blog posts, landing pages, about pages, etc. Write content directly as HTML or markdown (auto-converted to Gutenberg blocks). Set post_type to "page" for pages or "post" for blog posts. Set status to "publish" to make it live immediately.', 'superdav-ai-agent' ),
+				'description'         => __( 'Create a new WordPress post or page. This is the PRIMARY tool for creating any content — blog posts, landing pages, about pages, etc. Write content directly as HTML or markdown (auto-converted to Gutenberg blocks). Set post_type to "page" for pages or "post" for blog posts. Set status to "publish" to make it live immediately. Frontier models can emit a full multi-section landing page in one call; if you are on a weaker model and the page truly will not fit, create the hero + intro here and use sd-ai-agent/append-post-content for each remaining section.', 'superdav-ai-agent' ),
 				'category'            => 'sd-ai-agent',
 				'input_schema'        => [
 					'type'       => 'object',
@@ -249,6 +249,54 @@ class PostAbilities {
 					'show_in_rest' => true,
 				],
 				'execute_callback'    => [ __CLASS__, 'handle_update_post' ],
+				'permission_callback' => function (): bool {
+					return current_user_can( 'edit_posts' );
+				},
+			]
+		);
+
+		wp_register_ability(
+			'sd-ai-agent/append-post-content',
+			[
+				'label'               => __( 'Append Post Content', 'superdav-ai-agent' ),
+				'description'         => __( 'Append a chunk of block markup to the end of an existing post or page WITHOUT re-sending the full content. Useful for: (1) extending an existing page with a new section, (2) building a long page section-by-section on a model with a small per-response token cap, or (3) streaming visible progress to the user. The appended content is concatenated as-is to post_content; use complete, self-contained block markup (no partial blocks). Returns the post_id, permalink, and new total content length.', 'superdav-ai-agent' ),
+				'category'            => 'sd-ai-agent',
+				'input_schema'        => [
+					'type'       => 'object',
+					'properties' => [
+						'post_id'  => [
+							'type'        => 'integer',
+							'description' => 'The ID of the post or page to append to.',
+						],
+						'content'  => [
+							'type'        => 'string',
+							'description' => 'Block markup to append. Must be complete, self-contained blocks (each opening comment paired with its closing comment). A leading newline is recommended to separate from the previous section.',
+						],
+						'site_url' => [
+							'type'        => 'string',
+							'description' => 'Subsite URL for multisite. Omit for the main site.',
+						],
+					],
+					'required'   => [ 'post_id', 'content' ],
+				],
+				'output_schema'       => [
+					'type'       => 'object',
+					'properties' => [
+						'post_id'        => [ 'type' => 'integer' ],
+						'permalink'      => [ 'type' => 'string' ],
+						'appended_bytes' => [ 'type' => 'integer' ],
+						'total_bytes'    => [ 'type' => 'integer' ],
+					],
+				],
+				'meta'                => [
+					'mcp'          => [ 'public' => true ],
+					'annotations'  => [
+						'readonly'    => false,
+						'destructive' => false,
+					],
+					'show_in_rest' => true,
+				],
+				'execute_callback'    => [ __CLASS__, 'handle_append_post_content' ],
 				'permission_callback' => function (): bool {
 					return current_user_can( 'edit_posts' );
 				},
@@ -1037,6 +1085,106 @@ class PostAbilities {
 			'permalink' => $permalink ?: '',
 			'status'    => $updated_post instanceof WP_Post ? $updated_post->post_status : '',
 			'post_type' => $updated_post instanceof WP_Post ? $updated_post->post_type : '',
+		];
+	}
+
+	/**
+	 * Handle the append-post-content ability.
+	 *
+	 * Appends a chunk of block markup to an existing post WITHOUT requiring the
+	 * caller to re-send the full post_content. This is the canonical way to
+	 * build long landing pages section by section: create-post with the
+	 * hero/intro, then call this once per section. Each call keeps tool-call
+	 * JSON small, which avoids hitting model max_tokens output limits.
+	 *
+	 * @param array<string, mixed> $input post_id, content, optional site_url.
+	 * @return array<string, mixed>|WP_Error
+	 */
+	public static function handle_append_post_content( array $input ) {
+		// @phpstan-ignore-next-line
+		$post_id = (int) ( $input['post_id'] ?? 0 );
+		// @phpstan-ignore-next-line
+		$content  = (string) ( $input['content'] ?? '' );
+		$site_url = $input['site_url'] ?? '';
+
+		if ( ! $post_id ) {
+			return new WP_Error( 'ai_agent_empty_post_id', __( 'post_id is required.', 'superdav-ai-agent' ) );
+		}
+
+		if ( '' === trim( $content ) ) {
+			return new WP_Error( 'ai_agent_empty_content', __( 'content is required and cannot be empty.', 'superdav-ai-agent' ) );
+		}
+
+		$switched = false;
+
+		if ( ! empty( $site_url ) && is_multisite() ) {
+			$blog_id = get_blog_id_from_url(
+				// @phpstan-ignore-next-line
+				(string) ( wp_parse_url( $site_url, PHP_URL_HOST ) ?? '' ),
+				// @phpstan-ignore-next-line
+				(string) ( wp_parse_url( $site_url, PHP_URL_PATH ) ?: '/' )
+			);
+
+			if ( $blog_id && $blog_id !== get_current_blog_id() ) {
+				switch_to_blog( $blog_id );
+				$switched = true;
+			}
+		}
+
+		$post = get_post( $post_id );
+
+		if ( ! ( $post instanceof WP_Post ) ) {
+			if ( $switched ) {
+				restore_current_blog();
+			}
+			return new WP_Error(
+				'ai_agent_post_not_found',
+				/* translators: %d: post ID */
+				sprintf( __( 'Post %d not found.', 'superdav-ai-agent' ), $post_id )
+			);
+		}
+
+		$existing       = (string) $post->post_content;
+		$appended_bytes = strlen( $content );
+
+		// Ensure a blank line between sections for editor readability.
+		$separator = '';
+		if ( '' !== $existing && "\n" !== substr( $existing, -1 ) ) {
+			$separator = "\n\n";
+		} elseif ( '' !== $existing && "\n\n" !== substr( $existing, -2 ) ) {
+			$separator = "\n";
+		}
+
+		// @phpstan-ignore-next-line
+		$new_content = $existing . $separator . wp_kses_post( $content );
+
+		$result = wp_update_post(
+			[
+				'ID'           => $post_id,
+				'post_content' => $new_content,
+			],
+			true
+		);
+
+		if ( is_wp_error( $result ) ) {
+			if ( $switched ) {
+				restore_current_blog();
+			}
+			return $result;
+		}
+
+		$permalink   = get_permalink( $post_id ) ?: '';
+		$total_bytes = strlen( $new_content );
+
+		if ( $switched ) {
+			restore_current_blog();
+		}
+
+		return [
+			'post_id'        => $post_id,
+			'permalink'      => $permalink,
+			'appended_bytes' => $appended_bytes,
+			'total_bytes'    => $total_bytes,
 		];
 	}
 

@@ -1639,13 +1639,27 @@ class AgentLoop {
 
 	/**
 	 * Resolve the effective max output token cap used for provider requests.
+	 *
+	 * Legacy 4096 handling: the pre-7rl plugin shipped with a default of 4096
+	 * which is too low for modern Claude/GPT models to complete a single
+	 * page-building tool call. Existing installs carry that saved value as an
+	 * "explicit" override even though the user never chose it. We treat the
+	 * exact legacy default as AUTO so existing installs get the per-model
+	 * catalog value transparently — without forcing a settings migration.
+	 *
+	 * Users who genuinely want a 4096 cap (rare) can set 4097 or any other
+	 * value via the Settings UI; the legacy-default trigger is exact match
+	 * only.
 	 */
 	private function get_effective_max_output_tokens(): int {
 		// AUTO (0): consult the per-model catalog so each provider/model gets a
 		// sensible value. EXPLICIT (>0): honour the saved override but clamp at
 		// MAX_OUTPUT_TOKENS_CEILING to defend against runaway generations.
 		$max_tokens = $this->max_output_tokens;
-		if ( $max_tokens <= Settings::MAX_OUTPUT_TOKENS_AUTO ) {
+		if (
+			$max_tokens <= Settings::MAX_OUTPUT_TOKENS_AUTO
+			|| Settings::MAX_OUTPUT_TOKENS_LEGACY_DEFAULT === $max_tokens
+		) {
 			return Settings::get_max_output_tokens_for_model( $this->model_id );
 		}
 

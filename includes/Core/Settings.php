@@ -84,6 +84,18 @@ class Settings {
 	const MAX_OUTPUT_TOKENS_AUTO = 0;
 
 	/**
+	 * Legacy default `max_output_tokens` value that shipped with pre-7rl
+	 * releases. Existing installs upgrading from those versions carry this
+	 * value as a saved option even though the user never explicitly chose it.
+	 *
+	 * {@see AgentLoop::get_effective_max_output_tokens()} treats an exact match
+	 * to this value as AUTO so existing installs benefit from the per-model
+	 * catalog without requiring a settings migration. Users who genuinely want
+	 * to cap at 4096 can set 4095 or 4097 instead.
+	 */
+	const MAX_OUTPUT_TOKENS_LEGACY_DEFAULT = 4096;
+
+	/**
 	 * Hard ceiling for `max_output_tokens`. Above this we refuse to send
 	 * the value to the provider — primarily a guard against pathologically
 	 * large outputs causing latency spikes or billing surprises. Modern
@@ -109,42 +121,66 @@ class Settings {
 	 * Gemini accept it as optional; we still send a value as a safety belt
 	 * against runaway generations and pathological tool-call loops.
 	 *
-	 * Values are conservative upper bounds (typically ≤ 32K) chosen so that:
-	 *   - tool_use input JSON has room to complete without truncation,
-	 *   - reasoning models retain enough budget for internal thinking,
-	 *   - users can opt out via the Settings UI (raises to {@see MAX_OUTPUT_TOKENS_CEILING}).
+	 * Values follow each provider's documented maximums so that a single
+	 * tool-call response (e.g. building a long landing page in one shot) is
+	 * not artificially truncated. Users can still lower this per install via
+	 * the Settings UI; the ceiling is {@see MAX_OUTPUT_TOKENS_CEILING}.
 	 *
-	 * Look-up uses longest-prefix match so dated model variants (e.g.
-	 * `claude-sonnet-4-7-20260513`) resolve to their family entry.
+	 * Lookup uses longest-prefix match so dated model variants (e.g.
+	 * `claude-opus-4-7-20260513`) resolve to the most specific family entry.
+	 * Entries are ordered most-specific-first inside each provider block so
+	 * that the prefix match picks the right point release before falling
+	 * back to the family default.
+	 *
+	 * Sources (verified Nov 2025):
+	 *   - https://docs.anthropic.com/en/docs/about-claude/models/overview
+	 *   - https://platform.openai.com/docs/models
+	 *   - https://cloud.google.com/vertex-ai/generative-ai/docs/models/gemini
 	 *
 	 * @var array<string, int>
 	 */
 	const MODEL_MAX_OUTPUT_TOKENS = array(
-		// Anthropic — Claude 4.x supports 32K output across the family;
-		// Sonnet 4.6+ documents 64K but 32K is the practical sweet spot
-		// once tool_use input JSON and extended thinking are counted.
+		// ── Anthropic ──────────────────────────────────────────────────
+		// Opus 4.6 / 4.7 document 128K; Opus 4.5 documents 64K; Opus 4.1
+		// and Opus 4 document 32K. Newer point releases have higher caps
+		// than older ones in the same family, which is why these are not
+		// collapsed into a single `claude-opus-4` entry.
+		'claude-opus-4-7'   => 128000,
+		'claude-opus-4-6'   => 128000,
+		'claude-opus-4-5'   => 64000,
+		'claude-opus-4-1'   => 32000,
 		'claude-opus-4'     => 32000,
-		'claude-sonnet-4'   => 32000,
-		'claude-haiku-4'    => 16000,
+		// Sonnet 4 / 4.5 / 4.6 all document 64K output.
+		'claude-sonnet-4'   => 64000,
+		// Haiku 4.5 documents 64K output (matches Sonnet 4.x).
+		'claude-haiku-4-5'  => 64000,
+		'claude-haiku-4'    => 64000,
+		// Legacy 3.x models retain older lower caps.
 		'claude-3-5-sonnet' => 8192,
 		'claude-3-5-haiku'  => 8192,
 		'claude-3-opus'     => 4096,
 		'claude-3-sonnet'   => 4096,
 		'claude-3-haiku'    => 4096,
-		// OpenAI — GPT-4.1 family supports 32K, GPT-4o/turbo 16K, o-series
-		// reasoning models 65-100K incl. thinking tokens (cap at 32K).
-		'gpt-5'             => 32000,
-		'gpt-4.1'           => 32000,
-		'gpt-4o'            => 16000,
-		'gpt-4-turbo'       => 16000,
+		// ── OpenAI ─────────────────────────────────────────────────────
+		// GPT-5 family (5, 5.4, 5.5) and o-series reasoning models all
+		// document 128K output. o1/o3 budgets include reasoning tokens.
+		'gpt-5'             => 128000,
+		// GPT-4.1 documents 32,768; GPT-4o documents 16,384.
+		'gpt-4.1'           => 32768,
+		'gpt-4o'            => 16384,
+		'gpt-4-turbo'       => 4096,
 		'gpt-4'             => 8192,
 		'gpt-3.5-turbo'     => 4096,
-		'o1'                => 32000,
-		'o3'                => 32000,
-		'o4'                => 32000,
-		// Google Gemini — 2.5 Pro supports 65K output, others cap at 8192.
-		'gemini-2.5-pro'    => 32000,
-		'gemini-2.5-flash'  => 8192,
+		// o-series reasoning models: o1 and o3 document 100K; o4 family
+		// (o4-mini etc.) inherits the same envelope.
+		'o1'                => 100000,
+		'o3'                => 100000,
+		'o4'                => 100000,
+		// ── Google Gemini ──────────────────────────────────────────────
+		// Gemini 2.5 Pro and Flash both document 65,535 max output.
+		// Older 2.0 and 1.5 families cap at 8K.
+		'gemini-2.5-pro'    => 65535,
+		'gemini-2.5-flash'  => 65535,
 		'gemini-2.0'        => 8192,
 		'gemini-1.5'        => 8192,
 	);
@@ -410,53 +446,53 @@ class Settings {
 	 */
 	public function get_defaults(): array {
 		return array(
-			'default_provider'         => '',
-			'default_model'            => '',
-			'max_iterations'           => 100,
-			'greeting_message'         => '',
-			'system_prompt'            => '',
-			'auto_memory'              => true,
-			'tool_permissions'         => array(),
-			'temperature'              => 0.2,
+			'default_provider'                => '',
+			'default_model'                   => '',
+			'max_iterations'                  => 100,
+			'greeting_message'                => '',
+			'system_prompt'                   => '',
+			'auto_memory'                     => true,
+			'tool_permissions'                => array(),
+			'temperature'                     => 0.2,
 			// 0 = auto-resolve per model via Settings::get_max_output_tokens_for_model().
 			// A user-saved positive value overrides the per-model default (clamped to
 			// MAX_OUTPUT_TOKENS_CEILING at request time). See AgentLoop::send_prompt().
-			'max_output_tokens'        => self::MAX_OUTPUT_TOKENS_AUTO,
-			'context_window_default'   => 128000,
-			'onboarding_complete'      => false,
-			'knowledge_enabled'        => true,
-			'knowledge_auto_index'     => true,
-			'max_history_turns'        => 20,
-			'suggestion_count'         => 3,
-			'yolo_mode'                => false,
-			'show_on_frontend'         => false,
-			'keyboard_shortcut'        => 'alt+a',
-			'image_generation_size'    => '1024x1024',
-			'image_generation_quality' => 'standard',
-			'image_generation_style'   => 'vivid',
+			'max_output_tokens'               => self::MAX_OUTPUT_TOKENS_AUTO,
+			'context_window_default'          => 128000,
+			'onboarding_complete'             => false,
+			'knowledge_enabled'               => true,
+			'knowledge_auto_index'            => true,
+			'max_history_turns'               => 20,
+			'suggestion_count'                => 3,
+			'yolo_mode'                       => false,
+			'show_on_frontend'                => false,
+			'keyboard_shortcut'               => 'alt+a',
+			'image_generation_size'           => '1024x1024',
+			'image_generation_quality'        => 'standard',
+			'image_generation_style'          => 'vivid',
 			// White-label / branding settings (t075).
-			'agent_name'               => '',
-			'brand_primary_color'      => '',
-			'brand_text_color'         => '',
-			'brand_logo_url'           => '',
+			'agent_name'                      => '',
+			'brand_primary_color'             => '',
+			'brand_text_color'                => '',
+			'brand_logo_url'                  => '',
 			// Spending limits / budget caps (t110).
-			'budget_daily_cap'         => 0.0,
-			'budget_monthly_cap'       => 0.0,
-			'budget_warning_threshold' => 80,
-			'budget_exceeded_action'   => 'pause',
+			'budget_daily_cap'                => 0.0,
+			'budget_monthly_cap'              => 0.0,
+			'budget_warning_threshold'        => 80,
+			'budget_exceeded_action'          => 'pause',
 			// Provider trace / debug mode (GH#830).
-			'provider_trace_enabled'   => false,
-			'provider_trace_max_rows'  => 200,
+			'provider_trace_enabled'          => false,
+			'provider_trace_max_rows'         => 200,
 			// Prompt caching — provider-side KV-cache opt-in (sd-ai-bjv).
 			// When true, the HttpTraceHandler injects provider-specific
 			// cache markers into outgoing LLM requests (only Anthropic
 			// requires explicit markers today; OpenAI/DeepSeek/etc. cache
 			// automatically). Safe to leave on — workers without cache
 			// support ignore the markers.
-			'prompt_caching_enabled'   => true,
+			'prompt_caching_enabled'          => true,
 			// Skill auto-update settings (t218).
-			'skill_auto_update'        => true,
-			'skill_manifest_url'       => '',
+			'skill_auto_update'               => true,
+			'skill_manifest_url'              => '',
 			// Third-party ability visibility mode (sd-ai-3ns / #1405, sd-ai-u21 / #1407).
 			// Controls which abilities are exposed to AI surfaces by AbilityVisibility.
 			// 'legacy'  — opt-out behaviour: everything except ai_hidden is public.
@@ -465,7 +501,7 @@ class Settings {
 			// 'auto'    — full tiered-trust model: namespace allowlist + heuristics.
 			// Default since 1.12.0.
 			// 'strict'  — only meta.mcp.public === true passes. Future use.
-			'third_party_mode'         => 'auto',
+			'third_party_mode'                => 'auto',
 
 			// Third-party namespace visibility decisions (sd-ai-0zq / #1406).
 			// Maps namespace slugs to visibility decisions: 'allow', 'block', or 'pending'.

@@ -362,6 +362,101 @@ class PostAbilitiesTest extends WP_UnitTestCase {
 		$this->assertArrayHasKey( 'status', $result );
 	}
 
+	// ─── handle_append_post_content ──────────────────────────────────
+
+	/**
+	 * Test handle_append_post_content with missing post_id returns WP_Error.
+	 */
+	public function test_handle_append_post_content_missing_post_id() {
+		$result = PostAbilities::handle_append_post_content( [ 'content' => 'x' ] );
+
+		$this->assertInstanceOf( \WP_Error::class, $result );
+		$this->assertSame( 'ai_agent_empty_post_id', $result->get_error_code() );
+	}
+
+	/**
+	 * Test handle_append_post_content with empty content returns WP_Error.
+	 */
+	public function test_handle_append_post_content_empty_content() {
+		$post_id = wp_insert_post(
+			[
+				'post_title'   => 'Append Target',
+				'post_content' => 'existing',
+				'post_status'  => 'draft',
+			]
+		);
+
+		$result = PostAbilities::handle_append_post_content(
+			[
+				'post_id' => $post_id,
+				'content' => '   ',
+			]
+		);
+
+		$this->assertInstanceOf( \WP_Error::class, $result );
+		$this->assertSame( 'ai_agent_empty_content', $result->get_error_code() );
+	}
+
+	/**
+	 * Test handle_append_post_content with non-existent post returns WP_Error.
+	 */
+	public function test_handle_append_post_content_post_not_found() {
+		$result = PostAbilities::handle_append_post_content(
+			[
+				'post_id' => 999999,
+				'content' => 'x',
+			]
+		);
+
+		$this->assertInstanceOf( \WP_Error::class, $result );
+		$this->assertSame( 'ai_agent_post_not_found', $result->get_error_code() );
+	}
+
+	/**
+	 * Test handle_append_post_content concatenates content without re-sending
+	 * the full document, and reports byte counts.
+	 */
+	public function test_handle_append_post_content_appends_and_reports_bytes() {
+		$initial = '<!-- wp:paragraph --><p>Hero.</p><!-- /wp:paragraph -->';
+		$post_id = wp_insert_post(
+			[
+				'post_title'   => 'Append Flow',
+				'post_content' => $initial,
+				'post_status'  => 'draft',
+			]
+		);
+
+		$chunk_1 = '<!-- wp:heading --><h2 class="wp-block-heading">Features</h2><!-- /wp:heading -->';
+		$r1      = PostAbilities::handle_append_post_content(
+			[
+				'post_id' => $post_id,
+				'content' => $chunk_1,
+			]
+		);
+
+		$this->assertIsArray( $r1 );
+		$this->assertSame( $post_id, $r1['post_id'] );
+		$this->assertSame( strlen( $chunk_1 ), $r1['appended_bytes'] );
+		$this->assertGreaterThan( strlen( $initial ), $r1['total_bytes'] );
+
+		$chunk_2 = '<!-- wp:paragraph --><p>Feature one.</p><!-- /wp:paragraph -->';
+		$r2      = PostAbilities::handle_append_post_content(
+			[
+				'post_id' => $post_id,
+				'content' => $chunk_2,
+			]
+		);
+
+		$this->assertIsArray( $r2 );
+		$this->assertSame( strlen( $chunk_2 ), $r2['appended_bytes'] );
+		$this->assertGreaterThan( $r1['total_bytes'], $r2['total_bytes'] );
+
+		$post = get_post( $post_id );
+		$this->assertStringContainsString( $initial, $post->post_content );
+		$this->assertStringContainsString( $chunk_1, $post->post_content );
+		$this->assertStringContainsString( $chunk_2, $post->post_content );
+	}
+
 	// ─── handle_batch_create_posts ──────────────────────────────────
 
 	/**
