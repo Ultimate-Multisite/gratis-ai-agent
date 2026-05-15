@@ -680,15 +680,18 @@ class AgentLoop {
 					}
 				}
 
+				// Post-process the reply to inject real permalinks from create-post responses.
+				$reply = $this->inject_real_permalinks( $reply );
+
 				return $this->inject_inability_data(
-					array(
-						'reply'           => $reply,
-						'history'         => $this->serialize_history(),
-						'tool_calls'      => $this->tool_call_log,
-						'token_usage'     => $this->token_usage,
-						'iterations_used' => $this->iterations_used,
-						'model_id'        => $this->model_id,
-					)
+				array(
+					'reply'           => $reply,
+					'history'         => $this->serialize_history(),
+					'tool_calls'      => $this->tool_call_log,
+					'token_usage'     => $this->token_usage,
+					'iterations_used' => $this->iterations_used,
+					'model_id'        => $this->model_id,
+				)
 				);
 			}
 
@@ -846,15 +849,18 @@ class AgentLoop {
 					$reply = '';
 				}
 
+				// Post-process the reply to inject real permalinks from create-post responses.
+				$reply = $this->inject_real_permalinks( $reply );
+
 				return $this->inject_inability_data(
-					[
-						'reply'           => $reply,
-						'history'         => $this->serialize_history(),
-						'tool_calls'      => $this->tool_call_log,
-						'token_usage'     => $this->token_usage,
-						'iterations_used' => $this->iterations_used,
-						'model_id'        => $this->model_id,
-					]
+				[
+					'reply'           => $reply,
+					'history'         => $this->serialize_history(),
+					'tool_calls'      => $this->tool_call_log,
+					'token_usage'     => $this->token_usage,
+					'iterations_used' => $this->iterations_used,
+					'model_id'        => $this->model_id,
+				]
 				);
 			}
 		}
@@ -1767,6 +1773,70 @@ class AgentLoop {
 		} catch ( \Throwable $e ) {
 			// Token tracking is best-effort.
 		}
+	}
+
+	// ── Reply post-processing ────────────────────────────────────────────
+
+	/**
+	 * Post-process the final reply to inject real permalinks from create-post responses.
+	 *
+	 * When the agent calls sd-ai-agent/create-post, it may hallucinate the URL in its
+	 * prose reply (wrong date, wrong slug) even though the tool response contains the
+	 * correct permalink. This method finds successful create-post responses in the
+	 * tool_call_log and appends a verified line with the real permalink to the reply.
+	 *
+	 * @param string $reply The assistant's final reply text.
+	 * @return string The reply, potentially with real permalinks appended.
+	 */
+	private function inject_real_permalinks( string $reply ): string {
+		// Find all successful create-post responses in the tool_call_log.
+		$create_post_responses = array();
+		foreach ( $this->tool_call_log as $entry ) {
+			if ( 'response' !== ( $entry['type'] ?? '' ) ) {
+				continue;
+			}
+			if ( 'sd-ai-agent/create-post' !== ( $entry['name'] ?? '' ) ) {
+				continue;
+			}
+
+			$response = $entry['response'] ?? null;
+			if ( ! is_array( $response ) ) {
+				continue;
+			}
+
+			// Extract the permalink from the response.
+			$permalink = (string) ( $response['permalink'] ?? '' );
+			if ( '' === $permalink ) {
+				continue;
+			}
+
+			$create_post_responses[] = array(
+				'post_id'   => (int) ( $response['post_id'] ?? 0 ),
+				'permalink' => $permalink,
+				'status'    => (string) ( $response['status'] ?? '' ),
+				'post_type' => (string) ( $response['post_type'] ?? '' ),
+			);
+		}
+
+		// If we found create-post responses, append a verified line with the real permalink.
+		if ( ! empty( $create_post_responses ) ) {
+			$reply .= "\n\n---\n\n";
+			$reply .= __( 'Verified post details:', 'superdav-ai-agent' ) . "\n";
+			foreach ( $create_post_responses as $post_data ) {
+				$post_type_label = 'page' === $post_data['post_type'] ? __( 'Page', 'superdav-ai-agent' ) : __( 'Post', 'superdav-ai-agent' );
+				$status_label    = 'publish' === $post_data['status'] ? __( 'Published', 'superdav-ai-agent' ) : ucfirst( $post_data['status'] );
+				$reply          .= sprintf(
+					/* translators: 1: post type label, 2: status label, 3: post ID, 4: permalink */
+					__( '- %1$s %2$s (ID: %3$d): %4$s', 'superdav-ai-agent' ),
+					$post_type_label,
+					$status_label,
+					$post_data['post_id'],
+					$post_data['permalink']
+				) . "\n";
+			}
+		}
+
+		return $reply;
 	}
 
 	// ── Inability data injection ──────────────────────────────────────────
