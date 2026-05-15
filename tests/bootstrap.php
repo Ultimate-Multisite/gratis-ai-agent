@@ -140,29 +140,32 @@ if ( ! class_exists( 'WP_Ability' ) ) {
 	class WP_Ability {
 		/** @var string */
 		public string $name = '';
+		/** @var array<string, mixed> */
+		private array $args = array();
 		/**
 		 * @param string               $name Ability name.
 		 * @param array<string, mixed> $args Ability args.
 		 */
 		public function __construct( string $name, array $args = array() ) {
 			$this->name = $name;
+			$this->args = $args;
 		}
 		/** @return string */
 		public function get_name(): string { return $this->name; }
 		/** @return string */
-		public function get_label(): string { return ''; }
+		public function get_label(): string { return (string) ( $this->args['label'] ?? '' ); }
 		/** @return string */
-		public function get_description(): string { return ''; }
+		public function get_description(): string { return (string) ( $this->args['description'] ?? '' ); }
 		/** @return array<string, mixed> */
-		public function get_params(): array { return array(); }
+		public function get_params(): array { return (array) ( $this->args['params'] ?? array() ); }
 		/** @return array<string, mixed> */
-		public function get_input_schema(): array { return array(); }
+		public function get_input_schema(): array { return (array) ( $this->args['input_schema'] ?? array() ); }
 		/** @return array<string, mixed> */
-		public function get_output_schema(): array { return array(); }
+		public function get_output_schema(): array { return (array) ( $this->args['output_schema'] ?? array() ); }
 		/** @return string */
-		public function get_category(): string { return ''; }
+		public function get_category(): string { return (string) ( $this->args['category'] ?? '' ); }
 		/** @return array<string, mixed> */
-		public function get_meta(): array { return array(); }
+		public function get_meta(): array { return (array) ( $this->args['meta'] ?? array() ); }
 		/** @return mixed */
 		public function call( array $params ): mixed { return null; }
 		/** @return mixed|\WP_Error */

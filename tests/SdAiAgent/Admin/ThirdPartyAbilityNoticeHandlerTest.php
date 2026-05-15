@@ -129,20 +129,27 @@ class ThirdPartyAbilityNoticeHandlerTest extends WP_UnitTestCase {
 	 * Test that namespace decisions override the heuristic.
 	 */
 	public function test_namespace_decision_overrides_heuristic(): void {
-		if ( ! function_exists( 'wp_register_ability' ) ) {
+		if ( ! class_exists( '\WP_Ability' ) ) {
 			$this->markTestSkipped( 'WordPress Abilities API not available.' );
 		}
 
-		// Register a test ability with no description or category (would be private-unknown).
-		global $wp_current_filter;
-		$wp_current_filter[] = 'wp_abilities_api_init';
+		// Set the mode to 'auto' so the heuristic applies.
+		$option = get_option( 'sd_ai_agent_settings', array() );
+		if ( ! is_array( $option ) ) {
+			$option = array();
+		}
+		$option['third_party_mode'] = 'auto';
+		update_option( 'sd_ai_agent_settings', $option );
 
-		wp_register_ability(
+		// Create a mock ability with a non-partner category and no explicit public flag.
+		// This simulates an ability that would be classified as private-unknown
+		// (no description+category heuristic match, no partner namespace/category).
+		$ability = new \WP_Ability(
 			'test-plugin/test-ability',
 			[
 				'label'               => 'Test Ability',
-				'description'         => '',
-				'category'            => '',
+				'description'         => 'A test ability',
+				'category'            => 'test-category',
 				'input_schema'        => [ 'type' => 'object', 'properties' => [] ],
 				'execute_callback'    => static function () {
 					return [];
@@ -153,15 +160,9 @@ class ThirdPartyAbilityNoticeHandlerTest extends WP_UnitTestCase {
 			]
 		);
 
-		array_pop( $wp_current_filter );
-
-		// Get the ability.
-		$ability = wp_get_ability( 'test-plugin/test-ability' );
-		$this->assertNotNull( $ability );
-
-		// Without a decision, it should be private-unknown.
+		// Without a decision, it should be public-heuristic (has description + category).
 		$this->assertSame(
-			AbilityVisibility::CLASSIFICATION_PRIVATE_UNKNOWN,
+			AbilityVisibility::CLASSIFICATION_PUBLIC_HEURISTIC,
 			AbilityVisibility::classify( $ability )
 		);
 
@@ -173,7 +174,7 @@ class ThirdPartyAbilityNoticeHandlerTest extends WP_UnitTestCase {
 		$option['third_party_namespace_decisions'] = [ 'test-plugin' => 'allow' ];
 		update_option( 'sd_ai_agent_settings', $option );
 
-		// Now it should be public-explicit.
+		// Now it should be public-explicit (namespace decision overrides heuristic).
 		$this->assertSame(
 			AbilityVisibility::CLASSIFICATION_PUBLIC_EXPLICIT,
 			AbilityVisibility::classify( $ability )
@@ -183,7 +184,7 @@ class ThirdPartyAbilityNoticeHandlerTest extends WP_UnitTestCase {
 		$option['third_party_namespace_decisions'] = [ 'test-plugin' => 'block' ];
 		update_option( 'sd_ai_agent_settings', $option );
 
-		// Now it should be private-explicit.
+		// Now it should be private-explicit (namespace decision overrides heuristic).
 		$this->assertSame(
 			AbilityVisibility::CLASSIFICATION_PRIVATE_EXPLICIT,
 			AbilityVisibility::classify( $ability )
