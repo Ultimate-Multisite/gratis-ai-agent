@@ -33,6 +33,7 @@ class ToolDiscoveryTest extends WP_UnitTestCase {
 	public function tear_down(): void {
 		parent::tear_down();
 		remove_all_filters( 'sd_ai_agent_ability_usage_instructions' );
+		remove_all_filters( 'sd_ai_agent_ability_usage_instructions_for' );
 		AbilityUsageTracker::reset();
 		ToolDiscovery::reset_schema_cache();
 		IdenticalFailureTracker::reset();
@@ -250,6 +251,139 @@ class ToolDiscoveryTest extends WP_UnitTestCase {
 			$manifest,
 			'Manifest line for memory-delete should include "Required: id".'
 		);
+	}
+
+	public function test_manifest_includes_per_ability_usage_instructions(): void {
+		// Register a test ability with usage_instructions in meta.ai.
+		wp_register_ability(
+			'test-ability-with-instructions',
+			[
+				'label'       => 'Test Ability',
+				'description' => 'A test ability.',
+				'category'    => 'test-category',
+				'meta'        => [
+					'ai' => [
+						'usage_instructions' => 'Use when testing usage instructions.',
+					],
+				],
+				'execute_callback'    => static function () {
+					return [];
+				},
+				'permission_callback' => static function () {
+					return true;
+				},
+			]
+		);
+
+		$manifest = ToolDiscovery::build_manifest_section();
+
+		// The manifest should include the usage_instructions on an indented line.
+		$this->assertStringContainsString( 'Use when testing usage instructions.', $manifest );
+	}
+
+	public function test_ability_search_includes_usage_instructions_in_results(): void {
+		// Register a test ability with usage_instructions.
+		wp_register_ability(
+			'test-search-ability-with-instructions',
+			[
+				'label'       => 'Test Search Ability',
+				'description' => 'A test ability for search.',
+				'category'    => 'test-search',
+				'meta'        => [
+					'ai' => [
+						'usage_instructions' => 'Use for testing search results.',
+					],
+				],
+				'execute_callback'    => static function () {
+					return [];
+				},
+				'permission_callback' => static function () {
+					return true;
+				},
+			]
+		);
+
+		$result = ToolDiscovery::handle_ability_search(
+			[ 'query' => 'select:test-search-ability-with-instructions' ]
+		);
+
+		$this->assertIsArray( $result );
+		$this->assertNotEmpty( $result['results'] );
+
+		$first = $result['results'][0];
+		$this->assertArrayHasKey( 'usage_instructions', $first );
+		$this->assertSame( 'Use for testing search results.', $first['usage_instructions'] );
+	}
+
+	public function test_ability_search_omits_empty_usage_instructions(): void {
+		// Register a test ability without usage_instructions.
+		wp_register_ability(
+			'test-ability-no-instructions',
+			[
+				'label'       => 'Test No Instructions',
+				'description' => 'A test ability without instructions.',
+				'category'    => 'test-no-instructions',
+				'execute_callback'    => static function () {
+					return [];
+				},
+				'permission_callback' => static function () {
+					return true;
+				},
+			]
+		);
+
+		$result = ToolDiscovery::handle_ability_search(
+			[ 'query' => 'select:test-ability-no-instructions' ]
+		);
+
+		$this->assertIsArray( $result );
+		$this->assertNotEmpty( $result['results'] );
+
+		$first = $result['results'][0];
+		// usage_instructions should not be present if empty.
+		$this->assertArrayNotHasKey( 'usage_instructions', $first );
+	}
+
+	public function test_usage_instructions_filter_for_third_party_abilities(): void {
+		// Register a test ability without usage_instructions.
+		wp_register_ability(
+			'test-third-party-ability',
+			[
+				'label'       => 'Third Party Ability',
+				'description' => 'A third-party ability.',
+				'category'    => 'third-party',
+				'execute_callback'    => static function () {
+					return [];
+				},
+				'permission_callback' => static function () {
+					return true;
+				},
+			]
+		);
+
+		// Use the filter to supply instructions for the third-party ability.
+		add_filter(
+			'sd_ai_agent_ability_usage_instructions_for',
+			static function ( $instructions, $ability_name ) {
+				if ( 'test-third-party-ability' === $ability_name ) {
+					return 'Use this third-party ability when needed.';
+				}
+				return $instructions;
+			},
+			10,
+			2
+		);
+
+		$result = ToolDiscovery::handle_ability_search(
+			[ 'query' => 'select:test-third-party-ability' ]
+		);
+
+		$this->assertIsArray( $result );
+		$this->assertNotEmpty( $result['results'] );
+
+		$first = $result['results'][0];
+		$this->assertArrayHasKey( 'usage_instructions', $first );
+		$this->assertSame( 'Use this third-party ability when needed.', $first['usage_instructions'] );
 	}
 
 	// ── validation error self-correction ──────────────────────────────

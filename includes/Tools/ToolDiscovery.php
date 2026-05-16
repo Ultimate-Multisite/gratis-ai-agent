@@ -382,10 +382,10 @@ class ToolDiscovery {
 			$usage_instructions = self::get_ability_usage_instructions( $ability );
 
 			$by_cat[ $cat ][] = array(
-				'name'                => $name,
-				'desc'                => $desc,
-				'required'            => $schema_required,
-				'usage_instructions'  => $usage_instructions,
+				'name'               => $name,
+				'desc'               => $desc,
+				'required'           => $schema_required,
+				'usage_instructions' => $usage_instructions,
 			);
 		}
 
