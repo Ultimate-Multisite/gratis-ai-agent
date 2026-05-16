@@ -147,107 +147,85 @@ class ModelsCommand extends WP_CLI_Command {
 	/**
 	 * Fetch configured providers and their model lists.
 	 *
-	 * Mirrors the logic of SettingsController::handle_providers() but runs
-	 * entirely in-process without needing REST routes to be registered
-	 * (REST handlers are not loaded in CLI context).
+	 * Mirrors the logic of SettingsController::handle_providers() in-process,
+	 * without needing REST routes to be registered (REST handlers are not
+	 * loaded in CLI context). The WP AI Client SDK registry is the single
+	 * source of truth for which providers exist and which models each exposes.
 	 *
 	 * @return list<array<string, mixed>>
 	 */
 	private function fetch_providers(): array {
-		$settings  = new Settings();
 		$providers = array();
 
-		// Built-in providers (OpenAI, Anthropic, Google) — only include when a
-		// WP 7.0 Connectors API key is set.
-		foreach ( Settings::DIRECT_PROVIDERS as $provider_id => $meta ) {
-			if ( '' === $settings->get_connectors_api_key( $provider_id ) ) {
-				continue;
-			}
-
-			$providers[] = array(
-				'id'         => $provider_id,
-				'name'       => $meta['name'],
-				'type'       => 'direct',
-				'configured' => true,
-				'models'     => $meta['models'] ?? array(),
-			);
+		if ( ! class_exists( '\\WordPress\\AiClient\\AiClient' ) ) {
+			return $providers;
 		}
 
-		$added_ids = array_column( $providers, 'id' );
+		try {
+			$registry     = \WordPress\AiClient\AiClient::defaultRegistry();
+			$provider_ids = $registry->getRegisteredProviderIds();
+		} catch ( \Throwable $e ) {
+			return $providers;
+		}
 
-		// WP SDK providers (registered connectors, compatible endpoints, etc.).
-		if ( class_exists( '\\WordPress\\AiClient\\AiClient' ) ) {
-			$registry     = null;
-			$provider_ids = array();
+		ProviderCredentialLoader::load();
 
+		foreach ( $provider_ids as $provider_id ) {
 			try {
-				$registry     = \WordPress\AiClient\AiClient::defaultRegistry();
-				$provider_ids = $registry->getRegisteredProviderIds();
+				$auth = $registry->getProviderRequestAuthentication( $provider_id );
+				if ( null === $auth ) {
+					continue;
+				}
+
+				$class    = $registry->getProviderClassName( $provider_id );
+				$metadata = $class::metadata();
+				$models   = array();
+
+				// OpenAI-compatible connectors expose a model list endpoint.
+				// Pass the SDK provider_id so the connector can resolve the
+				// correct per-provider endpoint URL and API key in
+				// multi-provider setups. Without provider_id, the connector
+				// always falls back to its primary configured provider and
+				// every OpenAI-compatible provider would return the same
+				// model list — see ai-provider-for-any-compatible-endpoint
+				// PR #127.
+				if ( str_starts_with( $provider_id, 'ai-provider-for-any-openai-compatible' )
+					&& function_exists( 'OpenAiCompatibleConnector\\rest_list_models' )
+				) {
+					$req = new \WP_REST_Request( 'GET' );
+					$req->set_param( 'provider_id', $provider_id );
+					$result = \OpenAiCompatibleConnector\rest_list_models( $req );
+					if ( ! is_wp_error( $result ) ) {
+						$data = $result->get_data();
+						if ( is_array( $data ) ) {
+							$models = $data;
+						}
+					}
+				} else {
+					try {
+						$directory = $class::modelMetadataDirectory();
+						foreach ( $directory->listModelMetadata() as $model_meta ) {
+							$model_id = $model_meta->getId();
+							$models[] = array(
+								'id'             => $model_id,
+								'name'           => $model_meta->getName(),
+								'context_window' => Settings::MODEL_CONTEXT_WINDOWS[ $model_id ] ?? 128000,
+							);
+						}
+					} catch ( \Throwable $e ) {
+						// Model listing failed — include provider without models.
+					}
+				}
+
+				$providers[] = array(
+					'id'         => $provider_id,
+					'name'       => $metadata->getName(),
+					'type'       => (string) $metadata->getType(),
+					'configured' => true,
+					'models'     => $models,
+				);
 			} catch ( \Throwable $e ) {
-				$provider_ids = array();
-			}
-
-			foreach ( $provider_ids as $provider_id ) {
-				if ( in_array( $provider_id, $added_ids, true ) || null === $registry ) {
-					continue;
-				}
-
-				try {
-					$auth = $registry->getProviderRequestAuthentication( $provider_id );
-					if ( null === $auth ) {
-						continue;
-					}
-
-					$class    = $registry->getProviderClassName( $provider_id );
-					$metadata = $class::metadata();
-					$models   = array();
-
-					// OpenAI-compatible connectors expose a model list endpoint.
-					// Pass the SDK provider_id so the connector can resolve the
-					// correct per-provider endpoint URL and API key in
-					// multi-provider setups. Without provider_id, the connector
-					// always falls back to its primary configured provider and
-					// every OpenAI-compatible provider would return the same
-					// model list — see ai-provider-for-any-compatible-endpoint
-					// PR #127.
-					if ( str_starts_with( $provider_id, 'ai-provider-for-any-openai-compatible' )
-						&& function_exists( 'OpenAiCompatibleConnector\\rest_list_models' )
-					) {
-						$req = new \WP_REST_Request( 'GET' );
-						$req->set_param( 'provider_id', $provider_id );
-						$result = \OpenAiCompatibleConnector\rest_list_models( $req );
-						if ( ! is_wp_error( $result ) ) {
-							$data = $result->get_data();
-							if ( is_array( $data ) ) {
-								$models = $data;
-							}
-						}
-					} else {
-						try {
-							$directory = $class::modelMetadataDirectory();
-							foreach ( $directory->listModelMetadata() as $model_meta ) {
-								$model_id = $model_meta->getId();
-								$models[] = array(
-									'id'             => $model_id,
-									'name'           => $model_meta->getName(),
-									'context_window' => Settings::MODEL_CONTEXT_WINDOWS[ $model_id ] ?? 128000,
-								);
-							}
-						} catch ( \Throwable $e ) {
-							// Model listing failed — include provider without models.
-						}
-					}
-
-					$providers[] = array(
-						'id'         => $provider_id,
-						'name'       => $metadata->getName(),
-						'type'       => (string) $metadata->getType(),
-						'configured' => true,
-						'models'     => $models,
-					);
-				} catch ( \Throwable $e ) {
-					continue;
-				}
+				continue;
 			}
 		}
 
