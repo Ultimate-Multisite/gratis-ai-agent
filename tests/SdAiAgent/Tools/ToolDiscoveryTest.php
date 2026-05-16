@@ -18,6 +18,22 @@ class ToolDiscoveryTest extends WP_UnitTestCase {
 
 	private int $admin_id = 0;
 
+	/**
+	 * Ability ids registered via {@see self::register_test_ability()} during a
+	 * test, so tear_down can unregister them and prevent bleed-over.
+	 *
+	 * @var string[]
+	 */
+	private array $registered_test_abilities = [];
+
+	/**
+	 * Ability category slugs registered via {@see self::ensure_test_category()}
+	 * during a test, so tear_down can unregister them and prevent bleed-over.
+	 *
+	 * @var string[]
+	 */
+	private array $registered_test_categories = [];
+
 	public function set_up(): void {
 		parent::set_up();
 		AbilityUsageTracker::reset();
@@ -31,12 +47,111 @@ class ToolDiscoveryTest extends WP_UnitTestCase {
 	}
 
 	public function tear_down(): void {
+		// Clean up any abilities registered during the test BEFORE the parent
+		// teardown removes the user / filter context they depend on.
+		if ( function_exists( 'wp_unregister_ability' ) ) {
+			foreach ( $this->registered_test_abilities as $ability_id ) {
+				wp_unregister_ability( $ability_id );
+			}
+		}
+		$this->registered_test_abilities = [];
+
+		// Unregister any test categories we created, after the abilities that
+		// referenced them are gone.
+		if ( function_exists( 'wp_unregister_ability_category' ) ) {
+			foreach ( $this->registered_test_categories as $category_slug ) {
+				wp_unregister_ability_category( $category_slug );
+			}
+		}
+		$this->registered_test_categories = [];
+
 		parent::tear_down();
 		remove_all_filters( 'sd_ai_agent_ability_usage_instructions' );
 		remove_all_filters( 'sd_ai_agent_ability_usage_instructions_for' );
 		AbilityUsageTracker::reset();
 		ToolDiscovery::reset_schema_cache();
 		IdenticalFailureTracker::reset();
+	}
+
+	/**
+	 * Register a test ability under the `wp_abilities_api_init` hook context.
+	 *
+	 * WordPress 6.9+ requires {@see wp_register_ability()} to be called from
+	 * within `wp_abilities_api_init`. The registry init action fires lazily
+	 * and only once per request, so by the time set_up() runs it has already
+	 * fired and an add_action() callback would never be invoked. WP core's own
+	 * test suite (`tests/phpunit/tests/abilities-api/wpRegisterAbility.php`)
+	 * works around this by pushing the hook name onto $wp_current_filter to
+	 * satisfy the hook-context check, then popping it afterwards. We do the
+	 * same and remember the id so tear_down() can clean up.
+	 *
+	 * WP 6.9 also rejects an ability whose `category` slug is not registered
+	 * via {@see wp_register_ability_category()}, returning null silently from
+	 * the registry. The helper therefore lazy-registers the referenced
+	 * category before registering the ability.
+	 *
+	 * @param string              $name Ability id (namespaced or bare).
+	 * @param array<string,mixed> $args Ability registration args.
+	 */
+	private function register_test_ability( string $name, array $args ): void {
+		if ( ! function_exists( 'wp_register_ability' ) ) {
+			$this->fail( 'wp_register_ability() is not available — Abilities API is not loaded.' );
+		}
+
+		if ( isset( $args['category'] ) && is_string( $args['category'] ) ) {
+			$this->ensure_test_category( $args['category'] );
+		}
+
+		// phpcs:ignore WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedVariableFound -- Standard WordPress hook stack global.
+		global $wp_current_filter;
+		$wp_current_filter[] = 'wp_abilities_api_init';
+
+		try {
+			wp_register_ability( $name, $args );
+		} finally {
+			array_pop( $wp_current_filter );
+		}
+
+		$this->registered_test_abilities[] = $name;
+	}
+
+	/**
+	 * Lazily register an ability category for the current test.
+	 *
+	 * WP 6.9 enforces that categories are registered on the
+	 * `wp_abilities_api_categories_init` hook, mirroring the constraint on
+	 * `wp_register_ability()`. We satisfy the hook-context check the same way
+	 * as {@see self::register_test_ability()} and track the slug so tear_down
+	 * can unregister it.
+	 *
+	 * @param string $slug Category slug used by a test ability.
+	 */
+	private function ensure_test_category( string $slug ): void {
+		if ( ! function_exists( 'wp_register_ability_category' ) || ! function_exists( 'wp_has_ability_category' ) ) {
+			return;
+		}
+
+		if ( wp_has_ability_category( $slug ) ) {
+			return;
+		}
+
+		// phpcs:ignore WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedVariableFound -- Standard WordPress hook stack global.
+		global $wp_current_filter;
+		$wp_current_filter[] = 'wp_abilities_api_categories_init';
+
+		try {
+			wp_register_ability_category(
+				$slug,
+				[
+					'label'       => 'Test Category ' . $slug,
+					'description' => 'Auto-registered by ToolDiscoveryTest for ' . $slug,
+				]
+			);
+		} finally {
+			array_pop( $wp_current_filter );
+		}
+
+		$this->registered_test_categories[] = $slug;
 	}
 
 	// ── tier_1_for_run ────────────────────────────────────────────────
@@ -255,8 +370,9 @@ class ToolDiscoveryTest extends WP_UnitTestCase {
 
 	public function test_manifest_includes_per_ability_usage_instructions(): void {
 		// Register a test ability with usage_instructions in meta.ai.
-		wp_register_ability(
-			'test-ability-with-instructions',
+		// WP 6.9 requires a namespaced id (`vendor/name`).
+		$this->register_test_ability(
+			'test-plugin/ability-with-instructions',
 			[
 				'label'       => 'Test Ability',
 				'description' => 'A test ability.',
@@ -283,8 +399,9 @@ class ToolDiscoveryTest extends WP_UnitTestCase {
 
 	public function test_ability_search_includes_usage_instructions_in_results(): void {
 		// Register a test ability with usage_instructions.
-		wp_register_ability(
-			'test-search-ability-with-instructions',
+		// WP 6.9 requires a namespaced id (`vendor/name`).
+		$this->register_test_ability(
+			'test-plugin/search-ability-with-instructions',
 			[
 				'label'       => 'Test Search Ability',
 				'description' => 'A test ability for search.',
@@ -304,7 +421,7 @@ class ToolDiscoveryTest extends WP_UnitTestCase {
 		);
 
 		$result = ToolDiscovery::handle_ability_search(
-			[ 'query' => 'select:test-search-ability-with-instructions' ]
+			[ 'query' => 'select:test-plugin/search-ability-with-instructions' ]
 		);
 
 		$this->assertIsArray( $result );
@@ -317,8 +434,9 @@ class ToolDiscoveryTest extends WP_UnitTestCase {
 
 	public function test_ability_search_omits_empty_usage_instructions(): void {
 		// Register a test ability without usage_instructions.
-		wp_register_ability(
-			'test-ability-no-instructions',
+		// WP 6.9 requires a namespaced id (`vendor/name`).
+		$this->register_test_ability(
+			'test-plugin/ability-no-instructions',
 			[
 				'label'       => 'Test No Instructions',
 				'description' => 'A test ability without instructions.',
@@ -333,7 +451,7 @@ class ToolDiscoveryTest extends WP_UnitTestCase {
 		);
 
 		$result = ToolDiscovery::handle_ability_search(
-			[ 'query' => 'select:test-ability-no-instructions' ]
+			[ 'query' => 'select:test-plugin/ability-no-instructions' ]
 		);
 
 		$this->assertIsArray( $result );
@@ -346,8 +464,9 @@ class ToolDiscoveryTest extends WP_UnitTestCase {
 
 	public function test_usage_instructions_filter_for_third_party_abilities(): void {
 		// Register a test ability without usage_instructions.
-		wp_register_ability(
-			'test-third-party-ability',
+		// WP 6.9 requires a namespaced id (`vendor/name`).
+		$this->register_test_ability(
+			'test-plugin/third-party-ability',
 			[
 				'label'       => 'Third Party Ability',
 				'description' => 'A third-party ability.',
@@ -365,7 +484,7 @@ class ToolDiscoveryTest extends WP_UnitTestCase {
 		add_filter(
 			'sd_ai_agent_ability_usage_instructions_for',
 			static function ( $instructions, $ability_name ) {
-				if ( 'test-third-party-ability' === $ability_name ) {
+				if ( 'test-plugin/third-party-ability' === $ability_name ) {
 					return 'Use this third-party ability when needed.';
 				}
 				return $instructions;
@@ -375,7 +494,7 @@ class ToolDiscoveryTest extends WP_UnitTestCase {
 		);
 
 		$result = ToolDiscovery::handle_ability_search(
-			[ 'query' => 'select:test-third-party-ability' ]
+			[ 'query' => 'select:test-plugin/third-party-ability' ]
 		);
 
 		$this->assertIsArray( $result );
