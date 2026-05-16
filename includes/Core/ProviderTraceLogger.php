@@ -222,8 +222,11 @@ class ProviderTraceLogger {
 			if ( '' === $error ) {
 				$error = "HTTP {$status_code}";
 			}
-		} elseif ( self::is_truncated_tool_call_response( $decoded_response ) ) {
-			$error = 'truncated_tool_call';
+		} else {
+			$classification = self::classify_truncation( $decoded_response );
+			if ( '' !== $classification ) {
+				$error = $classification;
+			}
 		}
 
 		// Format response headers as JSON.
@@ -428,13 +431,23 @@ class ProviderTraceLogger {
 	}
 
 	/**
-	 * Detect successful provider responses that ended at the output cap mid tool call.
+	 * Classify a successful provider response that ended at the output cap.
+	 *
+	 * Returns one of:
+	 *   - 'truncated_tool_call'        : finish=length AND a tool call had started
+	 *                                    (its JSON arguments are incomplete and unsafe).
+	 *   - 'truncated_before_tool_call' : finish=length AND no tool call AND the
+	 *                                    assistant emitted some text (a preamble
+	 *                                    that exhausted the cap before a tool
+	 *                                    call could begin — the model wanted to
+	 *                                    continue but couldn't).
+	 *   - ''                           : no truncation event of interest.
 	 *
 	 * @param mixed $decoded Decoded JSON response body.
 	 */
-	private static function is_truncated_tool_call_response( $decoded ): bool {
+	public static function classify_truncation( $decoded ): string {
 		if ( ! is_array( $decoded ) ) {
-			return false;
+			return '';
 		}
 
 		$candidates = [];
@@ -446,6 +459,8 @@ class ProviderTraceLogger {
 			$candidates = [ $decoded ];
 		}
 
+		$saw_preamble_truncation = false;
+
 		foreach ( $candidates as $candidate ) {
 			if ( ! is_array( $candidate ) ) {
 				continue;
@@ -456,12 +471,20 @@ class ProviderTraceLogger {
 				continue;
 			}
 
+			// Partial tool call wins outright — its arguments JSON is unsafe to execute.
 			if ( self::candidate_has_tool_call( $candidate ) ) {
-				return true;
+				return 'truncated_tool_call';
+			}
+
+			// No tool call, but the model emitted *some* text before hitting the cap.
+			// This is the Kimi-style preamble-only stall: model wanted to continue
+			// but ran out of output budget before opening a tool call.
+			if ( self::candidate_has_text( $candidate ) ) {
+				$saw_preamble_truncation = true;
 			}
 		}
 
-		return false;
+		return $saw_preamble_truncation ? 'truncated_before_tool_call' : '';
 	}
 
 	/**
@@ -504,6 +527,64 @@ class ProviderTraceLogger {
 		if ( is_array( $parts ) ) {
 			foreach ( $parts as $part ) {
 				if ( is_array( $part ) && isset( $part['functionCall'] ) ) {
+					return true;
+				}
+			}
+		}
+
+		return false;
+	}
+
+	/**
+	 * Detect whether a response candidate contains any non-empty assistant text.
+	 *
+	 * Used by {@see classify_truncation()} to distinguish "model wrote a
+	 * preamble then ran out of tokens" from "empty/garbage response that
+	 * happened to report finish=length". An empty response with a length
+	 * finish is almost always a provider bug and should not trigger the
+	 * preamble-truncation guidance path.
+	 *
+	 * Handles OpenAI (`message.content` string), Anthropic
+	 * (`content[].type === 'text'` parts), and Gemini
+	 * (`content.parts[].text` parts) shapes.
+	 *
+	 * @param array<string, mixed> $candidate Provider response candidate.
+	 */
+	private static function candidate_has_text( array $candidate ): bool {
+		// OpenAI-compatible: choices[].message.content as a string.
+		$message = $candidate['message'] ?? null;
+		if ( is_array( $message ) ) {
+			$content = $message['content'] ?? null;
+			if ( is_string( $content ) && '' !== trim( $content ) ) {
+				return true;
+			}
+		}
+
+		// Anthropic: content[] array with type=text blocks.
+		$content = $candidate['content'] ?? null;
+		if ( is_array( $content ) ) {
+			foreach ( $content as $part ) {
+				if ( ! is_array( $part ) ) {
+					continue;
+				}
+				if ( ( $part['type'] ?? '' ) === 'text' ) {
+					$text = $part['text'] ?? '';
+					if ( is_string( $text ) && '' !== trim( $text ) ) {
+						return true;
+					}
+				}
+			}
+		}
+
+		// Gemini: candidate.content.parts[].text.
+		$parts = $candidate['content']['parts'] ?? $candidate['parts'] ?? [];
+		if ( is_array( $parts ) ) {
+			foreach ( $parts as $part ) {
+				if ( ! is_array( $part ) ) {
+					continue;
+				}
+				$text = $part['text'] ?? '';
+				if ( is_string( $text ) && '' !== trim( $text ) ) {
 					return true;
 				}
 			}

@@ -77,6 +77,19 @@ class AgentLoop {
 	/** Default exponential backoff schedule in seconds, capped at 60 seconds. */
 	private const PROVIDER_RETRY_DELAYS = array( 1, 2, 4, 8, 16, 32, 60, 60, 60, 60 );
 
+	/**
+	 * Maximum consecutive preamble-only truncations before we abort the loop.
+	 *
+	 * A preamble-only truncation happens when the model emits text up to its
+	 * output cap without ever opening a tool call. We inject guidance and
+	 * retry once; if it happens again immediately the model is stuck (model
+	 * cap is genuinely too small, or the task is too large) and burning more
+	 * iterations is wasteful. Abort with a structured WP_Error so the
+	 * session ends cleanly and the UI can surface a real failure to the
+	 * user instead of an idle session with a half-sentence reply.
+	 */
+	private const PREAMBLE_TRUNCATION_MAX_RETRIES = 2;
+
 	/** @var string */
 	private $user_message;
 
@@ -148,6 +161,9 @@ class AgentLoop {
 
 	/** @var list<string> Per-agent Tier 1 tool override (empty = use global default). */
 	private array $agent_tier_1_tools = array();
+
+	/** @var int Consecutive preamble-only truncations observed this run. */
+	private int $preamble_truncation_retries = 0;
 
 	/**
 	 * Client-side ability descriptors validated against JsAbilityCatalog.
@@ -628,9 +644,32 @@ class AgentLoop {
 			$this->accumulate_tokens( $result );
 
 			if ( $this->is_truncated_tool_call_result( $result, $assistant_message ) ) {
+				// Partial tool call cut at the cap — discard the unsafe call,
+				// inject guidance, retry. This is the long-standing branch.
+				$this->preamble_truncation_retries = 0;
 				$this->inject_truncated_tool_call_guidance( $assistant_message );
 				continue;
 			}
+
+			if ( $this->is_truncated_before_tool_call_result( $result, $assistant_message ) ) {
+				// Model wrote a preamble, then hit the cap before opening any
+				// tool call. Without intervention the loop would treat the
+				// preamble as a final answer and silently exit, leaving the
+				// session idle. Inject distinct guidance and retry — but cap
+				// the retries so a genuinely undersized model doesn't burn
+				// every iteration on the same stall (see
+				// PREAMBLE_TRUNCATION_MAX_RETRIES).
+				++$this->preamble_truncation_retries;
+				if ( $this->preamble_truncation_retries > self::PREAMBLE_TRUNCATION_MAX_RETRIES ) {
+					return $this->abort_on_repeated_preamble_truncation();
+				}
+				$this->inject_pre_tool_call_truncation_guidance();
+				continue;
+			}
+
+			// Normal (non-truncated) turn — reset the preamble retry counter
+			// so an unrelated later truncation doesn't inherit prior state.
+			$this->preamble_truncation_retries = 0;
 
 			$this->history[] = $assistant_message;
 
@@ -1554,6 +1593,44 @@ class AgentLoop {
 			return false;
 		}
 
+		return $this->finish_reason_is_length_cap( $result );
+	}
+
+	/**
+	 * Detect provider length-cap finishes that never opened a tool call.
+	 *
+	 * This is the "preamble-only truncation" case: the model emitted assistant
+	 * text (typically a one-line lead-in like "Now I'll create the full landing
+	 * page...") and then hit its output cap before producing the JSON for a
+	 * tool call. Without intervention the agent loop would treat the partial
+	 * text as a final answer and silently exit the loop, leaving the session
+	 * idle with a half-sentence reply.
+	 *
+	 * We only flag this when the assistant *did* emit non-empty text — an
+	 * empty response that happens to report finish=length is almost always a
+	 * provider bug and should not enter the guidance-retry path.
+	 *
+	 * @param mixed   $result  Provider result object.
+	 * @param Message $message Assistant message converted from the result.
+	 */
+	private function is_truncated_before_tool_call_result( $result, Message $message ): bool {
+		if ( $this->get_ability_resolver()->has_ability_calls( $message ) ) {
+			return false;
+		}
+
+		if ( ! $this->message_has_assistant_text( $message ) ) {
+			return false;
+		}
+
+		return $this->finish_reason_is_length_cap( $result );
+	}
+
+	/**
+	 * Whether the provider's normalized finish reason indicates an output-cap hit.
+	 *
+	 * @param mixed $result Provider result object.
+	 */
+	private function finish_reason_is_length_cap( $result ): bool {
 		$reason = $this->get_result_finish_reason( $result );
 		if ( '' === $reason ) {
 			return false;
@@ -1561,6 +1638,22 @@ class AgentLoop {
 
 		$normalized = strtolower( str_replace( [ '-', ' ' ], '_', $reason ) );
 		return in_array( $normalized, [ 'max_tokens', 'length', 'max_output_tokens' ], true );
+	}
+
+	/**
+	 * Whether a Message contains any non-empty assistant text part.
+	 *
+	 * @param Message $message Assistant message converted from the result.
+	 */
+	private function message_has_assistant_text( Message $message ): bool {
+		foreach ( $message->getParts() as $part ) {
+			$text = $part->getText();
+			if ( is_string( $text ) && '' !== trim( $text ) ) {
+				return true;
+			}
+		}
+
+		return false;
 	}
 
 	/**
@@ -1627,6 +1720,87 @@ class AgentLoop {
 
 		$this->history[] = new UserMessage( [ new MessagePart( $guidance ) ] );
 		$this->fire_progress();
+	}
+
+	/**
+	 * Inject guidance after a preamble-only truncation and retry the turn.
+	 *
+	 * Distinct from {@see inject_truncated_tool_call_guidance()} because no
+	 * tool call was actually started — the previous wording ("the tool call
+	 * you started (X) was discarded") would be a lie. This message tells the
+	 * model exactly what happened (it wrote a lead-in and ran out of room)
+	 * and points it at the concrete decomposition path that
+	 * `sd-ai-agent/create-post` + `sd-ai-agent/append-post-content` enables
+	 * for long content on small-cap models.
+	 */
+	private function inject_pre_tool_call_truncation_guidance(): void {
+		$cap      = $this->get_effective_max_output_tokens();
+		$guidance = sprintf(
+			/* translators: %d: max token cap. */
+			__( 'Your previous response hit the max_tokens cap (current cap: %d) before you opened a tool call. The text-only reply has been discarded. Skip any lead-in narration and call a tool immediately. For long content like landing pages, articles, or multi-section copy: call sd-ai-agent/create-post with only the hero and intro, then call sd-ai-agent/append-post-content once per remaining section. Never attempt to emit a complete long page in a single sd-ai-agent/create-post call when your output budget is this small.', 'superdav-ai-agent' ),
+			$cap
+		);
+
+		$this->tool_call_log[] = array(
+			'type'       => 'event',
+			'reason'     => 'truncated_before_tool_call',
+			'max_tokens' => $cap,
+			'message'    => $guidance,
+		);
+
+		AgentEventLog::log(
+			'truncated_before_tool_call',
+			AgentEventLog::SEVERITY_WARNING,
+			array(
+				'session_id'  => $this->session_id,
+				'max_tokens'  => $cap,
+				'model_id'    => (string) $this->model_id,
+				'provider_id' => (string) $this->provider_id,
+				'retry'       => $this->preamble_truncation_retries,
+			)
+		);
+
+		$this->history[] = new UserMessage( [ new MessagePart( $guidance ) ] );
+		$this->fire_progress();
+	}
+
+	/**
+	 * Abort the loop after repeated preamble-only truncations.
+	 *
+	 * Returns a structured WP_Error so the calling code in {@see run()} can
+	 * end the session cleanly and surface a real failure to the UI instead
+	 * of leaving the session idle with a half-sentence assistant reply.
+	 */
+	private function abort_on_repeated_preamble_truncation(): WP_Error {
+		$cap = $this->get_effective_max_output_tokens();
+
+		AgentEventLog::log(
+			'agent_loop_aborted',
+			AgentEventLog::SEVERITY_ERROR,
+			array(
+				'session_id'      => $this->session_id,
+				'reason'          => 'preamble_truncation_loop',
+				'iterations_used' => $this->iterations_used,
+				'iterations_max'  => (int) $this->max_iterations,
+				'model_id'        => (string) $this->model_id,
+				'provider_id'     => (string) $this->provider_id,
+				'max_tokens'      => $cap,
+				'retries'         => $this->preamble_truncation_retries,
+			)
+		);
+
+		return new WP_Error(
+			'preamble_truncation_loop',
+			sprintf(
+				/* translators: %d: max token cap. */
+				__( 'The model repeatedly hit its output cap (%d tokens) before opening a tool call. The current model or output cap is too small for this task. Try a model with a larger output budget, or break the request into smaller steps.', 'superdav-ai-agent' ),
+				$cap
+			),
+			array(
+				'cap'     => $cap,
+				'retries' => $this->preamble_truncation_retries,
+			)
+		);
 	}
 
 	/**

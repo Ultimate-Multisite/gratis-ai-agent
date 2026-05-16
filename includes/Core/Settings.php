@@ -136,6 +136,7 @@ class Settings {
 	 *   - https://docs.anthropic.com/en/docs/about-claude/models/overview
 	 *   - https://platform.openai.com/docs/models
 	 *   - https://cloud.google.com/vertex-ai/generative-ai/docs/models/gemini
+	 *   - Synthetic AI /openai/v1/models (live response — `max_output_length`)
 	 *
 	 * @var array<string, int>
 	 */
@@ -145,44 +146,74 @@ class Settings {
 		// and Opus 4 document 32K. Newer point releases have higher caps
 		// than older ones in the same family, which is why these are not
 		// collapsed into a single `claude-opus-4` entry.
-		'claude-opus-4-7'   => 128000,
-		'claude-opus-4-6'   => 128000,
-		'claude-opus-4-5'   => 64000,
-		'claude-opus-4-1'   => 32000,
-		'claude-opus-4'     => 32000,
+		'claude-opus-4-7'                => 128000,
+		'claude-opus-4-6'                => 128000,
+		'claude-opus-4-5'                => 64000,
+		'claude-opus-4-1'                => 32000,
+		'claude-opus-4'                  => 32000,
 		// Sonnet 4 / 4.5 / 4.6 all document 64K output.
-		'claude-sonnet-4'   => 64000,
+		'claude-sonnet-4'                => 64000,
 		// Haiku 4.5 documents 64K output (matches Sonnet 4.x).
-		'claude-haiku-4-5'  => 64000,
-		'claude-haiku-4'    => 64000,
+		'claude-haiku-4-5'               => 64000,
+		'claude-haiku-4'                 => 64000,
 		// Legacy 3.x models retain older lower caps.
-		'claude-3-5-sonnet' => 8192,
-		'claude-3-5-haiku'  => 8192,
-		'claude-3-opus'     => 4096,
-		'claude-3-sonnet'   => 4096,
-		'claude-3-haiku'    => 4096,
+		'claude-3-5-sonnet'              => 8192,
+		'claude-3-5-haiku'               => 8192,
+		'claude-3-opus'                  => 4096,
+		'claude-3-sonnet'                => 4096,
+		'claude-3-haiku'                 => 4096,
 		// ── OpenAI ─────────────────────────────────────────────────────
 		// GPT-5 family (5, 5.4, 5.5) and o-series reasoning models all
 		// document 128K output. o1/o3 budgets include reasoning tokens.
-		'gpt-5'             => 128000,
+		'gpt-5'                          => 128000,
 		// GPT-4.1 documents 32,768; GPT-4o documents 16,384.
-		'gpt-4.1'           => 32768,
-		'gpt-4o'            => 16384,
-		'gpt-4-turbo'       => 4096,
-		'gpt-4'             => 8192,
-		'gpt-3.5-turbo'     => 4096,
+		'gpt-4.1'                        => 32768,
+		'gpt-4o'                         => 16384,
+		'gpt-4-turbo'                    => 4096,
+		'gpt-4'                          => 8192,
+		'gpt-3.5-turbo'                  => 4096,
 		// o-series reasoning models: o1 and o3 document 100K; o4 family
 		// (o4-mini etc.) inherits the same envelope.
-		'o1'                => 100000,
-		'o3'                => 100000,
-		'o4'                => 100000,
+		'o1'                             => 100000,
+		'o3'                             => 100000,
+		'o4'                             => 100000,
 		// ── Google Gemini ──────────────────────────────────────────────
 		// Gemini 2.5 Pro and Flash both document 65,535 max output.
 		// Older 2.0 and 1.5 families cap at 8K.
-		'gemini-2.5-pro'    => 65535,
-		'gemini-2.5-flash'  => 65535,
-		'gemini-2.0'        => 8192,
-		'gemini-1.5'        => 8192,
+		'gemini-2.5-pro'                 => 65535,
+		'gemini-2.5-flash'               => 65535,
+		'gemini-2.0'                     => 8192,
+		'gemini-1.5'                     => 8192,
+		// ── HuggingFace-served via OpenAI-compatible connectors ────────
+		// These IDs come from providers like Synthetic AI that proxy
+		// HuggingFace-hosted models through an OpenAI-compatible API and
+		// report `max_output_length` in their /models response. Specific
+		// entries override the generic `hf:` prefix below via longest-
+		// prefix match. Verified against Synthetic's live /models endpoint
+		// (`https://api.synthetic.new/openai/v1/models`).
+		//
+		// Without these entries, model IDs prefixed `hf:` fall through to
+		// the 8192 token fallback, which is far below the provider's
+		// actual cap (65,536 for the active Synthetic models). On a long
+		// single-shot tool call (e.g. emitting a full landing page in one
+		// `sd-ai-agent/create-post`) this caused the model to hit the
+		// 8192 cap *before* it could open the tool-call JSON, leaving
+		// the session idle with a preamble like "Now I'll create the full
+		// landing page..." and no follow-through. See PR description.
+		'hf:moonshotai/Kimi-K2.6'        => 65536,
+		'hf:moonshotai/Kimi-K2.5'        => 32768,
+		'hf:zai-org/GLM-5.1'             => 65536,
+		'hf:zai-org/GLM-5'               => 65536,
+		'hf:zai-org/GLM-4.7-Flash'       => 65536,
+		'hf:zai-org/GLM-4.7'             => 65536,
+		'hf:MiniMaxAI/MiniMax-M2.5'      => 65536,
+		'hf:nvidia/NVIDIA-Nemotron-3'    => 65536,
+		// Broad fallback for any other `hf:`-prefixed model served via
+		// OpenAI-compatible proxies. 32K is a generous but bounded value
+		// that's well under the WordPress AI Client SDK's request-body
+		// limits while being 4x the global 8192 fallback. Specific
+		// entries above take precedence via longest-prefix match.
+		'hf:'                            => 32768,
 	);
 
 	/**

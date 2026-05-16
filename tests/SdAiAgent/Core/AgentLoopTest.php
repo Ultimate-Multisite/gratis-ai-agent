@@ -864,6 +864,172 @@ class AgentLoopTest extends WP_UnitTestCase {
 		$this->assertNotEmpty( $events, 'The truncation should be visible in the tool-call log.' );
 	}
 
+	/**
+	 * Regression test for the Kimi K2.6 stall: model emits a preamble, hits
+	 * finish=length before opening any tool call, agent loop must inject
+	 * distinct guidance and retry instead of silently exiting with the
+	 * preamble as the final reply.
+	 */
+	public function test_run_recovers_from_preamble_only_truncation(): void {
+		$this->skip_if_sdk_unavailable();
+		if ( ! class_exists( 'WP_AI_Client_Ability_Function_Resolver' ) ) {
+			$this->markTestSkipped( 'WP_AI_Client_Ability_Function_Resolver not available.' );
+		}
+
+		$call_count          = 0;
+		$second_request_body = '';
+
+		// Turn 1: preamble-only with length finish (the Kimi K2.6 stall shape).
+		$preamble_body = wp_json_encode(
+			[
+				'id'      => 'chatcmpl-preamble',
+				'object'  => 'chat.completion',
+				'choices' => [
+					[
+						'index'         => 0,
+						'message'       => [
+							'role'    => 'assistant',
+							'content' => "Now I'll create the full landing page with professional Gutenberg block markup:",
+						],
+						'finish_reason' => 'length',
+					],
+				],
+				'usage'   => [ 'prompt_tokens' => 10, 'completion_tokens' => 8192, 'total_tokens' => 8202 ],
+			]
+		);
+
+		// Turn 2: model takes the guidance and ends with a normal reply.
+		$reply_body = wp_json_encode(
+			[
+				'id'      => 'chatcmpl-recovered',
+				'object'  => 'chat.completion',
+				'choices' => [
+					[
+						'index'         => 0,
+						'message'       => [ 'role' => 'assistant', 'content' => 'Created hero. Will append rest now.' ],
+						'finish_reason' => 'stop',
+					],
+				],
+				'usage'   => [ 'prompt_tokens' => 50, 'completion_tokens' => 8, 'total_tokens' => 58 ],
+			]
+		);
+
+		add_filter(
+			'pre_http_request',
+			static function ( $preempt, $args, $url ) use ( &$call_count, &$second_request_body, $preamble_body, $reply_body ) {
+				if ( false !== strpos( $url, 'fake-ai-proxy.test' ) ) {
+					++$call_count;
+					if ( 2 === $call_count ) {
+						$second_request_body = is_string( $args['body'] ?? null ) ? $args['body'] : (string) wp_json_encode( $args['body'] ?? [] );
+					}
+
+					return [
+						'headers'  => [ 'content-type' => 'application/json' ],
+						'body'     => ( 1 === $call_count ) ? $preamble_body : $reply_body,
+						'response' => [ 'code' => 200, 'message' => 'OK' ],
+						'cookies'  => [],
+						'filename' => '',
+					];
+				}
+
+				return $preempt;
+			},
+			10,
+			3
+		);
+
+		$loop   = new AgentLoop( 'Build me a landing page', [], [], [ 'max_iterations' => 3 ] );
+		$result = $loop->run();
+
+		$this->assertIsArray( $result, 'Loop must recover, not return WP_Error after a single preamble truncation.' );
+		$this->assertSame( 'Created hero. Will append rest now.', $result['reply'] );
+		$this->assertSame( 2, $call_count, 'Loop must retry once after preamble truncation.' );
+
+		// Verify the guidance was injected into the next request body so the
+		// model actually receives the steering signal.
+		$this->assertStringContainsString( 'hit the max_tokens cap', $second_request_body );
+		$this->assertStringContainsString( 'before you opened a tool call', $second_request_body );
+		$this->assertStringContainsString( 'sd-ai-agent/append-post-content', $second_request_body );
+
+		// The preamble must not be returned as the final reply.
+		$this->assertNotEquals(
+			"Now I'll create the full landing page with professional Gutenberg block markup:",
+			$result['reply'],
+			'The truncated preamble must not leak through as the final reply.'
+		);
+
+		// And the event should be visible in the tool-call log.
+		$events = array_filter(
+			$result['tool_calls'],
+			static fn( $entry ) => 'truncated_before_tool_call' === ( $entry['reason'] ?? '' )
+		);
+		$this->assertNotEmpty( $events, 'The preamble truncation should be visible in the tool-call log.' );
+	}
+
+	/**
+	 * Test that repeated preamble-only truncations abort cleanly with a
+	 * WP_Error instead of burning every iteration on the same stall.
+	 */
+	public function test_run_aborts_on_repeated_preamble_truncation(): void {
+		$this->skip_if_sdk_unavailable();
+		if ( ! class_exists( 'WP_AI_Client_Ability_Function_Resolver' ) ) {
+			$this->markTestSkipped( 'WP_AI_Client_Ability_Function_Resolver not available.' );
+		}
+
+		$call_count    = 0;
+		$preamble_body = wp_json_encode(
+			[
+				'id'      => 'chatcmpl-stuck',
+				'object'  => 'chat.completion',
+				'choices' => [
+					[
+						'index'         => 0,
+						'message'       => [
+							'role'    => 'assistant',
+							'content' => 'Working on it now.',
+						],
+						'finish_reason' => 'length',
+					],
+				],
+				'usage'   => [ 'prompt_tokens' => 10, 'completion_tokens' => 8192, 'total_tokens' => 8202 ],
+			]
+		);
+
+		add_filter(
+			'pre_http_request',
+			static function ( $preempt, $args, $url ) use ( &$call_count, $preamble_body ) {
+				if ( false !== strpos( $url, 'fake-ai-proxy.test' ) ) {
+					++$call_count;
+					return [
+						'headers'  => [ 'content-type' => 'application/json' ],
+						'body'     => $preamble_body,
+						'response' => [ 'code' => 200, 'message' => 'OK' ],
+						'cookies'  => [],
+						'filename' => '',
+					];
+				}
+
+				return $preempt;
+			},
+			10,
+			3
+		);
+
+		// Allow plenty of iterations — we want to prove the abort, not max_iterations.
+		$loop   = new AgentLoop( 'Build me a landing page', [], [], [ 'max_iterations' => 10 ] );
+		$result = $loop->run();
+
+		$this->assertInstanceOf( \WP_Error::class, $result, 'Repeated preamble truncations must abort with a WP_Error.' );
+		$this->assertSame( 'preamble_truncation_loop', $result->get_error_code() );
+		$this->assertStringContainsString( 'output cap', $result->get_error_message() );
+
+		// PREAMBLE_TRUNCATION_MAX_RETRIES = 2 → after the first stall we retry
+		// twice more (3 total provider calls) and then abort. Not all 10
+		// iterations should have burned.
+		$this->assertLessThanOrEqual( 4, $call_count, 'Loop must abort early, not burn every iteration.' );
+		$this->assertGreaterThanOrEqual( 3, $call_count, 'Loop must allow at least one retry before aborting.' );
+	}
+
 	// -------------------------------------------------------------------------
 	// Max iterations
 	// -------------------------------------------------------------------------
