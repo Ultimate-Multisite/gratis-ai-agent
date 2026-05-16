@@ -276,179 +276,6 @@ class Settings {
 		return $filtered;
 	}
 
-	/**
-	 * Built-in catalog of provider IDs, display names, default models, and
-	 * model lists for OpenAI, Anthropic, and Google.
-	 *
-	 * This is a static catalog of metadata only — it does NOT imply that any
-	 * of these providers are configured. Credentials are stored exclusively by
-	 * the WordPress 7.0 Connectors API in `connectors_ai_{provider}_api_key`
-	 * options; see {@see Settings::get_connectors_api_key()} and
-	 * {@see ProviderCredentialLoader::load()}.
-	 *
-	 * The catalog is consulted by `/providers`, `/alerts`, and the
-	 * `wp ai-agent models` CLI command so that sites without a third-party
-	 * AI provider plugin (`ai-provider-for-openai` etc.) can still discover
-	 * which models exist for a connector that has a key set.
-	 *
-	 * @var array<string, array{name: string, default_model: string, models: list<array{id: string, name: string, context_window: int}>}>
-	 */
-	const DIRECT_PROVIDERS = array(
-		'openai'    => array(
-			'name'          => 'OpenAI',
-			'default_model' => 'gpt-4.1-nano',
-			'models'        => array(
-				array(
-					'id'             => 'gpt-4.1-nano',
-					'name'           => 'GPT-4.1 Nano',
-					'context_window' => 1000000,
-				),
-				array(
-					'id'             => 'gpt-4.1-mini',
-					'name'           => 'GPT-4.1 Mini',
-					'context_window' => 1000000,
-				),
-				array(
-					'id'             => 'gpt-4.1',
-					'name'           => 'GPT-4.1',
-					'context_window' => 1000000,
-				),
-				array(
-					'id'             => 'gpt-4o',
-					'name'           => 'GPT-4o',
-					'context_window' => 128000,
-				),
-				array(
-					'id'             => 'gpt-4o-mini',
-					'name'           => 'GPT-4o Mini',
-					'context_window' => 128000,
-				),
-				array(
-					'id'             => 'gpt-4-turbo',
-					'name'           => 'GPT-4 Turbo',
-					'context_window' => 128000,
-				),
-				array(
-					'id'             => 'o1',
-					'name'           => 'o1',
-					'context_window' => 200000,
-				),
-				array(
-					'id'             => 'o1-mini',
-					'name'           => 'o1 Mini',
-					'context_window' => 128000,
-				),
-				array(
-					'id'             => 'o3-mini',
-					'name'           => 'o3 Mini',
-					'context_window' => 200000,
-				),
-				array(
-					'id'             => 'o3',
-					'name'           => 'o3',
-					'context_window' => 200000,
-				),
-				array(
-					'id'             => 'o4-mini',
-					'name'           => 'o4 Mini',
-					'context_window' => 200000,
-				),
-			),
-		),
-		'anthropic' => array(
-			'name'          => 'Anthropic',
-			'default_model' => 'claude-sonnet-4-6',
-			'models'        => array(
-				array(
-					'id'             => 'claude-opus-4-6',
-					'name'           => 'Claude Opus 4.6',
-					'context_window' => 200000,
-				),
-				array(
-					'id'             => 'claude-sonnet-4-6',
-					'name'           => 'Claude Sonnet 4.6',
-					'context_window' => 200000,
-				),
-				array(
-					'id'             => 'claude-opus-4-5',
-					'name'           => 'Claude Opus 4.5',
-					'context_window' => 200000,
-				),
-				array(
-					'id'             => 'claude-sonnet-4-5',
-					'name'           => 'Claude Sonnet 4.5',
-					'context_window' => 200000,
-				),
-				array(
-					'id'             => 'claude-haiku-3-5',
-					'name'           => 'Claude Haiku 3.5',
-					'context_window' => 200000,
-				),
-				array(
-					'id'             => 'claude-3-5-haiku-20241022',
-					'name'           => 'Claude 3.5 Haiku',
-					'context_window' => 200000,
-				),
-				array(
-					'id'             => 'claude-opus-4-20250514',
-					'name'           => 'Claude Opus 4',
-					'context_window' => 200000,
-				),
-				array(
-					'id'             => 'claude-sonnet-4-20250514',
-					'name'           => 'Claude Sonnet 4',
-					'context_window' => 200000,
-				),
-				array(
-					'id'             => 'claude-haiku-3-20241022',
-					'name'           => 'Claude Haiku 3',
-					'context_window' => 200000,
-				),
-			),
-		),
-		'google'    => array(
-			'name'          => 'Google',
-			'default_model' => 'gemini-2.0-flash',
-			'models'        => array(
-				array(
-					'id'             => 'gemini-2.5-pro-preview-05-06',
-					'name'           => 'Gemini 2.5 Pro',
-					'context_window' => 1048576,
-				),
-				array(
-					'id'             => 'gemini-2.5-flash-preview',
-					'name'           => 'Gemini 2.5 Flash',
-					'context_window' => 1048576,
-				),
-				array(
-					'id'             => 'gemini-2.5-flash-lite-preview',
-					'name'           => 'Gemini 2.5 Flash Lite',
-					'context_window' => 1048576,
-				),
-				array(
-					'id'             => 'gemini-2.0-flash',
-					'name'           => 'Gemini 2.0 Flash',
-					'context_window' => 1048576,
-				),
-				array(
-					'id'             => 'gemini-2.0-flash-lite',
-					'name'           => 'Gemini 2.0 Flash Lite',
-					'context_window' => 1048576,
-				),
-				array(
-					'id'             => 'gemini-1.5-pro',
-					'name'           => 'Gemini 1.5 Pro',
-					'context_window' => 2000000,
-				),
-				array(
-					'id'             => 'gemini-1.5-flash',
-					'name'           => 'Gemini 1.5 Flash',
-					'context_window' => 1048576,
-				),
-			),
-		),
-	);
-
 	// ── Static factory (bridge for non-DI code) ───────────────────────────────
 
 	/**
@@ -613,27 +440,6 @@ class Settings {
 			return true; // Default-on.
 		}
 		return (bool) $option['prompt_caching_enabled'];
-	}
-
-	/**
-	 * Read the API key stored by the WordPress 7.0 Connectors API for a
-	 * built-in provider in {@see Settings::DIRECT_PROVIDERS}.
-	 *
-	 * Reads the `connectors_ai_{provider}_api_key` option directly. This is the
-	 * same naming convention used by core on WP 7.0+ and by the 6.9 polyfill
-	 * in `includes/Compat/wp-connectors-polyfill.php`, so credentials entered
-	 * through the Connectors admin page are picked up here without any further
-	 * migration.
-	 *
-	 * Note: this helper is intentionally read-only — credential writes flow
-	 * through {@see ConnectorsController}, never through the Settings class.
-	 *
-	 * @param string $provider_id One of the keys of {@see Settings::DIRECT_PROVIDERS}.
-	 * @return string Empty string when not configured.
-	 */
-	public function get_connectors_api_key( string $provider_id ): string {
-		$sanitized_id = str_replace( '-', '_', $provider_id );
-		return (string) get_option( "connectors_ai_{$sanitized_id}_api_key", '' );
 	}
 
 	/**
@@ -835,8 +641,9 @@ class Settings {
 	 *
 	 * Resolution order:
 	 *  1. `default_provider` saved via the WP SDK Connectors settings page.
-	 *  2. A WP 7.0 Connectors API key for any built-in provider in
-	 *     {@see Settings::DIRECT_PROVIDERS}.
+	 *  2. Any provider in the WP AI Client SDK registry has authentication
+	 *     configured (handles credentials populated by `ai-provider-for-*`
+	 *     plugins, the WP 7.0 Connectors API, or the 6.9 polyfill).
 	 *
 	 * @return bool
 	 */
@@ -847,13 +654,7 @@ class Settings {
 			return true;
 		}
 
-		// WP 7.0 Connectors API key for a built-in provider.
-		foreach ( array_keys( self::DIRECT_PROVIDERS ) as $provider_id ) {
-			if ( '' !== $this->get_connectors_api_key( $provider_id ) ) {
-				return true;
-			}
-		}
-
-		return false;
+		// Any registered provider with credentials.
+		return ProviderCredentialLoader::has_any_authenticated_provider();
 	}
 }

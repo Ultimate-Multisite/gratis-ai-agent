@@ -16,6 +16,40 @@ namespace SdAiAgent\Core;
 class ProviderCredentialLoader {
 
 	/**
+	 * Check whether at least one provider in the WP AI Client SDK registry
+	 * has authentication configured.
+	 *
+	 * Idempotently calls {@see load()} first so callers don't have to.
+	 * Returns false when the SDK is unavailable (WP < 7.0 without polyfill,
+	 * registry boot failure, etc.) — treated as "no provider" for alerting.
+	 *
+	 * Use this in lieu of walking option keys directly: the SDK registry is
+	 * the single source of truth for which providers exist and which have
+	 * usable credentials.
+	 *
+	 * @return bool
+	 */
+	public static function has_any_authenticated_provider(): bool {
+		if ( ! class_exists( '\\WordPress\\AiClient\\AiClient' ) ) {
+			return false;
+		}
+
+		try {
+			self::load();
+			$registry = \WordPress\AiClient\AiClient::defaultRegistry();
+			foreach ( $registry->getRegisteredProviderIds() as $provider_id ) {
+				if ( null !== $registry->getProviderRequestAuthentication( $provider_id ) ) {
+					return true;
+				}
+			}
+		} catch ( \Throwable $e ) {
+			return false;
+		}
+
+		return false;
+	}
+
+	/**
 	 * Ensure AI provider credentials are loaded from the database.
 	 *
 	 * In loopback/background requests the AI Experiments plugin's init
