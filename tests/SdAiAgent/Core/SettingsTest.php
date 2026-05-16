@@ -206,50 +206,89 @@ class SettingsTest extends WP_UnitTestCase {
 	}
 
 	/**
-	 * Exact-match Claude Opus 4.x resolves to its 32K family entry.
+	 * Exact-match Claude Opus 4.x resolves to its documented family caps.
 	 *
-	 * Specifically guards the session-16 regression: claude-opus-4-7 was
-	 * silently using the 4096 default, which truncated tool_use input JSON
-	 * mid-payload and caused the agent loop to spin.
+	 * Originally guarded the session-16 regression (claude-opus-4-7 silently
+	 * using the 4096 default and truncating tool_use input JSON mid-payload).
+	 * Now also locks in the post-#1448 catalog values where newer Opus point
+	 * releases get the larger advertised caps (128K) and older 4.0/4.1 stay
+	 * at 32K. Newer point releases keep higher caps than older ones in the
+	 * same family, so the entries are NOT collapsed into a single
+	 * `claude-opus-4` entry.
 	 */
 	public function test_max_output_tokens_resolves_claude_opus_4_family(): void {
-		// Bare family prefix.
+		// Bare family prefix — still 32K (Opus 4.0).
 		$this->assertSame(
 			32000,
 			Settings::get_max_output_tokens_for_model( 'claude-opus-4' )
 		);
-		// Dated variant — longest-prefix match must still resolve.
+		// Opus 4.7 documents 128K output.
 		$this->assertSame(
-			32000,
+			128000,
 			Settings::get_max_output_tokens_for_model( 'claude-opus-4-7' )
 		);
+		// Dated variants must longest-prefix-match the 4.7 entry, not the
+		// bare `claude-opus-4` one.
+		$this->assertSame(
+			128000,
+			Settings::get_max_output_tokens_for_model( 'claude-opus-4-7-20260513' )
+		);
+		// Opus 4.5 sits between: 64K documented cap.
+		$this->assertSame(
+			64000,
+			Settings::get_max_output_tokens_for_model( 'claude-opus-4-5' )
+		);
+		// Opus 4.1 stayed at 32K.
 		$this->assertSame(
 			32000,
-			Settings::get_max_output_tokens_for_model( 'claude-opus-4-7-20260513' )
+			Settings::get_max_output_tokens_for_model( 'claude-opus-4-1' )
 		);
 	}
 
 	/**
-	 * GPT-4.1 family and o-series resolve via longest-prefix matching.
+	 * GPT-4.x and o-series resolve via longest-prefix matching.
+	 *
+	 * Locks in the post-#1448 catalog: GPT-5 documents 128K, GPT-4.1 32,768,
+	 * GPT-4o 16,384, o1/o3/o4 all document a 100K envelope (which includes
+	 * reasoning tokens).
 	 */
 	public function test_max_output_tokens_resolves_openai_families(): void {
-		$this->assertSame( 32000, Settings::get_max_output_tokens_for_model( 'gpt-4.1' ) );
-		$this->assertSame( 32000, Settings::get_max_output_tokens_for_model( 'gpt-4.1-mini' ) );
-		$this->assertSame( 32000, Settings::get_max_output_tokens_for_model( 'gpt-4.1-nano' ) );
-		$this->assertSame( 16000, Settings::get_max_output_tokens_for_model( 'gpt-4o' ) );
-		$this->assertSame( 16000, Settings::get_max_output_tokens_for_model( 'gpt-4o-mini' ) );
-		$this->assertSame( 32000, Settings::get_max_output_tokens_for_model( 'o3-mini' ) );
-		$this->assertSame( 32000, Settings::get_max_output_tokens_for_model( 'o4-mini' ) );
+		$this->assertSame( 128000, Settings::get_max_output_tokens_for_model( 'gpt-5' ) );
+		$this->assertSame( 128000, Settings::get_max_output_tokens_for_model( 'gpt-5-mini' ) );
+		$this->assertSame( 32768, Settings::get_max_output_tokens_for_model( 'gpt-4.1' ) );
+		$this->assertSame( 32768, Settings::get_max_output_tokens_for_model( 'gpt-4.1-mini' ) );
+		$this->assertSame( 32768, Settings::get_max_output_tokens_for_model( 'gpt-4.1-nano' ) );
+		$this->assertSame( 16384, Settings::get_max_output_tokens_for_model( 'gpt-4o' ) );
+		$this->assertSame( 16384, Settings::get_max_output_tokens_for_model( 'gpt-4o-mini' ) );
+		$this->assertSame( 100000, Settings::get_max_output_tokens_for_model( 'o3-mini' ) );
+		$this->assertSame( 100000, Settings::get_max_output_tokens_for_model( 'o4-mini' ) );
 	}
 
 	/**
-	 * Gemini Flash family is appropriately conservative at 8K.
+	 * Gemini families resolve to documented caps. Post-#1448, both 2.5 Pro
+	 * and 2.5 Flash document a 65,535 max output. Older 2.0 and 1.5 stay
+	 * conservatively at 8K.
 	 */
 	public function test_max_output_tokens_resolves_gemini_families(): void {
-		$this->assertSame( 32000, Settings::get_max_output_tokens_for_model( 'gemini-2.5-pro' ) );
-		$this->assertSame( 8192, Settings::get_max_output_tokens_for_model( 'gemini-2.5-flash' ) );
+		$this->assertSame( 65535, Settings::get_max_output_tokens_for_model( 'gemini-2.5-pro' ) );
+		$this->assertSame( 65535, Settings::get_max_output_tokens_for_model( 'gemini-2.5-flash' ) );
 		$this->assertSame( 8192, Settings::get_max_output_tokens_for_model( 'gemini-2.0-flash' ) );
 		$this->assertSame( 8192, Settings::get_max_output_tokens_for_model( 'gemini-1.5-pro' ) );
+	}
+
+	/**
+	 * Synthetic-hosted HuggingFace models resolve to their per-model caps,
+	 * verified against the live Synthetic `/openai/v1/models` payload. The
+	 * broad `hf:` fallback catches unknown models at 32K (conservative
+	 * relative to the Synthetic-typical 65K, but safe).
+	 */
+	public function test_max_output_tokens_resolves_synthetic_hf_models(): void {
+		// Explicit catalog entries.
+		$this->assertSame( 65536, Settings::get_max_output_tokens_for_model( 'hf:moonshotai/Kimi-K2.6' ) );
+		$this->assertSame( 32768, Settings::get_max_output_tokens_for_model( 'hf:moonshotai/Kimi-K2.5' ) );
+		$this->assertSame( 65536, Settings::get_max_output_tokens_for_model( 'hf:zai-org/GLM-5.1' ) );
+		// Unknown hf: model falls through to the broad prefix.
+		$this->assertSame( 32768, Settings::get_max_output_tokens_for_model( 'hf:unknown/random-model' ) );
 	}
 
 	/**
