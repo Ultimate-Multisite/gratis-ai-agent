@@ -1008,7 +1008,18 @@ class AgentLoop {
 		// from the outgoing request body. The guards are removed because
 		// the wrapper's `__call` is guaranteed to exist and the `@method`
 		// declarations on the wrapper enumerate the supported API.
-		$builder->using_temperature( (float) $this->temperature );
+		//
+		// Reasoning-model exception: OpenAI's reasoning families (gpt-5*,
+		// o1*, o3*, o4*) reject `temperature` outright with HTTP 400
+		// ("Unsupported parameter: 'temperature' is not supported with
+		// this model.") — they only run at the model's implicit sampling
+		// setting. Skip the setter for those model IDs so the request
+		// body omits the field entirely. `max_tokens` is still safe to
+		// send: the SDK translates it to `max_completion_tokens` for the
+		// OpenAI reasoning API.
+		if ( ! self::is_reasoning_model( $this->model_id ) ) {
+			$builder->using_temperature( (float) $this->temperature );
+		}
 		$builder->using_max_tokens( $this->get_effective_max_output_tokens() );
 
 		$abilities = $this->resolve_abilities();
@@ -1408,6 +1419,52 @@ class AgentLoop {
 	 */
 	private static function truncate_tool_results( Message $message ): Message {
 		return ConversationSerializer::truncate_tool_results( $message );
+	}
+
+	/**
+	 * Detect OpenAI reasoning models that reject the `temperature` parameter.
+	 *
+	 * Reasoning models from OpenAI (GPT-5 family + o-series) only run at the
+	 * model's implicit sampling setting and respond with HTTP 400 if
+	 * `temperature` is present in the request body:
+	 *
+	 *     Unsupported parameter: 'temperature' is not supported with this model.
+	 *
+	 * The check is prefix-based and intentionally broad — it covers current
+	 * variants (gpt-5, gpt-5.4, gpt-5.4-mini, gpt-5.5, gpt-5.5-pro,
+	 * gpt-5-codex, gpt-5-pro, o1, o1-mini, o3, o3-mini, o4, o4-mini) and any
+	 * future dated/sized snapshots from the same families that follow the
+	 * same naming convention (e.g. `gpt-5.5-2026-04-23`).
+	 *
+	 * Non-reasoning OpenAI models (gpt-4*, gpt-3.5*, gpt-4o, gpt-4.1) accept
+	 * `temperature` normally and are NOT matched here.
+	 *
+	 * @param string $model_id The provider-scoped model identifier.
+	 * @return bool True if the model rejects the `temperature` parameter.
+	 */
+	private static function is_reasoning_model( string $model_id ): bool {
+		$normalised = strtolower( trim( $model_id ) );
+
+		if ( '' === $normalised ) {
+			return false;
+		}
+
+		// GPT-5 family — all variants are reasoning models.
+		if ( str_starts_with( $normalised, 'gpt-5' ) ) {
+			return true;
+		}
+
+		// o-series reasoning models (o1, o3, o4 and their *-mini/*-pro/*-preview/dated snapshots).
+		// Match the exact prefix followed by `-` or end-of-string so we don't
+		// accidentally match a hypothetical non-reasoning model whose ID
+		// starts with `o1`/`o3`/`o4` (e.g. `o1magic`).
+		foreach ( array( 'o1', 'o3', 'o4' ) as $family ) {
+			if ( $normalised === $family || str_starts_with( $normalised, $family . '-' ) ) {
+				return true;
+			}
+		}
+
+		return false;
 	}
 
 	// ── Resolve abilities ─────────────────────────────────────────────────

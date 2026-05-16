@@ -1511,6 +1511,151 @@ class AgentLoopTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * Regression test: `temperature` MUST be omitted from the outgoing
+	 * request body for OpenAI reasoning models, because those endpoints
+	 * reject the field with HTTP 400 ("Unsupported parameter:
+	 * 'temperature' is not supported with this model.").
+	 *
+	 * Reproduction before the fix (2026-05-16, live OpenAI API):
+	 *
+	 *     wp sd-ai-agent prompt 'test' --provider=openai --model=gpt-5.5 \
+	 *         --skip-tools --verbose
+	 *     => Warning: Bad Request (400) - Unsupported parameter:
+	 *        'temperature' is not supported with this model.
+	 *
+	 * The fix adds {@see AgentLoop::is_reasoning_model()} and short-circuits
+	 * the `using_temperature()` call in send_prompt() for any matched ID.
+	 *
+	 * This test exercises the agent loop end-to-end against the fake OpenAI-
+	 * compatible endpoint with model_id = gpt-5.5 and asserts the captured
+	 * outgoing JSON body has NO `temperature` key. `max_tokens` is still
+	 * expected because reasoning models accept `max_completion_tokens` and
+	 * the SDK translates `max_tokens` for the OpenAI reasoning endpoint.
+	 *
+	 * @dataProvider reasoning_model_id_provider
+	 */
+	public function test_builder_omits_temperature_for_reasoning_models( string $model_id ): void {
+		$this->skip_if_sdk_unavailable();
+
+		// A non-default temperature so the assertion can distinguish "not
+		// sent" from "sent at the AgentLoop default of 0.7".
+		Settings::instance()->update(
+			[
+				'max_output_tokens' => 8192,
+				'temperature'       => 0.42,
+			]
+		);
+
+		$captured = null;
+		$this->capture_next_request_body( $captured );
+
+		$loop = new AgentLoop( 'Reply succinctly', [], [], [ 'model_id' => $model_id ] );
+		$loop->run();
+
+		$this->assertIsString( $captured, 'Expected to capture an outgoing request body for ' . $model_id );
+		$decoded = json_decode( (string) $captured, true );
+		$this->assertIsArray( $decoded, 'Outgoing body should be JSON for ' . $model_id );
+
+		$this->assertArrayNotHasKey(
+			'temperature',
+			$decoded,
+			sprintf(
+				'Reasoning model %s must not receive a `temperature` field — the OpenAI endpoint returns HTTP 400 when it is present.',
+				$model_id
+			)
+		);
+
+		// Sanity: max_tokens still goes through (SDK rewrites it to
+		// max_completion_tokens for the reasoning endpoint).
+		$this->assertArrayHasKey(
+			'max_tokens',
+			$decoded,
+			'max_tokens must still reach the provider for ' . $model_id
+		);
+	}
+
+	/**
+	 * Data provider covering the reasoning-model families enumerated by
+	 * {@see AgentLoop::is_reasoning_model()}.
+	 *
+	 * @return array<string, array{0:string}>
+	 */
+	public function reasoning_model_id_provider(): array {
+		return [
+			'gpt-5'              => [ 'gpt-5' ],
+			'gpt-5.4'            => [ 'gpt-5.4' ],
+			'gpt-5.4-mini'       => [ 'gpt-5.4-mini' ],
+			'gpt-5.5'            => [ 'gpt-5.5' ],
+			'gpt-5.5-pro'        => [ 'gpt-5.5-pro' ],
+			'gpt-5-codex'        => [ 'gpt-5-codex' ],
+			'gpt-5.5 dated snap' => [ 'gpt-5.5-2026-04-23' ],
+			'o1'                 => [ 'o1' ],
+			'o1-mini'            => [ 'o1-mini' ],
+			'o3'                 => [ 'o3' ],
+			'o3-mini'            => [ 'o3-mini' ],
+			'o4-mini'            => [ 'o4-mini' ],
+		];
+	}
+
+	/**
+	 * Counter-test: `temperature` MUST still reach non-reasoning OpenAI
+	 * models (gpt-4*, gpt-4o, gpt-4.1, gpt-3.5*) and other providers. This
+	 * guards against an over-broad reasoning-model detector accidentally
+	 * stripping temperature for models that accept it.
+	 *
+	 * @dataProvider non_reasoning_model_id_provider
+	 */
+	public function test_builder_keeps_temperature_for_non_reasoning_models( string $model_id ): void {
+		$this->skip_if_sdk_unavailable();
+
+		Settings::instance()->update(
+			[
+				'max_output_tokens' => 8192,
+				'temperature'       => 0.33,
+			]
+		);
+
+		$captured = null;
+		$this->capture_next_request_body( $captured );
+
+		$loop = new AgentLoop( 'Reply succinctly', [], [], [ 'model_id' => $model_id ] );
+		$loop->run();
+
+		$this->assertIsString( $captured, 'Expected to capture an outgoing request body for ' . $model_id );
+		$decoded = json_decode( (string) $captured, true );
+		$this->assertIsArray( $decoded );
+
+		$this->assertArrayHasKey(
+			'temperature',
+			$decoded,
+			'Non-reasoning model ' . $model_id . ' must still receive the `temperature` field.'
+		);
+		$this->assertEqualsWithDelta(
+			0.33,
+			(float) $decoded['temperature'],
+			0.0001,
+			'Configured temperature must reach non-reasoning model ' . $model_id . ' unchanged.'
+		);
+	}
+
+	/**
+	 * Data provider for models that MUST keep receiving `temperature`.
+	 *
+	 * @return array<string, array{0:string}>
+	 */
+	public function non_reasoning_model_id_provider(): array {
+		return [
+			'gpt-4'             => [ 'gpt-4' ],
+			'gpt-4-turbo'       => [ 'gpt-4-turbo' ],
+			'gpt-4o'            => [ 'gpt-4o' ],
+			'gpt-4.1'           => [ 'gpt-4.1' ],
+			'gpt-3.5-turbo'     => [ 'gpt-3.5-turbo' ],
+			'claude-sonnet-4-6' => [ 'claude-sonnet-4-6' ],
+			'gemini-2.5-pro'    => [ 'gemini-2.5-pro' ],
+		];
+	}
+
+	/**
 	 * Resolve the private get_effective_max_output_tokens() with a given
 	 * saved value and model_id so we can exercise the legacy / AUTO / ceiling
 	 * branches without spinning up the full agent loop.
@@ -2403,5 +2548,83 @@ class AgentLoopTest extends WP_UnitTestCase {
 			static fn( $entry ) => 'preamble' === ( $entry['type'] ?? '' )
 		);
 		$this->assertEmpty( $preamble_entries, 'Whitespace-only assistant text must not be logged as a preamble entry.' );
+	}
+
+	// -------------------------------------------------------------------------
+	// is_reasoning_model() direct unit tests
+	// -------------------------------------------------------------------------
+
+	/**
+	 * Invoke the private static {@see AgentLoop::is_reasoning_model()} helper.
+	 *
+	 * @param string $model_id Model ID to classify.
+	 * @return bool Helper return value.
+	 */
+	private function invoke_is_reasoning_model( string $model_id ): bool {
+		$rc     = new \ReflectionClass( AgentLoop::class );
+		$method = $rc->getMethod( 'is_reasoning_model' );
+		$method->setAccessible( true );
+		return (bool) $method->invoke( null, $model_id );
+	}
+
+	/**
+	 * Direct (no-SDK) coverage of the reasoning-model classifier.
+	 *
+	 * @dataProvider reasoning_model_classification_provider
+	 */
+	public function test_is_reasoning_model_classification( string $model_id, bool $expected ): void {
+		$this->assertSame(
+			$expected,
+			$this->invoke_is_reasoning_model( $model_id ),
+			sprintf( 'is_reasoning_model(%s) should be %s', var_export( $model_id, true ), $expected ? 'true' : 'false' )
+		);
+	}
+
+	/**
+	 * Classification corpus. Keep the negative cases honest — `o1magic`
+	 * style IDs must NOT match (the helper guards against an over-broad
+	 * prefix match by requiring `o1-...` or exact `o1`).
+	 *
+	 * @return array<string, array{0:string, 1:bool}>
+	 */
+	public function reasoning_model_classification_provider(): array {
+		return [
+			// GPT-5 family — all reasoning.
+			'gpt-5'                       => [ 'gpt-5', true ],
+			'gpt-5-pro'                   => [ 'gpt-5-pro', true ],
+			'gpt-5-codex'                 => [ 'gpt-5-codex', true ],
+			'gpt-5.4'                     => [ 'gpt-5.4', true ],
+			'gpt-5.4-mini'                => [ 'gpt-5.4-mini', true ],
+			'gpt-5.5'                     => [ 'gpt-5.5', true ],
+			'gpt-5.5-pro'                 => [ 'gpt-5.5-pro', true ],
+			'gpt-5.5-dated'               => [ 'gpt-5.5-2026-04-23', true ],
+			'GPT-5.5 uppercase'           => [ 'GPT-5.5', true ],
+			'gpt-5 padded'                => [ '  gpt-5.5  ', true ],
+			// o-series reasoning.
+			'o1'                          => [ 'o1', true ],
+			'o1-mini'                     => [ 'o1-mini', true ],
+			'o3'                          => [ 'o3', true ],
+			'o3-mini'                     => [ 'o3-mini', true ],
+			'o3-preview'                  => [ 'o3-preview', true ],
+			'o4'                          => [ 'o4', true ],
+			'o4-mini'                     => [ 'o4-mini', true ],
+			// Non-reasoning OpenAI — must NOT match.
+			'gpt-4'                       => [ 'gpt-4', false ],
+			'gpt-4-turbo'                 => [ 'gpt-4-turbo', false ],
+			'gpt-4o'                      => [ 'gpt-4o', false ],
+			'gpt-4.1'                     => [ 'gpt-4.1', false ],
+			'gpt-3.5-turbo'               => [ 'gpt-3.5-turbo', false ],
+			// Other providers — must NOT match.
+			'claude-sonnet-4-6'           => [ 'claude-sonnet-4-6', false ],
+			'claude-opus-4-7'             => [ 'claude-opus-4-7', false ],
+			'gemini-2.5-pro'              => [ 'gemini-2.5-pro', false ],
+			'deepseek-chat'               => [ 'deepseek-chat', false ],
+			// Defensive negatives — must NOT match (no `-` separator).
+			'o1magic (no separator)'      => [ 'o1magic', false ],
+			'o3xyz (no separator)'        => [ 'o3xyz', false ],
+			'orion (starts with o but no o<digit>)' => [ 'orion', false ],
+			'empty string'                => [ '', false ],
+			'whitespace'                  => [ '   ', false ],
+		];
 	}
 }
