@@ -28,20 +28,30 @@ if ( ! defined( 'ABSPATH' ) ) {
 class AiClientEventTraceLogger {
 
 	/**
-	 * In-flight event data keyed by spl_object_id for correlation.
+	 * In-flight Before-event data, ordered as a LIFO stack.
 	 *
-	 * Stores Before event metadata so the matching After event can compute
-	 * duration and write a complete trace row. Uses spl_object_id() as the
-	 * key to safely handle nested/concurrent SDK calls.
+	 * Each entry stores the data captured when a BeforeGenerateResultEvent
+	 * fires; the matching AfterGenerateResultEvent pops the most recent
+	 * entry to compute duration and write the trace row.
 	 *
-	 * @var array<string, array<string, mixed>>
+	 * NB: the original implementation keyed this by spl_object_id() of the
+	 * event object, but the SDK dispatches two distinct event objects (one
+	 * BeforeGenerateResultEvent and one AfterGenerateResultEvent — see
+	 * lib/php-ai-client/src/Builders/PromptBuilder.php:831-835), so the
+	 * After event's spl_object_id never matched the Before's and the trace
+	 * row was never written. PHP's single-threaded request model guarantees
+	 * a Before is followed by either its After or by a nested Before (for
+	 * nested generation calls); a LIFO stack handles both cases correctly.
+	 *
+	 * @var array<int, array<string, mixed>>
 	 */
 	private static array $inflight = [];
 
 	/**
 	 * Hook: wp_ai_client_before_generate_result — capture request metadata.
 	 *
-	 * Records the event timestamp, messages, model, and capability so the
+	 * Pushes a new in-flight entry onto the LIFO stack containing the
+	 * request timestamp, messages, model, provider, and capability so the
 	 * matching After event can compute duration and write a complete trace row.
 	 *
 	 * @param BeforeGenerateResultEvent $event The before-generate event.
@@ -52,8 +62,6 @@ class AiClientEventTraceLogger {
 			return;
 		}
 
-		$event_id = self::get_event_id( $event );
-
 		// Extract model and provider metadata.
 		$model       = $event->getModel();
 		$model_id    = $model->metadata()->getId();
@@ -63,8 +71,8 @@ class AiClientEventTraceLogger {
 		$capability       = $event->getCapability();
 		$capability_value = null !== $capability ? $capability->value : null;
 
-		// Store in-flight data for correlation with the After event.
-		self::$inflight[ $event_id ] = [
+		// Push onto in-flight stack for pairing with the After event.
+		self::$inflight[] = [
 			'model_id'    => $model_id,
 			'provider_id' => $provider_id,
 			'capability'  => $capability_value,
@@ -76,9 +84,9 @@ class AiClientEventTraceLogger {
 	/**
 	 * Hook: wp_ai_client_after_generate_result — capture response and write trace row.
 	 *
-	 * Correlates with the Before event via spl_object_id, computes duration,
-	 * extracts finish reason and token usage from the result, and writes a
-	 * structured trace row.
+	 * Pops the most recent Before entry from the LIFO stack, computes
+	 * duration, extracts finish reason and token usage from the result,
+	 * and writes a structured trace row.
 	 *
 	 * NB: cache_creation_tokens / cache_read_tokens are kept on the schema
 	 * for forward-compat (Anthropic exposes them on its native API), but the
@@ -96,16 +104,16 @@ class AiClientEventTraceLogger {
 			return;
 		}
 
-		$event_id = self::get_event_id( $event );
+		$inflight = array_pop( self::$inflight );
 
-		// Look up the in-flight Before event data.
-		if ( ! isset( self::$inflight[ $event_id ] ) ) {
-			// Before event was not recorded (e.g., tracing was disabled at that time).
+		if ( null === $inflight ) {
+			// No matching Before event was recorded. This can happen when
+			// tracing was toggled on between the Before and After events,
+			// or when the After event fires without a Before (shouldn't
+			// happen under the SDK's PromptBuilder dispatch, but we guard
+			// against it anyway).
 			return;
 		}
-
-		$inflight = self::$inflight[ $event_id ];
-		unset( self::$inflight[ $event_id ] );
 
 		$start_time  = (float) ( $inflight['start_time'] ?? microtime( true ) );
 		$duration_ms = (int) round( ( microtime( true ) - $start_time ) * 1000 );
@@ -149,11 +157,10 @@ class AiClientEventTraceLogger {
 	 * the SDK request was initiated but never completed (SDK exception, timeout,
 	 * malformed response, etc.).
 	 *
-	 * @param string               $event_id The event correlation ID.
 	 * @param array<string, mixed> $inflight The in-flight Before event data.
 	 * @return void
 	 */
-	private static function write_stalled_trace( string $event_id, array $inflight ): void {
+	private static function write_stalled_trace( array $inflight ): void {
 		// Serialize messages for storage. (`$inflight` is typed array<string, mixed>
 		// so we narrow the messages slot to array<int, mixed> here before passing
 		// it to serialize_messages, which filters non-Message entries internally.)
@@ -195,26 +202,26 @@ class AiClientEventTraceLogger {
 			return;
 		}
 
-		foreach ( self::$inflight as $event_id => $inflight ) {
-			self::write_stalled_trace( $event_id, $inflight );
+		foreach ( self::$inflight as $inflight ) {
+			self::write_stalled_trace( $inflight );
 		}
 
-		// Clear the in-flight map.
+		// Clear the in-flight stack.
 		self::$inflight = [];
 	}
 
 	/**
-	 * Get a stable correlation ID for an event object.
+	 * Reset the in-flight stack.
 	 *
-	 * Uses spl_object_id() to generate a unique ID for the event object,
-	 * allowing Before/After pairs to be correlated even when nested or
-	 * concurrent SDK calls occur.
+	 * Used by tests to clear state between cases. Production code does
+	 * not need to call this — `array_pop()` in on_after_generate_result
+	 * and `cleanup_stalled_events()` keep the stack bounded.
 	 *
-	 * @param BeforeGenerateResultEvent|AfterGenerateResultEvent $event The event object.
-	 * @return string Stable correlation ID.
+	 * @internal Test helper. Do not call from production code.
+	 * @return void
 	 */
-	private static function get_event_id( object $event ): string {
-		return 'sdk_event_' . spl_object_id( $event );
+	public static function reset_inflight_for_tests(): void {
+		self::$inflight = [];
 	}
 
 	/**

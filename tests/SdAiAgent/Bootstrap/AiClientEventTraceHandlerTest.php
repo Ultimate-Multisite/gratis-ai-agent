@@ -60,11 +60,18 @@ class AiClientEventTraceHandlerTest extends WP_UnitTestCase {
 
 		// Clear any existing trace rows.
 		ProviderTrace::clear();
+
+		// Reset the logger's static in-flight stack so state from prior
+		// tests doesn't leak into this one (e.g. a Before without a
+		// matching After would persist on the stack and the next test's
+		// After would pop it instead of its own Before).
+		AiClientEventTraceLogger::reset_inflight_for_tests();
 	}
 
 	protected function tearDown(): void {
 		ProviderTrace::clear();
 		ProviderTrace::set_enabled( false );
+		AiClientEventTraceLogger::reset_inflight_for_tests();
 		parent::tearDown();
 	}
 
