@@ -378,10 +378,14 @@ class ToolDiscovery {
 				);
 			}
 
+			// Extract per-ability usage_instructions from meta.ai.usage_instructions.
+			$usage_instructions = self::get_ability_usage_instructions( $ability );
+
 			$by_cat[ $cat ][] = array(
-				'name'     => $name,
-				'desc'     => $desc,
-				'required' => $schema_required,
+				'name'                => $name,
+				'desc'                => $desc,
+				'required'            => $schema_required,
+				'usage_instructions'  => $usage_instructions,
 			);
 		}
 
@@ -424,6 +428,11 @@ class ToolDiscovery {
 					$line .= ' Required: ' . implode( ', ', $e['required'] );
 				}
 				$lines[] = $line;
+
+				// Append per-ability usage_instructions on its own indented line.
+				if ( ! empty( $e['usage_instructions'] ) ) {
+					$lines[] = '  ' . $e['usage_instructions'];
+				}
 			}
 			$lines[] = '';
 		}
@@ -460,6 +469,45 @@ class ToolDiscovery {
 			}
 		}
 		return $out;
+	}
+
+	/**
+	 * Extract per-ability usage instructions from meta.ai.usage_instructions.
+	 *
+	 * First checks the ability's meta.ai.usage_instructions field. If not
+	 * present, applies the `sd_ai_agent_ability_usage_instructions_for` filter
+	 * to allow third-party plugins to supply prose for abilities they don't own.
+	 *
+	 * @param \WP_Ability $ability The ability to extract instructions from.
+	 * @return string The usage instructions, or empty string if none.
+	 */
+	private static function get_ability_usage_instructions( \WP_Ability $ability ): string {
+		// @phpstan-ignore-next-line — get_meta() exists at runtime in WP 7.0.
+		$meta = $ability->get_meta();
+		if ( is_array( $meta ) && isset( $meta['ai'] ) && is_array( $meta['ai'] ) ) {
+			$ai_meta = $meta['ai'];
+			if ( isset( $ai_meta['usage_instructions'] ) && is_string( $ai_meta['usage_instructions'] ) ) {
+				$instructions = trim( $ai_meta['usage_instructions'] );
+				if ( '' !== $instructions ) {
+					return $instructions;
+				}
+			}
+		}
+
+		// Allow third-party plugins to supply prose for abilities they don't own.
+		/**
+		 * Filter to supply usage instructions for an ability.
+		 *
+		 * @param string      $instructions The usage instructions (empty by default).
+		 * @param string      $ability_name The ability name.
+		 */
+		$instructions = (string) apply_filters(
+			'sd_ai_agent_ability_usage_instructions_for',
+			'',
+			$ability->get_name()
+		);
+
+		return trim( $instructions );
 	}
 
 	// ─── ability-search handler ──────────────────────────────────────────
@@ -624,7 +672,7 @@ class ToolDiscovery {
 
 			self::cache_schema( $name );
 
-			$results[] = array(
+			$result = array(
 				'id'            => $name,
 				'label'         => $ability->get_label(),
 				'description'   => $ability->get_description(),
@@ -632,6 +680,14 @@ class ToolDiscovery {
 				'input_schema'  => $schema,
 				'output_schema' => $out,
 			);
+
+			// Include per-ability usage_instructions if present.
+			$usage_instructions = self::get_ability_usage_instructions( $ability );
+			if ( '' !== $usage_instructions ) {
+				$result['usage_instructions'] = $usage_instructions;
+			}
+
+			$results[] = $result;
 		}
 
 		return array(

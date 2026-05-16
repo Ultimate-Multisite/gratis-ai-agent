@@ -263,9 +263,16 @@ class WP_AI_Client_Prompt_Builder {
 			$function_name = WP_AI_Client_Ability_Function_Resolver::ability_name_to_function_name( $ability->get_name() );
 			$input_schema  = $ability->get_input_schema();
 
+			// Build the description, optionally appending per-ability usage_instructions.
+			$description = $ability->get_description();
+			$usage_instructions = self::get_ability_usage_instructions( $ability );
+			if ( '' !== $usage_instructions ) {
+				$description .= "\n\n" . $usage_instructions;
+			}
+
 			$declarations[] = new FunctionDeclaration(
 				$function_name,
-				$ability->get_description(),
+				$description,
 				! empty( $input_schema ) ? $input_schema : null
 			);
 		}
@@ -483,5 +490,44 @@ class WP_AI_Client_Prompt_Builder {
 		}
 
 		return $camel_case;
+	}
+
+	/**
+	 * Extract per-ability usage instructions from meta.ai.usage_instructions.
+	 *
+	 * First checks the ability's meta.ai.usage_instructions field. If not
+	 * present, applies the `sd_ai_agent_ability_usage_instructions_for` filter
+	 * to allow third-party plugins to supply prose for abilities they don't own.
+	 *
+	 * @param \WP_Ability $ability The ability to extract instructions from.
+	 * @return string The usage instructions, or empty string if none.
+	 */
+	private static function get_ability_usage_instructions( \WP_Ability $ability ): string {
+		// @phpstan-ignore-next-line — get_meta() exists at runtime in WP 7.0.
+		$meta = $ability->get_meta();
+		if ( is_array( $meta ) && isset( $meta['ai'] ) && is_array( $meta['ai'] ) ) {
+			$ai_meta = $meta['ai'];
+			if ( isset( $ai_meta['usage_instructions'] ) && is_string( $ai_meta['usage_instructions'] ) ) {
+				$instructions = trim( $ai_meta['usage_instructions'] );
+				if ( '' !== $instructions ) {
+					return $instructions;
+				}
+			}
+		}
+
+		// Allow third-party plugins to supply prose for abilities they don't own.
+		/**
+		 * Filter to supply usage instructions for an ability.
+		 *
+		 * @param string      $instructions The usage instructions (empty by default).
+		 * @param string      $ability_name The ability name.
+		 */
+		$instructions = (string) apply_filters(
+			'sd_ai_agent_ability_usage_instructions_for',
+			'',
+			$ability->get_name()
+		);
+
+		return trim( $instructions );
 	}
 }
