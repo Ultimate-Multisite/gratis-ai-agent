@@ -9,6 +9,7 @@
 
 namespace SdAiAgent\Tests\Core;
 
+use SdAiAgent\Core\ModelCapabilityRegistry;
 use SdAiAgent\Core\Settings;
 use WP_UnitTestCase;
 
@@ -29,6 +30,19 @@ class SettingsTest extends WP_UnitTestCase {
 		parent::tear_down();
 		delete_option( Settings::OPTION_NAME );
 		delete_option( Settings::WOO_AUTO_ENABLED_OPTION );
+
+		// ModelCapabilityRegistry writes transients keyed by md5(model_id);
+		// clear the handful this suite touches so cases stay independent.
+		foreach (
+			array(
+				'gpt-4o',
+				'hf:moonshotai/Kimi-K2.6',
+				'hf:moonshotai/Kimi-K2.7',
+				'wholly-made-up-model-9000',
+			) as $model_id
+		) {
+			ModelCapabilityRegistry::forget( $model_id );
+		}
 	}
 
 	/**
@@ -320,5 +334,106 @@ class SettingsTest extends WP_UnitTestCase {
 			Settings::get_max_output_tokens_for_model( 'gpt-4o' )
 		);
 		remove_all_filters( 'sd_ai_agent_max_output_tokens_for_model' );
+	}
+
+	// ─────────────────────────────────────────────────────────────────────
+	// ModelCapabilityRegistry precedence — sd-ai-2zf
+	// ─────────────────────────────────────────────────────────────────────
+
+	/**
+	 * A live provider entry overrides the static catalog. Kimi K2.6 is in
+	 * the catalog at 65536, but if Synthetic later raises the cap to 131072
+	 * the registry must reflect the new value without a code change.
+	 */
+	public function test_registry_entry_overrides_static_catalog(): void {
+		// Verify catalog baseline.
+		$this->assertSame(
+			65536,
+			Settings::get_max_output_tokens_for_model( 'hf:moonshotai/Kimi-K2.6' )
+		);
+
+		// Provider /models response says 131072 — that wins.
+		ModelCapabilityRegistry::set( 'hf:moonshotai/Kimi-K2.6', 131072, 200000 );
+
+		$this->assertSame(
+			131072,
+			Settings::get_max_output_tokens_for_model( 'hf:moonshotai/Kimi-K2.6' )
+		);
+	}
+
+	/**
+	 * A registry value above {@see Settings::MAX_OUTPUT_TOKENS_CEILING} is
+	 * still clamped by the resolver. Defends against a misreported provider
+	 * payload (e.g. context length surfaced as max_output_length).
+	 */
+	public function test_registry_value_above_ceiling_is_clamped(): void {
+		ModelCapabilityRegistry::set( 'gpt-4o', 999999, 0 );
+
+		$this->assertSame(
+			Settings::MAX_OUTPUT_TOKENS_CEILING,
+			Settings::get_max_output_tokens_for_model( 'gpt-4o' )
+		);
+	}
+
+	/**
+	 * A model not in the catalog gets the registry value when one is
+	 * cached, and falls back to {@see Settings::MAX_OUTPUT_TOKENS_FALLBACK}
+	 * only when there is neither a catalog match nor a registry entry.
+	 */
+	public function test_registry_promotes_unknown_model_above_fallback(): void {
+		// Baseline: unknown HF model resolves via the broad `hf:` prefix
+		// (32768) — confirming the catalog hit path is intact.
+		$this->assertSame(
+			32768,
+			Settings::get_max_output_tokens_for_model( 'hf:moonshotai/Kimi-K2.7' )
+		);
+
+		// Provider response advertises 200000 — registry wins.
+		ModelCapabilityRegistry::set( 'hf:moonshotai/Kimi-K2.7', 200000, 256000 );
+
+		// Resolver result is the registry value, clamped to ceiling.
+		$this->assertSame(
+			Settings::MAX_OUTPUT_TOKENS_CEILING,
+			Settings::get_max_output_tokens_for_model( 'hf:moonshotai/Kimi-K2.7' )
+		);
+	}
+
+	/**
+	 * The `sd_ai_agent_max_output_tokens_for_model` filter still wins over
+	 * the registry — deployments must be able to pin a value no matter what
+	 * the provider advertises (e.g. cost control, output truncation tests).
+	 */
+	public function test_filter_overrides_registry(): void {
+		ModelCapabilityRegistry::set( 'hf:moonshotai/Kimi-K2.6', 131072, 200000 );
+
+		add_filter(
+			'sd_ai_agent_max_output_tokens_for_model',
+			static function ( $value, $model_id ) {
+				return 'hf:moonshotai/Kimi-K2.6' === $model_id ? 16384 : $value;
+			},
+			10,
+			2
+		);
+
+		$this->assertSame(
+			16384,
+			Settings::get_max_output_tokens_for_model( 'hf:moonshotai/Kimi-K2.6' )
+		);
+
+		remove_all_filters( 'sd_ai_agent_max_output_tokens_for_model' );
+	}
+
+	/**
+	 * resolve_max_output_tokens_from_catalog() is the pure static-catalog
+	 * lookup — used by the registry to consult the catalog without
+	 * re-entering the filterable resolver. Empty model id returns 0;
+	 * unknown model returns 0; known model returns the catalog value
+	 * unclamped (the resolver clamps).
+	 */
+	public function test_resolve_from_catalog_is_pure_lookup(): void {
+		$this->assertSame( 0, Settings::resolve_max_output_tokens_from_catalog( '' ) );
+		$this->assertSame( 0, Settings::resolve_max_output_tokens_from_catalog( 'wholly-made-up-model-9000' ) );
+		$this->assertSame( 16384, Settings::resolve_max_output_tokens_from_catalog( 'gpt-4o' ) );
+		$this->assertSame( 128000, Settings::resolve_max_output_tokens_from_catalog( 'claude-opus-4-7-20260513' ) );
 	}
 }
