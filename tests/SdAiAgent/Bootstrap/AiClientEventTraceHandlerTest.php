@@ -59,9 +59,14 @@ class AiClientEventTraceHandlerTest extends WP_UnitTestCase {
 
 		ProviderTrace::set_enabled( true );
 		ProviderTrace::clear();
+		// Reset the LIFO inflight stack so a stalled Before from a prior
+		// test case (or a tearDown that didn't fire on_after) can't pair
+		// with this case's on_after.
+		AiClientEventTraceLogger::reset_inflight_for_tests();
 	}
 
 	protected function tearDown(): void {
+		AiClientEventTraceLogger::reset_inflight_for_tests();
 		ProviderTrace::clear();
 		ProviderTrace::set_enabled( false );
 		parent::tearDown();
