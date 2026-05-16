@@ -127,7 +127,12 @@ class AiClientEventTraceHandlerTest extends WP_UnitTestCase {
 		$rows = ProviderTrace::list( [ 'limit' => 1 ] );
 		$this->assertCount( 1, $rows );
 
-		$row = $rows[0];
+		// ProviderTrace::list() returns a lightweight summary (no body
+		// content, no source); re-fetch the full row via ::get() to
+		// inspect response_body content.
+		$row = ProviderTrace::get( $rows[0]->id );
+		$this->assertNotNull( $row );
+
 		// The shipped php-ai-client TokenUsage DTO does not track cache
 		// creation/read tokens (no getter methods for them). The trace
 		// logger writes 0 into the cache_* schema columns and the HTTP
@@ -138,6 +143,7 @@ class AiClientEventTraceHandlerTest extends WP_UnitTestCase {
 		// The token counts the SDK does expose round-trip through the
 		// response_body JSON.
 		$response = json_decode( $row->response_body, true );
+		$this->assertIsArray( $response );
 		$this->assertSame( 100, $response['usage']['input_tokens'] );
 		$this->assertSame( 50, $response['usage']['output_tokens'] );
 	}
@@ -163,7 +169,10 @@ class AiClientEventTraceHandlerTest extends WP_UnitTestCase {
 		$rows = ProviderTrace::list( [ 'limit' => 1 ] );
 		$this->assertCount( 1, $rows );
 
-		$row = $rows[0];
+		// ::list() omits body content for performance; re-fetch via ::get().
+		$row = ProviderTrace::get( $rows[0]->id );
+		$this->assertNotNull( $row );
+
 		// The request_body should contain the messages as JSON.
 		$this->assertNotEmpty( $row->request_body );
 		$decoded = json_decode( $row->request_body, true );
@@ -190,7 +199,10 @@ class AiClientEventTraceHandlerTest extends WP_UnitTestCase {
 		$rows = ProviderTrace::list( [ 'limit' => 1 ] );
 		$this->assertCount( 1, $rows );
 
-		$row = $rows[0];
+		// ::list() omits body content for performance; re-fetch via ::get().
+		$row = ProviderTrace::get( $rows[0]->id );
+		$this->assertNotNull( $row );
+
 		// The response_body should contain the result with finish_reason.
 		$this->assertNotEmpty( $row->response_body );
 		$decoded = json_decode( $row->response_body, true );
@@ -242,8 +254,18 @@ class AiClientEventTraceHandlerTest extends WP_UnitTestCase {
 		$this->assertSame( 'claude-3-5-sonnet', $row->model_id );
 		$this->assertSame( 'SDK', $row->method );
 		$this->assertSame( 0, $row->status_code );
-		$this->assertSame( 'no_result_event', $row->error );
-		$this->assertGreaterThan( 0, $row->duration_ms );
+
+		// duration_ms can legitimately be 0 when push and pop happen in the
+		// same millisecond (synchronous test path; in production the SDK
+		// request takes at least one network round-trip). Assert it's a
+		// non-negative integer rather than strictly > 0.
+		$this->assertGreaterThanOrEqual( 0, $row->duration_ms );
+
+		// The `error` and `source` columns are not selected by ::list();
+		// re-fetch the full row via ::get() to verify the error marker.
+		$full = ProviderTrace::get( $row->id );
+		$this->assertNotNull( $full );
+		$this->assertSame( 'no_result_event', $full->error );
 	}
 
 	public function test_sdk_trace_has_source_sdk(): void {
@@ -266,7 +288,9 @@ class AiClientEventTraceHandlerTest extends WP_UnitTestCase {
 		$rows = ProviderTrace::list();
 		$this->assertCount( 1, $rows );
 
-		$row = $rows[0];
+		// `source` is not selected by ::list(); re-fetch the full row.
+		$row = ProviderTrace::get( $rows[0]->id );
+		$this->assertNotNull( $row );
 		$this->assertSame( 'sdk', $row->source, 'SDK traces should have source=sdk' );
 	}
 
