@@ -148,7 +148,9 @@ final class ModelCapabilityHandler {
 
 		$host_ok = false;
 		foreach ( self::ALLOWED_HOST_SUFFIXES as $suffix ) {
-			if ( str_ends_with( $host, $suffix ) ) {
+			// Match exact host or host.suffix (dot-boundary) to prevent
+			// api.synthetic.new.evil.com from matching api.synthetic.new.
+			if ( $host === $suffix || str_ends_with( $host, '.' . $suffix ) ) {
 				$host_ok = true;
 				break;
 			}
