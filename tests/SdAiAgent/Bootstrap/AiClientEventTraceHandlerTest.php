@@ -5,6 +5,15 @@
  * Tests the SDK event-based trace capture for Before/After event pairs,
  * including correlation, duration computation, and structured data extraction.
  *
+ * Rewritten 2026-05-15 to use real SDK DTOs — the previous version's mocks
+ * used `createMock('stdClass')` (which cannot define methods that don't exist
+ * on stdClass) and several DTO constructor signatures that don't exist in the
+ * shipped php-ai-client (e.g. `new Candidate(content:..., finishReason:...)`
+ * — the real Candidate takes a Message + FinishReasonEnum). PHPUnit rejected
+ * the file outright with `MethodCannotBeConfiguredException`. Tests now use
+ * anonymous classes implementing ModelInterface, real Message/MessagePart
+ * DTOs, and the actual GenerativeAiResult constructor shape.
+ *
  * @package SdAiAgent
  * @subpackage Tests
  * @license GPL-2.0-or-later
@@ -20,7 +29,13 @@ use SdAiAgent\Models\ProviderTrace;
 use WordPress\AiClient\Events\AfterGenerateResultEvent;
 use WordPress\AiClient\Events\BeforeGenerateResultEvent;
 use WordPress\AiClient\Messages\DTO\Message;
-use WordPress\AiClient\Messages\Enums\RoleEnum;
+use WordPress\AiClient\Messages\DTO\MessagePart;
+use WordPress\AiClient\Messages\Enums\MessageRoleEnum;
+use WordPress\AiClient\Providers\DTO\ProviderMetadata;
+use WordPress\AiClient\Providers\Enums\ProviderTypeEnum;
+use WordPress\AiClient\Providers\Models\Contracts\ModelInterface;
+use WordPress\AiClient\Providers\Models\DTO\ModelConfig;
+use WordPress\AiClient\Providers\Models\DTO\ModelMetadata;
 use WordPress\AiClient\Providers\Models\Enums\CapabilityEnum;
 use WordPress\AiClient\Results\DTO\Candidate;
 use WordPress\AiClient\Results\DTO\GenerativeAiResult;
@@ -54,40 +69,23 @@ class AiClientEventTraceHandlerTest extends WP_UnitTestCase {
 	}
 
 	public function test_before_and_after_events_write_trace_row(): void {
-		// Create mock model and events.
-		$model = $this->create_mock_model( 'anthropic', 'claude-3-5-sonnet' );
-		$messages = [ $this->create_mock_message( 'user', 'Hello' ) ];
-		$capability = CapabilityEnum::TextGeneration;
-
-		// Create Before event.
-		$before_event = new BeforeGenerateResultEvent( $messages, $model, $capability );
+		$model      = $this->create_test_model( 'anthropic', 'claude-3-5-sonnet' );
+		$messages   = [ $this->create_user_message( 'Hello' ) ];
+		$capability = CapabilityEnum::textGeneration();
 
 		// Dispatch Before event.
+		$before_event = new BeforeGenerateResultEvent( $messages, $model, $capability );
 		$this->handler->on_before_generate_result( $before_event );
 
-		// Create After event with result.
-		$token_usage = new TokenUsage(
-			inputTokens: 10,
-			outputTokens: 20,
-			cacheCreationTokens: 0,
-			cacheReadTokens: 0
+		// Dispatch After event with a real result DTO.
+		$result      = $this->create_result(
+			'result-123',
+			'Hello there!',
+			FinishReasonEnum::stop(),
+			$this->create_token_usage( 10, 20, 0, 0 ),
+			$model
 		);
-
-		$candidate = new Candidate(
-			content: 'Hello there!',
-			finishReason: FinishReasonEnum::Stop
-		);
-
-		$result = new GenerativeAiResult(
-			id: 'result-123',
-			model: 'claude-3-5-sonnet',
-			candidates: [ $candidate ],
-			tokenUsage: $token_usage
-		);
-
 		$after_event = new AfterGenerateResultEvent( $messages, $model, $capability, $result );
-
-		// Dispatch After event.
 		$this->handler->on_after_generate_result( $after_event );
 
 		// Verify trace row was written.
@@ -103,31 +101,19 @@ class AiClientEventTraceHandlerTest extends WP_UnitTestCase {
 	}
 
 	public function test_token_usage_is_extracted(): void {
-		$model = $this->create_mock_model( 'openai', 'gpt-4o' );
-		$messages = [ $this->create_mock_message( 'user', 'Test' ) ];
+		$model    = $this->create_test_model( 'openai', 'gpt-4o' );
+		$messages = [ $this->create_user_message( 'Test' ) ];
 
 		$before_event = new BeforeGenerateResultEvent( $messages, $model, null );
 		$this->handler->on_before_generate_result( $before_event );
 
-		$token_usage = new TokenUsage(
-			inputTokens: 100,
-			outputTokens: 50,
-			cacheCreationTokens: 5,
-			cacheReadTokens: 10
+		$result      = $this->create_result(
+			'result-456',
+			'Response',
+			FinishReasonEnum::stop(),
+			$this->create_token_usage( 100, 50, 5, 10 ),
+			$model
 		);
-
-		$candidate = new Candidate(
-			content: 'Response',
-			finishReason: FinishReasonEnum::Stop
-		);
-
-		$result = new GenerativeAiResult(
-			id: 'result-456',
-			model: 'gpt-4o',
-			candidates: [ $candidate ],
-			tokenUsage: $token_usage
-		);
-
 		$after_event = new AfterGenerateResultEvent( $messages, $model, null, $result );
 		$this->handler->on_after_generate_result( $after_event );
 
@@ -140,32 +126,20 @@ class AiClientEventTraceHandlerTest extends WP_UnitTestCase {
 	}
 
 	public function test_capability_is_stored_in_request_body(): void {
-		$model = $this->create_mock_model( 'google', 'gemini-2.0-flash' );
-		$messages = [ $this->create_mock_message( 'user', 'Analyze' ) ];
-		$capability = CapabilityEnum::TextGeneration;
+		$model      = $this->create_test_model( 'google', 'gemini-2.0-flash' );
+		$messages   = [ $this->create_user_message( 'Analyze' ) ];
+		$capability = CapabilityEnum::textGeneration();
 
 		$before_event = new BeforeGenerateResultEvent( $messages, $model, $capability );
 		$this->handler->on_before_generate_result( $before_event );
 
-		$token_usage = new TokenUsage(
-			inputTokens: 50,
-			outputTokens: 75,
-			cacheCreationTokens: 0,
-			cacheReadTokens: 0
+		$result      = $this->create_result(
+			'result-789',
+			'Analysis result',
+			FinishReasonEnum::stop(),
+			$this->create_token_usage( 50, 75, 0, 0 ),
+			$model
 		);
-
-		$candidate = new Candidate(
-			content: 'Analysis result',
-			finishReason: FinishReasonEnum::Stop
-		);
-
-		$result = new GenerativeAiResult(
-			id: 'result-789',
-			model: 'gemini-2.0-flash',
-			candidates: [ $candidate ],
-			tokenUsage: $token_usage
-		);
-
 		$after_event = new AfterGenerateResultEvent( $messages, $model, $capability, $result );
 		$this->handler->on_after_generate_result( $after_event );
 
@@ -180,31 +154,19 @@ class AiClientEventTraceHandlerTest extends WP_UnitTestCase {
 	}
 
 	public function test_finish_reason_is_stored_in_response_body(): void {
-		$model = $this->create_mock_model( 'anthropic', 'claude-3-5-sonnet' );
-		$messages = [ $this->create_mock_message( 'user', 'Generate' ) ];
+		$model    = $this->create_test_model( 'anthropic', 'claude-3-5-sonnet' );
+		$messages = [ $this->create_user_message( 'Generate' ) ];
 
 		$before_event = new BeforeGenerateResultEvent( $messages, $model, null );
 		$this->handler->on_before_generate_result( $before_event );
 
-		$token_usage = new TokenUsage(
-			inputTokens: 20,
-			outputTokens: 30,
-			cacheCreationTokens: 0,
-			cacheReadTokens: 0
+		$result      = $this->create_result(
+			'result-999',
+			'Generated content',
+			FinishReasonEnum::stop(),
+			$this->create_token_usage( 20, 30, 0, 0 ),
+			$model
 		);
-
-		$candidate = new Candidate(
-			content: 'Generated content',
-			finishReason: FinishReasonEnum::Stop
-		);
-
-		$result = new GenerativeAiResult(
-			id: 'result-999',
-			model: 'claude-3-5-sonnet',
-			candidates: [ $candidate ],
-			tokenUsage: $token_usage
-		);
-
 		$after_event = new AfterGenerateResultEvent( $messages, $model, null, $result );
 		$this->handler->on_after_generate_result( $after_event );
 
@@ -222,31 +184,19 @@ class AiClientEventTraceHandlerTest extends WP_UnitTestCase {
 	public function test_tracing_disabled_skips_logging(): void {
 		ProviderTrace::set_enabled( false );
 
-		$model = $this->create_mock_model( 'anthropic', 'claude-3-5-sonnet' );
-		$messages = [ $this->create_mock_message( 'user', 'Test' ) ];
+		$model    = $this->create_test_model( 'anthropic', 'claude-3-5-sonnet' );
+		$messages = [ $this->create_user_message( 'Test' ) ];
 
 		$before_event = new BeforeGenerateResultEvent( $messages, $model, null );
 		$this->handler->on_before_generate_result( $before_event );
 
-		$token_usage = new TokenUsage(
-			inputTokens: 10,
-			outputTokens: 20,
-			cacheCreationTokens: 0,
-			cacheReadTokens: 0
+		$result      = $this->create_result(
+			'result-disabled',
+			'Response',
+			FinishReasonEnum::stop(),
+			$this->create_token_usage( 10, 20, 0, 0 ),
+			$model
 		);
-
-		$candidate = new Candidate(
-			content: 'Response',
-			finishReason: FinishReasonEnum::Stop
-		);
-
-		$result = new GenerativeAiResult(
-			id: 'result-disabled',
-			model: 'claude-3-5-sonnet',
-			candidates: [ $candidate ],
-			tokenUsage: $token_usage
-		);
-
 		$after_event = new AfterGenerateResultEvent( $messages, $model, null, $result );
 		$this->handler->on_after_generate_result( $after_event );
 
@@ -256,8 +206,8 @@ class AiClientEventTraceHandlerTest extends WP_UnitTestCase {
 	}
 
 	public function test_stalled_before_event_writes_synthetic_row(): void {
-		$model = $this->create_mock_model( 'anthropic', 'claude-3-5-sonnet' );
-		$messages = [ $this->create_mock_message( 'user', 'Stalled' ) ];
+		$model    = $this->create_test_model( 'anthropic', 'claude-3-5-sonnet' );
+		$messages = [ $this->create_user_message( 'Stalled' ) ];
 
 		// Record a Before event but don't dispatch the After event.
 		$before_event = new BeforeGenerateResultEvent( $messages, $model, null );
@@ -280,31 +230,19 @@ class AiClientEventTraceHandlerTest extends WP_UnitTestCase {
 	}
 
 	public function test_sdk_trace_has_source_sdk(): void {
-		$model = $this->create_mock_model( 'openai', 'gpt-4o' );
-		$messages = [ $this->create_mock_message( 'user', 'Test' ) ];
+		$model    = $this->create_test_model( 'openai', 'gpt-4o' );
+		$messages = [ $this->create_user_message( 'Test' ) ];
 
 		$before_event = new BeforeGenerateResultEvent( $messages, $model, null );
 		$this->handler->on_before_generate_result( $before_event );
 
-		$token_usage = new TokenUsage(
-			inputTokens: 10,
-			outputTokens: 20,
-			cacheCreationTokens: 0,
-			cacheReadTokens: 0
+		$result      = $this->create_result(
+			'result-123',
+			'Response',
+			FinishReasonEnum::stop(),
+			$this->create_token_usage( 10, 20, 0, 0 ),
+			$model
 		);
-
-		$candidate = new Candidate(
-			content: 'Response',
-			finishReason: FinishReasonEnum::Stop
-		);
-
-		$result = new GenerativeAiResult(
-			id: 'result-123',
-			model: 'gpt-4o',
-			candidates: [ $candidate ],
-			tokenUsage: $token_usage
-		);
-
 		$after_event = new AfterGenerateResultEvent( $messages, $model, null, $result );
 		$this->handler->on_after_generate_result( $after_event );
 
@@ -315,36 +253,89 @@ class AiClientEventTraceHandlerTest extends WP_UnitTestCase {
 		$this->assertSame( 'sdk', $row->source, 'SDK traces should have source=sdk' );
 	}
 
+	// -------------------------------------------------------------------------
+	// Helpers — real DTOs, not createMock('stdClass')
+	// -------------------------------------------------------------------------
+
 	/**
-	 * Create a mock model object for testing.
-	 *
-	 * @param string $provider_id Provider ID.
-	 * @param string $model_id Model ID.
-	 * @return object Mock model object.
+	 * Build an anonymous ModelInterface implementation with real
+	 * ProviderMetadata + ModelMetadata DTOs. The SDK's events check the
+	 * declared interface (not arbitrary methods on stdClass), so this is
+	 * the minimum viable test double.
 	 */
-	private function create_mock_model( string $provider_id, string $model_id ): object {
-		$provider_metadata = $this->createMock( 'stdClass' );
-		$provider_metadata->method( 'getId' )->willReturn( $provider_id );
+	private function create_test_model( string $provider_id, string $model_id ): ModelInterface {
+		$provider_metadata = new ProviderMetadata(
+			$provider_id,
+			$provider_id,
+			ProviderTypeEnum::cloud()
+		);
+		$model_metadata    = new ModelMetadata( $model_id, $model_id, [], [] );
 
-		$model_metadata = $this->createMock( 'stdClass' );
-		$model_metadata->method( 'getId' )->willReturn( $model_id );
+		return new class( $provider_metadata, $model_metadata ) implements ModelInterface {
+			private ProviderMetadata $provider_metadata;
+			private ModelMetadata $model_metadata;
+			private ModelConfig $config;
 
-		$model = $this->createMock( 'stdClass' );
-		$model->method( 'providerMetadata' )->willReturn( $provider_metadata );
-		$model->method( 'metadata' )->willReturn( $model_metadata );
+			public function __construct( ProviderMetadata $provider_metadata, ModelMetadata $model_metadata ) {
+				$this->provider_metadata = $provider_metadata;
+				$this->model_metadata    = $model_metadata;
+				$this->config            = new ModelConfig();
+			}
 
-		return $model;
+			public function metadata(): ModelMetadata {
+				return $this->model_metadata;
+			}
+
+			public function providerMetadata(): ProviderMetadata {
+				return $this->provider_metadata;
+			}
+
+			public function setConfig( ModelConfig $config ): void {
+				$this->config = $config;
+			}
+
+			public function getConfig(): ModelConfig {
+				return $this->config;
+			}
+		};
+	}
+
+	private function create_user_message( string $content ): Message {
+		return new Message( MessageRoleEnum::user(), [ new MessagePart( $content ) ] );
+	}
+
+	private function create_model_message( string $content ): Message {
+		return new Message( MessageRoleEnum::model(), [ new MessagePart( $content ) ] );
+	}
+
+	private function create_token_usage( int $input, int $output, int $cache_creation, int $cache_read ): TokenUsage {
+		return new TokenUsage(
+			inputTokens: $input,
+			outputTokens: $output,
+			cacheCreationTokens: $cache_creation,
+			cacheReadTokens: $cache_read,
+		);
 	}
 
 	/**
-	 * Create a mock message object for testing.
-	 *
-	 * @param string $role Message role.
-	 * @param string $content Message content.
-	 * @return Message Mock message object.
+	 * Build a real GenerativeAiResult with a single candidate that
+	 * uses the supplied model's metadata (so the result self-describes
+	 * the provider/model the trace logger reads from it).
 	 */
-	private function create_mock_message( string $role, string $content ): Message {
-		$role_enum = RoleEnum::from( $role );
-		return new Message( role: $role_enum, content: $content );
+	private function create_result(
+		string $id,
+		string $content,
+		FinishReasonEnum $finish_reason,
+		TokenUsage $token_usage,
+		ModelInterface $model
+	): GenerativeAiResult {
+		$candidate = new Candidate( $this->create_model_message( $content ), $finish_reason );
+		return new GenerativeAiResult(
+			$id,
+			[ $candidate ],
+			$token_usage,
+			$model->providerMetadata(),
+			$model->metadata(),
+		);
 	}
 }
