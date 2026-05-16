@@ -39,13 +39,6 @@ class AiClientEventTraceLogger {
 	private static array $inflight = [];
 
 	/**
-	 * Hook tag for the watchdog cleanup action.
-	 *
-	 * @var string
-	 */
-	private static string $watchdog_hook = 'sd_ai_agent_sdk_event_trace_watchdog';
-
-	/**
 	 * Hook: wp_ai_client_before_generate_result — capture request metadata.
 	 *
 	 * Records the event timestamp, messages, model, and capability so the
@@ -87,6 +80,14 @@ class AiClientEventTraceLogger {
 	 * extracts finish reason and token usage from the result, and writes a
 	 * structured trace row.
 	 *
+	 * NB: cache_creation_tokens / cache_read_tokens are kept on the schema
+	 * for forward-compat (Anthropic exposes them on its native API), but the
+	 * shipped php-ai-client TokenUsage DTO only carries
+	 * promptTokens/completionTokens/totalTokens/thoughtTokens. Until the
+	 * SDK adds dedicated cache fields, both columns are written as 0 here;
+	 * the HTTP trace channel still captures the raw provider response and
+	 * exposes the cache tokens there if needed.
+	 *
 	 * @param AfterGenerateResultEvent $event The after-generate event.
 	 * @return void
 	 */
@@ -111,23 +112,12 @@ class AiClientEventTraceLogger {
 
 		$result = $event->getResult();
 
-		// Extract finish reason from the first candidate (if present).
-		$finish_reason = '';
-		$candidates    = $result->getCandidates();
-		if ( ! empty( $candidates ) ) {
-			$first_candidate = $candidates[0];
-			$finish_reason   = $first_candidate->getFinishReason()->value ?? '';
-		}
-
-		// Extract token usage.
-		$token_usage           = $result->getTokenUsage();
-		$input_tokens          = $token_usage->getInputTokens();
-		$output_tokens         = $token_usage->getOutputTokens();
-		$cache_creation_tokens = $token_usage->getCacheCreationTokens() ?? 0;
-		$cache_read_tokens     = $token_usage->getCacheReadTokens() ?? 0;
-
-		// Serialize messages and result for storage.
-		$messages_json = self::serialize_messages( $inflight['messages'] );
+		// Serialize messages and result for storage. (Finish reason and token
+		// counts are extracted inside serialize_result so the JSON payload
+		// carries them; the dedicated trace columns below capture only the
+		// fields that have first-class schema columns.)
+		$messages      = isset( $inflight['messages'] ) && is_array( $inflight['messages'] ) ? $inflight['messages'] : [];
+		$messages_json = self::serialize_messages( $messages );
 		$result_json   = self::serialize_result( $result );
 
 		// Write the structured trace row.
@@ -139,8 +129,10 @@ class AiClientEventTraceLogger {
 				'method'                => 'SDK',
 				'status_code'           => 200, // SDK events only fire on success; exceptions don't reach here.
 				'duration_ms'           => $duration_ms,
-				'cache_creation_tokens' => max( 0, (int) $cache_creation_tokens ),
-				'cache_read_tokens'     => max( 0, (int) $cache_read_tokens ),
+				// SDK TokenUsage DTO has no cache token fields; HTTP trace
+				// still captures them from the raw provider response.
+				'cache_creation_tokens' => 0,
+				'cache_read_tokens'     => 0,
 				'request_headers'       => '{}', // SDK events don't have HTTP headers.
 				'request_body'          => $messages_json,
 				'response_headers'      => '{}', // SDK events don't have HTTP headers.
@@ -162,8 +154,11 @@ class AiClientEventTraceLogger {
 	 * @return void
 	 */
 	private static function write_stalled_trace( string $event_id, array $inflight ): void {
-		// Serialize messages for storage.
-		$messages_json = self::serialize_messages( $inflight['messages'] ?? [] );
+		// Serialize messages for storage. (`$inflight` is typed array<string, mixed>
+		// so we narrow the messages slot to array<int, mixed> here before passing
+		// it to serialize_messages, which filters non-Message entries internally.)
+		$messages      = isset( $inflight['messages'] ) && is_array( $inflight['messages'] ) ? $inflight['messages'] : [];
+		$messages_json = self::serialize_messages( $messages );
 
 		// Write a synthetic trace row with error='no_result_event'.
 		ProviderTrace::insert(
@@ -226,21 +221,73 @@ class AiClientEventTraceLogger {
 	 * Serialize messages to JSON for storage.
 	 *
 	 * Converts the Message[] array to a JSON string for storage in the
-	 * request_body field of the trace row.
+	 * request_body field of the trace row. Walks each Message's parts and
+	 * concatenates text-typed parts; function-call/file parts are summarised
+	 * with a short type marker so trace viewers can still see them without
+	 * the JSON ballooning.
 	 *
-	 * @param array<int, object> $messages The messages array.
+	 * Accepts `array<array-key, mixed>` so callers that pull from the
+	 * untyped `$inflight['messages']` slot (which originates from the SDK
+	 * Before event's getMessages() return value) can pass it through without
+	 * a cast. Non-Message entries are silently skipped, matching the
+	 * trace-channel "lossy but never crashes" contract.
+	 *
+	 * @param array<array-key, mixed> $messages The messages array.
 	 * @return string JSON-encoded messages.
 	 */
 	private static function serialize_messages( array $messages ): string {
 		$serialized = [];
 		foreach ( $messages as $message ) {
+			if ( ! ( $message instanceof \WordPress\AiClient\Messages\DTO\Message ) ) {
+				continue;
+			}
 			$serialized[] = [
-				'role'    => $message->getRole()->value ?? '',
-				'content' => $message->getContent(),
+				'role'    => $message->getRole()->value,
+				'content' => self::extract_message_text( $message ),
 			];
 		}
 		$encoded = wp_json_encode( $serialized );
 		return false !== $encoded ? $encoded : '[]';
+	}
+
+	/**
+	 * Pull a plain-text representation out of a Message's parts.
+	 *
+	 * For text parts this is just MessagePart::getText(). For
+	 * function-call / function-response / file parts we emit a short tag
+	 * (`[function_call:<name>]`, `[function_response]`, `[file]`) so the
+	 * payload remains scannable without dumping large binary blobs.
+	 *
+	 * @param \WordPress\AiClient\Messages\DTO\Message $message Message to flatten.
+	 * @return string Concatenated text representation.
+	 */
+	private static function extract_message_text( \WordPress\AiClient\Messages\DTO\Message $message ): string {
+		$pieces = [];
+		foreach ( $message->getParts() as $part ) {
+			$type = $part->getType()->value;
+			if ( 'text' === $type ) {
+				$text = $part->getText();
+				if ( null !== $text && '' !== $text ) {
+					$pieces[] = $text;
+				}
+				continue;
+			}
+			if ( 'function_call' === $type ) {
+				$fc       = $part->getFunctionCall();
+				$pieces[] = '[function_call:' . ( $fc ? $fc->getName() : '' ) . ']';
+				continue;
+			}
+			if ( 'function_response' === $type ) {
+				$pieces[] = '[function_response]';
+				continue;
+			}
+			if ( 'file' === $type ) {
+				$pieces[] = '[file]';
+				continue;
+			}
+			$pieces[] = '[' . $type . ']';
+		}
+		return implode( "\n", $pieces );
 	}
 
 	/**
@@ -249,29 +296,36 @@ class AiClientEventTraceLogger {
 	 * Converts the GenerativeAiResult object to a JSON string for storage in
 	 * the response_body field of the trace row.
 	 *
-	 * @param object $result The GenerativeAiResult object.
+	 * @param \WordPress\AiClient\Results\DTO\GenerativeAiResult $result The result object.
 	 * @return string JSON-encoded result.
 	 */
-	private static function serialize_result( object $result ): string {
+	private static function serialize_result( \WordPress\AiClient\Results\DTO\GenerativeAiResult $result ): string {
+		$token_usage    = $result->getTokenUsage();
+		$prompt_tokens  = $token_usage->getPromptTokens();
+		$compl_tokens   = $token_usage->getCompletionTokens();
+		$thought_tokens = $token_usage->getThoughtTokens();
+
 		$serialized = [
 			'id'    => $result->getId(),
-			'model' => $result->getModel(),
+			'model' => $result->getModelMetadata()->getId(),
 			'usage' => [
-				'input_tokens'          => $result->getTokenUsage()->getInputTokens(),
-				'output_tokens'         => $result->getTokenUsage()->getOutputTokens(),
-				'cache_creation_tokens' => $result->getTokenUsage()->getCacheCreationTokens() ?? 0,
-				'cache_read_tokens'     => $result->getTokenUsage()->getCacheReadTokens() ?? 0,
+				// Use input/output here for cross-provider readability — the
+				// SDK uses prompt/completion (OpenAI's naming).
+				'input_tokens'   => $prompt_tokens,
+				'output_tokens'  => $compl_tokens,
+				'total_tokens'   => $token_usage->getTotalTokens(),
+				'thought_tokens' => null !== $thought_tokens ? $thought_tokens : 0,
 			],
 		];
 
-		// Add candidates with finish reasons.
+		// Add candidates with finish reasons + flattened content.
 		$candidates = $result->getCandidates();
 		if ( ! empty( $candidates ) ) {
 			$serialized['candidates'] = [];
 			foreach ( $candidates as $candidate ) {
 				$serialized['candidates'][] = [
-					'finish_reason' => $candidate->getFinishReason()->value ?? '',
-					'content'       => $candidate->getContent(),
+					'finish_reason' => $candidate->getFinishReason()->value,
+					'content'       => self::extract_message_text( $candidate->getMessage() ),
 				];
 			}
 		}

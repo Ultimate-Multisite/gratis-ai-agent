@@ -82,7 +82,7 @@ class AiClientEventTraceHandlerTest extends WP_UnitTestCase {
 			'result-123',
 			'Hello there!',
 			FinishReasonEnum::stop(),
-			$this->create_token_usage( 10, 20, 0, 0 ),
+			$this->create_token_usage( 10, 20 ),
 			$model
 		);
 		$after_event = new AfterGenerateResultEvent( $messages, $model, $capability, $result );
@@ -111,7 +111,7 @@ class AiClientEventTraceHandlerTest extends WP_UnitTestCase {
 			'result-456',
 			'Response',
 			FinishReasonEnum::stop(),
-			$this->create_token_usage( 100, 50, 5, 10 ),
+			$this->create_token_usage( 100, 50 ),
 			$model
 		);
 		$after_event = new AfterGenerateResultEvent( $messages, $model, null, $result );
@@ -121,8 +121,18 @@ class AiClientEventTraceHandlerTest extends WP_UnitTestCase {
 		$this->assertCount( 1, $rows );
 
 		$row = $rows[0];
-		$this->assertSame( 5, $row->cache_creation_tokens );
-		$this->assertSame( 10, $row->cache_read_tokens );
+		// The shipped php-ai-client TokenUsage DTO does not track cache
+		// creation/read tokens (no getter methods for them). The trace
+		// logger writes 0 into the cache_* schema columns and the HTTP
+		// trace channel is the source of truth for those when needed.
+		$this->assertSame( 0, $row->cache_creation_tokens );
+		$this->assertSame( 0, $row->cache_read_tokens );
+
+		// The token counts the SDK does expose round-trip through the
+		// response_body JSON.
+		$response = json_decode( $row->response_body, true );
+		$this->assertSame( 100, $response['usage']['input_tokens'] );
+		$this->assertSame( 50, $response['usage']['output_tokens'] );
 	}
 
 	public function test_capability_is_stored_in_request_body(): void {
@@ -137,7 +147,7 @@ class AiClientEventTraceHandlerTest extends WP_UnitTestCase {
 			'result-789',
 			'Analysis result',
 			FinishReasonEnum::stop(),
-			$this->create_token_usage( 50, 75, 0, 0 ),
+			$this->create_token_usage( 50, 75 ),
 			$model
 		);
 		$after_event = new AfterGenerateResultEvent( $messages, $model, $capability, $result );
@@ -164,7 +174,7 @@ class AiClientEventTraceHandlerTest extends WP_UnitTestCase {
 			'result-999',
 			'Generated content',
 			FinishReasonEnum::stop(),
-			$this->create_token_usage( 20, 30, 0, 0 ),
+			$this->create_token_usage( 20, 30 ),
 			$model
 		);
 		$after_event = new AfterGenerateResultEvent( $messages, $model, null, $result );
@@ -194,7 +204,7 @@ class AiClientEventTraceHandlerTest extends WP_UnitTestCase {
 			'result-disabled',
 			'Response',
 			FinishReasonEnum::stop(),
-			$this->create_token_usage( 10, 20, 0, 0 ),
+			$this->create_token_usage( 10, 20 ),
 			$model
 		);
 		$after_event = new AfterGenerateResultEvent( $messages, $model, null, $result );
@@ -240,7 +250,7 @@ class AiClientEventTraceHandlerTest extends WP_UnitTestCase {
 			'result-123',
 			'Response',
 			FinishReasonEnum::stop(),
-			$this->create_token_usage( 10, 20, 0, 0 ),
+			$this->create_token_usage( 10, 20 ),
 			$model
 		);
 		$after_event = new AfterGenerateResultEvent( $messages, $model, null, $result );
@@ -308,12 +318,17 @@ class AiClientEventTraceHandlerTest extends WP_UnitTestCase {
 		return new Message( MessageRoleEnum::model(), [ new MessagePart( $content ) ] );
 	}
 
-	private function create_token_usage( int $input, int $output, int $cache_creation, int $cache_read ): TokenUsage {
+	/**
+	 * The shipped php-ai-client TokenUsage takes
+	 * (promptTokens, completionTokens, totalTokens, ?thoughtTokens). We
+	 * compute totalTokens as prompt+completion to match what the SDK
+	 * adapters typically synthesize.
+	 */
+	private function create_token_usage( int $prompt, int $completion ): TokenUsage {
 		return new TokenUsage(
-			inputTokens: $input,
-			outputTokens: $output,
-			cacheCreationTokens: $cache_creation,
-			cacheReadTokens: $cache_read,
+			promptTokens: $prompt,
+			completionTokens: $completion,
+			totalTokens: $prompt + $completion,
 		);
 	}
 
