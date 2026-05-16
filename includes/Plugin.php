@@ -28,6 +28,7 @@ use SdAiAgent\Bootstrap\CliHandler;
 use SdAiAgent\Bootstrap\FrontendAssetsHandler;
 use SdAiAgent\Bootstrap\GitTrackingHandler;
 use SdAiAgent\Bootstrap\HttpTraceHandler;
+use SdAiAgent\Bootstrap\ModelCapabilityHandler;
 use SdAiAgent\Bootstrap\KnowledgeHooksHandler;
 use SdAiAgent\Bootstrap\OnboardingHandler;
 use SdAiAgent\Bootstrap\ToolDiscoveryHandler;
@@ -92,6 +93,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 		// Core background service handlers (replaced CoreServicesHandler).
 		ChangeLoggingHandler::class,
 		HttpTraceHandler::class,
+		ModelCapabilityHandler::class,
 		AiClientEventTraceHandler::class,
 		KnowledgeHooksHandler::class,
 		ToolDiscoveryHandler::class,
