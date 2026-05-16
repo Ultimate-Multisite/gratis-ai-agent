@@ -20,6 +20,9 @@ namespace SdAiAgent\Core;
 use SdAiAgent\Models\ProviderTrace;
 use WordPress\AiClient\Events\AfterGenerateResultEvent;
 use WordPress\AiClient\Events\BeforeGenerateResultEvent;
+use WordPress\AiClient\Messages\DTO\Message;
+use WordPress\AiClient\Results\DTO\Candidate;
+use WordPress\AiClient\Results\DTO\GenerativeAiResult;
 
 if ( ! defined( 'ABSPATH' ) ) {
 	exit;
@@ -119,12 +122,12 @@ class AiClientEventTraceLogger {
 			$finish_reason   = $first_candidate->getFinishReason()->value ?? '';
 		}
 
-		// Extract token usage.
-		$token_usage           = $result->getTokenUsage();
-		$input_tokens          = $token_usage->getInputTokens();
-		$output_tokens         = $token_usage->getOutputTokens();
-		$cache_creation_tokens = $token_usage->getCacheCreationTokens() ?? 0;
-		$cache_read_tokens     = $token_usage->getCacheReadTokens() ?? 0;
+		// Cache token breakdown is not exposed by the SDK's TokenUsage DTO;
+		// HTTP traces (source=http) capture provider cache tokens from raw
+		// responses where available. Prompt/completion/total/thought tokens
+		// are written into the structured response_body via serialize_result().
+		$cache_creation_tokens = 0;
+		$cache_read_tokens     = 0;
 
 		// Serialize messages and result for storage.
 		$messages_json = self::serialize_messages( $inflight['messages'] );
@@ -226,18 +229,23 @@ class AiClientEventTraceLogger {
 	 * Serialize messages to JSON for storage.
 	 *
 	 * Converts the Message[] array to a JSON string for storage in the
-	 * request_body field of the trace row.
+	 * request_body field of the trace row. Each Message is serialised via
+	 * its own toArray(), which yields the canonical {role, parts[]} shape
+	 * defined by the WordPress AI Client SDK.
 	 *
-	 * @param array<int, object> $messages The messages array.
+	 * Non-Message entries are skipped defensively so the watchdog cannot
+	 * crash on a malformed in-flight payload.
+	 *
+	 * @param array<int, mixed> $messages The messages array (expected: list<Message>).
 	 * @return string JSON-encoded messages.
 	 */
 	private static function serialize_messages( array $messages ): string {
 		$serialized = [];
 		foreach ( $messages as $message ) {
-			$serialized[] = [
-				'role'    => $message->getRole()->value ?? '',
-				'content' => $message->getContent(),
-			];
+			if ( ! $message instanceof Message ) {
+				continue;
+			}
+			$serialized[] = $message->toArray();
 		}
 		$encoded = wp_json_encode( $serialized );
 		return false !== $encoded ? $encoded : '[]';
@@ -247,31 +255,43 @@ class AiClientEventTraceLogger {
 	 * Serialize result to JSON for storage.
 	 *
 	 * Converts the GenerativeAiResult object to a JSON string for storage in
-	 * the response_body field of the trace row.
+	 * the response_body field of the trace row. Uses the real SDK getters:
+	 * getModelMetadata()->getId() (there is no getModel()), getPromptTokens
+	 * /getCompletionTokens/getTotalTokens/getThoughtTokens on TokenUsage
+	 * (there are no getInput/Output/CacheCreation/CacheRead getters), and
+	 * Candidate::getMessage() (there is no getContent()).
 	 *
-	 * @param object $result The GenerativeAiResult object.
+	 * @param object $result Expected: GenerativeAiResult.
 	 * @return string JSON-encoded result.
 	 */
 	private static function serialize_result( object $result ): string {
+		if ( ! $result instanceof GenerativeAiResult ) {
+			return '{}';
+		}
+
+		$token_usage = $result->getTokenUsage();
+
 		$serialized = [
 			'id'    => $result->getId(),
-			'model' => $result->getModel(),
+			'model' => $result->getModelMetadata()->getId(),
 			'usage' => [
-				'input_tokens'          => $result->getTokenUsage()->getInputTokens(),
-				'output_tokens'         => $result->getTokenUsage()->getOutputTokens(),
-				'cache_creation_tokens' => $result->getTokenUsage()->getCacheCreationTokens() ?? 0,
-				'cache_read_tokens'     => $result->getTokenUsage()->getCacheReadTokens() ?? 0,
+				'prompt_tokens'     => $token_usage->getPromptTokens(),
+				'completion_tokens' => $token_usage->getCompletionTokens(),
+				'total_tokens'      => $token_usage->getTotalTokens(),
+				'thought_tokens'    => $token_usage->getThoughtTokens() ?? 0,
 			],
 		];
 
-		// Add candidates with finish reasons.
 		$candidates = $result->getCandidates();
 		if ( ! empty( $candidates ) ) {
 			$serialized['candidates'] = [];
 			foreach ( $candidates as $candidate ) {
+				if ( ! $candidate instanceof Candidate ) {
+					continue;
+				}
 				$serialized['candidates'][] = [
 					'finish_reason' => $candidate->getFinishReason()->value ?? '',
-					'content'       => $candidate->getContent(),
+					'message'       => $candidate->getMessage()->toArray(),
 				];
 			}
 		}
