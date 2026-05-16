@@ -1564,10 +1564,37 @@ class AgentLoop {
 	// ── Tool call logging ─────────────────────────────────────────────────
 
 	/**
-	 * Log tool calls from an assistant message for transparency.
+	 * Log tool calls (and any preceding/interleaved assistant text) from an
+	 * assistant message for transparency.
+	 *
+	 * Some models — Claude in particular, but also many OpenAI- and
+	 * Anthropic-derived chat-completion responses — emit a short "preamble"
+	 * text part in the same message as their tool calls (for example
+	 * "Looking up your recent posts first…" immediately followed by a
+	 * function call for list-posts). Without surfacing this text in the live
+	 * progress stream the chat UI shows the tool card with no human-readable
+	 * context for why the model is making that call. Logging text parts here
+	 * — interleaved with call parts in original order — lets the polling
+	 * frontend render the assistant's running commentary above each tool
+	 * card while the loop is still executing.
+	 *
+	 * The text part also remains in `$this->history` via the assistant
+	 * message that is appended in the main run loop, so the final persisted
+	 * assistant message still owns the canonical text content. The frontend
+	 * filters preamble entries out of finalised messages via the function-
+	 * call id pairing in {@see associateToolCallsWithMessages}, so there is
+	 * no double-rendering on reload.
 	 */
 	private function log_tool_calls( Message $message ): void {
 		foreach ( $message->getParts() as $part ) {
+			$text = $part->getText();
+			if ( is_string( $text ) && '' !== trim( $text ) ) {
+				$this->tool_call_log[] = array(
+					'type' => 'preamble',
+					'text' => $text,
+				);
+			}
+
 			$call = $part->getFunctionCall();
 			if ( $call ) {
 				$this->tool_call_log[] = array(

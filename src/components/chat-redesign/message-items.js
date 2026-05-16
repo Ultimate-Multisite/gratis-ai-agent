@@ -29,8 +29,8 @@ import MarkdownMessage from '../markdown-message';
 import { AiIcon } from './icons';
 import ToolCard from './ToolCard';
 import {
+	buildRunningItems,
 	extractText,
-	pairToolCalls,
 	parseSuggestions,
 } from './message-helpers';
 import { linkifyText } from '../../utils/linkify';
@@ -342,7 +342,15 @@ export function AssistantMessage( {
 
 	const rawText = extractText( msg );
 	const { cleanText, suggestions } = parseSuggestions( rawText );
-	const pairs = pairToolCalls( msg.toolCalls );
+	// Finalised assistant messages render only tool pairs here. Any preamble
+	// text the model emitted alongside its tool calls is already included in
+	// `cleanText` via the persisted assistant message parts, so we deliberately
+	// drop preamble entries from the persisted message body to avoid showing
+	// the same text twice. The live RunningMessage component below DOES show
+	// preamble entries because the assistant message is not yet in history.
+	const items = ( buildRunningItems( msg.toolCalls ) || [] ).filter(
+		( it ) => it.kind === 'pair'
+	);
 
 	const handleCopy = () => {
 		if ( ! cleanText ) {
@@ -360,11 +368,11 @@ export function AssistantMessage( {
 				<AiIcon />
 			</div>
 			<div className="sdaa-cr-msg-body">
-				{ pairs.map( ( pair, i ) => (
+				{ items.map( ( item ) => (
 					<ToolCard
-						key={ pair.call.id || i }
-						call={ pair.call }
-						response={ pair.response }
+						key={ item.key }
+						call={ item.call }
+						response={ item.response }
 					/>
 				) ) }
 				{ cleanText && <MarkdownMessage content={ cleanText } /> }
@@ -434,21 +442,37 @@ export function AssistantMessage( {
  * @param {*}      root0.liveToolCalls
  */
 export function RunningMessage( { step, liveToolCalls } ) {
-	const pairs = pairToolCalls( liveToolCalls );
+	// Render preamble narration and tool-call cards in original emission
+	// order so the user sees context like "Looking that up first…" directly
+	// above the tool card it precedes. buildRunningItems returns a flat list
+	// of { kind: 'preamble' | 'pair', ... } items.
+	const items = buildRunningItems( liveToolCalls );
 	return (
 		<div className="sdaa-cr-msg-row sdaa-cr-msg-assistant">
 			<div className="sdaa-cr-avatar" aria-hidden="true">
 				<AiIcon thinking={ true } />
 			</div>
 			<div className="sdaa-cr-msg-body">
-				{ pairs.map( ( pair, i ) => (
-					<ToolCard
-						key={ pair.call.id || i }
-						call={ pair.call }
-						response={ pair.response }
-						defaultOpen={ ! pair.response }
-					/>
-				) ) }
+				{ items.map( ( item ) => {
+					if ( item.kind === 'preamble' ) {
+						return (
+							<div
+								key={ item.key }
+								className="sdaa-cr-running-preamble"
+							>
+								<MarkdownMessage content={ item.text } />
+							</div>
+						);
+					}
+					return (
+						<ToolCard
+							key={ item.key }
+							call={ item.call }
+							response={ item.response }
+							defaultOpen={ ! item.response }
+						/>
+					);
+				} ) }
 				<div className="sdaa-cr-running-line">
 					<span className="sdaa-cr-running-dot" aria-hidden="true" />
 					<span>{ step }</span>

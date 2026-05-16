@@ -1110,6 +1110,28 @@ input[type="text"].sdaa-cr-search-input {
 	animation: sdaa-cr-pulse 1.2s ease-in-out infinite;
 }
 
+/*
+ * Preamble block — assistant narration the model emits in the same turn as
+ * a tool call (e.g. "Looking that up first…" immediately before a function
+ * call). Rendered above the tool card during live execution so the user
+ * sees the running commentary in context. Slightly muted vs. final reply
+ * text so it visually reads as in-flight progress rather than the answer.
+ */
+.sdaa-cr-running-preamble {
+	color: var(--sdaa-text-secondary);
+	font-size: 14px;
+	margin: 4px 0;
+	line-height: 1.5;
+}
+
+.sdaa-cr-running-preamble p {
+	margin: 0 0 6px;
+}
+
+.sdaa-cr-running-preamble p:last-child {
+	margin-bottom: 0;
+}
+
 /* Input area */
 .sdaa-cr-input-area {
 	border-top: 1px solid var(--sdaa-border-subtle);

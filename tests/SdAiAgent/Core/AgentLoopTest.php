@@ -2193,4 +2193,215 @@ class AgentLoopTest extends WP_UnitTestCase {
 		$this->assertArrayNotHasKey( 'awaiting_confirmation', $result );
 		$this->assertArrayHasKey( 'reply', $result );
 	}
+
+	/**
+	 * Regression test: preamble text emitted alongside a tool call must appear
+	 * in the live tool_call_log so the polling frontend can render it above
+	 * the tool card while the loop is still running.
+	 *
+	 * The mock turn returns an assistant message that contains both a text
+	 * preamble ("Let me look that up first.") and a function call in the same
+	 * choice — the chat-completion shape used by every model we support that
+	 * narrates before invoking tools. The first call returns the
+	 * preamble+tool-call payload; the second call returns the final text reply
+	 * so the loop terminates cleanly.
+	 */
+	public function test_run_logs_preamble_text_before_tool_call(): void {
+		$this->skip_if_sdk_unavailable();
+		if ( ! class_exists( 'WP_AI_Client_Ability_Function_Resolver' ) ) {
+			$this->markTestSkipped( 'WP_AI_Client_Ability_Function_Resolver not available.' );
+		}
+
+		$call_count           = 0;
+		$progress_snapshots   = [];
+		$preamble_text        = 'Let me look that up first.';
+		$preamble_and_call    = wp_json_encode(
+			[
+				'id'      => 'chatcmpl-preamble',
+				'object'  => 'chat.completion',
+				'choices' => [
+					[
+						'index'         => 0,
+						'message'       => [
+							'role'       => 'assistant',
+							'content'    => $preamble_text,
+							'tool_calls' => [
+								[
+									'id'       => 'call_preamble_1',
+									'type'     => 'function',
+									'function' => [
+										'name'      => 'wpab__sd-ai-agent__memory-list',
+										'arguments' => '{}',
+									],
+								],
+							],
+						],
+						'finish_reason' => 'tool_calls',
+					],
+				],
+				'usage'   => [ 'prompt_tokens' => 10, 'completion_tokens' => 5, 'total_tokens' => 15 ],
+			]
+		);
+		$final_reply_body     = wp_json_encode(
+			[
+				'id'      => 'chatcmpl-final',
+				'object'  => 'chat.completion',
+				'choices' => [
+					[
+						'index'         => 0,
+						'message'       => [ 'role' => 'assistant', 'content' => 'Done.' ],
+						'finish_reason' => 'stop',
+					],
+				],
+				'usage'   => [ 'prompt_tokens' => 20, 'completion_tokens' => 5, 'total_tokens' => 25 ],
+			]
+		);
+
+		add_filter(
+			'pre_http_request',
+			static function ( $preempt, $args, $url ) use ( &$call_count, $preamble_and_call, $final_reply_body ) {
+				if ( false !== strpos( $url, 'fake-ai-proxy.test' ) ) {
+					++$call_count;
+					$body = ( 1 === $call_count ) ? $preamble_and_call : $final_reply_body;
+					return [
+						'headers'  => [ 'content-type' => 'application/json' ],
+						'body'     => $body,
+						'response' => [ 'code' => 200, 'message' => 'OK' ],
+						'cookies'  => [],
+						'filename' => '',
+					];
+				}
+				return $preempt;
+			},
+			10,
+			3
+		);
+
+		$options                      = [];
+		$options['progress_callback'] = static function ( array $log ) use ( &$progress_snapshots ): void {
+			$progress_snapshots[] = $log;
+		};
+
+		$loop   = new AgentLoop( 'Find my notes', [], [], $options );
+		$result = $loop->run();
+
+		$this->assertIsArray( $result );
+		$this->assertArrayHasKey( 'tool_calls', $result );
+
+		// The preamble entry must precede the call entry in original order.
+		$preamble_index = null;
+		$call_index     = null;
+		foreach ( $result['tool_calls'] as $i => $entry ) {
+			if ( null === $preamble_index && 'preamble' === ( $entry['type'] ?? '' ) ) {
+				$preamble_index = $i;
+			}
+			if ( null === $call_index && 'call' === ( $entry['type'] ?? '' ) ) {
+				$call_index = $i;
+			}
+		}
+
+		$this->assertNotNull( $preamble_index, 'A preamble entry must be present in tool_call_log when the model emits text alongside a tool call.' );
+		$this->assertNotNull( $call_index, 'The tool call entry must still be present.' );
+		$this->assertLessThan( $call_index, $preamble_index, 'Preamble must be logged before the tool call to match emission order.' );
+		$this->assertSame( $preamble_text, $result['tool_calls'][ $preamble_index ]['text'] );
+
+		// The progress callback must have observed the preamble in at least
+		// one snapshot so the polling frontend can render it incrementally.
+		$saw_preamble_in_progress = false;
+		foreach ( $progress_snapshots as $snapshot ) {
+			foreach ( $snapshot as $entry ) {
+				if ( 'preamble' === ( $entry['type'] ?? '' ) && ( $entry['text'] ?? '' ) === $preamble_text ) {
+					$saw_preamble_in_progress = true;
+					break 2;
+				}
+			}
+		}
+		$this->assertTrue( $saw_preamble_in_progress, 'progress_callback must surface preamble entries so live UI can show running commentary.' );
+	}
+
+	/**
+	 * Whitespace-only assistant text emitted alongside a tool call must NOT be
+	 * logged as a preamble. Some providers normalise null content to an empty
+	 * string or a stray newline; surfacing that as a "preamble" would render
+	 * blank speech bubbles in the running message.
+	 */
+	public function test_run_skips_whitespace_only_preamble(): void {
+		$this->skip_if_sdk_unavailable();
+		if ( ! class_exists( 'WP_AI_Client_Ability_Function_Resolver' ) ) {
+			$this->markTestSkipped( 'WP_AI_Client_Ability_Function_Resolver not available.' );
+		}
+
+		$call_count = 0;
+		$body_tool  = wp_json_encode(
+			[
+				'id'      => 'chatcmpl-blank',
+				'object'  => 'chat.completion',
+				'choices' => [
+					[
+						'index'         => 0,
+						'message'       => [
+							'role'       => 'assistant',
+							'content'    => "  \n  ",
+							'tool_calls' => [
+								[
+									'id'       => 'call_blank_1',
+									'type'     => 'function',
+									'function' => [
+										'name'      => 'wpab__sd-ai-agent__memory-list',
+										'arguments' => '{}',
+									],
+								],
+							],
+						],
+						'finish_reason' => 'tool_calls',
+					],
+				],
+				'usage'   => [ 'prompt_tokens' => 10, 'completion_tokens' => 0, 'total_tokens' => 10 ],
+			]
+		);
+		$body_reply = wp_json_encode(
+			[
+				'id'      => 'chatcmpl-final-blank',
+				'object'  => 'chat.completion',
+				'choices' => [
+					[
+						'index'         => 0,
+						'message'       => [ 'role' => 'assistant', 'content' => 'Here.' ],
+						'finish_reason' => 'stop',
+					],
+				],
+				'usage'   => [ 'prompt_tokens' => 12, 'completion_tokens' => 1, 'total_tokens' => 13 ],
+			]
+		);
+
+		add_filter(
+			'pre_http_request',
+			static function ( $preempt, $args, $url ) use ( &$call_count, $body_tool, $body_reply ) {
+				if ( false !== strpos( $url, 'fake-ai-proxy.test' ) ) {
+					++$call_count;
+					$body = ( 1 === $call_count ) ? $body_tool : $body_reply;
+					return [
+						'headers'  => [ 'content-type' => 'application/json' ],
+						'body'     => $body,
+						'response' => [ 'code' => 200, 'message' => 'OK' ],
+						'cookies'  => [],
+						'filename' => '',
+					];
+				}
+				return $preempt;
+			},
+			10,
+			3
+		);
+
+		$loop   = new AgentLoop( 'Find my notes' );
+		$result = $loop->run();
+
+		$this->assertIsArray( $result );
+		$preamble_entries = array_filter(
+			$result['tool_calls'],
+			static fn( $entry ) => 'preamble' === ( $entry['type'] ?? '' )
+		);
+		$this->assertEmpty( $preamble_entries, 'Whitespace-only assistant text must not be logged as a preamble entry.' );
+	}
 }

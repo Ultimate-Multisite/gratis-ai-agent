@@ -42,11 +42,73 @@ export function pairToolCalls( toolCalls ) {
 		}
 	}
 	if ( pairs.length === 0 ) {
+		// Defensive fallback: a log with no explicit type='call' entries
+		// (e.g. a free-form preamble-only stream) still renders one card per
+		// entry so the user sees something rather than an empty container.
+		// Preamble entries deliberately skip this path — they are surfaced by
+		// buildRunningItems() above text-friendly rendering.
 		for ( const t of toolCalls ) {
+			if ( t.type === 'preamble' ) {
+				continue;
+			}
 			pairs.push( { call: t, response: null } );
 		}
 	}
 	return pairs;
+}
+
+/**
+ * Build the ordered list of items to render inside a model message body,
+ * preserving the original emission order of preamble text blocks and tool
+ * call pairs.
+ *
+ * Returns a heterogeneous list of items shaped as either:
+ *   { kind: 'preamble', text: string, key: string }
+ *   { kind: 'pair', call: ToolCall, response: ToolResponse|null, key: string }
+ *
+ * The polling frontend uses this for the live RunningMessage so the user
+ * can see narration like "Looking that up first…" immediately above the
+ * tool card it precedes. Finalised assistant messages also use it so live
+ * and persisted views share the same layout pipeline.
+ *
+ * @param {Array} toolCalls Flat tool-call log entries.
+ * @return {Array} Ordered render items.
+ */
+export function buildRunningItems( toolCalls ) {
+	if ( ! toolCalls?.length ) {
+		return [];
+	}
+	const responses = {};
+	for ( const t of toolCalls ) {
+		if ( ( t.type === 'response' || t.type === 'result' ) && t.id ) {
+			responses[ t.id ] = t;
+		}
+	}
+	const items = [];
+	let preambleSeq = 0;
+	let pairSeq = 0;
+	for ( const t of toolCalls ) {
+		if ( t.type === 'preamble' && typeof t.text === 'string' ) {
+			const trimmed = t.text.trim();
+			if ( trimmed !== '' ) {
+				items.push( {
+					kind: 'preamble',
+					text: t.text,
+					key: `preamble-${ preambleSeq++ }`,
+				} );
+			}
+			continue;
+		}
+		if ( t.type === 'call' ) {
+			items.push( {
+				kind: 'pair',
+				call: t,
+				response: t.id ? responses[ t.id ] || null : null,
+				key: t.id || `pair-${ pairSeq++ }`,
+			} );
+		}
+	}
+	return items;
 }
 
 /**
