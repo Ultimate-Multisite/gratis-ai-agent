@@ -713,114 +713,89 @@ final class SettingsController {
 	public function handle_providers(): WP_REST_Response {
 		$providers = array();
 
-		// Built-in providers (OpenAI, Anthropic, Google) — listed first when a
-		// WP 7.0 Connectors API key is set, so sites without a third-party
-		// AI provider plugin still have a usable provider/model list.
-		foreach ( Settings::DIRECT_PROVIDERS as $provider_id => $meta ) {
-			$key = $this->settings->get_connectors_api_key( $provider_id );
-			if ( '' === $key ) {
-				continue;
-			}
-			$providers[] = array(
-				'id'         => $provider_id,
-				'name'       => $meta['name'],
-				'type'       => 'direct',
-				'configured' => true,
-				'models'     => $meta['models'],
-			);
+		// The WP AI Client SDK registry is the single source of truth for which
+		// providers exist and which models each exposes. Provider plugins such
+		// as `ai-provider-for-openai`, `ai-provider-for-anthropic-max`, the
+		// OpenAI-compatible connector, etc. each register themselves there;
+		// credentials are bridged in by ProviderCredentialLoader::load(). A
+		// provider is exposed by this endpoint only when authentication has
+		// been configured for it.
+		if ( ! class_exists( '\\WordPress\\AiClient\\AiClient' ) ) {
+			return new WP_REST_Response( $providers, 200 );
 		}
 
-		// Collect IDs already added to avoid duplicates from the WP SDK registry.
-		$added_ids = array_column( $providers, 'id' );
+		try {
+			$registry     = \WordPress\AiClient\AiClient::defaultRegistry();
+			$provider_ids = $registry->getRegisteredProviderIds();
+		} catch ( \Throwable $e ) {
+			return new WP_REST_Response( $providers, 200 );
+		}
 
-		// WP SDK providers (AI Experiments plugin, OpenAI-compatible connector, etc.).
-		if ( class_exists( '\\WordPress\\AiClient\\AiClient' ) ) {
-			$registry     = null;
-			$provider_ids = array();
+		ProviderCredentialLoader::load();
+
+		foreach ( $provider_ids as $provider_id ) {
 			try {
-				$registry     = \WordPress\AiClient\AiClient::defaultRegistry();
-				$provider_ids = $registry->getRegisteredProviderIds();
+				// Only include providers that have authentication set.
+				$auth = $registry->getProviderRequestAuthentication( $provider_id );
+				if ( null === $auth ) {
+					continue;
+				}
+
+				$class    = $registry->getProviderClassName( $provider_id );
+				$metadata = $class::metadata();
+				$models   = array();
+
+				// For the OpenAI-compatible connector, fetch models directly
+				// from the endpoint rather than going through the SDK model
+				// directory (which can fail due to SDK transporter issues).
+				// Use str_starts_with to handle multi-endpoint setups where each
+				// endpoint gets a unique ID (e.g., ai-provider-for-any-openai-compatible-1).
+				//
+				// Pass the SDK provider_id so the connector can resolve the
+				// correct per-provider endpoint URL and API key. Without
+				// provider_id, the connector falls back to its primary
+				// configured provider and every OpenAI-compatible provider
+				// would return the same model list — see PR #127 on
+				// ai-provider-for-any-compatible-endpoint.
+				if ( str_starts_with( $provider_id, 'ai-provider-for-any-openai-compatible' )
+					&& function_exists( 'OpenAiCompatibleConnector\\rest_list_models' )
+				) {
+					$fake_request = new WP_REST_Request( 'GET' );
+					$fake_request->set_param( 'provider_id', $provider_id );
+					$result = \OpenAiCompatibleConnector\rest_list_models( $fake_request );
+					if ( ! is_wp_error( $result ) ) {
+						$data = $result->get_data();
+						if ( is_array( $data ) ) {
+							$models = $data;
+						}
+					}
+				} else {
+					try {
+						$directory      = $class::modelMetadataDirectory();
+						$model_metadata = $directory->listModelMetadata();
+
+						foreach ( $model_metadata as $model_meta ) {
+							$model_id = $model_meta->getId();
+							$models[] = array(
+								'id'             => $model_id,
+								'name'           => $model_meta->getName(),
+								'context_window' => Settings::MODEL_CONTEXT_WINDOWS[ $model_id ] ?? 128000,
+							);
+						}
+					} catch ( \Throwable $e ) {
+						// Model listing failed — still include the provider.
+					}
+				}
+
+				$providers[] = array(
+					'id'         => $provider_id,
+					'name'       => $metadata->getName(),
+					'type'       => (string) $metadata->getType(),
+					'configured' => true,
+					'models'     => $models,
+				);
 			} catch ( \Throwable $e ) {
-				$provider_ids = array();
-			}
-
-			// Ensure credentials are loaded
-			ProviderCredentialLoader::load();
-
-			foreach ( $provider_ids as $provider_id ) {
-				// Skip if already added as a direct provider.
-				if ( in_array( $provider_id, $added_ids, true ) ) {
-					continue;
-				}
-
-				if ( null === $registry ) {
-					continue;
-				}
-
-				try {
-					$class = $registry->getProviderClassName( $provider_id );
-
-					// Only include providers that have authentication set.
-					$auth = $registry->getProviderRequestAuthentication( $provider_id );
-					if ( null === $auth ) {
-						continue;
-					}
-
-					$metadata = $class::metadata();
-					$models   = array();
-
-					// For the OpenAI-compatible connector, fetch models directly
-					// from the endpoint rather than going through the SDK model
-					// directory (which can fail due to SDK transporter issues).
-					// Use str_starts_with to handle multi-endpoint setups where each
-					// endpoint gets a unique ID (e.g., ai-provider-for-any-openai-compatible-1).
-					//
-					// Pass the SDK provider_id so the connector can resolve the
-					// correct per-provider endpoint URL and API key. Without
-					// provider_id, the connector falls back to its primary
-					// configured provider and every OpenAI-compatible provider
-					// would return the same model list — see PR #127 on
-					// ai-provider-for-any-compatible-endpoint.
-					if ( str_starts_with( $provider_id, 'ai-provider-for-any-openai-compatible' )
-						&& function_exists( 'OpenAiCompatibleConnector\\rest_list_models' )
-					) {
-						$fake_request = new WP_REST_Request( 'GET' );
-						$fake_request->set_param( 'provider_id', $provider_id );
-						$result = \OpenAiCompatibleConnector\rest_list_models( $fake_request );
-						if ( ! is_wp_error( $result ) ) {
-							$data = $result->get_data();
-							if ( is_array( $data ) ) {
-								$models = $data;
-							}
-						}
-					} else {
-						try {
-							$directory      = $class::modelMetadataDirectory();
-							$model_metadata = $directory->listModelMetadata();
-
-							foreach ( $model_metadata as $model_meta ) {
-								$model_id = $model_meta->getId();
-								$models[] = array(
-									'id'             => $model_id,
-									'name'           => $model_meta->getName(),
-									'context_window' => Settings::MODEL_CONTEXT_WINDOWS[ $model_id ] ?? 128000,
-								);
-							}
-						} catch ( \Throwable $e ) {
-							// Model listing failed — still include the provider.
-						}
-					}
-
-					$providers[] = array(
-						'id'         => $provider_id,
-						'name'       => $metadata->getName(),
-						'type'       => (string) $metadata->getType(),
-						'configured' => true,
-						'models'     => $models,
-					);
-				} catch ( \Throwable $e ) {
-					continue;
-				}
+				continue;
 			}
 		}
 
@@ -886,36 +861,12 @@ final class SettingsController {
 	public function handle_alerts(): WP_REST_Response {
 		$alerts = array();
 
-		// Check whether at least one AI provider is configured.
-		$has_provider = false;
-
-		// Built-in providers (API key stored by the WP 7.0 Connectors API).
-		foreach ( array_keys( Settings::DIRECT_PROVIDERS ) as $provider_id ) {
-			if ( '' !== $this->settings->get_connectors_api_key( $provider_id ) ) {
-				$has_provider = true;
-				break;
-			}
-		}
-
-		// WP SDK providers (AI Experiments plugin, OpenAI-compatible connector, etc.).
-		if ( ! $has_provider && class_exists( '\\WordPress\\AiClient\\AiClient' ) ) {
-			try {
-				$registry     = \WordPress\AiClient\AiClient::defaultRegistry();
-				$provider_ids = $registry->getRegisteredProviderIds();
-				ProviderCredentialLoader::load();
-				foreach ( $provider_ids as $provider_id ) {
-					$auth = $registry->getProviderRequestAuthentication( $provider_id );
-					if ( null !== $auth ) {
-						$has_provider = true;
-						break;
-					}
-				}
-			} catch ( \Throwable $e ) {
-				// Registry unavailable — treat as no provider.
-			}
-		}
-
-		if ( ! $has_provider ) {
+		// A provider is considered configured iff some registered provider in
+		// the WP AI Client SDK registry has authentication set. Credentials are
+		// bridged from the WP 7.0 Connectors API (and 6.9 polyfill) by
+		// ProviderCredentialLoader::load(), so this single check covers both
+		// SDK-native plugins and the connector API.
+		if ( ! ProviderCredentialLoader::has_any_authenticated_provider() ) {
 			$alerts[] = array(
 				'type'           => 'no_provider',
 				'message'        => __( 'No AI provider configured. Add an API key on the Connectors page to get started.', 'superdav-ai-agent' ),
