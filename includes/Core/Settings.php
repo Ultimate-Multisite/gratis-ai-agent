@@ -220,13 +220,17 @@ class Settings {
 	 * Resolve the appropriate `max_tokens` value for a given model.
 	 *
 	 * Falls back through, in order:
-	 *   1. exact match in {@see MODEL_MAX_OUTPUT_TOKENS},
-	 *   2. longest prefix match (so dated/quantized variants resolve to
+	 *   1. live transient written by {@see ModelCapabilityRegistry} (populated
+	 *      from provider `/models` responses — keeps Synthetic-hosted HF
+	 *      models like Kimi K2.6 honest as their advertised caps move),
+	 *   2. exact match in {@see MODEL_MAX_OUTPUT_TOKENS},
+	 *   3. longest prefix match (so dated/quantized variants resolve to
 	 *      their family entry),
-	 *   3. {@see MAX_OUTPUT_TOKENS_FALLBACK} (8192).
+	 *   4. {@see MAX_OUTPUT_TOKENS_FALLBACK} (8192).
 	 *
-	 * Filterable via `sd_ai_agent_max_output_tokens_for_model` to let
-	 * deployments override the catalog for custom or self-hosted models.
+	 * Filterable via `sd_ai_agent_max_output_tokens_for_model` (applied last)
+	 * to let deployments override both the live registry and the catalog
+	 * for custom or self-hosted models.
 	 *
 	 * @param string $model_id Provider-advertised model identifier. May be
 	 *                         empty when no model has been selected yet, in
@@ -235,32 +239,21 @@ class Settings {
 	 */
 	public static function get_max_output_tokens_for_model( string $model_id ): int {
 		$model_id = trim( $model_id );
-		$resolved = self::MAX_OUTPUT_TOKENS_FALLBACK;
 
-		if ( '' !== $model_id ) {
-			if ( isset( self::MODEL_MAX_OUTPUT_TOKENS[ $model_id ] ) ) {
-				$resolved = self::MODEL_MAX_OUTPUT_TOKENS[ $model_id ];
-			} else {
-				// Longest-prefix match so e.g. `claude-opus-4-7-20260513`
-				// resolves to `claude-opus-4` and `gpt-4.1-mini` to `gpt-4.1`.
-				$best_len = 0;
-				foreach ( self::MODEL_MAX_OUTPUT_TOKENS as $prefix => $value ) {
-					$prefix_len = strlen( $prefix );
-					if (
-						$prefix_len > $best_len
-						&& 0 === strncmp( $model_id, $prefix, $prefix_len )
-					) {
-						$best_len = $prefix_len;
-						$resolved = $value;
-					}
-				}
-			}
-		}
+		// Registry consults transient → static catalog → fallback in order;
+		// returns the global fallback if nothing matches.
+		$resolved = '' !== $model_id
+			? ModelCapabilityRegistry::get_max_output_tokens( $model_id )
+			: self::MAX_OUTPUT_TOKENS_FALLBACK;
 
 		/**
 		 * Filter the resolved max-output-tokens value for a model.
 		 *
-		 * @param int    $resolved Tokens chosen from the catalog/fallback.
+		 * Applied AFTER the live registry and static catalog lookups so
+		 * deployments can pin a value regardless of what the provider
+		 * advertises.
+		 *
+		 * @param int    $resolved Tokens chosen from registry/catalog/fallback.
 		 * @param string $model_id Model identifier being resolved.
 		 */
 		$filtered = (int) apply_filters( 'sd_ai_agent_max_output_tokens_for_model', $resolved, $model_id );
@@ -274,6 +267,47 @@ class Settings {
 		}
 
 		return $filtered;
+	}
+
+	/**
+	 * Pure static-catalog lookup for max-output-tokens.
+	 *
+	 * Encapsulates the exact-match + longest-prefix-match logic against
+	 * {@see MODEL_MAX_OUTPUT_TOKENS} so {@see ModelCapabilityRegistry::get()}
+	 * can consult it without ricocheting back through the filterable resolver.
+	 *
+	 * Returns 0 when no catalog entry matches — the caller decides what to
+	 * fall back to (typically {@see MAX_OUTPUT_TOKENS_FALLBACK}).
+	 *
+	 * @param string $model_id Provider-advertised model identifier.
+	 * @return int Tokens from the catalog, or 0 if no match.
+	 */
+	public static function resolve_max_output_tokens_from_catalog( string $model_id ): int {
+		$model_id = trim( $model_id );
+		if ( '' === $model_id ) {
+			return 0;
+		}
+
+		if ( isset( self::MODEL_MAX_OUTPUT_TOKENS[ $model_id ] ) ) {
+			return (int) self::MODEL_MAX_OUTPUT_TOKENS[ $model_id ];
+		}
+
+		// Longest-prefix match so e.g. `claude-opus-4-7-20260513` resolves
+		// to `claude-opus-4-7` and `gpt-4.1-mini` to `gpt-4.1`.
+		$best_len = 0;
+		$resolved = 0;
+		foreach ( self::MODEL_MAX_OUTPUT_TOKENS as $prefix => $value ) {
+			$prefix_len = strlen( $prefix );
+			if (
+				$prefix_len > $best_len
+				&& 0 === strncmp( $model_id, $prefix, $prefix_len )
+			) {
+				$best_len = $prefix_len;
+				$resolved = (int) $value;
+			}
+		}
+
+		return $resolved;
 	}
 
 	// ── Static factory (bridge for non-DI code) ───────────────────────────────
