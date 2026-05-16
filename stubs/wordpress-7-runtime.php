@@ -112,8 +112,21 @@ namespace WordPress\AiClient\Messages\DTO {
 
 	/**
 	 * Represents the type of a message part (stub).
+	 *
+	 * Mirrors the WP 7.0 RC2 enum-style class shipped in
+	 * php-ai-client (WordPress\AiClient\Messages\Enums\MessagePartTypeEnum).
+	 * Real class extends AbstractEnum and exposes a magic ->value property
+	 * plus is*() helpers; this stub flattens that into a regular class so
+	 * PHPStan can verify property access without modelling the magic.
 	 */
 	class MessagePartType {
+		/**
+		 * Underlying enum value ("text", "file", "function_call", "function_response").
+		 *
+		 * @var string
+		 */
+		public string $value = '';
+
 		/** @return bool */
 		public function isFunctionCall(): bool { return false; }
 
@@ -122,6 +135,9 @@ namespace WordPress\AiClient\Messages\DTO {
 
 		/** @return bool */
 		public function isText(): bool { return false; }
+
+		/** @return bool */
+		public function isFile(): bool { return false; }
 	}
 
 	/**
@@ -207,9 +223,37 @@ namespace WordPress\AiClient\Messages\DTO {
 	}
 }
 
+namespace WordPress\AiClient\Results\Enums {
+
+	/**
+	 * Finish-reason enum for a Candidate (stub).
+	 *
+	 * Mirrors WordPress\AiClient\Results\Enums\FinishReasonEnum
+	 * shipped in php-ai-client; flattened from AbstractEnum into a plain
+	 * class so PHPStan can verify property access. Real values include
+	 * "stop", "length", "content_filter", "tool_calls".
+	 */
+	class FinishReasonEnum {
+		/** @var string */
+		public string $value = '';
+
+		/** @return string */
+		public function getValue(): string {
+			return $this->value;
+		}
+
+		/** @return string */
+		public function __toString(): string {
+			return $this->value;
+		}
+	}
+}
+
 namespace WordPress\AiClient\Results\DTO {
 
 	use WordPress\AiClient\Messages\DTO\Message;
+	use WordPress\AiClient\Providers\Models\DTO\ModelMetadata;
+	use WordPress\AiClient\Results\Enums\FinishReasonEnum;
 
 	/**
 	 * Token usage data from a generative AI request (stub).
@@ -235,16 +279,46 @@ namespace WordPress\AiClient\Results\DTO {
 		 * @return int
 		 */
 		public function getTotalTokens(): int { return 0; }
+
+		/**
+		 * Get the number of thought tokens used (reasoning models only).
+		 *
+		 * Returns null when the provider does not report a thought-token count.
+		 *
+		 * @return int|null
+		 */
+		public function getThoughtTokens(): ?int { return null; }
+	}
+
+	/**
+	 * A single candidate response from a generative AI request (stub).
+	 *
+	 * Mirrors the WP 7.0 RC2 DTO shipped in php-ai-client. Each Candidate
+	 * pairs a Message (the candidate's content) with a FinishReasonEnum
+	 * (why the candidate stopped generating).
+	 */
+	class Candidate {
+		/** @return Message */
+		public function getMessage(): Message { return new Message(); }
+
+		/** @return FinishReasonEnum */
+		public function getFinishReason(): FinishReasonEnum { return new FinishReasonEnum(); }
 	}
 
 	/**
 	 * Result from a generative AI request (stub).
 	 */
 	class GenerativeAiResult {
+		/** @return string */
+		public function getId(): string { return ''; }
+
+		/** @return ModelMetadata */
+		public function getModelMetadata(): ModelMetadata { return new ModelMetadata(); }
+
 		/** @return Message */
 		public function getMessage(): Message { return new Message(); }
 
-		/** @return Message[] */
+		/** @return Candidate[] */
 		public function getCandidates(): array { return array(); }
 
 		/**
@@ -274,6 +348,90 @@ namespace WordPress\AiClient\Results\DTO {
 		 * @return TokenUsage
 		 */
 		public function getTokenUsage(): TokenUsage { return new TokenUsage(); }
+	}
+}
+
+namespace WordPress\AiClient\Providers\Models\DTO {
+
+	/**
+	 * Metadata describing a model exposed by a provider (stub).
+	 *
+	 * Mirrors WordPress\AiClient\Providers\Models\DTO\ModelMetadata shipped
+	 * in php-ai-client. Real DTO carries id, name, supportedCapabilities,
+	 * supportedOptions; this stub exposes only the methods the plugin reads.
+	 */
+	class ModelMetadata {
+		/**
+		 * Constructor.
+		 *
+		 * @param string             $id                    Model id.
+		 * @param string             $name                  Human-readable model name.
+		 * @param array<int, mixed>  $supported_capabilities Supported capability enums.
+		 * @param array<int, mixed>  $supported_options     Supported option enums.
+		 */
+		public function __construct(
+			string $id = '',
+			string $name = '',
+			array $supported_capabilities = array(),
+			array $supported_options = array()
+		) {}
+
+		/** @return string */
+		public function getId(): string { return ''; }
+
+		/** @return string */
+		public function getName(): string { return ''; }
+	}
+}
+
+namespace WordPress\AiClient\Providers\DTO {
+
+	use WordPress\AiClient\Providers\Enums\ProviderTypeEnum;
+
+	/**
+	 * Metadata describing an AI provider (stub).
+	 *
+	 * Mirrors WordPress\AiClient\Providers\DTO\ProviderMetadata shipped
+	 * in php-ai-client. Constructor takes (id, name, ProviderTypeEnum).
+	 */
+	class ProviderMetadata {
+		/**
+		 * Constructor.
+		 *
+		 * @param string                $id   Provider id.
+		 * @param string                $name Provider display name.
+		 * @param ProviderTypeEnum|null $type Provider type enum.
+		 */
+		public function __construct(
+			string $id = '',
+			string $name = '',
+			?ProviderTypeEnum $type = null
+		) {}
+
+		/** @return string */
+		public function getId(): string { return ''; }
+
+		/** @return string */
+		public function getName(): string { return ''; }
+	}
+}
+
+namespace WordPress\AiClient\Providers\Enums {
+
+	/**
+	 * Provider type enum (stub).
+	 *
+	 * Mirrors WordPress\AiClient\Providers\Enums\ProviderTypeEnum shipped
+	 * in php-ai-client. Real values include "cloud", "server", "client".
+	 */
+	class ProviderTypeEnum {
+		/** @var string */
+		public string $value = '';
+
+		/** @return string */
+		public function getValue(): string {
+			return $this->value;
+		}
 	}
 }
 

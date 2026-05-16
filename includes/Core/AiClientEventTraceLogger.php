@@ -6,8 +6,13 @@
  * to capture structured trace data including capability, provider, model, finish reason,
  * token usage, and result metadata.
  *
- * Correlates Before/After event pairs using spl_object_id() to compute duration and
- * handle nested/concurrent SDK calls safely.
+ * Correlates Before/After event pairs with a LIFO stack. The SDK constructs
+ * distinct event objects for Before vs After (lib/php-ai-client PromptBuilder.php
+ * dispatches `new BeforeGenerateResultEvent(...)` and `new AfterGenerateResultEvent(...)`
+ * on the same call), so spl_object_id() can never match. PHP is single-threaded
+ * and SDK calls nest Before→{request}→After in last-in-first-out order, so the
+ * After handler always pairs with the most recently pushed Before — even across
+ * nested provider calls.
  *
  * @package SdAiAgent
  * @license GPL-2.0-or-later
@@ -31,22 +36,18 @@ if ( ! defined( 'ABSPATH' ) ) {
 class AiClientEventTraceLogger {
 
 	/**
-	 * In-flight event data keyed by spl_object_id for correlation.
+	 * In-flight Before-event data as a LIFO stack.
 	 *
 	 * Stores Before event metadata so the matching After event can compute
-	 * duration and write a complete trace row. Uses spl_object_id() as the
-	 * key to safely handle nested/concurrent SDK calls.
+	 * duration and write a complete trace row. Implemented as a LIFO stack
+	 * (`array_push` on Before, `array_pop` on After) because the SDK
+	 * dispatches distinct event objects for Before/After (so spl_object_id
+	 * cannot correlate them) and PHP is single-threaded (so nested calls
+	 * naturally pair LIFO).
 	 *
-	 * @var array<string, array<string, mixed>>
+	 * @var array<int, array<string, mixed>>
 	 */
 	private static array $inflight = [];
-
-	/**
-	 * Hook tag for the watchdog cleanup action.
-	 *
-	 * @var string
-	 */
-	private static string $watchdog_hook = 'sd_ai_agent_sdk_event_trace_watchdog';
 
 	/**
 	 * Hook: wp_ai_client_before_generate_result — capture request metadata.
@@ -62,8 +63,6 @@ class AiClientEventTraceLogger {
 			return;
 		}
 
-		$event_id = self::get_event_id( $event );
-
 		// Extract model and provider metadata.
 		$model       = $event->getModel();
 		$model_id    = $model->metadata()->getId();
@@ -73,8 +72,8 @@ class AiClientEventTraceLogger {
 		$capability       = $event->getCapability();
 		$capability_value = null !== $capability ? $capability->value : null;
 
-		// Store in-flight data for correlation with the After event.
-		self::$inflight[ $event_id ] = [
+		// Push onto the LIFO stack; the matching After will pop it.
+		self::$inflight[] = [
 			'model_id'    => $model_id,
 			'provider_id' => $provider_id,
 			'capability'  => $capability_value,
@@ -86,9 +85,11 @@ class AiClientEventTraceLogger {
 	/**
 	 * Hook: wp_ai_client_after_generate_result — capture response and write trace row.
 	 *
-	 * Correlates with the Before event via spl_object_id, computes duration,
+	 * Pops the most recent Before entry off the LIFO stack, computes duration,
 	 * extracts finish reason and token usage from the result, and writes a
-	 * structured trace row.
+	 * structured trace row. Pairing via LIFO is correct because PHP is
+	 * single-threaded and the SDK always dispatches Before→{request}→After
+	 * synchronously on the same call, even when calls nest.
 	 *
 	 * @param AfterGenerateResultEvent $event The after-generate event.
 	 * @return void
@@ -98,16 +99,13 @@ class AiClientEventTraceLogger {
 			return;
 		}
 
-		$event_id = self::get_event_id( $event );
-
-		// Look up the in-flight Before event data.
-		if ( ! isset( self::$inflight[ $event_id ] ) ) {
-			// Before event was not recorded (e.g., tracing was disabled at that time).
+		// Pop the matching Before from the LIFO stack.
+		$inflight = array_pop( self::$inflight );
+		if ( null === $inflight ) {
+			// No Before recorded (tracing toggled on between Before and After,
+			// or an unbalanced After fired).
 			return;
 		}
-
-		$inflight = self::$inflight[ $event_id ];
-		unset( self::$inflight[ $event_id ] );
 
 		$start_time  = (float) ( $inflight['start_time'] ?? microtime( true ) );
 		$duration_ms = (int) round( ( microtime( true ) - $start_time ) * 1000 );
@@ -129,9 +127,13 @@ class AiClientEventTraceLogger {
 		$cache_creation_tokens = 0;
 		$cache_read_tokens     = 0;
 
-		// Serialize messages and result for storage.
-		$messages_json = self::serialize_messages( $inflight['messages'] );
-		$result_json   = self::serialize_result( $result );
+		// Serialize messages and result for storage. Narrow the mixed
+		// $inflight['messages'] slot to array before passing —
+		// serialize_messages instanceof-filters non-Message entries
+		// defensively. serialize_result is similarly type-guarded.
+		$messages      = is_array( $inflight['messages'] ?? null ) ? $inflight['messages'] : [];
+		$messages_json = self::serialize_messages( $messages );
+		$result_json   = is_object( $result ) ? self::serialize_result( $result ) : '{}';
 
 		// Write the structured trace row.
 		ProviderTrace::insert(
@@ -160,13 +162,13 @@ class AiClientEventTraceLogger {
 	 * the SDK request was initiated but never completed (SDK exception, timeout,
 	 * malformed response, etc.).
 	 *
-	 * @param string               $event_id The event correlation ID.
 	 * @param array<string, mixed> $inflight The in-flight Before event data.
 	 * @return void
 	 */
-	private static function write_stalled_trace( string $event_id, array $inflight ): void {
-		// Serialize messages for storage.
-		$messages_json = self::serialize_messages( $inflight['messages'] ?? [] );
+	private static function write_stalled_trace( array $inflight ): void {
+		// Serialize messages for storage. Narrow the mixed slot to array.
+		$messages      = is_array( $inflight['messages'] ?? null ) ? $inflight['messages'] : [];
+		$messages_json = self::serialize_messages( $messages );
 
 		// Write a synthetic trace row with error='no_result_event'.
 		ProviderTrace::insert(
@@ -203,26 +205,25 @@ class AiClientEventTraceLogger {
 			return;
 		}
 
-		foreach ( self::$inflight as $event_id => $inflight ) {
-			self::write_stalled_trace( $event_id, $inflight );
+		foreach ( self::$inflight as $inflight ) {
+			self::write_stalled_trace( $inflight );
 		}
 
-		// Clear the in-flight map.
+		// Clear the stack.
 		self::$inflight = [];
 	}
 
 	/**
-	 * Get a stable correlation ID for an event object.
+	 * Reset the in-flight stack. Intended for tests only.
 	 *
-	 * Uses spl_object_id() to generate a unique ID for the event object,
-	 * allowing Before/After pairs to be correlated even when nested or
-	 * concurrent SDK calls occur.
+	 * Allows tests that exercise the LIFO stack across multiple cases to
+	 * start each case with a clean stack without relying on shutdown hooks.
 	 *
-	 * @param BeforeGenerateResultEvent|AfterGenerateResultEvent $event The event object.
-	 * @return string Stable correlation ID.
+	 * @internal
+	 * @return void
 	 */
-	private static function get_event_id( object $event ): string {
-		return 'sdk_event_' . spl_object_id( $event );
+	public static function reset_inflight_for_tests(): void {
+		self::$inflight = [];
 	}
 
 	/**
@@ -236,7 +237,7 @@ class AiClientEventTraceLogger {
 	 * Non-Message entries are skipped defensively so the watchdog cannot
 	 * crash on a malformed in-flight payload.
 	 *
-	 * @param array<int, mixed> $messages The messages array (expected: list<Message>).
+	 * @param array<array-key, mixed> $messages The messages array (expected: list<Message>; callers may pass an associative array if a Before payload was malformed).
 	 * @return string JSON-encoded messages.
 	 */
 	private static function serialize_messages( array $messages ): string {
