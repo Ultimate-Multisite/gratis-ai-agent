@@ -4,7 +4,7 @@ Tags: ai, chatbot, assistant, automation, tools
 Requires at least: 6.9
 Tested up to: 7.0
 Requires PHP: 8.2
-Stable tag: 1.12.0
+Stable tag: 1.13.0
 License: GPL-2.0-or-later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -207,6 +207,20 @@ Yes, the plugin works on both single-site and multisite WordPress installations.
 8. Settings page with 12 configuration tabs
 
 == Changelog ==
+
+= 1.13.0 - Released on 2026-05-16 =
+* New: Per-model output token limits are now read directly from the provider's /models endpoint, keeping limits accurate without manual updates
+* New: Provider-supplied usage instructions (meta.ai.usage_instructions) are wired into Tier-1 and Tier-2 model context for more guideline-compliant responses
+* New: Model preamble text streams live alongside tool calls so you see real-time feedback as the agent works through multi-step tasks
+* New: Structured trace channel uses WordPress AI Client SDK before/after generate events for reliable, SDK-aligned LLM request tracing
+* Improved: Provider list is now single-sourced from the WP AI Client SDK registry, removing a redundant internal list
+* Fix: Trace logger correctly reflects the SDK DTO API, resolving broken trace output
+* Fix: Agent loop now correctly detects preamble-only truncations; synthetic model capabilities prevent false truncation detection
+* Fix: Tracing now captures all active LLM providers, not just a hardcoded subset
+* Fix: WP_Ability polyfill now loads after WordPress core bootstrap, fixing activation errors on some environments
+* Fix: WP_Ability class declaration is guarded to prevent fatal errors when the class is already defined
+* Fix: Temperature parameter is no longer sent to OpenAI reasoning models (o-series), preventing API errors on those endpoints
+* Fix: .eslintignore is no longer included in the WordPress.org plugin zip
 
 = 1.12.0 - Released on 2026-05-15 =
 * New: Scaffold and activate block themes directly from the chat interface — agents can generate a complete block theme and switch it live
