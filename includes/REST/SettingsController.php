@@ -699,6 +699,28 @@ final class SettingsController {
 	/**
 	 * Handle the /providers endpoint — list registered AI providers and models.
 	 *
+	 * Two-pass resolution:
+	 *
+	 *   Pass 1 — WP AI Client SDK registry. Third-party provider plugins
+	 *   (`ai-provider-for-openai`, `ai-provider-for-anthropic-max`, the
+	 *   OpenAI-compatible-endpoint connector, etc.) register here. The SDK
+	 *   queries the live provider `/models` endpoint, so its catalogue is
+	 *   always current — e.g. it surfaces newly released families like
+	 *   `gpt-5`, `gpt-5.4`, and `gpt-5.5` the moment OpenAI publishes them
+	 *   without any plugin update on our side.
+	 *
+	 *   Pass 2 — Built-in {@see Settings::DIRECT_PROVIDERS} static catalogue.
+	 *   Used as a fallback when, for OpenAI / Anthropic / Google, the SDK
+	 *   either didn't register the provider at all (no third-party plugin
+	 *   installed) or registered it but couldn't enumerate models (auth
+	 *   missing, network error). When a WP 7.0 Connectors API key is set,
+	 *   this guarantees the chat UI always sees a usable model dropdown.
+	 *
+	 * Inverting the order — running the SDK pass first and treating the static
+	 * catalogue as a true fallback — is deliberate: the previous "static first,
+	 * skip SDK on collision" arrangement suppressed the SDK's much larger
+	 * dynamic list whenever a Connectors key was present. See bd:sd-ai-aem.
+	 *
 	 * No caching layer is needed here: the underlying WP AI Client SDK already
 	 * caches `listModelMetadata()` results for 24 hours via
 	 * `AbstractApiBasedModelMetadataDirectory::getModelMetadataMap()`. Adding a
@@ -713,27 +735,12 @@ final class SettingsController {
 	public function handle_providers(): WP_REST_Response {
 		$providers = array();
 
-		// Built-in providers (OpenAI, Anthropic, Google) — listed first when a
-		// WP 7.0 Connectors API key is set, so sites without a third-party
-		// AI provider plugin still have a usable provider/model list.
-		foreach ( Settings::DIRECT_PROVIDERS as $provider_id => $meta ) {
-			$key = $this->settings->get_connectors_api_key( $provider_id );
-			if ( '' === $key ) {
-				continue;
-			}
-			$providers[] = array(
-				'id'         => $provider_id,
-				'name'       => $meta['name'],
-				'type'       => 'direct',
-				'configured' => true,
-				'models'     => $meta['models'],
-			);
-		}
-
-		// Collect IDs already added to avoid duplicates from the WP SDK registry.
-		$added_ids = array_column( $providers, 'id' );
-
-		// WP SDK providers (AI Experiments plugin, OpenAI-compatible connector, etc.).
+		// ─────────────────────────────────────────────────────────────
+		// Pass 1: WP SDK providers (third-party provider plugins, the
+		// OpenAI-compatible connector, etc.). Runs first so when a
+		// matching SDK provider is registered AND has auth, its dynamic
+		// list wins over the static DIRECT_PROVIDERS fallback below.
+		// ─────────────────────────────────────────────────────────────
 		if ( class_exists( '\\WordPress\\AiClient\\AiClient' ) ) {
 			$registry     = null;
 			$provider_ids = array();
@@ -744,15 +751,10 @@ final class SettingsController {
 				$provider_ids = array();
 			}
 
-			// Ensure credentials are loaded
+			// Ensure credentials are loaded.
 			ProviderCredentialLoader::load();
 
 			foreach ( $provider_ids as $provider_id ) {
-				// Skip if already added as a direct provider.
-				if ( in_array( $provider_id, $added_ids, true ) ) {
-					continue;
-				}
-
 				if ( null === $registry ) {
 					continue;
 				}
@@ -807,7 +809,10 @@ final class SettingsController {
 								);
 							}
 						} catch ( \Throwable $e ) {
-							// Model listing failed — still include the provider.
+							// Model listing failed — provider still registered;
+							// DIRECT_PROVIDERS fallback below replaces an empty
+							// list when a Connectors key is set so the UI keeps
+							// a usable dropdown.
 						}
 					}
 
@@ -821,6 +826,55 @@ final class SettingsController {
 				} catch ( \Throwable $e ) {
 					continue;
 				}
+			}
+		}
+
+		// ─────────────────────────────────────────────────────────────
+		// Pass 2: Built-in DIRECT_PROVIDERS static catalogue.
+		//
+		// Acts as a fallback for OpenAI / Anthropic / Google when either
+		// no third-party SDK plugin is installed for that provider, or
+		// the SDK plugin is installed but enumeration returned an empty
+		// list (transient API failure, missing auth, etc.).
+		//
+		// Requires a WP 7.0 Connectors API key for the provider — the
+		// catalogue is metadata only, not a credential source, so without
+		// a key there is nothing usable to add.
+		// ─────────────────────────────────────────────────────────────
+		foreach ( Settings::DIRECT_PROVIDERS as $provider_id => $meta ) {
+			$key = $this->settings->get_connectors_api_key( $provider_id );
+			if ( '' === $key ) {
+				continue;
+			}
+
+			$existing_index = null;
+			$has_sdk_models = false;
+			foreach ( $providers as $i => $existing ) {
+				if ( $existing['id'] === $provider_id ) {
+					$existing_index = $i;
+					$has_sdk_models = ! empty( $existing['models'] );
+					break;
+				}
+			}
+
+			// SDK already returned a populated list — prefer it.
+			if ( $has_sdk_models ) {
+				continue;
+			}
+
+			$entry = array(
+				'id'         => $provider_id,
+				'name'       => $meta['name'],
+				'type'       => 'direct',
+				'configured' => true,
+				'models'     => $meta['models'],
+			);
+
+			if ( null !== $existing_index ) {
+				// Replace the empty SDK entry with the static catalogue.
+				$providers[ $existing_index ] = $entry;
+			} else {
+				$providers[] = $entry;
 			}
 		}
 

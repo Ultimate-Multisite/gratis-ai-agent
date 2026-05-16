@@ -147,9 +147,12 @@ class ModelsCommand extends WP_CLI_Command {
 	/**
 	 * Fetch configured providers and their model lists.
 	 *
-	 * Mirrors the logic of SettingsController::handle_providers() but runs
-	 * entirely in-process without needing REST routes to be registered
-	 * (REST handlers are not loaded in CLI context).
+	 * Mirrors the logic of SettingsController::handle_providers() in-process
+	 * without needing REST routes to be registered (REST handlers are not
+	 * loaded in CLI context). Two-pass: WP SDK providers first (dynamic
+	 * `/models` listing — picks up new model families like gpt-5.x the
+	 * moment the provider publishes them), then DIRECT_PROVIDERS as a
+	 * fallback when the SDK can't enumerate. See bd:sd-ai-aem.
 	 *
 	 * @return list<array<string, mixed>>
 	 */
@@ -157,25 +160,7 @@ class ModelsCommand extends WP_CLI_Command {
 		$settings  = new Settings();
 		$providers = array();
 
-		// Built-in providers (OpenAI, Anthropic, Google) — only include when a
-		// WP 7.0 Connectors API key is set.
-		foreach ( Settings::DIRECT_PROVIDERS as $provider_id => $meta ) {
-			if ( '' === $settings->get_connectors_api_key( $provider_id ) ) {
-				continue;
-			}
-
-			$providers[] = array(
-				'id'         => $provider_id,
-				'name'       => $meta['name'],
-				'type'       => 'direct',
-				'configured' => true,
-				'models'     => $meta['models'] ?? array(),
-			);
-		}
-
-		$added_ids = array_column( $providers, 'id' );
-
-		// WP SDK providers (registered connectors, compatible endpoints, etc.).
+		// Pass 1: WP SDK providers (registered connectors, compatible endpoints, etc.).
 		if ( class_exists( '\\WordPress\\AiClient\\AiClient' ) ) {
 			$registry     = null;
 			$provider_ids = array();
@@ -188,7 +173,7 @@ class ModelsCommand extends WP_CLI_Command {
 			}
 
 			foreach ( $provider_ids as $provider_id ) {
-				if ( in_array( $provider_id, $added_ids, true ) || null === $registry ) {
+				if ( null === $registry ) {
 					continue;
 				}
 
@@ -234,7 +219,10 @@ class ModelsCommand extends WP_CLI_Command {
 								);
 							}
 						} catch ( \Throwable $e ) {
-							// Model listing failed — include provider without models.
+							// Model listing failed — provider stays registered
+							// but with no models; the DIRECT_PROVIDERS fallback
+							// below replaces the empty list when a Connectors
+							// key is set.
 						}
 					}
 
@@ -248,6 +236,43 @@ class ModelsCommand extends WP_CLI_Command {
 				} catch ( \Throwable $e ) {
 					continue;
 				}
+			}
+		}
+
+		// Pass 2: Built-in DIRECT_PROVIDERS static catalogue as a fallback for
+		// OpenAI / Anthropic / Google when the SDK didn't provide a populated
+		// model list. Requires a WP 7.0 Connectors API key for the provider.
+		foreach ( Settings::DIRECT_PROVIDERS as $provider_id => $meta ) {
+			if ( '' === $settings->get_connectors_api_key( $provider_id ) ) {
+				continue;
+			}
+
+			$existing_index = null;
+			$has_sdk_models = false;
+			foreach ( $providers as $i => $existing ) {
+				if ( $existing['id'] === $provider_id ) {
+					$existing_index = $i;
+					$has_sdk_models = ! empty( $existing['models'] );
+					break;
+				}
+			}
+
+			if ( $has_sdk_models ) {
+				continue;
+			}
+
+			$entry = array(
+				'id'         => $provider_id,
+				'name'       => $meta['name'],
+				'type'       => 'direct',
+				'configured' => true,
+				'models'     => $meta['models'] ?? array(),
+			);
+
+			if ( null !== $existing_index ) {
+				$providers[ $existing_index ] = $entry;
+			} else {
+				$providers[] = $entry;
 			}
 		}
 
