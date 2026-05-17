@@ -1017,7 +1017,15 @@ class AgentLoop {
 		// body omits the field entirely. `max_tokens` is still safe to
 		// send: the SDK translates it to `max_completion_tokens` for the
 		// OpenAI reasoning API.
-		if ( ! self::is_reasoning_model( $this->model_id ) ) {
+		//
+		// Resolve the effective model ID (including connector defaults)
+		// before checking if it's a reasoning model, since configure_model()
+		// may have resolved a default model from the connector.
+		$resolved_model_id = $this->model_id;
+		if ( empty( $resolved_model_id ) && function_exists( 'OpenAiCompatibleConnector\\get_default_model' ) ) {
+			$resolved_model_id = (string) \OpenAiCompatibleConnector\get_default_model();
+		}
+		if ( ! self::is_reasoning_model( $resolved_model_id ) ) {
 			$builder->using_temperature( (float) $this->temperature );
 		}
 		$builder->using_max_tokens( $this->get_effective_max_output_tokens() );
