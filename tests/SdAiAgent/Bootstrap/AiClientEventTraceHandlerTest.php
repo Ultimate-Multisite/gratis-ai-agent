@@ -453,20 +453,20 @@ class AiClientEventTraceHandlerTest extends WP_UnitTestCase {
 		$rows = ProviderTrace::list( [ 'limit' => 2 ] );
 		$this->assertCount( 2, $rows, 'Two nested calls should produce two trace rows.' );
 
-		// Verify the rows are in the correct order (B first, then A, since
-		// they were inserted in that order).
-		$row_b = $rows[0];
-		$row_a = $rows[1];
-
-		// Verify row B paired with model B.
-		$this->assertSame( 'openai', $row_b->provider_id );
-		$this->assertSame( 'gpt-4o', $row_b->model_id );
-		$this->assertSame( 'result-b', json_decode( $row_b->response_body, true )['id'] );
+		// ProviderTrace::list() returns rows in reverse insertion order (ORDER BY id DESC),
+		// so the most recent row (A) comes first, then B.
+		$row_a = $rows[0];
+		$row_b = $rows[1];
 
 		// Verify row A paired with model A.
 		$this->assertSame( 'anthropic', $row_a->provider_id );
 		$this->assertSame( 'claude-3-5-sonnet', $row_a->model_id );
 		$this->assertSame( 'result-a', json_decode( $row_a->response_body, true )['id'] );
+
+		// Verify row B paired with model B.
+		$this->assertSame( 'openai', $row_b->provider_id );
+		$this->assertSame( 'gpt-4o', $row_b->model_id );
+		$this->assertSame( 'result-b', json_decode( $row_b->response_body, true )['id'] );
 	}
 
 	/**
