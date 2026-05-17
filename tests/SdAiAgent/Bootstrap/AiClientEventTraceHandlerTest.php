@@ -453,27 +453,29 @@ class AiClientEventTraceHandlerTest extends WP_UnitTestCase {
 		$rows = ProviderTrace::list( [ 'limit' => 2 ] );
 		$this->assertCount( 2, $rows, 'Two nested calls should produce two trace rows.' );
 
-		// ProviderTrace::list() returns rows in reverse insertion order (ORDER BY id DESC),
-		// so the most recent row (A) comes first, then B.
-		$row_a_summary = $rows[0];
-		$row_b_summary = $rows[1];
+		// Build a map of rows by result ID to avoid order-dependent assertions.
+		$by_result_id = [];
+		foreach ( $rows as $row ) {
+			$row_full = ProviderTrace::get( $row->id );
+			$this->assertNotNull( $row_full );
+			$decoded = json_decode( $row_full->response_body, true );
+			$by_result_id[ $decoded['id'] ?? '' ] = [
+				'summary' => $row,
+				'full'    => $row_full,
+			];
+		}
+
+		// Verify both result IDs are present.
+		$this->assertArrayHasKey( 'result-a', $by_result_id );
+		$this->assertArrayHasKey( 'result-b', $by_result_id );
 
 		// Verify row A paired with model A.
-		$this->assertSame( 'anthropic', $row_a_summary->provider_id );
-		$this->assertSame( 'claude-3-5-sonnet', $row_a_summary->model_id );
+		$this->assertSame( 'anthropic', $by_result_id['result-a']['summary']->provider_id );
+		$this->assertSame( 'claude-3-5-sonnet', $by_result_id['result-a']['summary']->model_id );
 
 		// Verify row B paired with model B.
-		$this->assertSame( 'openai', $row_b_summary->provider_id );
-		$this->assertSame( 'gpt-4o', $row_b_summary->model_id );
-
-		// Get full rows to verify response bodies (list() returns only sizes).
-		$row_a_full = ProviderTrace::get( $row_a_summary->id );
-		$row_b_full = ProviderTrace::get( $row_b_summary->id );
-		$this->assertNotNull( $row_a_full );
-		$this->assertNotNull( $row_b_full );
-
-		$this->assertSame( 'result-a', json_decode( $row_a_full->response_body, true )['id'] );
-		$this->assertSame( 'result-b', json_decode( $row_b_full->response_body, true )['id'] );
+		$this->assertSame( 'openai', $by_result_id['result-b']['summary']->provider_id );
+		$this->assertSame( 'gpt-4o', $by_result_id['result-b']['summary']->model_id );
 	}
 
 	/**
