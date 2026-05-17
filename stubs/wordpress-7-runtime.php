@@ -104,9 +104,42 @@ namespace WordPress\AiClient\Tools\DTO {
 	}
 }
 
+namespace WordPress\AiClient\Messages\Enums {
+
+	/**
+	 * Message part channel enum (stub).
+	 *
+	 * Represents the channel/type of a message part (e.g., "text", "thought").
+	 * Mirrors WordPress\AiClient\Messages\Enums\MessagePartChannelEnum shipped
+	 * in php-ai-client.
+	 */
+	class MessagePartChannelEnum {
+		/** @var string */
+		public string $value = '';
+
+		/** @return string */
+		public function getValue(): string {
+			return $this->value;
+		}
+
+		/** @return string */
+		public function __toString(): string {
+			return $this->value;
+		}
+
+		/** @return self */
+		public static function thought(): self {
+			$enum = new self();
+			$enum->value = 'thought';
+			return $enum;
+		}
+	}
+}
+
 namespace WordPress\AiClient\Messages\DTO {
 
 	use WordPress\AiClient\Messages\Enums\MessageRoleEnum;
+	use WordPress\AiClient\Messages\Enums\MessagePartChannelEnum;
 	use WordPress\AiClient\Tools\DTO\FunctionCall;
 	use WordPress\AiClient\Tools\DTO\FunctionResponse;
 
@@ -148,8 +181,9 @@ namespace WordPress\AiClient\Messages\DTO {
 		 * Constructor.
 		 *
 		 * @param string|FunctionCall|\WordPress\AiClient\Tools\DTO\FunctionResponse $content Text, function call, or function response.
+		 * @param MessagePartChannelEnum|null $channel Optional channel (e.g., "thought").
 		 */
-		public function __construct( string|FunctionCall|\WordPress\AiClient\Tools\DTO\FunctionResponse $content = '' ) {}
+		public function __construct( string|FunctionCall|\WordPress\AiClient\Tools\DTO\FunctionResponse $content = '', ?MessagePartChannelEnum $channel = null ) {}
 
 		/** @return string */
 		public function getText(): string { return ''; }

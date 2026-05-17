@@ -95,12 +95,14 @@ class AiClientEventTraceLogger {
 	 * @return void
 	 */
 	public static function on_after_generate_result( AfterGenerateResultEvent $event ): void {
+		// Pop the matching Before from the LIFO stack, regardless of tracing state.
+		// This prevents stale entries from accumulating if tracing is toggled
+		// between Before and After events.
+		$inflight = array_pop( self::$inflight );
+
 		if ( ! ProviderTrace::is_enabled() ) {
 			return;
 		}
-
-		// Pop the matching Before from the LIFO stack.
-		$inflight = array_pop( self::$inflight );
 		if ( null === $inflight ) {
 			// No Before recorded (tracing toggled on between Before and After,
 			// or an unbalanced After fired).
@@ -201,12 +203,12 @@ class AiClientEventTraceLogger {
 	 * @return void
 	 */
 	public static function cleanup_stalled_events(): void {
-		if ( ! ProviderTrace::is_enabled() ) {
-			return;
-		}
-
-		foreach ( self::$inflight as $inflight ) {
-			self::write_stalled_trace( $inflight );
+		// Always clear the stack, regardless of tracing state. This prevents
+		// stale entries from accumulating if tracing is toggled off.
+		if ( ProviderTrace::is_enabled() ) {
+			foreach ( self::$inflight as $inflight ) {
+				self::write_stalled_trace( $inflight );
+			}
 		}
 
 		// Clear the stack.
