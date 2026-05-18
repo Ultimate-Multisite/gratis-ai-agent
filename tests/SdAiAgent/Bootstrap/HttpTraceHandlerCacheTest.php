@@ -169,6 +169,106 @@ class HttpTraceHandlerCacheTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * Regression for sd-ai-mtu: parameterless tool calls in the
+	 * conversation history must keep `tool_use.input` encoded as `{}`,
+	 * not `[]`, when the cache decorator's json_decode/encode round-trip
+	 * runs.
+	 *
+	 * Before the fix, an assistant turn carrying a `tool_use` block with
+	 * empty `input` was replayed on the second turn and Anthropic
+	 * returned:
+	 *
+	 *   400 messages.N.content.M.tool_use.input: Input should be an object
+	 *
+	 * The handler now restores EmptyJsonObject placeholders in
+	 * messages[*].content[*].tool_use.input before re-encoding so
+	 * parameterless tool calls survive the round-trip as `{}`.
+	 */
+	public function test_anthropic_empty_tool_use_input_survives_round_trip(): void {
+		$body = $this->anthropic_body_with_empty_tool_use_input();
+
+		$args = array(
+			'method' => 'POST',
+			'body'   => (string) wp_json_encode( $body ),
+		);
+
+		// Sanity: original bytes already encode `{}` (not `[]`) for the
+		// empty tool_use.input — the provider build site does the right
+		// thing; the cache filter is the only thing that can break it.
+		$this->assertStringContainsString( '"input":{}', $args['body'] );
+		$this->assertStringNotContainsString( '"input":[]', $args['body'] );
+
+		$result = $this->handler->on_http_request_args( $args, 'https://api.anthropic.com/v1/messages' );
+
+		// After cache marker injection, every empty `tool_use.input`
+		// must still encode `{}` and never `[]`.
+		$this->assertStringContainsString( '"input":{}', (string) $result['body'] );
+		$this->assertStringNotContainsString( '"input":[]', (string) $result['body'] );
+
+		// Cache markers should still be applied (verifies we didn't
+		// accidentally short-circuit the strategy).
+		$decoded   = json_decode( (string) $result['body'], true );
+		$last_tool = end( $decoded['tools'] );
+		$this->assertArrayHasKey( 'cache_control', $last_tool );
+	}
+
+	/**
+	 * Build a request body that mirrors the real wire shape produced by
+	 * the WP-AI-Client SDK when an assistant turn invokes a
+	 * parameterless ability and is replayed on the next turn. The
+	 * `tool_use.input` is an EmptyJsonObject (which serialises to `{}`)
+	 * — the same shape the provider models build at runtime.
+	 *
+	 * @return array<string,mixed>
+	 */
+	private function anthropic_body_with_empty_tool_use_input(): array {
+		$empty_obj = new \SdAiAgent\Infrastructure\Schema\EmptyJsonObject();
+
+		return array(
+			'model'    => 'claude-sonnet-4-6',
+			'system'   => array(
+				array( 'type' => 'text', 'text' => str_repeat( 'long system. ', 400 ) ),
+			),
+			'tools'    => array(
+				array(
+					'name'         => 'wpab__sd-ai-agent__memory-list',
+					'description'  => str_repeat( 'list memories ', 30 ),
+					'input_schema' => array(
+						'type'                 => 'object',
+						'properties'           => $empty_obj,
+						'additionalProperties' => false,
+						'$schema'              => 'http://json-schema.org/draft-07/schema#',
+					),
+				),
+			),
+			'messages' => array(
+				array( 'role' => 'user', 'content' => 'list my memories' ),
+				array(
+					'role'    => 'assistant',
+					'content' => array(
+						array(
+							'type'  => 'tool_use',
+							'id'    => 'toolu_test_1',
+							'name'  => 'wpab__sd-ai-agent__memory-list',
+							'input' => $empty_obj,
+						),
+					),
+				),
+				array(
+					'role'    => 'user',
+					'content' => array(
+						array(
+							'type'        => 'tool_result',
+							'tool_use_id' => 'toolu_test_1',
+							'content'     => '[]',
+						),
+					),
+				),
+			),
+		);
+	}
+
+	/**
 	 * Build a request body that mirrors the real wire shape produced by
 	 * the WP-AI-Client SDK polyfill: every tool's input_schema is a
 	 * JSON-Schema draft-2020-12 object with `properties` represented as

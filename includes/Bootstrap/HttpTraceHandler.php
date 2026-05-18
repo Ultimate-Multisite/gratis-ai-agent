@@ -22,6 +22,7 @@ use SdAiAgent\Core\PromptCache\CacheStrategyResolver;
 use SdAiAgent\Core\PromptCache\RequestContextAwareCacheStrategyInterface;
 use SdAiAgent\Core\ProviderTraceLogger;
 use SdAiAgent\Core\Settings;
+use SdAiAgent\Infrastructure\Schema\EmptyJsonObject;
 use SdAiAgent\Infrastructure\Schema\SchemaNormalizer;
 use SdAiAgent\Models\ProviderTrace;
 use XWP\DI\Decorators\Filter;
@@ -157,16 +158,22 @@ final class HttpTraceHandler {
 			return $parsed_args;
 		}
 
-		// Repair tool input schemas BEFORE re-encoding. The json_decode/
-		// json_encode round-trip above collapses every JSON `{}` (including
-		// the canonical empty `properties` / `items` objects required by
-		// JSON Schema draft-2020-12) into a PHP empty array, which then
-		// re-serialises as `[]` and triggers Anthropic 400 responses
-		// (`tools.N.custom.input_schema: JSON schema is invalid`).
-		// SchemaNormalizer::to_json_safe() restores `EmptyJsonObject`
-		// markers in the known schema-bearing positions so the re-encoded
-		// body matches the wire format the SDK originally produced.
+		// Repair empty JSON-object positions BEFORE re-encoding. The
+		// json_decode / json_encode round-trip above collapses every JSON
+		// `{}` into a PHP empty array, which then re-serialises as `[]` —
+		// a different JSON type that triggers Anthropic 400 responses.
+		//
+		// `repair_tool_schemas()` restores the canonical empty
+		// `properties` / `items` objects required by JSON Schema
+		// draft-2020-12 in tool *definitions* (sd-ai-0nm,
+		// `tools.N.custom.input_schema: JSON schema is invalid`).
+		//
+		// `repair_message_tool_uses()` restores the empty `tool_use.input`
+		// object required for parameterless tool calls in conversation
+		// history (sd-ai-mtu,
+		// `messages.N.content.M.tool_use.input: Input should be an object`).
 		$mutated = $this->repair_tool_schemas( $mutated );
+		$mutated = $this->repair_message_tool_uses( $mutated );
 
 		$encoded = wp_json_encode( $mutated );
 		if ( false === $encoded ) {
@@ -239,6 +246,86 @@ final class HttpTraceHandler {
 			}
 
 			$body['tools'][ $i ] = $tool;
+		}
+
+		return $body;
+	}
+
+	/**
+	 * Restore JSON-object encoding for `tool_use.input` across assistant
+	 * message history.
+	 *
+	 * Anthropic's API requires every `tool_use.input` to be a JSON object
+	 * (matching the corresponding tool's `input_schema`, which itself
+	 * must be a JSON Schema draft-2020-12 `object`). Even parameterless
+	 * tools must emit `"input": {}` and never `"input": []`.
+	 *
+	 * The text-generation models in both
+	 * `WordPress/ai-provider-for-anthropic` (PR #23) and
+	 * `Ultimate-Multisite/ai-provider-for-anthropic-max` already
+	 * normalise `null` / empty PHP arrays returned by
+	 * `FunctionCall::getArgs()` to `stdClass` when building the request
+	 * body, so the body that reaches WordPress's HTTP API correctly
+	 * encodes parameterless tool calls as `"input": {}`. When prompt
+	 * caching is enabled, however, this filter then decodes the body
+	 * with `json_decode($body, true)`, collapsing the empty object back
+	 * to a PHP `[]`, and re-encodes with `wp_json_encode()` which emits
+	 * `[]`. Anthropic rejects the next request with:
+	 *
+	 *   400 Bad Request — messages.N.content.M.tool_use.input: Input should be an object
+	 *
+	 * Reproduces deterministically on the second turn of any
+	 * conversation that previously invoked a parameterless ability
+	 * (`memory-list`, `ability-search`, `skill-list`, etc.) — the
+	 * assistant turn carrying the prior `tool_use` block is replayed
+	 * and the round-trip corruption fires.
+	 *
+	 * This walker visits every `messages[*].content[*]` block of type
+	 * `tool_use` and, if `input` is an empty PHP array, restores an
+	 * `EmptyJsonObject` placeholder so re-encoding produces `{}` on the
+	 * wire.
+	 *
+	 * Scope: only the top-level `input` is repaired here, matching the
+	 * single path Anthropic's API enforces as "must be an object".
+	 * Empty objects nested inside a non-empty input (e.g.
+	 * `{"filters": {}}`) would require a parallel-decode pass that
+	 * tracks the original JSON type of every empty container and are
+	 * out of scope here — they are not currently known to trigger
+	 * Anthropic 400s when nested inside a non-empty object.
+	 *
+	 * @param array<string,mixed> $body Decoded request body.
+	 * @return array<string,mixed> Body with empty `tool_use.input` placeholders restored.
+	 */
+	private function repair_message_tool_uses( array $body ): array {
+		if ( ! isset( $body['messages'] ) || ! is_array( $body['messages'] ) ) {
+			return $body;
+		}
+
+		foreach ( $body['messages'] as $mi => $msg ) {
+			if ( ! is_array( $msg ) || ! isset( $msg['content'] ) || ! is_array( $msg['content'] ) ) {
+				continue;
+			}
+
+			foreach ( $msg['content'] as $ci => $block ) {
+				if ( ! is_array( $block ) ) {
+					continue;
+				}
+
+				if ( 'tool_use' !== ( $block['type'] ?? '' ) ) {
+					continue;
+				}
+
+				if ( ! array_key_exists( 'input', $block ) ) {
+					continue;
+				}
+
+				$input = $block['input'];
+
+				if ( is_array( $input ) && array() === $input ) {
+					$block['input']                            = new EmptyJsonObject();
+					$body['messages'][ $mi ]['content'][ $ci ] = $block;
+				}
+			}
 		}
 
 		return $body;
