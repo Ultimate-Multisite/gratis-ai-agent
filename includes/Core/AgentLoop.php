@@ -230,10 +230,19 @@ class AgentLoop {
 		$raw_settings = $this->settings_service->get();
 		$settings     = is_array( $raw_settings ) ? $raw_settings : array();
 
+		// Default provider/model resolution flows through the Settings
+		// service so an out-of-date saved value (e.g. a model whose provider
+		// has been uninstalled) is validated against the live WP AI Client
+		// SDK registry and substituted before it reaches the SDK. Without
+		// this, every new chat against a broken default hits a top-level
+		// "model not available" error banner — see GH#1494 (the production
+		// `gemma4:e4b` demo regression). Explicit per-call overrides via
+		// $options bypass validation so callers can still pin arbitrary
+		// values (benchmarks, scheduled jobs, etc.).
 		// @phpstan-ignore-next-line
-		$this->provider_id = $options['provider_id'] ?? ( $settings['default_provider'] ?: '' );
+		$this->provider_id = $options['provider_id'] ?? $this->settings_service->get_default_provider();
 		// @phpstan-ignore-next-line
-		$this->model_id = $options['model_id'] ?? ( $settings['default_model'] ?: '' );
+		$this->model_id = $options['model_id'] ?? $this->settings_service->get_default_model();
 		// @phpstan-ignore-next-line
 		$this->max_iterations = $options['max_iterations'] ?? ( $settings['max_iterations'] ?: 25 );
 
@@ -1330,9 +1339,17 @@ class AgentLoop {
 			return;
 		}
 
-		// Resolve model — fall back to the connector's configured default.
+		// Resolve model — fall back to the connector's configured default
+		// when the agent loop was started without one. The connector default
+		// (`ultimate_ai_connector_default_model`) is what produced the
+		// production `gemma4:e4b` regression (GH#1494): it stored a model
+		// the endpoint did not actually serve and the SDK rejected every
+		// chat with a top-level error banner. Validate before adopting.
 		if ( empty( $model_id ) && function_exists( 'OpenAiCompatibleConnector\\get_default_model' ) ) {
-			$model_id = \OpenAiCompatibleConnector\get_default_model();
+			$candidate = (string) \OpenAiCompatibleConnector\get_default_model();
+			if ( '' !== $candidate && Settings::is_model_advertised( $provider_id, $candidate ) ) {
+				$model_id = $candidate;
+			}
 		}
 
 		try {

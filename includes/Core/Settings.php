@@ -36,6 +36,28 @@ class Settings {
 	const GSC_CREDENTIALS_OPTION = 'sd_ai_agent_gsc_credentials';
 
 	/**
+	 * Option name that records the most recent saved default-model value
+	 * which was rejected by {@see resolve_default_provider_and_model()}
+	 * because the configured provider/model was not advertised by any
+	 * authenticated provider in the WP AI Client SDK registry.
+	 *
+	 * Used by {@see \SdAiAgent\Admin\DefaultModelNoticeHandler} to render
+	 * a one-time admin notice describing the rejected value and the
+	 * substitute the plugin chose so the user knows why the dropdown
+	 * default no longer matches what they last saved.
+	 *
+	 * Shape:
+	 *   array{
+	 *     provider:           string, // saved (possibly invalid) provider ID
+	 *     model:              string, // saved (possibly invalid) model ID
+	 *     replacement_provider: string, // provider chosen by the resolver
+	 *     replacement_model:    string, // model chosen by the resolver
+	 *     recorded_at:        int,    // unix timestamp
+	 *   }
+	 */
+	const INVALID_DEFAULT_NOTICE_OPTION = 'sd_ai_agent_invalid_default_model_notice';
+
+	/**
 	 * Known context window sizes per model (tokens).
 	 * Used as a fallback lookup for WP SDK provider models that do not carry
 	 * context_window metadata from the provider registry.
@@ -525,11 +547,31 @@ class Settings {
 	/**
 	 * Resolve the effective default model ID.
 	 *
-	 * Resolution order (first non-empty value wins):
-	 *   1. `default_model` setting saved by the site administrator.
-	 *   2. Value returned by the `sd_ai_agent_default_model` filter (allows
-	 *      developers to override the default programmatically).
-	 *   3. The `SD_AI_AGENT_DEFAULT_MODEL` constant defined in the plugin root.
+	 * The resolver validates the saved (provider, model) pair against the
+	 * WP AI Client SDK registry before returning it. If the saved provider
+	 * has been uninstalled or no longer advertises the saved model, the
+	 * resolver falls through to safer candidates instead of letting the
+	 * SDK reject the request with a top-level error banner — the situation
+	 * that produced the production `gemma4:e4b` regression (GH#1494).
+	 *
+	 * Resolution order:
+	 *   1. The saved `default_model` from `sd_ai_agent_settings`, paired with
+	 *      `default_provider`, when an authenticated provider in the registry
+	 *      advertises that model.
+	 *   2. The `sd_ai_agent_default_model` filter override, when an
+	 *      authenticated provider in the registry advertises that model.
+	 *   3. The `SD_AI_AGENT_DEFAULT_MODEL` constant (factory default), when
+	 *      an authenticated provider in the registry advertises that model.
+	 *   4. The first model advertised by the first authenticated provider —
+	 *      so a fresh signup or an install that just rotated providers still
+	 *      gets a working chat instead of a hard error.
+	 *   5. The filtered/constant value as a last resort when the registry is
+	 *      not consultable (e.g. WP < 7.0 without the bundled polyfill) so
+	 *      historical behaviour is preserved on unsupported runtimes.
+	 *
+	 * When the saved value is rejected (path 1 fails because the saved pair
+	 * is not advertised), {@see record_invalid_default_notice()} stores a
+	 * one-time admin notice so the site owner is told what happened.
 	 *
 	 * Example — override the default model from a theme or mu-plugin:
 	 *
@@ -537,25 +579,438 @@ class Settings {
 	 *       return 'gpt-4o';
 	 *   } );
 	 *
-	 * @return string Non-empty model ID.
+	 * @return string Model ID. Non-empty in every path except when the
+	 *                registry is consultable and reports no authenticated
+	 *                providers at all — in which case `''` is returned so
+	 *                callers can short-circuit to the "no provider configured"
+	 *                error path instead of sending an unusable request.
 	 */
 	public function get_default_model(): string {
+		[ , $model ] = $this->resolve_default_provider_and_model();
+		return $model;
+	}
+
+	/**
+	 * Resolve the effective default provider ID.
+	 *
+	 * Co-resolves with {@see get_default_model()} so the returned provider
+	 * advertises the returned model. When the saved `default_provider` is
+	 * not registered or not authenticated, the resolver falls through to
+	 * the first authenticated provider in the WP AI Client SDK registry.
+	 *
+	 * @return string Provider ID, or `''` when no provider can be chosen
+	 *                (registry empty, or registry not consultable and no
+	 *                provider was saved).
+	 */
+	public function get_default_provider(): string {
+		[ $provider ] = $this->resolve_default_provider_and_model();
+		return $provider;
+	}
+
+	/**
+	 * Resolve the canonical (provider, model) pair used by the chat path.
+	 *
+	 * Resolution rules (in order):
+	 *   - When the registry cannot be consulted (WP < 7.0 without the SDK
+	 *     polyfill, SDK boot failure, etc.) the saved pair is returned
+	 *     verbatim without validation or notice recording.
+	 *   - When the saved `default_model` is **empty AND no
+	 *     `sd_ai_agent_default_model` filter pins a value**, the resolver
+	 *     returns `''` for the model so callers fall through to the SDK's
+	 *     built-in per-provider default (e.g. anthropic picks its newest
+	 *     Sonnet point release rather than being pinned to the constant).
+	 *     Only the provider hint is co-resolved.
+	 *   - Otherwise the **candidate** model is the filter-pinned value if
+	 *     the filter overrode the constant, else the saved model. The
+	 *     candidate is validated against the saved provider first, then
+	 *     against any other authenticated provider; when valid it is
+	 *     returned (with a notice only if the provider had to change).
+	 *   - When the candidate is not advertised anywhere, the resolver
+	 *     substitutes a working value (constant → first registered model)
+	 *     and records a one-time admin notice describing the substitution
+	 *     so site owners can investigate the rejected configuration.
+	 *
+	 * @see get_default_model()    for the public API and resolution order.
+	 * @see get_default_provider() for the paired provider semantics.
+	 *
+	 * @return array{0: string, 1: string} `[provider_id, model_id]`. The model
+	 *         may be `''` when the saved value was empty (intentional fall
+	 *         through to the SDK's per-provider default). Both may be `''`
+	 *         only when the registry is consultable but reports no
+	 *         authenticated providers.
+	 */
+	private function resolve_default_provider_and_model(): array {
 		$settings = $this->get();
 		// @phpstan-ignore-next-line
-		$model = (string) ( $settings['default_model'] ?? '' );
+		$saved_provider = (string) ( $settings['default_provider'] ?? '' );
+		// @phpstan-ignore-next-line
+		$saved_model = (string) ( $settings['default_model'] ?? '' );
 
-		if ( '' === $model ) {
-			$builtin = defined( 'SD_AI_AGENT_DEFAULT_MODEL' ) ? (string) SD_AI_AGENT_DEFAULT_MODEL : 'claude-sonnet-4';
+		$builtin = defined( 'SD_AI_AGENT_DEFAULT_MODEL' )
+			? (string) SD_AI_AGENT_DEFAULT_MODEL
+			: 'claude-sonnet-4';
 
-			/**
-			 * Filter the default model ID used when no model is configured in settings.
-			 *
-			 * @param string $model The built-in fallback model ID (SD_AI_AGENT_DEFAULT_MODEL).
-			 */
-			$model = (string) apply_filters( 'sd_ai_agent_default_model', $builtin );
+		/**
+		 * Filter the default model ID used when no model is configured in settings.
+		 *
+		 * Applied BEFORE the registry-validation step so the filter can pin
+		 * a value that will then be validated against the live providers.
+		 * Filters that pin a model the user does not actually have a provider
+		 * for will themselves fall through (with one-time notice) rather
+		 * than emit an unrecoverable error from the SDK.
+		 *
+		 * @param string $model The built-in fallback model ID (SD_AI_AGENT_DEFAULT_MODEL).
+		 */
+		$filtered_builtin = (string) apply_filters( 'sd_ai_agent_default_model', $builtin );
+		if ( '' === $filtered_builtin ) {
+			$filtered_builtin = $builtin;
 		}
 
-		return $model;
+		// If the registry is not consultable (WP < 7.0 without polyfill,
+		// SDK boot failure, etc.) we cannot validate — preserve historical
+		// behaviour and return the saved values verbatim.
+		if ( ! self::can_validate_against_registry() ) {
+			return array( $saved_provider, $saved_model );
+		}
+
+		$registered = self::collect_registered_provider_models();
+
+		// Empty saved model with no filter override — preserve the historical
+		// "let the SDK pick" behaviour. The chat path calls
+		// $builder->using_provider() (no explicit model) when this returns
+		// `''`, which lets each provider's adapter choose its own newest
+		// stable model. Returning the constant unconditionally would force
+		// every install onto a fixed ID even when the provider supports
+		// something newer in the same family.
+		//
+		// When a `sd_ai_agent_default_model` filter pins a concrete value,
+		// fall through to the regular validation/substitution flow so the
+		// pinned value either takes effect (when registered) or is
+		// substituted with a working model (when not). A broken filter
+		// must not silently degrade to "SDK picks something different".
+		$filter_pinned = ( $filtered_builtin !== $builtin );
+		if ( '' === $saved_model && ! $filter_pinned ) {
+			return array( self::resolve_provider_hint( $saved_provider, $registered ), '' );
+		}
+
+		// Candidate model = filter override if set, else saved. The saved
+		// provider stays the candidate provider unless we later swap it
+		// because the candidate model is registered under a different one.
+		$candidate_model = $filter_pinned ? $filtered_builtin : $saved_model;
+
+		// Path 1 — candidate (provider, model) pair, when the provider is
+		// authenticated and advertises the candidate model.
+		if ( '' !== $saved_provider
+			&& self::pair_is_registered( $saved_provider, $candidate_model, $registered )
+		) {
+			return array( $saved_provider, $candidate_model );
+		}
+
+		// Path 2 — candidate model advertised by some authenticated provider
+		// other than the saved one. Honour the candidate value but swap
+		// to a provider that actually serves it; record a notice only when
+		// we had a saved provider that just changed beneath the user.
+		$provider_for_candidate = self::find_provider_for_model( $candidate_model, $registered );
+		if ( null !== $provider_for_candidate ) {
+			if ( '' !== $saved_provider && $saved_provider !== $provider_for_candidate ) {
+				self::record_invalid_default_notice( $saved_provider, $saved_model, $provider_for_candidate, $candidate_model );
+			}
+			return array( $provider_for_candidate, $candidate_model );
+		}
+
+		// Candidate (filter result or saved model) is not advertised
+		// anywhere — substitute and record a notice. Every path below
+		// records a notice so the site owner is informed.
+		//
+		// Path 3 — the factory-default constant, when advertised by some
+		// authenticated provider. Distinct from path 2 only when the filter
+		// rewrote the value above; we still try the unfiltered constant
+		// before falling all the way through.
+		if ( $builtin !== $candidate_model ) {
+			$provider_for_builtin = self::find_provider_for_model( $builtin, $registered );
+			if ( null !== $provider_for_builtin ) {
+				$resolved = array( $provider_for_builtin, $builtin );
+				self::record_invalid_default_notice( $saved_provider, $saved_model, $resolved[0], $resolved[1] );
+				return $resolved;
+			}
+		}
+
+		// Path 4 — first advertised model from the first authenticated
+		// provider. Prefer the saved provider when it is still authenticated
+		// so the user does not see the provider switch out from under them
+		// just because the saved model is gone.
+		if ( ! empty( $registered ) ) {
+			$preferred_provider = ( '' !== $saved_provider && isset( $registered[ $saved_provider ] ) )
+				? $saved_provider
+				: array_key_first( $registered );
+
+			$models = $registered[ $preferred_provider ] ?? array();
+			if ( ! empty( $models ) ) {
+				$resolved = array( $preferred_provider, (string) $models[0] );
+				self::record_invalid_default_notice( $saved_provider, $saved_model, $resolved[0], $resolved[1] );
+				return $resolved;
+			}
+		}
+
+		// Path 5 — registry consultable but reports no authenticated
+		// providers at all. Return '' for both so the caller short-circuits
+		// to the "no provider configured" error path with a useful message.
+		self::record_invalid_default_notice( $saved_provider, $saved_model, '', '' );
+		return array( '', '' );
+	}
+
+	/**
+	 * Choose a provider hint for the empty-saved-model code path.
+	 *
+	 * Keeps the saved provider when it is still authenticated so a user who
+	 * picked Anthropic at install time doesn't get switched to OpenAI just
+	 * because they later cleared the model dropdown. Otherwise returns the
+	 * first authenticated provider, or `''` if none.
+	 *
+	 * @param string                            $saved_provider Saved provider ID (may be '').
+	 * @param array<string, array<int, string>> $registered     Map from {@see collect_registered_provider_models()}.
+	 */
+	private static function resolve_provider_hint( string $saved_provider, array $registered ): string {
+		if ( '' !== $saved_provider && isset( $registered[ $saved_provider ] ) ) {
+			return $saved_provider;
+		}
+		if ( ! empty( $registered ) ) {
+			return (string) array_key_first( $registered );
+		}
+		return '';
+	}
+
+	/**
+	 * Whether the WP AI Client SDK registry is available for validation.
+	 *
+	 * Returns false on installs that lack the SDK (WP < 7.0 without the
+	 * bundled polyfill or where the polyfill could not bootstrap). Callers
+	 * MUST treat a false result as "validation cannot run" and degrade
+	 * gracefully — never as "no providers are registered".
+	 *
+	 * @return bool
+	 */
+	private static function can_validate_against_registry(): bool {
+		return class_exists( '\\WordPress\\AiClient\\AiClient' );
+	}
+
+	/**
+	 * Collect the (provider, model) pairs currently registered with the
+	 * WP AI Client SDK registry.
+	 *
+	 * Per `AGENTS.md → Provider Credentials and Model Discovery`, this method
+	 * does NOT add a plugin-level cache: the SDK already caches
+	 * `listModelMetadata()` for 24 hours and an extra layer broke whenever
+	 * a new third-party provider plugin stored credentials under an option
+	 * we did not know about. Each call walks the registry fresh.
+	 *
+	 * Only providers that have authentication configured are included — an
+	 * unauthenticated provider cannot serve a chat anyway.
+	 *
+	 * Tests can short-circuit the registry walk via the
+	 * `sd_ai_agent_registered_models_for_validation` filter (this is a
+	 * test affordance, not a cache — the filter receives a fresh list on
+	 * every call and may return any list it wants).
+	 *
+	 * @return array<string, array<int, string>> Map of provider ID to the
+	 *         model IDs that provider advertises. Returns an empty array
+	 *         when the SDK is unavailable or no providers are authenticated.
+	 */
+	private static function collect_registered_provider_models(): array {
+		$registered = array();
+
+		/**
+		 * Filter the registered (provider, model) pairs used for default-model
+		 * validation. Return a non-null array to short-circuit the registry
+		 * walk — primarily an affordance for unit tests that do not boot
+		 * the full SDK.
+		 *
+		 * The filter MUST return a `array<string, array<int, string>>` map of
+		 * provider IDs to advertised model IDs, or `null` to fall through to
+		 * the live SDK walk.
+		 *
+		 * @param array<string, array<int, string>>|null $registered Filter override (null = fall through).
+		 */
+		$filtered = apply_filters( 'sd_ai_agent_registered_models_for_validation', null );
+		if ( is_array( $filtered ) ) {
+			/** @var array<string, array<int, string>> $filtered */
+			return $filtered;
+		}
+
+		if ( ! self::can_validate_against_registry() ) {
+			return $registered;
+		}
+
+		try {
+			ProviderCredentialLoader::load();
+			$registry = \WordPress\AiClient\AiClient::defaultRegistry();
+			$ids      = $registry->getRegisteredProviderIds();
+		} catch ( \Throwable $e ) {
+			return $registered;
+		}
+
+		foreach ( $ids as $provider_id ) {
+			try {
+				// Only include providers that have authentication configured.
+				$auth = $registry->getProviderRequestAuthentication( $provider_id );
+				if ( null === $auth ) {
+					continue;
+				}
+
+				$class  = $registry->getProviderClassName( $provider_id );
+				$models = array();
+
+				// For the OpenAI-compatible connector, fetch models directly
+				// from the endpoint rather than going through the SDK model
+				// directory (which can fail due to SDK transporter issues).
+				// Mirrors the carve-out in SettingsController::handle_providers().
+				if ( str_starts_with( $provider_id, 'ai-provider-for-any-openai-compatible' )
+					&& function_exists( 'OpenAiCompatibleConnector\\rest_list_models' )
+				) {
+					$fake_request = new \WP_REST_Request( 'GET' );
+					$fake_request->set_param( 'provider_id', $provider_id );
+					$result = \OpenAiCompatibleConnector\rest_list_models( $fake_request );
+					if ( ! is_wp_error( $result ) ) {
+						$data = $result->get_data();
+						if ( is_array( $data ) ) {
+							foreach ( $data as $model_entry ) {
+								if ( is_array( $model_entry ) && isset( $model_entry['id'] ) ) {
+									$models[] = (string) $model_entry['id'];
+								}
+							}
+						}
+					}
+				} else {
+					$directory      = $class::modelMetadataDirectory();
+					$model_metadata = $directory->listModelMetadata();
+					foreach ( $model_metadata as $model_meta ) {
+						$models[] = (string) $model_meta->getId();
+					}
+				}
+
+				$registered[ (string) $provider_id ] = $models;
+			} catch ( \Throwable $e ) {
+				continue;
+			}
+		}
+
+		return $registered;
+	}
+
+	/**
+	 * Whether `$registered` advertises `$model_id` under `$provider_id`.
+	 *
+	 * When `$provider_id` is empty the check passes if ANY authenticated
+	 * provider advertises the model — the saved-provider hint is allowed
+	 * to be missing without forcing the user back to picking from scratch.
+	 *
+	 * @param string                            $provider_id Saved provider ID hint (may be '').
+	 * @param string                            $model_id    Saved model ID to verify.
+	 * @param array<string, array<int, string>> $registered  Map from {@see collect_registered_provider_models()}.
+	 * @return bool
+	 */
+	private static function pair_is_registered( string $provider_id, string $model_id, array $registered ): bool {
+		if ( '' === $model_id ) {
+			return false;
+		}
+
+		if ( '' !== $provider_id ) {
+			$models = $registered[ $provider_id ] ?? null;
+			return is_array( $models ) && in_array( $model_id, $models, true );
+		}
+
+		foreach ( $registered as $models ) {
+			if ( in_array( $model_id, $models, true ) ) {
+				return true;
+			}
+		}
+		return false;
+	}
+
+	/**
+	 * Whether the WP AI Client SDK registry has an authenticated provider
+	 * that advertises `$model_id`.
+	 *
+	 * Defense-in-depth check intended for callers that take a model ID from
+	 * a source other than {@see get_default_model()} — most notably the
+	 * OpenAI-compatible connector's `\OpenAiCompatibleConnector\get_default_model()`
+	 * legacy fallback in {@see \SdAiAgent\Core\AgentLoop::configure_model()}.
+	 *
+	 * When `$provider_id` is non-empty the check is constrained to that
+	 * provider's advertised models. When empty, ANY authenticated provider's
+	 * model list satisfies the check.
+	 *
+	 * Returns `true` when the registry is not consultable (WP < 7.0 without
+	 * polyfill) so callers degrade gracefully back to historical behaviour
+	 * rather than incorrectly rejecting a value that the SDK would have
+	 * accepted on a supported runtime.
+	 *
+	 * @param string $provider_id Provider ID hint (may be '').
+	 * @param string $model_id    Model ID to validate.
+	 */
+	public static function is_model_advertised( string $provider_id, string $model_id ): bool {
+		if ( '' === $model_id ) {
+			return false;
+		}
+		if ( ! self::can_validate_against_registry() ) {
+			return true;
+		}
+		$registered = self::collect_registered_provider_models();
+		return self::pair_is_registered( $provider_id, $model_id, $registered );
+	}
+
+	/**
+	 * Return the first provider in `$registered` that advertises `$model_id`,
+	 * or `null` when no authenticated provider advertises it.
+	 *
+	 * @param string                            $model_id   Model ID to search for.
+	 * @param array<string, array<int, string>> $registered Map from {@see collect_registered_provider_models()}.
+	 */
+	private static function find_provider_for_model( string $model_id, array $registered ): ?string {
+		if ( '' === $model_id ) {
+			return null;
+		}
+		foreach ( $registered as $provider_id => $models ) {
+			if ( in_array( $model_id, $models, true ) ) {
+				return (string) $provider_id;
+			}
+		}
+		return null;
+	}
+
+	/**
+	 * Record a one-time admin notice for a rejected default-model value.
+	 *
+	 * Stored in {@see INVALID_DEFAULT_NOTICE_OPTION}. The
+	 * {@see \SdAiAgent\Admin\DefaultModelNoticeHandler} renders it on the
+	 * next admin page load and clears it when the user dismisses the notice.
+	 *
+	 * Repeated calls for the same rejected value are coalesced — the option
+	 * holds the latest replacement so the notice always reflects what the
+	 * resolver is currently doing rather than a stale earlier substitution.
+	 *
+	 * @param string $rejected_provider    Saved provider ID that no longer validates.
+	 * @param string $rejected_model       Saved model ID that no longer validates.
+	 * @param string $replacement_provider Provider chosen by the resolver (may be '').
+	 * @param string $replacement_model    Model chosen by the resolver (may be '').
+	 */
+	private static function record_invalid_default_notice(
+		string $rejected_provider,
+		string $rejected_model,
+		string $replacement_provider,
+		string $replacement_model
+	): void {
+		update_option(
+			self::INVALID_DEFAULT_NOTICE_OPTION,
+			array(
+				'provider'             => $rejected_provider,
+				'model'                => $rejected_model,
+				'replacement_provider' => $replacement_provider,
+				'replacement_model'    => $replacement_model,
+				'recorded_at'          => time(),
+			),
+			false
+		);
 	}
 
 	/**

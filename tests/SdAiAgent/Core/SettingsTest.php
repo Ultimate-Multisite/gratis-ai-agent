@@ -30,6 +30,11 @@ class SettingsTest extends WP_UnitTestCase {
 		parent::tear_down();
 		delete_option( Settings::OPTION_NAME );
 		delete_option( Settings::WOO_AUTO_ENABLED_OPTION );
+		delete_option( Settings::INVALID_DEFAULT_NOTICE_OPTION );
+
+		// Filter registered by the default-model validation tests.
+		remove_all_filters( 'sd_ai_agent_registered_models_for_validation' );
+		remove_all_filters( 'sd_ai_agent_default_model' );
 
 		// ModelCapabilityRegistry writes transients keyed by md5(model_id);
 		// clear the handful this suite touches so cases stay independent.
@@ -435,5 +440,235 @@ class SettingsTest extends WP_UnitTestCase {
 		$this->assertSame( 0, Settings::resolve_max_output_tokens_from_catalog( 'wholly-made-up-model-9000' ) );
 		$this->assertSame( 16384, Settings::resolve_max_output_tokens_from_catalog( 'gpt-4o' ) );
 		$this->assertSame( 128000, Settings::resolve_max_output_tokens_from_catalog( 'claude-opus-4-7-20260513' ) );
+	}
+
+	// ─────────────────────────────────────────────────────────────────────
+	// get_default_model() / get_default_provider() validation — GH#1494
+	// ─────────────────────────────────────────────────────────────────────
+
+	/**
+	 * Short-circuit the registry walk with a fixed (provider → models) map.
+	 *
+	 * @param array<string, array<int, string>> $map Provider ID → list of advertised model IDs.
+	 */
+	private function fake_registry( array $map ): void {
+		add_filter(
+			'sd_ai_agent_registered_models_for_validation',
+			static function () use ( $map ) {
+				return $map;
+			}
+		);
+	}
+
+	/**
+	 * When the saved (provider, model) pair is advertised by an authenticated
+	 * provider, the resolver returns it verbatim and does NOT record a notice.
+	 */
+	public function test_get_default_model_returns_saved_value_when_advertised(): void {
+		$this->fake_registry( array(
+			'anthropic' => array( 'claude-sonnet-4-6', 'claude-opus-4-7' ),
+			'openai'    => array( 'gpt-4o', 'gpt-5' ),
+		) );
+
+		Settings::instance()->update(
+			array(
+				'default_provider' => 'openai',
+				'default_model'    => 'gpt-4o',
+			)
+		);
+
+		$this->assertSame( 'gpt-4o', Settings::instance()->get_default_model() );
+		$this->assertSame( 'openai', Settings::instance()->get_default_provider() );
+		$this->assertFalse( (bool) get_option( Settings::INVALID_DEFAULT_NOTICE_OPTION ) );
+	}
+
+	/**
+	 * Production regression test — GH#1494.
+	 *
+	 * When the saved value is a bogus `(provider, model)` pair (the demo
+	 * site's `gemma4:e4b` situation), the resolver MUST fall back to a
+	 * registered model rather than letting the SDK reject the request with
+	 * "model not available". A notice is recorded for the admin to see.
+	 */
+	public function test_get_default_model_falls_back_when_saved_value_unregistered(): void {
+		$this->fake_registry( array(
+			'anthropic' => array( 'claude-sonnet-4', 'claude-sonnet-4-6' ),
+		) );
+
+		Settings::instance()->update(
+			array(
+				'default_provider' => 'some-bogus-provider',
+				'default_model'    => 'gemma4:e4b',
+			)
+		);
+
+		// SD_AI_AGENT_DEFAULT_MODEL is `claude-sonnet-4`, which the fake
+		// registry advertises under anthropic — the resolver picks it.
+		$this->assertSame( 'claude-sonnet-4', Settings::instance()->get_default_model() );
+		$this->assertSame( 'anthropic', Settings::instance()->get_default_provider() );
+
+		$notice = get_option( Settings::INVALID_DEFAULT_NOTICE_OPTION );
+		$this->assertIsArray( $notice );
+		$this->assertSame( 'gemma4:e4b', $notice['model'] );
+		$this->assertSame( 'some-bogus-provider', $notice['provider'] );
+		$this->assertSame( 'claude-sonnet-4', $notice['replacement_model'] );
+		$this->assertSame( 'anthropic', $notice['replacement_provider'] );
+	}
+
+	/**
+	 * When the constant default is not advertised either, the resolver falls
+	 * through to the first model of the first authenticated provider.
+	 */
+	public function test_get_default_model_falls_through_to_first_registered_model(): void {
+		$this->fake_registry( array(
+			'ai-provider-for-any-openai-compatible' => array(
+				'hf:moonshotai/Kimi-K2.6',
+				'hf:zai-org/GLM-5.1',
+			),
+		) );
+
+		Settings::instance()->update(
+			array(
+				'default_provider' => 'gone-provider',
+				'default_model'    => 'gone:model',
+			)
+		);
+
+		$this->assertSame(
+			'hf:moonshotai/Kimi-K2.6',
+			Settings::instance()->get_default_model()
+		);
+		$this->assertSame(
+			'ai-provider-for-any-openai-compatible',
+			Settings::instance()->get_default_provider()
+		);
+	}
+
+	/**
+	 * When the saved provider is still authenticated but its specific saved
+	 * model has been retired, the resolver keeps the provider stable and
+	 * picks the constant default model when that provider advertises it.
+	 */
+	public function test_get_default_model_keeps_saved_provider_when_only_model_is_invalid(): void {
+		$this->fake_registry( array(
+			'anthropic' => array( 'claude-sonnet-4', 'claude-opus-4-7' ),
+			'openai'    => array( 'gpt-5' ),
+		) );
+
+		Settings::instance()->update(
+			array(
+				'default_provider' => 'anthropic',
+				'default_model'    => 'claude-was-retired-9000',
+			)
+		);
+
+		$this->assertSame( 'claude-sonnet-4', Settings::instance()->get_default_model() );
+		$this->assertSame( 'anthropic', Settings::instance()->get_default_provider() );
+	}
+
+	/**
+	 * The `sd_ai_agent_default_model` filter override is itself validated
+	 * before being returned. A filter that pins an unregistered model falls
+	 * through to the next candidate rather than re-introducing the bug the
+	 * filter is meant to fix.
+	 */
+	public function test_get_default_model_validates_filter_override(): void {
+		$this->fake_registry( array(
+			'anthropic' => array( 'claude-sonnet-4' ),
+		) );
+
+		add_filter(
+			'sd_ai_agent_default_model',
+			static fn() => 'gpt-5-not-installed-yet',
+		);
+
+		// Empty saved value — filter would normally be returned verbatim.
+		$this->assertSame( 'claude-sonnet-4', Settings::instance()->get_default_model() );
+	}
+
+	/**
+	 * Empty saved value (clean install) returns `''` for the model — the
+	 * chat path then falls through to the SDK's per-provider default. The
+	 * provider hint is co-resolved so the chat-path still gets a usable
+	 * `default_provider`. No notice is recorded because an empty saved
+	 * value is not a rejection.
+	 *
+	 * Regression test for the design choice in GH#1494: substituting the
+	 * `SD_AI_AGENT_DEFAULT_MODEL` constant when no user preference was ever
+	 * expressed would pin every install to a fixed model ID even when the
+	 * provider supports something newer in the same family.
+	 */
+	public function test_get_default_model_empty_saved_returns_empty_with_provider_hint(): void {
+		$this->fake_registry( array(
+			'anthropic' => array( 'claude-sonnet-4-6', 'claude-opus-4-7' ),
+		) );
+
+		// No update() call — saved value is the empty default.
+		$this->assertSame( '', Settings::instance()->get_default_model() );
+		$this->assertSame( 'anthropic', Settings::instance()->get_default_provider() );
+		$this->assertFalse( (bool) get_option( Settings::INVALID_DEFAULT_NOTICE_OPTION ) );
+	}
+
+	/**
+	 * Saved provider but empty model — keep the saved provider and let the
+	 * SDK pick a model for that provider. Notice is NOT recorded (empty
+	 * saved model is not a rejection).
+	 */
+	public function test_get_default_provider_keeps_saved_provider_when_model_is_empty(): void {
+		$this->fake_registry( array(
+			'anthropic' => array( 'claude-sonnet-4-6' ),
+			'openai'    => array( 'gpt-5' ),
+		) );
+
+		Settings::instance()->update( array( 'default_provider' => 'openai' ) );
+
+		$this->assertSame( '', Settings::instance()->get_default_model() );
+		$this->assertSame( 'openai', Settings::instance()->get_default_provider() );
+		$this->assertFalse( (bool) get_option( Settings::INVALID_DEFAULT_NOTICE_OPTION ) );
+	}
+
+	/**
+	 * When the registry reports no authenticated providers at all, both
+	 * resolvers return '' so the AgentLoop short-circuits to the "no provider
+	 * configured" error rather than sending an unusable request to the SDK.
+	 *
+	 * A notice IS recorded when a saved value was rejected so the admin
+	 * sees why the dropdown selection no longer applies.
+	 */
+	public function test_get_default_model_empty_registry_returns_empty(): void {
+		$this->fake_registry( array() );
+
+		Settings::instance()->update(
+			array(
+				'default_provider' => 'gone-provider',
+				'default_model'    => 'gone:model',
+			)
+		);
+
+		$this->assertSame( '', Settings::instance()->get_default_model() );
+		$this->assertSame( '', Settings::instance()->get_default_provider() );
+
+		$notice = get_option( Settings::INVALID_DEFAULT_NOTICE_OPTION );
+		$this->assertIsArray( $notice );
+		$this->assertSame( '', $notice['replacement_model'] );
+	}
+
+	/**
+	 * `is_model_advertised()` is the public defense-in-depth helper used by
+	 * {@see \SdAiAgent\Core\AgentLoop::configure_model()} to validate the
+	 * legacy OpenAI-compatible connector default before adopting it. The
+	 * GH#1494 demo regression came in via that path even though the saved
+	 * `sd_ai_agent_settings.default_model` was empty.
+	 */
+	public function test_is_model_advertised_validates_pair(): void {
+		$this->fake_registry( array(
+			'openai' => array( 'gpt-4o' ),
+		) );
+
+		$this->assertTrue( Settings::is_model_advertised( 'openai', 'gpt-4o' ) );
+		$this->assertTrue( Settings::is_model_advertised( '', 'gpt-4o' ) );
+		$this->assertFalse( Settings::is_model_advertised( 'openai', 'gemma4:e4b' ) );
+		$this->assertFalse( Settings::is_model_advertised( 'anthropic', 'gpt-4o' ) );
+		$this->assertFalse( Settings::is_model_advertised( 'openai', '' ) );
 	}
 }

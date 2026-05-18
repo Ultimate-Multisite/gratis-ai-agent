@@ -14,6 +14,7 @@ declare(strict_types=1);
 namespace SdAiAgent\Bootstrap;
 
 use SdAiAgent\Abilities\ToolCapabilities;
+use SdAiAgent\Admin\DefaultModelNoticeHandler;
 use SdAiAgent\Admin\FloatingWidget;
 use SdAiAgent\Admin\ThirdPartyAbilityNoticeHandler;
 use SdAiAgent\Admin\UnifiedAdminMenu;
@@ -77,6 +78,7 @@ final class AdminHandler {
 	 * - Per-tool capabilities for role-management plugins.
 	 * - Legacy URL redirects to unified menu.
 	 * - Handle third-party ability notice dismissal.
+	 * - Handle invalid-default-model notice dismissal (GH#1494).
 	 */
 	#[Action( tag: 'admin_init', priority: 10 )]
 	public function on_admin_init(): void {
@@ -84,6 +86,7 @@ final class AdminHandler {
 		ToolCapabilities::register_capabilities( ToolCapabilities::all_ability_ids() );
 		UnifiedAdminMenu::handleLegacyRedirects();
 		ThirdPartyAbilityNoticeHandler::handle_dismiss();
+		DefaultModelNoticeHandler::handle_dismiss();
 	}
 
 	/**
@@ -92,6 +95,16 @@ final class AdminHandler {
 	#[Action( tag: 'admin_notices', priority: 10 )]
 	public function display_third_party_notice(): void {
 		ThirdPartyAbilityNoticeHandler::maybe_display_notice();
+	}
+
+	/**
+	 * Display admin notice when the saved default model is no longer
+	 * advertised by any authenticated provider and the resolver had to
+	 * substitute (GH#1494).
+	 */
+	#[Action( tag: 'admin_notices', priority: 10 )]
+	public function display_default_model_notice(): void {
+		DefaultModelNoticeHandler::maybe_display_notice();
 	}
 
 	/**
