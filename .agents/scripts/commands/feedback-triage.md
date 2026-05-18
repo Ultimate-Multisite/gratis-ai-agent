@@ -1,5 +1,5 @@
 ---
-description: Triage incoming feedback reports from the sd-ai-feedback plugin (r010 routine)
+description: Triage incoming feedback reports from the sd-ai-feedback plugin (r020 routine)
 agent: Build+
 mode: subagent
 tools:
@@ -16,13 +16,18 @@ tools:
 <!-- SPDX-License-Identifier: MIT -->
 <!-- SPDX-FileCopyrightText: 2025-2026 Dave Stone -->
 
-# Feedback Triage — r010 Routine SOP
+# Feedback Triage — r020 Routine SOP
 
 Triage new feedback reports submitted via the sd-ai-agent feedback system. Fetch pending
 reports, judge each one, and either create a GitHub issue or dismiss with a reason.
 
-**Invocation**: Automated via aidevops routine r010 (`repeat:daily(@09:00)`). Can also be
+**Invocation**: Automated daily at 09:00 by the systemd timer
+`sh.aidevops.routine-feedback-triage-daily.timer` (aidevops routine slot `r020`;
+`repeat:persistent` so the pulse-wrapper does not also dispatch it). Can also be
 triggered manually with `/feedback-triage`.
+
+Slot history: previously labelled `r010` until 2026-05-18; renamed to `r020` to free
+`r010` for the framework GH Failure Miner reservation.
 
 **Required env vars** (sourced from `~/.config/aidevops/credentials.sh` or gopass):
 - `FEEDBACK_ENDPOINT` — Base URL of the sd-ai-feedback WordPress site
@@ -59,7 +64,7 @@ Output is a JSON array of report objects. Each object has at minimum:
 - `created_at` — submission timestamp
 - `status` — should be `new`
 
-If the array is empty, output: `r010: No new reports to triage.` and stop (success).
+If the array is empty, output: `r020: No new reports to triage.` and stop (success).
 
 ### Step 3: Check latest plugin version
 
@@ -196,7 +201,7 @@ Reason should be one concise sentence explaining why this is not actionable.
 After processing all reports, output a summary:
 
 ```
-r010 triage complete: <N> reports processed.
+r020 triage complete: <N> reports processed.
   - Issues created: <N>
   - Dismissed (duplicate): <N>
   - Dismissed (user error): <N>

@@ -685,14 +685,14 @@ Phase 1 (receiving plugin) complete — shipped to Ultimate-Multisite/sd-ai-feed
 
 
 - [x] t187 AI-assisted triage automation for incoming feedback reports #feature ~6h logged:2026-04-14 blocked-by:t183 pr:#949 completed:2026-04-15
-  - Runs as an aidevops routine (r010) using deterministic script + AI agent split (modeled on /log-issue-aidevops pattern)
+  - Runs as an aidevops routine (r020) using deterministic script + AI agent split (modeled on /log-issue-aidevops pattern)
   - Deterministic script: `~/.aidevops/agents/custom/scripts/feedback-triage.sh` (already created) — `fetch` pulls new reports, `get <id>` pulls full payload, `dedup <keywords>` checks existing GitHub issues, `update <id> <status>` marks reports after triage
   - AI agent receives each report and judges: (1) real bug vs user error vs model limitation vs missing ability vs provider error, (2) checks dedup results — is this already reported?, (3) validates claims per log-issue-aidevops Step 3.6 (verify evidence, check data scale, detect template-driven findings), (4) composes structured GitHub issue body (Description, Expected Behavior, Steps to Reproduce from conversation, Environment, Report ID for backlink)
   - If real + not duplicate: `gh issue create -R Ultimate-Multisite/sd-ai-agent` then `feedback-triage.sh update <id> issue_created <url>`
   - If duplicate: `feedback-triage.sh update <id> dismissed` with link to existing issue
   - If not a bug: `feedback-triage.sh update <id> dismissed` with reason
   - Check plugin_version vs latest: if the report is from an outdated version where the issue is already fixed, dismiss with "fixed in vX.Y.Z"
-  - Routine entry: `r010 Triage incoming feedback reports repeat:daily(@09:00) ~15m agent:Build+`
+  - Routine entry: `r020 Triage incoming feedback reports repeat:persistent ~15m agent:Build+` (lifecycle managed by `sh.aidevops.routine-feedback-triage-daily.timer`; r010 reserved for framework GH Failure Miner)
 
 ### Complete Site Building Abilities (P0)
 
@@ -913,7 +913,7 @@ Full plan: [todo/PLANS.md#complete-site-building-abilities](PLANS.md#2026-04-09-
 
 ## Routines
 
-- [x] r010 Triage incoming feedback reports repeat:daily(@09:00) ~15m agent:Build+ ref:GH#944
+- [x] r020 Triage incoming feedback reports repeat:persistent ~15m agent:Build+ ref:GH#944 # systemd: sh.aidevops.routine-feedback-triage-daily.timer (renamed from r010 — that slot is reserved for the framework GH Failure Miner)
 
 ## Done
 
