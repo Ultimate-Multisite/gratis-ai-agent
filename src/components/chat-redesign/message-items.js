@@ -195,11 +195,25 @@ export function UserMessage( { msg, index } ) {
 	}, [ text ] );
 
 	const handleSubmit = useCallback( () => {
-		if ( draft.trim() && draft.trim() !== text ) {
-			editAndResend( index, draft.trim() );
-		} else {
-			setEditingMessageIndex( null );
+		// Always resend when Send is clicked, even if the draft equals the
+		// original text. The user opens this editor explicitly to resend
+		// (typically after a model-availability failure), so clicking Send
+		// must always re-dispatch through editAndResend → sendMessage →
+		// streamMessage so the request body picks up the current
+		// selectedProviderId / selectedModelId from the store (GH#1495).
+		// "Cancel" is the only path that closes the editor without sending.
+		const trimmed = draft.trim();
+		if ( ! trimmed ) {
+			// Empty draft — fall back to the original text when it exists,
+			// otherwise close the editor (nothing to send).
+			if ( text ) {
+				editAndResend( index, text );
+			} else {
+				setEditingMessageIndex( null );
+			}
+			return;
 		}
+		editAndResend( index, trimmed );
 	}, [ draft, text, index, editAndResend, setEditingMessageIndex ] );
 
 	// Prefer the model actually used for the nearest assistant reply if

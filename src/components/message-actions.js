@@ -64,11 +64,22 @@ export default function MessageActions( { message, index, onThumbsDown } ) {
 	}, [ text ] );
 
 	const handleEditSubmit = useCallback( () => {
-		if ( editText.trim() ) {
-			editAndResend( index, editText.trim() );
+		// Always resend when Send is clicked, regardless of whether the user
+		// edited the text. The user opens this editor explicitly to resend
+		// (typically after a model-availability failure), so clicking Send
+		// must always re-dispatch through editAndResend → sendMessage →
+		// streamMessage so the request body picks up the current
+		// selectedProviderId / selectedModelId from the store (GH#1495).
+		const trimmed = editText.trim();
+		if ( trimmed ) {
+			editAndResend( index, trimmed );
+		} else if ( text ) {
+			// Empty draft — fall back to the original text so the resend
+			// still fires with the current dropdown selection.
+			editAndResend( index, text );
 		}
 		setEditing( false );
-	}, [ editText, index, editAndResend ] );
+	}, [ editText, text, index, editAndResend ] );
 
 	if ( editing ) {
 		return (
