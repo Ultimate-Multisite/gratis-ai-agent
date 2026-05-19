@@ -337,6 +337,27 @@ class DatabaseSchemaTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * Active jobs table has the zombie-cleanup columns introduced in DB 19.4.0.
+	 *
+	 * Regression guard for GH#1510: the error and interrupted_at columns are
+	 * used by the shutdown handler (mark_interrupted) and the hourly cron reaper.
+	 * The status_updated_at composite index supports the reaper query.
+	 */
+	public function test_active_jobs_table_has_cleanup_columns(): void {
+		Database::install();
+
+		$columns = $this->get_column_names( Database::active_jobs_table_name() );
+
+		foreach ( [ 'error', 'interrupted_at' ] as $col ) {
+			$this->assertContains(
+				$col,
+				$columns,
+				"active_jobs table missing column '{$col}' — see GH#1510."
+			);
+		}
+	}
+
+	/**
 	 * Knowledge tables are created with correct structure.
 	 */
 	public function test_knowledge_tables_have_required_columns(): void {

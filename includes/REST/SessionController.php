@@ -1484,6 +1484,15 @@ final class SessionController {
 			$options       = array_merge( $options, $agent_options );
 		}
 
+		/*
+		 * Pass the job UUID to AgentLoop so it can:
+		 * (a) issue heartbeats on each iteration, keeping updated_at fresh so
+		 *     the hourly stale-job reaper treats this as an active loop; and
+		 * (b) register a shutdown handler that marks the row as 'interrupted'
+		 *     when the PHP process terminates before loop completion.
+		 */
+		$options['active_job_id'] = $job_id;
+
 		// Progress callback: write live tool-call activity to the job
 		// transient so the polling frontend can display it incrementally.
 		$progress_job_id              = $job_id;

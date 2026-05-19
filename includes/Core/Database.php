@@ -36,7 +36,7 @@ use SdAiAgent\Tools\CustomTools;
 class Database {
 
 	const DB_VERSION_OPTION = 'sd_ai_agent_db_version';
-	const DB_VERSION        = '19.3.0';
+	const DB_VERSION        = '19.4.0';
 
 	// ─── Table Name Registry ──────────────────────────────────────────────────
 
@@ -619,12 +619,15 @@ class Database {
 			status varchar(30) NOT NULL DEFAULT 'processing',
 			pending_tools longtext NOT NULL,
 			tool_calls longtext NOT NULL,
+			error text NULL,
+			interrupted_at datetime NULL,
 			created_at datetime NOT NULL,
 			updated_at datetime NOT NULL,
 			PRIMARY KEY  (id),
 			UNIQUE KEY job_id (job_id),
 			KEY session_id (session_id),
-			KEY user_id_status (user_id, status)
+			KEY user_id_status (user_id, status),
+			KEY status_updated_at (status, updated_at)
 		) {$charset};
 
 		CREATE TABLE {$skill_usage_table} (

@@ -19,8 +19,16 @@ class ActiveJobRepository {
 
 	/**
 	 * Valid job status values.
+	 *
+	 * - processing            — loop is actively running.
+	 * - awaiting_confirmation — paused waiting for user confirmation.
+	 * - awaiting_client_tools — paused waiting for browser to execute JS tools.
+	 * - complete              — loop finished normally.
+	 * - error                 — loop finished with an error.
+	 * - interrupted           — PHP request terminated before loop completion (shutdown handler fired).
+	 * - abandoned             — row reaped by the hourly cron because updated_at is stale.
 	 */
-	const STATUSES = [ 'processing', 'awaiting_confirmation', 'awaiting_client_tools', 'complete', 'error' ];
+	const STATUSES = [ 'processing', 'awaiting_confirmation', 'awaiting_client_tools', 'complete', 'error', 'interrupted', 'abandoned' ];
 
 	/**
 	 * Get the active jobs table name.
@@ -182,6 +190,88 @@ class ActiveJobRepository {
 		);
 
 		return $result !== false;
+	}
+
+	/**
+	 * Update only the updated_at timestamp for a job (heartbeat).
+	 *
+	 * Called at the start of each AgentLoop iteration so the periodic reaper
+	 * can distinguish an actively-running job from a zombie.
+	 *
+	 * @param string $job_id The job UUID.
+	 * @return bool True on success, false on failure.
+	 */
+	public static function heartbeat( string $job_id ): bool {
+		global $wpdb;
+		/** @var \wpdb $wpdb */
+
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Custom table query; caching not applicable.
+		$result = $wpdb->update(
+			self::table_name(),
+			[ 'updated_at' => current_time( 'mysql', true ) ],
+			[ 'job_id' => $job_id ],
+			[ '%s' ],
+			[ '%s' ]
+		);
+
+		return $result !== false && (int) $result > 0;
+	}
+
+	/**
+	 * Mark a job as interrupted (PHP request terminated before loop completion).
+	 *
+	 * Called by the shutdown handler registered in handle_process(). Only
+	 * updates the row when the status is still 'processing' so a normally-
+	 * completed job that finished just before shutdown is not overwritten.
+	 *
+	 * @param string $job_id The job UUID.
+	 * @param string $reason Human-readable reason for the interruption.
+	 * @return bool True on success, false on failure.
+	 */
+	public static function mark_interrupted( string $job_id, string $reason ): bool {
+		global $wpdb;
+		/** @var \wpdb $wpdb */
+
+		$now = current_time( 'mysql', true );
+
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Custom table query; caching not applicable.
+		$result = $wpdb->query(
+			$wpdb->prepare(
+				"UPDATE %i SET status = 'interrupted', error = %s, interrupted_at = %s, updated_at = %s WHERE job_id = %s AND status = 'processing'",
+				self::table_name(),
+				$reason,
+				$now,
+				$now,
+				$job_id
+			)
+		);
+
+		return $result !== false && $result > 0;
+	}
+
+	/**
+	 * Reap stale processing rows by marking them as 'abandoned'.
+	 *
+	 * Rows are considered stale when status='processing' and updated_at has
+	 * not advanced within the given threshold. Called by the hourly cron job.
+	 *
+	 * @param int $threshold_minutes Number of minutes of inactivity before a row is considered stale.
+	 * @return int Number of rows updated.
+	 */
+	public static function cleanup_stale( int $threshold_minutes ): int {
+		global $wpdb;
+		/** @var \wpdb $wpdb */
+
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Custom table query; caching not applicable.
+		$result = $wpdb->query(
+			$wpdb->prepare(
+				"UPDATE %i SET status = 'abandoned', updated_at = UTC_TIMESTAMP() WHERE status = 'processing' AND updated_at < DATE_SUB(UTC_TIMESTAMP(), INTERVAL %d MINUTE)",
+				self::table_name(),
+				$threshold_minutes
+			)
+		);
+
+		return (int) $result;
 	}
 
 	/**
