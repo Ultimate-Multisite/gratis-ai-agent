@@ -507,6 +507,28 @@ class FileWriteAbility extends AbstractFileAbility {
 			}
 		}
 
+		// Scan for external font CDN URLs (GDPR/privacy compliance).
+		// Reject writes containing fonts.googleapis.com, fonts.gstatic.com, etc.
+		$external_font_patterns = [
+			'fonts\.googleapis\.com',
+			'fonts\.gstatic\.com',
+			'fonts\.bunny\.net',
+			'use\.typekit\.net',
+			'fonts\.adobe\.com',
+		];
+		foreach ( $external_font_patterns as $pattern ) {
+			if ( preg_match( '/' . $pattern . '/i', $content ) ) {
+				return new WP_Error(
+					'sd_ai_agent_external_font_blocked',
+					sprintf(
+						'External font CDN detected in file content. Theme Builder generates self-contained themes that do not load fonts from external CDNs (GDPR/privacy compliance). '
+						. 'Use system font stacks in previews or bundle fonts locally in theme.json with fontFace entries. Detected: %s',
+						$pattern
+					)
+				);
+			}
+		}
+
 		// Create directory if needed.
 		$dir = dirname( $full_path );
 		if ( ! file_exists( $dir ) ) {
