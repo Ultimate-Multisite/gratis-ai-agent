@@ -52,11 +52,16 @@ interface ImageSourceInterface {
 	/**
 	 * Search for images by keyword.
 	 *
-	 * @param string $keyword Search term.
+	 * @param string $keyword  Search term.
 	 * @param int    $per_page Number of results to return.
+	 * @param array  $filters  Optional filters:
+	 *                         - 'orientation' (string) 'landscape'|'portrait'|'squarish'.
+	 *                         - 'colour'      (string) Colour name (provider-specific).
+	 *                         - 'min_width'   (int)    Minimum image width in pixels.
+	 *                         - 'min_height'  (int)    Minimum image height in pixels.
 	 * @return array{hits: array, total: int, source: string}|\WP_Error Array with hits or error.
 	 */
-	public function search( string $keyword, int $per_page = 10 ): array|\WP_Error;
+	public function search( string $keyword, int $per_page = 10, array $filters = [] ): array|\WP_Error;
 
 	/**
 	 * Get a single image by ID.

@@ -700,13 +700,20 @@ class Agent {
 				. "   - `templates/page.html` — single page template\n"
 				. "5. Apply the chosen design system (colors, typography, spacing) via `sd-ai-agent/update-global-styles`.\n"
 				. "6. Validate every block markup file you write using `sd-ai-agent/validate-block-content`.\n"
-				. "7. Finalize the front-page hero CTA (MANDATORY — the scaffold result always includes `cta_warning: true`):\n"
+				. "7. **Media imagery.** If any page or section requires photography (hero images, about-page portraits, product shots) and the user has not uploaded photos:\n"
+				. "   a. Call `sd-ai-agent/stock-image` with `action: search`, an appropriate `keyword`, and optional `orientation` and `colour` filters to get up to 5 candidate images.\n"
+				. "   b. Present the returned candidates to the user — include their `thumbnail` URL and `attribution` — and ask the user to select one, or approve your recommended choice.\n"
+				. "   c. Call `sd-ai-agent/stock-image` with `action: import`, the chosen `provider`, and `image_id` to download and import the image into the media library.\n"
+				. "   d. Use the returned `attachment_id` as `featured_image_id` when calling `sd-ai-agent/create-post`, or use the local `url` in block markup (e.g. inside a wp:cover or wp:image block).\n"
+				. "   **Never write a candidate `thumbnail` URL or any external stock image URL into a theme file or block markup.** Only the local `url` from a completed import is safe to use.\n"
+				. "   If stock images are not available and AI generation is configured, use `sd-ai-agent/generate-image` instead. If neither is available or suitable, use CSS gradients and color blocks as placeholders.\n"
+				. "8. Finalize the front-page hero CTA (MANDATORY — the scaffold result always includes `cta_warning: true`):\n"
 				. "   a. Determine the CTA text and target URL for the business vertical (see CTA rules below).\n"
 				. "   b. Create the CTA target page with `sd-ai-agent/create-post` (post_type: page, status: publish) if it does not already exist.\n"
 				. "   c. Update `templates/front-page.html` via `sd-ai-agent/file-write` to replace `href=\"#\"` and \"Call to action\" with the real page URL and vertical-appropriate text.\n"
 				. "   d. Call `sd-ai-agent/validate-block-content` on the updated `templates/front-page.html`.\n"
-				. "8. Activate the new theme via `sd-ai-agent/activate-theme`.\n"
-				. "9. Confirm the result to the user.\n\n"
+				. "9. Activate the new theme via `sd-ai-agent/activate-theme`.\n"
+				. "10. Confirm the result to the user.\n\n"
 				. "## Rules\n\n"
 				. "- **Real content or no content.** Do not create any WordPress page, post, or theme template with placeholder text, Lorem ipsum, \"Replace this\", \"Edit this\", \"Add your...\", or template-fill language. If you do not have real, user-supplied content for a section, ask for it or skip that page.\n"
 				. "- **No external assets in generated previews, templates, or theme files.** This includes:\n"
@@ -746,6 +753,10 @@ class Agent {
 							'sd-ai-agent/file-write',
 							'sd-ai-agent/validate-block-content',
 							'sd-ai-agent/get-theme-json',
+							// Imagery: search candidates and import selected stock
+							// photos (Phase 4 step 7) or generate via AI fallback.
+							'sd-ai-agent/stock-image',
+							'sd-ai-agent/generate-image',
 						]
 					)
 				)

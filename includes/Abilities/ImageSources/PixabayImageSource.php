@@ -74,23 +74,51 @@ class PixabayImageSource implements ImageSourceInterface {
 	/**
 	 * {@inheritdoc}
 	 */
-	public function search( string $keyword, int $per_page = 10 ): array|\WP_Error {
+	public function search( string $keyword, int $per_page = 10, array $filters = [] ): array|\WP_Error {
 		$api_key = $this->get_api_key();
 
 		if ( empty( $api_key ) ) {
 			return new WP_Error( 'pixabay_not_configured', 'Pixabay API key not configured.' );
 		}
 
-		$url = add_query_arg(
-			[
-				'key'         => $api_key,
-				'q'           => rawurlencode( $keyword ),
-				'per_page'    => min( $per_page, 200 ),
-				'image_type'  => 'photo',
-				'safe_search' => 'true',
-			],
-			self::API_BASE
-		);
+		$query_args = [
+			'key'         => $api_key,
+			'q'           => rawurlencode( $keyword ),
+			'per_page'    => min( $per_page, 200 ),
+			'image_type'  => 'photo',
+			'safe_search' => 'true',
+		];
+
+		// Orientation: Pixabay uses horizontal|vertical.
+		$orientation = (string) ( $filters['orientation'] ?? '' );
+		if ( '' !== $orientation ) {
+			$orientation_map = [
+				'landscape' => 'horizontal',
+				'portrait'  => 'vertical',
+			];
+			if ( isset( $orientation_map[ $orientation ] ) ) {
+				$query_args['orientation'] = $orientation_map[ $orientation ];
+			}
+		}
+
+		// Colour filter (Pixabay uses 'colors' parameter).
+		$colour = (string) ( $filters['colour'] ?? '' );
+		if ( '' !== $colour ) {
+			$query_args['colors'] = $colour;
+		}
+
+		// Minimum dimensions.
+		$min_width = (int) ( $filters['min_width'] ?? 0 );
+		if ( $min_width > 0 ) {
+			$query_args['min_width'] = $min_width;
+		}
+
+		$min_height = (int) ( $filters['min_height'] ?? 0 );
+		if ( $min_height > 0 ) {
+			$query_args['min_height'] = $min_height;
+		}
+
+		$url = add_query_arg( $query_args, self::API_BASE );
 
 		$response = wp_remote_get( $url, [ 'timeout' => 30 ] );
 

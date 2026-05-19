@@ -59,14 +59,30 @@ class OpenverseImageSource implements ImageSourceInterface {
 	/**
 	 * {@inheritdoc}
 	 */
-	public function search( string $keyword, int $per_page = 10 ): array|\WP_Error {
-		$url = add_query_arg(
-			[
-				'q'         => $keyword,
-				'page_size' => min( $per_page, 50 ),
-			],
-			self::API_BASE . '/images/'
-		);
+	public function search( string $keyword, int $per_page = 10, array $filters = [] ): array|\WP_Error {
+		$query_args = [
+			'q'         => $keyword,
+			'page_size' => min( $per_page, 50 ),
+		];
+
+		// Orientation: Openverse uses tall|wide|square.
+		$orientation = (string) ( $filters['orientation'] ?? '' );
+		if ( '' !== $orientation ) {
+			$orientation_map = [
+				'portrait'  => 'tall',
+				'landscape' => 'wide',
+				'squarish'  => 'square',
+			];
+			$query_args['aspect_ratio'] = $orientation_map[ $orientation ] ?? $orientation;
+		}
+
+		// Colour filter.
+		$colour = (string) ( $filters['colour'] ?? '' );
+		if ( '' !== $colour ) {
+			$query_args['color'] = $colour;
+		}
+
+		$url = add_query_arg( $query_args, self::API_BASE . '/images/' );
 
 		$response = wp_remote_get( $url, [ 'timeout' => 30 ] );
 

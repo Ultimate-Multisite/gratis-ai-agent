@@ -171,7 +171,7 @@ class FakeImageSource implements ImageSourceInterface {
 	/**
 	 * {@inheritdoc}
 	 */
-	public function search( string $keyword, int $per_page = 10 ): array|WP_Error {
+	public function search( string $keyword, int $per_page = 10, array $filters = [] ): array|WP_Error {
 		return [
 			'hits'   => array_slice( $this->hits, 0, $per_page ),
 			'total'  => count( $this->hits ),

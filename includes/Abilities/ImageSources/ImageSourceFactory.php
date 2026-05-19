@@ -159,6 +159,184 @@ class ImageSourceFactory {
 	}
 
 	/**
+	 * Search all available free sources for candidate images without importing.
+	 *
+	 * Returns a flat list of candidate images from all available free sources.
+	 * Each candidate includes thumbnail URL, dimensions, licence, attribution,
+	 * provider, and provider-specific image ID so the caller can later pass
+	 * provider + image_id to import_by_provider_id().
+	 *
+	 * @param string $keyword  Search keyword.
+	 * @param int    $limit    Maximum candidates to return (default 5).
+	 * @param string $provider Restrict to a specific provider (empty = all free sources).
+	 * @param array  $filters  Filters: orientation, colour, min_width, min_height.
+	 * @return array{candidates: list<array>, total: int}|\WP_Error
+	 */
+	public static function search_candidates(
+		string $keyword,
+		int $limit = 5,
+		string $provider = '',
+		array $filters = []
+	): array|\WP_Error {
+		if ( empty( self::$sources ) ) {
+			self::init();
+		}
+
+		$available    = self::get_available();
+		$free_sources = array_filter(
+			$available,
+			static fn( ImageSourceInterface $source ): bool => 'free' === $source->get_cost_type()
+		);
+
+		// If a specific provider is requested, restrict to that source only.
+		if ( '' !== $provider ) {
+			if ( ! isset( $free_sources[ $provider ] ) ) {
+				return new WP_Error(
+					'provider_unavailable',
+					sprintf( 'Provider "%s" is not available or is not a free source.', $provider )
+				);
+			}
+			$free_sources = [ $provider => $free_sources[ $provider ] ];
+		}
+
+		if ( empty( $free_sources ) ) {
+			return new WP_Error(
+				'no_sources_available',
+				'No free image sources are available.'
+			);
+		}
+
+		$candidates = [];
+
+		foreach ( $free_sources as $source ) {
+			$search_result = $source->search( $keyword, $limit, $filters );
+
+			if ( is_wp_error( $search_result ) ) {
+				continue;
+			}
+
+			$hits = $search_result['hits'] ?? [];
+
+			foreach ( $hits as $hit ) {
+				if ( count( $candidates ) >= $limit ) {
+					break 2;
+				}
+
+				$candidates[] = [
+					'image_id'    => (string) ( $hit['id'] ?? '' ),
+					'provider'    => $source->get_id(),
+					'thumbnail'   => $hit['preview'] ?? $hit['medium'] ?? '',
+					'width'       => (int) ( $hit['width'] ?? 0 ),
+					'height'      => (int) ( $hit['height'] ?? 0 ),
+					'licence'     => $hit['license'] ?? '',
+					'attribution' => self::build_attribution_string( $hit, $source->get_id() ),
+					'title'       => $hit['title'] ?? $hit['alt'] ?? '',
+				];
+			}
+		}
+
+		return [
+			'candidates' => $candidates,
+			'total'      => count( $candidates ),
+		];
+	}
+
+	/**
+	 * Import a specific image by provider and image ID.
+	 *
+	 * Downloads and sideloads the image, storing attribution metadata.
+	 *
+	 * @param string $provider Provider ID (e.g. 'openverse', 'pixabay').
+	 * @param string $image_id Provider-specific image ID.
+	 * @param int    $width    Desired width (0 for original).
+	 * @param int    $height   Desired height (0 for original).
+	 * @param array  $options  Options: site_url, post_id.
+	 * @return array{attachment_id: int, url: string, alt: string, title: string, source: string, attribution: string}|\WP_Error
+	 */
+	public static function import_by_provider_id(
+		string $provider,
+		string $image_id,
+		int $width = 0,
+		int $height = 0,
+		array $options = []
+	): array|\WP_Error {
+		if ( empty( self::$sources ) ) {
+			self::init();
+		}
+
+		$source = self::get( $provider );
+
+		if ( ! $source ) {
+			return new WP_Error(
+				'unknown_image_source',
+				sprintf( 'Unknown image source: %s.', $provider )
+			);
+		}
+
+		if ( ! $source->is_available() ) {
+			return new WP_Error(
+				'image_source_unavailable',
+				sprintf( 'Image source "%s" is not available.', $provider )
+			);
+		}
+
+		// Fetch metadata for attribution before downloading.
+		$image_meta = $source->get_image( $image_id );
+		$hit        = [];
+
+		if ( ! is_wp_error( $image_meta ) ) {
+			$hit = [
+				'id'          => $image_id,
+				'source'      => $image_meta['source'] ?? $provider,
+				'author'      => $image_meta['author'] ?? '',
+				'author_url'  => $image_meta['author_url'] ?? '',
+				'license'     => $image_meta['license'] ?? '',
+				'license_url' => $image_meta['license_url'] ?? '',
+				'attribution' => $image_meta['attribution'] ?? '',
+			];
+		}
+
+		$tmp_file = $source->download( $image_id, $width, $height );
+
+		if ( is_wp_error( $tmp_file ) ) {
+			return $tmp_file;
+		}
+
+		$keyword = (string) ( $options['keyword'] ?? $image_id );
+
+		return self::handle_sideload( $tmp_file, $keyword, $options, $hit );
+	}
+
+	/**
+	 * Build a human-readable attribution string from a search hit.
+	 *
+	 * @param array  $hit      Search hit data.
+	 * @param string $provider Provider ID (fallback label).
+	 * @return string Attribution string (empty if not determinable).
+	 */
+	private static function build_attribution_string( array $hit, string $provider ): string {
+		// If the provider returned a pre-built attribution string, use it.
+		if ( ! empty( $hit['attribution'] ) ) {
+			return (string) $hit['attribution'];
+		}
+
+		$author  = (string) ( $hit['author'] ?? '' );
+		$source  = (string) ( $hit['source'] ?? ucfirst( $provider ) );
+		$license = (string) ( $hit['license'] ?? '' );
+
+		if ( '' === $author ) {
+			return sprintf( 'Image from %s%s', $source, '' !== $license ? " ($license)" : '' );
+		}
+
+		return sprintf(
+			'Photo by %s on %s%s',
+			$author,
+			$source,
+			'' !== $license ? " ($license)" : ''
+		);
+	}
+
+	/**
 	 * Import an image from any source.
 	 *
 	 * On download failure or empty results, the method automatically retries
@@ -172,6 +350,7 @@ class ImageSourceFactory {
 	 *                          - 'site_url'             (string) Multisite subsite URL.
 	 *                          - 'post_id'              (int)    Attach to this post.
 	 *                          - 'no_generate_fallback' (bool)   Skip AI generation fallback.
+	 *                          - 'filters'              (array)  Search filters (orientation, colour, etc.).
 	 * @return array{\attachment_id: int, url: string, alt: string, title: string, source: string}|\WP_Error
 	 */
 	public static function import_image(
@@ -260,10 +439,11 @@ class ImageSourceFactory {
 
 		// Try each free source in order, recording the failure reason for each.
 		/** @var array<string, string> $tried */
-		$tried = [];
+		$tried   = [];
+		$filters = (array) ( $options['filters'] ?? [] );
 
 		foreach ( $free_sources as $try_source ) {
-			$search_result = $try_source->search( $keyword, self::FREE_SOURCE_SEARCH_LIMIT );
+			$search_result = $try_source->search( $keyword, self::FREE_SOURCE_SEARCH_LIMIT, $filters );
 
 			if ( is_wp_error( $search_result ) ) {
 				$tried[ $try_source->get_id() ] = sprintf(
@@ -440,6 +620,14 @@ class ImageSourceFactory {
 		// Set alt text from keyword.
 		update_post_meta( $attachment_id, '_wp_attachment_image_alt', $title );
 
+		// Build and store attribution metadata.
+		$source_id   = (string) ( $hit['source'] ?? $hit['provider'] ?? 'unknown' );
+		$attribution = self::build_attribution_string( $hit, $source_id );
+
+		if ( '' !== $attribution ) {
+			update_post_meta( $attachment_id, '_sd_ai_agent_attribution', $attribution );
+		}
+
 		$attachment_url = wp_get_attachment_url( $attachment_id );
 
 		return [
@@ -447,7 +635,8 @@ class ImageSourceFactory {
 			'url'           => $attachment_url,
 			'alt'           => $title,
 			'title'         => $title,
-			'source'        => $hit['source'] ?? 'unknown',
+			'source'        => $source_id,
+			'attribution'   => $attribution,
 			'tip'           => 'Use attachment_id as featured_image_id for create-post.',
 		];
 	}

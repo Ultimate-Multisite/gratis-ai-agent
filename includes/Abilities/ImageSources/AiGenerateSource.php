@@ -52,9 +52,9 @@ class AiGenerateSource implements ImageSourceInterface {
 	 * {@inheritdoc}
 	 *
 	 * For AI generation, search returns a single synthetic hit used to
-	 * trigger generation via download().
+	 * trigger generation via download(). Filters are not applicable here.
 	 */
-	public function search( string $keyword, int $per_page = 10 ): array|\WP_Error {
+	public function search( string $keyword, int $per_page = 10, array $filters = [] ): array|\WP_Error {
 		return [
 			'hits'   => [
 				[

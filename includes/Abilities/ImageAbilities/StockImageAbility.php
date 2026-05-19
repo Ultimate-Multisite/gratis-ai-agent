@@ -2,10 +2,15 @@
 
 declare(strict_types=1);
 /**
- * Stock image ability — search and import free stock photos.
+ * Stock image ability — search candidates and/or import free stock photos.
  *
- * Searches Openverse (CC0) or Pixabay for a keyword and imports the result
- * into the WordPress media library. Never falls back to AI generation.
+ * Supports two actions:
+ * - search: Returns a list of candidate stock images (no import). Use when
+ *   presenting choices to the user before deciding which image to import.
+ * - import: Downloads and imports a specific image (by provider + image_id)
+ *   or auto-picks the first viable hit from any available free source.
+ *
+ * Never falls back to AI generation. Use sd-ai-agent/generate-image for that.
  *
  * @package SdAiAgent
  * @license GPL-2.0-or-later
@@ -39,7 +44,7 @@ class StockImageAbility extends \SdAiAgent\Abilities\AbstractAbility {
 			'sd-ai-agent/stock-image',
 			[
 				'label'         => __( 'Stock Image', 'superdav-ai-agent' ),
-				'description'   => __( 'Search for a free stock photo by keyword (Openverse CC0 or Pixabay) and import it into the media library. Returns attachment ID and URL. Use this when you need a real photograph or illustration from existing stock libraries.', 'superdav-ai-agent' ),
+				'description'   => __( 'Search for free stock photos (Openverse CC0 or Pixabay) and optionally import a selected result into the media library. Use action=search to get candidates with thumbnails and attribution, then action=import to import a specific one. Returns attachment ID and local URL after import.', 'superdav-ai-agent' ),
 				'ability_class' => self::class,
 			]
 		);
@@ -56,7 +61,7 @@ class StockImageAbility extends \SdAiAgent\Abilities\AbstractAbility {
 	 * {@inheritdoc}
 	 */
 	protected function description(): string {
-		return __( 'Search for a free stock photo by keyword (Openverse CC0 or Pixabay) and import it into the media library. Returns attachment ID and URL. Use this when you need a real photograph or illustration from existing stock libraries.', 'superdav-ai-agent' );
+		return __( 'Search for free stock photos (Openverse CC0 or Pixabay) and optionally import a selected result into the media library. Use action=search to get candidates with thumbnails and attribution, then action=import to import a specific one. Returns attachment ID and local URL after import.', 'superdav-ai-agent' );
 	}
 
 	/**
@@ -66,19 +71,54 @@ class StockImageAbility extends \SdAiAgent\Abilities\AbstractAbility {
 		return [
 			'type'       => 'object',
 			'properties' => [
-				'keyword'  => [
+				'keyword'     => [
 					'type'        => 'string',
 					'description' => 'Search term for finding a relevant stock photo (e.g. "mountain landscape", "coffee shop", "team meeting").',
 				],
-				'width'    => [
-					'type'        => 'integer',
-					'description' => 'Desired image width in pixels (default: 1200).',
+				'action'      => [
+					'type'        => 'string',
+					'enum'        => [ 'search', 'import' ],
+					'description' => 'Use "search" to retrieve a list of candidate images with thumbnails and attribution (no import). Use "import" to download and add a specific image to the media library. If omitted, the first available result is automatically imported (backward-compatible).',
 				],
-				'height'   => [
-					'type'        => 'integer',
-					'description' => 'Desired image height in pixels (default: 800).',
+				'image_id'    => [
+					'type'        => 'string',
+					'description' => 'Provider image ID returned by a previous search. Required when action=import with a specific provider.',
 				],
-				'site_url' => [
+				'provider'    => [
+					'type'        => 'string',
+					'enum'        => [ 'openverse', 'pixabay' ],
+					'description' => 'Restrict search or import to a specific provider. When action=import, this identifies which provider image_id belongs to.',
+				],
+				'limit'       => [
+					'type'        => 'integer',
+					'description' => 'Maximum number of candidates to return in search mode (default: 5, max: 20).',
+				],
+				'orientation' => [
+					'type'        => 'string',
+					'enum'        => [ 'landscape', 'portrait', 'squarish' ],
+					'description' => 'Preferred image orientation.',
+				],
+				'colour'      => [
+					'type'        => 'string',
+					'description' => 'Dominant colour filter (e.g. "blue", "green", "red"). Provider-specific; not all providers support every colour.',
+				],
+				'min_width'   => [
+					'type'        => 'integer',
+					'description' => 'Minimum image width in pixels.',
+				],
+				'min_height'  => [
+					'type'        => 'integer',
+					'description' => 'Minimum image height in pixels.',
+				],
+				'width'       => [
+					'type'        => 'integer',
+					'description' => 'Desired image width in pixels for import (default: 1200).',
+				],
+				'height'      => [
+					'type'        => 'integer',
+					'description' => 'Desired image height in pixels for import (default: 800).',
+				],
+				'site_url'    => [
 					'type'        => 'string',
 					'description' => 'Subsite URL to import into on multisite (e.g. "https://example.com/mysite"). Omit for the main site.',
 				],
@@ -94,11 +134,33 @@ class StockImageAbility extends \SdAiAgent\Abilities\AbstractAbility {
 		return [
 			'type'       => 'object',
 			'properties' => [
+				// Search-mode output.
+				'candidates'    => [
+					'type'        => 'array',
+					'description' => 'List of candidate images returned in search mode.',
+					'items'       => [
+						'type'       => 'object',
+						'properties' => [
+							'image_id'    => [ 'type' => 'string' ],
+							'provider'    => [ 'type' => 'string' ],
+							'thumbnail'   => [ 'type' => 'string' ],
+							'width'       => [ 'type' => 'integer' ],
+							'height'      => [ 'type' => 'integer' ],
+							'licence'     => [ 'type' => 'string' ],
+							'attribution' => [ 'type' => 'string' ],
+							'title'       => [ 'type' => 'string' ],
+						],
+					],
+				],
+				'total'         => [ 'type' => 'integer' ],
+				// Import-mode output.
 				'attachment_id' => [ 'type' => 'integer' ],
 				'url'           => [ 'type' => 'string' ],
 				'alt'           => [ 'type' => 'string' ],
 				'title'         => [ 'type' => 'string' ],
 				'source'        => [ 'type' => 'string' ],
+				'attribution'   => [ 'type' => 'string' ],
+				// Shared.
 				'error'         => [ 'type' => 'string' ],
 				'tip'           => [ 'type' => 'string' ],
 			],
@@ -141,6 +203,10 @@ class StockImageAbility extends \SdAiAgent\Abilities\AbstractAbility {
 	protected function execute_callback( mixed $input ): array|\WP_Error {
 		// @phpstan-ignore-next-line
 		$keyword  = sanitize_text_field( $input['keyword'] ?? '' );
+		$action   = sanitize_key( $input['action'] ?? '' );
+		$image_id = sanitize_text_field( $input['image_id'] ?? '' );
+		$provider = sanitize_key( $input['provider'] ?? '' );
+		$limit    = min( (int) ( $input['limit'] ?? 5 ), 20 );
 		$width    = (int) ( $input['width'] ?? 1200 );
 		$height   = (int) ( $input['height'] ?? 800 );
 		$site_url = sanitize_text_field( $input['site_url'] ?? '' );
@@ -149,6 +215,27 @@ class StockImageAbility extends \SdAiAgent\Abilities\AbstractAbility {
 			return new WP_Error( 'missing_keyword', 'keyword is required.' );
 		}
 
+		$filters = array_filter(
+			[
+				'orientation' => sanitize_key( $input['orientation'] ?? '' ),
+				'colour'      => sanitize_text_field( $input['colour'] ?? '' ),
+				'min_width'   => (int) ( $input['min_width'] ?? 0 ),
+				'min_height'  => (int) ( $input['min_height'] ?? 0 ),
+			],
+			static fn( mixed $v ): bool => ( is_int( $v ) ? $v > 0 : '' !== $v )
+		);
+
+		// ── action=search: return candidates without importing ────────────────
+		if ( 'search' === $action ) {
+			return $this->handle_search( $keyword, $limit, $provider, $filters );
+		}
+
+		// ── action=import with specific provider + image_id ───────────────────
+		if ( 'import' === $action && '' !== $image_id && '' !== $provider ) {
+			return $this->handle_import_by_id( $keyword, $provider, $image_id, $width, $height, $site_url );
+		}
+
+		// ── Default (auto) / action=import without image_id: original behavior ─
 		// Verify at least one free source is configured before attempting import.
 		$has_free = false;
 		foreach ( ImageSourceFactory::get_available() as $s ) {
@@ -158,9 +245,6 @@ class StockImageAbility extends \SdAiAgent\Abilities\AbstractAbility {
 			}
 		}
 
-		// Only suggest the AI-generation fallback when an image-capable
-		// provider is actually configured; otherwise the tip points at a
-		// dead end. Mirrors the gate used inside GenerateImageAbility itself.
 		$can_generate = function_exists( 'wp_ai_client_prompt' )
 			&& wp_ai_client_prompt()->is_supported_for_image_generation();
 		$generate_tip = 'Use sd-ai-agent/generate-image to create an AI-generated image instead.';
@@ -172,6 +256,7 @@ class StockImageAbility extends \SdAiAgent\Abilities\AbstractAbility {
 				'alt'           => '',
 				'title'         => '',
 				'source'        => '',
+				'attribution'   => '',
 				'error'         => 'No free stock image source is available. Configure Openverse or Pixabay.',
 			];
 			if ( $can_generate ) {
@@ -180,12 +265,10 @@ class StockImageAbility extends \SdAiAgent\Abilities\AbstractAbility {
 			return $response;
 		}
 
-		// Let the factory try all available free sources in priority order
-		// (openverse → pixabay) before giving up. Never fall back to AI generation —
-		// this ability is explicitly for stock images only.
 		$options = [
 			'site_url'             => $site_url,
 			'no_generate_fallback' => true,
+			'filters'              => $filters,
 		];
 
 		$result = ImageSourceFactory::import_image( $keyword, '', $width, $height, $options );
@@ -197,11 +280,93 @@ class StockImageAbility extends \SdAiAgent\Abilities\AbstractAbility {
 				'alt'           => '',
 				'title'         => '',
 				'source'        => '',
+				'attribution'   => '',
 				// Error message from the factory lists each source tried and why it failed.
 				'error'         => $result->get_error_message(),
 			];
 			if ( $can_generate ) {
 				$response['tip'] = $generate_tip;
+			}
+			return $response;
+		}
+
+		$result['tip'] = 'Use attachment_id as featured_image_id when calling create-post or update-post.';
+
+		return $result;
+	}
+
+	/**
+	 * Return candidate images without importing.
+	 *
+	 * @param string $keyword  Search keyword.
+	 * @param int    $limit    Maximum candidates.
+	 * @param string $provider Provider restriction (empty = all free sources).
+	 * @param array  $filters  Optional search filters.
+	 * @return array|\WP_Error Candidates array or error.
+	 */
+	private function handle_search(
+		string $keyword,
+		int $limit,
+		string $provider,
+		array $filters
+	): array|\WP_Error {
+		$result = ImageSourceFactory::search_candidates( $keyword, $limit, $provider, $filters );
+
+		if ( is_wp_error( $result ) ) {
+			return [
+				'candidates' => [],
+				'total'      => 0,
+				'error'      => $result->get_error_message(),
+				'tip'        => 'Call again with action=import and image_id + provider to import a specific image.',
+			];
+		}
+
+		$result['tip'] = 'Present these candidates to the user, then call again with action=import and image_id + provider to import the selected image.';
+
+		return $result;
+	}
+
+	/**
+	 * Import a specific image by provider and image ID.
+	 *
+	 * @param string $keyword   Original search keyword (used as alt/title base).
+	 * @param string $provider  Provider ID.
+	 * @param string $image_id  Provider-specific image ID.
+	 * @param int    $width     Desired width.
+	 * @param int    $height    Desired height.
+	 * @param string $site_url  Multisite subsite URL.
+	 * @return array|\WP_Error Result or error.
+	 */
+	private function handle_import_by_id(
+		string $keyword,
+		string $provider,
+		string $image_id,
+		int $width,
+		int $height,
+		string $site_url
+	): array|\WP_Error {
+		$options = [
+			'site_url' => $site_url,
+			'keyword'  => $keyword,
+		];
+
+		$result = ImageSourceFactory::import_by_provider_id( $provider, $image_id, $width, $height, $options );
+
+		if ( is_wp_error( $result ) ) {
+			$can_generate = function_exists( 'wp_ai_client_prompt' )
+				&& wp_ai_client_prompt()->is_supported_for_image_generation();
+
+			$response = [
+				'attachment_id' => 0,
+				'url'           => '',
+				'alt'           => '',
+				'title'         => '',
+				'source'        => '',
+				'attribution'   => '',
+				'error'         => $result->get_error_message(),
+			];
+			if ( $can_generate ) {
+				$response['tip'] = 'Use sd-ai-agent/generate-image to create an AI-generated image instead.';
 			}
 			return $response;
 		}
