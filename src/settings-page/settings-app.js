@@ -130,6 +130,10 @@ export default function SettingsApp() {
 	const [ tavilySaving, setTavilySaving ] = useState( false );
 	const [ tavilyNotice, setTavilyNotice ] = useState( null );
 
+	// Onboarding reset state (Advanced tab → Onboarding section).
+	const [ onboardingResetting, setOnboardingResetting ] = useState( false );
+	const [ onboardingNotice, setOnboardingNotice ] = useState( null );
+
 	useEffect( () => {
 		fetchSettings();
 		fetchProviders();
@@ -330,6 +334,50 @@ export default function SettingsApp() {
 			} );
 		}
 		setTavilySaving( false );
+	}, [] );
+
+	const handleOnboardingReset = useCallback( async () => {
+		// Confirm before discarding completion state — re-running the wizard
+		// will not delete memories, sessions, or saved settings, but it will
+		// force the user back through the welcome flow on next chat visit.
+		const confirmMessage = __(
+			'Restart the onboarding wizard? Your existing settings, memories, and chat history are kept — you will simply be sent back through the welcome flow the next time you open the AI Agent chat page.',
+			'sd-ai-agent'
+		);
+		// eslint-disable-next-line no-alert
+		const confirmed = window.confirm( confirmMessage );
+		if ( ! confirmed ) {
+			return;
+		}
+
+		setOnboardingResetting( true );
+		setOnboardingNotice( null );
+		try {
+			const result = await apiFetch( {
+				path: '/sd-ai-agent/v1/onboarding/reset',
+				method: 'POST',
+			} );
+			setOnboardingNotice( {
+				status: 'success',
+				message:
+					result?.message ||
+					__( 'Onboarding state cleared.', 'sd-ai-agent' ),
+				chatUrl: result?.chat_url || '',
+			} );
+			// Mirror the server-side reset locally so the global Save Settings
+			// button does not immediately re-save onboarding_complete=true.
+			setLocal( ( prev ) =>
+				prev ? { ...prev, onboarding_complete: false } : prev
+			);
+		} catch ( err ) {
+			setOnboardingNotice( {
+				status: 'error',
+				message:
+					err?.message ||
+					__( 'Failed to reset onboarding state.', 'sd-ai-agent' ),
+			} );
+		}
+		setOnboardingResetting( false );
 	}, [] );
 
 	useEffect( () => {
@@ -2231,6 +2279,64 @@ export default function SettingsApp() {
 													) }
 												</Button>
 											) }
+										</div>
+
+										<h3 className="sdaa-settings-section-title">
+											{ __(
+												'Onboarding',
+												'sd-ai-agent'
+											) }
+										</h3>
+										<p className="description">
+											{ __(
+												'Re-run the welcome wizard to choose a setup mode (Explore, Theme Builder, or Skip) and start a fresh Setup Assistant discovery session. Your existing memories, chat sessions, and saved settings are kept.',
+												'sd-ai-agent'
+											) }
+										</p>
+										{ onboardingNotice && (
+											<Notice
+												status={
+													onboardingNotice.status
+												}
+												isDismissible
+												onDismiss={ () =>
+													setOnboardingNotice( null )
+												}
+											>
+												{ onboardingNotice.message }
+												{ onboardingNotice.status ===
+													'success' &&
+													onboardingNotice.chatUrl && (
+														<>
+															{ ' ' }
+															<a
+																href={
+																	onboardingNotice.chatUrl
+																}
+															>
+																{ __(
+																	'Open AI Agent chat →',
+																	'sd-ai-agent'
+																) }
+															</a>
+														</>
+													) }
+											</Notice>
+										) }
+										<div className="sdaa-settings-row-actions">
+											<Button
+												variant="secondary"
+												onClick={
+													handleOnboardingReset
+												}
+												isBusy={ onboardingResetting }
+												disabled={ onboardingResetting }
+											>
+												{ __(
+													'Restart Onboarding Wizard',
+													'sd-ai-agent'
+												) }
+											</Button>
 										</div>
 									</div>
 								);
