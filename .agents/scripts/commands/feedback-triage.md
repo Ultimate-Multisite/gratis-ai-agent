@@ -31,24 +31,28 @@ Slot history: previously labelled `r010` until 2026-05-18; renamed to `r020` to 
 
 **Required env vars** (sourced from `~/.config/aidevops/credentials.sh` or gopass):
 - `FEEDBACK_ENDPOINT` — Base URL of the sd-ai-feedback WordPress site
-- `FEEDBACK_API_KEY` — Base64-encoded `user:application_password` for the REST API
+- `FEEDBACK_API_KEY` — Raw `user:application_password` string (the helper base64-encodes it for HTTP Basic auth)
 - `FEEDBACK_REPO` — Target GitHub repo (default: `Ultimate-Multisite/sd-ai-agent`)
 
 ## Workflow
 
-### Step 1: Load credentials
+### Step 1: Credentials
 
-```bash
-source ~/.config/aidevops/credentials.sh 2>/dev/null || true
-export FEEDBACK_ENDPOINT="${FEEDBACK_ENDPOINT:-}"
-export FEEDBACK_API_KEY="${FEEDBACK_API_KEY:-}"
-```
+The helper script auto-sources `~/.config/aidevops/credentials.sh` when env
+vars are missing, so headless dispatchers (systemd timer + `opencode run`,
+which start with an empty env) work out of the box. You only need to
+explicitly source credentials in an interactive shell if you want to
+override the defaults.
 
-If `FEEDBACK_ENDPOINT` or `FEEDBACK_API_KEY` is empty, emit:
+If the auto-source still leaves `FEEDBACK_ENDPOINT` or `FEEDBACK_API_KEY`
+empty, the script exits with `ERROR: FEEDBACK_ENDPOINT not set ...`. In
+that case emit:
+
 ```
 BLOCKED: FEEDBACK_ENDPOINT and FEEDBACK_API_KEY not configured.
 Set them in ~/.config/aidevops/credentials.sh and retry.
 ```
+
 Then stop. Do not proceed without credentials.
 
 ### Step 2: Fetch new reports
@@ -59,12 +63,19 @@ Then stop. Do not proceed without credentials.
 
 Output is a JSON array of report objects. Each object has at minimum:
 - `id` — report ID
-- `report_type` — `user_submitted`, `self_reported`, `exit_reason`, `thumbs_down`
-- `plugin_version` — plugin version that submitted the report
+- `report_type` — `user_reported`, `self_reported`, `exit_reason`, `thumbs_down`
+- `model_id` / `provider_id` — top-level convenience copies (also nested in `session_data`)
+- `site_url` — site that submitted the report (may be empty for legacy/test reports)
 - `created_at` — submission timestamp
 - `status` — should be `new`
 
-If the array is empty, output: `r020: No new reports to triage.` and stop (success).
+Note: `plugin_version` lives inside the full payload as
+`environment.plugin_version` and is fetched in step 4a, not at the list level.
+
+The helper retries once automatically if the first response body is exactly
+`[]`, because the underlying endpoint occasionally serves a transient empty
+result on cold cache. If the second response is still `[]`, output
+`r020: No new reports to triage.` and stop (success).
 
 ### Step 3: Check latest plugin version
 
@@ -80,18 +91,39 @@ For each report in the fetched array:
 
 #### 4a: Fetch full payload
 
+Use the `transcript` subcommand for triage. It renders a compact, jq-free
+view that is safe for the systemd log file (text snippets are truncated to
+200 chars per part) and surfaces tool-call errors inline:
+
 ```bash
-~/.aidevops/agents/custom/scripts/feedback-triage.sh get <report_id>
+~/.aidevops/agents/custom/scripts/feedback-triage.sh transcript <report_id>
 ```
 
-Full payload includes:
-- `session_messages` — the conversation that triggered the report
-- `tool_calls` — abilities invoked
-- `token_usage` — tokens consumed
-- `model_id`, `provider_id` — AI model used
-- `environment` — WP version, PHP version, plugin version, theme, active plugins, locale, multisite
-- `user_description` — free-text description submitted by the user (if any)
-- `exit_reason` — `spin`, `timeout`, `max_iterations` (for automated reports)
+Use `get <report_id>` instead when you need the raw JSON payload (rare —
+mostly when crafting an issue body that needs verbatim quotes). The raw
+payload may contain user data; never echo it into chat or commit it.
+
+Full payload schema (top-level keys):
+
+- `id`, `created_at`, `reviewed_at`, `status`, `report_type`, `api_key_id`
+- `site_url`, `model_id`, `provider_id`, `user_description`
+- `github_issue_url`, `triage_summary`
+- `environment` — object with `plugin_version`, `wp_version`, `php_version`,
+  `theme`, `site_locale`, `is_multisite`, `active_plugins[]`. Legacy / test
+  reports may serialize this as an empty array (`[]`) instead of an object.
+- `session_data` — object with:
+  - `id`, `title`, `model_id`, `provider_id`
+  - `message_count`, `tool_call_count`
+  - `prompt_tokens`, `completion_tokens`
+  - `messages[]` — each message is `{role, parts: [...]}` where each part
+    is `{channel, type, text | functionCall | functionResponse}`. Older
+    reports use the simpler `{role, content: "..."}` shape.
+  - `tool_calls[]` — each entry is `{type: "call"|"response", id, name,
+    args | response}`. Errors surface as `response.response.error` /
+    `response.response.code` (e.g. `skill_disabled`, `skill_not_found`).
+  - `exit_reason` — `spin` | `timeout` | `max_iterations` (only present for
+    automated `self_reported` / `exit_reason` reports; absent for
+    `thumbs_down` and `user_reported`).
 
 #### 4b: Version check — is this already fixed?
 
@@ -108,7 +140,8 @@ Skip further analysis for this report.
 
 #### 4c: Classify the report
 
-Based on `session_messages`, `tool_calls`, `exit_reason`, and `user_description`, classify:
+Based on `session_data.messages`, `session_data.tool_calls`,
+`session_data.exit_reason`, and `user_description`, classify:
 
 | Classification | Criteria | Action |
 |----------------|----------|--------|
@@ -121,10 +154,13 @@ Based on `session_messages`, `tool_calls`, `exit_reason`, and `user_description`
 
 Apply Step 3.6 validation from `/log-issue-aidevops` before classifying as `real_bug` or
 `missing_ability`:
-- Verify claims against the session messages (do the tool calls match the claim?)
+- Verify claims against `session_data.messages` and `session_data.tool_calls`
+  (do the tool calls actually match the user's complaint?).
 - Assess data scale: was this a realistic workload or an edge case the user forced?
 - Check for template-driven reports (multiple reports with identical structure suggest
-  a systematic issue — treat as one issue, not N)
+  a systematic issue — treat as one issue, not N).
+- For thumbs_down with empty `session_data.messages` and `tool_calls`, treat
+  as a test / setup-verification report and dismiss without filing.
 
 #### 4d: Dedup check (for real_bug and missing_ability)
 
@@ -145,13 +181,14 @@ Compose issue body using this template:
 
 ```markdown
 ## Description
-{problem summarised from session_messages and user_description}
+{problem summarised from session_data.messages and user_description}
 
 ## Expected Behavior
 {what the agent should have done}
 
 ## Steps to Reproduce
-{derived from session_messages — list the sequence of user prompts and tool_calls}
+{derived from session_data.messages and session_data.tool_calls — list the
+sequence of user prompts and the tool calls/responses that led to failure}
 
 ## Environment
 - Plugin version: {environment.plugin_version}
@@ -166,19 +203,21 @@ Compose issue body using this template:
 Report ID: {report_id} (submitted {created_at})
 ```
 
-Then create the issue:
+Write the body to a temp file (avoids quoting hazards with backticks /
+heredocs / unicode dashes) and create the issue. Apply `origin:worker` and
+`status:available` alongside `bug` so the issue is traceable as
+feedback-triage output and visible to claim routines:
 
 ```bash
 gh issue create -R Ultimate-Multisite/sd-ai-agent \
   --title "<concise bug title>" \
-  --body "$(cat <<'EOF'
-<body>
-EOF
-)" \
-  --label "bug"
+  --body-file /tmp/opencode/r020-triage/issue-<id>-body.md \
+  --label "bug,origin:worker,status:available"
 ```
 
-Capture the issue URL from output. Then update the report:
+Capture the issue URL from output. Then update the report (the helper
+routes the third argument to `github_issue_url` for the `issue_created`
+status):
 
 ```bash
 ~/.aidevops/agents/custom/scripts/feedback-triage.sh update <id> issue_created <github_url>
@@ -186,7 +225,9 @@ Capture the issue URL from output. Then update the report:
 
 #### 4f: Create GitHub issue (missing_ability)
 
-Use label `enhancement` instead of `bug`. Title format: `ability: <action> — <context>`.
+Use `enhancement` in place of `bug`; keep the rest of the label set
+(`enhancement,origin:worker,status:available`). Title format:
+`ability: <action> — <context>`.
 
 #### 4g: Dismiss non-bugs
 
@@ -195,6 +236,10 @@ Use label `enhancement` instead of `bug`. Title format: `ability: <action> — <
 ```
 
 Reason should be one concise sentence explaining why this is not actionable.
+The helper stores it in the report's `triage_summary` field server-side
+(visible in the feedback admin UI). Earlier versions of the helper put this
+text into `github_issue_url` by mistake; if you see old dismissed reports
+with a non-URL string in `github_issue_url`, that is the legacy artefact.
 
 ### Step 5: Summary
 
@@ -219,6 +264,11 @@ r020 triage complete: <N> reports processed.
 
 ## Privacy
 
-- Do not log raw `session_messages` to stdout — they may contain user data.
+- Do not log raw `session_data.messages` to stdout — they may contain user
+  data. Prefer the `transcript` subcommand, which truncates text snippets
+  to 200 chars per part. Use `get` only when crafting an issue body that
+  needs verbatim quotes, and never paste the raw payload back into chat
+  or commit it.
 - Do not include credentials in any command output or issue body.
-- `environment.active_plugins` list is safe to include in issue bodies (plugin names only).
+- `environment.active_plugins` list is safe to include in issue bodies
+  (plugin names only — no secrets).
