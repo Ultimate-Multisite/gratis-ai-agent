@@ -559,6 +559,14 @@ class MenuAbilities {
 			$object_type = 'custom';
 		}
 
+		// Auto-assign the next sequential position when the caller does not specify one.
+		// Without this, wp_update_nav_menu_item sets menu_order = 0 for every item,
+		// causing WordPress to fall back to alphabetical sorting by post title (GH#1524).
+		if ( $position <= 0 ) {
+			$existing_items = wp_get_nav_menu_items( $menu->term_id );
+			$position       = is_array( $existing_items ) ? count( $existing_items ) + 1 : 1;
+		}
+
 		$item_data = [
 			'menu-item-title'      => $title,
 			'menu-item-url'        => $url,

@@ -251,6 +251,88 @@ class MenuAbilitiesTest extends WP_UnitTestCase {
 		$this->assertSame( 'About', $items[0]->title );
 	}
 
+	/**
+	 * Test handle_add_menu_item preserves insertion order when no position is specified.
+	 *
+	 * Regression test for GH#1524: items were sorted alphabetically because
+	 * wp_update_nav_menu_item received menu-item-position = 0 for every item.
+	 */
+	public function test_handle_add_menu_item_preserves_insertion_order() {
+		$menu_id = wp_create_nav_menu( 'Order Test Menu' );
+		$this->assertIsInt( $menu_id );
+
+		$titles = [ 'Home', 'Menu', 'Our Story', 'Events', 'Find Us', 'Shop' ];
+
+		foreach ( $titles as $title ) {
+			$result = MenuAbilities::handle_add_menu_item(
+				[
+					'menu_id' => $menu_id,
+					'title'   => $title,
+					'url'     => 'https://example.com/' . sanitize_title( $title ),
+				]
+			);
+			$this->assertIsArray( $result, "Expected array result for item '$title'" );
+		}
+
+		// wp_get_nav_menu_items returns items sorted by menu_order.
+		$items = wp_get_nav_menu_items( $menu_id );
+		$this->assertIsArray( $items );
+		$this->assertCount( count( $titles ), $items );
+
+		foreach ( $titles as $index => $expected_title ) {
+			$this->assertSame(
+				$expected_title,
+				$items[ $index ]->title,
+				"Item at position " . ( $index + 1 ) . " should be '$expected_title'"
+			);
+			$this->assertSame(
+				$index + 1,
+				(int) $items[ $index ]->menu_order,
+				"menu_order for '$expected_title' should be " . ( $index + 1 )
+			);
+		}
+	}
+
+	/**
+	 * Test handle_add_menu_item respects explicitly provided positions for ordering.
+	 *
+	 * Adds two items in reverse position order (Second first, First second) and
+	 * verifies they are returned in position order (First, Second).
+	 */
+	public function test_handle_add_menu_item_respects_explicit_position() {
+		$menu_id = wp_create_nav_menu( 'Explicit Position Menu' );
+		$this->assertIsInt( $menu_id );
+
+		// Add "Second" at position 2 first.
+		$result_second = MenuAbilities::handle_add_menu_item(
+			[
+				'menu_id'  => $menu_id,
+				'title'    => 'Second',
+				'url'      => 'https://example.com/second',
+				'position' => 2,
+			]
+		);
+		$this->assertIsArray( $result_second );
+
+		// Add "First" at position 1 second (inserted after "Second").
+		$result_first = MenuAbilities::handle_add_menu_item(
+			[
+				'menu_id'  => $menu_id,
+				'title'    => 'First',
+				'url'      => 'https://example.com/first',
+				'position' => 1,
+			]
+		);
+		$this->assertIsArray( $result_first );
+
+		// wp_get_nav_menu_items sorts by menu_order; "First" (pos 1) should come before "Second" (pos 2).
+		$items = wp_get_nav_menu_items( $menu_id );
+		$this->assertIsArray( $items );
+		$this->assertCount( 2, $items );
+		$this->assertSame( 'First', $items[0]->title, 'Item with position 1 should come first' );
+		$this->assertSame( 'Second', $items[1]->title, 'Item with position 2 should come second' );
+	}
+
 	// ─── handle_remove_menu_item ──────────────────────────────────
 
 	/**
