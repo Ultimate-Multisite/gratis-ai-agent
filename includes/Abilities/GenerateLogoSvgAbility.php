@@ -142,19 +142,19 @@ class GenerateLogoSvgAbility extends AbstractAbility {
 		return [
 			'type'       => 'object',
 			'properties' => [
-				'candidates'               => [
+				'candidates'              => [
 					'type'        => 'array',
 					'description' => 'Generated SVG candidates with attachment_id, url, data_uri, and fallback flag.',
 				],
-				'selected_attachment_id'   => [ 'type' => 'integer' ],
-				'logo_set'                 => [ 'type' => 'boolean' ],
-				'fallback'                 => [
+				'selected_attachment_id'  => [ 'type' => 'integer' ],
+				'logo_set'                => [ 'type' => 'boolean' ],
+				'fallback'                => [
 					'type'        => 'boolean',
 					'description' => 'True when AI generation failed validation and a type-only wordmark was substituted.',
 				],
-				'existing_logo_preserved'  => [ 'type' => 'boolean' ],
-				'message'                  => [ 'type' => 'string' ],
-				'error'                    => [ 'type' => 'string' ],
+				'existing_logo_preserved' => [ 'type' => 'boolean' ],
+				'message'                 => [ 'type' => 'string' ],
+				'error'                   => [ 'type' => 'string' ],
 			],
 		];
 	}
