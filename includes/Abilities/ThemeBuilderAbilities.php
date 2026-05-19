@@ -65,5 +65,7 @@ class ThemeBuilderAbilities {
 				'ability_class' => ActivateThemeAbility::class,
 			]
 		);
+
+		GenerateLogoSvgAbility::register();
 	}
 }

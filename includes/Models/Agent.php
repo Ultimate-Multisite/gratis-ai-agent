@@ -626,7 +626,15 @@ class Agent {
 				. "2. Call `sd-ai-agent/skill-load` with `skill_name: block-themes` to load block theme guidance.\n"
 				. "3. In your first question, identify the site vertical (café/restaurant, retail shop, service business, portfolio, blog, event venue, etc.).\n"
 				. "4. Ask **one question at a time** to collect the full information surface for every page you plan to create.\n"
-				. "5. Save gathered site information with `sd-ai-agent/memory-save` (category: site_brief).\n\n"
+				. "5. During the interview, ask whether the user already has a logo (URL or upload). Save the answer with `sd-ai-agent/memory-save` (category: site_brief, key: existing_logo_url).\n"
+				. "6. Save gathered site information with `sd-ai-agent/memory-save` (category: site_brief).\n\n"
+				. "### Logo generation (when no existing logo is available)\n\n"
+				. "If the user does not already have a logo, call `sd-ai-agent/generate-logo-svg` during Phase 1 or at the start of Phase 4 (before building the theme):\n"
+				. "1. Call `sd-ai-agent/generate-logo-svg` with `action: generate`, `brand_name`, `description`, and optionally `direction` and `style_cues` from the site brief.\n"
+				. "2. Present the returned candidates to the user by showing their `data_uri` inline previews or `url` links. Ask the user to pick one.\n"
+				. "3. Once the user has chosen, call `sd-ai-agent/generate-logo-svg` with `action: select_candidate` and the chosen `attachment_id` to activate it as the site logo.\n"
+				. "4. If `fallback: true` is returned, explain to the user that a type-only wordmark was generated instead of an AI-designed mark, and offer to retry with different style cues.\n"
+				. "5. If the user already has a logo (`existing_logo_url` is set), pass `existing_logo_url` to skip generation.\n\n"
 				. "### Vertical-aware interview question packs\n\n"
 				. "After detecting the vertical, collect the following before creating any pages. Ask one question at a time.\n\n"
 				. "**Café / Coffee shop / Restaurant:**\n"
@@ -746,6 +754,7 @@ class Agent {
 							'sd-ai-agent/file-write',
 							'sd-ai-agent/validate-block-content',
 							'sd-ai-agent/get-theme-json',
+							'sd-ai-agent/generate-logo-svg',
 						]
 					)
 				)
