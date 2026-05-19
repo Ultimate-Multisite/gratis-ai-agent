@@ -23,6 +23,7 @@ namespace SdAiAgent\Bootstrap;
 
 use SdAiAgent\Abilities\ToolCapabilities;
 use SdAiAgent\Automations\AutomationRunner;
+use SdAiAgent\Core\ActiveJobsCleanupService;
 use SdAiAgent\Core\Database;
 use SdAiAgent\Core\OnboardingManager;
 use SdAiAgent\Core\SkillUpdateChecker;
@@ -54,6 +55,7 @@ final class LifecycleHandler {
 		AutomationRunner::reschedule_all();
 		OnboardingManager::on_activation();
 		SkillUpdateChecker::schedule();
+		ActiveJobsCleanupService::schedule();
 		ToolCapabilities::register_capabilities( ToolCapabilities::all_ability_ids() );
 	}
 
@@ -69,5 +71,6 @@ final class LifecycleHandler {
 		AutomationRunner::unschedule_all();
 		SiteScanner::unschedule();
 		SkillUpdateChecker::unschedule();
+		ActiveJobsCleanupService::unschedule();
 	}
 }

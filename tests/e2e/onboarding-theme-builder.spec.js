@@ -280,6 +280,34 @@ test.describe.serial( 'Theme-builder onboarding flow (Onboarding v2)', () => {
 			.waitFor( { state: 'visible', timeout: 45_000 } );
 	} );
 
+	// ── Test 2b: reload does not re-send kickoff ──────────────────────────
+
+	test( 'reloading the page during the theme-builder flow does NOT re-send the kickoff message', async () => {
+		// Count the current number of message rows before reload.
+		const messageRowsBefore = await page
+			.locator( '.sdaa-cr .sdaa-cr-msg-row' )
+			.count();
+
+		// Reload the page.
+		await page.reload();
+		await page.waitForLoadState( 'domcontentloaded' );
+
+		// Wait for the chat UI to re-render after reload.
+		await page
+			.locator( '.sdaa-cr' )
+			.waitFor( { state: 'visible', timeout: 45_000 } );
+
+		// Count the message rows after reload.
+		// If the kickoff was re-sent, there would be an additional message row.
+		// With the fix, the count should remain the same.
+		const messageRowsAfter = await page
+			.locator( '.sdaa-cr .sdaa-cr-msg-row' )
+			.count();
+
+		// Assert that no new kickoff message was added.
+		expect( messageRowsAfter ).toBe( messageRowsBefore );
+	} );
+
 	// ── Test 3: build instruction → DONE reply → theme on disk ────────────
 
 	test( 'sending the build instruction results in DONE reply and an active theme on disk', async () => {

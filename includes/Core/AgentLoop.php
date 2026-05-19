@@ -27,6 +27,7 @@ use SdAiAgent\Abilities\FeedbackAbilities;
 use SdAiAgent\Core\AbilityVisibility;
 use SdAiAgent\Core\BudgetManager;
 use SdAiAgent\Core\ChangeLogger;
+use SdAiAgent\Models\ActiveJobRepository;
 use SdAiAgent\Repositories\SkillUsageRepository;
 use SdAiAgent\Tools\ModelHealthTracker;
 use SdAiAgent\Tools\ToolDiscovery;
@@ -152,6 +153,20 @@ class AgentLoop {
 
 	/** @var int Session ID for change attribution (0 = no session). */
 	private int $session_id = 0;
+
+	/**
+	 * Active job UUID for heartbeat and shutdown-handler updates.
+	 *
+	 * Empty string when the loop is not running under a background job
+	 * (e.g. automations, CLI, or direct invocations). When set, each
+	 * loop iteration calls ActiveJobRepository::heartbeat() so the
+	 * hourly stale-job reaper can distinguish an actively-running job
+	 * from a zombie, and register_shutdown_function() marks the row as
+	 * 'interrupted' if the PHP process terminates before the loop completes.
+	 *
+	 * @var string
+	 */
+	private string $active_job_id = '';
 
 	/** @var int Maximum attempts for retryable provider failures. */
 	private int $provider_retry_max_attempts = self::PROVIDER_RETRY_MAX_ATTEMPTS;
@@ -312,6 +327,10 @@ class AgentLoop {
 		$this->tool_call_log = $options['tool_call_log'] ?? array();
 		// @phpstan-ignore-next-line
 		$this->session_id = (int) ( $options['session_id'] ?? 0 );
+		// Active job UUID for heartbeat and shutdown-handler updates.
+		// Empty string when the loop is not running under a background job.
+		// @phpstan-ignore-next-line
+		$this->active_job_id = (string) ( $options['active_job_id'] ?? '' );
 		// @phpstan-ignore-next-line -- Test/job callers may lower attempts or delays; production defaults remain 10 attempts.
 		$this->provider_retry_max_attempts = max( 1, (int) ( $options['provider_retry_max_attempts'] ?? self::PROVIDER_RETRY_MAX_ATTEMPTS ) );
 		// @phpstan-ignore-next-line -- Values are normalised below to non-negative integer seconds.
@@ -419,6 +438,29 @@ class AgentLoop {
 
 		// Ensure provider auth is available (critical for loopback requests).
 		ProviderCredentialLoader::load();
+
+		// Register a shutdown handler to mark the active-jobs row as
+		// 'interrupted' if the PHP request terminates before the loop
+		// completes (PHP fatal, FastCGI/nginx timeout, SIGKILL, OOM).
+		// Only registered when an active_job_id is set (background jobs).
+		// The handler is a no-op when the row is no longer 'processing'
+		// (i.e. the loop finished normally and updated the status first).
+		if ( '' !== $this->active_job_id ) {
+			$active_job_id_for_shutdown = $this->active_job_id;
+			register_shutdown_function(
+				static function () use ( $active_job_id_for_shutdown ): void {
+					$connection_status = connection_status();
+					if ( CONNECTION_ABORTED === $connection_status ) {
+						$reason = 'shutdown handler — client disconnected before loop completion';
+					} elseif ( CONNECTION_TIMEOUT === $connection_status ) {
+						$reason = 'shutdown handler — PHP request timed out before loop completion';
+					} else {
+						$reason = 'shutdown handler — request terminated without loop completion';
+					}
+					ActiveJobRepository::mark_interrupted( $active_job_id_for_shutdown, $reason );
+				}
+			);
+		}
 
 		// Append the new user message to history.
 		$this->history[] = new UserMessage( array( new MessagePart( $this->user_message ) ) );
@@ -578,6 +620,14 @@ class AgentLoop {
 		while ( $iterations > 0 ) {
 			--$iterations;
 			++$this->iterations_used;
+
+			// Heartbeat: advance updated_at so the hourly stale-job reaper
+			// can distinguish an actively-running loop from a zombie row.
+			// Skipped when not running under a background job (active_job_id
+			// empty) to avoid unnecessary DB writes from automations/CLI.
+			if ( '' !== $this->active_job_id ) {
+				ActiveJobRepository::heartbeat( $this->active_job_id );
+			}
 
 			// Wall-clock timeout check.
 			if ( microtime( true ) >= $deadline ) {

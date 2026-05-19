@@ -338,6 +338,54 @@ class ThemeBuilderAbilitiesTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * ActivateThemeAbility returns WP_Error when the theme declares a
+	 * WordPress version requirement that exceeds the running core version
+	 * (GH#1508). The stylesheet option must remain unchanged.
+	 */
+	public function test_activate_returns_wp_error_when_wp_version_requirement_unmet(): void {
+		$slug = $this->unique_slug( 'req-wp' );
+		$this->stage_minimal_theme( $slug, '99.9.9', '' );
+		wp_clean_themes_cache();
+
+		$ability  = new ActivateThemeAbility( 'sd-ai-agent/activate-theme' );
+		$previous = (string) get_stylesheet();
+
+		$result = $ability->run( [ 'stylesheet' => $slug ] );
+
+		$this->assertWPError( $result );
+		$this->assertSame( 'sd_ai_agent_theme_requirements_unmet', $result->get_error_code() );
+		$this->assertSame(
+			$previous,
+			(string) get_stylesheet(),
+			'stylesheet option must not change when WP version requirement is unmet'
+		);
+	}
+
+	/**
+	 * ActivateThemeAbility returns WP_Error when the theme declares a PHP
+	 * version requirement that exceeds the running PHP version (GH#1508).
+	 * The stylesheet option must remain unchanged.
+	 */
+	public function test_activate_returns_wp_error_when_php_version_requirement_unmet(): void {
+		$slug = $this->unique_slug( 'req-php' );
+		$this->stage_minimal_theme( $slug, '', '99.9.9' );
+		wp_clean_themes_cache();
+
+		$ability  = new ActivateThemeAbility( 'sd-ai-agent/activate-theme' );
+		$previous = (string) get_stylesheet();
+
+		$result = $ability->run( [ 'stylesheet' => $slug ] );
+
+		$this->assertWPError( $result );
+		$this->assertSame( 'sd_ai_agent_theme_requirements_unmet', $result->get_error_code() );
+		$this->assertSame(
+			$previous,
+			(string) get_stylesheet(),
+			'stylesheet option must not change when PHP version requirement is unmet'
+		);
+	}
+
+	/**
 	 * ActivateThemeAbility activates a previously-scaffolded theme and
 	 * reports both the previous and the new stylesheet.
 	 */
@@ -380,6 +428,42 @@ class ThemeBuilderAbilitiesTest extends WP_UnitTestCase {
 		$slug                  = 'sd-ai-test-' . $prefix . '-' . strtolower( wp_generate_password( 8, false ) );
 		$this->created_slugs[] = $slug;
 		return $slug;
+	}
+
+	/**
+	 * Stage a minimal theme on disk with the given version requirements so
+	 * ActivateThemeAbility tests can exercise the requirements-validation path
+	 * without going through ScaffoldBlockThemeAbility (GH#1508).
+	 *
+	 * The slug must already be registered with unique_slug() so tearDown()
+	 * removes the directory.
+	 *
+	 * @param string $slug         Theme directory name / stylesheet slug.
+	 * @param string $requires_wp  Value for "Requires at least:" header; '' to omit.
+	 * @param string $requires_php Value for "Requires PHP:" header; '' to omit.
+	 */
+	private function stage_minimal_theme( string $slug, string $requires_wp, string $requires_php ): void {
+		$theme_dir = trailingslashit( get_theme_root() ) . $slug;
+		wp_mkdir_p( $theme_dir . '/templates' );
+
+		$requires_wp_line  = '' !== $requires_wp  ? "Requires at least: {$requires_wp}\n" : '';
+		$requires_php_line = '' !== $requires_php ? "Requires PHP: {$requires_php}\n" : '';
+
+		file_put_contents(
+			$theme_dir . '/style.css',
+			"/*\n" .
+			"Theme Name: Test Requirements {$slug}\n" .
+			"Description: Staged by requirements validation test.\n" .
+			"Version: 1.0.0\n" .
+			$requires_wp_line .
+			$requires_php_line .
+			'*/'
+		);
+
+		// Block themes require templates/index.html to be considered structurally
+		// valid by WP_Theme::errors(). Without it the ability returns
+		// sd_ai_agent_theme_invalid before reaching validate_theme_requirements().
+		file_put_contents( $theme_dir . '/templates/index.html', '<!-- wp:paragraph --><p></p><!-- /wp:paragraph -->' );
 	}
 
 	/**

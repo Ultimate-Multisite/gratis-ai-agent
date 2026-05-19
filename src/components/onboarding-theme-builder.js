@@ -17,12 +17,16 @@ import ChatRedesign from './chat-redesign';
  * "Design a custom theme" in the onboarding mode picker.
  *
  * Calls POST /onboarding/theme-builder-start to:
- *  1. Mark onboarding as complete on the server.
- *  2. Create a new session and resolve the Theme Builder agent_id.
+ *  1. Create a new session and resolve the Theme Builder agent_id.
+ *  2. Return a `started_at` timestamp to indicate whether this is a fresh
+ *     start or a resume of an existing session.
  *
- * Once the session is ready the component selects the Theme Builder agent
- * and auto-sends a kickoff message. The agent's stored system prompt drives
- * the design-theme conversational flow — no parallel onboarding prompt exists.
+ * On first call (fresh start), the component selects the Theme Builder agent
+ * and auto-sends a kickoff message. On subsequent calls (resume), the component
+ * skips the kickoff to prevent duplicate messages on reload.
+ *
+ * The agent's stored system prompt drives the design-theme conversational flow
+ * — no parallel onboarding prompt exists.
  *
  * @return {JSX.Element} The onboarding theme-builder element.
  */
@@ -58,15 +62,20 @@ export default function OnboardingThemeBuilder() {
 
 				// Activate the theme-builder session in the store.
 				openSession( data.session_id )
-					.then( () =>
-						sendMessage(
-							data.kickoff_message ||
-								__(
-									"Hello! I'm ready to help you design a custom theme for your WordPress site. Let's start by discussing your vision — what style, colours, and feel are you aiming for?",
-									'superdav-ai-agent'
-								)
-						)
-					)
+					.then( () => {
+						// Only send the kickoff message on first call (fresh start).
+						// If started_at is set, this is a resume and we skip the kickoff
+						// to prevent duplicate messages on reload.
+						if ( ! data.started_at ) {
+							sendMessage(
+								data.kickoff_message ||
+									__(
+										"Hello! I'm ready to help you design a custom theme for your WordPress site. Let's start by discussing your vision — what style, colours, and feel are you aiming for?",
+										'superdav-ai-agent'
+									)
+							);
+						}
+					} )
 					.catch( () => {
 						// Non-fatal: user can continue manually from chat UI.
 					} );

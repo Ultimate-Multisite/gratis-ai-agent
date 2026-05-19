@@ -100,14 +100,18 @@ class ScaffoldBlockThemeAbility extends AbstractAbility {
 		return [
 			'type'       => 'object',
 			'properties' => [
-				'slug'        => [ 'type' => 'string' ],
-				'theme_dir'   => [ 'type' => 'string' ],
-				'stylesheet'  => [ 'type' => 'string' ],
-				'files'       => [
+				'slug'            => [ 'type' => 'string' ],
+				'theme_dir'       => [ 'type' => 'string' ],
+				'stylesheet'      => [ 'type' => 'string' ],
+				'files'           => [
 					'type'  => 'array',
 					'items' => [ 'type' => 'string' ],
 				],
-				'overwritten' => [ 'type' => 'boolean' ],
+				'overwritten'     => [ 'type' => 'boolean' ],
+				'version_coerced' => [
+					'type'        => 'boolean',
+					'description' => 'True when the supplied theme_json used a schema version older than 3 and was silently upgraded to version 3.',
+				],
 			],
 		];
 	}
@@ -184,6 +188,24 @@ class ScaffoldBlockThemeAbility extends AbstractAbility {
 			? $input['theme_json']
 			: self::default_theme_json();
 
+		// Server-side guardrail: coerce stale schema versions to v3.
+		// The plugin requires WordPress 7.0+ where theme.json version 3 is
+		// the standard format; normalise silently and log for transparency.
+		$version_coerced = false;
+		if ( isset( $theme_json['version'] ) && is_int( $theme_json['version'] ) && $theme_json['version'] < 3 ) {
+			$old_version           = $theme_json['version'];
+			$theme_json['version'] = 3;
+			$version_coerced       = true;
+			// phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- Intentional diagnostic log for schema-version coercion transparency (GH#1511).
+			error_log(
+				sprintf(
+					'ScaffoldBlockThemeAbility: theme.json version coerced from %d to 3 for theme "%s" — WordPress 7.0+ requires version 3.',
+					$old_version,
+					$slug
+				)
+			);
+		}
+
 		$encoded_theme_json = wp_json_encode( $theme_json, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES );
 		if ( false === $encoded_theme_json ) {
 			return new WP_Error(
@@ -231,11 +253,12 @@ class ScaffoldBlockThemeAbility extends AbstractAbility {
 		}
 
 		return [
-			'slug'        => $slug,
-			'theme_dir'   => $theme_dir,
-			'stylesheet'  => $slug,
-			'files'       => $written,
-			'overwritten' => $overwritten,
+			'slug'            => $slug,
+			'theme_dir'       => $theme_dir,
+			'stylesheet'      => $slug,
+			'files'           => $written,
+			'overwritten'     => $overwritten,
+			'version_coerced' => $version_coerced,
 		];
 	}
 

@@ -14,6 +14,7 @@ declare(strict_types=1);
 
 namespace SdAiAgent\Bootstrap;
 
+use SdAiAgent\Core\ActiveJobsCleanupService;
 use SdAiAgent\Core\OnboardingManager;
 use SdAiAgent\Core\Settings;
 use SdAiAgent\Core\SkillUpdateChecker;
@@ -57,6 +58,18 @@ final class OnboardingHandler {
 	#[Action( tag: SkillUpdateChecker::CRON_HOOK, priority: 10 )]
 	public function run_skill_update_check(): void {
 		SkillUpdateChecker::run();
+	}
+
+	/**
+	 * Run the hourly stale active-jobs reaper cron job.
+	 *
+	 * Scheduled as a recurring hourly event via {@see ActiveJobsCleanupService::schedule()}.
+	 * Marks rows as 'abandoned' when status='processing' and updated_at has
+	 * not advanced within the configured threshold (default 15 minutes).
+	 */
+	#[Action( tag: ActiveJobsCleanupService::CRON_HOOK, priority: 10 )]
+	public function run_active_jobs_cleanup(): void {
+		ActiveJobsCleanupService::run();
 	}
 
 	/**

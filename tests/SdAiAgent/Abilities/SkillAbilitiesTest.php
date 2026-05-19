@@ -368,6 +368,86 @@ class SkillAbilitiesTest extends WP_UnitTestCase {
 		];
 	}
 
+	// ─── Auto-Enable Rules (Regression Tests for Issue #1500) ──────────────────
+
+	/**
+	 * handle_skill_load respects auto-enable rules for theme-aware skills.
+	 *
+	 * Regression test for issue #1500: block-themes and classic-themes should
+	 * be loadable via the ability even when disabled in the DB, if the current
+	 * theme matches their auto-enable predicate.
+	 *
+	 * This test seeds built-ins, disables block-themes and classic-themes,
+	 * then verifies that handle_skill_load returns content (not skill_disabled)
+	 * when the active theme matches the skill's auto-enable rule.
+	 */
+	public function test_handle_skill_load_respects_theme_auto_enable(): void {
+		global $wpdb;
+
+		// Ensure built-in skills are seeded.
+		Skill::seed_builtins();
+
+		// Force block-themes and classic-themes to disabled so we test auto-enable.
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+		$wpdb->query( $wpdb->prepare( 'UPDATE ' . Skill::table_name() . " SET enabled = 0 WHERE slug IN (%s, %s)", 'block-themes', 'classic-themes' ) );
+
+		$is_block = function_exists( 'wp_is_block_theme' ) && wp_is_block_theme();
+
+		// On a block theme, block-themes should load successfully.
+		if ( $is_block ) {
+			$result = SkillAbilities::handle_skill_load( [ 'slug' => 'block-themes' ] );
+			$this->assertIsArray(
+				$result,
+				'block-themes should load on block themes even when disabled, got WP_Error: '
+				. ( is_wp_error( $result ) ? $result->get_error_message() : '' )
+			);
+			$this->assertArrayHasKey( 'content', $result );
+			$this->assertNotEmpty( $result['content'] );
+
+			// classic-themes should NOT load on block themes.
+			$result = SkillAbilities::handle_skill_load( [ 'slug' => 'classic-themes' ] );
+			$this->assertInstanceOf( \WP_Error::class, $result );
+			$this->assertStringContainsString( 'disabled', $result->get_error_message() );
+		} else {
+			// On a classic theme, classic-themes should load successfully.
+			$result = SkillAbilities::handle_skill_load( [ 'slug' => 'classic-themes' ] );
+			$this->assertIsArray(
+				$result,
+				'classic-themes should load on classic themes even when disabled, got WP_Error: '
+				. ( is_wp_error( $result ) ? $result->get_error_message() : '' )
+			);
+			$this->assertArrayHasKey( 'content', $result );
+			$this->assertNotEmpty( $result['content'] );
+
+			// block-themes should NOT load on classic themes.
+			$result = SkillAbilities::handle_skill_load( [ 'slug' => 'block-themes' ] );
+			$this->assertInstanceOf( \WP_Error::class, $result );
+			$this->assertStringContainsString( 'disabled', $result->get_error_message() );
+		}
+	}
+
+	/**
+	 * handle_skill_load still rejects truly disabled skills.
+	 *
+	 * Regression test for issue #1500: a skill that is disabled AND does not
+	 * match any auto-enable rule should still return skill_disabled.
+	 */
+	public function test_handle_skill_load_rejects_truly_disabled_skill(): void {
+		// Create a skill with no auto-enable rule and disabled=false.
+		Skill::create( [
+			'slug'        => 'truly-disabled-test',
+			'name'        => 'Truly Disabled Test',
+			'description' => 'A skill with no auto-enable rule',
+			'content'     => 'This skill is disabled',
+			'enabled'     => false,
+		] );
+
+		$result = SkillAbilities::handle_skill_load( [ 'slug' => 'truly-disabled-test' ] );
+
+		$this->assertInstanceOf( \WP_Error::class, $result );
+		$this->assertStringContainsString( 'disabled', $result->get_error_message() );
+	}
+
 	/**
 	 * Compute a keyword overlap score between a prompt and a description.
 	 *
