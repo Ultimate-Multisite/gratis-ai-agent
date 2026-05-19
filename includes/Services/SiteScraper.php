@@ -46,8 +46,7 @@ class SiteScraper {
 		$cache_key = $this->cache_key( $url, $max_pages, $target_pages, $extract_mode );
 		$cached    = get_transient( $cache_key );
 		if ( is_array( $cached ) ) {
-			$cached['cached'] = true;
-			return $cached;
+			return $this->normalize_cached_result( $cached );
 		}
 
 		if ( ! $this->is_allowed_by_robots( $url ) ) {
@@ -80,18 +79,23 @@ class SiteScraper {
 
 			$response = $this->fetch( $current );
 			if ( is_wp_error( $response ) ) {
-				$result['errors'][] = [
+				$errors           = is_array( $result['errors'] ) ? $result['errors'] : [];
+				$errors[]         = [
 					'url'     => $current,
 					'code'    => $response->get_error_code(),
 					'message' => $response->get_error_message(),
 				];
+				$result['errors'] = $errors;
 				continue;
 			}
 
-			$page              = $this->parse_page( $current, $response );
-			$result['pages'][] = $page;
-			$result            = $this->merge_extracted( $result, $this->extract_from_html( $current, $response, $page['text'] ) );
-			$pages_count       = count( $result['pages'] );
+			$page            = $this->parse_page( $current, $response );
+			$page_text       = is_string( $page['text'] ?? null ) ? $page['text'] : '';
+			$pages           = is_array( $result['pages'] ) ? $result['pages'] : [];
+			$pages[]         = $page;
+			$result['pages'] = $pages;
+			$result          = $this->merge_extracted( $result, $this->extract_from_html( $current, $response, $page_text ) );
+			$pages_count     = count( $pages );
 
 			if ( empty( $target_pages ) ) {
 				foreach ( $this->discover_links( $url, $response ) as $link ) {
@@ -144,7 +148,10 @@ class SiteScraper {
 			);
 		}
 
-		$content_type = (string) wp_remote_retrieve_header( $response, 'content-type' );
+		$content_type = wp_remote_retrieve_header( $response, 'content-type' );
+		if ( is_array( $content_type ) ) {
+			$content_type = implode( ',', array_filter( $content_type, 'is_string' ) );
+		}
 		if ( '' !== $content_type && ! str_contains( strtolower( $content_type ), 'html' ) ) {
 			return new WP_Error(
 				'sd_ai_agent_site_scrape_not_html',
@@ -225,7 +232,7 @@ class SiteScraper {
 		$applies  = false;
 		$disallow = [];
 		foreach ( preg_split( '/\R/', (string) wp_remote_retrieve_body( $response ) ) ?: [] as $line ) {
-			$line = trim( preg_replace( '/#.*/', '', $line ) );
+			$line = trim( (string) preg_replace( '/#.*/', '', $line ) );
 			if ( '' === $line || ! str_contains( $line, ':' ) ) {
 				continue;
 			}
@@ -291,7 +298,8 @@ class SiteScraper {
 				continue;
 			}
 			foreach ( $next[ $section ] as $key => $value ) {
-				if ( ( ! isset( $base[ $section ][ $key ] ) || null === $base[ $section ][ $key ] || '' === $base[ $section ][ $key ] ) && ! empty( $value ) ) {
+				$existing = $base[ $section ][ $key ] ?? null;
+				if ( ( null === $existing || '' === $existing ) && ! empty( $value ) ) {
 					$base[ $section ][ $key ] = $value;
 				}
 			}
@@ -356,20 +364,46 @@ class SiteScraper {
 		if ( isset( $decoded['@graph'] ) && is_array( $decoded['@graph'] ) ) {
 			foreach ( $decoded['@graph'] as $node ) {
 				if ( is_array( $node ) ) {
-					$nodes[] = $node;
+					$nodes[] = $this->string_keyed_array( $node );
 				}
 			}
 		} elseif ( array_is_list( $decoded ) ) {
 			foreach ( $decoded as $node ) {
 				if ( is_array( $node ) ) {
-					$nodes[] = $node;
+					$nodes[] = $this->string_keyed_array( $node );
 				}
 			}
 		} else {
-			$nodes[] = $decoded;
+			$nodes[] = $this->string_keyed_array( $decoded );
 		}
 
 		return $nodes;
+	}
+
+	/**
+	 * @param array<mixed> $node Raw associative array.
+	 * @return array<string,mixed>
+	 */
+	private function string_keyed_array( array $node ): array {
+		$result = [];
+		foreach ( $node as $key => $value ) {
+			$result[ (string) $key ] = $value;
+		}
+
+		return $result;
+	}
+
+	/**
+	 * @param array<mixed> $cached Cached transient payload.
+	 * @return array<string,mixed>
+	 */
+	private function normalize_cached_result( array $cached ): array {
+		$result           = $this->merge_extracted( $this->empty_result(), $cached );
+		$result['pages']  = isset( $cached['pages'] ) && is_array( $cached['pages'] ) ? $cached['pages'] : [];
+		$result['errors'] = isset( $cached['errors'] ) && is_array( $cached['errors'] ) ? $cached['errors'] : [];
+		$result['cached'] = true;
+
+		return $result;
 	}
 
 	/**

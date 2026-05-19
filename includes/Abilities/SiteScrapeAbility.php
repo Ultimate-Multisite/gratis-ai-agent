@@ -78,10 +78,25 @@ class SiteScrapeAbility extends AbstractAbility {
 	protected function execute_callback( $input ): array|WP_Error {
 		$url         = isset( $input['url'] ) ? (string) $input['url'] : '';
 		$max_pages   = isset( $input['max_pages'] ) ? (int) $input['max_pages'] : 10;
-		$target      = isset( $input['target_pages'] ) && is_array( $input['target_pages'] ) ? array_values( array_map( 'strval', $input['target_pages'] ) ) : [];
+		$target      = isset( $input['target_pages'] ) && is_array( $input['target_pages'] ) ? $this->string_list( $input['target_pages'] ) : [];
 		$preferences = isset( $input['extract_preferences'] ) ? (string) $input['extract_preferences'] : 'auto';
 
 		return ( new SiteScraper() )->scrape( $url, $max_pages, $target, $preferences );
+	}
+
+	/**
+	 * @param array<mixed> $values Raw values.
+	 * @return array<string>
+	 */
+	private function string_list( array $values ): array {
+		$list = [];
+		foreach ( $values as $value ) {
+			if ( is_scalar( $value ) ) {
+				$list[] = (string) $value;
+			}
+		}
+
+		return $list;
 	}
 
 	protected function permission_callback( $input ): bool {
