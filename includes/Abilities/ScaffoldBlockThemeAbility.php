@@ -112,6 +112,10 @@ class ScaffoldBlockThemeAbility extends AbstractAbility {
 					'type'        => 'boolean',
 					'description' => 'True when the supplied theme_json used a schema version older than 3 and was silently upgraded to version 3.',
 				],
+				'cta_warning'     => [
+					'type'        => 'boolean',
+					'description' => 'Always true: the scaffolded templates/front-page.html contains a placeholder CTA (href="#"). You MUST replace it with a real published page URL via the file-write ability before activating the theme.',
+				],
 			],
 		];
 	}
@@ -226,6 +230,13 @@ class ScaffoldBlockThemeAbility extends AbstractAbility {
 		// existing file-write ability with richer markup during Phase 4.
 		$files['templates/index.html'] = self::default_index_template();
 
+		// Front-page template with a hero section and a CTA button slot.
+		// The button link uses `href="#"` as a placeholder — the agent MUST
+		// replace it with a real published page URL before activating the theme
+		// (see the `cta_warning` output flag and the CTA rules in the agent
+		// system prompt).
+		$files['templates/front-page.html'] = self::default_front_page_template();
+
 		$written = [];
 		foreach ( $files as $relative => $contents ) {
 			$relative = ltrim( $relative, '/\\' );
@@ -259,6 +270,9 @@ class ScaffoldBlockThemeAbility extends AbstractAbility {
 			'files'           => $written,
 			'overwritten'     => $overwritten,
 			'version_coerced' => $version_coerced,
+			// Always true: the scaffold writes front-page.html with href="#"
+			// as a placeholder. The agent must replace it with a real URL.
+			'cta_warning'     => true,
 		];
 	}
 
@@ -411,6 +425,39 @@ class ScaffoldBlockThemeAbility extends AbstractAbility {
 	}
 
 	/**
+	 * Build the default front-page.html template.
+	 *
+	 * Produces a hero section with a cover block, heading, tagline paragraph,
+	 * and a primary CTA button. The button `href` is intentionally set to `#`
+	 * as a placeholder — the agent MUST replace it with the URL of a real
+	 * published page before activating the theme (signalled by `cta_warning`
+	 * in the execute_callback return value).
+	 *
+	 * @return string templates/front-page.html contents.
+	 */
+	private static function default_front_page_template(): string {
+		return "<!-- wp:template-part {\"slug\":\"header\",\"tagName\":\"header\"} /-->\n\n" .
+			"<!-- wp:cover {\"dimRatio\":50,\"isDark\":false,\"style\":{\"spacing\":{\"padding\":{\"top\":\"var:preset|spacing|80\",\"bottom\":\"var:preset|spacing|80\"}}}} -->\n" .
+			'<div class="wp-block-cover is-light" style="padding-top:var(--wp--preset--spacing--80);padding-bottom:var(--wp--preset--spacing--80)">' .
+			'<span aria-hidden="true" class="wp-block-cover__background has-background-dim"></span>' .
+			"<div class=\"wp-block-cover__inner-container\">\n" .
+			"\t<!-- wp:heading {\"level\":1,\"textAlign\":\"center\"} -->\n" .
+			"\t<h1 class=\"wp-block-heading has-text-align-center\">Welcome</h1>\n" .
+			"\t<!-- /wp:heading -->\n\n" .
+			"\t<!-- wp:paragraph {\"align\":\"center\"} -->\n" .
+			"\t<p class=\"has-text-align-center\">Tell visitors what makes you special.</p>\n" .
+			"\t<!-- /wp:paragraph -->\n\n" .
+			"\t<!-- wp:buttons {\"layout\":{\"type\":\"flex\",\"justifyContent\":\"center\"},\"style\":{\"spacing\":{\"margin\":{\"top\":\"var:preset|spacing|50\"}}}} -->\n" .
+			"\t<div class=\"wp-block-buttons\" style=\"margin-top:var(--wp--preset--spacing--50)\"><!-- wp:button -->\n" .
+			"\t<div class=\"wp-block-button\"><a class=\"wp-block-button__link wp-element-button\" href=\"#\">Call to action</a></div>\n" .
+			"\t<!-- /wp:button --></div>\n" .
+			"\t<!-- /wp:buttons -->\n" .
+			"</div></div>\n" .
+			"<!-- /wp:cover -->\n\n" .
+			"<!-- wp:template-part {\"slug\":\"footer\",\"tagName\":\"footer\"} /-->\n";
+	}
+
+	/**
 	 * Build the minimal default theme.json document.
 	 *
 	 * @return array<string,mixed> theme.json structure.
@@ -467,6 +514,41 @@ class ScaffoldBlockThemeAbility extends AbstractAbility {
 				],
 			],
 		];
+	}
+
+	/**
+	 * Check whether a rendered front-page HTML contains a real CTA button.
+	 *
+	 * A CTA is considered "real" when there is at least one element with the
+	 * `wp-block-button__link` class whose `href` attribute is present and is
+	 * neither empty nor the bare placeholder `#`.
+	 *
+	 * Mirrors the acceptance-criteria CSS selector:
+	 * `.wp-block-button__link[href]:not([href="#"])`
+	 *
+	 * @param string $html HTML to inspect (rendered front-page or template source).
+	 * @return bool True when a real CTA link is found; false when missing or placeholder.
+	 */
+	public static function validate_front_page_has_cta( string $html ): bool {
+		// Find every anchor tag that carries the wp-block-button__link class.
+		if ( ! preg_match_all(
+			'/<a\b[^>]*\bwp-block-button__link\b[^>]*>/i',
+			$html,
+			$matches
+		) ) {
+			return false;
+		}
+
+		foreach ( $matches[0] as $tag ) {
+			if ( preg_match( '/\bhref="([^"]*)"/', $tag, $href ) ) {
+				$url = trim( $href[1] );
+				if ( '' !== $url && '#' !== $url ) {
+					return true;
+				}
+			}
+		}
+
+		return false;
 	}
 
 	/**

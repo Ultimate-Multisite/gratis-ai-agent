@@ -192,6 +192,151 @@ class ScaffoldBlockThemeAbilityTest extends WP_UnitTestCase {
 		$this->assertFalse( $result['version_coerced'], 'version_coerced must be false when theme_json was omitted (default path).' );
 	}
 
+	// ── front-page CTA ───────────────────────────────────────────────────
+
+	/**
+	 * The scaffold must write templates/front-page.html and include it in
+	 * the returned files list.
+	 */
+	public function test_scaffold_writes_front_page_template(): void {
+		$slug    = $this->unique_slug( 'fp-written' );
+		$ability = new ScaffoldBlockThemeAbility( 'sd-ai-agent/scaffold-block-theme' );
+
+		$result = $ability->run( [ 'slug' => $slug, 'name' => 'FP Written Theme' ] );
+
+		$this->assertIsArray( $result, is_wp_error( $result ) ? $result->get_error_message() : '' );
+		$this->assertContains(
+			'templates/front-page.html',
+			$result['files'],
+			'scaffold files list must include templates/front-page.html'
+		);
+
+		$theme_dir = trailingslashit( get_theme_root() ) . $slug;
+		$this->assertFileExists( $theme_dir . '/templates/front-page.html', 'templates/front-page.html must exist on disk after scaffold.' );
+	}
+
+	/**
+	 * The scaffolded front-page.html must include a wp:button block slot so
+	 * the agent can fill in the real CTA URL via file-write.
+	 *
+	 * This is the primary regression test for GH#1525.
+	 */
+	public function test_scaffold_front_page_has_button_block_slot(): void {
+		$slug    = $this->unique_slug( 'fp-slot' );
+		$ability = new ScaffoldBlockThemeAbility( 'sd-ai-agent/scaffold-block-theme' );
+
+		$result = $ability->run( [ 'slug' => $slug, 'name' => 'FP Slot Theme' ] );
+
+		$this->assertIsArray( $result, is_wp_error( $result ) ? $result->get_error_message() : '' );
+
+		$theme_dir  = trailingslashit( get_theme_root() ) . $slug;
+		$front_page = (string) file_get_contents( $theme_dir . '/templates/front-page.html' );
+
+		$this->assertStringContainsString(
+			'<!-- wp:button',
+			$front_page,
+			'Scaffold front-page.html must include a wp:button block slot for the hero CTA.'
+		);
+		$this->assertStringContainsString(
+			'wp-block-button__link',
+			$front_page,
+			'Scaffold front-page.html must contain an anchor with wp-block-button__link class.'
+		);
+	}
+
+	/**
+	 * The scaffold must return cta_warning=true to signal the agent that the
+	 * front-page hero CTA is a placeholder that requires replacement.
+	 */
+	public function test_scaffold_returns_cta_warning_true(): void {
+		$slug    = $this->unique_slug( 'cta-warning' );
+		$ability = new ScaffoldBlockThemeAbility( 'sd-ai-agent/scaffold-block-theme' );
+
+		$result = $ability->run( [ 'slug' => $slug, 'name' => 'CTA Warning Theme' ] );
+
+		$this->assertIsArray( $result, is_wp_error( $result ) ? $result->get_error_message() : '' );
+		$this->assertTrue(
+			$result['cta_warning'],
+			'cta_warning must be true for a freshly scaffolded theme whose front-page CTA is still a placeholder.'
+		);
+	}
+
+	/**
+	 * validate_front_page_has_cta() must return false when the only button
+	 * link present uses the placeholder href="#".
+	 */
+	public function test_validate_front_page_cta_false_for_placeholder_href(): void {
+		$html = '<div class="wp-block-button">'
+			. '<a class="wp-block-button__link wp-element-button" href="#">Call to action</a>'
+			. '</div>';
+
+		$this->assertFalse(
+			ScaffoldBlockThemeAbility::validate_front_page_has_cta( $html ),
+			'validate_front_page_has_cta() must return false when href="#" (placeholder).'
+		);
+	}
+
+	/**
+	 * validate_front_page_has_cta() must return false when the only button
+	 * link has an empty href.
+	 */
+	public function test_validate_front_page_cta_false_for_empty_href(): void {
+		$html = '<div class="wp-block-button">'
+			. '<a class="wp-block-button__link wp-element-button" href="">Order now</a>'
+			. '</div>';
+
+		$this->assertFalse(
+			ScaffoldBlockThemeAbility::validate_front_page_has_cta( $html ),
+			'validate_front_page_has_cta() must return false when href is empty.'
+		);
+	}
+
+	/**
+	 * validate_front_page_has_cta() must return true when the button link
+	 * has a real page URL.
+	 */
+	public function test_validate_front_page_cta_true_for_real_link(): void {
+		$html = '<div class="wp-block-button">'
+			. '<a class="wp-block-button__link wp-element-button" href="/menu/">View menu</a>'
+			. '</div>';
+
+		$this->assertTrue(
+			ScaffoldBlockThemeAbility::validate_front_page_has_cta( $html ),
+			'validate_front_page_has_cta() must return true for a real page URL.'
+		);
+	}
+
+	/**
+	 * validate_front_page_has_cta() must return false when there is no
+	 * button link in the HTML at all.
+	 */
+	public function test_validate_front_page_cta_false_when_no_button(): void {
+		$html = '<h1>Welcome</h1><p>Tell visitors what makes you special.</p>';
+
+		$this->assertFalse(
+			ScaffoldBlockThemeAbility::validate_front_page_has_cta( $html ),
+			'validate_front_page_has_cta() must return false when no button is present.'
+		);
+	}
+
+	/**
+	 * validate_front_page_has_cta() must return true when multiple buttons
+	 * are present and at least one has a real URL.
+	 */
+	public function test_validate_front_page_cta_true_when_one_of_many_is_real(): void {
+		$html = '<div class="wp-block-button">'
+			. '<a class="wp-block-button__link wp-element-button" href="#">Placeholder</a>'
+			. '</div>'
+			. '<div class="wp-block-button">'
+			. '<a class="wp-block-button__link wp-element-button" href="/shop/">Shop now</a>'
+			. '</div>';
+
+		$this->assertTrue(
+			ScaffoldBlockThemeAbility::validate_front_page_has_cta( $html ),
+			'validate_front_page_has_cta() must return true when at least one button link is real.'
+		);
+	}
+
 	// ── Helpers ───────────────────────────────────────────────────────────
 
 	/**
