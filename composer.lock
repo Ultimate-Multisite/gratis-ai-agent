@@ -4,7 +4,7 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "119297fe735db1d2cce9165f148b2487",
+    "content-hash": "242b978223e4f00cd5c7b2111944e857",
     "packages": [
         {
             "name": "automattic/jetpack-autoloader",
@@ -600,16 +600,16 @@
         },
         {
             "name": "x-wp/di",
-            "version": "dev-fix/rest-context-plain-permalink-support",
+            "version": "dev-fix/v2-rest-context-plain-permalink-support",
             "source": {
                 "type": "git",
                 "url": "https://github.com/superdav42/di.git",
-                "reference": "64b5fcf01ca96ecc7e3362a0c21e4ba031115c86"
+                "reference": "b07dab9320ffc0d94d1a93a8d008347d69e16cdb"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/superdav42/di/zipball/64b5fcf01ca96ecc7e3362a0c21e4ba031115c86",
-                "reference": "64b5fcf01ca96ecc7e3362a0c21e4ba031115c86",
+                "url": "https://api.github.com/repos/superdav42/di/zipball/b07dab9320ffc0d94d1a93a8d008347d69e16cdb",
+                "reference": "b07dab9320ffc0d94d1a93a8d008347d69e16cdb",
                 "shasum": ""
             },
             "require": {
@@ -627,7 +627,6 @@
                 "x-wp/di-implementation": "self.version"
             },
             "require-dev": {
-                "automattic/jetpack-autoloader": "*",
                 "oblak/wordpress-coding-standard": "^1.1",
                 "php-stubs/woocommerce-stubs": "^9.5",
                 "php-stubs/wordpress-stubs": "^6.6",
@@ -638,8 +637,7 @@
                 "symfony/polyfill-php82": "^1.31",
                 "symfony/var-dumper": "^5.4",
                 "szepeviktor/phpstan-wordpress": "^1.3",
-                "wp-cli/wp-cli": "^2.11",
-                "x-wp/whoops": "^1.1"
+                "wp-cli/wp-cli": "^2.11"
             },
             "suggest": {
                 "automattic/jetpack-autoloader": "Allow for better interoperability with other plugins that use this package."
@@ -650,7 +648,7 @@
                     "XWP\\DI\\": "src/"
                 },
                 "classmap": [
-                    "src/Core/"
+                    "src/Global/"
                 ],
                 "files": [
                     "src/Functions/xwp-di-container-fns.php",
@@ -658,7 +656,12 @@
                 ]
             },
             "autoload-dev": {
-                "XWP\\DI\\T\\": "tests/fixtures/shared/"
+                "psr-4": {
+                    "XWP\\DIT\\": "test/fixtures/shared"
+                },
+                "classmap": [
+                    "test/fixtures/shared/App_Module.php"
+                ]
             },
             "license": [
                 "GPL-2.0-only"
@@ -679,10 +682,10 @@
                 "wordpress"
             ],
             "support": {
-                "issues": "https://github.com/x-wp/di/issues",
-                "source": "https://github.com/superdav42/di/tree/fix/rest-context-plain-permalink-support"
+                "issues": "https://github.com/x-wp/hook-manager/issues",
+                "source": "https://github.com/superdav42/di/tree/fix/v2-rest-context-plain-permalink-support"
             },
-            "time": "2026-04-21T01:40:03+00:00"
+            "time": "2026-05-19T04:57:34+00:00"
         },
         {
             "name": "x-wp/helper-classes",
@@ -3586,9 +3589,9 @@
     "aliases": [
         {
             "package": "x-wp/di",
-            "version": "dev-fix/rest-context-plain-permalink-support",
-            "alias": "1.9.99",
-            "alias_normalized": "1.9.99.0"
+            "version": "dev-fix/v2-rest-context-plain-permalink-support",
+            "alias": "2.0.99",
+            "alias_normalized": "2.0.99.0"
         }
     ],
     "minimum-stability": "stable",

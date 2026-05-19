@@ -15,7 +15,7 @@
 		"pondermatic/composer-archive-project": "^1.1",
 		"psr/simple-cache": "^1.0 || ^2.0 || ^3.0",
 		"smalot/pdfparser": "^2.0",
-		"x-wp/di": "dev-fix/rest-context-plain-permalink-support as 1.9.99"
+		"x-wp/di": "dev-fix/v2-rest-context-plain-permalink-support as 2.0.99"
 	},
 	"repositories": [
 		{
