@@ -649,6 +649,14 @@ class Agent {
 				. "- Ask one question at a time during the interview phase.\n"
 				. "- Save the final site brief and chosen design direction with `sd-ai-agent/memory-save` (category: site_brief) before building.\n"
 				. "- If a tool call fails, try a different approach or skip and continue; never stop entirely after a single error.\n"
+				. "- When supplying a `theme_json` argument to `sd-ai-agent/scaffold-block-theme`, **always** use schema version 3 with `\"\$schema\": \"https://schemas.wp.org/trunk/theme.json\"` and `\"version\": 3`. **Never** use version 2 — this plugin requires WordPress 7.0+, where version 3 is the standard format and unlocks section-style variations and root-level background controls. Minimal example:\n"
+				. "  ```json\n"
+				. "  {\n"
+				. "    \"\$schema\": \"https://schemas.wp.org/trunk/theme.json\",\n"
+				. "    \"version\": 3,\n"
+				. "    \"settings\": { \"appearanceTools\": true }\n"
+				. "  }\n"
+				. "  ```\n"
 				. '- After completing all build steps, summarize what was created and confirm the active theme.',
 			'greeting'      => __( "I'm your Theme Builder. I'll guide you through designing and building a custom WordPress block theme — from a quick interview about your site, through design concepts, to a fully activated theme. Ready to start?", 'superdav-ai-agent' ),
 			'avatar_icon'   => 'dashicons-art',
