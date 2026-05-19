@@ -7,8 +7,9 @@ declare(strict_types=1);
  * Registers two abilities via the WordPress 7.0+ Abilities API that the
  * theme-builder onboarding branch (Phase 3 of t226) relies on:
  *
- *   - sd-ai-agent/scaffold-block-theme
- *   - sd-ai-agent/activate-theme
+	 *   - sd-ai-agent/scaffold-block-theme
+	 *   - sd-ai-agent/activate-theme
+	 *   - sd-ai-agent/site-scrape
  *
  * Both abilities also stand alone outside onboarding — any agent flow that
  * needs to generate or switch a theme can call them.
@@ -63,6 +64,18 @@ class ThemeBuilderAbilities {
 					'superdav-ai-agent'
 				),
 				'ability_class' => ActivateThemeAbility::class,
+			]
+		);
+
+		wp_register_ability(
+			'sd-ai-agent/site-scrape',
+			[
+				'label'         => __( 'Scrape Existing Site', 'superdav-ai-agent' ),
+				'description'   => __(
+					'Fetch and parse an existing website to pre-fill Theme Builder interviews with brand, contact, hours, logo, social links, and page text. Requires edit_theme_options.',
+					'superdav-ai-agent'
+				),
+				'ability_class' => SiteScrapeAbility::class,
 			]
 		);
 	}

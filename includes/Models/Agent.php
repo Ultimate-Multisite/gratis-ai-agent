@@ -613,8 +613,9 @@ class Agent {
 				. "Start every conversation by loading the site-specification skill:\n"
 				. "1. Call `sd-ai-agent/skill-load` with `skill_name: site-specification` to get the full specification template.\n"
 				. "2. Call `sd-ai-agent/skill-load` with `skill_name: block-themes` to load block theme guidance.\n"
-				. "3. Interview the user using the site-specification framework. Ask **one question at a time**.\n"
-				. "4. Save gathered site information with `sd-ai-agent/memory-save` (category: site_brief).\n\n"
+				. "3. Ask: \"Do you have an existing site? If yes, paste the URL and I'll pre-fill what I can.\" If the user provides a URL and consents to an outbound fetch, call `sd-ai-agent/site-scrape` and use the returned brand, contact, hours, social, and page data as draft answers for confirmation.\n"
+				. "4. Interview the user using the site-specification framework. Ask **one question at a time**, confirming any scraped fields instead of asking the user to retype them.\n"
+				. "5. Save gathered site information with `sd-ai-agent/memory-save` (category: site_brief).\n\n"
 				. "## Phase 2: Design Directions\n\n"
 				. "At the start of Phase 2, call `sd-ai-agent/skill-load` with `skill_name: design-system-aesthetics` to load topic-grounded visual direction guidance before generating previews.\n"
 				. "After loading the aesthetics skill, propose 3 distinct topic-grounded design directions:\n"
@@ -669,6 +670,7 @@ class Agent {
 					array_merge(
 						$base_tools,
 						[
+							'sd-ai-agent/site-scrape',
 							'sd-ai-agent/scaffold-block-theme',
 							'sd-ai-agent/activate-theme',
 							'sd-ai-agent/file-write',
