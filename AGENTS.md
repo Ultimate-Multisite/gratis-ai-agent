@@ -76,6 +76,64 @@ professional, issue-by-issue format:
 - **Pre-commit**: Husky + lint-staged runs lint fixes on staged files
 - **Dev environment**: `npx wp-env start` (WordPress 7.0 via `.wp-env.json`) — dev site at http://localhost:8890, test site at http://localhost:8893
 
+## Worker Self-Verification Protocol
+
+**Applies to every headless dispatched worker** (auto-dispatch, pulse, manual `headless-runtime-helper.sh run`). Interactive maintainer sessions must also satisfy steps 1–4 before pushing.
+
+**Hard gate — do NOT open a PR until ALL of the following succeed locally on your worktree branch:**
+
+1. **Full PHPUnit suite passes**
+
+   ```bash
+   npm run test:php
+   ```
+
+   The final summary line MUST read `Tests: <N>, Assertions: <M>, ... Errors: 0, Failures: 0` (Skipped > 0 is acceptable). A filtered run (`--filter ClassName`) is NOT sufficient — your change may break a test in a different file. Run the full suite.
+
+2. **Lint passes**
+
+   ```bash
+   npm run lint:php
+   npm run lint:js
+   npm run lint:css
+   ```
+
+3. **Static analysis passes**
+
+   ```bash
+   composer phpstan
+   ```
+
+4. **Build succeeds**
+
+   ```bash
+   npm run build
+   ```
+
+5. **Paste the test summary in the PR body** under a `## Worker self-verification` heading, in this exact format:
+
+   ```text
+   ## Worker self-verification
+   - PHPUnit: Tests: 2281, Assertions: 6157, Errors: 0, Failures: 0, Skipped: 104
+   - Lint:    PHP/JS/CSS all clean
+   - PHPStan: 0 errors
+   - Build:   succeeded
+   ```
+
+   Reviewers and auto-merge gates read this block to verify you ran the suite. Missing or stale summary = PR is treated as unverified and will be rejected by auto-merge.
+
+**Failure modes that have shipped to PRs and been reverted (do NOT repeat):**
+
+- Adding new tests, running ONLY those tests (or only the filtered class), and opening the PR while the full suite has errors — see PR #1537, PR #1538 (both closed). The worker added tests, the tests failed against the worker's own implementation, and CI caught it. Fix the implementation; do not paper over by deleting/skipping the test.
+- Treating PR CI as the verification step. CI is the **second** gate. The worker self-verification block above is the **first** gate. Workers that rely on CI burn API budget, block other workers, and waste reviewer time.
+- Reporting "tests pass" without the actual summary line. The summary is the evidence; "tests pass" is intent.
+
+**If verification fails:**
+
+- Fix the implementation until step 1 is genuinely clean.
+- If a pre-existing failure is unrelated to your change, file a separate issue, link it in the PR body, and proceed only if the failure was already failing on `main` (provide proof — `git stash && npm run test:php` on `main`).
+- Never `--filter` past failures, never delete failing tests, never mark them skipped without a linked tracking issue and explicit user approval.
+
 ## Code Style & Architecture
 
 ### PHP (PSR-4 + PHP 8.2+)
