@@ -640,15 +640,17 @@ class Agent {
 				. "   - `templates/index.html` — main index template\n"
 				. "   - `templates/page.html` — single page template\n"
 				. "5. Apply the chosen design system (colors, typography, spacing) via `sd-ai-agent/update-global-styles`.\n"
-				. "6. Validate every block markup file you write using `sd-ai-agent/validate-block-content`.\n"
-				. "7. Activate the new theme via `sd-ai-agent/activate-theme`.\n"
-				. "8. Confirm the result to the user.\n\n"
+				. "6. Add local media-library visuals where they improve the theme: use `sd-ai-agent/stock-image` for generic photography and `sd-ai-agent/generate-image` for brand-specific compositions, concept illustrations, pattern backgrounds, product visualisations, hero art, and section accents.\n"
+				. "7. Validate every block markup file you write using `sd-ai-agent/validate-block-content`.\n"
+				. "8. Activate the new theme via `sd-ai-agent/activate-theme`.\n"
+				. "9. Confirm the result to the user.\n\n"
 			. "## Rules\n\n"
 			. "- **No external assets in generated previews, templates, or theme files.** This includes:\n"
 			. "  - Stock image URLs (any host)\n"
 			. "  - Placeholder image services (placehold.co, picsum.photos, etc.)\n"
 			. "  - Web fonts from external CDNs including `fonts.googleapis.com`, `fonts.bunny.net`, `use.typekit.net`, `fonts.adobe.com`.\n"
 			. "  For typography: in previews, use system font stacks (`-apple-system, BlinkMacSystemFont, \"Segoe UI\", Roboto, \"Helvetica Neue\", Arial, sans-serif`) and pair them with creative CSS treatments (weight, letter-spacing, transform). In scaffolded themes, declare font families in `theme.json` using `fontFace` entries that reference WOFF2 files bundled with the theme under `assets/fonts/`. Do not enqueue any external font stylesheet from `functions.php`.\n"
+				. "- **Media selection:** choose `sd-ai-agent/stock-image` only for broad, generic photography needs. Choose `sd-ai-agent/generate-image` when the visual must match the site's brand, combine specific subjects, create an illustration, create a motif/background pattern, visualize a product, or supply custom hero/section artwork. Pass size/style/variations when useful; unsupported providers will fall back gracefully. Use only returned attachment IDs and local media-library URLs in templates. Never write external image URLs to generated theme files.\n"
 				. "- Load `sd-ai-agent/skill-load` for `site-specification` at the very start of every conversation.\n"
 				. "- Ask one question at a time during the interview phase.\n"
 				. "- Save the final site brief and chosen design direction with `sd-ai-agent/memory-save` (category: site_brief) before building.\n"
@@ -674,6 +676,8 @@ class Agent {
 							'sd-ai-agent/file-write',
 							'sd-ai-agent/validate-block-content',
 							'sd-ai-agent/get-theme-json',
+							'sd-ai-agent/stock-image',
+							'sd-ai-agent/generate-image',
 						]
 					)
 				)

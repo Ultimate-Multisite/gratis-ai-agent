@@ -200,6 +200,8 @@ class AgentThemeBuilderTest extends WP_UnitTestCase {
 			'sd-ai-agent/activate-theme',
 			'sd-ai-agent/file-write',
 			'sd-ai-agent/validate-block-content',
+			'sd-ai-agent/stock-image',
+			'sd-ai-agent/generate-image',
 			'sd-ai-agent/memory-save',
 			'sd-ai-agent/skill-load',
 			'sd-ai-agent/get-theme-json',
@@ -277,6 +279,21 @@ class AgentThemeBuilderTest extends WP_UnitTestCase {
 			'stock image',
 			strtolower( $prompt ),
 			'system_prompt must include the no-stock-images rule'
+		);
+		$this->assertStringContainsString(
+			'generic photography',
+			strtolower( $prompt ),
+			'system_prompt must teach when stock imagery is appropriate'
+		);
+		$this->assertStringContainsString(
+			'brand-specific',
+			strtolower( $prompt ),
+			'system_prompt must teach when generated imagery is appropriate'
+		);
+		$this->assertStringContainsString(
+			'local media-library urls',
+			strtolower( $prompt ),
+			'system_prompt must require local media URLs for generated themes'
 		);
 	}
 }
