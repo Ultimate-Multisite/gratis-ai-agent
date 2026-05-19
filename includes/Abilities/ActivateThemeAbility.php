@@ -110,6 +110,23 @@ class ActivateThemeAbility extends AbstractAbility {
 			);
 		}
 
+		// Validate WordPress and PHP version requirements declared in the
+		// theme's style.css before calling switch_theme(). Without this gate,
+		// switch_theme() silently updates the option but WordPress's
+		// validate_current_theme() reverts it on the next page load, leaving
+		// the AgentLoop hanging on the activate-theme tool call with no error
+		// surfaced to the user (GH#1508).
+		//
+		// validate_theme_requirements() has been in core since WP 5.5 and is
+		// always present on the plugin's supported range (WP 7.0+).
+		$requirements_check = validate_theme_requirements( $stylesheet );
+		if ( is_wp_error( $requirements_check ) ) {
+			return new WP_Error(
+				'sd_ai_agent_theme_requirements_unmet',
+				$requirements_check->get_error_message()
+			);
+		}
+
 		$previous_stylesheet = (string) get_stylesheet();
 		$previous_template   = (string) get_template();
 
