@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.14.0] - 2026-05-19
+
+### Added
+
+- Settings → Advanced control to restart the Setup Assistant onboarding flow (#1502, #1506, GH#1505)
+
+### Changed
+
+- Onboarding v2 cleanup: removed the wizard, new installations route directly to the Setup Assistant agent (#1503)
+
+### Fixed
+
+- `ScaffoldBlockThemeAbility` now coerces any caller-supplied `theme_json` with `version < 3` to version 3; Theme Builder agent system prompt updated to emit version 3 by default (GH#1511, #1515)
+- `ActivateThemeAbility` validates WordPress and PHP version requirements before calling `switch_theme()` to prevent activating incompatible themes (GH#1508, #1514)
+- `AgentLoop` request handler now clears the active-job row on abnormal termination, preventing zombie rows that block subsequent runs (GH#1510, #1516)
+- Default model is validated against registered providers on save; an invalid saved default no longer causes a fatal during model selection (GH#1494, #1499)
+- Edit & Resend always re-dispatches on Send click, fixing a regression where the second click in the editor was silently swallowed (GH#1495, #1498)
+- HTTP trace decoder preserves `tool_use.input` as a JSON object across the cache round-trip rather than double-encoding it as a string (#1493)
+- Feedback-triage routine (r020) SOP updated to match the actual API schema; systemd launcher wired and r010 alias retired (#1486, #1501)
+- Reasoning-model capability check now uses the resolved model ID instead of the raw preference string, fixing false negatives for aliased model names (#1484)
+- Trace LIFO stack is correctly maintained across concurrent requests; regression tests added (#1480)
+
+## [1.13.0] - 2026-05-16
+
 ### Removed
 
 - Site Builder mode and all related plumbing (`SiteBuilderAbilities`,
@@ -30,6 +54,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   install from an upgrade. Upgrades of installs that already have memories
   or chat sessions are flagged as onboarded so the bootstrap discovery UI
   never opens on plugin update.
+- Provider list is now single-sourced from the WP AI Client SDK registry,
+  removing the redundant `Settings::DIRECT_PROVIDERS` constant (#1473)
+
+### Added
+
+- Per-model `max_output_tokens` read directly from the provider `/models`
+  endpoint, keeping limits accurate without manual updates (#1471)
+- `meta.ai.usage_instructions` wired into Tier-1 and Tier-2 model context
+  for more guideline-compliant responses (#1470)
+- Model preamble text streams live alongside tool calls so real-time
+  feedback is visible during multi-step tasks (#1464)
+- Structured trace channel via WordPress AI Client SDK `before`/`after`
+  generate events for reliable, SDK-aligned LLM request tracing (#1459)
+
+### Fixed
+
+- Trace LIFO correlation fixed and PHPCS alignment corrected (#1467)
+- SDK event trace logger aligned with real PHP AI Client DTO API (#1466)
+- Agent loop correctly detects preamble-only truncations; synthetic model
+  capabilities prevent false truncation detection (#1463)
+- Temperature parameter is no longer sent to OpenAI reasoning models
+  (o-series), preventing API errors on those endpoints (#1474)
+- Tracing now captures all active LLM providers (#1457)
+- WP_Ability polyfill loads after WordPress core bootstrap, fixing
+  activation errors on some environments (#1454)
+- WP_Ability class declaration guarded to prevent fatal errors when the
+  class is already defined (#1453)
+- `.eslintignore` excluded from the WordPress.org plugin zip (#1462)
 
 ## [1.12.0] - 2026-05-15
 

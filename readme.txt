@@ -4,7 +4,7 @@ Tags: ai, chatbot, assistant, automation, tools
 Requires at least: 6.9
 Tested up to: 7.0
 Requires PHP: 8.2
-Stable tag: 1.13.0
+Stable tag: 1.14.0
 License: GPL-2.0-or-later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -207,6 +207,19 @@ Yes, the plugin works on both single-site and multisite WordPress installations.
 8. Settings page with 12 configuration tabs
 
 == Changelog ==
+
+= 1.14.0 - Released on 2026-05-19 =
+* New: Settings → Advanced panel now includes a "Restart Setup Assistant" button so users can re-run onboarding at any time
+* Improved: Onboarding v2 cleanup — wizard removed, new installs route directly to the Setup Assistant agent
+* Fix: Theme Builder now always generates theme.json with schema version 3; server-side guardrail coerces any version < 3 supplied by the model to 3
+* Fix: Activate Theme ability validates WordPress and PHP version requirements before switching, preventing incompatible theme activation
+* Fix: Zombie active-job rows are cleared when an AgentLoop request terminates abnormally, unblocking subsequent agent runs
+* Fix: Default model validated against registered providers on save, preventing a fatal during model selection after a provider is removed
+* Fix: Edit & Resend always dispatches on Send click; second-click-ignored regression is resolved
+* Fix: HTTP trace cache round-trip preserves tool_use.input as a JSON object (no double-encoding)
+* Fix: Feedback-triage routine (r020) SOP and API schema aligned; systemd launcher wired
+* Fix: Reasoning-model capability check uses resolved model ID, fixing false negatives for aliased models
+* Fix: Trace LIFO stack maintained correctly across concurrent requests
 
 = 1.13.0 - Released on 2026-05-16 =
 * New: Per-model output token limits are now read directly from the provider's /models endpoint, keeping limits accurate without manual updates
