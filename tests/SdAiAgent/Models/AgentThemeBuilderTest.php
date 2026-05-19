@@ -279,4 +279,140 @@ class AgentThemeBuilderTest extends WP_UnitTestCase {
 			'system_prompt must include the no-stock-images rule'
 		);
 	}
+
+	// ─── Real-content principle (issue #1526) ────────────────────────────────
+
+	/**
+	 * The system_prompt encodes the "real content or no content" principle
+	 * required by issue #1526.
+	 */
+	public function test_system_prompt_encodes_real_content_principle(): void {
+		Agent::seed_defaults();
+
+		$agent = Agent::get_by_slug( self::SLUG );
+		$this->assertNotNull( $agent );
+
+		$prompt_lower = strtolower( $agent->system_prompt );
+
+		// The top-level principle heading must be present.
+		$this->assertStringContainsString(
+			'real content or no content',
+			$prompt_lower,
+			'system_prompt must encode the "real content or no content" principle'
+		);
+		// The stub-prevention rule must be explicit.
+		$this->assertStringContainsString(
+			'never publish a stub',
+			$prompt_lower,
+			'system_prompt must include the "never publish a stub" rule'
+		);
+	}
+
+	/**
+	 * The system_prompt explicitly bans placeholder strings that must never
+	 * appear in generated pages (issue #1526 acceptance criterion).
+	 */
+	public function test_system_prompt_bans_placeholder_strings(): void {
+		Agent::seed_defaults();
+
+		$agent = Agent::get_by_slug( self::SLUG );
+		$this->assertNotNull( $agent );
+
+		$prompt = $agent->system_prompt;
+
+		// The Rules section must name the banned strings so the model
+		// knows exactly what NOT to output.
+		$banned_phrases = [
+			'Lorem ipsum',
+			'Replace this',
+			'Edit this',
+			'Add your',
+		];
+
+		foreach ( $banned_phrases as $phrase ) {
+			$this->assertStringContainsString(
+				$phrase,
+				$prompt,
+				sprintf(
+					'system_prompt must explicitly ban the placeholder string "%s"',
+					$phrase
+				)
+			);
+		}
+	}
+
+	/**
+	 * The system_prompt includes the page-creation prerequisite self-check
+	 * required by issue #1526 section 2.
+	 */
+	public function test_system_prompt_encodes_page_creation_prerequisite_check(): void {
+		Agent::seed_defaults();
+
+		$agent = Agent::get_by_slug( self::SLUG );
+		$this->assertNotNull( $agent );
+
+		$prompt_lower = strtolower( $agent->system_prompt );
+
+		// The prerequisite check section must be present.
+		$this->assertStringContainsString(
+			'prerequisite check',
+			$prompt_lower,
+			'system_prompt must include a page-creation prerequisite check section'
+		);
+		// The check must be linked to create-post calls.
+		$this->assertStringContainsString(
+			'create-post',
+			$agent->system_prompt,
+			'page-creation prerequisite check must reference create-post'
+		);
+		// No draft stubs.
+		$this->assertStringContainsString(
+			'draft stubs',
+			$prompt_lower,
+			'system_prompt must forbid draft stubs'
+		);
+	}
+
+	/**
+	 * The system_prompt is vertical-aware: it includes question packs for
+	 * the major verticals named in issue #1526 (café/restaurant, retail/shop,
+	 * service business, portfolio, blog, event venue).
+	 */
+	public function test_system_prompt_is_vertical_aware(): void {
+		Agent::seed_defaults();
+
+		$agent = Agent::get_by_slug( self::SLUG );
+		$this->assertNotNull( $agent );
+
+		$prompt_lower = strtolower( $agent->system_prompt );
+
+		// Each key vertical type must appear in the interview question pack.
+		$verticals = [
+			'café',
+			'restaurant',
+			'retail',
+			'service business',
+			'portfolio',
+			'blog',
+			'event venue',
+		];
+
+		foreach ( $verticals as $vertical ) {
+			$this->assertStringContainsString(
+				$vertical,
+				$prompt_lower,
+				sprintf(
+					'system_prompt must include interview questions for the "%s" vertical',
+					$vertical
+				)
+			);
+		}
+
+		// The interview expansion label must be present.
+		$this->assertStringContainsString(
+			'vertical-aware',
+			$prompt_lower,
+			'system_prompt must describe itself as vertical-aware in Phase 1'
+		);
+	}
 }

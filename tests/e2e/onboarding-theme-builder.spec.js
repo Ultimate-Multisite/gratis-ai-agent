@@ -308,7 +308,55 @@ test.describe.serial( 'Theme-builder onboarding flow (Onboarding v2)', () => {
 		expect( messageRowsAfter ).toBe( messageRowsBefore );
 	} );
 
-	// ── Test 3: build instruction → DONE reply → theme on disk ────────────
+	// ── Test 3: no published pages contain placeholder strings ───────────
+
+	test( 'no published page on the site contains placeholder copy (Lorem ipsum, Edit this, Replace this, Add your)', async () => {
+		// Query all published pages via the REST API and assert none of them
+		// contain placeholder strings. This test is intentionally cheap: it
+		// checks the current site state regardless of which agent created the
+		// pages. If the theme builder shipped placeholder copy in any previous
+		// run, this test will catch it.
+		const placeholderStrings = [ 'Lorem', 'Edit this', 'Replace this', 'Add your' ];
+
+		const pages = await page.evaluate( async () => {
+			const root =
+				( window.wpApiSettings && window.wpApiSettings.root ) ||
+				'/wp-json/';
+			const nonce =
+				( window.wpApiSettings && window.wpApiSettings.nonce ) || '';
+			try {
+				const resp = await fetch(
+					root +
+						'wp/v2/pages?status=publish&per_page=100&_fields=id,title,content',
+					{ headers: { 'X-WP-Nonce': nonce } }
+				);
+				return resp.ok ? resp.json() : [];
+			} catch {
+				return [];
+			}
+		} );
+
+		// No pages means no violations — that is the correct state.
+		if ( ! Array.isArray( pages ) || pages.length === 0 ) {
+			return;
+		}
+
+		for ( const wpPage of pages ) {
+			const title = ( wpPage.title && wpPage.title.rendered ) || '';
+			const content =
+				( wpPage.content && wpPage.content.rendered ) || '';
+			const combined = title + ' ' + content;
+
+			for ( const banned of placeholderStrings ) {
+				expect(
+					combined,
+					`Page ID ${ wpPage.id } ("${ title }") must not contain placeholder string "${ banned }"`
+				).not.toContain( banned );
+			}
+		}
+	} );
+
+	// ── Test 4: build instruction → DONE reply → theme on disk ────────────
 
 	test( 'sending the build instruction results in DONE reply and an active theme on disk', async () => {
 		// Send the single-call deterministic build instruction.
