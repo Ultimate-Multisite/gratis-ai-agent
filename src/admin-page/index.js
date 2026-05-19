@@ -10,6 +10,7 @@ import {
 	Suspense,
 } from '@wordpress/element';
 import { useDispatch, useSelect } from '@wordpress/data';
+import apiFetch from '@wordpress/api-fetch';
 
 /**
  * Internal dependencies
@@ -26,21 +27,16 @@ import './style.css';
 
 // These components are rendered only in specific, uncommon states:
 //  - ConnectorGate          → zero providers configured (first install)
-//  - OnboardingWizard       → provider exists but onboarding not yet done (once per site)
-//  - OnboardingBootstrap    → user chose "explore" in the mode picker
-//  - OnboardingThemeBuilder → user chose "theme-builder" in the mode picker
+//  - OnboardingBootstrap    → first install, site already has content
+//                             (drops the user straight into the Setup Assistant agent)
+//  - OnboardingThemeBuilder → first install, site has no content yet
+//                             (drops the user straight into the Theme Builder agent)
 //  - ShortcutsHelp          → user presses Mod+/ (explicitly intentional)
 // None of them appear during a normal chat session, so they are lazy-loaded.
 const ConnectorGate = lazy( () =>
 	import(
 		/* webpackChunkName: "connector-gate", webpackPrefetch: true */
 		'../components/connector-gate'
-	)
-);
-const OnboardingWizard = lazy( () =>
-	import(
-		/* webpackChunkName: "onboarding-wizard", webpackPrefetch: true */
-		'../components/onboarding-wizard'
 	)
 );
 const OnboardingBootstrap = lazy( () =>
@@ -65,18 +61,22 @@ const ShortcutsHelp = lazy( () =>
 /**
  * Root admin page application component.
  *
- * Implements a three-state onboarding flow:
+ * Implements the Onboarding v2 flow (see todo/PLANS.md "Onboarding v2: Gate
+ * + AI-Driven Discovery"). The legacy multi-step wizard is gone — the AI
+ * agent drives discovery conversationally.
  *
  * 1. **Connector gate** — shown when no AI provider is configured. The user
  *    is directed to the WordPress Connectors page. The gate polls every 5 s
  *    so it disappears automatically once a provider becomes available.
  *
- * 2. **Onboarding wizard** — shown when a provider exists but onboarding has
- *    not yet completed. Guides the user through provider selection and a
- *    mode picker:
- *    - 'explore'       → OnboardingBootstrap (existing site exploration)
- *    - 'theme-builder' → OnboardingThemeBuilder (custom theme design)
- *    - 'skip'          → ChatRedesign directly (wizard marks onboarding done)
+ * 2. **First-run agent** — shown when a provider exists but onboarding has
+ *    not yet completed. A single heuristic picks the right bootstrapper:
+ *      - site has published content  → OnboardingBootstrap (Setup Assistant
+ *        agent: explores the existing site and introduces itself).
+ *      - site has no content yet     → OnboardingThemeBuilder (Theme Builder
+ *        agent: helps design and scaffold a custom block theme).
+ *    Both bootstrappers POST to their server endpoint, which flips
+ *    `onboarding_complete` to true and opens an agent session.
  *
  * 3. After onboarding completes the full redesigned chat layout is shown.
  *
@@ -84,13 +84,15 @@ const ShortcutsHelp = lazy( () =>
  */
 function AdminPageApp() {
 	/**
-	 * The onboarding mode chosen by the user in the wizard.
-	 * null            = wizard not yet completed.
-	 * 'explore'       = mount OnboardingBootstrap.
-	 * 'theme-builder' = mount OnboardingThemeBuilder.
-	 * 'skip'          = wizard already marked onboarding done; fall through.
+	 * Tracks whether the site has any published content yet. Used to pick the
+	 * default first-run agent: empty install → Theme Builder; otherwise →
+	 * Setup Assistant. `null` means the heuristic probe is still in flight.
+	 *
+	 * Probe target: GET /wp/v2/posts?per_page=1&status=publish.
+	 * The probe is fired lazily — only when we actually need to show one of
+	 * the bootstrappers — so existing installs pay no probe cost.
 	 */
-	const [ onboardingMode, setOnboardingMode ] = useState( null );
+	const [ siteHasContent, setSiteHasContent ] = useState( null );
 
 	const {
 		fetchProviders,
@@ -158,6 +160,31 @@ function AdminPageApp() {
 			);
 	}, [ providersLoaded, fetchProviders ] );
 
+	// First-run content probe.
+	//
+	// When we are about to mount one of the onboarding bootstrappers, probe
+	// /wp/v2/posts once to decide which agent to drop the user into. Fired
+	// lazily — existing installs (onboarding already complete) never call it.
+	const onboardingComplete = settings?.onboarding_complete !== false;
+	useEffect( () => {
+		if ( ! settingsLoaded || onboardingComplete ) {
+			return;
+		}
+		if ( siteHasContent !== null ) {
+			return;
+		}
+		apiFetch( { path: '/wp/v2/posts?per_page=1&status=publish' } )
+			.then( ( posts ) => {
+				setSiteHasContent( Array.isArray( posts ) && posts.length > 0 );
+			} )
+			.catch( () => {
+				// Probe failed (e.g., REST blocked, network error): treat
+				// the site as having content so we land on the Setup
+				// Assistant (the safer default for an unknown state).
+				setSiteHasContent( true );
+			} );
+	}, [ settingsLoaded, onboardingComplete, siteHasContent ] );
+
 	// Keyboard shortcuts.
 	const shortcuts = useMemo(
 		() => ( {
@@ -208,19 +235,22 @@ function AdminPageApp() {
 	}
 
 	// Phase 2 gate: connector exists but onboarding not yet complete.
-	const onboardingComplete = settings?.onboarding_complete !== false;
+	//
+	// Onboarding v2 — no wizard, no mode picker. We pick a bootstrapper
+	// based on whether the site has any published content yet:
+	//   - empty install → OnboardingThemeBuilder (Theme Builder agent)
+	//   - has content   → OnboardingBootstrap    (Setup Assistant agent)
+	// Both bootstrappers POST to a `*-start` endpoint that flips
+	// `onboarding_complete` to true and opens an agent session.
 	if ( ! onboardingComplete ) {
-		// No mode chosen yet → show the onboarding wizard.
-		if ( onboardingMode === null ) {
-			return (
-				<Suspense fallback={ null }>
-					<OnboardingWizard onComplete={ setOnboardingMode } />
-				</Suspense>
-			);
+		// Heuristic probe still in flight — render nothing until we know
+		// which bootstrapper to mount. The probe is one REST call (~50 ms
+		// on a warm install).
+		if ( siteHasContent === null ) {
+			return null;
 		}
 
-		// Mode chosen: mount the appropriate bootstrapper.
-		if ( onboardingMode === 'theme-builder' ) {
+		if ( siteHasContent === false ) {
 			return (
 				<Suspense fallback={ null }>
 					<OnboardingThemeBuilder />
@@ -228,17 +258,11 @@ function AdminPageApp() {
 			);
 		}
 
-		if ( onboardingMode === 'explore' ) {
-			return (
-				<Suspense fallback={ null }>
-					<OnboardingBootstrap />
-				</Suspense>
-			);
-		}
-
-		// 'skip' mode: the wizard saved onboarding_complete=true, so the
-		// store settings will update and re-render with onboardingComplete=true.
-		// Fall through to ChatRedesign as a synchronous safety net.
+		return (
+			<Suspense fallback={ null }>
+				<OnboardingBootstrap />
+			</Suspense>
+		);
 	}
 
 	// Normal chat layout — redesigned shell.

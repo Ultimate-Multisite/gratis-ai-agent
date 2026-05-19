@@ -1,26 +1,28 @@
 /**
- * E2E spec: theme-builder onboarding flow (t226c-3e / issue #1401)
+ * E2E spec: theme-builder onboarding flow (Onboarding v2)
  *
- * Phase 3 finale of #1373. Drives the onboarding wizard through the
- * "Design a custom theme" branch end-to-end:
+ * Drives the AI-driven onboarding "Design a custom theme" path end-to-end:
  *
- *  1. Mode-picker renders three option buttons.
- *  2. "Design a custom theme" is pre-selected on a fresh (empty-content) install.
- *  3. Selecting it and finishing the wizard mounts ChatRedesign.
- *  4. The theme-builder agent opens with at least one chat message visible.
- *  5. A deterministic build instruction receives a "DONE" reply.
- *  6. Theme files exist on disk and the theme is the active stylesheet.
+ *  1. With a provider configured, onboarding_complete=false, and the site
+ *     reporting an empty published-content set, AdminPageApp mounts
+ *     OnboardingThemeBuilder directly (no wizard, no mode-picker).
+ *  2. The theme-builder agent opens with at least one chat message visible
+ *     (the auto-sent kickoff).
+ *  3. A deterministic build instruction receives a "DONE" reply.
+ *  4. Theme files exist on disk and the theme is the active stylesheet.
  *
  * Uses test.describe.serial because all steps share browser state (the chat
- * session opened in step 3 is reused in steps 4–6).
+ * session opened in step 1 is reused in steps 2–4).
  *
  * Stable mocks used:
- *  - GET /wp/v2/posts (fresh-install heuristic probe) → [] so the wizard
- *    auto-selects "Design a custom theme" regardless of existing CI posts.
- *  - GET /sd-ai-agent/v1/woocommerce/status → {active:false} for instant step.
+ *  - GET /wp/v2/posts (empty-content heuristic probe) → [] so the gate routes
+ *    to OnboardingThemeBuilder regardless of any CI posts already present.
  *
- * The agent's job flow (POST /run �� job polling → DONE reply, scaffold-block-theme
+ * The agent's job flow (POST /run → job polling → DONE reply, scaffold-block-theme
  * and activate-theme abilities) uses the real backend with generous timeouts.
+ *
+ * Replaces the legacy wizard-driven flow that was removed in the Onboarding v2
+ * cleanup (see todo/PLANS.md "Onboarding v2: Gate + AI-Driven Discovery").
  *
  * Closes #1385.   Ref #1373.
  *
@@ -121,37 +123,29 @@ function wpCliRmdir( wpContentRelPath ) {
 // ---------------------------------------------------------------------------
 
 /**
- * Navigate to the admin agent page and wait for OnboardingWizard to render.
+ * Navigate to the admin agent page and wait for the chat UI to render.
  *
- * The wizard mounts inside .sdaa-wizard once AdminPageApp determines that
- * onboarding_complete=false and the providers list is available.
+ * AdminPageApp probes /wp/v2/posts once, then mounts OnboardingThemeBuilder
+ * (empty install) → ChatRedesign. We wait for .sdaa-cr (the redesign root)
+ * which is the synchronous render output of OnboardingThemeBuilder.
  *
  * @param {import('@playwright/test').Page} page - Playwright page.
  */
 async function goToAgentPageForOnboarding( page ) {
 	await page.goto( '/wp-admin/admin.php?page=sd-ai-agent' );
 	await page.waitForLoadState( 'domcontentloaded' );
-	// Allow up to 45 s �� AdminPageApp fetches settings and providers before
-	// rendering, and the SPA bundle itself takes time on CI runners.
+	// Allow up to 45 s — AdminPageApp fetches settings/providers and the
+	// SPA bundle itself takes time on CI runners.
 	await page
-		.locator( '.sdaa-wizard' )
+		.locator( '.sdaa-cr' )
 		.waitFor( { state: 'visible', timeout: 45_000 } );
-}
-
-/**
- * Click the "Next" button in the wizard footer.
- *
- * @param {import('@playwright/test').Page} page - Playwright page.
- */
-async function wizardNext( page ) {
-	await page.getByRole( 'button', { name: /^Next$/ } ).click();
 }
 
 // ---------------------------------------------------------------------------
 // Serial describe block
 // ---------------------------------------------------------------------------
 
-test.describe.serial( 'Theme-builder onboarding flow (t226c-3e)', () => {
+test.describe.serial( 'Theme-builder onboarding flow (Onboarding v2)', () => {
 	/**
 	 * Shared browser page — all tests in this serial suite reuse the same
 	 * page so the browser session (cookies, React state) persists across steps.
@@ -193,11 +187,12 @@ test.describe.serial( 'Theme-builder onboarding flow (t226c-3e)', () => {
 			)
 			.catch( () => {} );
 
-		// 4. Reset onboarding state via REST so AdminPageApp shows the wizard:
+		// 4. Reset onboarding state via REST so AdminPageApp routes to the
+		//    bootstrapper:
 		//    a) POST /onboarding/rescan clears OnboardingManager's WP options
 		//       (COMPLETE_OPTION and BOOTSTRAP_SESSION_OPTION).
 		//    b) POST /settings sets onboarding_complete=false in the Settings
-		//       store so AdminPageApp's gate evaluates to "wizard needed".
+		//       store so AdminPageApp's gate evaluates to "bootstrapper needed".
 		await page.evaluate( async () => {
 			const root =
 				( window.wpApiSettings && window.wpApiSettings.root ) ||
@@ -226,24 +221,10 @@ test.describe.serial( 'Theme-builder onboarding flow (t226c-3e)', () => {
 		// 6. Delete any leftover e2e-test-theme directory from a prior run.
 		//    Non-fatal: the build instruction uses overwrite=true as a safety net.
 		wpCliRmdir( '/themes/e2e-test-theme' );
-	} );
 
-	test.afterAll( async () => {
-		// Restore the previously-active theme.
-		wpCli( `eval "switch_theme( '${ previousTheme }' );"` );
-
-		// Remove the test theme directory created during the test.
-		wpCliRmdir( '/themes/e2e-test-theme' );
-
-		await page?.close();
-	} );
-
-	// ── Test 1: mode-picker UI ────────────────────────────────────────────
-
-	test( 'mode-picker shows three option buttons', async () => {
-		// Intercept the wizard's fresh-install heuristic probe so it always
-		// sees an empty-content site — regardless of any posts the CI setup
-		// step created.  The probe fires once, on step 2 mount.
+		// 7. Mock the empty-content heuristic probe so the gate routes to
+		//    OnboardingThemeBuilder regardless of any CI posts already present.
+		//    The probe fires once, on first render after settings load.
 		await page.route(
 			( url ) => {
 				const decoded = decodeURIComponent( url.toString() );
@@ -261,110 +242,32 @@ test.describe.serial( 'Theme-builder onboarding flow (t226c-3e)', () => {
 				} );
 			}
 		);
+	} );
 
-		// Mock WooCommerce status (step 4) so we don't wait for a real fetch.
-		await page.route(
-			( url ) =>
-				decodeURIComponent( url.toString() ).includes(
-					'sd-ai-agent/v1/woocommerce/status'
-				),
-			async ( route ) => {
-				await route.fulfill( {
-					status: 200,
-					contentType: 'application/json',
-					body: JSON.stringify( { active: false } ),
-				} );
-			}
-		);
+	test.afterAll( async () => {
+		// Restore the previously-active theme.
+		wpCli( `eval "switch_theme( '${ previousTheme }' );"` );
 
-		// Navigate to the agent page — should render the wizard.
+		// Remove the test theme directory created during the test.
+		wpCliRmdir( '/themes/e2e-test-theme' );
+
+		await page?.close();
+	} );
+
+	// ── Test 1: ChatRedesign mounts via the empty-install route ───────────
+
+	test( 'fresh install with no published content mounts ChatRedesign directly via OnboardingThemeBuilder', async () => {
+		// Navigate to the agent page — AdminPageApp should:
+		//   1. Load settings → see onboarding_complete=false.
+		//   2. Fire the /wp/v2/posts probe → mocked to [].
+		//   3. Mount OnboardingThemeBuilder → renders ChatRedesign (.sdaa-cr).
 		await goToAgentPageForOnboarding( page );
 
-		// Step 0 → 1: Welcome → Set Up AI Provider.
-		await wizardNext( page );
-
-		// Step 1 → 2: Set Up AI Provider → Choose Your Start.
-		await wizardNext( page );
-
-		// The mode-picker container must be visible.
-		const options = page.locator(
-			'.sd-ai-agent-onboarding-mode-picker__options'
-		);
-		await expect( options ).toBeVisible();
-
-		// Exactly three mode-option buttons must be present.
-		const buttons = options.locator(
-			'.sd-ai-agent-onboarding-mode-picker__button'
-		);
-		await expect( buttons ).toHaveCount( 3 );
-
-		// All three expected mode titles must appear.
-		const titles = options.locator(
-			'.sd-ai-agent-onboarding-mode-picker__button-title'
-		);
-		await expect( titles.nth( 0 ) ).toContainText(
-			'Explore my existing site'
-		);
-		await expect( titles.nth( 1 ) ).toContainText(
-			'Design a custom theme'
-		);
-		await expect( titles.nth( 2 ) ).toContainText( 'Skip — just chat' );
-	} );
-
-	// ── Test 2: default selection on fresh install ────────────────────────
-
-	test( '"Design a custom theme" is pre-selected on a fresh install', async () => {
-		// On an empty-content install the wizard sets onboardingMode to
-		// 'theme-builder'. The selected button receives the --selected modifier.
-		// Allow up to 10 s for the async heuristic fetch to resolve.
-		const selectedBtn = page.locator(
-			'.sd-ai-agent-onboarding-mode-picker__button--selected'
-		);
-		await expect( selectedBtn ).toBeVisible( { timeout: 10_000 } );
-		await expect( selectedBtn ).toContainText( 'Design a custom theme' );
-	} );
-
-	// ── Test 3: chat panel mounts ─────────────────────────────────────────
-
-	test( 'selecting "Design a custom theme" and finishing the wizard mounts ChatRedesign', async () => {
-		// Click the theme-builder option.
-		// The click handler calls setOnboardingMode('theme-builder') AND
-		// setStep(step + 1), so no separate "Next" is needed for step 2.
-		await page
-			.locator( '.sd-ai-agent-onboarding-mode-picker__button' )
-			.filter( { hasText: 'Design a custom theme' } )
-			.click();
-
-		// Step 3: Abilities — wait for the step to render, then advance.
-		await page
-			.locator( '.sdaa-wizard-header h2' )
-			.filter( { hasText: 'Abilities' } )
-			.waitFor( { state: 'visible', timeout: 5_000 } );
-		await wizardNext( page );
-
-		// Step 4: WooCommerce — wait for the step to render, then advance.
-		await page
-			.locator( '.sdaa-wizard-header h2' )
-			.filter( { hasText: 'WooCommerce' } )
-			.waitFor( { state: 'visible', timeout: 5_000 } );
-		await wizardNext( page );
-
-		// Step 5: All Set! — click "Start Chatting" to finish the wizard.
-		await page
-			.locator( '.sdaa-wizard-header h2' )
-			.filter( { hasText: 'All Set' } )
-			.waitFor( { state: 'visible', timeout: 5_000 } );
-		await page.getByRole( 'button', { name: 'Start Chatting' } ).click();
-
-		// OnboardingThemeBuilder renders ChatRedesign.
-		// Wait for the ChatRedesign root (.sdaa-cr) to become visible.
-		await page
-			.locator( '.sdaa-cr' )
-			.waitFor( { state: 'visible', timeout: 30_000 } );
+		// The chat shell must be visible — no wizard, no mode-picker.
 		await expect( getChatPanel( page ) ).toBeVisible();
 	} );
 
-	// ── Test 4: greeting visible ──────────────────────────────────────────
+	// ── Test 2: greeting visible ──────────────────────────────────────────
 
 	test( 'theme-builder chat session opens and the kickoff message is visible', async () => {
 		// OnboardingThemeBuilder auto-sends a kickoff message (sendMessage()).
@@ -377,7 +280,7 @@ test.describe.serial( 'Theme-builder onboarding flow (t226c-3e)', () => {
 			.waitFor( { state: 'visible', timeout: 45_000 } );
 	} );
 
-	// ── Test 5: build instruction → DONE reply �� theme on disk ───────────
+	// ── Test 3: build instruction → DONE reply → theme on disk ────────────
 
 	test( 'sending the build instruction results in DONE reply and an active theme on disk', async () => {
 		// Send the single-call deterministic build instruction.
