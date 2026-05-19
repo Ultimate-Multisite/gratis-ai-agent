@@ -176,11 +176,68 @@ class OnboardingManagerThemeBuilderTest extends WP_UnitTestCase {
 		$this->assertArrayHasKey( 'session_id', $data );
 		$this->assertArrayHasKey( 'agent_id', $data );
 		$this->assertArrayHasKey( 'kickoff_message', $data );
+		// is_fresh_start is the authoritative kickoff signal (see #1522).
+		$this->assertArrayHasKey( 'is_fresh_start', $data );
+		$this->assertIsBool( $data['is_fresh_start'] );
 
 		// Should NOT have these bootstrap-specific keys.
 		$this->assertArrayNotHasKey( 'onboarding_complete', $data );
 		$this->assertArrayNotHasKey( 'woo_detected', $data );
 		$this->assertArrayNotHasKey( 'already_complete', $data );
+	}
+
+	// ── is_fresh_start regression coverage (#1522) ────────────────────────
+
+	/**
+	 * rest_theme_builder_start() returns is_fresh_start=true on the very
+	 * first call so the React component auto-sends the kickoff message.
+	 *
+	 * Regression coverage for #1522 — the pre-fix code returned
+	 * `started_at => time()` on this branch which the React component
+	 * interpreted as "resume" (truthy), so kickoff never fired on fresh
+	 * installs.
+	 */
+	public function test_rest_theme_builder_start_returns_is_fresh_start_true_on_first_call(): void {
+		$admin_id = self::factory()->user->create( [ 'role' => 'administrator' ] );
+		wp_set_current_user( $admin_id );
+
+		$response = OnboardingManager::rest_theme_builder_start();
+		$data     = $response->get_data();
+
+		$this->assertTrue(
+			$data['is_fresh_start'],
+			'First call must report is_fresh_start=true so the React component fires the kickoff.'
+		);
+	}
+
+	/**
+	 * rest_theme_builder_start() returns is_fresh_start=false on subsequent
+	 * calls so reloads do NOT re-fire the kickoff message.
+	 *
+	 * This is the original #1509 protection — the regression in #1522 was
+	 * that BOTH calls returned a truthy resume signal. With is_fresh_start
+	 * the first call is distinguishable from later calls.
+	 */
+	public function test_rest_theme_builder_start_returns_is_fresh_start_false_on_resume(): void {
+		$admin_id = self::factory()->user->create( [ 'role' => 'administrator' ] );
+		wp_set_current_user( $admin_id );
+
+		// First call: fresh start.
+		$first_response = OnboardingManager::rest_theme_builder_start();
+		$first_data     = $first_response->get_data();
+		$this->assertTrue( $first_data['is_fresh_start'] );
+
+		// Second call: resume (same session, kickoff must NOT fire).
+		$second_response = OnboardingManager::rest_theme_builder_start();
+		$second_data     = $second_response->get_data();
+
+		$this->assertFalse(
+			$second_data['is_fresh_start'],
+			'Subsequent calls must report is_fresh_start=false so the React component skips the kickoff.'
+		);
+
+		// Both calls share the same session — sanity check.
+		$this->assertSame( $first_data['session_id'], $second_data['session_id'] );
 	}
 
 	/**

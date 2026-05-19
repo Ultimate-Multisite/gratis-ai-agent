@@ -18,12 +18,16 @@ import ChatRedesign from './chat-redesign';
  *
  * Calls POST /onboarding/theme-builder-start to:
  *  1. Create a new session and resolve the Theme Builder agent_id.
- *  2. Return a `started_at` timestamp to indicate whether this is a fresh
- *     start or a resume of an existing session.
+ *  2. Return an `is_fresh_start` boolean indicating whether the server just
+ *     created the session (true) or returned an existing one for resume
+ *     (false). This is the authoritative signal — the `started_at`
+ *     timestamp is also returned but MUST NOT be used to drive kickoff
+ *     because both branches return a truthy timestamp (see #1522).
  *
- * On first call (fresh start), the component selects the Theme Builder agent
- * and auto-sends a kickoff message. On subsequent calls (resume), the component
- * skips the kickoff to prevent duplicate messages on reload.
+ * On first call (is_fresh_start=true), the component selects the Theme Builder
+ * agent and auto-sends a kickoff message. On subsequent calls (is_fresh_start
+ * =false), the component skips the kickoff to prevent duplicate messages on
+ * reload.
  *
  * The agent's stored system prompt drives the design-theme conversational flow
  * — no parallel onboarding prompt exists.
@@ -63,10 +67,13 @@ export default function OnboardingThemeBuilder() {
 				// Activate the theme-builder session in the store.
 				openSession( data.session_id )
 					.then( () => {
-						// Only send the kickoff message on first call (fresh start).
-						// If started_at is set, this is a resume and we skip the kickoff
-						// to prevent duplicate messages on reload.
-						if ( ! data.started_at ) {
+						// Only send the kickoff message on a genuine fresh start.
+						// `is_fresh_start` is true only when the server just
+						// created the session; on every resume it is false, so
+						// reloads never re-fire the kickoff. See #1522 — the
+						// pre-fix code keyed off `started_at`, which is truthy
+						// on both branches, so kickoff never fired.
+						if ( data.is_fresh_start ) {
 							sendMessage(
 								data.kickoff_message ||
 									__(

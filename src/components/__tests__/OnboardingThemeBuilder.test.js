@@ -126,11 +126,12 @@ describe( 'OnboardingThemeBuilder', () => {
 		expect( openSessionMock ).toHaveBeenCalledWith( 99 );
 	} );
 
-	test( 'sends the kickoff message after session opens', async () => {
+	test( 'sends the kickoff message after session opens (fresh start)', async () => {
 		apiFetch.mockResolvedValue( {
 			session_id: 42,
 			agent_id: 7,
 			kickoff_message: 'Hello from theme-builder kickoff',
+			is_fresh_start: true,
 		} );
 		await renderThemeBuilder();
 		expect( sendMessageMock ).toHaveBeenCalledWith(
@@ -153,12 +154,53 @@ describe( 'OnboardingThemeBuilder', () => {
 			session_id: 42,
 			agent_id: 7,
 			kickoff_message: null,
+			is_fresh_start: true,
 		} );
 		await renderThemeBuilder();
 		const [ msg ] = sendMessageMock.mock.calls[ 0 ];
 		// Should contain a non-empty fallback string.
 		expect( msg ).toBeTruthy();
 		expect( typeof msg ).toBe( 'string' );
+	} );
+
+	// ── is_fresh_start regression coverage (#1522) ──────────────────────────
+
+	test( 'sends the kickoff when is_fresh_start is true', async () => {
+		apiFetch.mockResolvedValue( {
+			session_id: 42,
+			agent_id: 7,
+			kickoff_message: 'Hi from kickoff',
+			is_fresh_start: true,
+		} );
+		await renderThemeBuilder();
+		expect( sendMessageMock ).toHaveBeenCalledWith( 'Hi from kickoff' );
+	} );
+
+	test( 'does NOT send the kickoff when is_fresh_start is false (resume)', async () => {
+		apiFetch.mockResolvedValue( {
+			session_id: 42,
+			agent_id: 7,
+			kickoff_message: 'Hi from kickoff',
+			started_at: 1779203410, // truthy: would have fired kickoff under the pre-fix code
+			is_fresh_start: false,
+		} );
+		await renderThemeBuilder();
+		// openSession + setSelectedAgentId still fire on resume — only kickoff is suppressed.
+		expect( openSessionMock ).toHaveBeenCalledWith( 42 );
+		expect( setSelectedAgentIdMock ).toHaveBeenCalledWith( 7 );
+		expect( sendMessageMock ).not.toHaveBeenCalled();
+	} );
+
+	test( 'does NOT send the kickoff when is_fresh_start is missing (defensive default)', async () => {
+		// Defensive: an older server that does not return is_fresh_start
+		// must not auto-fire the kickoff because we cannot prove it is fresh.
+		apiFetch.mockResolvedValue( {
+			session_id: 42,
+			agent_id: 7,
+			kickoff_message: 'Hi from kickoff',
+		} );
+		await renderThemeBuilder();
+		expect( sendMessageMock ).not.toHaveBeenCalled();
 	} );
 
 	test( 'does not throw when theme-builder-start fails', async () => {

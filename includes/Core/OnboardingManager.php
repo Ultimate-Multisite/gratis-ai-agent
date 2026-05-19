@@ -462,8 +462,12 @@ class OnboardingManager {
 	 *     repeat calls return the same session.
 	 *  5. Sets THEME_BUILDER_STARTED_OPTION on first call to prevent the React
 	 *     component from re-firing the kickoff message on reload.
-	 *  6. Returns a `started_at` flag so the React component can skip the
-	 *     kickoff if this is a resume (not a fresh start).
+	 *  6. Returns an explicit `is_fresh_start` boolean so the React component
+	 *     can distinguish a fresh-create request (kickoff SHOULD fire) from a
+	 *     resume request (kickoff MUST NOT fire). The boolean is the
+	 *     authoritative signal — `started_at` is also returned for
+	 *     observability/back-compat but MUST NOT be used to drive kickoff
+	 *     behaviour because both branches return a truthy timestamp.
 	 *  7. Returns the same JSON shape as bootstrap-start so the React entry
 	 *     component can use a single helper.
 	 *
@@ -489,7 +493,8 @@ class OnboardingManager {
 
 		// Early-return if a theme-builder session was already created. Reuse the
 		// persisted session ID so the frontend can resume the same conversation
-		// without re-firing the kickoff message.
+		// without re-firing the kickoff message. `is_fresh_start` is false on
+		// this branch so the React component skips the kickoff send.
 		$existing_session_id = get_option( self::THEME_BUILDER_SESSION_OPTION );
 		if ( ! empty( $existing_session_id ) ) {
 			return new \WP_REST_Response(
@@ -499,6 +504,7 @@ class OnboardingManager {
 					'agent_id'        => $theme_builder_agent_id,
 					'kickoff_message' => $kickoff_message,
 					'started_at'      => get_option( self::THEME_BUILDER_STARTED_OPTION ),
+					'is_fresh_start'  => false,
 				],
 				200
 			);
@@ -542,6 +548,10 @@ class OnboardingManager {
 		update_option( self::THEME_BUILDER_SESSION_OPTION, $session_id, false );
 		update_option( self::THEME_BUILDER_STARTED_OPTION, $started_at, false );
 
+		// `is_fresh_start` is true on this branch — the React component will
+		// auto-send the kickoff message exactly once. Subsequent calls hit the
+		// resume branch above (is_fresh_start=false) so reloads never duplicate
+		// the kickoff. See #1522 for the regression this signal fixes.
 		return new \WP_REST_Response(
 			[
 				'success'         => true,
@@ -549,6 +559,7 @@ class OnboardingManager {
 				'agent_id'        => $theme_builder_agent_id,
 				'kickoff_message' => $kickoff_message,
 				'started_at'      => $started_at,
+				'is_fresh_start'  => true,
 			],
 			200
 		);

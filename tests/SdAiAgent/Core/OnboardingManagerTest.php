@@ -467,6 +467,12 @@ class OnboardingManagerTest extends WP_UnitTestCase {
 		$this->assertArrayHasKey( 'agent_id', $data );
 		$this->assertArrayHasKey( 'kickoff_message', $data );
 		$this->assertArrayHasKey( 'started_at', $data );
+		// is_fresh_start drives the React kickoff guard (see #1522).
+		// `started_at` is retained for observability / back-compat but MUST NOT
+		// be used to distinguish fresh-start from resume because it is truthy
+		// on both branches.
+		$this->assertArrayHasKey( 'is_fresh_start', $data );
+		$this->assertIsBool( $data['is_fresh_start'] );
 	}
 
 	/**
@@ -521,8 +527,15 @@ class OnboardingManagerTest extends WP_UnitTestCase {
 	}
 
 	/**
-	 * rest_theme_builder_start() returns started_at on resume so the React
-	 * component can skip the kickoff message.
+	 * rest_theme_builder_start() returns the same started_at timestamp on resume.
+	 *
+	 * Historical note: pre-#1522 the React component used `started_at` as the
+	 * kickoff guard, which was broken because the fresh-create branch also
+	 * stamped a fresh timestamp before returning — so the JS check
+	 * `if ( ! data.started_at )` was false on the very first call and the
+	 * kickoff never fired. `is_fresh_start` is now the authoritative signal
+	 * (see test_rest_theme_builder_start_distinguishes_fresh_start_from_resume
+	 * below). `started_at` is retained for observability and back-compat.
 	 */
 	public function test_rest_theme_builder_start_returns_started_at_on_resume(): void {
 		$admin_id = self::factory()->user->create( [ 'role' => 'administrator' ] );
@@ -539,9 +552,39 @@ class OnboardingManagerTest extends WP_UnitTestCase {
 		$response2 = OnboardingManager::rest_theme_builder_start();
 		$data2     = $response2->get_data();
 
-		// started_at should still be set on resume.
+		// started_at should still be set on resume and unchanged.
 		$this->assertNotEmpty( $data2['started_at'] );
 		$this->assertSame( $data1['started_at'], $data2['started_at'] );
+	}
+
+	/**
+	 * rest_theme_builder_start() returns is_fresh_start=true on the very first
+	 * call and is_fresh_start=false on every subsequent (resume) call.
+	 *
+	 * Regression coverage for #1522 — the broken signal `started_at` is
+	 * truthy on both branches; `is_fresh_start` is the only field that can
+	 * be used to drive the React component's kickoff guard.
+	 */
+	public function test_rest_theme_builder_start_distinguishes_fresh_start_from_resume(): void {
+		$admin_id = self::factory()->user->create( [ 'role' => 'administrator' ] );
+		wp_set_current_user( $admin_id );
+
+		// First call — fresh start.
+		$first  = OnboardingManager::rest_theme_builder_start()->get_data();
+		$this->assertTrue(
+			$first['is_fresh_start'],
+			'First call must report is_fresh_start=true so the React component fires the kickoff.'
+		);
+
+		// Second call — resume.
+		$second = OnboardingManager::rest_theme_builder_start()->get_data();
+		$this->assertFalse(
+			$second['is_fresh_start'],
+			'Subsequent calls must report is_fresh_start=false so the React component skips the kickoff.'
+		);
+
+		// Sanity: both calls share the same session.
+		$this->assertSame( $first['session_id'], $second['session_id'] );
 	}
 
 	/**
