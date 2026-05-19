@@ -336,8 +336,10 @@ Goal: clean, minimal design that matches wp-admin conventions. Replace custom da
 
 ## Backlog
 
-- [ ] t226 Block theme generation in onboarding (Automattic wp-site-creator inspired) #enhancement #parent-task #plan → [todo/PLANS.md#onboarding-theme-builder] ~24h logged:2026-05-13
-  - 4 phases: site-spec skill (t226a), block-themes skill expansion (t226b), theme-builder onboarding branch (t226c, 2 new abilities + REST + UI), design-system aesthetics skill (t226d)
+- [x] t226 Block theme generation in onboarding (Automattic wp-site-creator inspired) #enhancement #parent-task #plan → [todo/PLANS.md#onboarding-theme-builder] ~24h logged:2026-05-13 pr:#1371,#1380,#1392,#1395,#1397,#1412,#1413,#1420,#1422,#1424 completed:2026-05-15
+  - All 4 phases shipped: site-spec skill (t226a #1371), block-themes skill expansion (t226b #1380), theme-builder onboarding branch (t226c — 3a #1392/#1395/#1397, 3b #1412, 3c #1420, 3d #1422, 3e #1424), design-system aesthetics skill (t226d #1413)
+  - Tracking issue #1373 closed completed 2026-05-14; duplicate #1504 (auto-recreated by issue-sync because this entry was still [ ]) closed as superseded
+  - Note: Phase 3d mode-picker UI was later replaced by direct empty-install routing in PR #1503 (Onboarding v2 wizard removal); theme-builder agent + abilities + REST + skills are all live
   - Brief: todo/tasks/t226-brief.md
   - Source: github.com/Automattic/wordpress-agent-skills/tree/trunk/claude-code/wp-site-creator (architecture only — not the Claude-Code packaging or Studio CLI deps)
   - Closes the PLANS.md "AI site generation from prompt" P0 gap on the visual-container side (t060-t062 cover pages)
@@ -352,7 +354,7 @@ Goal: clean, minimal design that matches wp-admin conventions. Replace custom da
   - EDIT: src/settings-page/memory-manager.js — add Site Brief category option
   - Verify: `composer phpcs && npm run lint:js && npm run test:php` (MemoryTest)
 
-- [ ] t226b Block-themes skill expansion — theme.json presets, animation classes, editor-visibility CSS #enhancement #auto-dispatch ~4h For #t226 logged:2026-05-13
+- [x] t226b Block-themes skill expansion — theme.json presets, animation classes, editor-visibility CSS #enhancement #auto-dispatch ~4h For #t226 logged:2026-05-13 pr:#1380 completed:2026-05-13
   - EDIT: includes/Models/skills/block-themes.md — expand from 150 → ~400 lines (target 350-450)
   - Add: Absolute Rules (no html-blocks, no decorative comments, no stock images), theme.json color/typography presets, Landing Page Composition, Cover Block Pitfalls, Card layouts, Visual Richness Without Images, Animation & Motion (className pattern, entrance animations, staggered children, hover transitions, ambient motion), Scroll-triggered reveals (IntersectionObserver), prefers-reduced-motion (required), Editor Visibility / .editor-styles-wrapper override (required), functions.php essentials
   - Source: Automattic wordpress-block-theming reference (29KB → ~280 lines added) at github.com/Automattic/wordpress-agent-skills/blob/trunk/claude-code/wp-site-creator/references/wordpress-block-theming.md
