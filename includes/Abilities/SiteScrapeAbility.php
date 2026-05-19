@@ -89,7 +89,7 @@ class SiteScrapeAbility extends AbstractAbility {
 	}
 
 	protected function meta(): array {
-		$meta = parent::meta();
+		$meta                = parent::meta();
 		$meta['annotations'] = [
 			'readonly'    => true,
 			'destructive' => false,

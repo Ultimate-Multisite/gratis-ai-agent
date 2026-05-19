@@ -26,10 +26,10 @@ class SiteScraper {
 	/**
 	 * Scrape a site into the Theme Builder pre-fill shape.
 	 *
-	 * @param string       $url          Absolute site URL.
-	 * @param int          $max_pages    Maximum pages to crawl.
-	 * @param list<string> $target_pages Optional explicit paths/URLs.
-	 * @param string       $extract_mode structured_only, full_text, or auto.
+	 * @param string        $url          Absolute site URL.
+	 * @param int           $max_pages    Maximum pages to crawl.
+	 * @param array<string> $target_pages Optional explicit paths/URLs.
+	 * @param string        $extract_mode structured_only, full_text, or auto.
 	 * @return array<string,mixed>|WP_Error
 	 */
 	public function scrape( string $url, int $max_pages = 10, array $target_pages = [], string $extract_mode = 'auto' ): array|WP_Error {
@@ -61,7 +61,8 @@ class SiteScraper {
 		$queue  = $this->initial_queue( $url, $target_pages );
 		$seen   = [];
 
-		while ( ! empty( $queue ) && count( $result['pages'] ) < $max_pages ) {
+		$pages_count = count( $result['pages'] );
+		while ( ! empty( $queue ) && $pages_count < $max_pages ) {
 			$current = array_shift( $queue );
 			if ( ! is_string( $current ) ) {
 				continue;
@@ -87,13 +88,14 @@ class SiteScraper {
 				continue;
 			}
 
-			$page = $this->parse_page( $current, $response );
+			$page              = $this->parse_page( $current, $response );
 			$result['pages'][] = $page;
 			$result            = $this->merge_extracted( $result, $this->extract_from_html( $current, $response, $page['text'] ) );
+			$pages_count       = count( $result['pages'] );
 
 			if ( empty( $target_pages ) ) {
 				foreach ( $this->discover_links( $url, $response ) as $link ) {
-					if ( count( $queue ) + count( $result['pages'] ) >= $max_pages ) {
+					if ( count( $queue ) + $pages_count >= $max_pages ) {
 						break;
 					}
 					$queue[] = $link;
@@ -228,8 +230,8 @@ class SiteScraper {
 				continue;
 			}
 			[ $field, $value ] = array_map( 'trim', explode( ':', $line, 2 ) );
-			$field            = strtolower( $field );
-			$value            = strtolower( $value );
+			$field             = strtolower( $field );
+			$value             = strtolower( $value );
 			if ( 'user-agent' === $field ) {
 				$applies = '*' === $value || str_contains( 'superdavai', $value );
 				continue;
@@ -253,7 +255,7 @@ class SiteScraper {
 	 */
 	private function empty_result(): array {
 		return [
-			'brand'  => [
+			'brand'   => [
 				'name'     => null,
 				'tagline'  => null,
 				'logo_url' => null,
@@ -421,7 +423,7 @@ class SiteScraper {
 	}
 
 	/**
-	 * @param list<mixed> $urls Social URL candidates.
+	 * @param array<mixed> $urls Social URL candidates.
 	 * @return array<string,mixed>
 	 */
 	private function classify_social_urls( array $urls ): array {
@@ -564,7 +566,8 @@ class SiteScraper {
 	}
 
 	/**
-	 * @param list<string> $target_pages Target pages.
+	 * @param string        $url          Base URL.
+	 * @param array<string> $target_pages Target pages.
 	 * @return list<string>
 	 */
 	private function initial_queue( string $url, array $target_pages ): array {
@@ -643,7 +646,10 @@ class SiteScraper {
 	}
 
 	/**
-	 * @param list<string> $target_pages Target pages.
+	 * @param string        $url          URL being scraped.
+	 * @param int           $max_pages    Maximum pages.
+	 * @param array<string> $target_pages Target pages.
+	 * @param string        $extract_mode Extraction mode.
 	 */
 	private function cache_key( string $url, int $max_pages, array $target_pages, string $extract_mode ): string {
 		return self::CACHE_GROUP . md5( wp_json_encode( [ $url, $max_pages, $target_pages, $extract_mode ] ) ?: $url );
