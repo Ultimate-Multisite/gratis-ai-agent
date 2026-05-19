@@ -365,4 +365,71 @@ class OnboardingManagerTest extends WP_UnitTestCase {
 		$this->assertArrayNotHasKey( '/sd-ai-agent/v1/onboarding/bootstrap', $routes );
 		$this->assertArrayNotHasKey( '/sd-ai-agent/v1/onboarding/interview', $routes );
 	}
+
+	/**
+	 * register_rest_routes() registers the onboarding/reset route used by the
+	 * Settings → Advanced "Restart Setup Assistant" button.
+	 */
+	public function test_register_rest_routes_registers_reset_route(): void {
+		do_action( 'rest_api_init' );
+		OnboardingManager::register_rest_routes();
+
+		$server = rest_get_server();
+		$routes = $server->get_routes();
+
+		$this->assertArrayHasKey( '/sd-ai-agent/v1/onboarding/reset', $routes );
+	}
+
+	// ── reset() — v2 cleanup ──────────────────────────────────────────────
+
+	/**
+	 * reset() clears the persisted bootstrap and theme-builder session IDs so
+	 * the v2 direct-routing gate creates fresh sessions on the next mount.
+	 */
+	public function test_reset_clears_persisted_session_options(): void {
+		update_option( OnboardingManager::COMPLETE_OPTION, true );
+		update_option( OnboardingManager::BOOTSTRAP_SESSION_OPTION, 42 );
+		update_option( OnboardingManager::THEME_BUILDER_SESSION_OPTION, 99 );
+
+		OnboardingManager::reset();
+
+		$this->assertFalse( get_option( OnboardingManager::COMPLETE_OPTION ) );
+		$this->assertFalse( get_option( OnboardingManager::BOOTSTRAP_SESSION_OPTION ) );
+		$this->assertFalse( get_option( OnboardingManager::THEME_BUILDER_SESSION_OPTION ) );
+	}
+
+	// ── rest_reset ────────────────────────────────────────────────────────
+
+	/**
+	 * rest_reset() returns a success response with a chat URL the frontend
+	 * can use to drop the user back into the v2 direct-routing gate.
+	 */
+	public function test_rest_reset_returns_success_with_chat_url(): void {
+		$response = OnboardingManager::rest_reset();
+
+		$this->assertInstanceOf( \WP_REST_Response::class, $response );
+		$this->assertSame( 200, $response->get_status() );
+
+		$data = $response->get_data();
+		$this->assertIsArray( $data );
+		$this->assertTrue( $data['success'] );
+		$this->assertArrayHasKey( 'chat_url', $data );
+		$this->assertStringContainsString( 'page=sd-ai-agent', (string) $data['chat_url'] );
+		$this->assertStringContainsString( '#/chat', (string) $data['chat_url'] );
+	}
+
+	/**
+	 * rest_reset() flips settings.onboarding_complete back to false. The
+	 * React admin-page gates the bootstrap flow on
+	 * `settings.onboarding_complete !== false`, so the option-only reset is
+	 * not enough on its own — the Settings store must also be updated.
+	 */
+	public function test_rest_reset_sets_settings_onboarding_complete_false(): void {
+		\SdAiAgent\Core\Settings::instance()->update( [ 'onboarding_complete' => true ] );
+
+		OnboardingManager::rest_reset();
+
+		$settings = \SdAiAgent\Core\Settings::instance()->get();
+		$this->assertFalse( (bool) ( $settings['onboarding_complete'] ?? true ) );
+	}
 }

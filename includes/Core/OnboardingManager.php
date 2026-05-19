@@ -157,13 +157,18 @@ class OnboardingManager {
 	/**
 	 * Reset onboarding state (allows re-running the scan and bootstrap session).
 	 *
-	 * Clears both the triggered flag and the completion flag so the next
-	 * admin_init will re-evaluate and a fresh bootstrap session can be created.
+	 * Clears the triggered flag, the completion flag, the persisted bootstrap
+	 * and theme-builder session IDs, and the SiteScanner status so the next
+	 * admin_init re-evaluates from scratch. Also unschedules any pending scan
+	 * cron event. The Settings store flag `onboarding_complete` is NOT modified
+	 * here — callers that need to re-open the v2 admin-page gate must flip it
+	 * to `false` separately (see {@see rest_reset()}).
 	 */
 	public static function reset(): void {
 		delete_option( self::TRIGGERED_OPTION );
 		delete_option( self::COMPLETE_OPTION );
 		delete_option( self::BOOTSTRAP_SESSION_OPTION );
+		delete_option( self::THEME_BUILDER_SESSION_OPTION );
 		delete_option( SiteScanner::STATUS_OPTION );
 		SiteScanner::unschedule();
 	}
@@ -230,6 +235,16 @@ class OnboardingManager {
 			[
 				'methods'             => 'POST',
 				'callback'            => [ __CLASS__, 'rest_theme_builder_start' ],
+				'permission_callback' => [ __CLASS__, 'rest_permission' ],
+			]
+		);
+
+		register_rest_route(
+			'sd-ai-agent/v1',
+			'/onboarding/reset',
+			[
+				'methods'             => 'POST',
+				'callback'            => [ __CLASS__, 'rest_reset' ],
 				'permission_callback' => [ __CLASS__, 'rest_permission' ],
 			]
 		);
@@ -515,6 +530,53 @@ class OnboardingManager {
 				'session_id'      => $session_id,
 				'agent_id'        => $theme_builder_agent_id,
 				'kickoff_message' => $kickoff_message,
+			],
+			200
+		);
+	}
+
+	// ── Reset REST handler ────────────────────────────────────────────────
+
+	/**
+	 * POST /sd-ai-agent/v1/onboarding/reset
+	 *
+	 * Clears onboarding state so the v2 direct-routing gate in
+	 * src/admin-page/index.js fires on the next chat-page mount. Used by the
+	 * "Restart Setup Assistant" control on the Settings → Advanced tab.
+	 *
+	 * Unlike the legacy v1 flow, this endpoint does NOT re-launch a wizard.
+	 * The v2 gate probes `/wp/v2/posts` once per mount and drops the user
+	 * into either:
+	 *  - OnboardingBootstrap (Setup Assistant agent) — sites with content
+	 *  - OnboardingThemeBuilder (Theme Builder agent) — empty installs
+	 *
+	 * Resets, in order:
+	 *  1. {@see OnboardingManager::reset()} — clears TRIGGERED_OPTION,
+	 *     COMPLETE_OPTION, BOOTSTRAP_SESSION_OPTION,
+	 *     THEME_BUILDER_SESSION_OPTION, and the SiteScanner status; unschedules
+	 *     any pending scan cron event.
+	 *  2. `settings.onboarding_complete` — the React admin-page treats
+	 *     `settings.onboarding_complete !== false` as "done", so an explicit
+	 *     `false` is required to re-open the gate.
+	 *
+	 * Returns the chat-page URL so the frontend can offer a one-click link
+	 * into the freshly-mounted gate.
+	 *
+	 * @return \WP_REST_Response
+	 */
+	public static function rest_reset(): \WP_REST_Response {
+		self::reset();
+
+		// Mirror the reset in the Settings store. The JS admin-page gates the
+		// onboarding flow on `settings.onboarding_complete !== false`, so an
+		// explicit `false` (not just option deletion) is required.
+		Settings::instance()->update( [ 'onboarding_complete' => false ] );
+
+		return new \WP_REST_Response(
+			[
+				'success'  => true,
+				'message'  => __( 'Onboarding state cleared. The Setup Assistant will reintroduce itself the next time you open the AI Agent chat page.', 'superdav-ai-agent' ),
+				'chat_url' => admin_url( 'admin.php?page=sd-ai-agent#/chat' ),
 			],
 			200
 		);

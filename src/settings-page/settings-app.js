@@ -130,6 +130,12 @@ export default function SettingsApp() {
 	const [ tavilySaving, setTavilySaving ] = useState( false );
 	const [ tavilyNotice, setTavilyNotice ] = useState( null );
 
+	// Onboarding reset state (Advanced tab → Onboarding section).
+	// Mirrors PR #1502 in shape but resets the v2 direct-routing gate rather
+	// than re-launching a wizard — the wizard was removed in PR #1503.
+	const [ onboardingResetting, setOnboardingResetting ] = useState( false );
+	const [ onboardingNotice, setOnboardingNotice ] = useState( null );
+
 	useEffect( () => {
 		fetchSettings();
 		fetchProviders();
@@ -330,6 +336,54 @@ export default function SettingsApp() {
 			} );
 		}
 		setTavilySaving( false );
+	}, [] );
+
+	const handleOnboardingReset = useCallback( async () => {
+		// Confirm before discarding onboarding state. The v2 gate will re-fire
+		// on the next chat-page mount and drop the user into either the Setup
+		// Assistant (site with content) or Theme Builder (empty install)
+		// agent — saved settings, memories, and chat history are kept.
+		const confirmMessage = __(
+			'Restart the Setup Assistant? Your existing settings, memories, and chat sessions are kept — the agent will simply reintroduce itself the next time you open the AI Agent chat page.',
+			'superdav-ai-agent'
+		);
+		// eslint-disable-next-line no-alert
+		const confirmed = window.confirm( confirmMessage );
+		if ( ! confirmed ) {
+			return;
+		}
+
+		setOnboardingResetting( true );
+		setOnboardingNotice( null );
+		try {
+			const result = await apiFetch( {
+				path: '/sd-ai-agent/v1/onboarding/reset',
+				method: 'POST',
+			} );
+			setOnboardingNotice( {
+				status: 'success',
+				message:
+					result?.message ||
+					__( 'Onboarding state cleared.', 'superdav-ai-agent' ),
+				chatUrl: result?.chat_url || '',
+			} );
+			// Mirror the server-side reset locally so the global Save Settings
+			// button does not immediately re-save onboarding_complete=true.
+			setLocal( ( prev ) =>
+				prev ? { ...prev, onboarding_complete: false } : prev
+			);
+		} catch ( err ) {
+			setOnboardingNotice( {
+				status: 'error',
+				message:
+					err?.message ||
+					__(
+						'Failed to reset onboarding state.',
+						'superdav-ai-agent'
+					),
+			} );
+		}
+		setOnboardingResetting( false );
 	}, [] );
 
 	useEffect( () => {
@@ -2231,6 +2285,64 @@ export default function SettingsApp() {
 													) }
 												</Button>
 											) }
+										</div>
+
+										<h3 className="sdaa-settings-section-title">
+											{ __(
+												'Onboarding',
+												'superdav-ai-agent'
+											) }
+										</h3>
+										<p className="description">
+											{ __(
+												'Clears onboarding state. The next time you open the AI Agent chat page, the Setup Assistant will reintroduce itself (or the Theme Builder agent will run on an empty install). Your existing memories, chat sessions, and saved settings are kept.',
+												'superdav-ai-agent'
+											) }
+										</p>
+										{ onboardingNotice && (
+											<Notice
+												status={
+													onboardingNotice.status
+												}
+												isDismissible
+												onDismiss={ () =>
+													setOnboardingNotice( null )
+												}
+											>
+												{ onboardingNotice.message }
+												{ onboardingNotice.status ===
+													'success' &&
+													onboardingNotice.chatUrl && (
+														<>
+															{ ' ' }
+															<a
+																href={
+																	onboardingNotice.chatUrl
+																}
+															>
+																{ __(
+																	'Open AI Agent chat →',
+																	'superdav-ai-agent'
+																) }
+															</a>
+														</>
+													) }
+											</Notice>
+										) }
+										<div className="sdaa-settings-row-actions">
+											<Button
+												variant="secondary"
+												onClick={
+													handleOnboardingReset
+												}
+												isBusy={ onboardingResetting }
+												disabled={ onboardingResetting }
+											>
+												{ __(
+													'Restart Setup Assistant',
+													'superdav-ai-agent'
+												) }
+											</Button>
 										</div>
 									</div>
 								);
