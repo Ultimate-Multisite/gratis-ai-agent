@@ -120,9 +120,13 @@ class SkillAbilities {
 			return new \WP_Error( 'skill_not_found', "Skill '$slug' not found." );
 		}
 
+		// Check explicit enabled flag first.
 		if ( ! (int) $skill->enabled ) {
-			// @phpstan-ignore-next-line
-			return new \WP_Error( 'skill_disabled', "Skill '$slug' is disabled." );
+			// Check if the skill should be auto-enabled based on environment.
+			if ( ! Skill::is_skill_auto_enabled( $slug ) ) {
+				// @phpstan-ignore-next-line
+				return new \WP_Error( 'skill_disabled', "Skill '$slug' is disabled." );
+			}
 		}
 
 		// Record tool_call usage for telemetry (Phase 1 / t215).

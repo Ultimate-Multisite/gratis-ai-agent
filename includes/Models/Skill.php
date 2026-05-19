@@ -188,7 +188,7 @@ class Skill {
 	 * @param string $slug Skill slug.
 	 * @return bool True if the skill should be treated as enabled.
 	 */
-	private static function is_skill_auto_enabled( string $slug ): bool {
+	public static function is_skill_auto_enabled( string $slug ): bool {
 		if ( isset( self::PLUGIN_SKILL_MAP[ $slug ] ) ) {
 			$plugin_file = self::PLUGIN_SKILL_MAP[ $slug ];
 
