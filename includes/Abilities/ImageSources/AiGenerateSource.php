@@ -53,6 +53,11 @@ class AiGenerateSource implements ImageSourceInterface {
 	 *
 	 * For AI generation, search returns a single synthetic hit used to
 	 * trigger generation via download(). Filters are not applicable here.
+	 *
+	 * @param string               $keyword  Search term (used as generation prompt).
+	 * @param int                  $per_page Number of results (always 1 for generation).
+	 * @param array<string, mixed> $filters  Not used; accepted for interface compliance.
+	 * @return array{hits: array<int, array<string, mixed>>, total: int, source: string}
 	 */
 	public function search( string $keyword, int $per_page = 10, array $filters = [] ): array|\WP_Error {
 		return [

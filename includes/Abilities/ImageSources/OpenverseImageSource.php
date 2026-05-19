@@ -58,6 +58,11 @@ class OpenverseImageSource implements ImageSourceInterface {
 
 	/**
 	 * {@inheritdoc}
+	 *
+	 * @param string               $keyword  Search term.
+	 * @param int                  $per_page Number of results to return.
+	 * @param array<string, mixed> $filters  Optional filters (orientation, colour).
+	 * @return array{hits: array<int, array<string, mixed>>, total: int, source: string}|\WP_Error
 	 */
 	public function search( string $keyword, int $per_page = 10, array $filters = [] ): array|\WP_Error {
 		$query_args = [
@@ -68,7 +73,7 @@ class OpenverseImageSource implements ImageSourceInterface {
 		// Orientation: Openverse uses tall|wide|square.
 		$orientation = (string) ( $filters['orientation'] ?? '' );
 		if ( '' !== $orientation ) {
-			$orientation_map = [
+			$orientation_map            = [
 				'portrait'  => 'tall',
 				'landscape' => 'wide',
 				'squarish'  => 'square',

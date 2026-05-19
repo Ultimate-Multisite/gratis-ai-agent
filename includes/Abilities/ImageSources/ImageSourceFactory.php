@@ -166,11 +166,11 @@ class ImageSourceFactory {
 	 * provider, and provider-specific image ID so the caller can later pass
 	 * provider + image_id to import_by_provider_id().
 	 *
-	 * @param string $keyword  Search keyword.
-	 * @param int    $limit    Maximum candidates to return (default 5).
-	 * @param string $provider Restrict to a specific provider (empty = all free sources).
-	 * @param array  $filters  Filters: orientation, colour, min_width, min_height.
-	 * @return array{candidates: list<array>, total: int}|\WP_Error
+	 * @param string               $keyword  Search keyword.
+	 * @param int                  $limit    Maximum candidates to return (default 5).
+	 * @param string               $provider Restrict to a specific provider (empty = all free sources).
+	 * @param array<string, mixed> $filters  Filters: orientation, colour, min_width, min_height.
+	 * @return array{candidates: list<array<string, mixed>>, total: int}|\WP_Error
 	 */
 	public static function search_candidates(
 		string $keyword,
@@ -246,12 +246,12 @@ class ImageSourceFactory {
 	 *
 	 * Downloads and sideloads the image, storing attribution metadata.
 	 *
-	 * @param string $provider Provider ID (e.g. 'openverse', 'pixabay').
-	 * @param string $image_id Provider-specific image ID.
-	 * @param int    $width    Desired width (0 for original).
-	 * @param int    $height   Desired height (0 for original).
-	 * @param array  $options  Options: site_url, post_id.
-	 * @return array{attachment_id: int, url: string, alt: string, title: string, source: string, attribution: string}|\WP_Error
+	 * @param string               $provider Provider ID (e.g. 'openverse', 'pixabay').
+	 * @param string               $image_id Provider-specific image ID.
+	 * @param int                  $width    Desired width (0 for original).
+	 * @param int                  $height   Desired height (0 for original).
+	 * @param array<string, mixed> $options  Options: site_url, post_id, keyword.
+	 * @return array<string, mixed>|\WP_Error Result with attachment_id, url, source, attribution, or WP_Error.
 	 */
 	public static function import_by_provider_id(
 		string $provider,
@@ -310,8 +310,8 @@ class ImageSourceFactory {
 	/**
 	 * Build a human-readable attribution string from a search hit.
 	 *
-	 * @param array  $hit      Search hit data.
-	 * @param string $provider Provider ID (fallback label).
+	 * @param array<string, mixed> $hit      Search hit data.
+	 * @param string               $provider Provider ID (fallback label).
 	 * @return string Attribution string (empty if not determinable).
 	 */
 	private static function build_attribution_string( array $hit, string $provider ): string {
@@ -534,11 +534,11 @@ class ImageSourceFactory {
 	/**
 	 * Handle WordPress sideload of a temp file.
 	 *
-	 * @param string $tmp_file Temp file path.
-	 * @param string $keyword Original keyword.
-	 * @param array  $options Options (site_url, post_id).
-	 * @param array  $hit     Original hit data.
-	 * @return array|\WP_Error Result array or error.
+	 * @param string               $tmp_file Temp file path.
+	 * @param string               $keyword  Original keyword.
+	 * @param array<string, mixed> $options  Options (site_url, post_id).
+	 * @param array<string, mixed> $hit      Original hit data with source, attribution, author etc.
+	 * @return array<string, mixed>|\WP_Error Result array or error.
 	 */
 	private static function handle_sideload(
 		string $tmp_file,

@@ -73,6 +73,11 @@ class PixabayImageSource implements ImageSourceInterface {
 
 	/**
 	 * {@inheritdoc}
+	 *
+	 * @param string               $keyword  Search term.
+	 * @param int                  $per_page Number of results to return.
+	 * @param array<string, mixed> $filters  Optional filters (orientation, colour, min_width, min_height).
+	 * @return array{hits: array<int, array<string, mixed>>, total: int, source: string}|\WP_Error
 	 */
 	public function search( string $keyword, int $per_page = 10, array $filters = [] ): array|\WP_Error {
 		$api_key = $this->get_api_key();

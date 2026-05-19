@@ -298,18 +298,21 @@ class StockImageAbility extends \SdAiAgent\Abilities\AbstractAbility {
 	/**
 	 * Return candidate images without importing.
 	 *
-	 * @param string $keyword  Search keyword.
-	 * @param int    $limit    Maximum candidates.
-	 * @param string $provider Provider restriction (empty = all free sources).
-	 * @param array  $filters  Optional search filters.
-	 * @return array|\WP_Error Candidates array or error.
+	 * Always returns an array: on factory error, the WP_Error is converted to
+	 * an array with an 'error' key so the agent loop can surface the message.
+	 *
+	 * @param string               $keyword  Search keyword.
+	 * @param int                  $limit    Maximum candidates.
+	 * @param string               $provider Provider restriction (empty = all free sources).
+	 * @param array<string, mixed> $filters  Optional search filters.
+	 * @return array<string, mixed> Candidates array (with optional 'error' key on failure).
 	 */
 	private function handle_search(
 		string $keyword,
 		int $limit,
 		string $provider,
 		array $filters
-	): array|\WP_Error {
+	): array {
 		$result = ImageSourceFactory::search_candidates( $keyword, $limit, $provider, $filters );
 
 		if ( is_wp_error( $result ) ) {
@@ -329,13 +332,16 @@ class StockImageAbility extends \SdAiAgent\Abilities\AbstractAbility {
 	/**
 	 * Import a specific image by provider and image ID.
 	 *
+	 * Always returns an array: on factory error, the WP_Error is converted to
+	 * an array with an 'error' key so the agent loop can surface the message.
+	 *
 	 * @param string $keyword   Original search keyword (used as alt/title base).
 	 * @param string $provider  Provider ID.
 	 * @param string $image_id  Provider-specific image ID.
 	 * @param int    $width     Desired width.
 	 * @param int    $height    Desired height.
 	 * @param string $site_url  Multisite subsite URL.
-	 * @return array|\WP_Error Result or error.
+	 * @return array<string, mixed> Result (with optional 'error' key on failure).
 	 */
 	private function handle_import_by_id(
 		string $keyword,
@@ -344,7 +350,7 @@ class StockImageAbility extends \SdAiAgent\Abilities\AbstractAbility {
 		int $width,
 		int $height,
 		string $site_url
-	): array|\WP_Error {
+	): array {
 		$options = [
 			'site_url' => $site_url,
 			'keyword'  => $keyword,
