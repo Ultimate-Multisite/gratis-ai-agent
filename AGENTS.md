@@ -110,6 +110,14 @@ professional, issue-by-issue format:
    npm run build
    ```
 
+   Or run all four steps in sequence with the single alias:
+
+   ```bash
+   npm run verify
+   ```
+
+   `npm run verify` = `lint` → `phpstan` → `test:php` → `build`. If any step fails, the rest are skipped — fix the failure and rerun.
+
 5. **Paste the test summary in the PR body** under a `## Worker self-verification` heading, in this exact format:
 
    ```text

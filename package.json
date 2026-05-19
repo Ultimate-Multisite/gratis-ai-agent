@@ -17,6 +17,7 @@
 		"lint:php": "composer phpcs",
 		"lint:php:fix": "composer phpcbf",
 		"lint": "npm run lint:js && npm run lint:css && npm run lint:php",
+		"verify": "npm run lint && composer phpstan && npm run test:php && npm run build",
 		"test:js": "wp-scripts test-unit-js",
 		"test:unit": "wp-scripts test-unit-js",
 		"test:e2e": "wp-scripts test-e2e",
