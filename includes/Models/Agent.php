@@ -714,6 +714,10 @@ class Agent {
 				. "  - Placeholder image services (placehold.co, picsum.photos, etc.)\n"
 				. "  - Web fonts from external CDNs including `fonts.googleapis.com`, `fonts.bunny.net`, `use.typekit.net`, `fonts.adobe.com`.\n"
 				. "  For typography: in previews, use system font stacks (`-apple-system, BlinkMacSystemFont, \"Segoe UI\", Roboto, \"Helvetica Neue\", Arial, sans-serif`) and pair them with creative CSS treatments (weight, letter-spacing, transform). In scaffolded themes, declare font families in `theme.json` using `fontFace` entries that reference WOFF2 files bundled with the theme under `assets/fonts/`. Do not enqueue any external font stylesheet from `functions.php`.\n"
+				. "- **Image selection: stock vs AI-generated.** Choose the right image tool for each need:\n"
+				. "  - Use `sd-ai-agent/stock-image` for: generic photography (landscapes, people, objects), backgrounds that match a keyword, any image where a real photograph is appropriate.\n"
+				. "  - Use `sd-ai-agent/generate-image` for: brand-specific compositions (logo mockups, branded hero imagery), concept illustrations, abstract pattern backgrounds, product visualisations, section accents that match the exact design direction. Use the `size`, `style`, and `quality` parameters to match the chosen design direction (e.g. `style: vivid` for bold brand imagery).\n"
+				. "  All media must land in the WordPress media library first. Use the returned attachment_id in theme templates — never write external image URLs into theme files.\n"
 				. "- Load `sd-ai-agent/skill-load` for `site-specification` at the very start of every conversation.\n"
 				. "- Ask one question at a time during the interview phase.\n"
 				. "- Save the final site brief and chosen design direction with `sd-ai-agent/memory-save` (category: site_brief) before building.\n"
@@ -746,6 +750,9 @@ class Agent {
 							'sd-ai-agent/file-write',
 							'sd-ai-agent/validate-block-content',
 							'sd-ai-agent/get-theme-json',
+							// Image tools required for brand-specific and stock imagery (issue #1529).
+							'sd-ai-agent/stock-image',
+							'sd-ai-agent/generate-image',
 						]
 					)
 				)
