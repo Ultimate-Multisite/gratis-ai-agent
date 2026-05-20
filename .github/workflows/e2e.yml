@@ -186,17 +186,11 @@ jobs:
           npx wp-env run cli wp option update sd_ai_agent_settings \
             '{"onboarding_complete":true}' --format=json
 
-          # Configure a fake OpenAI key via the WP 7.0 Connectors API option
-          # so the /providers endpoint returns at least one provider. Without
-          # a provider the AdminPageApp renders the ConnectorGate instead of
-          # the chat layout, breaking all tests that look for
-          # .sd-ai-agent-layout or .sd-ai-agent-chat-panel.
-          # The key is never used for real API calls — E2E specs mock the
-          # /stream endpoint — but its non-empty value is enough for
-          # SettingsController::handle_providers() to include OpenAI in the
-          # list returned to the React app.
-          npx wp-env run cli wp option update connectors_ai_openai_api_key \
-            '[redacted-credential]'
+          # Register the deterministic SDK provider from tests/mu-plugins so
+          # /providers returns one authenticated provider without installing a
+          # real ai-provider-for-* plugin. E2E specs mock /stream, so no real
+          # provider API calls are made.
+          npx wp-env run cli wp option update sd_ai_agent_e2e_register_provider 1
 
           # Create a real post so the site is no longer detected as a fresh install
           # even after the transient expires (belt-and-suspenders).

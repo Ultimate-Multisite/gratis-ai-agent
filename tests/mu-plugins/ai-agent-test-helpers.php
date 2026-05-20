@@ -47,3 +47,139 @@ add_action(
 	},
 	999
 );
+
+/**
+ * Register a deterministic AI Client SDK provider for Playwright E2E tests.
+ *
+ * The admin chat UI intentionally renders the ConnectorGate when the
+ * /sd-ai-agent/v1/providers endpoint returns no authenticated SDK providers.
+ * CI does not install third-party ai-provider-for-* plugins, so the workflow
+ * opts into this provider with the sd_ai_agent_e2e_register_provider option.
+ */
+add_action(
+	'plugins_loaded',
+	static function (): void {
+		if ( ! (bool) get_option( 'sd_ai_agent_e2e_register_provider', false ) ) {
+			return;
+		}
+
+		if ( ! class_exists( '\WordPress\AiClient\AiClient' ) ) {
+			return;
+		}
+
+		$required_classes = array(
+			'\WordPress\AiClient\Providers\Contracts\ProviderInterface',
+			'\WordPress\AiClient\Providers\Contracts\ProviderAvailabilityInterface',
+			'\WordPress\AiClient\Providers\Contracts\ModelMetadataDirectoryInterface',
+			'\WordPress\AiClient\Providers\DTO\ProviderMetadata',
+			'\WordPress\AiClient\Providers\Enums\ProviderTypeEnum',
+			'\WordPress\AiClient\Providers\Models\Contracts\ModelInterface',
+			'\WordPress\AiClient\Providers\Models\DTO\ModelConfig',
+			'\WordPress\AiClient\Providers\Models\DTO\ModelMetadata',
+			'\WordPress\AiClient\Providers\Models\Enums\CapabilityEnum',
+			'\WordPress\AiClient\Providers\Http\DTO\ApiKeyRequestAuthentication',
+		);
+
+		foreach ( $required_classes as $required_class ) {
+			if ( ! class_exists( $required_class ) && ! interface_exists( $required_class ) ) {
+				return;
+			}
+		}
+
+		if ( ! class_exists( 'SdAiAgentE2EProvider', false ) ) {
+			class SdAiAgentE2EModelMetadataDirectory implements \WordPress\AiClient\Providers\Contracts\ModelMetadataDirectoryInterface {
+				/**
+				 * @return list<\WordPress\AiClient\Providers\Models\DTO\ModelMetadata>
+				 */
+				public function listModelMetadata(): array {
+					return array( $this->getModelMetadata( 'e2e-model' ) );
+				}
+
+				public function hasModelMetadata( string $modelId ): bool {
+					return 'e2e-model' === $modelId;
+				}
+
+				public function getModelMetadata( string $modelId ): \WordPress\AiClient\Providers\Models\DTO\ModelMetadata {
+					if ( 'e2e-model' !== $modelId ) {
+						throw new \WordPress\AiClient\Common\Exception\InvalidArgumentException( 'Unknown E2E model.' );
+					}
+
+					return new \WordPress\AiClient\Providers\Models\DTO\ModelMetadata(
+						'e2e-model',
+						'E2E Model',
+						array( \WordPress\AiClient\Providers\Models\Enums\CapabilityEnum::textGeneration() ),
+						array()
+					);
+				}
+			}
+
+			class SdAiAgentE2EProvider implements \WordPress\AiClient\Providers\Contracts\ProviderInterface {
+				public static function metadata(): \WordPress\AiClient\Providers\DTO\ProviderMetadata {
+					return new \WordPress\AiClient\Providers\DTO\ProviderMetadata(
+						'e2e-provider',
+						'E2E Provider',
+						\WordPress\AiClient\Providers\Enums\ProviderTypeEnum::cloud()
+					);
+				}
+
+				public static function model( string $modelId, ?\WordPress\AiClient\Providers\Models\DTO\ModelConfig $modelConfig = null ): \WordPress\AiClient\Providers\Models\Contracts\ModelInterface {
+					$metadata = self::modelMetadataDirectory()->getModelMetadata( $modelId );
+					$config   = $modelConfig ?? new \WordPress\AiClient\Providers\Models\DTO\ModelConfig();
+
+					return new class( $metadata, $config ) implements \WordPress\AiClient\Providers\Models\Contracts\ModelInterface {
+						private \WordPress\AiClient\Providers\Models\DTO\ModelMetadata $metadata;
+						private \WordPress\AiClient\Providers\Models\DTO\ModelConfig $config;
+
+						public function __construct( \WordPress\AiClient\Providers\Models\DTO\ModelMetadata $metadata, \WordPress\AiClient\Providers\Models\DTO\ModelConfig $config ) {
+							$this->metadata = $metadata;
+							$this->config   = $config;
+						}
+
+						public function metadata(): \WordPress\AiClient\Providers\Models\DTO\ModelMetadata {
+							return $this->metadata;
+						}
+
+						public function providerMetadata(): \WordPress\AiClient\Providers\DTO\ProviderMetadata {
+							return SdAiAgentE2EProvider::metadata();
+						}
+
+						public function setConfig( \WordPress\AiClient\Providers\Models\DTO\ModelConfig $config ): void {
+							$this->config = $config;
+						}
+
+						public function getConfig(): \WordPress\AiClient\Providers\Models\DTO\ModelConfig {
+							return $this->config;
+						}
+					};
+				}
+
+				public static function availability(): \WordPress\AiClient\Providers\Contracts\ProviderAvailabilityInterface {
+					return new class() implements \WordPress\AiClient\Providers\Contracts\ProviderAvailabilityInterface {
+						public function isConfigured(): bool {
+							return true;
+						}
+					};
+				}
+
+				public static function modelMetadataDirectory(): \WordPress\AiClient\Providers\Contracts\ModelMetadataDirectoryInterface {
+					return new SdAiAgentE2EModelMetadataDirectory();
+				}
+			}
+		}
+
+		try {
+			$registry = \WordPress\AiClient\AiClient::defaultRegistry();
+			if ( ! $registry->hasProvider( 'e2e-provider' ) ) {
+				$registry->registerProvider( 'SdAiAgentE2EProvider' );
+			}
+			$registry->setProviderRequestAuthentication(
+				'e2e-provider',
+				new \WordPress\AiClient\Providers\Http\DTO\ApiKeyRequestAuthentication( 'e2e-test-key' )
+			);
+		} catch ( \Throwable $e ) {
+			// If the SDK changes shape on trunk, fail closed and let E2E surface it.
+			return;
+		}
+	},
+	1
+);
