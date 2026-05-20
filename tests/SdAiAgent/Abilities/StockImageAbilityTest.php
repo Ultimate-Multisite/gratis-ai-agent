@@ -419,7 +419,7 @@ class StockImageAbilityTest extends WP_UnitTestCase {
 	 * in its tier_1_tools so the imagery guidance in Phase 4 can be executed.
 	 */
 	public function test_theme_builder_tier_1_tools_include_imagery_abilities(): void {
-		\SdAiAgent\Models\Agent::seed_defaults();
+		\SdAiAgent\Models\Agent::reset_defaults();
 
 		$agent = \SdAiAgent\Models\Agent::get_by_slug( 'theme-builder' );
 		$this->assertNotNull( $agent, 'theme-builder agent must exist after seed_defaults()' );
@@ -450,7 +450,7 @@ class StockImageAbilityTest extends WP_UnitTestCase {
 	 * The theme-builder system prompt references the stock-image imagery workflow.
 	 */
 	public function test_theme_builder_system_prompt_references_imagery_workflow(): void {
-		\SdAiAgent\Models\Agent::seed_defaults();
+		\SdAiAgent\Models\Agent::reset_defaults();
 
 		$agent = \SdAiAgent\Models\Agent::get_by_slug( 'theme-builder' );
 		$this->assertNotNull( $agent );
