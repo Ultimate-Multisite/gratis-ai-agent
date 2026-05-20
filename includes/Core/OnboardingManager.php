@@ -257,6 +257,46 @@ class OnboardingManager {
 				'permission_callback' => [ __CLASS__, 'rest_permission' ],
 			]
 		);
+
+		register_rest_route(
+			'sd-ai-agent/v1',
+			'/onboarding/interview-uploads',
+			[
+				'methods'             => 'POST',
+				'callback'            => [ __CLASS__, 'rest_interview_upload' ],
+				'permission_callback' => [ __CLASS__, 'rest_upload_permission' ],
+			]
+		);
+
+		register_rest_route(
+			'sd-ai-agent/v1',
+			'/onboarding/interview-uploads',
+			[
+				'methods'             => 'GET',
+				'callback'            => [ __CLASS__, 'rest_list_interview_uploads' ],
+				'permission_callback' => [ __CLASS__, 'rest_upload_permission' ],
+			]
+		);
+	}
+
+	/**
+	 * Permission callback for upload endpoints — require upload_files cap.
+	 *
+	 * Separate from {@see rest_permission()} (which requires manage_options)
+	 * because the interview-uploads endpoint is used during the Theme Builder
+	 * flow which any author/editor with upload_files capability can run.
+	 *
+	 * @return bool|\WP_Error
+	 */
+	public static function rest_upload_permission() {
+		if ( ! current_user_can( 'upload_files' ) ) {
+			return new \WP_Error(
+				'rest_forbidden',
+				__( 'You do not have permission to upload files.', 'superdav-ai-agent' ),
+				[ 'status' => 403 ]
+			);
+		}
+		return true;
 	}
 
 	/**
@@ -610,5 +650,280 @@ class OnboardingManager {
 			],
 			200
 		);
+	}
+
+	// ── Interview-uploads REST handlers ───────────────────────────────────
+
+	/**
+	 * POST /sd-ai-agent/v1/onboarding/interview-uploads
+	 *
+	 * Accepts one or more photo files from the Theme Builder interview UI,
+	 * stores each via WordPress's `media_handle_upload()`, and tags each
+	 * resulting attachment with the interview-upload meta keys via
+	 * {@see InterviewUploadStore::tag_attachment()}.
+	 *
+	 * Request shape (multipart/form-data):
+	 *   files[0..N] : the actual file uploads
+	 *   session_id  : optional integer; the Theme Builder session ID, used
+	 *                 to scope later list queries
+	 *   category    : optional explicit category override applied to all
+	 *                 files in this request. When omitted, each file is
+	 *                 categorised individually from its filename.
+	 *
+	 * Response shape (200):
+	 *   {
+	 *     "success": true,
+	 *     "uploads": [ {attachment_id, url, thumbnail, category, ...}, ... ],
+	 *     "errors":  [ {filename, message}, ... ],
+	 *     "by_category": { "space": 2, "product": 3, ... }
+	 *   }
+	 *
+	 * Errors that affect individual files (size, mime, sideload failure) are
+	 * collected in `errors` so a single bad file does not abort the batch.
+	 * The endpoint itself returns 200 unless *no* files were supplied.
+	 *
+	 * @param \WP_REST_Request $request REST request.
+	 * @return \WP_REST_Response|\WP_Error
+	 */
+	public static function rest_interview_upload( \WP_REST_Request $request ): \WP_REST_Response|\WP_Error {
+		// phpcs:ignore WordPress.Security.NonceVerification.Missing -- REST uses cookie+nonce auth via rest_permission, no separate nonce.
+		$files_input = $_FILES;
+
+		if ( empty( $files_input ) ) {
+			return new \WP_Error(
+				'sd_ai_agent_no_files',
+				__( 'No files were uploaded.', 'superdav-ai-agent' ),
+				[ 'status' => 400 ]
+			);
+		}
+
+		$session_id        = (int) ( $request->get_param( 'session_id' ) ?? 0 );
+		$category_override = (string) ( $request->get_param( 'category' ) ?? '' );
+		if ( '' !== $category_override
+			&& ! \SdAiAgent\Services\InterviewUploadCategoriser::is_valid_category( $category_override )
+		) {
+			$category_override = '';
+		}
+
+		$normalised_files = self::normalise_files_array( $files_input );
+
+		if ( empty( $normalised_files ) ) {
+			return new \WP_Error(
+				'sd_ai_agent_no_files',
+				__( 'No files were uploaded.', 'superdav-ai-agent' ),
+				[ 'status' => 400 ]
+			);
+		}
+
+		if ( ! function_exists( 'wp_handle_sideload' ) ) {
+			require_once ABSPATH . 'wp-admin/includes/file.php';
+			require_once ABSPATH . 'wp-admin/includes/media.php';
+			require_once ABSPATH . 'wp-admin/includes/image.php';
+		}
+
+		$uploads     = [];
+		$errors      = [];
+		$by_category = [];
+
+		foreach ( $normalised_files as $file ) {
+			// Reject non-image files outright — the interview flow only accepts photos.
+			$mime = isset( $file['type'] ) ? (string) $file['type'] : '';
+			if ( '' !== $mime && 0 !== strpos( $mime, 'image/' ) ) {
+				$errors[] = [
+					'filename' => $file['name'] ?? '(unknown)',
+					'message'  => __( 'Only image files are accepted for interview uploads.', 'superdav-ai-agent' ),
+				];
+				continue;
+			}
+
+			$attachment_id = self::sideload_uploaded_file( $file );
+
+			if ( is_wp_error( $attachment_id ) ) {
+				$errors[] = [
+					'filename' => $file['name'] ?? '(unknown)',
+					'message'  => $attachment_id->get_error_message(),
+				];
+				continue;
+			}
+
+			$category = InterviewUploadStore::tag_attachment(
+				(int) $attachment_id,
+				[
+					'filename'   => isset( $file['name'] ) ? (string) $file['name'] : '',
+					'category'   => $category_override,
+					'session_id' => $session_id,
+				]
+			);
+
+			$attachment_post = get_post( (int) $attachment_id );
+			if ( $attachment_post instanceof \WP_Post ) {
+				$formatted = InterviewUploadStore::format_attachment( $attachment_post );
+				if ( null !== $formatted ) {
+					$uploads[]                = $formatted;
+					$by_category[ $category ] = ( $by_category[ $category ] ?? 0 ) + 1;
+				}
+			}
+		}
+
+		return new \WP_REST_Response(
+			[
+				'success'     => true,
+				'uploads'     => $uploads,
+				'errors'      => $errors,
+				'by_category' => $by_category,
+			],
+			200
+		);
+	}
+
+	/**
+	 * GET /sd-ai-agent/v1/onboarding/interview-uploads
+	 *
+	 * Lists interview-tagged uploads for the chat UI (so the OnboardingPhotoUpload
+	 * panel can rehydrate after a reload). The list-uploads ability serves the
+	 * same data for the agent.
+	 *
+	 * @param \WP_REST_Request $request REST request.
+	 * @return \WP_REST_Response
+	 */
+	public static function rest_list_interview_uploads( \WP_REST_Request $request ): \WP_REST_Response {
+		$args = [];
+		$cat  = (string) ( $request->get_param( 'category' ) ?? '' );
+		if ( '' !== $cat ) {
+			$args['category'] = $cat;
+		}
+		$session = (int) ( $request->get_param( 'session_id' ) ?? 0 );
+		if ( $session > 0 ) {
+			$args['session_id'] = $session;
+		}
+		$limit = (int) ( $request->get_param( 'limit' ) ?? 0 );
+		if ( $limit > 0 ) {
+			$args['limit'] = $limit;
+		}
+
+		return new \WP_REST_Response( InterviewUploadStore::list_uploads( $args ), 200 );
+	}
+
+	/**
+	 * Store a single uploaded image as a WordPress attachment.
+	 *
+	 * Uses `wp_handle_sideload()` rather than `wp_handle_upload()` so the
+	 * `is_uploaded_file()` check is skipped. `is_uploaded_file()` rejects
+	 * any file that does not match a tmp path produced by the current
+	 * SAPI's actual HTTP request, which is correct for direct form posts
+	 * but blocks the REST flow used by the React drag-and-drop panel (and
+	 * blocks all unit tests). The sideload path performs the same final
+	 * checks (`test_form` is disabled because we have already classified
+	 * the upload; `test_type` is enabled so MIME-vs-extension mismatches
+	 * still fail).
+	 *
+	 * @param array<string,mixed> $file Single-file array (name, type, tmp_name, error, size).
+	 * @return int|\WP_Error Attachment ID on success, WP_Error on failure.
+	 */
+	private static function sideload_uploaded_file( array $file ) {
+		$overrides = [
+			'test_form' => false,
+			'test_type' => true,
+		];
+
+		$sideload_args = [
+			'name'     => (string) ( $file['name'] ?? '' ),
+			'type'     => (string) ( $file['type'] ?? '' ),
+			'tmp_name' => (string) ( $file['tmp_name'] ?? '' ),
+			'size'     => (int) ( $file['size'] ?? 0 ),
+			'error'    => (int) ( $file['error'] ?? 0 ),
+		];
+
+		$movefile = wp_handle_sideload( $sideload_args, $overrides );
+
+		if ( isset( $movefile['error'] ) ) {
+			return new \WP_Error( 'sd_ai_agent_upload_failed', (string) $movefile['error'] );
+		}
+
+		$attachment_args = [
+			'post_mime_type' => (string) ( $movefile['type'] ?? '' ),
+			'post_title'     => preg_replace( '/\.[^.]+$/', '', basename( (string) ( $movefile['file'] ?? '' ) ) ) ?: 'upload',
+			'post_content'   => '',
+			'post_status'    => 'inherit',
+		];
+
+		$attachment_id = wp_insert_attachment( $attachment_args, (string) $movefile['file'], 0, true );
+
+		if ( is_wp_error( $attachment_id ) ) {
+			return $attachment_id;
+		}
+
+		// Generate sub-sized images and metadata so the listing endpoint
+		// returns a usable thumbnail URL.
+		$metadata = wp_generate_attachment_metadata( (int) $attachment_id, (string) $movefile['file'] );
+		if ( is_array( $metadata ) ) {
+			wp_update_attachment_metadata( (int) $attachment_id, $metadata );
+		}
+
+		return (int) $attachment_id;
+	}
+
+	/**
+	 * Normalise the PHP $_FILES superglobal into a flat per-field map.
+	 *
+	 * Browsers submit multi-file inputs as `files[0]`, `files[1]`, ... or as
+	 * a single `files[]` array where each property is itself an array. This
+	 * helper expands the array-form into discrete field entries so each can
+	 * be fed individually to `media_handle_upload()`, which only handles
+	 * the single-file shape.
+	 *
+	 * @param array<string, mixed> $files_input Raw $_FILES contents.
+	 * @return array<string, array<string,mixed>> Map of synthetic field name -> single-file array.
+	 */
+	private static function normalise_files_array( array $files_input ): array {
+		$out = [];
+
+		foreach ( $files_input as $field => $entry ) {
+			if ( ! is_array( $entry ) ) {
+				continue;
+			}
+
+			// Single-file shape: keys are scalars.
+			if ( isset( $entry['name'] ) && ! is_array( $entry['name'] ) ) {
+				if ( empty( $entry['name'] ) ) {
+					continue;
+				}
+				if ( ! empty( $entry['error'] ) && (int) $entry['error'] !== UPLOAD_ERR_OK ) {
+					continue;
+				}
+				$out[ $field ] = [
+					'name'     => (string) $entry['name'],
+					'type'     => (string) ( $entry['type'] ?? '' ),
+					'tmp_name' => (string) ( $entry['tmp_name'] ?? '' ),
+					'error'    => (int) ( $entry['error'] ?? 0 ),
+					'size'     => (int) ( $entry['size'] ?? 0 ),
+				];
+				continue;
+			}
+
+			// Multi-file shape: name/type/tmp_name/error/size are themselves arrays.
+			if ( isset( $entry['name'] ) && is_array( $entry['name'] ) ) {
+				$count = count( $entry['name'] );
+				for ( $i = 0; $i < $count; $i++ ) {
+					$name = (string) ( $entry['name'][ $i ] ?? '' );
+					if ( '' === $name ) {
+						continue;
+					}
+					$err = (int) ( $entry['error'][ $i ] ?? 0 );
+					if ( UPLOAD_ERR_OK !== $err ) {
+						continue;
+					}
+					$out[ $field . '_' . $i ] = [
+						'name'     => $name,
+						'type'     => (string) ( $entry['type'][ $i ] ?? '' ),
+						'tmp_name' => (string) ( $entry['tmp_name'][ $i ] ?? '' ),
+						'error'    => $err,
+						'size'     => (int) ( $entry['size'][ $i ] ?? 0 ),
+					];
+				}
+			}
+		}
+
+		return $out;
 	}
 }

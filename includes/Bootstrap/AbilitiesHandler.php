@@ -38,6 +38,7 @@ use SdAiAgent\Abilities\GoogleAnalyticsAbilities;
 use SdAiAgent\Abilities\GscAbilities;
 use SdAiAgent\Abilities\ImageAbilities;
 use SdAiAgent\Abilities\InternetSearchAbilities;
+use SdAiAgent\Abilities\ListInterviewUploadsAbility;
 use SdAiAgent\Abilities\SiteScrapeAbility;
 use SdAiAgent\Abilities\KnowledgeAbilities;
 use SdAiAgent\Abilities\MarketingAbilities;
@@ -101,6 +102,14 @@ final class AbilitiesHandler {
 				'label'         => __( 'Scrape Existing Site', 'superdav-ai-agent' ),
 				'description'   => __( 'Fetch and parse an existing website to extract structured brand and contact data (name, tagline, logo, address, phone, email, opening hours, social links). Use this at the start of a Theme Builder session when the user has an existing site they are rebuilding.', 'superdav-ai-agent' ),
 				'ability_class' => SiteScrapeAbility::class,
+			]
+		);
+		wp_register_ability(
+			'sd-ai-agent/list-interview-uploads',
+			[
+				'label'         => __( 'List Interview Uploads', 'superdav-ai-agent' ),
+				'description'   => __( 'List photos the user uploaded during the Theme Builder interview (space, product, team, event) with attachment IDs, thumbnails, and category guesses so the agent can plan section imagery without calling stock or generated-image abilities.', 'superdav-ai-agent' ),
+				'ability_class' => ListInterviewUploadsAbility::class,
 			]
 		);
 		SeoAbilities::register_abilities();

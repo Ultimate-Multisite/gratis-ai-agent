@@ -1,7 +1,7 @@
 /**
  * WordPress dependencies
  */
-import { useEffect, useRef } from '@wordpress/element';
+import { useEffect, useRef, useState } from '@wordpress/element';
 import { useDispatch } from '@wordpress/data';
 import { __ } from '@wordpress/i18n';
 import apiFetch from '@wordpress/api-fetch';
@@ -11,6 +11,7 @@ import apiFetch from '@wordpress/api-fetch';
  */
 import STORE_NAME from '../store';
 import ChatRedesign from './chat-redesign';
+import OnboardingPhotoUpload from './onboarding-photo-upload';
 
 /**
  * Onboarding theme-builder component — shown when the user chose
@@ -38,6 +39,7 @@ export default function OnboardingThemeBuilder() {
 	const { openSession, sendMessage, setSelectedAgentId } =
 		useDispatch( STORE_NAME );
 	const bootstrappedRef = useRef( false );
+	const [ sessionId, setSessionId ] = useState( null );
 
 	useEffect( () => {
 		// Guard against double-invocation in React 18 strict-mode or re-renders.
@@ -56,6 +58,8 @@ export default function OnboardingThemeBuilder() {
 					// ChatRedesign will allow the user to start chatting manually.
 					return;
 				}
+
+				setSessionId( data.session_id );
 
 				// Select the Theme Builder agent so streamMessage attaches
 				// agent_id to the /run call and AgentLoop applies the agent's
@@ -92,5 +96,10 @@ export default function OnboardingThemeBuilder() {
 			} );
 	}, [ openSession, sendMessage, setSelectedAgentId ] );
 
-	return <ChatRedesign />;
+	return (
+		<div className="sdaa-onboarding-theme-builder">
+			<OnboardingPhotoUpload sessionId={ sessionId } />
+			<ChatRedesign />
+		</div>
+	);
 }

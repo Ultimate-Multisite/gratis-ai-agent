@@ -51,6 +51,16 @@ jest.mock( '../chat-redesign', () => {
 		React.createElement( 'div', { 'data-testid': 'chat-redesign' } );
 } );
 
+// ─── Mock OnboardingPhotoUpload ───────────────────────────────────────────────
+
+jest.mock( '../onboarding-photo-upload', () => {
+	const React = require( 'react' );
+	return () =>
+		React.createElement( 'div', {
+			'data-testid': 'onboarding-photo-upload',
+		} );
+} );
+
 // ─── Tests ────────────────────────────────────────────────────────────────────
 
 describe( 'OnboardingThemeBuilder', () => {
