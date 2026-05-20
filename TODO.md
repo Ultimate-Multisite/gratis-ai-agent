@@ -1,6 +1,60 @@
-# Superdav AI Agent - Task Management
+
+<!-- SPDX-License-Identifier: MIT -->
+<!-- SPDX-FileCopyrightText: 2025-2026 Marcus Quinn -->
+# TODO
+
+Project task tracking with time estimates, dependencies, and TOON-enhanced parsing.
+
+Compatible with [todo-md](https://github.com/todo-md/todo-md), [todomd](https://github.com/todomd/todo.md), [taskell](https://github.com/smallhadroncollider/taskell), and [Beads](https://github.com/steveyegge/beads).
+
+## Format
+
+**Human-readable:**
+
+<!-- GH#17804: Format examples wrapped in HTML comment to prevent parsers
+     from extracting them as real tasks during upgrade-planning migrations.
+- [ ] t001 Task description @owner #tag ~30m risk:low logged:2025-01-15
+- [ ] t002 Dependent task blocked-by:t001 ~15m risk:med
+- [ ] t001.1 Subtask of t001 ~10m
+- [x] t003 Completed task ~30m actual:25m logged:2025-01-10 completed:2025-01-15
+- [-] Declined task
+-->
+
+Format: `- [ ] tNNN Description @owner #tag ~estimate risk:level logged:date`
+
+**Task IDs:**
+- `t001` - Top-level task
+- `t001.1` - Subtask of t001
+- `t001.1.1` - Sub-subtask
+
+**Dependencies:**
+- `blocked-by:t001` - This task waits for t001
+- `blocked-by:t001,t002` - Waits for multiple tasks
+- `blocks:t003` - This task blocks t003
+
+**Time fields:**
+- `~estimate` - AI-assisted execution time (~15m trivial, ~30m small, ~1h medium, ~2h large, ~4h major — see `reference/planning-detail.md`)
+- `actual:` - Actual active time spent (from session-time-helper.sh)
+- `logged:` - When task was added
+- `started:` - When branch was created
+- `completed:` - When task was marked done
+
+**Risk (human oversight needed):**
+- `risk:low` - Autonomous: fire-and-forget, review PR after
+- `risk:med` - Supervised: check in mid-task, review before merge
+- `risk:high` - Engaged: stay present, test thoroughly, potential regressions
+
+<!--TOON:meta{version,format,updated}:
+1.1,todo-md+toon,2026-05-20
+-->
 
 ## Ready
+
+<!-- Tasks with no open blockers - run /ready to refresh -->
+
+<!--TOON:ready[0]{id,desc,owner,tags,est,risk,logged,status}:
+-->
+
 
 - [x] t225 WordPress plugin check readiness (wp.org submission) @superdav42 #enhancement ~30m logged:2026-04-20
   - Ran `wp plugin check` for WordPress.org submission
@@ -207,134 +261,11 @@
   - CI script passes {core:WordPress/WordPress#master} (unquoted keys) to JSON.parse — not valid JSON
   - Fix: quote the key in the inline Node.js script or write JSON directly without JSON.parse
 
-## New Tasks
-
-- [x] t167 Test debt cleanup: JS snapshot + PHPUnit failures carried over from t162 #testing #bug #auto-dispatch ~4h logged:2026-04-08 pr:#828 completed:2026-04-09
-  - Baseline on main post-#822: npm run test:js is 214 pass / 31 fail across 5 suites (MessageInput, ChatPanel, OnboardingWizard, ProviderSelector, ContextIndicator). vendor/bin/phpunit is 31 errors / 20 failures, all in AgentLoopTest and CredentialResolverTest. Red CI is masking real regressions — #815 shipped 3 runtime-fatal bugs despite PHPUnit passing because the failing tests hid the assertions that would have caught them.
-  - Classify each failure: snapshot-stale (regen with diff review), assertion regression (fix component), or asserting dead behaviour (delete). For PHP, AgentLoopTest fixtures drifted after the WP 7.0 Abilities API shape changed — model fixes on AgentLoopClientToolsTest which is green. CredentialResolverTest failures are pinned to #805's openai_compat cleanup — absorb #805 into this task or skip with markTestSkipped. Brief: todo/tasks/t167-brief.md.
-
-- [x] t168 Playwright E2E spec for client-side abilities (navigate-to + insert-block + snapshotDescriptors round-trip) #testing ~3h For #806 logged:2026-04-08 blocked-by:t167 pr:#826 completed:2026-04-09
-  - The entire #806 chain shipped, broke at runtime 3 times, and CI never caught any of it because there's no browser-pipeline spec — PHPUnit synthetically injects client_abilities into AgentLoop options, bypassing the whole registration pipeline. Port /tmp/t165-smoke.mjs (used to diagnose #821 and #822) into tests/e2e/client-abilities.spec.js. 7 test cases: category registered, abilities in getAbilities(), executeAbility navigate-to actually navigates, executeAbility insert-block inserts on editor screen, insert-block no-ops on non-editor, snapshotDescriptors returns expected shape, zero relevant console errors.
-  - Blocked by t167 so this new spec doesn't land into a red baseline. Verify by temporarily reverting a t166 fix — spec must go red. Brief: todo/tasks/t168-brief.md.
-
-- [x] t169 Investigate @wordpress/core-abilities not populating wp.data store on WP 7.0-RC2 #investigation #auto-dispatch ~2h For #806 logged:2026-04-08 pr:#827 completed:2026-04-09
-  - Browser observation during #822 smoke test: `wp.abilities.getAbilities()` returns 62 abilities (correct), but `wp.data.select('core/abilities').getAbilities()` returns 0. The WP 7.0 dev note documents the @wordpress/data store mirror as the React-integration path; it should be populated automatically by @wordpress/core-abilities on every admin page. t166 workaround reads via wp.abilities directly; this task figures out why the wp.data path is empty.
-  - Hypotheses: (1) @wordpress/core-abilities not actually enqueued; (2) REST fetch failing silently; (3) store-identity confusion; (4) RC2 regression; (5) our plugin registering before store ready. Deliverable: root-cause statement with browser-probe evidence, then one of — code fix, upstream bug report, or documented "no action needed" with registry.js comment update. Non-blocking; our feature works via workaround. Brief: todo/tasks/t169-brief.md.
-
-- [x] t162 Fix systemic CI failures: PHPStan, PHPUnit, Playwright E2E #bug #auto-dispatch ~4h ref:GH#803 logged:2026-04-07 pr:#820 pr:#820 completed:2026-04-08
-  - PHPStan: ~40 errors from WP 7.0 Abilities API stubs not matching actual API; PHPUnit: 7 errors + 20 failures in AgentLoopTest (WP_Error returned where array expected + WP_Ability category fixture); Playwright: 6 shards failing, likely /stream → /chat rename in #802
-  - PHPStan fixed in PR #820 (stubs + code fixes, verified [OK] No errors locally). PHPUnit and Playwright still need fixing.
-
-- [x] t163 Seamless PHP+JS abilities — foundation slice (JsAbilityCatalog, client registry, entry wiring) #feature #interactive ~3h For #806 logged:2026-04-08 pr:#815 completed:2026-04-08
-  - Bundled into t164's PR #815 by a parallel pulse worker that implemented #806 whole, ignoring the split t163/t164 briefs committed to main. The split-PR attempt (#816) was closed as a dup with merge conflicts. Foundation files (JsAbilityCatalog.php, src/abilities/{registry,navigation,editor,index}.js, entry-point wiring, script-module enqueue) are all on main.
-
-- [x] t164 Seamless PHP+JS abilities — AgentLoop pause/resume + /chat/tool-result + sessionsSlice round-trip #feature ~5h For #806 blocked-by:t163 logged:2026-04-08 pr:#815 completed:2026-04-08
-  - PR 2 of 2 splitting #806. Teaches AgentLoop to pause on sd-ai-agent-js/* tool calls, return pending_client_tool_calls, and resume via a new /chat/tool-result REST route. Adds sessionsSlice round-trip, tool-call-details "Ran in browser" badge, abilities-explorer client badge, and PHPUnit coverage.
-  - Brief: todo/tasks/t164-brief.md. Depends on t163 being merged first.
-
-- [x] t141 Add E2E tests for UnifiedAdminMenu (PR #665) @superdav42 #testing #auto-dispatch ~2h ref=GH#680 pr:#683 completed:2026-03-29
-  - UnifiedAdminMenu (hash-based React SPA) shipped with no E2E coverage — regressions break all admin navigation
-  - Create tests/e2e/unified-admin-menu.spec.js with ≥5 test cases: navigation, routing, active state, access control
-
-- [x] t142 Add E2E tests for model benchmark page (PR #663) @superdav42 #testing #auto-dispatch ~2h ref=GH#681 pr:#682 completed:2026-03-29
-  - Benchmark page (React SPA with REST API) shipped with no E2E coverage
-  - Create tests/e2e/benchmark-page.spec.js with ≥4 test cases: page render, form inputs, run list
-
-- [x] t143 Fix wp.org plugin review blockers: SSL, uninstall, i18n, permissions #devops #auto-dispatch ~4h ref:GH#724 logged:2026-04-03 pr:#725 completed:2026-04-03
-  - Remove sslverify=>false (8 locations), create uninstall.php, add load_plugin_textdomain + wp_set_script_translations
-  - Move auth into permission_callback for webhook/resale endpoints, harden CLI exec, wrap error_log in WP_DEBUG
-  - Fix blueprint slugs, add MODELS.md to .distignore, update PHPCS min WP version to 6.9
-
-## In Progress
-
-- [x] t144 WP 7.0 cleanup: fix settings tab overflow, flatten tab hierarchy, remove custom provider management @superdav42 #refactor ~9h logged:2026-04-03 started:2026-04-03 ref:GH#727 assignee:superdav42 pr:#738 completed:2026-04-04
-  - Settings tab bar has CSS selector mismatch causing 9 of 18 tabs to be hidden off-screen
-  - Two-level tab nesting creates duplicate tab names (General, Providers, Advanced at both levels)
-  - Custom provider key management duplicates WP 7.0 Connectors API — remove and delegate to core
-  - Direct HTTP provider paths (send_prompt_openai/anthropic/google/direct) bypass WP SDK — consolidate to wp_ai_client_prompt()
-  - Tasks: [todo/tasks/tasks-wp70-cleanup.md](todo/tasks/tasks-wp70-cleanup.md)
-
-## Ready
-
-### Pre-Release Codebase Cleanup
-
-- [x] t145 Split RestController.php (6,416 lines) into domain controllers #refactor ~8h logged:2026-04-03 ref:GH#729 #auto-dispatch pr:#746 completed:2026-04-04
-  - 73 routes and 101 handlers in one file — split into SessionController, SettingsController, MemoryController, AutomationController, KnowledgeController, ToolController, ProviderController, ExportController
-
-- [x] t146 Delete dead code — orphaned admin pages, OpenAIProxy, legacy E2E scripts #refactor ~2h logged:2026-04-03 ref:GH#730 #auto-dispatch pr:#738 completed:2026-04-04
-  - AdminPage.php, ChangesAdminPage.php, AbilitiesExplorerAdminPage.php (never registered), OpenAIProxy.php (452 lines, only referenced by own test), 4 legacy E2E scripts (1,840 lines), placeholder dirs, Settings::register() dead method
-
-- [x] t147 Remove redundant webpack entry points (changes-page, settings-page, abilities-explorer standalone) #refactor ~1h logged:2026-04-03 ref:GH#731 #auto-dispatch blocked-by:t146 pr:#738 completed:2026-04-04
-  - These produce build artifacts that are never loaded — their PHP registration pages are dead code
-
-- [x] t148 Standardize CSS class prefix to sd-ai-agent- across all components #refactor ~4h logged:2026-04-03 ref:GH#732 #auto-dispatch pr:#739 completed:2026-04-04
-  - Three conventions coexist: ai-agent-, sd-ai-agent-, sd-ai- — namespace collision risk
-
-- [x] t149 Split Redux store (3,095 lines) into domain slices #refactor ~4h logged:2026-04-03 ref:GH#733 #auto-dispatch pr:#742 completed:2026-04-04
-  - Single store/index.js handles sessions, messages, streaming, settings, memory, skills, agents, templates, TTS, site builder
-
-- [x] t150 Add JS unit tests for critical components (chat-panel, message-input, onboarding-wizard) #testing ~8h logged:2026-04-03 ref:GH#734 #auto-dispatch pr:#743 completed:2026-04-04
-  - 29 of 32 components have zero unit tests — cover the 5 most critical
-
-- [x] t151 Remove dead CSS rules and consolidate shared component styles #refactor ~2h logged:2026-04-03 ref:GH#735 #auto-dispatch blocked-by:t148 pr:#765 completed:2026-04-04
-  - Dead selectors for old Tools page, shared ChatPanel/MessageList styles duplicated across entry points
-
-- [x] t152 Fix AGENTS.md to document actual conventions and WP 7.0 requirement #docs ~30m logged:2026-04-03 ref:GH#736 #auto-dispatch pr:#738 completed:2026-04-04
-  - Says camelCase but codebase is 95% snake_case, references removed compat layer, stale class mapping table
-
-### UI Design Polish — WP Admin Aesthetic (P1)
-
-Goal: clean, minimal design that matches wp-admin conventions. Replace custom dark sidebar nav, reduce visual noise, align spacing/typography with core wp-admin patterns.
-
-- [x] t153 Redesign unified admin nav sidebar to match wp-admin aesthetic #ui ~3h logged:2026-04-03 ref:GH#748 #auto-dispatch pr:#758 completed:2026-04-04
-  - Current: custom dark (#1e1e1e) sidebar with blue active state — looks like a separate app, not a WP admin page
-  - Replace with wp-admin-style left nav: white/light background, standard WP submenu link styles, no custom dark theme
-  - Use `--wp-admin-theme-color` for active state only; remove hardcoded #1e1e1e, #333, #a7aaad
-  - Consider replacing custom nav entirely with WP's native submenu structure (registered via add_submenu_page)
-
-- [x] t154 Simplify chat panel header — reduce clutter, align with wp-admin toolbar style #ui ~2h logged:2026-04-03 ref:GH#749 #auto-dispatch pr:#759 completed:2026-04-04
-  - Current: provider selector + agent selector + budget badge + TTS button + debug badge + YOLO badge all in one row
-  - Move secondary controls (TTS, debug badge) to a settings popover or collapse into a single "options" button
-  - Provider/agent selectors: use compact inline selects without labels (labels add height, break the toolbar feel)
-  - Header background #f6f7f7 with border-bottom is fine — keep; remove excess padding
-
-- [x] t155 Redesign floating widget panel — lighter titlebar, less visual weight #ui ~2h logged:2026-04-03 ref:GH#750 pr:#757 completed:2026-04-04
-  - Current: solid `--wp-admin-theme-color` titlebar (blue) is heavy and inconsistent with wp-admin modals
-  - Replace with white/light titlebar, thin border-bottom, title in dark text — matches WP modal style
-  - FAB button is fine; keep the circular shape and theme color
-  - Session tabs: current pill style is ok but font-size 11px is too small — bump to 12px
-
-- [x] t156 Settings page: reduce tab count, improve section spacing and form layout #ui ~3h logged:2026-04-03 ref:GH#751 #auto-dispatch pr:#760 completed:2026-04-04
-  - 18 tabs is too many — group into 5-6 top-level tabs with sub-sections inside each panel
-  - Section padding (20px 24px) and gap (16px) are good; keep
-  - Form fields: use WP's `<BaseControl>` with proper label/help text instead of raw inputs
-  - Skill cards and memory cards: border-radius 4px is fine; consider removing the card border on hover-only items
-
-- [x] t157 Session sidebar: tighten spacing, improve active/hover states #ui ~1h logged:2026-04-03 ref:GH#752 #auto-dispatch pr:#761 completed:2026-04-04
-  - Active item uses `border-left: 3px solid` + background — the left border is a good WP pattern, keep it
-  - Session item padding (10px 36px 10px 12px) is generous — reduce to 8px 32px 8px 10px
-  - Folder tabs (pill shape, #e0e0e0 background) look out of place — replace with plain text tabs matching filter tabs
-  - Context menu: already clean; no changes needed
-
-- [x] t158 Message bubbles and input area: align with wp-admin form conventions #ui ~2h logged:2026-04-03 ref:GH#753 #auto-dispatch pr:#762 completed:2026-04-04
-  - User bubble (blue, right-aligned) is fine — standard chat convention
-  - Assistant bubble (#f0f0f1 background) is fine — keep
-  - Input area: background #f6f7f7 with border-top is correct; the textarea border (#8c8f94) is slightly dark — use #c3c4c7 to match WP inputs
-  - Send button (circular, absolute positioned) is non-standard for wp-admin — consider a standard rectangular "Send" button or keep circle but ensure it doesn't overlap text
-  - Token counter below input: good addition, ensure it uses wp-admin muted text color (#646970)
-
-- [x] t159 Welcome screen / empty state: simplify and reduce visual weight #ui ~1h logged:2026-04-03 ref:GH#754 #auto-dispatch pr:#763 completed:2026-04-04
-  - Current: 3-column card grid with border + hover shadow — looks like a marketing page
-  - Replace with a simple centered text + 2-3 plain suggestion links (no cards, no borders)
-  - Greeting text (18px, font-weight 600) is too large for an admin tool — reduce to 15px, normal weight
-  - Hint text (#a7aaad) is too light — use #646970
-
-- [x] t160 Benchmark and changes pages: apply consistent wp-admin card/table layout #ui ~2h logged:2026-04-03 ref:GH#755 #auto-dispatch pr:#764 completed:2026-04-04
-  - Benchmark page: use WP's `<Card>` component for run list items instead of custom styling
-  - Changes page: ensure it uses standard WP admin table markup (widefat, striped classes) where applicable
-  - Both pages: max-width 1200px container is fine; ensure headings use wp-admin h2 style (not custom font-size)
-
 ## Backlog
+
+<!--TOON:backlog[0]{id,desc,owner,tags,est,risk,logged,status}:
+-->
+
 
 - [x] t226 Block theme generation in onboarding (Automattic wp-site-creator inspired) #enhancement #parent-task #plan → [todo/PLANS.md#onboarding-theme-builder] ~24h logged:2026-05-13 pr:#1371,#1380,#1392,#1395,#1397,#1412,#1413,#1420,#1422,#1424 completed:2026-05-15
   - All 4 phases shipped: site-spec skill (t226a #1371), block-themes skill expansion (t226b #1380), theme-builder onboarding branch (t226c — 3a #1392/#1395/#1397, 3b #1412, 3c #1420, 3d #1422, 3e #1424), design-system aesthetics skill (t226d #1413)
@@ -914,11 +845,31 @@ Full plan: [todo/PLANS.md#complete-site-building-abilities](PLANS.md#2026-04-09-
 - [x] t058 Add WordPress Playground blueprint for instant demo @superdav42 #devops ~2h logged:2026-03-14 pr:#403 ref=GH#400
 - [x] t059 Update .distignore for clean plugin packaging @superdav42 #devops ~1h logged:2026-03-14 pr:#168 completed:2026-03-15
 
-## Routines
+## In Progress
 
-- [x] r020 Triage incoming feedback reports repeat:persistent ~15m agent:Build+ ref:GH#944 # systemd: sh.aidevops.routine-feedback-triage-daily.timer (renamed from r010 — that slot is reserved for the framework GH Failure Miner)
+<!--TOON:in_progress[0]{id,desc,owner,tags,est,risk,logged,started,status}:
+-->
+
+
+- [x] t144 WP 7.0 cleanup: fix settings tab overflow, flatten tab hierarchy, remove custom provider management @superdav42 #refactor ~9h logged:2026-04-03 started:2026-04-03 ref:GH#727 assignee:superdav42 pr:#738 completed:2026-04-04
+  - Settings tab bar has CSS selector mismatch causing 9 of 18 tabs to be hidden off-screen
+  - Two-level tab nesting creates duplicate tab names (General, Providers, Advanced at both levels)
+  - Custom provider key management duplicates WP 7.0 Connectors API — remove and delegate to core
+  - Direct HTTP provider paths (send_prompt_openai/anthropic/google/direct) bypass WP SDK — consolidate to wp_ai_client_prompt()
+  - Tasks: [todo/tasks/tasks-wp70-cleanup.md](todo/tasks/tasks-wp70-cleanup.md)
+
+## In Review
+
+<!-- Tasks with open PRs awaiting merge -->
+
+<!--TOON:in_review[0]{id,desc,owner,tags,est,pr_url,started,pr_created,status}:
+-->
 
 ## Done
+
+<!--TOON:done[0]{id,desc,owner,tags,est,actual,logged,started,completed,status}:
+-->
+
 
 - [x] t186 Thumbs-down button on assistant messages #feature #auto-dispatch ~2h logged:2026-04-14 blocked-by:t182 pr:#956 completed:2026-04-15
   - EDIT: src/components/MessageList.js — add a subtle thumbs-down icon button on assistant message hover (next to copy button if present)
@@ -942,3 +893,20 @@ Full plan: [todo/PLANS.md#complete-site-building-abilities](PLANS.md#2026-04-09-
 - [x] t045 SimpleAiResult extracted to own file, PHPDoc reference fixed verified:2026-03-14 completed:2026-03-14
 
 ## Declined
+
+<!-- Tasks that were considered but decided against -->
+
+<!--TOON:declined[0]{id,desc,reason,logged,status}:
+-->
+
+<!--TOON:dependencies-->
+<!-- Format: child_id|relation|parent_id -->
+<!--/TOON:dependencies-->
+
+<!--TOON:subtasks-->
+<!-- Format: parent_id|child_ids (comma-separated) -->
+<!--/TOON:subtasks-->
+
+<!--TOON:summary{total,ready,pending,in_progress,in_review,done,declined,total_est,total_actual}:
+0,0,0,0,0,0,0,,
+-->
