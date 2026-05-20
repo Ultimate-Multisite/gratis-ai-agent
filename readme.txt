@@ -4,7 +4,7 @@ Tags: ai, chatbot, assistant, automation, tools
 Requires at least: 6.9
 Tested up to: 7.0
 Requires PHP: 8.2
-Stable tag: 1.16.0
+Stable tag: 1.16.1
 License: GPL-2.0-or-later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -207,6 +207,9 @@ Yes, the plugin works on both single-site and multisite WordPress installations.
 8. Settings page with 12 configuration tabs
 
 == Changelog ==
+
+= 1.16.1 - Released on 2026-05-20 =
+* Fix: Theme Builder onboarding chat is scrollable again on sites with existing content. The wrapper that mounts ChatRedesign now participates in the WordPress admin flex chain, so the message list scrolls internally instead of pushing the photo-upload tile and chat off the viewport (#1578, reverts #1577)
 
 = 1.16.0 - Released on 2026-05-20 =
 * New: Theme Builder can generate and embed a logo SVG with namespace-safe sanitisation (generate-logo-svg ability)
