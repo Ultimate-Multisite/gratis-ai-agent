@@ -110,7 +110,7 @@ class MenuAbilities {
 			'sd-ai-agent/create-menu',
 			[
 				'label'               => __( 'Create Menu', 'superdav-ai-agent' ),
-				'description'         => __( 'Create a new WordPress navigation menu with the given name. Optionally assign it to a theme location.', 'superdav-ai-agent' ),
+				'description'         => __( 'Create a new WordPress navigation menu with the given name. Optionally assign it to a theme location and populate it with items in one call. Each item may supply a navigation_label to override the linked page\'s title in the rendered nav.', 'superdav-ai-agent' ),
 				'category'            => 'sd-ai-agent',
 				'input_schema'        => [
 					'type'       => 'object',
@@ -123,15 +123,41 @@ class MenuAbilities {
 							'type'        => 'string',
 							'description' => 'Optional theme location slug to assign this menu to (e.g. "primary", "footer").',
 						],
+						'items'    => [
+							'type'        => 'array',
+							'description' => 'Optional list of items to add to the menu immediately after creation. Items are added in the order provided.',
+							'items'       => [
+								'type'       => 'object',
+								'properties' => [
+									'page_id'          => [
+										'type'        => 'integer',
+										'description' => 'ID of a page/post to link. When supplied the item type is set to post_type/page.',
+									],
+									'url'              => [
+										'type'        => 'string',
+										'description' => 'URL for a custom-link item (used when page_id is not provided).',
+									],
+									'navigation_label' => [
+										'type'        => 'string',
+										'description' => 'The label rendered in the navigation. When omitted the linked page title (or url) is used as the label.',
+									],
+									'title'            => [
+										'type'        => 'string',
+										'description' => 'Alias for navigation_label (navigation_label takes precedence when both are supplied).',
+									],
+								],
+							],
+						],
 					],
 					'required'   => [ 'name' ],
 				],
 				'output_schema'       => [
 					'type'       => 'object',
 					'properties' => [
-						'menu_id' => [ 'type' => 'integer' ],
-						'name'    => [ 'type' => 'string' ],
-						'slug'    => [ 'type' => 'string' ],
+						'menu_id'     => [ 'type' => 'integer' ],
+						'name'        => [ 'type' => 'string' ],
+						'slug'        => [ 'type' => 'string' ],
+						'items_added' => [ 'type' => 'integer' ],
 					],
 				],
 				'meta'                => [
@@ -452,7 +478,7 @@ class MenuAbilities {
 	/**
 	 * Handle the create-menu ability.
 	 *
-	 * @param array<string, mixed> $input Input with name and optional location.
+	 * @param array<string, mixed> $input Input with name, optional location, and optional items.
 	 * @return array<string, mixed>|WP_Error
 	 */
 	public static function handle_create_menu( array $input ) {
@@ -460,6 +486,8 @@ class MenuAbilities {
 		$name = sanitize_text_field( $input['name'] ?? '' );
 		// @phpstan-ignore-next-line
 		$location = sanitize_text_field( $input['location'] ?? '' );
+		// @phpstan-ignore-next-line
+		$items = isset( $input['items'] ) && is_array( $input['items'] ) ? $input['items'] : [];
 
 		if ( empty( $name ) ) {
 			return new WP_Error( 'ai_agent_empty_menu_name', __( 'Menu name is required.', 'superdav-ai-agent' ) );
@@ -478,12 +506,68 @@ class MenuAbilities {
 			set_theme_mod( 'nav_menu_locations', $locations );
 		}
 
+		// Add items if provided.
+		$items_added = 0;
+		foreach ( $items as $position => $item ) {
+			if ( ! is_array( $item ) ) {
+				continue;
+			}
+
+			// @phpstan-ignore-next-line
+			$page_id = (int) ( $item['page_id'] ?? 0 );
+			// @phpstan-ignore-next-line
+			$url = esc_url_raw( $item['url'] ?? '' );
+
+			// Resolve label: navigation_label > title > page post_title > url.
+			// @phpstan-ignore-next-line
+			$navigation_label = sanitize_text_field( $item['navigation_label'] ?? '' );
+			if ( '' === $navigation_label ) {
+				// @phpstan-ignore-next-line
+				$navigation_label = sanitize_text_field( $item['title'] ?? '' );
+			}
+			if ( '' === $navigation_label && $page_id > 0 ) {
+				$page = get_post( $page_id );
+				if ( $page instanceof \WP_Post ) {
+					$navigation_label = $page->post_title;
+				}
+			}
+			if ( '' === $navigation_label ) {
+				$navigation_label = $url;
+			}
+
+			if ( '' === $navigation_label ) {
+				// Cannot determine a label; skip this item.
+				continue;
+			}
+
+			$item_data = [
+				'menu-item-title'    => $navigation_label,
+				'menu-item-position' => $position + 1,
+				'menu-item-status'   => 'publish',
+			];
+
+			if ( $page_id > 0 ) {
+				$item_data['menu-item-object-id'] = $page_id;
+				$item_data['menu-item-object']    = 'page';
+				$item_data['menu-item-type']      = 'post_type';
+			} else {
+				$item_data['menu-item-url']  = $url;
+				$item_data['menu-item-type'] = 'custom';
+			}
+
+			$result = wp_update_nav_menu_item( $menu_id, 0, $item_data );
+			if ( ! is_wp_error( $result ) ) {
+				++$items_added;
+			}
+		}
+
 		$menu = wp_get_nav_menu_object( $menu_id );
 
 		return [
-			'menu_id' => $menu_id,
-			'name'    => $menu ? $menu->name : $name,
-			'slug'    => $menu ? $menu->slug : sanitize_title( $name ),
+			'menu_id'     => $menu_id,
+			'name'        => $menu ? $menu->name : $name,
+			'slug'        => $menu ? $menu->slug : sanitize_title( $name ),
+			'items_added' => $items_added,
 		];
 	}
 

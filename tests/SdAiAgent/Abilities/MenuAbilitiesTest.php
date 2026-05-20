@@ -381,6 +381,227 @@ class MenuAbilitiesTest extends WP_UnitTestCase {
 		$this->assertTrue( $result['deleted'] );
 	}
 
+	// ─── handle_create_menu with items ───────────────────────────
+
+	/**
+	 * Test handle_create_menu without items returns items_added = 0 (no regression).
+	 */
+	public function test_handle_create_menu_items_added_zero_when_no_items() {
+		$result = MenuAbilities::handle_create_menu( [ 'name' => 'No Items Menu' ] );
+
+		$this->assertIsArray( $result );
+		$this->assertArrayHasKey( 'items_added', $result );
+		$this->assertSame( 0, $result['items_added'] );
+	}
+
+	/**
+	 * Test handle_create_menu with empty items array returns items_added = 0.
+	 */
+	public function test_handle_create_menu_empty_items_array() {
+		$result = MenuAbilities::handle_create_menu( [ 'name' => 'Empty Items Menu', 'items' => [] ] );
+
+		$this->assertIsArray( $result );
+		$this->assertSame( 0, $result['items_added'] );
+	}
+
+	/**
+	 * Test handle_create_menu navigation_label overrides page post_title.
+	 *
+	 * Regression test for GH#1536: page titled "Shop Our Beans" should render
+	 * as "Shop" when navigation_label = "Shop" is supplied.
+	 */
+	public function test_handle_create_menu_navigation_label_overrides_page_title() {
+		$page_id = $this->factory->post->create(
+			[
+				'post_type'   => 'page',
+				'post_title'  => 'Shop Our Beans',
+				'post_status' => 'publish',
+			]
+		);
+
+		$result = MenuAbilities::handle_create_menu(
+			[
+				'name'  => 'Navigation Label Menu',
+				'items' => [
+					[
+						'page_id'          => $page_id,
+						'navigation_label' => 'Shop',
+					],
+				],
+			]
+		);
+
+		$this->assertIsArray( $result );
+		$this->assertSame( 1, $result['items_added'] );
+
+		$items = wp_get_nav_menu_items( $result['menu_id'] );
+		$this->assertIsArray( $items );
+		$this->assertCount( 1, $items );
+		$this->assertSame( 'Shop', $items[0]->title, 'navigation_label should override page post_title' );
+	}
+
+	/**
+	 * Test handle_create_menu falls back to page post_title when navigation_label is omitted.
+	 */
+	public function test_handle_create_menu_fallback_to_page_title() {
+		$page_id = $this->factory->post->create(
+			[
+				'post_type'   => 'page',
+				'post_title'  => 'Shop Our Beans',
+				'post_status' => 'publish',
+			]
+		);
+
+		$result = MenuAbilities::handle_create_menu(
+			[
+				'name'  => 'Fallback Title Menu',
+				'items' => [
+					[
+						'page_id' => $page_id,
+					],
+				],
+			]
+		);
+
+		$this->assertIsArray( $result );
+		$this->assertSame( 1, $result['items_added'] );
+
+		$items = wp_get_nav_menu_items( $result['menu_id'] );
+		$this->assertIsArray( $items );
+		$this->assertCount( 1, $items );
+		$this->assertSame( 'Shop Our Beans', $items[0]->title, 'Should fall back to page post_title when navigation_label is omitted' );
+	}
+
+	/**
+	 * Test handle_create_menu title field is an alias for navigation_label.
+	 */
+	public function test_handle_create_menu_title_alias_for_navigation_label() {
+		$page_id = $this->factory->post->create(
+			[
+				'post_type'   => 'page',
+				'post_title'  => 'About Our Company',
+				'post_status' => 'publish',
+			]
+		);
+
+		$result = MenuAbilities::handle_create_menu(
+			[
+				'name'  => 'Title Alias Menu',
+				'items' => [
+					[
+						'page_id' => $page_id,
+						'title'   => 'About',
+					],
+				],
+			]
+		);
+
+		$this->assertIsArray( $result );
+		$this->assertSame( 1, $result['items_added'] );
+
+		$items = wp_get_nav_menu_items( $result['menu_id'] );
+		$this->assertIsArray( $items );
+		$this->assertCount( 1, $items );
+		$this->assertSame( 'About', $items[0]->title, 'title field should act as alias for navigation_label' );
+	}
+
+	/**
+	 * Test handle_create_menu navigation_label takes precedence over title when both supplied.
+	 */
+	public function test_handle_create_menu_navigation_label_takes_precedence_over_title() {
+		$page_id = $this->factory->post->create(
+			[
+				'post_type'   => 'page',
+				'post_title'  => 'Contact Us Today',
+				'post_status' => 'publish',
+			]
+		);
+
+		$result = MenuAbilities::handle_create_menu(
+			[
+				'name'  => 'Precedence Menu',
+				'items' => [
+					[
+						'page_id'          => $page_id,
+						'navigation_label' => 'Contact',
+						'title'            => 'Contact Us',
+					],
+				],
+			]
+		);
+
+		$this->assertIsArray( $result );
+		$this->assertSame( 1, $result['items_added'] );
+
+		$items = wp_get_nav_menu_items( $result['menu_id'] );
+		$this->assertIsArray( $items );
+		$this->assertCount( 1, $items );
+		$this->assertSame( 'Contact', $items[0]->title, 'navigation_label should take precedence over title' );
+	}
+
+	/**
+	 * Test handle_create_menu adds custom-link items with navigation_label.
+	 */
+	public function test_handle_create_menu_custom_url_item() {
+		$result = MenuAbilities::handle_create_menu(
+			[
+				'name'  => 'Custom URL Menu',
+				'items' => [
+					[
+						'url'              => 'https://example.com/shop',
+						'navigation_label' => 'Shop',
+					],
+				],
+			]
+		);
+
+		$this->assertIsArray( $result );
+		$this->assertSame( 1, $result['items_added'] );
+
+		$items = wp_get_nav_menu_items( $result['menu_id'] );
+		$this->assertIsArray( $items );
+		$this->assertCount( 1, $items );
+		$this->assertSame( 'Shop', $items[0]->title );
+	}
+
+	/**
+	 * Test handle_create_menu adds multiple items in order.
+	 */
+	public function test_handle_create_menu_multiple_items_in_order() {
+		$page_ids = [];
+		$titles   = [ 'Home Page Title', 'About Page Title', 'Shop Page Title' ];
+		foreach ( $titles as $title ) {
+			$page_ids[] = $this->factory->post->create(
+				[
+					'post_type'   => 'page',
+					'post_title'  => $title,
+					'post_status' => 'publish',
+				]
+			);
+		}
+
+		$result = MenuAbilities::handle_create_menu(
+			[
+				'name'  => 'Multi Item Menu',
+				'items' => [
+					[ 'page_id' => $page_ids[0], 'navigation_label' => 'Home' ],
+					[ 'page_id' => $page_ids[1], 'navigation_label' => 'About' ],
+					[ 'page_id' => $page_ids[2], 'navigation_label' => 'Shop' ],
+				],
+			]
+		);
+
+		$this->assertIsArray( $result );
+		$this->assertSame( 3, $result['items_added'] );
+
+		$items = wp_get_nav_menu_items( $result['menu_id'] );
+		$this->assertIsArray( $items );
+		$this->assertCount( 3, $items );
+		$this->assertSame( 'Home', $items[0]->title );
+		$this->assertSame( 'About', $items[1]->title );
+		$this->assertSame( 'Shop', $items[2]->title );
+	}
+
 	// ─── handle_assign_menu_location ─────────────────────────────
 
 	/**
