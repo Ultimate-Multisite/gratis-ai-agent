@@ -385,8 +385,11 @@ jobs:
               if [[ -n "$TASK_ID" ]]; then
                 TASK_REF=" Task $TASK_ID"
               fi
-              gh issue comment "$ISSUE_NUM" --repo "$REPO" --body "Completed via [PR #${PR_NUMBER}](${PR_URL}).${TASK_REF} merged to main."
-              echo "Posted closing comment on #$ISSUE_NUM"
+              if gh issue comment "$ISSUE_NUM" --repo "$REPO" --body "Completed via [PR #${PR_NUMBER}](${PR_URL}).${TASK_REF} merged to main." 2>&1; then
+                echo "Posted closing comment on #$ISSUE_NUM"
+              else
+                echo "::warning::Could not post closing comment on #$ISSUE_NUM (issue may be locked or archived). Continuing with label updates."
+              fi
             else
               echo "Closing comment already exists on #$ISSUE_NUM"
             fi
