@@ -784,7 +784,8 @@ class Agent {
 							'sd-ai-agent/render-design-previews',
 							// Hospitality menu page generation (issue #1531).
 							'sd-ai-agent/generate-menu-page',
-							// Image tools required for brand-specific and stock imagery (issue #1528, #1529).
+							// Site pre-fill (issue #1530) and imagery tools (issues #1528, #1529).
+							'sd-ai-agent/site-scrape',
 							'sd-ai-agent/stock-image',
 							'sd-ai-agent/generate-image',
 						]

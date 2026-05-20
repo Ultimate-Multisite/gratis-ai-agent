@@ -557,6 +557,26 @@ class AgentThemeBuilderTest extends WP_UnitTestCase {
 		);
 	}
 
+	// ─── Site scrape tool (issue #1548) ─────────────────────────────────────
+
+	/**
+	 * The seeded theme-builder agent includes sd-ai-agent/site-scrape in
+	 * tier_1_tools so the model can pre-fill interview answers without
+	 * extra ability-search + ability-call round-trips (issue #1548).
+	 */
+	public function test_tier_1_tools_contains_site_scrape(): void {
+		Agent::seed_defaults();
+
+		$agent = Agent::get_by_slug( self::SLUG );
+		$this->assertNotNull( $agent );
+
+		$this->assertContains(
+			'sd-ai-agent/site-scrape',
+			$agent->tier_1_tools,
+			'tier_1_tools must contain sd-ai-agent/site-scrape for site pre-fill (issue #1548)'
+		);
+	}
+
 	// ─── Image generation tools (issue #1529) ────────────────────────────────
 
 	/**
