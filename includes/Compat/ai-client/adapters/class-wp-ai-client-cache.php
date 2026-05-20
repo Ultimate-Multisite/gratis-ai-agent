@@ -47,6 +47,11 @@ class WP_AI_Client_Cache implements CacheInterface {
 	/**
 	 * Fetches a value from the cache.
 	 *
+	 * Backed by transients so the value survives across PHP requests. When a
+	 * persistent object cache (Redis, Memcached, etc.) is configured, the
+	 * transient API automatically routes through it; otherwise transients
+	 * fall through to the options table.
+	 *
 	 * @since 7.0.0
 	 *
 	 * @param string $key           The unique key of this item in the cache.
@@ -54,10 +59,9 @@ class WP_AI_Client_Cache implements CacheInterface {
 	 * @return mixed The value of the item from the cache, or $default_value in case of cache miss.
 	 */
 	public function get( $key, $default_value = null ) {
-		$found = false;
-		$value = wp_cache_get( $key, self::CACHE_GROUP, false, $found );
+		$value = get_transient( $this->transient_key( $key ) );
 
-		if ( ! $found ) {
+		if ( false === $value ) {
 			return $default_value;
 		}
 
@@ -77,7 +81,7 @@ class WP_AI_Client_Cache implements CacheInterface {
 	public function set( $key, $value, $ttl = null ): bool {
 		$expire = $this->ttl_to_seconds( $ttl );
 
-		return wp_cache_set( $key, $value, self::CACHE_GROUP, $expire );
+		return set_transient( $this->transient_key( $key ), $value, $expire );
 	}
 
 	/**
@@ -89,25 +93,36 @@ class WP_AI_Client_Cache implements CacheInterface {
 	 * @return bool True if the item was successfully removed. False if there was an error.
 	 */
 	public function delete( $key ): bool {
-		return wp_cache_delete( $key, self::CACHE_GROUP );
+		return delete_transient( $this->transient_key( $key ) );
 	}
 
 	/**
 	 * Wipes clean the entire cache's keys.
 	 *
-	 * This method only clears the cache group used by this adapter. If the underlying
-	 * cache implementation does not support group flushing, this method returns false.
+	 * Deletes every transient created by this adapter by matching the
+	 * `_transient_{prefix}` and `_transient_timeout_{prefix}` option names.
 	 *
 	 * @since 7.0.0
 	 *
 	 * @return bool True on success and false on failure.
 	 */
 	public function clear(): bool {
-		if ( ! function_exists( 'wp_cache_supports' ) || ! wp_cache_supports( 'flush_group' ) ) {
-			return false;
-		}
+		global $wpdb;
 
-		return wp_cache_flush_group( self::CACHE_GROUP );
+		$prefix = self::CACHE_GROUP . '_';
+		$like   = $wpdb->esc_like( '_transient_' . $prefix ) . '%';
+		$tlike  = $wpdb->esc_like( '_transient_timeout_' . $prefix ) . '%';
+
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching
+		$deleted = $wpdb->query(
+			$wpdb->prepare(
+				"DELETE FROM {$wpdb->options} WHERE option_name LIKE %s OR option_name LIKE %s",
+				$like,
+				$tlike
+			)
+		);
+
+		return false !== $deleted;
 	}
 
 	/**
@@ -126,16 +141,10 @@ class WP_AI_Client_Cache implements CacheInterface {
 		 * @var array<string> $keys_array
 		 */
 		$keys_array = $this->iterable_to_array( $keys );
-		$values     = wp_cache_get_multiple( $keys_array, self::CACHE_GROUP );
 		$result     = array();
 
 		foreach ( $keys_array as $key ) {
-			if ( false === $values[ $key ] ) {
-				// Could be a stored false or a cache miss — disambiguate via get().
-				$result[ $key ] = $this->get( $key, $default_value );
-			} else {
-				$result[ $key ] = $values[ $key ];
-			}
+			$result[ $key ] = $this->get( $key, $default_value );
 		}
 
 		return $result;
@@ -153,10 +162,15 @@ class WP_AI_Client_Cache implements CacheInterface {
 	public function setMultiple( $values, $ttl = null ): bool {
 		$values_array = $this->iterable_to_array( $values );
 		$expire       = $this->ttl_to_seconds( $ttl );
-		$results      = wp_cache_set_multiple( $values_array, self::CACHE_GROUP, $expire );
+		$ok           = true;
 
-		// Return true only if all operations succeeded.
-		return ! in_array( false, $results, true );
+		foreach ( $values_array as $key => $value ) {
+			if ( ! set_transient( $this->transient_key( (string) $key ), $value, $expire ) ) {
+				$ok = false;
+			}
+		}
+
+		return $ok;
 	}
 
 	/**
@@ -169,10 +183,15 @@ class WP_AI_Client_Cache implements CacheInterface {
 	 */
 	public function deleteMultiple( $keys ): bool {
 		$keys_array = $this->iterable_to_array( $keys );
-		$results    = wp_cache_delete_multiple( $keys_array, self::CACHE_GROUP );
+		$ok         = true;
 
-		// Return true only if all operations succeeded.
-		return ! in_array( false, $results, true );
+		foreach ( $keys_array as $key ) {
+			if ( ! delete_transient( $this->transient_key( (string) $key ) ) ) {
+				$ok = false;
+			}
+		}
+
+		return $ok;
 	}
 
 	/**
@@ -184,10 +203,24 @@ class WP_AI_Client_Cache implements CacheInterface {
 	 * @return bool True if the item exists in the cache, false otherwise.
 	 */
 	public function has( $key ): bool {
-		$found = false;
-		wp_cache_get( $key, self::CACHE_GROUP, false, $found );
+		return false !== get_transient( $this->transient_key( $key ) );
+	}
 
-		return (bool) $found;
+	/**
+	 * Builds the transient option name for a cache key.
+	 *
+	 * Prefixed with the cache group so {@see clear()} can target only this
+	 * adapter's transients without touching unrelated options. Transient
+	 * names are limited to 172 characters by WordPress core; SDK cache
+	 * keys are short hashes so this prefix is comfortably within budget.
+	 *
+	 * @since 7.0.0
+	 *
+	 * @param string $key The PSR-16 cache key.
+	 * @return string The fully-prefixed transient name.
+	 */
+	private function transient_key( string $key ): string {
+		return self::CACHE_GROUP . '_' . $key;
 	}
 
 	/**
