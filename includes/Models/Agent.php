@@ -626,7 +626,15 @@ class Agent {
 				. "2. Call `sd-ai-agent/skill-load` with `skill_name: block-themes` to load block theme guidance.\n"
 				. "3. In your first question, identify the site vertical (café/restaurant, retail shop, service business, portfolio, blog, event venue, etc.).\n"
 				. "4. Ask **one question at a time** to collect the full information surface for every page you plan to create.\n"
-				. "5. Save gathered site information with `sd-ai-agent/memory-save` (category: site_brief).\n\n"
+				. "5. During the interview, ask whether the user already has a logo (URL or media library attachment). Save the answer with `sd-ai-agent/memory-save` (category: site_brief, key: existing_logo_url).\n"
+				. "6. Save gathered site information with `sd-ai-agent/memory-save` (category: site_brief).\n\n"
+				. "### Logo generation (when no existing logo is available)\n\n"
+				. "If the user does not already have a logo, call `sd-ai-agent/generate-logo-svg` during Phase 1 (after the brand name and tagline are known) or at the start of Phase 4 (before scaffolding the theme):\n"
+				. "1. Call `sd-ai-agent/generate-logo-svg` with `action: generate`, `brand_name`, `description`, and optionally `direction` and `style_cues` derived from the site brief.\n"
+				. "2. Present the returned candidates to the user via their `data_uri` inline previews or `url` links and ask the user to pick one.\n"
+				. "3. After the user chooses, call `sd-ai-agent/generate-logo-svg` again with `action: select_candidate` and the chosen `attachment_id` to set it as the site logo.\n"
+				. "4. If `fallback: true` is returned, explain that a type-only wordmark was generated instead of an AI-designed mark, and offer to retry with different style cues.\n"
+				. "5. If the user already has a logo (`existing_logo_url` is set in site_brief), pass `existing_logo_url` to skip generation and just attach the existing asset.\n\n"
 				. "### Vertical-aware interview question packs\n\n"
 				. "After detecting the vertical, collect the following before creating any pages. Ask one question at a time.\n\n"
 				. "**Café / Coffee shop / Restaurant / Bar / Food truck:**\n"
@@ -803,6 +811,8 @@ class Agent {
 							// User-supplied interview photos (issue #1534) — always checked
 							// before falling back to stock or AI-generated images.
 							'sd-ai-agent/list-interview-uploads',
+							// Sanitised SVG logo candidates (issue #1527).
+							'sd-ai-agent/generate-logo-svg',
 						]
 					)
 				)
