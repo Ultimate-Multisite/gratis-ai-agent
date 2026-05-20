@@ -53,10 +53,25 @@ class PluginBuilderIntegrationTest extends WP_UnitTestCase {
 	 */
 	private array $created_ids = [];
 
+	/**
+	 * Temporary upload basedir used during this test class.
+	 *
+	 * Redirects wp_upload_dir() basedir to a writable location so that
+	 * PluginUpdater::copy_directory() can call wp_mkdir_p() for the staging
+	 * and backup paths without hitting permission failures in the
+	 * tests-wordpress container (where wp-content/uploads is typically owned
+	 * by www-data while PHPUnit runs as the host user, e.g. 1000:1000).
+	 *
+	 * @var string
+	 */
+	private string $tmp_upload_basedir;
+
 	// ── Lifecycle ──────────────────────────────────────────────────────────
 
 	public function setUp(): void {
 		parent::setUp();
+		$this->tmp_upload_basedir = sys_get_temp_dir() . '/sd-ai-agent-phpunit';
+		add_filter( 'upload_dir', [ $this, 'filter_upload_dir_to_tmp' ] );
 		$this->fixtures_dir = dirname( __DIR__, 2 ) . '/fixtures/plugins/';
 		$this->created_dirs = [];
 		$this->created_ids  = [];
@@ -71,7 +86,28 @@ class PluginBuilderIntegrationTest extends WP_UnitTestCase {
 		foreach ( $this->created_ids as $id ) {
 			PluginInstaller::delete( $id, false );
 		}
+		remove_filter( 'upload_dir', [ $this, 'filter_upload_dir_to_tmp' ] );
 		parent::tearDown();
+	}
+
+	/**
+	 * Redirect wp_upload_dir() basedir to a writable tmp directory.
+	 *
+	 * PluginUpdater::staging_root() and ::backups_root() derive their paths
+	 * from wp_upload_dir()['basedir']. By filtering upload_dir to point at
+	 * a tmp location, we ensure wp_mkdir_p() calls inside PluginUpdater can
+	 * always create the staging and backup directories regardless of which
+	 * user owns wp-content/uploads in the test container.
+	 *
+	 * @param array<string,string> $uploads Upload directory info passed by WP.
+	 * @return array<string,string>
+	 */
+	public function filter_upload_dir_to_tmp( array $uploads ): array {
+		$uploads['basedir'] = $this->tmp_upload_basedir;
+		$uploads['path']    = $this->tmp_upload_basedir;
+		$uploads['baseurl'] = 'http://example.org/tmp-uploads';
+		$uploads['url']     = 'http://example.org/tmp-uploads';
+		return $uploads;
 	}
 
 	// ── Private helpers ────────────────────────────────────────────────────

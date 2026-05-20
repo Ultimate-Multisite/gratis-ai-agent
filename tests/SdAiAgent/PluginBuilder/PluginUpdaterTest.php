@@ -42,10 +42,25 @@ class PluginUpdaterTest extends WP_UnitTestCase {
 	private PluginUpdater $updater;
 
 	/**
+	 * Temporary upload basedir used during this test class.
+	 *
+	 * Redirects wp_upload_dir() basedir to a writable location so that
+	 * PluginUpdater::copy_directory() can call wp_mkdir_p() for the staging
+	 * and backup paths without hitting permission failures in the
+	 * tests-wordpress container (where wp-content/uploads is typically owned
+	 * by www-data while PHPUnit runs as the host user, e.g. 1000:1000).
+	 *
+	 * @var string
+	 */
+	private string $tmp_upload_basedir;
+
+	/**
 	 * Set up test directories and a minimal plugin before each test.
 	 */
 	public function setUp(): void {
 		parent::setUp();
+		$this->tmp_upload_basedir = sys_get_temp_dir() . '/sd-ai-agent-phpunit';
+		add_filter( 'upload_dir', [ $this, 'filter_upload_dir_to_tmp' ] );
 		$this->plugin_dir = trailingslashit( WP_PLUGIN_DIR ) . $this->slug . '/';
 		$this->updater    = new PluginUpdater();
 		$this->cleanup_all();
@@ -57,7 +72,27 @@ class PluginUpdaterTest extends WP_UnitTestCase {
 	 */
 	public function tearDown(): void {
 		$this->cleanup_all();
+		remove_filter( 'upload_dir', [ $this, 'filter_upload_dir_to_tmp' ] );
 		parent::tearDown();
+	}
+
+	/**
+	 * Redirect wp_upload_dir() basedir to a writable tmp directory.
+	 *
+	 * PluginUpdater::staging_root() and ::backups_root() derive their paths
+	 * from wp_upload_dir()['basedir']. The helper methods backups_root() and
+	 * staging_root() in this class do the same, so both production and test
+	 * paths stay consistent and point to a location writable by any user.
+	 *
+	 * @param array<string,string> $uploads Upload directory info passed by WP.
+	 * @return array<string,string>
+	 */
+	public function filter_upload_dir_to_tmp( array $uploads ): array {
+		$uploads['basedir'] = $this->tmp_upload_basedir;
+		$uploads['path']    = $this->tmp_upload_basedir;
+		$uploads['baseurl'] = 'http://example.org/tmp-uploads';
+		$uploads['url']     = 'http://example.org/tmp-uploads';
+		return $uploads;
 	}
 
 	// ─── backup() ────────────────────────────────────────────────────────────
