@@ -4,7 +4,7 @@ Tags: ai, chatbot, assistant, automation, tools
 Requires at least: 6.9
 Tested up to: 7.0
 Requires PHP: 8.2
-Stable tag: 1.15.0
+Stable tag: 1.16.0
 License: GPL-2.0-or-later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -207,6 +207,17 @@ Yes, the plugin works on both single-site and multisite WordPress installations.
 8. Settings page with 12 configuration tabs
 
 == Changelog ==
+
+= 1.16.0 - Released on 2026-05-20 =
+* New: Theme Builder can generate and embed a logo SVG with namespace-safe sanitisation (generate-logo-svg ability)
+* New: Theme Builder discovery interview now includes a photo upload step for richer design context
+* New: validate-palette-contrast ability checks colour pairs for WCAG compliance before applying to a theme
+* New: Theme Builder generates structured hospitality menu pages for food and beverage sites
+* New: Desktop and mobile preview rendering during Theme Builder design-direction selection
+* New: Create Menu ability supports a distinct navigation_label separate from the page title
+* Improved: sd-ai-agent/site-scrape is now a Tier 1 tool, making it available to Theme Builder pre-fill by default
+* Fix: AI Client cache is now backed by transients for cross-request persistence, preventing data loss on long-running agent tasks
+* Fix: Plugin row action links corrected and renamed for clarity
 
 = 1.15.0 - Released on 2026-05-19 =
 * New: sd-ai-agent/site-scrape ability scrapes a live URL and returns structured content for Theme Builder pre-fill
