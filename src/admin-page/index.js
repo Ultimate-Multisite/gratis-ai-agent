@@ -84,13 +84,16 @@ const ShortcutsHelp = lazy( () =>
  */
 function AdminPageApp() {
 	/**
-	 * Tracks whether the site has any published content yet. Used to pick the
-	 * default first-run agent: empty install → Theme Builder; otherwise →
-	 * Setup Assistant. `null` means the heuristic probe is still in flight.
+	 * Tracks whether the site has any "real" published content yet. Used to
+	 * pick the default first-run agent: empty install → Theme Builder;
+	 * otherwise → Setup Assistant. `null` means the heuristic probe is still
+	 * in flight.
 	 *
-	 * Probe target: GET /wp/v2/posts?per_page=1&status=publish.
-	 * The probe is fired lazily — only when we actually need to show one of
-	 * the bootstrappers — so existing installs pay no probe cost.
+	 * Probe target: GET /wp/v2/posts?per_page=2&status=publish. The probe
+	 * returns true when at least TWO published posts exist, so the WordPress
+	 * default "Hello world!" seed post is treated as "no real content yet".
+	 * Fired lazily — only when we actually need to show one of the
+	 * bootstrappers — so existing installs pay no probe cost.
 	 */
 	const [ siteHasContent, setSiteHasContent ] = useState( null );
 
@@ -165,6 +168,18 @@ function AdminPageApp() {
 	// When we are about to mount one of the onboarding bootstrappers, probe
 	// /wp/v2/posts once to decide which agent to drop the user into. Fired
 	// lazily — existing installs (onboarding already complete) never call it.
+	//
+	// Threshold is `> 1`, not `> 0`, because every fresh WordPress install
+	// ships with one seeded "Hello world!" post. A `> 0` check would always
+	// be true on a default install and the Theme Builder branch would be
+	// unreachable. `> 1` treats the seed post as "no real content yet" and
+	// only flips to Setup Assistant once the user has at least two
+	// published posts. Edge case: a user who deletes the seed post and
+	// writes exactly one real post will still be routed to Theme Builder
+	// (they can switch agents from the chat picker if they prefer the
+	// Setup Assistant). Tracked in the v1.16.1 follow-up issue alongside
+	// the broader probe (it currently only counts `post`-type entries and
+	// misses page-only / CPT-only / WooCommerce-only installs).
 	const onboardingComplete = settings?.onboarding_complete !== false;
 	useEffect( () => {
 		if ( ! settingsLoaded || onboardingComplete ) {
@@ -173,9 +188,9 @@ function AdminPageApp() {
 		if ( siteHasContent !== null ) {
 			return;
 		}
-		apiFetch( { path: '/wp/v2/posts?per_page=1&status=publish' } )
+		apiFetch( { path: '/wp/v2/posts?per_page=2&status=publish' } )
 			.then( ( posts ) => {
-				setSiteHasContent( Array.isArray( posts ) && posts.length > 0 );
+				setSiteHasContent( Array.isArray( posts ) && posts.length > 1 );
 			} )
 			.catch( () => {
 				// Probe failed (e.g., REST blocked, network error): treat
