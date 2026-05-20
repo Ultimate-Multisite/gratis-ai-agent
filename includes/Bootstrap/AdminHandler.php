@@ -118,37 +118,39 @@ final class AdminHandler {
 	}
 
 	/**
-	 * Add action links to the plugin listing on plugins.php.
+	 * Add action links to the plugin row on plugins.php.
 	 *
-	 * @param array<string, string> $actions     Plugin action links.
-	 * @param string                $plugin_file Path to plugin file relative to plugins directory.
+	 * Uses the plugin-specific filter
+	 * `plugin_action_links_superdav-ai-agent/superdav-ai-agent.php` so the
+	 * callback only runs for this plugin's row — no per-row basename guard
+	 * needed, and no risk of accidentally mutating other plugins' links.
+	 *
+	 * The hash route uses the canonical `#/<route>` form recognised by the
+	 * unified-admin React app's hash router (see `src/unified-admin/index.js`).
+	 * The previous `#chat` (no slash) silently fell through to the default
+	 * route, which is why "Start Chat" appeared to land on the wrong screen.
+	 *
+	 * @param array<string, string> $actions Plugin action links.
 	 * @return array<string, string> Modified action links.
 	 */
-	#[Filter( tag: 'plugin_action_links', priority: 10 )]
-	public function add_plugin_action_links( array $actions, string $plugin_file ): array {
-		// Only modify our plugin.
-		if ( $plugin_file !== 'superdav-ai-agent/superdav-ai-agent.php' ) {
-			return $actions;
-		}
+	#[Filter( tag: 'plugin_action_links_superdav-ai-agent/superdav-ai-agent.php', priority: 10 )]
+	#[Filter( tag: 'network_admin_plugin_action_links_superdav-ai-agent/superdav-ai-agent.php', priority: 10 )]
+	public function add_plugin_action_links( array $actions ): array {
+		$chat_url     = admin_url( 'admin.php?page=sd-ai-agent#/chat' );
+		$settings_url = admin_url( 'admin.php?page=sd-ai-agent#/settings' );
 
-		$connectors_url = UnifiedAdminMenu::hasNativeConnectorsPage()
-			? admin_url( 'options-connectors.php' )
-			: admin_url( 'options-general.php?page=options-connectors-wp-admin' );
-
-		$chat_url = admin_url( 'admin.php?page=sd-ai-agent#chat' );
-
-		$actions['sd_chat'] = sprintf(
-			'<a href="%s">%s</a>',
-			esc_url( $chat_url ),
-			esc_html__( 'Start Chat', 'superdav-ai-agent' )
-		);
-
-		$actions['sd_connections'] = sprintf(
-			'<a href="%s">%s</a>',
-			esc_url( $connectors_url ),
-			esc_html__( 'Configure Connections', 'superdav-ai-agent' )
-		);
-
-		return $actions;
+		// Prepend so they appear before the WP core "Deactivate" link.
+		return array(
+			'sd_settings' => sprintf(
+				'<a href="%s">%s</a>',
+				esc_url( $settings_url ),
+				esc_html__( 'Settings', 'superdav-ai-agent' )
+			),
+			'sd_chat'     => sprintf(
+				'<a href="%s">%s</a>',
+				esc_url( $chat_url ),
+				esc_html__( 'Open AI Agent', 'superdav-ai-agent' )
+			),
+		) + $actions;
 	}
 }
