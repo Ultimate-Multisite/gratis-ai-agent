@@ -101,5 +101,17 @@ class ThemeBuilderAbilities {
 				'ability_class' => ValidatePaletteContrastAbility::class,
 			]
 		);
+
+		wp_register_ability(
+			'sd-ai-agent/generate-logo-svg',
+			[
+				'label'         => __( 'Generate Logo SVG', 'superdav-ai-agent' ),
+				'description'   => __(
+					'Generate sanitised SVG logo candidates for the Theme Builder. Action "generate" returns 1–3 inline SVG candidates (data URIs + media-library attachments). Action "select_candidate" promotes a chosen candidate to the active site logo (sets `custom_logo` theme mod and `site_icon`). All SVG markup is sanitised: <script>/<foreignObject> are stripped, external <image>/<use> refs are removed, javascript: URIs and inline event handlers are scrubbed. Falls back to a type-only wordmark when AI generation is unavailable or returns invalid SVG. Pass `existing_logo_url` to skip generation when the user already has a logo.',
+					'superdav-ai-agent'
+				),
+				'ability_class' => GenerateLogoSvgAbility::class,
+			]
+		);
 	}
 }
