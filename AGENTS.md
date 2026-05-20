@@ -71,7 +71,7 @@ professional, issue-by-issue format:
 - **Fix lint**: `npm run lint:js:fix`, `npm run lint:css:fix`, `npm run lint:php:fix`
 - **Static analysis**: `composer phpstan` (PHPStan with WordPress extensions)
 - **Test JS**: `npm run test:js` (Jest via `@wordpress/scripts`)
-- **Test PHP**: `npm run test:php` (PHPUnit via `@wordpress/env`)
+- **Test PHP**: `npm run test:php` (PHPUnit via shared WordPress tests lib; run `npm run test:php:setup` once)
 - **Test E2E**: `npm run test:e2e:playwright` (Playwright)
 - **Pre-commit**: Husky + lint-staged runs lint fixes on staged files
 - **Dev environment**: `npx wp-env start` (WordPress 7.0 via `.wp-env.json`) — dev site at http://localhost:8890, test site at http://localhost:8893
