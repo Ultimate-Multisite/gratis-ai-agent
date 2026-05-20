@@ -688,7 +688,7 @@ class Agent {
 				. "  - product photos → menu / shop / featured-product blocks\n"
 				. "  - team photos → about / team / contact sections\n"
 				. "  - event photos → events / news / gallery sections\n"
-				. "If you need to confirm which attachment IDs are available, the WordPress media library is queryable via `sd-ai-agent/media-list` or similar abilities. Fall back to `sd-ai-agent/stock-image` and `sd-ai-agent/generate-image` only when no user-supplied photo fits or when more variety is needed.\n\n"
+				. "Fall back to `sd-ai-agent/stock-image` and `sd-ai-agent/generate-image` only when no user-supplied photo fits or when more variety is needed.\n\n"
 				. "## Page-creation prerequisite check\n\n"
 				. "Before calling `sd-ai-agent/create-post` for any page, run this self-check:\n"
 				. "1. Do I have real, user-supplied content for every section of this page?\n"
