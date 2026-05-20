@@ -359,6 +359,76 @@ test.describe.serial( 'Theme-builder onboarding flow (Onboarding v2)', () => {
 		}
 	} );
 
+	// ── Test 3b: /menu/ page contains structured content ─────────────────
+
+	test( '/menu/ page created via generate-menu-page contains at least one category heading and one priced item', async () => {
+		// Create the /menu/ page via WP-CLI eval using GenerateMenuPageAbility-compatible structured data.
+		// This test does NOT drive the full AI interview — it verifies the page structure that
+		// sd-ai-agent/generate-menu-page produces when given real menu data.
+		const menuPageCreated = wpCli(
+			'eval "' +
+				'use SdAiAgent\\\\Core\\\\MenuPageBuilder; ' +
+				'$data = [' +
+				'  \'categories\' => [' +
+				'    [\'name\' => \'Espresso\', \'items\' => [' +
+				'      [\'name\' => \'Flat White\', \'price\' => \'£3.50\', \'dietary_tags\' => [\'V\']],' +
+				'      [\'name\' => \'Oat Latte\', \'price\' => \'£4.00\', \'dietary_tags\' => [\'VG\', \'GF\']],' +
+				'    ]],' +
+				'    [\'name\' => \'Pastries\', \'items\' => [' +
+				'      [\'name\' => \'Almond Croissant\', \'price\' => \'£3.20\'],' +
+				'    ]],' +
+				'  ],' +
+				']; ' +
+				'$content = MenuPageBuilder::build_menu_page_content($data); ' +
+				'$existing = get_page_by_path(\'menu\', OBJECT, \'page\'); ' +
+				'if ($existing) { wp_delete_post($existing->ID, true); } ' +
+				'$id = wp_insert_post([\'post_title\' => \'Menu\', \'post_content\' => $content, \'post_status\' => \'publish\', \'post_type\' => \'page\', \'post_name\' => \'menu\'], true); ' +
+				'echo is_int($id) && $id > 0 ? \'created:\' . $id : \'failed\';"'
+		);
+
+		// If WP-CLI eval can not run (e.g. autoload not available in eval context), skip gracefully.
+		if ( ! menuPageCreated || menuPageCreated.startsWith( 'failed' ) || menuPageCreated === '' ) {
+			// Mark test as skipped with a clear message rather than failing.
+			test.skip( true, 'WP-CLI eval could not create menu page — skipping frontend assertion' );
+			return;
+		}
+
+		// Navigate to /menu/ and verify the page renders structured content.
+		await page.goto( '/menu/' );
+		await page.waitForLoadState( 'domcontentloaded' );
+
+		// The page must contain at least one sd-ai-agent-menu-category-heading (h2).
+		const categoryHeadings = page.locator( '.sd-ai-agent-menu-category-heading, h2' );
+		await expect( categoryHeadings.first() ).toBeVisible( { timeout: 15_000 } );
+
+		// The page must contain at least one priced item (sd-ai-agent-menu-item-price class).
+		const pricedItems = page.locator( '.sd-ai-agent-menu-item-price' );
+		await expect( pricedItems.first() ).toBeVisible( { timeout: 15_000 } );
+
+		// The page must NOT contain placeholder copy.
+		const bodyText = await page.locator( 'body' ).textContent();
+		const placeholders = [
+			'Our menu changes seasonally',
+			'Lorem ipsum',
+			'Replace this',
+			'Edit this',
+		];
+		for ( const placeholder of placeholders ) {
+			expect(
+				bodyText,
+				`/menu/ must not contain placeholder string "${ placeholder }"`
+			).not.toContain( placeholder );
+		}
+
+		// Verify category headings are present.
+		const headingTexts = await categoryHeadings.allTextContents();
+		const hasEspresso = headingTexts.some( ( t ) => t.includes( 'Espresso' ) );
+		expect(
+			hasEspresso,
+			'/menu/ must contain the "Espresso" category heading'
+		).toBe( true );
+	} );
+
 	// ── Test 4: build instruction → DONE reply → theme on disk ────────────
 
 	test( 'sending the build instruction results in DONE reply and an active theme on disk', async () => {

@@ -77,5 +77,17 @@ class ThemeBuilderAbilities {
 				'ability_class' => RenderDesignPreviewsAbility::class,
 			]
 		);
+
+		wp_register_ability(
+			'sd-ai-agent/generate-menu-page',
+			[
+				'label'         => __( 'Generate Menu Page', 'superdav-ai-agent' ),
+				'description'   => __(
+					'Create a structured hospitality menu page at /menu/ from categorised items and prices. Accepts menu categories with items (name, price, optional description, allergens, dietary tags). Publishes as a WordPress page with slug "menu". Idempotent: re-running updates the existing page.',
+					'superdav-ai-agent'
+				),
+				'ability_class' => GenerateMenuPageAbility::class,
+			]
+		);
 	}
 }

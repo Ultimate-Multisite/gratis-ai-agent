@@ -416,6 +416,147 @@ class AgentThemeBuilderTest extends WP_UnitTestCase {
 		);
 	}
 
+	// ─── Menu page generation tools (issue #1531) ────────────────────────────
+
+	/**
+	 * The seeded theme-builder agent includes the generate-menu-page ability
+	 * in tier_1_tools (issue #1531).
+	 */
+	public function test_tier_1_tools_contains_generate_menu_page(): void {
+		Agent::seed_defaults();
+
+		$agent = Agent::get_by_slug( self::SLUG );
+		$this->assertNotNull( $agent );
+
+		$this->assertContains(
+			'sd-ai-agent/generate-menu-page',
+			$agent->tier_1_tools,
+			'tier_1_tools must contain sd-ai-agent/generate-menu-page for hospitality menu pages'
+		);
+	}
+
+	/**
+	 * The system_prompt instructs the agent to ask structured menu questions
+	 * for hospitality verticals (issue #1531 acceptance criterion).
+	 */
+	public function test_system_prompt_contains_structured_menu_interview_questions(): void {
+		Agent::seed_defaults();
+
+		$agent = Agent::get_by_slug( self::SLUG );
+		$this->assertNotNull( $agent );
+
+		$prompt_lower = strtolower( $agent->system_prompt );
+
+		// The interview must ask for menu categories as a list.
+		$this->assertStringContainsString(
+			'what categories does your menu have',
+			$prompt_lower,
+			'system_prompt must ask "What categories does your menu have?"'
+		);
+
+		// The interview must ask for items and prices per category.
+		$this->assertStringContainsString(
+			'list the items',
+			$prompt_lower,
+			'system_prompt must ask to list items with prices per category'
+		);
+
+		// The interview must ask about dietary tags.
+		$this->assertStringContainsString(
+			'dietary',
+			$prompt_lower,
+			'system_prompt must ask about dietary tags (V, VG, GF, etc.)'
+		);
+
+		// The interview must ask about allergens.
+		$this->assertStringContainsString(
+			'allergen',
+			$prompt_lower,
+			'system_prompt must ask about allergen information'
+		);
+	}
+
+	/**
+	 * The system_prompt instructs the agent to use sd-ai-agent/generate-menu-page
+	 * for hospitality verticals — not prose (issue #1531 acceptance criterion).
+	 */
+	public function test_system_prompt_instructs_generate_menu_page_ability(): void {
+		Agent::seed_defaults();
+
+		$agent = Agent::get_by_slug( self::SLUG );
+		$this->assertNotNull( $agent );
+
+		$this->assertStringContainsString(
+			'sd-ai-agent/generate-menu-page',
+			$agent->system_prompt,
+			'system_prompt must reference sd-ai-agent/generate-menu-page ability'
+		);
+	}
+
+	/**
+	 * The system_prompt explicitly bans prose menu pages
+	 * ("Our menu changes seasonally" placeholder style is banned).
+	 */
+	public function test_system_prompt_bans_prose_menu_pages(): void {
+		Agent::seed_defaults();
+
+		$agent = Agent::get_by_slug( self::SLUG );
+		$this->assertNotNull( $agent );
+
+		$prompt_lower = strtolower( $agent->system_prompt );
+
+		// The prompt must forbid writing the menu as prose.
+		$this->assertStringContainsString(
+			'not prose',
+			$prompt_lower,
+			'system_prompt must ban writing the menu as prose'
+		);
+	}
+
+	/**
+	 * The system_prompt includes the PDF menu preference question
+	 * (issue #1531 Caveats section).
+	 */
+	public function test_system_prompt_asks_about_pdf_menu_preference(): void {
+		Agent::seed_defaults();
+
+		$agent = Agent::get_by_slug( self::SLUG );
+		$this->assertNotNull( $agent );
+
+		$prompt_lower = strtolower( $agent->system_prompt );
+
+		$this->assertStringContainsString(
+			'pdf',
+			$prompt_lower,
+			'system_prompt must ask about downloadable PDF menu preference'
+		);
+	}
+
+	/**
+	 * The system_prompt includes the hospitality verticals expanded list
+	 * (issue #1531 adds bar and food truck alongside café/restaurant).
+	 */
+	public function test_system_prompt_includes_expanded_hospitality_verticals(): void {
+		Agent::seed_defaults();
+
+		$agent = Agent::get_by_slug( self::SLUG );
+		$this->assertNotNull( $agent );
+
+		$prompt_lower = strtolower( $agent->system_prompt );
+
+		$this->assertStringContainsString(
+			'bar',
+			$prompt_lower,
+			'system_prompt must include "bar" in the hospitality verticals list'
+		);
+
+		$this->assertStringContainsString(
+			'food truck',
+			$prompt_lower,
+			'system_prompt must include "food truck" in the hospitality verticals list'
+		);
+	}
+
 	// ─── Image generation tools (issue #1529) ────────────────────────────────
 
 	/**
