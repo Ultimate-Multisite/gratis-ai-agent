@@ -47,7 +47,7 @@ class ThemeBuilderAbilities {
 			[
 				'label'         => __( 'Scaffold Block Theme', 'superdav-ai-agent' ),
 				'description'   => __(
-					'Create the on-disk skeleton for a new WordPress block theme (theme.json, style.css, functions.php, templates/index.html) inside wp-content/themes/{slug}/. Requires the install_themes capability.',
+					'Create the on-disk skeleton for a new WordPress block theme (theme.json, style.css, functions.php, templates/index.html) inside wp-content/themes/{slug}/. Requires the install_themes capability. Before starting the design interview, always ask the user: "Do you have an existing site? If yes, paste the URL and I will pre-fill what I can using the sd-ai-agent/site-scrape ability." This turns a 20-minute interview into a 2-minute confirm-what-we-found session.',
 					'superdav-ai-agent'
 				),
 				'ability_class' => ScaffoldBlockThemeAbility::class,

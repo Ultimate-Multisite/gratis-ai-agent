@@ -38,6 +38,7 @@ use SdAiAgent\Abilities\GoogleAnalyticsAbilities;
 use SdAiAgent\Abilities\GscAbilities;
 use SdAiAgent\Abilities\ImageAbilities;
 use SdAiAgent\Abilities\InternetSearchAbilities;
+use SdAiAgent\Abilities\SiteScrapeAbility;
 use SdAiAgent\Abilities\KnowledgeAbilities;
 use SdAiAgent\Abilities\MarketingAbilities;
 use SdAiAgent\Abilities\MediaAbilities;
@@ -94,6 +95,14 @@ final class AbilitiesHandler {
 		ImageAbilities\StockImageAbility::register();
 		AiImageAbilities::register_abilities();
 		InternetSearchAbilities::register_abilities();
+		wp_register_ability(
+			'sd-ai-agent/site-scrape',
+			[
+				'label'         => __( 'Scrape Existing Site', 'superdav-ai-agent' ),
+				'description'   => __( 'Fetch and parse an existing website to extract structured brand and contact data (name, tagline, logo, address, phone, email, opening hours, social links). Use this at the start of a Theme Builder session when the user has an existing site they are rebuilding.', 'superdav-ai-agent' ),
+				'ability_class' => SiteScrapeAbility::class,
+			]
+		);
 		SeoAbilities::register_abilities();
 		GscAbilities::register_abilities();
 		ContentAbilities::register_abilities();
