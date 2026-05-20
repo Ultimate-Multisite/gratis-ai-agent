@@ -251,6 +251,9 @@ test.describe.serial( 'Theme-builder onboarding flow (Onboarding v2)', () => {
 		// Remove the test theme directory created during the test.
 		wpCliRmdir( '/themes/e2e-test-theme' );
 
+		// Remove any design-preview HTML fixtures created by test 5.
+		wpCliRmdir( '/uploads/sd-ai-agent/design-previews/e2e-preview-test' );
+
 		await page?.close();
 	} );
 
@@ -428,6 +431,84 @@ test.describe.serial( 'Theme-builder onboarding flow (Onboarding v2)', () => {
 				exists,
 				`required theme file ${ file } must exist`
 			).toContain( 'yes' );
+		}
+	} );
+
+	// ── Test 5: render-design-previews shows both viewport preview cards ───
+
+	test( 'render-design-previews ability surfaces desktop and mobile viewport previews in the chat UI', async () => {
+		// Create three minimal HTML preview fixture files in the upload
+		// directory via WP-CLI so the ability has real files to process.
+		const previewDir = '/uploads/sd-ai-agent/design-previews/e2e-preview-test';
+
+		for ( let n = 1; n <= 3; n++ ) {
+			const htmlContent =
+				`<html><head><style>body{margin:0;background:#${ n === 1 ? 'f5e6d3' : n === 2 ? '1a1a2e' : '2d4a22' }}</style></head>` +
+				`<body><h1>E2E Design ${ n }</h1></body></html>`;
+			// Use WP-CLI eval to write the file under WP_CONTENT_DIR.
+			wpCli(
+				`eval ` +
+					`"$dir = WP_CONTENT_DIR . '${ previewDir }'; ` +
+					`wp_mkdir_p( $dir ); ` +
+					`file_put_contents( $dir . '/design-${ n }.html', '${ htmlContent.replace( /'/g, "\\'" ) }' );"`
+			);
+		}
+
+		// Verify the fixture files were created before proceeding.
+		for ( let n = 1; n <= 3; n++ ) {
+			const exists = wpCli(
+				`eval "echo file_exists( WP_CONTENT_DIR . '${ previewDir }/design-${ n }.html' ) ? 'yes' : 'no';"`
+			);
+			// If fixture creation failed, skip the remaining assertions
+			// rather than failing with a confusing error.
+			if ( ! exists.includes( 'yes' ) ) {
+				test.skip( true, 'Design preview fixture files could not be created — skipping viewport test.' );
+				return;
+			}
+		}
+
+		// Send a deterministic instruction to the agent to call
+		// render-design-previews with the three fixture paths.
+		const input = getMessageInput( page );
+		await input.fill(
+			`Use sd-ai-agent/render-design-previews with preview_paths=` +
+				`["uploads/sd-ai-agent/design-previews/e2e-preview-test/design-1.html",` +
+				`"uploads/sd-ai-agent/design-previews/e2e-preview-test/design-2.html",` +
+				`"uploads/sd-ai-agent/design-previews/e2e-preview-test/design-3.html"]. ` +
+				`After the tool call completes, reply only with: PREVIEWS_DONE.`
+		);
+		await getSendButton( page ).click();
+
+		// Wait for the PREVIEWS_DONE reply — the ability runs synchronously
+		// so 120 s is generous.
+		const messageList = page.locator( '.sdaa-cr .sdaa-cr-messages' );
+		await expect( messageList ).toContainText( 'PREVIEWS_DONE', {
+			timeout: 120_000,
+		} );
+
+		// ── UI assertions ─────────────────────────────────────────────────
+
+		// The ToolCard for render-design-previews must render a gallery
+		// containing at least one card with both desktop and mobile viewports.
+		const gallery = page.locator( '.sd-ai-agent-design-preview-gallery' );
+		await expect( gallery ).toBeVisible( { timeout: 10_000 } );
+
+		// Each card shows a desktop viewport wrapper and a mobile viewport wrapper.
+		const desktopViewports = gallery.locator( '.sd-ai-agent-preview-viewport-desktop' );
+		const mobileViewports  = gallery.locator( '.sd-ai-agent-preview-viewport-mobile' );
+
+		await expect( desktopViewports.first() ).toBeVisible();
+		await expect( mobileViewports.first() ).toBeVisible();
+
+		// All three design directions must have their own card.
+		const cards = gallery.locator( '.sd-ai-agent-design-preview-card' );
+		await expect( cards ).toHaveCount( 3 );
+
+		// Each card must contain both a desktop and a mobile viewport.
+		for ( let i = 0; i < 3; i++ ) {
+			const card = cards.nth( i );
+			await expect( card.locator( '.sd-ai-agent-preview-viewport-desktop' ) ).toBeVisible();
+			await expect( card.locator( '.sd-ai-agent-preview-viewport-mobile' ) ).toBeVisible();
 		}
 	} );
 } );

@@ -682,9 +682,20 @@ class Agent {
 				. "   - `wp-content/uploads/sd-ai-agent/design-previews/{session}/design-2.html`\n"
 				. "   - `wp-content/uploads/sd-ai-agent/design-previews/{session}/design-3.html`\n"
 				. "2. Previews must use inline CSS only. **Never embed stock image URLs, external image URLs, placeholder image services, or web fonts from external CDNs.** Use CSS gradients, solid color blocks, and typographic mockups with system font stacks instead.\n"
-				. "3. Summarize each direction with a distinctive name and a 2-sentence description.\n\n"
+				. "3. After writing all three HTML files, immediately call `sd-ai-agent/render-design-previews` with the three paths:\n"
+				. "   ```json\n"
+				. "   {\n"
+				. "     \"preview_paths\": [\n"
+				. "       \"uploads/sd-ai-agent/design-previews/{session}/design-1.html\",\n"
+				. "       \"uploads/sd-ai-agent/design-previews/{session}/design-2.html\",\n"
+				. "       \"uploads/sd-ai-agent/design-previews/{session}/design-3.html\"\n"
+				. "     ]\n"
+				. "   }\n"
+				. "   ```\n"
+				. "   This generates desktop (1280×800) and mobile (375×812) screenshots for each direction. The chat UI renders them side-by-side automatically from the tool response — you do not need to include image URLs in your message text.\n"
+				. "4. Summarize each direction with a distinctive name and a 2-sentence description.\n\n"
 				. "## Phase 3: Choose\n\n"
-				. "1. Present the three design directions and their preview file paths to the user.\n"
+				. "1. Present the three design directions with their names and descriptions to the user. The previews are already visible in the chat from the render-design-previews tool card.\n"
 				. "2. Ask the user to pick a direction, or to describe modifications they want.\n"
 				. "3. Fold any modifications back into the site specification.\n"
 				. "4. Save the chosen design direction with `sd-ai-agent/memory-save` (category: site_brief).\n\n"
@@ -757,9 +768,9 @@ class Agent {
 							'sd-ai-agent/file-write',
 							'sd-ai-agent/validate-block-content',
 							'sd-ai-agent/get-theme-json',
-							// Imagery: stock-image search/import for Phase 4 step 7
-							// (issue #1528) and generate-image AI fallback for
-							// brand-specific imagery (issue #1529).
+							// Preview rendering: desktop + mobile screenshots for design-direction selection (issue #1532).
+							'sd-ai-agent/render-design-previews',
+							// Image tools required for brand-specific and stock imagery (issue #1528, #1529).
 							'sd-ai-agent/stock-image',
 							'sd-ai-agent/generate-image',
 						]

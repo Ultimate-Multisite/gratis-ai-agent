@@ -9,6 +9,7 @@
 import { useState } from '@wordpress/element';
 import { __ } from '@wordpress/i18n';
 import { Icon, check, chevronDown, undo, caution } from '@wordpress/icons';
+import DesignPreviewGallery from '../design-preview-gallery';
 
 /**
  *
@@ -131,6 +132,37 @@ function deriveSummary( call, response ) {
 }
 
 /**
+ * Return design_previews from a render-design-previews tool response, or null.
+ *
+ * The ability name can be bare ('sd-ai-agent/render-design-previews') or
+ * prefixed with the WP abilities bridge prefix ('wpab__sd-ai-agent__render-design-previews').
+ *
+ * @param {*} call
+ * @param {*} response
+ * @return {Array|null} Array of design preview objects, or null if not a preview tool call.
+ */
+function extractDesignPreviews( call, response ) {
+	const rawName = ( call.name || '' ).toLowerCase();
+	const isPreviewTool =
+		rawName === 'sd-ai-agent/render-design-previews' ||
+		rawName.includes( 'render-design-previews' ) ||
+		rawName.includes( 'render__design__previews' );
+
+	if ( ! isPreviewTool ) {
+		return null;
+	}
+	const r = response && response.response;
+	if (
+		r &&
+		Array.isArray( r.design_previews ) &&
+		r.design_previews.length > 0
+	) {
+		return r.design_previews;
+	}
+	return null;
+}
+
+/**
  *
  * @param {*} call
  */
@@ -166,6 +198,10 @@ export default function ToolCard( {
 	const result = response ? formatValue( response.response ) : '';
 	const mutating = isMutating( call );
 
+	// Extract design previews when this is a render-design-previews tool call.
+	const designPreviews = extractDesignPreviews( call, response );
+	const previewMessage = response?.response?.message || null;
+
 	return (
 		<div
 			className={ `sdaa-cr-tool-card${ open ? ' is-open' : '' }${
@@ -200,6 +236,15 @@ export default function ToolCard( {
 					</span>
 				</div>
 			</button>
+
+			{ /* Design preview gallery is always visible when previews exist */ }
+			{ designPreviews && (
+				<DesignPreviewGallery
+					designPreviews={ designPreviews }
+					message={ previewMessage }
+				/>
+			) }
+
 			{ open && (
 				<div className="sdaa-cr-tool-card-body">
 					{ args && args !== '{}' && args !== 'null' && (

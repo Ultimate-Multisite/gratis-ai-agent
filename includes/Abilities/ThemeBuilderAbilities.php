@@ -65,5 +65,17 @@ class ThemeBuilderAbilities {
 				'ability_class' => ActivateThemeAbility::class,
 			]
 		);
+
+		wp_register_ability(
+			'sd-ai-agent/render-design-previews',
+			[
+				'label'         => __( 'Render Design Previews', 'superdav-ai-agent' ),
+				'description'   => __(
+					'Generate desktop (1280×800) and mobile (375×812) preview screenshots for the HTML design-direction files produced by the Theme Builder. Returns public URLs for each viewport so the chat UI can show both side-by-side with click-to-zoom.',
+					'superdav-ai-agent'
+				),
+				'ability_class' => RenderDesignPreviewsAbility::class,
+			]
+		);
 	}
 }
