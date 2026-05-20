@@ -1,0 +1,25 @@
+/*
+ * OnboardingThemeBuilder wrapper.
+ *
+ * The wrapper sits between the WordPress admin flex chain and the
+ * ChatRedesign root (`.sdaa-cr`). Every ancestor — `#wpcontent` →
+ * `#wpbody` → `#wpbody-content` → `.wrap` → `#sdaa-root` →
+ * `.sdaa-unified-admin` → `.sd-ai-admin-layout` → `.sd-ai-admin-main`
+ * → `.sdaa-route` → `#sdaa-chat-container` — is `display: flex`
+ * with a constrained viewport height, so `.sdaa-cr` can use
+ * `flex: 1` to fill the remaining space and engage its internal
+ * message-list scroll.
+ *
+ * Without this rule the wrapper defaults to `display: block`, which
+ * breaks the flex chain: `.sdaa-cr` falls back to its content's
+ * natural height, the message list grows unconstrained, and the
+ * chat panel becomes unscrollable while the photo-upload tile is
+ * pushed to the very top of an arbitrarily tall page (see #1577).
+ */
+
+.sdaa-onboarding-theme-builder {
+	display: flex;
+	flex-direction: column;
+	flex: 1;
+	min-height: 0;
+}
