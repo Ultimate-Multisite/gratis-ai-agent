@@ -11,7 +11,9 @@ import apiFetch from '@wordpress/api-fetch';
  */
 import STORE_NAME from '../store';
 import ChatRedesign from './chat-redesign';
-import OnboardingPhotoUpload from './onboarding-photo-upload';
+// TODO(#hide-photo-upload): Temporarily hidden — the dropzone was breaking the
+// Theme Builder chat UI in some sessions. Re-enable after investigation.
+// import OnboardingPhotoUpload from './onboarding-photo-upload';
 
 /**
  * Onboarding theme-builder component — shown when the user chose
@@ -39,7 +41,10 @@ export default function OnboardingThemeBuilder() {
 	const { openSession, sendMessage, setSelectedAgentId } =
 		useDispatch( STORE_NAME );
 	const bootstrappedRef = useRef( false );
-	const [ sessionId, setSessionId ] = useState( null );
+	// `sessionId` read is currently unused because the photo-upload tile is
+	// temporarily hidden; keep the setter so the value still flows when the
+	// tile is re-enabled (see #hide-photo-upload TODO above).
+	const [ , setSessionId ] = useState( null );
 
 	useEffect( () => {
 		// Guard against double-invocation in React 18 strict-mode or re-renders.
@@ -98,7 +103,8 @@ export default function OnboardingThemeBuilder() {
 
 	return (
 		<div className="sdaa-onboarding-theme-builder">
-			<OnboardingPhotoUpload sessionId={ sessionId } />
+			{ /* TODO(#hide-photo-upload): Temporarily hidden — see import note above. */ }
+			{ /* <OnboardingPhotoUpload sessionId={ sessionId } /> */ }
 			<ChatRedesign />
 		</div>
 	);
