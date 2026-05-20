@@ -415,4 +415,93 @@ class AgentThemeBuilderTest extends WP_UnitTestCase {
 			'system_prompt must describe itself as vertical-aware in Phase 1'
 		);
 	}
+
+	// ─── Image generation tools (issue #1529) ────────────────────────────────
+
+	/**
+	 * The theme-builder's tier_1_tools includes both image tools required for
+	 * brand-specific imagery and generic photography (issue #1529).
+	 */
+	public function test_tier_1_tools_contains_image_tools(): void {
+		Agent::seed_defaults();
+
+		$agent = Agent::get_by_slug( self::SLUG );
+		$this->assertNotNull( $agent );
+
+		$tools = $agent->tier_1_tools;
+		$this->assertIsArray( $tools );
+
+		$this->assertContains(
+			'sd-ai-agent/generate-image',
+			$tools,
+			'tier_1_tools must contain sd-ai-agent/generate-image for brand-specific imagery'
+		);
+
+		$this->assertContains(
+			'sd-ai-agent/stock-image',
+			$tools,
+			'tier_1_tools must contain sd-ai-agent/stock-image for generic photography'
+		);
+	}
+
+	/**
+	 * The system_prompt teaches the model when to use stock-image vs generate-image.
+	 *
+	 * Generic photography uses stock-image; brand-specific / illustration /
+	 * pattern backgrounds use generate-image (issue #1529 acceptance criterion).
+	 */
+	public function test_system_prompt_contains_image_selection_guidance(): void {
+		Agent::seed_defaults();
+
+		$agent = Agent::get_by_slug( self::SLUG );
+		$this->assertNotNull( $agent );
+
+		$prompt = $agent->system_prompt;
+
+		$this->assertStringContainsString(
+			'sd-ai-agent/stock-image',
+			$prompt,
+			'system_prompt must reference sd-ai-agent/stock-image'
+		);
+
+		$this->assertStringContainsString(
+			'sd-ai-agent/generate-image',
+			$prompt,
+			'system_prompt must reference sd-ai-agent/generate-image'
+		);
+
+		// The prompt must explain when to choose each tool.
+		$prompt_lower = strtolower( $prompt );
+
+		$this->assertStringContainsString(
+			'stock',
+			$prompt_lower,
+			'system_prompt must mention stock imagery guidance'
+		);
+
+		$this->assertStringContainsString(
+			'brand',
+			$prompt_lower,
+			'system_prompt must mention brand-specific imagery as a generate-image use-case'
+		);
+	}
+
+	/**
+	 * The system_prompt includes the "no external image URLs in theme files" rule,
+	 * which is enforced by the image-selection guidance (issue #1529).
+	 */
+	public function test_system_prompt_bans_external_image_urls_in_theme_files(): void {
+		Agent::seed_defaults();
+
+		$agent = Agent::get_by_slug( self::SLUG );
+		$this->assertNotNull( $agent );
+
+		$prompt_lower = strtolower( $agent->system_prompt );
+
+		$this->assertStringContainsString(
+			'attachment_id',
+			$agent->system_prompt,
+			'system_prompt must instruct use of attachment_id (not external URLs) in theme files'
+		);
+	}
 }
