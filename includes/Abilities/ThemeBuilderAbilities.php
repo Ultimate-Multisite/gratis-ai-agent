@@ -89,5 +89,17 @@ class ThemeBuilderAbilities {
 				'ability_class' => GenerateMenuPageAbility::class,
 			]
 		);
+
+		wp_register_ability(
+			'sd-ai-agent/validate-palette-contrast',
+			[
+				'label'         => __( 'Validate Palette Contrast', 'superdav-ai-agent' ),
+				'description'   => __(
+					'Check a theme.json colour palette against WCAG AA contrast minimums (4.5:1 body, 3:1 large text and UI components). Call AT THE END of the direction-selection step, BEFORE sd-ai-agent/scaffold-block-theme, so the agent can either auto-adjust failing pairs or surface options to the user. Returns failing pairs and minimal hex suggestions that nudge the original colour into compliance.',
+					'superdav-ai-agent'
+				),
+				'ability_class' => ValidatePaletteContrastAbility::class,
+			]
+		);
 	}
 }
