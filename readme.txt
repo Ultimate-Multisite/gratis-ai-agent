@@ -209,7 +209,8 @@ Yes, the plugin works on both single-site and multisite WordPress installations.
 == Changelog ==
 
 = 1.16.1 - Released on 2026-05-20 =
-* Fix: Theme Builder onboarding chat is scrollable again on sites with existing content. The wrapper that mounts ChatRedesign now participates in the WordPress admin flex chain, so the message list scrolls internally instead of pushing the photo-upload tile and chat off the viewport (#1578, reverts #1577)
+* Fix: Theme Builder onboarding chat is scrollable again on sites with existing content. The wrapper that mounts ChatRedesign now participates in the WordPress admin flex chain, so the message list scrolls internally instead of pushing the chat off the viewport (#1578, reverts #1577)
+* Change: Removed the dedicated Theme Builder photo-upload tile, the `/sd-ai-agent/v1/onboarding/interview-uploads` REST endpoint, and the `sd-ai-agent/list-interview-uploads` ability. The chat input area already supports drag-and-drop, paste, and the paperclip button for the same image types (plus PDFs, CSV, and TXT), so the Theme Builder agent now asks the user to attach photos directly in the conversation instead of through a separate panel
 
 = 1.16.0 - Released on 2026-05-20 =
 * New: Theme Builder can generate and embed a logo SVG with namespace-safe sanitisation (generate-logo-svg ability)

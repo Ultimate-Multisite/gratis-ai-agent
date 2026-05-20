@@ -681,14 +681,14 @@ class Agent {
 				. "- Booking / inquiry contact details\n\n"
 				. "### Phase 1 photo upload (after the brand vertical is established)\n\n"
 				. "Real photos of the user's actual business are the most valuable imagery you can use. Ask for them explicitly, **once**, right after the vertical has been identified and BEFORE you start collecting page-specific copy:\n\n"
-				. "> \"I can use real photos to make this site shine. Do you have photos of (a) your space / shopfront, (b) your products / drinks / food, (c) your team, or (d) any events or special moments? Drag them into the upload panel above the chat — as many as you like — and I'll pick the best ones for each section. If you don't have any yet, I'll use a mix of stock and AI-generated images, and you can swap them later.\"\n\n"
-				. "When the user uploads photos, a system-style chat message will appear listing the new attachment IDs and the heuristic category guess for each. Acknowledge the upload briefly (e.g. \"Got the 8 photos — I'll use the shopfront for the hero and the latte art set for the menu page\") and continue the interview. Do NOT block the interview on photos — if the user says \"I don't have any\" or skips the panel, move on without further prompting and rely on stock + AI-generated imagery during the build phase.\n\n"
-				. "Before any image-acquisition decision in Phase 4, **always** call `sd-ai-agent/list-interview-uploads` first to see what the user has already provided. Use those photos as the primary source for hero, gallery, and about sections, and re-use the appropriate category for each placement:\n"
-				. "  - `space` uploads → hero / about / location sections\n"
-				. "  - `product` uploads → menu / shop / featured-product blocks\n"
-				. "  - `team` uploads → about / team / contact sections\n"
-				. "  - `event` uploads → events / news / gallery sections\n"
-				. "Fall back to `sd-ai-agent/stock-image` and `sd-ai-agent/generate-image` only when the relevant category is empty or when more variety is needed.\n\n"
+				. "> \"I can use real photos to make this site shine. Do you have photos of (a) your space / shopfront, (b) your products / drinks / food, (c) your team, or (d) any events or special moments? Attach them using the paperclip button in the chat — as many as you like — and tell me what each set is (e.g. \\\"these three are the shopfront, these five are drinks\\\"). I'll pick the best ones for each section. If you don't have any yet, I'll use a mix of stock and AI-generated images, and you can swap them later.\"\n\n"
+				. "Uploaded photos arrive as message attachments in this conversation, so you can see them directly. Acknowledge the upload briefly (e.g. \"Got the 8 photos — I'll use the shopfront shot for the hero and the latte art set for the menu page\") and continue the interview. Do NOT block the interview on photos — if the user says \"I don't have any\", move on without further prompting and rely on stock + AI-generated imagery during the build phase.\n\n"
+				. "Before any image-acquisition decision in Phase 4, **always** review the photos the user already shared in this conversation first. Remember which attachment ID corresponds to which subject (space, product, team, event) based on what the user told you when they uploaded each batch, and re-use them for matching placements:\n"
+				. "  - space photos → hero / about / location sections\n"
+				. "  - product photos → menu / shop / featured-product blocks\n"
+				. "  - team photos → about / team / contact sections\n"
+				. "  - event photos → events / news / gallery sections\n"
+				. "If you need to confirm which attachment IDs are available, the WordPress media library is queryable via `sd-ai-agent/media-list` or similar abilities. Fall back to `sd-ai-agent/stock-image` and `sd-ai-agent/generate-image` only when no user-supplied photo fits or when more variety is needed.\n\n"
 				. "## Page-creation prerequisite check\n\n"
 				. "Before calling `sd-ai-agent/create-post` for any page, run this self-check:\n"
 				. "1. Do I have real, user-supplied content for every section of this page?\n"
@@ -735,9 +735,9 @@ class Agent {
 				. "   - `templates/page.html` — single page template\n"
 				. "5. Apply the chosen design system (colors, typography, spacing) via `sd-ai-agent/update-global-styles`.\n"
 				. "6. Validate every block markup file you write using `sd-ai-agent/validate-block-content`.\n"
-			. "7. **Media imagery.** Always check interview uploads FIRST, then fall back to stock/AI:\n"
-			. "   - Call `sd-ai-agent/list-interview-uploads` (optionally filtered by `category: space|product|team|event`) and prefer those photos for the matching section. Use the returned `attachment_id` directly as `featured_image_id` on `sd-ai-agent/create-post`, or use the local `url` inside block markup (wp:cover, wp:image, wp:gallery).\n"
-			. "   - If the relevant interview-upload category is empty or you need more variety than the user provided, fall back to the stock and AI-generated image flow below.\n"
+			. "7. **Media imagery.** Always re-use the user's own photos FIRST (the attachments they shared during the Phase 1 photo step), then fall back to stock/AI:\n"
+			. "   - Recall the attachment IDs of photos the user shared earlier in this conversation and the category they described for each batch (space / product / team / event). Use those `attachment_id` values directly as `featured_image_id` on `sd-ai-agent/create-post`, or use the local media URL inside block markup (wp:cover, wp:image, wp:gallery).\n"
+			. "   - If no user-supplied photo fits a given placement, fall back to the stock and AI-generated image flow below.\n"
 			. "   a. Call `sd-ai-agent/stock-image` with `action: search`, an appropriate `keyword`, and optional `orientation` and `colour` filters to get up to 5 candidate images.\n"
 			. "   b. Present the returned candidates to the user — include their `thumbnail` URL and `attribution` — and ask the user to select one, or approve your recommended choice.\n"
 			. "   c. Call `sd-ai-agent/stock-image` with `action: import`, the chosen `provider`, and `image_id` to download and import the image into the media library.\n"
@@ -808,9 +808,6 @@ class Agent {
 							'sd-ai-agent/site-scrape',
 							'sd-ai-agent/stock-image',
 							'sd-ai-agent/generate-image',
-							// User-supplied interview photos (issue #1534) — always checked
-							// before falling back to stock or AI-generated images.
-							'sd-ai-agent/list-interview-uploads',
 							// Sanitised SVG logo candidates (issue #1527).
 							'sd-ai-agent/generate-logo-svg',
 						]
