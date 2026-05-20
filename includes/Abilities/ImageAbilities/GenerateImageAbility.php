@@ -192,9 +192,9 @@ class GenerateImageAbility extends \SdAiAgent\Abilities\AbstractAbility {
 	 */
 	protected function execute_callback( mixed $input ): array|\WP_Error {
 		// @phpstan-ignore-next-line
-		$prompt   = sanitize_textarea_field( $input['prompt'] ?? '' );
+		$prompt = sanitize_textarea_field( $input['prompt'] ?? '' );
 		// @phpstan-ignore-next-line
-		$title    = sanitize_text_field( $input['title'] ?? '' );
+		$title = sanitize_text_field( $input['title'] ?? '' );
 		// @phpstan-ignore-next-line
 		$post_id  = (int) ( $input['post_id'] ?? 0 );
 		$site_url = sanitize_text_field( $input['site_url'] ?? '' ); // @phpstan-ignore-line
@@ -204,11 +204,13 @@ class GenerateImageAbility extends \SdAiAgent\Abilities\AbstractAbility {
 		$variations = max( 1, min( 4, (int) ( $input['variations'] ?? 1 ) ) );
 
 		// Build provider-specific options; only include non-empty values.
-		$options = array_filter( [
-			'size'    => sanitize_text_field( $input['size'] ?? '' ),    // @phpstan-ignore-line
-			'style'   => sanitize_text_field( $input['style'] ?? '' ),   // @phpstan-ignore-line
-			'quality' => sanitize_text_field( $input['quality'] ?? '' ), // @phpstan-ignore-line
-		] );
+		$options = array_filter(
+			[
+				'size'    => sanitize_text_field( $input['size'] ?? '' ),    // @phpstan-ignore-line
+				'style'   => sanitize_text_field( $input['style'] ?? '' ),   // @phpstan-ignore-line
+				'quality' => sanitize_text_field( $input['quality'] ?? '' ), // @phpstan-ignore-line
+			]
+		);
 
 		if ( empty( $prompt ) ) {
 			return new WP_Error( 'missing_prompt', 'prompt is required.' );
