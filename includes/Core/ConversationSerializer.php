@@ -15,6 +15,7 @@ namespace SdAiAgent\Core;
 
 use WordPress\AiClient\Messages\DTO\Message;
 use WordPress\AiClient\Messages\DTO\MessagePart;
+use WordPress\AiClient\Messages\DTO\ModelMessage;
 use WordPress\AiClient\Messages\DTO\UserMessage;
 use WordPress\AiClient\Tools\DTO\FunctionResponse;
 
@@ -93,6 +94,93 @@ class ConversationSerializer {
 
 		foreach ( $parts as $part ) {
 			$history[] = new UserMessage( array( $part ) );
+		}
+	}
+
+	/**
+	 * Append an assistant (model-role) message to history, splitting multi-part
+	 * messages that contain function_call parts into one ModelMessage per
+	 * function_call (plus, if any non-function_call parts are present, a
+	 * leading ModelMessage that carries those text/reasoning parts).
+	 *
+	 * The OpenAI Responses API contract — enforced client-side by
+	 * `OpenAiTextGenerationModel::validateMessages()` in the
+	 * `ai-provider-for-openai` plugin — requires each `function_call` to be its
+	 * own top-level input item. A single Message containing two function_calls,
+	 * or text+function_call, cannot be serialised into one item and the
+	 * validator throws `"Function call parts must be the only part in a
+	 * message for the OpenAI Responses API."` before any HTTP request is sent.
+	 *
+	 * Multi-part assistant messages legitimately arise when:
+	 *   - Anthropic Claude emits parallel `tool_use` blocks in one assistant
+	 *     message (the SDK's `Message` preserves that shape).
+	 *   - An OpenAI Responses model returns text plus one or more function_calls
+	 *     in the same `message` output item (or PR #26's reasoning support
+	 *     prepends a thought-channel part to a function_call candidate).
+	 *
+	 * Anthropic accepts the split form too (each `Message` becomes one
+	 * Anthropic `message` with N content blocks → splitting only changes how
+	 * many messages get sent, not the semantics), so this transformation is
+	 * provider-agnostic.
+	 *
+	 * Mirrors {@see self::append_tool_response()}, which already solves the
+	 * equivalent problem on the tool-response side.
+	 *
+	 * @param Message[] $history The conversation history (passed by reference).
+	 * @param Message   $message Assistant message returned by the model.
+	 */
+	public static function append_assistant_message( array &$history, Message $message ): void {
+		$parts = $message->getParts();
+
+		// Defensive: never append a zero-parts message. The SDK's
+		// PromptBuilder::validateMessages() throws when it sees one, so
+		// silently dropping it here is preferable to a downstream exception
+		// that bubbles up as a bare error to the user.
+		if ( empty( $parts ) ) {
+			return;
+		}
+
+		// `MessagePartTypeEnum::isFunctionCall()` is a magic method dispatched
+		// via AbstractEnum's `__call`, so `method_exists()` would return false.
+		// Fall back to the legacy `getFunctionCall()` accessor when the
+		// MessagePart implementation is older or mocked without the enum API.
+		$function_call_parts = array();
+		$other_parts         = array();
+		foreach ( $parts as $part ) {
+			$is_function_call = false;
+			if ( method_exists( $part, 'getType' ) ) {
+				$type = $part->getType();
+				if ( is_object( $type ) && is_callable( array( $type, 'isFunctionCall' ) ) ) {
+					$is_function_call = (bool) $type->isFunctionCall();
+				}
+			}
+			if ( ! $is_function_call && method_exists( $part, 'getFunctionCall' ) ) {
+				$is_function_call = null !== $part->getFunctionCall();
+			}
+			if ( $is_function_call ) {
+				$function_call_parts[] = $part;
+			} else {
+				$other_parts[] = $part;
+			}
+		}
+
+		// Fast path: ≤1 part total, or zero function_call parts, or exactly
+		// one function_call and no other parts — already compliant.
+		if ( count( $parts ) <= 1 || empty( $function_call_parts )
+			|| ( 1 === count( $function_call_parts ) && empty( $other_parts ) ) ) {
+			$history[] = $message;
+			return;
+		}
+
+		// Preserve "text/reasoning first, then function_calls" ordering — this
+		// is how the official OpenAI plugin's `convertMessageToInputItems`
+		// would have emitted them across separate messages.
+		if ( ! empty( $other_parts ) ) {
+			$history[] = new ModelMessage( $other_parts );
+		}
+
+		foreach ( $function_call_parts as $fc_part ) {
+			$history[] = new ModelMessage( array( $fc_part ) );
 		}
 	}
 

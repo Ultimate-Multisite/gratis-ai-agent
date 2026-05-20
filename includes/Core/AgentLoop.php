@@ -730,7 +730,12 @@ class AgentLoop {
 			// so an unrelated later truncation doesn't inherit prior state.
 			$this->preamble_truncation_retries = 0;
 
-			$this->history[] = $assistant_message;
+			// Split multi-part assistant messages so each function_call lives
+			// in its own ModelMessage. The OpenAI Responses API rejects
+			// "function_call + other part" shapes (see
+			// ConversationSerializer::append_assistant_message for the full
+			// rationale and provider-side validator reference).
+			ConversationSerializer::append_assistant_message( $this->history, $assistant_message );
 
 			// Check if the model wants to call tools.
 			if ( ! $this->get_ability_resolver()->has_ability_calls( $assistant_message ) ) {
@@ -767,7 +772,7 @@ class AgentLoop {
 
 					if ( ! is_wp_error( $followup_result ) ) {
 						$followup_message = $followup_result->toMessage();
-						$this->history[]  = $followup_message;
+						ConversationSerializer::append_assistant_message( $this->history, $followup_message );
 						$this->accumulate_tokens( $followup_result );
 
 						try {
@@ -937,7 +942,7 @@ class AgentLoop {
 
 			if ( ! is_wp_error( $fallback_result ) ) {
 				$fallback_message = $fallback_result->toMessage();
-				$this->history[]  = $fallback_message;
+				ConversationSerializer::append_assistant_message( $this->history, $fallback_message );
 				$this->accumulate_tokens( $fallback_result );
 
 				$reply = '';
