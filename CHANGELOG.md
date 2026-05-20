@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.15.0] - 2026-05-19
+
+### Added
+
+- `sd-ai-agent/site-scrape` ability: scrapes a live URL and returns structured content for Theme Builder pre-fill (GH#1530, #1546)
+- Theme Builder stock-image search and import — agents can search for and import stock images directly from the Theme Builder flow (GH#1528, #1544)
+- `generate-image` ability: Theme Builder-specific options, image variation generation, and provenance metadata for generated assets (GH#1529, #1545)
+
 ## [1.14.0] - 2026-05-19
 
 ### Added

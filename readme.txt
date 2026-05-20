@@ -4,7 +4,7 @@ Tags: ai, chatbot, assistant, automation, tools
 Requires at least: 6.9
 Tested up to: 7.0
 Requires PHP: 8.2
-Stable tag: 1.14.0
+Stable tag: 1.15.0
 License: GPL-2.0-or-later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -207,6 +207,11 @@ Yes, the plugin works on both single-site and multisite WordPress installations.
 8. Settings page with 12 configuration tabs
 
 == Changelog ==
+
+= 1.15.0 - Released on 2026-05-19 =
+* New: sd-ai-agent/site-scrape ability scrapes a live URL and returns structured content for Theme Builder pre-fill
+* New: Theme Builder stock-image search and import — agents can search for and import stock images directly from within the Theme Builder flow
+* New: generate-image ability adds Theme Builder-specific options, image variation generation, and provenance metadata for generated assets
 
 = 1.14.0 - Released on 2026-05-19 =
 * New: Settings → Advanced panel now includes a "Restart Setup Assistant" button so users can re-run onboarding at any time
