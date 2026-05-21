@@ -43,6 +43,10 @@ class SkillAutoInjector {
 	 * Keys are regex patterns matched against the user message (case-insensitive).
 	 * Values are skill slugs from the skills table.
 	 *
+	 * Order matters: more-specific patterns must appear before catch-all patterns
+	 * that share keyword overlap (e.g. kadence before gutenberg, wp-block-development
+	 * before gutenberg-blocks, wp-block-themes before block-themes).
+	 *
 	 * @var array<string, string>
 	 */
 	private const TRIGGER_MAP = [
@@ -50,11 +54,27 @@ class SkillAutoInjector {
 		// so that messages mentioning kadence/* blocks route to the kadence skill first.
 		'/\bkadence\b|kadence\/(?:rowlayout|column|advancedheading|advancedbtn|singlebtn)|\bkbVersion\b|\bcolLayout\b|kt-adv-heading|kt-inside-inner-col|kb-section-dir-horizontal|kt-highlight/i' => 'kadence-blocks',
 		'/\b(?:header\s*builder|footer\s*builder|kadence\s*theme)\b|kadence_(?:before|after)_/i'                                       => 'kadence-theme',
+
+		// WP REST API — precedes wp-plugin-development to avoid ambiguity on 'endpoint'/'register'.
+		'/\brest\b.*\bendpoint\b|\bendpoint\b.*\brest\b|wp\/v2|REST_Controller|\/wp-json\/|register_rest_route|rest_api_init\b/i'     => 'wp-rest-api',
+
+		// WP Block development — precedes gutenberg-blocks (content) patterns.
+		'/block\.json|register_block_type|apiVersion|edit\.js|save\.js|\bviewScriptModule\b|\bwp-block-development\b/i'               => 'wp-block-development',
+
+		// WP Block themes (structural) — precedes generic block-themes (content/FSE) pattern.
+		'/\btheme\.json\b|\bblock\s+theme\b|\btemplates\/|\bparts\/|\bstyle\s+variation/i'                                            => 'wp-block-themes',
+
+		// WP Plugin development — plugin architecture, hooks, settings, security.
+		'/plugin\s+header|Plugin\s+Name\s*:|register_activation_hook|add_action\s*\(|add_filter\s*\(/i'                               => 'wp-plugin-development',
+
+		// WP-CLI and ops — wp search-replace, wp cron, wp db, wp-cli.yml.
+		'/\bwp-cli\b|\bwp\s+search-replace\b|\bwp\s+db\b|\bwp\s+cron\b|\bwp\s+cache\s+flush\b|\bwp-cli\.yml\b|\bwp_cron\b/i'        => 'wp-wpcli-and-ops',
+
 		'/\b(?:create|build|make|write|generate|add)\b.*\b(?:page|pages|post|posts|blog|article|content|landing|homepage|layout)\b/i' => 'gutenberg-blocks',
 		'/\b(?:page|pages|landing|homepage|layout|column|columns|hero|section|block|blocks|gutenberg)\b|\bfull[-\s]?width\b|\bfull[-\s]?bleed\b/i' => 'gutenberg-blocks',
 		'/\b(?:woocommerce|product|products|store|shop|order|orders|cart|checkout|coupon)\b/i'                                         => 'woocommerce',
 		'/\b(?:seo|ranking|rankings|meta\s*tags?|meta\s*description|sitemap|search\s*engine|keyword|keywords)\b/i'                     => 'seo-optimization',
-		'/\b(?:full\s*site\s*edit|fse|block\s*theme|template\s*part|site\s*editor|theme\.json)\b/i'                                    => 'block-themes',
+		'/\b(?:full\s*site\s*edit|fse|block\s*theme|template\s*part|site\s*editor)\b/i'                                               => 'block-themes',
 		'/\b(?:classic\s*theme|customizer|functions\.php|widget\s*area|sidebar\s*widget|child\s*theme)\b/i'                          => 'classic-themes',
 		'/\b(?:multisite|network|subsite|subsites|sub-site)\b/i'                                                                       => 'multisite-management',
 		'/\b(?:content\s*market|editorial|content\s*strateg|publish\s*schedule|content\s*audit)\b/i'                                    => 'content-marketing',

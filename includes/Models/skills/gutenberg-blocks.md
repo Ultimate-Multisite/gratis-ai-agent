@@ -513,6 +513,11 @@ Never use `update-post` to "append" by re-sending the full accumulated content â
 3. Build improved content using block markup
 4. Use `sd-ai-agent/update-post` to replace the content (only if the new content fits in one call â€” otherwise rebuild incrementally as above)
 
+## See also
+
+- `wp-block-development` for `block.json` / `apiVersion` / deprecations / `register_block_type` when developing the block PHP/JS source.
+- `wp-block-themes` for `theme.json` global settings, style variations, templates, and template parts in a block theme.
+
 ## Verifying generated markup
 
 After generating block markup, verify before committing it to a published post:

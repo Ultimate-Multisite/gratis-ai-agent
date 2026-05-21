@@ -13,6 +13,7 @@ namespace SdAiAgent\Bootstrap;
 use SdAiAgent\CLI\BenchmarkCommand;
 use SdAiAgent\CLI\CliCommand;
 use SdAiAgent\CLI\ModelsCommand;
+use SdAiAgent\CLI\SkillsCommand;
 use SdAiAgent\CLI\TraceCommand;
 use SdAiAgent\Models\ProviderTrace;
 use WP_CLI;
@@ -54,6 +55,7 @@ final class CliHandler {
 		'prompt'    => CliCommand::class,
 		'benchmark' => BenchmarkCommand::class,
 		'models'    => ModelsCommand::class,
+		'skills'    => SkillsCommand::class,
 	);
 
 	/**

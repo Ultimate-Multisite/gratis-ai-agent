@@ -476,3 +476,5 @@ After editing templates or `theme.json`:
 ## See also
 
 - `gutenberg-blocks` → **Block-theme layout cascade** — the three structural patterns (full-bleed/constrained, full-bleed/full-bleed, plain constrained) that cause ~80% of "looks broken" outputs. Required reading before generating any landing-page section.
+- `wp-block-themes` → **Canonical WP block-theme skill** — templates, template parts, patterns, style variations, and `theme.json` procedure from the official WordPress/agent-skills library.
+- `wp-block-development` → Block.json, `apiVersion`, dynamic rendering, and deprecations when the theme ships custom blocks.

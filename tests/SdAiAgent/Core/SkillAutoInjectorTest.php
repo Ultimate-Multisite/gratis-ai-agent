@@ -238,4 +238,147 @@ class SkillAutoInjectorTest extends WP_UnitTestCase {
 		$this->assertGreaterThan( strlen( $hint ), strlen( $full_injection ), 'Full injection must be longer than the index hint.' );
 		$this->assertLessThan( 200, strlen( $hint ), 'Index hint should be under 200 characters (got ' . strlen( $hint ) . ').' );
 	}
+
+	// ─── WP agent skills trigger tests (Phase 5 / GH#1588) ───────────────
+
+	/**
+	 * Messages containing REST API keywords route to wp-rest-api.
+	 *
+	 * @dataProvider provide_wp_rest_api_phrases
+	 */
+	public function test_get_index_description_routes_rest_api_phrases( string $phrase ): void {
+		$result = SkillAutoInjector::get_index_description( $phrase );
+
+		$this->assertStringContainsString(
+			'wp-rest-api',
+			$result,
+			"Phrase '{$phrase}' must route to wp-rest-api."
+		);
+	}
+
+	/**
+	 * @return array<string, array{0:string}>
+	 */
+	public function provide_wp_rest_api_phrases(): array {
+		return [
+			'register_rest_route'   => [ 'How do I use register_rest_route to add a custom endpoint?' ],
+			'REST_Controller'       => [ 'Extend WP_REST_Controller for my custom API.' ],
+			'wp-json path'          => [ 'My /wp-json/ route is returning 404.' ],
+			'rest api_init'         => [ 'I hook into rest_api_init to register routes.' ],
+			'rest + endpoint combo' => [ 'Create a REST endpoint that returns user data.' ],
+		];
+	}
+
+	/**
+	 * Messages containing block.json / apiVersion keywords route to wp-block-development.
+	 *
+	 * @dataProvider provide_wp_block_development_phrases
+	 */
+	public function test_get_index_description_routes_block_development_phrases( string $phrase ): void {
+		$result = SkillAutoInjector::get_index_description( $phrase );
+
+		$this->assertStringContainsString(
+			'wp-block-development',
+			$result,
+			"Phrase '{$phrase}' must route to wp-block-development."
+		);
+	}
+
+	/**
+	 * @return array<string, array{0:string}>
+	 */
+	public function provide_wp_block_development_phrases(): array {
+		return [
+			'block.json'           => [ 'How do I update block.json to add a new attribute?' ],
+			'register_block_type'  => [ 'Call register_block_type from my plugin.' ],
+			'apiVersion'           => [ 'Should I use apiVersion 3 for my block?' ],
+			'edit.js / save.js'    => [ 'My edit.js and save.js are out of sync.' ],
+			'viewScriptModule'     => [ 'I need to use viewScriptModule for the Interactivity API.' ],
+		];
+	}
+
+	/**
+	 * Messages containing theme.json / templates / parts route to wp-block-themes.
+	 *
+	 * @dataProvider provide_wp_block_themes_phrases
+	 */
+	public function test_get_index_description_routes_block_themes_phrases( string $phrase ): void {
+		$result = SkillAutoInjector::get_index_description( $phrase );
+
+		$this->assertStringContainsString(
+			'wp-block-themes',
+			$result,
+			"Phrase '{$phrase}' must route to wp-block-themes."
+		);
+	}
+
+	/**
+	 * @return array<string, array{0:string}>
+	 */
+	public function provide_wp_block_themes_phrases(): array {
+		return [
+			'theme.json'          => [ 'How do I add a color palette in theme.json?' ],
+			'block theme phrase'  => [ 'I am building a block theme from scratch.' ],
+			'templates/'          => [ 'Where should I put my templates/ directory?' ],
+			'parts/'              => [ 'I added a header template part in parts/ but it does not appear.' ],
+			'style variation'     => [ 'How do I add a dark style variation to my theme?' ],
+		];
+	}
+
+	/**
+	 * Messages containing plugin header / add_action keywords route to wp-plugin-development.
+	 *
+	 * @dataProvider provide_wp_plugin_development_phrases
+	 */
+	public function test_get_index_description_routes_plugin_development_phrases( string $phrase ): void {
+		$result = SkillAutoInjector::get_index_description( $phrase );
+
+		$this->assertStringContainsString(
+			'wp-plugin-development',
+			$result,
+			"Phrase '{$phrase}' must route to wp-plugin-development."
+		);
+	}
+
+	/**
+	 * @return array<string, array{0:string}>
+	 */
+	public function provide_wp_plugin_development_phrases(): array {
+		return [
+			'Plugin Name header'           => [ 'I need to write the Plugin Name: header for my plugin file.' ],
+			'register_activation_hook'     => [ 'How do I use register_activation_hook correctly?' ],
+			'add_action call'              => [ 'Use add_action( \'init\', \'my_callback\' ) to register CPTs.' ],
+			'add_filter call'              => [ 'I need to use add_filter( \'the_content\', \'my_filter\' ).' ],
+		];
+	}
+
+	/**
+	 * Messages containing WP-CLI / wp search-replace keywords route to wp-wpcli-and-ops.
+	 *
+	 * @dataProvider provide_wp_wpcli_phrases
+	 */
+	public function test_get_index_description_routes_wpcli_phrases( string $phrase ): void {
+		$result = SkillAutoInjector::get_index_description( $phrase );
+
+		$this->assertStringContainsString(
+			'wp-wpcli-and-ops',
+			$result,
+			"Phrase '{$phrase}' must route to wp-wpcli-and-ops."
+		);
+	}
+
+	/**
+	 * @return array<string, array{0:string}>
+	 */
+	public function provide_wp_wpcli_phrases(): array {
+		return [
+			'wp-cli explicit'          => [ 'How do I install wp-cli on my server?' ],
+			'wp search-replace'        => [ 'Run wp search-replace to update the domain after migration.' ],
+			'wp db export'             => [ 'Use wp db export to take a backup before the deployment.' ],
+			'wp cron event'            => [ 'List all scheduled tasks with wp cron event list.' ],
+			'wp cache flush'           => [ 'Run wp cache flush to clear the object cache.' ],
+			'wp-cli.yml config'        => [ 'Set path defaults in wp-cli.yml for this project.' ],
+			'wp_cron constant'         => [ 'I disabled wp_cron in wp-config.php to use real cron.' ],
+		];
+	}
 }
