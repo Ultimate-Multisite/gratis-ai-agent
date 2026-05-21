@@ -207,8 +207,9 @@ class SkillAbilities {
 		];
 
 		if ( isset( $plugin_map[ $slug ] ) ) {
+			// translators: %1$s is the skill slug, %2$s is the plugin name.
 			return sprintf(
-				__( "Skill '%s' is disabled. It will be automatically enabled when %s is active.", 'superdav-ai-agent' ),
+				__( "Skill '%1\$s' is disabled. It will be automatically enabled when %2\$s is active.", 'superdav-ai-agent' ),
 				$slug,
 				$plugin_map[ $slug ]
 			);
@@ -222,15 +223,18 @@ class SkillAbilities {
 		];
 
 		if ( isset( $theme_map[ $slug ] ) ) {
+			// translators: %1$s is the skill slug, %2$s is the theme condition.
 			return sprintf(
-				__( "Skill '%s' is disabled. It will be automatically enabled when %s.", 'superdav-ai-agent' ),
+				__( "Skill '%1\$s' is disabled. It will be automatically enabled when %2\$s.", 'superdav-ai-agent' ),
 				$slug,
 				$theme_map[ $slug ]
 			);
 		}
 
 		// Default message for truly disabled skills.
+		// translators: %s is the skill slug.
 		return sprintf(
+			// translators: %s is the skill slug.
 			__( "Skill '%s' is disabled.", 'superdav-ai-agent' ),
 			$slug
 		);
