@@ -4,6 +4,8 @@ declare(strict_types=1);
 /**
  * WP REST API abilities for the AI agent.
  *
+ * @see docs/wp-rest-ability.md Human-readable reference for this ability family.
+ *
  * Registers three abilities under the `wp-rest` category:
  *
  *   - `wp-rest/discover` — list namespaces and routes (read-only).
