@@ -58,6 +58,7 @@ use SdAiAgent\Abilities\ThemeBuilderAbilities;
 use SdAiAgent\Abilities\UserAbilities;
 use SdAiAgent\Abilities\WordPressAbilities;
 use SdAiAgent\Abilities\WpCliAbilities;
+use SdAiAgent\Abilities\WpRestAbilities;
 use XWP\DI\Decorators\Action;
 use XWP\DI\Decorators\Handler;
 
@@ -138,6 +139,7 @@ final class AbilitiesHandler {
 		DatabaseAbilities::register_abilities();
 		WordPressAbilities::register_abilities();
 		WpCliAbilities::register_ability();
+		WpRestAbilities::register_abilities();
 		OptionsAbilities::register_abilities();
 		// WooCommerce abilities are now registered by WooCommerceIntegrationHandler
 		// via WooCommerce's own AbilitiesRestBridge, making WooCommerce's native
@@ -165,6 +167,7 @@ final class AbilitiesHandler {
 	#[Action( tag: 'wp_abilities_api_categories_init', priority: 10 )]
 	public function register_wpcli_category(): void {
 		WpCliAbilities::register_category();
+		WpRestAbilities::register_category();
 	}
 
 	/**
