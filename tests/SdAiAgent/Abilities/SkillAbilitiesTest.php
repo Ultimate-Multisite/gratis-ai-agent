@@ -137,6 +137,33 @@ class SkillAbilitiesTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * Test handle_skill_load provides helpful error message for theme-aware skills.
+	 *
+	 * When a theme-aware skill (block-themes, classic-themes) is disabled and
+	 * the current theme doesn't match its auto-enable condition, the error message
+	 * should explain what theme condition would enable it.
+	 */
+	public function test_handle_skill_load_disabled_skill_helpful_message() {
+		global $wpdb;
+
+		Skill::seed_builtins();
+
+		// Force block-themes to disabled.
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+		$wpdb->query( $wpdb->prepare( 'UPDATE ' . Skill::table_name() . " SET enabled = 0 WHERE slug = %s", 'block-themes' ) );
+
+		// On a classic theme, block-themes should be disabled and the error should mention block themes.
+		$is_block = function_exists( 'wp_is_block_theme' ) && wp_is_block_theme();
+		if ( ! $is_block ) {
+			$result = SkillAbilities::handle_skill_load( [ 'slug' => 'block-themes' ] );
+			$this->assertInstanceOf( \WP_Error::class, $result );
+			$error_msg = $result->get_error_message();
+			$this->assertStringContainsString( 'disabled', $error_msg );
+			$this->assertStringContainsString( 'block theme', $error_msg );
+		}
+	}
+
+	/**
 	 * Test handle_skill_load with enabled skill returns content.
 	 */
 	public function test_handle_skill_load_enabled_skill() {

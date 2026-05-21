@@ -124,8 +124,9 @@ class SkillAbilities {
 		if ( ! (int) $skill->enabled ) {
 			// Check if the skill should be auto-enabled based on environment.
 			if ( ! Skill::is_skill_auto_enabled( $slug ) ) {
+				$error_msg = self::get_skill_disabled_message( $slug );
 				// @phpstan-ignore-next-line
-				return new \WP_Error( 'skill_disabled', "Skill '$slug' is disabled." );
+				return new \WP_Error( 'skill_disabled', $error_msg );
 			}
 		}
 
@@ -187,5 +188,51 @@ class SkillAbilities {
 			'skills'  => $list,
 			'message' => '',
 		];
+	}
+
+	/**
+	 * Generate a helpful error message for a disabled skill.
+	 *
+	 * Explains why the skill is disabled and what conditions would enable it.
+	 *
+	 * @param string $slug Skill slug.
+	 * @return string Error message.
+	 */
+	private static function get_skill_disabled_message( string $slug ): string {
+		// Check if the skill has a known auto-enable condition.
+		$plugin_map = [
+			'woocommerce'          => 'WooCommerce plugin',
+			'kadence-blocks'       => 'Kadence Blocks plugin',
+			'multisite-management' => 'WordPress Multisite',
+		];
+
+		if ( isset( $plugin_map[ $slug ] ) ) {
+			return sprintf(
+				__( "Skill '%s' is disabled. It will be automatically enabled when %s is active.", 'superdav-ai-agent' ),
+				$slug,
+				$plugin_map[ $slug ]
+			);
+		}
+
+		// Check if the skill is theme-aware.
+		$theme_map = [
+			'block-themes'   => __( 'a block theme is active', 'superdav-ai-agent' ),
+			'classic-themes' => __( 'a classic (non-block) theme is active', 'superdav-ai-agent' ),
+			'kadence-theme'  => __( 'the Kadence theme is active', 'superdav-ai-agent' ),
+		];
+
+		if ( isset( $theme_map[ $slug ] ) ) {
+			return sprintf(
+				__( "Skill '%s' is disabled. It will be automatically enabled when %s.", 'superdav-ai-agent' ),
+				$slug,
+				$theme_map[ $slug ]
+			);
+		}
+
+		// Default message for truly disabled skills.
+		return sprintf(
+			__( "Skill '%s' is disabled.", 'superdav-ai-agent' ),
+			$slug
+		);
 	}
 }
