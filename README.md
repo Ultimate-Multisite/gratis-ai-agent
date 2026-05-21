@@ -1,6 +1,6 @@
 # SD AI Agent for WordPress
 
-[![Download Plugin Now](https://img.shields.io/github/v/release/Ultimate-Multisite/sd-ai-agent?style=for-the-badge&label=Download+Plugin+Now&color=0073aa)](https://github.com/Ultimate-Multisite/sd-ai-agent/releases/latest/download/sd-ai-agent.zip) &nbsp; Upload the zip to WordPress like any other plugin
+[![Download Plugin Now](https://img.shields.io/github/v/release/Ultimate-Multisite/superdav-ai-agent?style=for-the-badge&label=Download+Plugin+Now&color=0073aa)](https://github.com/Ultimate-Multisite/superdav-ai-agent/releases/latest/download/superdav-ai-agent.zip) &nbsp; Upload the zip to WordPress like any other plugin
 
 [![Tests](https://github.com/Ultimate-Multisite/sd-ai-agent/actions/workflows/tests.yml/badge.svg)](https://github.com/Ultimate-Multisite/sd-ai-agent/actions/workflows/tests.yml)
 [![Code Quality](https://github.com/Ultimate-Multisite/sd-ai-agent/actions/workflows/code-quality.yml/badge.svg)](https://github.com/Ultimate-Multisite/sd-ai-agent/actions/workflows/code-quality.yml)
