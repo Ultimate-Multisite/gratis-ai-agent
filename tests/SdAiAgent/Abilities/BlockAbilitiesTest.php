@@ -394,4 +394,40 @@ class BlockAbilitiesTest extends WP_UnitTestCase {
 			$this->assertArrayHasKey( 'innerHTML', $block );
 		}
 	}
+
+	// ─── validate-block-content ───────────────────────────────────
+
+	/**
+	 * Test handle_validate_block_content emits the diff-interpretation hint
+	 * when at least one block is invalid (GH#1589).
+	 *
+	 * Uses a heading block whose comment declares level:3 but whose HTML uses
+	 * <h2>, which BlockValidator flags as structurally invalid.
+	 */
+	public function test_validate_block_content_hint_present_when_invalid() {
+		$invalid_content = "<!-- wp:heading {\"level\":3} -->\n<h2 class=\"wp-block-heading\">x</h2>\n<!-- /wp:heading -->";
+
+		$result = BlockAbilities::handle_validate_block_content( [
+			'content' => $invalid_content,
+		] );
+
+		$this->assertIsArray( $result );
+		$this->assertArrayHasKey( 'hint', $result );
+		$this->assertStringContainsString( 'Expected/Actual diff is a structural change', $result['hint'] );
+	}
+
+	/**
+	 * Test handle_validate_block_content does NOT emit the hint when all
+	 * blocks are valid — no false positives (GH#1589).
+	 */
+	public function test_validate_block_content_hint_absent_when_valid() {
+		$valid_content = "<!-- wp:paragraph -->\n<p>Hello world</p>\n<!-- /wp:paragraph -->";
+
+		$result = BlockAbilities::handle_validate_block_content( [
+			'content' => $valid_content,
+		] );
+
+		$this->assertIsArray( $result );
+		$this->assertArrayNotHasKey( 'hint', $result );
+	}
 }

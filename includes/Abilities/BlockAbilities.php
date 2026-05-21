@@ -368,6 +368,10 @@ class BlockAbilities {
 						],
 						'block_count'    => [ 'type' => 'integer' ],
 						'freeform_count' => [ 'type' => 'integer' ],
+						'hint'           => [
+							'type'        => 'string',
+							'description' => 'Diff-interpretation guidance emitted only when invalidBlocks > 0.',
+						],
 					],
 				],
 				'meta'                => [
@@ -1157,7 +1161,7 @@ class BlockAbilities {
 			);
 		}
 
-		return array_merge(
+		$result = array_merge(
 			$report,
 			[
 				'valid'          => empty( $warnings ) && 0 === $report['invalidBlocks'],
@@ -1166,5 +1170,14 @@ class BlockAbilities {
 				'freeform_count' => $freeform_count,
 			]
 		);
+
+		// GH#1589: append diff-interpretation hint only when blocks are invalid.
+		// Without this, models "fix" by copy-pasting the Expected string literally
+		// and omit the matching block-comment attribute, causing a fix loop.
+		if ( $report['invalidBlocks'] > 0 ) {
+			$result['hint'] = 'Before fixing: each Expected/Actual diff is a structural change, not a literal text swap. Classes the validator adds or removes (`has-X-color`, `alignwide`, `is-style-Y`, `wp-block-*-is-layout-flex`) pull in or strip core CSS that drives layout, spacing, and color. Diff the markup explicitly, update any style.css selectors that target the old class or nesting in the same edit batch, preserve your intentional className hooks, then take a screenshot of desktop and mobile to verify the design did not drift.';
+		}
+
+		return $result;
 	}
 }
