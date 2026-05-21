@@ -1,0 +1,63 @@
+{
+  "$comment": "Machine-readable reel beats. record.js reads this; assemble.sh reads this. Edit beats here, not in the recorder.",
+  "viewport": { "width": 540, "height": 960, "deviceScaleFactor": 2 },
+  "output": { "width": 1080, "height": 1920, "fps": 30, "duration_seconds": 60 },
+  "wait": {
+    "response_timeout_ms": 240000,
+    "post_send_settle_ms": 800,
+    "post_complete_settle_ms": 1500
+  },
+  "beats": [
+    {
+      "id": "0-hook",
+      "kind": "title",
+      "duration_seconds": 3,
+      "headline": "Build WordPress",
+      "subhead": "just by talking to it.",
+      "footer": "Superdav AI Agent"
+    },
+    {
+      "id": "1-theme",
+      "kind": "prompt",
+      "duration_seconds": 10,
+      "caption": "Design a custom theme",
+      "prompt": "Build a minimal photography portfolio block theme — dark hero with a single large headline, a 3-column image gallery, and system serif headings. Use sd-ai-agent/scaffold-block-theme with slug=aperture-portfolio, then sd-ai-agent/activate-theme. Reply only with: THEME READY."
+    },
+    {
+      "id": "2-content",
+      "kind": "prompt",
+      "duration_seconds": 9,
+      "caption": "Write SEO posts + images",
+      "prompt": "Write a 600-word SEO blog post titled \"Choosing your first prime lens\" with a clear intro, three subheadings, and a conclusion. Generate a fitting featured image, attach it, and publish the post. Reply only with: POST PUBLISHED."
+    },
+    {
+      "id": "3-logo",
+      "kind": "prompt",
+      "duration_seconds": 9,
+      "caption": "Generate brand assets",
+      "prompt": "Generate a minimalist black-on-white SVG logo for 'Aperture & Light Studio' using a single geometric aperture mark. Save it as the site logo (custom_logo). Reply only with: LOGO SAVED."
+    },
+    {
+      "id": "4-plugin",
+      "kind": "prompt",
+      "duration_seconds": 11,
+      "caption": "Build entire plugins",
+      "prompt": "Build a custom plugin called 'Auto Watermark' that hooks 'wp_handle_upload' and overlays a small text watermark 'aperture-light.studio' onto the bottom-right corner of every uploaded JPEG/PNG using GD. Scaffold the plugin, install and activate it. Reply only with: PLUGIN ACTIVE."
+    },
+    {
+      "id": "5-seo",
+      "kind": "prompt",
+      "duration_seconds": 10,
+      "caption": "Audit your SEO",
+      "prompt": "Audit the homepage SEO of this site. List the top three fixes — each with the file or setting to change and the exact value to use. Reply only with the numbered list."
+    },
+    {
+      "id": "6-outro",
+      "kind": "title",
+      "duration_seconds": 8,
+      "headline": "Bring your own key.",
+      "subhead": "Any AI provider. Open source.",
+      "footer": "wordpress.org/plugins/superdav-ai-agent"
+    }
+  ]
+}
