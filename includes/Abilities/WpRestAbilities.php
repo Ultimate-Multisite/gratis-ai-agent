@@ -150,9 +150,9 @@ class WpRestAbilities {
 							'description' => 'Case-insensitive substring filter on the route path.',
 						),
 						'limit'     => array(
-							'type'        => 'integer',
-							'default'     => 50,
-							'maximum'     => 200,
+							'type'    => 'integer',
+							'default' => 50,
+							'maximum' => 200,
 						),
 					),
 					'additionalProperties' => false,
@@ -362,17 +362,18 @@ class WpRestAbilities {
 			}
 
 			// Collect methods across endpoint handlers.
-			$methods     = array();
-			$is_upload   = false;
-			$summary     = '';
+			$methods   = array();
+			$is_upload = false;
+			$summary   = '';
 
 			foreach ( $endpoints as $endpoint ) {
 				if ( ! is_array( $endpoint ) ) {
 					continue;
 				}
 
-				$ep_methods = isset( $endpoint['methods'] ) ? array_keys( $endpoint['methods'] ) : array();
-				$methods    = array_unique( array_merge( $methods, $ep_methods ) );
+				$raw_methods = ( isset( $endpoint['methods'] ) && is_array( $endpoint['methods'] ) ) ? array_keys( $endpoint['methods'] ) : array();
+				$ep_methods  = array_map( 'strval', $raw_methods );
+				$methods     = array_values( array_unique( array_merge( $methods, $ep_methods ) ) );
 
 				// Detect file-upload endpoints.
 				if ( ! $is_upload ) {
@@ -400,7 +401,7 @@ class WpRestAbilities {
 				// Only surface the hint if the agent was specifically looking for media routes.
 				if ( '' !== $search && false !== stripos( $route_path, 'media' ) ) {
 					$result[] = array(
-						'hidden'             => 'media-upload',
+						'hidden'              => 'media-upload',
 						'alternative_ability' => 'media/upload',
 					);
 				}
@@ -436,7 +437,7 @@ class WpRestAbilities {
 		$route = isset( $input['route'] ) ? (string) $input['route'] : '';
 		$route = '/' . ltrim( $route, '/' );
 
-		if ( '' === $route || '/' === $route ) {
+		if ( '/' === $route ) {
 			return new WP_Error(
 				'wp_rest_missing_route',
 				__( 'A `route` path is required for wp-rest/inspect.', 'superdav-ai-agent' ),
@@ -470,7 +471,7 @@ class WpRestAbilities {
 				continue;
 			}
 
-			$ep_methods = isset( $endpoint['methods'] ) ? array_keys( $endpoint['methods'] ) : array();
+			$ep_methods = ( isset( $endpoint['methods'] ) && is_array( $endpoint['methods'] ) ) ? array_map( 'strval', array_keys( $endpoint['methods'] ) ) : array();
 			$args       = $endpoint['args'] ?? array();
 
 			// Summarize args.
@@ -533,7 +534,7 @@ class WpRestAbilities {
 
 		$route = '/' . ltrim( $route, '/' );
 
-		if ( '' === $route || '/' === $route ) {
+		if ( '/' === $route ) {
 			return new WP_Error(
 				'wp_rest_missing_route',
 				__( 'A `route` path is required for wp-rest/execute.', 'superdav-ai-agent' ),
@@ -546,11 +547,7 @@ class WpRestAbilities {
 		if ( self::is_in_agent_controller_stack() ) {
 			return new WP_Error(
 				'wp_rest_loop_blocked',
-				__(
-					'wp-rest/execute cannot be dispatched from within the agent REST controller — this would create an infinite loop. ' .
-					'Use a different ability or restructure the agent workflow to avoid calling wp-rest/execute recursively.',
-					'superdav-ai-agent'
-				),
+				__( 'wp-rest/execute cannot be dispatched from within the agent REST controller. This would create an infinite loop. Use a different ability or restructure the agent workflow to avoid calling wp-rest/execute recursively.', 'superdav-ai-agent' ),
 				array( 'status' => 400 )
 			);
 		}
@@ -576,9 +573,6 @@ class WpRestAbilities {
 
 		// Dispatch via internal REST dispatcher.
 		$response = self::dispatch( $method, $route, $params, $headers );
-		if ( is_wp_error( $response ) ) {
-			return $response;
-		}
 
 		// Audit trail: log write/destructive calls (skip read — noise-reduction rule).
 		if ( ChangeLogger::is_active() && 'read' !== $level ) {
@@ -609,9 +603,9 @@ class WpRestAbilities {
 	 * @param string              $route   Route path (must start with /).
 	 * @param array<string,mixed> $params  Query params (GET/DELETE) or body params (POST/PUT/PATCH).
 	 * @param array<string,mixed> $headers Extra request headers.
-	 * @return array<string,mixed>|WP_Error
+	 * @return array<string,mixed>
 	 */
-	private static function dispatch( string $method, string $route, array $params, array $headers ) {
+	private static function dispatch( string $method, string $route, array $params, array $headers ): array {
 		$request = new WP_REST_Request( strtoupper( $method ), $route );
 
 		if ( in_array( strtoupper( $method ), array( 'GET', 'DELETE', 'HEAD' ), true ) ) {
@@ -660,9 +654,9 @@ class WpRestAbilities {
 
 		$encoded = wp_json_encode( $shaped );
 		if ( false !== $encoded && strlen( $encoded ) > self::MAX_RESPONSE_BYTES ) {
-			$shaped['data']             = null;
-			$shaped['truncated']        = true;
-			$shaped['truncation_hint']  = 'Response exceeded 64 KB. Refine the request using _fields= to limit returned fields and per_page= to reduce the number of items.';
+			$shaped['data']            = null;
+			$shaped['truncated']       = true;
+			$shaped['truncation_hint'] = 'Response exceeded 64 KB. Refine the request using _fields= to limit returned fields and per_page= to reduce the number of items.';
 		}
 
 		return $shaped;
@@ -878,12 +872,18 @@ class WpRestAbilities {
 		// Try to extract capability name from closure/function source via reflection.
 		if ( is_callable( $cb ) ) {
 			try {
-				if ( is_array( $cb ) ) {
-					$ref = new \ReflectionMethod( $cb[0], $cb[1] );
+				if ( is_array( $cb ) && isset( $cb[0], $cb[1] ) ) {
+					/** @var object|string $class_ref */
+					$class_ref = $cb[0];
+					/** @var string $method_ref */
+					$method_ref = (string) $cb[1];
+					$ref        = new \ReflectionMethod( $class_ref, $method_ref );
 				} elseif ( $cb instanceof \Closure ) {
 					$ref = new \ReflectionFunction( $cb );
+				} elseif ( is_string( $cb ) ) {
+					$ref = new \ReflectionFunction( $cb );
 				} else {
-					$ref = new \ReflectionFunction( (string) $cb );
+					return 'callback registered (capability could not be determined by reflection)';
 				}
 
 				$file  = $ref->getFileName();
