@@ -147,6 +147,18 @@ class SystemInstructionBuilder {
 			$base .= "\n\n" . ModelHealthTracker::weak_model_prompt_nudge();
 		}
 
+		// Inject plugin recommendations when the setting is enabled and at least
+		// one recommendation with guidance is registered. Gated so the section is
+		// absent from prompts for sessions that never do page-content generation.
+		$plugin_recommendations_enabled = (bool) ( $settings['plugin_recommendations_enabled'] ?? true );
+		if ( $plugin_recommendations_enabled ) {
+			$plugin_rec_section = PluginRecommendations::build_system_prompt_section();
+			if ( '' !== $plugin_rec_section ) {
+				// @phpstan-ignore-next-line
+				$base .= "\n\n" . $plugin_rec_section;
+			}
+		}
+
 		// Suggestion chips: instruct the AI to append follow-up suggestions.
 		// @phpstan-ignore-next-line
 		$suggestion_count = (int) ( $settings['suggestion_count'] ?? 3 );

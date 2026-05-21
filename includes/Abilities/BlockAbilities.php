@@ -13,6 +13,7 @@ declare(strict_types=1);
 
 namespace SdAiAgent\Abilities;
 
+use SdAiAgent\Core\BlockValidator;
 use SdAiAgent\Models\MarkdownToBlocks;
 
 if ( ! defined( 'ABSPATH' ) ) {
@@ -1073,9 +1074,24 @@ class BlockAbilities {
 			return new \WP_Error( 'missing_content', 'Content is required for validation.' );
 		}
 
-		$parsed   = parse_blocks( $content );
-		$warnings = [];
+		// Delegate to BlockValidator which applies structural checks and the
+		// BlockContentPolicy for core/html blocks (GH#1584 + GH#1585).
+		$validator = new BlockValidator();
+		$report    = $validator->validate( $content );
 
+		// Collect backwards-compatible summary fields alongside the Studio report.
+		$warnings = [];
+		foreach ( $report['results'] as $result ) {
+			if ( ! $result['isValid'] ) {
+				foreach ( (array) $result['issues'] as $issue ) {
+					$warnings[] = sprintf( '[%s] %s', $result['blockName'], $issue );
+				}
+			}
+		}
+
+		// Also run legacy freeform / markdown / unmatched-comment checks so
+		// existing callers that rely on the 'warnings' key are not broken.
+		$parsed         = parse_blocks( $content );
 		$block_count    = 0;
 		$freeform_count = 0;
 
@@ -1083,7 +1099,6 @@ class BlockAbilities {
 			$block_name = $block['blockName'] ?? null;
 
 			if ( null === $block_name ) {
-				// Freeform block — check if it contains markdown or significant content.
 				$inner = trim( (string) ( $block['innerHTML'] ?? '' ) );
 
 				if ( '' === $inner ) {
@@ -1092,7 +1107,6 @@ class BlockAbilities {
 
 				++$freeform_count;
 
-				// Check for markdown signals in freeform content.
 				$has_heading = (bool) preg_match( '/^#{1,6}\s+\S/m', $inner );
 				$has_list    = (bool) preg_match( '/^[\-\*]\s+\S/m', $inner );
 				$has_bold    = (bool) preg_match( '/\*{2}[^*]+\*{2}/', $inner );
@@ -1129,12 +1143,10 @@ class BlockAbilities {
 			}
 		}
 
-		// Check for no real blocks at all.
 		if ( 0 === $block_count && $freeform_count > 0 ) {
 			$warnings[] = 'Content has no Gutenberg blocks — it appears to be plain text or markdown. Use markdown format (without <!-- wp: --> comments) and it will be auto-converted, or write proper block markup.';
 		}
 
-		// Check for unmatched block comments.
 		$opens  = preg_match_all( '/<!-- wp:(\S+)/', $content );
 		$closes = preg_match_all( '/<!-- \/wp:(\S+)/', $content );
 		if ( $opens !== $closes ) {
@@ -1145,11 +1157,14 @@ class BlockAbilities {
 			);
 		}
 
-		return [
-			'valid'          => empty( $warnings ),
-			'warnings'       => $warnings,
-			'block_count'    => $block_count,
-			'freeform_count' => $freeform_count,
-		];
+		return array_merge(
+			$report,
+			[
+				'valid'          => empty( $warnings ) && 0 === $report['invalidBlocks'],
+				'warnings'       => $warnings,
+				'block_count'    => $block_count,
+				'freeform_count' => $freeform_count,
+			]
+		);
 	}
 }
