@@ -5,7 +5,7 @@
 
 Complex, multi-session work requiring research, design decisions, and detailed tracking.
 
-Based on [OpenAI's PLANS.md](https://cookbook.openai.com/articles/codex_exec_plans) with TOON-enhanced parsing and [Beads](https://github.com/steveyegge/beads) integration for dependency visualization.
+Based on [OpenAI's PLANS.md](https://cookbook.openai.com/articles/codex_exec_plans) with TOON-enhanced parsing for dependency visualization.
 
 <!--TOON:meta{version,format,updated}:
 1.0,plans-md+toon,2026-05-20
@@ -270,8 +270,7 @@ Tasks:
 **Goal:** The agent can execute a multi-step site build from a single prompt,
 using all available abilities (built-in + discovered from plugins).
 
-**Status (2026-05-13):** Obsolete. Site Builder mode was removed in beads
-`sd-ai-dh0`. Onboarding now consolidates into the Setup Assistant agent
+**Status (2026-05-13):** Obsolete. Site Builder mode was removed (sd-ai-dh0). Onboarding now consolidates into the Setup Assistant agent
 (`Models/Agent::ONBOARDING_AGENT_SLUG`); its stored system prompt drives the
 discovery flow. Multi-step orchestration is now an Agent-driven concern, not
 a dedicated builder mode. If a future task revives orchestrated builds, it
