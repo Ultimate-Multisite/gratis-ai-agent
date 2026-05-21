@@ -362,6 +362,109 @@ class PostAbilitiesTest extends WP_UnitTestCase {
 		$this->assertArrayHasKey( 'status', $result );
 	}
 
+	// ─── block_validation save-time gate (GH#1584 follow-up) ────────
+
+	/**
+	 * Content without block markup should omit the block_validation key — the
+	 * helper short-circuits when `<!-- wp:` is not present.
+	 */
+	public function test_handle_create_post_omits_block_validation_for_markdown() {
+		$result = PostAbilities::handle_create_post( [
+			'title'   => 'Markdown post',
+			'content' => "## Heading\n\nParagraph.",
+		] );
+
+		$this->assertIsArray( $result );
+		$this->assertArrayNotHasKey( 'block_validation', $result );
+	}
+
+	/**
+	 * Content with valid block markup should attach block_validation with
+	 * isValid=true and invalidBlocks=0.
+	 */
+	public function test_handle_create_post_attaches_valid_block_validation() {
+		$valid_blocks = "<!-- wp:heading {\"level\":2} -->\n<h2 class=\"wp-block-heading\">Hello</h2>\n<!-- /wp:heading -->";
+
+		$result = PostAbilities::handle_create_post( [
+			'title'   => 'Valid blocks page',
+			'content' => $valid_blocks,
+		] );
+
+		$this->assertIsArray( $result );
+		$this->assertArrayHasKey( 'block_validation', $result );
+		$this->assertTrue( $result['block_validation']['isValid'] );
+		$this->assertSame( 0, $result['block_validation']['invalidBlocks'] );
+		$this->assertGreaterThanOrEqual( 1, $result['block_validation']['totalBlocks'] );
+	}
+
+	/**
+	 * Heading level mismatch in created post should:
+	 *  - still save (post_id is returned)
+	 *  - attach block_validation with invalidBlocks > 0
+	 *  - expose firstInvalid.expectedContent so the model can self-repair.
+	 */
+	public function test_handle_create_post_flags_heading_level_mismatch_without_blocking_save() {
+		$bad_blocks = "<!-- wp:heading {\"level\":3} -->\n<h2 class=\"wp-block-heading\">Wrong level</h2>\n<!-- /wp:heading -->";
+
+		$result = PostAbilities::handle_create_post( [
+			'title'   => 'Bad heading page',
+			'content' => $bad_blocks,
+		] );
+
+		$this->assertIsArray( $result );
+		$this->assertGreaterThan( 0, $result['post_id'], 'Save must succeed even when blocks are invalid.' );
+
+		$this->assertArrayHasKey( 'block_validation', $result );
+		$this->assertFalse( $result['block_validation']['isValid'] );
+		$this->assertSame( 1, $result['block_validation']['invalidBlocks'] );
+		$this->assertArrayHasKey( 'firstInvalid', $result['block_validation'] );
+		$this->assertSame( 'core/heading', $result['block_validation']['firstInvalid']['blockName'] );
+
+		$expected = $result['block_validation']['firstInvalid']['expectedContent'];
+		$this->assertStringContainsString( '<h3', $expected );
+		$this->assertStringContainsString( '</h3>', $expected );
+
+		$this->assertArrayHasKey( 'recommendation', $result['block_validation'] );
+		$this->assertNotEmpty( $result['block_validation']['recommendation'] );
+	}
+
+	/**
+	 * Updating a post with invalid block markup attaches block_validation to
+	 * the update_post response so the model can detect and self-repair.
+	 */
+	public function test_handle_update_post_flags_invalid_blocks_in_response() {
+		$post_id = $this->factory->post->create( [ 'post_status' => 'draft' ] );
+
+		$result = PostAbilities::handle_update_post( [
+			'post_id' => $post_id,
+			'content' => "<!-- wp:quote -->\n<div class=\"wp-block-quote\"><p>Wisdom.</p></div>\n<!-- /wp:quote -->",
+		] );
+
+		$this->assertIsArray( $result );
+		$this->assertArrayHasKey( 'block_validation', $result );
+		$this->assertFalse( $result['block_validation']['isValid'] );
+		$this->assertGreaterThanOrEqual( 1, $result['block_validation']['invalidBlocks'] );
+		$this->assertArrayHasKey( 'firstInvalid', $result['block_validation'] );
+		$this->assertSame( 'core/quote', $result['block_validation']['firstInvalid']['blockName'] );
+		$this->assertStringContainsString( '<blockquote', $result['block_validation']['firstInvalid']['expectedContent'] );
+	}
+
+	/**
+	 * update_post without a content field should not attach block_validation
+	 * (we only validate content we just wrote).
+	 */
+	public function test_handle_update_post_no_content_no_block_validation() {
+		$post_id = $this->factory->post->create( [ 'post_status' => 'draft' ] );
+
+		$result = PostAbilities::handle_update_post( [
+			'post_id' => $post_id,
+			'title'   => 'Title only update',
+		] );
+
+		$this->assertIsArray( $result );
+		$this->assertArrayNotHasKey( 'block_validation', $result );
+	}
+
 	// ─── handle_append_post_content ──────────────────────────────────
 
 	/**

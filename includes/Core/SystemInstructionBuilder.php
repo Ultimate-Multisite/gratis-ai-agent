@@ -285,6 +285,7 @@ class SystemInstructionBuilder {
 			. "- For blog posts: set `post_type` to `post`.\n"
 			. "- **Blog posts and articles**: write content in markdown (`## headings`, `**bold**`, `- lists`). Markdown is auto-converted to Gutenberg blocks.\n"
 			. "- **Pages with visual layouts** (landing pages, about pages, services pages): write content as serialized Gutenberg block markup (`<!-- wp:blockname -->` HTML `<!-- /wp:blockname -->`). Use columns, groups, covers, and buttons for professional layouts. A skill guide with complete block markup examples will be auto-loaded when relevant.\n"
+			. "- **Block-markup self-repair loop.** Whenever `post_content` contains `<!-- wp:` markup, `sd-ai-agent/create-post` and `sd-ai-agent/update-post` automatically run the block validator and attach a `block_validation` object to the response. If `block_validation.invalidBlocks > 0`, immediately call `sd-ai-agent/update-post` on the same `post_id` with the content rebuilt by substituting each invalid block's `originalContent` with its `expectedContent` (from `block_validation.results[]`). Do NOT copy `expectedContent` into block-comment attributes — it replaces innerHTML only. You may also call `sd-ai-agent/validate-block-content` pre-save to catch issues before the first write.\n"
 			. "- **NEVER mix markdown with block markup** in the same content — use one or the other.\n"
 			. "- Set `status` to `publish` to make it live, or `draft` to save without publishing.\n"
 			. "- Include `categories` and `tags` arrays for blog posts.\n"

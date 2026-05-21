@@ -13,6 +13,7 @@ declare(strict_types=1);
 
 namespace SdAiAgent\Abilities;
 
+use SdAiAgent\Core\BlockValidator;
 use SdAiAgent\Models\MarkdownToBlocks;
 use WP_Error;
 use WP_Post;
@@ -884,12 +885,22 @@ class PostAbilities {
 			restore_current_blog();
 		}
 
-		return [
+		$response = [
 			'post_id'   => $post_id,
 			'permalink' => $permalink ?: '',
 			'status'    => $status,
 			'post_type' => $post_type,
 		];
+
+		// GH#1584 follow-up: run BlockValidator on serialized block content so
+		// the model gets save-time feedback even when it forgets to call
+		// validate_block_content first. The save itself is never rejected.
+		$validation = self::maybe_validate_block_content( $content );
+		if ( null !== $validation ) {
+			$response['block_validation'] = $validation;
+		}
+
+		return $response;
 	}
 
 	/**
@@ -1080,12 +1091,23 @@ class PostAbilities {
 			restore_current_blog();
 		}
 
-		return [
+		$response = [
 			'post_id'   => $post_id,
 			'permalink' => $permalink ?: '',
 			'status'    => $updated_post instanceof WP_Post ? $updated_post->post_status : '',
 			'post_type' => $updated_post instanceof WP_Post ? $updated_post->post_type : '',
 		];
+
+		// GH#1584 follow-up: re-validate after update so the model knows
+		// whether its repair attempt actually fixed the block markup.
+		if ( isset( $post_data['post_content'] ) ) {
+			$validation = self::maybe_validate_block_content( (string) $post_data['post_content'] );
+			if ( null !== $validation ) {
+				$response['block_validation'] = $validation;
+			}
+		}
+
+		return $response;
 	}
 
 	/**
@@ -1494,5 +1516,66 @@ class PostAbilities {
 			}
 		}
 		return $ids;
+	}
+
+	/**
+	 * Run BlockValidator on content that contains Gutenberg block markup, then
+	 * shape the report so the model can apply `expectedContent` on a follow-up
+	 * update_post call without parsing the full structure.
+	 *
+	 * Returns null when the content has no block delimiters (`<!-- wp:`) — for
+	 * pure markdown or empty content the validator has nothing to say. When
+	 * the content does contain blocks, the returned array is attached to the
+	 * create_post / update_post success response under the `block_validation`
+	 * key. Saves still go through unchanged — this is feedback only, never a
+	 * hard rejection, so partial work is never lost. Models that see
+	 * `invalidBlocks > 0` are expected to re-emit an update_post call with
+	 * `originalContent` replaced by `expectedContent`.
+	 *
+	 * @since 1.16.2
+	 *
+	 * @param string $content Block content that was just saved (post_kses'd).
+	 * @return array<string, mixed>|null
+	 */
+	private static function maybe_validate_block_content( string $content ): ?array {
+		if ( '' === $content || false === strpos( $content, '<!-- wp:' ) ) {
+			return null;
+		}
+
+		$validator = new BlockValidator();
+		$report    = $validator->validate( $content );
+
+		$invalid = (int) ( $report['invalidBlocks'] ?? 0 );
+
+		// Only surface the report when there is something the model should act on.
+		if ( $invalid <= 0 ) {
+			return array(
+				'isValid'       => true,
+				'totalBlocks'   => (int) ( $report['totalBlocks'] ?? 0 ),
+				'invalidBlocks' => 0,
+				'source'        => (string) ( $report['source'] ?? 'php' ),
+			);
+		}
+
+		// Pick the first invalid result so the response stays small. The
+		// validator can report many issues; the model only needs one diff
+		// at a time to make a follow-up update_post call.
+		$first_invalid = null;
+		foreach ( (array) ( $report['results'] ?? array() ) as $result ) {
+			if ( empty( $result['isValid'] ) ) {
+				$first_invalid = $result;
+				break;
+			}
+		}
+
+		return array(
+			'isValid'        => false,
+			'totalBlocks'    => (int) ( $report['totalBlocks'] ?? 0 ),
+			'invalidBlocks'  => $invalid,
+			'source'         => (string) ( $report['source'] ?? 'php' ),
+			'firstInvalid'   => $first_invalid,
+			'results'        => (array) ( $report['results'] ?? array() ),
+			'recommendation' => __( 'One or more blocks failed validation. To self-repair, call update_post on this post_id with content rebuilt from results[].expectedContent (substitute each invalid block\'s originalContent with its expectedContent). Do NOT copy expectedContent verbatim into the block-comment attributes — it replaces the innerHTML only.', 'superdav-ai-agent' ),
+		);
 	}
 }

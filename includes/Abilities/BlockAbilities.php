@@ -346,7 +346,7 @@ class BlockAbilities {
 			'sd-ai-agent/validate-block-content',
 			[
 				'label'               => __( 'Validate Block Content', 'superdav-ai-agent' ),
-				'description'         => __( 'Validate block content before insertion. Checks for mixed markdown/block markup, malformed block comments, empty blocks, and freeform content that should be wrapped in blocks. Use this after building complex block content to catch errors before creating a post or page.', 'superdav-ai-agent' ),
+				'description'         => __( 'Validate Gutenberg block content before insertion. Mirrors wp.blocks.validateBlock() server-side: detects heading-level/wrapper-tag/required-class mismatches, mixed markdown/block markup, malformed block comments, empty blocks, and core/html policy violations. When a block is invalid, the response includes results[].expectedContent — the corrected innerHTML to substitute in a follow-up create_post / update_post call. Always call this BEFORE saving complex block markup; create_post and update_post also auto-run this validator and attach the report under block_validation so you can self-repair on a retry.', 'superdav-ai-agent' ),
 				'category'            => 'sd-ai-agent',
 				'input_schema'        => [
 					'type'       => 'object',
@@ -361,7 +361,49 @@ class BlockAbilities {
 				'output_schema'       => [
 					'type'       => 'object',
 					'properties' => [
-						'valid'          => [ 'type' => 'boolean' ],
+						'valid'          => [
+							'type'        => 'boolean',
+							'description' => 'Convenience flag: true when invalidBlocks === 0 and warnings is empty.',
+						],
+						'totalBlocks'    => [
+							'type'        => 'integer',
+							'description' => 'Total number of blocks parsed from the input (flat count, includes inner blocks).',
+						],
+						'validBlocks'    => [
+							'type'        => 'integer',
+							'description' => 'Number of blocks that passed validation.',
+						],
+						'invalidBlocks'  => [
+							'type'        => 'integer',
+							'description' => 'Number of blocks that failed validation. When > 0, inspect results[] for per-block diffs.',
+						],
+						'results'        => [
+							'type'        => 'array',
+							'description' => 'Per-block validation results. When isValid=false, replace originalContent with expectedContent in your follow-up create_post / update_post call.',
+							'items'       => [
+								'type'       => 'object',
+								'properties' => [
+									'blockName'       => [ 'type' => 'string' ],
+									'isValid'         => [ 'type' => 'boolean' ],
+									'issues'          => [
+										'type'  => 'array',
+										'items' => [ 'type' => 'string' ],
+									],
+									'originalContent' => [
+										'type'        => 'string',
+										'description' => 'The innerHTML as it appeared in the input.',
+									],
+									'expectedContent' => [
+										'type'        => 'string',
+										'description' => 'The corrected innerHTML the model should substitute on retry. Replaces originalContent only — do NOT copy this into the block-comment attributes.',
+									],
+								],
+							],
+						],
+						'source'         => [
+							'type'        => 'string',
+							'description' => 'Validation engine that produced the report: "php" (server-side rules) or "js-cached" (browser-primed wp.blocks.validateBlock result).',
+						],
 						'warnings'       => [
 							'type'  => 'array',
 							'items' => [ 'type' => 'string' ],
