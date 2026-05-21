@@ -19,5 +19,10 @@ module.exports = {
 			'src/unified-admin',
 			'index.js'
 		),
+		'block-validator': path.resolve(
+			process.cwd(),
+			'src/block-validator',
+			'index.js'
+		),
 	},
 };

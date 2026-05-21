@@ -20,6 +20,7 @@ namespace SdAiAgent;
 
 use SdAiAgent\Bootstrap\AbilitiesHandler;
 use SdAiAgent\Bootstrap\AdminHandler;
+use SdAiAgent\Bootstrap\BlockValidatorPageHandler;
 use SdAiAgent\Bootstrap\WooCommerceIntegrationHandler;
 use SdAiAgent\Bootstrap\AiClientEventTraceHandler;
 use SdAiAgent\Bootstrap\AutomationsHandler;
@@ -45,6 +46,7 @@ use SdAiAgent\Infrastructure\WordPress\Abilities\UsageInstructionsFilter;
 use SdAiAgent\REST\AgentController;
 use SdAiAgent\REST\AutomationController;
 use SdAiAgent\REST\BannerController;
+use SdAiAgent\REST\BlockValidatorController;
 use SdAiAgent\REST\ConnectorsController;
 use SdAiAgent\REST\ChangesController;
 use SdAiAgent\REST\FeedbackController;
@@ -90,6 +92,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 		AbilitiesHandler::class,
 		WooCommerceIntegrationHandler::class,
 		AdminHandler::class,
+		BlockValidatorPageHandler::class,
 		// Core background service handlers (replaced CoreServicesHandler).
 		ChangeLoggingHandler::class,
 		HttpTraceHandler::class,
@@ -104,6 +107,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 		MemoryController::class,
 		SkillController::class,
 		BannerController::class,
+		BlockValidatorController::class,
 		FeedbackController::class,
 		TraceController::class,
 		McpController::class,
