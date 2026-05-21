@@ -98,6 +98,42 @@ class SkillAutoInjectorTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * Layout-cascade trigger keywords route to gutenberg-blocks.
+	 *
+	 * The "Block-theme layout cascade" rules in gutenberg-blocks.md are the
+	 * fix for ~80% of "looks broken" page outputs. These trigger phrases
+	 * MUST resolve to gutenberg-blocks so the cascade rules are loaded
+	 * before the model emits any markup.
+	 *
+	 * @dataProvider provide_layout_cascade_phrases
+	 */
+	public function test_get_index_description_routes_layout_cascade_phrases_to_gutenberg_blocks( string $phrase ): void {
+		$result = SkillAutoInjector::get_index_description( $phrase );
+
+		$this->assertStringContainsString(
+			'gutenberg-blocks',
+			$result,
+			"Phrase '{$phrase}' must route to gutenberg-blocks so the layout-cascade rules are loaded."
+		);
+	}
+
+	/**
+	 * Phrases that must trigger the gutenberg-blocks skill.
+	 *
+	 * @return array<string, array{0:string}>
+	 */
+	public function provide_layout_cascade_phrases(): array {
+		return [
+			'hero keyword'             => [ 'Design a hero for the homepage.' ],
+			'full-width hyphenated'    => [ 'Why is my full-width section only 700px wide?' ],
+			'full width spaced'        => [ 'Make this banner full width across the viewport.' ],
+			'full-bleed phrasing'      => [ 'I need a full-bleed image grid.' ],
+			'landing page'             => [ 'Build a landing page that converts.' ],
+			'section keyword'          => [ 'Add a testimonial section.' ],
+		];
+	}
+
+	/**
 	 * MAX_INJECTED_SKILLS is 1 — two pattern matches should still inject
 	 * at most one skill.
 	 */

@@ -472,3 +472,7 @@ After editing templates or `theme.json`:
 4. For child theme overrides, confirm the active stylesheet is the child (`wp option get stylesheet`).
 5. Open the block editor on any page that uses entrance-animation classes — every animated section should render visibly, not as an empty box. If a section is invisible, an `.editor-styles-wrapper` override is missing.
 6. Toggle the OS-level "Reduce motion" preference and reload the front-end — animations should collapse to near-zero duration without leaving content stuck at `opacity: 0`.
+
+## See also
+
+- `gutenberg-blocks` → **Block-theme layout cascade** — the three structural patterns (full-bleed/constrained, full-bleed/full-bleed, plain constrained) that cause ~80% of "looks broken" outputs. Required reading before generating any landing-page section.

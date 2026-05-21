@@ -36,6 +36,65 @@ Content passed to `sd-ai-agent/create-post` or `sd-ai-agent/update-post` must be
 7. **Run `sd-ai-agent/validate-block-content` before insertion** for any non-trivial layout. It catches mixed content and malformed markup before the editor does.
 8. **Don't generate `wp:html` for layout.** Use `wp:columns`, `wp:group`, `wp:cover` instead — `wp:html` blocks aren't editable in the visual editor and skip theme styling.
 
+## Block-theme layout cascade
+
+WordPress constrains children of `core/post-content` (and any constrained-layout
+container) to `theme.json`'s `settings.layout.contentSize` (~700px by default).
+Custom CSS like `.hero { width: 100% }` does **not** win against core's layout
+selectors (`.is-layout-constrained > *:not(.alignwide):not(.alignfull)`) because
+they're more specific. To break out of the content width you must change the
+**block markup**, not add CSS.
+
+There are three structural patterns. Pick one for every top-level section of a
+page.
+
+### Pattern A — Full-bleed section, constrained inner content
+
+The most common landing-page pattern: hero band stretches edge-to-edge while
+the heading, paragraph, and buttons sit at `contentSize` in the middle.
+
+```html
+<!-- wp:group {"align":"full","layout":{"type":"constrained"}} -->
+<div class="wp-block-group alignfull"><!-- wp:heading -->
+<h2 class="wp-block-heading">Inner content sits at contentSize</h2>
+<!-- /wp:heading --></div>
+<!-- /wp:group -->
+```
+
+### Pattern B — Full-bleed section, full-bleed inner
+
+For image grids, edge-to-edge galleries, and full-bleed footers where the
+inner content itself should span the viewport. Both the outer and inner Group
+need `"align":"full"` and a non-constrained layout type (`default` or `flex`).
+
+```html
+<!-- wp:group {"align":"full","layout":{"type":"default"}} -->
+<div class="wp-block-group alignfull"><!-- wp:group {"align":"full","layout":{"type":"default"}} -->
+<div class="wp-block-group alignfull"><!-- nested children render at full viewport width --></div>
+<!-- /wp:group --></div>
+<!-- /wp:group -->
+```
+
+### Pattern C — Standard constrained content
+
+Body copy, blog post bodies, and anything that should follow the theme's
+default reading column. Omit `align` entirely and let the block inherit
+`contentSize`.
+
+```html
+<!-- wp:paragraph -->
+<p>Body copy that sits at the theme's contentSize without any alignment.</p>
+<!-- /wp:paragraph -->
+```
+
+### Failure mode (memorise this)
+
+If a "full-width" section only spans the content column (~700px at a 1280px
+viewport), the block markup is missing `align: "full"` on the outer group or
+has a mismatched inner `layout` type — **fix in markup, not CSS.** Adding
+`width: 100%` to a child of `.is-layout-constrained` will silently lose to
+core's `:not(.alignwide):not(.alignfull)` selector every time.
+
 ## Available Tools
 
 - `sd-ai-agent/create-block-content` — Build block HTML from a structured block array (best for complex nested layouts)

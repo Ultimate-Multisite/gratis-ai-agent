@@ -51,7 +51,7 @@ class SkillAutoInjector {
 		'/\bkadence\b|kadence\/(?:rowlayout|column|advancedheading|advancedbtn|singlebtn)|\bkbVersion\b|\bcolLayout\b|kt-adv-heading|kt-inside-inner-col|kb-section-dir-horizontal|kt-highlight/i' => 'kadence-blocks',
 		'/\b(?:header\s*builder|footer\s*builder|kadence\s*theme)\b|kadence_(?:before|after)_/i'                                       => 'kadence-theme',
 		'/\b(?:create|build|make|write|generate|add)\b.*\b(?:page|pages|post|posts|blog|article|content|landing|homepage|layout)\b/i' => 'gutenberg-blocks',
-		'/\b(?:page|pages|landing|homepage|layout|column|columns|hero|section|block|blocks|gutenberg)\b/i'                            => 'gutenberg-blocks',
+		'/\b(?:page|pages|landing|homepage|layout|column|columns|hero|section|block|blocks|gutenberg)\b|\bfull[-\s]?width\b|\bfull[-\s]?bleed\b/i' => 'gutenberg-blocks',
 		'/\b(?:woocommerce|product|products|store|shop|order|orders|cart|checkout|coupon)\b/i'                                         => 'woocommerce',
 		'/\b(?:seo|ranking|rankings|meta\s*tags?|meta\s*description|sitemap|search\s*engine|keyword|keywords)\b/i'                     => 'seo-optimization',
 		'/\b(?:full\s*site\s*edit|fse|block\s*theme|template\s*part|site\s*editor|theme\.json)\b/i'                                    => 'block-themes',
