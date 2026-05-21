@@ -10,10 +10,7 @@
  */
 
 const { test, expect } = require( '@playwright/test' );
-const {
-	loginToWordPress,
-	goToChangesPage,
-} = require( './utils/wp-admin' );
+const { loginToWordPress, goToChangesPage } = require( './utils/wp-admin' );
 
 // ─── Page load ────────────────────────────────────────────────────────────────
 
@@ -26,20 +23,14 @@ test.describe( 'Changes Page - Page Load', () => {
 	test( 'changes page loads the unified admin app', async ( { page } ) => {
 		// The UnifiedAdminMenu SPA mounts into #sdaa-root and
 		// renders .sdaa-unified-admin as the top-level wrapper.
-		await expect(
-			page.locator( '#sdaa-root' )
-		).toBeVisible();
-		await expect(
-			page.locator( '.sdaa-unified-admin' )
-		).toBeVisible();
+		await expect( page.locator( '#sdaa-root' ) ).toBeVisible();
+		await expect( page.locator( '.sdaa-unified-admin' ) ).toBeVisible();
 	} );
 
 	test( 'changes route container is rendered', async ( { page } ) => {
 		// The Router renders ChangesRoute inside .sdaa-route-changes
 		// when the hash is #/changes.
-		await expect(
-			page.locator( '.sdaa-route-changes' )
-		).toBeVisible();
+		await expect( page.locator( '.sdaa-route-changes' ) ).toBeVisible();
 	} );
 
 	test( 'changes page shows the Changes heading', async ( { page } ) => {
@@ -54,9 +45,11 @@ test.describe( 'Changes Page - Page Load', () => {
 
 	test( 'changes page shows descriptive content', async ( { page } ) => {
 		// ChangesRoute renders a description paragraph.
-		await expect(
-			page.locator( '.sdaa-route-changes' )
-		).toContainText( 'changes' );
+		// 15 s guards against resource contention on loaded CI shard runners.
+		await expect( page.locator( '.sdaa-route-changes' ) ).toContainText(
+			'changes',
+			{ timeout: 15_000 }
+		);
 	} );
 
 	test( 'navigation highlights the Changes menu item', async ( { page } ) => {
@@ -153,7 +146,9 @@ test.describe( 'Changes Page - REST Endpoint', () => {
 		expect( typeof apiResponse.body.count ).toBe( 'number' );
 	} );
 
-	test( 'each modified plugin entry has a download_url', async ( { page } ) => {
+	test( 'each modified plugin entry has a download_url', async ( {
+		page,
+	} ) => {
 		await goToChangesPage( page );
 
 		const apiResponse = await fetchModifiedPlugins( page );

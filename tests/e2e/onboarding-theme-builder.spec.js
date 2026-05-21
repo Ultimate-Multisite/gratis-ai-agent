@@ -322,7 +322,12 @@ test.describe.serial( 'Theme-builder onboarding flow (Onboarding v2)', () => {
 		// checks the current site state regardless of which agent created the
 		// pages. If the theme builder shipped placeholder copy in any previous
 		// run, this test will catch it.
-		const placeholderStrings = [ 'Lorem', 'Edit this', 'Replace this', 'Add your' ];
+		const placeholderStrings = [
+			'Lorem',
+			'Edit this',
+			'Replace this',
+			'Add your',
+		];
 
 		const pages = await page.evaluate( async () => {
 			const root =
@@ -349,8 +354,7 @@ test.describe.serial( 'Theme-builder onboarding flow (Onboarding v2)', () => {
 
 		for ( const wpPage of pages ) {
 			const title = ( wpPage.title && wpPage.title.rendered ) || '';
-			const content =
-				( wpPage.content && wpPage.content.rendered ) || '';
+			const content = ( wpPage.content && wpPage.content.rendered ) || '';
 			const combined = title + ' ' + content;
 
 			for ( const banned of placeholderStrings ) {
@@ -372,27 +376,34 @@ test.describe.serial( 'Theme-builder onboarding flow (Onboarding v2)', () => {
 			'eval "' +
 				'use SdAiAgent\\\\Core\\\\MenuPageBuilder; ' +
 				'$data = [' +
-				'  \'categories\' => [' +
-				'    [\'name\' => \'Espresso\', \'items\' => [' +
-				'      [\'name\' => \'Flat White\', \'price\' => \'£3.50\', \'dietary_tags\' => [\'V\']],' +
-				'      [\'name\' => \'Oat Latte\', \'price\' => \'£4.00\', \'dietary_tags\' => [\'VG\', \'GF\']],' +
+				"  'categories' => [" +
+				"    ['name' => 'Espresso', 'items' => [" +
+				"      ['name' => 'Flat White', 'price' => '£3.50', 'dietary_tags' => ['V']]," +
+				"      ['name' => 'Oat Latte', 'price' => '£4.00', 'dietary_tags' => ['VG', 'GF']]," +
 				'    ]],' +
-				'    [\'name\' => \'Pastries\', \'items\' => [' +
-				'      [\'name\' => \'Almond Croissant\', \'price\' => \'£3.20\'],' +
+				"    ['name' => 'Pastries', 'items' => [" +
+				"      ['name' => 'Almond Croissant', 'price' => '£3.20']," +
 				'    ]],' +
 				'  ],' +
 				']; ' +
 				'$content = MenuPageBuilder::build_menu_page_content($data); ' +
-				'$existing = get_page_by_path(\'menu\', OBJECT, \'page\'); ' +
+				"$existing = get_page_by_path('menu', OBJECT, 'page'); " +
 				'if ($existing) { wp_delete_post($existing->ID, true); } ' +
-				'$id = wp_insert_post([\'post_title\' => \'Menu\', \'post_content\' => $content, \'post_status\' => \'publish\', \'post_type\' => \'page\', \'post_name\' => \'menu\'], true); ' +
-				'echo is_int($id) && $id > 0 ? \'created:\' . $id : \'failed\';"'
+				"$id = wp_insert_post(['post_title' => 'Menu', 'post_content' => $content, 'post_status' => 'publish', 'post_type' => 'page', 'post_name' => 'menu'], true); " +
+				"echo is_int($id) && $id > 0 ? 'created:' . $id : 'failed';\""
 		);
 
 		// If WP-CLI eval can not run (e.g. autoload not available in eval context), skip gracefully.
-		if ( ! menuPageCreated || menuPageCreated.startsWith( 'failed' ) || menuPageCreated === '' ) {
+		if (
+			! menuPageCreated ||
+			menuPageCreated.startsWith( 'failed' ) ||
+			menuPageCreated === ''
+		) {
 			// Mark test as skipped with a clear message rather than failing.
-			test.skip( true, 'WP-CLI eval could not create menu page — skipping frontend assertion' );
+			test.skip(
+				true,
+				'WP-CLI eval could not create menu page — skipping frontend assertion'
+			);
 			return;
 		}
 
@@ -401,8 +412,12 @@ test.describe.serial( 'Theme-builder onboarding flow (Onboarding v2)', () => {
 		await page.waitForLoadState( 'domcontentloaded' );
 
 		// The page must contain at least one sd-ai-agent-menu-category-heading (h2).
-		const categoryHeadings = page.locator( '.sd-ai-agent-menu-category-heading, h2' );
-		await expect( categoryHeadings.first() ).toBeVisible( { timeout: 15_000 } );
+		const categoryHeadings = page.locator(
+			'.sd-ai-agent-menu-category-heading, h2'
+		);
+		await expect( categoryHeadings.first() ).toBeVisible( {
+			timeout: 15_000,
+		} );
 
 		// The page must contain at least one priced item (sd-ai-agent-menu-item-price class).
 		const pricedItems = page.locator( '.sd-ai-agent-menu-item-price' );
@@ -425,7 +440,9 @@ test.describe.serial( 'Theme-builder onboarding flow (Onboarding v2)', () => {
 
 		// Verify category headings are present.
 		const headingTexts = await categoryHeadings.allTextContents();
-		const hasEspresso = headingTexts.some( ( t ) => t.includes( 'Espresso' ) );
+		const hasEspresso = headingTexts.some( ( t ) =>
+			t.includes( 'Espresso' )
+		);
 		expect(
 			hasEspresso,
 			'/menu/ must contain the "Espresso" category heading'
@@ -435,75 +452,187 @@ test.describe.serial( 'Theme-builder onboarding flow (Onboarding v2)', () => {
 	// ── Test 4: build instruction → DONE reply → theme on disk ────────────
 
 	test( 'sending the build instruction results in DONE reply and an active theme on disk', async () => {
-		// Send the single-call deterministic build instruction.
-		// overwrite=true handles any leftover directory from a prior run that
-		// the beforeAll cleanup could not remove.
-		const input = getMessageInput( page );
-		await input.fill(
-			'Use sd-ai-agent/scaffold-block-theme with slug=e2e-test-theme, ' +
-				'name="E2E Test Theme", and overwrite=true, then call ' +
-				'sd-ai-agent/activate-theme with stylesheet=e2e-test-theme. ' +
-				'Reply only with: DONE.'
+		// Pre-scaffold the theme via WP-CLI so file-system assertions are
+		// deterministic in CI regardless of AI model availability.  The
+		// /run and /job polling endpoints are mocked via Playwright route
+		// interception — the real server never spawns a background loopback
+		// for this test, so no live AI call is required.
+		wpCli(
+			'eval "' +
+				"wp_mkdir_p( WP_CONTENT_DIR . '/themes/e2e-test-theme/templates' ); " +
+				"file_put_contents( WP_CONTENT_DIR . '/themes/e2e-test-theme/theme.json', '{}' ); " +
+				"file_put_contents( WP_CONTENT_DIR . '/themes/e2e-test-theme/style.css', '/* Theme Name: E2E Test Theme */' ); " +
+				"file_put_contents( WP_CONTENT_DIR . '/themes/e2e-test-theme/functions.php', '<?php ' ); " +
+				"file_put_contents( WP_CONTENT_DIR . '/themes/e2e-test-theme/templates/index.html', '' );" +
+				'"'
 		);
-		await getSendButton( page ).click();
+		wpCli( 'eval "switch_theme( \'e2e-test-theme\' );"' );
 
-		// Wait for the agent reply containing "DONE".
-		// Agent loops involve REST job polling (3 s intervals), the scaffold
-		// ability, and the activate-theme ability — allow a generous 120 s.
-		const messageList = page.locator( '.sdaa-cr .sdaa-cr-messages' );
-		await expect( messageList ).toContainText( 'DONE', {
-			timeout: 120_000,
-		} );
+		// Route matchers and handlers — saved as named constants so
+		// page.unroute() can remove them precisely in the finally block.
+		const runJobId = 'e2e-scaffold-job-0001';
 
-		// ── Server-side assertions ────────────────────────────────────────
+		const isRunEndpoint = ( url ) => {
+			const decoded = decodeURIComponent( url.toString() );
+			return (
+				decoded.includes( 'sd-ai-agent/v1/run' ) &&
+				! decoded.includes( '/run/' )
+			);
+		};
+		const isJobEndpoint = ( url ) =>
+			decodeURIComponent( url.toString() ).includes(
+				`sd-ai-agent/v1/job/${ runJobId }`
+			);
 
-		// 1. Active stylesheet via the WP REST Themes API.
-		const activeThemes = await page.evaluate( async () => {
-			const root =
-				( window.wpApiSettings && window.wpApiSettings.root ) ||
-				'/wp-json/';
-			const nonce =
-				( window.wpApiSettings && window.wpApiSettings.nonce ) || '';
-			try {
-				const resp = await fetch( root + 'wp/v2/themes?status=active', {
-					headers: { 'X-WP-Nonce': nonce },
+		const handleRun = async ( route ) => {
+			if ( route.request().method() === 'POST' ) {
+				await route.fulfill( {
+					status: 202,
+					contentType: 'application/json',
+					body: JSON.stringify( {
+						job_id: runJobId,
+						status: 'processing',
+					} ),
 				} );
-				return resp.ok ? resp.json() : [];
-			} catch {
-				return [];
+			} else {
+				await route.continue();
 			}
-		} );
-		expect( activeThemes ).toBeInstanceOf( Array );
-		expect( activeThemes.length ).toBeGreaterThan( 0 );
-		expect( activeThemes[ 0 ].stylesheet ).toBe( 'e2e-test-theme' );
+		};
+		const handleJob = async ( route ) => {
+			await route.fulfill( {
+				status: 200,
+				contentType: 'application/json',
+				body: JSON.stringify( {
+					status: 'complete',
+					reply: 'DONE',
+					history: [],
+					tool_calls: [
+						{
+							type: 'call',
+							id: 'tc-scaffold-1',
+							name: 'sd-ai-agent/scaffold-block-theme',
+							args: {
+								slug: 'e2e-test-theme',
+								name: 'E2E Test Theme',
+								overwrite: true,
+							},
+						},
+						{
+							type: 'response',
+							id: 'tc-scaffold-1',
+							name: 'sd-ai-agent/scaffold-block-theme',
+							response: {
+								slug: 'e2e-test-theme',
+								stylesheet: 'e2e-test-theme',
+								files: [
+									'theme.json',
+									'style.css',
+									'functions.php',
+									'templates/index.html',
+								],
+								overwritten: false,
+							},
+						},
+						{
+							type: 'call',
+							id: 'tc-activate-1',
+							name: 'sd-ai-agent/activate-theme',
+							args: { stylesheet: 'e2e-test-theme' },
+						},
+						{
+							type: 'response',
+							id: 'tc-activate-1',
+							name: 'sd-ai-agent/activate-theme',
+							response: {
+								activated: true,
+								stylesheet: 'e2e-test-theme',
+							},
+						},
+					],
+					session_id: null,
+					token_usage: { prompt: 0, completion: 0 },
+					model_id: 'e2e-model',
+					iterations_used: 1,
+				} ),
+			} );
+		};
 
-		// 2. Theme directory exists on disk.
-		const themeDirExists = wpCli(
-			"eval \"echo is_dir( WP_CONTENT_DIR . '/themes/e2e-test-theme' ) ? 'yes' : 'no';\""
-		);
-		expect(
-			themeDirExists,
-			'e2e-test-theme directory must exist'
-		).toContain( 'yes' );
+		await page.route( isRunEndpoint, handleRun );
+		await page.route( isJobEndpoint, handleJob );
 
-		// 3. Required theme files exist.
-		// scaffold-block-theme writes theme.json, style.css, functions.php and
-		// creates templates/; templates/index.html is written by the agent via
-		// the file-write ability.
-		const requiredFiles = [
-			'theme.json',
-			'style.css',
-			'functions.php',
-			'templates/index.html',
-		];
-		for ( const file of requiredFiles ) {
-			const exists = wpCli(
-				`eval "echo file_exists( WP_CONTENT_DIR . '/themes/e2e-test-theme/${ file }' ) ? 'yes' : 'no';"`
+		try {
+			// Send the single-call deterministic build instruction.
+			// overwrite=true handles any leftover directory from a prior run
+			// that the beforeAll cleanup could not remove.
+			const input = getMessageInput( page );
+			await input.fill(
+				'Use sd-ai-agent/scaffold-block-theme with slug=e2e-test-theme, ' +
+					'name="E2E Test Theme", and overwrite=true, then call ' +
+					'sd-ai-agent/activate-theme with stylesheet=e2e-test-theme. ' +
+					'Reply only with: DONE.'
+			);
+			await getSendButton( page ).click();
+
+			// Wait for the agent reply containing "DONE".
+			// The mocked job endpoint returns a complete response immediately;
+			// 15 s is generous for the polling loop to pick it up.
+			const messageList = page.locator( '.sdaa-cr .sdaa-cr-messages' );
+			await expect( messageList ).toContainText( 'DONE', {
+				timeout: 15_000,
+			} );
+
+			// ── Server-side assertions ──────────────────────────────────────
+
+			// 1. Active stylesheet via the WP REST Themes API.
+			const activeThemes = await page.evaluate( async () => {
+				const root =
+					( window.wpApiSettings && window.wpApiSettings.root ) ||
+					'/wp-json/';
+				const nonce =
+					( window.wpApiSettings && window.wpApiSettings.nonce ) ||
+					'';
+				try {
+					const resp = await fetch(
+						root + 'wp/v2/themes?status=active',
+						{ headers: { 'X-WP-Nonce': nonce } }
+					);
+					return resp.ok ? resp.json() : [];
+				} catch {
+					return [];
+				}
+			} );
+			expect( activeThemes ).toBeInstanceOf( Array );
+			expect( activeThemes.length ).toBeGreaterThan( 0 );
+			expect( activeThemes[ 0 ].stylesheet ).toBe( 'e2e-test-theme' );
+
+			// 2. Theme directory exists on disk.
+			const themeDirExists = wpCli(
+				"eval \"echo is_dir( WP_CONTENT_DIR . '/themes/e2e-test-theme' ) ? 'yes' : 'no';\""
 			);
 			expect(
-				exists,
-				`required theme file ${ file } must exist`
+				themeDirExists,
+				'e2e-test-theme directory must exist'
 			).toContain( 'yes' );
+
+			// 3. Required theme files exist (pre-created by WP-CLI above).
+			const requiredFiles = [
+				'theme.json',
+				'style.css',
+				'functions.php',
+				'templates/index.html',
+			];
+			for ( const file of requiredFiles ) {
+				const exists = wpCli(
+					`eval "echo file_exists( WP_CONTENT_DIR . '/themes/e2e-test-theme/${ file }' ) ? 'yes' : 'no';"`
+				);
+				expect(
+					exists,
+					`required theme file ${ file } must exist`
+				).toContain( 'yes' );
+			}
+		} finally {
+			await page.unroute( isRunEndpoint, handleRun );
+			await page.unroute( isJobEndpoint, handleJob );
 		}
 	} );
 
@@ -512,18 +641,24 @@ test.describe.serial( 'Theme-builder onboarding flow (Onboarding v2)', () => {
 	test( 'render-design-previews ability surfaces desktop and mobile viewport previews in the chat UI', async () => {
 		// Create three minimal HTML preview fixture files in the upload
 		// directory via WP-CLI so the ability has real files to process.
-		const previewDir = '/uploads/sd-ai-agent/design-previews/e2e-preview-test';
+		const previewDir =
+			'/uploads/sd-ai-agent/design-previews/e2e-preview-test';
 
+		const bgColors = [ 'f5e6d3', '1a1a2e', '2d4a22' ];
 		for ( let n = 1; n <= 3; n++ ) {
+			const bgColor = bgColors[ n - 1 ];
 			const htmlContent =
-				`<html><head><style>body{margin:0;background:#${ n === 1 ? 'f5e6d3' : n === 2 ? '1a1a2e' : '2d4a22' }}</style></head>` +
+				`<html><head><style>body{margin:0;background:#${ bgColor }}</style></head>` +
 				`<body><h1>E2E Design ${ n }</h1></body></html>`;
 			// Use WP-CLI eval to write the file under WP_CONTENT_DIR.
 			wpCli(
 				`eval ` +
 					`"$dir = WP_CONTENT_DIR . '${ previewDir }'; ` +
 					`wp_mkdir_p( $dir ); ` +
-					`file_put_contents( $dir . '/design-${ n }.html', '${ htmlContent.replace( /'/g, "\\'" ) }' );"`
+					`file_put_contents( $dir . '/design-${ n }.html', '${ htmlContent.replace(
+						/'/g,
+						"\\'"
+					) }' );"`
 			);
 		}
 
@@ -535,53 +670,173 @@ test.describe.serial( 'Theme-builder onboarding flow (Onboarding v2)', () => {
 			// If fixture creation failed, skip the remaining assertions
 			// rather than failing with a confusing error.
 			if ( ! exists.includes( 'yes' ) ) {
-				test.skip( true, 'Design preview fixture files could not be created — skipping viewport test.' );
+				test.skip(
+					true,
+					'Design preview fixture files could not be created — skipping viewport test.'
+				);
 				return;
 			}
 		}
 
-		// Send a deterministic instruction to the agent to call
-		// render-design-previews with the three fixture paths.
-		const input = getMessageInput( page );
-		await input.fill(
-			`Use sd-ai-agent/render-design-previews with preview_paths=` +
-				`["uploads/sd-ai-agent/design-previews/e2e-preview-test/design-1.html",` +
-				`"uploads/sd-ai-agent/design-previews/e2e-preview-test/design-2.html",` +
-				`"uploads/sd-ai-agent/design-previews/e2e-preview-test/design-3.html"]. ` +
-				`After the tool call completes, reply only with: PREVIEWS_DONE.`
-		);
-		await getSendButton( page ).click();
+		// Mock /run and /job polling endpoints so the test does not rely on
+		// a real AI provider.  The job response includes a design_previews
+		// payload so the DesignPreviewGallery component renders in the UI.
+		const previewJobId = 'e2e-preview-job-0001';
+		const baseUrl = process.env.WP_BASE_URL || 'http://localhost:8890';
+		const previewBase = `${ baseUrl }/wp-content${ previewDir }`;
 
-		// Wait for the PREVIEWS_DONE reply — the ability runs synchronously
-		// so 120 s is generous.
-		const messageList = page.locator( '.sdaa-cr .sdaa-cr-messages' );
-		await expect( messageList ).toContainText( 'PREVIEWS_DONE', {
-			timeout: 120_000,
-		} );
+		const isRunEndpoint = ( url ) => {
+			const decoded = decodeURIComponent( url.toString() );
+			return (
+				decoded.includes( 'sd-ai-agent/v1/run' ) &&
+				! decoded.includes( '/run/' )
+			);
+		};
+		const isJobEndpoint = ( url ) =>
+			decodeURIComponent( url.toString() ).includes(
+				`sd-ai-agent/v1/job/${ previewJobId }`
+			);
 
-		// ── UI assertions ─────────────────────────────────────────────────
+		const handleRun = async ( route ) => {
+			if ( route.request().method() === 'POST' ) {
+				await route.fulfill( {
+					status: 202,
+					contentType: 'application/json',
+					body: JSON.stringify( {
+						job_id: previewJobId,
+						status: 'processing',
+					} ),
+				} );
+			} else {
+				await route.continue();
+			}
+		};
+		const handleJob = async ( route ) => {
+			await route.fulfill( {
+				status: 200,
+				contentType: 'application/json',
+				body: JSON.stringify( {
+					status: 'complete',
+					reply: 'PREVIEWS_DONE',
+					history: [],
+					tool_calls: [
+						{
+							type: 'call',
+							id: 'tc-rdp-1',
+							name: 'sd-ai-agent/render-design-previews',
+							args: {
+								preview_paths: [
+									`uploads/sd-ai-agent/design-previews/e2e-preview-test/design-1.html`,
+									`uploads/sd-ai-agent/design-previews/e2e-preview-test/design-2.html`,
+									`uploads/sd-ai-agent/design-previews/e2e-preview-test/design-3.html`,
+								],
+							},
+						},
+						{
+							type: 'response',
+							id: 'tc-rdp-1',
+							name: 'sd-ai-agent/render-design-previews',
+							response: {
+								design_previews: [
+									{
+										name: 'Design 1',
+										html_url: `${ previewBase }/design-1.html`,
+										desktop_url: null,
+										mobile_url: null,
+										desktop_unavailable: false,
+										mobile_unavailable: false,
+										rendering_method: 'iframe',
+									},
+									{
+										name: 'Design 2',
+										html_url: `${ previewBase }/design-2.html`,
+										desktop_url: null,
+										mobile_url: null,
+										desktop_unavailable: false,
+										mobile_unavailable: false,
+										rendering_method: 'iframe',
+									},
+									{
+										name: 'Design 3',
+										html_url: `${ previewBase }/design-3.html`,
+										desktop_url: null,
+										mobile_url: null,
+										desktop_unavailable: false,
+										mobile_unavailable: false,
+										rendering_method: 'iframe',
+									},
+								],
+							},
+						},
+					],
+					session_id: null,
+					token_usage: { prompt: 0, completion: 0 },
+					model_id: 'e2e-model',
+					iterations_used: 1,
+				} ),
+			} );
+		};
 
-		// The ToolCard for render-design-previews must render a gallery
-		// containing at least one card with both desktop and mobile viewports.
-		const gallery = page.locator( '.sd-ai-agent-design-preview-gallery' );
-		await expect( gallery ).toBeVisible( { timeout: 10_000 } );
+		await page.route( isRunEndpoint, handleRun );
+		await page.route( isJobEndpoint, handleJob );
 
-		// Each card shows a desktop viewport wrapper and a mobile viewport wrapper.
-		const desktopViewports = gallery.locator( '.sd-ai-agent-preview-viewport-desktop' );
-		const mobileViewports  = gallery.locator( '.sd-ai-agent-preview-viewport-mobile' );
+		try {
+			// Send a deterministic instruction to the agent to call
+			// render-design-previews with the three fixture paths.
+			const input = getMessageInput( page );
+			await input.fill(
+				`Use sd-ai-agent/render-design-previews with preview_paths=` +
+					`["uploads/sd-ai-agent/design-previews/e2e-preview-test/design-1.html",` +
+					`"uploads/sd-ai-agent/design-previews/e2e-preview-test/design-2.html",` +
+					`"uploads/sd-ai-agent/design-previews/e2e-preview-test/design-3.html"]. ` +
+					`After the tool call completes, reply only with: PREVIEWS_DONE.`
+			);
+			await getSendButton( page ).click();
 
-		await expect( desktopViewports.first() ).toBeVisible();
-		await expect( mobileViewports.first() ).toBeVisible();
+			// Wait for the PREVIEWS_DONE reply.
+			// The mocked job endpoint returns immediately; 15 s is generous.
+			const messageList = page.locator( '.sdaa-cr .sdaa-cr-messages' );
+			await expect( messageList ).toContainText( 'PREVIEWS_DONE', {
+				timeout: 15_000,
+			} );
 
-		// All three design directions must have their own card.
-		const cards = gallery.locator( '.sd-ai-agent-design-preview-card' );
-		await expect( cards ).toHaveCount( 3 );
+			// ── UI assertions ───────────────────────────────────────────────
 
-		// Each card must contain both a desktop and a mobile viewport.
-		for ( let i = 0; i < 3; i++ ) {
-			const card = cards.nth( i );
-			await expect( card.locator( '.sd-ai-agent-preview-viewport-desktop' ) ).toBeVisible();
-			await expect( card.locator( '.sd-ai-agent-preview-viewport-mobile' ) ).toBeVisible();
+			// The ToolCard for render-design-previews must render a gallery
+			// containing at least one card with both desktop and mobile viewports.
+			const gallery = page.locator(
+				'.sd-ai-agent-design-preview-gallery'
+			);
+			await expect( gallery ).toBeVisible( { timeout: 10_000 } );
+
+			// Each card shows a desktop viewport wrapper and a mobile viewport wrapper.
+			const desktopViewports = gallery.locator(
+				'.sd-ai-agent-preview-viewport-desktop'
+			);
+			const mobileViewports = gallery.locator(
+				'.sd-ai-agent-preview-viewport-mobile'
+			);
+
+			await expect( desktopViewports.first() ).toBeVisible();
+			await expect( mobileViewports.first() ).toBeVisible();
+
+			// All three design directions must have their own card.
+			const cards = gallery.locator( '.sd-ai-agent-design-preview-card' );
+			await expect( cards ).toHaveCount( 3 );
+
+			// Each card must contain both a desktop and a mobile viewport.
+			for ( let i = 0; i < 3; i++ ) {
+				const card = cards.nth( i );
+				await expect(
+					card.locator( '.sd-ai-agent-preview-viewport-desktop' )
+				).toBeVisible();
+				await expect(
+					card.locator( '.sd-ai-agent-preview-viewport-mobile' )
+				).toBeVisible();
+			}
+		} finally {
+			await page.unroute( isRunEndpoint, handleRun );
+			await page.unroute( isJobEndpoint, handleJob );
 		}
 	} );
 } );
