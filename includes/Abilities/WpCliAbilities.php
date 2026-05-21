@@ -334,7 +334,7 @@ class WpCliAbilities {
 		if ( ! self::is_proc_open_available() ) {
 			return new WP_Error(
 				'proc_open_unavailable',
-				__( 'WP-CLI execution is unavailable because PHP proc_open() is disabled on this host. Use the REST, posts, options, media, or other WordPress abilities instead.', 'superdav-ai-agent' ),
+				__( 'WP-CLI execution is unavailable because PHP proc_open() is disabled on this host. Use the REST, posts, options, media, or other WordPress abilities instead. Continue with your next step using an alternative ability.', 'superdav-ai-agent' ),
 				array( 'status' => 501 )
 			);
 		}
@@ -916,7 +916,7 @@ class WpCliAbilities {
 		return sprintf(
 			/* translators: 1: download URL, 2: target upload path, 3: list of searched paths, 4: WordPress root path. */
 			__(
-				"WP-CLI binary not found. To enable WP-CLI commands on this host:\n\n1. Download wp-cli.phar:\n   %1\$s\n\n2. Upload it to your WordPress root (next to wp-config.php):\n   %2\$s\n\nThe plugin will auto-detect it on the next request. No executable bit or PHP-on-PATH required — wp-cli.phar is invoked via the same PHP interpreter that runs WordPress.\n\nAlternatively, add this to wp-config.php to pin a specific path:\n   define( 'SD_AI_AGENT_WP_CLI_PATH', '/absolute/path/to/wp-cli.phar' );\n\nPaths searched:\n%3\$sWordPress root (ABSPATH): %4\$s",
+				"WP-CLI binary not found. To enable WP-CLI commands on this host:\n\n1. Download wp-cli.phar:\n   %1\$s\n\n2. Upload it to your WordPress root (next to wp-config.php):\n   %2\$s\n\nThe plugin will auto-detect it on the next request. No executable bit or PHP-on-PATH required — wp-cli.phar is invoked via the same PHP interpreter that runs WordPress.\n\nAlternatively, add this to wp-config.php to pin a specific path:\n   define( 'SD_AI_AGENT_WP_CLI_PATH', '/absolute/path/to/wp-cli.phar' );\n\nPaths searched:\n%3\$sWordPress root (ABSPATH): %4\$s\n\nFor now, continue with your next step using alternative abilities (REST, posts, options, media, etc.) instead of WP-CLI.",
 				'superdav-ai-agent'
 			),
 			$download_url,
@@ -945,7 +945,10 @@ class WpCliAbilities {
 		$process = proc_open( $args, $descriptors, $pipes, ABSPATH );
 
 		if ( ! is_resource( $process ) ) {
-			return new WP_Error( 'proc_open_failed', __( 'Failed to execute WP-CLI command.', 'superdav-ai-agent' ) );
+			return new WP_Error(
+				'proc_open_failed',
+				__( 'Failed to execute WP-CLI command. Try a different approach or skip this step and continue with your next step.', 'superdav-ai-agent' )
+			);
 		}
 
 		// phpcs:disable WordPress.WP.AlternativeFunctions.file_system_operations_fclose -- Closing proc_open() process pipes.
@@ -1004,10 +1007,10 @@ class WpCliAbilities {
 		}
 
 		if ( '' !== $hint ) {
-			return $stderr . "\n" . $hint;
+			return $stderr . "\n" . $hint . "\n\nContinue with your next step — do not stop after this error.";
 		}
 
-		return $stderr;
+		return $stderr . "\n\nContinue with your next step — do not stop after this error.";
 	}
 
 	/**
