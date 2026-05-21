@@ -1045,11 +1045,22 @@ class AgentLoop {
 		$builder = wp_ai_client_prompt();
 		/** @var \WP_AI_Client_Prompt_Builder $builder */
 
+		// Resolve abilities once here so they are available for both the
+		// system-instruction rebuild (cadence injection) and the prompt
+		// builder's using_abilities() call below.
+		$abilities = $this->resolve_abilities();
+
 		// Rebuild the system instruction unless the caller pinned a static
 		// override. This lets the manifest's "recently fetched ability
 		// schemas" block reach the model on subsequent turns.
+		// Pass active ability names so the cadence section is injected
+		// when content-generation or theme-modification tools are in scope.
 		if ( ! $this->system_instruction_locked ) {
-			$this->system_instruction = $this->instruction_builder->build( $this->settings_for_prompt );
+			$ability_names            = array_map(
+				static fn( \WP_Ability $a ): string => $a->get_name(),
+				$abilities
+			);
+			$this->system_instruction = $this->instruction_builder->build( $this->settings_for_prompt, $ability_names );
 		}
 		$builder->using_system_instruction( $this->system_instruction );
 		$this->configure_model( $builder );
@@ -1094,7 +1105,8 @@ class AgentLoop {
 		}
 		$builder->using_max_tokens( $this->get_effective_max_output_tokens() );
 
-		$abilities = $this->resolve_abilities();
+		// $abilities was already resolved before the system-instruction rebuild
+		// above; reuse it here instead of calling resolve_abilities() twice.
 		if ( ! empty( $abilities ) ) {
 			$builder->using_abilities( ...$abilities );
 		}

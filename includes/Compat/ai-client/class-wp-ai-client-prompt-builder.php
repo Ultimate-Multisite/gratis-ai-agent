@@ -493,6 +493,38 @@ class WP_AI_Client_Prompt_Builder {
 	}
 
 	/**
+	 * Return the "Working cadence" section for content-generation turns.
+	 *
+	 * This text is injected into the system prompt when the active tool list
+	 * includes content-generation or theme-modification abilities (e.g.
+	 * create-post, update-post, scaffold-block-theme, file-write, file-edit).
+	 * It prevents gateway timeouts and preserves the validate → screenshot →
+	 * fix feedback loop by enforcing one Edit/Write per turn for large files.
+	 *
+	 * Mirrors the Studio `## Working cadence` rule from
+	 * `apps/cli/ai/system-prompt.ts` (Studio-specific tool refs removed).
+	 *
+	 * @since 1.10.0
+	 * @return string The cadence rules string.
+	 */
+	public static function build_working_cadence_section(): string {
+		return "## Working cadence\n\n"
+			. "One Write or Edit per turn for content >50 lines. "
+			. "Read-only inspection tools (`get-post`, `list-posts`, `get-block-type`) may be combined within a turn. "
+			. "Short prose between tools — no long design-plan essays.\n\n"
+			. "**Long files (style.css >200 lines, page content >300 lines): skeleton first, then fill across Edits.**\n\n"
+			. "- **style.css:** skeleton = `:root { ... }` custom properties + 6–10 anchor comments "
+			. "`/* === <concern> === */` (e.g. `reset`, `typography`, `hero`, `features`, `cta`, `footer`, `responsive`), "
+			. "<2KB total. Fill one anchor per Edit (300–2000B each) — `oldString` is the anchor line, "
+			. "`newString` is `<anchor>\\n\\n<styles>`.\n"
+			. "- **Page content:** create the post empty (`wp_insert_post` with empty content), write block markup "
+			. "to a draft using anchor comments `<!-- section:hero -->`, fill one anchor per Edit, then "
+			. "`wp_update_post()` with the assembled content.\n\n"
+			. "**Never overwrite a freshly scaffolded `style.css`** — it contains the required theme header. "
+			. 'Always Edit to append, never Write to replace.';
+	}
+
+	/**
 	 * Extract per-ability usage instructions from meta.ai.usage_instructions.
 	 *
 	 * First checks the ability's meta.ai.usage_instructions field. If not

@@ -337,6 +337,59 @@ class ScaffoldBlockThemeAbilityTest extends WP_UnitTestCase {
 		);
 	}
 
+	// ── Minimal baseline audit (GH#1587 Phase 4) ─────────────────────────
+
+	/**
+	 * Scaffolded style.css must contain only the theme header (<500 bytes).
+	 *
+	 * The Working-cadence rules depend on a clean baseline: the model fills
+	 * style.css via incremental Edits, anchored to the header comment block.
+	 * If the scaffold ever writes CSS rules into style.css this test will fail
+	 * loudly so the regression is caught before reaching production.
+	 *
+	 * Acceptance criterion: GH#1587 — "ScaffoldBlockThemeAbility produces
+	 * style.css with theme header only (<500 bytes) — fail loudly if regressed."
+	 */
+	public function test_scaffold_style_css_is_minimal_header_only(): void {
+		$slug    = $this->unique_slug( 'minimal-css' );
+		$ability = new ScaffoldBlockThemeAbility( 'sd-ai-agent/scaffold-block-theme' );
+
+		$result = $ability->run(
+			[
+				'slug' => $slug,
+				'name' => 'Minimal CSS Theme',
+			]
+		);
+
+		$this->assertIsArray( $result, is_wp_error( $result ) ? $result->get_error_message() : '' );
+
+		$theme_dir  = trailingslashit( get_theme_root() ) . $slug;
+		$style_css  = (string) file_get_contents( $theme_dir . '/style.css' );
+
+		// Must be < 500 bytes — theme header only, no CSS rules.
+		$this->assertLessThan(
+			500,
+			strlen( $style_css ),
+			'Scaffolded style.css must be < 500 bytes (theme header only). '
+			. 'If this fails the scaffold has added CSS rules — revert and file a follow-up.'
+		);
+
+		// Must contain the theme name in the header comment.
+		$this->assertStringContainsString(
+			'Theme Name: Minimal CSS Theme',
+			$style_css,
+			'style.css must include the Theme Name header'
+		);
+
+		// Must NOT contain any CSS ruleset — no opening brace outside the comment.
+		$without_comment = preg_replace( '/\/\*.*?\*\//s', '', $style_css ) ?? '';
+		$this->assertStringNotContainsString(
+			'{',
+			trim( $without_comment ),
+			'Scaffolded style.css must not contain CSS rules outside the header comment'
+		);
+	}
+
 	// ── Helpers ───────────────────────────────────────────────────────────
 
 	/**

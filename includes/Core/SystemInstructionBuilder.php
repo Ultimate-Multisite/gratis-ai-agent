@@ -23,6 +23,27 @@ use SdAiAgent\Tools\ToolDiscovery;
 class SystemInstructionBuilder {
 
 	/**
+	 * Ability names that trigger cadence-section injection.
+	 *
+	 * When any of these are present in the active tool list the "Working
+	 * cadence" block is appended to the system prompt so the model writes
+	 * one Edit/Write per turn for large files and never overwrites a
+	 * freshly scaffolded style.css.
+	 *
+	 * @since 1.10.0
+	 * @var string[]
+	 */
+	public const CONTENT_GENERATION_ABILITY_NAMES = array(
+		'sd-ai-agent/create-post',
+		'sd-ai-agent/update-post',
+		'sd-ai-agent/append-post-content',
+		'sd-ai-agent/batch-create-posts',
+		'sd-ai-agent/scaffold-block-theme',
+		'sd-ai-agent/file-write',
+		'sd-ai-agent/file-edit',
+	);
+
+	/**
 	 * @param string                   $model_id     Current AI model ID (for weak-model nudges).
 	 * @param string                   $user_message User's message (for knowledge context RAG).
 	 * @param array<int|string, mixed> $page_context Page context from the widget.
@@ -36,12 +57,41 @@ class SystemInstructionBuilder {
 	) {}
 
 	/**
+	 * Return the "Working cadence" section string for content-generation turns.
+	 *
+	 * Injected into the system prompt when any content-generation or
+	 * theme-modification ability is active. Keeps turns atomic and prevents
+	 * gateway timeouts on long-file writes.
+	 *
+	 * @since 1.10.0
+	 * @return string The cadence rules string.
+	 */
+	public static function build_working_cadence_section(): string {
+		return "## Working cadence\n\n"
+			. 'One Write or Edit per turn for content >50 lines. '
+			. 'Read-only inspection tools (`get-post`, `list-posts`, `get-block-type`) may be combined within a turn. '
+			. "Short prose between tools — no long design-plan essays.\n\n"
+			. "**Long files (style.css >200 lines, page content >300 lines): skeleton first, then fill across Edits.**\n\n"
+			. '- **style.css:** skeleton = `:root { ... }` custom properties + 6–10 anchor comments '
+			. '`/* === <concern> === */` (e.g. `reset`, `typography`, `hero`, `features`, `cta`, `footer`, `responsive`), '
+			. '<2KB total. Fill one anchor per Edit (300–2000B each) — `oldString` is the anchor line, '
+			. "`newString` is `<anchor>\\n\\n<styles>`.\n"
+			. '- **Page content:** create the post empty (`wp_insert_post` with empty content), write block markup '
+			. 'to a draft using anchor comments `<!-- section:hero -->`, fill one anchor per Edit, then '
+			. "`wp_update_post()` with the assembled content.\n\n"
+			. '**Never overwrite a freshly scaffolded `style.css`** — it contains the required theme header. '
+			. 'Always Edit to append, never Write to replace.';
+	}
+
+	/**
 	 * Build the system instruction, incorporating custom prompt and memories.
 	 *
-	 * @param array<string, mixed> $settings Plugin settings.
+	 * @param array<string, mixed> $settings      Plugin settings.
+	 * @param string[]             $ability_names Names of active Tier-1 abilities for this turn.
+	 *                                             Used to conditionally inject the Working-cadence section.
 	 * @return string
 	 */
-	public function build( array $settings ): string {
+	public function build( array $settings, array $ability_names = array() ): string {
 		// Use custom system prompt if set, otherwise the built-in default.
 		$custom = $settings['system_prompt'] ?? '';
 		$base   = ! empty( $custom ) ? $custom : self::default_system_instruction();
@@ -159,6 +209,15 @@ class SystemInstructionBuilder {
 			}
 		}
 
+		// Working cadence: inject one-file-per-turn rules when the active
+		// tool list includes content-generation or theme-modification abilities.
+		// Prevents gateway timeouts on large file writes and keeps the
+		// validate → screenshot → fix feedback loop intact.
+		if ( self::has_content_generation_ability( $ability_names ) ) {
+			// @phpstan-ignore-next-line
+			$base .= "\n\n" . self::build_working_cadence_section();
+		}
+
 		// Suggestion chips: instruct the AI to append follow-up suggestions.
 		// @phpstan-ignore-next-line
 		$suggestion_count = (int) ( $settings['suggestion_count'] ?? 3 );
@@ -179,6 +238,23 @@ class SystemInstructionBuilder {
 
 		// @phpstan-ignore-next-line
 		return $base;
+	}
+
+	/**
+	 * Return true when at least one active ability triggers cadence injection.
+	 *
+	 * @since 1.10.0
+	 *
+	 * @param string[] $ability_names Names of active Tier-1 abilities for this turn.
+	 * @return bool
+	 */
+	public static function has_content_generation_ability( array $ability_names ): bool {
+		foreach ( $ability_names as $name ) {
+			if ( in_array( $name, self::CONTENT_GENERATION_ABILITY_NAMES, true ) ) {
+				return true;
+			}
+		}
+		return false;
 	}
 
 	/**
