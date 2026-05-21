@@ -390,6 +390,89 @@ class ScaffoldBlockThemeAbilityTest extends WP_UnitTestCase {
 		);
 	}
 
+	// ── Default theme.json minimal baseline (GH#1593) ────────────────────
+
+	/**
+	 * The default theme.json must be minimal: only $schema, version 3,
+	 * settings.appearanceTools, and templateParts (header/footer).
+	 *
+	 * Regression test for GH#1593: the previous default included opinionated
+	 * colour palettes, layout sizes, and typography settings that leaked design
+	 * decisions into the scaffold. The slim baseline defers all palette/layout/
+	 * typography choices to the subsequent theme-customisation turn.
+	 *
+	 * Fails loudly if any of the following are re-introduced:
+	 *   - settings.color.palette (custom palettes)
+	 *   - settings.layout (contentSize / wideSize)
+	 *   - settings.typography.fluid or other typography keys
+	 *   - top-level styles block
+	 */
+	public function test_scaffold_default_theme_json_is_minimal(): void {
+		$slug    = $this->unique_slug( 'slim-default' );
+		$ability = new ScaffoldBlockThemeAbility( 'sd-ai-agent/scaffold-block-theme' );
+
+		$result = $ability->run(
+			[
+				'slug' => $slug,
+				'name' => 'Slim Default Theme',
+			]
+		);
+
+		$this->assertIsArray( $result, is_wp_error( $result ) ? $result->get_error_message() : '' );
+
+		$theme_dir  = trailingslashit( get_theme_root() ) . $slug;
+		$theme_json = json_decode( (string) file_get_contents( $theme_dir . '/theme.json' ), true );
+
+		$this->assertIsArray( $theme_json );
+
+		// Must have the required top-level keys.
+		$this->assertArrayHasKey( '$schema', $theme_json, 'Default theme.json must include $schema.' );
+		$this->assertSame( 3, $theme_json['version'], 'Default theme.json must be version 3.' );
+		$this->assertArrayHasKey( 'settings', $theme_json, 'Default theme.json must include settings.' );
+		$this->assertArrayHasKey( 'templateParts', $theme_json, 'Default theme.json must include templateParts.' );
+
+		// settings must contain appearanceTools and nothing else.
+		$settings = $theme_json['settings'];
+		$this->assertSame( true, $settings['appearanceTools'], 'settings.appearanceTools must be true.' );
+
+		$this->assertArrayNotHasKey(
+			'color',
+			$settings,
+			'Default theme.json must not contain settings.color (no custom palettes). '
+			. 'If this fails a future change re-introduced palettes — revert and file a follow-up.'
+		);
+
+		$this->assertArrayNotHasKey(
+			'layout',
+			$settings,
+			'Default theme.json must not contain settings.layout (no contentSize/wideSize). '
+			. 'If this fails a future change re-introduced layout sizes — revert and file a follow-up.'
+		);
+
+		$this->assertArrayNotHasKey(
+			'typography',
+			$settings,
+			'Default theme.json must not contain settings.typography (no fluid typography). '
+			. 'If this fails a future change re-introduced typography settings — revert and file a follow-up.'
+		);
+
+		// No top-level styles block (palette preset references depend on removed palettes).
+		$this->assertArrayNotHasKey(
+			'styles',
+			$theme_json,
+			'Default theme.json must not contain a top-level styles block. '
+			. 'If this fails a future change re-introduced preset-colour references — revert and file a follow-up.'
+		);
+
+		// templateParts must have exactly header and footer entries.
+		$parts = $theme_json['templateParts'];
+		$this->assertCount( 2, $parts, 'Default theme.json must have exactly 2 templateParts (header and footer).' );
+
+		$part_names = array_column( $parts, 'name' );
+		$this->assertContains( 'header', $part_names, 'templateParts must include a header entry.' );
+		$this->assertContains( 'footer', $part_names, 'templateParts must include a footer entry.' );
+	}
+
 	// ── Helpers ───────────────────────────────────────────────────────────
 
 	/**

@@ -460,6 +460,13 @@ class ScaffoldBlockThemeAbility extends AbstractAbility {
 	/**
 	 * Build the minimal default theme.json document.
 	 *
+	 * Intentionally slim — mirrors the Studio renderThemeJson() baseline.
+	 * Only `$schema`, `version`, `settings.appearanceTools`, and the two
+	 * mandatory `templateParts` (header/footer) are written. All palette,
+	 * layout, typography, and style decisions are deferred to the subsequent
+	 * theme-customisation turn where the agent fills them via anchor-comment
+	 * Edits (GH#1593, following GH#1587 Phase 4 audit).
+	 *
 	 * @return array<string,mixed> theme.json structure.
 	 */
 	private static function default_theme_json(): array {
@@ -468,38 +475,6 @@ class ScaffoldBlockThemeAbility extends AbstractAbility {
 			'version'       => 3,
 			'settings'      => [
 				'appearanceTools' => true,
-				'layout'          => [
-					'contentSize' => '720px',
-					'wideSize'    => '1200px',
-				],
-				'color'           => [
-					'palette' => [
-						[
-							'slug'  => 'foreground',
-							'name'  => 'Foreground',
-							'color' => '#1a1a1a',
-						],
-						[
-							'slug'  => 'background',
-							'name'  => 'Background',
-							'color' => '#ffffff',
-						],
-						[
-							'slug'  => 'accent',
-							'name'  => 'Accent',
-							'color' => '#3858e9',
-						],
-					],
-				],
-				'typography'      => [
-					'fluid' => true,
-				],
-			],
-			'styles'        => [
-				'color' => [
-					'background' => 'var(--wp--preset--color--background)',
-					'text'       => 'var(--wp--preset--color--foreground)',
-				],
 			],
 			'templateParts' => [
 				[
