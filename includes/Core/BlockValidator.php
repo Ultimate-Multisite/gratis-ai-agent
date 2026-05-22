@@ -523,7 +523,9 @@ class BlockValidator {
 				1
 			);
 		} else {
-			$new_attrs = $attrs_part . ' class="' . $class . '"';
+			$self_closing = 1 === preg_match( '/\/\s*$/', $attrs_part );
+			$attrs_base   = $self_closing ? (string) preg_replace( '/\/\s*$/', '', $attrs_part ) : $attrs_part;
+			$new_attrs    = rtrim( $attrs_base ) . ' class="' . $class . '"' . ( $self_closing ? ' /' : '' );
 		}
 
 		$new_open = '<' . $tag_name . $new_attrs . '>';
