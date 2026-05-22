@@ -1,6 +1,6 @@
 {
   "$comment": "Machine-readable reel beats. record.js reads this; assemble.sh reads this. Edit beats here, not in the recorder.",
-  "viewport": { "width": 540, "height": 960, "deviceScaleFactor": 2 },
+  "viewport": { "width": 1080, "height": 1920, "deviceScaleFactor": 1 },
   "output": { "width": 1080, "height": 1920, "fps": 30, "duration_seconds": 60 },
   "wait": {
     "response_timeout_ms": 240000,

@@ -65,10 +65,28 @@ node bin/promo-reel/record.js
 
 # Single beat only — useful when iterating
 node bin/promo-reel/record.js --only 4-plugin
+
+# Pin the model used for every beat (overrides whatever the chat UI
+# would default to). Format is "<provider-id>:<model-id>" where the
+# provider-id matches an entry returned by /wp-json/sd-ai-agent/v1/providers.
+node bin/promo-reel/record.js --model openai:gpt-5.4-mini
+
+# Skip the wp-login.php form (useful when WP Defender / a security
+# plugin throttles login attempts on the dev install). Requires the
+# `wp` CLI to be on PATH and pointed at the same install — the
+# recorder mints a logged-in cookie directly via wp_generate_auth_cookie().
+node bin/promo-reel/record.js --auth wp-cli --wp-cli /path/to/wp
 ```
 
 Environment variables also work and are useful for CI: `WP_BASE_URL`,
-`WP_ADMIN_USER`, `WP_ADMIN_PASSWORD`.
+`WP_ADMIN_USER`, `WP_ADMIN_PASSWORD`, `WP_AGENT_MODEL`.
+
+### Auth modes
+
+| Mode | Flag | When to use |
+|---|---|---|
+| Form login (default) | `--auth form` | Clean installs, wp-env, anywhere WP login isn't rate-limited. |
+| wp-cli cookie mint | `--auth wp-cli` | Dev install with WP Defender (or any plugin that throttles `wp-login.php`); also faster — skips a full page load. |
 
 ## Customising the reel
 
@@ -109,6 +127,9 @@ Use only tracks you have a licence for.
 |---|---|
 | `record.js` times out on every beat | No AI provider configured. Test the chat manually first. |
 | `record.js` fails on login | Check `WP_ADMIN_USER` / `WP_ADMIN_PASSWORD`. wp-env uses `admin` / `password`; the dev install uses `admin` / `admin`. |
+| `wp-login.php` returns HTTP 429 with `Retry-After` | WP Defender (or similar) has locked the IP/account out. Switch to `--auth wp-cli` to skip the login form entirely. |
+| Agent run returns `400 Bad Request - The reasoning_content in the thinking mode must be passed back to the API` | The selected model is a DeepSeek "thinking" variant that the plugin's agent loop doesn't replay. Pick a non-thinking model with `--model openai:gpt-5.4-mini` (or any OpenAI/Anthropic model). |
+| Clip shows the WP admin bar / sidebar instead of just the chat | The recorder's chrome-hide init script didn't load (rare). Hard-refresh the chat in a real browser, confirm the chat panel itself renders correctly, then re-record. |
 | `assemble.sh: no usable font found` | `apt install fonts-dejavu-core` (Debian/Ubuntu) or set `PROMO_FONT=/path/to/font.ttf`. |
 | Clip looks tiny / letterboxed | Source aspect doesn't match 9:16. The assembler pads with black — change `viewport` in `prompts.json` to 9:16 (e.g. 540×960). |
 | Final reel is silent on mobile preview | Some players require explicit audio. The assembler already adds a silent AAC stream — re-export with `--music` if your platform refuses silent uploads. |
