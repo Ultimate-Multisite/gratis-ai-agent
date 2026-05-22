@@ -1,0 +1,29 @@
+
+> superdav-ai-agent@1.16.1 verify
+> npm run lint && composer phpstan && npm run test:php && npm run build
+
+
+> superdav-ai-agent@1.16.1 lint
+> npm run lint:js && npm run lint:css && npm run lint:php
+
+
+> superdav-ai-agent@1.16.1 lint:js
+> wp-scripts lint-js src/
+
+
+Oops! Something went wrong! :(
+
+ESLint: 8.57.1
+
+ESLint couldn't find the plugin "@wordpress/eslint-plugin".
+
+(The package "@wordpress/eslint-plugin" was not found when loaded as a Node module from the directory "/home/dave/Git/superdav-ai-agent-feature-auto-20260521-235813-gh1702".)
+
+It's likely that the plugin isn't installed correctly. Try reinstalling by running the following:
+
+    npm install @wordpress/eslint-plugin@latest --save-dev
+
+The plugin "@wordpress/eslint-plugin" was referenced from the config file in ".eslintrc.json".
+
+If you still can't figure out the problem, please stop by https://eslint.org/chat/help to chat with the team.
+
