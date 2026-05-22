@@ -24,6 +24,7 @@ namespace SdAiAgent\Bootstrap;
 use SdAiAgent\Abilities\ToolCapabilities;
 use SdAiAgent\Automations\AutomationRunner;
 use SdAiAgent\Core\ActiveJobsCleanupService;
+use SdAiAgent\Core\BlockInventory;
 use SdAiAgent\Core\Database;
 use SdAiAgent\Core\OnboardingManager;
 use SdAiAgent\Core\SkillUpdateChecker;
@@ -72,5 +73,6 @@ final class LifecycleHandler {
 		SiteScanner::unschedule();
 		SkillUpdateChecker::unschedule();
 		ActiveJobsCleanupService::unschedule();
+		BlockInventory::unschedule();
 	}
 }
