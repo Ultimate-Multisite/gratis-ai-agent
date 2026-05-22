@@ -214,6 +214,7 @@ async function validateBlocks( blockMarkup ) {
 		invalidBlocks,
 		results,
 		source: 'js',
+		error: null,
 	};
 
 	// Best-effort cache write so PHP can pick this report up.
