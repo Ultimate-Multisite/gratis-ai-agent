@@ -89,7 +89,8 @@ final class InstructionsController {
 	 * @return WP_REST_Response|WP_Error
 	 */
 	public function handle_get( WP_REST_Request $request ) {
-		$ip = isset( $_SERVER['REMOTE_ADDR'] ) ? (string) $_SERVER['REMOTE_ADDR'] : ''; // phpcs:ignore WordPressVIPMinimum.Variables.ServerVariables.UserControlledHeaders
+		// phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized, WordPress.Security.ValidatedSanitizedInput.MissingUnslash
+		$ip = isset( $_SERVER['REMOTE_ADDR'] ) ? sanitize_text_field( wp_unslash( (string) $_SERVER['REMOTE_ADDR'] ) ) : '';
 
 		if ( '' !== $ip && ! InstructionsAddendum::check_rate_limit( $ip ) ) {
 			return new WP_Error(

@@ -135,12 +135,20 @@ class InstructionsAddendumTest extends WP_UnitTestCase {
 
 	/**
 	 * WordPress shortcodes are stripped.
+	 *
+	 * Uses a self-closing fake shortcode to avoid WordPress's known
+	 * [gallery] shortcode, which would consume the text between open/close
+	 * tags. Unregistered shortcodes are also stripped by strip_shortcodes().
 	 */
 	public function test_sanitize_strips_shortcodes(): void {
-		$input  = '[gallery id="1"] Some text [/gallery].';
+		// Register a fake shortcode so strip_shortcodes() sees it.
+		add_shortcode( 'sd-ai-agent-fake-test-sc', '__return_false' );
+		$input  = '[sd-ai-agent-fake-test-sc id="1"] Some text.';
 		$result = InstructionsAddendum::sanitize( $input );
-		$this->assertStringNotContainsString( '[gallery', $result );
-		$this->assertStringContainsString( 'Some text', $result );
+		remove_shortcode( 'sd-ai-agent-fake-test-sc' );
+
+		$this->assertStringNotContainsString( '[sd-ai-agent-fake-test-sc', $result );
+		$this->assertStringContainsString( 'Some text.', $result );
 	}
 
 	/**
@@ -174,25 +182,35 @@ class InstructionsAddendumTest extends WP_UnitTestCase {
 	}
 
 	/**
-	 * Input longer than MAX_LENGTH is truncated to exactly MAX_LENGTH chars.
+	 * sanitize() alone does NOT truncate — truncation is the responsibility
+	 * of callers (sanitize_callback for Settings API, get_addendum for reads).
 	 */
-	public function test_sanitize_truncates_to_max_length(): void {
+	public function test_sanitize_does_not_truncate(): void {
 		$input  = str_repeat( 'a', InstructionsAddendum::MAX_LENGTH + 100 );
 		$result = InstructionsAddendum::sanitize( $input );
+		$this->assertSame( InstructionsAddendum::MAX_LENGTH + 100, mb_strlen( $result, 'UTF-8' ) );
+	}
+
+	/**
+	 * sanitize_callback() truncates over-length input to exactly MAX_LENGTH chars.
+	 */
+	public function test_sanitize_callback_truncates_to_max_length(): void {
+		$input  = str_repeat( 'a', InstructionsAddendum::MAX_LENGTH + 100 );
+		$result = InstructionsAddendum::sanitize_callback( $input );
 		$this->assertSame( InstructionsAddendum::MAX_LENGTH, mb_strlen( $result, 'UTF-8' ) );
 	}
 
 	/**
-	 * Multi-byte truncation is codepoint-safe (does not split a UTF-8 sequence).
+	 * Multi-byte truncation in sanitize_callback() is codepoint-safe.
 	 *
 	 * Each emoji is 1 codepoint but 4 bytes. If the truncation used substr()
 	 * instead of mb_substr(), the result would be a broken byte sequence.
 	 */
-	public function test_sanitize_truncates_multibyte_without_splitting(): void {
+	public function test_sanitize_callback_truncates_multibyte_without_splitting(): void {
 		// Each 🎉 is U+1F389 (4 bytes, 1 codepoint).
 		$emoji  = "\xF0\x9F\x8E\x89"; // 🎉
 		$input  = str_repeat( $emoji, InstructionsAddendum::MAX_LENGTH + 5 );
-		$result = InstructionsAddendum::sanitize( $input );
+		$result = InstructionsAddendum::sanitize_callback( $input );
 
 		// Result must be exactly MAX_LENGTH codepoints.
 		$this->assertSame( InstructionsAddendum::MAX_LENGTH, mb_strlen( $result, 'UTF-8' ) );

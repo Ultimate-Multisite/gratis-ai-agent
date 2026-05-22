@@ -305,22 +305,22 @@ class UnifiedAdminMenu {
 			'sd-ai-agent-unified-admin',
 			'sdAiAgentData',
 			array(
-				'currentUserId'       => get_current_user_id(),
-				'currentUserName'     => $current_user->display_name,
-				'restNamespace'       => 'sd-ai-agent/v1',
-				'ajaxUrl'             => admin_url( 'admin-ajax.php' ),
-				'nonce'               => wp_create_nonce( 'wp_rest' ),
-				'initialRoute'        => self::getCurrentRoute(),
-				'menuItems'           => self::getMenuItems(),
-				'connectorsUrl'       => self::getConnectorsUrl(),
-				'connectorsAvailable' => self::hasNativeConnectorsPage() || self::hasGutenbergConnectorsPage() ? '1' : '',
-				'onboarding_complete' => \SdAiAgent\Core\OnboardingManager::is_complete(),
+				'currentUserId'        => get_current_user_id(),
+				'currentUserName'      => $current_user->display_name,
+				'restNamespace'        => 'sd-ai-agent/v1',
+				'ajaxUrl'              => admin_url( 'admin-ajax.php' ),
+				'nonce'                => wp_create_nonce( 'wp_rest' ),
+				'initialRoute'         => self::getCurrentRoute(),
+				'menuItems'            => self::getMenuItems(),
+				'connectorsUrl'        => self::getConnectorsUrl(),
+				'connectorsAvailable'  => self::hasNativeConnectorsPage() || self::hasGutenbergConnectorsPage() ? '1' : '',
+				'onboarding_complete'  => \SdAiAgent\Core\OnboardingManager::is_complete(),
 				// Provider trace is a debug-only feature. The JS settings page reads
 				// this flag to show or hide the Provider Trace tab.
-				'wpDebug'             => defined( 'WP_DEBUG' ) && WP_DEBUG ? '1' : '',
+				'wpDebug'              => defined( 'WP_DEBUG' ) && WP_DEBUG ? '1' : '',
 				// Feature flags — mirrors Features::all() so JS can gate UI sections
 				// without waiting for the /settings REST response.
-				'features'            => Features::all(),
+				'features'             => Features::all(),
 				// Instructions addendum data for the Settings UI.
 				'instructionsAddendum' => array(
 					'value'      => InstructionsAddendum::get_addendum(),

@@ -71,7 +71,8 @@ final class InstructionsAddendum {
 	const RATE_LIMIT_PER_MIN = 30;
 
 	/**
-	 * Return the stored addendum, sanitized at read time as belt-and-braces.
+	 * Return the stored addendum, sanitized and truncated at read time as
+	 * belt-and-braces (protects against options written outside our callbacks).
 	 *
 	 * @return string Empty string when no addendum is set.
 	 */
@@ -80,7 +81,7 @@ final class InstructionsAddendum {
 		if ( '' === $raw ) {
 			return '';
 		}
-		return self::sanitize( $raw );
+		return self::maybe_truncate( self::sanitize( $raw ) );
 	}
 
 	/**
@@ -132,7 +133,13 @@ final class InstructionsAddendum {
 	 *
 	 * Strips HTML tags, PHP, WordPress shortcodes, and ASCII C0/C1 control
 	 * characters (preserving \t, \n, \r for markdown indentation and bullet
-	 * lists). Normalizes CRLF/CR to LF. Truncates to MAX_LENGTH.
+	 * lists). Normalizes CRLF/CR to LF. Trims outer whitespace.
+	 *
+	 * Does NOT truncate to MAX_LENGTH — callers that need truncation (the
+	 * Settings API sanitize_callback and the belt-and-braces read path) apply
+	 * it themselves with self::maybe_truncate(). set_addendum() must see the
+	 * full post-sanitize length so it can return WP_Error('addendum_too_long')
+	 * rather than silently losing characters.
 	 *
 	 * What this does NOT do:
 	 * - Render markdown. Output is sent verbatim to MCP clients.
@@ -173,28 +180,40 @@ final class InstructionsAddendum {
 		// don't carry meaning and waste token budget.
 		$str = trim( $str );
 
-		// Length cap last so it operates on post-sanitize size. Use mb_*
-		// variants so truncation never lands inside a UTF-8 codepoint.
-		if ( mb_strlen( $str, 'UTF-8' ) > self::MAX_LENGTH ) {
-			$str = mb_substr( $str, 0, self::MAX_LENGTH, 'UTF-8' );
-		}
+		return $str;
+	}
 
+	/**
+	 * Truncate a sanitized string to MAX_LENGTH UTF-8 characters.
+	 *
+	 * Uses mb_substr so truncation never lands inside a multi-byte codepoint
+	 * sequence (emoji, CJK, accented Latin would otherwise produce a mojibake
+	 * tail that breaks downstream JSON parsers).
+	 *
+	 * @param string $str Post-sanitize string.
+	 *
+	 * @return string String at most MAX_LENGTH UTF-8 characters long.
+	 */
+	private static function maybe_truncate( string $str ): string {
+		if ( mb_strlen( $str, 'UTF-8' ) > self::MAX_LENGTH ) {
+			return mb_substr( $str, 0, self::MAX_LENGTH, 'UTF-8' );
+		}
 		return $str;
 	}
 
 	/**
 	 * Sanitize callback for register_setting().
 	 *
-	 * Wraps sanitize() + length truncation for the Settings API on form submit.
-	 * Over-length input is silently truncated here (the Settings API has no
-	 * per-field WP_Error path; use add_settings_error() if needed).
+	 * Wraps sanitize() + silent truncation for the Settings API on form submit.
+	 * Over-length input is silently truncated to MAX_LENGTH here (the Settings
+	 * API has no per-field WP_Error path without add_settings_error()).
 	 *
 	 * @param mixed $value Raw input from $_POST.
 	 *
 	 * @return string
 	 */
 	public static function sanitize_callback( $value ): string {
-		$clean = self::sanitize( $value );
+		$clean = self::maybe_truncate( self::sanitize( $value ) );
 
 		// Touch the timestamp so REST consumers see the save even when the
 		// value itself didn't change (admin re-saving to refresh the ts).
