@@ -21,6 +21,7 @@ declare(strict_types=1);
 
 namespace SdAiAgent\Abilities;
 
+use SdAiAgent\Core\Net\SafeHttpClient;
 use WP_Error;
 
 if ( ! defined( 'ABSPATH' ) ) {
@@ -714,11 +715,7 @@ INSTRUCTION;
 	 * @return string|\WP_Error Data URI or WP_Error.
 	 */
 	private static function download_to_data_uri( string $url ) {
-		if ( ! function_exists( 'download_url' ) ) {
-			require_once ABSPATH . 'wp-admin/includes/file.php';
-		}
-
-		$temp_file = download_url( $url );
+		$temp_file = SafeHttpClient::instance()->safe_download_url( $url );
 		if ( is_wp_error( $temp_file ) ) {
 			return $temp_file;
 		}

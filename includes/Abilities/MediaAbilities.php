@@ -14,6 +14,7 @@ declare(strict_types=1);
 namespace SdAiAgent\Abilities;
 
 use SdAiAgent\Core\ChangeLogger;
+use SdAiAgent\Core\Net\SafeHttpClient;
 use SdAiAgent\Models\ChangesLog;
 use WP_Error;
 use WP_Post;
@@ -322,15 +323,12 @@ class MediaAbilities {
 			}
 		}
 
-		if ( ! function_exists( 'download_url' ) ) {
-			require_once ABSPATH . 'wp-admin/includes/file.php';
-		}
 		if ( ! function_exists( 'media_handle_sideload' ) ) {
 			require_once ABSPATH . 'wp-admin/includes/media.php';
 			require_once ABSPATH . 'wp-admin/includes/image.php';
 		}
 
-		$tmp_file = download_url( $url, 30 );
+		$tmp_file = SafeHttpClient::instance()->safe_download_url( $url, 30 );
 
 		if ( is_wp_error( $tmp_file ) ) {
 			if ( $switched ) {

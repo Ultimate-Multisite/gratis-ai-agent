@@ -14,6 +14,7 @@ declare(strict_types=1);
 
 namespace SdAiAgent\Abilities\ImageSources;
 
+use SdAiAgent\Core\Net\SafeHttpClient;
 use WP_Error;
 
 if ( ! defined( 'ABSPATH' ) ) {
@@ -89,7 +90,7 @@ class OpenverseImageSource implements ImageSourceInterface {
 
 		$url = add_query_arg( $query_args, self::API_BASE . '/images/' );
 
-		$response = wp_remote_get( $url, [ 'timeout' => 30 ] );
+		$response = SafeHttpClient::instance()->safe_remote_get( $url, [ 'timeout' => 30 ] );
 
 		if ( is_wp_error( $response ) ) {
 			return new WP_Error( 'openverse_error', 'Failed to search Openverse: ' . $response->get_error_message() );
@@ -149,7 +150,7 @@ class OpenverseImageSource implements ImageSourceInterface {
 	public function get_image( string $image_id ): array|\WP_Error {
 		$url = self::API_BASE . '/images/' . $image_id . '/';
 
-		$response = wp_remote_get( $url, [ 'timeout' => 20 ] );
+		$response = SafeHttpClient::instance()->safe_remote_get( $url, [ 'timeout' => 20 ] );
 
 		if ( is_wp_error( $response ) ) {
 			return new WP_Error( 'openverse_error', 'Failed to get image: ' . $response->get_error_message() );
@@ -189,12 +190,8 @@ class OpenverseImageSource implements ImageSourceInterface {
 			return new WP_Error( 'openverse_error', 'No image URL available.' );
 		}
 
-		// Use WordPress download to temp file.
-		if ( ! function_exists( 'download_url' ) ) {
-			require_once ABSPATH . 'wp-admin/includes/file.php';
-		}
-
-		$tmp_file = download_url( $image_url, 60 );
+		// Use SSRF-safe download to temp file.
+		$tmp_file = SafeHttpClient::instance()->safe_download_url( $image_url, 60 );
 
 		if ( is_wp_error( $tmp_file ) ) {
 			return new WP_Error( 'download_error', 'Failed to download image: ' . $tmp_file->get_error_message() );

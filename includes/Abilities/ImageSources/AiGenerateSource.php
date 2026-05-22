@@ -13,6 +13,7 @@ declare(strict_types=1);
 
 namespace SdAiAgent\Abilities\ImageSources;
 
+use SdAiAgent\Core\Net\SafeHttpClient;
 use WP_Error;
 
 if ( ! defined( 'ABSPATH' ) ) {
@@ -123,17 +124,13 @@ class AiGenerateSource implements ImageSourceInterface {
 	 * @return string|\WP_Error Temp file path or WP_Error.
 	 */
 	private function file_to_temp( $file ): string|\WP_Error {
-		if ( ! function_exists( 'download_url' ) ) {
-			require_once ABSPATH . 'wp-admin/includes/file.php';
-		}
-
-		// Remote URL — let WordPress download it.
+		// Remote URL — let SSRF-safe client download it.
 		if ( method_exists( $file, 'isRemote' ) && $file->isRemote() ) {
 			$url = $file->getUrl();
 			if ( empty( $url ) ) {
 				return new WP_Error( 'generation_failed', 'Generated image has no URL.' );
 			}
-			$tmp = download_url( $url, 60 );
+			$tmp = SafeHttpClient::instance()->safe_download_url( $url, 60 );
 			if ( is_wp_error( $tmp ) ) {
 				return new WP_Error( 'download_failed', 'Failed to download generated image: ' . $tmp->get_error_message() );
 			}

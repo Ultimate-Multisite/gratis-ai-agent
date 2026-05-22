@@ -10,6 +10,8 @@ declare(strict_types=1);
 
 namespace SdAiAgent\Abilities;
 
+use SdAiAgent\Core\Net\SafeHttpClient;
+
 if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
@@ -161,7 +163,7 @@ class SeoAbilities {
 			return new \WP_Error( 'missing_url', 'url is required.' );
 		}
 
-		$response = wp_safe_remote_get(
+		$response = SafeHttpClient::instance()->safe_remote_get(
 			$url,
 			[
 				'timeout'    => 15,
