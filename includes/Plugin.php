@@ -51,6 +51,7 @@ use SdAiAgent\REST\ConnectorsController;
 use SdAiAgent\REST\ChangesController;
 use SdAiAgent\REST\FeedbackController;
 use SdAiAgent\REST\KnowledgeController;
+use SdAiAgent\REST\InstructionsController;
 use SdAiAgent\REST\McpController;
 use SdAiAgent\REST\MemoryController;
 use SdAiAgent\REST\RestController;
@@ -110,6 +111,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 		BlockValidatorController::class,
 		FeedbackController::class,
 		TraceController::class,
+		InstructionsController::class,
 		McpController::class,
 		RestController::class,
 		ToolController::class,

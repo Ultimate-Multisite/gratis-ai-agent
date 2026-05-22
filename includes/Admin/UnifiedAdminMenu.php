@@ -14,6 +14,7 @@ declare(strict_types=1);
 namespace SdAiAgent\Admin;
 
 use SdAiAgent\Core\Features;
+use SdAiAgent\Core\InstructionsAddendum;
 
 if ( ! defined( 'ABSPATH' ) ) {
 	exit;
@@ -320,6 +321,13 @@ class UnifiedAdminMenu {
 				// Feature flags — mirrors Features::all() so JS can gate UI sections
 				// without waiting for the /settings REST response.
 				'features'            => Features::all(),
+				// Instructions addendum data for the Settings UI.
+				'instructionsAddendum' => array(
+					'value'      => InstructionsAddendum::get_addendum(),
+					'updated_at' => InstructionsAddendum::get_updated_at(),
+					'max_length' => InstructionsAddendum::MAX_LENGTH,
+					'endpoint'   => rest_url( 'sd-ai-agent/v1/instructions' ),
+				),
 			)
 		);
 	}

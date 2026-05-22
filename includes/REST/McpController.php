@@ -24,6 +24,7 @@ declare(strict_types=1);
 namespace SdAiAgent\REST;
 
 use SdAiAgent\Core\AbilityVisibility;
+use SdAiAgent\Core\InstructionsAddendum;
 use WP_Error;
 use WP_REST_Request;
 use WP_REST_Response;
@@ -61,6 +62,15 @@ final class McpController extends XWP_REST_Controller {
 	}
 
 	/**
+	 * Baseline instructions string prepended to every MCP handshake response.
+	 *
+	 * Describes the server's capabilities and conventions at a high level.
+	 * The per-site instructions addendum (InstructionsAddendum::get_addendum())
+	 * is appended after this baseline at handshake time.
+	 */
+	const BASELINE_INSTRUCTIONS = 'This is the Superdav AI Agent MCP server. It exposes WordPress site capabilities as MCP tools. Use list_tools to discover available tools, then call_tool to invoke them.';
+
+	/**
 	 * Dispatch an MCP request to the appropriate handler.
 	 *
 	 * @param WP_REST_Request $request The REST request.
@@ -82,6 +92,9 @@ final class McpController extends XWP_REST_Controller {
 		/** @var array<string, mixed> $params */
 
 		switch ( $method ) {
+			case 'initialize':
+				return self::handle_initialize();
+
 			case 'list_tools':
 				return self::handle_list_tools();
 
@@ -93,7 +106,7 @@ final class McpController extends XWP_REST_Controller {
 					'ai_agent_mcp_unknown_method',
 					sprintf(
 						/* translators: %s: MCP method name */
-						__( 'Unknown MCP method: %s. Supported methods: list_tools, call_tool.', 'superdav-ai-agent' ),
+						__( 'Unknown MCP method: %s. Supported methods: initialize, list_tools, call_tool.', 'superdav-ai-agent' ),
 						// @phpstan-ignore-next-line
 						$method
 					),
@@ -120,6 +133,40 @@ final class McpController extends XWP_REST_Controller {
 				'type'     => 'object',
 				'default'  => array(),
 			),
+		);
+	}
+
+	/**
+	 * Handle the initialize MCP method (handshake).
+	 *
+	 * Returns serverInfo.instructions composed from the baseline constant
+	 * plus the admin-configured per-site addendum (empty string when none
+	 * has been set). The addendum is appended with a blank-line separator so
+	 * MCP clients can parse it as a distinct section.
+	 *
+	 * @return WP_REST_Response
+	 */
+	private static function handle_initialize(): WP_REST_Response {
+		$baseline = self::BASELINE_INSTRUCTIONS;
+		$addendum = InstructionsAddendum::get_addendum();
+
+		$instructions = '' !== $addendum
+			? $baseline . "\n\n" . $addendum
+			: $baseline;
+
+		return new WP_REST_Response(
+			[
+				'protocol_version' => self::MCP_PROTOCOL_VERSION,
+				'server_info'      => [
+					'name'         => 'superdav-ai-agent',
+					'version'      => defined( 'SD_AI_AGENT_VERSION' ) ? (string) constant( 'SD_AI_AGENT_VERSION' ) : '',
+					'instructions' => $instructions,
+				],
+				'capabilities'     => [
+					'tools' => new \stdClass(),
+				],
+			],
+			200
 		);
 	}
 
