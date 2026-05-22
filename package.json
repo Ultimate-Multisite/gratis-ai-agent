@@ -105,7 +105,7 @@
 	},
 	"lint-staged": {
 		"src/**/*.{js,jsx}": [
-			"wp-scripts lint-js --fix"
+			"eslint --fix"
 		],
 		"src/**/*.css": [
 			"wp-scripts lint-style --fix"
