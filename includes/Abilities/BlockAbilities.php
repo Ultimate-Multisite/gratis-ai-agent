@@ -14,6 +14,7 @@ declare(strict_types=1);
 namespace SdAiAgent\Abilities;
 
 use SdAiAgent\Core\BlockInventory;
+use SdAiAgent\Core\BlockReferences;
 use SdAiAgent\Core\BlockValidator;
 use SdAiAgent\Models\MarkdownToBlocks;
 
@@ -429,6 +430,56 @@ class BlockAbilities {
 				'permission_callback' => function () {
 					return current_user_can( 'edit_posts' );
 				},
+			]
+		);
+
+		wp_register_ability(
+			'sd-ai-agent/get-page-blocks',
+			[
+				'label'               => __( 'Get Page Blocks', 'superdav-ai-agent' ),
+				'description'         => __( 'Return the block tree for a post with stable per-block sd_ref UUIDs. Each entry includes flat_index, path, ref, name, attributes, and a text_preview. Set persist_refs: false to read without writing refs back to the post. Use the returned refs with block-mutator abilities to address blocks reliably across multi-step edits.', 'superdav-ai-agent' ),
+				'category'            => 'sd-ai-agent',
+				'input_schema'        => [
+					'type'       => 'object',
+					'properties' => [
+						'post_id'      => [
+							'type'        => 'integer',
+							'description' => 'Post ID whose block tree should be returned.',
+						],
+						'persist_refs' => [
+							'type'        => 'boolean',
+							'description' => 'Write newly-assigned sd_ref values back to the post without creating a revision. Default: true. Set to false for a read-only call.',
+						],
+					],
+					'required'   => [ 'post_id' ],
+				],
+				'output_schema'       => [
+					'type'       => 'object',
+					'properties' => [
+						'blocks'      => [
+							'type'        => 'array',
+							'description' => 'Flat list of blocks. Each item: flat_index (int), path (int[]), ref (string), name (string), attributes (object), text_preview (string).',
+						],
+						'block_count' => [ 'type' => 'integer' ],
+						'refs_stored' => [
+							'type'        => 'boolean',
+							'description' => 'True when new refs were persisted to the post.',
+						],
+						'error'       => [ 'type' => 'string' ],
+					],
+				],
+				'execute_callback'    => [ __CLASS__, 'handle_get_page_blocks' ],
+				'permission_callback' => function () {
+					return current_user_can( 'edit_posts' );
+				},
+				'meta'                => [
+					'mcp'         => [ 'public' => true ],
+					'annotations' => [
+						'readonly'    => false,
+						'destructive' => false,
+						'idempotent'  => true,
+					],
+				],
 			]
 		);
 
@@ -1304,5 +1355,182 @@ class BlockAbilities {
 		}
 
 		return $result;
+	}
+
+	/**
+	 * Handle get-page-blocks ability.
+	 *
+	 * Returns the block tree for a post with stable per-block sd_ref
+	 * identifiers. Each block entry includes flat_index, path, ref, name,
+	 * attributes, and text_preview.
+	 *
+	 * Refs are assigned to any block that is missing one, and written back to
+	 * the post (without creating a revision) when persist_refs is true (default).
+	 * If all blocks already carry refs, no DB write is made.
+	 *
+	 * @param array<string,mixed> $input Input with 'post_id' (required) and optional 'persist_refs' (bool, default true).
+	 * @return array<string,mixed>|\WP_Error Block tree or error.
+	 */
+	public static function handle_get_page_blocks( array $input ) {
+		global $wpdb;
+
+		$post_id      = (int) ( $input['post_id'] ?? 0 );
+		$persist_refs = isset( $input['persist_refs'] ) ? (bool) $input['persist_refs'] : true;
+
+		if ( $post_id <= 0 ) {
+			return new \WP_Error(
+				'missing_post_id',
+				__( 'post_id is required and must be a positive integer.', 'superdav-ai-agent' )
+			);
+		}
+
+		$post = get_post( $post_id );
+		if ( ! $post ) {
+			return new \WP_Error(
+				'post_not_found',
+				sprintf(
+					/* translators: %d: post ID */
+					__( 'Post %d not found.', 'superdav-ai-agent' ),
+					$post_id
+				)
+			);
+		}
+
+		$content = $post->post_content;
+		if ( ! is_string( $content ) || '' === trim( $content ) ) {
+			return [
+				'blocks'      => [],
+				'block_count' => 0,
+				'refs_stored' => false,
+			];
+		}
+
+		$blocks = parse_blocks( $content );
+		if ( ! is_array( $blocks ) ) {
+			$blocks = [];
+		}
+
+		// Check whether any block is missing a ref before assigning.
+		// @phpstan-ignore-next-line
+		$refs_needed = ! BlockReferences::all_have_refs( $blocks );
+
+		// Assign refs; if any blocks were missing one they now have one.
+		if ( $refs_needed ) {
+			// @phpstan-ignore-next-line
+			$result = BlockReferences::assign_refs( $blocks );
+			if ( is_wp_error( $result ) ) {
+				return $result;
+			}
+			$blocks = $result;
+		}
+
+		// Persist newly-assigned refs to DB without creating a revision.
+		$refs_stored = false;
+		if ( $persist_refs && $refs_needed ) {
+			// @phpstan-ignore-next-line
+			$new_content = serialize_blocks( $blocks );
+			// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching
+			$updated = $wpdb->update(
+				$wpdb->posts,
+				[ 'post_content' => $new_content ],
+				[ 'ID' => $post_id ],
+				[ '%s' ],
+				[ '%d' ]
+			);
+
+			if ( false !== $updated ) {
+				clean_post_cache( $post_id );
+				$refs_stored = true;
+			}
+		}
+
+		// Build the flat annotated block list for the response.
+		$flat_list  = [];
+		$flat_index = 0;
+		// @phpstan-ignore-next-line
+		self::flatten_blocks_for_response( $blocks, [], $flat_index, $flat_list );
+
+		return [
+			'blocks'      => $flat_list,
+			'block_count' => $flat_index,
+			'refs_stored' => $refs_stored,
+		];
+	}
+
+	/**
+	 * Depth-first walk that appends a flat annotated entry per named block.
+	 *
+	 * Each entry contains:
+	 * - flat_index  (int)    — depth-first sequential position.
+	 * - path        (int[])  — index path from root (e.g. [0, 1, 2]).
+	 * - ref         (string) — sd_ref UUID, if present.
+	 * - name        (string) — block name (e.g. "core/paragraph").
+	 * - attributes  (array)  — block attrs.
+	 * - text_preview (string) — up to 100 chars of stripped inner text, if any.
+	 * - innerBlocks (array)  — nested block entries, if any.
+	 *
+	 * @param array<int,mixed> $blocks      Parsed blocks at the current level.
+	 * @param int[]            $parent_path Index path to the parent.
+	 * @param int              $flat_index  Running flat counter (by reference).
+	 * @param array<int,mixed> $output      Accumulating flat list (by reference).
+	 */
+	private static function flatten_blocks_for_response(
+		array $blocks,
+		array $parent_path,
+		int &$flat_index,
+		array &$output
+	): void {
+		foreach ( $blocks as $local_idx => $block ) {
+			// @phpstan-ignore-next-line
+			if ( ! is_array( $block ) || empty( $block['blockName'] ) ) {
+				continue;
+			}
+
+			$current_path = array_merge( $parent_path, [ (int) $local_idx ] );
+
+			$entry = [
+				'flat_index' => $flat_index,
+				'path'       => $current_path,
+				// @phpstan-ignore-next-line
+				'name'       => (string) $block['blockName'],
+				// @phpstan-ignore-next-line
+				'attributes' => $block['attrs'] ?? [],
+			];
+
+			// Surface the stable ref.
+			// @phpstan-ignore-next-line
+			$ref = $block['attrs']['metadata'][ BlockReferences::REF_KEY ] ?? null;
+			if ( is_string( $ref ) && '' !== $ref ) {
+				$entry['ref'] = $ref;
+			}
+
+			// text_preview: stripped, decoded, truncated inner HTML.
+			// @phpstan-ignore-next-line
+			$inner_html = (string) ( $block['innerHTML'] ?? '' );
+			if ( '' !== $inner_html ) {
+				$preview = wp_strip_all_tags( $inner_html );
+				$preview = html_entity_decode( $preview, ENT_QUOTES | ENT_HTML5, 'UTF-8' );
+				$preview = (string) preg_replace( '/\s+/', ' ', trim( $preview ) );
+				if ( '' !== $preview ) {
+					$entry['text_preview'] = mb_substr( $preview, 0, 100 );
+				}
+			}
+
+			++$flat_index;
+
+			// Recurse into inner blocks (depth is naturally capped by PHP stack + MAX_DEPTH).
+			// @phpstan-ignore-next-line
+			$inner = $block['innerBlocks'] ?? [];
+			if ( ! empty( $inner ) && is_array( $inner ) ) {
+				$inner_output = [];
+				// @phpstan-ignore-next-line
+				self::flatten_blocks_for_response( $inner, $current_path, $flat_index, $inner_output );
+				if ( ! empty( $inner_output ) ) {
+					$entry['innerBlocks'] = $inner_output;
+				}
+			}
+
+			$output[] = $entry;
+		}
 	}
 }

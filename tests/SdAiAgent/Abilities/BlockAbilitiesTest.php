@@ -430,4 +430,182 @@ class BlockAbilitiesTest extends WP_UnitTestCase {
 		$this->assertIsArray( $result );
 		$this->assertArrayNotHasKey( 'hint', $result );
 	}
+
+	// ─── get-page-blocks ──────────────────────────────────────────────────
+
+	/**
+	 * handle_get_page_blocks() returns WP_Error for missing post_id.
+	 *
+	 * @see GH#1707
+	 */
+	public function test_handle_get_page_blocks_missing_post_id(): void {
+		$result = BlockAbilities::handle_get_page_blocks( [] );
+		$this->assertInstanceOf( \WP_Error::class, $result );
+		$this->assertSame( 'missing_post_id', $result->get_error_code() );
+	}
+
+	/**
+	 * handle_get_page_blocks() returns WP_Error for a non-existent post.
+	 *
+	 * @see GH#1707
+	 */
+	public function test_handle_get_page_blocks_nonexistent_post(): void {
+		$result = BlockAbilities::handle_get_page_blocks( [ 'post_id' => 999999 ] );
+		$this->assertInstanceOf( \WP_Error::class, $result );
+		$this->assertSame( 'post_not_found', $result->get_error_code() );
+	}
+
+	/**
+	 * handle_get_page_blocks() returns a flat block list with refs and text_preview.
+	 *
+	 * @see GH#1707
+	 */
+	public function test_handle_get_page_blocks_returns_block_list(): void {
+		$content = "<!-- wp:paragraph -->\n<p>Hello world</p>\n<!-- /wp:paragraph -->\n<!-- wp:heading {\"level\":2} -->\n<h2 class=\"wp-block-heading\">Title</h2>\n<!-- /wp:heading -->";
+
+		$post_id = $this->factory()->post->create( [
+			'post_content' => $content,
+			'post_status'  => 'publish',
+		] );
+
+		$result = BlockAbilities::handle_get_page_blocks( [
+			'post_id'      => $post_id,
+			'persist_refs' => false,
+		] );
+
+		$this->assertIsArray( $result );
+		$this->assertArrayHasKey( 'blocks', $result );
+		$this->assertArrayHasKey( 'block_count', $result );
+		$this->assertArrayHasKey( 'refs_stored', $result );
+		$this->assertCount( 2, $result['blocks'] );
+		$this->assertSame( 2, $result['block_count'] );
+	}
+
+	/**
+	 * Each block entry from handle_get_page_blocks() contains the required keys.
+	 *
+	 * @see GH#1707
+	 */
+	public function test_handle_get_page_blocks_block_entry_shape(): void {
+		$content = "<!-- wp:paragraph -->\n<p>Test paragraph</p>\n<!-- /wp:paragraph -->";
+
+		$post_id = $this->factory()->post->create( [
+			'post_content' => $content,
+			'post_status'  => 'publish',
+		] );
+
+		$result = BlockAbilities::handle_get_page_blocks( [
+			'post_id'      => $post_id,
+			'persist_refs' => false,
+		] );
+
+		$this->assertIsArray( $result );
+		$block = $result['blocks'][0];
+
+		$this->assertArrayHasKey( 'flat_index', $block );
+		$this->assertArrayHasKey( 'path', $block );
+		$this->assertArrayHasKey( 'name', $block );
+		$this->assertArrayHasKey( 'attributes', $block );
+		$this->assertArrayHasKey( 'ref', $block );
+		$this->assertArrayHasKey( 'text_preview', $block );
+
+		$this->assertSame( 0, $block['flat_index'] );
+		$this->assertSame( [ 0 ], $block['path'] );
+		$this->assertSame( 'core/paragraph', $block['name'] );
+		$this->assertMatchesRegularExpression( '/^blk_[A-Za-z0-9\-_]{8}$/', $block['ref'] );
+		$this->assertStringContainsString( 'Test paragraph', $block['text_preview'] );
+	}
+
+	/**
+	 * AC4 (ability): persist_refs: false does not write refs to the post.
+	 *
+	 * The response includes refs but the post_content on disk must remain
+	 * unchanged (no sd_ref in the serialised markup).
+	 *
+	 * @see GH#1707
+	 */
+	public function test_handle_get_page_blocks_persist_refs_false_does_not_write(): void {
+		$content = "<!-- wp:paragraph -->\n<p>No persist test</p>\n<!-- /wp:paragraph -->";
+
+		$post_id = $this->factory()->post->create( [
+			'post_content' => $content,
+			'post_status'  => 'publish',
+		] );
+
+		$result = BlockAbilities::handle_get_page_blocks( [
+			'post_id'      => $post_id,
+			'persist_refs' => false,
+		] );
+
+		// Response must include a ref (assigned in memory).
+		$this->assertIsArray( $result );
+		$this->assertArrayHasKey( 'ref', $result['blocks'][0] );
+		$this->assertFalse( $result['refs_stored'], 'refs_stored must be false when persist_refs is false' );
+
+		// Post content must not have been written.
+		$updated = get_post( $post_id );
+		$this->assertStringNotContainsString( '"sd_ref"', $updated->post_content );
+	}
+
+	/**
+	 * AC1 (ability): calling with persist_refs: true assigns refs and
+	 * writes them to the post without creating a revision.
+	 *
+	 * @see GH#1707
+	 */
+	public function test_handle_get_page_blocks_persist_refs_true_stores_and_no_revision(): void {
+		$content = "<!-- wp:paragraph -->\n<p>Persist test</p>\n<!-- /wp:paragraph -->";
+
+		$post_id = $this->factory()->post->create( [
+			'post_content' => $content,
+			'post_status'  => 'publish',
+		] );
+
+		$revisions_before = count( wp_get_post_revisions( $post_id ) );
+
+		$result = BlockAbilities::handle_get_page_blocks( [
+			'post_id'      => $post_id,
+			'persist_refs' => true,
+		] );
+
+		$this->assertIsArray( $result );
+		$this->assertTrue( $result['refs_stored'], 'refs_stored must be true after persist' );
+
+		// Post content now has sd_ref.
+		$updated = get_post( $post_id );
+		$this->assertStringContainsString( '"sd_ref"', $updated->post_content );
+
+		// No revision created.
+		$revisions_after = count( wp_get_post_revisions( $post_id ) );
+		$this->assertSame(
+			$revisions_before,
+			$revisions_after,
+			'handle_get_page_blocks() must not create a revision'
+		);
+	}
+
+	/**
+	 * A second call (refs already present) returns refs_stored: false.
+	 *
+	 * When all blocks already carry refs, no DB write is needed.
+	 *
+	 * @see GH#1707
+	 */
+	public function test_handle_get_page_blocks_second_call_refs_stored_false(): void {
+		$content = "<!-- wp:paragraph -->\n<p>Idempotent ability test</p>\n<!-- /wp:paragraph -->";
+
+		$post_id = $this->factory()->post->create( [
+			'post_content' => $content,
+			'post_status'  => 'publish',
+		] );
+
+		// First call: persist refs.
+		BlockAbilities::handle_get_page_blocks( [ 'post_id' => $post_id, 'persist_refs' => true ] );
+
+		// Second call: refs already present, so refs_stored must be false.
+		$result = BlockAbilities::handle_get_page_blocks( [ 'post_id' => $post_id, 'persist_refs' => true ] );
+
+		$this->assertIsArray( $result );
+		$this->assertFalse( $result['refs_stored'], 'refs_stored must be false when refs are already present' );
+	}
 }
