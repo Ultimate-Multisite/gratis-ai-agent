@@ -129,18 +129,18 @@ final class BlockUsagePage {
 	 * @return void
 	 */
 	public static function render(): void {
-		$inventory   = BlockInventory::get();
-		$refreshed   = isset( $_GET['sd-refresh'] ) && '1' === $_GET['sd-refresh']; // phpcs:ignore WordPress.Security.NonceVerification.Recommended
-		$last_run    = (int) get_option( BlockInventory::REFRESH_LAST_RUN_OPTION, 0 );
-		$now         = time();
+		$inventory    = BlockInventory::get();
+		$refreshed    = isset( $_GET['sd-refresh'] ) && '1' === $_GET['sd-refresh']; // phpcs:ignore WordPress.Security.NonceVerification.Recommended
+		$last_run     = (int) get_option( BlockInventory::REFRESH_LAST_RUN_OPTION, 0 );
+		$now          = time();
 		$rate_limited = $last_run && ( $now - $last_run ) < BlockInventory::REFRESH_MIN_INTERVAL;
 
-		$last_scanned    = $inventory['last_scanned'] ?? '';
-		$block_counts    = $inventory['block_counts'] ?? array();
-		$pattern_counts  = $inventory['pattern_counts'] ?? array();
-		$top_namespaces  = $inventory['top_namespaces'] ?? array();
-		$truncated       = ! empty( $inventory['truncated'] );
-		$scanned_posts   = (int) ( $inventory['scanned_posts'] ?? 0 );
+		$last_scanned   = $inventory['last_scanned'] ?? '';
+		$block_counts   = $inventory['block_counts'] ?? array();
+		$pattern_counts = $inventory['pattern_counts'] ?? array();
+		$top_namespaces = $inventory['top_namespaces'] ?? array();
+		$truncated      = ! empty( $inventory['truncated'] );
+		$scanned_posts  = (int) ( $inventory['scanned_posts'] ?? 0 );
 
 		?>
 		<div class="wrap">
@@ -180,7 +180,7 @@ final class BlockUsagePage {
 					printf(
 						/* translators: %d: number of posts scanned */
 						esc_html__( '%d post(s) scanned', 'superdav-ai-agent' ),
-						$scanned_posts
+						(int) $scanned_posts
 					);
 					?>
 					<?php if ( $truncated ) : ?>
@@ -197,7 +197,7 @@ final class BlockUsagePage {
 					type="submit"
 					class="button button-secondary"
 					<?php disabled( $rate_limited ); ?>
-					onclick="return confirm( <?php echo esc_attr( wp_json_encode( __( 'Refresh block usage stats now? This may take a moment on large sites.', 'superdav-ai-agent' ) ) ); ?> );"
+					onclick="return confirm( <?php echo esc_attr( (string) wp_json_encode( __( 'Refresh block usage stats now? This may take a moment on large sites.', 'superdav-ai-agent' ) ) ); ?> );"
 				>
 					<?php esc_html_e( 'Refresh Block Usage', 'superdav-ai-agent' ); ?>
 				</button>

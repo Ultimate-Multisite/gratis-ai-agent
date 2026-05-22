@@ -425,14 +425,14 @@ class BlockAbilities {
 						'idempotent'  => true,
 					],
 				],
-			'execute_callback'    => [ __CLASS__, 'handle_validate_block_content' ],
-			'permission_callback' => function () {
-				return current_user_can( 'edit_posts' );
-			},
-		]
-	);
+				'execute_callback'    => [ __CLASS__, 'handle_validate_block_content' ],
+				'permission_callback' => function () {
+					return current_user_can( 'edit_posts' );
+				},
+			]
+		);
 
-	wp_register_ability(
+		wp_register_ability(
 		'sd-ai-agent/get-site-block-usage',
 		[
 			'label'               => __( 'Get Site Block Usage', 'superdav-ai-agent' ),
@@ -451,31 +451,31 @@ class BlockAbilities {
 			'output_schema'       => [
 				'type'       => 'object',
 				'properties' => [
-					'block_counts'    => [
+					'block_counts'   => [
 						'type'        => 'object',
 						'description' => 'Associative map of block_name => instance count, sorted descending.',
 					],
-					'pattern_counts'  => [
+					'pattern_counts' => [
 						'type'        => 'object',
 						'description' => 'Associative map of synced pattern name => reference count, sorted descending.',
 					],
-					'top_namespaces'  => [
+					'top_namespaces' => [
 						'type'        => 'object',
 						'description' => 'Associative map of namespace => total block instances, sorted descending.',
 					],
-					'last_scanned'    => [
+					'last_scanned'   => [
 						'type'        => 'string',
 						'description' => 'ISO 8601 timestamp of the last completed scan, or empty string if no scan has run.',
 					],
-					'truncated'       => [
+					'truncated'      => [
 						'type'        => 'boolean',
 						'description' => 'True when the site has more than 1000 published posts and not all were scanned.',
 					],
-					'scanned_posts'   => [
+					'scanned_posts'  => [
 						'type'        => 'integer',
 						'description' => 'Number of posts that were actually walked during the last scan.',
 					],
-					'error'           => [ 'type' => 'string' ],
+					'error'          => [ 'type' => 'string' ],
 				],
 			],
 			'meta'                => [
@@ -491,10 +491,10 @@ class BlockAbilities {
 				return current_user_can( 'edit_posts' );
 			},
 		]
-	);
-}
+		);
+	}
 
-// ─── Handlers ─────────────────────────────────────────────────
+	// ─── Handlers ─────────────────────────────────────────────────
 
 	/**
 	 * Handle markdown-to-blocks conversion.
@@ -1282,27 +1282,27 @@ class BlockAbilities {
 			$result['hint'] = 'Before fixing: each Expected/Actual diff is a structural change, not a literal text swap. Classes the validator adds or removes (`has-X-color`, `alignwide`, `is-style-Y`, `wp-block-*-is-layout-flex`) pull in or strip core CSS that drives layout, spacing, and color. Diff the markup explicitly, update any style.css selectors that target the old class or nesting in the same edit batch, preserve your intentional className hooks, then take a screenshot of desktop and mobile to verify the design did not drift.';
 		}
 
-	return $result;
-}
-
-/**
- * Handle get-site-block-usage ability.
- *
- * Returns the cached (or freshly scanned) site-wide block and pattern
- * usage inventory.
- *
- * @param array<string,mixed> $input Input with optional 'refresh' boolean.
- * @return array<string,mixed>
- */
-public static function handle_get_site_block_usage( array $input ): array {
-	$refresh = ! empty( $input['refresh'] );
-
-	try {
-		$result = BlockInventory::get( $refresh );
-	} catch ( \Throwable $e ) {
-		return array( 'error' => $e->getMessage() );
+		return $result;
 	}
 
-	return $result;
-}
+	/**
+	 * Handle get-site-block-usage ability.
+	 *
+	 * Returns the cached (or freshly scanned) site-wide block and pattern
+	 * usage inventory.
+	 *
+	 * @param array<string,mixed> $input Input with optional 'refresh' boolean.
+	 * @return array<string,mixed>
+	 */
+	public static function handle_get_site_block_usage( array $input ): array {
+		$refresh = ! empty( $input['refresh'] );
+
+		try {
+			$result = BlockInventory::get( $refresh );
+		} catch ( \Throwable $e ) {
+			return array( 'error' => $e->getMessage() );
+		}
+
+		return $result;
+	}
 }

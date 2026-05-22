@@ -113,13 +113,13 @@ class BlockInventory {
 	 * content, subject to the manual-refresh rate limit.
 	 *
 	 * @param bool $refresh Force a fresh scan instead of reading the cache.
-	 * @return array {
-	 *     @type array  $block_counts   block_name => int (total instances).
-	 *     @type array  $pattern_counts pattern_name => int (synced-pattern refs).
-	 *     @type array  $top_namespaces namespace => int, sorted descending.
-	 *     @type string $last_scanned   ISO 8601 timestamp or empty string.
-	 *     @type bool   $truncated      True when POST_SCAN_LIMIT was reached.
-	 *     @type int    $scanned_posts  Number of posts actually walked.
+	 * @return array<string,mixed> {
+	 *     @type array<string,int> $block_counts   block_name => int (total instances).
+	 *     @type array<string,int> $pattern_counts pattern_name => int (synced-pattern refs).
+	 *     @type array<string,int> $top_namespaces namespace => int, sorted descending.
+	 *     @type string            $last_scanned   ISO 8601 timestamp or empty string.
+	 *     @type bool              $truncated      True when POST_SCAN_LIMIT was reached.
+	 *     @type int               $scanned_posts  Number of posts actually walked.
 	 * }
 	 */
 	public static function get( bool $refresh = false ): array {
@@ -223,15 +223,17 @@ class BlockInventory {
 	 * Capped at POST_SCAN_LIMIT posts ordered by date DESC. If more posts
 	 * exist the `truncated` flag is set in the returned array.
 	 *
-	 * @return array Structured inventory with block_counts, pattern_counts,
-	 *               top_namespaces, last_scanned, truncated, scanned_posts.
+	 * @return array<string,mixed> Structured inventory with block_counts, pattern_counts,
+	 *                              top_namespaces, last_scanned, truncated, scanned_posts.
 	 */
 	public static function build(): array {
-		$block_counts    = array();
+		/** @var array<string,int> $block_counts */
+		$block_counts = array();
+		/** @var array<string,int> $namespace_totals */
 		$namespace_totals = array();
-		$pattern_refs    = array();
-		$scanned_posts   = 0;
-		$truncated       = false;
+		$pattern_refs     = array();
+		$scanned_posts    = 0;
+		$truncated        = false;
 
 		$post_types = array_values( get_post_types( array( 'public' => true ), 'names' ) );
 		$paged      = 1;
@@ -266,8 +268,9 @@ class BlockInventory {
 			$batch_size = count( $batch );
 
 			foreach ( $batch as $post_id ) {
-				$content = get_post_field( 'post_content', $post_id, 'raw' );
-				if ( empty( $content ) || ! has_blocks( $content ) ) {
+				$raw     = get_post_field( 'post_content', (int) $post_id, 'raw' );
+				$content = is_string( $raw ) ? $raw : '';
+				if ( '' === $content || ! has_blocks( $content ) ) {
 					continue;
 				}
 				$blocks = parse_blocks( $content );
@@ -298,7 +301,7 @@ class BlockInventory {
 		// Detect truncation: if we stopped because we hit POST_SCAN_LIMIT,
 		// check if further posts exist. We do a lightweight count query.
 		if ( ! $truncated && $scanned_posts >= self::POST_SCAN_LIMIT ) {
-			$extra = get_posts(
+			$extra     = get_posts(
 				array(
 					'post_type'           => $post_types,
 					'post_status'         => 'publish',
@@ -324,12 +327,12 @@ class BlockInventory {
 		$pattern_counts = self::resolve_pattern_refs( $pattern_refs );
 
 		return array(
-			'block_counts'    => $block_counts,
-			'pattern_counts'  => $pattern_counts,
-			'top_namespaces'  => $namespace_totals,
-			'last_scanned'    => gmdate( 'c' ),
-			'truncated'       => $truncated,
-			'scanned_posts'   => $scanned_posts,
+			'block_counts'   => $block_counts,
+			'pattern_counts' => $pattern_counts,
+			'top_namespaces' => $namespace_totals,
+			'last_scanned'   => gmdate( 'c' ),
+			'truncated'      => $truncated,
+			'scanned_posts'  => $scanned_posts,
 		);
 	}
 
@@ -339,10 +342,10 @@ class BlockInventory {
 	 * Increments block_counts and namespace_totals for each named block.
 	 * Tracks synced-pattern references (core/block with a `ref` attribute).
 	 *
-	 * @param array $blocks           parse_blocks() output.
-	 * @param array &$block_counts    Running total: block_name => int.
-	 * @param array &$namespace_totals Running total: namespace => int.
-	 * @param array &$pattern_refs    Running total: pattern_id (int) => int.
+	 * @param array<int|string,mixed> $blocks           parse_blocks() output.
+	 * @param array<string,int>       &$block_counts    Running total: block_name => int.
+	 * @param array<string,int>       &$namespace_totals Running total: namespace => int.
+	 * @param array<int,int>          &$pattern_refs    Running total: pattern_id (int) => int.
 	 * @return void
 	 */
 	private static function count_blocks_recursive(
@@ -352,11 +355,14 @@ class BlockInventory {
 		array &$pattern_refs
 	): void {
 		foreach ( $blocks as $block ) {
-			$name = $block['blockName'] ?? '';
+			if ( ! is_array( $block ) ) {
+				continue;
+			}
+			$name = isset( $block['blockName'] ) && is_string( $block['blockName'] ) ? $block['blockName'] : '';
 
 			if ( '' === $name ) {
-				// Freeform / whitespace — skip.
-				if ( ! empty( $block['innerBlocks'] ) ) {
+				// Freeform / whitespace — skip but still recurse into inner blocks.
+				if ( ! empty( $block['innerBlocks'] ) && is_array( $block['innerBlocks'] ) ) {
 					self::count_blocks_recursive( $block['innerBlocks'], $block_counts, $namespace_totals, $pattern_refs );
 				}
 				continue;
@@ -366,18 +372,18 @@ class BlockInventory {
 			$block_counts[ $name ] = ( $block_counts[ $name ] ?? 0 ) + 1;
 
 			// Namespace total.
-			$slash_pos = strpos( $name, '/' );
-			$ns        = false !== $slash_pos ? substr( $name, 0, $slash_pos ) : $name;
+			$slash_pos               = strpos( $name, '/' );
+			$ns                      = false !== $slash_pos ? substr( $name, 0, $slash_pos ) : $name;
 			$namespace_totals[ $ns ] = ( $namespace_totals[ $ns ] ?? 0 ) + 1;
 
 			// Synced pattern references (core/block with ref attribute).
-			if ( 'core/block' === $name && ! empty( $block['attrs']['ref'] ) ) {
-				$ref_id               = (int) $block['attrs']['ref'];
+			if ( 'core/block' === $name && isset( $block['attrs']['ref'] ) ) {
+				$ref_id                  = (int) $block['attrs']['ref'];
 				$pattern_refs[ $ref_id ] = ( $pattern_refs[ $ref_id ] ?? 0 ) + 1;
 			}
 
 			// Recurse into inner blocks.
-			if ( ! empty( $block['innerBlocks'] ) ) {
+			if ( ! empty( $block['innerBlocks'] ) && is_array( $block['innerBlocks'] ) ) {
 				self::count_blocks_recursive( $block['innerBlocks'], $block_counts, $namespace_totals, $pattern_refs );
 			}
 		}
@@ -389,10 +395,11 @@ class BlockInventory {
 	 * Also scans registered block patterns (non-synced) to include their
 	 * names if referenced by slug via core/pattern blocks.
 	 *
-	 * @param array $pattern_refs Pattern post ID => int (ref count).
-	 * @return array pattern_name => int (sorted descending by refs).
+	 * @param array<int,int> $pattern_refs Pattern post ID => int (ref count).
+	 * @return array<string,int> pattern_name => int (sorted descending by refs).
 	 */
 	private static function resolve_pattern_refs( array $pattern_refs ): array {
+		/** @var array<string,int> $resolved */
 		$resolved = array();
 
 		foreach ( $pattern_refs as $pattern_id => $count ) {
@@ -422,20 +429,21 @@ class BlockInventory {
 	/**
 	 * Read the persisted inventory from the site option.
 	 *
-	 * @return array|null Persisted inventory array, or null if not set.
+	 * @return array<string,mixed>|null Persisted inventory array, or null if not set.
 	 */
 	private static function get_cached(): ?array {
 		$raw = get_option( self::INVENTORY_OPTION, null );
 		if ( ! is_array( $raw ) ) {
 			return null;
 		}
+		/** @var array<string,mixed> $raw */
 		return $raw;
 	}
 
 	/**
 	 * Whether a cached inventory is still within the TTL window.
 	 *
-	 * @param array $cached Previously persisted inventory.
+	 * @param array<string,mixed> $cached Previously persisted inventory.
 	 * @return bool True when fresh enough to return without re-scanning.
 	 */
 	private static function is_fresh( array $cached ): bool {
@@ -462,10 +470,10 @@ class BlockInventory {
 	/**
 	 * Persist the inventory result to the site option.
 	 *
-	 * autoload=false: the option is large and should only be loaded on
+	 * Autoload=false: the option is large and should only be loaded on
 	 * demand (e.g. when the ability is invoked or the admin page is loaded).
 	 *
-	 * @param array $result Inventory data to persist.
+	 * @param array<string,mixed> $result Inventory data to persist.
 	 * @return void
 	 */
 	private static function persist( array $result ): void {
