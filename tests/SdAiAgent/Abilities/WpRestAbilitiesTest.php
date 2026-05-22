@@ -397,46 +397,13 @@ class WpRestAbilitiesTest extends WP_UnitTestCase {
 	// ─── 5. Loop guard ───────────────────────────────────────────────────
 
 	/**
-	 * Test: loop guard rejects a call when AgentController is on the stack.
-	 *
-	 * This simulates the AgentController frame by temporarily adding a filter
-	 * that invokes WpRestAbilities::handle_execute() from inside a mock
-	 * AgentController-named context via reflection.
+	 * Test: loop guard returns false when AgentController is NOT on the stack.
 	 */
-	public function test_loop_guard_rejects_recursive_call(): void {
-		// Use a closure that appears in debug_backtrace() as coming from AgentController.
-		$result = null;
-
-		// Invoke handle_execute from within a fake AgentController frame.
-		$fake_controller = new class() {
-			/** @var array<string,mixed>|WP_Error|null */
-			public mixed $result = null;
-
-			public function dispatch(): void {
-				// This method is named 'dispatch' in a class in the SdAiAgent\REST namespace
-				// but that isn't the class name check. We need to simulate the class check.
-				// Use a workaround: inject a custom stack-frame via an anon class with the right name.
-				$this->result = $this->inner_dispatch();
-			}
-
-			/** @return array<string,mixed>|\WP_Error */
-			public function inner_dispatch(): mixed {
-				return WpRestAbilities::handle_execute(
-					array(
-						'method' => 'GET',
-						'route'  => '/wp/v2/posts',
-					)
-				);
-			}
-		};
-
-		// Since we can't actually put AgentController on the backtrace without
-		// modifying the real class, we verify the guard via a filter-based approach:
-		// register a filter that checks the loop guard reflection method.
+	public function test_loop_guard_returns_false_when_not_in_agent_context(): void {
+		// Verify the guard returns false when NOT in AgentController context.
 		$ref = new \ReflectionMethod( WpRestAbilities::class, 'is_in_agent_controller_stack' );
 		$ref->setAccessible( true );
 
-		// Verify the guard returns false when NOT in AgentController context.
 		$guard_result = $ref->invoke( null );
 		$this->assertFalse( $guard_result, 'Loop guard should return false when AgentController is not on stack.' );
 
@@ -451,7 +418,48 @@ class WpRestAbilitiesTest extends WP_UnitTestCase {
 
 		$this->assertIsArray( $result );
 		$this->assertSame( 200, $result['status'] ?? 0 );
-		$this->assertArrayNotHasKey( 'wp_rest_loop_blocked', is_wp_error( $result ) ? array( $result->get_error_code() => true ) : array() );
+		// Verify the result is not blocked by the loop guard.
+		if ( is_wp_error( $result ) ) {
+			$this->assertNotSame( 'wp_rest_loop_blocked', $result->get_error_code(), 'Loop guard should not block in normal context.' );
+		}
+	}
+
+	/**
+	 * Test: loop guard blocks execution when AgentController IS on the stack.
+	 *
+	 * This test invokes handle_execute from within a class in the SdAiAgent\REST
+	 * namespace, which simulates the AgentController being on the call stack.
+	 */
+	public function test_loop_guard_blocks_when_in_agent_controller_context(): void {
+		// Create a mock AgentController-like class in the correct namespace.
+		// We use eval to dynamically create a class with the exact namespace.
+		$class_code = <<<'PHP'
+namespace SdAiAgent\REST;
+
+class MockAgentController {
+	public function dispatch_and_call_handle_execute() {
+		return \SdAiAgent\Abilities\WpRestAbilities::handle_execute(
+			array(
+				'method' => 'GET',
+				'route'  => '/wp/v2/posts',
+			)
+		);
+	}
+}
+PHP;
+
+		// Dynamically create the class if it doesn't exist.
+		if ( ! class_exists( 'SdAiAgent\REST\MockAgentController' ) ) {
+			eval( $class_code );
+		}
+
+		// Instantiate and call the method, which should trigger the loop guard.
+		$mock_controller = new \SdAiAgent\REST\MockAgentController();
+		$result          = $mock_controller->dispatch_and_call_handle_execute();
+
+		// Verify the loop guard blocked the call.
+		$this->assertInstanceOf( \WP_Error::class, $result, 'Loop guard should return WP_Error when AgentController is on stack.' );
+		$this->assertSame( 'wp_rest_loop_blocked', $result->get_error_code(), 'Error code should be wp_rest_loop_blocked.' );
 	}
 
 	// ─── 6. Response truncation ──────────────────────────────────────────
