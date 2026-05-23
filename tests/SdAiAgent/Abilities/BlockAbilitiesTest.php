@@ -163,6 +163,75 @@ class BlockAbilitiesTest extends WP_UnitTestCase {
 		$this->assertSame( 5, $result['per_page'] );
 	}
 
+	/**
+	 * Test handle_list_block_types includes tier and score fields.
+	 */
+	public function test_handle_list_block_types_includes_tier_and_score() {
+		$result = BlockAbilities::handle_list_block_types( [] );
+
+		if ( ! empty( $result['block_types'] ) ) {
+			$block = $result['block_types'][0];
+			$this->assertArrayHasKey( 'score', $block );
+			$this->assertArrayHasKey( 'tier', $block );
+			$this->assertIsInt( $block['score'] );
+			$this->assertIsString( $block['tier'] );
+			$this->assertContains( $block['tier'], [ 'preferred', 'acceptable', 'avoid', 'legacy' ] );
+		}
+	}
+
+	/**
+	 * Test handle_list_block_types includes suggested_replacement for legacy blocks.
+	 */
+	public function test_handle_list_block_types_legacy_block_has_replacement() {
+		$result = BlockAbilities::handle_list_block_types( [] );
+
+		// Find a legacy block (core/freeform is known to be legacy).
+		$legacy_block = null;
+		foreach ( $result['block_types'] as $block ) {
+			if ( 'core/freeform' === $block['name'] ) {
+				$legacy_block = $block;
+				break;
+			}
+		}
+
+		if ( $legacy_block ) {
+			$this->assertSame( 'legacy', $legacy_block['tier'] );
+			$this->assertArrayHasKey( 'suggested_replacement', $legacy_block );
+			$this->assertNotNull( $legacy_block['suggested_replacement'] );
+			$this->assertSame( 'core/group', $legacy_block['suggested_replacement'] );
+		}
+	}
+
+	/**
+	 * Test handle_list_block_types with tier filter.
+	 */
+	public function test_handle_list_block_types_tier_filter() {
+		$result = BlockAbilities::handle_list_block_types( [
+			'tier' => 'preferred',
+		] );
+
+		$this->assertIsArray( $result );
+		// All results should have tier 'preferred'.
+		foreach ( $result['block_types'] as $block ) {
+			$this->assertSame( 'preferred', $block['tier'] );
+		}
+	}
+
+	/**
+	 * Test handle_list_block_types with avoid tier filter.
+	 */
+	public function test_handle_list_block_types_avoid_tier_filter() {
+		$result = BlockAbilities::handle_list_block_types( [
+			'tier' => 'avoid',
+		] );
+
+		$this->assertIsArray( $result );
+		// All results should have tier 'avoid'.
+		foreach ( $result['block_types'] as $block ) {
+			$this->assertSame( 'avoid', $block['tier'] );
+		}
+	}
+
 	// ─── get-block-type ───────────────────────────────────────────
 
 	/**

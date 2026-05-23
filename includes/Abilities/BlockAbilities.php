@@ -92,6 +92,11 @@ class BlockAbilities {
 							'type'        => 'string',
 							'description' => 'Search term to filter block types by name, title, or keywords.',
 						],
+						'tier'     => [
+							'type'        => 'string',
+							'description' => 'Filter by tier: "preferred", "acceptable", "avoid", or "legacy".',
+							'enum'        => [ 'preferred', 'acceptable', 'avoid', 'legacy' ],
+						],
 						'per_page' => [
 							'type'        => 'integer',
 							'description' => 'Results per page (default: 20).',
@@ -106,7 +111,22 @@ class BlockAbilities {
 				'output_schema'       => [
 					'type'       => 'object',
 					'properties' => [
-						'block_types' => [ 'type' => 'array' ],
+						'block_types' => [
+							'type'  => 'array',
+							'items' => [
+								'type'       => 'object',
+								'properties' => [
+									'name'        => [ 'type' => 'string' ],
+									'title'       => [ 'type' => 'string' ],
+									'description' => [ 'type' => 'string' ],
+									'category'    => [ 'type' => 'string' ],
+									'keywords'    => [ 'type' => 'array' ],
+									'score'       => [ 'type' => 'integer' ],
+									'tier'        => [ 'type' => 'string' ],
+									'suggested_replacement' => [ 'type' => [ 'string', 'null' ] ],
+								],
+							],
+						],
 						'total'       => [ 'type' => 'integer' ],
 						'page'        => [ 'type' => 'integer' ],
 						'per_page'    => [ 'type' => 'integer' ],
@@ -804,7 +824,7 @@ class BlockAbilities {
 	/**
 	 * Handle listing block types.
 	 *
-	 * @param array<string,mixed> $input Input with optional category, search, per_page, page.
+	 * @param array<string,mixed> $input Input with optional category, search, tier, per_page, page.
 	 * @return array<string,mixed> Result with block_types, total, and categories.
 	 */
 	public static function handle_list_block_types( array $input ): array {
@@ -814,6 +834,8 @@ class BlockAbilities {
 		$category = $input['category'] ?? '';
 		// @phpstan-ignore-next-line
 		$search = strtolower( $input['search'] ?? '' );
+		// @phpstan-ignore-next-line
+		$tier = $input['tier'] ?? '';
 		// @phpstan-ignore-next-line
 		$per_page = max( 1, min( 100, (int) ( $input['per_page'] ?? 20 ) ) );
 		// @phpstan-ignore-next-line
@@ -847,12 +869,30 @@ class BlockAbilities {
 				}
 			}
 
+			// Get tier and score for this block.
+			$score      = BlockContentPolicy::get_namespace_score( $name );
+			$block_tier = BlockContentPolicy::score_to_tier( $score );
+
+			// Filter by tier if specified.
+			if ( ! empty( $tier ) && $block_tier !== $tier ) {
+				continue;
+			}
+
+			// Get suggested replacement if block is in legacy or avoid tier.
+			$suggested_replacement = null;
+			if ( in_array( $block_tier, [ 'legacy', 'avoid' ], true ) ) {
+				$suggested_replacement = BlockContentPolicy::get_replacement( $name );
+			}
+
 			$filtered[] = [
-				'name'        => $name,
-				'title'       => $block->title ?? '',
-				'description' => $block->description ?? '',
-				'category'    => $block->category ?? '',
-				'keywords'    => $block->keywords ?? [],
+				'name'                  => $name,
+				'title'                 => $block->title ?? '',
+				'description'           => $block->description ?? '',
+				'category'              => $block->category ?? '',
+				'keywords'              => $block->keywords ?? [],
+				'score'                 => $score,
+				'tier'                  => $block_tier,
+				'suggested_replacement' => $suggested_replacement,
 			];
 		}
 
