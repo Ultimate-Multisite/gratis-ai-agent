@@ -19,6 +19,7 @@ use SdAiAgent\Core\BlockMutator;
 use SdAiAgent\Core\BlockReferences;
 use SdAiAgent\Core\BlockTreeAddress;
 use SdAiAgent\Core\BlockValidator;
+use SdAiAgent\Core\PatternInserter;
 use SdAiAgent\Core\RevisionGuard;
 use SdAiAgent\Models\MarkdownToBlocks;
 
@@ -807,6 +808,92 @@ class BlockAbilities {
 					],
 				],
 				'execute_callback'    => [ __CLASS__, 'handle_update_blocks' ],
+				'permission_callback' => function () {
+					return current_user_can( 'edit_posts' );
+				},
+				'meta'                => [
+					'mcp'         => [ 'public' => true ],
+					'annotations' => [
+						'readonly'    => false,
+						'destructive' => true,
+						'idempotent'  => false,
+					],
+				],
+			]
+		);
+
+		wp_register_ability(
+			'sd-ai-agent/insert-pattern',
+			[
+				'label'               => __( 'Insert Pattern', 'superdav-ai-agent' ),
+				'description'         => __( 'Insert a registered block pattern (inline expansion) or a synced pattern (wp_block reference) into a post at a specified anchor position. For registered patterns (e.g. "core/quote"), the pattern content is expanded server-side into individual blocks and inlined at the anchor. For synced patterns (numeric ID, "wp-block:N", or "synced:N"), a single core/block reference is inserted — the editor renders it transcluded. Supports five anchor modes: after_top_level (append to root), before_top_level (prepend to root), after_ref (insert after a ref\'d block), before_ref (insert before a ref\'d block), and first_child_of_ref (insert as first children of a container block). Optimistic concurrency via expected_revision_id. Refs assigned to all inserted blocks.', 'superdav-ai-agent' ),
+				'category'            => 'sd-ai-agent',
+				'input_schema'        => [
+					'type'       => 'object',
+					'properties' => [
+						'post_id'              => [
+							'type'        => 'integer',
+							'description' => 'Post ID to insert the pattern into.',
+						],
+						'pattern'              => [
+							'description' => 'Pattern identifier: registered pattern slug (e.g. "core/quote"), numeric synced pattern ID (42), or prefixed form ("wp-block:42", "synced:42").',
+						],
+						'anchor'               => [
+							'type'        => 'string',
+							'description' => 'Where to insert: after_top_level (default), before_top_level, after_ref, before_ref, or first_child_of_ref.',
+							'enum'        => [
+								'after_top_level',
+								'before_top_level',
+								'after_ref',
+								'before_ref',
+								'first_child_of_ref',
+							],
+						],
+						'ref'                  => [
+							'type'        => 'string',
+							'description' => 'Stable sd_ref UUID of the target block. Required when anchor is after_ref, before_ref, or first_child_of_ref.',
+						],
+						'expected_revision_id' => [
+							'type'        => 'integer',
+							'description' => 'Expected revision ID for optimistic concurrency control. Pass the revision_id from get-page-blocks.',
+						],
+						'dry_run'              => [
+							'type'        => 'boolean',
+							'description' => 'When true, validate and compute the result but do not persist. Default: false.',
+						],
+					],
+					'required'   => [ 'post_id', 'pattern' ],
+				],
+				'output_schema'       => [
+					'type'       => 'object',
+					'properties' => [
+						'success'         => [
+							'type'        => 'boolean',
+							'description' => 'True when the pattern was inserted successfully.',
+						],
+						'dry_run'         => [ 'type' => 'boolean' ],
+						'post_id'         => [ 'type' => 'integer' ],
+						'pattern_type'    => [
+							'type'        => 'string',
+							'description' => 'Whether the pattern was "registered" (inlined) or "synced" (referenced).',
+							'enum'        => [ 'registered', 'synced' ],
+						],
+						'blocks_inserted' => [
+							'type'        => 'integer',
+							'description' => 'Number of top-level blocks inserted.',
+						],
+						'revision_id'     => [
+							'type'        => 'integer',
+							'description' => 'Current revision ID after the write.',
+						],
+						'block_tree'      => [
+							'type'        => 'array',
+							'description' => 'The resulting full block tree.',
+						],
+						'error'           => [ 'type' => 'string' ],
+					],
+				],
+				'execute_callback'    => [ __CLASS__, 'handle_insert_pattern' ],
 				'permission_callback' => function () {
 					return current_user_can( 'edit_posts' );
 				},
@@ -2362,6 +2449,289 @@ class BlockAbilities {
 			'updates'     => count( $updates ),
 			'revision_id' => RevisionGuard::current_revision_id( $post_id ),
 			'block_tree'  => $new_tree,
+		];
+	}
+
+	// ─── insert-pattern handler ───────────────────────────────────
+
+	/**
+	 * Valid anchor modes for insert-pattern.
+	 *
+	 * @var string[]
+	 */
+	private const VALID_ANCHORS = [
+		'after_top_level',
+		'before_top_level',
+		'after_ref',
+		'before_ref',
+		'first_child_of_ref',
+	];
+
+	/**
+	 * Handle the sd-ai-agent/insert-pattern ability.
+	 *
+	 * Inserts a registered pattern (inline expansion) or synced pattern
+	 * (core/block reference) at the specified anchor position. Assigns
+	 * stable sd_ref UUIDs to all inserted blocks.
+	 *
+	 * @param array<string,mixed> $input Ability input.
+	 * @return array<string,mixed>|\WP_Error Result array or WP_Error.
+	 */
+	public static function handle_insert_pattern( array $input ) {
+		global $wpdb;
+
+		$post_id = (int) ( $input['post_id'] ?? 0 );
+		$pattern = $input['pattern'] ?? null;
+		$anchor  = isset( $input['anchor'] ) && is_string( $input['anchor'] ) ? $input['anchor'] : 'after_top_level';
+		$ref     = isset( $input['ref'] ) && is_string( $input['ref'] ) ? $input['ref'] : '';
+		$dry_run = isset( $input['dry_run'] ) ? (bool) $input['dry_run'] : false;
+
+		// ── Validate inputs ───────────────────────────────────────────
+
+		if ( $post_id <= 0 ) {
+			return new \WP_Error(
+				'missing_post_id',
+				__( 'post_id is required and must be a positive integer.', 'superdav-ai-agent' ),
+				[ 'status' => 400 ]
+			);
+		}
+
+		if ( null === $pattern || ( is_string( $pattern ) && '' === $pattern ) ) {
+			return new \WP_Error(
+				'missing_pattern',
+				__( 'pattern is required (slug for registered, numeric ID or "wp-block:N"/"synced:N" for synced).', 'superdav-ai-agent' ),
+				[ 'status' => 400 ]
+			);
+		}
+
+		if ( ! in_array( $anchor, self::VALID_ANCHORS, true ) ) {
+			return new \WP_Error(
+				'invalid_anchor',
+				sprintf(
+					/* translators: %s: valid anchor list */
+					__( 'Invalid anchor "%1$s". Valid anchors: %2$s.', 'superdav-ai-agent' ),
+					$anchor,
+					implode( ', ', self::VALID_ANCHORS )
+				),
+				[ 'status' => 400 ]
+			);
+		}
+
+		// Ref-based anchors require a ref parameter.
+		$ref_required = in_array( $anchor, [ 'after_ref', 'before_ref', 'first_child_of_ref' ], true );
+		if ( $ref_required && '' === $ref ) {
+			return new \WP_Error(
+				'missing_ref',
+				sprintf(
+					/* translators: %s: anchor name */
+					__( 'ref is required when anchor is "%s".', 'superdav-ai-agent' ),
+					$anchor
+				),
+				[ 'status' => 400 ]
+			);
+		}
+
+		// ── Parse pattern identifier ──────────────────────────────────
+
+		$parsed = PatternInserter::parse_pattern_id( is_int( $pattern ) ? $pattern : (string) $pattern );
+		if ( is_wp_error( $parsed ) ) {
+			return $parsed;
+		}
+
+		$pattern_type = $parsed['type'];
+		$pattern_id   = $parsed['id'];
+
+		// ── Validate pattern exists ───────────────────────────────────
+
+		$exists = PatternInserter::validate_pattern_exists( $pattern_type, $pattern_id );
+		if ( is_wp_error( $exists ) ) {
+			return $exists;
+		}
+
+		// ── Load post ─────────────────────────────────────────────────
+
+		$post = get_post( $post_id );
+		if ( ! $post ) {
+			return new \WP_Error(
+				'post_not_found',
+				sprintf(
+					/* translators: %d: post ID */
+					__( 'Post %d not found.', 'superdav-ai-agent' ),
+					$post_id
+				),
+				[ 'status' => 404 ]
+			);
+		}
+
+		// ── Optimistic concurrency ────────────────────────────────────
+
+		$expected = isset( $input['expected_revision_id'] ) ? (string) $input['expected_revision_id'] : '';
+		$guard    = RevisionGuard::check( $post_id, RevisionGuard::parse_raw( $expected ) );
+		if ( is_wp_error( $guard ) ) {
+			return $guard;
+		}
+
+		// ── Resolve pattern to blocks ─────────────────────────────────
+
+		if ( 'synced' === $pattern_type ) {
+			// Synced pattern → single core/block reference.
+			$new_blocks = [ PatternInserter::make_synced_ref( (int) $pattern_id ) ];
+		} else {
+			// Registered pattern → inline expansion.
+			$expanded = PatternInserter::expand_registered( (string) $pattern_id );
+			if ( is_wp_error( $expanded ) ) {
+				return $expanded;
+			}
+
+			// Enforce tier policy on expanded blocks before insertion.
+			foreach ( $expanded as $block ) {
+				if ( ! is_array( $block ) ) {
+					continue;
+				}
+				$policy_error = self::check_block_def_policy( $block, false );
+				if ( is_wp_error( $policy_error ) ) {
+					return $policy_error;
+				}
+			}
+
+			$new_blocks = $expanded;
+		}
+
+		// ── Parse post block tree ─────────────────────────────────────
+
+		$content = $post->post_content;
+		$blocks  = is_string( $content ) ? parse_blocks( $content ) : [];
+		if ( ! is_array( $blocks ) ) {
+			$blocks = [];
+		}
+
+		// ── Insert at anchor position ─────────────────────────────────
+
+		$blocks_inserted = count( $new_blocks );
+
+		switch ( $anchor ) {
+			case 'after_top_level':
+				// Append to root level.
+				foreach ( $new_blocks as $nb ) {
+					$blocks[] = $nb;
+				}
+				break;
+
+			case 'before_top_level':
+				// Prepend to root level.
+				array_splice( $blocks, 0, 0, $new_blocks );
+				break;
+
+			case 'after_ref':
+			case 'before_ref':
+				$path = BlockTreeAddress::resolve( $blocks, [ 'ref' => $ref ] );
+				if ( is_wp_error( $path ) ) {
+					return $path;
+				}
+				$position = ( 'before_ref' === $anchor ) ? 'before' : 'after';
+				$result   = BlockMutator::insert_blocks_as_siblings( $blocks, $path, $new_blocks, $position );
+				if ( is_wp_error( $result ) ) {
+					return $result;
+				}
+				$blocks = $result;
+				break;
+
+			case 'first_child_of_ref':
+				$path = BlockTreeAddress::resolve( $blocks, [ 'ref' => $ref ] );
+				if ( is_wp_error( $path ) ) {
+					return $path;
+				}
+
+				// Verify the target is a container block (has or can hold innerBlocks).
+				$target = BlockTreeAddress::get_block_at_path( $blocks, $path );
+				if ( null === $target || ! is_array( $target ) ) {
+					return new \WP_Error(
+						'block_not_found',
+						sprintf( 'Block with ref "%s" not found.', $ref ),
+						[ 'status' => 404 ]
+					);
+				}
+
+				// Check if the block can accept innerBlocks.
+				$target_name = isset( $target['blockName'] ) && is_string( $target['blockName'] ) ? $target['blockName'] : '';
+				$has_inner   = isset( $target['innerBlocks'] ) && is_array( $target['innerBlocks'] );
+
+				// Blocks without any innerBlocks and that aren't containers should be rejected.
+				if ( ! $has_inner && '' !== $target_name ) {
+					// Check WordPress block type registry to see if the block supports innerBlocks.
+					$block_type  = \WP_Block_Type_Registry::get_instance()->get_registered( $target_name );
+					$can_contain = false;
+
+					if ( $block_type ) {
+						// Blocks with parent property or uses_context usually can't contain innerBlocks.
+						// Blocks like core/group, core/columns, core/column, core/cover can.
+						// If the block type doesn't explicitly block innerBlocks, allow it.
+						$can_contain = empty( $block_type->parent );
+					}
+
+					if ( ! $can_contain ) {
+						return new \WP_Error(
+							'not_a_container',
+							sprintf(
+								'Block "%s" (ref: %s) cannot accept inner blocks.',
+								$target_name,
+								$ref
+							),
+							[ 'status' => 400 ]
+						);
+					}
+				}
+
+				$result = BlockMutator::insert_blocks_as_children( $blocks, $path, $new_blocks, 0 );
+				if ( is_wp_error( $result ) ) {
+					return $result;
+				}
+				$blocks = $result;
+				break;
+		}
+
+		// ── Assign refs to all blocks ─────────────────────────────────
+
+		// @phpstan-ignore-next-line
+		$ref_result = BlockReferences::assign_refs( $blocks );
+		if ( is_wp_error( $ref_result ) ) {
+			return $ref_result;
+		}
+		$blocks = $ref_result;
+
+		// ── Validate tree depth ───────────────────────────────────────
+
+		$depth_check = BlockMutator::validate_tree_depth( $blocks );
+		if ( is_wp_error( $depth_check ) ) {
+			return $depth_check;
+		}
+
+		// ── Persist (unless dry_run) ──────────────────────────────────
+
+		if ( ! $dry_run ) {
+			// @phpstan-ignore-next-line
+			$new_content   = serialize_blocks( $blocks );
+			$update_result = wp_update_post(
+				[
+					'ID'           => $post_id,
+					'post_content' => $new_content,
+				],
+				true
+			);
+
+			if ( is_wp_error( $update_result ) ) {
+				return $update_result;
+			}
+		}
+
+		return [
+			'success'         => true,
+			'dry_run'         => $dry_run,
+			'post_id'         => $post_id,
+			'pattern_type'    => $pattern_type,
+			'blocks_inserted' => $blocks_inserted,
+			'revision_id'     => RevisionGuard::current_revision_id( $post_id ),
+			'block_tree'      => $blocks,
 		];
 	}
 }

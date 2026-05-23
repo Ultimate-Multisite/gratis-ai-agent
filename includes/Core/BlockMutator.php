@@ -1059,6 +1059,117 @@ class BlockMutator {
 	}
 
 	/**
+	 * Insert multiple blocks as siblings of the target (before or after).
+	 *
+	 * Used by the insert-pattern ability to inline an expanded registered
+	 * pattern (which may produce N blocks) at a ref-addressed position.
+	 *
+	 * @param array<int|string,mixed>        $blocks       Parsed block tree.
+	 * @param int[]                          $dst_path     Path to the reference block.
+	 * @param array<int,array<string,mixed>> $new_blocks Blocks to insert (in order).
+	 * @param string                         $position     'before' or 'after'.
+	 * @return array<int|string,mixed>|\WP_Error
+	 */
+	public static function insert_blocks_as_siblings( array $blocks, array $dst_path, array $new_blocks, string $position ) {
+		if ( empty( $new_blocks ) ) {
+			return $blocks;
+		}
+
+		$result = self::mutate_at_path(
+			$blocks,
+			$dst_path,
+			static function ( array $siblings, int $idx ) use ( $new_blocks, $position ) {
+				$insert_at = ( 'before' === $position ) ? $idx : $idx + 1;
+				array_splice( $siblings, $insert_at, 0, $new_blocks );
+				return array_values( $siblings );
+			}
+		);
+
+		if ( is_wp_error( $result ) ) {
+			return $result;
+		}
+
+		// Validate tree depth after insertion.
+		if ( is_array( $result ) ) {
+			$depth_check = self::validate_tree_depth( $result );
+			if ( is_wp_error( $depth_check ) ) {
+				return $depth_check;
+			}
+		}
+
+		return $result;
+	}
+
+	/**
+	 * Insert multiple blocks as children of the target at a given position.
+	 *
+	 * Used by the insert-pattern ability for `first_child_of_ref` anchoring.
+	 * Validates that the target block exists and has (or can accept) innerBlocks.
+	 *
+	 * @param array<int|string,mixed>        $blocks     Parsed block tree.
+	 * @param int[]                          $dst_path   Path to the container block.
+	 * @param array<int,array<string,mixed>> $new_blocks Blocks to insert (in order).
+	 * @param int                            $position   0-based index in innerBlocks (default: 0).
+	 * @return array<int|string,mixed>|\WP_Error
+	 */
+	public static function insert_blocks_as_children( array $blocks, array $dst_path, array $new_blocks, int $position = 0 ) {
+		if ( empty( $new_blocks ) ) {
+			return $blocks;
+		}
+
+		$result = self::mutate_at_path(
+			$blocks,
+			$dst_path,
+			static function ( array $siblings, int $idx ) use ( $new_blocks, $position ) {
+				$block = $siblings[ $idx ];
+				$inner = isset( $block['innerBlocks'] ) && is_array( $block['innerBlocks'] ) ? $block['innerBlocks'] : [];
+				$icont = isset( $block['innerContent'] ) && is_array( $block['innerContent'] ) ? $block['innerContent'] : [];
+
+				$pos = max( 0, min( $position, count( $inner ) ) );
+
+				// Splice new blocks into innerBlocks.
+				array_splice( $inner, $pos, 0, $new_blocks );
+
+				// Splice matching null slots into innerContent.
+				$nulls = array_fill( 0, count( $new_blocks ), null );
+
+				// Find the insertion point in innerContent (Nth null slot).
+				$null_count  = 0;
+				$icont_index = count( $icont );
+				foreach ( $icont as $ci => $chunk ) {
+					if ( null === $chunk ) {
+						if ( $null_count === $pos ) {
+							$icont_index = $ci;
+							break;
+						}
+						++$null_count;
+					}
+				}
+				array_splice( $icont, $icont_index, 0, $nulls );
+
+				$block['innerBlocks']  = $inner;
+				$block['innerContent'] = $icont;
+				$siblings[ $idx ]      = $block;
+				return $siblings;
+			}
+		);
+
+		if ( is_wp_error( $result ) ) {
+			return $result;
+		}
+
+		// Validate tree depth after insertion.
+		if ( is_array( $result ) ) {
+			$depth_check = self::validate_tree_depth( $result );
+			if ( is_wp_error( $depth_check ) ) {
+				return $depth_check;
+			}
+		}
+
+		return $result;
+	}
+
+	/**
 	 * Adjust a destination path after removing the source block.
 	 *
 	 * When source and destination share the same parent, removing source shifts
