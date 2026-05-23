@@ -80,6 +80,49 @@ final class RestController {
 	 * All domain controllers are now DI-managed and register their own
 	 * routes via #[REST_Handler] or #[Handler] + #[Action(rest_api_init)].
 	 */
+	/**
+	 * Add `Retry-After` header to 429 (rate_limit_exceeded) REST responses.
+	 *
+	 * When a WP_Error with code `rate_limit_exceeded` is converted to a REST
+	 * response by WordPress core, this filter reads `retry_after_seconds`
+	 * from the error data and sets the `Retry-After` HTTP header. This
+	 * allows clients (and the AI agent) to honour the backoff signal.
+	 *
+	 * @param WP_REST_Response|\WP_HTTP_Response $result  REST response.
+	 * @return WP_REST_Response|\WP_HTTP_Response Modified response (header added if applicable).
+	 */
+	#[Action( tag: 'rest_post_dispatch', priority: 10 )]
+	public static function add_retry_after_header( $result ) {
+		if ( ! $result instanceof WP_REST_Response ) {
+			return $result;
+		}
+
+		if ( 429 !== $result->get_status() ) {
+			return $result;
+		}
+
+		$data = $result->get_data();
+
+		if ( ! is_array( $data ) ) {
+			return $result;
+		}
+
+		// WP_Error→REST conversion puts error data under 'data'.
+		$error_data = $data['data'] ?? [];
+
+		if ( ! is_array( $error_data ) ) {
+			return $result;
+		}
+
+		$retry_after = $error_data['retry_after_seconds'] ?? null;
+
+		if ( is_int( $retry_after ) && $retry_after > 0 ) {
+			$result->header( 'Retry-After', (string) $retry_after );
+		}
+
+		return $result;
+	}
+
 	#[Action( tag: 'rest_api_init', priority: 10 )]
 	public function register_routes(): void {
 

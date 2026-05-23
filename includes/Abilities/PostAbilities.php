@@ -14,6 +14,7 @@ declare(strict_types=1);
 namespace SdAiAgent\Abilities;
 
 use SdAiAgent\Core\BlockValidator;
+use SdAiAgent\Core\RateLimiter;
 use SdAiAgent\Core\RevisionGuard;
 use SdAiAgent\Models\MarkdownToBlocks;
 use WP_Error;
@@ -803,6 +804,13 @@ class PostAbilities {
 	 * @return array<string, mixed>|WP_Error
 	 */
 	public static function handle_create_post( array $input ) {
+		// Rate limit check (write bucket, per-user for creates).
+		$rate_check = RateLimiter::check( 'write', get_current_user_id() );
+
+		if ( is_wp_error( $rate_check ) ) {
+			return $rate_check;
+		}
+
 		// @phpstan-ignore-next-line
 		$title       = sanitize_text_field( $input['title'] ?? '' );
 		$raw_content = $input['content'] ?? '';
@@ -860,6 +868,9 @@ class PostAbilities {
 			}
 			return $post_id;
 		}
+
+		// Record rate-limit tick after successful create (per-user).
+		RateLimiter::record( 'write', get_current_user_id() );
 
 		// Assign categories.
 		$categories = $input['categories'] ?? [];
@@ -1003,6 +1014,13 @@ class PostAbilities {
 			return new WP_Error( 'ai_agent_empty_post_id', __( 'post_id is required.', 'superdav-ai-agent' ) );
 		}
 
+		// Rate limit check (write bucket, per-post).
+		$rate_check = RateLimiter::check( 'write', $post_id );
+
+		if ( is_wp_error( $rate_check ) ) {
+			return $rate_check;
+		}
+
 		$switched = false;
 
 		if ( ! empty( $site_url ) && is_multisite() ) {
@@ -1078,6 +1096,9 @@ class PostAbilities {
 			}
 			return $result;
 		}
+
+		// Record rate-limit tick after successful write.
+		RateLimiter::record( 'write', $post_id );
 
 		// Update categories if provided.
 		if ( isset( $input['categories'] ) && is_array( $input['categories'] ) ) {

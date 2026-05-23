@@ -21,6 +21,7 @@ use SdAiAgent\Core\BlockRenderer;
 use SdAiAgent\Core\BlockTreeAddress;
 use SdAiAgent\Core\BlockValidator;
 use SdAiAgent\Core\PatternInserter;
+use SdAiAgent\Core\RateLimiter;
 use SdAiAgent\Core\RevisionGuard;
 use SdAiAgent\Models\MarkdownToBlocks;
 
@@ -2387,6 +2388,15 @@ class BlockAbilities {
 			);
 		}
 
+		// Rate limit check (write bucket, per-post).
+		if ( ! $dry_run ) {
+			$rate_check = RateLimiter::check( 'write', $post_id );
+
+			if ( is_wp_error( $rate_check ) ) {
+				return $rate_check;
+			}
+		}
+
 		$post = get_post( $post_id );
 
 		if ( ! $post ) {
@@ -2440,6 +2450,9 @@ class BlockAbilities {
 			}
 
 			clean_post_cache( $post_id );
+
+			// Record rate-limit tick after successful write.
+			RateLimiter::record( 'write', $post_id );
 		}
 
 		return [
@@ -2485,6 +2498,16 @@ class BlockAbilities {
 				__( 'updates must be an array.', 'superdav-ai-agent' ),
 				[ 'status' => 400 ]
 			);
+		}
+
+		// Rate limit check (write bucket, per-post).
+		// Atomic batch ticks once per batch, not per op.
+		if ( ! $dry_run ) {
+			$rate_check = RateLimiter::check( 'write', $post_id );
+
+			if ( is_wp_error( $rate_check ) ) {
+				return $rate_check;
+			}
 		}
 
 		$post = get_post( $post_id );
@@ -2548,6 +2571,9 @@ class BlockAbilities {
 			if ( is_wp_error( $update_result ) ) {
 				return $update_result;
 			}
+
+			// Record one rate-limit tick per batch (not per op).
+			RateLimiter::record( 'write', $post_id );
 		}
 
 		return [
@@ -2619,15 +2645,11 @@ class BlockAbilities {
 			return $guard;
 		}
 
-		// ── Rate limit (guarded — ships before t264) ──────────────────
-		// @phpstan-ignore-next-line
-		if ( class_exists( '\SdAiAgent\Core\RateLimiter' ) ) {
-			/** @var \WP_Error|true $rate_check */
-			// @phpstan-ignore-next-line
-			$rate_check = \SdAiAgent\Core\RateLimiter::check( $post_id, 'rewrite' );
-			if ( is_wp_error( $rate_check ) ) {
-				return $rate_check;
-			}
+		// ── Rate limit (rewrite bucket, per-post) ────────────────────
+		$rate_check = RateLimiter::check( 'rewrite', $post_id );
+
+		if ( is_wp_error( $rate_check ) ) {
+			return $rate_check;
 		}
 
 		// ── Validate and normalize blocks ─────────────────────────────
@@ -2671,12 +2693,8 @@ class BlockAbilities {
 			return $update_result;
 		}
 
-		// ── Record rate-limit hit (guarded) ───────────────────────────
-		// @phpstan-ignore-next-line
-		if ( class_exists( '\SdAiAgent\Core\RateLimiter' ) ) {
-			// @phpstan-ignore-next-line
-			\SdAiAgent\Core\RateLimiter::record( $post_id, 'rewrite' );
-		}
+		// Record rate-limit tick after successful rewrite.
+		RateLimiter::record( 'rewrite', $post_id );
 
 		return [
 			'success'     => true,
@@ -2790,6 +2808,15 @@ class BlockAbilities {
 				__( 'post_id is required and must be a positive integer.', 'superdav-ai-agent' ),
 				[ 'status' => 400 ]
 			);
+		}
+
+		// Rate limit check (write bucket, per-post).
+		if ( ! $dry_run ) {
+			$rate_check = RateLimiter::check( 'write', $post_id );
+
+			if ( is_wp_error( $rate_check ) ) {
+				return $rate_check;
+			}
 		}
 
 		if ( null === $pattern || ( is_string( $pattern ) && '' === $pattern ) ) {
@@ -3018,6 +3045,9 @@ class BlockAbilities {
 			if ( is_wp_error( $update_result ) ) {
 				return $update_result;
 			}
+
+			// Record rate-limit tick after successful write.
+			RateLimiter::record( 'write', $post_id );
 		}
 
 		return [
