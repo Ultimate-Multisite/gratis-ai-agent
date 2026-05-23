@@ -2047,6 +2047,7 @@ class BlockAbilities {
 			// @phpstan-ignore-next-line
 			$inner = $block['innerBlocks'] ?? [];
 			if ( ! empty( $inner ) && is_array( $inner ) ) {
+				/** @var array<int,mixed> $inner */
 				self::build_block_summary( $inner, $depth + 1, $current_path );
 			}
 		}
