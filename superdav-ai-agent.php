@@ -12,6 +12,8 @@
  * Text Domain: superdav-ai-agent
  *
  * @package SdAiAgent
+ *
+ * See AGENTS.md for REST API security and operational guidelines.
  */
 
 declare(strict_types=1);
