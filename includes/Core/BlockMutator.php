@@ -78,6 +78,16 @@ class BlockMutator {
 	public const MAX_REWRITE_BLOCKS = 200;
 
 	/**
+	 * Maximum number of consecutive sibling blocks in a replace_range call.
+	 *
+	 * Both the removed range and the new_blocks array are capped at this
+	 * limit to prevent accidental whole-post wipes or oversized insertions.
+	 *
+	 * @var int
+	 */
+	public const MAX_RANGE_SIZE = 200;
+
+	/**
 	 * Valid operation names.
 	 *
 	 * @var string[]
@@ -486,6 +496,193 @@ class BlockMutator {
 		}
 
 		return true;
+	}
+
+	/**
+	 * Replace a range of consecutive sibling blocks with new blocks.
+	 *
+	 * Atomic N-for-M swap: removes blocks from start_ref through end_ref
+	 * (inclusive) and inserts new_blocks at the start position. start_ref
+	 * and end_ref must be siblings (same parent, same depth). All
+	 * validation (depth cap, tier policy, bindings) runs pre-write; on
+	 * any violation the tree is returned unmodified as a WP_Error.
+	 *
+	 * @param array<int,mixed>               $blocks             Parsed block tree.
+	 * @param string                         $start_ref          sd_ref of the first block in the range.
+	 * @param string                         $end_ref            sd_ref of the last block in the range (inclusive).
+	 * @param array<int,array<string,mixed>> $new_blocks         Replacement block definitions.
+	 * @param bool                           $allow_bound_writes Override Block Bindings write-lock.
+	 * @return array<int|string,mixed>|\WP_Error Mutated tree, or WP_Error.
+	 */
+	public static function replace_range(
+		array $blocks,
+		string $start_ref,
+		string $end_ref,
+		array $new_blocks,
+		bool $allow_bound_writes = false
+	) {
+		// ── 1. Resolve start_ref ─────────────────────────────────────
+		$start_path = BlockTreeAddress::resolve( $blocks, [ 'ref' => $start_ref ] );
+
+		if ( is_wp_error( $start_path ) ) {
+			return $start_path;
+		}
+
+		// ── 2. Resolve end_ref ───────────────────────────────────────
+		$end_path = BlockTreeAddress::resolve( $blocks, [ 'ref' => $end_ref ] );
+
+		if ( is_wp_error( $end_path ) ) {
+			return $end_path;
+		}
+
+		// ── 3. Validate siblings (same parent, same depth) ───────────
+		if ( count( $start_path ) !== count( $end_path ) ) {
+			return new \WP_Error(
+				'not_siblings',
+				__( 'start_ref and end_ref must be siblings at the same depth.', 'superdav-ai-agent' ),
+				[ 'status' => 400 ]
+			);
+		}
+
+		$start_parent = array_slice( $start_path, 0, -1 );
+		$end_parent   = array_slice( $end_path, 0, -1 );
+
+		if ( $start_parent !== $end_parent ) {
+			return new \WP_Error(
+				'not_siblings',
+				__( 'start_ref and end_ref must be siblings with the same parent.', 'superdav-ai-agent' ),
+				[ 'status' => 400 ]
+			);
+		}
+
+		// ── 4. Validate document order ───────────────────────────────
+		$start_idx = $start_path[ count( $start_path ) - 1 ];
+		$end_idx   = $end_path[ count( $end_path ) - 1 ];
+
+		if ( $end_idx < $start_idx ) {
+			return new \WP_Error(
+				'bad_range',
+				__( 'end_ref must not precede start_ref in document order.', 'superdav-ai-agent' ),
+				[ 'status' => 400 ]
+			);
+		}
+
+		// ── 5. Range size guard ──────────────────────────────────────
+		$range_size = $end_idx - $start_idx + 1;
+
+		if ( $range_size > self::MAX_RANGE_SIZE ) {
+			return new \WP_Error(
+				'range_too_large',
+				sprintf(
+					/* translators: 1: actual range size, 2: maximum range size */
+					__( 'Range spans %1$d blocks; maximum is %2$d.', 'superdav-ai-agent' ),
+					$range_size,
+					self::MAX_RANGE_SIZE
+				),
+				[
+					'status'     => 400,
+					'range_size' => $range_size,
+					'max_range'  => self::MAX_RANGE_SIZE,
+				]
+			);
+		}
+
+		// ── 6. Validate new_blocks count ─────────────────────────────
+		if ( count( $new_blocks ) > self::MAX_RANGE_SIZE ) {
+			return new \WP_Error(
+				'range_too_large',
+				sprintf(
+					/* translators: 1: actual count, 2: maximum count */
+					__( 'new_blocks contains %1$d blocks; maximum is %2$d.', 'superdav-ai-agent' ),
+					count( $new_blocks ),
+					self::MAX_RANGE_SIZE
+				),
+				[
+					'status'           => 400,
+					'new_blocks_count' => count( $new_blocks ),
+					'max_range'        => self::MAX_RANGE_SIZE,
+				]
+			);
+		}
+
+		// ── 7. Normalize, validate, and sanitize each new block ──────
+		$normalized_new = [];
+		$all_warnings   = [];
+
+		foreach ( $new_blocks as $idx => $nb ) {
+			if ( ! is_array( $nb ) ) {
+				return new \WP_Error(
+					'invalid_new_block',
+					sprintf( 'new_blocks[%d] must be an object.', $idx ),
+					[ 'status' => 400 ]
+				);
+			}
+
+			$normalized = self::normalize_block( $nb );
+
+			// Depth validation on the individual block tree.
+			$depth_check = self::validate_tree_depth( [ $normalized ] );
+
+			if ( is_wp_error( $depth_check ) ) {
+				return $depth_check;
+			}
+
+			// Tier policy enforcement.
+			$policy = self::enforce_tier_policy( $normalized, false );
+
+			if ( is_wp_error( $policy ) ) {
+				return $policy;
+			}
+
+			if ( is_array( $policy ) && isset( $policy['warnings'] ) && is_array( $policy['warnings'] ) ) {
+				$all_warnings = array_merge( $all_warnings, $policy['warnings'] );
+			}
+
+			// Block Bindings write-lock: reject new blocks that set attributes
+			// which collide with their own metadata.bindings.
+			if ( ! $allow_bound_writes ) {
+				$nb_attrs       = isset( $normalized['attrs'] ) && is_array( $normalized['attrs'] ) ? $normalized['attrs'] : [];
+				$bindings_check = self::assert_no_bound_attribute_writes( $normalized, $nb_attrs, false );
+
+				if ( is_wp_error( $bindings_check ) ) {
+					return $bindings_check;
+				}
+			}
+
+			// Sanitize HTML.
+			$normalized = self::sanitize_block_tree( $normalized );
+
+			$normalized_new[] = $normalized;
+		}
+
+		// ── 8. Perform the atomic splice ─────────────────────────────
+		$result = self::mutate_at_path(
+			$blocks,
+			$start_path,
+			static function ( array $siblings, int $idx ) use ( $range_size, $normalized_new ) {
+				array_splice( $siblings, $idx, $range_size, $normalized_new );
+				return array_values( $siblings );
+			}
+		);
+
+		if ( is_wp_error( $result ) ) {
+			return $result;
+		}
+
+		// ── 9. Post-mutation depth validation ────────────────────────
+		if ( is_array( $result ) ) {
+			$depth_check = self::validate_tree_depth( $result );
+
+			if ( is_wp_error( $depth_check ) ) {
+				return $depth_check;
+			}
+
+			if ( ! empty( $all_warnings ) ) {
+				$result['_warnings'] = $all_warnings;
+			}
+		}
+
+		return $result;
 	}
 
 	// ── Structural validators ─────────────────────────────────────────────

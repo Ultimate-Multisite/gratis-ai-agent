@@ -985,6 +985,98 @@ class BlockAbilities {
 				],
 			]
 		);
+
+		wp_register_ability(
+			'sd-ai-agent/replace-block-range',
+			[
+				'label'               => __( 'Replace Block Range', 'superdav-ai-agent' ),
+				'description'         => __( 'Atomic N-for-M swap: replace a range of consecutive sibling blocks (start_ref through end_ref, inclusive) with new blocks in a single revision. Both refs must be siblings (same parent, same depth). Validates depth cap, tier policy, and block bindings pre-write; rejects without writing on any violation. Use sd-ai-agent/get-page-blocks first to obtain refs and revision_id.', 'superdav-ai-agent' ),
+				'category'            => 'sd-ai-agent',
+				'input_schema'        => [
+					'type'       => 'object',
+					'properties' => [
+						'post_id'              => [
+							'type'        => 'integer',
+							'description' => 'Post ID whose block tree will be mutated.',
+						],
+						'start_ref'            => [
+							'type'        => 'string',
+							'description' => 'Stable sd_ref UUID of the first block in the range to replace.',
+						],
+						'end_ref'              => [
+							'type'        => 'string',
+							'description' => 'Stable sd_ref UUID of the last block in the range (inclusive). Must be a sibling of start_ref.',
+						],
+						'new_blocks'           => [
+							'type'        => 'array',
+							'description' => 'Array of block definitions to insert in place of the removed range. Each needs blockName, optional attrs, innerHTML, innerBlocks.',
+							'items'       => [
+								'type'       => 'object',
+								'properties' => [
+									'blockName'   => [ 'type' => 'string' ],
+									'attrs'       => [ 'type' => 'object' ],
+									'innerHTML'   => [ 'type' => 'string' ],
+									'innerBlocks' => [ 'type' => 'array' ],
+								],
+							],
+						],
+						'expected_revision_id' => [
+							'type'        => 'integer',
+							'description' => 'Expected revision ID for optimistic concurrency. Pass the revision_id from get-page-blocks.',
+						],
+						'allow_bound_writes'   => [
+							'type'        => 'boolean',
+							'description' => 'Override the Block Bindings write-lock on new_blocks. Default: false.',
+						],
+						'dry_run'              => [
+							'type'        => 'boolean',
+							'description' => 'When true, validate and compute the result but do not persist. Default: false.',
+						],
+					],
+					'required'   => [ 'post_id', 'start_ref', 'end_ref', 'new_blocks' ],
+				],
+				'output_schema'       => [
+					'type'       => 'object',
+					'properties' => [
+						'post_id'        => [ 'type' => 'integer' ],
+						'revision_id'    => [
+							'type'        => 'integer',
+							'description' => 'Revision ID after the write (or current if dry_run).',
+						],
+						'refs_added'     => [
+							'type'        => 'integer',
+							'description' => 'Number of new blocks inserted (each receives a fresh sd_ref).',
+						],
+						'refs_removed'   => [
+							'type'        => 'integer',
+							'description' => 'Number of blocks removed from the range.',
+						],
+						'refs_preserved' => [
+							'type'        => 'integer',
+							'description' => 'Number of existing blocks outside the range that kept their refs.',
+						],
+						'block_count'    => [
+							'type'        => 'integer',
+							'description' => 'Total block count after the operation.',
+						],
+						'dry_run'        => [ 'type' => 'boolean' ],
+						'error'          => [ 'type' => 'string' ],
+					],
+				],
+				'execute_callback'    => [ __CLASS__, 'handle_replace_block_range' ],
+				'permission_callback' => function () {
+					return current_user_can( 'edit_posts' );
+				},
+				'meta'                => [
+					'mcp'         => [ 'public' => true ],
+					'annotations' => [
+						'readonly'    => false,
+						'destructive' => true,
+						'idempotent'  => false,
+					],
+				],
+			]
+		);
 	}
 
 	// ─── Handlers ─────────────────────────────────────────────────
@@ -3029,5 +3121,240 @@ class BlockAbilities {
 			'revision_id'     => RevisionGuard::current_revision_id( $post_id ),
 			'block_tree'      => $blocks,
 		];
+	}
+
+	// ─── replace-block-range handler ──────────────────────────────
+
+	/**
+	 * Handle the sd-ai-agent/replace-block-range ability.
+	 *
+	 * Atomic N-for-M swap of consecutive sibling blocks. Loads the post,
+	 * validates optimistic concurrency, delegates to BlockMutator::replace_range(),
+	 * assigns fresh refs to inserted blocks, and persists as one revision.
+	 *
+	 * @param array<string,mixed> $input Ability input.
+	 * @return array<string,mixed>|\WP_Error Result array or WP_Error.
+	 */
+	public static function handle_replace_block_range( array $input ) {
+		$post_id            = (int) ( $input['post_id'] ?? 0 );
+		$start_ref          = isset( $input['start_ref'] ) && is_string( $input['start_ref'] ) ? $input['start_ref'] : '';
+		$end_ref            = isset( $input['end_ref'] ) && is_string( $input['end_ref'] ) ? $input['end_ref'] : '';
+		$new_blocks_raw     = $input['new_blocks'] ?? [];
+		$allow_bound_writes = isset( $input['allow_bound_writes'] ) ? (bool) $input['allow_bound_writes'] : false;
+		$dry_run            = isset( $input['dry_run'] ) ? (bool) $input['dry_run'] : false;
+
+		// ── Input validation ─────────────────────────────────────────
+		if ( $post_id <= 0 ) {
+			return new \WP_Error(
+				'missing_post_id',
+				__( 'post_id is required and must be a positive integer.', 'superdav-ai-agent' ),
+				[ 'status' => 400 ]
+			);
+		}
+
+		if ( '' === $start_ref ) {
+			return new \WP_Error(
+				'missing_start_ref',
+				__( 'start_ref is required.', 'superdav-ai-agent' ),
+				[ 'status' => 400 ]
+			);
+		}
+
+		if ( '' === $end_ref ) {
+			return new \WP_Error(
+				'missing_end_ref',
+				__( 'end_ref is required.', 'superdav-ai-agent' ),
+				[ 'status' => 400 ]
+			);
+		}
+
+		if ( ! is_array( $new_blocks_raw ) ) {
+			return new \WP_Error(
+				'invalid_new_blocks',
+				__( 'new_blocks must be an array.', 'superdav-ai-agent' ),
+				[ 'status' => 400 ]
+			);
+		}
+
+		// ── Load post ────────────────────────────────────────────────
+		$post = get_post( $post_id );
+
+		if ( ! $post ) {
+			return new \WP_Error(
+				'post_not_found',
+				sprintf(
+					/* translators: %d: post ID */
+					__( 'Post %d not found.', 'superdav-ai-agent' ),
+					$post_id
+				),
+				[ 'status' => 404 ]
+			);
+		}
+
+		// ── Optimistic concurrency ───────────────────────────────────
+		$expected = isset( $input['expected_revision_id'] ) ? (string) $input['expected_revision_id'] : '';
+		$guard    = RevisionGuard::check( $post_id, RevisionGuard::parse_raw( $expected ) );
+
+		if ( is_wp_error( $guard ) ) {
+			return $guard;
+		}
+
+		// ── Parse and prepare blocks ─────────────────────────────────
+		$content = $post->post_content;
+		$blocks  = is_string( $content ) ? parse_blocks( $content ) : [];
+
+		if ( ! is_array( $blocks ) ) {
+			$blocks = [];
+		}
+
+		// Ensure all blocks have refs so replace_range can resolve them.
+		// @phpstan-ignore-next-line
+		$refs_result = BlockReferences::assign_refs( $blocks );
+
+		if ( is_wp_error( $refs_result ) ) {
+			return $refs_result;
+		}
+
+		$blocks = $refs_result;
+
+		// Count refs before mutation for refs_preserved calculation.
+		// @phpstan-ignore-next-line
+		$refs_before = self::count_refs_in_tree( $blocks );
+
+		// ── Compute range size for stats ─────────────────────────────
+		$start_path = BlockTreeAddress::resolve( $blocks, [ 'ref' => $start_ref ] );
+
+		if ( is_wp_error( $start_path ) ) {
+			return $start_path;
+		}
+
+		$end_path = BlockTreeAddress::resolve( $blocks, [ 'ref' => $end_ref ] );
+
+		if ( is_wp_error( $end_path ) ) {
+			return $end_path;
+		}
+
+		$range_size = $end_path[ count( $end_path ) - 1 ] - $start_path[ count( $start_path ) - 1 ] + 1;
+
+		// ── Apply mutation ───────────────────────────────────────────
+		// Ensure integer-keyed block array for BlockMutator.
+		$blocks = array_values( $blocks );
+		$result = BlockMutator::replace_range(
+			$blocks,
+			$start_ref,
+			$end_ref,
+			$new_blocks_raw,
+			$allow_bound_writes
+		);
+
+		if ( is_wp_error( $result ) ) {
+			return $result;
+		}
+
+		// ── Assign fresh refs to new blocks ──────────────────────────
+		// @phpstan-ignore-next-line
+		$ref_result = BlockReferences::assign_refs( $result );
+
+		if ( is_wp_error( $ref_result ) ) {
+			return $ref_result;
+		}
+
+		$result = $ref_result;
+
+		// ── Compute ref stats ────────────────────────────────────────
+		$refs_added     = count( $new_blocks_raw );
+		$refs_removed   = $range_size;
+		$refs_preserved = $refs_before - $refs_removed;
+
+		// ── Persist (unless dry_run) ─────────────────────────────────
+		if ( ! $dry_run ) {
+			// @phpstan-ignore-next-line
+			$new_content   = serialize_blocks( $result );
+			$update_result = wp_update_post(
+				[
+					'ID'           => $post_id,
+					'post_content' => $new_content,
+				],
+				true
+			);
+
+			if ( is_wp_error( $update_result ) ) {
+				return $update_result;
+			}
+		}
+
+		// ── Build response ───────────────────────────────────────────
+		// @phpstan-ignore-next-line
+		$block_count = self::count_blocks_in_tree( $result );
+
+		return [
+			'post_id'        => $post_id,
+			'revision_id'    => RevisionGuard::current_revision_id( $post_id ),
+			'refs_added'     => $refs_added,
+			'refs_removed'   => $refs_removed,
+			'refs_preserved' => $refs_preserved,
+			'block_count'    => $block_count,
+			'dry_run'        => $dry_run,
+		];
+	}
+
+	// ─── Tree-counting helpers ────────────────────────────────────
+
+	/**
+	 * Count all blocks with a non-empty sd_ref in a block tree.
+	 *
+	 * @param array<int,mixed> $blocks Block tree.
+	 * @return int Number of blocks carrying a ref.
+	 */
+	private static function count_refs_in_tree( array $blocks ): int {
+		$count = 0;
+
+		foreach ( $blocks as $block ) {
+			if ( ! is_array( $block ) || empty( $block['blockName'] ) ) {
+				continue;
+			}
+
+			$ref = $block['attrs']['metadata'][ BlockReferences::REF_KEY ] ?? null;
+
+			if ( is_string( $ref ) && '' !== $ref ) {
+				++$count;
+			}
+
+			$inner = isset( $block['innerBlocks'] ) && is_array( $block['innerBlocks'] ) ? $block['innerBlocks'] : [];
+
+			if ( ! empty( $inner ) ) {
+				// @phpstan-ignore-next-line
+				$count += self::count_refs_in_tree( $inner );
+			}
+		}
+
+		return $count;
+	}
+
+	/**
+	 * Count all named blocks in a block tree recursively.
+	 *
+	 * @param array<int,mixed> $blocks Block tree.
+	 * @return int Total block count.
+	 */
+	private static function count_blocks_in_tree( array $blocks ): int {
+		$count = 0;
+
+		foreach ( $blocks as $block ) {
+			if ( ! is_array( $block ) || empty( $block['blockName'] ) ) {
+				continue;
+			}
+
+			++$count;
+
+			$inner = isset( $block['innerBlocks'] ) && is_array( $block['innerBlocks'] ) ? $block['innerBlocks'] : [];
+
+			if ( ! empty( $inner ) ) {
+				// @phpstan-ignore-next-line
+				$count += self::count_blocks_in_tree( $inner );
+			}
+		}
+
+		return $count;
 	}
 }
