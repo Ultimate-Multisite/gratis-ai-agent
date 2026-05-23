@@ -42,11 +42,28 @@ if ( ! defined( 'ABSPATH' ) ) {
 class BlockMutator {
 
 	/**
-	 * Maximum number of updates in a single batch call.
+	 * Maximum block nesting depth.
+	 *
+	 * Trees deeper than this return a `block_depth_exceeded` WP_Error.
+	 * Matches the upstream limit from gk-block-api (32 levels is well above
+	 * any editor-produced tree and below PHP stack-overflow risk).
+	 *
+	 * Declared public so BlockReferences and other callers can reference
+	 * `BlockMutator::MAX_BLOCK_DEPTH` instead of hard-coding the value.
 	 *
 	 * @var int
 	 */
-	const MAX_BATCH_SIZE = 50;
+	public const MAX_BLOCK_DEPTH = 32;
+
+	/**
+	 * Maximum number of updates in a single batch call.
+	 *
+	 * Declared public so BlockAbilities and future callers can reference
+	 * `BlockMutator::MAX_BATCH_SIZE` instead of hard-coding the value.
+	 *
+	 * @var int
+	 */
+	public const MAX_BATCH_SIZE = 50;
 
 	/**
 	 * Valid operation names.
@@ -317,6 +334,58 @@ class BlockMutator {
 		}
 
 		return $working_tree;
+	}
+
+	// ── Structural validators ─────────────────────────────────────────────
+
+	/**
+	 * Validate that a block tree does not exceed MAX_BLOCK_DEPTH nesting levels.
+	 *
+	 * Walks the tree recursively. Returns true when the depth is within bounds.
+	 * Returns a `block_depth_exceeded` WP_Error (HTTP 400) when any branch
+	 * exceeds the limit. The WP_Error data array includes `max_depth` so
+	 * callers can surface the cap value in REST responses.
+	 *
+	 * Usage: call with depth=0 (default) on the top-level blocks array.
+	 * The same constant (`BlockMutator::MAX_BLOCK_DEPTH`) is used by
+	 * BlockReferences so both walkers share a single canonical cap.
+	 *
+	 * @param array<int|string,mixed> $blocks Parsed block tree at the current level.
+	 * @param int                     $depth  Current recursion depth (0 = root level). Internal use only.
+	 * @return true|\WP_Error True when depth is within bounds; WP_Error on violation.
+	 */
+	public static function validate_tree_depth( array $blocks, int $depth = 0 ): true|\WP_Error {
+		if ( $depth > self::MAX_BLOCK_DEPTH ) {
+			return new \WP_Error(
+				'block_depth_exceeded',
+				sprintf(
+					'Block tree depth exceeded the maximum of %d levels.',
+					self::MAX_BLOCK_DEPTH
+				),
+				[
+					'status'    => 400,
+					'max_depth' => self::MAX_BLOCK_DEPTH,
+				]
+			);
+		}
+
+		foreach ( $blocks as $block ) {
+			if ( ! is_array( $block ) ) {
+				continue;
+			}
+
+			$inner = isset( $block['innerBlocks'] ) && is_array( $block['innerBlocks'] ) ? $block['innerBlocks'] : [];
+
+			if ( ! empty( $inner ) ) {
+				$result = self::validate_tree_depth( $inner, $depth + 1 );
+
+				if ( is_wp_error( $result ) ) {
+					return $result;
+				}
+			}
+		}
+
+		return true;
 	}
 
 	// ── Operations ────────────────────────────────────────────────────────

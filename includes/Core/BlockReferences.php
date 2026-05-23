@@ -35,8 +35,8 @@ if ( ! defined( 'ABSPATH' ) ) {
  * within the document during assign_refs().
  *
  * Depth cap: trees deeper than MAX_DEPTH raise a `block_depth_exceeded`
- * WP_Error. This constant is intentionally public so t251 (shared depth cap)
- * can reference it without hard-coding the value.
+ * WP_Error. MAX_DEPTH is an alias for BlockMutator::MAX_BLOCK_DEPTH (t251)
+ * so both walkers share a single canonical cap value.
  */
 class BlockReferences {
 
@@ -53,12 +53,14 @@ class BlockReferences {
 	/**
 	 * Hard depth cap for block tree walks.
 	 *
-	 * Trees deeper than this raise a `block_depth_exceeded` WP_Error.
-	 * See t251 for the planned shared-constant migration.
+	 * Aliased from BlockMutator::MAX_BLOCK_DEPTH so the two classes share a
+	 * single canonical value (t251). Internal recursive guards use this
+	 * constant as a defensive depth+1 bail; the authoritative pre-flight
+	 * check is BlockMutator::validate_tree_depth() called at assign_refs entry.
 	 *
 	 * @var int
 	 */
-	const MAX_DEPTH = 32;
+	const MAX_DEPTH = BlockMutator::MAX_BLOCK_DEPTH;
 
 	/**
 	 * Length of the random suffix portion of a ref (before base64url encoding).
@@ -83,14 +85,11 @@ class BlockReferences {
 	 * @return array<int|string,mixed>|\WP_Error Updated block tree, or WP_Error on depth violation.
 	 */
 	public static function assign_refs( array $blocks, int $depth = 0 ) {
-		if ( $depth > self::MAX_DEPTH ) {
-			return new \WP_Error(
-				'block_depth_exceeded',
-				sprintf(
-					'Block tree depth exceeded the maximum of %d levels.',
-					self::MAX_DEPTH
-				)
-			);
+		// Pre-flight: validate the entire tree before any mutation.
+		// Uses the shared canonical cap from BlockMutator (t251).
+		$depth_check = BlockMutator::validate_tree_depth( $blocks );
+		if ( is_wp_error( $depth_check ) ) {
+			return $depth_check;
 		}
 
 		// Collect all existing refs so new ones do not collide.
