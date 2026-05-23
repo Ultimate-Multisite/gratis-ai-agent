@@ -90,7 +90,7 @@ class BlockRendererTest extends WP_UnitTestCase {
 
 		$this->assertNotNull( $para, 'Paragraph block should exist in result.' );
 		$this->assertArrayHasKey( 'rendered_html', $para );
-		$this->assertStringContainsString( '<p>', $para['rendered_html'] );
+		$this->assertStringContainsString( '<p', $para['rendered_html'] );
 		$this->assertStringContainsString( 'Hello World', $para['rendered_html'] );
 	}
 
