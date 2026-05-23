@@ -25,6 +25,7 @@ declare(strict_types=1);
  * @package SdAiAgent\Core
  * @license GPL-2.0-or-later
  * @see     https://github.com/Ultimate-Multisite/superdav-ai-agent/issues/1708
+ * @see     https://github.com/Ultimate-Multisite/superdav-ai-agent/issues/1713
  */
 
 namespace SdAiAgent\Core;
@@ -158,13 +159,48 @@ class BlockMutator {
 			);
 		}
 
+		// Dual-storage guard: blocks that duplicate state across attributes and
+		// innerHTML must have both sides updated together to prevent silent corruption.
+		$target = BlockTreeAddress::get_block_at_path( $blocks, $path );
+
+		if ( is_array( $target ) ) {
+			$block_name = isset( $target['blockName'] ) && is_string( $target['blockName'] ) ? $target['blockName'] : '';
+
+			if ( '' !== $block_name && DualStorageRegistry::is_dual_storage( $block_name ) ) {
+				if ( ! isset( $args['innerHTML'] ) || ! is_string( $args['innerHTML'] ) ) {
+					return new \WP_Error(
+						'dual_storage_requires_both',
+						sprintf(
+							"'%s' stores data in both attributes and innerHTML. Supply both 'attributes' and 'innerHTML' in a single update to avoid silent corruption.",
+							$block_name
+						),
+						[
+							'status'     => 400,
+							'block_name' => $block_name,
+						]
+					);
+				}
+			}
+		}
+
 		$merge = isset( $args['merge'] ) ? (bool) $args['merge'] : true;
+
+		// When innerHTML is also supplied (required for dual-storage blocks),
+		// sanitize it now so the closure captures the safe value.
+		$safe_html = isset( $args['innerHTML'] ) && is_string( $args['innerHTML'] )
+			? wp_kses_post( $args['innerHTML'] )
+			: null;
 
 		return self::mutate_at_path(
 			$blocks,
 			$path,
-			static function ( array $siblings, int $idx ) use ( $args, $merge ) {
-				$block    = $siblings[ $idx ];
+			static function ( array $siblings, int $idx ) use ( $args, $merge, $safe_html ) {
+				$block = $siblings[ $idx ];
+
+				if ( ! is_array( $block ) ) {
+					return $siblings;
+				}
+
 				$existing = isset( $block['attrs'] ) && is_array( $block['attrs'] ) ? $block['attrs'] : [];
 
 				if ( $merge ) {
@@ -173,8 +209,19 @@ class BlockMutator {
 					$block['attrs'] = $args['attributes'];
 				}
 
-				// Auto-transform innerHTML when attribute changes imply HTML structure changes.
-				if ( is_array( $block ) && HtmlTransformer::is_supported( isset( $block['blockName'] ) && is_string( $block['blockName'] ) ? $block['blockName'] : '' ) ) {
+				// Apply the HTML side when explicitly supplied (dual-storage blocks require both).
+				// When the caller provides innerHTML directly, they own both sides — skip HtmlTransformer.
+				if ( null !== $safe_html ) {
+					$block['innerHTML'] = $safe_html;
+					$inner_blocks       = isset( $block['innerBlocks'] ) && is_array( $block['innerBlocks'] ) ? $block['innerBlocks'] : [];
+
+					if ( empty( $inner_blocks ) ) {
+						$block['innerContent'] = [ $safe_html ];
+					} else {
+						$block['innerContent'] = self::rebuild_inner_content_with_html( $block, $safe_html );
+					}
+				} elseif ( is_array( $block ) && HtmlTransformer::is_supported( isset( $block['blockName'] ) && is_string( $block['blockName'] ) ? $block['blockName'] : '' ) ) {
+					// Auto-transform innerHTML when attribute changes imply HTML structure changes.
 					$block = HtmlTransformer::apply( $block, $args['attributes'] );
 				}
 
@@ -203,12 +250,41 @@ class BlockMutator {
 			);
 		}
 
+		// Dual-storage guard: blocks that duplicate state across attributes and
+		// innerHTML must have both sides updated together to prevent silent corruption.
+		$target = BlockTreeAddress::get_block_at_path( $blocks, $path );
+
+		if ( is_array( $target ) ) {
+			$block_name = isset( $target['blockName'] ) && is_string( $target['blockName'] ) ? $target['blockName'] : '';
+
+			if ( '' !== $block_name && DualStorageRegistry::is_dual_storage( $block_name ) ) {
+				if ( ! isset( $args['attributes'] ) || ! is_array( $args['attributes'] ) ) {
+					return new \WP_Error(
+						'dual_storage_requires_both',
+						sprintf(
+							"'%s' stores data in both attributes and innerHTML. Supply both 'attributes' and 'innerHTML' in a single update to avoid silent corruption.",
+							$block_name
+						),
+						[
+							'status'     => 400,
+							'block_name' => $block_name,
+						]
+					);
+				}
+			}
+		}
+
 		$safe_html = wp_kses_post( $args['innerHTML'] );
+
+		// When attributes are also supplied (required for dual-storage blocks),
+		// capture the merge flag and attrs for the closure.
+		$extra_attrs = isset( $args['attributes'] ) && is_array( $args['attributes'] ) ? $args['attributes'] : null;
+		$merge       = isset( $args['merge'] ) ? (bool) $args['merge'] : true;
 
 		return self::mutate_at_path(
 			$blocks,
 			$path,
-			static function ( array $siblings, int $idx ) use ( $safe_html ) {
+			static function ( array $siblings, int $idx ) use ( $safe_html, $extra_attrs, $merge ) {
 				$block = $siblings[ $idx ];
 
 				if ( ! is_array( $block ) ) {
@@ -225,6 +301,12 @@ class BlockMutator {
 				} else {
 					// Preserve innerContent null slots for innerBlocks; replace HTML portions only.
 					$block['innerContent'] = self::rebuild_inner_content_with_html( $block, $safe_html );
+				}
+
+				// Apply the attributes side when supplied (dual-storage blocks require both).
+				if ( null !== $extra_attrs ) {
+					$existing       = isset( $block['attrs'] ) && is_array( $block['attrs'] ) ? $block['attrs'] : [];
+					$block['attrs'] = $merge ? array_merge( $existing, $extra_attrs ) : $extra_attrs;
 				}
 
 				$siblings[ $idx ] = $block;

@@ -15,6 +15,7 @@
  * @subpackage Tests
  * @license GPL-2.0-or-later
  * @see     https://github.com/Ultimate-Multisite/superdav-ai-agent/issues/1708
+ * @see     https://github.com/Ultimate-Multisite/superdav-ai-agent/issues/1713
  */
 
 declare(strict_types=1);
@@ -24,6 +25,7 @@ namespace SdAiAgent\Tests\Core;
 use SdAiAgent\Core\BlockMutator;
 use SdAiAgent\Core\BlockReferences;
 use SdAiAgent\Core\BlockTreeAddress;
+use SdAiAgent\Core\DualStorageRegistry;
 use WP_UnitTestCase;
 
 /**
@@ -686,5 +688,170 @@ class BlockMutatorTest extends WP_UnitTestCase {
 		$this->assertFalse( BlockTreeAddress::is_strict_ancestor( [ 1 ], [ 0, 1 ] ) );
 		$this->assertFalse( BlockTreeAddress::is_strict_ancestor( [ 0, 1 ], [ 0, 1 ] ) ); // Equal, not strict ancestor.
 		$this->assertFalse( BlockTreeAddress::is_strict_ancestor( [ 0, 1, 2 ], [ 0, 1 ] ) );
+	}
+
+	// ── Dual-storage enforcement (GH#1713) ────────────────────────────────
+
+	/**
+	 * update-attrs on a dual-storage block without innerHTML returns dual_storage_requires_both (AC1).
+	 */
+	public function test_update_attrs_dual_storage_without_html_returns_error(): void {
+		$block  = $this->make_block( 'yoast/faq-block', [ 'questions' => [] ] );
+		$result = BlockMutator::apply(
+			[ $block ],
+			'update-attrs',
+			[
+				'path'       => [ 0 ],
+				'attributes' => [ 'questions' => [ [ 'id' => 'q1', 'question' => 'Q?', 'answer' => 'A.' ] ] ],
+				// No innerHTML — must be rejected.
+			]
+		);
+
+		$this->assertInstanceOf( \WP_Error::class, $result );
+		$this->assertSame( 'dual_storage_requires_both', $result->get_error_code() );
+
+		$data = $result->get_error_data();
+		$this->assertSame( 'yoast/faq-block', $data['block_name'] );
+		$this->assertSame( 400, $data['status'] );
+	}
+
+	/**
+	 * update-html on a dual-storage block without attributes returns dual_storage_requires_both (AC2).
+	 */
+	public function test_update_html_dual_storage_without_attrs_returns_error(): void {
+		$block  = $this->make_block( 'yoast/faq-block', [ 'questions' => [] ], [], '<div class="schema-faq"></div>' );
+		$result = BlockMutator::apply(
+			[ $block ],
+			'update-html',
+			[
+				'path'      => [ 0 ],
+				'innerHTML' => '<div class="schema-faq"><p>Updated</p></div>',
+				// No attributes — must be rejected.
+			]
+		);
+
+		$this->assertInstanceOf( \WP_Error::class, $result );
+		$this->assertSame( 'dual_storage_requires_both', $result->get_error_code() );
+
+		$data = $result->get_error_data();
+		$this->assertSame( 'yoast/faq-block', $data['block_name'] );
+		$this->assertSame( 400, $data['status'] );
+	}
+
+	/**
+	 * update-attrs + innerHTML on a dual-storage block succeeds and updates both sides (AC3).
+	 */
+	public function test_update_attrs_dual_storage_with_both_sides_succeeds(): void {
+		$block  = $this->make_block( 'yoast/faq-block', [ 'questions' => [] ], [], '<div class="schema-faq"></div>' );
+		$result = BlockMutator::apply(
+			[ $block ],
+			'update-attrs',
+			[
+				'path'       => [ 0 ],
+				'attributes' => [ 'questions' => [ [ 'id' => 'q1', 'question' => 'Q?', 'answer' => 'A.' ] ] ],
+				'innerHTML'  => '<div class="schema-faq"><p>A.</p></div>',
+			]
+		);
+
+		$this->assertIsArray( $result );
+		$this->assertSame( 'yoast/faq-block', $result[0]['blockName'] );
+		$this->assertNotEmpty( $result[0]['attrs']['questions'] );
+		$this->assertStringContainsString( 'A.', $result[0]['innerHTML'] );
+	}
+
+	/**
+	 * update-html + attributes on a dual-storage block succeeds and updates both sides (AC3).
+	 */
+	public function test_update_html_dual_storage_with_both_sides_succeeds(): void {
+		$block  = $this->make_block( 'yoast/faq-block', [ 'questions' => [] ], [], '<div class="schema-faq"></div>' );
+		$result = BlockMutator::apply(
+			[ $block ],
+			'update-html',
+			[
+				'path'       => [ 0 ],
+				'innerHTML'  => '<div class="schema-faq"><p>Updated answer</p></div>',
+				'attributes' => [ 'questions' => [ [ 'id' => 'q1', 'question' => 'Q?', 'answer' => 'Updated answer' ] ] ],
+			]
+		);
+
+		$this->assertIsArray( $result );
+		$this->assertSame( 'yoast/faq-block', $result[0]['blockName'] );
+		$this->assertStringContainsString( 'Updated answer', $result[0]['innerHTML'] );
+		$this->assertNotEmpty( $result[0]['attrs']['questions'] );
+	}
+
+	/**
+	 * update-attrs on a non-dual-storage block (core/heading) is unaffected (AC4).
+	 */
+	public function test_update_attrs_non_dual_storage_block_unaffected(): void {
+		$block  = $this->make_block( 'core/heading', [ 'level' => 2 ] );
+		$result = BlockMutator::apply(
+			[ $block ],
+			'update-attrs',
+			[
+				'path'       => [ 0 ],
+				'attributes' => [ 'level' => 3 ],
+				// No innerHTML — fine for non-dual-storage blocks.
+			]
+		);
+
+		$this->assertIsArray( $result );
+		$this->assertSame( 3, $result[0]['attrs']['level'] );
+	}
+
+	/**
+	 * update-html on a non-dual-storage block without attributes is unaffected (AC4).
+	 */
+	public function test_update_html_non_dual_storage_block_unaffected(): void {
+		$block  = $this->make_block( 'core/paragraph' );
+		$result = BlockMutator::apply(
+			[ $block ],
+			'update-html',
+			[
+				'path'      => [ 0 ],
+				'innerHTML' => '<p>New text</p>',
+				// No attributes — fine for non-dual-storage blocks.
+			]
+		);
+
+		$this->assertIsArray( $result );
+		$this->assertSame( '<p>New text</p>', $result[0]['innerHTML'] );
+	}
+
+	/**
+	 * yoast/how-to-block also triggers dual-storage enforcement (hard-coded list).
+	 */
+	public function test_how_to_block_also_enforced(): void {
+		$block  = $this->make_block( 'yoast/how-to-block' );
+		$result = BlockMutator::apply(
+			[ $block ],
+			'update-attrs',
+			[
+				'path'       => [ 0 ],
+				'attributes' => [ 'steps' => [] ],
+			]
+		);
+
+		$this->assertInstanceOf( \WP_Error::class, $result );
+		$this->assertSame( 'dual_storage_requires_both', $result->get_error_code() );
+	}
+
+	/**
+	 * error data block_name is populated correctly.
+	 */
+	public function test_dual_storage_error_data_contains_block_name(): void {
+		$block  = $this->make_block( 'yoast/how-to-block' );
+		$result = BlockMutator::apply(
+			[ $block ],
+			'update-html',
+			[
+				'path'      => [ 0 ],
+				'innerHTML' => '<div></div>',
+			]
+		);
+
+		$this->assertInstanceOf( \WP_Error::class, $result );
+		$data = $result->get_error_data();
+		$this->assertSame( 'yoast/how-to-block', $data['block_name'] );
 	}
 }
