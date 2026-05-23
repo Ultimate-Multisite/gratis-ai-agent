@@ -13,6 +13,7 @@ declare(strict_types=1);
 
 namespace SdAiAgent\Abilities;
 
+use SdAiAgent\Core\BlockContentPolicy;
 use SdAiAgent\Core\BlockInventory;
 use SdAiAgent\Core\BlockReferences;
 use SdAiAgent\Core\BlockValidator;
@@ -832,16 +833,35 @@ class BlockAbilities {
 	 * @return array<string,mixed>|\WP_Error Result with block_content and block_count.
 	 */
 	public static function handle_create_block_content( array $input ) {
-		$blocks = $input['blocks'] ?? [];
+		$blocks    = $input['blocks'] ?? [];
+		$is_update = ! empty( $input['is_update'] );
 
 		if ( empty( $blocks ) || ! is_array( $blocks ) ) {
 			return new \WP_Error( 'missing_blocks', 'blocks array is required.' );
 		}
 
-		$output      = '';
-		$block_count = 0;
+		$output       = '';
+		$block_count  = 0;
+		$all_warnings = [];
 
 		foreach ( $blocks as $block_data ) {
+			$block_name = (string) ( $block_data['blockName'] ?? '' );
+
+			// Apply tier-based block preference policy before serialising.
+			if ( '' !== $block_name ) {
+				$policy_result = BlockContentPolicy::check_insert( $block_name, $is_update );
+
+				if ( $policy_result instanceof \WP_Error ) {
+					// Legacy-tier block: reject the entire request.
+					return $policy_result;
+				}
+
+				if ( is_array( $policy_result ) && ! empty( $policy_result['warnings'] ) ) {
+					// Avoid-tier block: collect warnings but continue.
+					$all_warnings = array_merge( $all_warnings, $policy_result['warnings'] );
+				}
+			}
+
 			// @phpstan-ignore-next-line
 			$normalized = self::normalize_block( $block_data );
 			// @phpstan-ignore-next-line
@@ -850,11 +870,17 @@ class BlockAbilities {
 			$block_count += self::count_inner_blocks( $normalized );
 		}
 
-		return [
+		$result = [
 			'block_content' => trim( $output ),
 			'block_count'   => $block_count,
 			'error'         => '',
 		];
+
+		if ( ! empty( $all_warnings ) ) {
+			$result['warnings'] = $all_warnings;
+		}
+
+		return $result;
 	}
 
 	/**

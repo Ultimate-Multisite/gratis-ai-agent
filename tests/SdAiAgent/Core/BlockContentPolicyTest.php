@@ -28,17 +28,19 @@ use WP_UnitTestCase;
 
 /**
  * Tests for BlockContentPolicy, PluginRecommendations, and BlockValidator
- * integration (Phase 2, GH#1585).
+ * integration (Phase 2, GH#1585; tier system, GH#1712).
  */
 class BlockContentPolicyTest extends WP_UnitTestCase {
 
 	/**
-	 * Reset the PluginRecommendations cache between tests so filter overrides
-	 * from one test do not bleed into the next.
+	 * Reset the PluginRecommendations cache and delete the test options between
+	 * tests so filter overrides and option mutations do not bleed across.
 	 */
 	public function tear_down(): void {
 		parent::tear_down();
 		PluginRecommendations::reset();
+		delete_option( BlockContentPolicy::OPTION_PREFERENCES );
+		delete_option( BlockContentPolicy::OPTION_REPLACEMENTS );
 	}
 
 	// ------------------------------------------------------------------
@@ -242,6 +244,251 @@ class BlockContentPolicyTest extends WP_UnitTestCase {
 
 		$this->assertCount( 2, $applied['issues'], 'apply() should append the policy issue to existing issues.' );
 		$this->assertSame( 'Pre-existing issue from live validator', $applied['issues'][0] );
+	}
+
+	// ------------------------------------------------------------------
+	// BlockContentPolicy — tier / score system (GH#1712)
+	// ------------------------------------------------------------------
+
+	/**
+	 * score_to_tier() boundary: score 80 → preferred.
+	 */
+	public function test_score_to_tier_80_is_preferred(): void {
+		$this->assertSame( 'preferred', BlockContentPolicy::score_to_tier( 80 ) );
+	}
+
+	/**
+	 * score_to_tier() boundary: score 79 → acceptable.
+	 */
+	public function test_score_to_tier_79_is_acceptable(): void {
+		$this->assertSame( 'acceptable', BlockContentPolicy::score_to_tier( 79 ) );
+	}
+
+	/**
+	 * score_to_tier() boundary: score 50 → acceptable.
+	 */
+	public function test_score_to_tier_50_is_acceptable(): void {
+		$this->assertSame( 'acceptable', BlockContentPolicy::score_to_tier( 50 ) );
+	}
+
+	/**
+	 * score_to_tier() boundary: score 49 → avoid.
+	 */
+	public function test_score_to_tier_49_is_avoid(): void {
+		$this->assertSame( 'avoid', BlockContentPolicy::score_to_tier( 49 ) );
+	}
+
+	/**
+	 * score_to_tier() boundary: score 10 → avoid.
+	 */
+	public function test_score_to_tier_10_is_avoid(): void {
+		$this->assertSame( 'avoid', BlockContentPolicy::score_to_tier( 10 ) );
+	}
+
+	/**
+	 * score_to_tier() boundary: score 9 → legacy.
+	 */
+	public function test_score_to_tier_9_is_legacy(): void {
+		$this->assertSame( 'legacy', BlockContentPolicy::score_to_tier( 9 ) );
+	}
+
+	/**
+	 * score_to_tier() boundary: score 0 → legacy.
+	 */
+	public function test_score_to_tier_0_is_legacy(): void {
+		$this->assertSame( 'legacy', BlockContentPolicy::score_to_tier( 0 ) );
+	}
+
+	/**
+	 * get_namespace_score() resolves exact full block name first.
+	 *
+	 * core/freeform has a default score of 5 (< namespace default of 90).
+	 */
+	public function test_get_namespace_score_exact_match_wins(): void {
+		$score = BlockContentPolicy::get_namespace_score( 'core/freeform' );
+		$this->assertSame( 5, $score, 'core/freeform exact override should be 5, not the core namespace score of 90.' );
+	}
+
+	/**
+	 * get_namespace_score() falls back to namespace prefix when no exact match.
+	 *
+	 * core/paragraph has no exact override; core namespace score is 90.
+	 */
+	public function test_get_namespace_score_namespace_fallback(): void {
+		$score = BlockContentPolicy::get_namespace_score( 'core/paragraph' );
+		$this->assertSame( 90, $score, 'core/paragraph should inherit the core namespace score of 90.' );
+	}
+
+	/**
+	 * get_namespace_score() returns 50 (acceptable) for an unknown namespace.
+	 */
+	public function test_get_namespace_score_unknown_namespace_returns_50(): void {
+		$score = BlockContentPolicy::get_namespace_score( 'unknown-vendor/my-block' );
+		$this->assertSame( 50, $score, 'Unknown namespaces should default to 50 (acceptable).' );
+	}
+
+	/**
+	 * get_namespace_score() reads stored option values.
+	 */
+	public function test_get_namespace_score_reads_stored_option(): void {
+		update_option( BlockContentPolicy::OPTION_PREFERENCES, array( 'custom-ns' => 15 ) );
+		$score = BlockContentPolicy::get_namespace_score( 'custom-ns/my-block' );
+		$this->assertSame( 15, $score, 'Stored option score should be returned for the matching namespace.' );
+	}
+
+	/**
+	 * get_preferences() applies the sd_ai_agent_block_preferences filter.
+	 */
+	public function test_get_preferences_filter_overrides_score(): void {
+		add_filter(
+			BlockContentPolicy::OPTION_PREFERENCES,
+			static function ( array $prefs ): array {
+				$prefs['filter-override'] = 99;
+				return $prefs;
+			}
+		);
+
+		$prefs = BlockContentPolicy::get_preferences();
+		$this->assertSame( 99, $prefs['filter-override'], 'Filter should be able to inject a preference score.' );
+
+		remove_all_filters( BlockContentPolicy::OPTION_PREFERENCES );
+	}
+
+	/**
+	 * get_replacement() returns the mapped block name for a known legacy block.
+	 */
+	public function test_get_replacement_returns_mapped_block(): void {
+		$replacement = BlockContentPolicy::get_replacement( 'core/freeform' );
+		$this->assertSame( 'core/group', $replacement );
+	}
+
+	/**
+	 * get_replacement() returns null when no mapping is defined.
+	 */
+	public function test_get_replacement_returns_null_for_unmapped_block(): void {
+		$replacement = BlockContentPolicy::get_replacement( 'some/unmapped-block' );
+		$this->assertNull( $replacement );
+	}
+
+	/**
+	 * get_replacements() applies the sd_ai_agent_block_replacements filter.
+	 */
+	public function test_get_replacements_filter_override(): void {
+		add_filter(
+			BlockContentPolicy::OPTION_REPLACEMENTS,
+			static function ( array $map ): array {
+				$map['custom/legacy'] = 'custom/modern';
+				return $map;
+			}
+		);
+
+		$map = BlockContentPolicy::get_replacements();
+		$this->assertArrayHasKey( 'custom/legacy', $map );
+		$this->assertSame( 'custom/modern', $map['custom/legacy'] );
+
+		remove_all_filters( BlockContentPolicy::OPTION_REPLACEMENTS );
+	}
+
+	/**
+	 * check_insert() returns null for a preferred block.
+	 *
+	 * AC3: Insert of a namespace scored ≥ 50 succeeds silently.
+	 */
+	public function test_check_insert_preferred_returns_null(): void {
+		$result = BlockContentPolicy::check_insert( 'core/paragraph' );
+		$this->assertNull( $result, 'check_insert() should return null for preferred-tier blocks.' );
+	}
+
+	/**
+	 * check_insert() returns null for an acceptable block.
+	 *
+	 * AC3: insert ≥ 50 succeeds silently.
+	 */
+	public function test_check_insert_acceptable_returns_null(): void {
+		// Set unknown-vendor to 60 (acceptable).
+		add_filter(
+			BlockContentPolicy::OPTION_PREFERENCES,
+			static function ( array $prefs ): array {
+				$prefs['acceptable-ns'] = 60;
+				return $prefs;
+			}
+		);
+
+		$result = BlockContentPolicy::check_insert( 'acceptable-ns/block' );
+		$this->assertNull( $result );
+
+		remove_all_filters( BlockContentPolicy::OPTION_PREFERENCES );
+	}
+
+	/**
+	 * check_insert() returns an array with warnings for an avoid-tier block.
+	 *
+	 * AC2: Insert 10–49 succeeds but carries warnings.
+	 */
+	public function test_check_insert_avoid_returns_warnings(): void {
+		// core/html has default score 30 (avoid).
+		$result = BlockContentPolicy::check_insert( 'core/html' );
+
+		$this->assertIsArray( $result, 'check_insert() should return an array for avoid-tier blocks.' );
+		$this->assertArrayHasKey( 'warnings', $result );
+		$this->assertNotEmpty( $result['warnings'] );
+		$this->assertSame( 'avoid_block', $result['warnings'][0]['code'] );
+		$this->assertSame( 'core/html', $result['warnings'][0]['block_name'] );
+		$this->assertSame( 'avoid', $result['warnings'][0]['tier'] );
+	}
+
+	/**
+	 * check_insert() returns WP_Error for a legacy-tier block on insert.
+	 *
+	 * AC1: Insert < 10 returns legacy_block error with suggested_replacement.
+	 */
+	public function test_check_insert_legacy_returns_wp_error(): void {
+		$result = BlockContentPolicy::check_insert( 'core/freeform' );
+
+		$this->assertInstanceOf( \WP_Error::class, $result, 'check_insert() should return WP_Error for legacy-tier blocks.' );
+		$this->assertSame( 'legacy_block', $result->get_error_code() );
+
+		$data = $result->get_error_data( 'legacy_block' );
+		$this->assertIsArray( $data );
+		$this->assertSame( 'core/freeform', $data['block_name'] );
+		$this->assertSame( 'legacy', $data['tier'] );
+		$this->assertSame( 'core/group', $data['suggested_replacement'] );
+	}
+
+	/**
+	 * check_insert() returns WP_Error with suggested_replacement null for unmapped legacy block.
+	 *
+	 * AC1: suggested_replacement is null when no mapping is defined.
+	 */
+	public function test_check_insert_legacy_unmapped_suggested_replacement_is_null(): void {
+		// Create a legacy-scored block with no replacement.
+		add_filter(
+			BlockContentPolicy::OPTION_PREFERENCES,
+			static function ( array $prefs ): array {
+				$prefs['custom/unmapped-legacy'] = 5;
+				return $prefs;
+			}
+		);
+
+		$result = BlockContentPolicy::check_insert( 'custom/unmapped-legacy' );
+
+		$this->assertInstanceOf( \WP_Error::class, $result );
+		$data = $result->get_error_data( 'legacy_block' );
+		$this->assertNull( $data['suggested_replacement'] );
+
+		remove_all_filters( BlockContentPolicy::OPTION_PREFERENCES );
+	}
+
+	/**
+	 * check_insert() allows a legacy block through when $is_update = true.
+	 *
+	 * AC4: update-attrs on existing legacy block succeeds (insert-only enforcement).
+	 */
+	public function test_check_insert_legacy_allowed_on_update(): void {
+		$result = BlockContentPolicy::check_insert( 'core/freeform', true );
+
+		// Updates are always allowed; expect null (silent allow).
+		$this->assertNull( $result, 'Legacy blocks should be allowed through when is_update = true.' );
 	}
 
 	// ------------------------------------------------------------------

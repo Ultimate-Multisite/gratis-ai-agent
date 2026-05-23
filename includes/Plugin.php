@@ -21,6 +21,7 @@ namespace SdAiAgent;
 use SdAiAgent\Bootstrap\AbilitiesHandler;
 use SdAiAgent\Bootstrap\AdminHandler;
 use SdAiAgent\Bootstrap\BlockInventoryHandler;
+use SdAiAgent\Bootstrap\BlockPreferencesAdminHandler;
 use SdAiAgent\Bootstrap\BlockUsageAdminHandler;
 use SdAiAgent\Bootstrap\BlockValidatorPageHandler;
 use SdAiAgent\Bootstrap\WooCommerceIntegrationHandler;
@@ -97,6 +98,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 		AdminHandler::class,
 		BlockValidatorPageHandler::class,
 		BlockInventoryHandler::class,
+		BlockPreferencesAdminHandler::class,
 		BlockUsageAdminHandler::class,
 		// Core background service handlers (replaced CoreServicesHandler).
 		ChangeLoggingHandler::class,
