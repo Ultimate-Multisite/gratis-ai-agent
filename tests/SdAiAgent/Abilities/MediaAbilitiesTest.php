@@ -112,6 +112,7 @@ class MediaAbilitiesTest extends WP_UnitTestCase {
 	 * Test handle_upload_media_from_url with empty URL returns WP_Error.
 	 */
 	public function test_handle_upload_media_from_url_empty_url() {
+		$this->setExpectedIncorrectUsage( 'sd-ai-agent/upload-media-from-url' );
 		$result = MediaAbilities::handle_upload_media_from_url( [ 'url' => '' ] );
 
 		$this->assertInstanceOf( \WP_Error::class, $result );
@@ -122,6 +123,7 @@ class MediaAbilitiesTest extends WP_UnitTestCase {
 	 * Test handle_upload_media_from_url with missing URL returns WP_Error.
 	 */
 	public function test_handle_upload_media_from_url_missing_url() {
+		$this->setExpectedIncorrectUsage( 'sd-ai-agent/upload-media-from-url' );
 		$result = MediaAbilities::handle_upload_media_from_url( [] );
 
 		$this->assertInstanceOf( \WP_Error::class, $result );
@@ -135,6 +137,7 @@ class MediaAbilitiesTest extends WP_UnitTestCase {
 	 * The handler should return a WP_Error, not throw an exception.
 	 */
 	public function test_handle_upload_media_from_url_unreachable_url() {
+		$this->setExpectedIncorrectUsage( 'sd-ai-agent/upload-media-from-url' );
 		$result = MediaAbilities::handle_upload_media_from_url( [
 			'url' => 'https://nonexistent-domain-xyz-12345.example.com/image.jpg',
 		] );

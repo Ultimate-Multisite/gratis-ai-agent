@@ -439,41 +439,95 @@ INSTRUCTION;
 	/**
 	 * Execute the import-base64-image ability.
 	 *
+	 * @deprecated 1.10.0 Use sd-ai-agent/upload-media with source "base64" instead.
+	 *
 	 * @since 1.1.0
 	 *
 	 * @param array<string,mixed> $input Input args.
 	 * @return array<string,mixed>|\WP_Error
 	 */
 	public static function handle_import_base64_image( array $input ) {
-		$data = $input['data'] ?? '';
+		_doing_it_wrong(
+			'sd-ai-agent/import-base64-image',
+			__( 'Use sd-ai-agent/upload-media with source "base64" instead of sd-ai-agent/import-base64-image.', 'superdav-ai-agent' ),
+			'1.10.0'
+		);
 
-		if ( empty( $data ) ) {
+		$result = self::sideload_from_base64( $input );
+		if ( is_wp_error( $result ) ) {
+			return $result;
+		}
+
+		// Return the legacy response shape (uses 'id' instead of 'attachment_id',
+		// omits 'mime_type' — preserved for backward compatibility).
+		return [
+			'id'          => $result['attachment_id'],
+			'url'         => $result['url'],
+			'filename'    => $result['filename'],
+			'title'       => $result['title'],
+			'description' => $result['description'],
+			'alt_text'    => $result['alt_text'],
+		];
+	}
+
+	/**
+	 * Core base64-to-media-library sideload logic.
+	 *
+	 * Decodes base64 image data, validates the declared MIME type against
+	 * the actual binary (returning WP_Error('mime_data_mismatch') on mismatch),
+	 * writes a temp file, and sideloads via WordPress media functions.
+	 *
+	 * Accepts either the 'data_base64' key (unified upload-media ability) or
+	 * the legacy 'data' key (import-base64-image); 'data_base64' takes priority.
+	 *
+	 * @since 1.10.0
+	 *
+	 * @param array<string,mixed> $input Input args: data_base64|data, mime_type, filename, title,
+	 *                                  description, caption, alt_text, post_id.
+	 * @return array<string,mixed>|\WP_Error Array with 'attachment_id' on success, WP_Error on failure.
+	 */
+	public static function sideload_from_base64( array $input ) {
+		// Accept 'data_base64' (unified ability) or 'data' (legacy ability).
+		// @phpstan-ignore-next-line
+		$data = (string) ( $input['data_base64'] ?? $input['data'] ?? '' );
+
+		if ( '' === $data ) {
 			return new WP_Error( 'missing_data', __( 'Base64 image data is required.', 'superdav-ai-agent' ) );
 		}
 
 		// Strip data URI prefix if present (e.g. "data:image/png;base64,").
 		// @phpstan-ignore-next-line
+		$declared_mime = sanitize_mime_type( $input['mime_type'] ?? '' );
 		if ( str_contains( $data, ',' ) ) {
-			// @phpstan-ignore-next-line
 			[ $header, $data ] = explode( ',', $data, 2 );
 			// Extract MIME type from header if not explicitly provided.
-			if ( empty( $input['mime_type'] ) && preg_match( '/data:([^;]+);/', $header, $m ) ) {
-				$input['mime_type'] = $m[1];
+			if ( empty( $declared_mime ) && preg_match( '/data:([^;]+);/', $header, $m ) ) {
+				$declared_mime = sanitize_mime_type( $m[1] );
 			}
 		}
 
-		// @phpstan-ignore-next-line
 		$decoded = base64_decode( $data, true ); // phpcs:ignore WordPress.PHP.DiscouragedPHPFunctions.obfuscation_base64_decode -- decoding user-supplied image data, not obfuscation
 		if ( false === $decoded ) {
 			return new WP_Error( 'invalid_base64', __( 'Failed to decode base64 image data.', 'superdav-ai-agent' ) );
 		}
 
-		// Detect MIME type from binary data if not provided.
-		// @phpstan-ignore-next-line
-		$mime_type = sanitize_mime_type( $input['mime_type'] ?? '' );
-		if ( empty( $mime_type ) ) {
-			$mime_type = self::detect_mime_type_from_binary( $decoded );
+		// Detect actual MIME type from binary magic bytes.
+		$detected_mime = self::detect_mime_type_from_binary( $decoded );
+
+		// Validate declared mime_type against detected type when both are known.
+		if ( ! empty( $declared_mime ) && ! empty( $detected_mime ) && $declared_mime !== $detected_mime ) {
+			return new WP_Error(
+				'mime_data_mismatch',
+				sprintf(
+					/* translators: 1: declared MIME type, 2: detected MIME type from binary */
+					__( 'Declared MIME type "%1$s" does not match the actual image data "%2$s".', 'superdav-ai-agent' ),
+					$declared_mime,
+					$detected_mime
+				)
+			);
 		}
+
+		$mime_type = ! empty( $declared_mime ) ? $declared_mime : $detected_mime;
 
 		if ( empty( $mime_type ) || ! str_starts_with( $mime_type, 'image/' ) ) {
 			return new WP_Error( 'invalid_image', __( 'The provided data is not a recognised image type.', 'superdav-ai-agent' ) );
@@ -483,7 +537,7 @@ INSTRUCTION;
 		require_once ABSPATH . 'wp-admin/includes/media.php';
 		require_once ABSPATH . 'wp-admin/includes/image.php';
 
-		// Write to a temporary file.
+		// Write decoded bytes to a temporary file.
 		$temp_file = wp_tempnam( 'ai-image' );
 		$written   = file_put_contents( $temp_file, $decoded ); // phpcs:ignore WordPress.WP.AlternativeFunctions.file_ops_file_put_contents, WordPress.WP.AlternativeFunctions.file_system_operations_file_put_contents -- writing decoded image bytes to a temp file; WP_Filesystem does not support binary writes to arbitrary temp paths
 
@@ -495,6 +549,16 @@ INSTRUCTION;
 		$extension = wp_get_default_extension_for_mime_type( $mime_type ) ?: 'bin';
 		// @phpstan-ignore-next-line
 		$base_name = sanitize_file_name( $input['filename'] ?? ( 'ai-image-' . time() ) );
+		// @phpstan-ignore-next-line
+		$post_id     = (int) ( $input['post_id'] ?? 0 );
+		// @phpstan-ignore-next-line
+		$title       = sanitize_text_field( $input['title'] ?? '' );
+		// @phpstan-ignore-next-line
+		$description = sanitize_textarea_field( $input['description'] ?? '' );
+		// @phpstan-ignore-next-line
+		$caption     = sanitize_textarea_field( $input['caption'] ?? '' );
+		// @phpstan-ignore-next-line
+		$alt_text    = sanitize_text_field( $input['alt_text'] ?? '' );
 
 		$file_array = [
 			'name'     => $base_name . '.' . $extension,
@@ -502,20 +566,14 @@ INSTRUCTION;
 			'tmp_name' => $temp_file,
 		];
 
-		// @phpstan-ignore-next-line
-		$title = sanitize_text_field( $input['title'] ?? '' );
-		// @phpstan-ignore-next-line
-		$description = sanitize_text_field( $input['description'] ?? '' );
-		// @phpstan-ignore-next-line
-		$alt_text = sanitize_text_field( $input['alt_text'] ?? '' );
-
 		$attachment_id = media_handle_sideload(
 			$file_array,
-			0,
-			$description,
+			$post_id,
+			$title ?: $description,
 			[
 				'post_title'     => $title,
 				'post_content'   => $description,
+				'post_excerpt'   => $caption,
 				'post_mime_type' => $mime_type,
 				'meta_input'     => [
 					'_wp_attachment_image_alt' => $alt_text,
@@ -536,12 +594,13 @@ INSTRUCTION;
 		$attached_file = get_attached_file( $attachment_id );
 
 		return [
-			'id'          => $attachment_id,
-			'url'         => wp_get_attachment_url( $attachment_id ) ?: '',
-			'filename'    => $attached_file ? basename( $attached_file ) : '',
-			'title'       => $attachment ? $attachment->post_title : $title,
-			'description' => $attachment ? $attachment->post_content : $description,
-			'alt_text'    => get_post_meta( $attachment_id, '_wp_attachment_image_alt', true ),
+			'attachment_id' => $attachment_id,
+			'url'           => wp_get_attachment_url( $attachment_id ) ?: '',
+			'filename'      => $attached_file ? basename( $attached_file ) : '',
+			'title'         => $attachment ? $attachment->post_title : $title,
+			'description'   => $attachment ? $attachment->post_content : $description,
+			'alt_text'      => (string) get_post_meta( $attachment_id, '_wp_attachment_image_alt', true ),
+			'mime_type'     => $attachment ? $attachment->post_mime_type : $mime_type,
 		];
 	}
 

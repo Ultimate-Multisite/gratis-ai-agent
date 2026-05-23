@@ -285,28 +285,19 @@ class MediaAbilities {
 	/**
 	 * Handle the upload-media-from-url ability.
 	 *
+	 * @deprecated 1.10.0 Use sd-ai-agent/upload-media with source "url" instead.
+	 *
 	 * @param array<string, mixed> $input Input with url, optional title, alt_text, caption, description, post_id, site_url.
 	 * @return array<string, mixed>|WP_Error
 	 */
 	public static function handle_upload_media_from_url( array $input ) {
-		// @phpstan-ignore-next-line
-		$url = esc_url_raw( $input['url'] ?? '' );
-		// @phpstan-ignore-next-line
-		$title = sanitize_text_field( $input['title'] ?? '' );
-		// @phpstan-ignore-next-line
-		$alt_text = sanitize_text_field( $input['alt_text'] ?? '' );
-		// @phpstan-ignore-next-line
-		$caption = sanitize_textarea_field( $input['caption'] ?? '' );
-		// @phpstan-ignore-next-line
-		$description = sanitize_textarea_field( $input['description'] ?? '' );
-		// @phpstan-ignore-next-line
-		$post_id  = (int) ( $input['post_id'] ?? 0 );
+		_doing_it_wrong(
+			'sd-ai-agent/upload-media-from-url',
+			__( 'Use sd-ai-agent/upload-media with source "url" instead of sd-ai-agent/upload-media-from-url.', 'superdav-ai-agent' ),
+			'1.10.0'
+		);
+
 		$site_url = $input['site_url'] ?? '';
-
-		if ( empty( $url ) ) {
-			return new WP_Error( 'ai_agent_empty_url', __( 'URL is required.', 'superdav-ai-agent' ) );
-		}
-
 		$switched = false;
 
 		if ( ! empty( $site_url ) && is_multisite() ) {
@@ -323,6 +314,45 @@ class MediaAbilities {
 			}
 		}
 
+		$result = self::sideload_from_url( $input );
+
+		if ( $switched ) {
+			restore_current_blog();
+		}
+
+		return $result;
+	}
+
+	/**
+	 * Core URL-to-media-library sideload logic (no multisite switching).
+	 *
+	 * Downloads the remote file via the SSRF-safe HTTP client and sideloads
+	 * it into the WordPress media library.  Callers that need multisite
+	 * context switching must do so themselves around this call.
+	 *
+	 * @since 1.10.0
+	 *
+	 * @param array<string, mixed> $input Input with url, optional title, alt_text, caption, description, post_id.
+	 * @return array<string, mixed>|WP_Error
+	 */
+	public static function sideload_from_url( array $input ) {
+		// @phpstan-ignore-next-line
+		$url = esc_url_raw( $input['url'] ?? '' );
+		// @phpstan-ignore-next-line
+		$title = sanitize_text_field( $input['title'] ?? '' );
+		// @phpstan-ignore-next-line
+		$alt_text = sanitize_text_field( $input['alt_text'] ?? '' );
+		// @phpstan-ignore-next-line
+		$caption = sanitize_textarea_field( $input['caption'] ?? '' );
+		// @phpstan-ignore-next-line
+		$description = sanitize_textarea_field( $input['description'] ?? '' );
+		// @phpstan-ignore-next-line
+		$post_id = (int) ( $input['post_id'] ?? 0 );
+
+		if ( empty( $url ) ) {
+			return new WP_Error( 'ai_agent_empty_url', __( 'URL is required.', 'superdav-ai-agent' ) );
+		}
+
 		if ( ! function_exists( 'media_handle_sideload' ) ) {
 			require_once ABSPATH . 'wp-admin/includes/media.php';
 			require_once ABSPATH . 'wp-admin/includes/image.php';
@@ -331,9 +361,6 @@ class MediaAbilities {
 		$tmp_file = SafeHttpClient::instance()->safe_download_url( $url, 30 );
 
 		if ( is_wp_error( $tmp_file ) ) {
-			if ( $switched ) {
-				restore_current_blog();
-			}
 			return new WP_Error(
 				'ai_agent_download_failed',
 				/* translators: %s: error message */
@@ -361,9 +388,6 @@ class MediaAbilities {
 			if ( file_exists( $tmp_file ) ) {
 				unlink( $tmp_file ); // phpcs:ignore WordPress.WP.AlternativeFunctions.unlink_unlink
 			}
-			if ( $switched ) {
-				restore_current_blog();
-			}
 			return new WP_Error(
 				'ai_agent_sideload_failed',
 				/* translators: %s: error message */
@@ -372,13 +396,12 @@ class MediaAbilities {
 		}
 
 		// Update attachment metadata.
-		$update_data = [
+		wp_update_post( [
 			'ID'           => $attachment_id,
 			'post_title'   => $title,
 			'post_excerpt' => $caption,
 			'post_content' => $description,
-		];
-		wp_update_post( $update_data );
+		] );
 
 		if ( ! empty( $alt_text ) ) {
 			update_post_meta( $attachment_id, '_wp_attachment_image_alt', $alt_text );
@@ -390,10 +413,6 @@ class MediaAbilities {
 
 		$file_path = get_attached_file( $attachment_id );
 		$file_size = ( $file_path && file_exists( $file_path ) ) ? (int) filesize( $file_path ) : 0;
-
-		if ( $switched ) {
-			restore_current_blog();
-		}
 
 		return [
 			'attachment_id' => $attachment_id,

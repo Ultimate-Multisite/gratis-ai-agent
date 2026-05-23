@@ -57,6 +57,7 @@ use SdAiAgent\Abilities\SiteHealthAbilities;
 use SdAiAgent\Abilities\SkillAbilities;
 use SdAiAgent\Abilities\ThemeBuilderAbilities;
 use SdAiAgent\Abilities\UrlResolverAbilities;
+use SdAiAgent\Abilities\UploadMediaAbility;
 use SdAiAgent\Abilities\UserAbilities;
 use SdAiAgent\Abilities\WordPressAbilities;
 use SdAiAgent\Abilities\WpCliAbilities;
@@ -157,6 +158,7 @@ final class AbilitiesHandler {
 		TaxonomyAbilities::register_abilities();
 		UserAbilities::register_abilities();
 		MediaAbilities::register_abilities();
+		UploadMediaAbility::register_abilities();
 		EditorialAbilities::register_abilities();
 		ImageAbilities::register_abilities();
 		DesignSystemAbilities::register_abilities();

@@ -170,6 +170,7 @@ class ImageAbilitiesTest extends WP_UnitTestCase {
 	 * Test handle_import_base64_image returns WP_Error for missing data.
 	 */
 	public function test_handle_import_base64_image_missing_data_returns_wp_error() {
+		$this->setExpectedIncorrectUsage( 'sd-ai-agent/import-base64-image' );
 		$result = ImageAbilities::handle_import_base64_image( [] );
 
 		$this->assertInstanceOf( \WP_Error::class, $result );
@@ -180,6 +181,7 @@ class ImageAbilitiesTest extends WP_UnitTestCase {
 	 * Test handle_import_base64_image returns WP_Error for empty data.
 	 */
 	public function test_handle_import_base64_image_empty_data_returns_wp_error() {
+		$this->setExpectedIncorrectUsage( 'sd-ai-agent/import-base64-image' );
 		$result = ImageAbilities::handle_import_base64_image( [ 'data' => '' ] );
 
 		$this->assertInstanceOf( \WP_Error::class, $result );
@@ -190,6 +192,7 @@ class ImageAbilitiesTest extends WP_UnitTestCase {
 	 * Test handle_import_base64_image returns WP_Error for invalid base64.
 	 */
 	public function test_handle_import_base64_image_invalid_base64_returns_wp_error() {
+		$this->setExpectedIncorrectUsage( 'sd-ai-agent/import-base64-image' );
 		$result = ImageAbilities::handle_import_base64_image( [
 			'data' => '!!!not-valid-base64!!!',
 		] );
@@ -207,6 +210,7 @@ class ImageAbilitiesTest extends WP_UnitTestCase {
 	 * Test handle_import_base64_image with non-image base64 data returns WP_Error.
 	 */
 	public function test_handle_import_base64_image_non_image_data_returns_wp_error() {
+		$this->setExpectedIncorrectUsage( 'sd-ai-agent/import-base64-image' );
 		// Valid base64 of plain text — not an image.
 		$result = ImageAbilities::handle_import_base64_image( [
 			'data' => base64_encode( 'This is plain text, not an image.' ), // phpcs:ignore WordPress.PHP.DiscouragedPHPFunctions.obfuscation_base64_encode -- test data encoding
@@ -226,6 +230,7 @@ class ImageAbilitiesTest extends WP_UnitTestCase {
 	 * The resulting error code is upload_error (from wp_handle_sideload).
 	 */
 	public function test_handle_import_base64_image_data_uri_prefix_stripped() {
+		$this->setExpectedIncorrectUsage( 'sd-ai-agent/import-base64-image' );
 		$plain_b64 = base64_encode( 'plain text content' ); // phpcs:ignore WordPress.PHP.DiscouragedPHPFunctions.obfuscation_base64_encode -- test data encoding
 		$data_uri  = 'data:image/png;base64,' . $plain_b64;
 
@@ -246,6 +251,7 @@ class ImageAbilitiesTest extends WP_UnitTestCase {
 	 * Uses a 1×1 transparent PNG encoded as base64.
 	 */
 	public function test_handle_import_base64_image_valid_png_imports() {
+		$this->setExpectedIncorrectUsage( 'sd-ai-agent/import-base64-image' );
 		// Minimal 1×1 transparent PNG (67 bytes).
 		$png_b64 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
 
