@@ -14,7 +14,9 @@ declare(strict_types=1);
 namespace SdAiAgent\Abilities;
 
 use SdAiAgent\Core\BlockInventory;
+use SdAiAgent\Core\BlockMutator;
 use SdAiAgent\Core\BlockReferences;
+use SdAiAgent\Core\BlockTreeAddress;
 use SdAiAgent\Core\BlockValidator;
 use SdAiAgent\Models\MarkdownToBlocks;
 
@@ -542,6 +544,126 @@ class BlockAbilities {
 				return current_user_can( 'edit_posts' );
 			},
 		]
+		);
+
+		wp_register_ability(
+			'sd-ai-agent/edit-block-tree',
+			[
+				'label'               => __( 'Edit Block Tree', 'superdav-ai-agent' ),
+				'description'         => __( 'Mutate a post\'s Gutenberg block tree at a specific block (addressed by ref, path, or flat_index) using one of nine operations: update-attrs, update-html, replace-block, remove-block, wrap-in-group, unwrap-group, insert-child, duplicate, move. Set dry_run: true to validate and preview without writing. Use sd-ai-agent/get-page-blocks first to obtain the refs and structure.', 'superdav-ai-agent' ),
+				'category'            => 'sd-ai-agent',
+				'input_schema'        => [
+					'type'       => 'object',
+					'properties' => [
+						'post_id'     => [
+							'type'        => 'integer',
+							'description' => 'Post ID whose block tree will be mutated.',
+						],
+						'op'          => [
+							'type'        => 'string',
+							'description' => 'Operation: update-attrs | update-html | replace-block | remove-block | wrap-in-group | unwrap-group | insert-child | duplicate | move.',
+							'enum'        => [
+								'update-attrs',
+								'update-html',
+								'replace-block',
+								'remove-block',
+								'wrap-in-group',
+								'unwrap-group',
+								'insert-child',
+								'duplicate',
+								'move',
+							],
+						],
+						'ref'         => [
+							'type'        => 'string',
+							'description' => 'Stable sd_ref UUID of the target block (e.g. blk_a3f2c1q9). Takes priority over path and flat_index.',
+						],
+						'path'        => [
+							'type'        => 'array',
+							'description' => 'Integer index path from root (e.g. [0, 1, 2]). Used when ref is absent.',
+							'items'       => [ 'type' => 'integer' ],
+						],
+						'flat_index'  => [
+							'type'        => 'integer',
+							'description' => 'Zero-based depth-first position from get-page-blocks. Used when ref and path are absent.',
+						],
+						'attributes'  => [
+							'type'        => 'object',
+							'description' => 'For update-attrs: attributes to merge/replace. For wrap-in-group: optional attributes for the new group wrapper.',
+						],
+						'merge'       => [
+							'type'        => 'boolean',
+							'description' => 'For update-attrs: true (default) merges supplied attrs over existing; false replaces entirely.',
+						],
+						'innerHTML'   => [
+							'type'        => 'string',
+							'description' => 'For update-html: new raw innerHTML string (wp_kses_post applied).',
+						],
+						'block_def'   => [
+							'type'        => 'object',
+							'description' => 'For replace-block, insert-child: the full block definition (blockName, attrs, innerHTML, innerBlocks).',
+						],
+						'position'    => [
+							'description' => 'For insert-child: 0-based index to insert at (default: end). For move: "before" or "after" the destination block (default: "after").',
+						],
+						'destination' => [
+							'type'        => 'object',
+							'description' => 'For move: address of the block to insert next to. Same format as top-level addressing (ref, path, or flat_index).',
+							'properties'  => [
+								'ref'        => [ 'type' => 'string' ],
+								'path'       => [
+									'type'  => 'array',
+									'items' => [ 'type' => 'integer' ],
+								],
+								'flat_index' => [ 'type' => 'integer' ],
+							],
+						],
+						'dry_run'     => [
+							'type'        => 'boolean',
+							'description' => 'When true, validate and compute the result but do not persist. Returns the would-be block tree.',
+						],
+					],
+					'required'   => [ 'post_id', 'op' ],
+				],
+				'output_schema'       => [
+					'type'       => 'object',
+					'properties' => [
+						'success'    => [
+							'type'        => 'boolean',
+							'description' => 'True when the operation succeeded (or dry_run succeeded).',
+						],
+						'dry_run'    => [
+							'type'        => 'boolean',
+							'description' => 'Echoes the dry_run flag.',
+						],
+						'op'         => [
+							'type'        => 'string',
+							'description' => 'The operation that was applied.',
+						],
+						'post_id'    => [
+							'type'        => 'integer',
+							'description' => 'Post ID that was mutated.',
+						],
+						'block_tree' => [
+							'type'        => 'array',
+							'description' => 'The resulting block tree (always returned, even on dry_run).',
+						],
+						'error'      => [ 'type' => 'string' ],
+					],
+				],
+				'execute_callback'    => [ __CLASS__, 'handle_edit_block_tree' ],
+				'permission_callback' => function () {
+					return current_user_can( 'edit_posts' );
+				},
+				'meta'                => [
+					'mcp'         => [ 'public' => true ],
+					'annotations' => [
+						'readonly'    => false,
+						'destructive' => true,
+						'idempotent'  => false,
+					],
+				],
+			]
 		);
 	}
 
@@ -1532,5 +1654,104 @@ class BlockAbilities {
 
 			$output[] = $entry;
 		}
+	}
+
+	// ─── edit-block-tree handler ───────────────────────────────────
+
+	/**
+	 * Handle the sd-ai-agent/edit-block-tree ability.
+	 *
+	 * Loads the post's block tree, applies the requested mutation via
+	 * BlockMutator::apply(), and (unless dry_run) persists the result
+	 * directly to the DB without creating a revision.
+	 *
+	 * @param array<string,mixed> $input Ability input.
+	 * @return array<string,mixed>|\WP_Error Result array or WP_Error.
+	 */
+	public static function handle_edit_block_tree( array $input ) {
+		global $wpdb;
+
+		$post_id = (int) ( $input['post_id'] ?? 0 );
+		$op      = isset( $input['op'] ) && is_string( $input['op'] ) ? $input['op'] : '';
+		$dry_run = isset( $input['dry_run'] ) ? (bool) $input['dry_run'] : false;
+
+		if ( $post_id <= 0 ) {
+			return new \WP_Error(
+				'missing_post_id',
+				__( 'post_id is required and must be a positive integer.', 'superdav-ai-agent' ),
+				[ 'status' => 400 ]
+			);
+		}
+
+		if ( '' === $op ) {
+			return new \WP_Error(
+				'missing_op',
+				__( 'op (operation) is required.', 'superdav-ai-agent' ),
+				[ 'status' => 400 ]
+			);
+		}
+
+		$post = get_post( $post_id );
+
+		if ( ! $post ) {
+			return new \WP_Error(
+				'post_not_found',
+				sprintf(
+					/* translators: %d: post ID */
+					__( 'Post %d not found.', 'superdav-ai-agent' ),
+					$post_id
+				),
+				[ 'status' => 404 ]
+			);
+		}
+
+		$content = $post->post_content;
+		$blocks  = is_string( $content ) ? parse_blocks( $content ) : [];
+
+		if ( ! is_array( $blocks ) ) {
+			$blocks = [];
+		}
+
+		// Apply mutation.
+		// @phpstan-ignore-next-line
+		$result = BlockMutator::apply( $blocks, $op, $input );
+
+		if ( is_wp_error( $result ) ) {
+			return $result;
+		}
+
+		$new_tree = $result;
+
+		// Persist (unless dry_run).
+		if ( ! $dry_run ) {
+			// @phpstan-ignore-next-line
+			$new_content = serialize_blocks( $new_tree );
+			// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching
+			$updated = $wpdb->update(
+				$wpdb->posts,
+				[ 'post_content' => $new_content ],
+				[ 'ID' => $post_id ],
+				[ '%s' ],
+				[ '%d' ]
+			);
+
+			if ( false === $updated ) {
+				return new \WP_Error(
+					'db_write_failed',
+					__( 'Failed to persist the mutated block tree to the database.', 'superdav-ai-agent' ),
+					[ 'status' => 500 ]
+				);
+			}
+
+			clean_post_cache( $post_id );
+		}
+
+		return [
+			'success'    => true,
+			'dry_run'    => $dry_run,
+			'op'         => $op,
+			'post_id'    => $post_id,
+			'block_tree' => $new_tree,
+		];
 	}
 }
