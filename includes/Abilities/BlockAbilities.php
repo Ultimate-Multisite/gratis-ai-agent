@@ -2089,7 +2089,7 @@ class BlockAbilities {
 	 *
 	 * This is called before apply_batch() to ensure all-or-nothing rejection.
 	 *
-	 * @param array<int,mixed> $updates Array of update specs from handle_update_blocks.
+	 * @param array<mixed,mixed> $updates Array of update specs from handle_update_blocks.
 	 * @return null|\WP_Error null on success, WP_Error on first policy violation.
 	 */
 	private static function preflight_tier_policy( array $updates ): ?\WP_Error {
@@ -2159,6 +2159,16 @@ class BlockAbilities {
 		return null;
 	}
 
+	/**
+	 * Handle the sd-ai-agent/edit-block-tree ability.
+	 *
+	 * Loads the post's block tree, applies the requested mutation via
+	 * BlockMutator::apply(), and (unless dry_run) persists the result
+	 * directly to the DB without creating a revision.
+	 *
+	 * @param array<string,mixed> $input Ability input.
+	 * @return array<string,mixed>|\WP_Error Result array or WP_Error.
+	 */
 	public static function handle_edit_block_tree( array $input ) {
 		global $wpdb;
 
