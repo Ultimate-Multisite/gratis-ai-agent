@@ -677,4 +677,260 @@ class BlockAbilitiesTest extends WP_UnitTestCase {
 		$this->assertIsArray( $result );
 		$this->assertFalse( $result['refs_stored'], 'refs_stored must be false when refs are already present' );
 	}
+
+	// ─── outline parameter ────────────────────────────────────────
+
+	/**
+	 * AC1 (outline): outline: true returns only flat_index, path, name, heading_text.
+	 *
+	 * @see GH#1738
+	 */
+	public function test_handle_get_page_blocks_outline_mode(): void {
+		$content = "<!-- wp:heading {\"level\":2} -->\n<h2>Section Title</h2>\n<!-- /wp:heading -->\n<!-- wp:paragraph -->\n<p>Paragraph content here</p>\n<!-- /wp:paragraph -->";
+
+		$post_id = $this->factory()->post->create( [
+			'post_content' => $content,
+			'post_status'  => 'publish',
+		] );
+
+		$result = BlockAbilities::handle_get_page_blocks( [
+			'post_id'      => $post_id,
+			'persist_refs' => false,
+			'outline'      => true,
+		] );
+
+		$this->assertIsArray( $result );
+		$this->assertCount( 2, $result['blocks'] );
+
+		// Check heading block.
+		$heading = $result['blocks'][0];
+		$this->assertArrayHasKey( 'flat_index', $heading );
+		$this->assertArrayHasKey( 'path', $heading );
+		$this->assertArrayHasKey( 'name', $heading );
+		$this->assertArrayHasKey( 'heading_text', $heading );
+		$this->assertSame( 'core/heading', $heading['name'] );
+		$this->assertSame( 'Section Title', $heading['heading_text'] );
+
+		// Outline mode should NOT include attributes or text_preview.
+		$this->assertArrayNotHasKey( 'attributes', $heading );
+		$this->assertArrayNotHasKey( 'text_preview', $heading );
+
+		// Check paragraph block (no heading_text for non-heading blocks).
+		$paragraph = $result['blocks'][1];
+		$this->assertArrayNotHasKey( 'heading_text', $paragraph );
+		$this->assertArrayNotHasKey( 'attributes', $paragraph );
+	}
+
+	// ─── summary_only parameter ───────────────────────────────────
+
+	/**
+	 * AC2 (summary_only): summary_only: true returns block_counts, headings, section_markers, max_depth.
+	 *
+	 * @see GH#1738
+	 */
+	public function test_handle_get_page_blocks_summary_only(): void {
+		$content = "<!-- wp:heading {\"level\":2} -->\n<h2>Title</h2>\n<!-- /wp:heading -->\n<!-- wp:heading {\"level\":3} -->\n<h3>Subtitle</h3>\n<!-- /wp:heading -->\n<!-- wp:paragraph -->\n<p>Content</p>\n<!-- /wp:paragraph -->";
+
+		$post_id = $this->factory()->post->create( [
+			'post_content' => $content,
+			'post_status'  => 'publish',
+		] );
+
+		$result = BlockAbilities::handle_get_page_blocks( [
+			'post_id'      => $post_id,
+			'persist_refs' => false,
+			'summary_only' => true,
+		] );
+
+		$this->assertIsArray( $result );
+		$this->assertEmpty( $result['blocks'], 'summary_only should return empty blocks array' );
+		$this->assertArrayHasKey( 'summary', $result );
+
+		$summary = $result['summary'];
+		$this->assertArrayHasKey( 'block_counts', $summary );
+		$this->assertArrayHasKey( 'headings', $summary );
+		$this->assertArrayHasKey( 'section_markers', $summary );
+		$this->assertArrayHasKey( 'max_depth', $summary );
+
+		// Check block counts exist and have expected types.
+		$this->assertIsArray( $summary['block_counts'] );
+		$this->assertGreaterThanOrEqual( 2, count( $summary['block_counts'] ) );
+
+		// Check headings list exists and has expected types.
+		$this->assertIsArray( $summary['headings'] );
+		$this->assertGreaterThanOrEqual( 2, count( $summary['headings'] ) );
+
+		// Verify max_depth is an integer.
+		$this->assertIsInt( $summary['max_depth'] );
+	}
+
+	// ─── search parameter ─────────────────────────────────────────
+
+	/**
+	 * AC3 (search): search: 'text' filters blocks by text_preview substring.
+	 *
+	 * @see GH#1738
+	 */
+	public function test_handle_get_page_blocks_search_filter(): void {
+		$content = "<!-- wp:paragraph -->\n<p>Pricing information here</p>\n<!-- /wp:paragraph -->\n<!-- wp:paragraph -->\n<p>Other content</p>\n<!-- /wp:paragraph -->";
+
+		$post_id = $this->factory()->post->create( [
+			'post_content' => $content,
+			'post_status'  => 'publish',
+		] );
+
+		$result = BlockAbilities::handle_get_page_blocks( [
+			'post_id'      => $post_id,
+			'persist_refs' => false,
+			'search'       => 'Pricing',
+		] );
+
+		$this->assertIsArray( $result );
+		$this->assertCount( 1, $result['blocks'] );
+		$this->assertStringContainsString( 'Pricing', $result['blocks'][0]['text_preview'] );
+	}
+
+	/**
+	 * AC3b (search): search is case-insensitive.
+	 *
+	 * @see GH#1738
+	 */
+	public function test_handle_get_page_blocks_search_case_insensitive(): void {
+		$content = "<!-- wp:paragraph -->\n<p>PRICING information</p>\n<!-- /wp:paragraph -->";
+
+		$post_id = $this->factory()->post->create( [
+			'post_content' => $content,
+			'post_status'  => 'publish',
+		] );
+
+		$result = BlockAbilities::handle_get_page_blocks( [
+			'post_id'      => $post_id,
+			'persist_refs' => false,
+			'search'       => 'pricing',
+		] );
+
+		$this->assertIsArray( $result );
+		$this->assertCount( 1, $result['blocks'] );
+	}
+
+	// ─── block_name parameter ─────────────────────────────────────
+
+	/**
+	 * AC4 (block_name): block_name: 'core/heading' filters by exact block name.
+	 *
+	 * @see GH#1738
+	 */
+	public function test_handle_get_page_blocks_block_name_filter(): void {
+		$content = "<!-- wp:heading {\"level\":2} -->\n<h2>Title</h2>\n<!-- /wp:heading -->\n<!-- wp:paragraph -->\n<p>Content</p>\n<!-- /wp:paragraph -->\n<!-- wp:heading {\"level\":3} -->\n<h3>Subtitle</h3>\n<!-- /wp:heading -->";
+
+		$post_id = $this->factory()->post->create( [
+			'post_content' => $content,
+			'post_status'  => 'publish',
+		] );
+
+		$result = BlockAbilities::handle_get_page_blocks( [
+			'post_id'      => $post_id,
+			'persist_refs' => false,
+			'block_name'   => 'core/heading',
+		] );
+
+		$this->assertIsArray( $result );
+		$this->assertCount( 2, $result['blocks'] );
+		foreach ( $result['blocks'] as $block ) {
+			$this->assertSame( 'core/heading', $block['name'] );
+		}
+	}
+
+	// ─── fields parameter ─────────────────────────────────────────
+
+	/**
+	 * AC6 (fields): fields: 'name,ref,path' returns only those keys per block.
+	 *
+	 * @see GH#1738
+	 */
+	public function test_handle_get_page_blocks_fields_allowlist(): void {
+		$content = "<!-- wp:paragraph -->\n<p>Test content</p>\n<!-- /wp:paragraph -->";
+
+		$post_id = $this->factory()->post->create( [
+			'post_content' => $content,
+			'post_status'  => 'publish',
+		] );
+
+		$result = BlockAbilities::handle_get_page_blocks( [
+			'post_id'      => $post_id,
+			'persist_refs' => false,
+			'fields'       => 'name,ref,path',
+		] );
+
+		$this->assertIsArray( $result );
+		$block = $result['blocks'][0];
+
+		// Should have only the requested fields.
+		$this->assertArrayHasKey( 'name', $block );
+		$this->assertArrayHasKey( 'ref', $block );
+		$this->assertArrayHasKey( 'path', $block );
+
+		// Should NOT have other fields.
+		$this->assertArrayNotHasKey( 'attributes', $block );
+		$this->assertArrayNotHasKey( 'text_preview', $block );
+		$this->assertArrayNotHasKey( 'flat_index', $block );
+	}
+
+	// ─── combined parameters ──────────────────────────────────────
+
+	/**
+	 * AC7 (combined): outline + search filters and returns minimal response.
+	 *
+	 * @see GH#1738
+	 */
+	public function test_handle_get_page_blocks_outline_with_search(): void {
+		$content = "<!-- wp:heading {\"level\":2} -->\n<h2>Pricing</h2>\n<!-- /wp:heading -->\n<!-- wp:heading {\"level\":2} -->\n<h2>Features</h2>\n<!-- /wp:heading -->";
+
+		$post_id = $this->factory()->post->create( [
+			'post_content' => $content,
+			'post_status'  => 'publish',
+		] );
+
+		$result = BlockAbilities::handle_get_page_blocks( [
+			'post_id'      => $post_id,
+			'persist_refs' => false,
+			'outline'      => true,
+			'search'       => 'Pricing',
+		] );
+
+		$this->assertIsArray( $result );
+		$this->assertCount( 1, $result['blocks'] );
+		$this->assertSame( 'Pricing', $result['blocks'][0]['heading_text'] );
+		$this->assertArrayNotHasKey( 'attributes', $result['blocks'][0] );
+	}
+
+	/**
+	 * AC7b (combined): block_name + fields filters and returns only specified fields.
+	 *
+	 * @see GH#1738
+	 */
+	public function test_handle_get_page_blocks_block_name_with_fields(): void {
+		$content = "<!-- wp:heading {\"level\":2} -->\n<h2>Title</h2>\n<!-- /wp:heading -->\n<!-- wp:paragraph -->\n<p>Content</p>\n<!-- /wp:paragraph -->";
+
+		$post_id = $this->factory()->post->create( [
+			'post_content' => $content,
+			'post_status'  => 'publish',
+		] );
+
+		$result = BlockAbilities::handle_get_page_blocks( [
+			'post_id'      => $post_id,
+			'persist_refs' => false,
+			'block_name'   => 'core/heading',
+			'fields'       => 'name,path',
+		] );
+
+		$this->assertIsArray( $result );
+		$this->assertCount( 1, $result['blocks'] );
+		$block = $result['blocks'][0];
+
+		$this->assertArrayHasKey( 'name', $block );
+		$this->assertArrayHasKey( 'path', $block );
+		$this->assertArrayNotHasKey( 'ref', $block );
+		$this->assertArrayNotHasKey( 'attributes', $block );
+	}
 }

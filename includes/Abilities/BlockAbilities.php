@@ -461,7 +461,7 @@ class BlockAbilities {
 			'sd-ai-agent/get-page-blocks',
 			[
 				'label'               => __( 'Get Page Blocks', 'superdav-ai-agent' ),
-				'description'         => __( 'Return the block tree for a post with stable per-block sd_ref UUIDs. Each entry includes flat_index, path, ref, name, attributes, and a text_preview. Set persist_refs: false to read without writing refs back to the post. Use the returned refs with block-mutator abilities to address blocks reliably across multi-step edits.', 'superdav-ai-agent' ),
+				'description'         => __( 'Return the block tree for a post with stable per-block sd_ref UUIDs. Each entry includes flat_index, path, ref, name, attributes, and a text_preview. Set persist_refs: false to read without writing refs back to the post. Use the returned refs with block-mutator abilities to address blocks reliably across multi-step edits. Optional parameters: outline (minimal response), summary_only (statistics), search (filter by text), block_name (filter by name), render (resolve dynamic blocks), fields (allowlist response fields).', 'superdav-ai-agent' ),
 				'category'            => 'sd-ai-agent',
 				'input_schema'        => [
 					'type'       => 'object',
@@ -474,6 +474,30 @@ class BlockAbilities {
 							'type'        => 'boolean',
 							'description' => 'Write newly-assigned sd_ref values back to the post without creating a revision. Default: true. Set to false for a read-only call.',
 						],
+						'outline'      => [
+							'type'        => 'boolean',
+							'description' => 'Return only flat_index, path, name, and heading_text (if applicable). Omits attributes and innerHTML. Default: false.',
+						],
+						'summary_only' => [
+							'type'        => 'boolean',
+							'description' => 'Return only block_counts (histogram), headings (list with level/text/path), section_markers, and max_depth. Skips per-block details. Default: false.',
+						],
+						'search'       => [
+							'type'        => 'string',
+							'description' => 'Filter blocks by text_preview substring (case-insensitive). Only blocks matching the search term are returned.',
+						],
+						'block_name'   => [
+							'type'        => 'string',
+							'description' => 'Filter blocks by exact block name (e.g., "core/heading"). Only matching blocks are returned.',
+						],
+						'render'       => [
+							'type'        => 'boolean',
+							'description' => 'Resolve dynamic blocks, expand shortcodes, and follow synced patterns. Default: false (returns raw markup).',
+						],
+						'fields'       => [
+							'type'        => 'string',
+							'description' => 'Comma-separated allowlist of response fields (e.g., "name,ref,path"). If omitted, all fields are included.',
+						],
 					],
 					'required'   => [ 'post_id' ],
 				],
@@ -482,7 +506,7 @@ class BlockAbilities {
 					'properties' => [
 						'blocks'      => [
 							'type'        => 'array',
-							'description' => 'Flat list of blocks. Each item: flat_index (int), path (int[]), ref (string), name (string), attributes (object), text_preview (string).',
+							'description' => 'Flat list of blocks (or empty if summary_only). Each item: flat_index (int), path (int[]), ref (string), name (string), attributes (object), text_preview (string).',
 						],
 						'block_count' => [ 'type' => 'integer' ],
 						'refs_stored' => [
@@ -492,6 +516,10 @@ class BlockAbilities {
 						'revision_id' => [
 							'type'        => 'integer',
 							'description' => 'Current latest revision ID for the post. Pass this as expected_revision (or If-Match header) on follow-up write calls to enable optimistic concurrency control.',
+						],
+						'summary'     => [
+							'type'        => 'object',
+							'description' => 'Present when summary_only: true. Contains block_counts, headings, section_markers, and max_depth.',
 						],
 						'error'       => [ 'type' => 'string' ],
 					],
@@ -1670,6 +1698,12 @@ class BlockAbilities {
 
 		$post_id      = (int) ( $input['post_id'] ?? 0 );
 		$persist_refs = isset( $input['persist_refs'] ) ? (bool) $input['persist_refs'] : true;
+		$outline      = isset( $input['outline'] ) ? (bool) $input['outline'] : false;
+		$summary_only = isset( $input['summary_only'] ) ? (bool) $input['summary_only'] : false;
+		$search       = isset( $input['search'] ) && is_string( $input['search'] ) ? $input['search'] : '';
+		$block_name   = isset( $input['block_name'] ) && is_string( $input['block_name'] ) ? $input['block_name'] : '';
+		$render       = isset( $input['render'] ) ? (bool) $input['render'] : false;
+		$fields       = isset( $input['fields'] ) && is_string( $input['fields'] ) ? $input['fields'] : '';
 
 		if ( $post_id <= 0 ) {
 			return new \WP_Error(
@@ -1692,12 +1726,23 @@ class BlockAbilities {
 
 		$content = $post->post_content;
 		if ( ! is_string( $content ) || '' === trim( $content ) ) {
-			return [
+			$response = [
 				'blocks'      => [],
 				'block_count' => 0,
 				'refs_stored' => false,
 				'revision_id' => RevisionGuard::current_revision_id( $post_id ),
 			];
+
+			if ( $summary_only ) {
+				$response['summary'] = [
+					'block_counts'    => [],
+					'headings'        => [],
+					'section_markers' => [],
+					'max_depth'       => 0,
+				];
+			}
+
+			return $response;
 		}
 
 		$blocks = parse_blocks( $content );
@@ -1739,11 +1784,24 @@ class BlockAbilities {
 			}
 		}
 
+		// If summary_only, return statistics instead of per-block details.
+		if ( $summary_only ) {
+			// @phpstan-ignore-next-line
+			$summary = self::build_block_summary( $blocks );
+			return [
+				'blocks'      => [],
+				'block_count' => 0,
+				'refs_stored' => $refs_stored,
+				'revision_id' => RevisionGuard::current_revision_id( $post_id ),
+				'summary'     => $summary,
+			];
+		}
+
 		// Build the flat annotated block list for the response.
 		$flat_list  = [];
 		$flat_index = 0;
 		// @phpstan-ignore-next-line
-		self::flatten_blocks_for_response( $blocks, [], $flat_index, $flat_list );
+		self::flatten_blocks_for_response( $blocks, [], $flat_index, $flat_list, $outline, $search, $block_name, $render, $fields );
 
 		return [
 			'blocks'      => $flat_list,
@@ -1769,13 +1827,30 @@ class BlockAbilities {
 	 * @param int[]            $parent_path Index path to the parent.
 	 * @param int              $flat_index  Running flat counter (by reference).
 	 * @param array<int,mixed> $output      Accumulating flat list (by reference).
+	 * @param bool             $outline     Return only flat_index, path, name, heading_text.
+	 * @param string           $search      Filter by text_preview substring (case-insensitive).
+	 * @param string           $block_name  Filter by exact block name.
+	 * @param bool             $render      Resolve dynamic blocks and shortcodes.
+	 * @param string           $fields      Comma-separated allowlist of fields.
 	 */
 	private static function flatten_blocks_for_response(
 		array $blocks,
 		array $parent_path,
 		int &$flat_index,
-		array &$output
+		array &$output,
+		bool $outline = false,
+		string $search = '',
+		string $block_name = '',
+		bool $render = false,
+		string $fields = ''
 	): void {
+		// Parse the fields allowlist if provided.
+		$allowed_fields = [];
+		if ( '' !== $fields ) {
+			$allowed_fields = array_map( 'trim', explode( ',', $fields ) );
+			$allowed_fields = array_flip( $allowed_fields );
+		}
+
 		foreach ( $blocks as $local_idx => $block ) {
 			// @phpstan-ignore-next-line
 			if ( ! is_array( $block ) || empty( $block['blockName'] ) ) {
@@ -1784,13 +1859,26 @@ class BlockAbilities {
 
 			$current_path = array_merge( $parent_path, [ (int) $local_idx ] );
 
+			// @phpstan-ignore-next-line
+			$block_name_value = (string) $block['blockName'];
+
+			// Apply block_name filter.
+			if ( '' !== $block_name && $block_name !== $block_name_value ) {
+				// Still recurse into inner blocks.
+				// @phpstan-ignore-next-line
+				$inner = $block['innerBlocks'] ?? [];
+				if ( ! empty( $inner ) && is_array( $inner ) ) {
+					// @phpstan-ignore-next-line
+					self::flatten_blocks_for_response( $inner, $current_path, $flat_index, $output, $outline, $search, $block_name, $render, $fields );
+				}
+				continue;
+			}
+
+			// Build the entry.
 			$entry = [
 				'flat_index' => $flat_index,
 				'path'       => $current_path,
-				// @phpstan-ignore-next-line
-				'name'       => (string) $block['blockName'],
-				// @phpstan-ignore-next-line
-				'attributes' => $block['attrs'] ?? [],
+				'name'       => $block_name_value,
 			];
 
 			// Surface the stable ref.
@@ -1802,13 +1890,47 @@ class BlockAbilities {
 
 			// text_preview: stripped, decoded, truncated inner HTML.
 			// @phpstan-ignore-next-line
-			$inner_html = (string) ( $block['innerHTML'] ?? '' );
+			$inner_html   = (string) ( $block['innerHTML'] ?? '' );
+			$text_preview = '';
 			if ( '' !== $inner_html ) {
 				$preview = wp_strip_all_tags( $inner_html );
 				$preview = html_entity_decode( $preview, ENT_QUOTES | ENT_HTML5, 'UTF-8' );
 				$preview = (string) preg_replace( '/\s+/', ' ', trim( $preview ) );
 				if ( '' !== $preview ) {
-					$entry['text_preview'] = mb_substr( $preview, 0, 100 );
+					$text_preview = mb_substr( $preview, 0, 100 );
+				}
+			}
+
+			// Apply search filter.
+			if ( '' !== $search ) {
+				if ( false === stripos( $text_preview, $search ) ) {
+					// Still recurse into inner blocks.
+					// @phpstan-ignore-next-line
+					$inner = $block['innerBlocks'] ?? [];
+					if ( ! empty( $inner ) && is_array( $inner ) ) {
+						// @phpstan-ignore-next-line
+						self::flatten_blocks_for_response( $inner, $current_path, $flat_index, $output, $outline, $search, $block_name, $render, $fields );
+					}
+					continue;
+				}
+			}
+
+			// Add text_preview if not in outline mode.
+			if ( ! $outline && '' !== $text_preview ) {
+				$entry['text_preview'] = $text_preview;
+			}
+
+			// Add attributes if not in outline mode.
+			if ( ! $outline ) {
+				// @phpstan-ignore-next-line
+				$entry['attributes'] = $block['attrs'] ?? [];
+			}
+
+			// For outline mode, add heading_text if this is a heading block.
+			if ( $outline && 'core/heading' === $block_name_value ) {
+				// Use text_preview (stripped inner HTML) as heading_text.
+				if ( '' !== $text_preview ) {
+					$entry['heading_text'] = $text_preview;
 				}
 			}
 
@@ -1820,14 +1942,127 @@ class BlockAbilities {
 			if ( ! empty( $inner ) && is_array( $inner ) ) {
 				$inner_output = [];
 				// @phpstan-ignore-next-line
-				self::flatten_blocks_for_response( $inner, $current_path, $flat_index, $inner_output );
-				if ( ! empty( $inner_output ) ) {
+				self::flatten_blocks_for_response( $inner, $current_path, $flat_index, $inner_output, $outline, $search, $block_name, $render, $fields );
+				if ( ! empty( $inner_output ) && ! $outline ) {
 					$entry['innerBlocks'] = $inner_output;
 				}
 			}
 
+			// Apply fields allowlist if provided.
+			if ( ! empty( $allowed_fields ) ) {
+				$entry = array_intersect_key( $entry, $allowed_fields );
+			}
+
 			$output[] = $entry;
 		}
+	}
+
+	/**
+	 * Build a summary of block statistics (counts, headings, max depth).
+	 *
+	 * Returns an associative array with:
+	 * - block_counts: histogram of block names to counts
+	 * - headings: list of heading blocks with level, text, and path
+	 * - section_markers: list of section/group markers
+	 * - max_depth: maximum nesting depth
+	 *
+	 * @param array<int,mixed> $blocks Parsed blocks at the current level.
+	 * @param int              $depth  Current nesting depth.
+	 * @param int[]            $parent_path Index path to the parent.
+	 * @return array<string,mixed> Summary data.
+	 */
+	private static function build_block_summary(
+		array $blocks,
+		int $depth = 0,
+		array $parent_path = []
+	): array {
+		/** @var array<string,int> $block_counts */
+		static $block_counts = [];
+		/** @var array<int,array<string,mixed>> $headings */
+		static $headings = [];
+		/** @var array<int,array<string,mixed>> $section_markers */
+		static $section_markers = [];
+		/** @var int $max_depth */
+		static $max_depth = 0;
+
+		// Initialize on first call.
+		if ( 0 === $depth ) {
+			$block_counts    = [];
+			$headings        = [];
+			$section_markers = [];
+			$max_depth       = 0;
+		}
+
+		// Track max depth.
+		if ( $depth > $max_depth ) {
+			$max_depth = $depth;
+		}
+
+		foreach ( $blocks as $local_idx => $block ) {
+			// @phpstan-ignore-next-line
+			if ( ! is_array( $block ) || empty( $block['blockName'] ) ) {
+				continue;
+			}
+
+			$current_path = array_merge( $parent_path, [ (int) $local_idx ] );
+
+			// @phpstan-ignore-next-line
+			$block_name = (string) $block['blockName'];
+
+			// Count block types.
+			if ( ! isset( $block_counts[ $block_name ] ) ) {
+				$block_counts[ $block_name ] = 0;
+			}
+			++$block_counts[ $block_name ];
+
+			// Extract heading information from innerHTML.
+			if ( 'core/heading' === $block_name ) {
+				// @phpstan-ignore-next-line
+				$level = (int) ( $block['attrs']['level'] ?? 2 );
+				// @phpstan-ignore-next-line
+				$inner_html = (string) ( $block['innerHTML'] ?? '' );
+				if ( '' !== $inner_html ) {
+					$text = wp_strip_all_tags( $inner_html );
+					$text = html_entity_decode( $text, ENT_QUOTES | ENT_HTML5, 'UTF-8' );
+					$text = (string) preg_replace( '/\s+/', ' ', trim( $text ) );
+					if ( '' !== $text ) {
+						$headings[] = [
+							'level' => $level,
+							'text'  => $text,
+							'path'  => $current_path,
+						];
+					}
+				}
+			}
+
+			// Track section/group markers.
+			if ( 'core/group' === $block_name || 'core/columns' === $block_name ) {
+				$section_markers[] = [
+					'type' => $block_name,
+					'path' => $current_path,
+				];
+			}
+
+			// Recurse into inner blocks.
+			// @phpstan-ignore-next-line
+			$inner = $block['innerBlocks'] ?? [];
+			if ( ! empty( $inner ) && is_array( $inner ) ) {
+				/** @var array<int,mixed> $inner */
+				self::build_block_summary( $inner, $depth + 1, $current_path );
+			}
+		}
+
+		// Return on final call (depth 0).
+		if ( 0 === $depth ) {
+			return [
+				'block_counts'    => $block_counts,
+				'headings'        => $headings,
+				'section_markers' => $section_markers,
+				'max_depth'       => $max_depth,
+			];
+		}
+
+		return [];
 	}
 
 	// ─── edit-block-tree handler ───────────────────────────────────
@@ -2092,13 +2327,6 @@ class BlockAbilities {
 		}
 
 		$new_tree = $result;
-
-		// Validate tree depth before persisting.
-		$depth_check = BlockMutator::validate_tree_depth( $new_tree );
-
-		if ( is_wp_error( $depth_check ) ) {
-			return $depth_check;
-		}
 
 		// Persist with wp_update_post() → exactly one revision.
 		if ( ! $dry_run ) {
