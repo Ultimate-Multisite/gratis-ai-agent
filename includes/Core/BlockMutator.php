@@ -62,6 +62,12 @@ class BlockMutator {
 	/**
 	 * Apply a single mutation operation to a parsed block tree.
 	 *
+	 * For `update-attrs` on supported static blocks, HtmlTransformer automatically
+	 * rewrites innerHTML to stay consistent with the new attribute values. For
+	 * unsupported static blocks, a `_warnings` key is added to the result array
+	 * containing `static_block_attrs_changed` so the caller knows innerHTML may
+	 * need manual updating.
+	 *
 	 * @param array<int,mixed>    $blocks Parsed block tree (parse_blocks() output).
 	 * @param string              $op     Operation name (one of VALID_OPS).
 	 * @param array<string,mixed> $args   Operation arguments including the address.
@@ -89,7 +95,24 @@ class BlockMutator {
 
 		switch ( $op ) {
 			case 'update-attrs':
-				return self::op_update_attrs( $blocks, $path, $args );
+				$result = self::op_update_attrs( $blocks, $path, $args );
+
+				if ( is_wp_error( $result ) ) {
+					return $result;
+				}
+
+				// Emit static_block_attrs_changed warning for unsupported blocks.
+				$target = BlockTreeAddress::get_block_at_path( $blocks, $path );
+
+				if ( null !== $target
+					&& isset( $target['blockName'] ) && is_string( $target['blockName'] )
+					&& '' !== $target['blockName']
+					&& ! HtmlTransformer::is_supported( $target['blockName'] )
+				) {
+					$result['_warnings'] = [ 'static_block_attrs_changed' ];
+				}
+
+				return $result;
 			case 'update-html':
 				return self::op_update_html( $blocks, $path, $args );
 			case 'replace-block':
@@ -148,6 +171,11 @@ class BlockMutator {
 					$block['attrs'] = array_merge( $existing, $args['attributes'] );
 				} else {
 					$block['attrs'] = $args['attributes'];
+				}
+
+				// Auto-transform innerHTML when attribute changes imply HTML structure changes.
+				if ( is_array( $block ) && HtmlTransformer::is_supported( isset( $block['blockName'] ) && is_string( $block['blockName'] ) ? $block['blockName'] : '' ) ) {
+					$block = HtmlTransformer::apply( $block, $args['attributes'] );
 				}
 
 				$siblings[ $idx ] = $block;
