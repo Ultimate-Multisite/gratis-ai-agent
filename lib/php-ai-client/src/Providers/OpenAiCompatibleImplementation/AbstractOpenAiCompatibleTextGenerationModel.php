@@ -169,7 +169,11 @@ abstract class AbstractOpenAiCompatibleTextGenerationModel extends AbstractApiBa
      */
     protected function prepareMessagesParam(array $messages, ?string $systemInstruction = null): array
     {
-        $messagesParam = array_map(function (Message $message): array {
+        // Check if this is a DeepSeek thinking model that requires reasoning_content round-trip.
+        $modelId = $this->metadata()->getId();
+        $isDeepSeekThinkingModel = $this->isDeepSeekThinkingModel($modelId);
+
+        $messagesParam = array_map(function (Message $message) use ($isDeepSeekThinkingModel): array {
             // Special case: Function response.
             $messageParts = $message->getParts();
             if (count($messageParts) === 1 && $messageParts[0]->getType()->isFunctionResponse()) {
@@ -185,6 +189,13 @@ abstract class AbstractOpenAiCompatibleTextGenerationModel extends AbstractApiBa
             $toolCalls = array_values(array_filter(array_map([$this, 'getMessagePartToolCallData'], $messageParts)));
             if (!empty($toolCalls)) {
                 $messageData['tool_calls'] = $toolCalls;
+            }
+            // For DeepSeek thinking models, include reasoning_content if present.
+            if ($isDeepSeekThinkingModel && $message->getRole()->isModel()) {
+                $reasoningContent = $this->extractReasoningContent($messageParts);
+                if ($reasoningContent !== null) {
+                    $messageData['reasoning_content'] = $reasoningContent;
+                }
             }
             return $messageData;
         }, $messages);
@@ -551,7 +562,52 @@ abstract class AbstractOpenAiCompatibleTextGenerationModel extends AbstractApiBa
             return null;
         }
         $functionArguments = is_string($toolCallData['function']['arguments']) ? json_decode($toolCallData['function']['arguments'], \true) : $toolCallData['function']['arguments'];
-        $functionCall = new FunctionCall(isset($toolCallData['id']) && is_string($toolCallData['id']) ? $toolCallData['id'] : null, isset($toolCallData['function']['name']) && is_string($toolCallData['function']['name']) ? $toolCallData['function']['name'] : null, $functionArguments);
-        return new MessagePart($functionCall);
-    }
-}
+         $functionCall = new FunctionCall(isset($toolCallData['id']) && is_string($toolCallData['id']) ? $toolCallData['id'] : null, isset($toolCallData['function']['name']) && is_string($toolCallData['function']['name']) ? $toolCallData['function']['name'] : null, $functionArguments);
+         return new MessagePart($functionCall);
+     }
+     /**
+      * Determines if the model is a DeepSeek thinking model that requires reasoning_content round-trip.
+      *
+      * DeepSeek reasoning models (V3.1+ thinking mode) emit reasoning_content in assistant messages
+      * and require it to be passed back in subsequent requests. This method identifies such models
+      * by checking the model ID against known DeepSeek thinking model patterns.
+      *
+      * @since 1.4.0
+      *
+      * @param string $modelId The model ID to check.
+      * @return bool True if the model is a DeepSeek thinking model, false otherwise.
+      */
+     private function isDeepSeekThinkingModel(string $modelId): bool
+     {
+         // DeepSeek thinking models include:
+         // - deepseek-reasoner (V3.1 thinking mode)
+         // - deepseek-v4-flash (V4 Flash with thinking)
+         // - deepseek-v4-pro (V4 Pro with thinking)
+         // - Any model with 'deepseek' and 'reasoner' or 'thinking' in the name
+         $lowerModelId = strtolower($modelId);
+         return (bool) preg_match('/deepseek.*(?:reasoner|thinking|v[34].*flash|v[34].*pro)/i', $modelId);
+     }
+     /**
+      * Extracts reasoning_content from message parts if present.
+      *
+      * Looks for message parts in the thought channel and returns their text content
+      * as reasoning_content for DeepSeek thinking models.
+      *
+      * @since 1.4.0
+      *
+      * @param MessagePart[] $parts The message parts to search.
+      * @return string|null The reasoning content if found, null otherwise.
+      */
+     private function extractReasoningContent(array $parts): ?string
+     {
+         foreach ($parts as $part) {
+             if ($part->getChannel()->isThought() && $part->getType()->isText()) {
+                 $text = $part->getText();
+                 if ($text !== null && $text !== '') {
+                     return $text;
+                 }
+             }
+         }
+         return null;
+     }
+ }
