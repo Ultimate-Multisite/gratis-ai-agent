@@ -27,6 +27,7 @@ use SdAiAgent\Abilities\BlockAbilities;
 use SdAiAgent\Abilities\ContentAbilities;
 use SdAiAgent\Abilities\CustomPostTypeAbilities;
 use SdAiAgent\Abilities\CustomTaxonomyAbilities;
+use SdAiAgent\Abilities\TaxonomyAbilities;
 use SdAiAgent\Abilities\DatabaseAbilities;
 use SdAiAgent\Abilities\DesignSystemAbilities;
 use SdAiAgent\Abilities\EditorialAbilities;
@@ -151,6 +152,7 @@ final class AbilitiesHandler {
 		PostAbilities::register_abilities();
 		CustomPostTypeAbilities::register_abilities();
 		CustomTaxonomyAbilities::register_abilities();
+		TaxonomyAbilities::register_abilities();
 		UserAbilities::register_abilities();
 		MediaAbilities::register_abilities();
 		EditorialAbilities::register_abilities();
