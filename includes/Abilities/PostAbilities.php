@@ -14,6 +14,7 @@ declare(strict_types=1);
 namespace SdAiAgent\Abilities;
 
 use SdAiAgent\Core\BlockValidator;
+use SdAiAgent\Core\RevisionGuard;
 use SdAiAgent\Models\MarkdownToBlocks;
 use WP_Error;
 use WP_Post;
@@ -229,16 +230,24 @@ class PostAbilities {
 							'type'        => 'string',
 							'description' => 'Subsite URL for multisite. Omit for the main site.',
 						],
+						'expected_revision' => [
+							'type'        => [ 'integer', 'string' ],
+							'description' => 'Optimistic concurrency guard. Pass the revision_id returned by get-page-blocks (or the If-Match header value). If the post has been modified since you read it, the call returns HTTP 412 stale_revision with the current_revision_id so you can re-fetch and retry. Omit to skip the check (backward-compatible).',
+						],
 					],
 					'required'   => [ 'post_id' ],
 				],
 				'output_schema'       => [
 					'type'       => 'object',
 					'properties' => [
-						'post_id'   => [ 'type' => 'integer' ],
-						'permalink' => [ 'type' => 'string' ],
-						'status'    => [ 'type' => 'string' ],
-						'post_type' => [ 'type' => 'string' ],
+						'post_id'     => [ 'type' => 'integer' ],
+						'permalink'   => [ 'type' => 'string' ],
+						'status'      => [ 'type' => 'string' ],
+						'post_type'   => [ 'type' => 'string' ],
+						'revision_id' => [
+							'type'        => 'integer',
+							'description' => 'Latest revision ID after the write. Use as expected_revision for the next write.',
+						],
 					],
 				],
 				'meta'                => [
@@ -265,17 +274,21 @@ class PostAbilities {
 				'input_schema'        => [
 					'type'       => 'object',
 					'properties' => [
-						'post_id'  => [
+						'post_id'           => [
 							'type'        => 'integer',
 							'description' => 'The ID of the post or page to append to.',
 						],
-						'content'  => [
+						'content'           => [
 							'type'        => 'string',
 							'description' => 'Block markup to append. Must be complete, self-contained blocks (each opening comment paired with its closing comment). A leading newline is recommended to separate from the previous section.',
 						],
-						'site_url' => [
+						'site_url'          => [
 							'type'        => 'string',
 							'description' => 'Subsite URL for multisite. Omit for the main site.',
+						],
+						'expected_revision' => [
+							'type'        => [ 'integer', 'string' ],
+							'description' => 'Optimistic concurrency guard. Pass the revision_id returned by get-page-blocks. If the post has been modified since you read it, the call returns HTTP 412 stale_revision with the current_revision_id so you can re-fetch and retry. Omit to skip the check (backward-compatible).',
 						],
 					],
 					'required'   => [ 'post_id', 'content' ],
@@ -287,6 +300,10 @@ class PostAbilities {
 						'permalink'      => [ 'type' => 'string' ],
 						'appended_bytes' => [ 'type' => 'integer' ],
 						'total_bytes'    => [ 'type' => 'integer' ],
+						'revision_id'    => [
+							'type'        => 'integer',
+							'description' => 'Latest revision ID after the write. Use as expected_revision for the next write.',
+						],
 					],
 				],
 				'meta'                => [
@@ -1015,6 +1032,16 @@ class PostAbilities {
 			);
 		}
 
+		// Optimistic concurrency check (opt-in via expected_revision).
+		$raw_expected = isset( $input['expected_revision'] ) ? (string) $input['expected_revision'] : '';
+		$guard        = RevisionGuard::check( $post_id, RevisionGuard::parse_raw( $raw_expected ) );
+		if ( is_wp_error( $guard ) ) {
+			if ( $switched ) {
+				restore_current_blog();
+			}
+			return $guard;
+		}
+
 		$post_data = [ 'ID' => $post_id ];
 
 		if ( isset( $input['title'] ) ) {
@@ -1092,10 +1119,11 @@ class PostAbilities {
 		}
 
 		$response = [
-			'post_id'   => $post_id,
-			'permalink' => $permalink ?: '',
-			'status'    => $updated_post instanceof WP_Post ? $updated_post->post_status : '',
-			'post_type' => $updated_post instanceof WP_Post ? $updated_post->post_type : '',
+			'post_id'     => $post_id,
+			'permalink'   => $permalink ?: '',
+			'status'      => $updated_post instanceof WP_Post ? $updated_post->post_status : '',
+			'post_type'   => $updated_post instanceof WP_Post ? $updated_post->post_type : '',
+			'revision_id' => RevisionGuard::current_revision_id( $post_id ),
 		];
 
 		// GH#1584 follow-up: re-validate after update so the model knows
@@ -1166,6 +1194,16 @@ class PostAbilities {
 			);
 		}
 
+		// Optimistic concurrency check (opt-in via expected_revision).
+		$raw_expected = isset( $input['expected_revision'] ) ? (string) $input['expected_revision'] : '';
+		$guard        = RevisionGuard::check( $post_id, RevisionGuard::parse_raw( $raw_expected ) );
+		if ( is_wp_error( $guard ) ) {
+			if ( $switched ) {
+				restore_current_blog();
+			}
+			return $guard;
+		}
+
 		$existing       = (string) $post->post_content;
 		$appended_bytes = strlen( $content );
 
@@ -1207,6 +1245,7 @@ class PostAbilities {
 			'permalink'      => $permalink,
 			'appended_bytes' => $appended_bytes,
 			'total_bytes'    => $total_bytes,
+			'revision_id'    => RevisionGuard::current_revision_id( $post_id ),
 		];
 	}
 

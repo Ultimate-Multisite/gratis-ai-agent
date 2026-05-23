@@ -16,6 +16,7 @@ namespace SdAiAgent\Abilities;
 use SdAiAgent\Core\BlockInventory;
 use SdAiAgent\Core\BlockReferences;
 use SdAiAgent\Core\BlockValidator;
+use SdAiAgent\Core\RevisionGuard;
 use SdAiAgent\Models\MarkdownToBlocks;
 
 if ( ! defined( 'ABSPATH' ) ) {
@@ -464,6 +465,10 @@ class BlockAbilities {
 						'refs_stored' => [
 							'type'        => 'boolean',
 							'description' => 'True when new refs were persisted to the post.',
+						],
+						'revision_id' => [
+							'type'        => 'integer',
+							'description' => 'Current latest revision ID for the post. Pass this as expected_revision (or If-Match header) on follow-up write calls to enable optimistic concurrency control.',
 						],
 						'error'       => [ 'type' => 'string' ],
 					],
@@ -1402,6 +1407,7 @@ class BlockAbilities {
 				'blocks'      => [],
 				'block_count' => 0,
 				'refs_stored' => false,
+				'revision_id' => RevisionGuard::current_revision_id( $post_id ),
 			];
 		}
 
@@ -1454,6 +1460,7 @@ class BlockAbilities {
 			'blocks'      => $flat_list,
 			'block_count' => $flat_index,
 			'refs_stored' => $refs_stored,
+			'revision_id' => RevisionGuard::current_revision_id( $post_id ),
 		];
 	}
 
