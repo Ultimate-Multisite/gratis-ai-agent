@@ -586,10 +586,16 @@ class BlockMutator {
 
 		$new_block = self::normalize_block( $args['block_def'] );
 
+		// Enforce tier policy on the replacement block tree.
+		$policy_result = self::enforce_tier_policy( $new_block, false );
+		if ( is_wp_error( $policy_result ) ) {
+			return $policy_result;
+		}
+
 		// Apply wp_kses_post to innerHTML in the replacement block tree.
 		$new_block = self::sanitize_block_tree( $new_block );
 
-		return self::mutate_at_path(
+		$result = self::mutate_at_path(
 			$blocks,
 			$path,
 			static function ( array $siblings, int $idx ) use ( $new_block ) {
@@ -597,6 +603,15 @@ class BlockMutator {
 				return $siblings;
 			}
 		);
+
+		// Merge policy warnings into the result if present.
+		if ( is_array( $policy_result ) && isset( $policy_result['warnings'] ) ) {
+			if ( is_array( $result ) ) {
+				$result['_warnings'] = $policy_result['warnings'];
+			}
+		}
+
+		return $result;
 	}
 
 	/**
@@ -629,7 +644,24 @@ class BlockMutator {
 	private static function op_wrap_in_group( array $blocks, array $path, array $args ) {
 		$group_attrs = isset( $args['attributes'] ) && is_array( $args['attributes'] ) ? $args['attributes'] : [];
 
-		return self::mutate_at_path(
+		// Note: wrap-in-group creates a core/group (preferred tier) around an existing block,
+		// so we don't need to enforce policy on the group itself. The wrapped block is already
+		// in the tree and was validated when inserted. However, we still validate for consistency.
+		$group = [
+			'blockName'    => 'core/group',
+			'attrs'        => $group_attrs,
+			'innerBlocks'  => [],
+			'innerHTML'    => '',
+			'innerContent' => [ null ],
+		];
+
+		// Validate the group structure (should always pass since core/group is preferred).
+		$policy_result = self::enforce_tier_policy( $group, false );
+		if ( is_wp_error( $policy_result ) ) {
+			return $policy_result;
+		}
+
+		$result = self::mutate_at_path(
 			$blocks,
 			$path,
 			static function ( array $siblings, int $idx ) use ( $group_attrs ) {
@@ -647,6 +679,8 @@ class BlockMutator {
 				return $siblings;
 			}
 		);
+
+		return $result;
 	}
 
 	/**
@@ -705,11 +739,18 @@ class BlockMutator {
 		}
 
 		$new_child = self::normalize_block( $args['block_def'] );
+
+		// Enforce tier policy on the new child block tree.
+		$policy_result = self::enforce_tier_policy( $new_child, false );
+		if ( is_wp_error( $policy_result ) ) {
+			return $policy_result;
+		}
+
 		$new_child = self::sanitize_block_tree( $new_child );
 
 		$position = isset( $args['position'] ) ? (int) $args['position'] : null;
 
-		return self::mutate_at_path(
+		$result = self::mutate_at_path(
 			$blocks,
 			$path,
 			static function ( array $siblings, int $idx ) use ( $new_child, $position ) {
@@ -748,6 +789,15 @@ class BlockMutator {
 				return $siblings;
 			}
 		);
+
+		// Merge policy warnings into the result if present.
+		if ( is_array( $policy_result ) && isset( $policy_result['warnings'] ) ) {
+			if ( is_array( $result ) ) {
+				$result['_warnings'] = $policy_result['warnings'];
+			}
+		}
+
+		return $result;
 	}
 
 	/**
@@ -1037,6 +1087,78 @@ class BlockMutator {
 		}
 
 		return $dst_path;
+	}
+
+	// ── Tier policy enforcement ──────────────────────────────────────────
+
+	/**
+	 * Enforce block tier policy on a block definition and its descendants.
+	 *
+	 * Walks the block tree recursively, calling BlockContentPolicy::check_insert()
+	 * on every block name. Returns null on success (all blocks pass policy).
+	 * Returns a WP_Error on the first policy violation (legacy block on insert).
+	 * Aggregates avoid-tier warnings in the returned array.
+	 *
+	 * @param array<string,mixed> $block_def Block definition (may include innerBlocks).
+	 * @param bool                $is_update  True when updating existing blocks (legacy allowed).
+	 * @return null|array<string,mixed>|\WP_Error
+	 *         null on success (no violations, no warnings).
+	 *         array with 'warnings' key if avoid-tier blocks found.
+	 *         WP_Error if legacy-tier block found on insert.
+	 */
+	private static function enforce_tier_policy( array $block_def, bool $is_update = false ) {
+		$warnings = [];
+
+		// Recursively check this block and all descendants.
+		$result = self::walk_tier_policy( $block_def, $is_update, $warnings );
+
+		if ( is_wp_error( $result ) ) {
+			return $result;
+		}
+
+		// Return null if no warnings, or array with warnings.
+		return empty( $warnings ) ? null : [ 'warnings' => $warnings ];
+	}
+
+	/**
+	 * Recursively walk a block tree and collect tier policy violations.
+	 *
+	 * @param array<string,mixed> $block    Block definition.
+	 * @param bool                $is_update True when updating (legacy allowed).
+	 * @param array<int,mixed>    $warnings  Accumulated warnings (passed by reference).
+	 * @return null|\WP_Error null on success, WP_Error on first legacy violation.
+	 */
+	private static function walk_tier_policy( array $block, bool $is_update, array &$warnings ): ?\WP_Error {
+		$block_name = isset( $block['blockName'] ) && is_string( $block['blockName'] ) ? $block['blockName'] : '';
+
+		if ( '' !== $block_name ) {
+			$policy_result = BlockContentPolicy::check_insert( $block_name, $is_update );
+
+			if ( is_wp_error( $policy_result ) ) {
+				// Legacy block on insert — reject immediately.
+				return $policy_result;
+			}
+
+			if ( is_array( $policy_result ) && isset( $policy_result['warnings'] ) ) {
+				// Avoid-tier block — accumulate warnings.
+				$warnings = array_merge( $warnings, $policy_result['warnings'] );
+			}
+		}
+
+		// Recurse into innerBlocks.
+		$inner = isset( $block['innerBlocks'] ) && is_array( $block['innerBlocks'] ) ? $block['innerBlocks'] : [];
+
+		foreach ( $inner as $child ) {
+			if ( is_array( $child ) ) {
+				$child_result = self::walk_tier_policy( $child, $is_update, $warnings );
+
+				if ( is_wp_error( $child_result ) ) {
+					return $child_result;
+				}
+			}
+		}
+
+		return null;
 	}
 
 	// ── Block normalization helpers ───────────────────────────────────────

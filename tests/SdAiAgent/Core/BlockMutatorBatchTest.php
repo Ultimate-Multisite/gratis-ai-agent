@@ -694,4 +694,120 @@ class BlockMutatorBatchTest extends WP_UnitTestCase {
 		$this->assertIsArray( $result );
 		$this->assertCount( BlockMutator::MAX_BATCH_SIZE, $result );
 	}
+
+	// ── Tier policy enforcement tests (GH#1735) ────────────────────────────
+
+	/**
+	 * Batch with one legacy insert-child item is entirely rejected.
+	 *
+	 * AC1: Batch with one legacy item → entire batch rejected, no disk write.
+	 */
+	public function test_batch_with_legacy_insert_child_rejected(): void {
+		$blocks = [
+			$this->make_ref_block( 'core/paragraph', 'blk_p1', [], '<p>Para 1</p>' ),
+			$this->make_ref_block( 'core/paragraph', 'blk_p2', [], '<p>Para 2</p>' ),
+		];
+
+		$updates = [
+			[
+				'op'  => 'update-attrs',
+				'ref' => 'blk_p1',
+				'attributes' => [ 'className' => 'updated' ],
+			],
+			[
+				'op'        => 'insert-child',
+				'ref'       => 'blk_p2',
+				'block_def' => [
+					'blockName' => 'core/freeform',
+					'attrs'     => [],
+					'innerHTML' => 'legacy block',
+				],
+			],
+		];
+
+		$result = BlockMutator::apply_batch( $blocks, $updates );
+
+		$this->assertInstanceOf( \WP_Error::class, $result );
+		$this->assertSame( 'batch_validation_failed', $result->get_error_code() );
+
+		$data = $result->get_error_data();
+		$this->assertArrayHasKey( 'errors', $data );
+		$this->assertNotEmpty( $data['errors'] );
+
+		// The error should be for the second update (index 1).
+		$error = $data['errors'][0];
+		$this->assertSame( 1, $error['index'] );
+		$this->assertSame( 'legacy_block', $error['code'] );
+	}
+
+	/**
+	 * Batch with one legacy replace-block item is entirely rejected.
+	 *
+	 * AC2: Batch with legacy replace-block → entire batch rejected.
+	 */
+	public function test_batch_with_legacy_replace_block_rejected(): void {
+		$blocks = [
+			$this->make_ref_block( 'core/paragraph', 'blk_p1', [], '<p>Para 1</p>' ),
+		];
+
+		$updates = [
+			[
+				'op'        => 'replace-block',
+				'ref'       => 'blk_p1',
+				'block_def' => [
+					'blockName' => 'core/legacy-widget',
+					'attrs'     => [],
+					'innerHTML' => '',
+				],
+			],
+		];
+
+		$result = BlockMutator::apply_batch( $blocks, $updates );
+
+		$this->assertInstanceOf( \WP_Error::class, $result );
+		$this->assertSame( 'batch_validation_failed', $result->get_error_code() );
+
+		$data = $result->get_error_data();
+		$this->assertArrayHasKey( 'errors', $data );
+		$error = $data['errors'][0];
+		$this->assertSame( 'legacy_block', $error['code'] );
+	}
+
+	/**
+	 * Batch with all preferred blocks succeeds.
+	 *
+	 * AC3: Batch with all preferred blocks → success.
+	 */
+	public function test_batch_with_all_preferred_blocks_succeeds(): void {
+		$blocks = [
+			$this->make_ref_block( 'core/paragraph', 'blk_p1', [], '<p>Para 1</p>' ),
+			$this->make_ref_block( 'core/paragraph', 'blk_p2', [], '<p>Para 2</p>' ),
+		];
+
+		$updates = [
+			[
+				'op'        => 'insert-child',
+				'ref'       => 'blk_p1',
+				'block_def' => [
+					'blockName' => 'core/paragraph',
+					'attrs'     => [],
+					'innerHTML' => '<p>New child</p>',
+				],
+			],
+			[
+				'op'        => 'replace-block',
+				'ref'       => 'blk_p2',
+				'block_def' => [
+					'blockName' => 'core/heading',
+					'attrs'     => [ 'level' => 2 ],
+					'innerHTML' => '<h2>Heading</h2>',
+				],
+			],
+		];
+
+		$result = BlockMutator::apply_batch( $blocks, $updates );
+
+		$this->assertIsArray( $result );
+		$this->assertCount( 2, $result );
+	}
 }

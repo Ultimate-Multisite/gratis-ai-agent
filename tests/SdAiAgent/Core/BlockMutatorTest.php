@@ -854,4 +854,153 @@ class BlockMutatorTest extends WP_UnitTestCase {
 		$data = $result->get_error_data();
 		$this->assertSame( 'yoast/how-to-block', $data['block_name'] );
 	}
+
+	// ── Tier policy enforcement tests (GH#1735) ────────────────────────────
+
+	/**
+	 * insert-child with legacy block (core/freeform) is rejected.
+	 *
+	 * AC1: insert-child of core/freeform → WP_Error('legacy_block') with suggested_replacement.
+	 */
+	public function test_insert_child_legacy_block_rejected(): void {
+		$group  = $this->make_block( 'core/group' );
+		$result = BlockMutator::apply(
+			[ $group ],
+			'insert-child',
+			[
+				'path'      => [ 0 ],
+				'block_def' => [
+					'blockName' => 'core/freeform',
+					'attrs'     => [],
+					'innerHTML' => 'test',
+				],
+			]
+		);
+
+		$this->assertInstanceOf( \WP_Error::class, $result );
+		$this->assertSame( 'legacy_block', $result->get_error_code() );
+
+		$data = $result->get_error_data();
+		$this->assertSame( 'core/freeform', $data['block_name'] );
+		$this->assertSame( 5, $data['score'] );
+		$this->assertSame( 'legacy', $data['tier'] );
+		$this->assertNotEmpty( $data['suggested_replacement'] );
+	}
+
+	/**
+	 * replace-block with legacy block (core/legacy-widget) is rejected.
+	 *
+	 * AC2: replace-block to core/legacy-widget → WP_Error('legacy_block').
+	 */
+	public function test_replace_block_legacy_block_rejected(): void {
+		$block  = $this->make_block( 'core/paragraph' );
+		$result = BlockMutator::apply(
+			[ $block ],
+			'replace-block',
+			[
+				'path'       => [ 0 ],
+				'block_def'  => [
+					'blockName' => 'core/legacy-widget',
+					'attrs'     => [],
+					'innerHTML' => '',
+				],
+			]
+		);
+
+		$this->assertInstanceOf( \WP_Error::class, $result );
+		$this->assertSame( 'legacy_block', $result->get_error_code() );
+
+		$data = $result->get_error_data();
+		$this->assertSame( 'core/legacy-widget', $data['block_name'] );
+		$this->assertSame( 5, $data['score'] );
+		$this->assertSame( 'legacy', $data['tier'] );
+	}
+
+	/**
+	 * insert-child with nested legacy block is rejected.
+	 *
+	 * AC3: insert-child with innerBlocks containing legacy blocks → WP_Error.
+	 */
+	public function test_insert_child_nested_legacy_block_rejected(): void {
+		$group  = $this->make_block( 'core/group' );
+		$result = BlockMutator::apply(
+			[ $group ],
+			'insert-child',
+			[
+				'path'      => [ 0 ],
+				'block_def' => [
+					'blockName'   => 'core/group',
+					'attrs'       => [],
+					'innerBlocks' => [
+						[
+							'blockName' => 'core/freeform',
+							'attrs'     => [],
+							'innerHTML' => 'nested legacy',
+						],
+					],
+					'innerHTML'    => '',
+					'innerContent' => [ null ],
+				],
+			]
+		);
+
+		$this->assertInstanceOf( \WP_Error::class, $result );
+		$this->assertSame( 'legacy_block', $result->get_error_code() );
+	}
+
+	/**
+	 * insert-child with avoid-tier block succeeds with warnings.
+	 *
+	 * AC4: insert-child with core/html (avoid tier) → success with _warnings.
+	 */
+	public function test_insert_child_avoid_tier_block_succeeds_with_warnings(): void {
+		$group  = $this->make_block( 'core/group' );
+		$result = BlockMutator::apply(
+			[ $group ],
+			'insert-child',
+			[
+				'path'      => [ 0 ],
+				'block_def' => [
+					'blockName' => 'core/html',
+					'attrs'     => [],
+					'innerHTML' => '<div>test</div>',
+				],
+			]
+		);
+
+		$this->assertIsArray( $result );
+		$this->assertArrayHasKey( '_warnings', $result );
+		$this->assertIsArray( $result['_warnings'] );
+		$this->assertNotEmpty( $result['_warnings'] );
+
+		$warning = $result['_warnings'][0];
+		$this->assertSame( 'avoid_block', $warning['code'] );
+		$this->assertSame( 'core/html', $warning['block_name'] );
+	}
+
+	/**
+	 * replace-block with preferred block succeeds without warnings.
+	 *
+	 * AC5: replace-block with core/paragraph (preferred) → success, no warnings.
+	 */
+	public function test_replace_block_preferred_block_succeeds(): void {
+		$block  = $this->make_block( 'core/freeform' );
+		$result = BlockMutator::apply(
+			[ $block ],
+			'replace-block',
+			[
+				'path'       => [ 0 ],
+				'block_def'  => [
+					'blockName' => 'core/paragraph',
+					'attrs'     => [],
+					'innerHTML' => '<p>New text</p>',
+				],
+			]
+		);
+
+		$this->assertIsArray( $result );
+		$this->assertSame( 'core/paragraph', $result[0]['blockName'] );
+		// No _warnings key for preferred blocks.
+		$this->assertArrayNotHasKey( '_warnings', $result );
+	}
 }

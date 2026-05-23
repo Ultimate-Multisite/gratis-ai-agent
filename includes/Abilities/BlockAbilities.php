@@ -1802,6 +1802,88 @@ class BlockAbilities {
 	 * @param array<string,mixed> $input Ability input.
 	 * @return array<string,mixed>|\WP_Error Result array or WP_Error.
 	 */
+
+	// ─── Tier policy helpers ──────────────────────────────────────────
+
+	/**
+	 * Pre-flight check: enforce tier policy on all insert/replace/wrap operations in a batch.
+	 *
+	 * Walks through the updates array and validates any insert-child, replace-block,
+	 * or wrap-in-group operations against BlockContentPolicy. Returns null on success
+	 * (all operations pass policy), or a WP_Error on the first violation.
+	 *
+	 * This is called before apply_batch() to ensure all-or-nothing rejection.
+	 *
+	 * @param array<int,mixed> $updates Array of update specs from handle_update_blocks.
+	 * @return null|\WP_Error null on success, WP_Error on first policy violation.
+	 */
+	private static function preflight_tier_policy( array $updates ): ?\WP_Error {
+		foreach ( $updates as $idx => $update ) {
+			if ( ! is_array( $update ) ) {
+				continue;
+			}
+
+			$op = isset( $update['op'] ) && is_string( $update['op'] ) ? $update['op'] : '';
+
+			// Only check insert/replace/wrap operations.
+			if ( ! in_array( $op, [ 'insert-child', 'replace-block', 'wrap-in-group' ], true ) ) {
+				continue;
+			}
+
+			// Get the block_def (insert-child and replace-block have it).
+			$block_def = isset( $update['block_def'] ) && is_array( $update['block_def'] ) ? $update['block_def'] : null;
+
+			if ( null === $block_def ) {
+				// wrap-in-group doesn't have block_def, so skip it (it wraps existing blocks).
+				continue;
+			}
+
+			// Recursively check the block_def and its innerBlocks.
+			$policy_result = self::check_block_def_policy( $block_def, false );
+
+			if ( is_wp_error( $policy_result ) ) {
+				// Return the error immediately — all-or-nothing rejection.
+				return $policy_result;
+			}
+		}
+
+		return null;
+	}
+
+	/**
+	 * Recursively check a block definition against tier policy.
+	 *
+	 * @param array<string,mixed> $block_def Block definition.
+	 * @param bool                $is_update  True when updating (legacy allowed).
+	 * @return null|\WP_Error null on success, WP_Error on first violation.
+	 */
+	private static function check_block_def_policy( array $block_def, bool $is_update ): ?\WP_Error {
+		$block_name = isset( $block_def['blockName'] ) && is_string( $block_def['blockName'] ) ? $block_def['blockName'] : '';
+
+		if ( '' !== $block_name ) {
+			$policy_result = BlockContentPolicy::check_insert( $block_name, $is_update );
+
+			if ( is_wp_error( $policy_result ) ) {
+				return $policy_result;
+			}
+		}
+
+		// Recurse into innerBlocks.
+		$inner = isset( $block_def['innerBlocks'] ) && is_array( $block_def['innerBlocks'] ) ? $block_def['innerBlocks'] : [];
+
+		foreach ( $inner as $child ) {
+			if ( is_array( $child ) ) {
+				$child_result = self::check_block_def_policy( $child, $is_update );
+
+				if ( is_wp_error( $child_result ) ) {
+					return $child_result;
+				}
+			}
+		}
+
+		return null;
+	}
+
 	public static function handle_edit_block_tree( array $input ) {
 		global $wpdb;
 
@@ -1952,6 +2034,13 @@ class BlockAbilities {
 
 		if ( ! is_array( $blocks ) ) {
 			$blocks = [];
+		}
+
+		// Pre-flight: enforce tier policy on all insert/replace/wrap operations.
+		// This ensures all-or-nothing rejection before any mutations.
+		$policy_errors = self::preflight_tier_policy( $updates );
+		if ( is_wp_error( $policy_errors ) ) {
+			return $policy_errors;
 		}
 
 		// All-or-nothing batch validation + mutation.
