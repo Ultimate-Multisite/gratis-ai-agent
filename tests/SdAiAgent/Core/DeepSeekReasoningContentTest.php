@@ -82,6 +82,7 @@ class DeepSeekReasoningContentTest extends WP_UnitTestCase {
 	 */
 	public function test_deepseek_reasoning_content_preserved_in_message(): void {
 		$this->skip_if_sdk_unavailable();
+		$this->skip_if_provider_unavailable();
 
 		// Simulate a DeepSeek response with reasoning_content.
 		$reasoning_text = 'Let me think about this step by step...';
@@ -180,6 +181,7 @@ class DeepSeekReasoningContentTest extends WP_UnitTestCase {
 	 */
 	public function test_deepseek_reasoning_content_included_in_next_request(): void {
 		$this->skip_if_sdk_unavailable();
+		$this->skip_if_provider_unavailable();
 
 		$reasoning_text = 'Analyzing the request...';
 		$response_text  = 'Here is my response.';
@@ -287,6 +289,7 @@ class DeepSeekReasoningContentTest extends WP_UnitTestCase {
 	 */
 	public function test_non_deepseek_models_exclude_reasoning_content(): void {
 		$this->skip_if_sdk_unavailable();
+		$this->skip_if_provider_unavailable();
 
 		// Track the request to verify reasoning_content is NOT included.
 		$request_body = null;
@@ -385,6 +388,20 @@ class DeepSeekReasoningContentTest extends WP_UnitTestCase {
 
 		if ( ! class_exists( '\WordPress\AiClient\AiClient' ) ) {
 			$this->markTestSkipped( 'WordPress\AiClient\AiClient class not available.' );
+		}
+	}
+
+	/**
+	 * Skip the test if the openai_compat provider is not available.
+	 */
+	private function skip_if_provider_unavailable(): void {
+		try {
+			$registry = \WordPress\AiClient\AiClient::defaultRegistry();
+			if ( ! $registry->hasProvider( 'openai_compat' ) ) {
+				$this->markTestSkipped( 'openai_compat provider not available in registry.' );
+			}
+		} catch ( \Throwable $e ) {
+			$this->markTestSkipped( 'Could not check provider availability: ' . $e->getMessage() );
 		}
 	}
 }
