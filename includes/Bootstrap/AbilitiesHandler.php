@@ -55,6 +55,7 @@ use SdAiAgent\Abilities\SeoAbilities;
 use SdAiAgent\Abilities\SiteHealthAbilities;
 use SdAiAgent\Abilities\SkillAbilities;
 use SdAiAgent\Abilities\ThemeBuilderAbilities;
+use SdAiAgent\Abilities\UrlResolverAbilities;
 use SdAiAgent\Abilities\UserAbilities;
 use SdAiAgent\Abilities\WordPressAbilities;
 use SdAiAgent\Abilities\WpCliAbilities;
@@ -149,6 +150,7 @@ final class AbilitiesHandler {
 		NavigationAbilities::register_abilities();
 		MenuAbilities::register_abilities();
 		PostAbilities::register_abilities();
+		UrlResolverAbilities::register_abilities();
 		CustomPostTypeAbilities::register_abilities();
 		CustomTaxonomyAbilities::register_abilities();
 		UserAbilities::register_abilities();
