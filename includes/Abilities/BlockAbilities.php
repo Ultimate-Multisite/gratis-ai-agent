@@ -17,6 +17,7 @@ use SdAiAgent\Core\BlockContentPolicy;
 use SdAiAgent\Core\BlockInventory;
 use SdAiAgent\Core\BlockMutator;
 use SdAiAgent\Core\BlockReferences;
+use SdAiAgent\Core\BlockRenderer;
 use SdAiAgent\Core\BlockTreeAddress;
 use SdAiAgent\Core\BlockValidator;
 use SdAiAgent\Core\PatternInserter;
@@ -1884,6 +1885,13 @@ class BlockAbilities {
 			];
 		}
 
+		// Render blocks when render: true — populate rendered_html on the
+		// parsed tree before flattening, so flatten_blocks_for_response can
+		// surface the rendered fields in the response.
+		if ( $render ) {
+			$blocks = BlockRenderer::render_block_tree( $post_id, $blocks );
+		}
+
 		// Build the flat annotated block list for the response.
 		$flat_list  = [];
 		$flat_index = 0;
@@ -2018,6 +2026,19 @@ class BlockAbilities {
 				// Use text_preview (stripped inner HTML) as heading_text.
 				if ( '' !== $text_preview ) {
 					$entry['heading_text'] = $text_preview;
+				}
+			}
+
+			// Surface render fields when render: true was used.
+			if ( $render ) {
+				if ( isset( $block['rendered_html'] ) ) {
+					$entry['rendered_html'] = (string) $block['rendered_html'];
+				}
+				if ( isset( $block['render_error'] ) ) {
+					$entry['render_error'] = (string) $block['render_error'];
+				}
+				if ( isset( $block['rendered_synced_pattern_id'] ) ) {
+					$entry['rendered_synced_pattern_id'] = (int) $block['rendered_synced_pattern_id'];
 				}
 			}
 
