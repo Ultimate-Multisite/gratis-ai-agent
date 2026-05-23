@@ -41,6 +41,13 @@ if ( ! defined( 'ABSPATH' ) ) {
 class BlockMutator {
 
 	/**
+	 * Maximum number of updates in a single batch call.
+	 *
+	 * @var int
+	 */
+	const MAX_BATCH_SIZE = 50;
+
+	/**
 	 * Valid operation names.
 	 *
 	 * @var string[]
@@ -133,6 +140,182 @@ class BlockMutator {
 
 		// Should never reach here after the in_array check above.
 		return new \WP_Error( 'invalid_op', 'Unknown operation.', [ 'status' => 400 ] ); // @phpstan-ignore-line
+	}
+
+	/**
+	 * Apply a batch of mutation operations atomically.
+	 *
+	 * All-or-nothing semantics: every update is validated against an
+	 * in-memory clone of the block tree. If any single update fails
+	 * (invalid op, stale ref, out-of-range index, duplicate target, or
+	 * op-specific validation), the entire batch is rejected with per-item
+	 * errors in `data.errors[]`. Nothing hits disk.
+	 *
+	 * On full success, returns the mutated block tree after all operations
+	 * have been applied sequentially.
+	 *
+	 * @param array<int,mixed> $blocks  Parsed block tree (parse_blocks() output).
+	 * @param array<int,mixed> $updates Array of update specs. Each must include
+	 *                                  'op' (string) and a block address (ref,
+	 *                                  path, or flat_index), plus op-specific args.
+	 * @return array<int|string,mixed>|\WP_Error Mutated block tree on success, or
+	 *                                           WP_Error with code 'empty_batch',
+	 *                                           'batch_too_large', or
+	 *                                           'batch_validation_failed'.
+	 */
+	public static function apply_batch( array $blocks, array $updates ) {
+		// ── Guard: empty batch ──────────────────────────────────────────
+		if ( empty( $updates ) ) {
+			return new \WP_Error(
+				'empty_batch',
+				'updates array must not be empty.',
+				[ 'status' => 400 ]
+			);
+		}
+
+		// ── Guard: size cap ─────────────────────────────────────────────
+		if ( count( $updates ) > self::MAX_BATCH_SIZE ) {
+			return new \WP_Error(
+				'batch_too_large',
+				sprintf(
+					'Batch contains %d updates; maximum is %d.',
+					count( $updates ),
+					self::MAX_BATCH_SIZE
+				),
+				[
+					'status'         => 400,
+					'max_batch_size' => self::MAX_BATCH_SIZE,
+				]
+			);
+		}
+
+		// ── Phase 1: pre-flight — resolve addresses, detect duplicates ──
+		$errors         = [];
+		$resolved_paths = [];
+
+		foreach ( $updates as $idx => $update ) {
+			if ( ! is_array( $update ) ) {
+				$errors[] = [
+					'index'   => $idx,
+					'code'    => 'invalid_update',
+					'message' => 'Each update must be an object/array.',
+				];
+				continue;
+			}
+
+			$op = isset( $update['op'] ) && is_string( $update['op'] ) ? $update['op'] : '';
+
+			// Validate op name.
+			if ( ! in_array( $op, self::VALID_OPS, true ) ) {
+				$errors[] = [
+					'index'   => $idx,
+					'code'    => 'invalid_op',
+					'message' => sprintf(
+						"Unknown operation '%s'. Valid ops: %s.",
+						$op,
+						implode( ', ', self::VALID_OPS )
+					),
+				];
+				continue;
+			}
+
+			// Resolve target address against the ORIGINAL tree.
+			$path = BlockTreeAddress::resolve( $blocks, $update );
+			if ( is_wp_error( $path ) ) {
+				$errors[] = [
+					'index'   => $idx,
+					'code'    => $path->get_error_code(),
+					'message' => $path->get_error_message(),
+				];
+				continue;
+			}
+
+			// Duplicate target detection: two ops on the same resolved path.
+			$path_key = implode( ',', $path );
+			if ( isset( $resolved_paths[ $path_key ] ) ) {
+				$errors[] = [
+					'index'   => $idx,
+					'code'    => 'duplicate_target',
+					'message' => sprintf(
+						'Block at path [%s] is already targeted by update %d. Last-write-wins is rejected; split into separate calls.',
+						$path_key,
+						$resolved_paths[ $path_key ]
+					),
+				];
+				continue;
+			}
+
+			$resolved_paths[ $path_key ] = $idx;
+		}
+
+		if ( ! empty( $errors ) ) {
+			return new \WP_Error(
+				'batch_validation_failed',
+				'One or more updates failed pre-flight validation.',
+				[
+					'status' => 400,
+					'errors' => $errors,
+				]
+			);
+		}
+
+		// ── Phase 2: apply on a deep clone ──────────────────────────────
+		$json = wp_json_encode( $blocks );
+
+		if ( false === $json ) {
+			return new \WP_Error(
+				'batch_clone_failed',
+				'Could not clone the block tree (JSON encode failed).',
+				[ 'status' => 500 ]
+			);
+		}
+
+		$working_tree = json_decode( $json, true );
+
+		if ( ! is_array( $working_tree ) ) {
+			return new \WP_Error(
+				'batch_clone_failed',
+				'Could not clone the block tree (JSON decode failed).',
+				[ 'status' => 500 ]
+			);
+		}
+
+		// Ensure integer keys so apply() receives array<int, mixed>.
+		$working_tree = array_values( $working_tree );
+
+		foreach ( $updates as $idx => $update ) {
+			// Phase 1 already validated that each $update is an array.
+			$update_arr = is_array( $update ) ? $update : [];
+			$op         = (string) ( $update_arr['op'] ?? '' );
+			$args       = $update_arr;
+			unset( $args['op'] );
+
+			$result = self::apply( $working_tree, $op, $args );
+
+			if ( is_wp_error( $result ) ) {
+				$errors[] = [
+					'index'   => $idx,
+					'code'    => $result->get_error_code(),
+					'message' => $result->get_error_message(),
+				];
+			} else {
+				// Carry forward mutations: subsequent ops see this op's result.
+				$working_tree = array_values( $result );
+			}
+		}
+
+		if ( ! empty( $errors ) ) {
+			return new \WP_Error(
+				'batch_validation_failed',
+				'One or more updates failed during dry-run application.',
+				[
+					'status' => 400,
+					'errors' => $errors,
+				]
+			);
+		}
+
+		return $working_tree;
 	}
 
 	// ── Operations ────────────────────────────────────────────────────────

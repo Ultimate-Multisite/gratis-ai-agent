@@ -671,6 +671,107 @@ class BlockAbilities {
 				],
 			]
 		);
+
+		wp_register_ability(
+			'sd-ai-agent/update-blocks',
+			[
+				'label'               => __( 'Update Blocks (Batch)', 'superdav-ai-agent' ),
+				'description'         => __( 'Apply up to 50 independent block updates atomically inside one WordPress revision, with all-or-nothing pre-flight validation. Each update specifies an operation (update-attrs, update-html, replace-block, remove-block, etc.) and a target block (by ref, path, or flat_index). If any single update fails validation, the entire batch rejects with per-item errors — nothing hits disk. On success, all updates are serialised and written as one revision. Use sd-ai-agent/get-page-blocks first to obtain refs.', 'superdav-ai-agent' ),
+				'category'            => 'sd-ai-agent',
+				'input_schema'        => [
+					'type'       => 'object',
+					'properties' => [
+						'post_id'           => [
+							'type'        => 'integer',
+							'description' => 'Post ID whose block tree will be mutated.',
+						],
+						'updates'           => [
+							'type'        => 'array',
+							'description' => 'Array of update objects (max 50). Each must include "op" (operation name) and a target address (ref, path, or flat_index), plus op-specific arguments (attributes, innerHTML, block_def, destination, etc.).',
+							'items'       => [
+								'type'       => 'object',
+								'properties' => [
+									'op'         => [
+										'type'        => 'string',
+										'description' => 'Operation: update-attrs | update-html | replace-block | remove-block | wrap-in-group | unwrap-group | insert-child | duplicate | move.',
+										'enum'        => [
+											'update-attrs',
+											'update-html',
+											'replace-block',
+											'remove-block',
+											'wrap-in-group',
+											'unwrap-group',
+											'insert-child',
+											'duplicate',
+											'move',
+										],
+									],
+									'ref'        => [
+										'type'        => 'string',
+										'description' => 'Stable sd_ref UUID of the target block.',
+									],
+									'path'       => [
+										'type'        => 'array',
+										'description' => 'Integer index path from root.',
+										'items'       => [ 'type' => 'integer' ],
+									],
+									'flat_index' => [
+										'type'        => 'integer',
+										'description' => 'Zero-based depth-first position.',
+									],
+								],
+								'required'   => [ 'op' ],
+							],
+						],
+						'expected_revision' => [
+							'type'        => 'integer',
+							'description' => 'Expected revision ID for optimistic concurrency. Pass the revision_id from get-page-blocks to prevent writes against a stale post.',
+						],
+						'dry_run'           => [
+							'type'        => 'boolean',
+							'description' => 'When true, validate and compute the result but do not persist. Returns the would-be block tree and revision_count: 0.',
+						],
+					],
+					'required'   => [ 'post_id', 'updates' ],
+				],
+				'output_schema'       => [
+					'type'       => 'object',
+					'properties' => [
+						'success'     => [
+							'type'        => 'boolean',
+							'description' => 'True when all updates succeeded.',
+						],
+						'post_id'     => [ 'type' => 'integer' ],
+						'updates'     => [
+							'type'        => 'integer',
+							'description' => 'Number of updates applied.',
+						],
+						'revision_id' => [
+							'type'        => 'integer',
+							'description' => 'Post revision ID after the write (or current if dry_run).',
+						],
+						'block_tree'  => [
+							'type'        => 'array',
+							'description' => 'The resulting block tree after all updates.',
+						],
+						'dry_run'     => [ 'type' => 'boolean' ],
+						'error'       => [ 'type' => 'string' ],
+					],
+				],
+				'execute_callback'    => [ __CLASS__, 'handle_update_blocks' ],
+				'permission_callback' => function () {
+					return current_user_can( 'edit_posts' );
+				},
+				'meta'                => [
+					'mcp'         => [ 'public' => true ],
+					'annotations' => [
+						'readonly'    => false,
+						'destructive' => true,
+						'idempotent'  => false,
+					],
+				],
+			]
+		);
 	}
 
 	// ─── Handlers ─────────────────────────────────────────────────
@@ -1785,6 +1886,108 @@ class BlockAbilities {
 			'op'         => $op,
 			'post_id'    => $post_id,
 			'block_tree' => $new_tree,
+		];
+	}
+
+	// ─── update-blocks (batch) handler ────────────────────────────
+
+	/**
+	 * Handle the sd-ai-agent/update-blocks ability.
+	 *
+	 * Applies up to 50 independent block updates atomically inside one
+	 * WordPress revision, with all-or-nothing pre-flight validation via
+	 * BlockMutator::apply_batch().
+	 *
+	 * On success, the post_content is updated via wp_update_post() so
+	 * exactly one revision is created regardless of the number of updates.
+	 *
+	 * @param array<string,mixed> $input Ability input.
+	 * @return array<string,mixed>|\WP_Error Result or error.
+	 */
+	public static function handle_update_blocks( array $input ) {
+		$post_id = (int) ( $input['post_id'] ?? 0 );
+		$updates = $input['updates'] ?? [];
+		$dry_run = isset( $input['dry_run'] ) ? (bool) $input['dry_run'] : false;
+
+		if ( $post_id <= 0 ) {
+			return new \WP_Error(
+				'missing_post_id',
+				__( 'post_id is required and must be a positive integer.', 'superdav-ai-agent' ),
+				[ 'status' => 400 ]
+			);
+		}
+
+		if ( ! is_array( $updates ) ) {
+			return new \WP_Error(
+				'invalid_updates',
+				__( 'updates must be an array.', 'superdav-ai-agent' ),
+				[ 'status' => 400 ]
+			);
+		}
+
+		$post = get_post( $post_id );
+
+		if ( ! $post ) {
+			return new \WP_Error(
+				'post_not_found',
+				sprintf(
+					/* translators: %d: post ID */
+					__( 'Post %d not found.', 'superdav-ai-agent' ),
+					$post_id
+				),
+				[ 'status' => 404 ]
+			);
+		}
+
+		// Optimistic concurrency guard.
+		$expected = isset( $input['expected_revision'] ) ? (string) $input['expected_revision'] : '';
+		$guard    = RevisionGuard::check( $post_id, RevisionGuard::parse_raw( $expected ) );
+
+		if ( is_wp_error( $guard ) ) {
+			return $guard;
+		}
+
+		$content = $post->post_content;
+		$blocks  = is_string( $content ) ? parse_blocks( $content ) : [];
+
+		if ( ! is_array( $blocks ) ) {
+			$blocks = [];
+		}
+
+		// All-or-nothing batch validation + mutation.
+		// @phpstan-ignore-next-line
+		$result = BlockMutator::apply_batch( $blocks, $updates );
+
+		if ( is_wp_error( $result ) ) {
+			return $result;
+		}
+
+		$new_tree = $result;
+
+		// Persist with wp_update_post() → exactly one revision.
+		if ( ! $dry_run ) {
+			// @phpstan-ignore-next-line
+			$new_content   = serialize_blocks( $new_tree );
+			$update_result = wp_update_post(
+				[
+					'ID'           => $post_id,
+					'post_content' => $new_content,
+				],
+				true
+			);
+
+			if ( is_wp_error( $update_result ) ) {
+				return $update_result;
+			}
+		}
+
+		return [
+			'success'     => true,
+			'dry_run'     => $dry_run,
+			'post_id'     => $post_id,
+			'updates'     => count( $updates ),
+			'revision_id' => RevisionGuard::current_revision_id( $post_id ),
+			'block_tree'  => $new_tree,
 		];
 	}
 }
