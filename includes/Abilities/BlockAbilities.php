@@ -610,11 +610,11 @@ class BlockAbilities {
 				'input_schema'        => [
 					'type'       => 'object',
 					'properties' => [
-						'post_id'     => [
+						'post_id'            => [
 							'type'        => 'integer',
 							'description' => 'Post ID whose block tree will be mutated.',
 						],
-						'op'          => [
+						'op'                 => [
 							'type'        => 'string',
 							'description' => 'Operation: update-attrs | update-html | replace-block | remove-block | wrap-in-group | unwrap-group | insert-child | duplicate | move.',
 							'enum'        => [
@@ -629,39 +629,39 @@ class BlockAbilities {
 								'move',
 							],
 						],
-						'ref'         => [
+						'ref'                => [
 							'type'        => 'string',
 							'description' => 'Stable sd_ref UUID of the target block (e.g. blk_a3f2c1q9). Takes priority over path and flat_index.',
 						],
-						'path'        => [
+						'path'               => [
 							'type'        => 'array',
 							'description' => 'Integer index path from root (e.g. [0, 1, 2]). Used when ref is absent.',
 							'items'       => [ 'type' => 'integer' ],
 						],
-						'flat_index'  => [
+						'flat_index'         => [
 							'type'        => 'integer',
 							'description' => 'Zero-based depth-first position from get-page-blocks. Used when ref and path are absent.',
 						],
-						'attributes'  => [
+						'attributes'         => [
 							'type'        => 'object',
 							'description' => 'For update-attrs: attributes to merge/replace. For wrap-in-group: optional attributes for the new group wrapper.',
 						],
-						'merge'       => [
+						'merge'              => [
 							'type'        => 'boolean',
 							'description' => 'For update-attrs: true (default) merges supplied attrs over existing; false replaces entirely.',
 						],
-						'innerHTML'   => [
+						'innerHTML'          => [
 							'type'        => 'string',
 							'description' => 'For update-html: new raw innerHTML string (wp_kses_post applied).',
 						],
-						'block_def'   => [
+						'block_def'          => [
 							'type'        => 'object',
 							'description' => 'For replace-block, insert-child: the full block definition (blockName, attrs, innerHTML, innerBlocks).',
 						],
-						'position'    => [
+						'position'           => [
 							'description' => 'For insert-child: 0-based index to insert at (default: end). For move: "before" or "after" the destination block (default: "after").',
 						],
-						'destination' => [
+						'destination'        => [
 							'type'        => 'object',
 							'description' => 'For move: address of the block to insert next to. Same format as top-level addressing (ref, path, or flat_index).',
 							'properties'  => [
@@ -673,7 +673,11 @@ class BlockAbilities {
 								'flat_index' => [ 'type' => 'integer' ],
 							],
 						],
-						'dry_run'     => [
+						'allow_bound_writes' => [
+							'type'        => 'boolean',
+							'description' => 'Override the Block Bindings write-lock. When true, writes to attributes listed in the block\'s metadata.bindings are allowed. Default: false.',
+						],
+						'dry_run'            => [
 							'type'        => 'boolean',
 							'description' => 'When true, validate and compute the result but do not persist. Returns the would-be block tree.',
 						],
@@ -740,7 +744,7 @@ class BlockAbilities {
 							'items'       => [
 								'type'       => 'object',
 								'properties' => [
-									'op'         => [
+									'op'                 => [
 										'type'        => 'string',
 										'description' => 'Operation: update-attrs | update-html | replace-block | remove-block | wrap-in-group | unwrap-group | insert-child | duplicate | move.',
 										'enum'        => [
@@ -755,18 +759,22 @@ class BlockAbilities {
 											'move',
 										],
 									],
-									'ref'        => [
+									'ref'                => [
 										'type'        => 'string',
 										'description' => 'Stable sd_ref UUID of the target block.',
 									],
-									'path'       => [
+									'path'               => [
 										'type'        => 'array',
 										'description' => 'Integer index path from root.',
 										'items'       => [ 'type' => 'integer' ],
 									],
-									'flat_index' => [
+									'flat_index'         => [
 										'type'        => 'integer',
 										'description' => 'Zero-based depth-first position.',
+									],
+									'allow_bound_writes' => [
+										'type'        => 'boolean',
+										'description' => 'Override the Block Bindings write-lock for this update. Default: false.',
 									],
 								],
 								'required'   => [ 'op' ],
@@ -2011,6 +2019,16 @@ class BlockAbilities {
 			if ( ! $outline ) {
 				// @phpstan-ignore-next-line
 				$entry['attributes'] = $block['attrs'] ?? [];
+			}
+
+			// Surface Block Bindings API data (read side).
+			// @phpstan-ignore-next-line
+			$attrs_arr = isset( $block['attrs'] ) && is_array( $block['attrs'] ) ? $block['attrs'] : [];
+			$meta_arr  = isset( $attrs_arr['metadata'] ) && is_array( $attrs_arr['metadata'] ) ? $attrs_arr['metadata'] : [];
+			$bindings  = isset( $meta_arr['bindings'] ) && is_array( $meta_arr['bindings'] ) ? $meta_arr['bindings'] : [];
+			if ( ! empty( $bindings ) ) {
+				$entry['bindings']         = $bindings;
+				$entry['bound_attributes'] = array_keys( $bindings );
 			}
 
 			// For outline mode, add heading_text if this is a heading block.

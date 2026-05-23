@@ -412,6 +412,68 @@ class BlockMutator {
 		return true;
 	}
 
+	// ── Block Bindings write-lock ─────────────────────────────────────────
+
+	/**
+	 * Assert that a write does not touch attributes bound via the Block Bindings API.
+	 *
+	 * WP 6.5+ Block Bindings makes certain attributes dynamic (sourced from
+	 * post-meta, options, or custom callbacks). Writing them directly is a
+	 * silent data-loss bug — the editor re-derives the value on next render.
+	 *
+	 * This method inspects `attrs.metadata.bindings` on the target block and
+	 * returns a `bound_attribute` WP_Error if any key listed there appears in
+	 * the `$new_attrs` map — UNLESS `$allow_bound_writes` is explicitly true.
+	 *
+	 * The `metadata` key itself is always writable (it carries sd_ref + the
+	 * bindings registration data).
+	 *
+	 * @param array<int|string,mixed> $block              The target block array.
+	 * @param array<string,mixed>     $new_attrs          Attributes being written.
+	 * @param bool                    $allow_bound_writes Explicit override flag.
+	 * @return true|\WP_Error True when writes are safe, WP_Error on violation.
+	 */
+	public static function assert_no_bound_attribute_writes( array $block, array $new_attrs, bool $allow_bound_writes = false ): true|\WP_Error {
+		if ( $allow_bound_writes ) {
+			return true;
+		}
+
+		// Extract bindings from attrs.metadata.bindings.
+		$attrs    = isset( $block['attrs'] ) && is_array( $block['attrs'] ) ? $block['attrs'] : [];
+		$metadata = isset( $attrs['metadata'] ) && is_array( $attrs['metadata'] ) ? $attrs['metadata'] : [];
+		$bindings = isset( $metadata['bindings'] ) && is_array( $metadata['bindings'] ) ? $metadata['bindings'] : [];
+
+		if ( empty( $bindings ) ) {
+			return true;
+		}
+
+		// The "metadata" key itself is always writable.
+		$check_attrs = $new_attrs;
+		unset( $check_attrs['metadata'] );
+
+		// Find which written keys collide with bound keys.
+		$bound_keys   = array_keys( $bindings );
+		$written_keys = array_keys( $check_attrs );
+		$violations   = array_values( array_intersect( $written_keys, $bound_keys ) );
+
+		if ( empty( $violations ) ) {
+			return true;
+		}
+
+		// Determine the block ref for error context.
+		$ref = $metadata[ BlockReferences::REF_KEY ] ?? null;
+
+		return new \WP_Error(
+			'bound_attribute',
+			__( 'Attribute is bound and cannot be written directly.', 'superdav-ai-agent' ),
+			[
+				'status'           => 400,
+				'block_ref'        => is_string( $ref ) ? $ref : '',
+				'bound_attributes' => $violations,
+			]
+		);
+	}
+
 	// ── Operations ────────────────────────────────────────────────────────
 
 	/**
@@ -433,6 +495,16 @@ class BlockMutator {
 				'update-attrs requires an attributes object.',
 				[ 'status' => 400 ]
 			);
+		}
+
+		// Block Bindings write-lock: reject writes to bound attributes unless overridden.
+		$target_for_bindings = BlockTreeAddress::get_block_at_path( $blocks, $path );
+		if ( is_array( $target_for_bindings ) ) {
+			$allow_bound_writes = isset( $args['allow_bound_writes'] ) ? (bool) $args['allow_bound_writes'] : false;
+			$bindings_check     = self::assert_no_bound_attribute_writes( $target_for_bindings, $args['attributes'], $allow_bound_writes );
+			if ( is_wp_error( $bindings_check ) ) {
+				return $bindings_check;
+			}
 		}
 
 		// Dual-storage guard: blocks that duplicate state across attributes and
@@ -524,6 +596,19 @@ class BlockMutator {
 				'update-html requires an innerHTML string.',
 				[ 'status' => 400 ]
 			);
+		}
+
+		// Block Bindings write-lock: if attributes are also supplied (dual-storage),
+		// check they don't collide with bound keys.
+		if ( isset( $args['attributes'] ) && is_array( $args['attributes'] ) ) {
+			$target_for_bindings = BlockTreeAddress::get_block_at_path( $blocks, $path );
+			if ( is_array( $target_for_bindings ) ) {
+				$allow_bound_writes = isset( $args['allow_bound_writes'] ) ? (bool) $args['allow_bound_writes'] : false;
+				$bindings_check     = self::assert_no_bound_attribute_writes( $target_for_bindings, $args['attributes'], $allow_bound_writes );
+				if ( is_wp_error( $bindings_check ) ) {
+					return $bindings_check;
+				}
+			}
 		}
 
 		// Dual-storage guard: blocks that duplicate state across attributes and
