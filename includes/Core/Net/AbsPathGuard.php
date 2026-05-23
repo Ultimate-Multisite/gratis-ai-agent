@@ -54,8 +54,8 @@ class AbsPathGuard {
 		if ( false === $real_path ) {
 			return new WP_Error(
 				'path_escape',
-				/* translators: %s: the supplied path */
 				sprintf(
+					/* translators: %s: the supplied path */
 					__( 'Path "%s" does not exist or cannot be resolved.', 'superdav-ai-agent' ),
 					$path
 				)
@@ -82,8 +82,8 @@ class AbsPathGuard {
 		if ( ! str_starts_with( $norm_path, $norm_abspath ) ) {
 			return new WP_Error(
 				'path_escape',
-				/* translators: %s: the supplied path */
 				sprintf(
+					/* translators: %s: the supplied path */
 					__( 'Path "%s" is outside the allowed directory.', 'superdav-ai-agent' ),
 					$path
 				)

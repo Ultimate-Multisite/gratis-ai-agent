@@ -447,11 +447,13 @@ INSTRUCTION;
 	 * @return array<string,mixed>|\WP_Error
 	 */
 	public static function handle_import_base64_image( array $input ) {
+		// phpcs:disable WordPress.Security.EscapeOutput.OutputNotEscaped -- _doing_it_wrong() handles its own escaping internally.
 		_doing_it_wrong(
 			'sd-ai-agent/import-base64-image',
 			__( 'Use sd-ai-agent/upload-media with source "base64" instead of sd-ai-agent/import-base64-image.', 'superdav-ai-agent' ),
 			'1.10.0'
 		);
+		// phpcs:enable WordPress.Security.EscapeOutput.OutputNotEscaped
 
 		$result = self::sideload_from_base64( $input );
 		if ( is_wp_error( $result ) ) {
@@ -484,7 +486,7 @@ INSTRUCTION;
 	 *
 	 * @param array<string,mixed> $input Input args: data_base64|data, mime_type, filename, title,
 	 *                                  description, caption, alt_text, post_id.
-	 * @return array<string,mixed>|\WP_Error Array with 'attachment_id' on success, WP_Error on failure.
+	 * @return array{attachment_id: int, url: string, filename: string, title: string, description: string, alt_text: string, mime_type: string}|\WP_Error Array with 'attachment_id' on success, WP_Error on failure.
 	 */
 	public static function sideload_from_base64( array $input ) {
 		// Accept 'data_base64' (unified ability) or 'data' (legacy ability).
@@ -550,15 +552,15 @@ INSTRUCTION;
 		// @phpstan-ignore-next-line
 		$base_name = sanitize_file_name( $input['filename'] ?? ( 'ai-image-' . time() ) );
 		// @phpstan-ignore-next-line
-		$post_id     = (int) ( $input['post_id'] ?? 0 );
+		$post_id = (int) ( $input['post_id'] ?? 0 );
 		// @phpstan-ignore-next-line
-		$title       = sanitize_text_field( $input['title'] ?? '' );
+		$title = sanitize_text_field( $input['title'] ?? '' );
 		// @phpstan-ignore-next-line
 		$description = sanitize_textarea_field( $input['description'] ?? '' );
 		// @phpstan-ignore-next-line
-		$caption     = sanitize_textarea_field( $input['caption'] ?? '' );
+		$caption = sanitize_textarea_field( $input['caption'] ?? '' );
 		// @phpstan-ignore-next-line
-		$alt_text    = sanitize_text_field( $input['alt_text'] ?? '' );
+		$alt_text = sanitize_text_field( $input['alt_text'] ?? '' );
 
 		$file_array = [
 			'name'     => $base_name . '.' . $extension,

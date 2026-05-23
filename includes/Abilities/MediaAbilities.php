@@ -291,11 +291,13 @@ class MediaAbilities {
 	 * @return array<string, mixed>|WP_Error
 	 */
 	public static function handle_upload_media_from_url( array $input ) {
+		// phpcs:disable WordPress.Security.EscapeOutput.OutputNotEscaped -- _doing_it_wrong() handles its own escaping internally.
 		_doing_it_wrong(
 			'sd-ai-agent/upload-media-from-url',
 			__( 'Use sd-ai-agent/upload-media with source "url" instead of sd-ai-agent/upload-media-from-url.', 'superdav-ai-agent' ),
 			'1.10.0'
 		);
+		// phpcs:enable WordPress.Security.EscapeOutput.OutputNotEscaped
 
 		$site_url = $input['site_url'] ?? '';
 		$switched = false;
@@ -333,7 +335,7 @@ class MediaAbilities {
 	 * @since 1.10.0
 	 *
 	 * @param array<string, mixed> $input Input with url, optional title, alt_text, caption, description, post_id.
-	 * @return array<string, mixed>|WP_Error
+	 * @return array{attachment_id: int, url: string, title: string, mime_type: string, file_size: int}|WP_Error
 	 */
 	public static function sideload_from_url( array $input ) {
 		// @phpstan-ignore-next-line
@@ -396,12 +398,14 @@ class MediaAbilities {
 		}
 
 		// Update attachment metadata.
-		wp_update_post( [
-			'ID'           => $attachment_id,
-			'post_title'   => $title,
-			'post_excerpt' => $caption,
-			'post_content' => $description,
-		] );
+		wp_update_post(
+			[
+				'ID'           => $attachment_id,
+				'post_title'   => $title,
+				'post_excerpt' => $caption,
+				'post_content' => $description,
+			]
+			);
 
 		if ( ! empty( $alt_text ) ) {
 			update_post_meta( $attachment_id, '_wp_attachment_image_alt', $alt_text );

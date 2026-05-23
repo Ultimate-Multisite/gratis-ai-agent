@@ -269,16 +269,16 @@ class UploadMediaAbility {
 		}
 
 		// @phpstan-ignore-next-line
-		$post_id     = (int) ( $input['post_id'] ?? 0 );
+		$post_id = (int) ( $input['post_id'] ?? 0 );
 		// @phpstan-ignore-next-line
-		$filename    = sanitize_text_field( $input['filename'] ?? '' );
-		$base_name   = ! empty( $filename ) ? $filename : pathinfo( $real_path, PATHINFO_FILENAME );
+		$filename  = sanitize_text_field( $input['filename'] ?? '' );
+		$base_name = ! empty( $filename ) ? $filename : pathinfo( $real_path, PATHINFO_FILENAME );
 		// @phpstan-ignore-next-line
-		$title       = sanitize_text_field( $input['title'] ?? '' );
+		$title = sanitize_text_field( $input['title'] ?? '' );
 		// @phpstan-ignore-next-line
-		$alt_text    = sanitize_text_field( $input['alt_text'] ?? '' );
+		$alt_text = sanitize_text_field( $input['alt_text'] ?? '' );
 		// @phpstan-ignore-next-line
-		$caption     = sanitize_textarea_field( $input['caption'] ?? '' );
+		$caption = sanitize_textarea_field( $input['caption'] ?? '' );
 		// @phpstan-ignore-next-line
 		$description = sanitize_textarea_field( $input['description'] ?? '' );
 
@@ -318,12 +318,14 @@ class UploadMediaAbility {
 		}
 
 		// Update attachment metadata.
-		wp_update_post( [
-			'ID'           => $attachment_id,
-			'post_title'   => $title,
-			'post_excerpt' => $caption,
-			'post_content' => $description,
-		] );
+		wp_update_post(
+			[
+				'ID'           => $attachment_id,
+				'post_title'   => $title,
+				'post_excerpt' => $caption,
+				'post_content' => $description,
+			]
+			);
 
 		if ( '' !== $alt_text ) {
 			update_post_meta( $attachment_id, '_wp_attachment_image_alt', $alt_text );
