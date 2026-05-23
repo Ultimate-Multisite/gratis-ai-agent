@@ -220,6 +220,20 @@ Key gotchas: `compile_class` required for hyphenated IDs, `REST_Handler` support
   redundant caching; do not whitelist individual option keys as a cache
   invalidation strategy.
 
+### REST API Security and Operational Guidelines
+- **Secret Scrubbing**: All REST endpoints must scrub sensitive data (API keys, tokens,
+  credentials) from responses and logs. Never expose provider credentials, user secrets,
+  or internal configuration in REST output.
+- **File Upload Restrictions**: Hide or restrict file upload endpoints from public access.
+  File upload functionality should be gated behind capability checks and only exposed
+  to authenticated users with explicit permissions.
+- **User Context**: Always execute REST operations as the real current user (via
+  `get_current_user_id()` and capability checks). Never bypass user context or
+  execute operations as a privileged system user without explicit authorization.
+- **Endpoint Visibility**: The `sd-ai-agent/v1` namespace is private to the plugin.
+  Do not expose internal implementation details, debug endpoints, or experimental
+  features in the public REST API. Use capability checks to gate all endpoints.
+
 ## Local Development Environment
 
 The shared WordPress dev install for testing this plugin is at `../wordpress` (relative to this repo root).
