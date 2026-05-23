@@ -1976,10 +1976,14 @@ class BlockAbilities {
 		int $depth = 0,
 		array $parent_path = []
 	): array {
-		static $block_counts    = [];
-		static $headings        = [];
+		/** @var array<string,int> $block_counts */
+		static $block_counts = [];
+		/** @var array<int,array<string,mixed>> $headings */
+		static $headings = [];
+		/** @var array<int,array<string,mixed>> $section_markers */
 		static $section_markers = [];
-		static $max_depth       = 0;
+		/** @var int $max_depth */
+		static $max_depth = 0;
 
 		// Initialize on first call.
 		if ( 0 === $depth ) {
