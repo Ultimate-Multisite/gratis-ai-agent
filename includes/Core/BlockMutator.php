@@ -220,7 +220,7 @@ class BlockMutator {
 					} else {
 						$block['innerContent'] = self::rebuild_inner_content_with_html( $block, $safe_html );
 					}
-				} elseif ( is_array( $block ) && HtmlTransformer::is_supported( isset( $block['blockName'] ) && is_string( $block['blockName'] ) ? $block['blockName'] : '' ) ) {
+				} elseif ( HtmlTransformer::is_supported( isset( $block['blockName'] ) && is_string( $block['blockName'] ) ? $block['blockName'] : '' ) ) {
 					// Auto-transform innerHTML when attribute changes imply HTML structure changes.
 					$block = HtmlTransformer::apply( $block, $args['attributes'] );
 				}
