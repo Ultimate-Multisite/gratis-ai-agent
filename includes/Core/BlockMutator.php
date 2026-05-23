@@ -118,6 +118,8 @@ class BlockMutator {
 			return $path;
 		}
 
+		$result = null;
+
 		switch ( $op ) {
 			case 'update-attrs':
 				$result = self::op_update_attrs( $blocks, $path, $args );
@@ -137,27 +139,49 @@ class BlockMutator {
 					$result['_warnings'] = [ 'static_block_attrs_changed' ];
 				}
 
-				return $result;
+				break;
 			case 'update-html':
-				return self::op_update_html( $blocks, $path, $args );
+				$result = self::op_update_html( $blocks, $path, $args );
+				break;
 			case 'replace-block':
-				return self::op_replace_block( $blocks, $path, $args );
+				$result = self::op_replace_block( $blocks, $path, $args );
+				break;
 			case 'remove-block':
-				return self::op_remove_block( $blocks, $path );
+				$result = self::op_remove_block( $blocks, $path );
+				break;
 			case 'wrap-in-group':
-				return self::op_wrap_in_group( $blocks, $path, $args );
+				$result = self::op_wrap_in_group( $blocks, $path, $args );
+				break;
 			case 'unwrap-group':
-				return self::op_unwrap_group( $blocks, $path );
+				$result = self::op_unwrap_group( $blocks, $path );
+				break;
 			case 'insert-child':
-				return self::op_insert_child( $blocks, $path, $args );
+				$result = self::op_insert_child( $blocks, $path, $args );
+				break;
 			case 'duplicate':
-				return self::op_duplicate( $blocks, $path );
+				$result = self::op_duplicate( $blocks, $path );
+				break;
 			case 'move':
-				return self::op_move( $blocks, $path, $args );
+				$result = self::op_move( $blocks, $path, $args );
+				break;
 		}
 
-		// Should never reach here after the in_array check above.
-		return new \WP_Error( 'invalid_op', 'Unknown operation.', [ 'status' => 400 ] ); // @phpstan-ignore-line
+		// Validate tree depth after mutation. Operations that modify structure
+		// (insert-child, replace-block, wrap-in-group, duplicate, move, unwrap-group)
+		// must not produce trees deeper than MAX_BLOCK_DEPTH.
+		if ( is_wp_error( $result ) ) {
+			return $result;
+		}
+
+		if ( is_array( $result ) ) {
+			$depth_check = self::validate_tree_depth( $result );
+
+			if ( is_wp_error( $depth_check ) ) {
+				return $depth_check;
+			}
+		}
+
+		return $result;
 	}
 
 	/**

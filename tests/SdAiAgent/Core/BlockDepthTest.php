@@ -293,4 +293,174 @@ class BlockDepthTest extends WP_UnitTestCase {
 			$this->assertIsArray( $result );
 		}
 	}
+
+	// ── Write-path depth validation (GH#1734) ──────────────────────────────
+
+	/**
+	 * insert-child with a 33-deep payload is rejected with block_depth_exceeded.
+	 *
+	 * Regression test for GH#1734: the depth cap was only enforced on read
+	 * (BlockReferences::assign_refs), not on write (edit-block-tree operations).
+	 * This test verifies that insert-child now validates the resulting tree.
+	 */
+	public function test_insert_child_with_deep_payload_rejected(): void {
+		// Create a shallow root tree with one paragraph.
+		$blocks = [ $this->make_block( 'core/paragraph' ) ];
+
+		// Build a 33-deep group tree (exceeds MAX_BLOCK_DEPTH by 1).
+		$deep = $this->make_block( 'core/paragraph' );
+
+		for ( $i = 0; $i < BlockMutator::MAX_BLOCK_DEPTH + 1; ++$i ) {
+			$deep = $this->make_block( 'core/group', [ $deep ] );
+		}
+
+		// Try to insert the deep tree as a child of the root paragraph.
+		// This should fail because the resulting tree would be 33+ levels deep.
+		$result = BlockMutator::apply(
+			$blocks,
+			'insert-child',
+			[
+				'flat_index' => 0,
+				'block_def'  => $deep,
+			]
+		);
+
+		$this->assertInstanceOf(
+			\WP_Error::class,
+			$result,
+			'insert-child with a 33-deep payload must return a WP_Error.'
+		);
+		$this->assertSame(
+			'block_depth_exceeded',
+			$result->get_error_code(),
+			'Error code must be block_depth_exceeded.'
+		);
+	}
+
+	/**
+	 * replace-block with a 33-deep payload is rejected with block_depth_exceeded.
+	 */
+	public function test_replace_block_with_deep_payload_rejected(): void {
+		// Create a shallow root tree with one paragraph.
+		$blocks = [ $this->make_block( 'core/paragraph' ) ];
+
+		// Build a 33-deep group tree.
+		$deep = $this->make_block( 'core/paragraph' );
+
+		for ( $i = 0; $i < BlockMutator::MAX_BLOCK_DEPTH + 1; ++$i ) {
+			$deep = $this->make_block( 'core/group', [ $deep ] );
+		}
+
+		// Try to replace the root paragraph with the deep tree.
+		$result = BlockMutator::apply(
+			$blocks,
+			'replace-block',
+			[
+				'flat_index' => 0,
+				'block_def'  => $deep,
+			]
+		);
+
+		$this->assertInstanceOf(
+			\WP_Error::class,
+			$result,
+			'replace-block with a 33-deep payload must return a WP_Error.'
+		);
+		$this->assertSame(
+			'block_depth_exceeded',
+			$result->get_error_code(),
+			'Error code must be block_depth_exceeded.'
+		);
+	}
+
+	/**
+	 * wrap-in-group on a 32-deep tree is rejected (would create 33 levels).
+	 */
+	public function test_wrap_in_group_exceeding_depth_rejected(): void {
+		// Create a tree exactly MAX_BLOCK_DEPTH levels deep.
+		$root   = $this->make_nested_block( BlockMutator::MAX_BLOCK_DEPTH );
+		$blocks = [ $root ];
+
+		// Wrapping it in a group would create MAX_BLOCK_DEPTH+1 levels.
+		$result = BlockMutator::apply(
+			$blocks,
+			'wrap-in-group',
+			[
+				'flat_index' => 0,
+			]
+		);
+
+		$this->assertInstanceOf(
+			\WP_Error::class,
+			$result,
+			'wrap-in-group on a MAX_BLOCK_DEPTH tree must return a WP_Error.'
+		);
+		$this->assertSame(
+			'block_depth_exceeded',
+			$result->get_error_code(),
+			'Error code must be block_depth_exceeded.'
+		);
+	}
+
+	/**
+	 * duplicate on a 32-deep tree is rejected (would create a sibling at same depth).
+	 *
+	 * Note: duplicate creates a sibling, not a child, so it doesn't increase depth.
+	 * However, if the tree is already at MAX_BLOCK_DEPTH, the duplicate itself
+	 * is still at MAX_BLOCK_DEPTH, which is valid. This test verifies that
+	 * a tree at exactly MAX_BLOCK_DEPTH can be duplicated without error.
+	 */
+	public function test_duplicate_at_max_depth_succeeds(): void {
+		// Create a tree exactly MAX_BLOCK_DEPTH levels deep.
+		$root   = $this->make_nested_block( BlockMutator::MAX_BLOCK_DEPTH );
+		$blocks = [ $root ];
+
+		// Duplicating should succeed because the duplicate is a sibling at the same depth.
+		$result = BlockMutator::apply(
+			$blocks,
+			'duplicate',
+			[
+				'flat_index' => 0,
+			]
+		);
+
+		$this->assertIsArray(
+			$result,
+			'duplicate on a MAX_BLOCK_DEPTH tree must succeed (creates sibling, not child).'
+		);
+		$this->assertCount( 2, $result, 'Result should have 2 root-level blocks.' );
+	}
+
+	/**
+	 * insert-child with a valid (non-deep) payload succeeds.
+	 *
+	 * Ensures that the depth validation doesn't reject valid operations.
+	 */
+	public function test_insert_child_with_valid_payload_succeeds(): void {
+		// Create a shallow root tree.
+		$blocks = [ $this->make_block( 'core/paragraph' ) ];
+
+		// Create a valid (shallow) child block.
+		$child = $this->make_block( 'core/paragraph' );
+
+		$result = BlockMutator::apply(
+			$blocks,
+			'insert-child',
+			[
+				'flat_index' => 0,
+				'block_def'  => $child,
+			]
+		);
+
+		$this->assertIsArray(
+			$result,
+			'insert-child with a valid payload must succeed.'
+		);
+		$this->assertCount( 1, $result, 'Result should have 1 root block.' );
+		$this->assertCount(
+			1,
+			$result[0]['innerBlocks'] ?? [],
+			'Root block should have 1 inner block.'
+		);
+	}
 }

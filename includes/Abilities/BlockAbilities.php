@@ -1964,6 +1964,13 @@ class BlockAbilities {
 
 		$new_tree = $result;
 
+		// Validate tree depth before persisting.
+		$depth_check = BlockMutator::validate_tree_depth( $new_tree );
+
+		if ( is_wp_error( $depth_check ) ) {
+			return $depth_check;
+		}
+
 		// Persist with wp_update_post() → exactly one revision.
 		if ( ! $dry_run ) {
 			// @phpstan-ignore-next-line
