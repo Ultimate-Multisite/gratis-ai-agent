@@ -66,6 +66,18 @@ class BlockMutator {
 	public const MAX_BATCH_SIZE = 50;
 
 	/**
+	 * Maximum number of top-level blocks in a rewrite_post_blocks call.
+	 *
+	 * Full-page rewrites with more blocks than this are rejected as
+	 * `payload_too_large`. 200 is well above any realistic single-page
+	 * block count while preventing agent loops from producing unbounded
+	 * payloads.
+	 *
+	 * @var int
+	 */
+	public const MAX_REWRITE_BLOCKS = 200;
+
+	/**
 	 * Valid operation names.
 	 *
 	 * @var string[]
@@ -358,6 +370,122 @@ class BlockMutator {
 		}
 
 		return $working_tree;
+	}
+
+	// ── Rewrite (full-page replace) ──────────────────────────────────────
+
+	/**
+	 * Validate and normalize a full-page block replacement payload.
+	 *
+	 * Runs all pre-write guards (empty check, size cap, depth cap, tier
+	 * policy, bound-attribute lock) and returns a normalized, sanitized
+	 * block tree ready for serialize_blocks() + wp_update_post().
+	 *
+	 * This is a pure validation/normalization pass — no DB writes occur
+	 * here. The caller (ability handler) is responsible for concurrency
+	 * control, rate limiting, serialization, persistence, and ref reseeding.
+	 *
+	 * @param array<int,mixed> $blocks             Raw block definitions from the agent.
+	 * @param bool             $allow_bound_writes Override the Block Bindings write-lock.
+	 * @return array<int,mixed>|\WP_Error Normalized block tree on success, WP_Error on violation.
+	 */
+	public static function validate_rewrite_blocks( array $blocks, bool $allow_bound_writes = false ) {
+		// ── Guard: empty payload ────────────────────────────────────
+		if ( empty( $blocks ) ) {
+			return new \WP_Error(
+				'empty_payload',
+				__( 'blocks array must not be empty. Use update-post with empty content to blank a page.', 'superdav-ai-agent' ),
+				[ 'status' => 400 ]
+			);
+		}
+
+		// ── Guard: payload too large ────────────────────────────────
+		if ( count( $blocks ) > self::MAX_REWRITE_BLOCKS ) {
+			return new \WP_Error(
+				'payload_too_large',
+				sprintf(
+					/* translators: 1: block count, 2: max allowed */
+					__( 'Rewrite contains %1$d top-level blocks; maximum is %2$d.', 'superdav-ai-agent' ),
+					count( $blocks ),
+					self::MAX_REWRITE_BLOCKS
+				),
+				[
+					'status'             => 400,
+					'block_count'        => count( $blocks ),
+					'max_rewrite_blocks' => self::MAX_REWRITE_BLOCKS,
+				]
+			);
+		}
+
+		// ── Normalize and sanitize ──────────────────────────────────
+		$normalized = [];
+		foreach ( $blocks as $block ) {
+			if ( ! is_array( $block ) ) {
+				continue;
+			}
+			$norm         = self::normalize_block( $block );
+			$normalized[] = self::sanitize_block_tree( $norm );
+		}
+
+		// ── Depth check ─────────────────────────────────────────────
+		$depth_check = self::validate_tree_depth( $normalized );
+		if ( is_wp_error( $depth_check ) ) {
+			return $depth_check;
+		}
+
+		// ── Tier policy (per block + descendants) ───────────────────
+		foreach ( $normalized as $block ) {
+			$policy_result = self::enforce_tier_policy( $block, false );
+			if ( is_wp_error( $policy_result ) ) {
+				return $policy_result;
+			}
+		}
+
+		// ── Bound attribute check (per block + descendants) ─────────
+		if ( ! $allow_bound_writes ) {
+			foreach ( $normalized as $block ) {
+				$bound_check = self::check_bound_attributes_tree( $block );
+				if ( is_wp_error( $bound_check ) ) {
+					return $bound_check;
+				}
+			}
+		}
+
+		return $normalized;
+	}
+
+	/**
+	 * Recursively check a block tree for bound-attribute violations.
+	 *
+	 * Walks each block and its descendants. When a block has
+	 * `attrs.metadata.bindings` and some of its own `attrs` keys collide
+	 * with bound keys, returns a `bound_attribute` WP_Error.
+	 *
+	 * @param array<string,mixed> $block Block definition (may include innerBlocks).
+	 * @return true|\WP_Error True when no violations found; WP_Error on first violation.
+	 */
+	private static function check_bound_attributes_tree( array $block ): true|\WP_Error {
+		$attrs = isset( $block['attrs'] ) && is_array( $block['attrs'] ) ? $block['attrs'] : [];
+
+		if ( ! empty( $attrs ) ) {
+			$check = self::assert_no_bound_attribute_writes( $block, $attrs, false );
+			if ( is_wp_error( $check ) ) {
+				return $check;
+			}
+		}
+
+		// Recurse into innerBlocks.
+		$inner = isset( $block['innerBlocks'] ) && is_array( $block['innerBlocks'] ) ? $block['innerBlocks'] : [];
+		foreach ( $inner as $child ) {
+			if ( is_array( $child ) ) {
+				$child_check = self::check_bound_attributes_tree( $child );
+				if ( is_wp_error( $child_check ) ) {
+					return $child_check;
+				}
+			}
+		}
+
+		return true;
 	}
 
 	// ── Structural validators ─────────────────────────────────────────────

@@ -832,6 +832,75 @@ class BlockAbilities {
 		);
 
 		wp_register_ability(
+			'sd-ai-agent/rewrite-post-blocks',
+			[
+				'label'               => __( 'Rewrite Post Blocks', 'superdav-ai-agent' ),
+				'description'         => __( 'Replace the entire block tree of a post with a new set of blocks. This is a full-page rewrite — all existing blocks are discarded, and the supplied blocks become the complete post_content. Every block in the new payload gets a fresh sd_ref. Counts against a separate "rewrite" rate-limit bucket (2/min/post) when available. For clearing a post, use update-post with empty content instead. Maximum 200 top-level blocks; maximum nesting depth 32.', 'superdav-ai-agent' ),
+				'category'            => 'sd-ai-agent',
+				'input_schema'        => [
+					'type'       => 'object',
+					'properties' => [
+						'post_id'              => [
+							'type'        => 'integer',
+							'description' => 'Post ID whose block tree will be replaced.',
+						],
+						'blocks'               => [
+							'type'        => 'array',
+							'description' => 'Complete replacement block tree. Each block: blockName (string), attrs (object), innerHTML (string), innerBlocks (array). Maximum 200 top-level blocks.',
+							'items'       => [
+								'type' => 'object',
+							],
+						],
+						'expected_revision_id' => [
+							'type'        => 'integer',
+							'description' => 'Expected revision ID for optimistic concurrency control. Pass the revision_id from get-page-blocks to prevent writes against a stale post.',
+						],
+						'allow_bound_writes'   => [
+							'type'        => 'boolean',
+							'description' => 'Override the Block Bindings write-lock. When true, writes to bound attributes are allowed. Default: false.',
+						],
+					],
+					'required'   => [ 'post_id', 'blocks' ],
+				],
+				'output_schema'       => [
+					'type'       => 'object',
+					'properties' => [
+						'success'     => [
+							'type'        => 'boolean',
+							'description' => 'True when the rewrite succeeded.',
+						],
+						'post_id'     => [ 'type' => 'integer' ],
+						'revision_id' => [
+							'type'        => 'integer',
+							'description' => 'Post revision ID after the write.',
+						],
+						'block_count' => [
+							'type'        => 'integer',
+							'description' => 'Number of top-level blocks written.',
+						],
+						'refs_count'  => [
+							'type'        => 'integer',
+							'description' => 'Total number of sd_ref UUIDs assigned (all levels).',
+						],
+						'error'       => [ 'type' => 'string' ],
+					],
+				],
+				'execute_callback'    => [ __CLASS__, 'handle_rewrite_post_blocks' ],
+				'permission_callback' => function () {
+					return current_user_can( 'edit_posts' );
+				},
+				'meta'                => [
+					'mcp'         => [ 'public' => true ],
+					'annotations' => [
+						'readonly'    => false,
+						'destructive' => true,
+						'idempotent'  => false,
+					],
+				],
+			]
+		);
+
+		wp_register_ability(
 			'sd-ai-agent/insert-pattern',
 			[
 				'label'               => __( 'Insert Pattern', 'superdav-ai-agent' ),
@@ -2489,6 +2558,194 @@ class BlockAbilities {
 			'revision_id' => RevisionGuard::current_revision_id( $post_id ),
 			'block_tree'  => $new_tree,
 		];
+	}
+
+	// ─── rewrite-post-blocks handler ──────────────────────────────
+
+	/**
+	 * Handle the sd-ai-agent/rewrite-post-blocks ability.
+	 *
+	 * Full-page block replacement: discards existing blocks, writes the
+	 * supplied block array as the entire post_content, creates a single
+	 * revision, and reseeds all sd_ref UUIDs on the new tree.
+	 *
+	 * Rate-limited against the "rewrite" bucket (2/min/post) when the
+	 * RateLimiter class is available (t264). When RateLimiter is absent,
+	 * the ability ships without rate limiting.
+	 *
+	 * @param array<string,mixed> $input Ability input.
+	 * @return array<string,mixed>|\WP_Error Result array or WP_Error.
+	 */
+	public static function handle_rewrite_post_blocks( array $input ) {
+		$post_id            = (int) ( $input['post_id'] ?? 0 );
+		$blocks             = $input['blocks'] ?? [];
+		$allow_bound_writes = isset( $input['allow_bound_writes'] ) ? (bool) $input['allow_bound_writes'] : false;
+
+		// ── Validate post_id ──────────────────────────────────────────
+		if ( $post_id <= 0 ) {
+			return new \WP_Error(
+				'missing_post_id',
+				__( 'post_id is required and must be a positive integer.', 'superdav-ai-agent' ),
+				[ 'status' => 400 ]
+			);
+		}
+
+		if ( ! is_array( $blocks ) ) {
+			return new \WP_Error(
+				'invalid_blocks',
+				__( 'blocks must be an array.', 'superdav-ai-agent' ),
+				[ 'status' => 400 ]
+			);
+		}
+
+		// ── Load post ─────────────────────────────────────────────────
+		$post = get_post( $post_id );
+		if ( ! $post ) {
+			return new \WP_Error(
+				'post_not_found',
+				sprintf(
+					/* translators: %d: post ID */
+					__( 'Post %d not found.', 'superdav-ai-agent' ),
+					$post_id
+				),
+				[ 'status' => 404 ]
+			);
+		}
+
+		// ── Optimistic concurrency ────────────────────────────────────
+		$expected = isset( $input['expected_revision_id'] ) ? (string) $input['expected_revision_id'] : '';
+		$guard    = RevisionGuard::check( $post_id, RevisionGuard::parse_raw( $expected ) );
+		if ( is_wp_error( $guard ) ) {
+			return $guard;
+		}
+
+		// ── Rate limit (guarded — ships before t264) ──────────────────
+		// @phpstan-ignore-next-line
+		if ( class_exists( '\SdAiAgent\Core\RateLimiter' ) ) {
+			/** @var \WP_Error|true $rate_check */
+			// @phpstan-ignore-next-line
+			$rate_check = \SdAiAgent\Core\RateLimiter::check( $post_id, 'rewrite' );
+			if ( is_wp_error( $rate_check ) ) {
+				return $rate_check;
+			}
+		}
+
+		// ── Validate and normalize blocks ─────────────────────────────
+		// @phpstan-ignore-next-line
+		$validated = BlockMutator::validate_rewrite_blocks( $blocks, $allow_bound_writes );
+		if ( is_wp_error( $validated ) ) {
+			return $validated;
+		}
+
+		// ── Assign fresh refs to ALL blocks ───────────────────────────
+		// Strip existing refs first so every block gets a fresh sd_ref.
+		$stripped = [];
+		foreach ( $validated as $block ) {
+			// @phpstan-ignore-next-line
+			$stripped[] = self::strip_refs_recursive( $block );
+		}
+
+		// @phpstan-ignore-next-line
+		$ref_result = BlockReferences::assign_refs( $stripped );
+		if ( is_wp_error( $ref_result ) ) {
+			return $ref_result;
+		}
+		$final_tree = $ref_result;
+
+		// ── Count total refs assigned ─────────────────────────────────
+		// @phpstan-ignore-next-line
+		$refs_count = self::count_refs_recursive( $final_tree );
+
+		// ── Persist via wp_update_post → single revision ──────────────
+		// @phpstan-ignore-next-line
+		$new_content   = serialize_blocks( $final_tree );
+		$update_result = wp_update_post(
+			[
+				'ID'           => $post_id,
+				'post_content' => $new_content,
+			],
+			true
+		);
+
+		if ( is_wp_error( $update_result ) ) {
+			return $update_result;
+		}
+
+		// ── Record rate-limit hit (guarded) ───────────────────────────
+		// @phpstan-ignore-next-line
+		if ( class_exists( '\SdAiAgent\Core\RateLimiter' ) ) {
+			// @phpstan-ignore-next-line
+			\SdAiAgent\Core\RateLimiter::record( $post_id, 'rewrite' );
+		}
+
+		return [
+			'success'     => true,
+			'post_id'     => $post_id,
+			'revision_id' => RevisionGuard::current_revision_id( $post_id ),
+			'block_count' => count( $final_tree ),
+			'refs_count'  => $refs_count,
+		];
+	}
+
+	/**
+	 * Recursively strip sd_ref values from a block tree.
+	 *
+	 * Used by rewrite-post-blocks to ensure every block gets a fresh ref.
+	 *
+	 * @param array<string,mixed> $block Block array.
+	 * @return array<string,mixed> Block without sd_ref values.
+	 */
+	private static function strip_refs_recursive( array $block ): array {
+		if ( isset( $block['attrs']['metadata'][ BlockReferences::REF_KEY ] ) ) {
+			unset( $block['attrs']['metadata'][ BlockReferences::REF_KEY ] );
+
+			// Clean up empty metadata array.
+			if ( isset( $block['attrs']['metadata'] ) && empty( $block['attrs']['metadata'] ) ) {
+				unset( $block['attrs']['metadata'] );
+			}
+		}
+
+		if ( isset( $block['innerBlocks'] ) && is_array( $block['innerBlocks'] ) ) {
+			$stripped = [];
+			foreach ( $block['innerBlocks'] as $child ) {
+				if ( is_array( $child ) ) {
+					$stripped[] = self::strip_refs_recursive( $child );
+				}
+			}
+			$block['innerBlocks'] = $stripped;
+		}
+
+		return $block;
+	}
+
+	/**
+	 * Count total sd_ref assignments in a block tree.
+	 *
+	 * @param array<int,mixed> $blocks Block tree.
+	 * @return int Total ref count.
+	 */
+	private static function count_refs_recursive( array $blocks ): int {
+		$count = 0;
+		foreach ( $blocks as $block ) {
+			if ( ! is_array( $block ) ) {
+				continue;
+			}
+
+			$metadata = isset( $block['attrs']['metadata'] ) && is_array( $block['attrs']['metadata'] )
+				? $block['attrs']['metadata']
+				: [];
+
+			if ( ! empty( $metadata[ BlockReferences::REF_KEY ] ) ) {
+				++$count;
+			}
+
+			$inner = isset( $block['innerBlocks'] ) && is_array( $block['innerBlocks'] ) ? $block['innerBlocks'] : [];
+			if ( ! empty( $inner ) ) {
+				// @phpstan-ignore-next-line
+				$count += self::count_refs_recursive( $inner );
+			}
+		}
+		return $count;
 	}
 
 	// ─── insert-pattern handler ───────────────────────────────────
