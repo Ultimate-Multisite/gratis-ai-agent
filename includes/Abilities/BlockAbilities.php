@@ -81,58 +81,58 @@ class BlockAbilities {
 				'label'               => __( 'List Block Types', 'superdav-ai-agent' ),
 				'description'         => __( 'List registered Gutenberg block types. Filter by category or search term. Returns block names, titles, descriptions, and categories.', 'superdav-ai-agent' ),
 				'category'            => 'sd-ai-agent',
-			'input_schema'        => [
-				'type'       => 'object',
-				'properties' => [
-					'category' => [
-						'type'        => 'string',
-						'description' => 'Filter by block category slug (e.g. "text", "media", "design").',
-					],
-					'search'   => [
-						'type'        => 'string',
-						'description' => 'Search term to filter block types by name, title, or keywords.',
-					],
-					'tier'     => [
-						'type'        => 'string',
-						'description' => 'Filter by tier: "preferred", "acceptable", "avoid", or "legacy".',
-						'enum'        => [ 'preferred', 'acceptable', 'avoid', 'legacy' ],
-					],
-					'per_page' => [
-						'type'        => 'integer',
-						'description' => 'Results per page (default: 20).',
-					],
-					'page'     => [
-						'type'        => 'integer',
-						'description' => 'Page number (default: 1).',
-					],
-				],
-				'required'   => [],
-			],
-			'output_schema'       => [
-				'type'       => 'object',
-				'properties' => [
-					'block_types' => [
-						'type'  => 'array',
-						'items' => [
-							'type'       => 'object',
-							'properties' => [
-								'name'                  => [ 'type' => 'string' ],
-								'title'                 => [ 'type' => 'string' ],
-								'description'           => [ 'type' => 'string' ],
-								'category'              => [ 'type' => 'string' ],
-								'keywords'              => [ 'type' => 'array' ],
-								'score'                 => [ 'type' => 'integer' ],
-								'tier'                  => [ 'type' => 'string' ],
-								'suggested_replacement' => [ 'type' => [ 'string', 'null' ] ],
-							],
+				'input_schema'        => [
+					'type'       => 'object',
+					'properties' => [
+						'category' => [
+							'type'        => 'string',
+							'description' => 'Filter by block category slug (e.g. "text", "media", "design").',
+						],
+						'search'   => [
+							'type'        => 'string',
+							'description' => 'Search term to filter block types by name, title, or keywords.',
+						],
+						'tier'     => [
+							'type'        => 'string',
+							'description' => 'Filter by tier: "preferred", "acceptable", "avoid", or "legacy".',
+							'enum'        => [ 'preferred', 'acceptable', 'avoid', 'legacy' ],
+						],
+						'per_page' => [
+							'type'        => 'integer',
+							'description' => 'Results per page (default: 20).',
+						],
+						'page'     => [
+							'type'        => 'integer',
+							'description' => 'Page number (default: 1).',
 						],
 					],
-					'total'       => [ 'type' => 'integer' ],
-					'page'        => [ 'type' => 'integer' ],
-					'per_page'    => [ 'type' => 'integer' ],
-					'categories'  => [ 'type' => 'object' ],
+					'required'   => [],
 				],
-			],
+				'output_schema'       => [
+					'type'       => 'object',
+					'properties' => [
+						'block_types' => [
+							'type'  => 'array',
+							'items' => [
+								'type'       => 'object',
+								'properties' => [
+									'name'        => [ 'type' => 'string' ],
+									'title'       => [ 'type' => 'string' ],
+									'description' => [ 'type' => 'string' ],
+									'category'    => [ 'type' => 'string' ],
+									'keywords'    => [ 'type' => 'array' ],
+									'score'       => [ 'type' => 'integer' ],
+									'tier'        => [ 'type' => 'string' ],
+									'suggested_replacement' => [ 'type' => [ 'string', 'null' ] ],
+								],
+							],
+						],
+						'total'       => [ 'type' => 'integer' ],
+						'page'        => [ 'type' => 'integer' ],
+						'per_page'    => [ 'type' => 'integer' ],
+						'categories'  => [ 'type' => 'object' ],
+					],
+				],
 				'meta'                => [
 					'mcp'         => [ 'public' => true ],
 					'annotations' => [
@@ -870,7 +870,7 @@ class BlockAbilities {
 			}
 
 			// Get tier and score for this block.
-			$score = BlockContentPolicy::get_namespace_score( $name );
+			$score      = BlockContentPolicy::get_namespace_score( $name );
 			$block_tier = BlockContentPolicy::score_to_tier( $score );
 
 			// Filter by tier if specified.
