@@ -202,7 +202,133 @@ class BlockReferences {
 		return true;
 	}
 
+	/**
+	 * Reseed all sd_ref values in a post's block tree after a revision restore.
+	 *
+	 * Strips every existing sd_ref from the restored content and assigns fresh
+	 * collision-checked refs. This prevents collisions with refs from other posts
+	 * that were created while this revision was not current (refs are content-
+	 * derived; a restored revision may carry stale refs from when the revision
+	 * was originally saved).
+	 *
+	 * The write bypasses `wp_update_post()` so no extra revision is created —
+	 * refs are editor-only metadata, not user-authored content.
+	 *
+	 * @param int $post_id Post ID whose block tree should be reseeded.
+	 * @return int Count of blocks (including nested) that received a new sd_ref,
+	 *             or 0 on failure.
+	 */
+	public static function reseed_for_post( int $post_id ): int {
+		global $wpdb;
+
+		if ( ! function_exists( 'parse_blocks' ) || ! function_exists( 'serialize_blocks' ) ) {
+			return 0;
+		}
+
+		$post = get_post( $post_id );
+		if ( ! $post ) {
+			return 0;
+		}
+
+		$blocks = parse_blocks( $post->post_content );
+
+		// Strip all existing refs so assign_refs() generates fresh ones.
+		$stripped = self::strip_refs_recursive( $blocks );
+
+		// @phpstan-ignore-next-line
+		$result = self::assign_refs( $stripped );
+
+		if ( is_wp_error( $result ) ) {
+			return 0;
+		}
+
+		$count = self::count_blocks_recursive( $result );
+
+		// @phpstan-ignore-next-line
+		$new_content = serialize_blocks( $result );
+
+		// Direct DB write — no revision, no filters, no post-save hooks.
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching
+		$updated = $wpdb->update(
+			$wpdb->posts,
+			[ 'post_content' => $new_content ],
+			[ 'ID' => $post_id ],
+			[ '%s' ],
+			[ '%d' ]
+		);
+
+		if ( false === $updated ) {
+			return 0;
+		}
+
+		clean_post_cache( $post_id );
+
+		return $count;
+	}
+
 	// ── Internal helpers ──────────────────────────────────────────────────
+
+	/**
+	 * Strip sd_ref from every block in the tree recursively.
+	 *
+	 * Forces fresh ref assignment by removing all existing sd_ref values so
+	 * that a subsequent assign_refs() call generates new collision-free refs.
+	 * Used by reseed_for_post() after wp_restore_post_revision().
+	 *
+	 * @param array<int|string,mixed> $blocks Block tree.
+	 * @return array<int|string,mixed> Tree with all sd_ref values removed.
+	 */
+	private static function strip_refs_recursive( array $blocks ): array {
+		$result = [];
+
+		foreach ( $blocks as $block ) {
+			if ( ! is_array( $block ) ) {
+				continue;
+			}
+
+			// Remove sd_ref from metadata if present.
+			if ( isset( $block['attrs']['metadata'][ self::REF_KEY ] ) ) {
+				unset( $block['attrs']['metadata'][ self::REF_KEY ] );
+			}
+
+			// Recurse into inner blocks.
+			if ( ! empty( $block['innerBlocks'] ) && is_array( $block['innerBlocks'] ) ) {
+				$block['innerBlocks'] = self::strip_refs_recursive( $block['innerBlocks'] );
+			}
+
+			$result[] = $block;
+		}
+
+		return $result;
+	}
+
+	/**
+	 * Count all block nodes (including nested) in a block tree.
+	 *
+	 * Used by reseed_for_post() to report how many blocks received a fresh
+	 * sd_ref. Freeform / null-name nodes from parse_blocks() are counted
+	 * because they receive refs too.
+	 *
+	 * @param array<int|string,mixed> $blocks Block tree.
+	 * @return int Total count of block nodes.
+	 */
+	private static function count_blocks_recursive( array $blocks ): int {
+		$count = 0;
+
+		foreach ( $blocks as $block ) {
+			if ( ! is_array( $block ) ) {
+				continue;
+			}
+
+			++$count;
+
+			if ( ! empty( $block['innerBlocks'] ) && is_array( $block['innerBlocks'] ) ) {
+				$count += self::count_blocks_recursive( $block['innerBlocks'] );
+			}
+		}
+
+		return $count;
+	}
 
 	/**
 	 * Collect all existing sd_ref values in a block tree (pre-flight dedup).

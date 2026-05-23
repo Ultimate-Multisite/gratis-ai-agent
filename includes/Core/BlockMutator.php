@@ -1490,4 +1490,115 @@ class BlockMutator {
 
 		return $rebuilt;
 	}
+
+	// ── Revision revert ───────────────────────────────────────────────────
+
+	/**
+	 * Revert a post to a specific revision.
+	 *
+	 * Calls `wp_restore_post_revision()` then re-seeds all sd_ref values in the
+	 * restored content via `BlockReferences::reseed_for_post()`. Re-seeding is
+	 * necessary because the old revision carries refs that were valid at the time
+	 * it was saved; those refs may now collide with refs assigned to blocks in
+	 * other posts that were created while this revision was not current.
+	 *
+	 * Capability checks:
+	 *   - `current_user_can( 'edit_post', $post_id )`
+	 *   - `current_user_can( 'edit_post', $revision_id )` (revisions are child posts)
+	 *
+	 * @param int      $post_id                     Post ID to revert.
+	 * @param int      $revision_id                 Revision ID to restore.
+	 * @param int|null $expected_current_revision_id Optional: latest revision ID expected
+	 *                                               before the revert for optimistic concurrency.
+	 *                                               Pass null to skip the check.
+	 * @return array<string,mixed>|\WP_Error Result array or WP_Error on failure.
+	 */
+	public static function revert_to_revision( int $post_id, int $revision_id, ?int $expected_current_revision_id = null ): array|\WP_Error {
+		// Capability checks.
+		if ( ! current_user_can( 'edit_post', $post_id ) || ! current_user_can( 'edit_post', $revision_id ) ) {
+			return new \WP_Error(
+				'insufficient_capability',
+				__( 'You do not have permission to edit this post.', 'superdav-ai-agent' ),
+				[ 'status' => 403 ]
+			);
+		}
+
+		// Verify the post exists.
+		$post = get_post( $post_id );
+		if ( ! $post ) {
+			return new \WP_Error(
+				'post_not_found',
+				sprintf(
+					/* translators: %d: post ID */
+					__( 'Post %d not found.', 'superdav-ai-agent' ),
+					$post_id
+				),
+				[ 'status' => 404 ]
+			);
+		}
+
+		// Verify the revision exists and belongs to this post.
+		$revision_parent = wp_is_post_revision( $revision_id );
+		if ( false === $revision_parent || (int) $revision_parent !== $post_id ) {
+			return new \WP_Error(
+				'revision_post_mismatch',
+				sprintf(
+					/* translators: %1$d: revision ID, %2$d: post ID */
+					__( 'Revision %1$d does not belong to post %2$d.', 'superdav-ai-agent' ),
+					$revision_id,
+					$post_id
+				),
+				[ 'status' => 400 ]
+			);
+		}
+
+		// Optimistic concurrency: if expected_current_revision_id is provided,
+		// check it against the actual latest revision before restoring.
+		if ( null !== $expected_current_revision_id ) {
+			$current_revision = RevisionGuard::current_revision_id( $post_id );
+			if ( $current_revision !== $expected_current_revision_id ) {
+				return new \WP_Error(
+					'revision_stale',
+					sprintf(
+						/* translators: %1$d: expected revision ID, %2$d: actual current revision ID */
+						__( 'Optimistic concurrency check failed: expected revision %1$d but current is %2$d.', 'superdav-ai-agent' ),
+						$expected_current_revision_id,
+						$current_revision
+					),
+					[
+						'status'              => 412,
+						'current_revision_id' => $current_revision,
+					]
+				);
+			}
+		}
+
+		// Restore the revision. wp_restore_post_revision() calls wp_update_post()
+		// internally, which creates a new revision pointing at the restored content.
+		$restore_result = wp_restore_post_revision( $revision_id );
+
+		if ( is_wp_error( $restore_result ) ) {
+			return $restore_result;
+		}
+
+		if ( ! $restore_result ) {
+			return new \WP_Error(
+				'revert_failed',
+				__( 'Failed to restore the revision. The revision may have no restorable content.', 'superdav-ai-agent' ),
+				[ 'status' => 500 ]
+			);
+		}
+
+		// Reseed all sd_ref values in the restored content to avoid collisions.
+		// reseed_for_post() returns the count of blocks that received a fresh ref.
+		$refs_reseeded = BlockReferences::reseed_for_post( $post_id );
+
+		return [
+			'post_id'                 => $post_id,
+			'reverted_to_revision_id' => $revision_id,
+			'new_revision_id'         => RevisionGuard::current_revision_id( $post_id ),
+			'refs_reseeded'           => $refs_reseeded,
+			'block_count'             => $refs_reseeded,
+		];
+	}
 }

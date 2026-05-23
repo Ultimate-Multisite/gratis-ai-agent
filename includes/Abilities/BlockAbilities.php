@@ -907,6 +907,71 @@ class BlockAbilities {
 				],
 			]
 		);
+
+		wp_register_ability(
+		'sd-ai-agent/revert-to-revision',
+		[
+			'label'               => __( 'Revert Post to Revision', 'superdav-ai-agent' ),
+			'description'         => __( 'Roll back a post to a specific revision ID. Symmetric undo for every write that returns a revision_id. Calls wp_restore_post_revision(), reassigns all sd_ref values in the restored content, and returns the new revision ID. Pass expected_current_revision_id for optimistic concurrency control.', 'superdav-ai-agent' ),
+			'category'            => 'sd-ai-agent',
+			'input_schema'        => [
+				'type'       => 'object',
+				'properties' => [
+					'post_id'                      => [
+						'type'        => 'integer',
+						'description' => 'Post ID to revert.',
+					],
+					'revision_id'                  => [
+						'type'        => 'integer',
+						'description' => 'Revision ID to restore. Must belong to the named post.',
+					],
+					'expected_current_revision_id' => [
+						'type'        => 'integer',
+						'description' => 'Optional. The revision_id you expect to be current before the revert (optimistic concurrency). If the post has changed since you last fetched it, the call returns a revision_stale error.',
+					],
+				],
+				'required'   => [ 'post_id', 'revision_id' ],
+			],
+			'output_schema'       => [
+				'type'       => 'object',
+				'properties' => [
+					'post_id'                 => [
+						'type'        => 'integer',
+						'description' => 'Post ID that was reverted.',
+					],
+					'reverted_to_revision_id' => [
+						'type'        => 'integer',
+						'description' => 'The revision ID that was restored.',
+					],
+					'new_revision_id'         => [
+						'type'        => 'integer',
+						'description' => 'Revision ID created by wp_restore_post_revision() pointing at the restored content.',
+					],
+					'refs_reseeded'           => [
+						'type'        => 'integer',
+						'description' => 'Number of blocks that received a fresh sd_ref after the revert.',
+					],
+					'block_count'             => [
+						'type'        => 'integer',
+						'description' => 'Total number of blocks in the reverted post.',
+					],
+					'error'                   => [ 'type' => 'string' ],
+				],
+			],
+			'execute_callback'    => [ __CLASS__, 'handle_revert_to_revision' ],
+			'permission_callback' => function () {
+				return current_user_can( 'edit_posts' );
+			},
+			'meta'                => [
+				'mcp'         => [ 'public' => true ],
+				'annotations' => [
+					'readonly'    => false,
+					'destructive' => true,
+					'idempotent'  => false,
+				],
+			],
+		]
+		);
 	}
 
 	// ─── Handlers ─────────────────────────────────────────────────
@@ -2733,5 +2798,44 @@ class BlockAbilities {
 			'revision_id'     => RevisionGuard::current_revision_id( $post_id ),
 			'block_tree'      => $blocks,
 		];
+	}
+
+	// ─── revert-to-revision handler ────────────────────────────────
+
+	/**
+	 * Handle the sd-ai-agent/revert-to-revision ability.
+	 *
+	 * Validates input, delegates to BlockMutator::revert_to_revision(), and
+	 * returns the structured result.
+	 *
+	 * @param array<string,mixed> $input Input with post_id, revision_id, and optional
+	 *                                   expected_current_revision_id.
+	 * @return array<string,mixed>|\WP_Error Result or WP_Error.
+	 */
+	public static function handle_revert_to_revision( array $input ) {
+		$post_id     = (int) ( $input['post_id'] ?? 0 );
+		$revision_id = (int) ( $input['revision_id'] ?? 0 );
+
+		if ( $post_id <= 0 ) {
+			return new \WP_Error(
+				'missing_post_id',
+				__( 'post_id is required and must be a positive integer.', 'superdav-ai-agent' ),
+				[ 'status' => 400 ]
+			);
+		}
+
+		if ( $revision_id <= 0 ) {
+			return new \WP_Error(
+				'missing_revision_id',
+				__( 'revision_id is required and must be a positive integer.', 'superdav-ai-agent' ),
+				[ 'status' => 400 ]
+			);
+		}
+
+		$expected_current = isset( $input['expected_current_revision_id'] )
+			? (int) $input['expected_current_revision_id']
+			: null;
+
+		return BlockMutator::revert_to_revision( $post_id, $revision_id, $expected_current );
 	}
 }
