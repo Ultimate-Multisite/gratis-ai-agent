@@ -1928,10 +1928,9 @@ class BlockAbilities {
 
 			// For outline mode, add heading_text if this is a heading block.
 			if ( $outline && 'core/heading' === $block_name_value ) {
-				// @phpstan-ignore-next-line
-				$heading_text = $block['attrs']['content'] ?? '';
-				if ( '' !== $heading_text ) {
-					$entry['heading_text'] = $heading_text;
+				// Use text_preview (stripped inner HTML) as heading_text.
+				if ( '' !== $text_preview ) {
+					$entry['heading_text'] = $text_preview;
 				}
 			}
 
@@ -2012,18 +2011,23 @@ class BlockAbilities {
 			}
 			++$block_counts[ $block_name ];
 
-			// Extract heading information.
+			// Extract heading information from innerHTML.
 			if ( 'core/heading' === $block_name ) {
 				// @phpstan-ignore-next-line
 				$level = (int) ( $block['attrs']['level'] ?? 2 );
 				// @phpstan-ignore-next-line
-				$text = (string) ( $block['attrs']['content'] ?? '' );
-				if ( '' !== $text ) {
-					$headings[] = [
-						'level' => $level,
-						'text'  => $text,
-						'path'  => $current_path,
-					];
+				$inner_html = (string) ( $block['innerHTML'] ?? '' );
+				if ( '' !== $inner_html ) {
+					$text = wp_strip_all_tags( $inner_html );
+					$text = html_entity_decode( $text, ENT_QUOTES | ENT_HTML5, 'UTF-8' );
+					$text = (string) preg_replace( '/\s+/', ' ', trim( $text ) );
+					if ( '' !== $text ) {
+						$headings[] = [
+							'level' => $level,
+							'text'  => $text,
+							'path'  => $current_path,
+						];
+					}
 				}
 			}
 
