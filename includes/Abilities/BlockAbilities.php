@@ -329,7 +329,7 @@ class BlockAbilities {
 			'sd-ai-agent/parse-block-content',
 			[
 				'label'               => __( 'Parse Block Content', 'superdav-ai-agent' ),
-				'description'         => __( 'Parse existing Gutenberg block content into a structured block tree. Provide either a post_id to read from the database, or raw content string.', 'superdav-ai-agent' ),
+				'description'         => __( 'Parse existing Gutenberg block content into a structured block tree. Provide either a post_id to read from the database, or raw content string. Each block entry includes bindings (object|null — the block\'s metadata.bindings map, null when unbound) and bound_attributes (string[] — attribute keys that are bound, empty array when unbound). See allow_bound_writes on mutator abilities for write-lock override.', 'superdav-ai-agent' ),
 				'category'            => 'sd-ai-agent',
 				'input_schema'        => [
 					'type'       => 'object',
@@ -465,7 +465,7 @@ class BlockAbilities {
 			'sd-ai-agent/get-page-blocks',
 			[
 				'label'               => __( 'Get Page Blocks', 'superdav-ai-agent' ),
-				'description'         => __( 'Return the block tree for a post with stable per-block sd_ref UUIDs. Each entry includes flat_index, path, ref, name, attributes, and a text_preview. Set persist_refs: false to read without writing refs back to the post. Use the returned refs with block-mutator abilities to address blocks reliably across multi-step edits. Optional parameters: include_inner_blocks (flatten entire tree to DFS list with depth/parent_ref per entry), outline (minimal response), summary_only (statistics), search (filter by text), block_name (filter by name), render (resolve dynamic blocks), fields (allowlist response fields).', 'superdav-ai-agent' ),
+				'description'         => __( 'Return the block tree for a post with stable per-block sd_ref UUIDs. Each entry includes flat_index, path, ref, name, attributes, text_preview, bindings (object|null — the block\'s metadata.bindings map, null when unbound), and bound_attributes (string[] — attribute keys that are bound, empty array when unbound). When a block has bindings, writes to those attributes are protected by the Block Bindings write-lock unless allow_bound_writes is set on a mutator call. Set persist_refs: false to read without writing refs back to the post. Use the returned refs with block-mutator abilities to address blocks reliably across multi-step edits. Optional parameters: include_inner_blocks (flatten entire tree to DFS list with depth/parent_ref per entry), outline (minimal response), summary_only (statistics), search (filter by text), block_name (filter by name), render (resolve dynamic blocks), fields (allowlist response fields).', 'superdav-ai-agent' ),
 				'category'            => 'sd-ai-agent',
 				'input_schema'        => [
 					'type'       => 'object',
@@ -612,7 +612,7 @@ class BlockAbilities {
 			'sd-ai-agent/edit-block-tree',
 			[
 				'label'               => __( 'Edit Block Tree', 'superdav-ai-agent' ),
-				'description'         => __( 'Mutate a post\'s Gutenberg block tree at a specific block (addressed by ref, path, or flat_index) using one of nine operations: update-attrs, update-html, replace-block, remove-block, wrap-in-group, unwrap-group, insert-child, duplicate, move. Set dry_run: true to validate and preview without writing. Use sd-ai-agent/get-page-blocks first to obtain the refs and structure.', 'superdav-ai-agent' ),
+				'description'         => __( 'Mutate a post\'s Gutenberg block tree at a specific block (addressed by ref, path, or flat_index) using one of nine operations: update-attrs, update-html, replace-block, remove-block, wrap-in-group, unwrap-group, insert-child, duplicate, move. Set dry_run: true to validate and preview without writing. The returned block_tree includes bindings (object|null) and bound_attributes (string[]) on every block — null/[] when the block has no bindings. Use allow_bound_writes: true to override the Block Bindings write-lock. Use sd-ai-agent/get-page-blocks first to obtain the refs and structure.', 'superdav-ai-agent' ),
 				'category'            => 'sd-ai-agent',
 				'input_schema'        => [
 					'type'       => 'object',
@@ -737,7 +737,7 @@ class BlockAbilities {
 			'sd-ai-agent/update-blocks',
 			[
 				'label'               => __( 'Update Blocks (Batch)', 'superdav-ai-agent' ),
-				'description'         => __( 'Apply up to 50 independent block updates atomically inside one WordPress revision, with all-or-nothing pre-flight validation. Each update specifies an operation (update-attrs, update-html, replace-block, remove-block, etc.) and a target block (by ref, path, or flat_index). If any single update fails validation, the entire batch rejects with per-item errors — nothing hits disk. On success, all updates are serialised and written as one revision. Use sd-ai-agent/get-page-blocks first to obtain refs.', 'superdav-ai-agent' ),
+				'description'         => __( 'Apply up to 50 independent block updates atomically inside one WordPress revision, with all-or-nothing pre-flight validation. Each update specifies an operation (update-attrs, update-html, replace-block, remove-block, etc.) and a target block (by ref, path, or flat_index). If any single update fails validation, the entire batch rejects with per-item errors — nothing hits disk. On success, all updates are serialised and written as one revision. The returned block_tree includes bindings (object|null) and bound_attributes (string[]) on every block — null/[] when the block has no bindings. Use allow_bound_writes per update to override the Block Bindings write-lock. Use sd-ai-agent/get-page-blocks first to obtain refs.', 'superdav-ai-agent' ),
 				'category'            => 'sd-ai-agent',
 				'input_schema'        => [
 					'type'       => 'object',
@@ -1939,6 +1939,22 @@ class BlockAbilities {
 				'innerHTML' => trim( $block['innerHTML'] ?? '' ),
 			];
 
+			// Surface Block Bindings API data for shape consistency (t275).
+			// Always emit both fields:
+			// - bindings: object|null (null when no bindings)
+			// - bound_attributes: string[] (empty array when no bindings)
+			// @phpstan-ignore-next-line
+			$attrs_arr = isset( $block['attrs'] ) && is_array( $block['attrs'] ) ? $block['attrs'] : [];
+			$meta_arr  = isset( $attrs_arr['metadata'] ) && is_array( $attrs_arr['metadata'] ) ? $attrs_arr['metadata'] : [];
+			$cb        = isset( $meta_arr['bindings'] ) && is_array( $meta_arr['bindings'] ) ? $meta_arr['bindings'] : [];
+			if ( ! empty( $cb ) ) {
+				$result['bindings']         = $cb;
+				$result['bound_attributes'] = array_keys( $cb );
+			} else {
+				$result['bindings']         = null;
+				$result['bound_attributes'] = [];
+			}
+
 			// @phpstan-ignore-next-line
 			if ( ! empty( $block['innerBlocks'] ) ) {
 				// @phpstan-ignore-next-line
@@ -2411,6 +2427,9 @@ class BlockAbilities {
 			}
 
 			// Surface Block Bindings API data (read side).
+			// Always emit both fields for shape consistency (t275):
+			// - bindings: object|null (null when no bindings)
+			// - bound_attributes: string[] (empty array when no bindings)
 			// @phpstan-ignore-next-line
 			$attrs_arr = isset( $block['attrs'] ) && is_array( $block['attrs'] ) ? $block['attrs'] : [];
 			$meta_arr  = isset( $attrs_arr['metadata'] ) && is_array( $attrs_arr['metadata'] ) ? $attrs_arr['metadata'] : [];
@@ -2418,6 +2437,9 @@ class BlockAbilities {
 			if ( ! empty( $bindings ) ) {
 				$entry['bindings']         = $bindings;
 				$entry['bound_attributes'] = array_keys( $bindings );
+			} else {
+				$entry['bindings']         = null;
+				$entry['bound_attributes'] = [];
 			}
 
 			// For outline mode, add heading_text if this is a heading block.
@@ -2582,6 +2604,9 @@ class BlockAbilities {
 			}
 
 			// Surface Block Bindings API data (read side).
+			// Always emit both fields for shape consistency (t275):
+			// - bindings: object|null (null when no bindings)
+			// - bound_attributes: string[] (empty array when no bindings)
 			// @phpstan-ignore-next-line
 			$attrs_arr = isset( $block['attrs'] ) && is_array( $block['attrs'] ) ? $block['attrs'] : [];
 			$meta_arr  = isset( $attrs_arr['metadata'] ) && is_array( $attrs_arr['metadata'] ) ? $attrs_arr['metadata'] : [];
@@ -2589,6 +2614,9 @@ class BlockAbilities {
 			if ( ! empty( $bindings ) ) {
 				$entry['bindings']         = $bindings;
 				$entry['bound_attributes'] = array_keys( $bindings );
+			} else {
+				$entry['bindings']         = null;
+				$entry['bound_attributes'] = [];
 			}
 
 			// For outline mode, add heading_text if this is a heading block.
@@ -2935,7 +2963,7 @@ class BlockAbilities {
 			'dry_run'    => $dry_run,
 			'op'         => $op,
 			'post_id'    => $post_id,
-			'block_tree' => $new_tree,
+			'block_tree' => self::annotate_bindings_tree( $new_tree ),
 		];
 	}
 
@@ -3066,7 +3094,7 @@ class BlockAbilities {
 			'post_id'     => $post_id,
 			'updates'     => count( $updates ),
 			'revision_id' => RevisionGuard::current_revision_id( $post_id ),
-			'block_tree'  => $new_tree,
+			'block_tree'  => self::annotate_bindings_tree( $new_tree ),
 		];
 	}
 
@@ -3573,7 +3601,7 @@ class BlockAbilities {
 			'pattern_type'    => $pattern_type,
 			'blocks_inserted' => $blocks_inserted,
 			'revision_id'     => RevisionGuard::current_revision_id( $post_id ),
-			'block_tree'      => $blocks,
+			'block_tree'      => self::annotate_bindings_tree( $blocks ),
 		];
 	}
 
@@ -3867,5 +3895,59 @@ class BlockAbilities {
 		}
 
 		return $count;
+	}
+
+	// ─── Bindings annotation helper (t275) ────────────────────────
+
+	/**
+	 * Annotate a raw block tree with canonical bindings fields.
+	 *
+	 * Walks every named block and adds two top-level keys:
+	 * - `bindings`         (object|null) — the `attrs.metadata.bindings` value,
+	 *                      or null when the block has no bindings.
+	 * - `bound_attributes` (string[])    — the attribute keys that are bound,
+	 *                      or an empty array when the block has no bindings.
+	 *
+	 * This ensures every block dict emitted by the plugin's read-surface
+	 * abilities carries the same shape regardless of which ability produced
+	 * it, so agents and MCP clients can type-switch on a single key.
+	 *
+	 * @param array<int|string,mixed> $blocks Raw block tree (output of parse_blocks + assign_refs).
+	 * @return array<int|string,mixed> Block tree with bindings/bound_attributes annotated.
+	 */
+	public static function annotate_bindings_tree( array $blocks ): array {
+		$result = [];
+
+		foreach ( $blocks as $block ) {
+			if ( ! is_array( $block ) ) {
+				$result[] = $block;
+				continue;
+			}
+
+			// Only annotate named blocks (skip null-name whitespace placeholders).
+			if ( ! empty( $block['blockName'] ) ) {
+				$attrs_arr = isset( $block['attrs'] ) && is_array( $block['attrs'] ) ? $block['attrs'] : [];
+				$meta_arr  = isset( $attrs_arr['metadata'] ) && is_array( $attrs_arr['metadata'] ) ? $attrs_arr['metadata'] : [];
+				$bindings  = isset( $meta_arr['bindings'] ) && is_array( $meta_arr['bindings'] ) ? $meta_arr['bindings'] : [];
+
+				if ( ! empty( $bindings ) ) {
+					$block['bindings']         = $bindings;
+					$block['bound_attributes'] = array_keys( $bindings );
+				} else {
+					$block['bindings']         = null;
+					$block['bound_attributes'] = [];
+				}
+			}
+
+			// Recurse into inner blocks.
+			$inner = isset( $block['innerBlocks'] ) && is_array( $block['innerBlocks'] ) ? $block['innerBlocks'] : [];
+			if ( ! empty( $inner ) ) {
+				$block['innerBlocks'] = self::annotate_bindings_tree( $inner );
+			}
+
+			$result[] = $block;
+		}
+
+		return $result;
 	}
 }

@@ -69,9 +69,14 @@ class BindingsReadSurfaceTest extends WP_UnitTestCase {
 	}
 
 	/**
-	 * get-page-blocks does NOT include bindings/bound_attributes for unbound blocks.
+	 * get-page-blocks includes null bindings and empty bound_attributes for unbound blocks (t275).
+	 *
+	 * After the t275 canonical shape alignment, every block dict always includes
+	 * both fields so clients can type-switch on a single key:
+	 * - bindings: null (not absent)
+	 * - bound_attributes: [] (not absent)
 	 */
-	public function test_unbound_block_has_no_bindings_in_response(): void {
+	public function test_unbound_block_has_null_bindings_in_response(): void {
 		$block_content = '<!-- wp:paragraph {"metadata":{"' . BlockReferences::REF_KEY . '":"blk_unbnd001"}} -->'
 			. "\n<p>Normal paragraph</p>\n"
 			. '<!-- /wp:paragraph -->';
@@ -92,9 +97,11 @@ class BindingsReadSurfaceTest extends WP_UnitTestCase {
 
 		$block_entry = $result['blocks'][0];
 
-		// Verify bindings are NOT present.
-		$this->assertArrayNotHasKey( 'bindings', $block_entry );
-		$this->assertArrayNotHasKey( 'bound_attributes', $block_entry );
+		// t275: both fields always present — null/[] when unbound.
+		$this->assertArrayHasKey( 'bindings', $block_entry );
+		$this->assertNull( $block_entry['bindings'] );
+		$this->assertArrayHasKey( 'bound_attributes', $block_entry );
+		$this->assertSame( [], $block_entry['bound_attributes'] );
 	}
 
 	/**
