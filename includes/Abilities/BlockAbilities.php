@@ -465,40 +465,44 @@ class BlockAbilities {
 			'sd-ai-agent/get-page-blocks',
 			[
 				'label'               => __( 'Get Page Blocks', 'superdav-ai-agent' ),
-				'description'         => __( 'Return the block tree for a post with stable per-block sd_ref UUIDs. Each entry includes flat_index, path, ref, name, attributes, and a text_preview. Set persist_refs: false to read without writing refs back to the post. Use the returned refs with block-mutator abilities to address blocks reliably across multi-step edits. Optional parameters: outline (minimal response), summary_only (statistics), search (filter by text), block_name (filter by name), render (resolve dynamic blocks), fields (allowlist response fields).', 'superdav-ai-agent' ),
+				'description'         => __( 'Return the block tree for a post with stable per-block sd_ref UUIDs. Each entry includes flat_index, path, ref, name, attributes, and a text_preview. Set persist_refs: false to read without writing refs back to the post. Use the returned refs with block-mutator abilities to address blocks reliably across multi-step edits. Optional parameters: include_inner_blocks (flatten entire tree to DFS list with depth/parent_ref per entry), outline (minimal response), summary_only (statistics), search (filter by text), block_name (filter by name), render (resolve dynamic blocks), fields (allowlist response fields).', 'superdav-ai-agent' ),
 				'category'            => 'sd-ai-agent',
 				'input_schema'        => [
 					'type'       => 'object',
 					'properties' => [
-						'post_id'      => [
+						'post_id'              => [
 							'type'        => 'integer',
 							'description' => 'Post ID whose block tree should be returned.',
 						],
-						'persist_refs' => [
+						'persist_refs'         => [
 							'type'        => 'boolean',
 							'description' => 'Write newly-assigned sd_ref values back to the post without creating a revision. Default: true. Set to false for a read-only call.',
 						],
-						'outline'      => [
+						'include_inner_blocks' => [
+							'type'        => 'boolean',
+							'description' => 'When true, flatten the entire block tree into a depth-first list. Every nested block appears as its own entry with depth (0 = root) and parent_ref (null for root). The innerBlocks key is omitted from each entry. Default: false (returns nested tree shape).',
+						],
+						'outline'              => [
 							'type'        => 'boolean',
 							'description' => 'Return only flat_index, path, name, and heading_text (if applicable). Omits attributes and innerHTML. Default: false.',
 						],
-						'summary_only' => [
+						'summary_only'         => [
 							'type'        => 'boolean',
 							'description' => 'Return only block_counts (histogram), headings (list with level/text/path), section_markers, and max_depth. Skips per-block details. Default: false.',
 						],
-						'search'       => [
+						'search'               => [
 							'type'        => 'string',
 							'description' => 'Filter blocks by text_preview substring (case-insensitive). Only blocks matching the search term are returned.',
 						],
-						'block_name'   => [
+						'block_name'           => [
 							'type'        => 'string',
 							'description' => 'Filter blocks by exact block name (e.g., "core/heading"). Only matching blocks are returned.',
 						],
-						'render'       => [
+						'render'               => [
 							'type'        => 'boolean',
 							'description' => 'Resolve dynamic blocks, expand shortcodes, and follow synced patterns. Default: false (returns raw markup).',
 						],
-						'fields'       => [
+						'fields'               => [
 							'type'        => 'string',
 							'description' => 'Comma-separated allowlist of response fields (e.g., "name,ref,path"). If omitted, all fields are included.',
 						],
@@ -510,7 +514,7 @@ class BlockAbilities {
 					'properties' => [
 						'blocks'      => [
 							'type'        => 'array',
-							'description' => 'Flat list of blocks (or empty if summary_only). Each item: flat_index (int), path (int[]), ref (string), name (string), attributes (object), text_preview (string).',
+							'description' => 'Block list (or empty if summary_only). Default (nested): top-level entries only with innerBlocks nested. When include_inner_blocks: true: DFS-ordered flat list of all blocks, each with flat_index (int), path (int[]), depth (int), parent_ref (string|null), ref (string), name (string), attributes (object), text_preview (string).',
 						],
 						'block_count' => [ 'type' => 'integer' ],
 						'refs_stored' => [
@@ -2150,14 +2154,15 @@ class BlockAbilities {
 	public static function handle_get_page_blocks( array $input ) {
 		global $wpdb;
 
-		$post_id      = (int) ( $input['post_id'] ?? 0 );
-		$persist_refs = isset( $input['persist_refs'] ) ? (bool) $input['persist_refs'] : true;
-		$outline      = isset( $input['outline'] ) ? (bool) $input['outline'] : false;
-		$summary_only = isset( $input['summary_only'] ) ? (bool) $input['summary_only'] : false;
-		$search       = isset( $input['search'] ) && is_string( $input['search'] ) ? $input['search'] : '';
-		$block_name   = isset( $input['block_name'] ) && is_string( $input['block_name'] ) ? $input['block_name'] : '';
-		$render       = isset( $input['render'] ) ? (bool) $input['render'] : false;
-		$fields       = isset( $input['fields'] ) && is_string( $input['fields'] ) ? $input['fields'] : '';
+		$post_id              = (int) ( $input['post_id'] ?? 0 );
+		$persist_refs         = isset( $input['persist_refs'] ) ? (bool) $input['persist_refs'] : true;
+		$include_inner_blocks = isset( $input['include_inner_blocks'] ) ? (bool) $input['include_inner_blocks'] : false;
+		$outline              = isset( $input['outline'] ) ? (bool) $input['outline'] : false;
+		$summary_only         = isset( $input['summary_only'] ) ? (bool) $input['summary_only'] : false;
+		$search               = isset( $input['search'] ) && is_string( $input['search'] ) ? $input['search'] : '';
+		$block_name           = isset( $input['block_name'] ) && is_string( $input['block_name'] ) ? $input['block_name'] : '';
+		$render               = isset( $input['render'] ) ? (bool) $input['render'] : false;
+		$fields               = isset( $input['fields'] ) && is_string( $input['fields'] ) ? $input['fields'] : '';
 
 		if ( $post_id <= 0 ) {
 			return new \WP_Error(
@@ -2258,11 +2263,21 @@ class BlockAbilities {
 			$blocks = BlockRenderer::render_block_tree( $post_id, $blocks );
 		}
 
-		// Build the flat annotated block list for the response.
+		// Build the annotated block list for the response.
 		$flat_list  = [];
 		$flat_index = 0;
-		// @phpstan-ignore-next-line
-		self::flatten_blocks_for_response( $blocks, [], $flat_index, $flat_list, $outline, $search, $block_name, $render, $fields );
+
+		if ( $include_inner_blocks ) {
+			// Flat DFS mode: every nested block appears as its own entry with
+			// depth and parent_ref fields. innerBlocks is omitted from each entry.
+			// @phpstan-ignore-next-line
+			self::flatten_block_tree( $blocks, [], $flat_index, $flat_list, 0, null, $outline, $search, $block_name, $render, $fields );
+		} else {
+			// Legacy nested mode: top-level blocks only; inner blocks nested
+			// under each entry's innerBlocks key (existing behaviour).
+			// @phpstan-ignore-next-line
+			self::flatten_blocks_for_response( $blocks, [], $flat_index, $flat_list, $outline, $search, $block_name, $render, $fields );
+		}
 
 		return [
 			'blocks'      => $flat_list,
@@ -2438,6 +2453,170 @@ class BlockAbilities {
 			}
 
 			$output[] = $entry;
+		}
+	}
+
+	/**
+	 * Depth-first walk that produces a flat annotated entry per named block,
+	 * including every nested block (used when include_inner_blocks: true).
+	 *
+	 * Unlike flatten_blocks_for_response, each entry includes:
+	 * - depth      (int)         — 0 for root, increments per innerBlocks dive.
+	 * - parent_ref (string|null) — sd_ref of the direct parent, null for root.
+	 * The innerBlocks key is omitted from each entry because every descendant
+	 * appears as its own entry in DFS order.
+	 *
+	 * @param array<int,mixed> $blocks      Parsed blocks at the current level.
+	 * @param int[]            $parent_path Index path to the parent.
+	 * @param int              $flat_index  Running flat counter (by reference).
+	 * @param array<int,mixed> $output      Accumulating flat list (by reference).
+	 * @param int              $depth       Current nesting depth (0 = root).
+	 * @param string|null      $parent_ref  Parent block ref, null for root.
+	 * @param bool             $outline     Return only flat_index, path, name, heading_text.
+	 * @param string           $search      Filter by text_preview substring (case-insensitive).
+	 * @param string           $block_name  Filter by exact block name.
+	 * @param bool             $render      Resolve dynamic blocks and shortcodes.
+	 * @param string           $fields      Comma-separated allowlist of response fields.
+	 */
+	private static function flatten_block_tree(
+		array $blocks,
+		array $parent_path,
+		int &$flat_index,
+		array &$output,
+		int $depth,
+		?string $parent_ref,
+		bool $outline = false,
+		string $search = '',
+		string $block_name = '',
+		bool $render = false,
+		string $fields = ''
+	): void {
+		// Parse the fields allowlist if provided.
+		$allowed_fields = [];
+		if ( '' !== $fields ) {
+			$allowed_fields = array_map( 'trim', explode( ',', $fields ) );
+			$allowed_fields = array_flip( $allowed_fields );
+		}
+
+		foreach ( $blocks as $local_idx => $block ) {
+			// @phpstan-ignore-next-line
+			if ( ! is_array( $block ) || empty( $block['blockName'] ) ) {
+				continue;
+			}
+
+			$current_path = array_merge( $parent_path, [ (int) $local_idx ] );
+			// @phpstan-ignore-next-line
+			$block_name_value = (string) $block['blockName'];
+
+			// Resolve the stable sd_ref for this block.
+			// @phpstan-ignore-next-line
+			$ref = $block['attrs']['metadata'][ BlockReferences::REF_KEY ] ?? null;
+			$ref = is_string( $ref ) && '' !== $ref ? $ref : null;
+
+			// Apply block_name filter — still recurse into inner blocks.
+			if ( '' !== $block_name && $block_name !== $block_name_value ) {
+				// @phpstan-ignore-next-line
+				$inner = $block['innerBlocks'] ?? [];
+				if ( ! empty( $inner ) && is_array( $inner ) ) {
+					// @phpstan-ignore-next-line
+					self::flatten_block_tree( $inner, $current_path, $flat_index, $output, $depth + 1, $ref, $outline, $search, $block_name, $render, $fields );
+				}
+				continue;
+			}
+
+			// text_preview: stripped, decoded, truncated inner HTML.
+			// @phpstan-ignore-next-line
+			$inner_html   = (string) ( $block['innerHTML'] ?? '' );
+			$text_preview = '';
+			if ( '' !== $inner_html ) {
+				$preview = wp_strip_all_tags( $inner_html );
+				$preview = html_entity_decode( $preview, ENT_QUOTES | ENT_HTML5, 'UTF-8' );
+				$preview = (string) preg_replace( '/\s+/', ' ', trim( $preview ) );
+				if ( '' !== $preview ) {
+					$text_preview = mb_substr( $preview, 0, 100 );
+				}
+			}
+
+			// Apply search filter — still recurse into inner blocks.
+			if ( '' !== $search && false === stripos( $text_preview, $search ) ) {
+				// @phpstan-ignore-next-line
+				$inner = $block['innerBlocks'] ?? [];
+				if ( ! empty( $inner ) && is_array( $inner ) ) {
+					// @phpstan-ignore-next-line
+					self::flatten_block_tree( $inner, $current_path, $flat_index, $output, $depth + 1, $ref, $outline, $search, $block_name, $render, $fields );
+				}
+				continue;
+			}
+
+			// Build the flat entry.
+			$entry = [
+				'flat_index' => $flat_index,
+				'path'       => $current_path,
+				'depth'      => $depth,
+				'parent_ref' => $parent_ref,
+				'name'       => $block_name_value,
+			];
+
+			// Surface the stable ref.
+			if ( null !== $ref ) {
+				$entry['ref'] = $ref;
+			}
+
+			// text_preview (non-outline mode).
+			if ( ! $outline && '' !== $text_preview ) {
+				$entry['text_preview'] = $text_preview;
+			}
+
+			// Attributes (non-outline mode).
+			if ( ! $outline ) {
+				// @phpstan-ignore-next-line
+				$entry['attributes'] = $block['attrs'] ?? [];
+			}
+
+			// Surface Block Bindings API data (read side).
+			// @phpstan-ignore-next-line
+			$attrs_arr = isset( $block['attrs'] ) && is_array( $block['attrs'] ) ? $block['attrs'] : [];
+			$meta_arr  = isset( $attrs_arr['metadata'] ) && is_array( $attrs_arr['metadata'] ) ? $attrs_arr['metadata'] : [];
+			$bindings  = isset( $meta_arr['bindings'] ) && is_array( $meta_arr['bindings'] ) ? $meta_arr['bindings'] : [];
+			if ( ! empty( $bindings ) ) {
+				$entry['bindings']         = $bindings;
+				$entry['bound_attributes'] = array_keys( $bindings );
+			}
+
+			// For outline mode, add heading_text if this is a heading block.
+			if ( $outline && 'core/heading' === $block_name_value && '' !== $text_preview ) {
+				$entry['heading_text'] = $text_preview;
+			}
+
+			// Surface render fields when render: true was used.
+			if ( $render ) {
+				if ( isset( $block['rendered_html'] ) ) {
+					$entry['rendered_html'] = (string) $block['rendered_html'];
+				}
+				if ( isset( $block['render_error'] ) ) {
+					$entry['render_error'] = (string) $block['render_error'];
+				}
+				if ( isset( $block['rendered_synced_pattern_id'] ) ) {
+					$entry['rendered_synced_pattern_id'] = (int) $block['rendered_synced_pattern_id'];
+				}
+			}
+
+			++$flat_index;
+
+			// Apply fields allowlist if provided.
+			if ( ! empty( $allowed_fields ) ) {
+				$entry = array_intersect_key( $entry, $allowed_fields );
+			}
+
+			$output[] = $entry;
+
+			// Recurse into inner blocks — they go directly into $output (flat DFS).
+			// @phpstan-ignore-next-line
+			$inner = $block['innerBlocks'] ?? [];
+			if ( ! empty( $inner ) && is_array( $inner ) ) {
+				// @phpstan-ignore-next-line
+				self::flatten_block_tree( $inner, $current_path, $flat_index, $output, $depth + 1, $ref, $outline, $search, $block_name, $render, $fields );
+			}
 		}
 	}
 

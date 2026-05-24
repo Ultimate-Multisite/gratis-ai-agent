@@ -934,6 +934,278 @@ class BlockAbilitiesTest extends WP_UnitTestCase {
 		$this->assertArrayNotHasKey( 'attributes', $block );
 	}
 
+	// ─── include_inner_blocks parameter ──────────────────────────
+
+	/**
+	 * AC1 (include_inner_blocks): default mode (false) is unchanged — regression.
+	 *
+	 * Calling with no include_inner_blocks flag on a post that has a group with
+	 * two inner paragraphs must return 2 top-level entries (group + outer
+	 * paragraph), with the group's innerBlocks nested as before.
+	 *
+	 * @see GH#1787
+	 */
+	public function test_handle_get_page_blocks_default_nested_mode_unchanged(): void {
+		$content = implode( "\n\n", [
+			"<!-- wp:group -->\n<div class=\"wp-block-group\"><!-- wp:paragraph -->\n<p>Inside</p>\n<!-- /wp:paragraph --></div>\n<!-- /wp:group -->",
+			"<!-- wp:paragraph -->\n<p>Outside</p>\n<!-- /wp:paragraph -->",
+		] );
+
+		$post_id = $this->factory()->post->create( [
+			'post_content' => $content,
+			'post_status'  => 'publish',
+		] );
+
+		$result = BlockAbilities::handle_get_page_blocks( [
+			'post_id'      => $post_id,
+			'persist_refs' => false,
+		] );
+
+		$this->assertIsArray( $result );
+		// Default nested mode: 2 top-level blocks.
+		$this->assertCount( 2, $result['blocks'], 'Default mode must return only top-level blocks' );
+
+		$group_entry = $result['blocks'][0];
+		$this->assertSame( 'core/group', $group_entry['name'] );
+		// Inner blocks appear under the group entry's innerBlocks key.
+		$this->assertArrayHasKey( 'innerBlocks', $group_entry, 'Group must have innerBlocks key in default mode' );
+		$this->assertCount( 1, $group_entry['innerBlocks'] );
+
+		$outer = $result['blocks'][1];
+		$this->assertSame( 'core/paragraph', $outer['name'] );
+	}
+
+	/**
+	 * AC2 (include_inner_blocks): flat mode returns DFS-ordered list with all blocks.
+	 *
+	 * Post has: group containing one paragraph, then one top-level paragraph.
+	 * Flat output must be 3 entries in DFS order: group, inner paragraph, outer paragraph.
+	 *
+	 * @see GH#1787
+	 */
+	public function test_handle_get_page_blocks_flat_mode_dfs_order(): void {
+		$content = implode( "\n\n", [
+			"<!-- wp:group -->\n<div class=\"wp-block-group\"><!-- wp:paragraph -->\n<p>Inside</p>\n<!-- /wp:paragraph --></div>\n<!-- /wp:group -->",
+			"<!-- wp:paragraph -->\n<p>Outside</p>\n<!-- /wp:paragraph -->",
+		] );
+
+		$post_id = $this->factory()->post->create( [
+			'post_content' => $content,
+			'post_status'  => 'publish',
+		] );
+
+		$result = BlockAbilities::handle_get_page_blocks( [
+			'post_id'              => $post_id,
+			'persist_refs'         => false,
+			'include_inner_blocks' => true,
+		] );
+
+		$this->assertIsArray( $result );
+		// Flat mode: 3 entries (group + inner paragraph + outer paragraph).
+		$this->assertCount( 3, $result['blocks'], 'Flat mode must include all blocks in DFS order' );
+		$this->assertSame( 3, $result['block_count'] );
+
+		$group = $result['blocks'][0];
+		$inner = $result['blocks'][1];
+		$outer = $result['blocks'][2];
+
+		$this->assertSame( 'core/group', $group['name'], 'First DFS entry must be the group' );
+		$this->assertSame( 'core/paragraph', $inner['name'], 'Second DFS entry must be the inner paragraph' );
+		$this->assertSame( 'core/paragraph', $outer['name'], 'Third DFS entry must be the outer paragraph' );
+
+		$this->assertSame( 0, $group['flat_index'] );
+		$this->assertSame( 1, $inner['flat_index'] );
+		$this->assertSame( 2, $outer['flat_index'] );
+	}
+
+	/**
+	 * AC2b (include_inner_blocks): each flat entry carries correct depth and parent_ref.
+	 *
+	 * Group (depth 0, parent_ref null) → inner paragraph (depth 1, parent_ref = group ref)
+	 * Outer paragraph (depth 0, parent_ref null).
+	 *
+	 * @see GH#1787
+	 */
+	public function test_handle_get_page_blocks_flat_mode_depth_and_parent_ref(): void {
+		$content = implode( "\n\n", [
+			"<!-- wp:group -->\n<div class=\"wp-block-group\"><!-- wp:paragraph -->\n<p>Inside</p>\n<!-- /wp:paragraph --></div>\n<!-- /wp:group -->",
+			"<!-- wp:paragraph -->\n<p>Outside</p>\n<!-- /wp:paragraph -->",
+		] );
+
+		$post_id = $this->factory()->post->create( [
+			'post_content' => $content,
+			'post_status'  => 'publish',
+		] );
+
+		$result = BlockAbilities::handle_get_page_blocks( [
+			'post_id'              => $post_id,
+			'persist_refs'         => false,
+			'include_inner_blocks' => true,
+		] );
+
+		$this->assertIsArray( $result );
+		$this->assertCount( 3, $result['blocks'] );
+
+		$group = $result['blocks'][0];
+		$inner = $result['blocks'][1];
+		$outer = $result['blocks'][2];
+
+		// Each entry must expose depth and parent_ref.
+		$this->assertArrayHasKey( 'depth', $group );
+		$this->assertArrayHasKey( 'parent_ref', $group );
+		$this->assertArrayHasKey( 'depth', $inner );
+		$this->assertArrayHasKey( 'parent_ref', $inner );
+
+		// Group: depth 0, no parent.
+		$this->assertSame( 0, $group['depth'], 'Top-level group must have depth 0' );
+		$this->assertNull( $group['parent_ref'], 'Top-level group must have parent_ref null' );
+
+		// Inner paragraph: depth 1, parent = group.
+		$this->assertSame( 1, $inner['depth'], 'Inner paragraph must have depth 1' );
+		$this->assertSame( $group['ref'], $inner['parent_ref'], 'Inner paragraph parent_ref must equal group ref' );
+
+		// Outer paragraph: depth 0, no parent.
+		$this->assertSame( 0, $outer['depth'], 'Outer paragraph must have depth 0' );
+		$this->assertNull( $outer['parent_ref'], 'Outer paragraph must have parent_ref null' );
+	}
+
+	/**
+	 * AC3 (include_inner_blocks): path reflects index path from root for nested blocks.
+	 *
+	 * Group is at path [0], inner paragraph at path [0, 0], outer paragraph at path [1].
+	 *
+	 * @see GH#1787
+	 */
+	public function test_handle_get_page_blocks_flat_mode_path_correctness(): void {
+		$content = implode( "\n\n", [
+			"<!-- wp:group -->\n<div class=\"wp-block-group\"><!-- wp:paragraph -->\n<p>Inside</p>\n<!-- /wp:paragraph --></div>\n<!-- /wp:group -->",
+			"<!-- wp:paragraph -->\n<p>Outside</p>\n<!-- /wp:paragraph -->",
+		] );
+
+		$post_id = $this->factory()->post->create( [
+			'post_content' => $content,
+			'post_status'  => 'publish',
+		] );
+
+		$result = BlockAbilities::handle_get_page_blocks( [
+			'post_id'              => $post_id,
+			'persist_refs'         => false,
+			'include_inner_blocks' => true,
+		] );
+
+		$group = $result['blocks'][0];
+		$inner = $result['blocks'][1];
+		$outer = $result['blocks'][2];
+
+		// Note: parse_blocks() inserts a null placeholder block for the \n\n
+		// whitespace between the group and the outer paragraph, so the outer
+		// paragraph sits at array index 2 (not 1) in the raw parsed output.
+		$this->assertSame( [ 0 ], $group['path'], 'Group path must be [0]' );
+		$this->assertSame( [ 0, 0 ], $inner['path'], 'Inner paragraph path must be [0, 0]' );
+		$this->assertSame( [ 2 ], $outer['path'], 'Outer paragraph path must be [2] (null whitespace block at index 1)' );
+	}
+
+	/**
+	 * AC4 (include_inner_blocks): every flat entry has a non-null ref.
+	 *
+	 * assign_refs must have run on the entire tree before building the flat list.
+	 *
+	 * @see GH#1787
+	 */
+	public function test_handle_get_page_blocks_flat_mode_all_entries_have_refs(): void {
+		$content = implode( "\n\n", [
+			"<!-- wp:group -->\n<div class=\"wp-block-group\"><!-- wp:paragraph -->\n<p>Inside A</p>\n<!-- /wp:paragraph -->\n<!-- wp:paragraph -->\n<p>Inside B</p>\n<!-- /wp:paragraph --></div>\n<!-- /wp:group -->",
+			"<!-- wp:paragraph -->\n<p>Outside</p>\n<!-- /wp:paragraph -->",
+		] );
+
+		$post_id = $this->factory()->post->create( [
+			'post_content' => $content,
+			'post_status'  => 'publish',
+		] );
+
+		$result = BlockAbilities::handle_get_page_blocks( [
+			'post_id'              => $post_id,
+			'persist_refs'         => false,
+			'include_inner_blocks' => true,
+		] );
+
+		$this->assertCount( 4, $result['blocks'], '1 group + 2 inner paragraphs + 1 outer = 4 entries' );
+
+		foreach ( $result['blocks'] as $idx => $entry ) {
+			$this->assertArrayHasKey( 'ref', $entry, "Entry at flat_index {$idx} must have a ref" );
+			$this->assertMatchesRegularExpression(
+				'/^blk_[A-Za-z0-9\-_]{8}$/',
+				$entry['ref'],
+				"Entry at flat_index {$idx} must have a valid blk_ ref"
+			);
+		}
+	}
+
+	/**
+	 * AC5 (include_inner_blocks): 3-level nesting produces correct depth values.
+	 *
+	 * columns → column → paragraph: depths 0, 1, 2.
+	 *
+	 * @see GH#1787
+	 */
+	public function test_handle_get_page_blocks_flat_mode_three_level_depth(): void {
+		$content = "<!-- wp:columns -->\n<div class=\"wp-block-columns\"><!-- wp:column -->\n<div class=\"wp-block-column\"><!-- wp:paragraph -->\n<p>Deep</p>\n<!-- /wp:paragraph --></div>\n<!-- /wp:column --></div>\n<!-- /wp:columns -->";
+
+		$post_id = $this->factory()->post->create( [
+			'post_content' => $content,
+			'post_status'  => 'publish',
+		] );
+
+		$result = BlockAbilities::handle_get_page_blocks( [
+			'post_id'              => $post_id,
+			'persist_refs'         => false,
+			'include_inner_blocks' => true,
+		] );
+
+		$this->assertIsArray( $result );
+		$this->assertCount( 3, $result['blocks'], 'columns + column + paragraph = 3 entries' );
+
+		$this->assertSame( 0, $result['blocks'][0]['depth'], 'columns depth must be 0' );
+		$this->assertSame( 1, $result['blocks'][1]['depth'], 'column depth must be 1' );
+		$this->assertSame( 2, $result['blocks'][2]['depth'], 'paragraph depth must be 2' );
+
+		// parent_ref chain: columns → column → paragraph.
+		$this->assertNull( $result['blocks'][0]['parent_ref'], 'columns must have null parent_ref' );
+		$this->assertSame( $result['blocks'][0]['ref'], $result['blocks'][1]['parent_ref'], 'column parent_ref must be columns ref' );
+		$this->assertSame( $result['blocks'][1]['ref'], $result['blocks'][2]['parent_ref'], 'paragraph parent_ref must be column ref' );
+	}
+
+	/**
+	 * AC6 (include_inner_blocks): innerBlocks key must NOT appear in flat-mode entries.
+	 *
+	 * @see GH#1787
+	 */
+	public function test_handle_get_page_blocks_flat_mode_no_inner_blocks_key(): void {
+		$content = implode( "\n\n", [
+			"<!-- wp:group -->\n<div class=\"wp-block-group\"><!-- wp:paragraph -->\n<p>Inside</p>\n<!-- /wp:paragraph --></div>\n<!-- /wp:group -->",
+			"<!-- wp:paragraph -->\n<p>Outside</p>\n<!-- /wp:paragraph -->",
+		] );
+
+		$post_id = $this->factory()->post->create( [
+			'post_content' => $content,
+			'post_status'  => 'publish',
+		] );
+
+		$result = BlockAbilities::handle_get_page_blocks( [
+			'post_id'              => $post_id,
+			'persist_refs'         => false,
+			'include_inner_blocks' => true,
+		] );
+
+		foreach ( $result['blocks'] as $entry ) {
+			$this->assertArrayNotHasKey(
+				'innerBlocks',
+				$entry,
+				'Flat mode entries must not have an innerBlocks key'
+			);
+		}
+	}
+
 	// ─── replace-block-range ref counters ────────────────────────
 
 	/**
