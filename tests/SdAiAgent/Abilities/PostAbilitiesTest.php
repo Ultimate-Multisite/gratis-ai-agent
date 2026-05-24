@@ -839,6 +839,222 @@ class PostAbilitiesTest extends WP_UnitTestCase {
 		$this->assertSame( 'My Titled Post', $result['title'] );
 	}
 
+	// ─── handle_list_posts ────────────────────────────────────────
+
+	/**
+	 * Multi-status array: draft + publish posts both returned when post_status is an array.
+	 */
+	public function test_handle_list_posts_multi_status() {
+		$draft_id   = $this->factory->post->create( [ 'post_status' => 'draft' ] );
+		$publish_id = $this->factory->post->create( [ 'post_status' => 'publish' ] );
+
+		$result = PostAbilities::handle_list_posts( [
+			'post_status' => [ 'draft', 'publish' ],
+			'per_page'    => 50,
+		] );
+
+		$this->assertIsArray( $result );
+		$ids = array_column( $result['posts'], 'id' );
+		$this->assertContains( $draft_id, $ids );
+		$this->assertContains( $publish_id, $ids );
+	}
+
+	/**
+	 * date_after excludes posts older than the given date.
+	 */
+	public function test_handle_list_posts_date_after() {
+		$old_id = $this->factory->post->create( [
+			'post_status' => 'publish',
+			'post_date'   => '2024-01-15 12:00:00',
+		] );
+		$new_id = $this->factory->post->create( [
+			'post_status' => 'publish',
+			'post_date'   => '2026-03-20 12:00:00',
+		] );
+
+		$result = PostAbilities::handle_list_posts( [
+			'date_after' => '2025-12-31',
+			'per_page'   => 50,
+		] );
+
+		$this->assertIsArray( $result );
+		$ids = array_column( $result['posts'], 'id' );
+		$this->assertContains( $new_id, $ids );
+		$this->assertNotContains( $old_id, $ids );
+	}
+
+	/**
+	 * tax_query with operator IN returns only posts in the specified category.
+	 */
+	public function test_handle_list_posts_tax_query_in() {
+		$cat_id       = $this->factory->category->create( [ 'name' => 'ListPostsTaxCat' ] );
+		$other_cat_id = $this->factory->category->create( [ 'name' => 'ListPostsOtherCat' ] );
+
+		$in_cat_id  = $this->factory->post->create( [
+			'post_status'   => 'publish',
+			'post_category' => [ $cat_id ],
+		] );
+		$out_cat_id = $this->factory->post->create( [
+			'post_status'   => 'publish',
+			'post_category' => [ $other_cat_id ],
+		] );
+
+		$result = PostAbilities::handle_list_posts( [
+			'tax_query' => [
+				[
+					'taxonomy' => 'category',
+					'terms'    => [ $cat_id ],
+					'operator' => 'IN',
+				],
+			],
+			'per_page' => 50,
+		] );
+
+		$this->assertIsArray( $result );
+		$ids = array_column( $result['posts'], 'id' );
+		$this->assertContains( $in_cat_id, $ids );
+		$this->assertNotContains( $out_cat_id, $ids );
+	}
+
+	/**
+	 * meta_query with compare EXISTS returns only posts that have the meta key.
+	 */
+	public function test_handle_list_posts_meta_query_exists() {
+		$with_meta_id    = $this->factory->post->create( [ 'post_status' => 'publish' ] );
+		$without_meta_id = $this->factory->post->create( [ 'post_status' => 'publish' ] );
+		update_post_meta( $with_meta_id, '_thumbnail_id', 123 );
+
+		$result = PostAbilities::handle_list_posts( [
+			'post_status' => 'publish',
+			'meta_query'  => [
+				[
+					'key'     => '_thumbnail_id',
+					'compare' => 'EXISTS',
+				],
+			],
+			'per_page' => 50,
+		] );
+
+		$this->assertIsArray( $result );
+		$ids = array_column( $result['posts'], 'id' );
+		$this->assertContains( $with_meta_id, $ids );
+		$this->assertNotContains( $without_meta_id, $ids );
+	}
+
+	/**
+	 * meta_query with compare LIKE returns WP_Error (operator not in allowlist).
+	 */
+	public function test_handle_list_posts_invalid_meta_compare_returns_error() {
+		$result = PostAbilities::handle_list_posts( [
+			'meta_query' => [
+				[
+					'key'     => 'some_key',
+					'compare' => 'LIKE',
+					'value'   => '%test%',
+				],
+			],
+		] );
+
+		$this->assertInstanceOf( \WP_Error::class, $result );
+		$this->assertSame( 'invalid_meta_compare', $result->get_error_code() );
+	}
+
+	/**
+	 * tax_query with operator REGEXP returns WP_Error (operator not in allowlist).
+	 */
+	public function test_handle_list_posts_invalid_tax_operator_returns_error() {
+		$result = PostAbilities::handle_list_posts( [
+			'tax_query' => [
+				[
+					'taxonomy' => 'category',
+					'terms'    => [ 1 ],
+					'operator' => 'REGEXP',
+				],
+			],
+		] );
+
+		$this->assertInstanceOf( \WP_Error::class, $result );
+		$this->assertSame( 'invalid_tax_operator', $result->get_error_code() );
+	}
+
+	/**
+	 * orderby title + order ASC returns Alpha before Zeta.
+	 */
+	public function test_handle_list_posts_orderby_title_asc() {
+		$this->factory->post->create( [ 'post_title' => 'Zeta Post', 'post_status' => 'publish' ] );
+		$this->factory->post->create( [ 'post_title' => 'Alpha Post', 'post_status' => 'publish' ] );
+
+		$result = PostAbilities::handle_list_posts( [
+			'orderby'  => 'title',
+			'order'    => 'ASC',
+			'per_page' => 50,
+		] );
+
+		$this->assertIsArray( $result );
+		$titles    = array_column( $result['posts'], 'title' );
+		$alpha_idx = array_search( 'Alpha Post', $titles, true );
+		$zeta_idx  = array_search( 'Zeta Post', $titles, true );
+		$this->assertNotFalse( $alpha_idx );
+		$this->assertNotFalse( $zeta_idx );
+		$this->assertLessThan( $zeta_idx, $alpha_idx );
+	}
+
+	/**
+	 * Legacy string form post_status: "draft" (single string) is auto-wrapped and works.
+	 */
+	public function test_handle_list_posts_post_status_string_backward_compat() {
+		$draft_id   = $this->factory->post->create( [ 'post_status' => 'draft' ] );
+		$publish_id = $this->factory->post->create( [ 'post_status' => 'publish' ] );
+
+		$result = PostAbilities::handle_list_posts( [
+			'post_status' => 'draft',
+			'per_page'    => 50,
+		] );
+
+		$this->assertIsArray( $result );
+		$ids = array_column( $result['posts'], 'id' );
+		$this->assertContains( $draft_id, $ids );
+		$this->assertNotContains( $publish_id, $ids );
+	}
+
+	/**
+	 * Legacy status field (old schema name) is still honoured for backward compat.
+	 */
+	public function test_handle_list_posts_legacy_status_field_backward_compat() {
+		$draft_id   = $this->factory->post->create( [ 'post_status' => 'draft' ] );
+		$publish_id = $this->factory->post->create( [ 'post_status' => 'publish' ] );
+
+		$result = PostAbilities::handle_list_posts( [
+			'status'   => 'draft',
+			'per_page' => 50,
+		] );
+
+		$this->assertIsArray( $result );
+		$ids = array_column( $result['posts'], 'id' );
+		$this->assertContains( $draft_id, $ids );
+		$this->assertNotContains( $publish_id, $ids );
+	}
+
+	/**
+	 * Response includes query_args mirror so agents can self-correct.
+	 */
+	public function test_handle_list_posts_returns_query_args() {
+		$this->factory->post->create( [ 'post_status' => 'publish' ] );
+
+		$result = PostAbilities::handle_list_posts( [
+			'orderby'     => 'title',
+			'order'       => 'ASC',
+			'post_status' => 'publish',
+		] );
+
+		$this->assertIsArray( $result );
+		$this->assertArrayHasKey( 'query_args', $result );
+		$this->assertIsArray( $result['query_args'] );
+		$this->assertArrayHasKey( 'orderby', $result['query_args'] );
+		$this->assertSame( 'title', $result['query_args']['orderby'] );
+		$this->assertSame( 'ASC', $result['query_args']['order'] );
+	}
+
 	// ─── maybe_convert_markdown ───────────────────────────────────
 
 	/**
