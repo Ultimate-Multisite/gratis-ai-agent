@@ -338,6 +338,21 @@ class MediaAbilities {
 	 * @return array{attachment_id: int, url: string, title: string, mime_type: string, file_size: int}|WP_Error
 	 */
 	public static function sideload_from_url( array $input ) {
+		// Check if uploads are disabled site-wide or by multisite restrictions.
+		if ( defined( 'WP_DISABLE_UPLOADS' ) && WP_DISABLE_UPLOADS ) {
+			return new WP_Error(
+				'uploads_disabled',
+				__( 'File uploads are disabled on this site.', 'superdav-ai-agent' )
+			);
+		}
+
+		if ( is_multisite() && function_exists( 'multisite_can_upload' ) && ! multisite_can_upload() ) {
+			return new WP_Error(
+				'uploads_disabled',
+				__( 'File uploads are disabled for this site in a multisite network.', 'superdav-ai-agent' )
+			);
+		}
+
 		// @phpstan-ignore-next-line
 		$url = esc_url_raw( $input['url'] ?? '' );
 		// @phpstan-ignore-next-line

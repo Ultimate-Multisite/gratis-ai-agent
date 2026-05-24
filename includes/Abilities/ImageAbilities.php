@@ -489,6 +489,21 @@ INSTRUCTION;
 	 * @return array{attachment_id: int, url: string, filename: string, title: string, description: string, alt_text: string, mime_type: string}|\WP_Error Array with 'attachment_id' on success, WP_Error on failure.
 	 */
 	public static function sideload_from_base64( array $input ) {
+		// Check if uploads are disabled site-wide or by multisite restrictions.
+		if ( defined( 'WP_DISABLE_UPLOADS' ) && WP_DISABLE_UPLOADS ) {
+			return new WP_Error(
+				'uploads_disabled',
+				__( 'File uploads are disabled on this site.', 'superdav-ai-agent' )
+			);
+		}
+
+		if ( is_multisite() && function_exists( 'multisite_can_upload' ) && ! multisite_can_upload() ) {
+			return new WP_Error(
+				'uploads_disabled',
+				__( 'File uploads are disabled for this site in a multisite network.', 'superdav-ai-agent' )
+			);
+		}
+
 		// Accept 'data_base64' (unified ability) or 'data' (legacy ability).
 		// @phpstan-ignore-next-line
 		$data = (string) ( $input['data_base64'] ?? $input['data'] ?? '' );
