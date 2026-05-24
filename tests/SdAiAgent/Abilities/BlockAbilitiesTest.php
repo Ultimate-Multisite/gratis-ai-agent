@@ -1056,4 +1056,81 @@ class BlockAbilitiesTest extends WP_UnitTestCase {
 		$this->assertSame( 1, $result['refs_preserved'], 'refs_preserved should be 1 (aftergroup paragraph)' );
 		$this->assertSame( 2, $result['block_count'],    'block_count should be 2 (replacement + aftergroup)' );
 	}
+
+	// ─── Revisionless-post (GH#1786) ──────────────────────────────
+
+	/**
+	 * AC1: get-page-blocks on a freshly-inserted post returns revision_id: null.
+	 *
+	 * @see https://github.com/Ultimate-Multisite/superdav-ai-agent/issues/1786
+	 */
+	public function test_get_page_blocks_revision_id_null_for_fresh_post(): void {
+		$post_id = $this->factory->post->create( [
+			'post_content' => '<!-- wp:paragraph --><p>fresh content</p><!-- /wp:paragraph -->',
+			'post_status'  => 'publish',
+		] );
+
+		// Delete any auto-generated revisions to ensure a clean revisionless state.
+		foreach ( wp_get_post_revisions( $post_id ) as $rev ) {
+			wp_delete_post_revision( $rev->ID );
+		}
+
+		$result = BlockAbilities::handle_get_page_blocks( [ 'post_id' => $post_id ] );
+
+		$this->assertIsArray( $result );
+		$this->assertArrayHasKey( 'revision_id', $result );
+		$this->assertNull( $result['revision_id'], 'revision_id must be null when the post has no revisions' );
+	}
+
+	/**
+	 * AC2: update-blocks with expected_revision: null on a revisionless post succeeds.
+	 * AC3: After the write, get-page-blocks returns an integer revision_id.
+	 *
+	 * @see https://github.com/Ultimate-Multisite/superdav-ai-agent/issues/1786
+	 */
+	public function test_update_blocks_null_expected_revision_on_fresh_post_succeeds(): void {
+		$post_id = $this->factory->post->create( [
+			'post_content' => '<!-- wp:paragraph --><p>original</p><!-- /wp:paragraph -->',
+			'post_status'  => 'publish',
+		] );
+
+		// Strip revisions so we start revisionless.
+		foreach ( wp_get_post_revisions( $post_id ) as $rev ) {
+			wp_delete_post_revision( $rev->ID );
+		}
+
+		// Persist refs first so update-blocks can resolve them.
+		$get = BlockAbilities::handle_get_page_blocks( [
+			'post_id'      => $post_id,
+			'persist_refs' => true,
+		] );
+		$this->assertIsArray( $get );
+		$this->assertNull( $get['revision_id'], 'pre-condition: revisionless post returns null revision_id' );
+
+		// Obtain the ref of the first block for the update-html op.
+		$this->assertNotEmpty( $get['blocks'], 'post must have at least one block' );
+		$first_ref = $get['blocks'][0]['ref'] ?? null;
+		$this->assertNotEmpty( $first_ref, 'first block must have a ref after persist_refs' );
+
+		// update-blocks with expected_revision omitted (i.e. null) — must succeed.
+		$result = BlockAbilities::handle_update_blocks( [
+			'post_id' => $post_id,
+			'updates' => [
+				[
+					'op'        => 'update-html',
+					'ref'       => $first_ref,
+					'innerHTML' => '<p>updated original</p>',
+				],
+			],
+		] );
+
+		$this->assertIsArray( $result, 'update-blocks with null expected_revision must not return WP_Error on a fresh post' );
+		$this->assertTrue( $result['success'] ?? false );
+
+		// After the write a real revision exists → revision_id must be a positive int.
+		$get_after = BlockAbilities::handle_get_page_blocks( [ 'post_id' => $post_id ] );
+		$this->assertIsArray( $get_after );
+		$this->assertIsInt( $get_after['revision_id'], 'After a write, revision_id must be an integer' );
+		$this->assertGreaterThan( 0, $get_after['revision_id'] );
+	}
 }

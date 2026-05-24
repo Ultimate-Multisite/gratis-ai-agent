@@ -517,8 +517,8 @@ class BlockAbilities {
 							'description' => 'True when new refs were persisted to the post.',
 						],
 						'revision_id' => [
-							'type'        => 'integer',
-							'description' => 'Current latest revision ID for the post. Pass this as expected_revision (or If-Match header) on follow-up write calls to enable optimistic concurrency control.',
+							'type'        => [ 'integer', 'null' ],
+							'description' => 'Current latest revision ID for the post. null when the post has no revisions yet (freshly created). Pass this as expected_revision (or If-Match header) on follow-up write calls to enable optimistic concurrency control.',
 						],
 						'summary'     => [
 							'type'        => 'object',
@@ -783,8 +783,8 @@ class BlockAbilities {
 							],
 						],
 						'expected_revision' => [
-							'type'        => 'integer',
-							'description' => 'Expected revision ID for optimistic concurrency. Pass the revision_id from get-page-blocks to prevent writes against a stale post.',
+							'type'        => [ 'integer', 'null' ],
+							'description' => 'Expected revision ID for optimistic concurrency. Pass the revision_id from get-page-blocks to prevent writes against a stale post. Pass null (or omit) to skip the check.',
 						],
 						'dry_run'           => [
 							'type'        => 'boolean',
@@ -806,8 +806,8 @@ class BlockAbilities {
 							'description' => 'Number of updates applied.',
 						],
 						'revision_id' => [
-							'type'        => 'integer',
-							'description' => 'Post revision ID after the write (or current if dry_run).',
+							'type'        => [ 'integer', 'null' ],
+							'description' => 'Post revision ID after the write (or current if dry_run). null when the post has no revisions yet.',
 						],
 						'block_tree'  => [
 							'type'        => 'array',
@@ -853,8 +853,8 @@ class BlockAbilities {
 							],
 						],
 						'expected_revision_id' => [
-							'type'        => 'integer',
-							'description' => 'Expected revision ID for optimistic concurrency control. Pass the revision_id from get-page-blocks to prevent writes against a stale post.',
+							'type'        => [ 'integer', 'null' ],
+							'description' => 'Expected revision ID for optimistic concurrency control. Pass the revision_id from get-page-blocks to prevent writes against a stale post. Pass null (or omit) to skip the check.',
 						],
 						'allow_bound_writes'   => [
 							'type'        => 'boolean',
@@ -872,8 +872,8 @@ class BlockAbilities {
 						],
 						'post_id'     => [ 'type' => 'integer' ],
 						'revision_id' => [
-							'type'        => 'integer',
-							'description' => 'Post revision ID after the write.',
+							'type'        => [ 'integer', 'null' ],
+							'description' => 'Post revision ID after the write. null when the post has no revisions yet.',
 						],
 						'block_count' => [
 							'type'        => 'integer',
@@ -933,8 +933,8 @@ class BlockAbilities {
 							'description' => 'Stable sd_ref UUID of the target block. Required when anchor is after_ref, before_ref, or first_child_of_ref.',
 						],
 						'expected_revision_id' => [
-							'type'        => 'integer',
-							'description' => 'Expected revision ID for optimistic concurrency control. Pass the revision_id from get-page-blocks.',
+							'type'        => [ 'integer', 'null' ],
+							'description' => 'Expected revision ID for optimistic concurrency control. Pass the revision_id from get-page-blocks. Pass null (or omit) to skip the check.',
 						],
 						'dry_run'              => [
 							'type'        => 'boolean',
@@ -962,8 +962,8 @@ class BlockAbilities {
 							'description' => 'Number of top-level blocks inserted.',
 						],
 						'revision_id'     => [
-							'type'        => 'integer',
-							'description' => 'Current revision ID after the write.',
+							'type'        => [ 'integer', 'null' ],
+							'description' => 'Current revision ID after the write. null when the post has no revisions yet.',
 						],
 						'block_tree'      => [
 							'type'        => 'array',
@@ -1005,8 +1005,8 @@ class BlockAbilities {
 							'description' => 'Revision ID to restore. Must belong to post_id.',
 						],
 						'expected_current_revision_id' => [
-							'type'        => 'integer',
-							'description' => 'Optional optimistic concurrency guard. Pass the revision_id from get-page-blocks to ensure no intervening edits have occurred. If the current revision does not match, the call is rejected with revision_stale.',
+							'type'        => [ 'integer', 'null' ],
+							'description' => 'Optional optimistic concurrency guard. Pass the revision_id from get-page-blocks to ensure no intervening edits have occurred. If the current revision does not match, the call is rejected with revision_stale. Pass null (or omit) to skip the check.',
 						],
 					],
 					'required'   => [ 'post_id', 'revision_id' ],
@@ -1084,8 +1084,8 @@ class BlockAbilities {
 							],
 						],
 						'expected_revision_id' => [
-							'type'        => 'integer',
-							'description' => 'Expected revision ID for optimistic concurrency. Pass the revision_id from get-page-blocks.',
+							'type'        => [ 'integer', 'null' ],
+							'description' => 'Expected revision ID for optimistic concurrency. Pass the revision_id from get-page-blocks. Pass null (or omit) to skip the check.',
 						],
 						'allow_bound_writes'   => [
 							'type'        => 'boolean',
@@ -1103,8 +1103,8 @@ class BlockAbilities {
 					'properties' => [
 						'post_id'        => [ 'type' => 'integer' ],
 						'revision_id'    => [
-							'type'        => 'integer',
-							'description' => 'Revision ID after the write (or current if dry_run).',
+							'type'        => [ 'integer', 'null' ],
+							'description' => 'Revision ID after the write (or current if dry_run). null when the post has no revisions yet.',
 						],
 						'refs_added'     => [
 							'type'        => 'integer',

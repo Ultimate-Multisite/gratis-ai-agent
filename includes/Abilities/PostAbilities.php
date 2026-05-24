@@ -246,8 +246,8 @@ class PostAbilities {
 						'status'      => [ 'type' => 'string' ],
 						'post_type'   => [ 'type' => 'string' ],
 						'revision_id' => [
-							'type'        => 'integer',
-							'description' => 'Latest revision ID after the write. Use as expected_revision for the next write.',
+							'type'        => [ 'integer', 'null' ],
+							'description' => 'Latest revision ID after the write. null when the post has no revisions yet. Use as expected_revision for the next write.',
 						],
 					],
 				],
@@ -302,8 +302,8 @@ class PostAbilities {
 						'appended_bytes' => [ 'type' => 'integer' ],
 						'total_bytes'    => [ 'type' => 'integer' ],
 						'revision_id'    => [
-							'type'        => 'integer',
-							'description' => 'Latest revision ID after the write. Use as expected_revision for the next write.',
+							'type'        => [ 'integer', 'null' ],
+							'description' => 'Latest revision ID after the write. null when the post has no revisions yet. Use as expected_revision for the next write.',
 						],
 					],
 				],

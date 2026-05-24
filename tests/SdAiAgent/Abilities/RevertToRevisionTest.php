@@ -443,6 +443,57 @@ class RevertToRevisionTest extends WP_UnitTestCase {
 		);
 	}
 
+	// ── GH#1786: null expected_current_revision_id ────────────────────────
+
+	/**
+	 * AC4 (GH#1786): expected_current_revision_id: null skips the precondition
+	 * and allows the revert to proceed.
+	 *
+	 * @see https://github.com/Ultimate-Multisite/superdav-ai-agent/issues/1786
+	 */
+	public function test_null_expected_current_revision_id_skips_precondition(): void {
+		$post_id = $this->create_post_with_content( 'Null precondition original' );
+		$this->update_post_content( $post_id, 'Null precondition state A' );
+		$this->update_post_content( $post_id, 'Null precondition state B' );
+
+		$revisions  = wp_get_post_revisions( $post_id, [ 'orderby' => 'ID', 'order' => 'ASC' ] );
+		$target_rev = reset( $revisions );
+
+		// Explicitly passing null must not trigger stale_revision.
+		$result = BlockAbilities::handle_revert_to_revision( [
+			'post_id'                      => $post_id,
+			'revision_id'                  => $target_rev->ID,
+			'expected_current_revision_id' => null,
+		] );
+
+		$this->assertIsArray( $result, 'Null expected_current_revision_id must allow the revert (no WP_Error)' );
+		$this->assertArrayHasKey( 'new_revision_id', $result );
+	}
+
+	/**
+	 * AC5 (GH#1786): expected_current_revision_id: 0 must produce revision_stale
+	 * because 0 is a concrete value that should not match any real revision ID.
+	 *
+	 * @see https://github.com/Ultimate-Multisite/superdav-ai-agent/issues/1786
+	 */
+	public function test_zero_expected_current_revision_id_produces_stale_revision(): void {
+		$post_id = $this->create_post_with_content( 'Zero precondition original' );
+		$this->update_post_content( $post_id, 'Zero precondition state A' );
+
+		$revisions  = wp_get_post_revisions( $post_id, [ 'orderby' => 'ID', 'order' => 'ASC' ] );
+		$target_rev = reset( $revisions );
+
+		// 0 is never a real revision ID; current revision is a positive integer → mismatch.
+		$result = BlockAbilities::handle_revert_to_revision( [
+			'post_id'                      => $post_id,
+			'revision_id'                  => $target_rev->ID,
+			'expected_current_revision_id' => 0,
+		] );
+
+		$this->assertInstanceOf( \WP_Error::class, $result, 'expected_current_revision_id: 0 must return revision_stale' );
+		$this->assertSame( 'revision_stale', $result->get_error_code() );
+	}
+
 	// ── BlockMutator::revert_to_revision direct test ──────────────────────
 
 	/**
