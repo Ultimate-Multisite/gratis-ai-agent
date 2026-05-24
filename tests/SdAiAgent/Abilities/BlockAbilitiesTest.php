@@ -933,4 +933,127 @@ class BlockAbilitiesTest extends WP_UnitTestCase {
 		$this->assertArrayNotHasKey( 'ref', $block );
 		$this->assertArrayNotHasKey( 'attributes', $block );
 	}
+
+	// ─── replace-block-range ref counters ────────────────────────
+
+	/**
+	 * refs_removed / refs_preserved counters are correct for flat top-level blocks.
+	 *
+	 * Regression test for GH#1770: the previous formula used
+	 * $range_size = end_idx - start_idx + 1 from BlockTreeAddress paths. This
+	 * overcounts when null-blockName whitespace placeholder blocks sit between
+	 * named blocks in the flat array (B is at index 2, not 1, when a '\n' entry
+	 * sits between A and B). The result was refs_removed=3 / refs_preserved=0
+	 * instead of the correct refs_removed=2 / refs_preserved=1.
+	 *
+	 * @see GH#1770
+	 */
+	public function test_replace_range_counters_flat(): void {
+		$content = implode( "\n\n", [
+			"<!-- wp:paragraph -->\n<p>A</p>\n<!-- /wp:paragraph -->",
+			"<!-- wp:paragraph -->\n<p>B</p>\n<!-- /wp:paragraph -->",
+			"<!-- wp:paragraph -->\n<p>C</p>\n<!-- /wp:paragraph -->",
+		] );
+
+		$post_id = $this->factory()->post->create( [
+			'post_content' => $content,
+			'post_status'  => 'publish',
+		] );
+
+		// Persist refs so replace_block_range can resolve them by ref string.
+		$get_result = BlockAbilities::handle_get_page_blocks( [
+			'post_id'      => $post_id,
+			'persist_refs' => true,
+		] );
+
+		$this->assertIsArray( $get_result );
+		$this->assertCount( 3, $get_result['blocks'], 'should have 3 named blocks (A, B, C)' );
+
+		$refs = array_column( $get_result['blocks'], 'ref' );
+
+		// Replace A + B (indices 0 and 1) with a single merged block.
+		$result = BlockAbilities::handle_replace_block_range( [
+			'post_id'    => $post_id,
+			'start_ref'  => $refs[0], // A
+			'end_ref'    => $refs[1], // B
+			'new_blocks' => [
+				[
+					'blockName' => 'core/paragraph',
+					'attrs'     => [],
+					'innerHTML' => '<p>merged</p>',
+				],
+			],
+		] );
+
+		$this->assertIsArray( $result, 'replace_block_range must return an array, not WP_Error' );
+		$this->assertSame( 1, $result['refs_added'],     'refs_added should be 1 (the merged block)' );
+		$this->assertSame( 2, $result['refs_removed'],   'refs_removed should be 2 (A and B)' );
+		$this->assertSame( 1, $result['refs_preserved'], 'refs_preserved should be 1 (C)' );
+		$this->assertSame( 2, $result['block_count'],    'block_count should be 2 (merged + C)' );
+	}
+
+	/**
+	 * refs_removed correctly counts inner-block refs from the removed range.
+	 *
+	 * When the removed block has innerBlocks, all descendant refs must be
+	 * included in refs_removed (not just the top-level sibling count). In this
+	 * test a core/group with 2 inner paragraphs is replaced by a single flat
+	 * paragraph; refs_removed must be 3 (group + 2 inner blocks), not 1.
+	 *
+	 * handle_get_page_blocks returns top-level blocks with inner blocks nested
+	 * under 'innerBlocks'; the flat count of top-level blocks is 2 (group +
+	 * aftergroup), not 4.
+	 *
+	 * @see GH#1770
+	 */
+	public function test_replace_range_counters_with_nested_innerBlocks(): void {
+		// Group block with 2 inner paragraphs, followed by one top-level paragraph.
+		$content = implode( "\n\n", [
+			"<!-- wp:group -->\n<div class=\"wp-block-group\"><!-- wp:paragraph -->\n<p>Inner 1</p>\n<!-- /wp:paragraph -->\n<!-- wp:paragraph -->\n<p>Inner 2</p>\n<!-- /wp:paragraph --></div>\n<!-- /wp:group -->",
+			"<!-- wp:paragraph -->\n<p>After group</p>\n<!-- /wp:paragraph -->",
+		] );
+
+		$post_id = $this->factory()->post->create( [
+			'post_content' => $content,
+			'post_status'  => 'publish',
+		] );
+
+		// Persist refs. handle_get_page_blocks returns top-level blocks only;
+		// inner blocks are nested under each entry's 'innerBlocks' key.
+		$get_result = BlockAbilities::handle_get_page_blocks( [
+			'post_id'      => $post_id,
+			'persist_refs' => true,
+		] );
+
+		$this->assertIsArray( $get_result );
+		// 2 top-level blocks: group (index 0) and aftergroup paragraph (index 1).
+		$this->assertCount( 2, $get_result['blocks'], 'should have 2 top-level blocks (group and aftergroup)' );
+
+		$group_entry = $get_result['blocks'][0];
+		$this->assertSame( 'core/group', $group_entry['name'], 'first block should be the group' );
+		$this->assertArrayHasKey( 'innerBlocks', $group_entry, 'group must expose innerBlocks in response' );
+		$this->assertCount( 2, $group_entry['innerBlocks'], 'group should have 2 inner paragraph entries' );
+
+		$group_ref = $group_entry['ref'];
+
+		// Replace the group (and implicitly its 2 inner blocks) with a single paragraph.
+		$result = BlockAbilities::handle_replace_block_range( [
+			'post_id'    => $post_id,
+			'start_ref'  => $group_ref,
+			'end_ref'    => $group_ref,
+			'new_blocks' => [
+				[
+					'blockName' => 'core/paragraph',
+					'attrs'     => [],
+					'innerHTML' => '<p>replacement</p>',
+				],
+			],
+		] );
+
+		$this->assertIsArray( $result, 'replace_block_range must return an array, not WP_Error' );
+		$this->assertSame( 1, $result['refs_added'],     'refs_added should be 1 (the replacement block)' );
+		$this->assertSame( 3, $result['refs_removed'],   'refs_removed should be 3 (group + 2 inner paragraphs)' );
+		$this->assertSame( 1, $result['refs_preserved'], 'refs_preserved should be 1 (aftergroup paragraph)' );
+		$this->assertSame( 2, $result['block_count'],    'block_count should be 2 (replacement + aftergroup)' );
+	}
 }
