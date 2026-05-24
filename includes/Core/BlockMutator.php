@@ -2056,7 +2056,34 @@ class BlockMutator {
 	}
 
 	/**
+	 * Strip WordPress block comment delimiters from HTML content.
+	 *
+	 * Block comment delimiters like `<!-- wp:html -->` and `<!-- /wp:paragraph -->`
+	 * are not stripped by wp_kses_post(), so they can survive sanitisation and be
+	 * re-parsed as real block boundaries when the post_content is re-parsed.
+	 *
+	 * This method removes all block comment patterns to prevent unintended block
+	 * injection via innerHTML write operations.
+	 *
+	 * Pattern matches:
+	 * - Opening: `<!-- wp:blockname ... -->`
+	 * - Closing: `<!-- /wp:blockname -->`
+	 *
+	 * @param string $html HTML content potentially containing block delimiters.
+	 * @return string HTML with block comment delimiters removed.
+	 */
+	private static function strip_block_comments( string $html ): string {
+		// Remove opening block comments: <!-- wp:blockname ... -->
+		// and closing block comments: <!-- /wp:blockname -->
+		return (string) preg_replace( '/<!--\s*\/?wp:[^-]*-->/i', '', $html );
+	}
+
+	/**
 	 * Recursively apply wp_kses_post to innerHTML of a block and its descendants.
+	 *
+	 * Also strips WordPress block comment delimiters to prevent block comment
+	 * injection attacks where innerHTML containing `<!-- wp:html -->` patterns
+	 * could be re-parsed as real block boundaries.
 	 *
 	 * @param array<string,mixed> $block Block array.
 	 * @return array<string,mixed> Block with sanitized HTML.
@@ -2064,12 +2091,14 @@ class BlockMutator {
 	private static function sanitize_block_tree( array $block ): array {
 		if ( isset( $block['innerHTML'] ) && is_string( $block['innerHTML'] ) ) {
 			$block['innerHTML'] = wp_kses_post( $block['innerHTML'] );
+			$block['innerHTML'] = self::strip_block_comments( $block['innerHTML'] );
 		}
 
 		if ( isset( $block['innerContent'] ) && is_array( $block['innerContent'] ) ) {
 			foreach ( $block['innerContent'] as &$chunk ) {
 				if ( is_string( $chunk ) ) {
 					$chunk = wp_kses_post( $chunk );
+					$chunk = self::strip_block_comments( $chunk );
 				}
 			}
 
