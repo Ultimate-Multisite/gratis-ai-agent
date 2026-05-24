@@ -16,6 +16,7 @@ use WordPress\AiClient\Messages\DTO\Message;
 use WordPress\AiClient\Messages\DTO\MessagePart;
 use WordPress\AiClient\Messages\DTO\ModelMessage;
 use WordPress\AiClient\Messages\DTO\UserMessage;
+use WordPress\AiClient\Messages\Enums\MessagePartChannelEnum;
 use WordPress\AiClient\Messages\Enums\MessageRoleEnum;
 use WordPress\AiClient\Tools\DTO\FunctionCall;
 use WordPress\AiClient\Tools\DTO\FunctionResponse;
@@ -57,6 +58,13 @@ class ConversationSerializerTest extends WP_UnitTestCase {
 	 */
 	private function text_part( string $text ): MessagePart {
 		return new MessagePart( $text );
+	}
+
+	/**
+	 * Build a real MessagePart wrapping thought-channel text.
+	 */
+	private function thought_part( string $text ): MessagePart {
+		return new MessagePart( $text, MessagePartChannelEnum::thought() );
 	}
 
 	/**
@@ -294,6 +302,52 @@ class ConversationSerializerTest extends WP_UnitTestCase {
 		$this->assertCount( 3, $history );
 		$this->assertSame( $existing_user, $history[0] );
 		$this->assertHistoryPassesOpenAiValidator( $history );
+	}
+
+	/**
+	 * DeepSeek thinking-mode regression (GH#1814): a message with a thought-channel
+	 * part + function_call MUST be split so each function_call is its own message.
+	 *
+	 * The OpenAI Responses API validator (in ai-provider-for-openai) rejects messages
+	 * that contain a function_call alongside any other part. The thought-channel part
+	 * from DeepSeek reasoning_content is an "other part" at the Message level, so it
+	 * triggers the split to satisfy that constraint.
+	 *
+	 * The base-class `mergeDeepSeekSplitReasoningMessages()` re-merges them at the
+	 * wire level for DeepSeek providers before sending the HTTP request, so DeepSeek
+	 * sees the combined {reasoning_content + tool_calls} message it requires.
+	 */
+	public function test_append_assistant_message_thought_plus_function_call_splits(): void {
+		$this->skip_if_sdk_unavailable();
+
+		$message = new ModelMessage(
+			[
+				$this->thought_part( 'Let me fetch that post...' ),
+				$this->function_call_part( 'call_deepseek', 'wpab__sd-ai-agent__get-post', array( 'id' => 42 ) ),
+			]
+		);
+		$history = array();
+
+		ConversationSerializer::append_assistant_message( $history, $message );
+
+		// Must split: [thought, function_call] → two separate ModelMessages.
+		$this->assertCount( 2, $history, 'Expected thought+function_call to be split into two messages' );
+
+		// First message: thought-channel part only.
+		$this->assertCount( 1, $history[0]->getParts(), 'Reasoning message should have exactly one part' );
+		$this->assertTrue(
+			$history[0]->getParts()[0]->getChannel()->isThought(),
+			'First split message should contain the thought-channel part'
+		);
+		$this->assertSame( 'Let me fetch that post...', $history[0]->getParts()[0]->getText() );
+
+		// Second message: function_call part only.
+		$this->assertCount( 1, $history[1]->getParts(), 'Tool-call message should have exactly one part' );
+		$this->assertTrue(
+			$history[1]->getParts()[0]->getType()->isFunctionCall(),
+			'Second split message should contain the function_call part'
+		);
+		$this->assertSame( 'call_deepseek', $history[1]->getParts()[0]->getFunctionCall()->getId() );
 	}
 
 	/**

@@ -32,6 +32,7 @@ use WordPress\AiClient\Messages\DTO\ModelMessage;
 use WordPress\AiClient\Messages\DTO\UserMessage;
 use WordPress\AiClient\Messages\Enums\MessagePartChannelEnum;
 use WordPress\AiClient\Tools\DTO\FunctionCall;
+use WordPress\AiClient\Tools\DTO\FunctionResponse;
 use WP_UnitTestCase;
 
 /**
@@ -278,6 +279,119 @@ class DeepSeekReasoningContentTest extends WP_UnitTestCase {
 		$this->assertTrue(
 			$found_reasoning_content,
 			'reasoning_content not found in second request for DeepSeek model'
+		);
+	}
+
+	/**
+	 * Test that reasoning_content appears on the tool_call assistant message when
+	 * the history was produced by ConversationSerializer splitting a thinking+tool_call
+	 * DeepSeek response into two separate ModelMessages (GH#1814).
+	 *
+	 * DeepSeek V4 Flash thinking-mode responses include both reasoning_content and
+	 * tool_calls. ConversationSerializer::append_assistant_message() splits them into:
+	 *   [ModelMessage(thought_part), ModelMessage(function_call_part)]
+	 * to satisfy the OpenAI Responses API constraint. On the next request DeepSeek
+	 * requires reasoning_content and tool_calls in the SAME assistant message, or it
+	 * returns a 400 error. The base class mergeDeepSeekSplitReasoningMessages() must
+	 * re-merge the pair at the wire level before the HTTP request is sent.
+	 */
+	public function test_deepseek_reasoning_content_on_tool_call_message_after_split(): void {
+		$this->skip_if_sdk_unavailable();
+		$this->skip_if_provider_unavailable();
+
+		$reasoning_text = 'Let me fetch that post for you.';
+
+		// Track the request body sent to the fake endpoint.
+		$request_body = null;
+
+		add_filter(
+			'pre_http_request',
+			function ( $preempt, $args, $url ) use ( &$request_body ) {
+				if ( strpos( $url, self::FAKE_ENDPOINT ) === 0 ) {
+					if ( isset( $args['body'] ) ) {
+						$request_body = $args['body'];
+					}
+
+					return [
+						'headers'       => [ 'content-type' => 'application/json' ],
+						'body'          => wp_json_encode( [
+							'choices' => [
+								[
+									'message'       => [
+										'role'    => 'assistant',
+										'content' => 'Here is the post content.',
+									],
+									'finish_reason' => 'stop',
+								],
+							],
+							'usage'   => [
+								'prompt_tokens'     => 10,
+								'completion_tokens' => 10,
+							],
+						] ),
+						'response'      => [ 'code' => 200 ],
+						'cookies'       => [],
+						'http_response' => null,
+					];
+				}
+				return $preempt;
+			},
+			10,
+			3
+		);
+
+		// Build a history that mirrors what ConversationSerializer produces after splitting
+		// a DeepSeek thinking-mode response that contained both reasoning_content and tool_calls:
+		//   - ModelMessage([thought_part])     — reasoning-only message (first half of split)
+		//   - ModelMessage([function_call])    — tool-call-only message (second half of split)
+		//   - UserMessage([function_response]) — tool result
+		$history = [
+			new UserMessage( [ new MessagePart( 'What blocks are on wave2-bindings-test?' ) ] ),
+			// Split half 1: reasoning-only.
+			new ModelMessage( [ new MessagePart( $reasoning_text, MessagePartChannelEnum::thought() ) ] ),
+			// Split half 2: function_call-only (no thought part).
+			new ModelMessage( [ new MessagePart( new FunctionCall( 'call_1', 'wpab__sd-ai-agent__get-post', [ 'id' => 1 ] ) ) ] ),
+			// Tool result.
+			new UserMessage( [ new MessagePart( new FunctionResponse( 'call_1', 'wpab__sd-ai-agent__get-post', '{"title":"Test Post"}' ) ) ] ),
+		];
+
+		$loop = new AgentLoop(
+			'Now summarize the post.',
+			[],
+			$history,
+			[
+				'provider_id' => 'openai_compat',
+				'model_id'    => 'deepseek-reasoner',
+			]
+		);
+
+		$result = $loop->run();
+		$this->assertNotWPError( $result );
+		$this->assertNotNull( $request_body, 'Request body was not captured' );
+
+		$request_data = json_decode( $request_body, true );
+		$this->assertIsArray( $request_data, 'Request body is not valid JSON' );
+		$this->assertArrayHasKey( 'messages', $request_data );
+
+		// After the split+merge fix, the wire messages should contain ONE assistant
+		// entry with BOTH tool_calls AND reasoning_content (the merged form).
+		// Verify that reasoning_content appears on the message that has tool_calls.
+		$found_reasoning_on_tool_call_message = false;
+		foreach ( $request_data['messages'] as $msg ) {
+			if ( ! empty( $msg['tool_calls'] ) && isset( $msg['reasoning_content'] ) && '' !== $msg['reasoning_content'] ) {
+				$this->assertSame(
+					$reasoning_text,
+					$msg['reasoning_content'],
+					'reasoning_content on tool_call message must match the original thought text'
+				);
+				$found_reasoning_on_tool_call_message = true;
+				break;
+			}
+		}
+
+		$this->assertTrue(
+			$found_reasoning_on_tool_call_message,
+			'Expected reasoning_content to appear on the assistant message with tool_calls (GH#1814 regression: split messages were not merged)'
 		);
 	}
 
