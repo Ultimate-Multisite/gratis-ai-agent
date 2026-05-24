@@ -326,47 +326,112 @@ class PostAbilities {
 			'sd-ai-agent/list-posts',
 			[
 				'label'               => __( 'List Posts', 'superdav-ai-agent' ),
-				'description'         => __( 'Query and list WordPress posts or pages. Filter by post_type, status, search term, category, tag, and date. Returns id, title, excerpt, status, post_type, date, permalink, and featured_image_url for each match. Default: 10 most recent published posts.', 'superdav-ai-agent' ),
+				'description'         => __( 'Query and list WordPress posts or pages. Filter by post_type, post_status (single string or array), search term, category, tag, date range (date_after/date_before), author, tax_query, and meta_query. Returns id, title, excerpt, status, post_type, date, permalink, featured_image_url, and query_args for each match. Default: 10 most recent published posts.', 'superdav-ai-agent' ),
 				'category'            => 'sd-ai-agent',
 				'input_schema'        => [
 					'type'       => 'object',
 					'properties' => [
-						'post_type' => [
+						'post_type'       => [
 							'type'        => 'string',
 							'description' => 'Post type to query (default: "post"). Use "page" for pages, "product" for WooCommerce products.',
 						],
-						'status'    => [
-							'type'        => 'string',
-							'description' => 'Post status filter: "publish" (default), "draft", "pending", "private", "future", "trash", or "any".',
-							'enum'        => [ 'publish', 'draft', 'pending', 'private', 'future', 'trash', 'any' ],
+						'post_status'     => [
+							'type'        => [ 'string', 'array' ],
+							'description' => 'Post status filter. Accepts a single string or an array of statuses. Examples: "draft", ["draft","pending"]. Default: ["publish"]. Special value "any" matches all statuses.',
+							'items'       => [ 'type' => 'string' ],
 						],
-						'per_page'  => [
+						'per_page'        => [
 							'type'        => 'integer',
 							'description' => 'Number of posts to return (default: 10, max: 50).',
 						],
-						'search'    => [
+						'search'          => [
 							'type'        => 'string',
 							'description' => 'Search term to filter posts by title or content.',
 						],
-						'category'  => [
+						'category'        => [
 							'type'        => 'string',
 							'description' => 'Category name or slug to filter by. Human-readable names (e.g. "My Category") are resolved to their slug automatically.',
 						],
-						'tag'       => [
+						'tag'             => [
 							'type'        => 'string',
 							'description' => 'Tag name or slug to filter by. Human-readable names are resolved to their slug automatically.',
 						],
-						'orderby'   => [
+						'orderby'         => [
 							'type'        => 'string',
-							'description' => 'Order results by: "date" (default), "title", "modified", "menu_order", "rand".',
-							'enum'        => [ 'date', 'title', 'modified', 'menu_order', 'rand' ],
+							'description' => 'Order results by: "date" (default), "title", "modified", "ID", "menu_order", "rand".',
+							'enum'        => [ 'date', 'title', 'modified', 'ID', 'menu_order', 'rand' ],
 						],
-						'order'     => [
+						'order'           => [
 							'type'        => 'string',
 							'description' => 'Sort direction: "DESC" (default, newest first) or "ASC" (oldest first).',
 							'enum'        => [ 'DESC', 'ASC' ],
 						],
-						'site_url'  => [
+						'date_after'      => [
+							'type'        => 'string',
+							'description' => 'ISO-8601 date (YYYY-MM-DD). Only posts published after this date are returned.',
+						],
+						'date_before'     => [
+							'type'        => 'string',
+							'description' => 'ISO-8601 date (YYYY-MM-DD). Only posts published before this date are returned.',
+						],
+						'inclusive_dates' => [
+							'type'        => 'boolean',
+							'description' => 'Whether date_after/date_before bounds are inclusive (default: true).',
+						],
+						'author'          => [
+							'type'        => [ 'integer', 'array' ],
+							'description' => 'Filter by author user ID. Accepts a single integer or an array of integers.',
+							'items'       => [ 'type' => 'integer' ],
+						],
+						'tax_query'       => [ // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_tax_query
+								'type'        => 'array',
+								'description' => 'Taxonomy filter clauses. Each clause: {"taxonomy":"category","terms":[1,2],"operator":"IN"}. Allowed operators: IN, NOT IN, AND.',
+								'items'       => [
+									'type'       => 'object',
+									'properties' => [
+										'taxonomy' => [
+											'type'        => 'string',
+											'description' => 'Taxonomy slug (e.g. "category", "post_tag").',
+										],
+										'terms'    => [
+											'type'        => 'array',
+											'items'       => [ 'type' => 'integer' ],
+											'description' => 'Array of term IDs.',
+										],
+										'operator' => [
+											'type'        => 'string',
+											'enum'        => [ 'IN', 'NOT IN', 'AND' ],
+											'description' => 'Match operator.',
+										],
+									],
+									'required'   => [ 'taxonomy', 'terms' ],
+								],
+						],
+						'meta_query'      => [ // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_query
+							'type'        => 'array',
+							'description' => 'Post meta filter clauses. Each clause: {"key":"_thumbnail_id","compare":"EXISTS"}. Allowed compare values: =, !=, EXISTS, NOT EXISTS, IN, NOT IN. LIKE and REGEXP are not permitted.',
+							'items'       => [
+								'type'       => 'object',
+								'properties' => [
+									'key'     => [
+										'type'        => 'string',
+										'description' => 'Meta key.',
+									],
+									'compare' => [
+										'type'        => 'string',
+										'enum'        => [ '=', '!=', 'EXISTS', 'NOT EXISTS', 'IN', 'NOT IN' ],
+										'description' => 'Comparison operator.',
+									],
+									'value'   => [ 'description' => 'Meta value. Not required for EXISTS/NOT EXISTS.' ],
+								],
+								'required'   => [ 'key' ],
+							],
+						],
+						'has_password'    => [
+							'type'        => 'boolean',
+							'description' => 'Filter by password protection: true returns only password-protected posts, false returns only unprotected posts.',
+						],
+						'site_url'        => [
 							'type'        => 'string',
 							'description' => 'Subsite URL for multisite. Omit for the main site.',
 						],
@@ -376,7 +441,7 @@ class PostAbilities {
 				'output_schema'       => [
 					'type'       => 'object',
 					'properties' => [
-						'posts'    => [
+						'posts'      => [
 							'type'  => 'array',
 							'items' => [
 								'type'       => 'object',
@@ -395,8 +460,12 @@ class PostAbilities {
 								],
 							],
 						],
-						'total'    => [ 'type' => 'integer' ],
-						'per_page' => [ 'type' => 'integer' ],
+						'total'      => [ 'type' => 'integer' ],
+						'per_page'   => [ 'type' => 'integer' ],
+						'query_args' => [
+							'type'        => 'object',
+							'description' => 'The WP_Query args that were actually applied after sanitisation. Use this to self-correct over-broad filters.',
+						],
 					],
 				],
 				'meta'                => [
@@ -619,35 +688,25 @@ class PostAbilities {
 	/**
 	 * Handle the list-posts ability.
 	 *
-	 * @param array<string, mixed> $input Input with optional post_type, status, per_page, search, etc.
+	 * Delegates input sanitisation to sanitize_list_posts_args() which returns a
+	 * WP_Error when an invalid operator is detected (e.g. meta_query LIKE or
+	 * tax_query REGEXP). On success the sanitised args are forwarded to WP_Query
+	 * and mirrored back in the response as query_args so agents can self-correct.
+	 *
+	 * @param array<string, mixed> $input Input with optional filters (post_type, post_status, per_page, etc.).
 	 * @return array<string, mixed>|WP_Error
 	 */
 	public static function handle_list_posts( array $input ) {
-		// @phpstan-ignore-next-line
-		$post_type = sanitize_text_field( $input['post_type'] ?? 'post' );
-		// @phpstan-ignore-next-line
-		$status   = sanitize_text_field( $input['status'] ?? 'publish' );
+		$sanitized = self::sanitize_list_posts_args( $input );
+		if ( is_wp_error( $sanitized ) ) {
+			return $sanitized;
+		}
+
 		$per_page = isset( $input['per_page'] ) ? min( (int) $input['per_page'], 50 ) : 10;
 		$per_page = max( 1, $per_page );
-		// @phpstan-ignore-next-line
-		$search = sanitize_text_field( $input['search'] ?? '' );
-		// @phpstan-ignore-next-line
-		$category = sanitize_text_field( $input['category'] ?? '' );
-		// @phpstan-ignore-next-line
-		$tag = sanitize_text_field( $input['tag'] ?? '' );
-		// @phpstan-ignore-next-line
-		$orderby = sanitize_text_field( $input['orderby'] ?? 'date' );
-		// @phpstan-ignore-next-line
-		$order    = strtoupper( sanitize_text_field( $input['order'] ?? 'DESC' ) );
-		$site_url = $input['site_url'] ?? '';
 
-		$allowed_orderby = [ 'date', 'title', 'modified', 'menu_order', 'rand' ];
-		if ( ! in_array( $orderby, $allowed_orderby, true ) ) {
-			$orderby = 'date';
-		}
-		if ( ! in_array( $order, [ 'DESC', 'ASC' ], true ) ) {
-			$order = 'DESC';
-		}
+		// @phpstan-ignore-next-line
+		$site_url = $input['site_url'] ?? '';
 
 		$switched = false;
 		if ( ! empty( $site_url ) && is_multisite() ) {
@@ -663,26 +722,13 @@ class PostAbilities {
 			}
 		}
 
-		$query_args = [
-			'post_type'      => $post_type,
-			'post_status'    => $status,
-			'posts_per_page' => $per_page,
-			'orderby'        => $orderby,
-			'order'          => $order,
-			'no_found_rows'  => false,
-		];
-
-		if ( '' !== $search ) {
-			$query_args['s'] = $search;
-		}
-
-		if ( '' !== $category ) {
-			$query_args['category_name'] = self::resolve_term_slug( $category, 'category' );
-		}
-
-		if ( '' !== $tag ) {
-			$query_args['tag'] = self::resolve_term_slug( $tag, 'post_tag' );
-		}
+		$query_args = array_merge(
+			$sanitized,
+			[
+				'posts_per_page' => $per_page,
+				'no_found_rows'  => false,
+			]
+		);
 
 		$query = new \WP_Query( $query_args );
 		$posts = [];
@@ -729,10 +775,226 @@ class PostAbilities {
 		}
 
 		return [
-			'posts'    => $posts,
-			'total'    => $total,
-			'per_page' => $per_page,
+			'posts'      => $posts,
+			'total'      => $total,
+			'per_page'   => $per_page,
+			'query_args' => $sanitized,
 		];
+	}
+
+	/**
+	 * Sanitise list-posts input into WP_Query-ready args.
+	 *
+	 * All new filter fields (post_status[], date_after, date_before,
+	 * inclusive_dates, author, tax_query, meta_query, has_password) are handled
+	 * here so handle_list_posts stays readable. Returns a WP_Error immediately
+	 * when an operator not in the allowlist is detected.
+	 *
+	 * Security notes:
+	 * - meta_query compare: only =, !=, EXISTS, NOT EXISTS, IN, NOT IN are
+	 *   permitted. LIKE and REGEXP are explicitly blocked to prevent pattern
+	 *   injection from agent input.
+	 * - tax_query operator: only IN, NOT IN, AND are permitted.
+	 * - All string values pass through sanitize_text_field(); WP_Query handles
+	 *   database escaping internally via $wpdb->prepare().
+	 *
+	 * @param array<string, mixed> $input Raw ability input.
+	 * @return array<string, mixed>|WP_Error Sanitised args ready for WP_Query, or WP_Error on invalid input.
+	 */
+	private static function sanitize_list_posts_args( array $input ): array|WP_Error {
+		$args = [];
+
+		// post_type.
+		// @phpstan-ignore-next-line
+		$args['post_type'] = sanitize_text_field( $input['post_type'] ?? 'post' );
+
+		// post_status: string | string[]. Falls back to legacy 'status' field for backward compat.
+		// @phpstan-ignore-next-line
+		$raw_status = $input['post_status'] ?? $input['status'] ?? [ 'publish' ];
+		if ( is_string( $raw_status ) ) {
+			$raw_status = [ $raw_status ];
+		}
+		$sanitized_statuses = [];
+		foreach ( (array) $raw_status as $s ) {
+			$s = sanitize_text_field( (string) $s );
+			if ( '' !== $s ) {
+				$sanitized_statuses[] = $s;
+			}
+		}
+		$args['post_status'] = ! empty( $sanitized_statuses ) ? $sanitized_statuses : [ 'publish' ];
+
+		// search.
+		// @phpstan-ignore-next-line
+		$search = sanitize_text_field( $input['search'] ?? '' );
+		if ( '' !== $search ) {
+			$args['s'] = $search;
+		}
+
+		// category (resolves name → slug for WP_Query's category_name param).
+		// @phpstan-ignore-next-line
+		$category = sanitize_text_field( $input['category'] ?? '' );
+		if ( '' !== $category ) {
+			$args['category_name'] = self::resolve_term_slug( $category, 'category' );
+		}
+
+		// tag (resolves name → slug for WP_Query's tag param).
+		// @phpstan-ignore-next-line
+		$tag = sanitize_text_field( $input['tag'] ?? '' );
+		if ( '' !== $tag ) {
+			$args['tag'] = self::resolve_term_slug( $tag, 'post_tag' );
+		}
+
+		// orderby.
+		$allowed_orderby = [ 'date', 'title', 'modified', 'ID', 'menu_order', 'rand' ];
+		// @phpstan-ignore-next-line
+		$orderby = sanitize_text_field( $input['orderby'] ?? 'date' );
+		if ( ! in_array( $orderby, $allowed_orderby, true ) ) {
+			$orderby = 'date';
+		}
+		$args['orderby'] = $orderby;
+
+		// order.
+		// @phpstan-ignore-next-line
+		$order = strtoupper( sanitize_text_field( $input['order'] ?? 'DESC' ) );
+		if ( ! in_array( $order, [ 'DESC', 'ASC' ], true ) ) {
+			$order = 'DESC';
+		}
+		$args['order'] = $order;
+
+		// date_after / date_before / inclusive_dates → WP_Query date_query.
+		// @phpstan-ignore-next-line
+		$date_after = sanitize_text_field( $input['date_after'] ?? '' );
+		// @phpstan-ignore-next-line
+		$date_before = sanitize_text_field( $input['date_before'] ?? '' );
+		$inclusive   = isset( $input['inclusive_dates'] ) ? (bool) $input['inclusive_dates'] : true;
+
+		if ( '' !== $date_after || '' !== $date_before ) {
+			$date_clause = [ 'inclusive' => $inclusive ];
+			if ( '' !== $date_after ) {
+				$date_clause['after'] = $date_after;
+			}
+			if ( '' !== $date_before ) {
+				$date_clause['before'] = $date_before;
+			}
+			$args['date_query'] = [ $date_clause ];
+		}
+
+		// author: int | int[].
+		if ( isset( $input['author'] ) ) {
+			$raw_author = $input['author'];
+			if ( is_array( $raw_author ) ) {
+				$author_ids = array_values( array_filter( array_map( static fn ( mixed $v ): int => (int) $v, $raw_author ) ) );
+				if ( ! empty( $author_ids ) ) {
+					$args['author__in'] = $author_ids;
+				}
+			} else {
+				$author_id = (int) $raw_author;
+				if ( $author_id > 0 ) {
+					$args['author'] = $author_id;
+				}
+			}
+		}
+
+		// tax_query: operator allowlist — IN, NOT IN, AND.
+		if ( isset( $input['tax_query'] ) && is_array( $input['tax_query'] ) ) {
+			$allowed_tax_ops = [ 'IN', 'NOT IN', 'AND' ];
+			$tax_clauses     = [];
+
+			foreach ( $input['tax_query'] as $clause ) {
+				if ( ! is_array( $clause ) ) {
+					continue;
+				}
+				// @phpstan-ignore-next-line
+				$operator = strtoupper( sanitize_text_field( (string) ( $clause['operator'] ?? 'IN' ) ) );
+				if ( ! in_array( $operator, $allowed_tax_ops, true ) ) {
+					return new WP_Error(
+						'invalid_tax_operator',
+						sprintf(
+							/* translators: 1: operator provided, 2: comma-separated allowed operators */
+							__( 'tax_query operator "%1$s" is not allowed. Allowed operators: %2$s.', 'superdav-ai-agent' ),
+							$operator,
+							implode( ', ', $allowed_tax_ops )
+						)
+					);
+				}
+				// @phpstan-ignore-next-line
+				$taxonomy = sanitize_text_field( (string) ( $clause['taxonomy'] ?? '' ) );
+				$terms    = array_values( array_filter( array_map( static fn ( mixed $v ): int => (int) $v, (array) ( $clause['terms'] ?? [] ) ) ) );
+
+				if ( '' === $taxonomy || empty( $terms ) ) {
+					continue;
+				}
+
+				$tax_clauses[] = [
+					'taxonomy' => $taxonomy,
+					'field'    => 'term_id',
+					'terms'    => $terms,
+					'operator' => $operator,
+				];
+			}
+
+			if ( ! empty( $tax_clauses ) ) {
+				$args['tax_query'] = $tax_clauses; // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_tax_query
+			}
+		}
+
+		// meta_query: compare operator allowlist — never LIKE or REGEXP.
+		if ( isset( $input['meta_query'] ) && is_array( $input['meta_query'] ) ) {
+			$allowed_meta_ops = [ '=', '!=', 'EXISTS', 'NOT EXISTS', 'IN', 'NOT IN' ];
+			$meta_clauses     = [];
+
+			foreach ( $input['meta_query'] as $clause ) {
+				if ( ! is_array( $clause ) ) {
+					continue;
+				}
+				// @phpstan-ignore-next-line
+				$compare = strtoupper( sanitize_text_field( (string) ( $clause['compare'] ?? '=' ) ) );
+				if ( ! in_array( $compare, $allowed_meta_ops, true ) ) {
+					return new WP_Error(
+						'invalid_meta_compare',
+						sprintf(
+							/* translators: 1: compare operator provided, 2: comma-separated allowed operators */
+							__( 'meta_query compare "%1$s" is not allowed. Allowed operators: %2$s.', 'superdav-ai-agent' ),
+							$compare,
+							implode( ', ', $allowed_meta_ops )
+						)
+					);
+				}
+				// @phpstan-ignore-next-line
+				$key = sanitize_text_field( (string) ( $clause['key'] ?? '' ) );
+				if ( '' === $key ) {
+					continue;
+				}
+
+				$meta_clause = [
+					'key'     => $key,
+					'compare' => $compare,
+				];
+
+				// Include 'value' only for compares that actually need it.
+				if ( isset( $clause['value'] ) && ! in_array( $compare, [ 'EXISTS', 'NOT EXISTS' ], true ) ) {
+					if ( is_array( $clause['value'] ) ) {
+						// @phpstan-ignore-next-line
+						$meta_clause['value'] = array_map( 'sanitize_text_field', array_map( 'strval', $clause['value'] ) );
+					} else {
+						$meta_clause['value'] = sanitize_text_field( (string) $clause['value'] );
+					}
+				}
+
+				$meta_clauses[] = $meta_clause;
+			}
+
+			if ( ! empty( $meta_clauses ) ) {
+				$args['meta_query'] = $meta_clauses; // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_query
+			}
+		}
+
+		// has_password.
+		if ( isset( $input['has_password'] ) ) {
+			$args['has_password'] = (bool) $input['has_password'];
+		}
+
+		return $args;
 	}
 
 	/**
