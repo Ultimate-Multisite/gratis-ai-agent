@@ -441,8 +441,8 @@ class PostAbilities {
 										'description' => 'Comparison operator.',
 									],
 									'value'   => [
-									'type'        => [ 'string', 'array', 'integer', 'number' ],
-									'description' => 'Meta value. Not required for EXISTS/NOT EXISTS.',
+										'type'        => [ 'string', 'array', 'integer', 'number' ],
+										'description' => 'Meta value. Not required for EXISTS/NOT EXISTS.',
 									],
 								],
 								'required'   => [ 'key' ],
