@@ -52,12 +52,17 @@ class RevisionGuard {
 	 * Return the latest revision post-ID for a post.
 	 *
 	 * Uses `wp_get_post_revisions()` ordered DESC, limit 1.
-	 * Returns 0 when the post has no revisions yet (e.g. auto-draft).
+	 * Returns null when the post has no revisions yet (e.g. freshly-inserted
+	 * post with no prior edits). Callers that propagate this value into a
+	 * response should use `[ 'integer', 'null' ]` as the JSON schema type.
+	 * Callers that consume it as a precondition (expected_revision_id /
+	 * expected_current_revision_id) should treat null as "no precondition".
 	 *
 	 * @param int $post_id Post being inspected.
-	 * @return int Revision post ID, or 0 when no revisions exist.
+	 * @return int|null Revision post ID, or null when no revisions exist.
+	 * @see https://github.com/Ultimate-Multisite/superdav-ai-agent/issues/1786
 	 */
-	public static function current_revision_id( int $post_id ): int {
+	public static function current_revision_id( int $post_id ): ?int {
 		$revisions = wp_get_post_revisions(
 			$post_id,
 			[
@@ -74,7 +79,7 @@ class RevisionGuard {
 			return (int) key( $revisions );
 		}
 
-		return 0;
+		return null;
 	}
 
 	/**

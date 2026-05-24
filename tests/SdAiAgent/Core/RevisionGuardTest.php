@@ -10,8 +10,8 @@
  *  AC5: Weak ETag form W/"123" parses correctly.
  *  AC6: Malformed If-Match returns 400 invalid_if_match.
  *  AC7: parse_if_match() reads both If-Match header and expected_revision body.
- *  AC8: current_revision_id() returns 0 for a post with no revisions and a
- *       positive int after wp_update_post() creates one.
+ *  AC8: current_revision_id() returns null for a post with no revisions and a
+ *       positive int after wp_update_post() creates one (GH#1786).
  *
  * @package SdAiAgent
  * @subpackage Tests
@@ -158,15 +158,24 @@ class RevisionGuardTest extends WP_UnitTestCase {
 	// ── current_revision_id ────────────────────────────────────────────────
 
 	/**
-	 * A freshly created post (auto-draft) with no revisions returns 0.
+	 * A freshly inserted post with no revisions returns null.
 	 *
-	 * Note: wp-env / test suite may or may not save an initial revision
-	 * depending on configuration; we verify the return type is always int.
+	 * Covers GH#1786 / AC8: revisionless posts must return null (not 0) so
+	 * the natural get-page-blocks → update-blocks chain works without
+	 * triggering a false stale_revision on the very first write.
 	 */
-	public function test_current_revision_id_returns_int(): void {
+	public function test_current_revision_id_null_for_revisionless_post(): void {
+		// wp_insert_post with a published status does not create a revision by
+		// itself; only wp_update_post (or a second save) triggers one.
 		$post_id = $this->factory->post->create();
-		$result  = RevisionGuard::current_revision_id( $post_id );
-		$this->assertIsInt( $result );
+
+		// Strip any auto-created revision so the test is environment-agnostic.
+		foreach ( wp_get_post_revisions( $post_id ) as $rev ) {
+			wp_delete_post_revision( $rev->ID );
+		}
+
+		$result = RevisionGuard::current_revision_id( $post_id );
+		$this->assertNull( $result, 'current_revision_id() must return null when no revisions exist' );
 	}
 
 	/**
@@ -177,6 +186,7 @@ class RevisionGuardTest extends WP_UnitTestCase {
 		wp_update_post( [ 'ID' => $post_id, 'post_title' => 'Updated title' ] );
 
 		$result = RevisionGuard::current_revision_id( $post_id );
+		$this->assertIsInt( $result );
 		$this->assertGreaterThan( 0, $result );
 	}
 
@@ -258,5 +268,33 @@ class RevisionGuardTest extends WP_UnitTestCase {
 		$this->assertInstanceOf( \WP_Error::class, $result );
 		$this->assertSame( 'invalid_if_match', $result->get_error_code() );
 		$this->assertSame( 400, $result->get_error_data()['status'] );
+	}
+
+	// ── check() with null current revision ────────────────────────────────
+
+	/**
+	 * check() with expected=0 on a revisionless post returns stale_revision.
+	 *
+	 * Covers GH#1786 AC5: expected_current_revision_id=0 must not accidentally
+	 * match the null returned for a post with no revisions.
+	 * The error data must carry current_revision_id: null.
+	 */
+	public function test_check_stale_when_expected_is_zero_and_no_revisions(): void {
+		$post_id = $this->factory->post->create();
+
+		// Ensure no revisions exist so current_revision_id() returns null.
+		foreach ( wp_get_post_revisions( $post_id ) as $rev ) {
+			wp_delete_post_revision( $rev->ID );
+		}
+
+		$result = RevisionGuard::check( $post_id, 0 );
+
+		$this->assertInstanceOf( \WP_Error::class, $result, 'Expected 0 against a revisionless post must trigger stale_revision' );
+		$this->assertSame( 'stale_revision', $result->get_error_code() );
+
+		$data = $result->get_error_data( 'stale_revision' );
+		$this->assertIsArray( $data );
+		$this->assertSame( 412, $data['status'] );
+		$this->assertNull( $data['current_revision_id'], 'current_revision_id must be null for a revisionless post' );
 	}
 }
