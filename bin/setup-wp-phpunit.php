@@ -126,6 +126,45 @@ function sd_ai_agent_setup_shell_command(array $parts): string
 }
 
 /**
+ * Read DB_PASSWORD from an existing wp-tests-config.php file.
+ *
+ * When WP_TESTS_DB_PASS is not set in the environment, fall back to the
+ * password already stored in wp-tests-config.php (written once by
+ * install-wp-tests.sh and never overwritten). This prevents a subsequent
+ * `npm run test:php:setup` run — without WP_TESTS_DB_PASS — from
+ * regenerating wp-config.php with an empty password when the test
+ * database was originally set up with a non-empty password.
+ *
+ * That mismatch caused Layer 2 (isolated include) in PluginSandbox to
+ * fail: the WP-CLI subprocess reads wp-config.php (not wp-tests-config.php)
+ * and the wrong password produces "Access denied" → sandbox reports
+ * sd_ai_agent_sandbox_failed → PluginUpdaterTest / PluginBuilderIntegrationTest
+ * failures on every clean run of npm run test:php.
+ *
+ * @param string $tests_dir WordPress test library directory.
+ * @return string|null Password extracted from the config file, or null if not found.
+ */
+function sd_ai_agent_setup_read_config_password(string $tests_dir): ?string
+{
+	$config_file = rtrim($tests_dir, '/') . '/wp-tests-config.php';
+	if (! is_file($config_file)) {
+		return null;
+	}
+
+	$content = file_get_contents($config_file);
+	if (false === $content) {
+		return null;
+	}
+
+	// Match: define( 'DB_PASSWORD', 'value' );
+	if (preg_match("/define\s*\(\s*'DB_PASSWORD'\s*,\s*'([^']*)'\s*\)/", $content, $matches)) {
+		return $matches[1];
+	}
+
+	return null;
+}
+
+/**
  * Recreate the configured test database.
  *
  * @param string $db_name Database name.
@@ -190,10 +229,13 @@ $cache_root  = sd_ai_agent_setup_cache_root();
 $tests_dir   = sd_ai_agent_setup_env('WP_TESTS_DIR') ?? $cache_root . '/wordpress-tests-lib-' . $version_key;
 $core_dir    = sd_ai_agent_setup_env('WP_CORE_DIR') ?? $cache_root . '/wordpress-' . $version_key;
 
-$db_name = sd_ai_agent_setup_env('WP_TESTS_DB_NAME') ?? 'sd_ai_agent_tests';
-$db_user = sd_ai_agent_setup_env('WP_TESTS_DB_USER') ?? 'root';
-$db_pass = sd_ai_agent_setup_env('WP_TESTS_DB_PASS') ?? '';
-$db_host = sd_ai_agent_setup_env('WP_TESTS_DB_HOST') ?? 'localhost';
+$db_name     = sd_ai_agent_setup_env('WP_TESTS_DB_NAME') ?? 'sd_ai_agent_tests';
+$db_user     = sd_ai_agent_setup_env('WP_TESTS_DB_USER') ?? 'root';
+$db_pass_env = sd_ai_agent_setup_env('WP_TESTS_DB_PASS');
+$db_pass     = null !== $db_pass_env
+	? $db_pass_env
+	: (sd_ai_agent_setup_read_config_password($tests_dir) ?? '');
+$db_host     = sd_ai_agent_setup_env('WP_TESTS_DB_HOST') ?? 'localhost';
 $skip_db = 'true' === strtolower(sd_ai_agent_setup_env('WP_TESTS_SKIP_DB_CREATE') ?? 'false');
 
 $installer = $plugin_dir . '/bin/install-wp-tests.sh';
