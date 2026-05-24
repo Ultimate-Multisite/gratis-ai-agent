@@ -8,6 +8,9 @@
 		<testsuite name="stress">
 			<directory suffix="Test.php">./tests/SdAiAgent/Stress/</directory>
 		</testsuite>
+		<testsuite name="security">
+			<directory suffix="Test.php">./tests/SdAiAgent/Security/</directory>
+		</testsuite>
 	</testsuites>
 	<coverage includeUncoveredFiles="true" processUncoveredFiles="true">
 		<include>
