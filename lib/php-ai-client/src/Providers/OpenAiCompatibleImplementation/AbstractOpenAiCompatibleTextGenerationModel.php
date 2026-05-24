@@ -93,6 +93,14 @@ abstract class AbstractOpenAiCompatibleTextGenerationModel extends AbstractApiBa
     {
         $config = $this->getConfig();
         $params = ['model' => $this->metadata()->getId(), 'messages' => $this->prepareMessagesParam($prompt, $config->getSystemInstruction())];
+        // For DeepSeek thinking models, merge split [reasoning-only, tool-calls] wire message
+        // pairs back into a single assistant message. The ConversationSerializer splits them
+        // to satisfy the OpenAI Responses API constraint (one function_call per message), but
+        // DeepSeek's thinking-mode API requires reasoning_content and tool_calls in the same
+        // assistant message — see https://api-docs.deepseek.com/guides/thinking_mode#tool-calls.
+        if ($this->isDeepSeekThinkingModel($this->metadata()->getId())) {
+            $params['messages'] = $this->mergeDeepSeekSplitReasoningMessages($params['messages']);
+        }
         $outputModalities = $config->getOutputModalities();
         if (is_array($outputModalities)) {
             $this->validateOutputModalities($outputModalities);
@@ -169,11 +177,7 @@ abstract class AbstractOpenAiCompatibleTextGenerationModel extends AbstractApiBa
      */
     protected function prepareMessagesParam(array $messages, ?string $systemInstruction = null): array
     {
-        // Check if this is a DeepSeek thinking model that requires reasoning_content round-trip.
-        $modelId = $this->metadata()->getId();
-        $isDeepSeekThinkingModel = $this->isDeepSeekThinkingModel($modelId);
-
-        $messagesParam = array_map(function (Message $message) use ($isDeepSeekThinkingModel): array {
+        $messagesParam = array_map(function (Message $message): array {
             // Special case: Function response.
             $messageParts = $message->getParts();
             if (count($messageParts) === 1 && $messageParts[0]->getType()->isFunctionResponse()) {
@@ -190,8 +194,14 @@ abstract class AbstractOpenAiCompatibleTextGenerationModel extends AbstractApiBa
             if (!empty($toolCalls)) {
                 $messageData['tool_calls'] = $toolCalls;
             }
-            // For DeepSeek thinking models, include reasoning_content if present.
-            if ($isDeepSeekThinkingModel && $message->getRole()->isModel()) {
+            // Always include reasoning_content on model messages when thought-channel parts are
+            // present. The only way a message has thought-channel parts is if the provider's
+            // response contained reasoning_content (added in parseResponseChoiceMessageParts).
+            // Any such provider requires the reasoning_content echoed back verbatim — this is
+            // not provider-specific logic, it is a universal contract for reasoning-content APIs.
+            // (Previously gated on isDeepSeekThinkingModel() model-ID regex, which failed for
+            // model IDs not matching the regex pattern — see GH#1814.)
+            if ($message->getRole()->isModel()) {
                 $reasoningContent = $this->extractReasoningContent($messageParts);
                 if ($reasoningContent !== null) {
                     $messageData['reasoning_content'] = $reasoningContent;
@@ -587,27 +597,95 @@ abstract class AbstractOpenAiCompatibleTextGenerationModel extends AbstractApiBa
          $lowerModelId = strtolower($modelId);
          return (bool) preg_match('/deepseek.*(?:reasoner|thinking|v[34].*flash|v[34].*pro)/i', $modelId);
      }
-     /**
-      * Extracts reasoning_content from message parts if present.
-      *
-      * Looks for message parts in the thought channel and returns their text content
-      * as reasoning_content for DeepSeek thinking models.
-      *
-      * @since 1.4.0
-      *
-      * @param MessagePart[] $parts The message parts to search.
-      * @return string|null The reasoning content if found, null otherwise.
-      */
-     private function extractReasoningContent(array $parts): ?string
-     {
-         foreach ($parts as $part) {
-             if ($part->getChannel()->isThought() && $part->getType()->isText()) {
-                 $text = $part->getText();
-                 if ($text !== null && $text !== '') {
-                     return $text;
-                 }
-             }
-         }
-         return null;
-     }
- }
+      /**
+       * Extracts reasoning_content from message parts if present.
+       *
+       * Looks for message parts in the thought channel and returns their text content
+       * as reasoning_content for DeepSeek thinking models.
+       *
+       * @since 1.4.0
+       *
+       * @param MessagePart[] $parts The message parts to search.
+       * @return string|null The reasoning content if found, null otherwise.
+       */
+      private function extractReasoningContent(array $parts): ?string
+      {
+          foreach ($parts as $part) {
+              if ($part->getChannel()->isThought() && $part->getType()->isText()) {
+                  $text = $part->getText();
+                  if ($text !== null && $text !== '') {
+                      return $text;
+                  }
+              }
+          }
+          return null;
+      }
+
+      /**
+       * Merges split [reasoning-only, tool-calls] wire assistant message pairs.
+       *
+       * The ConversationSerializer::append_assistant_message() splits a DeepSeek
+       * thinking-mode response that contains both reasoning_content and tool_calls
+       * into two separate ModelMessages so the history satisfies the OpenAI Responses
+       * API constraint (each function_call must be its own top-level input item).
+       *
+       * DeepSeek's API, however, requires both reasoning_content and tool_calls in
+       * the SAME assistant message on every subsequent request — sending them in two
+       * separate messages causes a 400 "reasoning_content must be passed back" error.
+       *
+       * This method detects adjacent assistant wire entries matching the split pattern:
+       *   Entry [i]:   {role: assistant, reasoning_content: "...", content: [], no tool_calls}
+       *   Entry [i+1]: {role: assistant, content: [], tool_calls: [...], no reasoning_content}
+       *
+       * and collapses them into a single entry:
+       *   {role: assistant, reasoning_content: "...", content: [], tool_calls: [...]}
+       *
+       * The merge is idempotent: entries that are already correctly shaped (one
+       * message with both fields) are left untouched.
+       *
+       * @since 1.4.1
+       *
+       * @param list<array<string, mixed>> $messages Wire messages from prepareMessagesParam().
+       * @return list<array<string, mixed>> Wire messages with split pairs merged.
+       */
+      private function mergeDeepSeekSplitReasoningMessages(array $messages): array
+      {
+          $result = [];
+          $count  = count($messages);
+          $i      = 0;
+
+          while ($i < $count) {
+              $current = $messages[$i];
+              $next    = ($i + 1 < $count) ? $messages[$i + 1] : null;
+
+              // Detect the split pattern:
+              //  current = reasoning-only assistant entry (has reasoning_content, no tool_calls)
+              //  next    = tool-calls assistant entry (has tool_calls, no reasoning_content)
+              if ($next !== null
+                  && is_array($current)
+                  && ($current['role'] ?? '') === 'assistant'
+                  && isset($current['reasoning_content'])
+                  && $current['reasoning_content'] !== ''
+                  && (empty($current['tool_calls']))
+                  && (empty($current['content']) || $current['content'] === [])
+                  && is_array($next)
+                  && ($next['role'] ?? '') === 'assistant'
+                  && !empty($next['tool_calls'])
+                  && (empty($next['reasoning_content']))
+              ) {
+                  // Merge: carry reasoning_content onto the tool-calls entry and drop
+                  // the reasoning-only entry, producing the single-message shape that
+                  // DeepSeek's thinking-mode API requires.
+                  $merged                      = $next;
+                  $merged['reasoning_content'] = $current['reasoning_content'];
+                  $result[]                    = $merged;
+                  $i += 2;
+              } else {
+                  $result[] = $current;
+                  ++$i;
+              }
+          }
+
+          return $result;
+      }
+  }
