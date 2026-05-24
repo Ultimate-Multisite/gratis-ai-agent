@@ -238,6 +238,132 @@ class UploadMediaAbilityTest extends WP_UnitTestCase {
 		wp_delete_attachment( $result['attachment_id'], true );
 	}
 
+	// ─── base64 extension handling (GH#1771) ─────────────────────────────────
+
+	/**
+	 * source=base64 with filename that already carries the correct extension does
+	 * not produce a doubled extension (e.g. promo.png → promo.png, not promo.png.png).
+	 */
+	public function test_base64_upload_preserves_existing_extension(): void {
+		// phpcs:ignore WordPress.PHP.DiscouragedPHPFunctions.obfuscation_base64_encode -- test fixture encoding
+		$png_b64 = base64_encode( self::minimal_png_bytes() );
+
+		$result = UploadMediaAbility::handle_upload_media( [
+			'source'      => 'base64',
+			'data_base64' => $png_b64,
+			'mime_type'   => 'image/png',
+			'filename'    => 'promo.png', // Already has the correct extension — must not become promo.png.png.
+		] );
+
+		if ( is_wp_error( $result ) ) {
+			// Some CI environments cannot run media_handle_sideload — acceptable.
+			$this->assertInstanceOf( \WP_Error::class, $result );
+			return;
+		}
+
+		$this->assertIsArray( $result );
+		$this->assertGreaterThan( 0, $result['attachment_id'] );
+
+		$attached_file = get_attached_file( $result['attachment_id'] );
+		$basename      = $attached_file ? basename( $attached_file ) : '';
+
+		$this->assertStringNotContainsString( '.png.png', $basename, 'Extension was doubled: .png.png' );
+		$this->assertMatchesRegularExpression( '/\.png$/i', $basename, 'Filename must end with .png' );
+
+		// Clean up.
+		wp_delete_attachment( $result['attachment_id'], true );
+	}
+
+	/**
+	 * source=base64 with filename that has no extension appends the correct one.
+	 *
+	 * promo + image/png → promo.png (not promo).
+	 */
+	public function test_base64_upload_appends_extension_when_missing(): void {
+		// phpcs:ignore WordPress.PHP.DiscouragedPHPFunctions.obfuscation_base64_encode -- test fixture encoding
+		$png_b64 = base64_encode( self::minimal_png_bytes() );
+
+		$result = UploadMediaAbility::handle_upload_media( [
+			'source'      => 'base64',
+			'data_base64' => $png_b64,
+			'mime_type'   => 'image/png',
+			'filename'    => 'promo', // No extension — must have .png appended.
+		] );
+
+		if ( is_wp_error( $result ) ) {
+			$this->assertInstanceOf( \WP_Error::class, $result );
+			return;
+		}
+
+		$this->assertIsArray( $result );
+		$this->assertGreaterThan( 0, $result['attachment_id'] );
+
+		$attached_file = get_attached_file( $result['attachment_id'] );
+		$basename      = $attached_file ? basename( $attached_file ) : '';
+
+		$this->assertMatchesRegularExpression( '/\.png$/i', $basename, 'Filename must end with .png when extension was missing' );
+
+		// Clean up.
+		wp_delete_attachment( $result['attachment_id'], true );
+	}
+
+	/**
+	 * source=base64 with image/jpeg MIME and a .jpg filename does not produce
+	 * a doubled extension (photo.jpg → photo.jpg, not photo.jpg.jpeg or photo.jpg.jpg).
+	 *
+	 * Covers the jpeg/jpg alias: WP's canonical extension for image/jpeg may be
+	 * 'jpg' or 'jpeg' depending on the version, so both must be accepted as-is.
+	 */
+	public function test_base64_upload_handles_jpeg_jpg_alias(): void {
+		if ( ! function_exists( 'imagecreatetruecolor' ) ) {
+			$this->markTestSkipped( 'GD extension is required to generate a JPEG fixture.' );
+		}
+
+		// Generate a minimal 1×1 JPEG using GD.
+		$img = imagecreatetruecolor( 1, 1 );
+		if ( false === $img ) {
+			$this->markTestSkipped( 'imagecreatetruecolor() failed.' );
+		}
+		ob_start();
+		// phpcs:ignore WordPress.WP.AlternativeFunctions.file_ops_file_put_contents -- GD output to buffer
+		imagejpeg( $img );
+		$jpeg_bytes = (string) ob_get_clean();
+		imagedestroy( $img );
+
+		if ( '' === $jpeg_bytes ) {
+			$this->markTestSkipped( 'imagejpeg() produced no output.' );
+		}
+
+		// phpcs:ignore WordPress.PHP.DiscouragedPHPFunctions.obfuscation_base64_encode -- test fixture encoding
+		$jpeg_b64 = base64_encode( $jpeg_bytes );
+
+		$result = UploadMediaAbility::handle_upload_media( [
+			'source'      => 'base64',
+			'data_base64' => $jpeg_b64,
+			'mime_type'   => 'image/jpeg',
+			'filename'    => 'photo.jpg', // .jpg alias for image/jpeg — must NOT become photo.jpg.jpeg or photo.jpg.jpg.
+		] );
+
+		if ( is_wp_error( $result ) ) {
+			$this->assertInstanceOf( \WP_Error::class, $result );
+			return;
+		}
+
+		$this->assertIsArray( $result );
+		$this->assertGreaterThan( 0, $result['attachment_id'] );
+		$this->assertSame( 'image/jpeg', $result['mime_type'] );
+
+		$attached_file = get_attached_file( $result['attachment_id'] );
+		$basename      = $attached_file ? basename( $attached_file ) : '';
+
+		$this->assertStringNotContainsString( '.jpg.jpeg', $basename, 'Extension was doubled: .jpg.jpeg' );
+		$this->assertStringNotContainsString( '.jpg.jpg', $basename, 'Extension was doubled: .jpg.jpg' );
+		$this->assertMatchesRegularExpression( '/\.(jpg|jpeg)$/i', $basename, 'Filename must end with .jpg or .jpeg' );
+
+		// Clean up.
+		wp_delete_attachment( $result['attachment_id'], true );
+	}
+
 	// ─── source=path ─────────────────────────────────────────────────────────
 
 	/**

@@ -76,7 +76,7 @@ class UploadMediaAbility {
 						],
 						'filename'    => [
 							'type'        => 'string',
-							'description' => __( 'Filename to use in the media library (without extension). Sniffed from the URL or generated when omitted.', 'superdav-ai-agent' ),
+							'description' => __( 'Filename for the media library entry, with or without extension. When the supplied name already ends with the correct extension for the MIME type, it is preserved as-is; otherwise the extension is appended automatically. Sniffed from the URL or generated when omitted.', 'superdav-ai-agent' ),
 						],
 						'post_id'     => [
 							'type'        => 'integer',

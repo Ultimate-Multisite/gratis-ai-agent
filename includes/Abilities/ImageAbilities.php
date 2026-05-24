@@ -563,7 +563,7 @@ INSTRUCTION;
 		$alt_text = sanitize_text_field( $input['alt_text'] ?? '' );
 
 		$file_array = [
-			'name'     => $base_name . '.' . $extension,
+			'name'     => self::build_upload_filename( $base_name, $extension, $mime_type ),
 			'type'     => $mime_type,
 			'tmp_name' => $temp_file,
 		];
@@ -604,6 +604,43 @@ INSTRUCTION;
 			'alt_text'      => (string) get_post_meta( $attachment_id, '_wp_attachment_image_alt', true ),
 			'mime_type'     => $attachment ? $attachment->post_mime_type : $mime_type,
 		];
+	}
+
+	/**
+	 * Build the filename for a media sideload, avoiding duplicate extensions.
+	 *
+	 * If $base_name already ends with the correct extension for $mime_type (or
+	 * its accepted alias, e.g. .jpg for image/jpeg whose canonical extension is
+	 * 'jpeg'), the name is returned as-is.  Otherwise $extension is appended.
+	 *
+	 * Examples:
+	 *   build_upload_filename( 'promo.png', 'png', 'image/png' )  → 'promo.png'
+	 *   build_upload_filename( 'promo',     'png', 'image/png' )  → 'promo.png'
+	 *   build_upload_filename( 'photo.jpg', 'jpg', 'image/jpeg' ) → 'photo.jpg'
+	 *   build_upload_filename( 'photo.jpg', 'jpeg','image/jpeg' ) → 'photo.jpg'
+	 *
+	 * @since 1.10.1
+	 *
+	 * @param string $base_name Sanitised filename, with or without extension.
+	 * @param string $extension Canonical extension from wp_get_default_extension_for_mime_type().
+	 * @param string $mime_type Full MIME type (e.g. 'image/png', 'image/jpeg').
+	 * @return string Filename with exactly one correct extension.
+	 */
+	private static function build_upload_filename( string $base_name, string $extension, string $mime_type ): string {
+		$existing_ext = strtolower( pathinfo( $base_name, PATHINFO_EXTENSION ) );
+
+		// Direct match: filename already ends with the canonical extension.
+		if ( $existing_ext === strtolower( $extension ) ) {
+			return $base_name;
+		}
+
+		// Handle the jpeg/jpg alias pair: treat .jpeg and .jpg as interchangeable
+		// for image/jpeg regardless of which canonical extension WP returns.
+		if ( 'image/jpeg' === $mime_type && in_array( $existing_ext, [ 'jpeg', 'jpg' ], true ) ) {
+			return $base_name;
+		}
+
+		return $base_name . '.' . $extension;
 	}
 
 	// ─── Shared helpers ──────────────────────────────────────────────────────
