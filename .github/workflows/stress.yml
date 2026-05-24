@@ -1,0 +1,74 @@
+name: Stress Tests
+
+# Nightly at 02:00 UTC + on-demand only.
+# Stress tests are NOT part of PR feedback (too slow for every PR).
+# See phpunit.xml.dist for the `stress` testsuite definition.
+on:
+  schedule:
+    - cron: '0 2 * * *'
+  workflow_dispatch:
+
+concurrency:
+  group: stress-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  stress:
+    name: PHPUnit Stress Suite
+    runs-on: ubuntu-latest
+    # WP 7.0 trunk may still be in flux; allow individual failures to be
+    # investigated without blocking unrelated nightly runs.
+    continue-on-error: true
+
+    services:
+      mariadb:
+        image: mariadb:lts
+        env:
+          MARIADB_ROOT_PASSWORD: root
+          MARIADB_DATABASE: wordpress_test
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="healthcheck.sh --connect --innodb_initialized"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=5
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+          extensions: mbstring, intl, zip, pdo_sqlite, mysqli
+          tools: composer:v2
+          coverage: none
+
+      - name: Get Composer cache directory
+        id: composer-cache
+        run: echo "dir=$(composer config cache-files-dir)" >> $GITHUB_OUTPUT
+
+      - name: Cache Composer dependencies
+        uses: actions/cache@v5
+        with:
+          path: ${{ steps.composer-cache.outputs.dir }}
+          key: ${{ runner.os }}-composer-${{ hashFiles('**/composer.lock') }}
+          restore-keys: ${{ runner.os }}-composer-
+
+      - name: Install Composer dependencies
+        run: composer install --prefer-dist --no-progress
+
+      - name: Install subversion
+        run: sudo apt-get update && sudo apt-get install -y subversion
+
+      - name: Install WordPress test suite
+        run: bash bin/install-wp-tests.sh wordpress_test root root 127.0.0.1 trunk true
+
+      - name: Run stress suite
+        run: vendor/bin/phpunit --testsuite=stress
+        env:
+          # Deterministic default seed — override with any integer to reproduce
+          # a specific chaos failure.
+          SD_AI_AGENT_CHAOS_SEED: 1337

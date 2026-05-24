@@ -3,6 +3,10 @@
 	<testsuites>
 		<testsuite name="sd-ai-agent">
 			<directory suffix="Test.php">./tests/</directory>
+			<exclude>./tests/SdAiAgent/Stress</exclude>
+		</testsuite>
+		<testsuite name="stress">
+			<directory suffix="Test.php">./tests/SdAiAgent/Stress/</directory>
 		</testsuite>
 	</testsuites>
 	<coverage includeUncoveredFiles="true" processUncoveredFiles="true">
