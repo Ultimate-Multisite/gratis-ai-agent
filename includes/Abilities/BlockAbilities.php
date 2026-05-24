@@ -988,6 +988,68 @@ class BlockAbilities {
 		);
 
 		wp_register_ability(
+			'sd-ai-agent/revert-to-revision',
+			[
+				'label'               => __( 'Revert to Revision', 'superdav-ai-agent' ),
+				'description'         => __( 'Roll back a post to a specific revision ID. Symmetric undo for every block-write ability that returns a revision_id. Calls wp_restore_post_revision, creates a new revision with the old content, and reseeds all sd_ref UUIDs so restored blocks get fresh, collision-free refs. Optional expected_current_revision_id provides optimistic concurrency: if the post has changed since you last fetched it the call is rejected with revision_stale.', 'superdav-ai-agent' ),
+				'category'            => 'sd-ai-agent',
+				'input_schema'        => [
+					'type'       => 'object',
+					'properties' => [
+						'post_id'                      => [
+							'type'        => 'integer',
+							'description' => 'Post ID to revert.',
+						],
+						'revision_id'                  => [
+							'type'        => 'integer',
+							'description' => 'Revision ID to restore. Must belong to post_id.',
+						],
+						'expected_current_revision_id' => [
+							'type'        => 'integer',
+							'description' => 'Optional optimistic concurrency guard. Pass the revision_id from get-page-blocks to ensure no intervening edits have occurred. If the current revision does not match, the call is rejected with revision_stale.',
+						],
+					],
+					'required'   => [ 'post_id', 'revision_id' ],
+				],
+				'output_schema'       => [
+					'type'       => 'object',
+					'properties' => [
+						'post_id'                 => [ 'type' => 'integer' ],
+						'reverted_to_revision_id' => [
+							'type'        => 'integer',
+							'description' => 'The revision ID that was restored.',
+						],
+						'new_revision_id'         => [
+							'type'        => 'integer',
+							'description' => 'The new revision ID created by wp_restore_post_revision.',
+						],
+						'refs_reseeded'           => [
+							'type'        => 'integer',
+							'description' => 'Number of blocks that received a fresh sd_ref after the revert.',
+						],
+						'block_count'             => [
+							'type'        => 'integer',
+							'description' => 'Total number of named blocks in the restored post.',
+						],
+						'error'                   => [ 'type' => 'string' ],
+					],
+				],
+				'execute_callback'    => [ __CLASS__, 'handle_revert_to_revision' ],
+				'permission_callback' => function () {
+					return current_user_can( 'edit_posts' );
+				},
+				'meta'                => [
+					'mcp'         => [ 'public' => true ],
+					'annotations' => [
+						'readonly'    => false,
+						'destructive' => true,
+						'idempotent'  => false,
+					],
+				],
+			]
+		);
+
+		wp_register_ability(
 			'sd-ai-agent/replace-block-range',
 			[
 				'label'               => __( 'Replace Block Range', 'superdav-ai-agent' ),
@@ -3326,6 +3388,61 @@ class BlockAbilities {
 			'block_count'    => $block_count,
 			'dry_run'        => $dry_run,
 		];
+	}
+
+	// ─── revert-to-revision handler ───────────────────────────────
+
+	/**
+	 * Handle the sd-ai-agent/revert-to-revision ability.
+	 *
+	 * Validates input, applies the write-bucket rate limit, and delegates to
+	 * BlockMutator::revert_to_revision() which performs the actual revision
+	 * restore, cap check, and ref reseeding.
+	 *
+	 * @param array<string,mixed> $input Ability input.
+	 * @return array<string,mixed>|\WP_Error Result array or WP_Error.
+	 */
+	public static function handle_revert_to_revision( array $input ) {
+		$post_id     = (int) ( $input['post_id'] ?? 0 );
+		$revision_id = (int) ( $input['revision_id'] ?? 0 );
+		$expected    = isset( $input['expected_current_revision_id'] )
+			? (int) $input['expected_current_revision_id']
+			: null;
+
+		// ── Input validation ─────────────────────────────────────────
+		if ( $post_id <= 0 ) {
+			return new \WP_Error(
+				'missing_post_id',
+				__( 'post_id is required and must be a positive integer.', 'superdav-ai-agent' ),
+				[ 'status' => 400 ]
+			);
+		}
+
+		if ( $revision_id <= 0 ) {
+			return new \WP_Error(
+				'missing_revision_id',
+				__( 'revision_id is required and must be a positive integer.', 'superdav-ai-agent' ),
+				[ 'status' => 400 ]
+			);
+		}
+
+		// ── Rate limit (write bucket, per-post) ──────────────────────
+		$rate_check = RateLimiter::check( 'write', $post_id );
+		if ( is_wp_error( $rate_check ) ) {
+			return $rate_check;
+		}
+
+		// ── Delegate to BlockMutator ──────────────────────────────────
+		$result = BlockMutator::revert_to_revision( $post_id, $revision_id, $expected );
+
+		if ( is_wp_error( $result ) ) {
+			return $result;
+		}
+
+		// Record rate-limit tick after successful revert.
+		RateLimiter::record( 'write', $post_id );
+
+		return $result;
 	}
 
 	// ─── Tree-counting helpers ────────────────────────────────────

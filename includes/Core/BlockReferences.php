@@ -202,7 +202,140 @@ class BlockReferences {
 		return true;
 	}
 
+	/**
+	 * Re-seed all sd_ref values in a post after a content replacement (e.g. after a revert).
+	 *
+	 * Strips every existing sd_ref from the current post_content, assigns fresh
+	 * collision-free refs to every block, and writes the result back directly to
+	 * the DB without creating a revision (refs are editor-only metadata, not
+	 * user-authored content). Returns the number of blocks that received a ref,
+	 * or 0 on any failure.
+	 *
+	 * This is called by BlockMutator::revert_to_revision() after
+	 * wp_restore_post_revision() so that refs embedded in the old revision content
+	 * are replaced before they can collide with refs in other posts.
+	 *
+	 * @param int $post_id Post ID to reseed.
+	 * @return int Number of blocks that received a fresh sd_ref, or 0 on failure.
+	 */
+	public static function reseed_for_post( int $post_id ): int {
+		global $wpdb;
+
+		if ( ! function_exists( 'parse_blocks' ) || ! function_exists( 'serialize_blocks' ) ) {
+			return 0;
+		}
+
+		$post = get_post( $post_id );
+		if ( ! $post ) {
+			return 0;
+		}
+
+		// @phpstan-ignore-next-line
+		$blocks = parse_blocks( $post->post_content );
+		if ( ! is_array( $blocks ) ) {
+			return 0;
+		}
+
+		// Strip all existing refs so every block receives a fresh, collision-free one.
+		$stripped = self::strip_refs_tree( $blocks );
+
+		// Assign fresh refs.
+		$result = self::assign_refs( $stripped );
+		if ( is_wp_error( $result ) ) {
+			return 0;
+		}
+
+		// Count how many named blocks received a ref.
+		$count = self::count_ref_blocks( $result );
+
+		// Persist via direct DB write — no revision, no filters.
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching
+		$updated = $wpdb->update(
+			$wpdb->posts,
+			// @phpstan-ignore-next-line
+			[ 'post_content' => serialize_blocks( $result ) ],
+			[ 'ID' => $post_id ],
+			[ '%s' ],
+			[ '%d' ]
+		);
+
+		if ( false === $updated ) {
+			return 0;
+		}
+
+		clean_post_cache( $post_id );
+
+		return $count;
+	}
+
 	// ── Internal helpers ──────────────────────────────────────────────────
+
+	/**
+	 * Recursively strip all sd_ref values from a block tree.
+	 *
+	 * Returns a new tree with the sd_ref key removed from every block's
+	 * `attrs.metadata` so a fresh reseed can assign collision-free refs.
+	 *
+	 * @param array<int|string,mixed> $blocks Block tree.
+	 * @return array<int|string,mixed> Tree with refs stripped.
+	 */
+	private static function strip_refs_tree( array $blocks ): array {
+		$result = [];
+
+		foreach ( $blocks as $block ) {
+			if ( ! is_array( $block ) ) {
+				continue;
+			}
+
+			if ( isset( $block['attrs']['metadata'][ self::REF_KEY ] ) ) {
+				unset( $block['attrs']['metadata'][ self::REF_KEY ] );
+				// Clean up empty metadata array.
+				if ( isset( $block['attrs']['metadata'] ) && empty( $block['attrs']['metadata'] ) ) {
+					unset( $block['attrs']['metadata'] );
+				}
+			}
+
+			$inner = isset( $block['innerBlocks'] ) && is_array( $block['innerBlocks'] ) ? $block['innerBlocks'] : [];
+			if ( ! empty( $inner ) ) {
+				$block['innerBlocks'] = self::strip_refs_tree( $inner );
+			}
+
+			$result[] = $block;
+		}
+
+		return $result;
+	}
+
+	/**
+	 * Count named blocks carrying a non-empty sd_ref in a block tree.
+	 *
+	 * @param array<int|string,mixed> $blocks Block tree.
+	 * @return int Count of blocks with sd_ref set.
+	 */
+	private static function count_ref_blocks( array $blocks ): int {
+		$count = 0;
+
+		foreach ( $blocks as $block ) {
+			if ( ! is_array( $block ) || empty( $block['blockName'] ) ) {
+				continue;
+			}
+
+			$metadata = isset( $block['attrs']['metadata'] ) && is_array( $block['attrs']['metadata'] )
+				? $block['attrs']['metadata']
+				: [];
+
+			if ( ! empty( $metadata[ self::REF_KEY ] ) ) {
+				++$count;
+			}
+
+			$inner = isset( $block['innerBlocks'] ) && is_array( $block['innerBlocks'] ) ? $block['innerBlocks'] : [];
+			if ( ! empty( $inner ) ) {
+				$count += self::count_ref_blocks( $inner );
+			}
+		}
+
+		return $count;
+	}
 
 	/**
 	 * Collect all existing sd_ref values in a block tree (pre-flight dedup).
