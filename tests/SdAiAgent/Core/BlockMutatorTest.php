@@ -1003,4 +1003,184 @@ class BlockMutatorTest extends WP_UnitTestCase {
 		// No _warnings key for preferred blocks.
 		$this->assertArrayNotHasKey( '_warnings', $result );
 	}
+
+	// ── Block Bindings write-lock bypass fixes (GH#1769) ─────────────────
+
+	/**
+	 * Build a bound paragraph block (metadata.bindings.content set).
+	 *
+	 * @return array<string,mixed>
+	 */
+	private function make_bound_paragraph(): array {
+		return [
+			'blockName'    => 'core/paragraph',
+			'attrs'        => [
+				'metadata' => [
+					'bindings' => [
+						'content' => [
+							'source' => 'core/post-meta',
+							'args'   => [ 'key' => 'foo_meta' ],
+						],
+					],
+				],
+			],
+			'innerBlocks'  => [],
+			'innerHTML'    => '<p>placeholder</p>',
+			'innerContent' => [ '<p>placeholder</p>' ],
+		];
+	}
+
+	/**
+	 * update-html with only innerHTML on a bound paragraph is rejected (GH#1769).
+	 *
+	 * Before the fix, a raw innerHTML write bypassed the Block Bindings
+	 * write-lock because the guard only fired when `attributes` was also
+	 * supplied. Now the block-level check always fires.
+	 */
+	public function test_update_html_on_bound_paragraph_rejects_without_override(): void {
+		$blocks = [ $this->make_bound_paragraph() ];
+
+		$result = BlockMutator::apply( $blocks, 'update-html', [
+			'path'      => [ 0 ],
+			'innerHTML' => '<p>hacked</p>',
+		] );
+
+		$this->assertInstanceOf( \WP_Error::class, $result );
+		$this->assertSame( 'bound_block_write_blocked', $result->get_error_code() );
+		$data = $result->get_error_data();
+		$this->assertSame( 409, $data['status'] );
+		$this->assertContains( 'content', $data['bindings'] );
+	}
+
+	/**
+	 * update-html on a bound block with allow_bound_writes:true succeeds (GH#1769).
+	 */
+	public function test_update_html_on_bound_block_with_override_succeeds(): void {
+		$blocks = [ $this->make_bound_paragraph() ];
+
+		$result = BlockMutator::apply( $blocks, 'update-html', [
+			'path'              => [ 0 ],
+			'innerHTML'         => '<p>override</p>',
+			'allow_bound_writes' => true,
+		] );
+
+		$this->assertIsArray( $result );
+		$this->assertSame( '<p>override</p>', $result[0]['innerHTML'] );
+	}
+
+	/**
+	 * replace-block on a bound target is rejected (GH#1769).
+	 */
+	public function test_replace_block_on_bound_target_rejects_without_override(): void {
+		$blocks = [ $this->make_bound_paragraph() ];
+
+		$result = BlockMutator::apply( $blocks, 'replace-block', [
+			'path'      => [ 0 ],
+			'block_def' => $this->make_block( 'core/heading', [ 'level' => 2 ], [], '<h2>New</h2>' ),
+		] );
+
+		$this->assertInstanceOf( \WP_Error::class, $result );
+		$this->assertSame( 'bound_block_write_blocked', $result->get_error_code() );
+		$data = $result->get_error_data();
+		$this->assertSame( 409, $data['status'] );
+		$this->assertContains( 'content', $data['bindings'] );
+	}
+
+	/**
+	 * replace-block on a bound target with allow_bound_writes:true succeeds (GH#1769).
+	 */
+	public function test_replace_block_on_bound_target_with_override_succeeds(): void {
+		$blocks = [ $this->make_bound_paragraph() ];
+
+		$result = BlockMutator::apply( $blocks, 'replace-block', [
+			'path'               => [ 0 ],
+			'block_def'          => $this->make_block( 'core/heading', [ 'level' => 2 ], [], '<h2>New</h2>' ),
+			'allow_bound_writes' => true,
+		] );
+
+		$this->assertIsArray( $result );
+		$this->assertSame( 'core/heading', $result[0]['blockName'] );
+	}
+
+	/**
+	 * remove-block on a bound target is rejected (GH#1769).
+	 */
+	public function test_remove_block_on_bound_target_rejects_without_override(): void {
+		$blocks = [
+			$this->make_bound_paragraph(),
+			$this->make_block( 'core/paragraph', [], [], '<p>Keep</p>' ),
+		];
+
+		$result = BlockMutator::apply( $blocks, 'remove-block', [
+			'path' => [ 0 ],
+		] );
+
+		$this->assertInstanceOf( \WP_Error::class, $result );
+		$this->assertSame( 'bound_block_write_blocked', $result->get_error_code() );
+		$data = $result->get_error_data();
+		$this->assertSame( 409, $data['status'] );
+		$this->assertContains( 'content', $data['bindings'] );
+	}
+
+	/**
+	 * remove-block on a bound target with allow_bound_writes:true succeeds (GH#1769).
+	 */
+	public function test_remove_block_on_bound_target_with_override_succeeds(): void {
+		$blocks = [
+			$this->make_bound_paragraph(),
+			$this->make_block( 'core/paragraph', [], [], '<p>Keep</p>' ),
+		];
+
+		$result = BlockMutator::apply( $blocks, 'remove-block', [
+			'path'               => [ 0 ],
+			'allow_bound_writes' => true,
+		] );
+
+		$this->assertIsArray( $result );
+		$this->assertCount( 1, $result );
+		$this->assertSame( '<p>Keep</p>', $result[0]['innerHTML'] );
+	}
+
+	/**
+	 * apply_batch: per-item allow_bound_writes:true unlocks a bound block (GH#1769).
+	 *
+	 * Verifies that a batch with a single update-html targeting a bound block
+	 * succeeds when the per-item allow_bound_writes flag is set.
+	 */
+	public function test_apply_batch_update_html_per_item_allow_bound_writes_unlocks(): void {
+		$blocks = [ $this->make_bound_paragraph() ];
+
+		$result = BlockMutator::apply_batch( $blocks, [
+			[
+				'op'                 => 'update-html',
+				'path'               => [ 0 ],
+				'innerHTML'          => '<p>override</p>',
+				'allow_bound_writes' => true,
+			],
+		] );
+
+		$this->assertIsArray( $result );
+		$this->assertSame( '<p>override</p>', $result[0]['innerHTML'] );
+	}
+
+	/**
+	 * apply_batch: update-html on bound block without override fails with per-item error (GH#1769).
+	 */
+	public function test_apply_batch_update_html_bound_block_without_override_fails(): void {
+		$blocks = [ $this->make_bound_paragraph() ];
+
+		$result = BlockMutator::apply_batch( $blocks, [
+			[
+				'op'        => 'update-html',
+				'path'      => [ 0 ],
+				'innerHTML' => '<p>hacked</p>',
+			],
+		] );
+
+		$this->assertInstanceOf( \WP_Error::class, $result );
+		$this->assertSame( 'batch_validation_failed', $result->get_error_code() );
+		$data = $result->get_error_data();
+		$this->assertNotEmpty( $data['errors'] );
+		$this->assertSame( 'bound_block_write_blocked', $data['errors'][0]['code'] );
+	}
 }

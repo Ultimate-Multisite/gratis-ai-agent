@@ -2806,6 +2806,20 @@ class BlockAbilities {
 			return $rate_check;
 		}
 
+		// ── Block Bindings write-lock: existing content ───────────────
+		// Check that none of the post's CURRENT blocks are bound, to prevent a
+		// full-page rewrite from silently overwriting bound blocks even when the
+		// new payload contains no bindings. The new-payload check happens below
+		// inside validate_rewrite_blocks.
+		$existing_content = is_string( $post->post_content ) ? $post->post_content : '';
+		// @phpstan-ignore-next-line
+		$existing_blocks = parse_blocks( $existing_content );
+		// @phpstan-ignore-next-line
+		$existing_check = BlockMutator::assert_existing_tree_not_bound( $existing_blocks, $allow_bound_writes );
+		if ( is_wp_error( $existing_check ) ) {
+			return $existing_check;
+		}
+
 		// ── Validate and normalize blocks ─────────────────────────────
 		// @phpstan-ignore-next-line
 		$validated = BlockMutator::validate_rewrite_blocks( $blocks, $allow_bound_writes );

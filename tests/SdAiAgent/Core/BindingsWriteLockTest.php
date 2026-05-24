@@ -229,7 +229,10 @@ class BindingsWriteLockTest extends WP_UnitTestCase {
 	// ── AC5: replace-block removing binding → subsequent writes allowed ────
 
 	/**
-	 * After replace-block removes bindings, writing the previously bound key succeeds.
+	 * After replace-block (with allow_bound_writes) removes bindings, subsequent writes succeed.
+	 *
+	 * As of GH#1769, replace-block on a bound target requires allow_bound_writes:true
+	 * because the block-level write-lock is now enforced for all mutating ops.
 	 */
 	public function test_replace_block_removes_binding_then_write_succeeds(): void {
 		$bindings = [
@@ -238,6 +241,7 @@ class BindingsWriteLockTest extends WP_UnitTestCase {
 		$blocks = [ $this->make_bound_block( 'core/paragraph', 'blk_replace1', $bindings ) ];
 
 		// Replace with a new block that has no bindings.
+		// allow_bound_writes: true is required because the TARGET block is bound.
 		$new_block_def = [
 			'blockName'    => 'core/paragraph',
 			'attrs'        => [
@@ -249,8 +253,9 @@ class BindingsWriteLockTest extends WP_UnitTestCase {
 		];
 
 		$result = BlockMutator::apply( $blocks, 'replace-block', [
-			'ref'       => 'blk_replace1',
-			'block_def' => $new_block_def,
+			'ref'                => 'blk_replace1',
+			'block_def'          => $new_block_def,
+			'allow_bound_writes' => true,
 		] );
 
 		$this->assertIsArray( $result );

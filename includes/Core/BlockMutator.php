@@ -171,7 +171,7 @@ class BlockMutator {
 				$result = self::op_replace_block( $blocks, $path, $args );
 				break;
 			case 'remove-block':
-				$result = self::op_remove_block( $blocks, $path );
+				$result = self::op_remove_block( $blocks, $path, $args );
 				break;
 			case 'wrap-in-group':
 				$result = self::op_wrap_in_group( $blocks, $path, $args );
@@ -657,6 +657,25 @@ class BlockMutator {
 			$normalized_new[] = $normalized;
 		}
 
+		// ── 7a. Block Bindings write-lock: check existing range members ──
+		// The new_blocks validation above only inspects the incoming replacements.
+		// An agent can bypass the policy by overwriting an existing bound block
+		// (e.g. a core/paragraph with metadata.bindings.content) with unbound
+		// content. Check every block in the start_idx..end_idx range and reject
+		// unless allow_bound_writes is true.
+		if ( ! $allow_bound_writes ) {
+			for ( $i = $start_idx; $i <= $end_idx; $i++ ) {
+				$range_block_path = array_merge( $start_parent, [ $i ] );
+				$existing_block   = BlockTreeAddress::get_block_at_path( $blocks, $range_block_path );
+				if ( is_array( $existing_block ) ) {
+					$range_check = self::assert_block_not_bound( $existing_block, false );
+					if ( is_wp_error( $range_check ) ) {
+						return $range_check;
+					}
+				}
+			}
+		}
+
 		// ── 8. Perform the atomic splice ─────────────────────────────
 		$result = self::mutate_at_path(
 			$blocks,
@@ -963,6 +982,110 @@ class BlockMutator {
 		);
 	}
 
+	/**
+	 * Assert that a write does not target a block with any Block Bindings.
+	 *
+	 * This is a block-level guard (stricter than the per-attribute check in
+	 * `assert_no_bound_attribute_writes`). If the target block has ANY entry
+	 * under `attrs.metadata.bindings`, the operation is rejected unless
+	 * `$allow_bound_writes` is explicitly true.
+	 *
+	 * Used by `update-html`, `replace-block`, and `remove-block` — ops that
+	 * replace or delete the block wholesale rather than updating individual
+	 * attributes.
+	 *
+	 * @param array<int|string,mixed> $block              The target block array.
+	 * @param bool                    $allow_bound_writes Explicit override flag.
+	 * @return true|\WP_Error True when the op is safe, WP_Error on violation.
+	 */
+	public static function assert_block_not_bound( array $block, bool $allow_bound_writes ): true|\WP_Error {
+		if ( $allow_bound_writes ) {
+			return true;
+		}
+
+		$attrs    = isset( $block['attrs'] ) && is_array( $block['attrs'] ) ? $block['attrs'] : [];
+		$metadata = isset( $attrs['metadata'] ) && is_array( $attrs['metadata'] ) ? $attrs['metadata'] : [];
+		$bindings = isset( $metadata['bindings'] ) && is_array( $metadata['bindings'] ) ? $metadata['bindings'] : [];
+
+		if ( empty( $bindings ) ) {
+			return true;
+		}
+
+		$ref = $metadata[ BlockReferences::REF_KEY ] ?? null;
+
+		return new \WP_Error(
+			'bound_block_write_blocked',
+			sprintf(
+				/* translators: 1: comma-separated list of bound binding keys */
+				__( 'Block has Block Bindings (%s); pass allow_bound_writes:true to override.', 'superdav-ai-agent' ),
+				implode( ', ', array_keys( $bindings ) )
+			),
+			[
+				'status'    => 409,
+				'bindings'  => array_keys( $bindings ),
+				'block_ref' => is_string( $ref ) ? $ref : '',
+			]
+		);
+	}
+
+	/**
+	 * Check a block tree (e.g. existing post blocks) for any block with bindings.
+	 *
+	 * Returns the first `bound_block_write_blocked` WP_Error encountered, or
+	 * `true` when no blocks in the tree are bound. Used by
+	 * `assert_existing_tree_not_bound` to guard full-page rewrite operations
+	 * where the EXISTING post content (not the new payload) is being replaced.
+	 *
+	 * @param array<string,mixed> $block Block definition (may include innerBlocks).
+	 * @return true|\WP_Error True when no bound blocks found; WP_Error on first hit.
+	 */
+	private static function check_bound_blocks_tree( array $block ): true|\WP_Error {
+		$check = self::assert_block_not_bound( $block, false );
+		if ( is_wp_error( $check ) ) {
+			return $check;
+		}
+
+		$inner = isset( $block['innerBlocks'] ) && is_array( $block['innerBlocks'] ) ? $block['innerBlocks'] : [];
+		foreach ( $inner as $child ) {
+			if ( is_array( $child ) ) {
+				$child_check = self::check_bound_blocks_tree( $child );
+				if ( is_wp_error( $child_check ) ) {
+					return $child_check;
+				}
+			}
+		}
+
+		return true;
+	}
+
+	/**
+	 * Assert that no block in the existing post tree has Block Bindings.
+	 *
+	 * Called by the `rewrite-post-blocks` handler to guard against full-page
+	 * rewrites that silently overwrite bound blocks in the current content.
+	 * The NEW blocks payload is validated separately by `validate_rewrite_blocks`.
+	 *
+	 * @param array<int,mixed> $blocks             Parsed existing block tree (from parse_blocks).
+	 * @param bool             $allow_bound_writes Pass-through override flag.
+	 * @return true|\WP_Error True when safe, WP_Error when any bound block is found.
+	 */
+	public static function assert_existing_tree_not_bound( array $blocks, bool $allow_bound_writes ): true|\WP_Error {
+		if ( $allow_bound_writes ) {
+			return true;
+		}
+
+		foreach ( $blocks as $block ) {
+			if ( is_array( $block ) ) {
+				$check = self::check_bound_blocks_tree( $block );
+				if ( is_wp_error( $check ) ) {
+					return $check;
+				}
+			}
+		}
+
+		return true;
+	}
+
 	// ── Operations ────────────────────────────────────────────────────────
 
 	/**
@@ -1087,16 +1210,17 @@ class BlockMutator {
 			);
 		}
 
-		// Block Bindings write-lock: if attributes are also supplied (dual-storage),
-		// check they don't collide with bound keys.
-		if ( isset( $args['attributes'] ) && is_array( $args['attributes'] ) ) {
-			$target_for_bindings = BlockTreeAddress::get_block_at_path( $blocks, $path );
-			if ( is_array( $target_for_bindings ) ) {
-				$allow_bound_writes = isset( $args['allow_bound_writes'] ) ? (bool) $args['allow_bound_writes'] : false;
-				$bindings_check     = self::assert_no_bound_attribute_writes( $target_for_bindings, $args['attributes'], $allow_bound_writes );
-				if ( is_wp_error( $bindings_check ) ) {
-					return $bindings_check;
-				}
+		// Block Bindings write-lock: block-level guard.
+		// Reject any innerHTML update on a block that has ANY binding unless
+		// allow_bound_writes is explicitly true. For paragraph blocks, `content`
+		// maps to innerHTML — so a raw innerHTML write silently bypasses the
+		// policy even when attributes are not supplied.
+		$allow_bound_writes  = isset( $args['allow_bound_writes'] ) ? (bool) $args['allow_bound_writes'] : false;
+		$target_for_bindings = BlockTreeAddress::get_block_at_path( $blocks, $path );
+		if ( is_array( $target_for_bindings ) ) {
+			$bindings_check = self::assert_block_not_bound( $target_for_bindings, $allow_bound_writes );
+			if ( is_wp_error( $bindings_check ) ) {
+				return $bindings_check;
 			}
 		}
 
@@ -1182,6 +1306,17 @@ class BlockMutator {
 			);
 		}
 
+		// Block Bindings write-lock: block-level guard.
+		// Reject swapping a bound target block unless allow_bound_writes is true.
+		$allow_bound_writes  = isset( $args['allow_bound_writes'] ) ? (bool) $args['allow_bound_writes'] : false;
+		$target_for_bindings = BlockTreeAddress::get_block_at_path( $blocks, $path );
+		if ( is_array( $target_for_bindings ) ) {
+			$bindings_check = self::assert_block_not_bound( $target_for_bindings, $allow_bound_writes );
+			if ( is_wp_error( $bindings_check ) ) {
+				return $bindings_check;
+			}
+		}
+
 		$new_block = self::normalize_block( $args['block_def'] );
 
 		// Enforce tier policy on the replacement block tree.
@@ -1215,11 +1350,23 @@ class BlockMutator {
 	/**
 	 * Delete a block from its parent (remove-block op).
 	 *
-	 * @param array<int,mixed> $blocks Parsed block tree.
-	 * @param int[]            $path   Resolved target path.
+	 * @param array<int,mixed>    $blocks Parsed block tree.
+	 * @param int[]               $path   Resolved target path.
+	 * @param array<string,mixed> $args   Optional. Supports `allow_bound_writes` (bool).
 	 * @return array<int|string,mixed>|\WP_Error
 	 */
-	private static function op_remove_block( array $blocks, array $path ) {
+	private static function op_remove_block( array $blocks, array $path, array $args = [] ) {
+		// Block Bindings write-lock: block-level guard.
+		// Reject removing a bound block unless allow_bound_writes is true.
+		$allow_bound_writes  = isset( $args['allow_bound_writes'] ) ? (bool) $args['allow_bound_writes'] : false;
+		$target_for_bindings = BlockTreeAddress::get_block_at_path( $blocks, $path );
+		if ( is_array( $target_for_bindings ) ) {
+			$bindings_check = self::assert_block_not_bound( $target_for_bindings, $allow_bound_writes );
+			if ( is_wp_error( $bindings_check ) ) {
+				return $bindings_check;
+			}
+		}
+
 		return self::mutate_at_path(
 			$blocks,
 			$path,
