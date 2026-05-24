@@ -135,6 +135,7 @@
 		"phpcbf": "vendor/bin/phpcbf",
 		"phpstan": "vendor/bin/phpstan analyse",
 		"test": "vendor/bin/phpunit",
+		"test:stress": "vendor/bin/phpunit --testsuite=stress",
 		"lint": ["@phpcs", "@phpstan"]
 	},
 	"homepage": "https://github.com/Ultimate-Multisite/sd-ai-agent",
