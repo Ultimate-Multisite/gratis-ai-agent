@@ -153,32 +153,35 @@ class ResourceExhaustionTest extends WP_UnitTestCase {
 	 * AC: apply_batch with MAX_BATCH_SIZE updates succeeds (boundary check, not off-by-one).
 	 *
 	 * MAX_BATCH_SIZE updates is exactly at the limit — it should NOT be rejected.
-	 * Using a parsed block tree directly to avoid the need for a real post.
+	 * Uses a block tree with MAX_BATCH_SIZE distinct blocks so each update targets
+	 * a unique flat_index (avoiding the duplicate-target pre-flight check).
 	 */
 	public function test_apply_batch_at_exact_max_size_is_not_rejected(): void {
-		$paragraph = [
-			[
+		// Build a tree with MAX_BATCH_SIZE distinct blocks.
+		$blocks = [];
+		for ( $i = 0; $i < BlockMutator::MAX_BATCH_SIZE; $i++ ) {
+			$blocks[] = [
 				'blockName'    => 'core/paragraph',
 				'attrs'        => [
-					'metadata' => [ 'sd_ref' => 'blk_exhaust_test' ],
+					'metadata' => [ 'sd_ref' => 'blk_exhaust_' . $i ],
 				],
 				'innerBlocks'  => [],
-				'innerHTML'    => '<p>Original.</p>',
-				'innerContent' => [ '<p>Original.</p>' ],
-			],
-		];
+				'innerHTML'    => "<p>Block {$i}.</p>",
+				'innerContent' => [ "<p>Block {$i}.</p>" ],
+			];
+		}
 
-		// Exactly MAX_BATCH_SIZE updates — all targeting the same block with a no-op attrs merge.
+		// Exactly MAX_BATCH_SIZE updates — each targeting a unique flat_index.
 		$updates = [];
 		for ( $i = 0; $i < BlockMutator::MAX_BATCH_SIZE; $i++ ) {
 			$updates[] = [
 				'op'         => 'update-attrs',
-				'flat_index' => 0,
-				'attributes' => [ 'className' => 'no-op-' . $i ],
+				'flat_index' => $i,
+				'attributes' => [ 'className' => 'updated-' . $i ],
 			];
 		}
 
-		$result = BlockMutator::apply_batch( $paragraph, $updates );
+		$result = BlockMutator::apply_batch( $blocks, $updates );
 
 		// Exactly MAX_BATCH_SIZE must not be rejected.
 		$this->assertIsArray( $result, 'Exactly MAX_BATCH_SIZE updates must not be rejected.' );
