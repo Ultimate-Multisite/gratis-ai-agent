@@ -3313,21 +3313,6 @@ class BlockAbilities {
 		// @phpstan-ignore-next-line
 		$refs_before = self::count_refs_in_tree( $blocks );
 
-		// ── Compute range size for stats ─────────────────────────────
-		$start_path = BlockTreeAddress::resolve( $blocks, [ 'ref' => $start_ref ] );
-
-		if ( is_wp_error( $start_path ) ) {
-			return $start_path;
-		}
-
-		$end_path = BlockTreeAddress::resolve( $blocks, [ 'ref' => $end_ref ] );
-
-		if ( is_wp_error( $end_path ) ) {
-			return $end_path;
-		}
-
-		$range_size = $end_path[ count( $end_path ) - 1 ] - $start_path[ count( $start_path ) - 1 ] + 1;
-
 		// ── Apply mutation ───────────────────────────────────────────
 		// Ensure integer-keyed block array for BlockMutator.
 		$blocks = array_values( $blocks );
@@ -3354,9 +3339,17 @@ class BlockAbilities {
 		$result = $ref_result;
 
 		// ── Compute ref stats ────────────────────────────────────────
+		// Use the post-mutation tree to compute counters correctly.
+		// The previous approach used $range_size = end_idx - start_idx + 1 from
+		// BlockTreeAddress paths. This overcounts when null-blockName placeholder
+		// blocks (whitespace between named blocks) sit between named blocks in the
+		// flat array, inflating the index distance. The post-mutation approach also
+		// correctly accounts for descendant refs inside removed inner-block trees.
+		// @phpstan-ignore-next-line
+		$refs_after     = self::count_refs_in_tree( $result );
 		$refs_added     = count( $new_blocks_raw );
-		$refs_removed   = $range_size;
-		$refs_preserved = $refs_before - $refs_removed;
+		$refs_preserved = $refs_after - $refs_added;
+		$refs_removed   = $refs_before - $refs_preserved;
 
 		// ── Persist (unless dry_run) ─────────────────────────────────
 		if ( ! $dry_run ) {
