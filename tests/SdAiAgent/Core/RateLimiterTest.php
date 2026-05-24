@@ -1,6 +1,6 @@
 <?php
 /**
- * Test case for RateLimiter (GH#1756).
+ * Test case for RateLimiter (GH#1756, GH#1772).
  *
  * Covers the acceptance criteria:
  *   AC1: 11th edit-block-tree on the same post within 60s returns rate_limit_exceeded.
@@ -11,10 +11,17 @@
  *   AC6: Filter sd_ai_agent_rate_limits overrides the caps.
  *   AC7: Transient pruning: entries > 60s old discarded on next check.
  *
+ * GH#1772 additions:
+ *   AC8: retry_after_seconds is present and > 0 in WP_Error data (not NULL).
+ *   AC9: Retry-After header omitted when retry_after_seconds absent from 429 data.
+ *  AC10: Retry-After header omitted when retry_after_seconds is zero or non-integer.
+ *  AC11: retry_after_seconds is clamped to at least 1.
+ *
  * @package SdAiAgent
  * @subpackage Tests
  * @license GPL-2.0-or-later
  * @see     https://github.com/Ultimate-Multisite/superdav-ai-agent/issues/1756
+ * @see     https://github.com/Ultimate-Multisite/superdav-ai-agent/issues/1772
  */
 
 declare(strict_types=1);
@@ -238,6 +245,143 @@ class RateLimiterTest extends WP_UnitTestCase {
 		$this->assertInstanceOf( \WP_REST_Response::class, $result );
 		$headers = $result->get_headers();
 		$this->assertArrayNotHasKey( 'Retry-After', $headers );
+	}
+
+	// ── GH#1772: retry_after_seconds surfacing ────────────────────────────
+
+	/**
+	 * AC8: rate_limit_exceeded WP_Error data is never NULL — retry_after_seconds is populated.
+	 *
+	 * Regression guard for the original repro in GH#1772 where get_error_data() returned NULL.
+	 *
+	 * @see https://github.com/Ultimate-Multisite/superdav-ai-agent/issues/1772
+	 */
+	public function test_error_data_not_null_on_rate_limit_exceeded(): void {
+		$post_id = 156;
+
+		// Fill the write bucket to capacity.
+		for ( $i = 0; $i < 10; $i++ ) {
+			RateLimiter::record( 'write', $post_id );
+		}
+
+		$check = RateLimiter::check( 'write', $post_id );
+		$this->assertWPError( $check, 'Expected WP_Error on rate limit exceeded' );
+		$this->assertSame( 'rate_limit_exceeded', $check->get_error_code() );
+
+		// Core regression: get_error_data() must NOT return NULL.
+		$data = $check->get_error_data();
+		$this->assertNotNull( $data, 'get_error_data() must not be NULL (GH#1772)' );
+		$this->assertIsArray( $data );
+
+		// All required fields must be present and well-typed.
+		$this->assertArrayHasKey( 'status', $data );
+		$this->assertSame( 429, $data['status'] );
+		$this->assertArrayHasKey( 'bucket', $data );
+		$this->assertSame( 'write', $data['bucket'] );
+		$this->assertArrayHasKey( 'limit', $data );
+		$this->assertIsInt( $data['limit'] );
+		$this->assertArrayHasKey( 'window_seconds', $data );
+		$this->assertIsInt( $data['window_seconds'] );
+		$this->assertArrayHasKey( 'retry_after_seconds', $data );
+		$this->assertIsInt( $data['retry_after_seconds'] );
+		$this->assertGreaterThan( 0, $data['retry_after_seconds'] );
+	}
+
+	/**
+	 * AC9: Retry-After header is omitted when retry_after_seconds is absent from 429 data.
+	 *
+	 * @see https://github.com/Ultimate-Multisite/superdav-ai-agent/issues/1772
+	 */
+	public function test_rest_controller_no_retry_after_on_429_without_retry_after_field(): void {
+		$response = new \WP_REST_Response(
+			[
+				'code'    => 'rate_limit_exceeded',
+				'message' => 'Rate limit exceeded for this post.',
+				'data'    => [
+					'status' => 429,
+					'bucket' => 'write',
+					// retry_after_seconds intentionally absent.
+				],
+			],
+			429
+		);
+
+		$result = \SdAiAgent\REST\RestController::add_retry_after_header( $response );
+
+		$this->assertInstanceOf( \WP_REST_Response::class, $result );
+		$headers = $result->get_headers();
+		$this->assertArrayNotHasKey( 'Retry-After', $headers, 'Retry-After must be absent when retry_after_seconds is missing' );
+	}
+
+	/**
+	 * AC10: Retry-After header is omitted when retry_after_seconds is zero or non-integer.
+	 *
+	 * @see https://github.com/Ultimate-Multisite/superdav-ai-agent/issues/1772
+	 */
+	public function test_rest_controller_no_retry_after_on_zero_or_invalid_value(): void {
+		// Case 1: retry_after_seconds = 0.
+		$response_zero = new \WP_REST_Response(
+			[
+				'code' => 'rate_limit_exceeded',
+				'data' => [
+					'status'              => 429,
+					'retry_after_seconds' => 0,
+				],
+			],
+			429
+		);
+
+		$result_zero = \SdAiAgent\REST\RestController::add_retry_after_header( $response_zero );
+		$this->assertArrayNotHasKey( 'Retry-After', $result_zero->get_headers(), 'Retry-After must be absent for retry_after_seconds = 0' );
+
+		// Case 2: retry_after_seconds is a string (non-integer).
+		$response_string = new \WP_REST_Response(
+			[
+				'code' => 'rate_limit_exceeded',
+				'data' => [
+					'status'              => 429,
+					'retry_after_seconds' => '30',
+				],
+			],
+			429
+		);
+
+		$result_string = \SdAiAgent\REST\RestController::add_retry_after_header( $response_string );
+		$this->assertArrayNotHasKey( 'Retry-After', $result_string->get_headers(), 'Retry-After must be absent when retry_after_seconds is a string' );
+	}
+
+	/**
+	 * AC11: retry_after_seconds is clamped to at minimum 1 second.
+	 *
+	 * Seeds a transient so the oldest tick is exactly at the window boundary,
+	 * which would compute a raw retry_after of 0. The clamping must yield 1.
+	 *
+	 * @see https://github.com/Ultimate-Multisite/superdav-ai-agent/issues/1772
+	 */
+	public function test_retry_after_clamped_to_minimum_one(): void {
+		$post_id = 156;
+		$key     = 'sd_ai_agent_rl_write_' . $post_id;
+		$now     = time();
+		$window  = RateLimiter::WINDOW_SECONDS;
+
+		// Place ticks just inside the window boundary so computed retry_after ≤ 0.
+		// oldest_tick = $now - $window + 1 → retry_after = (oldest + window) - now = 1.
+		// oldest_tick = $now - $window     → retry_after = 0 → clamped to 1.
+		$ticks = [];
+
+		for ( $i = 0; $i < 10; $i++ ) {
+			$ticks[] = $now - $window + 1; // All at the same boundary second.
+		}
+
+		set_transient( $key, wp_json_encode( $ticks ), $window );
+
+		$check = RateLimiter::check( 'write', $post_id );
+		$this->assertWPError( $check );
+
+		$data = $check->get_error_data();
+		$this->assertIsArray( $data );
+		$this->assertArrayHasKey( 'retry_after_seconds', $data );
+		$this->assertGreaterThanOrEqual( 1, $data['retry_after_seconds'], 'retry_after_seconds must be >= 1 (GH#1772 AC11)' );
 	}
 
 	// ── AC6: Filter overrides ─────────────────────────────────────────────
