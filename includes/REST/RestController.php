@@ -123,6 +123,47 @@ final class RestController {
 		return $result;
 	}
 
+	/**
+	 * Emit an `ETag` response header for any `sd-ai-agent/v1` REST response
+	 * whose body data contains a top-level `revision_id` key (t269).
+	 *
+	 * This acts as a generic catch-all for direct block REST routes that
+	 * return `revision_id` directly in their payload (not MCP-wrapped). The
+	 * MCP endpoint (`/mcp`) handles ETag emission directly in
+	 * {@see McpController::handle_call_tool()} before this filter runs.
+	 *
+	 * @param WP_REST_Response|\WP_HTTP_Response $result REST response.
+	 * @return WP_REST_Response|\WP_HTTP_Response Unchanged (header added when applicable).
+	 */
+	#[Action( tag: 'rest_post_dispatch', priority: 15 )]
+	public static function add_etag_header( $result ) {
+		if ( ! $result instanceof WP_REST_Response ) {
+			return $result;
+		}
+
+		// Only act on 2xx responses that carry a revision ID.
+		if ( $result->get_status() < 200 || $result->get_status() >= 300 ) {
+			return $result;
+		}
+
+		$data = $result->get_data();
+
+		if ( ! is_array( $data ) || ! array_key_exists( 'revision_id', $data ) ) {
+			return $result;
+		}
+
+		// Skip if an ETag is already set (e.g. by McpController).
+		$existing = $result->get_headers();
+		if ( ! empty( $existing['ETag'] ) || ! empty( $existing['etag'] ) ) {
+			return $result;
+		}
+
+		$revision_id = isset( $data['revision_id'] ) ? (int) $data['revision_id'] : null;
+		$result->header( 'ETag', IfMatchHeader::format( $revision_id ) );
+
+		return $result;
+	}
+
 	#[Action( tag: 'rest_api_init', priority: 10 )]
 	public function register_routes(): void {
 
