@@ -218,7 +218,7 @@ class UploadMediaAbility {
 		}
 
 		// Check multisite upload restrictions.
-		if ( is_multisite() && ! multisite_can_upload() ) {
+		if ( is_multisite() && function_exists( 'multisite_can_upload' ) && ! multisite_can_upload() ) {
 			return new WP_Error(
 				'uploads_disabled',
 				__( 'File uploads are disabled for this site in a multisite network.', 'superdav-ai-agent' )
