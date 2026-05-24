@@ -1019,7 +1019,10 @@ class RunPhpAbility extends AbstractAbility {
 		return [
 			'type'       => 'object',
 			'properties' => [
-				'result' => [],
+				'result' => [
+					'type'        => [ 'string', 'number', 'integer', 'boolean', 'array', 'object', 'null' ],
+					'description' => 'The function return value. Type varies by function.',
+				],
 				'output' => [ 'type' => 'string' ],
 			],
 		];

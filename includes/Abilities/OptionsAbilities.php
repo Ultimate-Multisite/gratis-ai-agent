@@ -173,7 +173,10 @@ class GetOptionAbility extends AbstractAbility {
 			'type'       => 'object',
 			'properties' => [
 				'option_name' => [ 'type' => 'string' ],
-				'value'       => [],
+				'value'       => [
+					'type'        => [ 'string', 'number', 'integer', 'boolean', 'array', 'object', 'null' ],
+					'description' => 'The option value. Type varies by option.',
+				],
 				'exists'      => [ 'type' => 'boolean' ],
 			],
 		];

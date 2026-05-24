@@ -661,6 +661,7 @@ class BlockAbilities {
 							'description' => 'For replace-block, insert-child: the full block definition (blockName, attrs, innerHTML, innerBlocks).',
 						],
 						'position'           => [
+							'type'        => [ 'integer', 'string' ],
 							'description' => 'For insert-child: 0-based index to insert at (default: end). For move: "before" or "after" the destination block (default: "after").',
 						],
 						'destination'        => [
@@ -915,6 +916,7 @@ class BlockAbilities {
 							'description' => 'Post ID to insert the pattern into.',
 						],
 						'pattern'              => [
+							'type'        => [ 'string', 'integer' ],
 							'description' => 'Pattern identifier: registered pattern slug (e.g. "core/quote"), numeric synced pattern ID (42), or prefixed form ("wp-block:42", "synced:42").',
 						],
 						'anchor'               => [
