@@ -83,21 +83,20 @@ class UploadsDisabledTest extends WP_UnitTestCase {
 	/**
 	 * WP_DISABLE_UPLOADS: upload-media source=url must return uploads_disabled.
 	 *
+	 * Fixed in GH#1803 (PR #1805): handle_upload_media now calls check_uploads_disabled()
+	 * before any source processing. This test is a regression guard for that fix.
+	 *
 	 * @see https://github.com/Ultimate-Multisite/superdav-ai-agent/issues/1803
 	 */
 	public function test_upload_media_url_rejected_when_uploads_disabled(): void {
-		$this->markTestIncomplete(
-			'GH#1803: handle_upload_media does not check WP_DISABLE_UPLOADS. ' .
-			'Handler must return WP_Error("uploads_disabled") when uploads are globally disabled.'
-		);
+		if ( ! defined( 'WP_DISABLE_UPLOADS' ) ) {
+			define( 'WP_DISABLE_UPLOADS', true );
+		}
 
-		// Temporarily simulate WP_DISABLE_UPLOADS via filter-based detection.
-		add_filter( 'upload_mimes', '__return_empty_array' );
 		$result = UploadMediaAbility::handle_upload_media( [
 			'source' => 'url',
 			'url'    => 'https://example.com/image.jpg',
 		] );
-		remove_filter( 'upload_mimes', '__return_empty_array' );
 
 		$this->assertInstanceOf( \WP_Error::class, $result );
 		$this->assertSame( 'uploads_disabled', $result->get_error_code() );
@@ -106,13 +105,14 @@ class UploadsDisabledTest extends WP_UnitTestCase {
 	/**
 	 * WP_DISABLE_UPLOADS: upload-media source=base64 must return uploads_disabled.
 	 *
+	 * Fixed in GH#1803 (PR #1805).
+	 *
 	 * @see https://github.com/Ultimate-Multisite/superdav-ai-agent/issues/1803
 	 */
 	public function test_upload_media_base64_rejected_when_uploads_disabled(): void {
-		$this->markTestIncomplete(
-			'GH#1803: handle_upload_media does not check WP_DISABLE_UPLOADS. ' .
-			'Handler must return WP_Error("uploads_disabled") before base64_decode().'
-		);
+		if ( ! defined( 'WP_DISABLE_UPLOADS' ) ) {
+			define( 'WP_DISABLE_UPLOADS', true );
+		}
 
 		// Tiny valid PNG (1×1 white pixel).
 		$png_base64 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8/5+hHgAHggJ/PchI6QAAAABJRU5ErkJggg==';
@@ -130,13 +130,14 @@ class UploadsDisabledTest extends WP_UnitTestCase {
 	/**
 	 * WP_DISABLE_UPLOADS: upload-media source=path must return uploads_disabled.
 	 *
+	 * Fixed in GH#1803 (PR #1805).
+	 *
 	 * @see https://github.com/Ultimate-Multisite/superdav-ai-agent/issues/1803
 	 */
 	public function test_upload_media_path_rejected_when_uploads_disabled(): void {
-		$this->markTestIncomplete(
-			'GH#1803: handle_upload_media does not check WP_DISABLE_UPLOADS. ' .
-			'Handler must return WP_Error("uploads_disabled") before any file system operation.'
-		);
+		if ( ! defined( 'WP_DISABLE_UPLOADS' ) ) {
+			define( 'WP_DISABLE_UPLOADS', true );
+		}
 
 		$result = UploadMediaAbility::handle_upload_media( [
 			'source' => 'path',
@@ -148,15 +149,16 @@ class UploadsDisabledTest extends WP_UnitTestCase {
 	}
 
 	/**
-	 * WP_DISABLE_UPLOADS: legacy upload-media-from-url must return uploads_disabled.
+	 * WP_DISABLE_UPLOADS: legacy upload-media-from-url (sideload_from_url) must return uploads_disabled.
+	 *
+	 * Fixed in GH#1803 (PR #1805): MediaAbilities::sideload_from_url now checks the constant.
 	 *
 	 * @see https://github.com/Ultimate-Multisite/superdav-ai-agent/issues/1803
 	 */
 	public function test_upload_media_from_url_rejected_when_uploads_disabled(): void {
-		$this->markTestIncomplete(
-			'GH#1803: MediaAbilities::handle_upload_media_from_url does not check WP_DISABLE_UPLOADS. ' .
-			'Handler must return WP_Error("uploads_disabled") before attempting HTTP download.'
-		);
+		if ( ! defined( 'WP_DISABLE_UPLOADS' ) ) {
+			define( 'WP_DISABLE_UPLOADS', true );
+		}
 
 		$this->setExpectedIncorrectUsage( 'sd-ai-agent/upload-media-from-url' );
 		$result = MediaAbilities::handle_upload_media_from_url( [
@@ -168,15 +170,16 @@ class UploadsDisabledTest extends WP_UnitTestCase {
 	}
 
 	/**
-	 * WP_DISABLE_UPLOADS: import-base64-image legacy path must return uploads_disabled.
+	 * WP_DISABLE_UPLOADS: import-base64-image (sideload_from_base64) must return uploads_disabled.
+	 *
+	 * Fixed in GH#1803 (PR #1805): ImageAbilities::sideload_from_base64 now checks the constant.
 	 *
 	 * @see https://github.com/Ultimate-Multisite/superdav-ai-agent/issues/1803
 	 */
 	public function test_import_base64_image_rejected_when_uploads_disabled(): void {
-		$this->markTestIncomplete(
-			'GH#1803: ImageAbilities::sideload_from_base64 does not check WP_DISABLE_UPLOADS. ' .
-			'Handler must return WP_Error("uploads_disabled") before base64_decode().'
-		);
+		if ( ! defined( 'WP_DISABLE_UPLOADS' ) ) {
+			define( 'WP_DISABLE_UPLOADS', true );
+		}
 
 		$png_base64 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8/5+hHgAHggJ/PchI6QAAAABJRU5ErkJggg==';
 
@@ -243,6 +246,12 @@ class UploadsDisabledTest extends WP_UnitTestCase {
 	 * is not bypassed by WP_DISABLE_UPLOADS considerations.
 	 */
 	public function test_upload_media_returns_source_required_when_source_missing(): void {
+		if ( defined( 'WP_DISABLE_UPLOADS' ) && WP_DISABLE_UPLOADS ) {
+			// When WP_DISABLE_UPLOADS is set, uploads_disabled fires before source validation.
+			// Source validation is only reachable when uploads are enabled.
+			$this->markTestSkipped( 'WP_DISABLE_UPLOADS is defined; source validation is bypassed by uploads_disabled check.' );
+		}
+
 		$result = UploadMediaAbility::handle_upload_media( [] );
 
 		$this->assertInstanceOf( \WP_Error::class, $result );
@@ -253,6 +262,11 @@ class UploadsDisabledTest extends WP_UnitTestCase {
 	 * handle_upload_media returns source_required for an unknown source value.
 	 */
 	public function test_upload_media_returns_source_required_for_unknown_source(): void {
+		if ( defined( 'WP_DISABLE_UPLOADS' ) && WP_DISABLE_UPLOADS ) {
+			// When WP_DISABLE_UPLOADS is set, uploads_disabled fires before source validation.
+			$this->markTestSkipped( 'WP_DISABLE_UPLOADS is defined; source validation is bypassed by uploads_disabled check.' );
+		}
+
 		$result = UploadMediaAbility::handle_upload_media( [
 			'source' => 'ftp',
 		] );

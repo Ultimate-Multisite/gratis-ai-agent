@@ -12,13 +12,11 @@ declare(strict_types=1);
  *   - `edit_post($id)`     (per-resource) — own posts only for contributor
  *   - `edit_others_posts`  — required to touch another user's post
  *
- * Most handlers rely only on the global `permission_callback` and do NOT yet
- * enforce the stricter per-resource check inside the handler itself.  Those
- * gaps are tracked in GH#1802 and marked incomplete below; they become
- * follow-up bug PRs once the tests are merged and CI exposes the holes.
+ * Per-resource checks were added to all affected handlers in GH#1802 / PR #1806.
+ * These tests now serve as regression tests confirming the fix is in place.
  *
- * `BlockMutator::revert_to_revision()` DOES enforce the per-resource check and
- * therefore produces a concrete passing test.
+ * One remaining gap (handle_delete_media) is still marked incomplete and tracked
+ * as a follow-up.  `BlockMutator::revert_to_revision()` had the check from the start.
  *
  * @package SdAiAgent
  * @subpackage Tests\Security
@@ -218,22 +216,17 @@ class IdorTest extends WP_UnitTestCase {
 		$this->assertArrayHasKey( 'post_id', $result );
 	}
 
-	// ── Abilities missing per-resource check (GH#1802) ───────────────────
+	// ── Per-resource IDOR checks — regression tests for GH#1802 / PR #1806 ──
 
 	/**
-	 * IDOR gap: handle_get_post does not call current_user_can('edit_post', $id).
+	 * AC: handle_get_post blocks a contributor from reading an admin-owned draft.
 	 *
-	 * A contributor with `edit_posts` can currently read any post, including
-	 * admin-owned drafts. Tracked in GH#1802.
+	 * Fixed in GH#1802 (PR #1806): added current_user_can('edit_post', $post_id)
+	 * after the post fetch. This test is a regression guard for that fix.
 	 *
 	 * @see https://github.com/Ultimate-Multisite/superdav-ai-agent/issues/1802
 	 */
 	public function test_get_post_contributor_blocked_on_admin_draft(): void {
-		$this->markTestIncomplete(
-			'GH#1802: handle_get_post does not enforce current_user_can("edit_post", $post_id). ' .
-			'Contributor can currently read admin-owned drafts. Fix in follow-up security PR.'
-		);
-
 		wp_set_current_user( $this->contributor_id );
 		$result = PostAbilities::handle_get_post( [ 'post_id' => $this->admin_draft_id ] );
 
@@ -242,16 +235,13 @@ class IdorTest extends WP_UnitTestCase {
 	}
 
 	/**
-	 * IDOR gap: handle_get_page_blocks does not call current_user_can('edit_post', $id).
+	 * AC: handle_get_page_blocks blocks a contributor from reading admin-owned blocks.
+	 *
+	 * Fixed in GH#1802 (PR #1806).
 	 *
 	 * @see https://github.com/Ultimate-Multisite/superdav-ai-agent/issues/1802
 	 */
 	public function test_get_page_blocks_contributor_blocked_on_admin_draft(): void {
-		$this->markTestIncomplete(
-			'GH#1802: handle_get_page_blocks does not enforce current_user_can("edit_post", $post_id). ' .
-			'Contributor can currently read block tree of admin-owned drafts.'
-		);
-
 		wp_set_current_user( $this->contributor_id );
 		$result = BlockAbilities::handle_get_page_blocks( [
 			'post_id'      => $this->admin_draft_id,
@@ -263,24 +253,21 @@ class IdorTest extends WP_UnitTestCase {
 	}
 
 	/**
-	 * IDOR gap: handle_update_blocks does not call current_user_can('edit_post', $id).
+	 * AC: handle_update_blocks blocks a contributor from writing to admin-owned post.
+	 *
+	 * Fixed in GH#1802 (PR #1806).
 	 *
 	 * @see https://github.com/Ultimate-Multisite/superdav-ai-agent/issues/1802
 	 */
 	public function test_update_blocks_contributor_blocked_on_admin_post(): void {
-		$this->markTestIncomplete(
-			'GH#1802: handle_update_blocks does not enforce current_user_can("edit_post", $post_id). ' .
-			'Contributor can currently write blocks on admin-owned posts.'
-		);
-
 		wp_set_current_user( $this->contributor_id );
 		$result = BlockAbilities::handle_update_blocks( [
 			'post_id' => $this->admin_draft_id,
 			'updates' => [
 				[
-					'op'        => 'update-html',
+					'op'         => 'update-html',
 					'flat_index' => 0,
-					'innerHTML' => '<p>Injected by contributor</p>',
+					'innerHTML'  => '<p>Injected by contributor</p>',
 				],
 			],
 		] );
@@ -290,16 +277,13 @@ class IdorTest extends WP_UnitTestCase {
 	}
 
 	/**
-	 * IDOR gap: handle_update_post does not call current_user_can('edit_post', $id).
+	 * AC: handle_update_post blocks a contributor from updating an admin-owned post.
+	 *
+	 * Fixed in GH#1802 (PR #1806).
 	 *
 	 * @see https://github.com/Ultimate-Multisite/superdav-ai-agent/issues/1802
 	 */
 	public function test_update_post_contributor_blocked_on_admin_post(): void {
-		$this->markTestIncomplete(
-			'GH#1802: handle_update_post does not enforce current_user_can("edit_post", $post_id). ' .
-			'Contributor can currently update admin-owned posts.'
-		);
-
 		wp_set_current_user( $this->contributor_id );
 		$result = PostAbilities::handle_update_post( [
 			'post_id' => $this->admin_draft_id,
@@ -311,16 +295,13 @@ class IdorTest extends WP_UnitTestCase {
 	}
 
 	/**
-	 * IDOR gap: handle_delete_post does not call current_user_can('delete_post', $id).
+	 * AC: handle_delete_post blocks a contributor from deleting an admin-owned post.
+	 *
+	 * Fixed in GH#1802 (PR #1806).
 	 *
 	 * @see https://github.com/Ultimate-Multisite/superdav-ai-agent/issues/1802
 	 */
 	public function test_delete_post_contributor_blocked_on_admin_post(): void {
-		$this->markTestIncomplete(
-			'GH#1802: handle_delete_post does not enforce current_user_can("delete_post", $post_id). ' .
-			'Contributor can currently attempt to delete admin-owned posts.'
-		);
-
 		wp_set_current_user( $this->contributor_id );
 		$result = PostAbilities::handle_delete_post( [ 'post_id' => $this->admin_draft_id ] );
 
@@ -329,14 +310,18 @@ class IdorTest extends WP_UnitTestCase {
 	}
 
 	/**
-	 * IDOR gap: handle_delete_media does not call current_user_can('delete_post', $id).
+	 * IDOR gap (remaining): handle_delete_media lacks per-resource cap check.
+	 *
+	 * handle_delete_media was not included in the GH#1802 fix scope.
+	 * Tracked as a follow-up; test remains incomplete until fixed.
 	 *
 	 * @see https://github.com/Ultimate-Multisite/superdav-ai-agent/issues/1802
 	 */
 	public function test_delete_media_contributor_blocked_on_admin_attachment(): void {
 		$this->markTestIncomplete(
-			'GH#1802: handle_delete_media does not enforce current_user_can("delete_post", $attachment_id). ' .
-			'Contributor can currently attempt to delete admin-owned attachments.'
+			'GH#1802 (partial): handle_delete_media does not yet enforce ' .
+			'current_user_can("delete_post", $attachment_id) internally. ' .
+			'File a follow-up to add the per-resource check to MediaAbilities::handle_delete_media.'
 		);
 
 		wp_set_current_user( $this->contributor_id );
@@ -349,16 +334,13 @@ class IdorTest extends WP_UnitTestCase {
 	}
 
 	/**
-	 * IDOR gap: handle_rewrite_post_blocks does not call current_user_can('edit_post', $id).
+	 * AC: handle_rewrite_post_blocks blocks a contributor from rewriting admin post.
+	 *
+	 * Fixed in GH#1802 (PR #1806).
 	 *
 	 * @see https://github.com/Ultimate-Multisite/superdav-ai-agent/issues/1802
 	 */
 	public function test_rewrite_post_blocks_contributor_blocked_on_admin_post(): void {
-		$this->markTestIncomplete(
-			'GH#1802: handle_rewrite_post_blocks does not enforce current_user_can("edit_post", $post_id). ' .
-			'Contributor can currently rewrite the entire block tree of admin-owned posts.'
-		);
-
 		wp_set_current_user( $this->contributor_id );
 		$result = BlockAbilities::handle_rewrite_post_blocks( [
 			'post_id' => $this->admin_draft_id,
@@ -380,12 +362,10 @@ class IdorTest extends WP_UnitTestCase {
 	// ── Positive controls: contributor can act on own resources ──────────
 
 	/**
-	 * Positive control: contributor CAN read their own draft via get-post
-	 * once per-resource checks are added.
+	 * Positive control: contributor CAN read their own draft via get-post.
 	 *
-	 * Since handle_get_post currently lacks the per-resource check, this test
-	 * simply verifies that the handler succeeds when the contributor accesses
-	 * a post they own — establishing the pass-through baseline.
+	 * The per-resource check added in GH#1802 / PR #1806 must NOT over-block:
+	 * a contributor reading a post they own should succeed.
 	 */
 	public function test_get_post_contributor_can_read_own_draft(): void {
 		wp_set_current_user( $this->contributor_id );
