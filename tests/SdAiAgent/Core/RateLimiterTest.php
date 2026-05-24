@@ -39,23 +39,63 @@ use WP_UnitTestCase;
 class RateLimiterTest extends WP_UnitTestCase {
 
 	/**
+	 * Buckets and entity IDs covered by this test class.
+	 *
+	 * Centralised here so set_up() and tear_down() stay in sync when new
+	 * entity IDs are added to test methods.
+	 *
+	 * @var string[]
+	 */
+	private const CLEANUP_BUCKETS = [ 'write', 'rewrite' ];
+
+	/**
+	 * @var int[]
+	 */
+	private const CLEANUP_ENTITY_IDS = [ 1, 2, 42, 156, 200, 999 ];
+
+	/**
+	 * Ensure a clean slate before every test.
+	 *
+	 * WP_UnitTestCase wraps each test in a database transaction that is rolled
+	 * back in tearDown(). The ROLLBACK restores rows that were deleted inside
+	 * the transaction — including the delete_transient() calls made by the
+	 * PREVIOUS test's tear_down(). On the next test the wp_cache may be empty
+	 * (flushed by WP), but the options table still carries the rolled-back
+	 * transient; the next cache-miss read from the DB then finds unexpected
+	 * prior-test state. Adding the same cleanup in set_up() prevents this
+	 * leakage regardless of ROLLBACK semantics or run order.
+	 *
+	 * @see https://github.com/Ultimate-Multisite/superdav-ai-agent/issues/1811
+	 */
+	public function set_up(): void {
+		parent::set_up();
+		$this->flush_rate_limit_transients();
+	}
+
+	/**
 	 * Clean up rate-limit transients between tests.
 	 */
 	public function tear_down(): void {
-		// Clean up all transients used in tests.
-		$buckets   = [ 'write', 'rewrite' ];
-		$entity_ids = [ 156, 200, 999, 1, 2, 42 ];
-
-		foreach ( $buckets as $bucket ) {
-			foreach ( $entity_ids as $entity_id ) {
-				delete_transient( 'sd_ai_agent_rl_' . $bucket . '_' . $entity_id );
-			}
-		}
+		$this->flush_rate_limit_transients();
 
 		// Remove any filters we added.
 		remove_all_filters( 'sd_ai_agent_rate_limits' );
 
 		parent::tear_down();
+	}
+
+	/**
+	 * Delete all rate-limit transients used by this test class.
+	 *
+	 * Called from both set_up() and tear_down() so every test starts and ends
+	 * with a clean transient state.
+	 */
+	private function flush_rate_limit_transients(): void {
+		foreach ( self::CLEANUP_BUCKETS as $bucket ) {
+			foreach ( self::CLEANUP_ENTITY_IDS as $entity_id ) {
+				delete_transient( 'sd_ai_agent_rl_' . $bucket . '_' . $entity_id );
+			}
+		}
 	}
 
 	// ── AC1: Write bucket limit ───────────────────────────────────────────
