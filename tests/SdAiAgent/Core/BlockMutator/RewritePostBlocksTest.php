@@ -604,4 +604,90 @@ class RewritePostBlocksTest extends WP_UnitTestCase {
 		$this->assertNotSame( $stale_ref, $new_ref, 'Stale refs must be replaced with fresh ones.' );
 		$this->assertStringStartsWith( 'blk_', $new_ref );
 	}
+
+	// ── GH#1769: existing post content with bound blocks ──────────────────
+
+	/**
+	 * rewrite-post-blocks rejects when the EXISTING post has a bound block (GH#1769).
+	 *
+	 * Before the fix, an agent could overwrite a bound block by supplying a
+	 * clean (unbound) replacement payload, because the guard only checked
+	 * the new blocks, not the existing ones.
+	 */
+	public function test_handler_existing_bound_block_rejects_without_override(): void {
+		// Create a post whose current content contains a bound paragraph.
+		$bound_content = serialize_blocks( [
+			[
+				'blockName'    => 'core/paragraph',
+				'attrs'        => [
+					'metadata' => [
+						'bindings' => [
+							'content' => [
+								'source' => 'core/post-meta',
+								'args'   => [ 'key' => 'foo_meta' ],
+							],
+						],
+					],
+				],
+				'innerBlocks'  => [],
+				'innerHTML'    => '<p>placeholder</p>',
+				'innerContent' => [ '<p>placeholder</p>' ],
+			],
+		] );
+
+		$post_id = self::factory()->post->create( [
+			'post_content' => $bound_content,
+			'post_status'  => 'publish',
+		] );
+
+		// Try to rewrite with a clean (unbound) payload.
+		$result = BlockAbilities::handle_rewrite_post_blocks( [
+			'post_id' => $post_id,
+			'blocks'  => $this->make_blocks( 1 ),
+		] );
+
+		$this->assertInstanceOf( \WP_Error::class, $result );
+		$this->assertSame( 'bound_block_write_blocked', $result->get_error_code() );
+		$data = $result->get_error_data();
+		$this->assertSame( 409, $data['status'] );
+		$this->assertContains( 'content', $data['bindings'] );
+	}
+
+	/**
+	 * rewrite-post-blocks with allow_bound_writes:true allows overwriting a bound existing block (GH#1769).
+	 */
+	public function test_handler_existing_bound_block_with_override_succeeds(): void {
+		$bound_content = serialize_blocks( [
+			[
+				'blockName'    => 'core/paragraph',
+				'attrs'        => [
+					'metadata' => [
+						'bindings' => [
+							'content' => [
+								'source' => 'core/post-meta',
+								'args'   => [ 'key' => 'foo_meta' ],
+							],
+						],
+					],
+				],
+				'innerBlocks'  => [],
+				'innerHTML'    => '<p>placeholder</p>',
+				'innerContent' => [ '<p>placeholder</p>' ],
+			],
+		] );
+
+		$post_id = self::factory()->post->create( [
+			'post_content' => $bound_content,
+			'post_status'  => 'publish',
+		] );
+
+		$result = BlockAbilities::handle_rewrite_post_blocks( [
+			'post_id'            => $post_id,
+			'blocks'             => $this->make_blocks( 1 ),
+			'allow_bound_writes' => true,
+		] );
+
+		$this->assertIsArray( $result );
+		$this->assertTrue( $result['success'] );
+	}
 }

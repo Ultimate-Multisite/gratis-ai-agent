@@ -714,4 +714,109 @@ class ReplaceRangeTest extends WP_UnitTestCase {
 		$this->assertStringNotContainsString( '<script>', $result[1]['innerHTML'] );
 		$this->assertStringContainsString( 'Safe text', $result[1]['innerHTML'] );
 	}
+
+	// ── GH#1769: existing bound blocks in range must be rejected ──
+
+	/**
+	 * replace_range rejects when an EXISTING block in the range is bound (GH#1769).
+	 *
+	 * Before the fix, the binding check only applied to new_blocks. An agent
+	 * could replace a bound paragraph with unbound content without triggering
+	 * the policy guard.
+	 */
+	public function test_existing_bound_block_in_range_rejects_without_override(): void {
+		// Build a tree where blk_para1 has a binding.
+		$bound_para = [
+			'blockName'    => 'core/paragraph',
+			'attrs'        => [
+				'metadata' => [
+					BlockReferences::REF_KEY => 'blk_para1',
+					'bindings'               => [
+						'content' => [
+							'source' => 'core/post-meta',
+							'args'   => [ 'key' => 'foo_meta' ],
+						],
+					],
+				],
+			],
+			'innerBlocks'  => [],
+			'innerHTML'    => '<p>placeholder</p>',
+			'innerContent' => [ '<p>placeholder</p>' ],
+		];
+
+		$blocks = [
+			$this->make_ref_block( 'core/heading', 'blk_heading', [ 'level' => 2 ], '<h2>Title</h2>' ),
+			$bound_para,
+			$this->make_ref_block( 'core/paragraph', 'blk_para2', [], '<p>Second</p>' ),
+		];
+
+		$new_block = [
+			'blockName'    => 'core/paragraph',
+			'attrs'        => [],
+			'innerBlocks'  => [],
+			'innerHTML'    => '<p>replacement</p>',
+			'innerContent' => [ '<p>replacement</p>' ],
+		];
+
+		$result = BlockMutator::replace_range(
+			$blocks,
+			'blk_para1',
+			'blk_para1',
+			[ $new_block ]
+		);
+
+		$this->assertInstanceOf( \WP_Error::class, $result );
+		$this->assertSame( 'bound_block_write_blocked', $result->get_error_code() );
+		$data = $result->get_error_data();
+		$this->assertSame( 409, $data['status'] );
+		$this->assertContains( 'content', $data['bindings'] );
+	}
+
+	/**
+	 * replace_range with allow_bound_writes:true allows overwriting a bound existing block (GH#1769).
+	 */
+	public function test_existing_bound_block_in_range_with_override_succeeds(): void {
+		$bound_para = [
+			'blockName'    => 'core/paragraph',
+			'attrs'        => [
+				'metadata' => [
+					BlockReferences::REF_KEY => 'blk_para1',
+					'bindings'               => [
+						'content' => [
+							'source' => 'core/post-meta',
+							'args'   => [ 'key' => 'foo_meta' ],
+						],
+					],
+				],
+			],
+			'innerBlocks'  => [],
+			'innerHTML'    => '<p>placeholder</p>',
+			'innerContent' => [ '<p>placeholder</p>' ],
+		];
+
+		$blocks = [
+			$this->make_ref_block( 'core/heading', 'blk_heading', [ 'level' => 2 ], '<h2>Title</h2>' ),
+			$bound_para,
+			$this->make_ref_block( 'core/paragraph', 'blk_para2', [], '<p>Second</p>' ),
+		];
+
+		$new_block = [
+			'blockName'    => 'core/paragraph',
+			'attrs'        => [],
+			'innerBlocks'  => [],
+			'innerHTML'    => '<p>replacement</p>',
+			'innerContent' => [ '<p>replacement</p>' ],
+		];
+
+		$result = BlockMutator::replace_range(
+			$blocks,
+			'blk_para1',
+			'blk_para1',
+			[ $new_block ],
+			true // allow_bound_writes.
+		);
+
+		$this->assertIsArray( $result );
+		$this->assertNotInstanceOf( \WP_Error::class, $result );
+	}
 }
