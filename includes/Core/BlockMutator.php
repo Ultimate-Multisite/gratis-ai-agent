@@ -4,9 +4,11 @@ declare(strict_types=1);
 /**
  * Block tree mutator — 9-op vocabulary.
  *
- * Pure-function tree transforms: no WP DB writes occur here. All methods
- * accept a parsed block tree (output of parse_blocks()) and return either a
- * new tree array or a WP_Error.
+ * Primarily pure-function tree transforms: most methods accept a parsed block
+ * tree (output of parse_blocks()) and return either a new tree array or a
+ * WP_Error. The exception is revert_to_revision(), which calls
+ * wp_restore_post_revision() and BlockReferences::reseed_for_post() as part
+ * of its symmetry role with the block-write abilities.
  *
  * Supported operations:
  *   update-attrs    — merge/replace a block's `attributes`.
@@ -683,6 +685,168 @@ class BlockMutator {
 		}
 
 		return $result;
+	}
+
+	// ── Revert to revision ───────────────────────────────────────────────
+
+	/**
+	 * Revert a post to a specific revision.
+	 *
+	 * Validates capabilities and revision ownership, applies optional optimistic
+	 * concurrency control, calls wp_restore_post_revision(), and reseeds all
+	 * block sd_ref values so the restored content uses collision-free refs.
+	 *
+	 * NOTE: Unlike the other BlockMutator methods, this method performs DB
+	 * writes because the revert operation is inherently stateful (it calls
+	 * wp_restore_post_revision, which creates a new revision). The class-level
+	 * pure-function contract applies to the tree-mutation ops (apply, apply_batch,
+	 * replace_range). This method is intentionally placed here because it is the
+	 * logical inverse of the block-write operations that already live here.
+	 *
+	 * @param int      $post_id                     Post ID to revert.
+	 * @param int      $revision_id                 Revision ID to restore.
+	 * @param int|null $expected_current_revision_id Optional optimistic-concurrency guard. When
+	 *                                               provided, the post's latest revision must match
+	 *                                               this value or the method returns `revision_stale`.
+	 * @return array<string,mixed>|\WP_Error Result on success, WP_Error on failure.
+	 */
+	public static function revert_to_revision(
+		int $post_id,
+		int $revision_id,
+		?int $expected_current_revision_id = null
+	) {
+		// ── 1. Load and validate post ────────────────────────────────
+		$post = get_post( $post_id );
+		if ( ! $post ) {
+			return new \WP_Error(
+				'post_not_found',
+				sprintf(
+					/* translators: %d: post ID */
+					__( 'Post %d not found.', 'superdav-ai-agent' ),
+					$post_id
+				),
+				[ 'status' => 404 ]
+			);
+		}
+
+		// ── 2. Capability check (post) ───────────────────────────────
+		if ( ! current_user_can( 'edit_post', $post_id ) ) {
+			return new \WP_Error(
+				'insufficient_capability',
+				__( 'You do not have permission to edit this post.', 'superdav-ai-agent' ),
+				[ 'status' => 403 ]
+			);
+		}
+
+		// ── 3. Load and validate revision ────────────────────────────
+		$revision = get_post( $revision_id );
+		if ( ! $revision || 'revision' !== $revision->post_type ) {
+			return new \WP_Error(
+				'revision_not_found',
+				sprintf(
+					/* translators: %d: revision ID */
+					__( 'Revision %d not found.', 'superdav-ai-agent' ),
+					$revision_id
+				),
+				[ 'status' => 404 ]
+			);
+		}
+
+		// ── 4. Revision must belong to this post ─────────────────────
+		$revision_parent = wp_is_post_revision( $revision_id );
+		if ( false === $revision_parent || (int) $revision_parent !== $post_id ) {
+			return new \WP_Error(
+				'revision_post_mismatch',
+				sprintf(
+					/* translators: 1: revision ID, 2: post ID */
+					__( 'Revision %1$d does not belong to post %2$d.', 'superdav-ai-agent' ),
+					$revision_id,
+					$post_id
+				),
+				[ 'status' => 400 ]
+			);
+		}
+
+		// ── 5. Capability check (revision itself) ────────────────────
+		if ( ! current_user_can( 'edit_post', $revision_id ) ) {
+			return new \WP_Error(
+				'insufficient_capability',
+				__( 'You do not have permission to restore this revision.', 'superdav-ai-agent' ),
+				[ 'status' => 403 ]
+			);
+		}
+
+		// ── 6. Optimistic concurrency guard ──────────────────────────
+		if ( null !== $expected_current_revision_id ) {
+			$current_rev = RevisionGuard::current_revision_id( $post_id );
+			if ( $current_rev !== $expected_current_revision_id ) {
+				return new \WP_Error(
+					'revision_stale',
+					__( 'The post has changed since you fetched it. Re-fetch with get-page-blocks and retry.', 'superdav-ai-agent' ),
+					[
+						'status'              => 412,
+						'current_revision_id' => $current_rev,
+						'expected_revision'   => $expected_current_revision_id,
+					]
+				);
+			}
+		}
+
+		// ── 7. Restore the revision ───────────────────────────────────
+		$restore_result = wp_restore_post_revision( $revision_id );
+		if ( false === $restore_result ) {
+			return new \WP_Error(
+				'revert_failed',
+				__( 'wp_restore_post_revision() failed. The post content was not changed.', 'superdav-ai-agent' ),
+				[ 'status' => 500 ]
+			);
+		}
+
+		// Get the new revision ID created by the restore.
+		$new_revision_id = RevisionGuard::current_revision_id( $post_id );
+
+		// ── 8. Reseed refs in the restored content ────────────────────
+		$refs_reseeded = BlockReferences::reseed_for_post( $post_id );
+
+		// ── 9. Count total blocks in the restored content ─────────────
+		$post_after  = get_post( $post_id );
+		$block_count = 0;
+		if ( $post_after ) {
+			// @phpstan-ignore-next-line
+			$blocks_after = parse_blocks( $post_after->post_content );
+			if ( is_array( $blocks_after ) ) {
+				$block_count = self::count_named_blocks( $blocks_after );
+			}
+		}
+
+		return [
+			'post_id'                 => $post_id,
+			'reverted_to_revision_id' => $revision_id,
+			'new_revision_id'         => $new_revision_id,
+			'refs_reseeded'           => $refs_reseeded,
+			'block_count'             => $block_count,
+		];
+	}
+
+	/**
+	 * Count all named (non-freeform) blocks in a tree recursively.
+	 *
+	 * @param array<int|string,mixed> $blocks Block tree.
+	 * @return int Total named block count.
+	 */
+	private static function count_named_blocks( array $blocks ): int {
+		$count = 0;
+		foreach ( $blocks as $block ) {
+			if ( ! is_array( $block ) || empty( $block['blockName'] ) ) {
+				continue;
+			}
+			++$count;
+			$inner = isset( $block['innerBlocks'] ) && is_array( $block['innerBlocks'] ) ? $block['innerBlocks'] : [];
+			if ( ! empty( $inner ) ) {
+				$count += self::count_named_blocks( $inner );
+			}
+		}
+		return $count;
 	}
 
 	// ── Structural validators ─────────────────────────────────────────────
