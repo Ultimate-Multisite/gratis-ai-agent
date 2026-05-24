@@ -14,6 +14,7 @@ declare(strict_types=1);
 namespace SdAiAgent\Abilities;
 
 use SdAiAgent\Core\BlockContentPolicy;
+use SdAiAgent\Core\BlockEnricherRegistry;
 use SdAiAgent\Core\BlockInventory;
 use SdAiAgent\Core\BlockMutator;
 use SdAiAgent\Core\BlockReferences;
@@ -31,6 +32,37 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 class BlockAbilities {
+
+	/**
+	 * Block enricher registry instance.
+	 *
+	 * Set by AbilitiesHandler during init; used by handle_get_page_blocks
+	 * to enrich the block tree before serialisation.
+	 *
+	 * @var BlockEnricherRegistry|null
+	 */
+	private static ?BlockEnricherRegistry $enricher_registry = null;
+
+	/**
+	 * Set the block enricher registry instance.
+	 *
+	 * Called by AbilitiesHandler to inject the singleton registry
+	 * before ability callbacks fire.
+	 *
+	 * @param BlockEnricherRegistry $registry The registry instance.
+	 */
+	public static function set_enricher_registry( BlockEnricherRegistry $registry ): void {
+		self::$enricher_registry = $registry;
+	}
+
+	/**
+	 * Get the block enricher registry instance.
+	 *
+	 * @return BlockEnricherRegistry|null The registry, or null if not yet set.
+	 */
+	public static function get_enricher_registry(): ?BlockEnricherRegistry {
+		return self::$enricher_registry;
+	}
 
 	/**
 	 * Register all block-related abilities.
@@ -2287,6 +2319,20 @@ class BlockAbilities {
 			$blocks = BlockRenderer::render_block_tree( $post_id, $blocks );
 		}
 
+		// Enrich blocks with derived metadata (e.g. image srcset, sizes).
+		// Fires the registration action once per request, then walks the
+		// block tree through all registered enrichers. The enriched data
+		// is placed under `block.enriched.<enricher_id>` so it never
+		// collides with `attributes` or `innerHTML`.
+		if ( null !== self::$enricher_registry ) {
+			self::$enricher_registry->fire_registration_action();
+			$enricher_context = [
+				'post_id' => $post_id,
+				'render'  => $render,
+			];
+			$blocks           = self::$enricher_registry->enrich_block_tree( $blocks, $enricher_context );
+		}
+
 		// Build the annotated block list for the response.
 		$flat_list  = [];
 		$flat_index = 0;
@@ -2463,6 +2509,11 @@ class BlockAbilities {
 				}
 			}
 
+			// Surface enriched data from block enrichers (t266).
+			if ( isset( $block['enriched'] ) && is_array( $block['enriched'] ) && ! empty( $block['enriched'] ) ) {
+				$entry['enriched'] = $block['enriched'];
+			}
+
 			++$flat_index;
 
 			// Recurse into inner blocks (depth is naturally capped by PHP stack + MAX_DEPTH).
@@ -2635,6 +2686,11 @@ class BlockAbilities {
 				if ( isset( $block['rendered_synced_pattern_id'] ) ) {
 					$entry['rendered_synced_pattern_id'] = (int) $block['rendered_synced_pattern_id'];
 				}
+			}
+
+			// Surface enriched data from block enrichers (t266).
+			if ( isset( $block['enriched'] ) && is_array( $block['enriched'] ) && ! empty( $block['enriched'] ) ) {
+				$entry['enriched'] = $block['enriched'];
 			}
 
 			++$flat_index;

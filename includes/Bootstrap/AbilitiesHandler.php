@@ -24,6 +24,8 @@ namespace SdAiAgent\Bootstrap;
 
 use SdAiAgent\Abilities\AiImageAbilities;
 use SdAiAgent\Abilities\BlockAbilities;
+use SdAiAgent\Core\BlockEnricherRegistry;
+use SdAiAgent\Enrichers\CoreImageEnricher;
 use SdAiAgent\Abilities\ContentAbilities;
 use SdAiAgent\Abilities\CustomPostTypeAbilities;
 use SdAiAgent\Abilities\CustomTaxonomyAbilities;
@@ -112,6 +114,16 @@ final class AbilitiesHandler {
 		ContentAbilities::register_abilities();
 		MarketingAbilities::register_abilities();
 		GoogleAnalyticsAbilities::register_abilities();
+		// Wire the block enricher registry before registering block
+		// abilities so handle_get_page_blocks can use it. The registry
+		// is created once (singleton per request), the core/image
+		// enricher is registered by default, and the third-party
+		// `sd_ai_agent_register_block_enrichers` action fires lazily
+		// on the first get-page-blocks call.
+		$enricher_registry = new BlockEnricherRegistry();
+		$enricher_registry->register( new CoreImageEnricher() );
+		BlockAbilities::set_enricher_registry( $enricher_registry );
+
 		BlockAbilities::register_abilities();
 		GlobalStylesAbilities::register_abilities();
 		FileAbilities::register_abilities();
