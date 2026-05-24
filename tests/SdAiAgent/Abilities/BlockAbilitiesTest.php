@@ -191,11 +191,23 @@ class BlockAbilitiesTest extends WP_UnitTestCase {
 
 	/**
 	 * Test handle_list_block_types includes suggested_replacement for legacy blocks.
+	 *
+	 * Uses tier + per_page filters so core/freeform is guaranteed to appear: the
+	 * default per_page=20 sorted alphabetically places core/freeform beyond page 1
+	 * when all core/comment-* blocks are registered, so the unfiltered call
+	 * produced zero assertions (risky test). GH#1812.
 	 */
 	public function test_handle_list_block_types_legacy_block_has_replacement() {
-		$result = BlockAbilities::handle_list_block_types( [] );
+		// Filter to legacy tier with a large per_page so core/freeform is reachable
+		// regardless of total registered block count.
+		$result = BlockAbilities::handle_list_block_types( [
+			'tier'     => 'legacy',
+			'per_page' => 100,
+		] );
 
-		// Find a legacy block (core/freeform is known to be legacy).
+		$this->assertIsArray( $result );
+
+		// Find core/freeform (known legacy block with core/group as replacement).
 		$legacy_block = null;
 		foreach ( $result['block_types'] as $block ) {
 			if ( 'core/freeform' === $block['name'] ) {
@@ -204,12 +216,11 @@ class BlockAbilitiesTest extends WP_UnitTestCase {
 			}
 		}
 
-		if ( $legacy_block ) {
-			$this->assertSame( 'legacy', $legacy_block['tier'] );
-			$this->assertArrayHasKey( 'suggested_replacement', $legacy_block );
-			$this->assertNotNull( $legacy_block['suggested_replacement'] );
-			$this->assertSame( 'core/group', $legacy_block['suggested_replacement'] );
-		}
+		$this->assertNotNull( $legacy_block, 'core/freeform must be registered and appear in legacy-tier results' );
+		$this->assertSame( 'legacy', $legacy_block['tier'] );
+		$this->assertArrayHasKey( 'suggested_replacement', $legacy_block );
+		$this->assertNotNull( $legacy_block['suggested_replacement'] );
+		$this->assertSame( 'core/group', $legacy_block['suggested_replacement'] );
 	}
 
 	/**
