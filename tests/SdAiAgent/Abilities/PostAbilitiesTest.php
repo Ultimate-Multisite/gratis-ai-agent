@@ -48,23 +48,27 @@ class PostAbilitiesTest extends WP_UnitTestCase {
 	// ─── handle_get_post ──────────────────────────────────────────
 
 	/**
-	 * Test handle_get_post with missing post_id returns WP_Error.
+	 * Test handle_get_post with empty input returns missing_input WP_Error.
+	 *
+	 * AC5: get-post {} → WP_Error('missing_input').
 	 */
 	public function test_handle_get_post_missing_post_id() {
 		$result = PostAbilities::handle_get_post( [] );
 
 		$this->assertInstanceOf( \WP_Error::class, $result );
-		$this->assertSame( 'ai_agent_empty_post_id', $result->get_error_code() );
+		$this->assertSame( 'missing_input', $result->get_error_code() );
 	}
 
 	/**
-	 * Test handle_get_post with zero post_id returns WP_Error.
+	 * Test handle_get_post with zero id/post_id returns missing_input WP_Error.
+	 *
+	 * Zero is falsy and not a valid post ID; treated as missing input.
 	 */
 	public function test_handle_get_post_zero_post_id() {
 		$result = PostAbilities::handle_get_post( [ 'post_id' => 0 ] );
 
 		$this->assertInstanceOf( \WP_Error::class, $result );
-		$this->assertSame( 'ai_agent_empty_post_id', $result->get_error_code() );
+		$this->assertSame( 'missing_input', $result->get_error_code() );
 	}
 
 	/**
@@ -79,6 +83,8 @@ class PostAbilitiesTest extends WP_UnitTestCase {
 
 	/**
 	 * Test handle_get_post with valid post_id returns expected structure.
+	 *
+	 * AC7: existing id path returns the pre-change shape PLUS resolved_via: "id".
 	 */
 	public function test_handle_get_post_returns_structure() {
 		$post_id = $this->factory->post->create( [
@@ -99,8 +105,10 @@ class PostAbilitiesTest extends WP_UnitTestCase {
 		$this->assertArrayHasKey( 'categories', $result );
 		$this->assertArrayHasKey( 'tags', $result );
 		$this->assertArrayHasKey( 'featured_image', $result );
+		$this->assertArrayHasKey( 'resolved_via', $result );
 		$this->assertSame( $post_id, $result['id'] );
 		$this->assertSame( 'Test Post', $result['title'] );
+		$this->assertSame( 'id', $result['resolved_via'] );
 	}
 
 	/**
@@ -150,6 +158,117 @@ class PostAbilitiesTest extends WP_UnitTestCase {
 		$this->assertIsArray( $result );
 		$this->assertIsArray( $result['categories'] );
 		$this->assertIsArray( $result['tags'] );
+	}
+
+	// ─── handle_get_post — new input forms (t268) ─────────────────
+
+	/**
+	 * AC1: get-post via URL (query-string form) returns resolved_via "url_to_postid".
+	 *
+	 * Uses ?p=N which is reliably resolved by url_to_postid() even in unit tests.
+	 */
+	public function test_handle_get_post_via_url_resolves_and_returns_resolved_via_url_to_postid() {
+		$post_id = $this->factory->post->create( [
+			'post_title'  => 'URL-resolved post',
+			'post_status' => 'publish',
+		] );
+
+		$url    = add_query_arg( 'p', $post_id, home_url( '/' ) );
+		$result = PostAbilities::handle_get_post( [ 'url' => $url ] );
+
+		$this->assertIsArray( $result );
+		$this->assertSame( $post_id, $result['id'] );
+		$this->assertSame( 'url_to_postid', $result['resolved_via'] );
+	}
+
+	/**
+	 * AC2: get-post via slug+post_type returns correct post and resolved_via "slug_lookup".
+	 */
+	public function test_handle_get_post_via_slug_and_post_type_resolves_correctly() {
+		$post_id = $this->factory->post->create( [
+			'post_title'   => 'About Page',
+			'post_name'    => 't268-about-slug-test',
+			'post_status'  => 'publish',
+			'post_type'    => 'page',
+		] );
+
+		$result = PostAbilities::handle_get_post( [
+			'slug'      => 't268-about-slug-test',
+			'post_type' => 'page',
+		] );
+
+		$this->assertIsArray( $result );
+		$this->assertSame( $post_id, $result['id'] );
+		$this->assertSame( 'slug_lookup', $result['resolved_via'] );
+	}
+
+	/**
+	 * AC3: get-post with slug but no post_type returns missing_post_type WP_Error.
+	 */
+	public function test_handle_get_post_slug_without_post_type_returns_missing_post_type() {
+		$result = PostAbilities::handle_get_post( [ 'slug' => 'some-slug' ] );
+
+		$this->assertInstanceOf( \WP_Error::class, $result );
+		$this->assertSame( 'missing_post_type', $result->get_error_code() );
+	}
+
+	/**
+	 * AC4: get-post with more than one of id/url/slug returns too_many_inputs WP_Error.
+	 */
+	public function test_handle_get_post_too_many_inputs_returns_too_many_inputs() {
+		$post_id = $this->factory->post->create( [ 'post_status' => 'publish' ] );
+
+		$result = PostAbilities::handle_get_post( [
+			'id'  => $post_id,
+			'url' => home_url( '/?p=' . $post_id ),
+		] );
+
+		$this->assertInstanceOf( \WP_Error::class, $result );
+		$this->assertSame( 'too_many_inputs', $result->get_error_code() );
+	}
+
+	/**
+	 * AC6: get-post with a cross-host URL returns external_host WP_Error.
+	 */
+	public function test_handle_get_post_cross_host_url_returns_external_host_error() {
+		$result = PostAbilities::handle_get_post( [
+			'url' => 'https://other.example.invalid/about/',
+		] );
+
+		$this->assertInstanceOf( \WP_Error::class, $result );
+		$this->assertSame( 'external_host', $result->get_error_code() );
+	}
+
+	/**
+	 * AC7: deprecated post_id key is still accepted (backward compatibility).
+	 */
+	public function test_handle_get_post_deprecated_post_id_key_still_works() {
+		$post_id = $this->factory->post->create( [
+			'post_title'  => 'Legacy post_id key',
+			'post_status' => 'publish',
+		] );
+
+		$result = PostAbilities::handle_get_post( [ 'post_id' => $post_id ] );
+
+		$this->assertIsArray( $result );
+		$this->assertSame( $post_id, $result['id'] );
+		$this->assertSame( 'id', $result['resolved_via'] );
+	}
+
+	/**
+	 * New 'id' key works as canonical alias.
+	 */
+	public function test_handle_get_post_new_id_key_works() {
+		$post_id = $this->factory->post->create( [
+			'post_title'  => 'New id key post',
+			'post_status' => 'publish',
+		] );
+
+		$result = PostAbilities::handle_get_post( [ 'id' => $post_id ] );
+
+		$this->assertIsArray( $result );
+		$this->assertSame( $post_id, $result['id'] );
+		$this->assertSame( 'id', $result['resolved_via'] );
 	}
 
 	// ─── handle_create_post ───────────────────────────────────────

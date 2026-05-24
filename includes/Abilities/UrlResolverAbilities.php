@@ -89,29 +89,76 @@ class UrlResolverAbilities {
 	}
 
 	/**
-	 * Execute the resolve-url ability.
+	 * Resolve a URL or slug+post_type input to a WordPress post ID.
 	 *
-	 * @param array<string, mixed> $params Ability parameters; expects 'url' key.
-	 * @return array<string, mixed>|\WP_Error Resolved post data or a WP_Error.
+	 * Accepts two mutually-exclusive input shapes:
+	 *
+	 *   URL form  — [ 'url'  => 'https://example.com/about/' ]
+	 *   Slug form — [ 'slug' => 'about', 'post_type' => 'page' ]
+	 *
+	 * The `$matched_via` output parameter is set to "url_to_postid" or
+	 * "slug_lookup" so callers can include this in their response.
+	 *
+	 * This is the shared resolution core used by both handle_resolve_url() and
+	 * PostAbilities::handle_get_post(). It does NOT apply a per-post visibility
+	 * gate — callers that need draft/private filtering must check that themselves.
+	 *
+	 * @param array<string, mixed> $input      Resolution input (url or slug+post_type).
+	 * @param string               $matched_via Output: how the post_id was found.
+	 * @return int|\WP_Error Post ID (> 0) on success, WP_Error on failure.
 	 */
-	public static function handle_resolve_url( array $params ): array|\WP_Error {
-		$input = isset( $params['url'] ) ? trim( (string) $params['url'] ) : '';
+	public static function resolve_to_post_id( array $input, string &$matched_via = '' ): int|\WP_Error {
 
-		if ( '' === $input ) {
-			return new \WP_Error(
-				'missing_url',
-				__( 'The "url" parameter is required.', 'superdav-ai-agent' )
-			);
+		// ── Slug + post_type form ──────────────────────────────────────────────
+		if ( isset( $input['slug'] ) ) {
+			$slug      = trim( (string) $input['slug'] );
+			$post_type = isset( $input['post_type'] ) ? trim( (string) $input['post_type'] ) : '';
+
+			if ( '' === $post_type ) {
+				return new \WP_Error(
+					'missing_post_type',
+					/* translators: no interpolation */
+					__( '"post_type" is required when "slug" is provided. Specify the post type (e.g. "page") to avoid silent cross-type matches.', 'superdav-ai-agent' )
+				);
+			}
+
+			if ( '' === $slug ) {
+				return new \WP_Error(
+					'not_found',
+					__( 'No post found for the given slug and post_type.', 'superdav-ai-agent' ),
+					[
+						'slug'      => $slug,
+						'post_type' => $post_type,
+					]
+				);
+			}
+
+			$post_obj = get_page_by_path( $slug, OBJECT, $post_type );
+			if ( ! ( $post_obj instanceof \WP_Post ) ) {
+				return new \WP_Error(
+					'not_found',
+					__( 'No post found for the given slug and post_type.', 'superdav-ai-agent' ),
+					[
+						'slug'      => $slug,
+						'post_type' => $post_type,
+					]
+				);
+			}
+
+			$matched_via = 'slug_lookup';
+			return $post_obj->ID;
 		}
 
-		$attempts    = [];
-		$post_id     = 0;
-		$matched_via = '';
-		$is_absolute = str_contains( $input, '://' );
+		// ── URL form ───────────────────────────────────────────────────────────
+		$url_input    = isset( $input['url'] ) ? trim( (string) $input['url'] ) : '';
+		$attempts     = [];
+		$post_id      = 0;
+		$resolved_via = '';
+		$is_absolute  = str_contains( $url_input, '://' );
 
 		// Guard: reject cross-host URLs immediately — never resolve external sites.
 		if ( $is_absolute ) {
-			$input_host = (string) wp_parse_url( $input, PHP_URL_HOST );
+			$input_host = (string) wp_parse_url( $url_input, PHP_URL_HOST );
 			$site_host  = (string) wp_parse_url( home_url(), PHP_URL_HOST );
 			if ( '' !== $input_host && '' !== $site_host && $input_host !== $site_host ) {
 				return new \WP_Error(
@@ -131,13 +178,13 @@ class UrlResolverAbilities {
 
 		// Strategy 1: url_to_postid() — reliable for absolute URLs and relative
 		// query-string inputs (e.g. ?p=123, ?page_id=456).
-		if ( $is_absolute || str_starts_with( $input, '?' ) || str_starts_with( $input, '/' ) ) {
-			$lookup_url  = $is_absolute ? $input : home_url( $input );
+		if ( $is_absolute || str_starts_with( $url_input, '?' ) || str_starts_with( $url_input, '/' ) ) {
+			$lookup_url  = $is_absolute ? $url_input : home_url( $url_input );
 			$attempts[]  = 'url_to_postid';
 			$resolved_id = url_to_postid( $lookup_url );
 			if ( $resolved_id > 0 ) {
-				$post_id     = $resolved_id;
-				$matched_via = 'url_to_postid';
+				$post_id      = $resolved_id;
+				$resolved_via = 'url_to_postid';
 			}
 		}
 
@@ -147,10 +194,10 @@ class UrlResolverAbilities {
 		if ( 0 === $post_id ) {
 			if ( $is_absolute ) {
 				// Derive slug from the URL path.
-				$slug = trim( (string) wp_parse_url( $input, PHP_URL_PATH ), '/' );
+				$slug = trim( (string) wp_parse_url( $url_input, PHP_URL_PATH ), '/' );
 			} else {
 				// Strip query string and URL fragment; trim slashes.
-				$without_query = (string) explode( '?', $input )[0];
+				$without_query = (string) explode( '?', $url_input )[0];
 				$slug          = trim( (string) explode( '#', $without_query )[0], '/' );
 			}
 
@@ -159,8 +206,8 @@ class UrlResolverAbilities {
 				$public_types = array_keys( get_post_types( [ 'public' => true ] ) );
 				$post_obj     = get_page_by_path( $slug, OBJECT, $public_types );
 				if ( $post_obj instanceof \WP_Post ) {
-					$post_id     = $post_obj->ID;
-					$matched_via = 'slug_lookup';
+					$post_id      = $post_obj->ID;
+					$resolved_via = 'slug_lookup';
 				}
 			}
 		}
@@ -170,10 +217,40 @@ class UrlResolverAbilities {
 				'not_found',
 				__( 'No post found for the given URL or slug.', 'superdav-ai-agent' ),
 				[
-					'input'    => $input,
+					'input'    => $url_input,
 					'attempts' => $attempts,
 				]
 			);
+		}
+
+		$matched_via = $resolved_via;
+		return $post_id;
+	}
+
+	/**
+	 * Execute the resolve-url ability.
+	 *
+	 * Delegates resolution to resolve_to_post_id(), then fetches post metadata
+	 * and applies the per-post visibility gate for draft/private posts.
+	 *
+	 * @param array<string, mixed> $params Ability parameters; expects 'url' key.
+	 * @return array<string, mixed>|\WP_Error Resolved post data or a WP_Error.
+	 */
+	public static function handle_resolve_url( array $params ): array|\WP_Error {
+		$input = isset( $params['url'] ) ? trim( (string) $params['url'] ) : '';
+
+		if ( '' === $input ) {
+			return new \WP_Error(
+				'missing_url',
+				__( 'The "url" parameter is required.', 'superdav-ai-agent' )
+			);
+		}
+
+		$matched_via = '';
+		$post_id     = self::resolve_to_post_id( [ 'url' => $input ], $matched_via );
+
+		if ( is_wp_error( $post_id ) ) {
+			return $post_id;
 		}
 
 		$post = get_post( $post_id );
@@ -181,10 +258,7 @@ class UrlResolverAbilities {
 			return new \WP_Error(
 				'not_found',
 				__( 'No post found for the given URL or slug.', 'superdav-ai-agent' ),
-				[
-					'input'    => $input,
-					'attempts' => $attempts,
-				]
+				[ 'input' => $input ]
 			);
 		}
 
@@ -194,10 +268,7 @@ class UrlResolverAbilities {
 			return new \WP_Error(
 				'not_found',
 				__( 'No post found for the given URL or slug.', 'superdav-ai-agent' ),
-				[
-					'input'    => $input,
-					'attempts' => $attempts,
-				]
+				[ 'input' => $input ]
 			);
 		}
 
