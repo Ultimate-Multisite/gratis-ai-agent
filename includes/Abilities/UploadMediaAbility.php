@@ -162,6 +162,12 @@ class UploadMediaAbility {
 	 * @return array<string, mixed>|WP_Error
 	 */
 	public static function handle_upload_media( array $input ) {
+		// Check if uploads are disabled site-wide or by multisite restrictions.
+		$uploads_disabled = self::check_uploads_disabled();
+		if ( is_wp_error( $uploads_disabled ) ) {
+			return $uploads_disabled;
+		}
+
 		// @phpstan-ignore-next-line
 		$source = sanitize_key( $input['source'] ?? '' );
 
@@ -189,6 +195,37 @@ class UploadMediaAbility {
 					)
 				);
 		}
+	}
+
+	// ─── Uploads-disabled guard ──────────────────────────────────────────────
+
+	/**
+	 * Check if uploads are disabled site-wide or by multisite restrictions.
+	 *
+	 * Returns WP_Error if uploads are disabled, otherwise returns true.
+	 *
+	 * @since 1.10.0
+	 *
+	 * @return true|WP_Error True if uploads are enabled, WP_Error if disabled.
+	 */
+	private static function check_uploads_disabled() {
+		// Check WP_DISABLE_UPLOADS constant (site-wide disable).
+		if ( defined( 'WP_DISABLE_UPLOADS' ) && WP_DISABLE_UPLOADS ) {
+			return new WP_Error(
+				'uploads_disabled',
+				__( 'File uploads are disabled on this site.', 'superdav-ai-agent' )
+			);
+		}
+
+		// Check multisite upload restrictions.
+		if ( is_multisite() && ! multisite_can_upload() ) {
+			return new WP_Error(
+				'uploads_disabled',
+				__( 'File uploads are disabled for this site in a multisite network.', 'superdav-ai-agent' )
+			);
+		}
+
+		return true;
 	}
 
 	// ─── Source handlers ─────────────────────────────────────────────────────

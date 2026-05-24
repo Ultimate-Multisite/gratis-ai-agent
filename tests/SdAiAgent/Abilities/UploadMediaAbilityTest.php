@@ -567,4 +567,72 @@ class UploadMediaAbilityTest extends WP_UnitTestCase {
 		$this->assertInstanceOf( \WP_Error::class, $result );
 		$this->assertSame( 'missing_data', $result->get_error_code() );
 	}
+
+	// ─── uploads disabled guard ──────────────────────────────────────────────
+
+	/**
+	 * When WP_DISABLE_UPLOADS is true, upload-media returns uploads_disabled error.
+	 *
+	 * GH#1803: upload abilities must check WP_DISABLE_UPLOADS before attempting uploads.
+	 */
+	public function test_upload_media_with_wp_disable_uploads_returns_error() {
+		// Define WP_DISABLE_UPLOADS if not already defined.
+		if ( ! defined( 'WP_DISABLE_UPLOADS' ) ) {
+			define( 'WP_DISABLE_UPLOADS', true );
+		}
+
+		// phpcs:ignore WordPress.PHP.DiscouragedPHPFunctions.obfuscation_base64_encode -- test data encoding
+		$png_b64 = base64_encode( self::minimal_png_bytes() );
+
+		$result = UploadMediaAbility::handle_upload_media( [
+			'source'      => 'base64',
+			'data_base64' => $png_b64,
+			'mime_type'   => 'image/png',
+		] );
+
+		$this->assertInstanceOf( \WP_Error::class, $result );
+		$this->assertSame( 'uploads_disabled', $result->get_error_code() );
+	}
+
+	/**
+	 * sideload_from_base64 checks WP_DISABLE_UPLOADS before processing.
+	 *
+	 * GH#1803: legacy import-base64-image ability must also check WP_DISABLE_UPLOADS.
+	 */
+	public function test_sideload_from_base64_with_wp_disable_uploads_returns_error() {
+		// Define WP_DISABLE_UPLOADS if not already defined.
+		if ( ! defined( 'WP_DISABLE_UPLOADS' ) ) {
+			define( 'WP_DISABLE_UPLOADS', true );
+		}
+
+		// phpcs:ignore WordPress.PHP.DiscouragedPHPFunctions.obfuscation_base64_encode -- test data encoding
+		$png_b64 = base64_encode( self::minimal_png_bytes() );
+
+		$result = ImageAbilities::sideload_from_base64( [
+			'data_base64' => $png_b64,
+			'mime_type'   => 'image/png',
+		] );
+
+		$this->assertInstanceOf( \WP_Error::class, $result );
+		$this->assertSame( 'uploads_disabled', $result->get_error_code() );
+	}
+
+	/**
+	 * sideload_from_url checks WP_DISABLE_UPLOADS before processing.
+	 *
+	 * GH#1803: legacy upload-media-from-url ability must also check WP_DISABLE_UPLOADS.
+	 */
+	public function test_sideload_from_url_with_wp_disable_uploads_returns_error() {
+		// Define WP_DISABLE_UPLOADS if not already defined.
+		if ( ! defined( 'WP_DISABLE_UPLOADS' ) ) {
+			define( 'WP_DISABLE_UPLOADS', true );
+		}
+
+		$result = MediaAbilities::sideload_from_url( [
+			'url' => 'https://example.com/image.jpg',
+		] );
+
+		$this->assertInstanceOf( \WP_Error::class, $result );
+		$this->assertSame( 'uploads_disabled', $result->get_error_code() );
+	}
 }
