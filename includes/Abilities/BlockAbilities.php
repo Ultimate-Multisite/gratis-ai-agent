@@ -18,6 +18,7 @@ use SdAiAgent\Core\BlockInventory;
 use SdAiAgent\Core\BlockMutator;
 use SdAiAgent\Core\BlockReferences;
 use SdAiAgent\Core\BlockRenderer;
+use SdAiAgent\Core\BlockStorageScanner;
 use SdAiAgent\Core\BlockTreeAddress;
 use SdAiAgent\Core\BlockValidator;
 use SdAiAgent\Core\PatternInserter;
@@ -1142,6 +1143,96 @@ class BlockAbilities {
 				],
 			]
 		);
+
+		wp_register_ability(
+		'sd-ai-agent/scan-storage-modes',
+		[
+			'label'               => __( 'Scan Storage Modes', 'superdav-ai-agent' ),
+			'description'         => __( 'Scan published posts and classify each unique block name by storage mode: attrs_only, inner_html_only, dual, or unknown. Use this before bulk mutations to identify which custom blocks require both attributes and innerHTML to be supplied together (dual-storage constraint). Returns posts_scanned, unique_blocks, items[], and a truncated flag.', 'superdav-ai-agent' ),
+			'category'            => 'sd-ai-agent',
+			'input_schema'        => [
+				'type'       => 'object',
+				'properties' => [
+					'post_status'            => [
+						'type'        => 'array',
+						'description' => 'Post statuses to include. Default: ["publish"].',
+						'items'       => [ 'type' => 'string' ],
+					],
+					'post_types'             => [
+						'type'        => 'array',
+						'description' => 'Post types to scan. Default: all public post types.',
+						'items'       => [ 'type' => 'string' ],
+					],
+					'limit'                  => [
+						'type'        => 'integer',
+						'description' => 'Maximum number of posts to scan. Default: 200. Max: 1000.',
+					],
+					'include_registry_known' => [
+						'type'        => 'boolean',
+						'description' => 'When true, also include blocks already registered in DualStorageRegistry. Default: false.',
+					],
+				],
+				'required'   => [],
+			],
+			'output_schema'       => [
+				'type'       => 'object',
+				'properties' => [
+					'posts_scanned' => [
+						'type'        => 'integer',
+						'description' => 'Number of posts actually walked during the scan.',
+					],
+					'unique_blocks' => [
+						'type'        => 'integer',
+						'description' => 'Count of distinct block names returned in items.',
+					],
+					'items'         => [
+						'type'        => 'array',
+						'description' => 'Per-block classification rows, sorted by occurrences descending.',
+						'items'       => [
+							'type'       => 'object',
+							'properties' => [
+								'block_name'    => [ 'type' => 'string' ],
+								'storage_mode'  => [
+									'type' => 'string',
+									'enum' => [ 'attrs_only', 'inner_html_only', 'dual', 'unknown' ],
+								],
+								'in_registry'   => [ 'type' => 'boolean' ],
+								'occurrences'   => [ 'type' => 'integer' ],
+								'first_post_id' => [ 'type' => 'integer' ],
+								'evidence'      => [
+									'type'       => 'object',
+									'properties' => [
+										'attr_keys'        => [
+											'type'  => 'array',
+											'items' => [ 'type' => 'string' ],
+										],
+										'inner_html_chars' => [ 'type' => 'integer' ],
+									],
+								],
+							],
+						],
+					],
+					'truncated'     => [
+						'type'        => 'boolean',
+						'description' => 'True when the post limit was reached and more posts exist.',
+					],
+					'error'         => [ 'type' => 'string' ],
+				],
+			],
+			'execute_callback'    => [ __CLASS__, 'handle_scan_storage_modes' ],
+			'permission_callback' => function () {
+				return current_user_can( 'edit_posts' );
+			},
+			'meta'                => [
+				'mcp'         => [ 'public' => true ],
+				'annotations' => [
+					'readonly'    => true,
+					'destructive' => false,
+					'idempotent'  => true,
+				],
+			],
+		]
+		);
 	}
 
 	// ─── Handlers ─────────────────────────────────────────────────
@@ -1996,6 +2087,47 @@ class BlockAbilities {
 			$result = BlockInventory::get( $refresh );
 		} catch ( \Throwable $e ) {
 			return array( 'error' => $e->getMessage() );
+		}
+
+		return $result;
+	}
+
+	/**
+	 * Handle scan-storage-modes ability.
+	 *
+	 * Delegates to BlockStorageScanner::scan and normalises WP_Error into
+	 * an array with an 'error' key so the ability layer always receives
+	 * an array response.
+	 *
+	 * @param array<string,mixed> $input Input with optional post_status, post_types, limit, include_registry_known.
+	 * @return array<string,mixed>|\WP_Error Scan result or error.
+	 */
+	public static function handle_scan_storage_modes( array $input ) {
+		if ( ! current_user_can( 'edit_posts' ) ) {
+			return new \WP_Error(
+				'insufficient_capability',
+				__( 'You do not have permission to scan block storage modes.', 'superdav-ai-agent' )
+			);
+		}
+
+		$args = [];
+		if ( isset( $input['post_status'] ) ) {
+			$args['post_status'] = $input['post_status'];
+		}
+		if ( isset( $input['post_types'] ) ) {
+			$args['post_types'] = $input['post_types'];
+		}
+		if ( isset( $input['limit'] ) ) {
+			$args['limit'] = $input['limit'];
+		}
+		if ( isset( $input['include_registry_known'] ) ) {
+			$args['include_registry_known'] = $input['include_registry_known'];
+		}
+
+		$result = BlockStorageScanner::scan( $args );
+
+		if ( is_wp_error( $result ) ) {
+			return $result;
 		}
 
 		return $result;

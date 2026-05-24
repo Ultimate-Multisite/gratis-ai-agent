@@ -440,7 +440,10 @@ class PostAbilities {
 										'enum'        => [ '=', '!=', 'EXISTS', 'NOT EXISTS', 'IN', 'NOT IN' ],
 										'description' => 'Comparison operator.',
 									],
-									'value'   => [ 'description' => 'Meta value. Not required for EXISTS/NOT EXISTS.' ],
+									'value'   => [
+									'type'        => [ 'string', 'array', 'integer', 'number' ],
+									'description' => 'Meta value. Not required for EXISTS/NOT EXISTS.',
+									],
 								],
 								'required'   => [ 'key' ],
 							],
