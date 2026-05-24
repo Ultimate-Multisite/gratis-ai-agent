@@ -13,6 +13,7 @@ declare(strict_types=1);
 
 namespace SdAiAgent\Abilities;
 
+use SdAiAgent\Abilities\UrlResolverAbilities;
 use SdAiAgent\Core\BlockValidator;
 use SdAiAgent\Core\RateLimiter;
 use SdAiAgent\Core\RevisionGuard;
@@ -38,21 +39,33 @@ class PostAbilities {
 			'sd-ai-agent/get-post',
 			[
 				'label'               => __( 'Get Post', 'superdav-ai-agent' ),
-				'description'         => __( 'Retrieve a WordPress post by ID. Returns title, content, excerpt, status, author, categories, tags, featured image, and meta.', 'superdav-ai-agent' ),
+				'description'         => __( 'Retrieve a WordPress post by numeric ID, full URL, or slug + post_type. Exactly one of "id", "url", or "slug" must be supplied. Returns title, content, excerpt, status, author, categories, tags, featured image, and a resolved_via field that identifies how the post was found.', 'superdav-ai-agent' ),
 				'category'            => 'sd-ai-agent',
 				'input_schema'        => [
 					'type'       => 'object',
 					'properties' => [
+						'id'        => [
+							'type'        => 'integer',
+							'description' => 'Numeric post ID. Use this when you already know the ID.',
+						],
 						'post_id'   => [
 							'type'        => 'integer',
-							'description' => 'The ID of the post to retrieve.',
+							'description' => 'Alias for id (deprecated; prefer id).',
+						],
+						'url'       => [
+							'type'        => 'string',
+							'description' => 'Full URL of the post (e.g. "https://example.com/about/"). Resolved via url_to_postid() with a slug fallback. Cross-host URLs are rejected.',
+						],
+						'slug'      => [
+							'type'        => 'string',
+							'description' => 'Post slug (e.g. "about"). Must be paired with post_type to avoid silent cross-type matches.',
 						],
 						'post_type' => [
 							'type'        => 'string',
-							'description' => 'Post type to validate against (default: any).',
+							'description' => 'Post type to look up or validate against (required when slug is provided; default "any" when id is provided).',
 						],
 					],
-					'required'   => [ 'post_id' ],
+					'required'   => [],
 				],
 				'output_schema'       => [
 					'type'       => 'object',
@@ -71,6 +84,11 @@ class PostAbilities {
 						'categories'     => [ 'type' => 'array' ],
 						'tags'           => [ 'type' => 'array' ],
 						'featured_image' => [ 'type' => 'string' ],
+						'resolved_via'   => [
+							'type'        => 'string',
+							'enum'        => [ 'id', 'url_to_postid', 'slug_lookup' ],
+							'description' => 'How the post was located: "id" (numeric ID), "url_to_postid" (URL resolved via url_to_postid()), or "slug_lookup" (resolved via get_page_by_path()).',
+						],
 					],
 				],
 				'meta'                => [
@@ -738,19 +756,72 @@ class PostAbilities {
 	/**
 	 * Handle the get-post ability.
 	 *
-	 * @param array<string, mixed> $input Input with post_id and optional post_type.
+	 * Accepts exactly one of:
+	 *   - id / post_id — numeric post ID (post_id is a deprecated alias).
+	 *   - url          — absolute URL resolved via UrlResolverAbilities.
+	 *   - slug + post_type — slug resolved via get_page_by_path().
+	 *
+	 * @param array<string, mixed> $input Input params.
 	 * @return array<string, mixed>|WP_Error
 	 */
 	public static function handle_get_post( array $input ) {
+		// Normalise id: accept both 'id' and deprecated 'post_id'.
 		// @phpstan-ignore-next-line
-		$post_id = (int) ( $input['post_id'] ?? 0 );
-		// @phpstan-ignore-next-line
-		$post_type = sanitize_text_field( $input['post_type'] ?? 'any' );
+		$id_value   = (int) ( $input['id'] ?? $input['post_id'] ?? 0 );
+		$url_value  = isset( $input['url'] ) ? trim( (string) $input['url'] ) : '';
+		$slug_value = isset( $input['slug'] ) ? trim( (string) $input['slug'] ) : '';
 
-		if ( ! $post_id ) {
-			return new WP_Error( 'ai_agent_empty_post_id', __( 'post_id is required.', 'superdav-ai-agent' ) );
+		// ── XOR guard: exactly one of id / url / slug must be provided ────────
+		$provided = ( $id_value > 0 ? 1 : 0 )
+			+ ( '' !== $url_value ? 1 : 0 )
+			+ ( '' !== $slug_value ? 1 : 0 );
+
+		if ( $provided > 1 ) {
+			return new WP_Error(
+				'too_many_inputs',
+				__( 'Provide exactly one of "id", "url", or "slug" — not multiple.', 'superdav-ai-agent' )
+			);
 		}
 
+		if ( 0 === $provided ) {
+			return new WP_Error(
+				'missing_input',
+				__( 'One of "id", "url", or "slug" is required.', 'superdav-ai-agent' )
+			);
+		}
+
+		// ── Resolve to a post_id ───────────────────────────────────────────────
+		$post_id      = 0;
+		$resolved_via = '';
+
+		if ( $id_value > 0 ) {
+			$post_id      = $id_value;
+			$resolved_via = 'id';
+		} elseif ( '' !== $url_value ) {
+			// Delegate to shared URL resolver.
+			$resolved = UrlResolverAbilities::resolve_to_post_id( [ 'url' => $url_value ], $resolved_via );
+			if ( is_wp_error( $resolved ) ) {
+				return $resolved;
+			}
+			$post_id = $resolved;
+		} else {
+			// Slug + post_type form.
+			// @phpstan-ignore-next-line
+			$post_type_for_slug = isset( $input['post_type'] ) ? trim( (string) $input['post_type'] ) : '';
+			$resolved           = UrlResolverAbilities::resolve_to_post_id(
+				[
+					'slug'      => $slug_value,
+					'post_type' => $post_type_for_slug,
+				],
+				$resolved_via
+			);
+			if ( is_wp_error( $resolved ) ) {
+				return $resolved;
+			}
+			$post_id = $resolved;
+		}
+
+		// ── Fetch post ────────────────────────────────────────────────────────
 		$post = get_post( $post_id );
 
 		if ( ! ( $post instanceof WP_Post ) ) {
@@ -761,11 +832,15 @@ class PostAbilities {
 			);
 		}
 
-		if ( $post_type !== 'any' && $post->post_type !== $post_type ) {
+		// post_type validation (applies only to the id path; slug path already
+		// scoped to the requested type via resolve_to_post_id).
+		// @phpstan-ignore-next-line
+		$post_type_filter = 'id' === $resolved_via ? sanitize_text_field( $input['post_type'] ?? 'any' ) : 'any';
+		if ( 'any' !== $post_type_filter && $post->post_type !== $post_type_filter ) {
 			return new WP_Error(
 				'ai_agent_post_type_mismatch',
 				/* translators: 1: post ID, 2: expected type, 3: actual type */
-				sprintf( __( 'Post %1$d is of type "%2$s", not "%3$s".', 'superdav-ai-agent' ), $post_id, $post->post_type, $post_type )
+				sprintf( __( 'Post %1$d is of type "%2$s", not "%3$s".', 'superdav-ai-agent' ), $post_id, $post->post_type, $post_type_filter )
 			);
 		}
 
@@ -794,6 +869,7 @@ class PostAbilities {
 			'categories'     => is_wp_error( $categories ) ? [] : $categories,
 			'tags'           => is_wp_error( $tags ) ? [] : $tags,
 			'featured_image' => $featured_image_url,
+			'resolved_via'   => $resolved_via,
 		];
 	}
 
