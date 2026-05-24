@@ -120,6 +120,18 @@ class RewritePostBlocksTest extends WP_UnitTestCase {
 		return $block;
 	}
 
+	// ── Setup ─────────────────────────────────────────────────────────────
+
+	/**
+	 * Set up test environment with admin user.
+	 */
+	public function set_up(): void {
+		parent::set_up();
+		// Create an admin user and set as current user for capability checks.
+		$admin_id = self::factory()->user->create( [ 'role' => 'administrator' ] );
+		wp_set_current_user( $admin_id );
+	}
+
 	// ── BlockMutator::validate_rewrite_blocks unit tests ──────────────────
 
 	/**

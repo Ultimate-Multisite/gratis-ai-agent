@@ -1097,6 +1097,14 @@ class PostAbilities {
 			);
 		}
 
+		// ── Per-resource capability check ──────────────────────────────────────
+		if ( ! current_user_can( 'edit_post', $post_id ) ) {
+			return new WP_Error(
+				'insufficient_capability',
+				__( 'You do not have permission to edit this post.', 'superdav-ai-agent' )
+			);
+		}
+
 		// post_type validation (applies only to the id path; slug path already
 		// scoped to the requested type via resolve_to_post_id).
 		// @phpstan-ignore-next-line
@@ -1391,6 +1399,17 @@ class PostAbilities {
 			);
 		}
 
+		// ── Per-resource capability check ──────────────────────────────────────
+		if ( ! current_user_can( 'edit_post', $post_id ) ) {
+			if ( $switched ) {
+				restore_current_blog();
+			}
+			return new WP_Error(
+				'insufficient_capability',
+				__( 'You do not have permission to edit this post.', 'superdav-ai-agent' )
+			);
+		}
+
 		// Optimistic concurrency check (opt-in via expected_revision).
 		$raw_expected = isset( $input['expected_revision'] ) ? (string) $input['expected_revision'] : '';
 		$guard        = RevisionGuard::check( $post_id, RevisionGuard::parse_raw( $raw_expected ) );
@@ -1653,6 +1672,17 @@ class PostAbilities {
 				'ai_agent_post_not_found',
 				/* translators: %d: post ID */
 				sprintf( __( 'Post %d not found.', 'superdav-ai-agent' ), $post_id )
+			);
+		}
+
+		// ── Per-resource capability check ──────────────────────────────────────
+		if ( ! current_user_can( 'edit_post', $post_id ) ) {
+			if ( $switched ) {
+				restore_current_blog();
+			}
+			return new WP_Error(
+				'insufficient_capability',
+				__( 'You do not have permission to edit this post.', 'superdav-ai-agent' )
 			);
 		}
 

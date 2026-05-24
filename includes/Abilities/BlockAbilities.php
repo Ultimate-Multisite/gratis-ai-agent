@@ -2183,6 +2183,14 @@ class BlockAbilities {
 			);
 		}
 
+		// ── Per-resource capability check ──────────────────────────────────────
+		if ( ! current_user_can( 'edit_post', $post_id ) ) {
+			return new \WP_Error(
+				'insufficient_capability',
+				__( 'You do not have permission to edit this post.', 'superdav-ai-agent' )
+			);
+		}
+
 		$content = $post->post_content;
 		if ( ! is_string( $content ) || '' === trim( $content ) ) {
 			$response = [
@@ -2991,6 +2999,15 @@ class BlockAbilities {
 			);
 		}
 
+		// ── Per-resource capability check ──────────────────────────────────────
+		if ( ! current_user_can( 'edit_post', $post_id ) ) {
+			return new \WP_Error(
+				'insufficient_capability',
+				__( 'You do not have permission to edit this post.', 'superdav-ai-agent' ),
+				[ 'status' => 403 ]
+			);
+		}
+
 		// Optimistic concurrency guard.
 		$expected = isset( $input['expected_revision'] ) ? (string) $input['expected_revision'] : '';
 		$guard    = RevisionGuard::check( $post_id, RevisionGuard::parse_raw( $expected ) );
@@ -3102,6 +3119,15 @@ class BlockAbilities {
 					$post_id
 				),
 				[ 'status' => 404 ]
+			);
+		}
+
+		// ── Per-resource capability check ──────────────────────────────────────
+		if ( ! current_user_can( 'edit_post', $post_id ) ) {
+			return new \WP_Error(
+				'insufficient_capability',
+				__( 'You do not have permission to edit this post.', 'superdav-ai-agent' ),
+				[ 'status' => 403 ]
 			);
 		}
 
@@ -3367,6 +3393,15 @@ class BlockAbilities {
 			);
 		}
 
+		// ── Per-resource capability check ──────────────────────────────────────
+		if ( ! current_user_can( 'edit_post', $post_id ) ) {
+			return new \WP_Error(
+				'insufficient_capability',
+				__( 'You do not have permission to edit this post.', 'superdav-ai-agent' ),
+				[ 'status' => 403 ]
+			);
+		}
+
 		// ── Optimistic concurrency ────────────────────────────────────
 
 		$expected = isset( $input['expected_revision_id'] ) ? (string) $input['expected_revision_id'] : '';
@@ -3607,6 +3642,15 @@ class BlockAbilities {
 					$post_id
 				),
 				[ 'status' => 404 ]
+			);
+		}
+
+		// ── Per-resource capability check ──────────────────────────────────────
+		if ( ! current_user_can( 'edit_post', $post_id ) ) {
+			return new \WP_Error(
+				'insufficient_capability',
+				__( 'You do not have permission to edit this post.', 'superdav-ai-agent' ),
+				[ 'status' => 403 ]
 			);
 		}
 

@@ -47,6 +47,10 @@ class InsertPatternTest extends WP_UnitTestCase {
 	public function set_up(): void {
 		parent::set_up();
 
+		// Create an admin user and set as current user for capability checks.
+		$admin_id = self::factory()->user->create( [ 'role' => 'administrator' ] );
+		wp_set_current_user( $admin_id );
+
 		// Register a test pattern for all tests.
 		if ( ! \WP_Block_Patterns_Registry::get_instance()->is_registered( self::TEST_PATTERN ) ) {
 			register_block_pattern(

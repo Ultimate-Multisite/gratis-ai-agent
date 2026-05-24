@@ -20,6 +20,10 @@ class PostAbilitiesTest extends WP_UnitTestCase {
 	public function set_up(): void {
 		parent::set_up();
 
+		// Create an admin user and set as current user for capability checks.
+		$admin_id = self::factory()->user->create( [ 'role' => 'administrator' ] );
+		wp_set_current_user( $admin_id );
+
 		add_filter( 'theme_page_templates', [ $this, 'register_test_page_templates' ] );
 	}
 
