@@ -12,6 +12,7 @@ declare(strict_types=1);
 namespace SdAiAgent\PluginBuilder;
 
 use SdAiAgent\Core\Database;
+use SdAiAgent\Core\Filesystem\PathCanonicalizer;
 use WP_Error;
 
 if ( ! defined( 'ABSPATH' ) ) {
@@ -276,7 +277,12 @@ class PluginInstaller {
 		$updated = [];
 		foreach ( $normalised_files as $relative_path => $content ) {
 			$abs_path = $plugin_dir . $relative_path;
-			wp_mkdir_p( dirname( $abs_path ) );
+			$dir      = PathCanonicalizer::canonicalize_missing_path_inside( dirname( $abs_path ), $plugin_dir );
+			if ( is_wp_error( $dir ) ) {
+				return $dir;
+			}
+
+			wp_mkdir_p( $dir );
 
 			// Validate PHP syntax before writing.
 			if ( self::is_php_file( $relative_path ) ) {
@@ -443,12 +449,17 @@ class PluginInstaller {
 			);
 		}
 
+		$canonical_plugin_dir = PathCanonicalizer::canonicalize_missing_path_inside( $plugin_dir, $canonical_plugins );
+		if ( is_wp_error( $canonical_plugin_dir ) ) {
+			return $canonical_plugin_dir;
+		}
+
 		// Create plugin directory.
-		if ( ! wp_mkdir_p( $plugin_dir ) ) {
+		if ( ! wp_mkdir_p( $canonical_plugin_dir ) ) {
 			return new WP_Error(
 				'sd_ai_agent_mkdir_failed',
 				/* translators: %s: directory path */
-				sprintf( __( 'Could not create plugin directory: %s', 'superdav-ai-agent' ), $plugin_dir )
+				sprintf( __( 'Could not create plugin directory: %s', 'superdav-ai-agent' ), $canonical_plugin_dir )
 			);
 		}
 
@@ -457,10 +468,14 @@ class PluginInstaller {
 		foreach ( $files as $relative_path => $content ) {
 			// Sanitize path to prevent traversal.
 			$relative_path = ltrim( $relative_path, '/\\' );
-			$abs_path      = realpath( $plugin_dir ) . '/' . $relative_path;
+			$abs_path      = trailingslashit( $canonical_plugin_dir ) . $relative_path;
 
 			// Ensure destination is inside plugin dir.
-			$dest_real = dirname( $abs_path );
+			$dest_real = PathCanonicalizer::canonicalize_missing_path_inside( dirname( $abs_path ), $canonical_plugin_dir );
+			if ( is_wp_error( $dest_real ) ) {
+				return $dest_real;
+			}
+
 			if ( false === wp_mkdir_p( $dest_real ) ) {
 				return new WP_Error(
 					'sd_ai_agent_mkdir_failed',

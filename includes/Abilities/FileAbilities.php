@@ -19,6 +19,7 @@ use SdAiAgent\Core\ChangeLogger;
 use SdAiAgent\Core\Database;
 use SdAiAgent\Core\Features;
 use SdAiAgent\Core\Filesystem\FileModGate;
+use SdAiAgent\Core\Filesystem\PathCanonicalizer;
 use SdAiAgent\Core\Health\PostMutationHealthCheck;
 use SdAiAgent\Core\Settings;
 use SdAiAgent\Models\ChangesLog;
@@ -281,14 +282,19 @@ abstract class AbstractFileAbility extends AbstractAbility {
 			);
 		}
 
-		if ( strpos( $real_path, $wp_content_real ) !== 0 ) {
+		if ( ! PathCanonicalizer::path_is_inside( $real_path, $wp_content_real ) ) {
 			return new WP_Error(
 				'sd_ai_agent_path_traversal',
 				__( 'Access denied: path is outside wp-content directory.', 'superdav-ai-agent' )
 			);
 		}
 
-		return $full_path;
+		$canonical = PathCanonicalizer::canonicalize_missing_path_inside( $full_path, $wp_content_real );
+		if ( is_wp_error( $canonical ) ) {
+			return $canonical;
+		}
+
+		return $canonical;
 	}
 
 	/**

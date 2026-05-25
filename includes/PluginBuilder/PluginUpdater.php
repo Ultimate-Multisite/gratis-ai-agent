@@ -18,6 +18,7 @@ declare(strict_types=1);
 namespace SdAiAgent\PluginBuilder;
 
 use SdAiAgent\Core\Filesystem\FileModGate;
+use SdAiAgent\Core\Filesystem\PathCanonicalizer;
 use WP_Error;
 
 if ( ! defined( 'ABSPATH' ) ) {
@@ -42,7 +43,7 @@ class PluginUpdater {
 	private function backups_root(): string {
 		$uploads = wp_upload_dir( null, false );
 		$basedir = ! empty( $uploads['basedir'] ) ? (string) $uploads['basedir'] : WP_CONTENT_DIR . '/uploads';
-		return trailingslashit( $basedir ) . 'sd-ai-backups/';
+		return trailingslashit( $this->canonicalize_base_dir( $basedir ) ) . 'sd-ai-backups/';
 	}
 
 	/**
@@ -53,7 +54,22 @@ class PluginUpdater {
 	private function staging_root(): string {
 		$uploads = wp_upload_dir( null, false );
 		$basedir = ! empty( $uploads['basedir'] ) ? (string) $uploads['basedir'] : WP_CONTENT_DIR . '/uploads';
-		return trailingslashit( $basedir ) . 'sd-ai-staging/';
+		return trailingslashit( $this->canonicalize_base_dir( $basedir ) ) . 'sd-ai-staging/';
+	}
+
+	/**
+	 * Canonicalise an uploads-based root while keeping a safe fallback.
+	 *
+	 * @param string $basedir Uploads base directory.
+	 * @return string Canonical path when resolvable, otherwise original path.
+	 */
+	private function canonicalize_base_dir( string $basedir ): string {
+		$canonical = PathCanonicalizer::canonicalize_missing_path( $basedir );
+		if ( is_wp_error( $canonical ) ) {
+			return $basedir;
+		}
+
+		return (string) $canonical;
 	}
 
 	/**
@@ -65,7 +81,15 @@ class PluginUpdater {
 	 * @return string
 	 */
 	private function plugin_dir_path( string $slug ): string {
-		return trailingslashit( WP_PLUGIN_DIR ) . $slug . '/';
+		$path        = trailingslashit( WP_PLUGIN_DIR ) . $slug . '/';
+		$canonical   = PathCanonicalizer::canonicalize_missing_path( $path );
+		$plugin_root = realpath( WP_PLUGIN_DIR );
+
+		if ( is_wp_error( $canonical ) || false === $plugin_root || ! PathCanonicalizer::path_is_inside( (string) $canonical, $plugin_root ) ) {
+			return $path;
+		}
+
+		return trailingslashit( (string) $canonical );
 	}
 
 	/**
@@ -148,7 +172,13 @@ class PluginUpdater {
 		foreach ( $modified_files as $relative_path => $content ) {
 			$relative_path = ltrim( (string) $relative_path, '/\\' );
 			$abs_path      = $staging_dir . $relative_path;
-			wp_mkdir_p( dirname( $abs_path ) );
+			$dir           = PathCanonicalizer::canonicalize_missing_path_inside( dirname( $abs_path ), $staging_dir );
+			if ( is_wp_error( $dir ) ) {
+				$this->remove_directory( $staging_dir );
+				return $dir;
+			}
+
+			wp_mkdir_p( $dir );
 
 			// Validate PHP syntax before writing.
 			if ( $this->is_php_file( $relative_path ) ) {
@@ -494,6 +524,19 @@ class PluginUpdater {
 	 * @return true|\WP_Error
 	 */
 	private function copy_directory( string $source, string $destination ): bool|\WP_Error {
+		$source_real = realpath( $source );
+		if ( false === $source_real ) {
+			return new WP_Error(
+				'sd_ai_agent_path_resolve_failed',
+				__( 'Cannot resolve source directory.', 'superdav-ai-agent' )
+			);
+		}
+
+		$destination = PathCanonicalizer::canonicalize_missing_path( $destination );
+		if ( is_wp_error( $destination ) ) {
+			return $destination;
+		}
+
 		if ( ! wp_mkdir_p( $destination ) ) {
 			return new WP_Error(
 				'sd_ai_agent_mkdir_failed',
@@ -503,7 +546,7 @@ class PluginUpdater {
 		}
 
 		$iterator = new \RecursiveIteratorIterator(
-			new \RecursiveDirectoryIterator( $source, \RecursiveDirectoryIterator::SKIP_DOTS ),
+			new \RecursiveDirectoryIterator( $source_real, \RecursiveDirectoryIterator::SKIP_DOTS ),
 			\RecursiveIteratorIterator::SELF_FIRST
 		);
 
@@ -514,9 +557,13 @@ class PluginUpdater {
 				continue;
 			}
 
-			$dest_path = $destination . str_replace( $source, '', $real_path );
+			$dest_path = $destination . str_replace( $source_real, '', $real_path );
 
 			if ( $item->isDir() ) {
+				$dest_path = PathCanonicalizer::canonicalize_missing_path_inside( $dest_path, $destination );
+				if ( is_wp_error( $dest_path ) ) {
+					return $dest_path;
+				}
 				wp_mkdir_p( $dest_path );
 			} else {
 				copy( $real_path, $dest_path );
