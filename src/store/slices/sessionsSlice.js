@@ -931,10 +931,9 @@ export const actions = {
 	/**
 	 * Handle proposal applied — feed the result back into the conversation.
 	 *
-	 * @param {Object} data - { proposal_id, result }.
 	 * @return {Function} Redux thunk.
 	 */
-	proposalApplied( data ) {
+	proposalApplied() {
 		return async ( { dispatch } ) => {
 			// Clear the pending proposal.
 			dispatch.clearPendingProposal();
@@ -945,10 +944,9 @@ export const actions = {
 	/**
 	 * Handle proposal rejected — feed rejection back into the conversation.
 	 *
-	 * @param {Object} data - { proposal_id }.
 	 * @return {Function} Redux thunk.
 	 */
-	proposalRejected( data ) {
+	proposalRejected() {
 		return async ( { dispatch } ) => {
 			// Clear the pending proposal.
 			dispatch.clearPendingProposal();
@@ -1859,22 +1857,22 @@ export function reducer( state, action ) {
 			}
 			return { ...state, openTabs: filteredTabs };
 		}
-	case 'SET_OPEN_TABS': {
-		try {
-			localStorage.setItem(
-				'sdAiAgent_openTabs',
-				JSON.stringify( action.tabs )
-			);
-		} catch {
-			// ignore storage errors
+		case 'SET_OPEN_TABS': {
+			try {
+				localStorage.setItem(
+					'sdAiAgent_openTabs',
+					JSON.stringify( action.tabs )
+				);
+			} catch {
+				// ignore storage errors
+			}
+			return { ...state, openTabs: action.tabs };
 		}
-		return { ...state, openTabs: action.tabs };
-	}
-	case 'SET_PENDING_PROPOSAL':
-		return { ...state, pendingProposal: action.proposal };
-	case 'CLEAR_PENDING_PROPOSAL':
-		return { ...state, pendingProposal: null };
-	default:
-		return state;
+		case 'SET_PENDING_PROPOSAL':
+			return { ...state, pendingProposal: action.proposal };
+		case 'CLEAR_PENDING_PROPOSAL':
+			return { ...state, pendingProposal: null };
+		default:
+			return state;
 	}
 }

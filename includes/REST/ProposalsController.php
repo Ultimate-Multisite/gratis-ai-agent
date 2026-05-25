@@ -153,7 +153,10 @@ final class ProposalsController {
 
 		// Call the ability's execute_callback to get the diff.
 		// We pass a special flag to indicate this is a diff-only request.
-		$diff_arguments = array_merge( $arguments, array( '_diff_only' => true ) );
+		$diff_arguments = array_merge(
+			is_array( $arguments ) ? $arguments : array(),
+			array( '_diff_only' => true )
+		);
 
 		// @phpstan-ignore-next-line
 		$result = $ability->run( $diff_arguments );

@@ -898,13 +898,13 @@ class AgentLoop {
 				}
 
 				return array(
-					'pending_proposal'      => $pending_proposal,
-					'history'               => $this->serialize_history(),
-					'tool_call_log'         => $this->tool_call_log,
-					'token_usage'           => $this->token_usage,
-					'iterations_remaining'  => $iterations,
-					'iterations_used'       => $this->iterations_used,
-					'model_id'              => $this->model_id,
+					'pending_proposal'     => $pending_proposal,
+					'history'              => $this->serialize_history(),
+					'tool_call_log'        => $this->tool_call_log,
+					'token_usage'          => $this->token_usage,
+					'iterations_remaining' => $iterations,
+					'iterations_used'      => $this->iterations_used,
+					'model_id'             => $this->model_id,
 				);
 			}
 
@@ -1325,21 +1325,24 @@ class AgentLoop {
 	 * Returns null if no proposal is pending.
 	 *
 	 * @param Message $response_message The response message from ability execution.
-	 * @return array<string,mixed>|null The pending proposal data, or null.
+	 * @return array<string, mixed>|null The pending proposal data, or null.
 	 */
 	private function extract_pending_proposal( Message $response_message ): ?array {
 		foreach ( $response_message->getParts() as $part ) {
+			// @phpstan-ignore-next-line
 			$tool_result = $part->getToolResult();
 			if ( ! $tool_result ) {
 				continue;
 			}
 
+			// @phpstan-ignore-next-line
 			$result = $tool_result->getResult();
 			if ( ! is_array( $result ) ) {
 				continue;
 			}
 
 			if ( 'proposal_pending' === ( $result['status'] ?? null ) ) {
+				// @phpstan-ignore-next-line
 				return $result;
 			}
 		}

@@ -276,30 +276,30 @@ export default function WidgetPanel() {
 				) }
 			</div>
 
-		{ pendingConfirmation && ! yoloMode && (
-			<ToolConfirmationDialog
-				confirmation={ pendingConfirmation }
-				onConfirm={ ( alwaysAllow ) =>
-					confirmToolCall(
-						pendingConfirmation.jobId,
-						alwaysAllow
-					)
-				}
-				onReject={ () =>
-					rejectToolCall( pendingConfirmation.jobId )
-				}
-			/>
-		) }
+			{ pendingConfirmation && ! yoloMode && (
+				<ToolConfirmationDialog
+					confirmation={ pendingConfirmation }
+					onConfirm={ ( alwaysAllow ) =>
+						confirmToolCall(
+							pendingConfirmation.jobId,
+							alwaysAllow
+						)
+					}
+					onReject={ () =>
+						rejectToolCall( pendingConfirmation.jobId )
+					}
+				/>
+			) }
 
-		{ pendingProposal && (
-			<ProposalPanel
-				proposal={ pendingProposal }
-				onClose={ () => {
-					// Clear the pending proposal from the store.
-					// The ProposalPanel component handles the apply/reject actions.
-				} }
-			/>
-		) }
-	</>
+			{ pendingProposal && (
+				<ProposalPanel
+					proposal={ pendingProposal }
+					onClose={ () => {
+						// Clear the pending proposal from the store.
+						// The ProposalPanel component handles the apply/reject actions.
+					} }
+				/>
+			) }
+		</>
 	);
 }

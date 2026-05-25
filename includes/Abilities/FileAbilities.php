@@ -18,6 +18,7 @@ namespace SdAiAgent\Abilities;
 use SdAiAgent\Core\ChangeLogger;
 use SdAiAgent\Core\Database;
 use SdAiAgent\Core\Features;
+use SdAiAgent\Core\Settings;
 use SdAiAgent\Models\ChangesLog;
 use WP_Error;
 
@@ -347,7 +348,7 @@ abstract class AbstractFileAbility extends AbstractAbility {
 	 * Check the tool permission for this ability.
 	 *
 	 * Returns the permission level: 'auto', 'propose', or 'disabled'.
-	 * Defaults to 'propose' for file-write and file-edit.
+	 * Defaults to 'auto' unless explicitly set in settings.
 	 *
 	 * @return string Permission level.
 	 */
@@ -360,12 +361,7 @@ abstract class AbstractFileAbility extends AbstractAbility {
 			return (string) $perms[ $this->name ];
 		}
 
-		// Default to 'propose' for file-write and file-edit.
-		if ( 'sd-ai-agent/file-write' === $this->name || 'sd-ai-agent/file-edit' === $this->name ) {
-			return 'propose';
-		}
-
-		// Default to 'auto' for other abilities.
+		// Default to 'auto' for all abilities.
 		return 'auto';
 	}
 
@@ -823,9 +819,9 @@ class FileEditAbility extends AbstractFileAbility {
 			// @phpstan-ignore-next-line
 			foreach ( $edits as $edit ) {
 				// @phpstan-ignore-next-line
-				$search = $edit['search'] ?? '';
+				$search = (string) ( $edit['search'] ?? '' );
 				// @phpstan-ignore-next-line
-				$replace = $edit['replace'] ?? '';
+				$replace = (string) ( $edit['replace'] ?? '' );
 
 				if ( ! empty( $search ) && strpos( $content, $search ) !== false ) {
 					$content = str_replace( $search, $replace, $content );

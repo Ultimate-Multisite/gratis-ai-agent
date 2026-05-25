@@ -34,9 +34,9 @@ class ProposalRegistry {
 	/**
 	 * Create a new proposal and return its ID.
 	 *
-	 * @param string $ability_name The ability name (e.g., 'sd-ai-agent/file-write').
+	 * @param string              $ability_name The ability name (e.g., 'sd-ai-agent/file-write').
 	 * @param array<string,mixed> $arguments The original ability arguments.
-	 * @param int $user_id The current user ID.
+	 * @param int                 $user_id The current user ID.
 	 * @return string UUID v4 proposal ID.
 	 */
 	public static function create(

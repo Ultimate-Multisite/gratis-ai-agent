@@ -15,11 +15,9 @@ import './style.css';
 /**
  * ProposalPanel component.
  *
- * @param {Object} proposal - The proposal object from the server.
- * @param {string} proposal.proposal_id - UUID of the proposal.
- * @param {string} proposal.file_path - Path to the file being modified.
- * @param {string} proposal.diff_preview - Unified diff preview.
- * @param {Function} onClose - Callback when the panel is closed.
+ * @param {Object}   props          - Component props.
+ * @param {Object}   props.proposal - The proposal object from the server with proposal_id, file_path, and diff_preview.
+ * @param {Function} props.onClose  - Callback when the panel is closed.
  */
 export default function ProposalPanel( { proposal, onClose } ) {
 	const { proposalApplied, proposalRejected } = useDispatch( STORE_NAME );
@@ -88,6 +86,7 @@ export default function ProposalPanel( { proposal, onClose } ) {
 	return (
 		<Modal
 			title={ sprintf(
+				/* translators: %s: file path */
 				__( 'Review Changes: %s', 'superdav-ai-agent' ),
 				proposal.file_path
 			) }
@@ -110,9 +109,7 @@ export default function ProposalPanel( { proposal, onClose } ) {
 				</div>
 
 				{ error && (
-					<div className="sd-ai-agent-proposal-error">
-						{ error }
-					</div>
+					<div className="sd-ai-agent-proposal-error">{ error }</div>
 				) }
 
 				<div className="sd-ai-agent-proposal-actions">
