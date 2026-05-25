@@ -145,11 +145,25 @@ final class BlockEnricherRegistry {
 		$enriched = [];
 
 		foreach ( $this->enrichers as $enricher ) {
-			if ( $enricher->supports( $block_name ) ) {
-				$data = $enricher->enrich( $block, $context );
-				if ( ! empty( $data ) ) {
-					$enriched[ $enricher->get_id() ] = $data;
+			try {
+				if ( ! $enricher->supports( $block_name ) ) {
+					continue;
 				}
+				$data = $enricher->enrich( $block, $context );
+			} catch ( \Throwable $e ) {
+				// Log the exception and continue to the next enricher.
+				// phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log
+				error_log(
+					sprintf(
+						'Block enricher %s failed: %s',
+						$enricher->get_id(),
+						$e->getMessage()
+					)
+				);
+				continue;
+			}
+			if ( ! empty( $data ) ) {
+				$enriched[ $enricher->get_id() ] = $data;
 			}
 		}
 
