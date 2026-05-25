@@ -130,11 +130,11 @@ class SafeFetcherTest extends WP_UnitTestCase {
 	 * Test that 3xx redirects are blocked.
 	 */
 	public function test_redirect_blocked(): void {
-		// Mock a 302 response.
+		// Mock DNS resolution and HTTP response for a 302.
 		add_filter(
 			'pre_http_request',
 			function ( $preempt, $r, $url ) {
-				if ( strpos( $url, 'redirect-test.local' ) !== false ) {
+				if ( strpos( $url, 'example.com' ) !== false ) {
 					return [
 						'headers'       => [],
 						'body'          => '',
@@ -149,11 +149,21 @@ class SafeFetcherTest extends WP_UnitTestCase {
 			3
 		);
 
-		$result = $this->fetcher->fetch( 'http://redirect-test.local/' );
+		// Mock DNS to return a public IP.
+		add_filter(
+			'sd_ai_agent_ssrf_allow_hosts',
+			function ( $hosts ) {
+				$hosts[] = 'example.com';
+				return $hosts;
+			}
+		);
+
+		$result = $this->fetcher->fetch( 'http://example.com/' );
 		$this->assertWPError( $result );
 		$this->assertSame( 'fetch_redirect_blocked', $result->get_error_code() );
 
 		remove_all_filters( 'pre_http_request' );
+		remove_all_filters( 'sd_ai_agent_ssrf_allow_hosts' );
 	}
 
 	/**
@@ -163,7 +173,7 @@ class SafeFetcherTest extends WP_UnitTestCase {
 		add_filter(
 			'pre_http_request',
 			function ( $preempt, $r, $url ) {
-				if ( strpos( $url, 'notfound-test.local' ) !== false ) {
+				if ( strpos( $url, 'example.com' ) !== false ) {
 					return [
 						'headers'       => [],
 						'body'          => '',
@@ -178,11 +188,20 @@ class SafeFetcherTest extends WP_UnitTestCase {
 			3
 		);
 
-		$result = $this->fetcher->fetch( 'http://notfound-test.local/' );
+		add_filter(
+			'sd_ai_agent_ssrf_allow_hosts',
+			function ( $hosts ) {
+				$hosts[] = 'example.com';
+				return $hosts;
+			}
+		);
+
+		$result = $this->fetcher->fetch( 'http://example.com/' );
 		$this->assertWPError( $result );
 		$this->assertSame( 'fetch_error', $result->get_error_code() );
 
 		remove_all_filters( 'pre_http_request' );
+		remove_all_filters( 'sd_ai_agent_ssrf_allow_hosts' );
 	}
 
 	/**
@@ -195,7 +214,7 @@ class SafeFetcherTest extends WP_UnitTestCase {
 		add_filter(
 			'pre_http_request',
 			function ( $preempt, $r, $url ) use ( $large_body ) {
-				if ( strpos( $url, 'large-test.local' ) !== false ) {
+				if ( strpos( $url, 'example.com' ) !== false ) {
 					return [
 						'headers'       => [],
 						'body'          => $large_body,
@@ -210,11 +229,20 @@ class SafeFetcherTest extends WP_UnitTestCase {
 			3
 		);
 
-		$result = $this->fetcher->fetch( 'http://large-test.local/' );
+		add_filter(
+			'sd_ai_agent_ssrf_allow_hosts',
+			function ( $hosts ) {
+				$hosts[] = 'example.com';
+				return $hosts;
+			}
+		);
+
+		$result = $this->fetcher->fetch( 'http://example.com/' );
 		$this->assertIsString( $result );
 		$this->assertStringContainsString( '[…truncated at 102400 bytes]', $result );
 
 		remove_all_filters( 'pre_http_request' );
+		remove_all_filters( 'sd_ai_agent_ssrf_allow_hosts' );
 	}
 
 	/**
@@ -226,7 +254,7 @@ class SafeFetcherTest extends WP_UnitTestCase {
 		add_filter(
 			'pre_http_request',
 			function ( $preempt, $r, $url ) use ( $html_body ) {
-				if ( strpos( $url, 'html-test.local' ) !== false ) {
+				if ( strpos( $url, 'example.com' ) !== false ) {
 					return [
 						'headers'       => [],
 						'body'          => $html_body,
@@ -241,13 +269,22 @@ class SafeFetcherTest extends WP_UnitTestCase {
 			3
 		);
 
-		$result = $this->fetcher->fetch( 'http://html-test.local/' );
+		add_filter(
+			'sd_ai_agent_ssrf_allow_hosts',
+			function ( $hosts ) {
+				$hosts[] = 'example.com';
+				return $hosts;
+			}
+		);
+
+		$result = $this->fetcher->fetch( 'http://example.com/' );
 		$this->assertIsString( $result );
 		$this->assertStringNotContainsString( '<html>', $result );
 		$this->assertStringNotContainsString( '<p>', $result );
 		$this->assertStringContainsString( 'Hello World', $result );
 
 		remove_all_filters( 'pre_http_request' );
+		remove_all_filters( 'sd_ai_agent_ssrf_allow_hosts' );
 	}
 
 	/**
@@ -259,7 +296,7 @@ class SafeFetcherTest extends WP_UnitTestCase {
 		add_filter(
 			'pre_http_request',
 			function ( $preempt, $r, $url ) use ( $body ) {
-				if ( strpos( $url, 'public-test.local' ) !== false ) {
+				if ( strpos( $url, 'example.com' ) !== false ) {
 					return [
 						'headers'       => [],
 						'body'          => $body,
@@ -274,11 +311,20 @@ class SafeFetcherTest extends WP_UnitTestCase {
 			3
 		);
 
-		$result = $this->fetcher->fetch( 'http://public-test.local/' );
+		add_filter(
+			'sd_ai_agent_ssrf_allow_hosts',
+			function ( $hosts ) {
+				$hosts[] = 'example.com';
+				return $hosts;
+			}
+		);
+
+		$result = $this->fetcher->fetch( 'http://example.com/' );
 		$this->assertIsString( $result );
 		$this->assertSame( $body, $result );
 
 		remove_all_filters( 'pre_http_request' );
+		remove_all_filters( 'sd_ai_agent_ssrf_allow_hosts' );
 	}
 
 	/**
