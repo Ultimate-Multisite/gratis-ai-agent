@@ -1,0 +1,128 @@
+/**
+ * FilePathLink component styles.
+ *
+ * @package SdAiAgent
+ * @license GPL-2.0-or-later
+ */
+
+.sd-ai-agent-file-path-link {
+	display: inline;
+	padding: 0;
+	margin: 0;
+	background: none;
+	border: none;
+	font-family: inherit;
+	font-size: inherit;
+	cursor: pointer;
+	text-decoration: none;
+	color: inherit;
+}
+
+.sd-ai-agent-file-path-link code {
+	background-color: rgba( 0, 0, 0, 0.05 );
+	padding: 2px 4px;
+	border-radius: 3px;
+	font-family: 'Courier New', monospace;
+	font-size: 0.9em;
+}
+
+.sd-ai-agent-file-path-link--editor {
+	text-decoration: underline;
+	text-decoration-color: #0073aa;
+	text-decoration-thickness: 1px;
+	text-underline-offset: 2px;
+}
+
+.sd-ai-agent-file-path-link--editor:hover code {
+	background-color: rgba( 0, 115, 170, 0.1 );
+}
+
+.sd-ai-agent-file-path-link--viewer {
+	text-decoration: underline;
+	text-decoration-color: #666;
+	text-decoration-thickness: 1px;
+	text-underline-offset: 2px;
+}
+
+.sd-ai-agent-file-path-link--viewer:hover code {
+	background-color: rgba( 0, 0, 0, 0.1 );
+}
+
+/* File viewer panel */
+.sd-ai-agent-file-viewer {
+	margin-top: 12px;
+	border: 1px solid #ddd;
+	border-radius: 4px;
+	background-color: #f9f9f9;
+	overflow: hidden;
+}
+
+.sd-ai-agent-file-viewer-header {
+	display: flex;
+	justify-content: space-between;
+	align-items: center;
+	padding: 8px 12px;
+	background-color: #f0f0f0;
+	border-bottom: 1px solid #ddd;
+}
+
+.sd-ai-agent-file-viewer-title {
+	font-weight: 600;
+	font-size: 0.9em;
+	color: #333;
+}
+
+.sd-ai-agent-file-viewer-close {
+	background: none;
+	border: none;
+	font-size: 1.5em;
+	cursor: pointer;
+	color: #666;
+	padding: 0;
+	width: 24px;
+	height: 24px;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+}
+
+.sd-ai-agent-file-viewer-close:hover {
+	color: #000;
+}
+
+.sd-ai-agent-file-viewer-content {
+	max-height: 400px;
+	overflow: auto;
+	padding: 12px;
+	background-color: #fff;
+}
+
+.sd-ai-agent-file-viewer-content pre {
+	margin: 0;
+	padding: 0;
+	font-family: 'Courier New', monospace;
+	font-size: 0.85em;
+	line-height: 1.5;
+	color: #333;
+	white-space: pre-wrap;
+	word-wrap: break-word;
+}
+
+.sd-ai-agent-file-viewer-loading {
+	padding: 20px;
+	text-align: center;
+	color: #666;
+	font-style: italic;
+}
+
+.sd-ai-agent-file-viewer-footer {
+	padding: 8px 12px;
+	background-color: #f0f0f0;
+	border-top: 1px solid #ddd;
+	font-size: 0.85em;
+	color: #666;
+}
+
+.sd-ai-agent-file-viewer-footer p {
+	margin: 0;
+}

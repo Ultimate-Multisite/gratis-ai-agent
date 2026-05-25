@@ -328,6 +328,16 @@ class UnifiedAdminMenu {
 					'max_length' => InstructionsAddendum::MAX_LENGTH,
 					'endpoint'   => rest_url( 'sd-ai-agent/v1/instructions' ),
 				),
+				// File path editor data for FilePathLink component.
+				'wpContentDir'         => WP_CONTENT_DIR,
+				'wpPluginDir'          => WP_PLUGIN_DIR,
+				'wpThemeRoot'          => get_theme_root(),
+				'pluginEditorUrl'      => admin_url( 'plugin-editor.php' ),
+				'themeEditorUrl'       => admin_url( 'theme-editor.php' ),
+				'fileModAllowed'       => array(
+					'plugin' => wp_is_file_mod_allowed( 'plugin_files' ),
+					'theme'  => wp_is_file_mod_allowed( 'theme_files' ),
+				),
 			)
 		);
 	}
