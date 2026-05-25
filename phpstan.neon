@@ -342,6 +342,6 @@ parameters:
 		- '#If condition is always true#'
 		# SafeFetcher: curl_setopt accepts both resource and CurlHandle in PHP 7.4+
 		# The phpstan-ignore-next-line comment is used in the code.
-		- message: '#Parameter #1 \$handle of function curl_setopt expects CurlHandle, CurlHandle\|resource given#'
+		- message: '#Parameter .* of function curl_setopt expects CurlHandle, CurlHandle\|resource given#'
 		  identifier: argument.type
 
