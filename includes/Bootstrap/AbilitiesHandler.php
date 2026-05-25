@@ -106,7 +106,7 @@ final class AbilitiesHandler {
 			[
 				'label'         => __( 'Check Site Health', 'superdav-ai-agent' ),
 				'description'   => __( 'Perform a loopback health check to verify the site is still loading correctly. Returns healthy, broken, or unreachable.', 'superdav-ai-agent' ),
-				'category'      => 'site-health',
+				'category'      => 'sd-ai-agent',
 				'ability_class' => SiteLoopbackCheckAbility::class,
 			]
 		);
