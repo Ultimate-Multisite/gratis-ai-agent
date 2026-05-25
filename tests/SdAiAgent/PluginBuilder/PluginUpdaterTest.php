@@ -185,6 +185,36 @@ class PluginUpdaterTest extends WP_UnitTestCase {
 		$this->assertSame( 'sd_ai_agent_plugin_not_found', $result->get_error_code() );
 	}
 
+	/**
+	 * stage() should return WP_Error when a PHP file has syntax errors.
+	 */
+	public function test_stage_rejects_invalid_php_syntax(): void {
+		$broken_php = '<?php $x = ;'; // Missing value after =
+		$result     = $this->updater->stage( $this->slug, [ $this->slug . '.php' => $broken_php ] );
+
+		$this->assertWPError( $result );
+		$this->assertSame( 'sd_ai_agent_php_syntax_error', $result->get_error_code() );
+		$this->assertStringContainsString( 'syntax error', $result->get_error_message() );
+
+		// Verify the staging directory was cleaned up (no partial write).
+		$staging_root = $this->staging_root();
+		$staging_dir  = $staging_root . $this->slug . '/';
+		$this->assertFalse( is_dir( $staging_dir ), 'Staging directory should be cleaned up after lint failure' );
+	}
+
+	/**
+	 * stage() should accept valid PHP syntax.
+	 */
+	public function test_stage_accepts_valid_php_syntax(): void {
+		$valid_php = '<?php function test() { return 1; }';
+		$result    = $this->updater->stage( $this->slug, [ $this->slug . '.php' => $valid_php ] );
+
+		$this->assertIsString( $result );
+		$staged_file = $result . $this->slug . '.php';
+		$this->assertFileExists( $staged_file );
+		$this->assertStringContainsString( 'function test', (string) file_get_contents( $staged_file ) );
+	}
+
 	// ─── test_staged() ───────────────────────────────────────────────────────
 
 	/**
