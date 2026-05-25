@@ -131,11 +131,8 @@ class MarketingAbilities {
 			return new \WP_Error( 'missing_url', 'url is required.' );
 		}
 
-		// Use SafeFetcher for SSRF-hardened fetch with DNS pinning.
-		// This returns stripped text, but we need the full HTML for metadata extraction.
-		// We'll use a custom fetch method that returns the full response.
-		$fetcher = SafeFetcher::instance();
-		$result  = self::fetch_with_metadata( $url, $fetcher );
+		// Use SSRF-hardened fetch with DNS pinning for metadata extraction.
+		$result = self::fetch_with_metadata( $url );
 
 		if ( is_wp_error( $result ) ) {
 			return [ 'error' => 'Failed to fetch URL: ' . $result->get_error_message() ];
@@ -147,11 +144,10 @@ class MarketingAbilities {
 	/**
 	 * Fetch a URL with SSRF protection and extract metadata.
 	 *
-	 * @param string       $url     URL to fetch.
-	 * @param SafeFetcher  $fetcher SafeFetcher instance.
+	 * @param string $url URL to fetch.
 	 * @return array<string,mixed>|\WP_Error Fetch results with metadata.
 	 */
-	private static function fetch_with_metadata( string $url, SafeFetcher $fetcher ) {
+	private static function fetch_with_metadata( string $url ) {
 		// First, validate the URL using SafeFetcher's internal guard.
 		// We'll create a temporary instance to validate, then do our own fetch.
 		$guard = new \SdAiAgent\Core\Net\SsrfGuard();

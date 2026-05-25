@@ -147,7 +147,7 @@ class SafeFetcher {
 		};
 		add_action( 'http_api_curl', $pin, 10, 3 );
 
-		$timeout = $opts['timeout'] ?? 15;
+		$timeout  = $opts['timeout'] ?? 15;
 		$response = wp_remote_get(
 			$url,
 			[
