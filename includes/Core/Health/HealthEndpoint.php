@@ -56,14 +56,18 @@ class HealthEndpoint {
 	public static function check_loopback_permission( WP_REST_Request $request ): bool|WP_Error {
 		$remote_addr = isset( $_SERVER['REMOTE_ADDR'] ) ? sanitize_text_field( wp_unslash( $_SERVER['REMOTE_ADDR'] ) ) : '';
 
-		// Allow 127.0.0.1 and ::1 (IPv6 loopback).
-		if ( '127.0.0.1' === $remote_addr || '::1' === $remote_addr ) {
+		// Allow loopback and private-network addresses used by local Docker/dev proxies.
+		if (
+			'127.0.0.1' === $remote_addr
+			|| '::1' === $remote_addr
+			|| (bool) filter_var( $remote_addr, FILTER_VALIDATE_IP, FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE ) === false
+		) {
 			return true;
 		}
 
 		return new WP_Error(
 			'sd_ai_agent_health_forbidden',
-			'Health endpoint is only accessible from loopback (127.0.0.1 or ::1).',
+			'Health endpoint is only accessible from loopback or private-network addresses.',
 			[ 'status' => 403 ]
 		);
 	}

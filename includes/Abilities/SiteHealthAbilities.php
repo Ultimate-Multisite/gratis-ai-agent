@@ -923,13 +923,6 @@ class SiteHealthAbilities {
 	public static function handle_site_loopback_check( array $input = [] ) {
 		$health_check = new \SdAiAgent\Core\Health\PostMutationHealthCheck();
 
-		if ( $health_check->verify() ) {
-			return [ 'status' => 'healthy' ];
-		}
-
-		// For now, return 'broken' if not healthy. A more sophisticated approach
-		// would distinguish between 'broken' and 'unreachable', but that requires
-		// exposing the internal check() method or creating a public variant.
-		return [ 'status' => 'broken' ];
+		return [ 'status' => $health_check->get_status() ];
 	}
 }

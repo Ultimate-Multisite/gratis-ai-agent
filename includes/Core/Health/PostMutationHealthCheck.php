@@ -6,8 +6,8 @@ declare(strict_types=1);
  * endpoint after a mutating operation to confirm WordPress still loads, and
  * runs a per-operation undo callback when it doesn't.
  *
- * URL discovery tries home_url() first (works behind proxies), then
- * 127.0.0.1 with the port parsed from home_url(), then common fallback ports.
+ * URL discovery tries the registered REST health route first, then
+ * 127.0.0.1 with the port parsed from the current request, then common fallback ports.
  * The first reachable URL is cached in a transient. A filter lets site owners
  * override the URL or skip the check entirely on hosts with unusual networking.
  *
@@ -97,13 +97,22 @@ class PostMutationHealthCheck {
 	}
 
 	/**
-	 * Walk candidate loopback URLs until one returns the health success token,
-	 * cache it, and return it. Returns null when no candidate works.
+	 * Get the current loopback health status.
+	 *
+	 * @return string One of STATUS_HEALTHY, STATUS_BROKEN, or STATUS_UNREACHABLE.
+	 */
+	public function get_status(): string {
+		return $this->check();
+	}
+
+	/**
+	 * Walk candidate loopback URLs until one connects, cache successful URLs,
+	 * and return the first connected URL. Returns null when no candidate connects.
 	 *
 	 * Only 127.0.0.1 addresses are tried: the health endpoint rejects requests
 	 * whose REMOTE_ADDR is not loopback, so home_url() would always fail there.
-	 * Discovery validates the full success response (not just TCP reachability)
-	 * so a URL that connects but returns an error body is never cached.
+	 * Discovery caches only a full success response, but returns connected error
+	 * responses so callers can distinguish broken from unreachable.
 	 *
 	 * @return string|null The discovered health URL, or null if discovery failed.
 	 */
@@ -113,12 +122,17 @@ class PostMutationHealthCheck {
 			return $cached;
 		}
 
-		$path        = wp_parse_url( admin_url( 'admin-ajax.php' ), PHP_URL_PATH );
-		$query       = '?action=sd_ai_agent_health';
+		$rest_url    = rest_url( 'sd-ai-agent/v1/_health' );
+		$path        = wp_parse_url( $rest_url, PHP_URL_PATH );
+		$path        = is_string( $path ) && '' !== $path ? $path : '/wp-json/sd-ai-agent/v1/_health';
+		$query       = wp_parse_url( $rest_url, PHP_URL_QUERY );
+		$query       = is_string( $query ) && '' !== $query ? '?' . $query : '';
 		$server_port = isset( $_SERVER['SERVER_PORT'] ) ? (int) $_SERVER['SERVER_PORT'] : 80;
 
 		$candidates = array_unique(
 			[
+				// WordPress's canonical REST URL for normal loopback-capable sites.
+				$rest_url,
 				// Port PHP is actually receiving requests on in this process.
 				'http://127.0.0.1:' . $server_port . $path . $query,
 				// Standard fallbacks.
@@ -126,6 +140,8 @@ class PostMutationHealthCheck {
 				'http://127.0.0.1:8080' . $path . $query,
 			]
 		);
+
+		$connected_url = null;
 
 		foreach ( $candidates as $url ) {
 			// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.wp_remote_get_wp_remote_get
@@ -136,13 +152,19 @@ class PostMutationHealthCheck {
 					'sslverify' => false,
 				]
 			);
-			if ( ! is_wp_error( $response ) && str_contains( wp_remote_retrieve_body( $response ), '"success":true' ) ) {
+			if ( is_wp_error( $response ) ) {
+				continue;
+			}
+
+			$connected_url ??= $url;
+
+			if ( str_contains( wp_remote_retrieve_body( $response ), '"success":true' ) ) {
 				set_transient( 'sd_ai_agent_health_url', $url, HOUR_IN_SECONDS );
 				return $url;
 			}
 		}
 
-		return null;
+		return $connected_url;
 	}
 
 	/**

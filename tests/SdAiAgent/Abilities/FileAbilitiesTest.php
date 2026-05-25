@@ -39,6 +39,7 @@ class FileAbilitiesTest extends WP_UnitTestCase {
 		$this->test_file_full = WP_CONTENT_DIR . '/' . $this->test_file;
 		// Ensure uploads directory exists.
 		wp_mkdir_p( WP_CONTENT_DIR . '/uploads' );
+		add_filter( 'sd_ai_agent_skip_health_check', '__return_true' );
 	}
 
 	/**
@@ -48,6 +49,7 @@ class FileAbilitiesTest extends WP_UnitTestCase {
 		if ( file_exists( $this->test_file_full ) ) {
 			unlink( $this->test_file_full );
 		}
+		remove_filter( 'sd_ai_agent_skip_health_check', '__return_true' );
 		parent::tearDown();
 	}
 
