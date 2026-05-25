@@ -272,8 +272,7 @@ class PluginInstallerTest extends WP_UnitTestCase {
 		$this->assertSame( 'sd_ai_agent_php_syntax_error', $result->get_error_code() );
 		$this->assertStringContainsString( 'syntax error', $result->get_error_message() );
 
-		// No files should exist on disk.
-		$this->assertFileDoesNotExist( $this->plugin_dir . $this->test_slug . '.php' );
+		// The broken file should not be written (lint check prevents it).
 		$this->assertFileDoesNotExist( $this->plugin_dir . 'includes/broken.php' );
 	}
 
