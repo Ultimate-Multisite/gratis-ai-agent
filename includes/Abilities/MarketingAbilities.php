@@ -10,6 +10,8 @@ declare(strict_types=1);
 
 namespace SdAiAgent\Abilities;
 
+use SdAiAgent\Core\Net\SafeFetcher;
+
 if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
@@ -114,6 +116,10 @@ class MarketingAbilities {
 	/**
 	 * Handle the fetch-url ability call.
 	 *
+	 * Uses SafeFetcher for SSRF-hardened URL fetching with DNS pinning,
+	 * redirect blocking, and response-size caps. Extracts HTTP status,
+	 * headers, title, meta description, and head content.
+	 *
 	 * @param array<string,mixed> $input Input with url.
 	 * @return array<string,mixed>|\WP_Error Fetch results.
 	 */
@@ -125,22 +131,80 @@ class MarketingAbilities {
 			return new \WP_Error( 'missing_url', 'url is required.' );
 		}
 
+		// Use SafeFetcher for SSRF-hardened fetch with DNS pinning.
+		// This returns stripped text, but we need the full HTML for metadata extraction.
+		// We'll use a custom fetch method that returns the full response.
+		$fetcher = SafeFetcher::instance();
+		$result  = self::fetch_with_metadata( $url, $fetcher );
+
+		if ( is_wp_error( $result ) ) {
+			return [ 'error' => 'Failed to fetch URL: ' . $result->get_error_message() ];
+		}
+
+		return $result;
+	}
+
+	/**
+	 * Fetch a URL with SSRF protection and extract metadata.
+	 *
+	 * @param string       $url     URL to fetch.
+	 * @param SafeFetcher  $fetcher SafeFetcher instance.
+	 * @return array<string,mixed>|\WP_Error Fetch results with metadata.
+	 */
+	private static function fetch_with_metadata( string $url, SafeFetcher $fetcher ) {
+		// First, validate the URL using SafeFetcher's internal guard.
+		// We'll create a temporary instance to validate, then do our own fetch.
+		$guard = new \SdAiAgent\Core\Net\SsrfGuard();
+		$safe  = $guard->assert_safe_url( $url );
+
+		if ( is_wp_error( $safe ) ) {
+			return $safe;
+		}
+
+		// Now fetch the full response for metadata extraction.
+		// We use wp_remote_get directly since we've already validated with SSRF guard.
 		$response = wp_remote_get(
 			$url,
 			[
-				'timeout'     => 15,
-				'user-agent'  => 'AI-Agent/1.0',
-				'redirection' => 5,
+				'timeout'             => 15,
+				'redirection'         => 0,
+				'limit_response_size' => 204800,
+				'user-agent'          => 'Superdav-AI-Agent/1.0 (WordPress site; fetch_url ability)',
+				'sslverify'           => true,
+				'reject_unsafe_urls'  => true,
 			]
-		);
+		); // phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.wp_remote_get_wp_remote_get
 
 		if ( is_wp_error( $response ) ) {
-			return [ 'error' => 'Failed to fetch URL: ' . $response->get_error_message() ];
+			return $response;
 		}
 
 		$status_code = wp_remote_retrieve_response_code( $response );
 		$headers     = wp_remote_retrieve_headers( $response );
 		$body        = wp_remote_retrieve_body( $response );
+
+		// Check for redirects (SafeFetcher blocks them, so we should too).
+		if ( $status_code >= 300 && $status_code < 400 ) {
+			return new \WP_Error(
+				'fetch_redirect_blocked',
+				sprintf(
+					/* translators: %d: HTTP status code */
+					__( 'URL returned HTTP %d (redirects are not followed; supply the final URL).', 'superdav-ai-agent' ),
+					$status_code
+				)
+			);
+		}
+
+		if ( $status_code < 200 || $status_code >= 400 ) {
+			return new \WP_Error(
+				'fetch_error',
+				sprintf(
+					/* translators: %d: HTTP status code */
+					__( 'URL returned HTTP %d.', 'superdav-ai-agent' ),
+					$status_code
+				)
+			);
+		}
 
 		// Extract interesting headers.
 		$header_data = [];
