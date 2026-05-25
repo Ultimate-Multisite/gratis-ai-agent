@@ -27,6 +27,8 @@ use SdAiAgent\Abilities\BlockAbilities;
 use SdAiAgent\Core\BlockEnricherRegistry;
 use SdAiAgent\Enrichers\CoreImageEnricher;
 use SdAiAgent\Abilities\ContentAbilities;
+use SdAiAgent\Core\Health\HealthEndpoint;
+use SdAiAgent\Abilities\SiteLoopbackCheckAbility;
 use SdAiAgent\Abilities\CustomPostTypeAbilities;
 use SdAiAgent\Abilities\CustomTaxonomyAbilities;
 use SdAiAgent\Abilities\TaxonomyAbilities;
@@ -95,6 +97,19 @@ final class AbilitiesHandler {
 	 */
 	#[Action( tag: 'wp_abilities_api_init', priority: 10 )]
 	public function register_all_abilities(): void {
+		// Register the health endpoint for post-mutation checks.
+		HealthEndpoint::register();
+
+		// Register the site loopback check ability.
+		wp_register_ability(
+			'sd-ai-agent/site-loopback-check',
+			[
+				'label'         => __( 'Check Site Health', 'superdav-ai-agent' ),
+				'description'   => __( 'Perform a loopback health check to verify the site is still loading correctly. Returns healthy, broken, or unreachable.', 'superdav-ai-agent' ),
+				'ability_class' => SiteLoopbackCheckAbility::class,
+			]
+		);
+
 		MemoryAbilities::register_abilities();
 		FeedbackAbilities::register_abilities();
 		SkillAbilities::register_abilities();
