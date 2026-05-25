@@ -11,9 +11,14 @@ declare(strict_types=1);
 
 namespace SdAiAgent\Tests\Core\Health;
 
+use SdAiAgent\Bootstrap\HealthEndpointHandler;
+use SdAiAgent\Core\Health\HealthEndpoint;
 use SdAiAgent\Core\Health\PostMutationHealthCheck;
 use WP_Error;
+use WP_REST_Request;
+use WP_REST_Server;
 use WP_UnitTestCase;
+use XWP\DI\Decorators\Action;
 
 /**
  * Test PostMutationHealthCheck.
@@ -48,6 +53,7 @@ class PostMutationHealthCheckTest extends WP_UnitTestCase {
 		remove_all_filters( 'sd_ai_agent_skip_health_check' );
 		remove_all_filters( 'sd_ai_agent_health_url' );
 		remove_all_filters( 'pre_http_request' );
+		unset( $_SERVER['REMOTE_ADDR'] );
 	}
 
 	/**
@@ -58,7 +64,7 @@ class PostMutationHealthCheckTest extends WP_UnitTestCase {
 		add_filter(
 			'pre_http_request',
 			function ( $preempt, $args, $url ) {
-				if ( str_contains( $url, 'action=sd_ai_agent_health' ) ) {
+				if ( str_contains( $url, 'sd-ai-agent/v1/_health' ) ) {
 					return [
 						'headers'       => [ 'content-type' => 'application/json' ],
 						'body'          => '{"success":true}',
@@ -85,7 +91,7 @@ class PostMutationHealthCheckTest extends WP_UnitTestCase {
 		add_filter(
 			'pre_http_request',
 			function ( $preempt, $args, $url ) {
-				if ( str_contains( $url, 'action=sd_ai_agent_health' ) ) {
+				if ( str_contains( $url, 'sd-ai-agent/v1/_health' ) ) {
 					return [
 						'headers'       => [ 'content-type' => 'application/json' ],
 						'body'          => '{"error":"Fatal error"}',
@@ -111,7 +117,7 @@ class PostMutationHealthCheckTest extends WP_UnitTestCase {
 		add_filter(
 			'pre_http_request',
 			function ( $preempt, $args, $url ) {
-				if ( str_contains( $url, 'action=sd_ai_agent_health' ) ) {
+				if ( str_contains( $url, 'sd-ai-agent/v1/_health' ) ) {
 					return [
 						'headers'       => [ 'content-type' => 'application/json' ],
 						'body'          => '{"success":true}',
@@ -192,7 +198,7 @@ class PostMutationHealthCheckTest extends WP_UnitTestCase {
 		add_filter(
 			'pre_http_request',
 			function ( $preempt, $args, $url ) {
-				if ( str_contains( $url, 'action=sd_ai_agent_health' ) ) {
+				if ( str_contains( $url, 'sd-ai-agent/v1/_health' ) ) {
 					return new WP_Error( 'connection_failed', 'Could not connect' );
 				}
 				return $preempt;
@@ -263,7 +269,7 @@ class PostMutationHealthCheckTest extends WP_UnitTestCase {
 		add_filter(
 			'pre_http_request',
 			function ( $preempt, $args, $url ) {
-				if ( str_contains( $url, 'action=sd_ai_agent_health' ) ) {
+				if ( str_contains( $url, 'sd-ai-agent/v1/_health' ) ) {
 					return [
 						'headers'       => [ 'content-type' => 'application/json' ],
 						'body'          => '{"success":true}',
@@ -329,7 +335,7 @@ class PostMutationHealthCheckTest extends WP_UnitTestCase {
 		add_filter(
 			'pre_http_request',
 			function ( $preempt, $args, $url ) {
-				if ( str_contains( $url, 'action=sd_ai_agent_health' ) ) {
+				if ( str_contains( $url, 'sd-ai-agent/v1/_health' ) ) {
 					return new WP_Error( 'connection_failed', 'Could not connect' );
 				}
 				return $preempt;
@@ -354,7 +360,7 @@ class PostMutationHealthCheckTest extends WP_UnitTestCase {
 		add_filter(
 			'pre_http_request',
 			function ( $preempt, $args, $url ) {
-				if ( str_contains( $url, 'action=sd_ai_agent_health' ) ) {
+				if ( str_contains( $url, 'sd-ai-agent/v1/_health' ) ) {
 					return [
 						'headers'       => [ 'content-type' => 'application/json' ],
 						'body'          => '{"error":"Fatal error"}',
@@ -410,5 +416,42 @@ class PostMutationHealthCheckTest extends WP_UnitTestCase {
 		$health_check->verify();
 
 		$this->assertTrue( $url_called, 'Custom URL should be used' );
+	}
+
+	/**
+	 * Test the health route is registered by the REST hook, not ability registration.
+	 */
+	public function test_health_route_registers_on_rest_api_init_only(): void {
+		// phpcs:ignore WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedVariableFound -- Standard WordPress test global.
+		global $wp_rest_server;
+
+		$wp_rest_server = new WP_REST_Server();
+		$handler        = new HealthEndpointHandler();
+		$attributes     = ( new \ReflectionMethod( HealthEndpointHandler::class, 'register_health_endpoint' ) )->getAttributes( Action::class );
+		$arguments      = $attributes[0]->getArguments();
+
+		$this->assertSame( 'rest_api_init', $arguments['tag'] );
+		$this->assertArrayNotHasKey( '/sd-ai-agent/v1/_health', $wp_rest_server->get_routes() );
+
+		$handler->register_health_endpoint();
+		$this->assertArrayHasKey( '/sd-ai-agent/v1/_health', $wp_rest_server->get_routes() );
+	}
+
+	/**
+	 * Test private-network loopback proxies can access the health endpoint.
+	 */
+	public function test_health_endpoint_allows_private_network_loopback_proxy(): void {
+		$_SERVER['REMOTE_ADDR'] = '172.18.0.1';
+
+		$this->assertTrue( HealthEndpoint::check_loopback_permission( new WP_REST_Request( 'GET', '/sd-ai-agent/v1/_health' ) ) );
+	}
+
+	/**
+	 * Test public remote addresses are rejected by the health endpoint.
+	 */
+	public function test_health_endpoint_rejects_public_remote_address(): void {
+		$_SERVER['REMOTE_ADDR'] = '8.8.8.8';
+
+		$this->assertInstanceOf( WP_Error::class, HealthEndpoint::check_loopback_permission( new WP_REST_Request( 'GET', '/sd-ai-agent/v1/_health' ) ) );
 	}
 }

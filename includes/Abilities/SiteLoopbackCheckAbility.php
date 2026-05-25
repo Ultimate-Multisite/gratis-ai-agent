@@ -86,15 +86,7 @@ class SiteLoopbackCheckAbility extends WP_Ability {
 	protected function execute_callback( $input ) {
 		$health_check = new PostMutationHealthCheck();
 
-		if ( $health_check->verify() ) {
-			return [ 'status' => 'healthy' ];
-		}
-
-		// Determine if broken or unreachable by checking the internal status.
-		// We'll do a simple check: if verify() returns false, we need to determine
-		// if it's broken or unreachable. We'll use a private method approach.
-		// For now, we'll return a conservative "broken" status.
-		return [ 'status' => 'broken' ];
+		return [ 'status' => $health_check->get_status() ];
 	}
 
 	/**
