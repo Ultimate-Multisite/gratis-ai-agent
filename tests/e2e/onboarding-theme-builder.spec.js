@@ -34,7 +34,7 @@
 const { test, expect } = require( '@playwright/test' );
 const path = require( 'path' );
 const fs = require( 'fs' );
-const { execSync } = require( 'child_process' );
+const { execFileSync } = require( 'child_process' );
 const {
 	loginToWordPress,
 	getMessageInput,
@@ -83,16 +83,40 @@ function wpCli( command ) {
 	}
 
 	try {
-		return execSync( `npx wp-env run ${ service } wp ${ command }`, {
-			cwd,
-			encoding: 'utf8',
-			env,
-			stdio: [ 'pipe', 'pipe', 'pipe' ],
-		} ).trim();
+		return execFileSync(
+			'npx',
+			[ 'wp-env', 'run', service, 'wp', ...wpCliArgs( command ) ],
+			{
+				cwd,
+				encoding: 'utf8',
+				env,
+				stdio: [ 'pipe', 'pipe', 'pipe' ],
+			}
+		).trim();
 	} catch {
 		// Non-fatal: log nothing to avoid noise in CI logs.
 		return '';
 	}
+}
+
+/**
+ * Convert the small WP-CLI command subset used by this spec into argv tokens.
+ *
+ * Avoid shell interpolation entirely. Several eval snippets use PHP variables
+ * such as `$dir` and `$data`; passing the command through a shell expands those
+ * names before WP-CLI sees them, producing parse errors like
+ * `unexpected token "=", expecting end of file` on CI.
+ *
+ * @param {string} command - WP-CLI command WITHOUT the `wp` prefix.
+ * @return {string[]} Arguments for `wp`.
+ */
+function wpCliArgs( command ) {
+	const evalMatch = command.match( /^eval\s+"([\s\S]*)"$/ );
+	if ( evalMatch ) {
+		return [ 'eval', evalMatch[ 1 ] ];
+	}
+
+	return command.trim().split( /\s+/ );
 }
 
 /**
@@ -583,27 +607,11 @@ test.describe.serial( 'Theme-builder onboarding flow (Onboarding v2)', () => {
 
 			// ── Server-side assertions ──────────────────────────────────────
 
-			// 1. Active stylesheet via the WP REST Themes API.
-			const activeThemes = await page.evaluate( async () => {
-				const root =
-					( window.wpApiSettings && window.wpApiSettings.root ) ||
-					'/wp-json/';
-				const nonce =
-					( window.wpApiSettings && window.wpApiSettings.nonce ) ||
-					'';
-				try {
-					const resp = await fetch(
-						root + 'wp/v2/themes?status=active',
-						{ headers: { 'X-WP-Nonce': nonce } }
-					);
-					return resp.ok ? resp.json() : [];
-				} catch {
-					return [];
-				}
-			} );
-			expect( activeThemes ).toBeInstanceOf( Array );
-			expect( activeThemes.length ).toBeGreaterThan( 0 );
-			expect( activeThemes[ 0 ].stylesheet ).toBe( 'e2e-test-theme' );
+			// 1. Active stylesheet via WP-CLI. The WordPress core themes REST
+			// endpoint can return an empty list on trunk when theme status filters
+			// change; the stylesheet option is the canonical activation state.
+			const activeStylesheet = wpCli( 'option get stylesheet' );
+			expect( activeStylesheet ).toBe( 'e2e-test-theme' );
 
 			// 2. Theme directory exists on disk.
 			const themeDirExists = wpCli(

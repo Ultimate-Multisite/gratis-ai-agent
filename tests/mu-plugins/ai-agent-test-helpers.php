@@ -84,6 +84,7 @@ add_action(
 			'\WordPress\AiClient\Providers\Models\DTO\ModelMetadata',
 			'\WordPress\AiClient\Providers\Models\Enums\CapabilityEnum',
 			'\WordPress\AiClient\Providers\Http\DTO\ApiKeyRequestAuthentication',
+			'\WordPress\AiClient\Providers\Http\Enums\RequestAuthenticationMethod',
 		);
 
 		foreach ( $required_classes as $required_class ) {
@@ -126,7 +127,9 @@ add_action(
 					return new \WordPress\AiClient\Providers\DTO\ProviderMetadata(
 						'e2e-provider',
 						'E2E Provider',
-						\WordPress\AiClient\Providers\Enums\ProviderTypeEnum::cloud()
+						\WordPress\AiClient\Providers\Enums\ProviderTypeEnum::cloud(),
+						null,
+						\WordPress\AiClient\Providers\Http\Enums\RequestAuthenticationMethod::apiKey()
 					);
 				}
 
