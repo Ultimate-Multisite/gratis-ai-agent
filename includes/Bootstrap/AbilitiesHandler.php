@@ -41,8 +41,9 @@ use SdAiAgent\Abilities\GoogleAnalyticsAbilities;
 use SdAiAgent\Abilities\GscAbilities;
 use SdAiAgent\Abilities\ImageAbilities;
 use SdAiAgent\Abilities\InternetSearchAbilities;
-use SdAiAgent\Abilities\SiteScrapeAbility;
 use SdAiAgent\Abilities\KnowledgeAbilities;
+use SdAiAgent\Abilities\ListAllowedRootsAbility;
+use SdAiAgent\Abilities\SiteScrapeAbility;
 use SdAiAgent\Abilities\MarketingAbilities;
 use SdAiAgent\Abilities\MediaAbilities;
 use SdAiAgent\Abilities\MemoryAbilities;
@@ -127,6 +128,14 @@ final class AbilitiesHandler {
 		BlockAbilities::register_abilities();
 		GlobalStylesAbilities::register_abilities();
 		FileAbilities::register_abilities();
+		wp_register_ability(
+			'sd-ai-agent/list-allowed-roots',
+			[
+				'label'         => __( 'List Allowed Roots', 'superdav-ai-agent' ),
+				'description'   => __( 'Returns the list of filesystem directories where the AI is permitted to read or write. Call this before any file write operation to pick a valid target path without trial-and-error.', 'superdav-ai-agent' ),
+				'ability_class' => ListAllowedRootsAbility::class,
+			]
+		);
 		ThemeBuilderAbilities::register_abilities();
 		GitAbilities::register_abilities();
 		// Plugin-download abilities expose download URLs for AI-modified
