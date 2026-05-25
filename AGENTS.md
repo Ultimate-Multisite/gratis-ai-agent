@@ -60,6 +60,21 @@ professional, issue-by-issue format:
   backed by a concrete change or test.
 - Close with the resubmission status and any specific reviewer action requested.
 
+### Contributor Insight Triage
+
+When recurring maintainer feedback suggests that automation is missing context,
+turn it into durable, worker-ready guidance instead of relying on chat history:
+
+- Update this `AGENTS.md` when the lesson is repo-wide and should affect every
+  future agent session.
+- Update the narrowest relevant script, workflow, or docs page when the lesson is
+  procedural or command-specific.
+- If the fix is not obvious during the current session, open a GitHub issue brief
+  that names the target files or patterns to inspect, the expected behaviour, and
+  the verification command that should prove the change.
+- Keep instruction changes concrete and actionable; avoid copying vague feedback
+  without translating it into a rule, reference pattern, or testable outcome.
+
 ## Build Commands
 - **Build**: `npm run build` or `npx wp-scripts build` (production)
 - **Dev**: `npm start` or `npx wp-scripts start` (watch mode)
