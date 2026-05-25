@@ -18,6 +18,7 @@ namespace SdAiAgent\Abilities;
 use SdAiAgent\Core\ChangeLogger;
 use SdAiAgent\Core\Database;
 use SdAiAgent\Core\Features;
+use SdAiAgent\Core\Filesystem\FileModGate;
 use SdAiAgent\Core\Settings;
 use SdAiAgent\Models\ChangesLog;
 use WP_Error;
@@ -593,6 +594,12 @@ class FileWriteAbility extends AbstractFileAbility {
 			return $full_path;
 		}
 
+		// Check if file modifications are allowed for this path.
+		$mod_allowed = FileModGate::assert_allowed( $full_path );
+		if ( is_wp_error( $mod_allowed ) ) {
+			return $mod_allowed;
+		}
+
 		// Validate PHP syntax before writing.
 		// @phpstan-ignore-next-line
 		if ( $this->is_php_file( $path ) ) {
@@ -854,6 +861,12 @@ class FileEditAbility extends AbstractFileAbility {
 			return $full_path;
 		}
 
+		// Check if file modifications are allowed for this path.
+		$mod_allowed = FileModGate::assert_allowed( $full_path );
+		if ( is_wp_error( $mod_allowed ) ) {
+			return $mod_allowed;
+		}
+
 		if ( ! file_exists( $full_path ) ) {
 			// @phpstan-ignore-next-line
 			return new WP_Error( 'sd_ai_agent_file_not_found', sprintf( 'File not found: %s', $path ) );
@@ -1061,6 +1074,12 @@ class FileDeleteAbility extends AbstractFileAbility {
 
 		if ( is_wp_error( $full_path ) ) {
 			return $full_path;
+		}
+
+		// Check if file modifications are allowed for this path.
+		$mod_allowed = FileModGate::assert_allowed( $full_path );
+		if ( is_wp_error( $mod_allowed ) ) {
+			return $mod_allowed;
 		}
 
 		if ( ! file_exists( $full_path ) ) {

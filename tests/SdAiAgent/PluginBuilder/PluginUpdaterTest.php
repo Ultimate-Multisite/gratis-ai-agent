@@ -61,6 +61,15 @@ class PluginUpdaterTest extends WP_UnitTestCase {
 		parent::setUp();
 		$this->tmp_upload_basedir = sys_get_temp_dir() . '/sd-ai-agent-phpunit';
 		add_filter( 'upload_dir', [ $this, 'filter_upload_dir_to_tmp' ] );
+		// Allow file modifications for tests.
+		add_filter(
+			'file_mod_allowed',
+			static function () {
+				return true;
+			},
+			10,
+			2
+		);
 		$this->plugin_dir = trailingslashit( WP_PLUGIN_DIR ) . $this->slug . '/';
 		$this->updater    = new PluginUpdater();
 		$this->cleanup_all();
@@ -73,6 +82,7 @@ class PluginUpdaterTest extends WP_UnitTestCase {
 	public function tearDown(): void {
 		$this->cleanup_all();
 		remove_filter( 'upload_dir', [ $this, 'filter_upload_dir_to_tmp' ] );
+		remove_all_filters( 'file_mod_allowed' );
 		parent::tearDown();
 	}
 
