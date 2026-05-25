@@ -113,7 +113,7 @@ class PostMutationHealthCheck {
 			return $cached;
 		}
 
-		$path        = parse_url( admin_url( 'admin-ajax.php' ), PHP_URL_PATH );
+		$path        = wp_parse_url( admin_url( 'admin-ajax.php' ), PHP_URL_PATH );
 		$query       = '?action=sd_ai_agent_health';
 		$server_port = isset( $_SERVER['SERVER_PORT'] ) ? (int) $_SERVER['SERVER_PORT'] : 80;
 

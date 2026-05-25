@@ -29,16 +29,6 @@ if ( ! defined( 'ABSPATH' ) ) {
 class SiteLoopbackCheckAbility extends WP_Ability {
 
 	/**
-	 * Constructor.
-	 *
-	 * @param string $name The ability name.
-	 * @param array  $args The ability arguments.
-	 */
-	public function __construct( string $name = 'sd-ai-agent/site-loopback-check', array $args = [] ) {
-		parent::__construct( $name, $args );
-	}
-
-	/**
 	 * Get the ability label.
 	 *
 	 * @return string

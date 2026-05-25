@@ -716,7 +716,7 @@ class FileWriteAbility extends AbstractFileAbility {
 				if ( ! $existed ) {
 					// File was created; delete it to revert.
 					if ( file_exists( $full_path ) ) {
-						unlink( $full_path );
+						wp_delete_file( $full_path );
 					}
 					return true;
 				}
