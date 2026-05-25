@@ -1328,21 +1328,27 @@ class AgentLoop {
 	 */
 	private function extract_pending_proposal( Message $response_message ): ?array {
 		foreach ( $response_message->getParts() as $part ) {
-			// @phpstan-ignore-next-line
-			$tool_result = $part->getToolResult();
-			if ( ! $tool_result ) {
+			$function_response = method_exists( $part, 'getFunctionResponse' ) ? $part->getFunctionResponse() : null;
+			if ( ! $function_response ) {
 				continue;
 			}
 
-			// @phpstan-ignore-next-line
-			$result = $tool_result->getResult();
+			$result = $function_response->getResponse();
 			if ( ! is_array( $result ) ) {
 				continue;
 			}
 
-			if ( 'proposal_pending' === ( $result['status'] ?? null ) ) {
-				// @phpstan-ignore-next-line
-				return $result;
+			$proposal = array();
+			foreach ( $result as $key => $value ) {
+				if ( ! is_string( $key ) ) {
+					continue 2;
+				}
+
+				$proposal[ $key ] = $value;
+			}
+
+			if ( 'proposal_pending' === ( $proposal['status'] ?? null ) ) {
+				return $proposal;
 			}
 		}
 

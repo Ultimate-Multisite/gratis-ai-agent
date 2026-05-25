@@ -22,6 +22,9 @@ namespace SdAiAgent\Tests\Core;
 use SdAiAgent\Abilities\Js\JsAbilityCatalog;
 use SdAiAgent\Core\AgentLoop;
 use SdAiAgent\Core\Settings;
+use WordPress\AiClient\Messages\DTO\MessagePart;
+use WordPress\AiClient\Messages\DTO\UserMessage;
+use WordPress\AiClient\Tools\DTO\FunctionResponse;
 use WP_UnitTestCase;
 
 /**
@@ -300,6 +303,47 @@ class AgentLoopClientToolsTest extends WP_UnitTestCase {
 
 		$this->assertInstanceOf( \WP_Error::class, $result );
 		$this->assertSame( 'sd_ai_agent_missing_client', $result->get_error_code() );
+	}
+
+	// ── extract_pending_proposal tests ─────────────────────────────────────
+
+	/**
+	 * extract_pending_proposal() uses the SDK FunctionResponse API.
+	 */
+	public function test_extract_pending_proposal_reads_function_response(): void {
+		$loop = new AgentLoop( 'test', array(), array(), array() );
+
+		$reflection = new \ReflectionClass( $loop );
+		$method     = $reflection->getMethod( 'extract_pending_proposal' );
+		$method->setAccessible( true );
+
+		$proposal = array(
+			'status'      => 'proposal_pending',
+			'proposal_id' => 'proposal-1',
+		);
+		$message  = new UserMessage(
+			array(
+				new MessagePart( 'Tool execution finished.' ),
+				new MessagePart( new FunctionResponse( 'call-1', 'wpab__sd-ai-agent__write-file', $proposal ) ),
+			)
+		);
+
+		$this->assertSame( $proposal, $method->invoke( $loop, $message ) );
+	}
+
+	/**
+	 * extract_pending_proposal() does not call removed MessagePart::getToolResult().
+	 */
+	public function test_extract_pending_proposal_ignores_text_part_without_get_tool_result(): void {
+		$loop = new AgentLoop( 'test', array(), array(), array() );
+
+		$reflection = new \ReflectionClass( $loop );
+		$method     = $reflection->getMethod( 'extract_pending_proposal' );
+		$method->setAccessible( true );
+
+		$message = new UserMessage( array( new MessagePart( 'No proposal here.' ) ) );
+
+		$this->assertNull( $method->invoke( $loop, $message ) );
 	}
 
 	// ── Helper methods ────────────────────────────────────────────────────
