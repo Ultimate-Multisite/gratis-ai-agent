@@ -1114,23 +1114,22 @@ class AgentLoop {
 		// the wrapper's `__call` is guaranteed to exist and the `@method`
 		// declarations on the wrapper enumerate the supported API.
 		//
-		// Reasoning-model exception: OpenAI's reasoning families (gpt-5*,
-		// o1*, o3*, o4*) reject `temperature` outright with HTTP 400
-		// ("Unsupported parameter: 'temperature' is not supported with
-		// this model.") — they only run at the model's implicit sampling
-		// setting. Skip the setter for those model IDs so the request
-		// body omits the field entirely. `max_tokens` is still safe to
-		// send: the SDK translates it to `max_completion_tokens` for the
-		// OpenAI reasoning API.
+		// Model-specific exception: some model families reject or deprecate
+		// `temperature` outright with HTTP 400 even though standard models still
+		// accept it. OpenAI reasoning families (gpt-5*, o1*, o3*, o4*) run at the
+		// model's implicit sampling setting. Anthropic Max Claude Opus 4.7 also
+		// rejects the OpenAI-compatible `temperature` field as deprecated.
+		// Skip the setter for those model IDs so the request body omits the field
+		// entirely. `max_tokens` is still safe to send.
 		//
 		// Resolve the effective model ID (including connector defaults)
-		// before checking if it's a reasoning model, since configure_model()
+		// before checking if it rejects temperature, since configure_model()
 		// may have resolved a default model from the connector.
 		$resolved_model_id = $this->model_id;
 		if ( empty( $resolved_model_id ) && function_exists( 'OpenAiCompatibleConnector\\get_default_model' ) ) {
 			$resolved_model_id = (string) \OpenAiCompatibleConnector\get_default_model();
 		}
-		if ( ! self::is_reasoning_model( $resolved_model_id ) ) {
+		if ( ! self::model_omits_temperature( $resolved_model_id ) ) {
 			$builder->using_temperature( (float) $this->temperature );
 		}
 		$builder->using_max_tokens( $this->get_effective_max_output_tokens() );
@@ -1576,7 +1575,7 @@ class AgentLoop {
 	}
 
 	/**
-	 * Detect OpenAI reasoning models that reject the `temperature` parameter.
+	 * Detect models that reject or deprecate the `temperature` parameter.
 	 *
 	 * Reasoning models from OpenAI (GPT-5 family + o-series) only run at the
 	 * model's implicit sampling setting and respond with HTTP 400 if
@@ -1584,7 +1583,11 @@ class AgentLoop {
 	 *
 	 *     Unsupported parameter: 'temperature' is not supported with this model.
 	 *
-	 * The check is prefix-based and intentionally broad — it covers current
+	 * Anthropic Max Claude Opus 4.7 similarly rejects `temperature` as a
+	 * deprecated field in OpenAI-compatible routing, while older Claude models
+	 * used by existing installs still accept it.
+	 *
+	 * The OpenAI check is prefix-based and intentionally broad — it covers current
 	 * variants (gpt-5, gpt-5.4, gpt-5.4-mini, gpt-5.5, gpt-5.5-pro,
 	 * gpt-5-codex, gpt-5-pro, o1, o1-mini, o3, o3-mini, o4, o4-mini) and any
 	 * future dated/sized snapshots from the same families that follow the
@@ -1596,7 +1599,7 @@ class AgentLoop {
 	 * @param string $model_id The provider-scoped model identifier.
 	 * @return bool True if the model rejects the `temperature` parameter.
 	 */
-	private static function is_reasoning_model( string $model_id ): bool {
+	private static function model_omits_temperature( string $model_id ): bool {
 		$normalised = strtolower( trim( $model_id ) );
 
 		if ( '' === $normalised ) {
@@ -1616,6 +1619,13 @@ class AgentLoop {
 			if ( $normalised === $family || str_starts_with( $normalised, $family . '-' ) ) {
 				return true;
 			}
+		}
+
+		// Claude Opus 4.7 is surfaced by Anthropic Max and rejects `temperature`
+		// with HTTP 400: "`temperature` is deprecated for this model." Match the
+		// dateless ID plus any dated/provider-specific snapshot suffix.
+		if ( $normalised === 'claude-opus-4-7' || str_starts_with( $normalised, 'claude-opus-4-7-' ) ) {
+			return true;
 		}
 
 		return false;

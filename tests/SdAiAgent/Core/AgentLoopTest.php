@@ -1513,8 +1513,10 @@ class AgentLoopTest extends WP_UnitTestCase {
 	/**
 	 * Regression test: `temperature` MUST be omitted from the outgoing
 	 * request body for OpenAI reasoning models, because those endpoints
-	 * reject the field with HTTP 400 ("Unsupported parameter:
-	 * 'temperature' is not supported with this model.").
+	 * reject the field with HTTP 400. OpenAI reasoning models return
+	 * "Unsupported parameter: 'temperature' is not supported with this model.";
+	 * Anthropic Max Claude Opus 4.7 returns "`temperature` is deprecated for
+	 * this model."
 	 *
 	 * Reproduction before the fix (2026-05-16, live OpenAI API):
 	 *
@@ -1523,18 +1525,17 @@ class AgentLoopTest extends WP_UnitTestCase {
 	 *     => Warning: Bad Request (400) - Unsupported parameter:
 	 *        'temperature' is not supported with this model.
 	 *
-	 * The fix adds {@see AgentLoop::is_reasoning_model()} and short-circuits
+	 * The fix adds {@see AgentLoop::model_omits_temperature()} and short-circuits
 	 * the `using_temperature()` call in send_prompt() for any matched ID.
 	 *
 	 * This test exercises the agent loop end-to-end against the fake OpenAI-
-	 * compatible endpoint with model_id = gpt-5.5 and asserts the captured
+	 * compatible endpoint with matched model IDs and asserts the captured
 	 * outgoing JSON body has NO `temperature` key. `max_tokens` is still
-	 * expected because reasoning models accept `max_completion_tokens` and
-	 * the SDK translates `max_tokens` for the OpenAI reasoning endpoint.
+	 * expected because output-token caps remain valid for these models.
 	 *
-	 * @dataProvider reasoning_model_id_provider
+	 * @dataProvider temperature_omitting_model_id_provider
 	 */
-	public function test_builder_omits_temperature_for_reasoning_models( string $model_id ): void {
+	public function test_builder_omits_temperature_for_models_that_reject_it( string $model_id ): void {
 		$this->skip_if_sdk_unavailable();
 
 		// A non-default temperature so the assertion can distinguish "not
@@ -1560,13 +1561,12 @@ class AgentLoopTest extends WP_UnitTestCase {
 			'temperature',
 			$decoded,
 			sprintf(
-				'Reasoning model %s must not receive a `temperature` field — the OpenAI endpoint returns HTTP 400 when it is present.',
+				'Model %s must not receive a `temperature` field — the provider returns HTTP 400 when it is present.',
 				$model_id
 			)
 		);
 
-		// Sanity: max_tokens still goes through (SDK rewrites it to
-		// max_completion_tokens for the reasoning endpoint).
+		// Sanity: max_tokens still goes through.
 		$this->assertArrayHasKey(
 			'max_tokens',
 			$decoded,
@@ -1575,12 +1575,12 @@ class AgentLoopTest extends WP_UnitTestCase {
 	}
 
 	/**
-	 * Data provider covering the reasoning-model families enumerated by
-	 * {@see AgentLoop::is_reasoning_model()}.
+	 * Data provider covering model families enumerated by
+	 * {@see AgentLoop::model_omits_temperature()}.
 	 *
 	 * @return array<string, array{0:string}>
 	 */
-	public function reasoning_model_id_provider(): array {
+	public function temperature_omitting_model_id_provider(): array {
 		return [
 			'gpt-5'              => [ 'gpt-5' ],
 			'gpt-5.4'            => [ 'gpt-5.4' ],
@@ -1594,13 +1594,15 @@ class AgentLoopTest extends WP_UnitTestCase {
 			'o3'                 => [ 'o3' ],
 			'o3-mini'            => [ 'o3-mini' ],
 			'o4-mini'            => [ 'o4-mini' ],
+			'claude-opus-4-7'    => [ 'claude-opus-4-7' ],
+			'claude-opus-4-7 dated snap' => [ 'claude-opus-4-7-20260513' ],
 		];
 	}
 
 	/**
 	 * Counter-test: `temperature` MUST still reach non-reasoning OpenAI
 	 * models (gpt-4*, gpt-4o, gpt-4.1, gpt-3.5*) and other providers. This
-	 * guards against an over-broad reasoning-model detector accidentally
+	 * guards against an over-broad temperature-omission detector accidentally
 	 * stripping temperature for models that accept it.
 	 *
 	 * @dataProvider non_reasoning_model_id_provider
@@ -1651,6 +1653,8 @@ class AgentLoopTest extends WP_UnitTestCase {
 			'gpt-4.1'           => [ 'gpt-4.1' ],
 			'gpt-3.5-turbo'     => [ 'gpt-3.5-turbo' ],
 			'claude-sonnet-4-6' => [ 'claude-sonnet-4-6' ],
+			'claude-opus-4-6'   => [ 'claude-opus-4-6' ],
+			'claude-opus-4-5'   => [ 'claude-opus-4-5' ],
 			'gemini-2.5-pro'    => [ 'gemini-2.5-pro' ],
 		];
 	}
@@ -2551,32 +2555,32 @@ class AgentLoopTest extends WP_UnitTestCase {
 	}
 
 	// -------------------------------------------------------------------------
-	// is_reasoning_model() direct unit tests
+	// model_omits_temperature() direct unit tests
 	// -------------------------------------------------------------------------
 
 	/**
-	 * Invoke the private static {@see AgentLoop::is_reasoning_model()} helper.
+	 * Invoke the private static {@see AgentLoop::model_omits_temperature()} helper.
 	 *
 	 * @param string $model_id Model ID to classify.
 	 * @return bool Helper return value.
 	 */
-	private function invoke_is_reasoning_model( string $model_id ): bool {
+	private function invoke_model_omits_temperature( string $model_id ): bool {
 		$rc     = new \ReflectionClass( AgentLoop::class );
-		$method = $rc->getMethod( 'is_reasoning_model' );
+		$method = $rc->getMethod( 'model_omits_temperature' );
 		$method->setAccessible( true );
 		return (bool) $method->invoke( null, $model_id );
 	}
 
 	/**
-	 * Direct (no-SDK) coverage of the reasoning-model classifier.
+	 * Direct (no-SDK) coverage of the temperature-omission classifier.
 	 *
-	 * @dataProvider reasoning_model_classification_provider
+	 * @dataProvider temperature_omission_classification_provider
 	 */
-	public function test_is_reasoning_model_classification( string $model_id, bool $expected ): void {
+	public function test_model_omits_temperature_classification( string $model_id, bool $expected ): void {
 		$this->assertSame(
 			$expected,
-			$this->invoke_is_reasoning_model( $model_id ),
-			sprintf( 'is_reasoning_model(%s) should be %s', var_export( $model_id, true ), $expected ? 'true' : 'false' )
+			$this->invoke_model_omits_temperature( $model_id ),
+			sprintf( 'model_omits_temperature(%s) should be %s', var_export( $model_id, true ), $expected ? 'true' : 'false' )
 		);
 	}
 
@@ -2587,7 +2591,7 @@ class AgentLoopTest extends WP_UnitTestCase {
 	 *
 	 * @return array<string, array{0:string, 1:bool}>
 	 */
-	public function reasoning_model_classification_provider(): array {
+	public function temperature_omission_classification_provider(): array {
 		return [
 			// GPT-5 family — all reasoning.
 			'gpt-5'                       => [ 'gpt-5', true ],
@@ -2614,9 +2618,15 @@ class AgentLoopTest extends WP_UnitTestCase {
 			'gpt-4o'                      => [ 'gpt-4o', false ],
 			'gpt-4.1'                     => [ 'gpt-4.1', false ],
 			'gpt-3.5-turbo'               => [ 'gpt-3.5-turbo', false ],
-			// Other providers — must NOT match.
+			// Anthropic Max Claude Opus 4.7 — rejects/deprecates temperature.
+			'claude-opus-4-7'             => [ 'claude-opus-4-7', true ],
+			'claude-opus-4-7-dated'       => [ 'claude-opus-4-7-20260513', true ],
+			'Claude Opus 4.7 uppercase'   => [ 'CLAUDE-OPUS-4-7', true ],
+			'Claude Opus 4.7 padded'      => [ '  claude-opus-4-7  ', true ],
+			// Other providers/models — must NOT match.
 			'claude-sonnet-4-6'           => [ 'claude-sonnet-4-6', false ],
-			'claude-opus-4-7'             => [ 'claude-opus-4-7', false ],
+			'claude-opus-4-6'             => [ 'claude-opus-4-6', false ],
+			'claude-opus-4-5'             => [ 'claude-opus-4-5', false ],
 			'gemini-2.5-pro'              => [ 'gemini-2.5-pro', false ],
 			'deepseek-chat'               => [ 'deepseek-chat', false ],
 			// Defensive negatives — must NOT match (no `-` separator).
