@@ -296,6 +296,31 @@ class PluginInstallerTest extends WP_UnitTestCase {
 		$this->assertFileExists( $this->plugin_dir . $this->test_slug . '.php' );
 	}
 
+	/**
+	 * install() must not create slug/slug as a directory/file when the main path misses .php.
+	 */
+	public function test_install_rejects_e2e_counter_main_file_path_without_php_extension(): void {
+		$slug       = 'sd-e2e-counter-widget';
+		$plugin_dir = trailingslashit( WP_PLUGIN_DIR ) . $slug . '/';
+		$files      = [
+			$slug . '/' . $slug => '<?php /* Plugin Name: SD E2E Counter Widget */',
+		];
+		$this->remove_directory( $plugin_dir );
+
+		$result = PluginInstaller::install(
+			$slug,
+			$files,
+			'Create a shortcode counter plugin with admin Tools page and inline JS.',
+			'{}',
+			$slug . '/' . $slug
+		);
+
+		$this->assertWPError( $result );
+		$this->assertSame( 'sd_ai_agent_invalid_plugin_file_path', $result->get_error_code() );
+		$this->assertDirectoryDoesNotExist( $plugin_dir . $slug );
+		$this->remove_directory( $plugin_dir );
+	}
+
 	// ─── update_plugin_files ─────────────────────────────────────────────────
 
 	/**
@@ -404,11 +429,21 @@ class PluginInstallerTest extends WP_UnitTestCase {
 	 * @return void
 	 */
 	private function cleanup_plugin_dir(): void {
-		if ( is_dir( $this->plugin_dir ) ) {
+		$this->remove_directory( $this->plugin_dir );
+	}
+
+	/**
+	 * Remove a directory recursively if it exists.
+	 *
+	 * @param string $directory Directory path.
+	 * @return void
+	 */
+	private function remove_directory( string $directory ): void {
+		if ( is_dir( $directory ) ) {
 			require_once ABSPATH . 'wp-admin/includes/class-wp-filesystem-base.php';
 			require_once ABSPATH . 'wp-admin/includes/class-wp-filesystem-direct.php';
 			$fs = new \WP_Filesystem_Direct( [] );
-			$fs->rmdir( $this->plugin_dir, true );
+			$fs->rmdir( $directory, true );
 		}
 	}
 

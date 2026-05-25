@@ -466,8 +466,19 @@ class PluginInstaller {
 		// Write each file.
 		$written = [];
 		foreach ( $files as $relative_path => $content ) {
-			// Sanitize path to prevent traversal.
-			$relative_path = ltrim( $relative_path, '/\\' );
+			$validated = self::validate_plugin_path( $slug, (string) $relative_path );
+			if ( is_wp_error( $validated ) ) {
+				return $validated;
+			}
+
+			if ( $slug === $validated ) {
+				return new WP_Error(
+					'sd_ai_agent_invalid_plugin_file_path',
+					__( 'Generated plugin file path must include a file extension.', 'superdav-ai-agent' )
+				);
+			}
+
+			$relative_path = $validated;
 			$abs_path      = trailingslashit( $canonical_plugin_dir ) . $relative_path;
 
 			// Ensure destination is inside plugin dir.
@@ -518,6 +529,20 @@ class PluginInstaller {
 		if ( empty( $plugin_file ) ) {
 			$plugin_file = $slug . '/' . $slug . '.php';
 		}
+
+		$normalised_plugin_file = self::validate_plugin_path( $slug, $plugin_file );
+		if ( is_wp_error( $normalised_plugin_file ) ) {
+			return $normalised_plugin_file;
+		}
+
+		if ( ! self::is_php_file( $normalised_plugin_file ) ) {
+			return new WP_Error(
+				'sd_ai_agent_invalid_plugin_file_path',
+				__( 'Main plugin file path must point to a PHP file.', 'superdav-ai-agent' )
+			);
+		}
+
+		$plugin_file = $slug . '/' . $normalised_plugin_file;
 
 		// Record in database.
 		$now = current_time( 'mysql' );
