@@ -1,7 +1,7 @@
 /**
  * WordPress dependencies
  */
-import { useMemo, lazy, Suspense } from '@wordpress/element';
+import { useMemo, lazy, Suspense, createElement } from '@wordpress/element';
 
 /**
  * External dependencies
@@ -13,6 +13,7 @@ import remarkGfm from 'remark-gfm';
  * Internal dependencies
  */
 import DataTable from './data-table';
+import FilePathLink from './FilePathLink';
 
 /**
  * CodeBlock and ChartBlock are lazy-loaded so their heavy dependencies
@@ -64,9 +65,83 @@ function CodeFallback( { lang, children } ) {
 const CHART_LANGUAGES = new Set( [ 'chart', 'chartjs', 'chart.js' ] );
 
 /**
+ * Regex to match absolute file paths under wp-content.
+ * Matches paths like:
+ * - /wp-content/plugins/plugin-name/file.php
+ * - /wp-content/themes/theme-name/style.css
+ * - /wp-content/uploads/2024/01/image.jpg
+ *
+ * Does NOT match:
+ * - URLs (http://, https://)
+ * - Relative paths (./file.php, ../file.php)
+ * - Paths without wp-content
+ */
+const FILE_PATH_REGEX = /\/wp-content\/[^\s<>"]+/g;
+
+/**
+ * Splits text into segments, converting file paths into FilePathLink components.
+ *
+ * @param {string} text - The text to process.
+ * @return {Array<string|import('@wordpress/element').WPElement>} Mixed array of text and components.
+ */
+function linkifyFilePaths( text ) {
+	if ( ! text || typeof text !== 'string' ) {
+		return [ text ];
+	}
+
+	const parts = [];
+	let lastIndex = 0;
+	let match;
+
+	// Reset regex state for each call
+	const regex = new RegExp( FILE_PATH_REGEX.source, 'g' );
+
+	while ( ( match = regex.exec( text ) ) !== null ) {
+		const path = match[ 0 ];
+
+		// Add text before the match
+		if ( match.index > lastIndex ) {
+			parts.push( text.slice( lastIndex, match.index ) );
+		}
+
+		// Add the FilePathLink component
+		parts.push(
+			createElement( FilePathLink, {
+				key: `file-path-${ match.index }`,
+				path,
+			} )
+		);
+
+		lastIndex = match.index + path.length;
+	}
+
+	// Add remaining text
+	if ( lastIndex < text.length ) {
+		parts.push( text.slice( lastIndex ) );
+	}
+
+	return parts.length > 0 ? parts : [ text ];
+}
+
+/**
  * Custom renderers for ReactMarkdown.
  */
 const components = {
+	/**
+	 * Render text nodes with file path detection.
+	 * ReactMarkdown passes text content through this renderer.
+	 *
+	 * @param {Object} props          - Renderer props.
+	 * @param {string} props.children - The text content.
+	 * @return {JSX.Element|string} Rendered text with file path links.
+	 */
+	text( { children } ) {
+		const parts = linkifyFilePaths( children );
+		if ( parts.length === 1 && typeof parts[ 0 ] === 'string' ) {
+			return parts[ 0 ];
+		}
+		return parts;
+	},
 	code( { inline, className, children, ...props } ) {
 		const match = /language-(\w+)/.exec( className || '' );
 		if ( ! inline && match ) {
