@@ -1190,7 +1190,7 @@ class FileDeleteAbility extends AbstractFileAbility {
 		// If broken, automatically revert from the snapshot.
 		$health_check = new PostMutationHealthCheck();
 		$health_error = $health_check->verify_or_revert(
-			function () use ( $full_path ) {
+			function () {
 				// Undo closure: restore from git snapshot.
 				// The GitTrackerManager has already snapshotted the original via the before_file_delete hook.
 				// For now, we'll attempt a simple restore by reading from the git tracker database.

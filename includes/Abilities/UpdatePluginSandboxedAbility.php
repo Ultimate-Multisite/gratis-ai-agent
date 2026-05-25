@@ -85,7 +85,7 @@ class UpdatePluginSandboxedAbility extends AbstractAbility {
 		// If the swap succeeded, run a post-mutation health check.
 		// If the site is broken, swap back to the backup.
 		if ( ! is_wp_error( $result ) && isset( $result['swapped'] ) && $result['swapped'] && isset( $result['backup_dir'] ) ) {
-			$backup_dir = $result['backup_dir'];
+			$backup_dir = (string) $result['backup_dir'];
 			$plugin_dir = WP_PLUGIN_DIR . '/' . $slug;
 
 			$health_check = new PostMutationHealthCheck();
@@ -121,8 +121,7 @@ class UpdatePluginSandboxedAbility extends AbstractAbility {
 								continue;
 							}
 
-							/** @var string $real_path */
-							$dest_path = $plugin_dir . str_replace( $backup_dir, '', $real_path );
+							$dest_path = $plugin_dir . str_replace( $backup_dir, '', (string) $real_path );
 
 							if ( $item->isDir() ) {
 								wp_mkdir_p( $dest_path );
