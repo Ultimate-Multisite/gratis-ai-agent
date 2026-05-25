@@ -121,6 +121,7 @@ class UpdatePluginSandboxedAbility extends AbstractAbility {
 								continue;
 							}
 
+							/** @var string $real_path */
 							$dest_path = $plugin_dir . str_replace( $backup_dir, '', $real_path );
 
 							if ( $item->isDir() ) {

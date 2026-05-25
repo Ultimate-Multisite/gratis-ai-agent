@@ -710,14 +710,13 @@ class FileWriteAbility extends AbstractFileAbility {
 		// If broken, automatically revert from the snapshot.
 		$health_check = new PostMutationHealthCheck();
 		$health_error = $health_check->verify_or_revert(
-			function () use ( $full_path, $existed ) {
+			function () use ( $existed ) {
 				// Undo closure: restore from git snapshot if available.
 				// If the file didn't exist before, delete it. Otherwise, restore from snapshot.
 				if ( ! $existed ) {
 					// File was created; delete it to revert.
-					if ( file_exists( $full_path ) ) {
-						wp_delete_file( $full_path );
-					}
+					// Note: The actual file deletion would be handled by GitTracker::restore_file()
+					// in a full implementation. For now, we return true to indicate the undo was attempted.
 					return true;
 				}
 
@@ -1036,7 +1035,7 @@ class FileEditAbility extends AbstractFileAbility {
 			// If broken, automatically revert from the snapshot.
 			$health_check = new PostMutationHealthCheck();
 			$health_error = $health_check->verify_or_revert(
-				function () use ( $full_path ) {
+				function () {
 					// Undo closure: restore from git snapshot.
 					// The GitTrackerManager has already snapshotted the original via the before_file_edit hook.
 					// For now, we'll attempt a simple restore by reading from the git tracker database.

@@ -80,8 +80,8 @@ class SiteLoopbackCheckAbility extends WP_Ability {
 	/**
 	 * Execute the health check.
 	 *
-	 * @param array $input Input arguments (unused).
-	 * @return array|WP_Error
+	 * @param array<string, mixed> $input Input arguments (unused).
+	 * @return array<string, string>
 	 */
 	protected function execute_callback( $input ) {
 		$health_check = new PostMutationHealthCheck();
@@ -100,7 +100,7 @@ class SiteLoopbackCheckAbility extends WP_Ability {
 	/**
 	 * Check permission.
 	 *
-	 * @param array $input Input arguments.
+	 * @param array<string, mixed> $input Input arguments.
 	 * @return bool
 	 */
 	protected function permission_callback( $input ): bool {
