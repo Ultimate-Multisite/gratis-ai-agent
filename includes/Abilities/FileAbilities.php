@@ -18,6 +18,7 @@ namespace SdAiAgent\Abilities;
 use SdAiAgent\Core\ChangeLogger;
 use SdAiAgent\Core\Database;
 use SdAiAgent\Core\Features;
+use SdAiAgent\Core\Settings;
 use SdAiAgent\Models\ChangesLog;
 use WP_Error;
 
@@ -342,6 +343,84 @@ abstract class AbstractFileAbility extends AbstractAbility {
 			restore_error_handler();
 		}
 	}
+
+	/**
+	 * Check the tool permission for this ability.
+	 *
+	 * Returns the permission level: 'auto', 'propose', or 'disabled'.
+	 * Defaults to 'auto' unless explicitly set in settings.
+	 *
+	 * @return string Permission level.
+	 */
+	protected function get_tool_permission(): string {
+		$settings = Settings::instance();
+		$perms    = $settings->get( 'tool_permissions' ) ?? [];
+
+		// Check if there's an explicit permission set for this ability.
+		if ( isset( $perms[ $this->name ] ) ) {
+			return (string) $perms[ $this->name ];
+		}
+
+		// Default to 'auto' for all abilities.
+		return 'auto';
+	}
+
+	/**
+	 * Generate a unified diff for a file change.
+	 *
+	 * @param string $file_path The file path (relative to wp-content).
+	 * @param string $new_content The new content.
+	 * @return string The unified diff.
+	 */
+	protected function generate_diff( string $file_path, string $new_content ): string {
+		// @phpstan-ignore-next-line
+		$full_path = $this->resolve_path( $file_path );
+		if ( is_wp_error( $full_path ) ) {
+			return '';
+		}
+
+		if ( ! file_exists( $full_path ) ) {
+			// New file — show all lines as additions.
+			$lines = explode( "\n", $new_content );
+			$diff  = "--- /dev/null\n+++ $file_path\n";
+			foreach ( $lines as $line ) {
+				$diff .= '+' . $line . "\n";
+			}
+			return $diff;
+		}
+
+		// phpcs:ignore WordPress.WP.AlternativeFunctions.file_get_contents_file_get_contents -- Reading local file.
+		$old_content = file_get_contents( $full_path );
+		if ( false === $old_content ) {
+			return '';
+		}
+
+		// Use a simple line-by-line diff.
+		$old_lines = explode( "\n", $old_content );
+		$new_lines = explode( "\n", $new_content );
+
+		$diff = "--- $file_path\n+++ $file_path\n";
+
+		// Simple unified diff: show context and changes.
+		$max_lines = max( count( $old_lines ), count( $new_lines ) );
+		for ( $i = 0; $i < $max_lines; $i++ ) {
+			$old_line = $old_lines[ $i ] ?? '';
+			$new_line = $new_lines[ $i ] ?? '';
+
+			if ( $old_line === $new_line ) {
+				$diff .= ' ' . $old_line . "\n";
+			} else {
+				if ( isset( $old_lines[ $i ] ) ) {
+					$diff .= '-' . $old_line . "\n";
+				}
+				if ( isset( $new_lines[ $i ] ) ) {
+					$diff .= '+' . $new_line . "\n";
+				}
+			}
+		}
+
+		return $diff;
+	}
 }
 
 /**
@@ -483,6 +562,30 @@ class FileWriteAbility extends AbstractFileAbility {
 		/** @var array<string, mixed> $input */
 		$path    = $input['path'] ?? '';
 		$content = $input['content'] ?? '';
+
+		// Check if this ability is in 'propose' mode.
+		// @phpstan-ignore-next-line
+		$permission = $this->get_tool_permission();
+		if ( 'propose' === $permission && ! isset( $input['_diff_only'] ) ) {
+			// Create a proposal instead of executing immediately.
+			// @phpstan-ignore-next-line
+			$proposal_id = \SdAiAgent\Core\ProposalRegistry::create(
+				$this->name,
+				$input,
+				(int) get_current_user_id()
+			);
+
+			// Generate a preview diff.
+			// @phpstan-ignore-next-line
+			$diff = $this->generate_diff( $path, $content );
+
+			return [
+				'status'       => 'proposal_pending',
+				'proposal_id'  => $proposal_id,
+				'file_path'    => $path,
+				'diff_preview' => $diff,
+			];
+		}
 
 		// @phpstan-ignore-next-line
 		$full_path = $this->resolve_path( $path );
@@ -687,6 +790,62 @@ class FileEditAbility extends AbstractFileAbility {
 			if ( is_array( $decoded ) ) {
 				$edits = $decoded;
 			}
+		}
+
+		// Check if this ability is in 'propose' mode.
+		// @phpstan-ignore-next-line
+		$permission = $this->get_tool_permission();
+		if ( 'propose' === $permission && ! isset( $input['_diff_only'] ) ) {
+			// For proposal mode, we need to compute the diff by applying edits to the current content.
+			// @phpstan-ignore-next-line
+			$full_path = $this->resolve_path( $path );
+			if ( is_wp_error( $full_path ) ) {
+				return $full_path;
+			}
+
+			if ( ! file_exists( $full_path ) ) {
+				// @phpstan-ignore-next-line
+				return new WP_Error( 'sd_ai_agent_file_not_found', sprintf( 'File not found: %s', $path ) );
+			}
+
+			// phpcs:ignore WordPress.WP.AlternativeFunctions.file_get_contents_file_get_contents -- Reading local file.
+			$content = file_get_contents( $full_path );
+			if ( false === $content ) {
+				// @phpstan-ignore-next-line
+				return new WP_Error( 'sd_ai_agent_file_read_failed', sprintf( 'Failed to read file: %s', $path ) );
+			}
+
+			// Apply edits to compute the new content for diff preview.
+			// @phpstan-ignore-next-line
+			foreach ( $edits as $edit ) {
+				// @phpstan-ignore-next-line
+				$search = (string) ( $edit['search'] ?? '' );
+				// @phpstan-ignore-next-line
+				$replace = (string) ( $edit['replace'] ?? '' );
+
+				if ( ! empty( $search ) && strpos( $content, $search ) !== false ) {
+					$content = str_replace( $search, $replace, $content );
+				}
+			}
+
+			// Create a proposal with the computed new content.
+			// @phpstan-ignore-next-line
+			$proposal_id = \SdAiAgent\Core\ProposalRegistry::create(
+				$this->name,
+				$input,
+				(int) get_current_user_id()
+			);
+
+			// Generate a preview diff.
+			// @phpstan-ignore-next-line
+			$diff = $this->generate_diff( $path, $content );
+
+			return [
+				'status'       => 'proposal_pending',
+				'proposal_id'  => $proposal_id,
+				'file_path'    => $path,
+				'diff_preview' => $diff,
+			];
 		}
 
 		// @phpstan-ignore-next-line

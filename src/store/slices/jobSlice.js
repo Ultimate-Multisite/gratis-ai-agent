@@ -91,6 +91,23 @@ export const actions = {
 	},
 
 	/**
+	 * Set a pending proposal for user approval (GH#1824).
+	 *
+	 * This action is defined in the sessions slice but dispatched from jobSlice
+	 * when a pending_proposal status is received. The store merges actions from
+	 * all slices, so this dispatch works across slice boundaries.
+	 *
+	 * @param {Object} proposal - Proposal object with proposal_id, file_path, diff_preview.
+	 * @return {Function} Redux thunk.
+	 */
+	setPendingProposal( proposal ) {
+		return ( { dispatch } ) => {
+			// Dispatch the sessions slice action to set the pending proposal.
+			dispatch( { type: 'SET_PENDING_PROPOSAL', proposal } );
+		};
+	},
+
+	/**
 	 * Store or clear the pending client tool result retry payload.
 	 *
 	 * Set when all POST retries to /chat/tool-result have been exhausted so the
@@ -370,6 +387,28 @@ export const actions = {
 								firstTool?.name ||
 								'';
 							notifyConfirmationNeeded( jobId, toolName );
+						}
+
+						// Don't clear sending — still waiting.
+						unsubscribeVisibility();
+						clearActiveJob( sessionId );
+						return;
+					}
+
+					if ( result.status === 'pending_proposal' ) {
+						// The agent loop has paused for a proposal approval (GH#1824).
+						// Show the proposal panel to the user.
+						dispatch.setSessionJob( sessionId, {
+							jobId,
+							toolCalls: result.tool_calls || [],
+							status: 'pending_proposal',
+						} );
+
+						// Only show proposal UI for the active session.
+						if ( select.getCurrentSessionId() === sessionId ) {
+							dispatch.setPendingProposal(
+								result.pending_proposal
+							);
 						}
 
 						// Don't clear sending — still waiting.
