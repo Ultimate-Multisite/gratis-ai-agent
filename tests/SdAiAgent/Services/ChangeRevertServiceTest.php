@@ -294,4 +294,128 @@ class ChangeRevertServiceTest extends WP_UnitTestCase {
 		$this->assertTrue( $filter_called, 'The sd_ai_agent_revert_change filter should have been called.' );
 		$this->assertTrue( $result );
 	}
+
+	// ── file revert ──────────────────────────────────────────────────────────
+
+	/**
+	 * apply_revert() deletes a newly-written file (before_value is empty).
+	 */
+	public function test_apply_revert_file_new_write_deletes_file(): void {
+		// Create a temporary test file in wp-content.
+		$test_file = WP_CONTENT_DIR . '/test-revert-new-file.txt';
+		file_put_contents( $test_file, 'Test content' );
+		$this->assertTrue( file_exists( $test_file ), 'Test file should exist before revert.' );
+
+		$change = $this->make_change( [
+			'object_type'  => 'file',
+			'object_id'    => 0,
+			'object_title' => 'test-revert-new-file.txt',
+			'field_name'   => $test_file,
+			'before_value' => '',
+			'after_value'  => 'Test content',
+		] );
+
+		$result = ChangeRevertService::apply_revert( $change );
+
+		$this->assertTrue( $result );
+		$this->assertFalse( file_exists( $test_file ), 'File should be deleted after revert.' );
+	}
+
+	/**
+	 * apply_revert() restores prior content for an edited file.
+	 */
+	public function test_apply_revert_file_edit_restores_content(): void {
+		// Create a temporary test file.
+		$test_file = WP_CONTENT_DIR . '/test-revert-edit-file.txt';
+		$original  = "Line 1\nLine 2\nLine 3";
+		$edited    = "Line 1\nLine 2 EDITED\nLine 3";
+		file_put_contents( $test_file, $edited );
+
+		$change = $this->make_change( [
+			'object_type'  => 'file',
+			'object_id'    => 0,
+			'object_title' => 'test-revert-edit-file.txt',
+			'field_name'   => $test_file,
+			'before_value' => $original,
+			'after_value'  => $edited,
+		] );
+
+		$result = ChangeRevertService::apply_revert( $change );
+
+		$this->assertTrue( $result );
+		$this->assertTrue( file_exists( $test_file ), 'File should still exist after revert.' );
+		// phpcs:ignore WordPress.WP.AlternativeFunctions.file_get_contents_file_get_contents -- Reading local test file.
+		$restored = file_get_contents( $test_file );
+		$this->assertSame( $original, $restored, 'File content should be restored to before_value.' );
+
+		// Cleanup.
+		unlink( $test_file );
+	}
+
+	/**
+	 * apply_revert() recreates a deleted file.
+	 */
+	public function test_apply_revert_file_delete_recreates_file(): void {
+		$test_file = WP_CONTENT_DIR . '/test-revert-deleted-file.txt';
+		$original  = 'Original file content';
+
+		// Ensure file does not exist before the test.
+		if ( file_exists( $test_file ) ) {
+			unlink( $test_file );
+		}
+
+		$change = $this->make_change( [
+			'object_type'  => 'file',
+			'object_id'    => 0,
+			'object_title' => 'test-revert-deleted-file.txt',
+			'field_name'   => $test_file,
+			'before_value' => $original,
+			'after_value'  => '',
+		] );
+
+		$result = ChangeRevertService::apply_revert( $change );
+
+		$this->assertTrue( $result );
+		$this->assertTrue( file_exists( $test_file ), 'File should be recreated after revert.' );
+		// phpcs:ignore WordPress.WP.AlternativeFunctions.file_get_contents_file_get_contents -- Reading local test file.
+		$restored = file_get_contents( $test_file );
+		$this->assertSame( $original, $restored, 'File content should match before_value.' );
+
+		// Cleanup.
+		unlink( $test_file );
+	}
+
+	/**
+	 * apply_revert() returns WP_Error when file path is outside wp-content.
+	 */
+	public function test_apply_revert_file_path_outside_wpcontent_returns_error(): void {
+		$change = $this->make_change( [
+			'object_type'  => 'file',
+			'object_id'    => 0,
+			'field_name'   => '/etc/passwd',
+			'before_value' => 'content',
+		] );
+
+		$result = ChangeRevertService::apply_revert( $change );
+
+		$this->assertWPError( $result );
+		$this->assertSame( 'file_revert_path_outside_wpcontent', $result->get_error_code() );
+	}
+
+	/**
+	 * apply_revert() returns WP_Error when file path is empty.
+	 */
+	public function test_apply_revert_file_empty_path_returns_error(): void {
+		$change = $this->make_change( [
+			'object_type'  => 'file',
+			'object_id'    => 0,
+			'field_name'   => '',
+			'before_value' => 'content',
+		] );
+
+		$result = ChangeRevertService::apply_revert( $change );
+
+		$this->assertWPError( $result );
+		$this->assertSame( 'file_revert_no_path', $result->get_error_code() );
+	}
 }

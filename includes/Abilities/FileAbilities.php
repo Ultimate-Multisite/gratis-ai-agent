@@ -538,7 +538,17 @@ class FileWriteAbility extends AbstractFileAbility {
 			}
 		}
 
-		$existed = file_exists( $full_path );
+		$existed        = file_exists( $full_path );
+		$before_content = '';
+
+		// Capture the original file content before overwriting (for revertable change logging).
+		if ( $existed ) {
+			// phpcs:ignore WordPress.WP.AlternativeFunctions.file_get_contents_file_get_contents -- Reading local file.
+			$before_content = file_get_contents( $full_path );
+			if ( false === $before_content ) {
+				$before_content = '';
+			}
+		}
 
 		// Snapshot the original file content before overwriting (for git change tracking).
 		do_action( 'sd_ai_agent_before_file_write', $full_path );
@@ -567,20 +577,19 @@ class FileWriteAbility extends AbstractFileAbility {
 			(int) get_current_user_id()
 		);
 
-		// Audit trail: log as unrevertable — filesystem writes are not tracked
-		// by WordPress hooks and there is no before-value snapshot.
+		// Audit trail: log as revertable with actual before/after content.
 		if ( ChangeLogger::is_active() ) {
 			ChangesLog::record(
 				[
 					'session_id'   => ChangeLogger::get_session_id(),
 					'object_type'  => 'file',
 					'object_id'    => 0,
-					'object_title' => $path,
-					'ability_name' => ChangeLogger::get_ability_name() ?: 'write_file',
-					'field_name'   => 'content',
-					'before_value' => '',
-					'after_value'  => $existed ? '(updated)' : '(created)',
-					'revertable'   => false,
+					'object_title' => basename( $path ),
+					'ability_name' => ChangeLogger::get_ability_name() ?: 'file-write',
+					'field_name'   => $full_path,
+					'before_value' => $before_content,
+					'after_value'  => $content,
+					'revertable'   => true,
 				]
 			);
 		}
@@ -701,6 +710,9 @@ class FileEditAbility extends AbstractFileAbility {
 			return new WP_Error( 'sd_ai_agent_file_read_failed', sprintf( 'Failed to read file: %s', $path ) );
 		}
 
+		// Capture the original content before edits (for revertable change logging).
+		$before_content = $content;
+
 		// Normalize edits: handle single edit object.
 		// @phpstan-ignore-next-line
 		if ( isset( $edits['search'] ) && isset( $edits['replace'] ) ) {
@@ -800,19 +812,19 @@ class FileEditAbility extends AbstractFileAbility {
 				(int) get_current_user_id()
 			);
 
-			// Audit trail: log as unrevertable.
+			// Audit trail: log as revertable with actual before/after content.
 			if ( ChangeLogger::is_active() ) {
 				ChangesLog::record(
 					[
 						'session_id'   => ChangeLogger::get_session_id(),
 						'object_type'  => 'file',
 						'object_id'    => 0,
-						'object_title' => $path,
-						'ability_name' => ChangeLogger::get_ability_name() ?: 'edit_file',
-						'field_name'   => 'content',
-						'before_value' => '',
-						'after_value'  => sprintf( '(%d edits applied)', count( $applied ) ),
-						'revertable'   => false,
+						'object_title' => basename( $path ),
+						'ability_name' => ChangeLogger::get_ability_name() ?: 'file-edit',
+						'field_name'   => $full_path,
+						'before_value' => $before_content,
+						'after_value'  => $content,
+						'revertable'   => true,
 					]
 				);
 			}
@@ -897,6 +909,16 @@ class FileDeleteAbility extends AbstractFileAbility {
 			return new WP_Error( 'sd_ai_agent_file_not_found', sprintf( 'File not found: %s', $path ) );
 		}
 
+		// Capture the file content before deletion (for revertable change logging).
+		$before_content = '';
+		if ( ! is_dir( $full_path ) ) {
+			// phpcs:ignore WordPress.WP.AlternativeFunctions.file_get_contents_file_get_contents -- Reading local file.
+			$before_content = file_get_contents( $full_path );
+			if ( false === $before_content ) {
+				$before_content = '';
+			}
+		}
+
 		global $wp_filesystem;
 		/** @var \WP_Filesystem_Base $wp_filesystem */
 		if ( empty( $wp_filesystem ) ) {
@@ -915,19 +937,19 @@ class FileDeleteAbility extends AbstractFileAbility {
 			return new WP_Error( 'sd_ai_agent_file_delete_failed', sprintf( 'Failed to delete: %s', $path ) );
 		}
 
-		// Audit trail: log as unrevertable — the file content is permanently gone.
+		// Audit trail: log as revertable with the deleted file content.
 		if ( ChangeLogger::is_active() ) {
 			ChangesLog::record(
 				[
 					'session_id'   => ChangeLogger::get_session_id(),
 					'object_type'  => 'file',
 					'object_id'    => 0,
-					'object_title' => $path,
-					'ability_name' => ChangeLogger::get_ability_name() ?: 'delete_file',
-					'field_name'   => 'content',
-					'before_value' => '',
-					'after_value'  => '(deleted)',
-					'revertable'   => false,
+					'object_title' => basename( $path ),
+					'ability_name' => ChangeLogger::get_ability_name() ?: 'file-delete',
+					'field_name'   => $full_path,
+					'before_value' => $before_content,
+					'after_value'  => '',
+					'revertable'   => true,
 				]
 			);
 		}

@@ -67,6 +67,10 @@ final class ChangeRevertService {
 
 		switch ( $change->object_type ) {
 
+			// ── File (write, edit, or delete revert) ──────────────────────────────
+			case 'file':
+				return self::revert_file( $change );
+
 			// ── Option (update, add, or restore deleted option) ───────────────────
 			case 'option':
 				// Empty before_value → option was newly added; revert by deleting it.
@@ -204,5 +208,118 @@ final class ChangeRevertService {
 				);
 				return $result;
 		}
+	}
+
+	/**
+	 * Revert a file change (write, edit, or delete).
+	 *
+	 * Handles three scenarios:
+	 * - New file write: before_value is empty → delete the file
+	 * - In-place edit: before_value has content → restore prior content
+	 * - File delete: before_value has content, after_value is empty → recreate the file
+	 *
+	 * After restoring the file, creates a pre-restore snapshot so the revert
+	 * is itself reversible (mirrors existing user/option/post_meta semantics).
+	 *
+	 * @param object $change Change record row from the database.
+	 * @return true|WP_Error True on success, WP_Error on failure.
+	 */
+	private static function revert_file( object $change ): true|WP_Error {
+		$file_path = $change->field_name;
+
+		if ( empty( $file_path ) ) {
+			return new WP_Error(
+				'file_revert_no_path',
+				__( 'File path is missing from the change record.', 'superdav-ai-agent' ),
+				array( 'status' => 422 )
+			);
+		}
+
+		// Validate that the path is within wp-content (security check).
+		$wp_content_real = realpath( WP_CONTENT_DIR );
+		$file_real       = realpath( dirname( $file_path ) );
+
+		if ( false === $wp_content_real || false === $file_real ) {
+			return new WP_Error(
+				'file_revert_path_invalid',
+				__( 'Cannot resolve file path.', 'superdav-ai-agent' ),
+				array( 'status' => 422 )
+			);
+		}
+
+		if ( strpos( $file_real, $wp_content_real ) !== 0 ) {
+			return new WP_Error(
+				'file_revert_path_outside_wpcontent',
+				__( 'File path is outside wp-content directory.', 'superdav-ai-agent' ),
+				array( 'status' => 422 )
+			);
+		}
+
+		// Case 1: New file write (before_value is empty) → delete the file.
+		if ( '' === $change->before_value ) {
+			if ( ! file_exists( $file_path ) ) {
+				// File was already deleted; revert is a no-op.
+				return true;
+			}
+
+			global $wp_filesystem;
+			/** @var \WP_Filesystem_Base $wp_filesystem */
+			if ( empty( $wp_filesystem ) ) {
+				require_once ABSPATH . 'wp-admin/includes/file.php';
+				WP_Filesystem();
+			}
+
+			if ( ! $wp_filesystem->delete( $file_path ) ) {
+				return new WP_Error(
+					'file_revert_delete_failed',
+					sprintf(
+						/* translators: %s: file path */
+						__( 'Failed to delete file during revert: %s', 'superdav-ai-agent' ),
+						$file_path
+					),
+					array( 'status' => 500 )
+				);
+			}
+
+			return true;
+		}
+
+		// Case 2 & 3: Restore prior content (edit or delete revert).
+		// Create directory if needed.
+		$dir = dirname( $file_path );
+		if ( ! file_exists( $dir ) ) {
+			if ( ! wp_mkdir_p( $dir ) ) {
+				return new WP_Error(
+					'file_revert_mkdir_failed',
+					sprintf(
+						/* translators: %s: directory path */
+						__( 'Failed to create directory during revert: %s', 'superdav-ai-agent' ),
+						$dir
+					),
+					array( 'status' => 500 )
+				);
+			}
+		}
+
+		global $wp_filesystem;
+		/** @var \WP_Filesystem_Base $wp_filesystem */
+		if ( empty( $wp_filesystem ) ) {
+			require_once ABSPATH . 'wp-admin/includes/file.php';
+			WP_Filesystem();
+		}
+
+		if ( ! $wp_filesystem->put_contents( $file_path, $change->before_value, FS_CHMOD_FILE ) ) {
+			return new WP_Error(
+				'file_revert_restore_failed',
+				sprintf(
+					/* translators: %s: file path */
+					__( 'Failed to restore file during revert: %s', 'superdav-ai-agent' ),
+					$file_path
+				),
+				array( 'status' => 500 )
+			);
+		}
+
+		return true;
 	}
 }

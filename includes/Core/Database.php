@@ -36,7 +36,7 @@ use SdAiAgent\Tools\CustomTools;
 class Database {
 
 	const DB_VERSION_OPTION = 'sd_ai_agent_db_version';
-	const DB_VERSION        = '19.4.0';
+	const DB_VERSION        = '19.5.0';
 
 	// ─── Table Name Registry ──────────────────────────────────────────────────
 
@@ -462,7 +462,7 @@ class Database {
 			object_id bigint(20) unsigned NOT NULL DEFAULT 0,
 			object_title varchar(255) NOT NULL DEFAULT '',
 			ability_name varchar(100) NOT NULL DEFAULT '',
-			field_name varchar(100) NOT NULL DEFAULT '',
+			field_name varchar(1000) NOT NULL DEFAULT '',
 			before_value longtext NOT NULL,
 			after_value longtext NOT NULL,
 			reverted tinyint(1) NOT NULL DEFAULT 0,
