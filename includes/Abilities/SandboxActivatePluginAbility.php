@@ -10,6 +10,7 @@ declare(strict_types=1);
 
 namespace SdAiAgent\Abilities;
 
+use SdAiAgent\Core\Health\PostMutationHealthCheck;
 use SdAiAgent\PluginBuilder\PluginSandbox;
 use WP_Error;
 
@@ -68,7 +69,27 @@ class SandboxActivatePluginAbility extends AbstractAbility {
 			);
 		}
 
-		return PluginSandbox::layer3_activate( $plugin_file );
+		$result = PluginSandbox::layer3_activate( $plugin_file );
+
+		// If layer 3 activation succeeded, run a post-mutation health check.
+		// If the site is broken, deactivate the plugin and return an error.
+		if ( ! is_wp_error( $result ) && isset( $result['activated'] ) && $result['activated'] ) {
+			$health_check = new PostMutationHealthCheck();
+			$health_error = $health_check->verify_or_revert(
+				function () use ( $plugin_file ) {
+					// Undo closure: deactivate the plugin.
+					deactivate_plugins( $plugin_file );
+					return true;
+				},
+				'Plugin activation'
+			);
+
+			if ( is_wp_error( $health_error ) ) {
+				return $health_error;
+			}
+		}
+
+		return $result;
 	}
 
 	protected function permission_callback( $input ): bool {

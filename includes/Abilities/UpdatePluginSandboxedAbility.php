@@ -10,6 +10,7 @@ declare(strict_types=1);
 
 namespace SdAiAgent\Abilities;
 
+use SdAiAgent\Core\Health\PostMutationHealthCheck;
 use SdAiAgent\PluginBuilder\PluginUpdater;
 use WP_Error;
 
@@ -79,7 +80,68 @@ class UpdatePluginSandboxedAbility extends AbstractAbility {
 			return new WP_Error( 'sd_ai_agent_no_files', __( 'files must not be empty.', 'superdav-ai-agent' ) );
 		}
 
-		return ( new PluginUpdater() )->update( $slug, $files );
+		$result = ( new PluginUpdater() )->update( $slug, $files );
+
+		// If the swap succeeded, run a post-mutation health check.
+		// If the site is broken, swap back to the backup.
+		if ( ! is_wp_error( $result ) && isset( $result['swapped'] ) && $result['swapped'] && isset( $result['backup_dir'] ) ) {
+			$backup_dir = (string) $result['backup_dir'];
+			$plugin_dir = WP_PLUGIN_DIR . '/' . $slug;
+
+			$health_check = new PostMutationHealthCheck();
+			$health_error = $health_check->verify_or_revert(
+				function () use ( $plugin_dir, $backup_dir ) {
+					// Undo closure: swap back to the backup.
+					// Remove the current (broken) version and restore from backup.
+					if ( is_dir( $plugin_dir ) ) {
+						require_once ABSPATH . 'wp-admin/includes/class-wp-filesystem-base.php';
+						require_once ABSPATH . 'wp-admin/includes/class-wp-filesystem-direct.php';
+						$fs = new \WP_Filesystem_Direct( [] );
+						$fs->rmdir( $plugin_dir, true );
+					}
+
+					// Restore from backup.
+					if ( is_dir( $backup_dir ) ) {
+						require_once ABSPATH . 'wp-admin/includes/class-wp-filesystem-base.php';
+						require_once ABSPATH . 'wp-admin/includes/class-wp-filesystem-direct.php';
+						$fs = new \WP_Filesystem_Direct( [] );
+						if ( ! wp_mkdir_p( $plugin_dir ) ) {
+							return new WP_Error( 'sd_ai_agent_mkdir_failed', 'Could not create plugin directory' );
+						}
+
+						$iterator = new \RecursiveIteratorIterator(
+							new \RecursiveDirectoryIterator( $backup_dir, \RecursiveDirectoryIterator::SKIP_DOTS ),
+							\RecursiveIteratorIterator::SELF_FIRST
+						);
+
+						foreach ( $iterator as $item ) {
+							/** @var \SplFileInfo $item */
+							$real_path = $item->getRealPath();
+							if ( false === $real_path ) {
+								continue;
+							}
+
+							$dest_path = $plugin_dir . str_replace( $backup_dir, '', (string) $real_path );
+
+							if ( $item->isDir() ) {
+								wp_mkdir_p( $dest_path );
+							} else {
+								copy( $real_path, $dest_path );
+							}
+						}
+					}
+
+					return true;
+				},
+				'Plugin update'
+			);
+
+			if ( is_wp_error( $health_error ) ) {
+				return $health_error;
+			}
+		}
+
+		return $result;
 	}
 
 	protected function permission_callback( $input ): bool {

@@ -39,6 +39,7 @@ class SiteHealthAbilities {
 		self::register_check_security();
 		self::register_check_performance();
 		self::register_site_health_summary();
+		self::register_site_loopback_check();
 	}
 
 	// -------------------------------------------------------------------------
@@ -869,5 +870,66 @@ class SiteHealthAbilities {
 		}
 
 		return round( $total_bytes / ( 1024 * 1024 ), 2 );
+	}
+
+	/**
+	 * Register the site-loopback-check ability.
+	 */
+	private static function register_site_loopback_check(): void {
+		wp_register_ability(
+			'sd-ai-agent/site-loopback-check',
+			[
+				'label'               => __( 'Check Site Health', 'superdav-ai-agent' ),
+				'description'         => __( 'Perform a loopback health check to verify the site is still loading correctly. Returns healthy, broken, or unreachable.', 'superdav-ai-agent' ),
+				'category'            => 'sd-ai-agent',
+				'input_schema'        => [
+					'type'       => 'object',
+					'properties' => [],
+					'required'   => [],
+				],
+				'output_schema'       => [
+					'type'       => 'object',
+					'properties' => [
+						'status' => [
+							'type'        => 'string',
+							'description' => 'Health status: healthy, broken, or unreachable',
+							'enum'        => [ 'healthy', 'broken', 'unreachable' ],
+						],
+					],
+				],
+				'meta'                => [
+					'mcp'          => [ 'public' => true ],
+					'annotations'  => [
+						'readonly'    => true,
+						'destructive' => false,
+						'idempotent'  => true,
+					],
+					'show_in_rest' => true,
+				],
+				'execute_callback'    => [ __CLASS__, 'handle_site_loopback_check' ],
+				'permission_callback' => function () {
+					return ToolCapabilities::current_user_can( 'sd-ai-agent/site-loopback-check' );
+				},
+			]
+		);
+	}
+
+	/**
+	 * Handle the site-loopback-check ability.
+	 *
+	 * @param array<string, mixed> $input Input arguments (unused).
+	 * @return array<string, mixed>|WP_Error
+	 */
+	public static function handle_site_loopback_check( array $input = [] ) {
+		$health_check = new \SdAiAgent\Core\Health\PostMutationHealthCheck();
+
+		if ( $health_check->verify() ) {
+			return [ 'status' => 'healthy' ];
+		}
+
+		// For now, return 'broken' if not healthy. A more sophisticated approach
+		// would distinguish between 'broken' and 'unreachable', but that requires
+		// exposing the internal check() method or creating a public variant.
+		return [ 'status' => 'broken' ];
 	}
 }

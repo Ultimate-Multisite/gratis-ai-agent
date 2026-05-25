@@ -27,6 +27,7 @@ use SdAiAgent\Abilities\BlockAbilities;
 use SdAiAgent\Core\BlockEnricherRegistry;
 use SdAiAgent\Enrichers\CoreImageEnricher;
 use SdAiAgent\Abilities\ContentAbilities;
+use SdAiAgent\Core\Health\HealthEndpoint;
 use SdAiAgent\Abilities\CustomPostTypeAbilities;
 use SdAiAgent\Abilities\CustomTaxonomyAbilities;
 use SdAiAgent\Abilities\TaxonomyAbilities;
@@ -95,6 +96,9 @@ final class AbilitiesHandler {
 	 */
 	#[Action( tag: 'wp_abilities_api_init', priority: 10 )]
 	public function register_all_abilities(): void {
+		// Register the health endpoint for post-mutation checks.
+		HealthEndpoint::register();
+
 		MemoryAbilities::register_abilities();
 		FeedbackAbilities::register_abilities();
 		SkillAbilities::register_abilities();
