@@ -142,12 +142,14 @@ class SafeFetcher {
 					return;
 				}
 			}
-			// phpcs:ignore WordPress.WP.AlternativeFunctions.curl_curl_setopt -- need raw cURL to set CURLOPT_RESOLVE; wp_remote_get does not expose this option
-			curl_setopt( $handle, CURLOPT_RESOLVE, [ $resolve_arg ] );
+			if ( is_resource( $handle ) || $handle instanceof \CurlHandle ) {
+				// phpcs:ignore WordPress.WP.AlternativeFunctions.curl_curl_setopt -- need raw cURL to set CURLOPT_RESOLVE; wp_remote_get does not expose this option
+				curl_setopt( $handle, CURLOPT_RESOLVE, [ $resolve_arg ] );
+			}
 		};
 		add_action( 'http_api_curl', $pin, 10, 3 );
 
-		$timeout  = $opts['timeout'] ?? 15;
+		$timeout  = (int) ( $opts['timeout'] ?? 15 );
 		$response = wp_remote_get(
 			$url,
 			[
@@ -239,13 +241,14 @@ class SafeFetcher {
 		if ( is_array( $records ) ) {
 			foreach ( $records as $rec ) {
 				if ( ! empty( $rec['ip'] ) ) {
-					$ips[] = $rec['ip'];
+					$ips[] = (string) $rec['ip'];
 				} elseif ( ! empty( $rec['ipv6'] ) ) {
-					$ips[] = $rec['ipv6'];
+					$ips[] = (string) $rec['ipv6'];
 				}
 			}
 		}
 
+		/** @var list<string> */
 		$ips = array_values( array_unique( $ips ) );
 
 		if ( empty( $ips ) ) {
