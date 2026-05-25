@@ -13,6 +13,7 @@ import apiFetch from '@wordpress/api-fetch';
 import STORE_NAME from '../../store';
 import ErrorBoundary from '../error-boundary';
 import ToolConfirmationDialog from '../tool-confirmation-dialog';
+import ProposalPanel from '../proposal-panel';
 import ChangesDrawer from '../chat-redesign/ChangesDrawer';
 // chat-redesign base styles (.sdaa-cr-*) are only needed by panel
 // sub-components, so the import lives here rather than in index.js.
@@ -38,6 +39,7 @@ export default function WidgetPanel() {
 	const {
 		isMinimized,
 		pendingConfirmation,
+		pendingProposal,
 		yoloMode,
 		sending,
 		currentSessionId,
@@ -47,6 +49,7 @@ export default function WidgetPanel() {
 		return {
 			isMinimized: store.isFloatingMinimized(),
 			pendingConfirmation: store.getPendingConfirmation(),
+			pendingProposal: store.getPendingProposal(),
 			yoloMode: store.isYoloMode(),
 			sending: store.isSending(),
 			currentSessionId: store.getCurrentSessionId(),
@@ -273,20 +276,30 @@ export default function WidgetPanel() {
 				) }
 			</div>
 
-			{ pendingConfirmation && ! yoloMode && (
-				<ToolConfirmationDialog
-					confirmation={ pendingConfirmation }
-					onConfirm={ ( alwaysAllow ) =>
-						confirmToolCall(
-							pendingConfirmation.jobId,
-							alwaysAllow
-						)
-					}
-					onReject={ () =>
-						rejectToolCall( pendingConfirmation.jobId )
-					}
-				/>
-			) }
-		</>
+		{ pendingConfirmation && ! yoloMode && (
+			<ToolConfirmationDialog
+				confirmation={ pendingConfirmation }
+				onConfirm={ ( alwaysAllow ) =>
+					confirmToolCall(
+						pendingConfirmation.jobId,
+						alwaysAllow
+					)
+				}
+				onReject={ () =>
+					rejectToolCall( pendingConfirmation.jobId )
+				}
+			/>
+		) }
+
+		{ pendingProposal && (
+			<ProposalPanel
+				proposal={ pendingProposal }
+				onClose={ () => {
+					// Clear the pending proposal from the store.
+					// The ProposalPanel component handles the apply/reject actions.
+				} }
+			/>
+		) }
+	</>
 	);
 }

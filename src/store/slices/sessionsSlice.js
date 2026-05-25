@@ -204,6 +204,10 @@ export const initialState = {
 			return [];
 		}
 	} )(),
+
+	// Pending proposal for file-write/file-edit approval (GH#1824).
+	// { proposal_id, file_path, diff_preview } or null.
+	pendingProposal: null,
 };
 
 export const actions = {
@@ -906,6 +910,53 @@ export const actions = {
 	},
 
 	/**
+	 * Set a pending proposal for user approval (GH#1824).
+	 *
+	 * @param {Object} proposal - Proposal object with proposal_id, file_path, diff_preview.
+	 * @return {Object} Redux action.
+	 */
+	setPendingProposal( proposal ) {
+		return { type: 'SET_PENDING_PROPOSAL', proposal };
+	},
+
+	/**
+	 * Clear the pending proposal after apply or reject.
+	 *
+	 * @return {Object} Redux action.
+	 */
+	clearPendingProposal() {
+		return { type: 'CLEAR_PENDING_PROPOSAL' };
+	},
+
+	/**
+	 * Handle proposal applied — feed the result back into the conversation.
+	 *
+	 * @param {Object} data - { proposal_id, result }.
+	 * @return {Function} Redux thunk.
+	 */
+	proposalApplied( data ) {
+		return async ( { dispatch } ) => {
+			// Clear the pending proposal.
+			dispatch.clearPendingProposal();
+			// TODO: Feed the result back into the conversation as a tool result.
+		};
+	},
+
+	/**
+	 * Handle proposal rejected — feed rejection back into the conversation.
+	 *
+	 * @param {Object} data - { proposal_id }.
+	 * @return {Function} Redux thunk.
+	 */
+	proposalRejected( data ) {
+		return async ( { dispatch } ) => {
+			// Clear the pending proposal.
+			dispatch.clearPendingProposal();
+			// TODO: Feed rejection back into the conversation as a tool result.
+		};
+	},
+
+	/**
 	 * Send a message and stream the response token-by-token via SSE.
 	 *
 	 * Uses the Fetch API with a ReadableStream reader to consume the
@@ -1581,6 +1632,18 @@ export const selectors = {
 	getOpenTabs( state ) {
 		return state.openTabs || [];
 	},
+
+	// ─── Proposals (GH#1824) ──────────────────────────────────────
+
+	/**
+	 * Get the pending proposal for user approval, or null.
+	 *
+	 * @param {import('../../types').StoreState} state
+	 * @return {Object|null} Proposal object or null.
+	 */
+	getPendingProposal( state ) {
+		return state.pendingProposal;
+	},
 };
 
 /**
@@ -1796,18 +1859,22 @@ export function reducer( state, action ) {
 			}
 			return { ...state, openTabs: filteredTabs };
 		}
-		case 'SET_OPEN_TABS': {
-			try {
-				localStorage.setItem(
-					'sdAiAgent_openTabs',
-					JSON.stringify( action.tabs )
-				);
-			} catch {
-				// ignore storage errors
-			}
-			return { ...state, openTabs: action.tabs };
+	case 'SET_OPEN_TABS': {
+		try {
+			localStorage.setItem(
+				'sdAiAgent_openTabs',
+				JSON.stringify( action.tabs )
+			);
+		} catch {
+			// ignore storage errors
 		}
-		default:
-			return state;
+		return { ...state, openTabs: action.tabs };
+	}
+	case 'SET_PENDING_PROPOSAL':
+		return { ...state, pendingProposal: action.proposal };
+	case 'CLEAR_PENDING_PROPOSAL':
+		return { ...state, pendingProposal: null };
+	default:
+		return state;
 	}
 }
