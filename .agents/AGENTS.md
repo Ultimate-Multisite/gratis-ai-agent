@@ -45,6 +45,22 @@ immediately after opening PR #465, before it was merged. The framework fix
 (aidevops PR #5066) adds the merge check to the framework script. The CI check
 and project-level wrapper here provide a project-level safety net.
 
+## Headless Worker Tool Guardrails
+
+Recurring contributor-insight reports for this repository show workers losing
+time to schema and GitHub signature failures before they reach plugin code. When
+working here in OpenCode headless mode:
+
+- Every `bash` tool call must include the `description` argument. Do not emit a
+  bare command object, even for quick environment setup or WP-CLI checks.
+- Do not create tracking issues with raw `gh issue create`. Use the project or
+  framework sync helpers that add the required aidevops signature footer, such as
+  `.agents/scripts/issue-sync-helper.sh`, or write the body to a temporary file
+  and pass it with `--body-file` after appending the signed footer.
+- If the signature helper is unavailable, use the helper fallback path rather
+  than retrying the same raw `gh` command; repeated unsigned writes are blocked
+  by the framework guard.
+
 ## Security
 
 ### Prompt Injection Defense
