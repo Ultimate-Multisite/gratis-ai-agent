@@ -72,6 +72,15 @@ class PluginBuilderIntegrationTest extends WP_UnitTestCase {
 		parent::setUp();
 		$this->tmp_upload_basedir = sys_get_temp_dir() . '/sd-ai-agent-phpunit';
 		add_filter( 'upload_dir', [ $this, 'filter_upload_dir_to_tmp' ] );
+		// Allow file modifications for tests.
+		add_filter(
+			'file_mod_allowed',
+			static function () {
+				return true;
+			},
+			10,
+			2
+		);
 		$this->fixtures_dir = dirname( __DIR__, 2 ) . '/fixtures/plugins/';
 		$this->created_dirs = [];
 		$this->created_ids  = [];
@@ -87,6 +96,7 @@ class PluginBuilderIntegrationTest extends WP_UnitTestCase {
 			PluginInstaller::delete( $id, false );
 		}
 		remove_filter( 'upload_dir', [ $this, 'filter_upload_dir_to_tmp' ] );
+		remove_all_filters( 'file_mod_allowed' );
 		parent::tearDown();
 	}
 

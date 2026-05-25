@@ -17,6 +17,7 @@ declare(strict_types=1);
 
 namespace SdAiAgent\PluginBuilder;
 
+use SdAiAgent\Core\Filesystem\FileModGate;
 use WP_Error;
 
 if ( ! defined( 'ABSPATH' ) ) {
@@ -205,6 +206,12 @@ class PluginUpdater {
 
 		$plugin_file = $slug . '/' . $slug . '.php';
 		$plugin_dir  = $this->plugin_dir_path( $slug );
+
+		// Check if plugin file modifications are allowed.
+		$mod_allowed = FileModGate::assert_allowed( $plugin_dir );
+		if ( is_wp_error( $mod_allowed ) ) {
+			return $mod_allowed;
+		}
 
 		require_once ABSPATH . 'wp-admin/includes/plugin.php';
 
