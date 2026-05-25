@@ -172,13 +172,25 @@ INSTRUCTION;
 				continue;
 			}
 
+			$path       = isset( $file_spec['path'] ) ? (string) $file_spec['path'] : '';
+			$normalised = self::normalise_generated_file_path( (string) $plan['slug'], $path, empty( $generated_files ) );
+			if ( is_wp_error( $normalised ) ) {
+				return $normalised;
+			}
+			$file_spec['path'] = $normalised;
+
 			$code = self::generate_file( $plan, $file_spec, $generated_files );
 
 			if ( is_wp_error( $code ) ) {
 				return $code;
 			}
 
-			$path = isset( $file_spec['path'] ) ? (string) $file_spec['path'] : '';
+			$code = self::prepare_generated_php( (string) $code, $plan, $file_spec, $generated_files );
+			if ( is_wp_error( $code ) ) {
+				return $code;
+			}
+
+			$path = (string) $file_spec['path'];
 			if ( '' !== $path ) {
 				$generated_files[ $path ] = (string) $code;
 			}
@@ -451,7 +463,233 @@ INSTRUCTION;
 		return '';
 	}
 
+	/**
+	 * Normalise an AI-supplied generated file path into slug-relative form.
+	 *
+	 * The plugin builder asks models for paths like "slug/slug.php", but models
+	 * sometimes omit the extension and return "slug/slug". Because generated
+	 * files are PHP-only in this flow, missing extensions are repaired before the
+	 * installer can create a directory/file collision such as "slug/slug".
+	 *
+	 * @param string $slug    Plugin slug.
+	 * @param string $path    AI-supplied path.
+	 * @param bool   $is_main Whether this is the first/main generated file.
+	 * @return string|\WP_Error Normalised path, including the slug prefix.
+	 */
+	public static function normalise_generated_file_path( string $slug, string $path, bool $is_main = false ): string|\WP_Error {
+		$slug = sanitize_title( $slug );
+		if ( '' === $slug ) {
+			return new WP_Error(
+				'sd_ai_agent_invalid_slug',
+				__( 'Plugin slug must not be empty.', 'superdav-ai-agent' )
+			);
+		}
+
+		$normalised = ltrim( str_replace( '\\', '/', trim( $path ) ), '/' );
+		if ( '' === $normalised ) {
+			$normalised = $slug . '/' . $slug . '.php';
+		}
+
+		if ( str_contains( $normalised, "\0" ) || str_contains( $normalised, '../' ) ) {
+			return new WP_Error(
+				'sd_ai_agent_invalid_generated_path',
+				__( 'Generated plugin file path is invalid.', 'superdav-ai-agent' )
+			);
+		}
+
+		if ( str_starts_with( $normalised, $slug . '/' ) ) {
+			$normalised = substr( $normalised, strlen( $slug ) + 1 );
+		}
+
+		if ( '' === $normalised ) {
+			$normalised = $slug . '.php';
+		}
+
+		if ( ! str_ends_with( strtolower( $normalised ), '.php' ) ) {
+			$normalised .= '.php';
+		}
+
+		if ( $is_main ) {
+			$basename = basename( $normalised );
+			if ( $slug . '.php' !== $basename && ! str_contains( dirname( $normalised ), '/' ) ) {
+				$normalised = $slug . '.php';
+			}
+		}
+
+		return $slug . '/' . $normalised;
+	}
+
 	// ─── Private helpers ──────────────────────────────────────────────────────
+
+	/**
+	 * Strip wrappers, lint generated PHP, and attempt one bounded repair.
+	 *
+	 * @param string               $code        Generated source.
+	 * @param array<string,mixed>  $plan        Plan array.
+	 * @param array<string,mixed>  $file_spec   File spec.
+	 * @param array<string,string> $prior_files Prior generated files.
+	 * @return string|\WP_Error Prepared PHP source or validation error with source data.
+	 */
+	private static function prepare_generated_php( string $code, array $plan, array $file_spec, array $prior_files ): string|\WP_Error {
+		$path = isset( $file_spec['path'] ) ? (string) $file_spec['path'] : '';
+		$code = self::extract_php_source( $code );
+		$lint = self::lint_php_source( $code );
+		if ( true === $lint['valid'] ) {
+			return $code;
+		}
+
+		$repaired = self::repair_file( $plan, $file_spec, $code, $lint, $prior_files, true );
+		if ( is_wp_error( $repaired ) ) {
+			return $repaired;
+		}
+
+		$repaired = self::extract_php_source( $repaired );
+		$lint     = self::lint_php_source( $repaired );
+		if ( true === $lint['valid'] ) {
+			return $repaired;
+		}
+
+		$regenerated = self::repair_file( $plan, $file_spec, $repaired, $lint, $prior_files, false );
+		if ( is_wp_error( $regenerated ) ) {
+			return $regenerated;
+		}
+
+		$regenerated = self::extract_php_source( $regenerated );
+		$lint        = self::lint_php_source( $regenerated );
+		if ( true === $lint['valid'] ) {
+			return $regenerated;
+		}
+
+		return new WP_Error(
+			'sd_ai_agent_php_syntax_error',
+			sprintf(
+				/* translators: 1: file path 2: error message 3: line number */
+				__( 'PHP syntax error in %1$s: %2$s (line %3$d)', 'superdav-ai-agent' ),
+				$path,
+				$lint['error'] ?? 'Unknown',
+				$lint['line'] ?? 0
+			),
+			array(
+				'file'   => $path,
+				'source' => $regenerated,
+				'lint'   => $lint,
+			)
+		);
+	}
+
+	/**
+	 * Request one syntax repair from the AI client.
+	 *
+	 * @param array<string,mixed>  $plan        Plan array.
+	 * @param array<string,mixed>  $file_spec   File spec.
+	 * @param string               $code        Invalid source.
+	 * @param array<string,mixed>  $lint        Lint result.
+	 * @param array<string,string> $prior_files Prior generated files.
+	 * @param bool                 $include_source Whether to include invalid source in the repair prompt.
+	 * @return string|\WP_Error
+	 */
+	private static function repair_file( array $plan, array $file_spec, string $code, array $lint, array $prior_files, bool $include_source ): string|\WP_Error {
+		$path = isset( $file_spec['path'] ) ? (string) $file_spec['path'] : 'plugin.php';
+
+		$system_instruction = <<<'INSTRUCTION'
+You repair WordPress plugin PHP syntax errors. Return ONLY complete valid PHP code. No markdown fences, explanations, or partial snippets.
+INSTRUCTION;
+
+		$prompt  = $include_source
+			? "Repair this generated WordPress plugin file so php -l/token_get_all parses successfully. Preserve the requested behaviour and plugin header.\n"
+			: "Regenerate this WordPress plugin file from scratch so php -l/token_get_all parses successfully. Return a complete self-contained file with the requested behaviour and plugin header.\n";
+		$prompt .= "File: {$path}\n";
+		$prompt .= 'Plugin slug: ' . (string) ( $plan['slug'] ?? '' ) . "\n";
+		$prompt .= 'Plugin name: ' . (string) ( $plan['name'] ?? '' ) . "\n";
+		$prompt .= 'Plan JSON: ' . (string) wp_json_encode( $plan ) . "\n";
+		$prompt .= 'Lint error: ' . (string) ( $lint['error'] ?? 'Unknown' ) . ' on line ' . (string) ( $lint['line'] ?? 0 ) . "\n";
+		if ( ! empty( $prior_files ) ) {
+			$prompt .= "\nPreviously generated files are available and must remain compatible.\n";
+		}
+		if ( $include_source ) {
+			$prompt .= "\nInvalid source:\n" . $code;
+		}
+
+		$raw = wp_ai_client_prompt( $prompt )
+			->using_system_instruction( $system_instruction )
+			->generate_text();
+
+		if ( is_wp_error( $raw ) ) {
+			return new WP_Error(
+				'sd_ai_agent_php_syntax_error',
+				sprintf(
+					/* translators: 1: file path 2: error message 3: line number */
+					__( 'PHP syntax error in %1$s: %2$s (line %3$d)', 'superdav-ai-agent' ),
+					$path,
+					$lint['error'] ?? 'Unknown',
+					$lint['line'] ?? 0
+				),
+				array(
+					'file'   => $path,
+					'source' => $code,
+					'lint'   => $lint,
+				)
+			);
+		}
+
+		return (string) $raw;
+	}
+
+	/**
+	 * Extract PHP from common markdown wrappers while preserving bare source.
+	 *
+	 * @param string $code Raw model output.
+	 * @return string PHP source.
+	 */
+	private static function extract_php_source( string $code ): string {
+		$trimmed = trim( $code );
+		if ( preg_match( '/```(?:php)?\s*(.*?)```/s', $trimmed, $matches ) ) {
+			$trimmed = trim( $matches[1] );
+		}
+
+		$start = strpos( $trimmed, '<?php' );
+		if ( false !== $start ) {
+			return substr( $trimmed, $start );
+		}
+
+		return $trimmed;
+	}
+
+	/**
+	 * Lint generated PHP source without writing it to disk.
+	 *
+	 * @param string $code PHP source.
+	 * @return array{valid: bool, error?: string, line?: int}
+	 */
+	private static function lint_php_source( string $code ): array {
+		// phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_set_error_handler -- Scoped tokeniser guard restored in finally.
+		set_error_handler(
+			static function ( int $severity, string $message, string $file, int $line ): bool {
+				// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- ErrorException arguments are not output.
+				throw new \ErrorException( $message, 0, $severity, $file, $line );
+			}
+		);
+
+		try {
+			$tokens = token_get_all( $code, TOKEN_PARSE );
+			unset( $tokens );
+			return array( 'valid' => true );
+		} catch ( \ParseError | \ErrorException $e ) {
+			return array(
+				'valid' => false,
+				'error' => $e->getMessage(),
+				'line'  => $e->getLine(),
+			);
+		} catch ( \Throwable $e ) {
+			return array(
+				'valid' => false,
+				'error' => $e->getMessage(),
+				'line'  => $e->getLine(),
+			);
+		} finally {
+			restore_error_handler();
+		}
+	}
 
 	/**
 	 * Extract a JSON object from possibly-wrapped AI text output.

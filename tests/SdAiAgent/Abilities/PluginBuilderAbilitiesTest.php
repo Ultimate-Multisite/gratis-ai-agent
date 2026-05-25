@@ -50,6 +50,16 @@ class PluginBuilderAbilitiesTest extends WP_UnitTestCase {
 		$this->assertSame( 'sd_ai_agent_empty_description', $result->get_error_code() );
 	}
 
+	/**
+	 * GeneratePluginAbility declares plan as an object to match the returned plan array.
+	 */
+	public function test_generate_plugin_output_schema_matches_plan_array(): void {
+		$ability = new GeneratePluginAbility( 'sd-ai-agent/generate-plugin' );
+		$schema  = $ability->get_output_schema();
+
+		$this->assertSame( 'object', $schema['properties']['plan']['type'] );
+	}
+
 	// ── SandboxTestPluginAbility ───────────────────────────────────────────
 
 	/**

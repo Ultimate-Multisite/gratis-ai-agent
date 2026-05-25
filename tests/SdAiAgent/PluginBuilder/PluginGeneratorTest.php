@@ -146,6 +146,40 @@ RAW;
 		$this->assertSame( '', $result );
 	}
 
+	// ─── normalise_generated_file_path ───────────────────────────────────────
+
+	/**
+	 * The E2E counter prompt regression omitted ".php" from the main-file path.
+	 */
+	public function test_normalise_generated_file_path_repairs_e2e_counter_main_file_without_extension(): void {
+		$result = PluginGenerator::normalise_generated_file_path(
+			'sd-e2e-counter-widget',
+			'sd-e2e-counter-widget/sd-e2e-counter-widget',
+			true
+		);
+
+		$this->assertSame( 'sd-e2e-counter-widget/sd-e2e-counter-widget.php', $result );
+	}
+
+	/**
+	 * Empty AI paths fall back to the canonical main plugin file.
+	 */
+	public function test_normalise_generated_file_path_falls_back_to_canonical_main_file(): void {
+		$result = PluginGenerator::normalise_generated_file_path( 'my-plugin', '', true );
+
+		$this->assertSame( 'my-plugin/my-plugin.php', $result );
+	}
+
+	/**
+	 * Traversal in AI-generated paths is rejected before installation.
+	 */
+	public function test_normalise_generated_file_path_rejects_traversal(): void {
+		$result = PluginGenerator::normalise_generated_file_path( 'my-plugin', '../evil', true );
+
+		$this->assertInstanceOf( \WP_Error::class, $result );
+		$this->assertSame( 'sd_ai_agent_invalid_generated_path', $result->get_error_code() );
+	}
+
 	// ─── generate_plan — SDK-unavailable path ─────────────────────────────────
 
 	/**

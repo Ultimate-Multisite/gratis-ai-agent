@@ -61,7 +61,7 @@ class GeneratePluginAbility extends AbstractAbility {
 		return [
 			'type'       => 'object',
 			'properties' => [
-				'plan'        => [ 'type' => 'string' ],
+				'plan'        => [ 'type' => 'object' ],
 				'files'       => [ 'type' => 'object' ],
 				'plugin_file' => [ 'type' => 'string' ],
 				'slug'        => [ 'type' => 'string' ],
