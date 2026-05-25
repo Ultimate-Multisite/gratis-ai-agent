@@ -143,7 +143,7 @@ class SafeFetcher {
 				}
 			}
 			if ( is_resource( $handle ) || $handle instanceof \CurlHandle ) {
-				/** @var \CurlHandle|resource $handle */
+				// phpstan:ignore-next-line -- curl_setopt accepts both resource and CurlHandle in PHP 7.4+
 				// phpcs:ignore WordPress.WP.AlternativeFunctions.curl_curl_setopt -- need raw cURL to set CURLOPT_RESOLVE; wp_remote_get does not expose this option
 				curl_setopt( $handle, CURLOPT_RESOLVE, [ $resolve_arg ] );
 			}
