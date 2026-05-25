@@ -131,7 +131,7 @@ const components = {
 	 * Render text nodes with file path detection.
 	 * ReactMarkdown passes text content through this renderer.
 	 *
-	 * @param {Object} props - Renderer props.
+	 * @param {Object} props          - Renderer props.
 	 * @param {string} props.children - The text content.
 	 * @return {JSX.Element|string} Rendered text with file path links.
 	 */

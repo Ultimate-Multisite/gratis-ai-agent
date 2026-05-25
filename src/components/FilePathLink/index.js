@@ -5,18 +5,18 @@
  * 1. Links to plugin-editor.php or theme-editor.php when file-mods are allowed
  * 2. Inline read-only viewer when file-mods are disallowed or path is outside plugins/themes
  *
- * @package SdAiAgent
+ * @package
  * @license GPL-2.0-or-later
  */
 
-import { useState, useCallback } from '@wordpress/element';
+import { useState, useCallback, useMemo } from '@wordpress/element';
 import { __ } from '@wordpress/i18n';
 import './style.css';
 
 /**
  * Determine if a path is inside the plugin directory.
  *
- * @param {string} path - The file path to check.
+ * @param {string} path        - The file path to check.
  * @param {string} wpPluginDir - The WP_PLUGIN_DIR from localized data.
  * @return {Object|null} Object with {pluginFile, pluginFolder} or null if not in plugin dir.
  */
@@ -31,7 +31,9 @@ function getPluginInfo( path, wpPluginDir ) {
 		return null;
 	}
 
-	const relativePath = path.substring( pluginDirIndex + wpPluginDir.length ).replace( /^\//, '' );
+	const relativePath = path
+		.substring( pluginDirIndex + wpPluginDir.length )
+		.replace( /^\//, '' );
 	const parts = relativePath.split( '/' );
 
 	if ( parts.length === 0 ) {
@@ -56,7 +58,7 @@ function getPluginInfo( path, wpPluginDir ) {
 /**
  * Determine if a path is inside the theme directory.
  *
- * @param {string} path - The file path to check.
+ * @param {string} path        - The file path to check.
  * @param {string} wpThemeRoot - The theme root directory from localized data.
  * @return {Object|null} Object with {themeStylesheet, relativePath} or null if not in theme dir.
  */
@@ -70,7 +72,9 @@ function getThemeInfo( path, wpThemeRoot ) {
 		return null;
 	}
 
-	const relativePath = path.substring( themeRootIndex + wpThemeRoot.length ).replace( /^\//, '' );
+	const relativePath = path
+		.substring( themeRootIndex + wpThemeRoot.length )
+		.replace( /^\//, '' );
 	const parts = relativePath.split( '/' );
 
 	if ( parts.length < 2 ) {
@@ -90,7 +94,7 @@ function getThemeInfo( path, wpThemeRoot ) {
 /**
  * FilePathLink component.
  *
- * @param {Object} props - Component props.
+ * @param {Object} props      - Component props.
  * @param {string} props.path - The file path to render.
  * @return {JSX.Element} The rendered link or viewer.
  */
@@ -100,12 +104,15 @@ export default function FilePathLink( { path } ) {
 	const [ viewerLoading, setViewerLoading ] = useState( false );
 
 	// Get localized data from window.sdAiAgentData
-	const data = window.sdAiAgentData || {};
-	const wpPluginDir = data.wpPluginDir || '';
-	const wpThemeRoot = data.wpThemeRoot || '';
-	const pluginEditorUrl = data.pluginEditorUrl || '';
-	const themeEditorUrl = data.themeEditorUrl || '';
-	const fileModAllowed = data.fileModAllowed || {};
+	const data = useMemo( () => window.sdAiAgentData || {}, [] );
+	const wpPluginDir = useMemo( () => data.wpPluginDir || '', [ data ] );
+	const wpThemeRoot = useMemo( () => data.wpThemeRoot || '', [ data ] );
+	const pluginEditorUrl = useMemo(
+		() => data.pluginEditorUrl || '',
+		[ data ]
+	);
+	const themeEditorUrl = useMemo( () => data.themeEditorUrl || '', [ data ] );
+	const fileModAllowed = useMemo( () => data.fileModAllowed || {}, [ data ] );
 
 	const pluginInfo = getPluginInfo( path, wpPluginDir );
 	const themeInfo = getThemeInfo( path, wpThemeRoot );
@@ -125,21 +132,21 @@ export default function FilePathLink( { path } ) {
 
 		try {
 			// Call the sd-ai-agent/file-read ability via REST
-			const response = await fetch(
-				`${ data.restNamespace }/file-read`,
-				{
-					method: 'POST',
-					headers: {
-						'Content-Type': 'application/json',
-						'X-WP-Nonce': data.nonce,
-					},
-					body: JSON.stringify( { path } ),
-				}
-			);
+			const response = await fetch( `${ data.restNamespace }/file-read`, {
+				method: 'POST',
+				headers: {
+					'Content-Type': 'application/json',
+					'X-WP-Nonce': data.nonce,
+				},
+				body: JSON.stringify( { path } ),
+			} );
 
 			if ( ! response.ok ) {
 				setViewerContent(
-					__( 'Error reading file. Check the path and try again.', 'superdav-ai-agent' )
+					__(
+						'Error reading file. Check the path and try again.',
+						'superdav-ai-agent'
+					)
 				);
 				setViewerLoading( false );
 				return;
@@ -149,12 +156,15 @@ export default function FilePathLink( { path } ) {
 			setViewerContent( result.content || '' );
 		} catch ( error ) {
 			setViewerContent(
-				__( 'Error reading file. Check the path and try again.', 'superdav-ai-agent' )
+				__(
+					'Error reading file. Check the path and try again.',
+					'superdav-ai-agent'
+				)
 			);
 		} finally {
 			setViewerLoading( false );
 		}
-	}, [ showViewer, data ] );
+	}, [ showViewer, data, path ] );
 
 	// Render editor link for plugins
 	if ( canEditPlugin ) {
@@ -209,13 +219,19 @@ export default function FilePathLink( { path } ) {
 				<div className="sd-ai-agent-file-viewer">
 					<div className="sd-ai-agent-file-viewer-header">
 						<span className="sd-ai-agent-file-viewer-title">
-							{ __( 'File content (read-only)', 'superdav-ai-agent' ) }
+							{ __(
+								'File content (read-only)',
+								'superdav-ai-agent'
+							) }
 						</span>
 						<button
 							type="button"
 							className="sd-ai-agent-file-viewer-close"
 							onClick={ () => setShowViewer( false ) }
-							aria-label={ __( 'Close viewer', 'superdav-ai-agent' ) }
+							aria-label={ __(
+								'Close viewer',
+								'superdav-ai-agent'
+							) }
 						>
 							×
 						</button>
