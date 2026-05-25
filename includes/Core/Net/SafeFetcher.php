@@ -142,10 +142,8 @@ class SafeFetcher {
 					return;
 				}
 			}
-			if ( is_resource( $handle ) ) {
-				// phpcs:ignore WordPress.WP.AlternativeFunctions.curl_curl_setopt -- need raw cURL to set CURLOPT_RESOLVE; wp_remote_get does not expose this option
-				curl_setopt( $handle, CURLOPT_RESOLVE, [ $resolve_arg ] );
-			} elseif ( $handle instanceof \CurlHandle ) {
+			if ( is_resource( $handle ) || $handle instanceof \CurlHandle ) {
+				/** @var \CurlHandle|resource $handle */
 				// phpcs:ignore WordPress.WP.AlternativeFunctions.curl_curl_setopt -- need raw cURL to set CURLOPT_RESOLVE; wp_remote_get does not expose this option
 				curl_setopt( $handle, CURLOPT_RESOLVE, [ $resolve_arg ] );
 			}
