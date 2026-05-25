@@ -124,6 +124,7 @@ class SiteLoopbackCheckAbility extends WP_Ability {
 	 */
 	protected function meta(): array {
 		return [
+			'category'     => 'site-health',
 			'mcp'          => [ 'public' => true ],
 			'annotations'  => [
 				'readonly'    => true,

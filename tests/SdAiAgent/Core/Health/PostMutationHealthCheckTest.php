@@ -143,10 +143,18 @@ class PostMutationHealthCheckTest extends WP_UnitTestCase {
 	 * Test verify_or_revert() calls undo on broken site.
 	 */
 	public function test_verify_or_revert_calls_undo_on_broken(): void {
+		// Override the health URL filter to use a custom URL that we can mock.
+		add_filter(
+			'sd_ai_agent_health_url',
+			function () {
+				return 'http://127.0.0.1:8080/health-check';
+			}
+		);
+
 		add_filter(
 			'pre_http_request',
 			function ( $preempt, $args, $url ) {
-				if ( str_contains( $url, 'action=sd_ai_agent_health' ) ) {
+				if ( str_contains( $url, 'health-check' ) ) {
 					return [
 						'headers'       => [ 'content-type' => 'application/json' ],
 						'body'          => '{"error":"Fatal error"}',
@@ -210,10 +218,18 @@ class PostMutationHealthCheckTest extends WP_UnitTestCase {
 	 * Test verify_or_revert() returns WP_Error when undo fails.
 	 */
 	public function test_verify_or_revert_includes_undo_error(): void {
+		// Override the health URL filter to use a custom URL that we can mock.
+		add_filter(
+			'sd_ai_agent_health_url',
+			function () {
+				return 'http://127.0.0.1:8080/health-check-undo-error';
+			}
+		);
+
 		add_filter(
 			'pre_http_request',
 			function ( $preempt, $args, $url ) {
-				if ( str_contains( $url, 'action=sd_ai_agent_health' ) ) {
+				if ( str_contains( $url, 'health-check-undo-error' ) ) {
 					return [
 						'headers'       => [ 'content-type' => 'application/json' ],
 						'body'          => '{"error":"Fatal error"}',
@@ -272,10 +288,18 @@ class PostMutationHealthCheckTest extends WP_UnitTestCase {
 	 * Test verify_or_warn() returns WP_Error on broken site.
 	 */
 	public function test_verify_or_warn_returns_error_on_broken(): void {
+		// Override the health URL filter to use a custom URL that we can mock.
+		add_filter(
+			'sd_ai_agent_health_url',
+			function () {
+				return 'http://127.0.0.1:8080/health-check-warn';
+			}
+		);
+
 		add_filter(
 			'pre_http_request',
 			function ( $preempt, $args, $url ) {
-				if ( str_contains( $url, 'action=sd_ai_agent_health' ) ) {
+				if ( str_contains( $url, 'health-check-warn' ) ) {
 					return [
 						'headers'       => [ 'content-type' => 'application/json' ],
 						'body'          => '{"error":"Fatal error"}',
