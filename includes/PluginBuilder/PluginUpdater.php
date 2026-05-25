@@ -148,6 +148,25 @@ class PluginUpdater {
 			$relative_path = ltrim( (string) $relative_path, '/\\' );
 			$abs_path      = $staging_dir . $relative_path;
 			wp_mkdir_p( dirname( $abs_path ) );
+
+			// Validate PHP syntax before writing.
+			if ( $this->is_php_file( $relative_path ) ) {
+				$lint = $this->lint_php( $content );
+				if ( ! $lint['valid'] ) {
+					$this->remove_directory( $staging_dir );
+					return new WP_Error(
+						'sd_ai_agent_php_syntax_error',
+						sprintf(
+							/* translators: 1: file path 2: error message 3: line number */
+							__( 'PHP syntax error in %1$s: %2$s (line %3$d)', 'superdav-ai-agent' ),
+							$relative_path,
+							$lint['error'] ?? 'Unknown',
+							$lint['line'] ?? 0
+						)
+					);
+				}
+			}
+
 			// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_file_put_contents -- Staging: WP_Filesystem not applicable when writing generated PHP source to a temp location.
 			if ( false === file_put_contents( $abs_path, $content ) ) {
 				$this->remove_directory( $staging_dir );
@@ -408,6 +427,57 @@ class PluginUpdater {
 	}
 
 	// ─── Private helpers ──────────────────────────────────────────────────────
+
+	/**
+	 * Check if a file path is a PHP file.
+	 *
+	 * @param string $path File path (relative or absolute).
+	 * @return bool True if the file has a .php extension.
+	 */
+	private function is_php_file( string $path ): bool {
+		return (bool) preg_match( '/\.php$/i', $path );
+	}
+
+	/**
+	 * Lint PHP content for syntax errors.
+	 *
+	 * Uses {@see token_get_all()} with `TOKEN_PARSE` to surface syntax errors as
+	 * `\ParseError`. A scoped `set_error_handler()` converts any notices/warnings
+	 * emitted by the tokeniser into `\ErrorException` so they do not leak to the
+	 * site-wide error log. The handler is always restored in a `finally` block.
+	 *
+	 * @param string $content PHP source code.
+	 * @return array{valid: bool, error?: string, line?: int}
+	 */
+	private function lint_php( string $content ): array {
+		// phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_set_error_handler -- Scoped error handler is required to convert tokeniser notices into exceptions; restored in finally.
+		set_error_handler(
+			static function ( int $severity, string $message, string $file, int $line ): bool {
+				// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- ErrorException constructor arguments are not output; PHPCS false positive.
+				throw new \ErrorException( $message, 0, $severity, $file, $line );
+			}
+		);
+
+		try {
+			$tokens = token_get_all( $content, TOKEN_PARSE );
+			unset( $tokens ); // Result unused — we only care about parse errors.
+			return [ 'valid' => true ];
+		} catch ( \ParseError | \ErrorException $e ) {
+			return [
+				'valid' => false,
+				'error' => $e->getMessage(),
+				'line'  => $e->getLine(),
+			];
+		} catch ( \Throwable $e ) {
+			return [
+				'valid' => false,
+				'error' => $e->getMessage(),
+				'line'  => $e->getLine(),
+			];
+		} finally {
+			restore_error_handler();
+		}
+	}
 
 	/**
 	 * Recursively copy a directory.
