@@ -136,7 +136,7 @@ class PluginInstallerTest extends WP_UnitTestCase {
 	}
 
 	/**
-	 * install_plugin() writes the main file and records in the DB.
+	 * install_plugin() writes a file and creates a DB record.
 	 */
 	public function test_install_plugin_writes_file_and_db_record(): void {
 		$content = '<?php /* Plugin Name: Test Plugin */';
@@ -160,6 +160,27 @@ class PluginInstallerTest extends WP_UnitTestCase {
 
 		// plugin_file should be slug/slug.php.
 		$this->assertSame( $this->test_slug . '/' . $this->test_slug . '.php', $result['plugin_file'] );
+	}
+
+	/**
+	 * install_plugin() should reject PHP with syntax errors.
+	 */
+	public function test_install_plugin_rejects_invalid_php_syntax(): void {
+		$broken_php = '<?php $x = ;'; // Missing value after =
+		$result     = PluginInstaller::install_plugin(
+			$this->test_slug,
+			$broken_php,
+			'A broken plugin',
+			[ 'step' => 'write main file' ]
+		);
+
+		$this->assertWPError( $result );
+		$this->assertSame( 'sd_ai_agent_php_syntax_error', $result->get_error_code() );
+		$this->assertStringContainsString( 'syntax error', $result->get_error_message() );
+
+		// File should NOT exist on disk.
+		$expected_file = $this->plugin_dir . $this->test_slug . '.php';
+		$this->assertFileDoesNotExist( $expected_file );
 	}
 
 	// ─── install_complex_plugin ──────────────────────────────────────────────
@@ -229,6 +250,30 @@ class PluginInstallerTest extends WP_UnitTestCase {
 		// Both files should exist.
 		$this->assertFileExists( $this->plugin_dir . $this->test_slug . '.php' );
 		$this->assertFileExists( $this->plugin_dir . 'includes/class-loader.php' );
+	}
+
+	/**
+	 * install_complex_plugin() should reject PHP with syntax errors.
+	 */
+	public function test_install_complex_plugin_rejects_invalid_php_syntax(): void {
+		$files = [
+			$this->test_slug . '.php' => '<?php /* Plugin Name: Complex Test */',
+			'includes/broken.php' => '<?php $x = ;', // Missing value after =
+		];
+
+		$result = PluginInstaller::install_complex_plugin(
+			$this->test_slug,
+			$files,
+			'A broken complex plugin',
+			[ 'step' => 'multi-file' ]
+		);
+
+		$this->assertWPError( $result );
+		$this->assertSame( 'sd_ai_agent_php_syntax_error', $result->get_error_code() );
+		$this->assertStringContainsString( 'syntax error', $result->get_error_message() );
+
+		// The broken file should not be written (lint check prevents it).
+		$this->assertFileDoesNotExist( $this->plugin_dir . 'includes/broken.php' );
 	}
 
 	/**

@@ -386,6 +386,40 @@ class ChangeRevertServiceTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * apply_revert() should reject reverting a PHP file with syntax errors in the original content.
+	 */
+	public function test_apply_revert_file_rejects_invalid_php_syntax(): void {
+		$test_file = WP_CONTENT_DIR . '/test-revert-broken.php';
+		$broken_php = '<?php $x = ;'; // Missing value after =
+		$edited_php = '<?php $x = 1;';
+
+		// Create the edited file on disk.
+		file_put_contents( $test_file, $edited_php );
+
+		$change = $this->make_change( [
+			'object_type'  => 'file',
+			'object_id'    => 0,
+			'object_title' => 'test-revert-broken.php',
+			'field_name'   => $test_file,
+			'before_value' => $broken_php, // Original content has syntax error
+			'after_value'  => $edited_php,
+		] );
+
+		$result = ChangeRevertService::apply_revert( $change );
+
+		$this->assertWPError( $result );
+		$this->assertSame( 'file_revert_php_syntax_error', $result->get_error_code() );
+		$this->assertStringContainsString( 'syntax error', $result->get_error_message() );
+
+		// File should still contain the edited content (not reverted).
+		$current = file_get_contents( $test_file );
+		$this->assertSame( $edited_php, $current, 'File should not be reverted when original has syntax errors.' );
+
+		// Cleanup.
+		unlink( $test_file );
+	}
+
+	/**
 	 * apply_revert() returns WP_Error when file path is outside wp-content.
 	 */
 	public function test_apply_revert_file_path_outside_wpcontent_returns_error(): void {

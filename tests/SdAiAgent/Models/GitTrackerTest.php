@@ -295,6 +295,30 @@ class GitTrackerTest extends WP_UnitTestCase {
 		$this->assertNotContains( 'revert-status.php', $paths );
 	}
 
+	/**
+	 * revert_file() should reject reverting a PHP file with syntax errors in the original content.
+	 */
+	public function test_revert_file_rejects_invalid_php_syntax(): void {
+		$broken_php = '<?php $x = ;'; // Missing value after =
+		$edited_php = '<?php $x = 1;';
+		$path       = $this->create_plugin_file( 'revert-broken.php', $broken_php );
+
+		$this->tracker->snapshot_file( $path );
+
+		file_put_contents( $path, $edited_php );
+		$this->tracker->record_modification( $path );
+
+		$result = $this->tracker->revert_file( $path );
+
+		$this->assertWPError( $result );
+		$this->assertSame( 'sd_ai_agent_git_tracker_php_syntax_error', $result->get_error_code() );
+		$this->assertStringContainsString( 'syntax error', $result->get_error_message() );
+
+		// File should still contain the edited content (not reverted).
+		$current = file_get_contents( $path );
+		$this->assertSame( $edited_php, $current, 'File should not be reverted when original has syntax errors.' );
+	}
+
 	// ─── get_diff() ──────────────────────────────────────────────────────────
 
 	/**

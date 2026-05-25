@@ -34,6 +34,57 @@ if ( ! defined( 'ABSPATH' ) ) {
 class GitTracker {
 
 	/**
+	 * Check if a file path is a PHP file.
+	 *
+	 * @param string $path File path (relative or absolute).
+	 * @return bool True if the file has a .php extension.
+	 */
+	private static function is_php_file( string $path ): bool {
+		return (bool) preg_match( '/\.php$/i', $path );
+	}
+
+	/**
+	 * Lint PHP content for syntax errors.
+	 *
+	 * Uses {@see token_get_all()} with `TOKEN_PARSE` to surface syntax errors as
+	 * `\ParseError`. A scoped `set_error_handler()` converts any notices/warnings
+	 * emitted by the tokeniser into `\ErrorException` so they do not leak to the
+	 * site-wide error log. The handler is always restored in a `finally` block.
+	 *
+	 * @param string $content PHP source code.
+	 * @return array{valid: bool, error?: string, line?: int}
+	 */
+	private static function lint_php( string $content ): array {
+		// phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_set_error_handler -- Scoped error handler is required to convert tokeniser notices into exceptions; restored in finally.
+		set_error_handler(
+			static function ( int $severity, string $message, string $file, int $line ): bool {
+				// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- ErrorException constructor arguments are not output; PHPCS false positive.
+				throw new \ErrorException( $message, 0, $severity, $file, $line );
+			}
+		);
+
+		try {
+			$tokens = token_get_all( $content, TOKEN_PARSE );
+			unset( $tokens ); // Result unused — we only care about parse errors.
+			return [ 'valid' => true ];
+		} catch ( \ParseError | \ErrorException $e ) {
+			return [
+				'valid' => false,
+				'error' => $e->getMessage(),
+				'line'  => $e->getLine(),
+			];
+		} catch ( \Throwable $e ) {
+			return [
+				'valid' => false,
+				'error' => $e->getMessage(),
+				'line'  => $e->getLine(),
+			];
+		} finally {
+			restore_error_handler();
+		}
+	}
+
+	/**
 	 * File type: plugin.
 	 */
 	const TYPE_PLUGIN = 'plugin';
@@ -236,6 +287,23 @@ class GitTracker {
 		}
 
 		$original_content = $row->original_content;
+
+		// Validate PHP syntax before writing.
+		if ( self::is_php_file( $absolute_path ) ) {
+			$lint = self::lint_php( $original_content );
+			if ( ! $lint['valid'] ) {
+				return new WP_Error(
+					'sd_ai_agent_git_tracker_php_syntax_error',
+					sprintf(
+						/* translators: 1: file path 2: error message 3: line number */
+						__( 'Cannot revert: PHP syntax error in original content of %1$s: %2$s (line %3$d)', 'superdav-ai-agent' ),
+						$absolute_path,
+						$lint['error'] ?? 'Unknown',
+						$lint['line'] ?? 0
+					)
+				);
+			}
+		}
 
 		global $wp_filesystem;
 		/** @var \WP_Filesystem_Base $wp_filesystem */
