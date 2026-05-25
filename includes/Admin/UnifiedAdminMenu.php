@@ -163,6 +163,7 @@ class UnifiedAdminMenu {
 
 		// Hook for enqueuing assets.
 		add_action( 'admin_enqueue_scripts', array( __CLASS__, 'enqueueAssets' ) );
+		add_action( 'admin_enqueue_scripts', array( __CLASS__, 'enqueueCommands' ) );
 	}
 
 	/**
@@ -340,6 +341,50 @@ class UnifiedAdminMenu {
 				),
 			)
 		);
+	}
+
+	/**
+	 * Register the "Interact with AI" command in the WordPress command palette.
+	 *
+	 * Registers a command palette entry (Cmd/Ctrl+K) that navigates to the chat page.
+	 * Only available to users with manage_options capability and only on screens
+	 * where wp-commands is registered.
+	 *
+	 * @param string $hook_suffix The current admin page hook suffix.
+	 */
+	public static function enqueueCommands( string $hook_suffix ): void {
+		if ( ! current_user_can( self::CAPABILITY ) ) {
+			return;
+		}
+
+		// Guard: wp-commands script must be registered on this screen.
+		if ( ! wp_script_is( 'wp-commands', 'registered' ) ) {
+			return;
+		}
+
+		wp_enqueue_script( 'wp-commands' );
+
+		$page_url = wp_json_encode( admin_url( 'admin.php?page=' . self::SLUG ) );
+		$inline   = "( function () {\n"
+			. "\t'use strict';\n"
+			. "\tif ( typeof wp === 'undefined' || ! wp.data ) {\n"
+			. "\t\treturn;\n"
+			. "\t}\n"
+			. "\ttry {\n"
+			. "\t\twp.data.dispatch( 'core/commands' ).registerCommand( {\n"
+			. "\t\t\tname: 'sd-ai-agent/open',\n"
+			. "\t\t\tlabel: 'Interact with AI',\n"
+			. "\t\t\tcallback: function ( { close } ) {\n"
+			. "\t\t\t\tclose();\n"
+			. "\t\t\t\twindow.location.href = " . $page_url . ";\n"
+			. "\t\t\t},\n"
+			. "\t\t} );\n"
+			. "\t} catch ( _e ) {\n"
+			. "\t\t// wp-commands store not available on this page.\n"
+			. "\t}\n"
+			. '} )();';
+
+		wp_add_inline_script( 'wp-commands', $inline );
 	}
 
 	/**
