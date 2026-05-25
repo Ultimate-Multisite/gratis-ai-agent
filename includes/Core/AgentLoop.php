@@ -878,6 +878,36 @@ class AgentLoop {
 			} finally {
 				ChangeLogger::end();
 			}
+
+			// Check if any tool result is a proposal_pending status.
+			// If so, return it to the client for user approval.
+			$pending_proposal = $this->extract_pending_proposal( $response_message );
+			if ( null !== $pending_proposal ) {
+				// Persist loop state so the resume endpoint can reconstruct it.
+				if ( $this->session_id > 0 ) {
+					$paused_state = array(
+						'history'              => $this->serialize_history(),
+						'tool_call_log'        => $this->tool_call_log,
+						'token_usage'          => $this->token_usage,
+						'iterations_remaining' => $iterations,
+						'model_id'             => $this->model_id,
+						'provider_id'          => $this->provider_id,
+						'client_abilities'     => $this->client_abilities,
+					);
+					Database::save_paused_state( $this->session_id, $paused_state );
+				}
+
+				return array(
+					'pending_proposal'      => $pending_proposal,
+					'history'               => $this->serialize_history(),
+					'tool_call_log'         => $this->tool_call_log,
+					'token_usage'           => $this->token_usage,
+					'iterations_remaining'  => $iterations,
+					'iterations_used'       => $this->iterations_used,
+					'model_id'              => $this->model_id,
+				);
+			}
+
 			// Truncate large tool results before adding to history, then
 			// append (splitting multi-part responses for OpenAI-compatible
 			// providers that only accept one tool result per message).
@@ -1282,6 +1312,35 @@ class AgentLoop {
 			$timestamp = strtotime( (string) $value );
 			if ( false !== $timestamp ) {
 				return max( 0, $timestamp - time() );
+			}
+		}
+
+		return null;
+	}
+
+	/**
+	 * Extract a pending proposal from tool results.
+	 *
+	 * Checks if any tool result has status 'proposal_pending' and returns it.
+	 * Returns null if no proposal is pending.
+	 *
+	 * @param Message $response_message The response message from ability execution.
+	 * @return array<string,mixed>|null The pending proposal data, or null.
+	 */
+	private function extract_pending_proposal( Message $response_message ): ?array {
+		foreach ( $response_message->getParts() as $part ) {
+			$tool_result = $part->getToolResult();
+			if ( ! $tool_result ) {
+				continue;
+			}
+
+			$result = $tool_result->getResult();
+			if ( ! is_array( $result ) ) {
+				continue;
+			}
+
+			if ( 'proposal_pending' === ( $result['status'] ?? null ) ) {
+				return $result;
 			}
 		}
 
