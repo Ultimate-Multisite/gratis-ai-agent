@@ -12,6 +12,7 @@ declare(strict_types=1);
 namespace SdAiAgent\Tests\Benchmark;
 
 use SdAiAgent\Benchmark\AssertionEngine;
+use ReflectionMethod;
 use WP_REST_Response;
 use WP_REST_Server;
 use WP_UnitTestCase;
@@ -115,5 +116,20 @@ class AssertionEngineTest extends WP_UnitTestCase {
 		$this->assertSame( 0, $result['failed'] );
 		$this->assertTrue( $result['results'][0]['pass'] );
 		$this->assertSame( 'found at route: /sd-ai-agent-test-exact/v1/events', $result['results'][0]['actual'] );
+	}
+
+	/**
+	 * Test WP-CLI assertions target the active local site instead of old fixture URLs.
+	 */
+	public function test_wp_cli_benchmark_url_normalizes_historical_fixture_host(): void {
+		$method = new ReflectionMethod( AssertionEngine::class, 'normalize_wp_cli_benchmark_url' );
+		$method->setAccessible( true );
+
+		$command    = 'post list --post_type=page --url=wp-multisite-waas.test';
+		$normalized = (string) $method->invoke( null, $command );
+		$site_url   = untrailingslashit( (string) preg_replace( '#^https?://#', '', home_url( '/' ) ) );
+
+		$this->assertStringNotContainsString( 'wp-multisite-waas.test', $normalized );
+		$this->assertStringContainsString( '--url=' . $site_url, $normalized );
 	}
 }
