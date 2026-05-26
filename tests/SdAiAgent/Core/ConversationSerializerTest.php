@@ -374,4 +374,30 @@ class ConversationSerializerTest extends WP_UnitTestCase {
 			$this->assertNotNull( $msg->getParts()[0]->getFunctionResponse() );
 		}
 	}
+
+	/**
+	 * Regression: Anthropic rejects raw boolean tool_result.content values.
+	 * Scalar ability results must be stringified before the follow-up provider
+	 * request is built.
+	 */
+	public function test_truncate_tool_results_normalizes_scalar_function_responses(): void {
+		$this->skip_if_sdk_unavailable();
+
+		$message = new UserMessage(
+			[
+				new MessagePart( new FunctionResponse( 'c1', 'bool-tool', true ) ),
+				new MessagePart( new FunctionResponse( 'c2', 'false-tool', false ) ),
+				new MessagePart( new FunctionResponse( 'c3', 'int-tool', 42 ) ),
+				new MessagePart( new FunctionResponse( 'c4', 'null-tool', null ) ),
+			]
+		);
+
+		$normalized = ConversationSerializer::truncate_tool_results( $message );
+		$responses  = array_map(
+			static fn( MessagePart $part ) => $part->getFunctionResponse()->getResponse(),
+			$normalized->getParts()
+		);
+
+		$this->assertSame( [ 'true', 'false', '42', 'null' ], $responses );
+	}
 }
