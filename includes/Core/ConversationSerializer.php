@@ -185,7 +185,13 @@ class ConversationSerializer {
 	}
 
 	/**
-	 * Truncate large tool results in a response message.
+	 * Truncate large tool results and normalize scalar response payloads.
+	 *
+	 * Provider adapters such as Anthropic require tool_result content to be a
+	 * string or content-block list. Ability callbacks can legitimately return
+	 * scalar PHP values (for example `true` from a predicate-style tool), so
+	 * normalize those scalars before the message is appended to history and sent
+	 * back to the provider.
 	 *
 	 * @param Message $message The tool response message.
 	 * @return Message A new message with truncated results.
@@ -208,15 +214,16 @@ class ConversationSerializer {
 				$ability_name = \WP_AI_Client_Ability_Function_Resolver::function_name_to_ability_name( $tool_name );
 			}
 
-			$truncated = ToolResultTruncator::truncate( $original_result, $ability_name );
+			$truncated  = ToolResultTruncator::truncate( $original_result, $ability_name );
+			$normalized = self::normalize_tool_result_content( $truncated );
 
-			if ( $truncated !== $original_result ) {
+			if ( $normalized !== $original_result ) {
 				$modified    = true;
 				$new_parts[] = new MessagePart(
 					new FunctionResponse(
 						(string) $fr->getId(),
 						(string) $fr->getName(),
-						$truncated
+						$normalized
 					)
 				);
 			} else {
@@ -229,5 +236,32 @@ class ConversationSerializer {
 		}
 
 		return new UserMessage( $new_parts );
+	}
+
+	/**
+	 * Normalize scalar tool-result content to provider-compatible strings.
+	 *
+	 * @param mixed $content Tool result content after truncation.
+	 * @return mixed String for scalar/null values; original content otherwise.
+	 */
+	private static function normalize_tool_result_content( $content ): mixed {
+		if ( is_string( $content ) ) {
+			return $content;
+		}
+
+		if ( null === $content || is_scalar( $content ) ) {
+			$encoded = wp_json_encode( $content );
+			if ( is_string( $encoded ) ) {
+				return $encoded;
+			}
+
+			if ( is_bool( $content ) ) {
+				return $content ? 'true' : 'false';
+			}
+
+			return (string) $content;
+		}
+
+		return $content;
 	}
 }
