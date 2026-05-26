@@ -670,6 +670,8 @@ class AssertionEngine {
 		string $expected_output_pattern,
 		int $expected_exit_code
 	): array {
+		$command = self::normalize_wp_cli_benchmark_url( $command );
+
 		// Auto-inject --user=<admin> when the caller didn't pass one. WC CLI
 		// commands (and any others gated on capabilities) fail with 401
 		// otherwise because the external `wp` invocation has no logged-in user.
@@ -709,6 +711,31 @@ class AssertionEngine {
 			'expected' => $expected_desc,
 			'actual'   => $pass ? 'passed' : $actual_desc,
 		);
+	}
+
+	/**
+	 * Replace historical benchmark fixture URLs with the active WordPress URL.
+	 *
+	 * Several benchmark definitions predate the shared local development domain
+	 * and still include `--url=wp-multisite-waas.test`. External WP-CLI
+	 * assertion processes must target the same site that the benchmark agent just
+	 * modified, otherwise valid work is scored as a failure because WP-CLI cannot
+	 * resolve the old fixture host.
+	 *
+	 * @param string $command WP-CLI command (without 'wp' prefix).
+	 * @return string Command with the benchmark URL normalized when needed.
+	 */
+	private static function normalize_wp_cli_benchmark_url( string $command ): string {
+		if ( false === strpos( $command, 'wp-multisite-waas.test' ) ) {
+			return $command;
+		}
+
+		$site_url = untrailingslashit( (string) preg_replace( '#^https?://#', '', home_url( '/' ) ) );
+		if ( '' === $site_url ) {
+			return $command;
+		}
+
+		return str_replace( 'wp-multisite-waas.test', $site_url, $command );
 	}
 
 	/**
