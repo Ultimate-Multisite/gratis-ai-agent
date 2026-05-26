@@ -69,6 +69,9 @@ turn it into durable, worker-ready guidance instead of relying on chat history:
   future agent session.
 - Update the narrowest relevant script, workflow, or docs page when the lesson is
   procedural or command-specific.
+- When the prompt asks whether instructions or automation should change, treat it
+  as a request to improve the durable guidance or the deterministic script path;
+  do not leave the learning only as a chat reply.
 - If the fix is not obvious during the current session, open a GitHub issue brief
   that names the target files or patterns to inspect, the expected behaviour, and
   the verification command that should prove the change.
@@ -231,6 +234,9 @@ Key gotchas: `compile_class` required for hyphenated IDs, `REST_Handler` support
   `ai-provider-for-anthropic-max` or other connector plugins), reload credentials
   from the registry/options at request time via `ProviderCredentialLoader::load()`
   and let `/providers` build its response fresh.
+- Treat third-party provider option names as open-ended. Do not depend on a fixed
+  list of option keys to invalidate provider state; prefer the connector registry,
+  provider credential loader, and request-time option reads.
 - If provider discovery appears stale, fix the credential-loading path or remove
   redundant caching; do not whitelist individual option keys as a cache
   invalidation strategy.
@@ -248,6 +254,9 @@ Key gotchas: `compile_class` required for hyphenated IDs, `REST_Handler` support
 - **Endpoint Visibility**: The `sd-ai-agent/v1` namespace is private to the plugin.
   Do not expose internal implementation details, debug endpoints, or experimental
   features in the public REST API. Use capability checks to gate all endpoints.
+- **WordPress.org readiness**: Private REST routes may ship in the WordPress.org
+  plugin when they are capability-gated, secret-scrubbed, and documented with
+  worker-ready GitHub issue briefs for any remaining exposure or hardening work.
 
 ## Local Development Environment
 
