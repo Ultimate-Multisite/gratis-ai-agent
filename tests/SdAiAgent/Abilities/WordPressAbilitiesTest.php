@@ -9,6 +9,7 @@
 
 namespace SdAiAgent\Tests\Abilities;
 
+use SdAiAgent\Abilities\SwitchPluginAbility;
 use SdAiAgent\Abilities\WordPressAbilities;
 use WP_UnitTestCase;
 
@@ -148,6 +149,40 @@ class WordPressAbilitiesTest extends WP_UnitTestCase {
 		$result = WordPressAbilities::handle_install_plugin( [] );
 
 		$this->assertInstanceOf( \WP_Error::class, $result );
+	}
+
+	/**
+	 * Test switch-plugin exposes a dry-run option for safe benchmark calls.
+	 */
+	public function test_switch_plugin_schema_exposes_dry_run() {
+		$ability = new SwitchPluginAbility( 'sd-ai-agent/switch-plugin' );
+		$schema  = $ability->get_input_schema();
+
+		$this->assertArrayHasKey( 'properties', $schema );
+		$this->assertArrayHasKey( 'dry_run', $schema['properties'] );
+		$this->assertSame( 'boolean', $schema['properties']['dry_run']['type'] );
+		$this->assertStringContainsString( 'without changing active plugins', $schema['properties']['dry_run']['description'] );
+	}
+
+	/**
+	 * Test switch-plugin dry runs preview the target without changing plugins.
+	 */
+	public function test_handle_switch_plugin_dry_run_does_not_change_active_plugins() {
+		$before = get_option( 'active_plugins', [] );
+
+		$result = WordPressAbilities::handle_switch_plugin(
+			[
+				'activate' => 'akismet',
+				'dry_run'  => true,
+			]
+		);
+		$after  = get_option( 'active_plugins', [] );
+
+		$this->assertIsArray( $result );
+		$this->assertSame( 'preview', $result['status'] );
+		$this->assertTrue( $result['dry_run'] );
+		$this->assertArrayHasKey( 'would_activate', $result );
+		$this->assertSame( $before, $after );
 	}
 
 	/**

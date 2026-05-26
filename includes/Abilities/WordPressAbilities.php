@@ -215,7 +215,7 @@ class WordPressAbilities {
 			'sd-ai-agent/switch-plugin',
 			[
 				'label'       => __( 'Switch Plugin', 'superdav-ai-agent' ),
-				'description' => __( 'Activate one plugin and optionally deactivate one or more others. Rolls back if activation fails.', 'superdav-ai-agent' ),
+				'description' => __( 'Preview or perform a plugin switch: activate one plugin and optionally deactivate one or more others. Set dry_run=true to exercise or inspect the switch without changing active plugins.', 'superdav-ai-agent' ),
 			]
 		);
 		// @phpstan-ignore-next-line
@@ -390,7 +390,7 @@ class WordPressAbilities {
 				'sd-ai-agent/switch-plugin',
 				[
 					'label'         => __( 'Switch Plugin', 'superdav-ai-agent' ),
-					'description'   => __( 'Activate one plugin and optionally deactivate one or more others. Rolls back if activation fails.', 'superdav-ai-agent' ),
+					'description'   => __( 'Preview or perform a plugin switch: activate one plugin and optionally deactivate one or more others. Set dry_run=true to exercise or inspect the switch without changing active plugins.', 'superdav-ai-agent' ),
 					'ability_class' => SwitchPluginAbility::class,
 				]
 			);
@@ -2082,7 +2082,7 @@ class SwitchPluginAbility extends AbstractAbility {
 	}
 
 	protected function description(): string {
-		return __( 'Activate one plugin and optionally deactivate one or more others atomically. Rolls back deactivations if activation fails. Useful for switching between competing plugins (e.g. SEO plugins, caching plugins).', 'superdav-ai-agent' );
+		return __( 'Preview or perform a plugin switch atomically. Set dry_run=true to exercise the ability, inspect a proposed replacement, or verify what would change without activating or deactivating plugins. Useful for switching between competing plugins (e.g. SEO, caching, or anti-spam plugins).', 'superdav-ai-agent' );
 	}
 
 	protected function input_schema(): array {
@@ -2098,6 +2098,11 @@ class SwitchPluginAbility extends AbstractAbility {
 					'description' => 'Array of slugs or plugin files to deactivate before activating the target.',
 					'items'       => [ 'type' => 'string' ],
 				],
+				'dry_run'    => [
+					'type'        => 'boolean',
+					'description' => 'When true, preview the switch and return what would be activated/deactivated without changing active plugins. Use this for benchmark prompts or safety checks that say not to actually switch.',
+					'default'     => false,
+				],
 			],
 			'required'   => [ 'activate' ],
 		];
@@ -2107,11 +2112,15 @@ class SwitchPluginAbility extends AbstractAbility {
 		return [
 			'type'       => 'object',
 			'properties' => [
-				'status'      => [ 'type' => 'string' ],
-				'message'     => [ 'type' => 'string' ],
-				'activated'   => [ 'type' => 'string' ],
-				'deactivated' => [ 'type' => 'array' ],
-				'rolled_back' => [ 'type' => 'array' ],
+				'status'           => [ 'type' => 'string' ],
+				'message'          => [ 'type' => 'string' ],
+				'activated'        => [ 'type' => 'string' ],
+				'deactivated'      => [ 'type' => 'array' ],
+				'rolled_back'      => [ 'type' => 'array' ],
+				'dry_run'          => [ 'type' => 'boolean' ],
+				'would_activate'   => [ 'type' => 'string' ],
+				'would_deactivate' => [ 'type' => 'array' ],
+				'target_installed' => [ 'type' => 'boolean' ],
 			],
 		];
 	}
@@ -2120,6 +2129,7 @@ class SwitchPluginAbility extends AbstractAbility {
 		/** @var array<string, mixed> $input */
 		$activate_target = isset( $input['activate'] ) ? (string) $input['activate'] : '';
 		$deactivate_list = isset( $input['deactivate'] ) && is_array( $input['deactivate'] ) ? $input['deactivate'] : [];
+		$dry_run         = ! empty( $input['dry_run'] );
 
 		if ( '' === $activate_target ) {
 			return new WP_Error( 'sd_ai_agent_missing_activate', __( '"activate" is required.', 'superdav-ai-agent' ) );
@@ -2132,6 +2142,32 @@ class SwitchPluginAbility extends AbstractAbility {
 		/** @var array<string, array<string, mixed>> $installed */
 		// Resolve activate target to plugin_file.
 		$activate_file = $this->resolve_plugin_file( $activate_target, $installed );
+		if ( $dry_run ) {
+			$deactivate_files = [];
+			foreach ( $deactivate_list as $target ) {
+				$file = $this->resolve_plugin_file( (string) $target, $installed );
+				if ( null !== $file ) {
+					$deactivate_files[] = $file;
+				}
+			}
+
+			return [
+				'status'           => 'preview',
+				'message'          => sprintf(
+					/* translators: 1: plugin target, 2: count of deactivation targets */
+					__( 'Dry run only: would activate "%1$s" and deactivate %2$d plugin(s). No plugins were changed.', 'superdav-ai-agent' ),
+					$activate_file ?? $activate_target,
+					count( $deactivate_files )
+				),
+				'activated'        => '',
+				'deactivated'      => [],
+				'rolled_back'      => [],
+				'dry_run'          => true,
+				'would_activate'   => $activate_file ?? $activate_target,
+				'would_deactivate' => $deactivate_files,
+				'target_installed' => null !== $activate_file,
+			];
+		}
 		if ( null === $activate_file ) {
 			return new WP_Error(
 				'sd_ai_agent_plugin_not_installed',
