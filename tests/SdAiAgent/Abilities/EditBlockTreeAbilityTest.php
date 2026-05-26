@@ -198,6 +198,29 @@ class EditBlockTreeAbilityTest extends WP_UnitTestCase {
 		$this->assertSame( 3, $named[1]['attrs']['level'] ?? null );
 	}
 
+	/**
+	 * edit-block-tree falls back to path when the supplied ref is not present.
+	 */
+	public function test_update_attrs_falls_back_to_path_when_ref_is_missing(): void {
+		$post_id = $this->create_post_with_blocks();
+
+		$result = BlockAbilities::handle_edit_block_tree( [
+			'post_id'    => $post_id,
+			'op'         => 'update-attrs',
+			'ref'        => 'blk_staleref',
+			'path'       => [ 1 ],
+			'attributes' => [ 'level' => 4 ],
+		] );
+
+		$this->assertIsArray( $result );
+		$this->assertTrue( $result['success'] );
+
+		$updated = get_post( $post_id );
+		$blocks  = parse_blocks( $updated->post_content );
+		$named   = array_values( array_filter( $blocks, static fn( $b ) => ! empty( $b['blockName'] ) ) );
+		$this->assertSame( 4, $named[1]['attrs']['level'] ?? null );
+	}
+
 	// ── duplicate integration ──────────────────────────────────────────────
 
 	/**
