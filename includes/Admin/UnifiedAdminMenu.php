@@ -365,6 +365,7 @@ class UnifiedAdminMenu {
 		wp_enqueue_script( 'wp-commands' );
 
 		$page_url = wp_json_encode( admin_url( 'admin.php?page=' . self::SLUG ) );
+		$label    = wp_json_encode( __( 'Interact with AI', 'superdav-ai-agent' ) );
 		$inline   = "( function () {\n"
 			. "\t'use strict';\n"
 			. "\tif ( typeof wp === 'undefined' || ! wp.data ) {\n"
@@ -373,7 +374,7 @@ class UnifiedAdminMenu {
 			. "\ttry {\n"
 			. "\t\twp.data.dispatch( 'core/commands' ).registerCommand( {\n"
 			. "\t\t\tname: 'sd-ai-agent/open',\n"
-			. "\t\t\tlabel: 'Interact with AI',\n"
+			. "\t\t\tlabel: " . $label . ",\n"
 			. "\t\t\tcallback: function ( { close } ) {\n"
 			. "\t\t\t\tclose();\n"
 			. "\t\t\t\twindow.location.href = " . $page_url . ";\n"
