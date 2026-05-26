@@ -204,12 +204,15 @@ Report ID: {report_id} (submitted {created_at})
 ```
 
 Write the body to a temp file (avoids quoting hazards with backticks /
-heredocs / unicode dashes) and create the issue. Apply `origin:worker` and
-`status:available` alongside `bug` so the issue is traceable as
-feedback-triage output and visible to claim routines:
+unicode dashes). Do not create the file with a shell heredoc in headless runs;
+use your runtime's file-writing tool, or an existing generated file. Create the
+GitHub issue through the repo helper so the required aidevops signature footer
+is appended automatically. Apply `origin:worker` and `status:available`
+alongside `bug` so the issue is traceable as feedback-triage output and visible
+to claim routines:
 
 ```bash
-gh issue create -R Ultimate-Multisite/sd-ai-agent \
+.agents/scripts/issue-sync-helper.sh --repo Ultimate-Multisite/sd-ai-agent create-signed-issue \
   --title "<concise bug title>" \
   --body-file /tmp/opencode/r020-triage/issue-<id>-body.md \
   --label "bug,origin:worker,status:available"
@@ -259,7 +262,7 @@ r020 triage complete: <N> reports processed.
 
 - `feedback-triage.sh fetch` HTTP error → log and stop. Do not attempt partial triage.
 - `feedback-triage.sh get <id>` HTTP error → skip report, log the error, continue with next.
-- `gh issue create` failure → do NOT update report status. Log and continue.
+- `create-signed-issue` failure → do NOT update report status. Log and continue.
 - Missing credentials → stop immediately (Step 1 guard).
 
 ## Privacy

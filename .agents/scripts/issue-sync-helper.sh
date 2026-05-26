@@ -188,6 +188,50 @@ gh_create_label() {
 	gh label create "$name" --repo "$repo" --color "$color" --description "$desc" --force 2>/dev/null || true
 }
 
+cmd_create_signed_issue() {
+	local title="" body_file="" labels="" assignee=""
+	while [[ $# -gt 0 ]]; do
+		local arg="$1"
+		case "$arg" in
+		--title)
+			title="${2:-}"
+			shift 2
+			;;
+		--body-file)
+			body_file="${2:-}"
+			shift 2
+			;;
+		--label)
+			labels="${2:-}"
+			shift 2
+			;;
+		--assignee)
+			assignee="${2:-}"
+			shift 2
+			;;
+		*)
+			print_error "Unknown create-signed-issue option: $arg"
+			return 1
+			;;
+		esac
+	done
+
+	_init_cmd || return 1
+	if [[ -z "$title" || -z "$body_file" || -z "$labels" ]]; then
+		print_error "create-signed-issue requires --title, --body-file, and --label"
+		return 1
+	fi
+	if [[ ! -f "$body_file" ]]; then
+		print_error "Body file not found: $body_file"
+		return 1
+	fi
+
+	local body
+	body=$(<"$body_file") || return 1
+	_gh_issue_create_signed "$_CMD_REPO" "$title" "$body" "$labels" "$assignee"
+	return $?
+}
+
 gh_find_issue_by_title() {
 	local repo="$1" prefix="$2" state="${3:-all}" limit="${4:-50}"
 	gh issue list --repo "$repo" --state "$state" --limit "$limit" \
@@ -751,13 +795,16 @@ cmd_help() {
 	cat <<'EOF'
 Issue Sync Helper — stateless TODO.md <-> GitHub Issues sync via gh CLI.
 Usage: issue-sync-helper.sh [command] [options]
-Commands: push [tNNN] | enrich [tNNN] | pull | close [tNNN] | reconcile | status | help
+Commands: push [tNNN] | enrich [tNNN] | pull | close [tNNN] | reconcile | status | create-signed-issue | help
 Options: --repo SLUG | --dry-run | --verbose | --force (skip evidence on close)
          --force-push (allow bulk push outside CI — use with caution, risk of duplicates)
+
+create-signed-issue options: --title TITLE --body-file PATH --label LABELS [--assignee LOGIN]
 
 Note: Bulk push (no task ID) is CI-only by default to prevent duplicate issues.
       Use 'push <task_id>' for single tasks, or --force-push to override.
 EOF
+	return 0
 }
 
 main() {
@@ -798,7 +845,9 @@ main() {
 	case "$command" in
 	push) cmd_push "${positional_args[1]:-}" ;; enrich) cmd_enrich "${positional_args[1]:-}" ;;
 	pull) cmd_pull ;; close) cmd_close "${positional_args[1]:-}" ;;
-	reconcile) cmd_reconcile ;; status) cmd_status ;; help) cmd_help ;;
+	reconcile) cmd_reconcile ;; status) cmd_status ;;
+	create-signed-issue) cmd_create_signed_issue "${positional_args[@]:1}" ;;
+	help) cmd_help ;;
 	*)
 		print_error "Unknown command: $command"
 		cmd_help
