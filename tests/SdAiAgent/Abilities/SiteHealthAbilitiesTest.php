@@ -10,6 +10,8 @@
 namespace SdAiAgent\Tests\Abilities;
 
 use SdAiAgent\Abilities\SiteHealthAbilities;
+use SdAiAgent\Core\OnboardingManager;
+use SdAiAgent\Core\SiteScanner;
 use WP_UnitTestCase;
 
 /**
@@ -365,5 +367,55 @@ class SiteHealthAbilitiesTest extends WP_UnitTestCase {
 
 		$this->assertIsArray( $result );
 		$this->assertArrayHasKey( 'overall_status', $result );
+	}
+
+	// ─── handle_detect_fresh_install ───────────────────────────────
+
+	/**
+	 * Test handle_detect_fresh_install returns expected structure.
+	 */
+	public function test_handle_detect_fresh_install_returns_expected_structure() {
+		$result = SiteHealthAbilities::handle_detect_fresh_install( [] );
+
+		$this->assertIsArray( $result );
+		$this->assertArrayHasKey( 'is_fresh_install', $result );
+		$this->assertArrayHasKey( 'memory_count', $result );
+		$this->assertArrayHasKey( 'session_count', $result );
+		$this->assertArrayHasKey( 'onboarding_complete', $result );
+		$this->assertArrayHasKey( 'onboarding_triggered', $result );
+		$this->assertArrayHasKey( 'site_scan_status', $result );
+	}
+
+	/**
+	 * Test handle_detect_fresh_install exposes typed values.
+	 */
+	public function test_handle_detect_fresh_install_field_types_are_valid() {
+		$result = SiteHealthAbilities::handle_detect_fresh_install( [] );
+
+		$this->assertIsBool( $result['is_fresh_install'] );
+		$this->assertIsInt( $result['memory_count'] );
+		$this->assertIsInt( $result['session_count'] );
+		$this->assertIsBool( $result['onboarding_complete'] );
+		$this->assertIsBool( $result['onboarding_triggered'] );
+		$this->assertIsString( $result['site_scan_status'] );
+	}
+
+	/**
+	 * Test handle_detect_fresh_install includes onboarding option context.
+	 */
+	public function test_handle_detect_fresh_install_reports_onboarding_context() {
+		update_option( OnboardingManager::COMPLETE_OPTION, true, false );
+		update_option( OnboardingManager::TRIGGERED_OPTION, true, false );
+		update_option( SiteScanner::STATUS_OPTION, [ 'status' => 'complete' ], false );
+
+		$result = SiteHealthAbilities::handle_detect_fresh_install( [] );
+
+		$this->assertTrue( $result['onboarding_complete'] );
+		$this->assertTrue( $result['onboarding_triggered'] );
+		$this->assertSame( 'complete', $result['site_scan_status'] );
+
+		delete_option( OnboardingManager::COMPLETE_OPTION );
+		delete_option( OnboardingManager::TRIGGERED_OPTION );
+		delete_option( SiteScanner::STATUS_OPTION );
 	}
 }
