@@ -247,6 +247,7 @@ class ToolCapabilities {
 			'sd-ai-agent/check-security',
 			'sd-ai-agent/check-performance',
 			'sd-ai-agent/check-disk-space',
+			'sd-ai-agent/detect-fresh-install',
 			'sd-ai-agent/scan-php-error-log',
 			// Google Analytics.
 			'sd-ai-agent/ga-traffic-summary',

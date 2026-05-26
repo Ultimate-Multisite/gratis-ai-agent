@@ -17,6 +17,9 @@ declare(strict_types=1);
 
 namespace SdAiAgent\Abilities;
 
+use SdAiAgent\Core\OnboardingManager;
+use SdAiAgent\Core\SiteScanner;
+use SdAiAgent\Models\Memory;
 use WP_Error;
 
 if ( ! defined( 'ABSPATH' ) ) {
@@ -39,6 +42,7 @@ class SiteHealthAbilities {
 		self::register_check_security();
 		self::register_check_performance();
 		self::register_site_health_summary();
+		self::register_detect_fresh_install();
 		self::register_site_loopback_check();
 	}
 
@@ -313,6 +317,47 @@ class SiteHealthAbilities {
 				'execute_callback'    => [ __CLASS__, 'handle_site_health_summary' ],
 				'permission_callback' => function () {
 					return ToolCapabilities::current_user_can( 'sd-ai-agent/site-health-summary' );
+				},
+			]
+		);
+	}
+
+	/**
+	 * Register the detect-fresh-install ability.
+	 */
+	private static function register_detect_fresh_install(): void {
+		wp_register_ability(
+			'sd-ai-agent/detect-fresh-install',
+			[
+				'label'               => __( 'Detect Fresh Install', 'superdav-ai-agent' ),
+				'description'         => __( 'Determine whether this is a fresh Superdav AI Agent install by checking for existing agent memories, chat sessions, and onboarding state.', 'superdav-ai-agent' ),
+				'category'            => 'sd-ai-agent',
+				'input_schema'        => [
+					'type'       => 'object',
+					'properties' => (object) [],
+				],
+				'output_schema'       => [
+					'type'       => 'object',
+					'properties' => [
+						'is_fresh_install'     => [ 'type' => 'boolean' ],
+						'memory_count'         => [ 'type' => 'integer' ],
+						'session_count'        => [ 'type' => 'integer' ],
+						'onboarding_complete'  => [ 'type' => 'boolean' ],
+						'onboarding_triggered' => [ 'type' => 'boolean' ],
+						'site_scan_status'     => [ 'type' => 'string' ],
+					],
+				],
+				'meta'                => [
+					'mcp'          => [ 'public' => true ],
+					'annotations'  => [
+						'readonly'   => true,
+						'idempotent' => true,
+					],
+					'show_in_rest' => true,
+				],
+				'execute_callback'    => [ __CLASS__, 'handle_detect_fresh_install' ],
+				'permission_callback' => function () {
+					return ToolCapabilities::current_user_can( 'sd-ai-agent/detect-fresh-install' );
 				},
 			]
 		);
@@ -732,6 +777,36 @@ class SiteHealthAbilities {
 		];
 	}
 
+	/**
+	 * Handle the detect-fresh-install ability.
+	 *
+	 * Mirrors the onboarding fresh-install signal: an install is fresh only while
+	 * it has no agent memories and no chat sessions. Onboarding flags are returned
+	 * as context but do not by themselves make an existing install fresh.
+	 *
+	 * @param array<string, mixed> $input Input parameters.
+	 * @return array<string, mixed>
+	 */
+	public static function handle_detect_fresh_install( array $input ): array {
+		unset( $input );
+
+		$memories      = Memory::get_all() ?? [];
+		$memory_count  = count( $memories );
+		$session_count = self::get_agent_session_count();
+		$scan_status   = get_option( SiteScanner::STATUS_OPTION, [] );
+
+		return [
+			'is_fresh_install'     => 0 === $memory_count && 0 === $session_count,
+			'memory_count'         => $memory_count,
+			'session_count'        => $session_count,
+			'onboarding_complete'  => (bool) get_option( OnboardingManager::COMPLETE_OPTION, false ),
+			'onboarding_triggered' => (bool) get_option( OnboardingManager::TRIGGERED_OPTION, false ),
+			'site_scan_status'     => is_array( $scan_status ) && isset( $scan_status['status'] ) && is_string( $scan_status['status'] )
+				? $scan_status['status']
+				: 'not_started',
+		];
+	}
+
 	// -------------------------------------------------------------------------
 	// Private helpers
 	// -------------------------------------------------------------------------
@@ -772,6 +847,25 @@ class SiteHealthAbilities {
 		}
 
 		return null;
+	}
+
+	/**
+	 * Count stored agent chat sessions.
+	 *
+	 * @return int Session count, or 0 if the sessions table is not available yet.
+	 */
+	private static function get_agent_session_count(): int {
+		global $wpdb;
+
+		$sessions_table = $wpdb->prefix . 'sd_ai_agent_sessions';
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching,WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+		$table_name = $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $sessions_table ) );
+		if ( $sessions_table !== $table_name ) {
+			return 0;
+		}
+
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching,WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+		return (int) $wpdb->get_var( "SELECT COUNT(*) FROM `{$sessions_table}`" );
 	}
 
 	/**
