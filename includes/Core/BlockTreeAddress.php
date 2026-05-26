@@ -46,15 +46,20 @@ class BlockTreeAddress {
 		if ( isset( $args['ref'] ) && is_string( $args['ref'] ) && '' !== $args['ref'] ) {
 			$found = BlockReferences::find_by_ref( $blocks, $args['ref'] );
 
-			if ( null === $found ) {
+			if ( null !== $found ) {
+				return $found['path'];
+			}
+
+			// Ref values are persisted best-effort by get-page-blocks and can be stale
+			// when a caller also supplied the path/flat_index from that same response.
+			// Fall through to the secondary address instead of failing immediately.
+			if ( ! isset( $args['path'] ) && ! array_key_exists( 'flat_index', $args ) ) {
 				return new \WP_Error(
 					'block_not_found',
 					sprintf( "Block ref '%s' not found in the block tree.", $args['ref'] ),
 					[ 'status' => 404 ]
 				);
 			}
-
-			return $found['path'];
 		}
 
 		// Priority 2: explicit path.

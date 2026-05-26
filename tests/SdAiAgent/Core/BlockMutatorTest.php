@@ -177,6 +177,22 @@ class BlockMutatorTest extends WP_UnitTestCase {
 		$this->assertTrue( $result[0]['attrs']['dropCap'] );
 	}
 
+	/**
+	 * update-attrs falls back to path when a supplied ref is stale.
+	 */
+	public function test_update_attrs_falls_back_to_path_when_ref_is_missing(): void {
+		$blocks = [ $this->make_block( 'core/paragraph' ) ];
+
+		$result = BlockMutator::apply( $blocks, 'update-attrs', [
+			'ref'        => 'blk_staleref',
+			'path'       => [ 0 ],
+			'attributes' => [ 'dropCap' => true ],
+		] );
+
+		$this->assertIsArray( $result );
+		$this->assertTrue( $result[0]['attrs']['dropCap'] );
+	}
+
 	// ── update-html ───────────────────────────────────────────────────────
 
 	/**
