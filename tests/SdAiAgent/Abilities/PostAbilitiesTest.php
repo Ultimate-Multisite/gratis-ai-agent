@@ -10,6 +10,7 @@
 namespace SdAiAgent\Tests\Abilities;
 
 use SdAiAgent\Abilities\PostAbilities;
+use SdAiAgent\Core\ChangeLogger;
 use WP_UnitTestCase;
 
 /**
@@ -391,6 +392,43 @@ class PostAbilitiesTest extends WP_UnitTestCase {
 		$this->assertIsArray( $result );
 		$meta_value = get_post_meta( $result['post_id'], 'custom_key', true );
 		$this->assertSame( 'custom_value', $meta_value );
+	}
+
+	/**
+	 * Test handle_create_post records an AI changes-log row when logging is active.
+	 */
+	public function test_handle_create_post_records_change_log_entry_when_active(): void {
+		ChangeLogger::begin( 123 );
+		try {
+			$result = PostAbilities::handle_create_post( [
+				'title'   => 'Logged Agent Draft',
+				'content' => 'Created through the create-post ability.',
+				'status'  => 'draft',
+			] );
+		} finally {
+			ChangeLogger::end();
+		}
+
+		$this->assertIsArray( $result );
+
+		global $wpdb;
+		$row = $wpdb->get_row(
+			$wpdb->prepare(
+				'SELECT * FROM %i WHERE object_id = %d AND field_name = %s',
+				$wpdb->prefix . 'sd_ai_agent_changes_log',
+				$result['post_id'],
+				'post_created'
+			)
+		);
+
+		$this->assertNotNull( $row );
+		$this->assertSame( '123', (string) $row->session_id );
+		$this->assertSame( 'post', $row->object_type );
+		$this->assertSame( 'Logged Agent Draft', $row->object_title );
+		$this->assertSame( 'sd-ai-agent/create-post', $row->ability_name );
+		$this->assertSame( '', $row->before_value );
+		$this->assertSame( 'Logged Agent Draft', $row->after_value );
+		$this->assertSame( '1', (string) $row->revertable );
 	}
 
 	// ─── handle_update_post ───────────────────────────────────────

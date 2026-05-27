@@ -225,6 +225,19 @@ final class ChangeRevertService {
 			default:
 				// Handle all registered WordPress post types (post, page, CPTs).
 				if ( post_type_exists( $change->object_type ) ) {
+					if ( 'post_created' === $change->field_name && '' === $change->before_value ) {
+						$result = wp_trash_post( (int) $change->object_id );
+						if ( false === $result ) {
+							return new WP_Error(
+								'post_creation_revert_failed',
+								__( 'Failed to move the created post to the trash.', 'superdav-ai-agent' ),
+								array( 'status' => 500 )
+							);
+						}
+
+						return true;
+					}
+
 					$result = wp_update_post(
 						array(
 							'ID'                => (int) $change->object_id,

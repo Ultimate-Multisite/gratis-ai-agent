@@ -15,6 +15,7 @@ namespace SdAiAgent\Abilities;
 
 use SdAiAgent\Abilities\UrlResolverAbilities;
 use SdAiAgent\Core\BlockValidator;
+use SdAiAgent\Core\ChangeLogger;
 use SdAiAgent\Core\RateLimiter;
 use SdAiAgent\Core\RevisionGuard;
 use SdAiAgent\Models\MarkdownToBlocks;
@@ -1254,6 +1255,11 @@ class PostAbilities {
 			foreach ( $meta as $key => $value ) {
 				update_post_meta( $post_id, sanitize_key( $key ), $value );
 			}
+		}
+
+		$created_post = get_post( $post_id );
+		if ( $created_post instanceof WP_Post ) {
+			ChangeLogger::record_post_created( $post_id, $created_post );
 		}
 
 		$permalink = get_permalink( $post_id );
