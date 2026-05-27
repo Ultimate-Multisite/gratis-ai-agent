@@ -155,6 +155,42 @@ test.describe( 'Floating Widget', () => {
 		await expect( sendButton ).toBeEnabled();
 	} );
 
+	test( 'clicking send submits without opening the agent picker', async ( {
+		page,
+	} ) => {
+		const fab = getFloatingButton( page );
+		await fab.click();
+
+		const panel = getFloatingPanel( page );
+		const input = panel.locator( '.sdaa-w-input-textarea' );
+		const sendButton = panel.getByLabel( 'Send message' );
+		const agentButton = panel.getByRole( 'button', { name: 'General' } );
+
+		await input.fill( 'Say hello only.' );
+		await expect( sendButton ).toBeEnabled();
+
+		if ( await agentButton.isVisible() ) {
+			const sendBox = await sendButton.boundingBox();
+			const agentBox = await agentButton.boundingBox();
+
+			expect( sendBox ).not.toBeNull();
+			expect( agentBox ).not.toBeNull();
+			expect( agentBox.x + agentBox.width ).toBeLessThanOrEqual(
+				sendBox.x
+			);
+		}
+
+		await sendButton.click();
+
+		await expect( input ).toHaveValue( '' );
+		if ( await agentButton.isVisible() ) {
+			await expect( agentButton ).not.toHaveAttribute(
+				'aria-expanded',
+				'true'
+			);
+		}
+	} );
+
 	test( 'pressing Enter submits the message', async ( { page } ) => {
 		const fab = getFloatingButton( page );
 		await fab.click();
