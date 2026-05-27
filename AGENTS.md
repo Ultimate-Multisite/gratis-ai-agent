@@ -72,6 +72,9 @@ turn it into durable, worker-ready guidance instead of relying on chat history:
 - When the prompt asks whether instructions or automation should change, treat it
   as a request to improve the durable guidance or the deterministic script path;
   do not leave the learning only as a chat reply.
+- Convert shorthand maintainer notes into explicit worker actions: name the files
+  or route families to inspect, the policy to enforce, and the command or manual
+  check that proves the guidance was followed.
 - If the fix is not obvious during the current session, open a GitHub issue brief
   that names the target files or patterns to inspect, the expected behaviour, and
   the verification command that should prove the change.
@@ -257,6 +260,10 @@ Key gotchas: `compile_class` required for hyphenated IDs, `REST_Handler` support
 - **WordPress.org readiness**: Private REST routes may ship in the WordPress.org
   plugin when they are capability-gated, secret-scrubbed, and documented with
   worker-ready GitHub issue briefs for any remaining exposure or hardening work.
+- **Review checklist**: When adding or hardening routes under `sd-ai-agent/v1`,
+  verify the controller uses the real current user context, has a capability
+  gate, avoids public file-upload exposure, and returns scrubbed responses before
+  calling the route WordPress.org-ready.
 
 ## Local Development Environment
 

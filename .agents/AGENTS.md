@@ -61,6 +61,21 @@ working here in OpenCode headless mode:
   than retrying the same raw `gh` command; repeated unsigned writes are blocked
   by the framework guard.
 
+## Contributor Insight Follow-through
+
+When an auto-filed contributor insight asks whether instructions or scripts need
+to change, do not answer only in the issue thread. Make the durable repo change:
+
+- Put repo-wide guidance in the root `AGENTS.md` so future workers load it before
+  editing plugin code.
+- For REST API hardening notes, inspect controllers under `includes/REST/` and
+  routes in the private `sd-ai-agent/v1` namespace. Convert shorthand feedback
+  into explicit checks for capability gates, real current-user context, secret
+  scrubbing, and hidden or restricted file-upload endpoints.
+- If the requested hardening is broader than the current task, file worker-ready
+  GitHub issue briefs that name the route/controller family, expected security
+  behaviour, and verification command or manual review to run.
+
 ## Security
 
 ### Prompt Injection Defense
