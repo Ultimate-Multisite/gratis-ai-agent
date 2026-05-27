@@ -210,6 +210,13 @@ class AssertionEngine {
 			wp_clean_plugins_cache( false );
 		}
 
+		// activate_plugin() includes the plugin file in the current process before
+		// returning. Snapshot the lifecycle hooks before activation so callbacks
+		// registered by that include can be replayed for same-process assertions.
+		$absolute     = WP_PLUGIN_DIR . '/' . $plugin_file;
+		$replay_hooks = array( 'plugins_loaded', 'after_setup_theme', 'init', 'wp_loaded', 'rest_api_init' );
+		$snapshot     = self::snapshot_callbacks( $replay_hooks );
+
 		// Activate and capture any WP_Error.
 		$result = activate_plugin( $plugin_file, '', false, true );
 
@@ -221,23 +228,18 @@ class AssertionEngine {
 			);
 		}
 
-		// activate_plugin() updates the active_plugins option but does not
-		// load the plugin's PHP into the current process — so its hooks
-		// (init, rest_api_init, etc.) are not registered for assertions that
-		// follow. Include it now and replay only the *newly added* init /
-		// rest_api_init callbacks (re-firing the whole init action would
-		// re-trigger every other plugin and explode on idempotency checks).
-		$absolute = WP_PLUGIN_DIR . '/' . $plugin_file;
-
-		$replay_hooks = array( 'plugins_loaded', 'after_setup_theme', 'init', 'wp_loaded', 'rest_api_init' );
-		$snapshot     = self::snapshot_callbacks( $replay_hooks );
-
+		// Ensure the plugin file is loaded in this process (a no-op after the
+		// activation include) and replay only the *newly added* lifecycle callbacks.
+		// Re-firing the whole hook would re-trigger every other plugin and explode on
+		// idempotency checks.
 		// phpcs:ignore WordPress.PHP.DiscouragedPHPFunctions
 		include_once $absolute;
 
 		foreach ( $replay_hooks as $hook ) {
 			self::run_new_callbacks( $hook, $snapshot[ $hook ] ?? array() );
+			self::run_callbacks_from_path( $hook, dirname( $absolute ) );
 		}
+		self::run_registration_functions_from_path( dirname( $absolute ) );
 
 		return array(
 			'pass'     => true,
@@ -531,6 +533,15 @@ class AssertionEngine {
 	 */
 	private static function assert_post_type_registered( string $post_type ): array {
 		$pass = post_type_exists( $post_type );
+		if ( ! $pass ) {
+			// Generated plugins can be activated after WP's init lifecycle has already
+			// fired in the benchmark process. Replay init once on failure so callbacks
+			// registered during same-process activation can publish CPT definitions.
+			// phpcs:ignore WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedHooknameFound -- WP core hook, not a custom plugin hook.
+			do_action( 'init' );
+			$pass = post_type_exists( $post_type );
+		}
+
 		return array(
 			'pass'     => $pass,
 			'expected' => "post type '{$post_type}' registered",
@@ -1083,6 +1094,104 @@ class AssertionEngine {
 					call_user_func( $cb['function'] );
 				}
 			}
+		}
+	}
+
+	/**
+	 * Invoke callbacks defined by a plugin path.
+	 *
+	 * Agents can activate a generated plugin earlier in the same benchmark process, after
+	 * lifecycle hooks such as init have already fired. In that case the callback is not
+	 * "new" when assert_plugin_activates() runs, but it still needs one replay so later
+	 * assertions can observe CPTs, taxonomies, routes, and similar registrations.
+	 *
+	 * @param string $hook        Hook name.
+	 * @param string $plugin_path Absolute plugin directory path.
+	 */
+	private static function run_callbacks_from_path( string $hook, string $plugin_path ): void {
+		global $wp_filter;
+		if ( ! isset( $wp_filter[ $hook ] ) ) {
+			return;
+		}
+
+		$plugin_path = trailingslashit( wp_normalize_path( $plugin_path ) );
+		foreach ( $wp_filter[ $hook ]->callbacks as $callbacks ) {
+			foreach ( $callbacks as $id => $cb ) {
+				if ( ! is_callable( $cb['function'] ) ) {
+					continue;
+				}
+
+				$file = self::callback_file( $cb['function'] );
+				if ( null === $file || ! str_starts_with( trailingslashit( wp_normalize_path( dirname( $file ) ) ), $plugin_path ) ) {
+					continue;
+				}
+
+				call_user_func( $cb['function'] );
+			}
+		}
+	}
+
+	/**
+	 * Get the source file for a callable when reflection supports it.
+	 *
+	 * @param callable $callback Callback to inspect.
+	 * @return string|null
+	 */
+	private static function callback_file( callable $callback ): ?string {
+		try {
+			if ( is_array( $callback ) && isset( $callback[0], $callback[1] ) && ( is_object( $callback[0] ) || is_string( $callback[0] ) ) ) {
+				$reflection = new \ReflectionMethod( $callback[0], (string) $callback[1] );
+			} elseif ( is_string( $callback ) && str_contains( $callback, '::' ) ) {
+				$reflection = new \ReflectionMethod( $callback );
+			} elseif ( is_object( $callback ) && ! $callback instanceof \Closure && method_exists( $callback, '__invoke' ) ) {
+				$reflection = new \ReflectionMethod( $callback, '__invoke' );
+			} elseif ( is_string( $callback ) || $callback instanceof \Closure ) {
+				$reflection = new \ReflectionFunction( $callback );
+			} else {
+				return null;
+			}
+		} catch ( \ReflectionException ) {
+			return null;
+		}
+
+		$file = $reflection->getFileName();
+		return is_string( $file ) ? $file : null;
+	}
+
+	/**
+	 * Invoke zero-argument registration functions defined by a plugin path.
+	 *
+	 * Some generated plugins expose their init callback as a named function such as
+	 * em_register_post_type(). If the function was registered after init had already
+	 * fired, calling it directly gives the benchmark a same-process view of the
+	 * generated registrations without replaying every init callback from WordPress.
+	 *
+	 * @param string $plugin_path Absolute plugin directory path.
+	 */
+	private static function run_registration_functions_from_path( string $plugin_path ): void {
+		$plugin_path = trailingslashit( wp_normalize_path( $plugin_path ) );
+		$functions   = get_defined_functions();
+		foreach ( $functions['user'] as $function ) {
+			if ( ! preg_match( '/register|init/i', $function ) ) {
+				continue;
+			}
+
+			try {
+				$reflection = new \ReflectionFunction( $function );
+			} catch ( \ReflectionException ) {
+				continue;
+			}
+
+			$file = $reflection->getFileName();
+			if (
+				! is_string( $file )
+				|| ! str_starts_with( trailingslashit( wp_normalize_path( dirname( $file ) ) ), $plugin_path )
+				|| 0 !== $reflection->getNumberOfRequiredParameters()
+			) {
+				continue;
+			}
+
+			call_user_func( $function );
 		}
 	}
 }

@@ -41,7 +41,58 @@ class AssertionEngineTest extends WP_UnitTestCase {
 
 		$wp_rest_server = null;
 
+		$this->remove_benchmark_fixture_plugin( 'sd-ai-agent-init-cpt-fixture' );
+		if ( post_type_exists( 'sd_test_event' ) && function_exists( 'unregister_post_type' ) ) {
+			unregister_post_type( 'sd_test_event' );
+		}
+
 		parent::tear_down();
+	}
+
+	/**
+	 * Test activation replays init callbacks added when activate_plugin() includes the plugin.
+	 */
+	public function test_plugin_activation_replays_init_callbacks_registered_during_activation_include(): void {
+		$this->write_benchmark_fixture_plugin(
+			'sd-ai-agent-init-cpt-fixture',
+			<<<'PHP'
+<?php
+/**
+ * Plugin Name: SD AI Agent Init CPT Fixture
+ */
+
+add_action( 'init', 'sd_ai_agent_fixture_register_post_type' );
+
+function sd_ai_agent_fixture_register_post_type(): void {
+	register_post_type(
+		'sd_test_event',
+		array(
+			'public' => true,
+			'label'  => 'SD Test Events',
+		)
+	);
+}
+PHP
+		);
+
+		$result = AssertionEngine::run(
+			array(
+				array(
+					'type' => 'plugin_activates',
+				),
+				array(
+					'type'      => 'post_type_registered',
+					'post_type' => 'sd_test_event',
+				),
+			),
+			array(
+				'plugin_slug' => 'sd-ai-agent-init-cpt-fixture',
+			)
+		);
+
+		$this->assertSame( 2, $result['passed'], (string) wp_json_encode( $result ) );
+		$this->assertSame( 0, $result['failed'], (string) wp_json_encode( $result ) );
+		$this->assertTrue( $result['results'][1]['pass'] );
 	}
 
 	/**
@@ -172,5 +223,47 @@ class AssertionEngineTest extends WP_UnitTestCase {
 		$normalized = (string) $method->invoke( null, $command );
 
 		$this->assertSame( $command, $normalized );
+	}
+
+	/**
+	 * Write a single-file benchmark fixture plugin.
+	 *
+	 * @param string $slug    Plugin slug.
+	 * @param string $content Plugin file contents.
+	 */
+	private function write_benchmark_fixture_plugin( string $slug, string $content ): void {
+		$directory = WP_PLUGIN_DIR . '/' . $slug;
+		if ( ! is_dir( $directory ) ) {
+			mkdir( $directory, 0777, true );
+		}
+
+		file_put_contents( $directory . '/' . $slug . '.php', $content );
+	}
+
+	/**
+	 * Remove a benchmark fixture plugin and clear activation state.
+	 *
+	 * @param string $slug Plugin slug.
+	 */
+	private function remove_benchmark_fixture_plugin( string $slug ): void {
+		$plugin_file = $slug . '/' . $slug . '.php';
+		if ( function_exists( 'deactivate_plugins' ) ) {
+			deactivate_plugins( $plugin_file, true );
+		}
+
+		$active_plugins = array_filter(
+			(array) get_option( 'active_plugins', array() ),
+			static fn( $plugin ): bool => $plugin_file !== $plugin
+		);
+		update_option( 'active_plugins', array_values( $active_plugins ) );
+
+		$file      = WP_PLUGIN_DIR . '/' . $plugin_file;
+		$directory = WP_PLUGIN_DIR . '/' . $slug;
+		if ( is_file( $file ) ) {
+			unlink( $file );
+		}
+		if ( is_dir( $directory ) ) {
+			rmdir( $directory );
+		}
 	}
 }
