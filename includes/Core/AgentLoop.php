@@ -121,6 +121,9 @@ class AgentLoop {
 	/** @var list<array<string, mixed>> Logged tool call activity. */
 	private $tool_call_log = array();
 
+	/** @var array<int, array<string, mixed>> Posts that still require block-validation repair. */
+	private array $pending_block_validation_repairs = array();
+
 	/** @var float */
 	private $temperature;
 
@@ -747,6 +750,20 @@ class AgentLoop {
 					$reply = $result->toText();
 				} catch ( \RuntimeException $e ) {
 					$reply = '';
+				}
+
+				// If a prior create/update saved invalid block markup, do not let the
+				// model report success until it has attempted the documented
+				// update-post self-repair loop. The system prompt already instructs
+				// this behaviour; this guard catches models that ignore that instruction
+				// after seeing a block_validation.invalidBlocks response.
+				if ( ! empty( $this->pending_block_validation_repairs ) ) {
+					if ( $iterations > 0 ) {
+						$this->inject_block_validation_repair_guidance();
+						continue;
+					}
+
+					$reply = $this->append_unresolved_block_validation_warning( $reply );
 				}
 
 				// If the response is empty or whitespace-only after tool results,
@@ -2114,6 +2131,8 @@ class AgentLoop {
 		foreach ( $message->getParts() as $part ) {
 			$response = $part->getFunctionResponse();
 			if ( $response ) {
+				$this->track_block_validation_response( $response->getName(), $response->getResponse() );
+
 				$this->tool_call_log[] = array(
 					'type'     => 'response',
 					'id'       => $response->getId(),
@@ -2124,6 +2143,120 @@ class AgentLoop {
 		}
 
 		$this->fire_progress();
+	}
+
+	/**
+	 * Track create/update responses that require block-validation self-repair.
+	 *
+	 * @param string $tool_name Ability/tool name as returned by the SDK.
+	 * @param mixed  $response  Tool response payload.
+	 */
+	private function track_block_validation_response( string $tool_name, $response ): void {
+		if ( ! is_array( $response ) ) {
+			return;
+		}
+
+		$normalized_name = self::normalize_logged_tool_name( $tool_name );
+		if ( ! in_array( $normalized_name, array( 'sd-ai-agent/create-post', 'sd-ai-agent/update-post' ), true ) ) {
+			return;
+		}
+
+		$post_id = (int) ( $response['post_id'] ?? 0 );
+		if ( $post_id <= 0 ) {
+			return;
+		}
+
+		$validation = $response['block_validation'] ?? null;
+		if ( ! is_array( $validation ) ) {
+			return;
+		}
+
+		$invalid_blocks = (int) ( $validation['invalidBlocks'] ?? 0 );
+		if ( $invalid_blocks <= 0 ) {
+			unset( $this->pending_block_validation_repairs[ $post_id ] );
+			return;
+		}
+
+		$this->pending_block_validation_repairs[ $post_id ] = array(
+			'post_id'        => $post_id,
+			'tool_name'      => $normalized_name,
+			'invalidBlocks'  => $invalid_blocks,
+			'firstInvalid'   => $validation['firstInvalid'] ?? null,
+			'recommendation' => (string) ( $validation['recommendation'] ?? '' ),
+		);
+	}
+
+	/**
+	 * Inject a hard self-repair instruction after invalid block validation.
+	 */
+	private function inject_block_validation_repair_guidance(): void {
+		$pending = array_values( $this->pending_block_validation_repairs );
+		$lines   = array(
+			'Block validation self-repair is required before you report success.',
+			'One or more create-post/update-post responses returned block_validation.invalidBlocks > 0.',
+			'Your next action must be sd-ai-agent/update-post for each listed post_id, '
+				. 'with content rebuilt by replacing each invalid block originalContent '
+				. 'with expectedContent from block_validation.results[].',
+			'Do not provide a final success response until a follow-up update-post '
+				. 'response returns block_validation.invalidBlocks = 0. If repair is '
+				. 'impossible, explicitly report the unresolved post_id and invalid block count.',
+			'',
+			'Pending repairs:',
+		);
+
+		foreach ( $pending as $repair ) {
+			$lines[] = sprintf(
+				'- post_id %1$d from %2$s: invalidBlocks=%3$d',
+				(int) ( $repair['post_id'] ?? 0 ),
+				(string) ( $repair['tool_name'] ?? '' ),
+				(int) ( $repair['invalidBlocks'] ?? 0 )
+			);
+		}
+
+		$this->history[] = new UserMessage( array( new MessagePart( implode( "\n", $lines ) ) ) );
+
+		$this->tool_call_log[] = array(
+			'type'    => 'guardrail',
+			'reason'  => 'block_validation_repair_required',
+			'pending' => $pending,
+		);
+
+		$this->fire_progress();
+	}
+
+	/**
+	 * Append an explicit warning when the loop cannot spend another repair turn.
+	 *
+	 * @param string $reply Current assistant reply.
+	 * @return string Reply with unresolved-validation disclosure.
+	 */
+	private function append_unresolved_block_validation_warning( string $reply ): string {
+		$lines = array( '', __( 'Unresolved block validation:', 'superdav-ai-agent' ) );
+
+		foreach ( $this->pending_block_validation_repairs as $repair ) {
+			$lines[] = sprintf(
+				/* translators: 1: post ID, 2: invalid block count. */
+				__( '- Post ID %1$d still has %2$d invalid block(s).', 'superdav-ai-agent' ),
+				(int) ( $repair['post_id'] ?? 0 ),
+				(int) ( $repair['invalidBlocks'] ?? 0 )
+			);
+		}
+
+		return rtrim( $reply ) . "\n\n" . implode( "\n", $lines );
+	}
+
+	/**
+	 * Normalize SDK function names back to canonical ability names when possible.
+	 *
+	 * @param string $tool_name Name from a FunctionCall/FunctionResponse.
+	 * @return string Canonical-ish ability name.
+	 */
+	private static function normalize_logged_tool_name( string $tool_name ): string {
+		if ( str_starts_with( $tool_name, 'wpab__sd-ai-agent__' ) ) {
+			return 'sd-ai-agent/' . substr( $tool_name, strlen( 'wpab__sd-ai-agent__' ) );
+		}
+
+		return $tool_name;
 	}
 
 	/**

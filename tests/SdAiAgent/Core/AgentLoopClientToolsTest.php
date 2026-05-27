@@ -346,6 +346,111 @@ class AgentLoopClientToolsTest extends WP_UnitTestCase {
 		$this->assertNull( $method->invoke( $loop, $message ) );
 	}
 
+	// ── block_validation self-repair guard tests ───────────────────────────
+
+	/**
+	 * Invalid create/update block validation responses are tracked for repair.
+	 */
+	public function test_block_validation_response_tracks_pending_repair(): void {
+		$loop = new AgentLoop( 'test', array(), array(), array() );
+
+		$reflection = new \ReflectionClass( $loop );
+		$method     = $reflection->getMethod( 'track_block_validation_response' );
+		$method->setAccessible( true );
+
+		$method->invoke(
+			$loop,
+			'wpab__sd-ai-agent__create-post',
+			array(
+				'post_id'          => 42,
+				'block_validation' => array(
+					'isValid'       => false,
+					'invalidBlocks' => 2,
+				),
+			)
+		);
+
+		$prop = $reflection->getProperty( 'pending_block_validation_repairs' );
+		$prop->setAccessible( true );
+		$pending = $prop->getValue( $loop );
+
+		$this->assertArrayHasKey( 42, $pending );
+		$this->assertSame( 'sd-ai-agent/create-post', $pending[42]['tool_name'] );
+		$this->assertSame( 2, $pending[42]['invalidBlocks'] );
+	}
+
+	/**
+	 * A clean update-post validation response clears a pending repair for the post.
+	 */
+	public function test_clean_block_validation_response_clears_pending_repair(): void {
+		$loop = new AgentLoop( 'test', array(), array(), array() );
+
+		$reflection = new \ReflectionClass( $loop );
+		$method     = $reflection->getMethod( 'track_block_validation_response' );
+		$method->setAccessible( true );
+
+		$method->invoke(
+			$loop,
+			'sd-ai-agent/create-post',
+			array(
+				'post_id'          => 42,
+				'block_validation' => array(
+					'isValid'       => false,
+					'invalidBlocks' => 1,
+				),
+			)
+		);
+		$method->invoke(
+			$loop,
+			'sd-ai-agent/update-post',
+			array(
+				'post_id'          => 42,
+				'block_validation' => array(
+					'isValid'       => true,
+					'invalidBlocks' => 0,
+				),
+			)
+		);
+
+		$prop = $reflection->getProperty( 'pending_block_validation_repairs' );
+		$prop->setAccessible( true );
+
+		$this->assertSame( array(), $prop->getValue( $loop ) );
+	}
+
+	/**
+	 * The guard injects an explicit update-post instruction into history.
+	 */
+	public function test_block_validation_guard_injects_repair_guidance(): void {
+		$loop = new AgentLoop( 'test', array(), array(), array() );
+
+		$reflection = new \ReflectionClass( $loop );
+		$pending    = $reflection->getProperty( 'pending_block_validation_repairs' );
+		$pending->setAccessible( true );
+		$pending->setValue(
+			$loop,
+			array(
+				42 => array(
+					'post_id'       => 42,
+					'tool_name'     => 'sd-ai-agent/create-post',
+					'invalidBlocks' => 3,
+				),
+			)
+		);
+
+		$method = $reflection->getMethod( 'inject_block_validation_repair_guidance' );
+		$method->setAccessible( true );
+		$method->invoke( $loop );
+
+		$history = $reflection->getProperty( 'history' );
+		$history->setAccessible( true );
+		$messages = $history->getValue( $loop );
+
+		$this->assertCount( 1, $messages );
+		$this->assertStringContainsString( 'sd-ai-agent/update-post', $messages[0]->getParts()[0]->getText() );
+		$this->assertStringContainsString( 'post_id 42', $messages[0]->getParts()[0]->getText() );
+	}
+
 	// ── Helper methods ────────────────────────────────────────────────────
 
 	/**
