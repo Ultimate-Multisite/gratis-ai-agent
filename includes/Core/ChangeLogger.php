@@ -101,6 +101,37 @@ class ChangeLogger {
 	}
 
 	/**
+	 * Record a newly created post while AI change logging is active.
+	 *
+	 * WordPress core's post_updated hook only captures before/after field
+	 * transitions for existing posts. A successful wp_insert_post() therefore
+	 * needs an explicit creation marker so the Changes UI can audit and revert
+	 * agent-created content.
+	 *
+	 * @param int      $post_id      Created post ID.
+	 * @param \WP_Post $post         Created post object.
+	 * @param string   $ability_name Ability slug to record when no active ability name is set.
+	 */
+	public static function record_post_created( int $post_id, \WP_Post $post, string $ability_name = 'sd-ai-agent/create-post' ): void {
+		if ( ! self::$active ) {
+			return;
+		}
+
+		ChangesLog::record(
+			[
+				'session_id'   => self::$session_id,
+				'object_type'  => $post->post_type,
+				'object_id'    => $post_id,
+				'object_title' => $post->post_title,
+				'ability_name' => self::$ability_name ?: $ability_name,
+				'field_name'   => 'post_created',
+				'before_value' => '',
+				'after_value'  => $post->post_title,
+			]
+		);
+	}
+
+	/**
 	 * Cache of post meta before-values, keyed by "{object_id}:{meta_key}".
 	 *
 	 * Read via array-key access in on_updated_post_meta().

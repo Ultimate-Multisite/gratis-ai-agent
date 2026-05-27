@@ -107,6 +107,29 @@ class ChangeRevertServiceTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * apply_revert() moves a post-created change marker to the trash.
+	 */
+	public function test_apply_revert_post_created_marker_trashes_post(): void {
+		$post_id = self::factory()->post->create( [
+			'post_title'  => 'Agent Created Draft',
+			'post_status' => 'draft',
+		] );
+
+		$change = $this->make_change( [
+			'object_type'  => 'post',
+			'object_id'    => $post_id,
+			'field_name'   => 'post_created',
+			'before_value' => '',
+			'after_value'  => 'Agent Created Draft',
+		] );
+
+		$result = ChangeRevertService::apply_revert( $change );
+
+		$this->assertTrue( $result );
+		$this->assertSame( 'trash', get_post_status( $post_id ) );
+	}
+
+	/**
 	 * apply_revert() restores a PAGE field — object_type 'page' must work via
 	 * post_type_exists() fallback (BUG-4 fix).
 	 */
