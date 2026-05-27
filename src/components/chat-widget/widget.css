@@ -1107,14 +1107,27 @@
 	display: flex;
 	min-width: 0;
 	flex: 1;
+	flex-wrap: wrap;
 	align-items: center;
 	gap: 2px;
 }
 
 .sdaa-w-input-toolbar-right {
 	display: flex;
+	position: relative;
+	z-index: 1;
+	flex-shrink: 0;
 	align-items: center;
 	gap: 2px;
+}
+
+.sdaa-w-input-toolbar-left .sdaa-cr-model-chip-wrap {
+	min-width: 0;
+	max-width: 150px;
+}
+
+.sdaa-w-input-toolbar-left .sdaa-cr-model-chip {
+	max-width: 150px;
 }
 
 .sdaa-w-attachments {
