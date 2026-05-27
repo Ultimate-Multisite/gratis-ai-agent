@@ -408,14 +408,16 @@ class SiteHealthAbilitiesTest extends WP_UnitTestCase {
 		update_option( OnboardingManager::TRIGGERED_OPTION, true, false );
 		update_option( SiteScanner::STATUS_OPTION, [ 'status' => 'complete' ], false );
 
-		$result = SiteHealthAbilities::handle_detect_fresh_install( [] );
+		try {
+			$result = SiteHealthAbilities::handle_detect_fresh_install( [] );
 
-		$this->assertTrue( $result['onboarding_complete'] );
-		$this->assertTrue( $result['onboarding_triggered'] );
-		$this->assertSame( 'complete', $result['site_scan_status'] );
-
-		delete_option( OnboardingManager::COMPLETE_OPTION );
-		delete_option( OnboardingManager::TRIGGERED_OPTION );
-		delete_option( SiteScanner::STATUS_OPTION );
+			$this->assertTrue( $result['onboarding_complete'] );
+			$this->assertTrue( $result['onboarding_triggered'] );
+			$this->assertSame( 'complete', $result['site_scan_status'] );
+		} finally {
+			delete_option( OnboardingManager::COMPLETE_OPTION );
+			delete_option( OnboardingManager::TRIGGERED_OPTION );
+			delete_option( SiteScanner::STATUS_OPTION );
+		}
 	}
 }
