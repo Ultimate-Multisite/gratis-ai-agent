@@ -92,9 +92,11 @@ class SystemInstructionBuilder {
 	 * @return string
 	 */
 	public function build( array $settings, array $ability_names = array() ): string {
+		$ability_names = array_values( array_map( 'strval', $ability_names ) );
+
 		// Use custom system prompt if set, otherwise the built-in default.
 		$custom = $settings['system_prompt'] ?? '';
-		$base   = ! empty( $custom ) ? $custom : self::default_system_instruction();
+		$base   = is_string( $custom ) && '' !== $custom ? $custom : self::default_system_instruction();
 
 		// Append memory section if memories exist.
 		$memory_text = Memory::get_formatted_for_prompt();
@@ -182,7 +184,9 @@ class SystemInstructionBuilder {
 		// Append the Tier-2 ability manifest so the model knows what's
 		// reachable via ability-search / ability-call. This is the heart of
 		// the auto-discovery layer.
-		$manifest = ToolDiscovery::build_manifest_section();
+		$base .= "\n\n" . self::build_tool_routing_section( $ability_names );
+
+		$manifest = ToolDiscovery::build_manifest_section( $ability_names );
 		if ( '' !== $manifest ) {
 			// @phpstan-ignore-next-line
 			$base .= "\n\n" . $manifest;
@@ -255,6 +259,36 @@ class SystemInstructionBuilder {
 			}
 		}
 		return false;
+	}
+
+	/**
+	 * Build guidance that keeps prompt-only ability mentions aligned with the
+	 * current direct tool surface.
+	 *
+	 * @param string[] $ability_names Direct abilities exposed to the model this turn.
+	 * @return string
+	 */
+	public static function build_tool_routing_section( array $ability_names ): string {
+		$first_party = array_values(
+			array_filter(
+				$ability_names,
+				static fn( string $name ): bool => str_starts_with( $name, 'sd-ai-agent/' )
+			)
+		);
+		sort( $first_party );
+
+		$direct_list = empty( $first_party )
+			? 'none'
+			: implode(
+				', ',
+				array_map( static fn( string $name ): string => '`' . $name . '`', $first_party )
+			);
+
+		return "## Tool routing\n\n"
+			. 'Only call abilities that are present in the current direct tool list. '
+			. 'Active first-party direct tools this turn: ' . $direct_list . ".\n"
+			. 'If any prompt, memory, or manifest text mentions another `sd-ai-agent/<ability>` name, do not emit its direct `wpab__...` tool call. '
+			. 'Use `sd-ai-agent/ability-search` to fetch its schema, then invoke it through `sd-ai-agent/ability-call`.';
 	}
 
 	/**
