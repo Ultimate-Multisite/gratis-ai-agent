@@ -132,4 +132,45 @@ class AssertionEngineTest extends WP_UnitTestCase {
 		$this->assertStringNotContainsString( 'wp-multisite-waas.test', $normalized );
 		$this->assertStringContainsString( '--url=' . $site_url, $normalized );
 	}
+
+	/**
+	 * Test WP-CLI URL normalization only rewrites --url option values.
+	 */
+	public function test_wp_cli_benchmark_url_leaves_non_url_occurrences_untouched(): void {
+		$method = new ReflectionMethod( AssertionEngine::class, 'normalize_wp_cli_benchmark_url' );
+		$method->setAccessible( true );
+
+		$command    = 'option get wp-multisite-waas.test --url=wp-multisite-waas.test';
+		$normalized = (string) $method->invoke( null, $command );
+		$site_url   = untrailingslashit( (string) preg_replace( '#^https?://#', '', home_url( '/' ) ) );
+
+		$this->assertSame( 'option get wp-multisite-waas.test --url=' . $site_url, $normalized );
+	}
+
+	/**
+	 * Test WP-CLI URL normalization handles separate quoted --url option values.
+	 */
+	public function test_wp_cli_benchmark_url_normalizes_separate_quoted_url_values(): void {
+		$method = new ReflectionMethod( AssertionEngine::class, 'normalize_wp_cli_benchmark_url' );
+		$method->setAccessible( true );
+
+		$command    = 'post list --url "https://wp-multisite-waas.test/subsite" --field=ID';
+		$normalized = (string) $method->invoke( null, $command );
+		$site_url   = untrailingslashit( (string) preg_replace( '#^https?://#', '', home_url( '/' ) ) );
+
+		$this->assertSame( 'post list --url "https://' . $site_url . '/subsite" --field=ID', $normalized );
+	}
+
+	/**
+	 * Test WP-CLI URL normalization does not rewrite fixture text in URL paths.
+	 */
+	public function test_wp_cli_benchmark_url_only_rewrites_fixture_host(): void {
+		$method = new ReflectionMethod( AssertionEngine::class, 'normalize_wp_cli_benchmark_url' );
+		$method->setAccessible( true );
+
+		$command    = 'post list --url=example.test/wp-multisite-waas.test';
+		$normalized = (string) $method->invoke( null, $command );
+
+		$this->assertSame( $command, $normalized );
+	}
 }

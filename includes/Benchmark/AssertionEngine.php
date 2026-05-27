@@ -735,7 +735,54 @@ class AssertionEngine {
 			return $command;
 		}
 
-		return str_replace( 'wp-multisite-waas.test', $site_url, $command );
+		$rewrite_url = static function ( array $matches ) use ( $site_url ): string {
+			$leading = (string) $matches[1];
+			$option  = (string) $matches[2];
+			$quote   = '';
+			$value   = '';
+
+			if ( isset( $matches[3] ) && '' !== $matches[3] ) {
+				$quote = '"';
+				$value = (string) $matches[3];
+			} elseif ( isset( $matches[4] ) && '' !== $matches[4] ) {
+				$quote = "'";
+				$value = (string) $matches[4];
+			} else {
+				$value = (string) $matches[5];
+			}
+
+			$value = self::normalize_wp_cli_benchmark_url_value( $value, $site_url );
+
+			return $leading . $option . $quote . $value . $quote;
+		};
+
+		$command = (string) preg_replace_callback(
+			'/(^|\s)(--url=)(?:"([^"]*)"|\'([^\']*)\'|(\S+))/',
+			$rewrite_url,
+			$command
+		);
+
+		return (string) preg_replace_callback(
+			'/(^|\s)(--url\s+)(?:"([^"]*)"|\'([^\']*)\'|(\S+))/',
+			$rewrite_url,
+			$command
+		);
+	}
+
+	/**
+	 * Normalize the historical benchmark fixture host inside one WP-CLI URL value.
+	 *
+	 * @param string $value    WP-CLI --url option value.
+	 * @param string $site_url Active site URL without a scheme.
+	 * @return string URL option value with the fixture host replaced when present.
+	 */
+	private static function normalize_wp_cli_benchmark_url_value( string $value, string $site_url ): string {
+		return (string) preg_replace(
+			'~^(https?://)?wp-multisite-waas\.test(?=[:/?#]|$)~',
+			'${1}' . $site_url,
+			$value,
+			1
+		);
 	}
 
 	/**
