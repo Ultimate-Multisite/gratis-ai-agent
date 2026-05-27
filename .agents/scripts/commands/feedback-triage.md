@@ -204,10 +204,13 @@ Report ID: {report_id} (submitted {created_at})
 ```
 
 Write the body to a temp file (avoids quoting hazards with backticks /
-unicode dashes). Do not create the file with a shell heredoc in headless runs;
-use your runtime's file-writing tool, or an existing generated file. Create the
+unicode dashes). In headless runs, create the file with the runtime's
+file-writing tool or an existing generated file; do not use shell heredocs,
+process substitution, or command substitution to inline the body or signature.
+Those forms are rejected by the aidevops GitHub signature gate. Create the
 GitHub issue through the repo helper so the required aidevops signature footer
-is appended automatically. Apply `origin:worker` and `status:available`
+is appended automatically and the fallback signature is used if the framework
+signature helper is unavailable. Apply `origin:worker` and `status:available`
 alongside `bug` so the issue is traceable as feedback-triage output and visible
 to claim routines:
 
