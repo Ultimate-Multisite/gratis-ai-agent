@@ -510,7 +510,7 @@ class AgentLoop {
 				// Truncate then split for OpenAI-compatible providers.
 				$truncated_message = self::truncate_tool_results( $response_message );
 				$this->append_tool_response_to_history( $truncated_message );
-				$this->log_tool_responses( $response_message );
+				$this->log_tool_responses( $truncated_message );
 			} else {
 				// Remove the model's tool call message and tell the model the call was rejected.
 				array_pop( $this->history );
@@ -824,7 +824,7 @@ class AgentLoop {
 						}
 						$truncated_php = self::truncate_tool_results( $php_response );
 						$this->append_tool_response_to_history( $truncated_php );
-						$this->log_tool_responses( $php_response );
+						$this->log_tool_responses( $truncated_php );
 					}
 
 					// Persist loop state so the resume endpoint can reconstruct it.
@@ -913,7 +913,7 @@ class AgentLoop {
 			// providers that only accept one tool result per message).
 			$truncated_message = self::truncate_tool_results( $response_message );
 			$this->append_tool_response_to_history( $truncated_message );
-			$this->log_tool_responses( $response_message );
+			$this->log_tool_responses( $truncated_message );
 
 			// Reset the wall-clock deadline after each productive tool call.
 			// This allows genuinely long tasks (many sequential tool calls) to

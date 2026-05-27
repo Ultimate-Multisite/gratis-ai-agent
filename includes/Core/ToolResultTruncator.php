@@ -50,8 +50,22 @@ class ToolResultTruncator {
 	 * @return mixed The possibly-truncated result.
 	 */
 	public static function truncate( $result, string $tool_name = '' ) {
+		if ( is_string( $result ) && self::is_woocommerce_order_tool( $tool_name ) ) {
+			$decoded = json_decode( $result, true );
+			if ( JSON_ERROR_NONE === json_last_error() && is_array( $decoded ) ) {
+				$redacted = self::apply_tool_strategy( $decoded, $tool_name );
+				$encoded  = wp_json_encode( $redacted );
+
+				return is_string( $encoded ) ? $encoded : $result;
+			}
+		}
+
 		if ( ! is_array( $result ) ) {
 			return $result;
+		}
+
+		if ( self::is_woocommerce_order_tool( $tool_name ) ) {
+			return self::apply_tool_strategy( $result, $tool_name );
 		}
 
 		// Check if the result is small enough to pass through.
@@ -73,12 +87,17 @@ class ToolResultTruncator {
 	/**
 	 * Apply tool-specific truncation strategies.
 	 *
-	 * @param array<string, mixed> $result    The tool result.
-	 * @param string               $tool_name The tool name.
-	 * @return array<string, mixed> The truncated result.
+	 * @param array<string|int, mixed> $result    The tool result.
+	 * @param string                   $tool_name The tool name.
+	 * @return array<string|int, mixed> The truncated result.
 	 */
 	private static function apply_tool_strategy( array $result, string $tool_name ): array {
 		switch ( $tool_name ) {
+			case 'woocommerce/orders-list':
+			case 'woocommerce/orders-get':
+				$result = self::scrub_woocommerce_order_result( $result );
+				break;
+
 			// Plugin list: keep name + active status + file, drop description/version details.
 			case 'sd-ai-agent/get-plugins':
 				if ( isset( $result['plugins'] ) && is_array( $result['plugins'] ) ) {
@@ -165,6 +184,189 @@ class ToolResultTruncator {
 		}
 
 		return $result;
+	}
+
+	/**
+	 * Check whether a tool returns WooCommerce order data with customer PII.
+	 *
+	 * @param string $tool_name Ability name.
+	 * @return bool
+	 */
+	private static function is_woocommerce_order_tool( string $tool_name ): bool {
+		return in_array( $tool_name, array( 'woocommerce/orders-list', 'woocommerce/orders-get' ), true );
+	}
+
+	/**
+	 * Scrub WooCommerce order payloads down to AI-safe audit fields.
+	 *
+	 * @param array<string|int, mixed> $result WooCommerce order result.
+	 * @return array<string|int, mixed> Redacted result.
+	 */
+	private static function scrub_woocommerce_order_result( array $result ): array {
+		if ( self::looks_like_woocommerce_order( $result ) ) {
+			return self::summarize_woocommerce_order( $result );
+		}
+
+		$scrubbed = array();
+		foreach ( $result as $key => $value ) {
+			if ( is_string( $key ) && self::is_sensitive_woocommerce_order_key( $key ) ) {
+				continue;
+			}
+
+			if ( is_array( $value ) ) {
+				$scrubbed[ $key ] = self::scrub_woocommerce_order_result( $value );
+			} else {
+				$scrubbed[ $key ] = $value;
+			}
+		}
+
+		return $scrubbed;
+	}
+
+	/**
+	 * Detect a WooCommerce order object/array.
+	 *
+	 * @param array<string|int, mixed> $value Candidate value.
+	 * @return bool
+	 */
+	private static function looks_like_woocommerce_order( array $value ): bool {
+		return isset( $value['id'] ) && ( isset( $value['status'] ) || isset( $value['billing'] ) || isset( $value['shipping'] ) || isset( $value['line_items'] ) );
+	}
+
+	/**
+	 * Reduce a WooCommerce order to fields needed for non-PII summaries.
+	 *
+	 * @param array<string|int, mixed> $order Raw WooCommerce order.
+	 * @return array<string, mixed> Minimized order.
+	 */
+	private static function summarize_woocommerce_order( array $order ): array {
+		$allowed_order_keys = array(
+			'id',
+			'number',
+			'parent_id',
+			'status',
+			'currency',
+			'currency_symbol',
+			'date_created',
+			'date_created_gmt',
+			'date_modified',
+			'date_modified_gmt',
+			'date_completed',
+			'date_completed_gmt',
+			'date_paid',
+			'date_paid_gmt',
+			'total',
+			'total_tax',
+			'discount_total',
+			'discount_tax',
+			'shipping_total',
+			'shipping_tax',
+			'cart_tax',
+			'customer_id',
+			'created_via',
+			'prices_include_tax',
+			'line_items',
+			'tax_lines',
+			'shipping_lines',
+			'fee_lines',
+			'coupon_lines',
+			'refunds',
+		);
+
+		$summary = array();
+		foreach ( $allowed_order_keys as $key ) {
+			if ( array_key_exists( $key, $order ) ) {
+				$summary[ $key ] = self::summarize_woocommerce_order_field( $key, $order[ $key ] );
+			}
+		}
+
+		$summary['_redacted'] = true;
+
+		return $summary;
+	}
+
+	/**
+	 * Summarize nested WooCommerce order collections.
+	 *
+	 * @param string $key   Field key.
+	 * @param mixed  $value Field value.
+	 * @return mixed Minimized value.
+	 */
+	private static function summarize_woocommerce_order_field( string $key, $value ) {
+		if ( ! is_array( $value ) ) {
+			return $value;
+		}
+
+		if ( 'line_items' === $key ) {
+			return self::summarize_woocommerce_line_items( $value );
+		}
+
+		if ( in_array( $key, array( 'tax_lines', 'shipping_lines', 'fee_lines', 'coupon_lines', 'refunds' ), true ) ) {
+			return self::scrub_woocommerce_order_result( $value );
+		}
+
+		return $value;
+	}
+
+	/**
+	 * Keep only product summary data from WooCommerce order line items.
+	 *
+	 * @param array<string|int, mixed> $items Raw line items.
+	 * @return array<string|int, mixed> Minimized line items.
+	 */
+	private static function summarize_woocommerce_line_items( array $items ): array {
+		$allowed_line_item_keys = array( 'id', 'name', 'product_id', 'variation_id', 'quantity', 'sku', 'subtotal', 'subtotal_tax', 'total', 'total_tax' );
+		$summary                = array();
+
+		foreach ( $items as $index => $item ) {
+			if ( ! is_array( $item ) ) {
+				$summary[ $index ] = $item;
+				continue;
+			}
+
+			$line = array();
+			foreach ( $allowed_line_item_keys as $key ) {
+				if ( array_key_exists( $key, $item ) ) {
+					$line[ $key ] = $item[ $key ];
+				}
+			}
+
+			$summary[ $index ] = $line;
+		}
+
+		return $summary;
+	}
+
+	/**
+	 * Check for WooCommerce order keys that can expose customer/contact secrets.
+	 *
+	 * @param string $key Result key.
+	 * @return bool
+	 */
+	private static function is_sensitive_woocommerce_order_key( string $key ): bool {
+		$sensitive_keys = array(
+			'billing',
+			'shipping',
+			'email',
+			'phone',
+			'address_1',
+			'address_2',
+			'city',
+			'state',
+			'postcode',
+			'country',
+			'first_name',
+			'last_name',
+			'company',
+			'customer_ip_address',
+			'customer_user_agent',
+			'transaction_id',
+			'order_key',
+			'cart_hash',
+			'payment_url',
+		);
+
+		return in_array( strtolower( $key ), $sensitive_keys, true );
 	}
 
 	/**
