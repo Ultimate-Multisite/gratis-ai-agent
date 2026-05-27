@@ -286,6 +286,86 @@ class ToolResultTruncatorTest extends WP_UnitTestCase {
 		}
 	}
 
+	/**
+	 * Regression: WooCommerce order tools must not expose customer PII even when
+	 * the response is below the generic truncation threshold.
+	 */
+	public function test_woocommerce_orders_list_scrubs_customer_pii_from_small_array(): void {
+		$input = [
+			[
+				'id'                    => 123,
+				'status'                => 'processing',
+				'currency'              => 'GBP',
+				'total'                 => '42.00',
+				'customer_id'           => 456,
+				'order_key'             => 'wc_order_sensitive_key',
+				'transaction_id'        => 'txn_sensitive_id',
+				'customer_ip_address'   => '203.0.113.10',
+				'customer_user_agent'   => 'Sensitive Browser UA',
+				'billing'               => [
+					'email'     => 'customer@example.test',
+					'phone'     => '0123456789',
+					'address_1' => '1 Private Street',
+				],
+				'shipping'              => [
+					'address_1' => '2 Private Street',
+				],
+				'line_items'            => [
+					[
+						'name'       => 'Sample product',
+						'product_id' => 789,
+						'quantity'   => 2,
+						'total'      => '42.00',
+						'meta_data'  => [ [ 'value' => 'engraving with private note' ] ],
+					],
+				],
+			],
+		];
+
+		$result = ToolResultTruncator::truncate( $input, 'woocommerce/orders-list' );
+
+		$this->assertIsArray( $result );
+		$this->assertSame( 123, $result[0]['id'] );
+		$this->assertSame( 'processing', $result[0]['status'] );
+		$this->assertSame( '42.00', $result[0]['total'] );
+		$this->assertSame( 456, $result[0]['customer_id'] );
+		$this->assertTrue( $result[0]['_redacted'] );
+		$this->assertArrayNotHasKey( 'billing', $result[0] );
+		$this->assertArrayNotHasKey( 'shipping', $result[0] );
+		$this->assertArrayNotHasKey( 'order_key', $result[0] );
+		$this->assertArrayNotHasKey( 'transaction_id', $result[0] );
+		$this->assertArrayNotHasKey( 'customer_ip_address', $result[0] );
+		$this->assertArrayNotHasKey( 'customer_user_agent', $result[0] );
+		$this->assertArrayNotHasKey( 'meta_data', $result[0]['line_items'][0] );
+	}
+
+	/**
+	 * Regression: WooCommerce order responses can arrive as JSON strings from
+	 * function-response DTOs, so scrub the decoded payload and re-encode it.
+	 */
+	public function test_woocommerce_orders_get_scrubs_json_string_response(): void {
+		$input = wp_json_encode(
+			[
+				'id'                  => 321,
+				'status'              => 'completed',
+				'total'               => '10.00',
+				'billing'             => [ 'email' => 'customer@example.test' ],
+				'customer_ip_address' => '203.0.113.20',
+			]
+		);
+
+		$result = ToolResultTruncator::truncate( (string) $input, 'woocommerce/orders-get' );
+		$this->assertIsString( $result );
+
+		$decoded = json_decode( $result, true );
+		$this->assertIsArray( $decoded );
+		$this->assertSame( 321, $decoded['id'] );
+		$this->assertSame( 'completed', $decoded['status'] );
+		$this->assertTrue( $decoded['_redacted'] );
+		$this->assertArrayNotHasKey( 'billing', $decoded );
+		$this->assertArrayNotHasKey( 'customer_ip_address', $decoded );
+	}
+
 	// ── constants ─────────────────────────────────────────────────────────
 
 	/**
