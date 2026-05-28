@@ -43,6 +43,8 @@ class WpCliAbilitiesTest extends WP_UnitTestCase {
 		wp_set_current_user( $this->admin_id );
 
 		WpCliAbilities::reset_binary_cache();
+		$this->unregister_wp_cli_ability();
+		$this->unregister_wp_cli_category();
 	}
 
 	/**
@@ -60,6 +62,8 @@ class WpCliAbilitiesTest extends WP_UnitTestCase {
 		}
 
 		WpCliAbilities::reset_binary_cache();
+		$this->unregister_wp_cli_ability();
+		$this->unregister_wp_cli_category();
 
 		parent::tear_down();
 	}
@@ -76,6 +80,83 @@ class WpCliAbilitiesTest extends WP_UnitTestCase {
 	 */
 	private function disable_path_scan(): void {
 		add_filter( 'sd_ai_agent_wp_cli_scan_path', '__return_false' );
+	}
+
+	/**
+	 * Registration should not expose wp-cli/execute when proc_open is blocked.
+	 */
+	public function test_register_ability_skips_when_proc_open_unavailable(): void {
+		add_filter( 'sd_ai_agent_wp_cli_proc_open_available', '__return_false' );
+
+		$this->register_wp_cli_ability_in_context();
+
+		$this->assertFalse( $this->is_wp_cli_ability_registered() );
+	}
+
+	/**
+	 * Registration should not expose wp-cli/execute when no usable binary exists.
+	 */
+	public function test_register_ability_skips_when_binary_unavailable(): void {
+		$empty = $this->make_temp_dir();
+		add_filter(
+			'sd_ai_agent_wp_cli_candidates',
+			static function () use ( $empty ): array {
+				return array( $empty . '/missing-wp', $empty . '/missing.phar' );
+			}
+		);
+		add_filter(
+			'sd_ai_agent_wp_cli_binary',
+			static function (): string {
+				return '';
+			}
+		);
+		$this->disable_path_scan();
+
+		$this->register_wp_cli_ability_in_context();
+
+		$this->assertFalse( $this->is_wp_cli_ability_registered() );
+	}
+
+	/**
+	 * A valid filtered binary should expose wp-cli/execute normally.
+	 */
+	public function test_register_ability_registers_when_binary_available(): void {
+		$fake = $this->create_fake_phar();
+		add_filter(
+			'sd_ai_agent_wp_cli_binary',
+			static function () use ( $fake ): string {
+				return $fake;
+			}
+		);
+
+		$this->register_wp_cli_category_in_context();
+		$this->register_wp_cli_ability_in_context();
+
+		$this->assertTrue( $this->is_wp_cli_ability_registered() );
+	}
+
+	/**
+	 * The WP-CLI category should not be advertised by itself when unavailable.
+	 */
+	public function test_register_category_skips_when_binary_unavailable(): void {
+		$empty = $this->make_temp_dir();
+		add_filter(
+			'sd_ai_agent_wp_cli_candidates',
+			static function () use ( $empty ): array {
+				return array( $empty . '/missing-wp', $empty . '/missing.phar' );
+			}
+		);
+		add_filter(
+			'sd_ai_agent_wp_cli_binary',
+			static function (): string {
+				return '';
+			}
+		);
+		$this->disable_path_scan();
+
+		$this->register_wp_cli_category_in_context();
+
+		$this->assertFalse( wp_has_ability_category( 'wp-cli' ) );
 	}
 
 	/**
@@ -269,6 +350,85 @@ class WpCliAbilitiesTest extends WP_UnitTestCase {
 		$ref = new \ReflectionMethod( WpCliAbilities::class, 'find_wp_cli' );
 		$ref->setAccessible( true );
 		return $ref->invoke( null );
+	}
+
+	/**
+	 * Invoke WP-CLI ability registration under the hook context required by core.
+	 *
+	 * @return void
+	 */
+	private function register_wp_cli_ability_in_context(): void {
+		// phpcs:ignore WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedVariableFound -- Standard WordPress hook stack global.
+		global $wp_current_filter;
+		$wp_current_filter[] = 'wp_abilities_api_init';
+
+		try {
+			WpCliAbilities::register_ability();
+		} finally {
+			array_pop( $wp_current_filter );
+		}
+	}
+
+	/**
+	 * Invoke WP-CLI category registration under the hook context required by core.
+	 *
+	 * @return void
+	 */
+	private function register_wp_cli_category_in_context(): void {
+		// phpcs:ignore WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedVariableFound -- Standard WordPress hook stack global.
+		global $wp_current_filter;
+		$wp_current_filter[] = 'wp_abilities_api_categories_init';
+
+		try {
+			WpCliAbilities::register_category();
+		} finally {
+			array_pop( $wp_current_filter );
+		}
+	}
+
+	/**
+	 * Remove the WP-CLI ability so registration tests start from a clean slate.
+	 *
+	 * @return void
+	 */
+	private function unregister_wp_cli_ability(): void {
+		if ( function_exists( 'wp_unregister_ability' ) && $this->is_wp_cli_ability_registered() ) {
+			wp_unregister_ability( 'wp-cli/execute' );
+		}
+	}
+
+	/**
+	 * Remove the WP-CLI category so category registration tests are isolated.
+	 *
+	 * @return void
+	 */
+	private function unregister_wp_cli_category(): void {
+		if (
+			function_exists( 'wp_unregister_ability_category' )
+			&& function_exists( 'wp_has_ability_category' )
+			&& wp_has_ability_category( 'wp-cli' )
+		) {
+			wp_unregister_ability_category( 'wp-cli' );
+		}
+	}
+
+	/**
+	 * Check the full registry without triggering wp_get_ability() not-found notices.
+	 *
+	 * @return bool
+	 */
+	private function is_wp_cli_ability_registered(): bool {
+		if ( ! function_exists( 'wp_get_abilities' ) ) {
+			return false;
+		}
+
+		foreach ( wp_get_abilities() as $ability ) {
+			if ( $ability instanceof \WP_Ability && 'wp-cli/execute' === $ability->get_name() ) {
+				return true;
+			}
+		}
+
+		return false;
 	}
 
 	/**
