@@ -122,6 +122,7 @@ class AgentLoop {
 	private $tool_call_log = array();
 
 	/** @var array<int, array<string, mixed>> Posts that still require block-validation repair. */
+	// phpcs:ignore WordPress.NamingConventions.ValidVariableName.PropertyNotSnakeCase -- Project property naming guidance requires camelCase.
 	private array $pendingBlockValidationRepairs = array();
 
 	/** @var float */
