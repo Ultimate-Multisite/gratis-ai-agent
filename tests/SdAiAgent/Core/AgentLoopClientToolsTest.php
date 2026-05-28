@@ -370,7 +370,7 @@ class AgentLoopClientToolsTest extends WP_UnitTestCase {
 			)
 		);
 
-		$prop = $reflection->getProperty( 'pending_block_validation_repairs' );
+		$prop = $reflection->getProperty( 'pendingBlockValidationRepairs' );
 		$prop->setAccessible( true );
 		$pending = $prop->getValue( $loop );
 
@@ -412,7 +412,7 @@ class AgentLoopClientToolsTest extends WP_UnitTestCase {
 			)
 		);
 
-		$prop = $reflection->getProperty( 'pending_block_validation_repairs' );
+		$prop = $reflection->getProperty( 'pendingBlockValidationRepairs' );
 		$prop->setAccessible( true );
 
 		$this->assertSame( array(), $prop->getValue( $loop ) );
@@ -425,7 +425,7 @@ class AgentLoopClientToolsTest extends WP_UnitTestCase {
 		$loop = new AgentLoop( 'test', array(), array(), array() );
 
 		$reflection = new \ReflectionClass( $loop );
-		$pending    = $reflection->getProperty( 'pending_block_validation_repairs' );
+		$pending    = $reflection->getProperty( 'pendingBlockValidationRepairs' );
 		$pending->setAccessible( true );
 		$pending->setValue(
 			$loop,

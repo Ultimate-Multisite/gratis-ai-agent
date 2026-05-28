@@ -122,7 +122,7 @@ class AgentLoop {
 	private $tool_call_log = array();
 
 	/** @var array<int, array<string, mixed>> Posts that still require block-validation repair. */
-	private array $pending_block_validation_repairs = array();
+	private array $pendingBlockValidationRepairs = array();
 
 	/** @var float */
 	private $temperature;
@@ -757,7 +757,7 @@ class AgentLoop {
 				// update-post self-repair loop. The system prompt already instructs
 				// this behaviour; this guard catches models that ignore that instruction
 				// after seeing a block_validation.invalidBlocks response.
-				if ( ! empty( $this->pending_block_validation_repairs ) ) {
+				if ( ! empty( $this->pendingBlockValidationRepairs ) ) {
 					if ( $iterations > 0 ) {
 						$this->inject_block_validation_repair_guidance();
 						continue;
@@ -2173,11 +2173,11 @@ class AgentLoop {
 
 		$invalid_blocks = (int) ( $validation['invalidBlocks'] ?? 0 );
 		if ( $invalid_blocks <= 0 ) {
-			unset( $this->pending_block_validation_repairs[ $post_id ] );
+			unset( $this->pendingBlockValidationRepairs[ $post_id ] );
 			return;
 		}
 
-		$this->pending_block_validation_repairs[ $post_id ] = array(
+		$this->pendingBlockValidationRepairs[ $post_id ] = array(
 			'post_id'        => $post_id,
 			'tool_name'      => $normalized_name,
 			'invalidBlocks'  => $invalid_blocks,
@@ -2190,7 +2190,7 @@ class AgentLoop {
 	 * Inject a hard self-repair instruction after invalid block validation.
 	 */
 	private function inject_block_validation_repair_guidance(): void {
-		$pending = array_values( $this->pending_block_validation_repairs );
+		$pending = array_values( $this->pendingBlockValidationRepairs );
 		$lines   = array(
 			'Block validation self-repair is required before you report success.',
 			'One or more create-post/update-post responses returned block_validation.invalidBlocks > 0.',
@@ -2233,7 +2233,7 @@ class AgentLoop {
 	private function append_unresolved_block_validation_warning( string $reply ): string {
 		$lines = array( '', __( 'Unresolved block validation:', 'superdav-ai-agent' ) );
 
-		foreach ( $this->pending_block_validation_repairs as $repair ) {
+		foreach ( $this->pendingBlockValidationRepairs as $repair ) {
 			$lines[] = sprintf(
 				/* translators: 1: post ID, 2: invalid block count. */
 				__( '- Post ID %1$d still has %2$d invalid block(s).', 'superdav-ai-agent' ),
