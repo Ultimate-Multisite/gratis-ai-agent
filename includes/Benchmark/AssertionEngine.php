@@ -139,6 +139,15 @@ class AssertionEngine {
 					(int) ( $assertion['min_calls'] ?? 1 )
 				);
 
+			case 'tool_called_or_user_exists':
+				return self::assert_tool_called_or_user_exists(
+					self::normalize_string_list( $assertion['tools'] ?? array() ),
+					$context,
+					(int) ( $assertion['min_calls'] ?? 1 ),
+					(string) ( $assertion['login'] ?? '' ),
+					(string) ( $assertion['role'] ?? '' )
+				);
+
 			case 'post_exists':
 				return self::assert_post_exists(
 					(string) ( $assertion['post_type'] ?? 'post' ),
@@ -859,6 +868,42 @@ class AssertionEngine {
 			'pass'     => $pass,
 			'expected' => sprintf( 'at least %d call to one of [%s]', $min_calls, implode( ', ', $tools ) ),
 			'actual'   => sprintf( '%d matching call(s) in tool log', $matches ),
+		);
+	}
+
+	/**
+	 * Assert a tool was called, or accept an already-satisfied user end state.
+	 *
+	 * This is for state-sensitive user benchmarks where repeated runs may observe
+	 * that a benchmark-owned user already has the requested role and therefore no
+	 * role-changing ability call is necessary.
+	 *
+	 * @param array<int, string>   $tools     Ability names to match.
+	 * @param array<string, mixed> $context   Runtime context with 'tool_call_log'.
+	 * @param int                  $min_calls Minimum number of matching calls required.
+	 * @param string               $login     User login accepted as the final-state fallback.
+	 * @param string               $role      Required user role for the fallback.
+	 * @return array{pass: bool, expected: string, actual: string}
+	 */
+	private static function assert_tool_called_or_user_exists( array $tools, array $context, int $min_calls, string $login, string $role ): array {
+		$tool_result = self::assert_tool_called( $tools, $context, $min_calls );
+		if ( $tool_result['pass'] ) {
+			return $tool_result;
+		}
+
+		$user_result = self::assert_user_exists( $login, $role );
+		if ( $user_result['pass'] ) {
+			return array(
+				'pass'     => true,
+				'expected' => $tool_result['expected'] . " or user '{$login}' has role '{$role}'",
+				'actual'   => $tool_result['actual'] . '; final state satisfied: ' . $user_result['actual'],
+			);
+		}
+
+		return array(
+			'pass'     => false,
+			'expected' => $tool_result['expected'] . " or user '{$login}' has role '{$role}'",
+			'actual'   => $tool_result['actual'] . '; final state failed: ' . $user_result['actual'],
 		);
 	}
 

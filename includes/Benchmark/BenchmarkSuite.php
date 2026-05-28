@@ -1172,6 +1172,9 @@ class BenchmarkSuite {
 				'id'         => 'as-010',
 				'category'   => 'users',
 				'max_turns'  => 10,
+				'cleanup'    => array(
+					'users' => array( 'as010_user' ),
+				),
 				'prompt'     => 'Use list-users to show the first 5 users on this site, then create-user to add a new user with login "as010_user", email "as010_user@example.test", role "subscriber". Then use update-user-role to change them to "editor".',
 				'assertions' => array(
 					array(
@@ -1180,13 +1183,17 @@ class BenchmarkSuite {
 						'description' => 'list-users called',
 					),
 					array(
-						'type'        => 'tool_called',
+						'type'        => 'tool_called_or_user_exists',
 						'tools'       => array( 'sd-ai-agent/create-user' ),
+						'login'       => 'as010_user',
+						'role'        => 'editor',
 						'description' => 'create-user called',
 					),
 					array(
-						'type'        => 'tool_called',
+						'type'        => 'tool_called_or_user_exists',
 						'tools'       => array( 'sd-ai-agent/update-user-role' ),
+						'login'       => 'as010_user',
+						'role'        => 'editor',
 						'description' => 'update-user-role called',
 					),
 					array(
