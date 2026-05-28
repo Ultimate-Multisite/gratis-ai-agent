@@ -324,16 +324,18 @@ class ToolDiscovery {
 	 * prompt every turn. Lists every visible ability that is NOT in Tier 1
 	 * by id + one-line description, grouped by category.
 	 *
+	 * @param list<string> $direct_ability_names Direct abilities exposed this turn.
 	 * @return string An empty string when there are no Tier-2 abilities.
 	 */
-	public static function build_manifest_section(): string {
+	public static function build_manifest_section( array $direct_ability_names = array() ): string { // phpcs:ignore Squiz.Commenting.FunctionComment.IncorrectTypeHint -- list<string> is valid PHPStan but not a native PHP type.
 		if ( ! function_exists( 'wp_get_abilities' ) ) {
 			return '';
 		}
 
-		$tier_1_set = array_flip( self::tier_1_for_run() );
-		$perms      = self::tool_permissions();
-		$by_cat     = array();
+		$tier_1_names = ! empty( $direct_ability_names ) ? $direct_ability_names : self::tier_1_for_run();
+		$tier_1_set   = array_flip( $tier_1_names );
+		$perms        = self::tool_permissions();
+		$by_cat       = array();
 
 		foreach ( wp_get_abilities() as $ability ) {
 			$name = $ability->get_name();

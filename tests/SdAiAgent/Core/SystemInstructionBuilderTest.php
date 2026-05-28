@@ -128,4 +128,32 @@ class SystemInstructionBuilderTest extends WP_UnitTestCase {
 			'Built instruction should include custom system prompt'
 		);
 	}
+
+	/**
+	 * Tool-routing guidance must prevent prompt-only ability names from being
+	 * emitted as direct tool calls when they are absent from the current tool list.
+	 */
+	public function test_build_includes_active_tool_routing_guidance(): void {
+		$builder = new SystemInstructionBuilder();
+
+		$instruction = $builder->build(
+			array(),
+			array(
+				'sd-ai-agent/ability-search',
+				'sd-ai-agent/ability-call',
+				'sd-ai-agent/list-posts',
+			)
+		);
+
+		$this->assertStringContainsString( '## Tool routing', $instruction );
+		$this->assertStringContainsString( '`sd-ai-agent/list-posts`', $instruction );
+		$this->assertStringContainsString(
+			'do not emit its direct `wpab__...` tool call',
+			$instruction
+		);
+		$this->assertStringContainsString(
+			'then invoke it through `sd-ai-agent/ability-call`',
+			$instruction
+		);
+	}
 }

@@ -342,6 +342,22 @@ class ToolDiscoveryTest extends WP_UnitTestCase {
 		$this->assertStringContainsString( '## Available Abilities', $manifest );
 	}
 
+	public function test_manifest_excludes_current_direct_abilities(): void {
+		$manifest = ToolDiscovery::build_manifest_section(
+			array(
+				'sd-ai-agent/ability-search',
+				'sd-ai-agent/ability-call',
+				'sd-ai-agent/list-posts',
+			)
+		);
+
+		$this->assertStringNotContainsString(
+			'`sd-ai-agent/list-posts`',
+			$manifest,
+			'The manifest must not describe a currently direct ability as Tier 2.'
+		);
+	}
+
 	public function test_manifest_uses_usage_instructions_filter(): void {
 		add_filter(
 			'sd_ai_agent_ability_usage_instructions',
