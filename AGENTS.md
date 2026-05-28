@@ -248,6 +248,9 @@ Key gotchas: `compile_class` required for hyphenated IDs, `REST_Handler` support
 - **Secret Scrubbing**: All REST endpoints must scrub sensitive data (API keys, tokens,
   credentials) from responses and logs. Never expose provider credentials, user secrets,
   or internal configuration in REST output.
+- **Internal namespace block**: Keep `sd-ai-agent/v1` unavailable to the agent-facing
+  `wp-rest/execute` ability. This plugin must not call its own private REST controllers
+  through the internal dispatcher; use direct service/controller calls instead.
 - **File Upload Restrictions**: Hide or restrict file upload endpoints from public access.
   File upload functionality should be gated behind capability checks and only exposed
   to authenticated users with explicit permissions.
@@ -264,6 +267,11 @@ Key gotchas: `compile_class` required for hyphenated IDs, `REST_Handler` support
   verify the controller uses the real current user context, has a capability
   gate, avoids public file-upload exposure, and returns scrubbed responses before
   calling the route WordPress.org-ready.
+- **Follow-up issue briefs**: If a REST hardening pass finds remaining exposure,
+  file worker-ready GitHub issue briefs that name the route/controller, the missing
+  guard or scrubber, the expected safe behaviour, and the exact verification command
+  (for example PHPCS/PHPUnit plus a REST request proving unauthorized users are
+  blocked and secrets are redacted).
 
 ## Local Development Environment
 
