@@ -1490,7 +1490,7 @@ class BenchmarkSuite {
 				'id'         => 'adev-005',
 				'category'   => 'files',
 				'max_turns'  => 12,
-				'prompt'     => 'Use file-list to list the contents of the current plugin directory (path "."). Then use file-search (glob filename matcher) to find any PHP files matching the pattern "*Abilities.php". Then use file-read on the first match and report its first 20 lines back.',
+				'prompt'     => 'Use file-list to list the contents of the wp-content root directory (path "."). Then use file-search (glob filename matcher) to find the root index.php file with the pattern "index.php". Then use file-read on that match and report its first 20 lines back.',
 				'assertions' => array(
 					array(
 						'type'        => 'tool_called',
