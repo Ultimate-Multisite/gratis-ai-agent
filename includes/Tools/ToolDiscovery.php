@@ -298,18 +298,24 @@ class ToolDiscovery {
 
 		// Filter against actually-registered, non-disabled abilities so
 		// callers don't have to recheck.
-		if ( ! function_exists( 'wp_get_ability' ) ) {
+		if ( ! function_exists( 'wp_get_abilities' ) ) {
 			return array();
 		}
+
+		$registered = array();
+		foreach ( wp_get_abilities() as $ability ) {
+			if ( $ability instanceof \WP_Ability ) {
+				$registered[ $ability->get_name() ] = true;
+			}
+		}
+
 		$perms  = self::tool_permissions();
 		$result = array();
 		foreach ( $names as $name ) {
 			if ( 'disabled' === ( $perms[ $name ] ?? 'auto' ) ) {
 				continue;
 			}
-			// @phpstan-ignore-next-line
-			$ability = wp_get_ability( $name );
-			if ( $ability instanceof \WP_Ability ) {
+			if ( isset( $registered[ $name ] ) ) {
 				$result[] = $name;
 			}
 		}

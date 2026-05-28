@@ -170,6 +170,21 @@ class ToolDiscoveryTest extends WP_UnitTestCase {
 		$this->assertContains( 'sd-ai-agent/update-global-styles', $tier_1 );
 	}
 
+	public function test_tier_1_omits_wp_cli_when_ability_is_not_registered(): void {
+		if ( function_exists( 'wp_unregister_ability' ) && function_exists( 'wp_get_abilities' ) ) {
+			foreach ( wp_get_abilities() as $ability ) {
+				if ( $ability instanceof \WP_Ability && 'wp-cli/execute' === $ability->get_name() ) {
+					wp_unregister_ability( 'wp-cli/execute' );
+					break;
+				}
+			}
+		}
+
+		$tier_1 = ToolDiscovery::tier_1_for_run();
+
+		$this->assertNotContains( 'wp-cli/execute', $tier_1 );
+	}
+
 	public function test_tier_1_promotes_recently_used_abilities(): void {
 		// Pick an ability that exists in this install.
 		AbilityUsageTracker::record( 'sd-ai-agent/get-plugins' );

@@ -173,6 +173,10 @@ class WpCliAbilities {
 			return;
 		}
 
+		if ( ! self::is_available() ) {
+			return;
+		}
+
 		if ( wp_has_ability_category( self::CATEGORY ) ) {
 			return;
 		}
@@ -192,7 +196,15 @@ class WpCliAbilities {
 	 * @return void
 	 */
 	public static function register_ability(): void {
-		if ( ! function_exists( 'wp_register_ability' ) ) {
+		if ( ! function_exists( 'wp_register_ability' ) || ! function_exists( 'wp_has_ability_category' ) ) {
+			return;
+		}
+
+		if ( ! self::is_available() ) {
+			return;
+		}
+
+		if ( ! wp_has_ability_category( self::CATEGORY ) ) {
 			return;
 		}
 
@@ -615,6 +627,23 @@ class WpCliAbilities {
 			}
 		}
 		return false;
+	}
+
+	/**
+	 * Determine whether the WP-CLI ability should be advertised this request.
+	 *
+	 * Runtime execution keeps its own guards because the filesystem or filters
+	 * may change between ability registration and invocation. This preflight is
+	 * only used to avoid exposing an unusable tool to the model.
+	 *
+	 * @return bool
+	 */
+	public static function is_available(): bool {
+		if ( ! self::is_proc_open_available() ) {
+			return false;
+		}
+
+		return ! is_wp_error( self::find_wp_cli() );
 	}
 
 	/**
