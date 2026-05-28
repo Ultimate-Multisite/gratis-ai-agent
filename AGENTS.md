@@ -81,6 +81,28 @@ turn it into durable, worker-ready guidance instead of relying on chat history:
 - Keep instruction changes concrete and actionable; avoid copying vague feedback
   without translating it into a rule, reference pattern, or testable outcome.
 
+#### Headless GitHub Write Guardrails
+
+Recurring contributor-insight reports show OpenCode headless workers losing time
+to blocked GitHub writes before implementation begins. Treat these as hard rules
+whenever creating issues, PR comments, or other GitHub write bodies:
+
+- Do not use raw `gh issue create` for tracking issues in this repo. Use the
+  project helper `.agents/scripts/issue-sync-helper.sh create-signed-issue` or a
+  framework helper that appends the required aidevops signature footer.
+- Keep every GitHub write body as a real file that already exists before the
+  `gh` write command runs. Do not create the body file later in the same shell
+  command that invokes `gh`; the signature gate may check the `--body-file` path
+  before the shell has produced it.
+- Do not use shell heredocs, process substitution, command substitution, or
+  inline generated markdown for a `gh` write body or signature. Create the
+  markdown with the runtime file-writing tool, read it back if editing, then pass
+  the stable path via `--body-file`.
+- If a write is blocked by the signature gate, change the write path to the
+  signed-file helper pattern above. Do not retry the same unsigned or inline
+  command form.
+- Verification for guidance-only fixes: run `rg -n "signature gate|body-file|heredoc|process substitution|gh issue create" AGENTS.md .agents/AGENTS.md .agents/scripts/commands/feedback-triage.md` and ensure the policy is present in the root `AGENTS.md` loaded by future workers.
+
 ## Build Commands
 - **Build**: `npm run build` or `npx wp-scripts build` (production)
 - **Dev**: `npm start` or `npx wp-scripts start` (watch mode)
