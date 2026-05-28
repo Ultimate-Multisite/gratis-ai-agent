@@ -1596,6 +1596,8 @@ class AgentLoopTest extends WP_UnitTestCase {
 			'o4-mini'            => [ 'o4-mini' ],
 			'claude-opus-4-7'    => [ 'claude-opus-4-7' ],
 			'claude-opus-4-7 dated snap' => [ 'claude-opus-4-7-20260513' ],
+			'claude-opus-4-8'    => [ 'claude-opus-4-8' ],
+			'claude-opus-4-8 dated snap' => [ 'claude-opus-4-8-20260513' ],
 		];
 	}
 
@@ -2618,11 +2620,14 @@ class AgentLoopTest extends WP_UnitTestCase {
 			'gpt-4o'                      => [ 'gpt-4o', false ],
 			'gpt-4.1'                     => [ 'gpt-4.1', false ],
 			'gpt-3.5-turbo'               => [ 'gpt-3.5-turbo', false ],
-			// Anthropic Max Claude Opus 4.7 — rejects/deprecates temperature.
+			// Anthropic Max Claude Opus 4.7 and 4.8 — rejects/deprecates temperature.
 			'claude-opus-4-7'             => [ 'claude-opus-4-7', true ],
 			'claude-opus-4-7-dated'       => [ 'claude-opus-4-7-20260513', true ],
 			'Claude Opus 4.7 uppercase'   => [ 'CLAUDE-OPUS-4-7', true ],
 			'Claude Opus 4.7 padded'      => [ '  claude-opus-4-7  ', true ],
+			'claude-opus-4-8'             => [ 'claude-opus-4-8', true ],
+			'claude-opus-4-8-dated'       => [ 'claude-opus-4-8-20260513', true ],
+			'Claude Opus 4.8 uppercase'   => [ 'CLAUDE-OPUS-4-8', true ],
 			// Other providers/models — must NOT match.
 			'claude-sonnet-4-6'           => [ 'claude-sonnet-4-6', false ],
 			'claude-opus-4-6'             => [ 'claude-opus-4-6', false ],

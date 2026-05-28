@@ -1607,7 +1607,7 @@ class AgentLoop {
 	 *
 	 *     Unsupported parameter: 'temperature' is not supported with this model.
 	 *
-	 * Anthropic Max Claude Opus 4.7 similarly rejects `temperature` as a
+	 * Anthropic Max Claude Opus 4.7 and 4.8 similarly reject `temperature` as a
 	 * deprecated field in OpenAI-compatible routing, while older Claude models
 	 * used by existing installs still accept it.
 	 *
@@ -1645,11 +1645,13 @@ class AgentLoop {
 			}
 		}
 
-		// Claude Opus 4.7 is surfaced by Anthropic Max and rejects `temperature`
-		// with HTTP 400: "`temperature` is deprecated for this model." Match the
-		// dateless ID plus any dated/provider-specific snapshot suffix.
-		if ( $normalised === 'claude-opus-4-7' || str_starts_with( $normalised, 'claude-opus-4-7-' ) ) {
-			return true;
+		// Claude Opus 4.7 and 4.8 (Anthropic Max) reject `temperature` with HTTP
+		// 400: "`temperature` is deprecated for this model." Match the dateless
+		// IDs plus any dated/provider-specific snapshot suffixes.
+		foreach ( array( 'claude-opus-4-7', 'claude-opus-4-8' ) as $opus_prefix ) {
+			if ( $normalised === $opus_prefix || str_starts_with( $normalised, $opus_prefix . '-' ) ) {
+				return true;
+			}
 		}
 
 		return false;
