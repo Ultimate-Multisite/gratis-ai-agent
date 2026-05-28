@@ -156,4 +156,95 @@ class SystemInstructionBuilderTest extends WP_UnitTestCase {
 			$instruction
 		);
 	}
+
+	/**
+	 * The build-vs-install section should appear when plugin-discovery
+	 * abilities are active, nudging the model to search wp.org before
+	 * hand-coding multi-file features.
+	 *
+	 * Regression: session #25 (NerdLove dating site) — agent wrote ~2,000
+	 * LOC of custom plugin code without ever calling search-plugin-directory
+	 * or install-plugin.
+	 */
+	public function test_build_vs_install_section_present_when_discovery_active(): void {
+		$section = SystemInstructionBuilder::build_build_vs_install_section(
+			array(
+				'sd-ai-agent/search-plugin-directory',
+				'sd-ai-agent/install-plugin',
+			)
+		);
+
+		$this->assertStringContainsString( '## Build vs install', $section );
+		$this->assertStringContainsString( 'sd-ai-agent/search-plugin-directory', $section );
+		$this->assertStringContainsString( 'sd-ai-agent/install-plugin', $section );
+		$this->assertStringContainsString( '60%', $section );
+	}
+
+	/**
+	 * The build-vs-install section should be empty when no plugin-discovery
+	 * ability is active so the prompt does not advertise unreachable tools.
+	 */
+	public function test_build_vs_install_section_empty_without_discovery(): void {
+		$section = SystemInstructionBuilder::build_build_vs_install_section(
+			array(
+				'sd-ai-agent/list-posts',
+				'sd-ai-agent/create-post',
+			)
+		);
+
+		$this->assertSame( '', $section );
+	}
+
+	/**
+	 * The seeding/batching sub-section should appear when run-php or db-query
+	 * is active alongside plugin-discovery abilities. Targets the failure mode
+	 * where the agent made 56 serial wp-cli calls to seed 6 demo profiles.
+	 */
+	public function test_build_vs_install_section_includes_batching_when_runphp_active(): void {
+		$section = SystemInstructionBuilder::build_build_vs_install_section(
+			array(
+				'sd-ai-agent/search-plugin-directory',
+				'sd-ai-agent/run-php',
+			)
+		);
+
+		$this->assertStringContainsString( '### Seeding & batch updates', $section );
+		$this->assertStringContainsString( 'sd-ai-agent/run-php', $section );
+		$this->assertStringContainsString( 'serial `wp-cli` invocations', $section );
+	}
+
+	/**
+	 * The seeding/batching sub-section should be absent when neither run-php
+	 * nor db-query is in the ability list.
+	 */
+	public function test_build_vs_install_section_omits_batching_when_no_bulk_ability(): void {
+		$section = SystemInstructionBuilder::build_build_vs_install_section(
+			array(
+				'sd-ai-agent/search-plugin-directory',
+			)
+		);
+
+		$this->assertStringNotContainsString( '### Seeding & batch updates', $section );
+	}
+
+	/**
+	 * The build() method should integrate the new section when a
+	 * content-generation ability and a plugin-discovery ability are both
+	 * active (the realistic dating-site / theme-build scenario).
+	 */
+	public function test_build_includes_build_vs_install_section_for_content_sessions(): void {
+		$builder = new SystemInstructionBuilder();
+
+		$instruction = $builder->build(
+			array(),
+			array(
+				'sd-ai-agent/scaffold-block-theme',
+				'sd-ai-agent/file-write',
+				'sd-ai-agent/search-plugin-directory',
+				'sd-ai-agent/install-plugin',
+			)
+		);
+
+		$this->assertStringContainsString( '## Build vs install', $instruction );
+	}
 }
