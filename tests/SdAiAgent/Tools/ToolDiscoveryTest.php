@@ -38,6 +38,7 @@ class ToolDiscoveryTest extends WP_UnitTestCase {
 		parent::set_up();
 		AbilityUsageTracker::reset();
 		ToolDiscovery::reset_schema_cache();
+		ToolDiscovery::reset_keyword_search_state();
 		IdenticalFailureTracker::reset();
 
 		// Most abilities require admin caps in their permission callbacks.
@@ -70,6 +71,7 @@ class ToolDiscoveryTest extends WP_UnitTestCase {
 		remove_all_filters( 'sd_ai_agent_ability_usage_instructions_for' );
 		AbilityUsageTracker::reset();
 		ToolDiscovery::reset_schema_cache();
+		ToolDiscovery::reset_keyword_search_state();
 		IdenticalFailureTracker::reset();
 	}
 
@@ -264,6 +266,66 @@ class ToolDiscoveryTest extends WP_UnitTestCase {
 
 		$section = ToolDiscovery::recently_fetched_section();
 		$this->assertStringContainsString( 'get-plugins', $section );
+	}
+
+	/**
+	 * When a session's *first* ability-search this request is a `select:`
+	 * lookup, the response should carry a discovery_hint nudging the model
+	 * to also run a keyword search. Regression: session #25 (NerdLove
+	 * dating site) — agent ran `select:list-allowed-roots,generate-plugin`
+	 * as its first ability-search after the user asked for a dating site,
+	 * never followed up with keyword discovery, and so never considered
+	 * install-plugin or search-plugin-directory.
+	 */
+	public function test_ability_search_emits_discovery_hint_for_first_select_lookup(): void {
+		$result = ToolDiscovery::handle_ability_search(
+			[ 'query' => 'select:sd-ai-agent/get-plugins' ]
+		);
+
+		$this->assertArrayHasKey(
+			'discovery_hint',
+			$result,
+			'First-select lookups should attach a discovery_hint.'
+		);
+		$this->assertStringContainsString(
+			'keyword',
+			$result['discovery_hint'],
+			'Hint should suggest a keyword search.'
+		);
+		$this->assertStringContainsString(
+			'sd-ai-agent/search-plugin-directory',
+			$result['discovery_hint'],
+			'Hint should name the alternative plugin-discovery ability.'
+		);
+	}
+
+	/**
+	 * When a keyword search has already happened this request, subsequent
+	 * `select:` lookups should NOT carry the hint — the model has already
+	 * done the broader discovery pass.
+	 */
+	public function test_ability_search_omits_discovery_hint_after_keyword_search(): void {
+		ToolDiscovery::handle_ability_search( [ 'query' => 'plugins' ] );
+
+		$result = ToolDiscovery::handle_ability_search(
+			[ 'query' => 'select:sd-ai-agent/get-plugins' ]
+		);
+
+		$this->assertArrayNotHasKey(
+			'discovery_hint',
+			$result,
+			'After a keyword search this request, select: lookups should not re-trigger the hint.'
+		);
+	}
+
+	/**
+	 * Plain keyword searches must never carry the discovery_hint — only
+	 * `select:` lookups arriving before any keyword discovery do.
+	 */
+	public function test_ability_search_does_not_emit_discovery_hint_for_keyword_query(): void {
+		$result = ToolDiscovery::handle_ability_search( [ 'query' => 'plugins' ] );
+
+		$this->assertArrayNotHasKey( 'discovery_hint', $result );
 	}
 
 	// ── ability-call ──────────────────────────────────────────────────

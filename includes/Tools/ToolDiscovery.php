@@ -94,6 +94,38 @@ class ToolDiscovery {
 	);
 
 	/**
+	 * Request-scoped flag tracking whether at least one keyword (non-`select:`)
+	 * `ability-search` call has been observed in the current PHP request.
+	 *
+	 * Used by {@see handle_ability_search()} to attach a discovery hint when a
+	 * session's `select:` lookups arrive before any keyword discovery has
+	 * happened — the pattern that misses sibling abilities like
+	 * `sd-ai-agent/search-plugin-directory` and
+	 * `sd-ai-agent/install-plugin` (see session #25, NerdLove dating site).
+	 *
+	 * AgentLoop processes a full agentic turn inside one PHP request, so this
+	 * flag captures "first discovery decision this turn" semantics without
+	 * persisting across HTTP requests.
+	 *
+	 * @since 1.20.0
+	 * @var bool
+	 */
+	private static bool $keyword_search_seen_this_request = false;
+
+	/**
+	 * Reset the keyword-search tracking flag.
+	 *
+	 * Intended for use in unit tests so each test starts with a clean state.
+	 *
+	 * @since 1.20.0
+	 *
+	 * @return void
+	 */
+	public static function reset_keyword_search_state(): void {
+		self::$keyword_search_seen_this_request = false;
+	}
+
+	/**
 	 * Register the meta-tool abilities.
 	 *
 	 * @deprecated Preserved for back-compat. The DI handler (ToolDiscoveryHandler)
@@ -551,8 +583,29 @@ class ToolDiscovery {
 					}
 				}
 			}
-			return self::format_search_response( $query_raw, $found, count( $found ) );
+
+			$discovery_hint = '';
+			if ( ! self::$keyword_search_seen_this_request ) {
+				// First ability-search this request is a `select:` lookup —
+				// the model pre-committed to a set of abilities by name
+				// without checking whether broader / better-fit options
+				// exist. Nudge it to do at least one keyword pass.
+				// Regression: session #25 (NerdLove dating site) — first
+				// search was `select:list-allowed-roots,generate-plugin`,
+				// never followed by a `dating`, `messaging`, or `community`
+				// keyword search, so search-plugin-directory and
+				// install-plugin were never considered.
+				$discovery_hint = 'You used `select:` to fetch abilities by exact id without a prior keyword search this turn. '
+					. 'If you are scoping a multi-file feature, consider also running a keyword `ability-search` '
+					. '(e.g. "install plugin", "WordPress directory", "messaging", "community", "members") to surface '
+					. 'related abilities you may not have considered, such as `sd-ai-agent/search-plugin-directory` and `sd-ai-agent/install-plugin`.';
+			}
+			return self::format_search_response( $query_raw, $found, count( $found ), $discovery_hint );
 		}
+
+		// Mark that a keyword (non-select) search has been performed this
+		// request so subsequent `select:` calls do not trigger the hint.
+		self::$keyword_search_seen_this_request = true;
 
 		// `+substr keyword` required-substring form.
 		$require = '';
@@ -670,7 +723,7 @@ class ToolDiscovery {
 	 * @param int           $total     Total matches before slicing.
 	 * @return array<string, mixed>
 	 */
-	private static function format_search_response( string $query, array $abilities, int $total ): array {
+	private static function format_search_response( string $query, array $abilities, int $total, string $discovery_hint = '' ): array {
 		$results = array();
 		foreach ( $abilities as $ability ) {
 			$name   = $ability->get_name();
@@ -698,13 +751,19 @@ class ToolDiscovery {
 			$results[] = $result;
 		}
 
-		return array(
+		$response = array(
 			'query'   => $query,
 			'total'   => $total,
 			'count'   => count( $results ),
 			'results' => $results,
 			'hint'    => 'Use sd-ai-agent/ability-call with the chosen `id` and an `arguments` object that matches `input_schema`.',
 		);
+
+		if ( '' !== $discovery_hint ) {
+			$response['discovery_hint'] = $discovery_hint;
+		}
+
+		return $response;
 	}
 
 	// ─── ability-call handler ────────────────────────────────────────────
