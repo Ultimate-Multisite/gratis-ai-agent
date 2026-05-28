@@ -171,18 +171,30 @@ class ToolDiscoveryTest extends WP_UnitTestCase {
 	}
 
 	public function test_tier_1_omits_wp_cli_when_ability_is_not_registered(): void {
-		if ( function_exists( 'wp_unregister_ability' ) && function_exists( 'wp_get_abilities' ) ) {
-			foreach ( wp_get_abilities() as $ability ) {
-				if ( $ability instanceof \WP_Ability && 'wp-cli/execute' === $ability->get_name() ) {
-					wp_unregister_ability( 'wp-cli/execute' );
-					break;
+		// phpcs:ignore WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedVariableFound -- Test isolates the Abilities API registry mutation.
+		global $_wp_ability_registry;
+		$ability_registry_backup = isset( $_wp_ability_registry ) ? $_wp_ability_registry : null;
+
+		try {
+			if ( function_exists( 'wp_unregister_ability' ) && function_exists( 'wp_get_abilities' ) ) {
+				foreach ( wp_get_abilities() as $ability ) {
+					if ( $ability instanceof \WP_Ability && 'wp-cli/execute' === $ability->get_name() ) {
+						wp_unregister_ability( 'wp-cli/execute' );
+						break;
+					}
 				}
 			}
+
+			$tier_1 = ToolDiscovery::tier_1_for_run();
+
+			$this->assertNotContains( 'wp-cli/execute', $tier_1 );
+		} finally {
+			if ( null === $ability_registry_backup ) {
+				unset( $_wp_ability_registry );
+			} else {
+				$_wp_ability_registry = $ability_registry_backup;
+			}
 		}
-
-		$tier_1 = ToolDiscovery::tier_1_for_run();
-
-		$this->assertNotContains( 'wp-cli/execute', $tier_1 );
 	}
 
 	public function test_tier_1_promotes_recently_used_abilities(): void {
