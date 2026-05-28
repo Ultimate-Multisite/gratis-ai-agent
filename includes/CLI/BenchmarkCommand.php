@@ -381,6 +381,8 @@ class BenchmarkCommand extends WP_CLI_Command {
 			$log['plugin_slug']           = $plugin_slug;
 		}
 
+		$log['cleanup'] = $this->cleanup_question_fixtures( $question );
+
 		// Build the prompt — include plugin name guidance for plugin questions.
 		$prompt = $question['prompt'];
 		if ( $needs_plugin && '' !== $plugin_slug ) {
@@ -533,6 +535,95 @@ class BenchmarkCommand extends WP_CLI_Command {
 
 		// Fallback: derive from first words of prompt.
 		return 'bench-' . substr( md5( $prompt ), 0, 8 );
+	}
+
+	/**
+	 * Remove benchmark-owned fixtures before an agent run.
+	 *
+	 * Question definitions may declare cleanup fixtures that must not leak from
+	 * a previous run into the current attempt. This keeps state-sensitive
+	 * ability benchmarks deterministic while restricting destructive cleanup to
+	 * explicit, benchmark-owned identifiers.
+	 *
+	 * @param array<string, mixed> $question Question definition.
+	 * @return array{users: array<int, array{login: string, status: string}>}
+	 */
+	private function cleanup_question_fixtures( array $question ): array {
+		$cleanup = isset( $question['cleanup'] ) && is_array( $question['cleanup'] ) ? $question['cleanup'] : array();
+		$users   = isset( $cleanup['users'] ) && is_array( $cleanup['users'] ) ? $cleanup['users'] : array();
+		$result  = array(
+			'users' => array(),
+		);
+
+		foreach ( $users as $login ) {
+			if ( ! is_scalar( $login ) || '' === (string) $login ) {
+				continue;
+			}
+
+			$result['users'][] = array(
+				'login'  => (string) $login,
+				'status' => $this->cleanup_user_fixture( (string) $login ),
+			);
+		}
+
+		return $result;
+	}
+
+	/**
+	 * Delete a single benchmark-owned user fixture by login.
+	 *
+	 * @param string $login User login.
+	 * @return string Cleanup status.
+	 */
+	private function cleanup_user_fixture( string $login ): string {
+		$user = get_user_by( 'login', $login );
+		if ( ! $user ) {
+			return 'not-found';
+		}
+
+		if ( ! function_exists( 'wp_delete_user' ) ) {
+			require_once ABSPATH . 'wp-admin/includes/user.php';
+		}
+
+		$reassign_user_id = $this->get_cleanup_reassign_user_id( (int) $user->ID );
+		$deleted          = wp_delete_user( (int) $user->ID, $reassign_user_id > 0 ? $reassign_user_id : null );
+
+		if ( ! $deleted ) {
+			WP_CLI::warning( sprintf( 'Could not delete benchmark user fixture: %s', $login ) );
+			return 'delete-failed';
+		}
+
+		return 'deleted';
+	}
+
+	/**
+	 * Resolve a safe user ID for reassigning fixture-owned content.
+	 *
+	 * @param int $deleted_user_id User ID being deleted.
+	 * @return int Reassignment user ID, or 0 when none is available.
+	 */
+	private function get_cleanup_reassign_user_id( int $deleted_user_id ): int {
+		$current_user_id = get_current_user_id();
+		if ( $current_user_id > 0 && $current_user_id !== $deleted_user_id ) {
+			return $current_user_id;
+		}
+
+		$admins = get_users(
+			array(
+				'role'    => 'administrator',
+				'number'  => 2,
+				'orderby' => 'ID',
+			)
+		);
+
+		foreach ( $admins as $admin ) {
+			$admin_id = (int) $admin->ID;
+			if ( $admin_id !== $deleted_user_id ) {
+				return $admin_id;
+			}
+		}
+
+		return 0;
 	}
 
 	/**

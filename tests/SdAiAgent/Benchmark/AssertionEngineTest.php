@@ -12,6 +12,7 @@ declare(strict_types=1);
 namespace SdAiAgent\Tests\Benchmark;
 
 use SdAiAgent\Benchmark\AssertionEngine;
+use SdAiAgent\Benchmark\BenchmarkSuite;
 use ReflectionMethod;
 use WP_REST_Response;
 use WP_REST_Server;
@@ -223,6 +224,55 @@ PHP
 		$normalized = (string) $method->invoke( null, $command );
 
 		$this->assertSame( $command, $normalized );
+	}
+
+	/**
+	 * Test state-sensitive user benchmarks declare cleanup fixtures.
+	 */
+	public function test_as_010_declares_user_cleanup_fixture(): void {
+		$questions = BenchmarkSuite::get_questions( 'abilities-structure-v1' );
+		$matches   = array_values(
+			array_filter(
+				$questions,
+				static fn( array $question ): bool => 'as-010' === (string) ( $question['id'] ?? '' )
+			)
+		);
+
+		$this->assertCount( 1, $matches );
+		$this->assertSame( array( 'as010_user' ), $matches[0]['cleanup']['users'] ?? array() );
+	}
+
+	/**
+	 * Test repeated user benchmarks accept an already-satisfied final state.
+	 */
+	public function test_tool_called_or_user_exists_accepts_existing_role(): void {
+		$user_id = self::factory()->user->create(
+			array(
+				'user_login' => 'sd_tool_called_or_user_exists',
+				'user_email' => 'sd_tool_called_or_user_exists@example.test',
+				'role'       => 'editor',
+			)
+		);
+
+		$this->assertIsInt( $user_id );
+
+		$result = AssertionEngine::run(
+			array(
+				array(
+					'type'  => 'tool_called_or_user_exists',
+					'tools' => array( 'sd-ai-agent/update-user-role' ),
+					'login' => 'sd_tool_called_or_user_exists',
+					'role'  => 'editor',
+				),
+			),
+			array(
+				'tool_call_log' => array(),
+			)
+		);
+
+		$this->assertSame( 1, $result['passed'], (string) wp_json_encode( $result ) );
+		$this->assertSame( 0, $result['failed'], (string) wp_json_encode( $result ) );
+		$this->assertStringContainsString( 'final state satisfied', $result['results'][0]['actual'] );
 	}
 
 	/**
