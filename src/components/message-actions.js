@@ -11,6 +11,7 @@ import { Icon, copy, pencil, redo, check, thumbsDown } from '@wordpress/icons';
  * Internal dependencies
  */
 import STORE_NAME from '../store';
+import { copyToClipboard } from '../utils/clipboard';
 
 /**
  * Per-message action buttons (Copy, Edit, Regenerate, Thumbs-down).
@@ -52,7 +53,7 @@ export default function MessageActions( { message, index, onThumbsDown } ) {
 		.join( '' );
 
 	const handleCopy = useCallback( () => {
-		navigator.clipboard.writeText( text || '' ).then( () => {
+		copyToClipboard( text || '' ).then( () => {
 			setCopied( true );
 			setTimeout( () => setCopied( false ), 2000 );
 		} );
