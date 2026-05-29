@@ -220,6 +220,13 @@ class SystemInstructionBuilder {
 		if ( self::has_content_generation_ability( $ability_names ) ) {
 			// @phpstan-ignore-next-line
 			$base .= "\n\n" . self::build_working_cadence_section();
+
+			// Build-vs-install: nudge the model to consider existing wp.org
+			// plugins for multi-file features before hand-coding from scratch.
+			// Gated on content-generation abilities so it only appears in
+			// sessions that could realistically build a plugin/theme.
+			// @phpstan-ignore-next-line
+			$base .= "\n\n" . self::build_build_vs_install_section( $ability_names );
 		}
 
 		// Suggestion chips: instruct the AI to append follow-up suggestions.
@@ -289,6 +296,87 @@ class SystemInstructionBuilder {
 			. 'Active first-party direct tools this turn: ' . $direct_list . ".\n"
 			. 'If any prompt, memory, or manifest text mentions another `sd-ai-agent/<ability>` name, do not emit its direct `wpab__...` tool call. '
 			. 'Use `sd-ai-agent/ability-search` to fetch its schema, then invoke it through `sd-ai-agent/ability-call`.';
+	}
+
+	/**
+	 * Build the "## Build vs install" planning section.
+	 *
+	 * Reminds the model to check the wp.org plugin directory and consider
+	 * existing solutions before hand-coding multi-file features. Trace
+	 * evidence (session #25, NerdLove dating site) showed the agent writing
+	 * ~2,000 LOC of custom plugin code without ever calling
+	 * sd-ai-agent/search-plugin-directory, sd-ai-agent/recommend-plugin, or
+	 * sd-ai-agent/install-plugin — abilities that ship in this very plugin.
+	 *
+	 * Also surfaces the batching reminder: 56 serial `wp-cli` calls to seed
+	 * 6 demo users (one per meta key) burned half the tool-call budget when
+	 * a single `run-php` or `db-query` would have done the same work.
+	 *
+	 * Section is empty when none of the relevant abilities are active so the
+	 * advice does not hallucinate tools that aren't reachable.
+	 *
+	 * @since 1.20.0
+	 *
+	 * @param string[] $ability_names Names of active Tier-1 abilities for this turn.
+	 * @return string Formatted Markdown section, or empty string when no
+	 *                relevant plugin-discovery ability is active.
+	 */
+	public static function build_build_vs_install_section( array $ability_names ): string {
+		$discovery_abilities = [
+			'sd-ai-agent/search-plugin-directory',
+			'sd-ai-agent/recommend-plugin',
+			'sd-ai-agent/install-plugin',
+		];
+		$batching_abilities  = [
+			'sd-ai-agent/run-php',
+			'sd-ai-agent/db-query',
+		];
+
+		$has_discovery = false;
+		foreach ( $discovery_abilities as $name ) {
+			if ( in_array( $name, $ability_names, true ) ) {
+				$has_discovery = true;
+				break;
+			}
+		}
+
+		if ( ! $has_discovery ) {
+			return '';
+		}
+
+		$batching_active = array_values(
+			array_filter(
+				$batching_abilities,
+				static fn( string $name ): bool => in_array( $name, $ability_names, true )
+			)
+		);
+
+		$section = "## Build vs install\n\n"
+			. 'For multi-file features (e.g. dating sites, member directories, forums, marketplaces, LMS, booking systems, '
+			. 'membership sites, messaging systems, anything that would require custom DB tables or several new PHP classes), '
+			. "**plan before you build**:\n\n"
+			. "1. Call `sd-ai-agent/search-plugin-directory` with 2–3 keyword variants relevant to the feature.\n"
+			. "2. Optionally call `sd-ai-agent/recommend-plugin` with a category like `community`, `commerce`, `forms`, or `lms`.\n"
+			. "3. Weigh the candidates against the user's stated constraints (free, no monetisation, headless, multisite, etc.).\n"
+			. "4. Only hand-build when no existing plugin covers ≥60% of the feature surface, **or** when the user explicitly rejects installing third-party plugins. State the reason in your response before writing custom code.\n"
+			. "5. Prefer `sd-ai-agent/install-plugin` for wp.org plugins. Use `sd-ai-agent/generate-plugin` only for genuinely novel functionality the directory does not cover.\n\n"
+			. 'Hand-building reproduces work that audited plugins (password reset, email verification, '
+			. 'abuse reporting, blocking, pagination, GDPR exports) already do — and consumes the tool-call '
+			. 'budget on bespoke code that ships less safely than a battle-tested plugin.';
+
+		if ( ! empty( $batching_active ) ) {
+			$batching_list = implode(
+				' or ',
+				array_map( static fn( string $name ): string => '`' . $name . '`', $batching_active )
+			);
+			$section      .= "\n\n### Seeding & batch updates\n\n"
+				. 'When inserting or updating more than ~5 rows of data (demo users, taxonomy terms, meta keys, options), '
+				. 'use a single ' . $batching_list . ' call instead of N serial `wp-cli` invocations. '
+				. 'One `UPDATE` / `INSERT … VALUES` or one `update_user_meta()` loop in `run-php` does the same '
+				. 'work as dozens of `wp user meta update` calls and leaves tool-call budget for verification and polish.';
+		}
+
+		return $section;
 	}
 
 	/**

@@ -34,6 +34,7 @@ import {
 	parseSuggestions,
 } from './message-helpers';
 import { linkifyText } from '../../utils/linkify';
+import { copyToClipboard } from '../../utils/clipboard';
 
 /**
  *
@@ -188,7 +189,7 @@ export function UserMessage( { msg, index } ) {
 		if ( ! text ) {
 			return;
 		}
-		navigator.clipboard.writeText( text ).then( () => {
+		copyToClipboard( text ).then( () => {
 			setCopied( true );
 			setTimeout( () => setCopied( false ), 1500 );
 		} );
@@ -370,7 +371,7 @@ export function AssistantMessage( {
 		if ( ! cleanText ) {
 			return;
 		}
-		navigator.clipboard.writeText( cleanText ).then( () => {
+		copyToClipboard( cleanText ).then( () => {
 			setCopied( true );
 			setTimeout( () => setCopied( false ), 1500 );
 		} );

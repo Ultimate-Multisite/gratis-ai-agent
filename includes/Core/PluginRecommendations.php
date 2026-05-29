@@ -134,6 +134,50 @@ class PluginRecommendations {
 					. 'instead of raw HTML form elements. '
 					. 'Raw form elements inside core/html are not editable and break accessibility.',
 			),
+			/*
+			 * BuddyPress — community / dating / social-network use cases.
+			 *
+			 * When a session asks for member directories, dating sites,
+			 * private messaging between users, activity feeds, friend
+			 * connections, or community profiles, building from scratch
+			 * with custom DB tables and AJAX endpoints reproduces work
+			 * BuddyPress already does — audited at ~100k installs and
+			 * covering password reset, email verification, blocking,
+			 * abuse reporting, pagination, and GDPR exports for free.
+			 *
+			 * No HTML pattern is registered: BuddyPress is suggested at
+			 * the planning level (system prompt) rather than as a
+			 * core/html block replacement.
+			 *
+			 * See session #25 (NerdLove dating site) for the trace that
+			 * motivated adding this recommendation: the agent hand-built
+			 * ~2,000 LOC of profile/messaging code, hit the tool-call
+			 * cap, and never considered search-plugin-directory or
+			 * install-plugin.
+			 */
+			new PluginRecommendation(
+				name: 'BuddyPress',
+				plugin_slug: 'buddypress',
+				blocks: [],
+				guidance: "## Community, dating, member profiles, private messaging\n\n"
+					. 'When the user asks for a dating site, social network, member directory, '
+					. 'community, private messaging between users, friend connections, activity feed, '
+					. 'or extended member profiles, prefer **BuddyPress** (plugin_slug: `buddypress`) '
+					. "over hand-built user-meta tables, custom messaging tables, and bespoke AJAX endpoints.\n\n"
+					. "Recommended workflow:\n"
+					. "1. `sd-ai-agent/search-plugin-directory` with the relevant keyword(s) to confirm options and read recent ratings/installs.\n"
+					. "2. `sd-ai-agent/install-plugin` with `slug: \"buddypress\"` and `activate: true`.\n"
+					. "3. Customise via:\n"
+					. "   - `xprofile` field groups (gender, seeking, age, location, bio, interests) — set up with WP-CLI or the BuddyPress admin.\n"
+					. "   - Theme template overrides under `buddypress/` in the active theme to apply brand styling.\n"
+					. "   - Filters such as `bp_after_has_members_parse_args` for gender/orientation filtering.\n"
+					. "4. Reuse BuddyPress's built-in messages component instead of a custom `wp_*nlc_messages` table.\n\n"
+					. 'Only build from scratch when the user explicitly rejects BuddyPress or when a constraint '
+					. '(license, multisite-network mode, headless API-only stack) rules it out. State the reason '
+					. 'in the response before writing custom plugin scaffolding.',
+				html_patterns: [],
+				html_policy_message: '',
+			),
 		];
 
 		/*

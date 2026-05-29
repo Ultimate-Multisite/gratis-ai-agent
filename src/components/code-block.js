@@ -5,6 +5,11 @@ import { useState, useCallback, useEffect, useRef } from '@wordpress/element';
 import { __ } from '@wordpress/i18n';
 
 /**
+ * Internal dependencies
+ */
+import { copyToClipboard } from '../utils/clipboard';
+
+/**
  * CodeMirror 6 core
  */
 import { EditorView, lineNumbers } from '@codemirror/view';
@@ -194,7 +199,7 @@ export default function CodeBlock( { language, children } ) {
 	}, [ code, language ] );
 
 	const handleCopy = useCallback( () => {
-		navigator.clipboard.writeText( code ).then( () => {
+		copyToClipboard( code ).then( () => {
 			setCopied( true );
 			setTimeout( () => setCopied( false ), 2000 );
 		} );

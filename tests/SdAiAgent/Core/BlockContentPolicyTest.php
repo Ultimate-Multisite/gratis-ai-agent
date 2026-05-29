@@ -591,6 +591,35 @@ class BlockContentPolicyTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * The default registry should include the BuddyPress recommendation so
+	 * sessions asking for dating / community / member-profile / messaging
+	 * features see it in the system prompt and reach for
+	 * sd-ai-agent/install-plugin instead of hand-building.
+	 *
+	 * Regression: session #25 (NerdLove dating site) — agent never
+	 * considered BuddyPress and hit the tool-call cap mid-build.
+	 */
+	public function test_build_system_prompt_section_contains_buddypress(): void {
+		$section = PluginRecommendations::build_system_prompt_section();
+
+		$this->assertStringContainsString(
+			'BuddyPress',
+			$section,
+			'Section should advertise BuddyPress for community/dating/member-profile use cases.'
+		);
+		$this->assertStringContainsString(
+			'buddypress',
+			$section,
+			'Section should reference the canonical wp.org slug so install-plugin can be invoked.'
+		);
+		$this->assertStringContainsString(
+			'install-plugin',
+			$section,
+			'Section should nudge the model toward sd-ai-agent/install-plugin instead of hand-coding.'
+		);
+	}
+
+	/**
 	 * build_system_prompt_section() should return an empty string when the
 	 * registry is empty.
 	 *
@@ -640,8 +669,10 @@ class BlockContentPolicyTest extends WP_UnitTestCase {
 
 		$all = PluginRecommendations::get_all();
 
-		$this->assertCount( 2, $all, 'Filter should allow adding a second recommendation.' );
-		$this->assertSame( 'WooCommerce', $all[1]->name );
+		// Default registry has Jetpack Forms + BuddyPress; the filter
+		// appends WooCommerce, so the total is 3 and WooCommerce is last.
+		$this->assertCount( 3, $all, 'Filter should allow adding a third recommendation on top of the defaults.' );
+		$this->assertSame( 'WooCommerce', $all[2]->name );
 
 		remove_all_filters( 'sd_ai_agent_plugin_recommendations' );
 	}

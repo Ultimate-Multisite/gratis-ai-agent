@@ -232,6 +232,12 @@ export const actions = {
 		return async ( { dispatch, select } ) => {
 			let attempts = 0;
 			const maxAttempts = 200;
+			// Counts consecutive *transient* network/5xx failures so a dead
+			// endpoint cannot loop silently forever. Reset on every successful
+			// poll. Terminal 404 (job_not_found) bypasses this counter and
+			// triggers an immediate session reload + UI clear.
+			let consecutiveErrors = 0;
+			const maxConsecutiveErrors = 8;
 			let lastToolCallsLength = 0;
 			let visibilityPaused = false;
 			let resumeCallback = null;
@@ -294,6 +300,10 @@ export const actions = {
 					const result = await apiFetch( {
 						path: `/sd-ai-agent/v1/job/${ jobId }`,
 					} );
+
+					// Successful poll — reset the transient-error counter so
+					// only *consecutive* failures count toward the cap.
+					consecutiveErrors = 0;
 
 					if ( result.status === 'processing' ) {
 						// Update per-session job state for ALL sessions.
@@ -780,8 +790,96 @@ export const actions = {
 						// Mark successful completion so the ding can fire below.
 						lastStatusComplete = true;
 					}
-				} catch {
-					// Network blip — keep polling with backoff.
+				} catch ( err ) {
+					// Classify the failure so the customer is always told
+					// what happened instead of staring at "Composing reply…".
+					//
+					// Terminal: 404 sd_ai_agent_job_not_found. The server
+					// deletes both the job transient and the active-job DB
+					// row in the same response that delivers status=complete
+					// or status=error (SessionController::handle_job_status).
+					// Any in-flight poll that races that cleanup, OR any
+					// poll that arrives after the transient TTL expired
+					// while the DB row was reaped by the cleanup cron,
+					// will hit this branch. The agent loop has already
+					// persisted its messages to the session, so reload the
+					// session from the DB instead of silently looping.
+					const status = err?.data?.status;
+					const code = err?.code;
+					const isJobMissing =
+						status === 404 ||
+						code === 'sd_ai_agent_job_not_found' ||
+						code === 'rest_no_route';
+
+					if ( isJobMissing ) {
+						let reloadFailed = false;
+						try {
+							const session = await apiFetch( {
+								path: `/sd-ai-agent/v1/sessions/${ sessionId }`,
+							} );
+							if ( select.getCurrentSessionId() === sessionId ) {
+								dispatch.setCurrentSession(
+									session.id,
+									session.messages || [],
+									session.tool_calls || []
+								);
+							}
+						} catch {
+							reloadFailed = true;
+						}
+
+						unsubscribeVisibility();
+						clearActiveJob( sessionId );
+						if ( select.getCurrentSessionId() === sessionId ) {
+							if ( reloadFailed ) {
+								dispatch.appendMessage( {
+									role: 'system',
+									parts: [
+										{
+											text: __(
+												'The job finished but the result could not be retrieved. Reload the page to see the latest messages.',
+												'superdav-ai-agent'
+											),
+										},
+									],
+								} );
+							}
+							dispatch.setSending( false );
+							dispatch.setLiveToolCalls( [] );
+							dispatch.drainMessageQueue();
+						}
+						dispatch.setCurrentJobId( null );
+						dispatch.setSessionJob( sessionId, null );
+						return;
+					}
+
+					// Transient (network blip, 5xx, parse error). Retry with
+					// backoff but cap consecutive failures so a dead endpoint
+					// cannot keep the user trapped on the sending spinner.
+					consecutiveErrors++;
+					if ( consecutiveErrors >= maxConsecutiveErrors ) {
+						unsubscribeVisibility();
+						clearActiveJob( sessionId );
+						if ( select.getCurrentSessionId() === sessionId ) {
+							dispatch.appendMessage( {
+								role: 'system',
+								parts: [
+									{
+										text: __(
+											'Error: Lost connection to the server while waiting for the job to finish. Reload the page to see if anything was saved.',
+											'superdav-ai-agent'
+										),
+									},
+								],
+							} );
+							dispatch.setSending( false );
+							dispatch.setLiveToolCalls( [] );
+						}
+						dispatch.setCurrentJobId( null );
+						dispatch.setSessionJob( sessionId, null );
+						return;
+					}
+
 					await new Promise( ( resolve ) =>
 						setTimeout( resolve, getInterval( attempts ) )
 					);
