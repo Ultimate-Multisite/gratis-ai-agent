@@ -181,6 +181,9 @@ vendor/bin
 *.zip
 *.map
 build/di-cache
+# Pre-submission AI review reports written by bin/wporg-review.sh —
+# never include these in either the GitHub or WP.org zip.
+build/wporg-review
 
 # Misc tree-wide patterns (intentional)
 *.log
