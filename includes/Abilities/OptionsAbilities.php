@@ -23,6 +23,46 @@ if ( ! defined( 'ABSPATH' ) ) {
 class OptionsAbilities {
 
 	/**
+	 * Placeholder substituted for a secret option value in any response that
+	 * cannot omit the row entirely (e.g. database query results, WP-CLI
+	 * `option list` output).
+	 *
+	 * Centralised so every read surface — get-option, list-options, db-query,
+	 * run-php, wp-cli — uses the same opaque token. Reviewers and automated
+	 * tests can grep on this constant.
+	 *
+	 * @var string
+	 */
+	public const SECRET_REDACTED_PLACEHOLDER = '[redacted: secret option]';
+
+	/**
+	 * Authentication keys and salts that must NEVER be returned to the AI
+	 * agent, even when stored in the options table.
+	 *
+	 * WordPress writes these names into `wp_options` when `wp-config.php`
+	 * does not define them, so a read path that names them by string would
+	 * leak the values. This list is the single source of truth used by every
+	 * read surface in the plugin (get-option, list-options, db-query,
+	 * run-php with `get_option`/`get_transient`, and wp-cli `option get`).
+	 *
+	 * Extend via the `sd_ai_agent_options_read_blocklist` filter.
+	 *
+	 * @var string[]
+	 */
+	private const SECRET_READ_BLOCKLIST = [
+		// Cryptographic keys and salts used to sign auth cookies. Leaking
+		// any of these enables session forgery / impersonation.
+		'auth_key',
+		'secure_auth_key',
+		'logged_in_key',
+		'nonce_key',
+		'auth_salt',
+		'secure_auth_salt',
+		'logged_in_salt',
+		'nonce_salt',
+	];
+
+	/**
 	 * Options that the AI agent is never allowed to modify or delete.
 	 *
 	 * These are critical WordPress core options whose corruption would break
@@ -132,6 +172,66 @@ class OptionsAbilities {
 
 		return array_values( array_filter( (array) $blocklist, 'is_string' ) );
 	}
+
+	/**
+	 * Get the runtime read blocklist for secret option names.
+	 *
+	 * The list is intentionally narrower than the write blocklist: a few
+	 * options (e.g. `siteurl`, `active_plugins`) are write-blocked because
+	 * mutating them would break the site, but their values are not secrets
+	 * and may legitimately be inspected. Only values whose disclosure would
+	 * enable session forgery or impersonation belong here.
+	 *
+	 * @return string[]
+	 */
+	public static function get_secret_read_blocklist(): array {
+		/**
+		 * Filters the list of WordPress option names whose values must never
+		 * be returned by any AI-agent read surface.
+		 *
+		 * @since 1.3.0
+		 *
+		 * @param string[] $blocklist List of secret option names.
+		 */
+		$blocklist = apply_filters( 'sd_ai_agent_options_read_blocklist', self::SECRET_READ_BLOCKLIST );
+
+		return array_values( array_filter( (array) $blocklist, 'is_string' ) );
+	}
+
+	/**
+	 * Predicate: is the given option name in the secret read blocklist?
+	 *
+	 * Comparison is exact-match and case-sensitive — WordPress option names
+	 * are case-sensitive at the storage layer.
+	 *
+	 * @param string $option_name Option name to test.
+	 * @return bool True if the name is a known secret.
+	 */
+	public static function is_secret_option_name( string $option_name ): bool {
+		if ( '' === $option_name ) {
+			return false;
+		}
+
+		return in_array( $option_name, self::get_secret_read_blocklist(), true );
+	}
+
+	/**
+	 * Build a uniform WP_Error for a blocked secret read across surfaces.
+	 *
+	 * @param string $option_name Option name that was requested.
+	 * @return WP_Error
+	 */
+	public static function secret_read_error( string $option_name ): WP_Error {
+		return new WP_Error(
+			'sd_ai_agent_option_secret_redacted',
+			sprintf(
+				/* translators: %s: option name */
+				__( 'The option "%s" stores an authentication secret and cannot be read by the AI agent.', 'superdav-ai-agent' ),
+				$option_name
+			),
+			array( 'status' => 403 )
+		);
+	}
 }
 
 /**
@@ -191,6 +291,13 @@ class GetOptionAbility extends AbstractAbility {
 				'sd_ai_agent_empty_option_name',
 				__( 'The "option_name" parameter is required.', 'superdav-ai-agent' )
 			);
+		}
+
+		// Secret-option read gate. WordPress writes auth keys/salts into
+		// `wp_options` when wp-config.php does not define them; returning
+		// their values would enable session forgery.
+		if ( OptionsAbilities::is_secret_option_name( $option_name ) ) {
+			return OptionsAbilities::secret_read_error( $option_name );
 		}
 
 		$default = $input['default'] ?? false;
@@ -557,9 +664,13 @@ class ListOptionsAbility extends AbstractAbility {
 		return [
 			'type'       => 'object',
 			'properties' => [
-				'options' => [ 'type' => 'array' ],
-				'total'   => [ 'type' => 'integer' ],
-				'prefix'  => [ 'type' => 'string' ],
+				'options'        => [ 'type' => 'array' ],
+				'total'          => [ 'type' => 'integer' ],
+				'prefix'         => [ 'type' => 'string' ],
+				'redacted_count' => [
+					'type'        => 'integer',
+					'description' => 'Number of rows removed from the response because their option_name is on the secret read blocklist (e.g. auth_key, secure_auth_salt).',
+				],
 			],
 		];
 	}
@@ -644,8 +755,17 @@ class ListOptionsAbility extends AbstractAbility {
 			);
 		}
 
-		$options = [];
+		$options        = [];
+		$redacted_count = 0;
 		foreach ( $rows as $row ) {
+			// Secret-option read gate. Omit the row entirely so the AI
+			// neither sees the value nor learns whether the option is
+			// stored as an option or defined in wp-config.php.
+			if ( OptionsAbilities::is_secret_option_name( (string) $row['option_name'] ) ) {
+				++$redacted_count;
+				continue;
+			}
+
 			$value = $row['option_value'];
 
 			// Attempt to unserialise so the caller sees the real data type.
@@ -670,9 +790,10 @@ class ListOptionsAbility extends AbstractAbility {
 		}
 
 		return [
-			'options' => $options,
-			'total'   => count( $options ),
-			'prefix'  => $prefix,
+			'options'        => $options,
+			'total'          => count( $options ),
+			'prefix'         => $prefix,
+			'redacted_count' => $redacted_count,
 		];
 	}
 

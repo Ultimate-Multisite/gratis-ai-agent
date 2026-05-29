@@ -1,0 +1,220 @@
+<?php
+/**
+ * Test case for OptionsAbilities (secret-option read gating).
+ *
+ * Verifies the cross-surface contract that the AI agent can never read
+ * the value of an authentication key or salt stored in the WordPress
+ * options table, even though those names are write-blocked.
+ *
+ * @package SdAiAgent
+ * @subpackage Tests
+ * @license GPL-2.0-or-later
+ */
+
+declare(strict_types=1);
+
+namespace SdAiAgent\Tests\Abilities;
+
+use SdAiAgent\Abilities\GetOptionAbility;
+use SdAiAgent\Abilities\ListOptionsAbility;
+use SdAiAgent\Abilities\OptionsAbilities;
+use WP_UnitTestCase;
+
+/**
+ * Test secret-option read gating end-to-end.
+ */
+class OptionsAbilitiesTest extends WP_UnitTestCase {
+
+	/**
+	 * Sample auth-key value used in fixtures; never asserted to be present
+	 * in any agent-visible output.
+	 *
+	 * @var string
+	 */
+	private const FIXTURE_SECRET_VALUE = 'do-not-leak-this-secret-value';
+
+	/**
+	 * Clean up any options the tests inserted so they do not pollute the
+	 * shared fixture database.
+	 */
+	public function tear_down(): void {
+		foreach ( OptionsAbilities::get_secret_read_blocklist() as $name ) {
+			delete_option( $name );
+		}
+		delete_option( 'sd_ai_agent_test_visible_option' );
+		remove_all_filters( 'sd_ai_agent_options_read_blocklist' );
+
+		parent::tear_down();
+	}
+
+	/**
+	 * The shipped read blocklist covers every auth key and salt.
+	 */
+	public function test_default_read_blocklist_covers_auth_keys_and_salts(): void {
+		$blocklist = OptionsAbilities::get_secret_read_blocklist();
+
+		$expected = array(
+			'auth_key',
+			'secure_auth_key',
+			'logged_in_key',
+			'nonce_key',
+			'auth_salt',
+			'secure_auth_salt',
+			'logged_in_salt',
+			'nonce_salt',
+		);
+
+		foreach ( $expected as $name ) {
+			$this->assertContains(
+				$name,
+				$blocklist,
+				sprintf( '"%s" must be in the secret read blocklist.', $name )
+			);
+			$this->assertTrue(
+				OptionsAbilities::is_secret_option_name( $name ),
+				sprintf( 'is_secret_option_name("%s") must return true.', $name )
+			);
+		}
+	}
+
+	/**
+	 * Non-secret options remain readable.
+	 */
+	public function test_predicate_returns_false_for_non_secret_names(): void {
+		$this->assertFalse( OptionsAbilities::is_secret_option_name( 'blogname' ) );
+		$this->assertFalse( OptionsAbilities::is_secret_option_name( 'siteurl' ) );
+		$this->assertFalse( OptionsAbilities::is_secret_option_name( '' ) );
+	}
+
+	/**
+	 * The read blocklist can be extended at runtime by site code.
+	 */
+	public function test_filter_can_extend_read_blocklist(): void {
+		add_filter(
+			'sd_ai_agent_options_read_blocklist',
+			static function ( array $list ): array {
+				$list[] = 'my_third_party_api_token';
+				return $list;
+			}
+		);
+
+		$this->assertTrue( OptionsAbilities::is_secret_option_name( 'my_third_party_api_token' ) );
+		$this->assertContains( 'my_third_party_api_token', OptionsAbilities::get_secret_read_blocklist() );
+	}
+
+	/**
+	 * GetOptionAbility refuses to read auth_key even when it is stored as
+	 * an option.
+	 */
+	public function test_get_option_ability_blocks_auth_key(): void {
+		update_option( 'auth_key', self::FIXTURE_SECRET_VALUE );
+
+		$ability = new GetOptionAbility( 'sd-ai-agent/get-option' );
+		$result  = $ability->run( array( 'option_name' => 'auth_key' ) );
+
+		$this->assertInstanceOf( \WP_Error::class, $result );
+		$this->assertSame( 'sd_ai_agent_option_secret_redacted', $result->get_error_code() );
+		$this->assertStringNotContainsString(
+			self::FIXTURE_SECRET_VALUE,
+			(string) $result->get_error_message(),
+			'Error message must not echo the secret value.'
+		);
+	}
+
+	/**
+	 * Every shipped secret name is rejected by GetOptionAbility, not just
+	 * the first one in the list.
+	 */
+	public function test_get_option_ability_blocks_every_shipped_secret(): void {
+		$ability = new GetOptionAbility( 'sd-ai-agent/get-option' );
+
+		foreach ( OptionsAbilities::get_secret_read_blocklist() as $name ) {
+			update_option( $name, self::FIXTURE_SECRET_VALUE );
+			$result = $ability->run( array( 'option_name' => $name ) );
+
+			$this->assertInstanceOf( \WP_Error::class, $result, "Reading $name must return WP_Error" );
+			$this->assertSame(
+				'sd_ai_agent_option_secret_redacted',
+				$result->get_error_code(),
+				"Reading $name must return the secret-redacted error code"
+			);
+		}
+	}
+
+	/**
+	 * Non-secret options continue to read normally.
+	 */
+	public function test_get_option_ability_still_reads_safe_options(): void {
+		update_option( 'sd_ai_agent_test_visible_option', 'hello' );
+
+		$ability = new GetOptionAbility( 'sd-ai-agent/get-option' );
+		$result  = $ability->run( array( 'option_name' => 'sd_ai_agent_test_visible_option' ) );
+
+		$this->assertIsArray( $result );
+		$this->assertSame( 'hello', $result['value'] );
+		$this->assertTrue( $result['exists'] );
+	}
+
+	/**
+	 * Filter-added names are also blocked by GetOptionAbility.
+	 */
+	public function test_get_option_ability_honours_filter_added_secret(): void {
+		add_filter(
+			'sd_ai_agent_options_read_blocklist',
+			static function ( array $list ): array {
+				$list[] = 'sd_ai_agent_test_visible_option';
+				return $list;
+			}
+		);
+		update_option( 'sd_ai_agent_test_visible_option', 'hello' );
+
+		$ability = new GetOptionAbility( 'sd-ai-agent/get-option' );
+		$result  = $ability->run( array( 'option_name' => 'sd_ai_agent_test_visible_option' ) );
+
+		$this->assertInstanceOf( \WP_Error::class, $result );
+		$this->assertSame( 'sd_ai_agent_option_secret_redacted', $result->get_error_code() );
+	}
+
+	/**
+	 * ListOptionsAbility omits secret rows and counts them so the agent
+	 * knows redaction occurred without seeing the values.
+	 */
+	public function test_list_options_ability_omits_secret_rows(): void {
+		update_option( 'auth_key', self::FIXTURE_SECRET_VALUE );
+		update_option( 'nonce_salt', self::FIXTURE_SECRET_VALUE );
+
+		$ability = new ListOptionsAbility( 'sd-ai-agent/list-options' );
+		$result  = $ability->run( array( 'limit' => 200 ) );
+
+		$this->assertIsArray( $result );
+		$this->assertArrayHasKey( 'options', $result );
+		$this->assertArrayHasKey( 'redacted_count', $result );
+		$this->assertGreaterThanOrEqual( 2, $result['redacted_count'] );
+
+		$encoded = wp_json_encode( $result );
+		$this->assertIsString( $encoded );
+		$this->assertStringNotContainsString(
+			self::FIXTURE_SECRET_VALUE,
+			$encoded,
+			'Secret value must never appear in the list-options response.'
+		);
+
+		foreach ( $result['options'] as $row ) {
+			$this->assertFalse(
+				OptionsAbilities::is_secret_option_name( (string) $row['option_name'] ),
+				sprintf( 'Secret option "%s" leaked into the response.', $row['option_name'] )
+			);
+		}
+	}
+
+	/**
+	 * The placeholder constant is opaque enough to be greppable across the
+	 * codebase, and stable enough for tests to assert on.
+	 */
+	public function test_secret_redacted_placeholder_is_stable(): void {
+		$this->assertSame(
+			'[redacted: secret option]',
+			OptionsAbilities::SECRET_REDACTED_PLACEHOLDER
+		);
+	}
+}

@@ -464,6 +464,174 @@ class WpCliAbilitiesTest extends WP_UnitTestCase {
 		return $this->temp_dir;
 	}
 
+	// ─── Secret-aware option subcommand gating ──────────────────────────
+
+	/**
+	 * `wp option get auth_key` must be blocked before binary discovery.
+	 *
+	 * The secret gate runs ahead of {@see WpCliAbilities::find_wp_cli()},
+	 * so this test does not require a real WP-CLI binary to assert the
+	 * block code.
+	 */
+	public function test_execute_blocks_option_get_for_secret_name(): void {
+		$result = WpCliAbilities::execute( 'option get auth_key' );
+
+		$this->assertWPError( $result );
+		$this->assertSame( 'wp_cli_option_secret_redacted', $result->get_error_code() );
+		$this->assertSame( 403, $result->get_error_data()['status'] );
+	}
+
+	/**
+	 * `wp option pluck nonce_salt some.key` must also be blocked.
+	 */
+	public function test_execute_blocks_option_pluck_for_secret_name(): void {
+		$result = WpCliAbilities::execute( 'option pluck nonce_salt foo' );
+
+		$this->assertWPError( $result );
+		$this->assertSame( 'wp_cli_option_secret_redacted', $result->get_error_code() );
+	}
+
+	/**
+	 * Flags between subcommand and option name must not bypass the gate.
+	 *
+	 * Example: `wp option get --format=json secure_auth_key`.
+	 */
+	public function test_execute_blocks_secret_name_even_with_flags_before_it(): void {
+		$result = WpCliAbilities::execute( 'option get --format=json secure_auth_key' );
+
+		$this->assertWPError( $result );
+		$this->assertSame( 'wp_cli_option_secret_redacted', $result->get_error_code() );
+	}
+
+	/**
+	 * Non-secret option reads continue to pass the gate (they fail later
+	 * because no real WP-CLI binary is installed in the test env, but the
+	 * failure must NOT be the secret-redacted code).
+	 */
+	public function test_execute_allows_option_get_for_safe_name(): void {
+		$result = WpCliAbilities::execute( 'option get blogname' );
+
+		// The command should pass the secret gate; whether it ultimately
+		// succeeds or fails depends on whether wp-cli is installed. Either
+		// way the error code must NOT be the secret-redacted one.
+		if ( is_wp_error( $result ) ) {
+			$this->assertNotSame(
+				'wp_cli_option_secret_redacted',
+				$result->get_error_code()
+			);
+		} else {
+			$this->assertTrue( true, 'Command executed without hitting the secret gate.' );
+		}
+	}
+
+	/**
+	 * `wp option update auth_key …` must be refused by the write-blocklist
+	 * branch of the gate, even though `auth_key` could also be reached via
+	 * the secret-read gate.
+	 */
+	public function test_execute_blocks_option_update_for_protected_name(): void {
+		$result = WpCliAbilities::execute( 'option update auth_key rotated-by-agent' );
+
+		$this->assertWPError( $result );
+		$this->assertSame( 'wp_cli_option_protected', $result->get_error_code() );
+	}
+
+	/**
+	 * `wp option delete logged_in_key` must be refused.
+	 */
+	public function test_execute_blocks_option_delete_for_protected_name(): void {
+		$result = WpCliAbilities::execute( 'option delete logged_in_key' );
+
+		$this->assertWPError( $result );
+		$this->assertSame( 'wp_cli_option_protected', $result->get_error_code() );
+	}
+
+	/**
+	 * Filter-extended secret names must also block WP-CLI option get.
+	 */
+	public function test_execute_honours_filter_extended_secret_for_option_get(): void {
+		add_filter(
+			'sd_ai_agent_options_read_blocklist',
+			static function ( array $list ): array {
+				$list[] = 'third_party_api_token';
+				return $list;
+			}
+		);
+
+		$result = WpCliAbilities::execute( 'option get third_party_api_token' );
+
+		$this->assertWPError( $result );
+		$this->assertSame( 'wp_cli_option_secret_redacted', $result->get_error_code() );
+
+		remove_all_filters( 'sd_ai_agent_options_read_blocklist' );
+	}
+
+	/**
+	 * The structured `option list` scrubber must redact `option_value` on
+	 * any row whose `option_name` is a secret.
+	 */
+	public function test_scrub_secret_output_redacts_structured_rows(): void {
+		$raw = array(
+			array(
+				'option_name'  => 'blogname',
+				'option_value' => 'My Site',
+				'autoload'     => 'yes',
+			),
+			array(
+				'option_name'  => 'auth_key',
+				'option_value' => 'do-not-leak-this-secret',
+				'autoload'     => 'yes',
+			),
+			array(
+				'option_name'  => 'nonce_salt',
+				'value'        => 'do-not-leak-this-secret',
+			),
+		);
+
+		$scrubbed = WpCliAbilities::scrub_secret_output( 'option list', $raw );
+		$this->assertIsArray( $scrubbed );
+
+		$encoded = wp_json_encode( $scrubbed );
+		$this->assertIsString( $encoded );
+		$this->assertStringNotContainsString( 'do-not-leak-this-secret', $encoded );
+		$this->assertSame( 'My Site', $scrubbed[0]['option_value'] );
+		$this->assertSame(
+			\SdAiAgent\Abilities\OptionsAbilities::SECRET_REDACTED_PLACEHOLDER,
+			$scrubbed[1]['option_value']
+		);
+		$this->assertSame(
+			\SdAiAgent\Abilities\OptionsAbilities::SECRET_REDACTED_PLACEHOLDER,
+			$scrubbed[2]['value']
+		);
+	}
+
+	/**
+	 * The text-format scrubber must replace secret values on lines that
+	 * begin with a secret option name.
+	 */
+	public function test_scrub_secret_output_redacts_text_rows(): void {
+		$raw = "blogname\tMy Site\nauth_key\tdo-not-leak-this-secret\nnonce_salt:do-not-leak-this-secret\n";
+
+		$scrubbed = WpCliAbilities::scrub_secret_output( 'option list', $raw );
+		$this->assertIsString( $scrubbed );
+		$this->assertStringNotContainsString( 'do-not-leak-this-secret', $scrubbed );
+		$this->assertStringContainsString( 'My Site', $scrubbed );
+		$this->assertStringContainsString(
+			\SdAiAgent\Abilities\OptionsAbilities::SECRET_REDACTED_PLACEHOLDER,
+			$scrubbed
+		);
+	}
+
+	/**
+	 * Subcommands other than `option list*` must pass through untouched —
+	 * the scrubber is a narrow safety net, not a general filter.
+	 */
+	public function test_scrub_secret_output_passes_through_other_commands(): void {
+		$raw = array( array( 'option_name' => 'auth_key', 'option_value' => 'leaked' ) );
+		$result = WpCliAbilities::scrub_secret_output( 'post list', $raw );
+		$this->assertSame( $raw, $result );
+	}
+
 	/**
 	 * Recursively remove a directory.
 	 *

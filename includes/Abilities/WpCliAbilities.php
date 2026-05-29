@@ -335,6 +335,14 @@ class WpCliAbilities {
 			);
 		}
 
+		// Secret-aware option subcommand gate. Blocks `wp option get auth_key`
+		// and friends before the binary is even invoked, so an unsafe value
+		// is never read from disk or shell-expanded into a log.
+		$secret_gate = self::check_secret_option_subcommand( $command_path, $tokens );
+		if ( is_wp_error( $secret_gate ) ) {
+			return $secret_gate;
+		}
+
 		// Permission check based on command classification.
 		$level      = self::classify_command( $command_path );
 		$perm_check = self::check_permission_level( $level );
@@ -403,6 +411,14 @@ class WpCliAbilities {
 
 		/** @var list<string> $proc_args */
 		$result = self::run_process( $proc_args, $command_path );
+
+		// Post-process scrub for `option list` (and any other multi-row
+		// secret-bearing subcommand we add later). Catches secrets that
+		// slip past the pre-check because the option name is not a
+		// positional argument of the subcommand.
+		if ( ! is_wp_error( $result ) ) {
+			$result = self::scrub_secret_output( $command_path, $result );
+		}
 
 		// Auto-set current site context after site creation.
 		if ( str_starts_with( $command_path, 'site create' ) && ! is_wp_error( $result ) ) {
@@ -1056,5 +1072,163 @@ class WpCliAbilities {
 		}
 
 		return '';
+	}
+
+	// ─── Secret-aware option subcommand gating ──────────────────────────
+
+	/**
+	 * Subcommands that take an option name as their first non-flag positional
+	 * argument and would therefore expose / mutate a secret if not gated.
+	 *
+	 * Index value is a classification used by {@see check_secret_option_subcommand()}:
+	 *   - 'read'  → name must not be on the secret read blocklist.
+	 *   - 'write' → name must not be on the existing write blocklist.
+	 *
+	 * @var array<string,string>
+	 */
+	private const SECRET_AWARE_OPTION_SUBCOMMANDS = array(
+		'option get'          => 'read',
+		'option pluck'        => 'read',
+		'option get-autoload' => 'read',
+		'option update'       => 'write',
+		'option set'          => 'write', // alias for update in some WP-CLI versions.
+		'option add'          => 'write',
+		'option delete'       => 'write',
+		'option patch'        => 'write',
+	);
+
+	/**
+	 * Reject `wp option get/pluck/update/delete <secret>` before execution.
+	 *
+	 * {@see extract_command_path()} stops at the first flag but consumes the
+	 * option name into the positional path (so `option get auth_key` becomes
+	 * the full command_path string). We therefore derive the 2-token
+	 * subcommand prefix and the option-name argument directly from the
+	 * tokenised input, not from the joined command_path.
+	 *
+	 * Returns null when the command is allowed, a WP_Error when blocked.
+	 *
+	 * @param string   $command_path The space-joined positional prefix (unused
+	 *                               for the lookup; kept for caller symmetry).
+	 * @param string[] $tokens       Full tokenised command (includes flags).
+	 * @return WP_Error|null
+	 */
+	private static function check_secret_option_subcommand( string $command_path, array $tokens ): ?WP_Error {
+		unset( $command_path );
+
+		// Collect non-flag positionals; the first two form the "<top>
+		// <verb>" prefix and the third (if any) is the option name.
+		$positionals = array();
+		foreach ( $tokens as $token ) {
+			if ( ! str_starts_with( $token, '-' ) ) {
+				$positionals[] = $token;
+			}
+		}
+
+		if ( count( $positionals ) < 2 ) {
+			return null;
+		}
+
+		$prefix = $positionals[0] . ' ' . $positionals[1];
+		if ( ! isset( self::SECRET_AWARE_OPTION_SUBCOMMANDS[ $prefix ] ) ) {
+			return null;
+		}
+
+		$mode        = self::SECRET_AWARE_OPTION_SUBCOMMANDS[ $prefix ];
+		$option_name = $positionals[2] ?? '';
+		if ( '' === $option_name ) {
+			// No name yet — let WP-CLI surface the usage error.
+			return null;
+		}
+
+		if ( 'read' === $mode && OptionsAbilities::is_secret_option_name( $option_name ) ) {
+			return new WP_Error(
+				'wp_cli_option_secret_redacted',
+				sprintf(
+					/* translators: 1: WP-CLI subcommand, 2: option name */
+					__( 'The WP-CLI command "wp %1$s %2$s" would read an authentication secret and is blocked.', 'superdav-ai-agent' ),
+					$prefix,
+					$option_name
+				),
+				array( 'status' => 403 )
+			);
+		}
+
+		if ( 'write' === $mode
+			&& in_array( $option_name, OptionsAbilities::get_write_blocklist(), true ) ) {
+			return new WP_Error(
+				'wp_cli_option_protected',
+				sprintf(
+					/* translators: 1: WP-CLI subcommand, 2: option name */
+					__( 'The WP-CLI command "wp %1$s %2$s" targets a protected option and is blocked.', 'superdav-ai-agent' ),
+					$prefix,
+					$option_name
+				),
+				array( 'status' => 403 )
+			);
+		}
+
+		return null;
+	}
+
+	/**
+	 * Scrub secret option values out of WP-CLI subcommand output.
+	 *
+	 * Handles the structured `--format=json` case (already decoded into an
+	 * array by {@see run_process()}) and the unstructured fallback (raw
+	 * trimmed stdout string).
+	 *
+	 * @param string              $command_path The space-joined positional prefix.
+	 * @param array<mixed>|string $result       The decoded or raw command result.
+	 * @return array<mixed>|string
+	 */
+	public static function scrub_secret_output( string $command_path, $result ) {
+		if ( ! str_starts_with( $command_path, 'option list' ) && 'option' !== $command_path ) {
+			return $result;
+		}
+
+		$secrets = OptionsAbilities::get_secret_read_blocklist();
+		if ( empty( $secrets ) ) {
+			return $result;
+		}
+
+		// Structured JSON output: list of associative arrays keyed by
+		// option_name. Redact value, keep the row visible so the caller
+		// learns the option exists.
+		if ( is_array( $result ) ) {
+			foreach ( $result as $index => $row ) {
+				if ( ! is_array( $row ) ) {
+					continue;
+				}
+				$name = isset( $row['option_name'] ) && is_string( $row['option_name'] )
+					? $row['option_name']
+					: '';
+				if ( '' !== $name && in_array( $name, $secrets, true ) ) {
+					if ( array_key_exists( 'option_value', $row ) ) {
+						$result[ $index ]['option_value'] = OptionsAbilities::SECRET_REDACTED_PLACEHOLDER;
+					}
+					if ( array_key_exists( 'value', $row ) ) {
+						$result[ $index ]['value'] = OptionsAbilities::SECRET_REDACTED_PLACEHOLDER;
+					}
+				}
+			}
+			return $result;
+		}
+
+		// Unstructured text output (table/csv/tsv/yaml/etc.). Redact each
+		// physical line that begins with a secret option name followed by
+		// a separator. Cheap and format-agnostic.
+		if ( is_string( $result ) ) {
+			$pattern = '/^(' . implode( '|', array_map( 'preg_quote', $secrets ) ) . ')(\s|\t|,|:)(.*)$/m';
+			return (string) preg_replace_callback(
+				$pattern,
+				static function ( array $m ): string {
+					return $m[1] . $m[2] . OptionsAbilities::SECRET_REDACTED_PLACEHOLDER;
+				},
+				$result
+			);
+		}
+
+		return $result;
 	}
 }
