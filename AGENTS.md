@@ -290,10 +290,60 @@ Key gotchas: `compile_class` required for hyphenated IDs, `REST_Handler` support
   redundant caching; do not whitelist individual option keys as a cache
   invalidation strategy.
 
+### Secret-Option Read Blocklist (single source of truth)
+
+Authentication keys and salts (`auth_key`, `secure_auth_key`, `logged_in_key`,
+`nonce_key`, plus the four matching `*_salt` names) are written to `wp_options`
+by WordPress when `wp-config.php` does not define them. Any code path that
+exposes those values to the AI agent enables session forgery and admin
+impersonation.
+
+The single source of truth for the read blocklist lives in
+`includes/Abilities/OptionsAbilities.php`:
+
+- `OptionsAbilities::SECRET_READ_BLOCKLIST` — shipped names.
+- `OptionsAbilities::get_secret_read_blocklist()` — runtime list (filterable
+  via `sd_ai_agent_options_read_blocklist`).
+- `OptionsAbilities::is_secret_option_name( string $name ): bool` — predicate
+  every read surface must call.
+- `OptionsAbilities::SECRET_REDACTED_PLACEHOLDER` — the opaque token any
+  surface that must keep the row visible writes in place of the value.
+- `OptionsAbilities::secret_read_error( string $name ): WP_Error` — uniform
+  `sd_ai_agent_option_secret_redacted` error code (HTTP 403).
+
+**Rules for any new ability, REST controller, CLI command, or SQL helper that
+reads option data:**
+
+1. Call `OptionsAbilities::is_secret_option_name( $name )` before returning
+   any value sourced from `wp_options`, `wp_sitemeta`, `wp_*_meta`, transients,
+   or a WP-CLI subprocess.
+2. For row-shaped responses, omit the row OR redact `option_value` /
+   `meta_value` to `SECRET_REDACTED_PLACEHOLDER`. Never include the row with
+   the real value.
+3. Reject SQL queries whose literal arguments include a secret option name
+   (`DatabaseQueryAbility::find_secret_option_literal()` is the reference
+   implementation).
+4. For low-level function callers like `RunPhpAbility`, gate
+   `get_option`/`get_site_option`/`get_network_option`/`get_transient`/
+   `get_site_transient` on the predicate and gate the matching write
+   functions on `OptionsAbilities::get_write_blocklist()`.
+
+**Verification (must run for any PR that touches option reads):**
+
+```bash
+rg -n "is_secret_option_name|SECRET_REDACTED_PLACEHOLDER|sd_ai_agent_option_secret_redacted|sd_ai_agent_options_read_blocklist" includes/ tests/
+npm run test:php -- --filter='OptionsAbilitiesTest|WordPressAbilitiesTest|DatabaseAbilitiesTest|WpCliAbilitiesTest'
+```
+
+The first command must show coverage in every read surface (get-option,
+list-options, db-query, run-php, wp-cli). The second must report zero
+failures for the four ability suites.
+
 ### REST API Security and Operational Guidelines
 - **Secret Scrubbing**: All REST endpoints must scrub sensitive data (API keys, tokens,
   credentials) from responses and logs. Never expose provider credentials, user secrets,
-  or internal configuration in REST output.
+  or internal configuration in REST output. For option-shaped data, route through the
+  Secret-Option Read Blocklist above — do not invent a parallel scrubber.
 - **Internal namespace block**: Keep `sd-ai-agent/v1` unavailable to the agent-facing
   `wp-rest/execute` ability. This plugin must not call its own private REST controllers
   through the internal dispatcher; use direct service/controller calls instead.

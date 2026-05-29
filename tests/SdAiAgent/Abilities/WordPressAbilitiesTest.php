@@ -278,4 +278,168 @@ class WordPressAbilitiesTest extends WP_UnitTestCase {
 		$this->assertInstanceOf( \WP_Error::class, $result );
 		$this->assertSame( 'sd_ai_agent_php_error', $result->get_error_code() );
 	}
+
+	/**
+	 * RunPhpAbility must refuse get_option('auth_key') even though
+	 * get_option is on the function allowlist.
+	 */
+	public function test_handle_run_php_blocks_get_option_for_secret_name() {
+		update_option( 'auth_key', 'do-not-leak-this-secret' );
+
+		$result = WordPressAbilities::handle_run_php( [
+			'function' => 'get_option',
+			'args'     => [ 'auth_key' ],
+		] );
+
+		$this->assertInstanceOf( \WP_Error::class, $result );
+		$this->assertSame( 'sd_ai_agent_option_secret_redacted', $result->get_error_code() );
+
+		delete_option( 'auth_key' );
+	}
+
+	/**
+	 * RunPhpAbility must refuse every shipped secret name across every
+	 * gated option-reading function (get_option, get_site_option,
+	 * get_transient, …). Functions that ship outside the default allowlist
+	 * (get_site_option, get_network_option, get_site_transient) are added
+	 * via filter so the test exercises the secret gate rather than the
+	 * allowlist gate.
+	 */
+	public function test_handle_run_php_blocks_every_option_read_function_against_every_secret() {
+		add_filter(
+			'sd_ai_agent_allowed_wp_functions',
+			static function ( array $fns ): array {
+				$fns[] = 'get_site_option';
+				$fns[] = 'get_network_option';
+				$fns[] = 'get_site_transient';
+				return $fns;
+			}
+		);
+
+		$functions = [ 'get_option', 'get_site_option', 'get_transient', 'get_site_transient' ];
+
+		foreach ( $functions as $function ) {
+			if ( ! function_exists( $function ) ) {
+				continue;
+			}
+			foreach ( \SdAiAgent\Abilities\OptionsAbilities::get_secret_read_blocklist() as $name ) {
+				$result = WordPressAbilities::handle_run_php( [
+					'function' => $function,
+					'args'     => [ $name ],
+				] );
+
+				$this->assertInstanceOf(
+					\WP_Error::class,
+					$result,
+					sprintf( '%s("%s") must return WP_Error', $function, $name )
+				);
+				$this->assertSame(
+					'sd_ai_agent_option_secret_redacted',
+					$result->get_error_code(),
+					sprintf( '%s("%s") must use the secret-redacted error code', $function, $name )
+				);
+			}
+		}
+
+		remove_all_filters( 'sd_ai_agent_allowed_wp_functions' );
+	}
+
+	/**
+	 * RunPhpAbility must read non-secret options normally.
+	 */
+	public function test_handle_run_php_allows_get_option_for_safe_name() {
+		update_option( 'sd_ai_agent_test_runphp_safe_option', 'visible-value' );
+
+		$result = WordPressAbilities::handle_run_php( [
+			'function' => 'get_option',
+			'args'     => [ 'sd_ai_agent_test_runphp_safe_option' ],
+		] );
+
+		$this->assertIsArray( $result );
+		$this->assertSame( 'visible-value', $result['result'] );
+
+		delete_option( 'sd_ai_agent_test_runphp_safe_option' );
+	}
+
+	/**
+	 * RunPhpAbility must refuse update_option('auth_key', …) so the agent
+	 * cannot regenerate the auth keys via the low-level function caller.
+	 */
+	public function test_handle_run_php_blocks_update_option_for_write_blocklist() {
+		$result = WordPressAbilities::handle_run_php( [
+			'function' => 'update_option',
+			'args'     => [ 'auth_key', 'rotated-by-agent' ],
+		] );
+
+		$this->assertInstanceOf( \WP_Error::class, $result );
+		$this->assertSame( 'sd_ai_agent_option_blocked', $result->get_error_code() );
+	}
+
+	/**
+	 * RunPhpAbility must refuse delete_option('auth_key').
+	 */
+	public function test_handle_run_php_blocks_delete_option_for_write_blocklist() {
+		$result = WordPressAbilities::handle_run_php( [
+			'function' => 'delete_option',
+			'args'     => [ 'auth_key' ],
+		] );
+
+		$this->assertInstanceOf( \WP_Error::class, $result );
+		$this->assertSame( 'sd_ai_agent_option_blocked', $result->get_error_code() );
+	}
+
+	/**
+	 * Filter-extended secret names must also be honoured by RunPhpAbility.
+	 */
+	public function test_handle_run_php_honours_filter_extended_secret_for_get_option() {
+		add_filter(
+			'sd_ai_agent_options_read_blocklist',
+			static function ( array $list ): array {
+				$list[] = 'third_party_api_token';
+				return $list;
+			}
+		);
+		update_option( 'third_party_api_token', 'secret-token-value' );
+
+		$result = WordPressAbilities::handle_run_php( [
+			'function' => 'get_option',
+			'args'     => [ 'third_party_api_token' ],
+		] );
+
+		$this->assertInstanceOf( \WP_Error::class, $result );
+		$this->assertSame( 'sd_ai_agent_option_secret_redacted', $result->get_error_code() );
+
+		delete_option( 'third_party_api_token' );
+		remove_all_filters( 'sd_ai_agent_options_read_blocklist' );
+	}
+
+	/**
+	 * get_network_option takes (network_id, option_name, …); the secret
+	 * check must look at arg index 1, not 0. get_network_option is not in
+	 * the default allowlist, so the test adds it via filter to ensure the
+	 * secret gate (not the allowlist) is what blocks the call.
+	 */
+	public function test_handle_run_php_blocks_get_network_option_secret_at_arg_one() {
+		if ( ! function_exists( 'get_network_option' ) ) {
+			$this->markTestSkipped( 'get_network_option() unavailable in this environment.' );
+		}
+
+		add_filter(
+			'sd_ai_agent_allowed_wp_functions',
+			static function ( array $fns ): array {
+				$fns[] = 'get_network_option';
+				return $fns;
+			}
+		);
+
+		$result = WordPressAbilities::handle_run_php( [
+			'function' => 'get_network_option',
+			'args'     => [ 1, 'auth_key' ],
+		] );
+
+		$this->assertInstanceOf( \WP_Error::class, $result );
+		$this->assertSame( 'sd_ai_agent_option_secret_redacted', $result->get_error_code() );
+
+		remove_all_filters( 'sd_ai_agent_allowed_wp_functions' );
+	}
 }

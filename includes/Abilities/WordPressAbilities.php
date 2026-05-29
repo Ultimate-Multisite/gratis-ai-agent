@@ -911,6 +911,43 @@ class UpdatePluginAbility extends AbstractAbility {
 class RunPhpAbility extends AbstractAbility {
 
 	/**
+	 * Option-reading functions whose first argument is an option/transient
+	 * name. Any call into these functions is gated against the secret
+	 * read blocklist defined in {@see OptionsAbilities::get_secret_read_blocklist()}
+	 * so a caller cannot bypass {@see GetOptionAbility} via this low-level
+	 * function caller.
+	 *
+	 * Transient names share the auth-key/salt naming space when stored as
+	 * options ({@see WP_Object_Cache}); gating them here is defence-in-depth.
+	 *
+	 * @var string[]
+	 */
+	private const OPTION_READ_FUNCTIONS = [
+		'get_option',
+		'get_site_option',
+		'get_network_option',
+		'get_transient',
+		'get_site_transient',
+	];
+
+	/**
+	 * Option-mutating functions whose first argument is an option name.
+	 * Calls are gated against {@see OptionsAbilities::get_write_blocklist()}
+	 * so the agent cannot regenerate auth keys/salts (which would log out
+	 * every user) by routing around {@see UpdateOptionAbility}.
+	 *
+	 * @var string[]
+	 */
+	private const OPTION_WRITE_FUNCTIONS = [
+		'update_option',
+		'delete_option',
+		'update_site_option',
+		'delete_site_option',
+		'update_network_option',
+		'delete_network_option',
+	];
+
+	/**
 	 * Allowed WordPress functions that the AI agent may call.
 	 *
 	 * Only side-effect-free read functions and common write functions with
@@ -1061,6 +1098,17 @@ class RunPhpAbility extends AbstractAbility {
 			);
 		}
 
+		// Secret-aware gating: option reads/writes against the auth-key
+		// blocklist. Applied AFTER the function allowlist check so any
+		// extension via `sd_ai_agent_allowed_wp_functions` is still
+		// constrained. Network/site variants of get_option take the option
+		// name in arg position 1 (network ID is arg 0); standard variants
+		// take it in arg 0. Both shapes are covered below.
+		$secret_check = self::check_secret_option_call( $function, $args );
+		if ( is_wp_error( $secret_check ) ) {
+			return $secret_check;
+		}
+
 		if ( ! function_exists( $function ) ) {
 			return new WP_Error(
 				'sd_ai_agent_undefined_function',
@@ -1114,6 +1162,59 @@ class RunPhpAbility extends AbstractAbility {
 
 		// Ensure the list is a flat array of strings (defensive).
 		return array_values( array_filter( (array) $functions, 'is_string' ) );
+	}
+
+	/**
+	 * Gate option-reading / option-writing function calls against the
+	 * secret read blocklist and the existing write blocklist.
+	 *
+	 * Without this check, the AI could bypass {@see GetOptionAbility}'s
+	 * secret-read gate (and {@see UpdateOptionAbility}'s write gate) by
+	 * calling `get_option('auth_key')` (or `update_option('auth_key', ...)`)
+	 * through this low-level function caller.
+	 *
+	 * Returns null when the call is allowed, a WP_Error when blocked.
+	 *
+	 * @param string       $function_name The PHP function name about to be called.
+	 * @param array<mixed> $args          Positional arguments that will be passed.
+	 * @return \WP_Error|null
+	 */
+	private static function check_secret_option_call( string $function_name, array $args ): ?\WP_Error {
+		// Network/site option variants accept (int $network_id, string $option, ...);
+		// standard variants accept (string $option, ...). Pick the right arg index.
+		$is_network_variant = in_array(
+			$function_name,
+			[ 'get_network_option', 'update_network_option', 'delete_network_option' ],
+			true
+		);
+		$name_index         = $is_network_variant ? 1 : 0;
+
+		if ( ! isset( $args[ $name_index ] ) || ! is_string( $args[ $name_index ] ) ) {
+			return null;
+		}
+
+		$option_name = $args[ $name_index ];
+
+		if ( in_array( $function_name, self::OPTION_READ_FUNCTIONS, true )
+			&& OptionsAbilities::is_secret_option_name( $option_name ) ) {
+			return OptionsAbilities::secret_read_error( $option_name );
+		}
+
+		if ( in_array( $function_name, self::OPTION_WRITE_FUNCTIONS, true )
+			&& in_array( $option_name, OptionsAbilities::get_write_blocklist(), true ) ) {
+			return new \WP_Error(
+				'sd_ai_agent_option_blocked',
+				sprintf(
+					/* translators: 1: function name, 2: option name */
+					__( 'The function "%1$s" cannot be used to modify the protected option "%2$s".', 'superdav-ai-agent' ),
+					$function_name,
+					$option_name
+				),
+				[ 'status' => 403 ]
+			);
+		}
+
+		return null;
 	}
 
 	protected function permission_callback( $input ): bool {

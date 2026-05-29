@@ -176,4 +176,108 @@ class DatabaseAbilitiesTest extends WP_UnitTestCase {
 		$this->assertIsArray( $result['rows'] );
 		$this->assertEmpty( $result['rows'] );
 	}
+
+	/**
+	 * Test handle_db_query rejects a SELECT that names a secret option
+	 * as a single-quoted string literal.
+	 */
+	public function test_handle_db_query_rejects_secret_literal_single_quoted() {
+		update_option( 'auth_key', 'do-not-leak-this-secret' );
+
+		$result = DatabaseAbilities::handle_db_query( [
+			'sql' => "SELECT option_value FROM {prefix}options WHERE option_name = 'auth_key'",
+		] );
+
+		$this->assertInstanceOf( \WP_Error::class, $result );
+		$this->assertSame( 'sd_ai_agent_sql_secret_literal', $result->get_error_code() );
+
+		delete_option( 'auth_key' );
+	}
+
+	/**
+	 * Test handle_db_query rejects a SELECT that names a secret option
+	 * as a double-quoted string literal.
+	 */
+	public function test_handle_db_query_rejects_secret_literal_double_quoted() {
+		$result = DatabaseAbilities::handle_db_query( [
+			'sql' => 'SELECT option_value FROM {prefix}options WHERE option_name = "secure_auth_salt"',
+		] );
+
+		$this->assertInstanceOf( \WP_Error::class, $result );
+		$this->assertSame( 'sd_ai_agent_sql_secret_literal', $result->get_error_code() );
+	}
+
+	/**
+	 * Test handle_db_query scrubs option_value in any row whose option_name
+	 * is on the secret read blocklist (catches `SELECT *` wildcard reads).
+	 */
+	public function test_handle_db_query_scrubs_secret_value_in_wildcard_row() {
+		update_option( 'auth_key', 'do-not-leak-this-secret' );
+
+		// SELECT * does not name `auth_key` as a literal, so the pre-check
+		// allows it; the post-process must still redact the value.
+		$result = DatabaseAbilities::handle_db_query( [
+			'sql' => "SELECT option_name, option_value, autoload FROM {prefix}options WHERE option_name LIKE 'auth_%' LIMIT 5",
+		] );
+
+		$this->assertIsArray( $result );
+		$this->assertIsArray( $result['rows'] );
+
+		$encoded = wp_json_encode( $result );
+		$this->assertIsString( $encoded );
+		$this->assertStringNotContainsString( 'do-not-leak-this-secret', $encoded );
+
+		$found_redacted = false;
+		foreach ( $result['rows'] as $row ) {
+			if ( ( $row['option_name'] ?? '' ) === 'auth_key' ) {
+				$this->assertSame(
+					\SdAiAgent\Abilities\OptionsAbilities::SECRET_REDACTED_PLACEHOLDER,
+					$row['option_value']
+				);
+				$found_redacted = true;
+			}
+		}
+		$this->assertTrue( $found_redacted, 'Expected auth_key row to be redacted by the post-process.' );
+
+		delete_option( 'auth_key' );
+	}
+
+	/**
+	 * Test handle_db_query still returns non-secret rows untouched.
+	 */
+	public function test_handle_db_query_does_not_scrub_safe_rows() {
+		$result = DatabaseAbilities::handle_db_query( [
+			'sql' => "SELECT option_name, option_value FROM {prefix}options WHERE option_name = 'blogname' LIMIT 1",
+		] );
+
+		$this->assertIsArray( $result );
+		$this->assertSame( 1, $result['count'] );
+		$this->assertSame( 'blogname', $result['rows'][0]['option_name'] );
+		$this->assertNotSame(
+			\SdAiAgent\Abilities\OptionsAbilities::SECRET_REDACTED_PLACEHOLDER,
+			$result['rows'][0]['option_value']
+		);
+	}
+
+	/**
+	 * Filter-extended secret names must also be enforced by db-query.
+	 */
+	public function test_handle_db_query_honours_filter_extended_secret_literal() {
+		add_filter(
+			'sd_ai_agent_options_read_blocklist',
+			static function ( array $list ): array {
+				$list[] = 'third_party_api_token';
+				return $list;
+			}
+		);
+
+		$result = DatabaseAbilities::handle_db_query( [
+			'sql' => "SELECT option_value FROM {prefix}options WHERE option_name = 'third_party_api_token'",
+		] );
+
+		$this->assertInstanceOf( \WP_Error::class, $result );
+		$this->assertSame( 'sd_ai_agent_sql_secret_literal', $result->get_error_code() );
+
+		remove_all_filters( 'sd_ai_agent_options_read_blocklist' );
+	}
 }
