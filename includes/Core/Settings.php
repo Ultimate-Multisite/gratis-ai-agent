@@ -207,21 +207,21 @@ class Settings {
 		'gemini-2.0'                  => 8192,
 		'gemini-1.5'                  => 8192,
 		// ── HuggingFace-served via OpenAI-compatible connectors ────────
-		// These IDs come from providers like Synthetic AI that proxy
+		// These IDs come from third-party connector plugins that proxy
 		// HuggingFace-hosted models through an OpenAI-compatible API and
 		// report `max_output_length` in their /models response. Specific
 		// entries override the generic `hf:` prefix below via longest-
-		// prefix match. Verified against Synthetic's live /models endpoint
-		// (`https://api.synthetic.new/openai/v1/models`).
+		// prefix match.
 		//
 		// Without these entries, model IDs prefixed `hf:` fall through to
 		// the 8192 token fallback, which is far below the provider's
-		// actual cap (65,536 for the active Synthetic models). On a long
-		// single-shot tool call (e.g. emitting a full landing page in one
-		// `sd-ai-agent/create-post`) this caused the model to hit the
-		// 8192 cap *before* it could open the tool-call JSON, leaving
-		// the session idle with a preamble like "Now I'll create the full
-		// landing page..." and no follow-through. See PR description.
+		// actual cap (65,536 for the active HuggingFace-hosted models).
+		// On a long single-shot tool call (e.g. emitting a full landing
+		// page in one `sd-ai-agent/create-post`) this caused the model
+		// to hit the 8192 cap *before* it could open the tool-call JSON,
+		// leaving the session idle with a preamble like "Now I'll create
+		// the full landing page..." and no follow-through. See PR
+		// description.
 		'hf:moonshotai/Kimi-K2.6'     => 65536,
 		'hf:moonshotai/Kimi-K2.5'     => 32768,
 		'hf:zai-org/GLM-5.1'          => 65536,

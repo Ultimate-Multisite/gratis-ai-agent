@@ -2,6 +2,11 @@
 /**
  * Test case for CacheStrategyResolver.
  *
+ * The resolver only owns strategies the plugin ships directly
+ * (Anthropic + Gemini). Any other provider is the responsibility of a
+ * third-party connector plugin that can register its own strategy via
+ * the `sd_ai_agent_resolve_cache_strategy` filter.
+ *
  * @package SdAiAgent
  * @subpackage Tests
  * @license GPL-2.0-or-later
@@ -30,25 +35,24 @@ class CacheStrategyResolverTest extends WP_UnitTestCase {
 		$this->assertInstanceOf( AnthropicCacheStrategy::class, $strategy );
 	}
 
-	public function test_resolves_noop_for_openai(): void {
+	public function test_resolves_gemini_for_generate_content_url(): void {
 		$resolver = new CacheStrategyResolver();
-		$strategy = $resolver->resolve( 'https://api.openai.com/v1/chat/completions' );
+		$strategy = $resolver->resolve(
+			'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:generateContent'
+		);
 
-		$this->assertInstanceOf( NoopCacheStrategy::class, $strategy );
+		$this->assertInstanceOf( GeminiCacheStrategy::class, $strategy );
 	}
 
-	public function test_resolves_noop_for_deepseek(): void {
+	public function test_returns_null_for_gemini_cached_contents_endpoint(): void {
+		// The cachedContents URL should NOT be treated as an LLM endpoint —
+		// it's an internal management API call made by GeminiCacheManager.
 		$resolver = new CacheStrategyResolver();
-		$strategy = $resolver->resolve( 'https://api.deepseek.com/chat/completions' );
+		$strategy = $resolver->resolve(
+			'https://generativelanguage.googleapis.com/v1beta/cachedContents?key=abc'
+		);
 
-		$this->assertInstanceOf( NoopCacheStrategy::class, $strategy );
-	}
-
-	public function test_resolves_noop_for_xai(): void {
-		$resolver = new CacheStrategyResolver();
-		$strategy = $resolver->resolve( 'https://api.x.ai/v1/chat/completions' );
-
-		$this->assertInstanceOf( NoopCacheStrategy::class, $strategy );
+		$this->assertNull( $strategy );
 	}
 
 	public function test_returns_null_for_unknown_host(): void {
@@ -56,6 +60,33 @@ class CacheStrategyResolverTest extends WP_UnitTestCase {
 		$strategy = $resolver->resolve( 'https://example.com/api/something' );
 
 		$this->assertNull( $strategy );
+	}
+
+	/**
+	 * Endpoints the plugin does NOT integrate with directly — they are
+	 * reached only through third-party connector plugins — must NOT be
+	 * matched by the built-in strategy set. Disclosure and per-provider
+	 * cache handling for those endpoints is the connector's
+	 * responsibility, not this plugin's.
+	 *
+	 * @dataProvider third_party_compatible_endpoints
+	 */
+	public function test_returns_null_for_third_party_compatible_endpoint( string $url ): void {
+		$resolver = new CacheStrategyResolver();
+		$this->assertNull( $resolver->resolve( $url ) );
+	}
+
+	/**
+	 * @return array<string, array{0: string}>
+	 */
+	public static function third_party_compatible_endpoints(): array {
+		return array(
+			'openai-compatible' => array( 'https://api.openai.com/v1/chat/completions' ),
+			'azure-openai'      => array(
+				'https://my-resource.openai.azure.com/openai/deployments/gpt-4o/chat/completions?api-version=2024-02-01',
+			),
+			'openrouter'        => array( 'https://openrouter.ai/api/v1/chat/completions' ),
+		);
 	}
 
 	public function test_filter_can_provide_custom_strategy(): void {
@@ -86,65 +117,15 @@ class CacheStrategyResolverTest extends WP_UnitTestCase {
 		$this->assertSame( $stub, $resolved );
 	}
 
-	public function test_resolves_gemini_for_generate_content_url(): void {
-		$resolver = new CacheStrategyResolver();
-		$strategy = $resolver->resolve(
-			'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:generateContent'
-		);
-
-		$this->assertInstanceOf( GeminiCacheStrategy::class, $strategy );
-	}
-
-	public function test_returns_null_for_gemini_cached_contents_endpoint(): void {
-		// The cachedContents URL should NOT be treated as an LLM endpoint —
-		// it's an internal management API call made by GeminiCacheManager.
-		$resolver = new CacheStrategyResolver();
-		$strategy = $resolver->resolve(
-			'https://generativelanguage.googleapis.com/v1beta/cachedContents?key=abc'
-		);
-
-		$this->assertNull( $strategy );
-	}
-
 	public function test_noop_strategy_is_pass_through(): void {
 		$noop = new NoopCacheStrategy();
-		$body = array( 'model' => 'gpt-4o', 'messages' => array() );
+		$body = array(
+			'model'    => 'gpt-4o',
+			'messages' => array(),
+		);
 
 		$this->assertSame( $body, $noop->apply( $body ) );
 		$this->assertSame( 'noop', $noop->id() );
-	}
-
-	public function test_resolves_noop_for_azure_openai_chat_completions(): void {
-		// Azure OpenAI uses an OpenAI-compatible wire format with automatic
-		// server-side caching. The subdomain matching covers any resource name.
-		$resolver = new CacheStrategyResolver();
-		$strategy = $resolver->resolve(
-			'https://my-resource.openai.azure.com/openai/deployments/gpt-4o/chat/completions?api-version=2024-02-01'
-		);
-
-		$this->assertInstanceOf( NoopCacheStrategy::class, $strategy );
-	}
-
-	public function test_resolves_noop_for_azure_openai_embeddings(): void {
-		// Embeddings endpoints on Azure are also OpenAI-shape; noop is a
-		// safe pass-through so registering them here is harmless.
-		$resolver = new CacheStrategyResolver();
-		$strategy = $resolver->resolve(
-			'https://my-resource.openai.azure.com/openai/deployments/text-embedding-3-small/embeddings?api-version=2024-02-01'
-		);
-
-		$this->assertInstanceOf( NoopCacheStrategy::class, $strategy );
-	}
-
-	public function test_resolves_noop_for_openrouter(): void {
-		// OpenRouter is a pass-through aggregator exposing an OpenAI-compatible
-		// API. The CacheUsageExtractor already reads cached_tokens from the
-		// OpenAI-shape usage; registering the host ensures a non-null strategy
-		// is returned for future logic that gates on resolve() result.
-		$resolver = new CacheStrategyResolver();
-		$strategy = $resolver->resolve( 'https://openrouter.ai/api/v1/chat/completions' );
-
-		$this->assertInstanceOf( NoopCacheStrategy::class, $strategy );
 	}
 
 	public function test_resolves_anthropic_for_vertex_raw_predict(): void {
@@ -170,16 +151,12 @@ class CacheStrategyResolverTest extends WP_UnitTestCase {
 
 	public function test_returns_null_for_vertex_non_anthropic_publisher(): void {
 		// A Vertex endpoint for a non-Anthropic publisher should NOT match
-		// the AnthropicCacheStrategy and should return null (unknown host).
+		// the AnthropicCacheStrategy.
 		$resolver = new CacheStrategyResolver();
 		$strategy = $resolver->resolve(
 			'https://us-central1-aiplatform.googleapis.com/v1/projects/p/locations/us-central1/publishers/google/models/gemini-2.0-flash:generateContent'
 		);
 
-		// The Gemini strategy should handle google publisher endpoints via
-		// the generateContent path pattern, not AnthropicCacheStrategy.
-		// (Gemini strategy is tested separately — here we only confirm
-		// AnthropicCacheStrategy is NOT selected for google publisher paths.)
 		$this->assertNotInstanceOf( AnthropicCacheStrategy::class, $strategy );
 	}
 }

@@ -2,17 +2,17 @@
 /**
  * No-op prompt cache strategy.
  *
- * Used for providers that perform prompt caching automatically server-side
- * (OpenAI, DeepSeek, xAI Grok, Groq, Cerebras, Together, Fireworks, and
- * any OpenAI-compatible endpoint that implements the standard pricing tier
- * for prompt caching). These providers do NOT require client-side cache
- * markers — they hash the input prefix automatically and apply the cache
- * discount when they see a known prefix within the cache TTL window.
+ * Pass-through strategy provided for any OpenAI-compatible endpoint that
+ * performs prompt caching automatically server-side. Such endpoints do
+ * not require client-side cache markers — they hash the input prefix
+ * automatically and apply the cache discount when they see a known
+ * prefix within the cache TTL window.
  *
- * The strategy still exists (rather than returning null from the resolver)
- * so that future server-side cache telemetry can be hooked in here without
- * the caller having to special-case "no strategy" vs "strategy with no
- * request-body mutation".
+ * This strategy is not registered by default. Third-party connector
+ * plugins that want to opt their custom endpoint into the prompt-cache
+ * pipeline (for example to attach future telemetry hooks) can return
+ * an instance via the `sd_ai_agent_resolve_cache_strategy` filter on
+ * {@see CacheStrategyResolver}.
  *
  * @package SdAiAgent\Core\PromptCache
  * @license GPL-2.0-or-later
@@ -32,14 +32,15 @@ if ( ! defined( 'ABSPATH' ) ) {
 final class NoopCacheStrategy implements CacheStrategyInterface {
 
 	/**
-	 * The resolver matches NoopCacheStrategy explicitly via its own list
-	 * of "automatic-cache" providers, so this strategy never matches a
-	 * URL on its own — the resolver picks it as a fallback.
+	 * The resolver does not register this strategy by default; third-party
+	 * integrators select it explicitly via the
+	 * `sd_ai_agent_resolve_cache_strategy` filter, so {@see matches()}
+	 * never returns true on its own.
 	 *
 	 * @inheritDoc
 	 */
 	public function matches( string $url ): bool {
-		unset( $url ); // Unused — matching is delegated to the resolver.
+		unset( $url ); // Unused — matching is delegated to the filter.
 		return false;
 	}
 

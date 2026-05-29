@@ -127,26 +127,85 @@ class ModelCapabilityHandlerTest extends WP_UnitTestCase {
 	}
 
 	/**
-	 * The URL gate only accepts known LLM provider hosts whose path ends
-	 * with `/models`.
+	 * The URL gate accepts only the disclosed-provider host suffixes by
+	 * default, and only when the path ends with `/models`.
 	 */
 	public function test_is_models_endpoint_url_gate(): void {
-		// Allowed.
-		$this->assertTrue( ModelCapabilityHandler::is_models_endpoint( 'https://api.synthetic.new/openai/v1/models' ) );
-		$this->assertTrue( ModelCapabilityHandler::is_models_endpoint( 'https://api.synthetic.new/openai/v1/models/' ) );
+		// Allowed by default (the three providers documented in readme.txt).
 		$this->assertTrue( ModelCapabilityHandler::is_models_endpoint( 'https://api.openai.com/v1/models' ) );
-		$this->assertTrue( ModelCapabilityHandler::is_models_endpoint( 'https://openrouter.ai/api/v1/models' ) );
+		$this->assertTrue( ModelCapabilityHandler::is_models_endpoint( 'https://api.openai.com/v1/models/' ) );
+		$this->assertTrue( ModelCapabilityHandler::is_models_endpoint( 'https://api.anthropic.com/v1/models' ) );
 		$this->assertTrue( ModelCapabilityHandler::is_models_endpoint( 'https://generativelanguage.googleapis.com/v1beta/models' ) );
+
+		// Third-party connector hosts are NOT in the default allow-list —
+		// they must opt in via the sd_ai_agent_models_endpoint_hosts filter.
+		$this->assertFalse( ModelCapabilityHandler::is_models_endpoint( 'https://openrouter.ai/api/v1/models' ) );
+		$this->assertFalse( ModelCapabilityHandler::is_models_endpoint( 'https://api.synthetic.new/openai/v1/models' ) );
 
 		// Wrong host.
 		$this->assertFalse( ModelCapabilityHandler::is_models_endpoint( 'https://example.com/v1/models' ) );
 
 		// Right host, wrong path (no /models suffix).
-		$this->assertFalse( ModelCapabilityHandler::is_models_endpoint( 'https://api.synthetic.new/openai/v1/chat/completions' ) );
+		$this->assertFalse( ModelCapabilityHandler::is_models_endpoint( 'https://api.openai.com/v1/chat/completions' ) );
 
 		// Garbage.
 		$this->assertFalse( ModelCapabilityHandler::is_models_endpoint( '' ) );
 		$this->assertFalse( ModelCapabilityHandler::is_models_endpoint( 'not-a-url' ) );
+	}
+
+	/**
+	 * Connector plugins extend the allow-list via the
+	 * sd_ai_agent_models_endpoint_hosts filter so third-party
+	 * OpenAI-compatible endpoints can be ingested without this plugin
+	 * shipping their hostnames in code.
+	 */
+	public function test_is_models_endpoint_filter_extends_allow_list(): void {
+		$filter = static function ( array $hosts ): array {
+			$hosts[] = 'api.example-provider.test';
+			return $hosts;
+		};
+		add_filter( 'sd_ai_agent_models_endpoint_hosts', $filter );
+
+		try {
+			$this->assertTrue(
+				ModelCapabilityHandler::is_models_endpoint( 'https://api.example-provider.test/v1/models' )
+			);
+		} finally {
+			remove_filter( 'sd_ai_agent_models_endpoint_hosts', $filter );
+		}
+
+		// Once the filter is removed, the same URL falls back to disallowed.
+		$this->assertFalse(
+			ModelCapabilityHandler::is_models_endpoint( 'https://api.example-provider.test/v1/models' )
+		);
+	}
+
+	/**
+	 * Invalid filter return values (non-array, empty) fall back to the
+	 * built-in defaults rather than disabling ingestion entirely.
+	 */
+	public function test_is_models_endpoint_filter_invalid_value_falls_back_to_defaults(): void {
+		$filter_non_array = static fn() => 'not-an-array';
+		add_filter( 'sd_ai_agent_models_endpoint_hosts', $filter_non_array );
+
+		try {
+			$this->assertTrue(
+				ModelCapabilityHandler::is_models_endpoint( 'https://api.openai.com/v1/models' )
+			);
+		} finally {
+			remove_filter( 'sd_ai_agent_models_endpoint_hosts', $filter_non_array );
+		}
+
+		$filter_empty = static fn(): array => array();
+		add_filter( 'sd_ai_agent_models_endpoint_hosts', $filter_empty );
+
+		try {
+			$this->assertTrue(
+				ModelCapabilityHandler::is_models_endpoint( 'https://api.openai.com/v1/models' )
+			);
+		} finally {
+			remove_filter( 'sd_ai_agent_models_endpoint_hosts', $filter_empty );
+		}
 	}
 
 	/**
@@ -177,7 +236,7 @@ class ModelCapabilityHandlerTest extends WP_UnitTestCase {
 		$returned = $handler->capture_models_response(
 			$response,
 			array(),
-			'https://api.synthetic.new/openai/v1/models'
+			'https://api.openai.com/v1/models'
 		);
 
 		$this->assertSame( $response, $returned );
@@ -215,7 +274,7 @@ class ModelCapabilityHandlerTest extends WP_UnitTestCase {
 		$handler->capture_models_response(
 			$response,
 			array(),
-			'https://api.synthetic.new/openai/v1/models'
+			'https://api.openai.com/v1/models'
 		);
 
 		// Original cached value is preserved.
@@ -250,7 +309,7 @@ class ModelCapabilityHandlerTest extends WP_UnitTestCase {
 		$handler->capture_models_response(
 			$response,
 			array(),
-			'https://api.synthetic.new/openai/v1/chat/completions'
+			'https://api.openai.com/v1/chat/completions'
 		);
 
 		$entry = ModelCapabilityRegistry::get( 'should-not-be-cached' );
@@ -268,7 +327,7 @@ class ModelCapabilityHandlerTest extends WP_UnitTestCase {
 		$returned = $handler->capture_models_response(
 			$wp_error,
 			array(),
-			'https://api.synthetic.new/openai/v1/models'
+			'https://api.openai.com/v1/models'
 		);
 
 		$this->assertSame( $wp_error, $returned );

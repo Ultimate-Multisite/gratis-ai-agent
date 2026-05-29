@@ -4,7 +4,7 @@ Tags: ai, chatbot, assistant, automation, tools
 Requires at least: 6.9
 Tested up to: 7.0
 Requires PHP: 8.2
-Stable tag: 1.16.1
+Stable tag: 1.16.2
 License: GPL-2.0-or-later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -129,6 +129,8 @@ These are contacted only when you configure the corresponding connector in **Set
 
 * **Google AI / Gemini** (generativelanguage.googleapis.com) — Provides AI chat completions when using Gemini models. Sends the conversation context and your user queries. Terms: https://policies.google.com/terms Privacy: https://policies.google.com/privacy
 
+**Other OpenAI-compatible providers (via third-party connector plugins).** If you install a separate WordPress connector plugin for any other AI provider (for example an OpenAI-compatible local or hosted endpoint), Superdav AI Agent will use that connector to send the conversation context to whichever endpoint the connector is configured for. Superdav AI Agent itself does not ship a list of those provider hostnames and does not initiate requests to any provider that does not have a connector installed and configured on your site. Please consult the connector plugin's own documentation and privacy policy for the data-handling terms of that provider.
+
 = Internet search providers =
 
 The internet-search ability is used when you (or the agent on your behalf) explicitly run a web search. The first configured provider wins. Only your search query is sent — no WordPress site data, user data, or conversation history is transmitted.
@@ -207,6 +209,12 @@ Yes, the plugin works on both single-site and multisite WordPress installations.
 8. Settings page with 12 configuration tabs
 
 == Changelog ==
+
+= 1.16.2 - Released on 2026-05-29 =
+* Docs: External Services section clarifies that third-party OpenAI-compatible providers reached via a separate WordPress connector plugin are governed by that connector's own documentation and privacy policy, and that Superdav AI Agent does not initiate requests to any provider without an installed and configured connector
+* Cleanup: Remove hardcoded third-party AI provider hostnames from `CacheStrategyResolver`, `ModelCapabilityHandler`, `NoopCacheStrategy`, and `Settings`. The plugin never contacted those endpoints directly — requests to them are made by third-party connector plugins. Static reviewers no longer flag them as undisclosed external services
+* New: `sd_ai_agent_models_endpoint_hosts` filter lets connector plugins extend the `/models` ingestion allow-list at runtime, replacing the previous hardcoded list with a runtime-extensible defaults set scoped to the three providers this plugin's readme discloses directly
+* New: `sd_ai_agent_resolve_cache_strategy` filter (existing, now documented) is the supported extension point for third-party connectors that want to inject a prompt-cache strategy for a custom endpoint
 
 = 1.16.1 - Released on 2026-05-20 =
 * Fix: Theme Builder onboarding chat is scrollable again on sites with existing content. The wrapper that mounts ChatRedesign now participates in the WordPress admin flex chain, so the message list scrolls internally instead of pushing the chat off the viewport (#1578, reverts #1577)
@@ -567,6 +575,9 @@ Yes, the plugin works on both single-site and multisite WordPress installations.
 * WordPress 7.0 AI Client SDK integration (native core API)
 
 == Upgrade Notice ==
+
+= 1.16.2 =
+Documentation and cleanup release addressing WordPress.org review feedback. Clarifies that third-party OpenAI-compatible providers are governed by their own connector plugins, removes hardcoded third-party provider hostnames that were not direct integrations, and adds two filter extension points (`sd_ai_agent_models_endpoint_hosts`, `sd_ai_agent_resolve_cache_strategy`) for connector plugins.
 
 = 1.12.0 =
 Documentation and dependency-maintenance release addressing WordPress.org review feedback. Discloses the opt-in feedback service, fixes the Openverse Terms link, removes placeholder URLs, moves the WP-CLI benchmark log directory out of the plugin folder, and updates bundled libraries.
