@@ -162,8 +162,25 @@ final class AbilitiesHandler {
 		}
 		DatabaseAbilities::register_abilities();
 		WordPressAbilities::register_abilities();
-		WpCliAbilities::register_ability();
-		WpRestAbilities::register_abilities();
+		// WP-CLI dispatcher: gated by SD_AI_AGENT_FEATURE_WP_CLI_DISPATCHER
+		// and class_exists() guarded so the WordPress.org build (which
+		// strips includes/Abilities/WpCliAbilities.php via
+		// .distignore-wporg + bin/build.sh stripped_paths) does not
+		// fatal here.
+		if (
+			Features::is_enabled( Features::WP_CLI_DISPATCHER )
+			&& class_exists( WpCliAbilities::class )
+		) {
+			WpCliAbilities::register_ability();
+		}
+		// WP REST dispatcher: gated by SD_AI_AGENT_FEATURE_WP_REST_DISPATCHER
+		// and class_exists() guarded for the same wp.org-strip reason.
+		if (
+			Features::is_enabled( Features::WP_REST_DISPATCHER )
+			&& class_exists( WpRestAbilities::class )
+		) {
+			WpRestAbilities::register_abilities();
+		}
 		OptionsAbilities::register_abilities();
 		// WooCommerce abilities are now registered by WooCommerceIntegrationHandler
 		// via WooCommerce's own AbilitiesRestBridge, making WooCommerce's native
@@ -193,8 +210,21 @@ final class AbilitiesHandler {
 	 */
 	#[Action( tag: 'wp_abilities_api_categories_init', priority: 10 )]
 	public function register_wpcli_category(): void {
-		WpCliAbilities::register_category();
-		WpRestAbilities::register_category();
+		// Both categories are feature-gated AND class_exists() guarded
+		// so the WordPress.org build (which strips the source files)
+		// does not fatal here.
+		if (
+			Features::is_enabled( Features::WP_CLI_DISPATCHER )
+			&& class_exists( WpCliAbilities::class )
+		) {
+			WpCliAbilities::register_category();
+		}
+		if (
+			Features::is_enabled( Features::WP_REST_DISPATCHER )
+			&& class_exists( WpRestAbilities::class )
+		) {
+			WpRestAbilities::register_category();
+		}
 	}
 
 	/**

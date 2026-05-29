@@ -202,10 +202,10 @@ EXTRA
 	# prevents trivial bypass and gives the WP.org review team a single
 	# grep target to verify compliance.
 	if [ "$variant" = "wporg" ]; then
-		echo "==> [${variant}] Forcing plugin-builder + CLI + plugin-state + URL-install + file-write + scaffold-block-theme feature flags to false..."
+		echo "==> [${variant}] Forcing plugin-builder + CLI + plugin-state + URL-install + file-write + scaffold-block-theme + wp-rest + wp-cli dispatcher feature flags to false..."
 		local main_file="${dest}/superdav-ai-agent.php"
 
-		# The six feature flags this build target forces off, paired with a
+		# The feature flags this build target forces off, paired with a
 		# short rationale that ends up as an inline comment in the bundled
 		# main plugin file (a grep target the WP.org review team can use).
 		local -a flags=(
@@ -215,6 +215,8 @@ EXTRA
 			"SD_AI_AGENT_FEATURE_PLUGIN_INSTALL_FROM_URL:install-from-arbitrary-ZIP disabled per WP.org Changing Active Plugins guideline"
 			"SD_AI_AGENT_FEATURE_FILE_WRITE:arbitrary wp-content writes disabled per WP.org Changing Active Plugins guideline"
 			"SD_AI_AGENT_FEATURE_SCAFFOLD_BLOCK_THEME:executable theme code writes disabled per WP.org Changing Active Plugins guideline"
+			"SD_AI_AGENT_FEATURE_WP_REST_DISPATCHER:low-level REST dispatcher disabled per WP.org Guideline 4"
+			"SD_AI_AGENT_FEATURE_WP_CLI_DISPATCHER:shell-exec wp-cli dispatcher disabled per WP.org Guideline 4"
 		)
 
 		# Replace each `defined() || define( 'NAME', true )` line with a
@@ -250,6 +252,8 @@ EXTRA
 			"${dest}/includes/Abilities/PluginBuilderAbilities.php"
 			"${dest}/includes/Abilities/PluginDownloadAbilities.php"
 			"${dest}/includes/Abilities/ScaffoldBlockThemeAbility.php"
+			"${dest}/includes/Abilities/WpRestAbilities.php"
+			"${dest}/includes/Abilities/WpCliAbilities.php"
 		)
 		local p
 		for p in "${stripped_paths[@]}"; do

@@ -54,6 +54,23 @@ declare(strict_types=1);
  *    remaining Theme Builder abilities (activate-theme,
  *    render-design-previews, generate-menu-page,
  *    validate-palette-contrast, generate-logo-svg) stay registered.
+ *  - SD_AI_AGENT_FEATURE_WP_REST_DISPATCHER — The `wp-rest/discover`,
+ *    `wp-rest/inspect`, and `wp-rest/execute` abilities, which let the
+ *    agent enumerate and invoke arbitrary WordPress REST endpoints via
+ *    the internal dispatcher. Even though every dispatched call still
+ *    goes through the target endpoint's own `permission_callback`, the
+ *    enumeration + execute surface is a generic low-level dispatcher
+ *    and the same class of arbitrary-script-dispatch risk as run-php.
+ *    Disabled in the WordPress.org distribution build and the
+ *    `includes/Abilities/WpRestAbilities.php` source file is physically
+ *    stripped from the shipped zip.
+ *  - SD_AI_AGENT_FEATURE_WP_CLI_DISPATCHER — The `wp-cli/execute`
+ *    ability, which shells out to the `wp` binary via PHP `exec()` to
+ *    run arbitrary WP-CLI commands. Same class of arbitrary-command
+ *    risk as run-php and CUSTOM_TOOLS_CLI. Disabled in the
+ *    WordPress.org distribution build and the
+ *    `includes/Abilities/WpCliAbilities.php` source file is physically
+ *    stripped from the shipped zip.
  *
  * Usage example (wp-config.php):
  *   define( 'SD_AI_AGENT_FEATURE_BRANDING', false );
@@ -193,6 +210,45 @@ final class Features {
 	const SCAFFOLD_BLOCK_THEME = 'scaffold_block_theme';
 
 	/**
+	 * Feature: WP REST dispatcher abilities.
+	 *
+	 * Gates registration of the `wp-rest/discover`, `wp-rest/inspect`,
+	 * and `wp-rest/execute` abilities, plus their shared `wp-rest`
+	 * ability category. With this disabled the agent cannot enumerate
+	 * or invoke arbitrary WordPress REST endpoints through the
+	 * internal dispatcher.
+	 *
+	 * Disabled in the WordPress.org distribution build because the
+	 * dispatcher is a generic low-level surface that, once enabled,
+	 * exposes every registered REST endpoint to whatever caller has
+	 * the agent's permission set — the same class of low-level
+	 * dispatch risk as `run-php`. The
+	 * `includes/Abilities/WpRestAbilities.php` source file is
+	 * physically stripped from the shipped zip.
+	 *
+	 * Constant: SD_AI_AGENT_FEATURE_WP_REST_DISPATCHER
+	 */
+	const WP_REST_DISPATCHER = 'wp_rest_dispatcher';
+
+	/**
+	 * Feature: WP-CLI dispatcher ability.
+	 *
+	 * Gates registration of the `wp-cli/execute` ability and its
+	 * shared `wp-cli` ability category. The ability shells out to the
+	 * `wp` binary via PHP `exec()` and runs arbitrary WP-CLI
+	 * subcommands.
+	 *
+	 * Disabled in the WordPress.org distribution build for the same
+	 * arbitrary-command-execution reason as PLUGIN_BUILDER and
+	 * CUSTOM_TOOLS_CLI. The
+	 * `includes/Abilities/WpCliAbilities.php` source file is
+	 * physically stripped from the shipped zip.
+	 *
+	 * Constant: SD_AI_AGENT_FEATURE_WP_CLI_DISPATCHER
+	 */
+	const WP_CLI_DISPATCHER = 'wp_cli_dispatcher';
+
+	/**
 	 * Map of feature name → backing constant name.
 	 *
 	 * @var array<string, string>
@@ -206,6 +262,8 @@ final class Features {
 		self::PLUGIN_INSTALL_FROM_URL => 'SD_AI_AGENT_FEATURE_PLUGIN_INSTALL_FROM_URL',
 		self::FILE_WRITE              => 'SD_AI_AGENT_FEATURE_FILE_WRITE',
 		self::SCAFFOLD_BLOCK_THEME    => 'SD_AI_AGENT_FEATURE_SCAFFOLD_BLOCK_THEME',
+		self::WP_REST_DISPATCHER      => 'SD_AI_AGENT_FEATURE_WP_REST_DISPATCHER',
+		self::WP_CLI_DISPATCHER       => 'SD_AI_AGENT_FEATURE_WP_CLI_DISPATCHER',
 	);
 
 	/**

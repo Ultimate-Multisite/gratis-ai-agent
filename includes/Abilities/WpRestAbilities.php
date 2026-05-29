@@ -29,6 +29,7 @@ declare(strict_types=1);
 namespace SdAiAgent\Abilities;
 
 use SdAiAgent\Core\ChangeLogger;
+use SdAiAgent\Core\Features;
 use SdAiAgent\Models\ChangesLog;
 use WP_Error;
 use WP_REST_Request;
@@ -78,6 +79,16 @@ class WpRestAbilities {
 	 * @return void
 	 */
 	public static function register_category(): void {
+		// Feature-gated: the dispatcher surface is force-disabled in the
+		// WordPress.org distribution build and may be disabled per-site
+		// via SD_AI_AGENT_FEATURE_WP_REST_DISPATCHER in wp-config.php.
+		// Skipping the category registration here means none of the
+		// dispatcher abilities can later attach to a valid category, so
+		// even a manual `wp_register_ability` call would fail.
+		if ( ! Features::is_enabled( Features::WP_REST_DISPATCHER ) ) {
+			return;
+		}
+
 		if ( ! function_exists( 'wp_register_ability_category' ) || ! function_exists( 'wp_has_ability_category' ) ) {
 			return;
 		}
@@ -103,6 +114,11 @@ class WpRestAbilities {
 	 * @return void
 	 */
 	public static function register_abilities(): void {
+		// Feature-gated: see register_category() for the rationale.
+		if ( ! Features::is_enabled( Features::WP_REST_DISPATCHER ) ) {
+			return;
+		}
+
 		self::register_discover();
 		self::register_inspect();
 		self::register_execute();
@@ -267,17 +283,12 @@ class WpRestAbilities {
 				),
 				'category'            => self::CATEGORY,
 				'permission_callback' => static function () {
-					if ( current_user_can( 'manage_network' ) ) {
-						return true;
-					}
-					if ( current_user_can( 'manage_options' ) ) {
-						return true;
-					}
-					return new WP_Error(
-						'wp_rest_forbidden',
-						__( 'You do not have permission to execute REST requests. Required capability: manage_options.', 'superdav-ai-agent' ),
-						array( 'status' => 403 )
-					);
+					// Strictest cap set: same as run-php. The dispatcher is
+					// a generic low-level surface and shares run-php's
+					// arbitrary-script-dispatch risk class. Implemented in
+					// check_permission_level() so discover/inspect/execute
+					// share a single source of truth.
+					return self::check_permission_level( 'execute' );
 				},
 				'execute_callback'    => array( __CLASS__, 'handle_execute' ),
 				'input_schema'        => array(
@@ -773,47 +784,45 @@ class WpRestAbilities {
 	}
 
 	/**
-	 * Check if the current user has permission for a given access level.
+	 * Check if the current user has the strictest cap set required to
+	 * use any wp-rest dispatcher ability.
 	 *
-	 * Mirrors WpCliAbilities::check_permission_level() semantics exactly.
+	 * The wp-rest dispatcher is a generic low-level surface that can
+	 * invoke any registered WordPress REST endpoint, including endpoints
+	 * registered by other plugins. We therefore enforce the same cap
+	 * set as `sd-ai-agent/run-php`: `manage_options` AND `update_core`
+	 * AND `unfiltered_html`. These three caps are individually revocable
+	 * via role-management plugins, and an administrator who loses any
+	 * one of them (typical for managed-hosting customer admins) is
+	 * correctly excluded from the dispatcher.
 	 *
-	 * @param string $level 'read', 'write', or 'destructive'.
+	 * The `$level` parameter is retained for backward-compatible error
+	 * messages; the underlying cap requirement is the same for every
+	 * level because the dispatcher itself is the risk surface, not the
+	 * individual request.
+	 *
+	 * @param string $level 'read', 'write', or 'destructive' (used in error message only).
 	 * @return true|WP_Error
 	 */
 	private static function check_permission_level( string $level ) {
-		if ( current_user_can( 'manage_network' ) ) {
-			return true;
+		$required = array( 'manage_options', 'update_core', 'unfiltered_html' );
+
+		foreach ( $required as $cap ) {
+			if ( ! current_user_can( $cap ) ) {
+				return new WP_Error(
+					'wp_rest_forbidden',
+					sprintf(
+						/* translators: 1: access level, 2: list of required capability names */
+						__( 'You do not have permission to execute this %1$s REST request. Required capabilities (all): %2$s.', 'superdav-ai-agent' ),
+						$level,
+						implode( ', ', $required )
+					),
+					array( 'status' => 403 )
+				);
+			}
 		}
 
-		$capability_map = array(
-			'read'        => 'manage_options',
-			'write'       => 'manage_options',
-			'destructive' => 'manage_network',
-		);
-
-		$required_cap = $capability_map[ $level ] ?? 'manage_network';
-
-		// On single-site installs, manage_network is never granted.
-		// Fall back to manage_options so destructive calls remain accessible
-		// to administrators on non-multisite WordPress installations.
-		if ( 'manage_network' === $required_cap && ! is_multisite() ) {
-			$required_cap = 'manage_options';
-		}
-
-		if ( current_user_can( $required_cap ) ) {
-			return true;
-		}
-
-		return new WP_Error(
-			'wp_rest_forbidden',
-			sprintf(
-				/* translators: 1: access level, 2: capability name */
-				__( 'You do not have permission to execute this %1$s REST request. Required capability: %2$s.', 'superdav-ai-agent' ),
-				$level,
-				$required_cap
-			),
-			array( 'status' => 403 )
-		);
+		return true;
 	}
 
 	/**
