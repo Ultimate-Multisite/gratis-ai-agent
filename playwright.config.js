@@ -10,6 +10,7 @@
 const { defineConfig, devices } = require( '@playwright/test' );
 
 const ciWorkers = Number.parseInt( process.env.PLAYWRIGHT_WORKERS || '2', 10 );
+const useSystemChrome = !! process.env.PLAYWRIGHT_USE_SYSTEM_CHROME;
 
 /** @param {number} n @returns {number} */
 function getWorkerCount( n ) {
@@ -68,7 +69,10 @@ module.exports = defineConfig( {
 	projects: [
 		{
 			name: 'chromium',
-			use: { ...devices[ 'Desktop Chrome' ] },
+			use: {
+				...devices[ 'Desktop Chrome' ],
+				...( useSystemChrome ? { channel: 'chrome' } : {} ),
+			},
 		},
 	],
 } );
