@@ -1,0 +1,30 @@
+/*
+ * Superdav AI Agent — Block Usage admin sub-page styles.
+ *
+ * Extracted from inline style="" attributes previously emitted by
+ * includes/Admin/BlockUsagePage.php so the admin sub-page complies with
+ * the WordPress.org Plugin Review guideline against inline styles.
+ *
+ * Loaded only on the Block Usage sub-page by
+ * includes/Bootstrap/BlockUsageAdminHandler::enqueue_assets().
+ */
+
+/* Inline-flow refresh form so the button sits beside the timestamp row. */
+.sd-ai-agent-block-usage-form {
+	display: inline-block;
+	margin-bottom: 1.5em;
+}
+
+/* Section headings spaced away from the preceding form/table. */
+.sd-ai-agent-block-usage-section-heading {
+	margin-top: 1.5em;
+}
+
+/* Constrained table widths matching the existing admin look. */
+.sd-ai-agent-block-usage-table-narrow {
+	max-width: 600px;
+}
+
+.sd-ai-agent-block-usage-table-wide {
+	max-width: 700px;
+}

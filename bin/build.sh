@@ -16,10 +16,12 @@
 #               superdav-ai-agent-{version}.zip
 #
 #   wporg  — WordPress.org-compliant zip. Strips source files for the AI
-#            plugin builder (generate / sandbox / activate / update) and
-#            for WP-CLI custom tools, and forces the matching feature
-#            flags to false in the main plugin file so the runtime gates
-#            cannot be re-enabled by re-adding the source files. Output:
+#            plugin builder (generate / sandbox / activate / update), for
+#            WP-CLI custom tools, and for the block-theme scaffolder
+#            ability that writes executable theme code, and forces the
+#            matching feature flags to false in the main plugin file so
+#            the runtime gates cannot be re-enabled by re-adding the
+#            source files. Output:
 #               superdav-ai-agent-{version}-wporg.zip
 #
 # Why two targets?  WP.org Plugin Review Guideline 4 prohibits plugins
@@ -200,10 +202,10 @@ EXTRA
 	# prevents trivial bypass and gives the WP.org review team a single
 	# grep target to verify compliance.
 	if [ "$variant" = "wporg" ]; then
-		echo "==> [${variant}] Forcing plugin-builder + CLI + plugin-state + URL-install + file-write feature flags to false..."
+		echo "==> [${variant}] Forcing plugin-builder + CLI + plugin-state + URL-install + file-write + scaffold-block-theme feature flags to false..."
 		local main_file="${dest}/superdav-ai-agent.php"
 
-		# The five feature flags this build target forces off, paired with a
+		# The six feature flags this build target forces off, paired with a
 		# short rationale that ends up as an inline comment in the bundled
 		# main plugin file (a grep target the WP.org review team can use).
 		local -a flags=(
@@ -212,6 +214,7 @@ EXTRA
 			"SD_AI_AGENT_FEATURE_PLUGIN_STATE_CHANGES:autonomous activate\/deactivate disabled per WP.org Changing Active Plugins guideline"
 			"SD_AI_AGENT_FEATURE_PLUGIN_INSTALL_FROM_URL:install-from-arbitrary-ZIP disabled per WP.org Changing Active Plugins guideline"
 			"SD_AI_AGENT_FEATURE_FILE_WRITE:arbitrary wp-content writes disabled per WP.org Changing Active Plugins guideline"
+			"SD_AI_AGENT_FEATURE_SCAFFOLD_BLOCK_THEME:executable theme code writes disabled per WP.org Changing Active Plugins guideline"
 		)
 
 		# Replace each `defined() || define( 'NAME', true )` line with a
@@ -246,6 +249,7 @@ EXTRA
 			"${dest}/includes/Abilities/SandboxActivatePluginAbility.php"
 			"${dest}/includes/Abilities/PluginBuilderAbilities.php"
 			"${dest}/includes/Abilities/PluginDownloadAbilities.php"
+			"${dest}/includes/Abilities/ScaffoldBlockThemeAbility.php"
 		)
 		local p
 		for p in "${stripped_paths[@]}"; do
@@ -255,7 +259,7 @@ EXTRA
 				return 1
 			fi
 		done
-		echo "    Stripped plugin-builder source files and forced feature flags to false."
+		echo "    Stripped plugin-builder + theme-scaffolder source files and forced feature flags to false."
 
 		# ── Neutralise forbidden move_uploaded_file() in bundled PSR-7 ───────
 		# WP.org's plugin-check tool hard-fails on any literal occurrence of

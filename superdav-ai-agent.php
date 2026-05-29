@@ -143,6 +143,25 @@ defined( 'SD_AI_AGENT_FEATURE_PLUGIN_INSTALL_FROM_URL' ) || define( 'SD_AI_AGENT
  */
 defined( 'SD_AI_AGENT_FEATURE_FILE_WRITE' ) || define( 'SD_AI_AGENT_FEATURE_FILE_WRITE', true );
 
+/**
+ * Feature: block-theme scaffolder ability (`sd-ai-agent/scaffold-block-theme`).
+ *
+ * Writes theme.json, style.css, functions.php, and a starter
+ * templates/index.html into `wp-content/themes/{slug}/` so the AI agent
+ * can generate a new block theme on disk. When false the ability is
+ * not registered and the rest of the Theme Builder abilities
+ * (activate-theme, render-design-previews, generate-menu-page,
+ * validate-palette-contrast, generate-logo-svg) remain available.
+ *
+ * Forced to `false` in the WordPress.org distribution build because
+ * writing executable PHP/CSS into the active themes directory is the
+ * same class of arbitrary-theme-code modification covered by the
+ * WP.org "Changing Active Plugins" guideline (which the WP.org review
+ * team applies symmetrically to themes). Self-hosted users running
+ * the GitHub release retain the full Theme Builder.
+ */
+defined( 'SD_AI_AGENT_FEATURE_SCAFFOLD_BLOCK_THEME' ) || define( 'SD_AI_AGENT_FEATURE_SCAFFOLD_BLOCK_THEME', true );
+
 // Load Jetpack Autoloader for PSR-4 autoloading with version conflict resolution.
 // Jetpack Autoloader ensures the newest version of shared packages (like php-ai-client) is used.
 if ( file_exists( SD_AI_AGENT_DIR . '/vendor/autoload_packages.php' ) ) {

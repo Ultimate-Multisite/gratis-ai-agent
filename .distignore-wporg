@@ -8,6 +8,7 @@
 #  - SD_AI_AGENT_FEATURE_CUSTOM_TOOLS_CLI        (shell-exec custom tools)
 #  - SD_AI_AGENT_FEATURE_PLUGIN_STATE_CHANGES    (autonomous activate/deactivate)
 #  - SD_AI_AGENT_FEATURE_PLUGIN_INSTALL_FROM_URL (install from arbitrary ZIP URL)
+#  - SD_AI_AGENT_FEATURE_SCAFFOLD_BLOCK_THEME    (executable theme code writes)
 #
 # Note: the PLUGIN_STATE_CHANGES and PLUGIN_INSTALL_FROM_URL gates only
 # remove individual `wp_register_ability()` calls inside
@@ -55,3 +56,13 @@ includes/Models/DTO/GeneratedPluginRow.php
 # tests/SdAiAgent/PluginBuilder
 # tests/SdAiAgent/Abilities/PluginBuilderAbilitiesTest.php
 # tests/e2e/agent-builder.spec.js
+
+# ── Block-theme scaffolder source file ───────────────────────────────────────
+# Writes executable PHP/CSS (style.css, functions.php) into the active
+# themes directory at wp-content/themes/{slug}/. WP.org review flagged
+# this as out-of-scope for uploads-only storage; runtime is also gated
+# off via SD_AI_AGENT_FEATURE_SCAFFOLD_BLOCK_THEME = false (forced in
+# the bundled main plugin file by bin/build.sh below). Stripping the
+# source file gives the WP.org review team a single grep target to
+# confirm the scaffolder cannot be re-enabled by toggling the flag.
+includes/Abilities/ScaffoldBlockThemeAbility.php
