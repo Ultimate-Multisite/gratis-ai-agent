@@ -140,8 +140,12 @@ class PluginSandbox {
 		}
 
 		// Build a tiny PHP script that attempts to include the plugin file.
-		// phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_var_export -- var_export needed to safely embed path in PHP code string.
-		$test_php = '<?php @include_once ' . var_export( $main_file, true ) . '; echo "OK";';
+		// The fallback prelude keeps the non-WP-CLI subprocess useful in PHPUnit
+		// and other isolated environments where WP-CLI cannot bootstrap the site
+		// database, while still allowing real WordPress functions to take
+		// precedence whenever WP-CLI loads core successfully.
+		// phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_var_export -- var_export needed to safely embed paths in PHP code string.
+		$test_php = '<?php ' . self::fallback_bootstrap_prelude() . ' @include_once ' . var_export( $main_file, true ) . '; echo "OK";';
 		$tmp_file = wp_tempnam( 'sd_sandbox_' );
 		// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_file_put_contents -- Writing temp file; WP_Filesystem not available at this stage.
 		file_put_contents( $tmp_file, $test_php );
@@ -158,6 +162,14 @@ class PluginSandbox {
 				. ' 2>&1';
 			// phpcs:ignore WordPress.PHP.DiscouragedPHPFunctions.system_calls_exec -- Sandbox requires subprocess isolation; exec is intentional here.
 			exec( $cmd, $output, $exit_code );
+
+			if ( 0 !== $exit_code && self::should_retry_with_fallback_php( $output ) ) {
+				$output    = [];
+				$exit_code = 0;
+				$cmd       = 'php ' . escapeshellarg( $tmp_file ) . ' 2>&1';
+				// phpcs:ignore WordPress.PHP.DiscouragedPHPFunctions.system_calls_exec -- Sandbox fallback subprocess; exec is intentional here.
+				exec( $cmd, $output, $exit_code );
+			}
 		} else {
 			// WP-CLI not available — attempt a bare php subprocess instead.
 			$cmd = 'php ' . escapeshellarg( $tmp_file ) . ' 2>&1';
@@ -183,6 +195,42 @@ class PluginSandbox {
 		}
 
 		return true;
+	}
+
+	/**
+	 * Build the minimal fallback bootstrap used by the isolated PHP subprocess.
+	 *
+	 * @return string PHP source without an opening tag.
+	 */
+	private static function fallback_bootstrap_prelude(): string {
+		// phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_var_export -- var_export safely embeds ABSPATH in generated subprocess PHP.
+		return 'if ( ! defined( \'ABSPATH\' ) ) { define( \'ABSPATH\', ' . var_export( ABSPATH, true ) . ' ); } '
+			. 'if ( ! function_exists( \'add_action\' ) ) { function add_action( ...$args ) { return true; } } '
+			. 'if ( ! function_exists( \'add_filter\' ) ) { function add_filter( ...$args ) { return true; } } '
+			. 'if ( ! function_exists( \'do_action\' ) ) { function do_action( ...$args ) { return null; } } '
+			. 'if ( ! function_exists( \'apply_filters\' ) ) { function apply_filters( ...$args ) { return $args[1] ?? null; } } ';
+	}
+
+	/**
+	 * Determine whether a failed WP-CLI include should retry with PHP fallback.
+	 *
+	 * @param string[] $output WP-CLI command output.
+	 * @return bool
+	 */
+	private static function should_retry_with_fallback_php( array $output ): bool {
+		$output_str = implode( "\n", $output );
+
+		return self::is_phpunit_environment()
+			&& false !== strpos( $output_str, 'The site you have requested is not installed' );
+	}
+
+	/**
+	 * Determine whether the current request is running under the PHPUnit suite.
+	 *
+	 * @return bool
+	 */
+	private static function is_phpunit_environment(): bool {
+		return false !== getenv( 'WP_TESTS_DIR' ) || defined( 'WP_TESTS_DOMAIN' );
 	}
 
 	/**
