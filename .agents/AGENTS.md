@@ -75,6 +75,10 @@ to change, do not answer only in the issue thread. Make the durable repo change:
   routes in the private `sd-ai-agent/v1` namespace. Convert shorthand feedback
   into explicit checks for capability gates, real current-user context, secret
   scrubbing, and hidden or restricted file-upload endpoints.
+- Do not mark contributor-insight issues complete after documentation reading
+  alone. A valid fix changes a durable instruction, workflow doc, or helper, then
+  verifies the changed guidance with an exact `rg -n` check that future workers
+  will load it.
 - If the requested hardening is broader than the current task, file worker-ready
   GitHub issue briefs that name the route/controller family, expected security
   behaviour, and verification command or manual review to run.
