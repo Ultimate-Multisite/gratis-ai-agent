@@ -71,6 +71,13 @@ declare(strict_types=1);
  *    WordPress.org distribution build and the
  *    `includes/Abilities/WpCliAbilities.php` source file is physically
  *    stripped from the shipped zip.
+ *  - SD_AI_AGENT_FEATURE_BENCHMARK — The `wp sd-ai-agent benchmark …`
+ *    WP-CLI subcommand, which runs the full agent loop and writes a
+ *    JSON log per question. Disabled in the WordPress.org distribution
+ *    because the command's `--log-dir=<abs-path>` override lets an
+ *    administrator point log writes at an arbitrary absolute filesystem
+ *    path, which the WP.org reviewer flagged as out-of-scope for a
+ *    public-directory plugin.
  *
  * Usage example (wp-config.php):
  *   define( 'SD_AI_AGENT_FEATURE_BRANDING', false );
@@ -249,6 +256,26 @@ final class Features {
 	const WP_CLI_DISPATCHER = 'wp_cli_dispatcher';
 
 	/**
+	 * Feature: WP-CLI functional benchmark suite.
+	 *
+	 * Gates registration of the `wp sd-ai-agent benchmark …` subcommand
+	 * (suites / questions / run). With this disabled the WP-CLI command
+	 * is not advertised under any of the plugin's CLI namespaces and the
+	 * `BenchmarkCommand` class is never instantiated.
+	 *
+	 * Disabled in the WordPress.org distribution build because the
+	 * command's `--log-dir=<abs-path>` flag lets an administrator write
+	 * benchmark logs to an arbitrary absolute filesystem path, which the
+	 * WP.org reviewer flagged as out-of-scope for a public-directory
+	 * plugin (data should land in the database, the uploads dir, or the
+	 * media uploader). The full GitHub release zip retains the command
+	 * for self-hosted model-evaluation use.
+	 *
+	 * Constant: SD_AI_AGENT_FEATURE_BENCHMARK
+	 */
+	const BENCHMARK = 'benchmark';
+
+	/**
 	 * Map of feature name → backing constant name.
 	 *
 	 * @var array<string, string>
@@ -264,6 +291,7 @@ final class Features {
 		self::SCAFFOLD_BLOCK_THEME    => 'SD_AI_AGENT_FEATURE_SCAFFOLD_BLOCK_THEME',
 		self::WP_REST_DISPATCHER      => 'SD_AI_AGENT_FEATURE_WP_REST_DISPATCHER',
 		self::WP_CLI_DISPATCHER       => 'SD_AI_AGENT_FEATURE_WP_CLI_DISPATCHER',
+		self::BENCHMARK               => 'SD_AI_AGENT_FEATURE_BENCHMARK',
 	);
 
 	/**
