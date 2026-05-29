@@ -69,7 +69,7 @@ if ( ! function_exists( '_wp_connectors_get_provider_settings' ) ) {
 
 			$settings[ $setting_name ] = [
 				'provider' => (string) $provider_id,
-				'mask'     => _wp_connectors_mask_api_key_compat( $api_key ),
+				'mask'     => sd_ai_agent_connectors_mask_api_key( $api_key ),
 			];
 		}
 
@@ -101,7 +101,13 @@ if ( ! function_exists( '_wp_connectors_get_real_api_key' ) ) {
  * Internal helper: mask an API key, showing only the last 4 characters.
  *
  * Avoids depending on WP 7.0's _wp_connectors_mask_api_key() which may
- * not be available on 6.9.
+ * not be available on 6.9. Carries the plugin's `sd_ai_agent_` prefix so
+ * it does not appear to masquerade as a WordPress core private helper
+ * (WP.org Plugin Review prefix guideline).
+ *
+ * Guarded by function_exists() defensively: if a future WordPress version
+ * happens to ship a same-named function in the global namespace, ours
+ * yields to core.
  *
  * @since 1.8.0
  * @access private
@@ -109,9 +115,11 @@ if ( ! function_exists( '_wp_connectors_get_real_api_key' ) ) {
  * @param string $key The API key to mask.
  * @return string Masked key (e.g. "••••••••••••fj39").
  */
-function _wp_connectors_mask_api_key_compat( string $key ): string {
-	if ( strlen( $key ) <= 4 ) {
-		return $key;
+if ( ! function_exists( 'sd_ai_agent_connectors_mask_api_key' ) ) {
+	function sd_ai_agent_connectors_mask_api_key( string $key ): string {
+		if ( strlen( $key ) <= 4 ) {
+			return $key;
+		}
+		return str_repeat( "\u{2022}", min( strlen( $key ) - 4, 16 ) ) . substr( $key, -4 );
 	}
-	return str_repeat( "\u{2022}", min( strlen( $key ) - 4, 16 ) ) . substr( $key, -4 );
 }

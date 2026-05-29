@@ -44,6 +44,16 @@ declare(strict_types=1);
  *    arbitrary-code-modification risk covered by the WP.org "Changing
  *    Active Plugins" guideline. Read-only file/git abilities remain
  *    available.
+ *  - SD_AI_AGENT_FEATURE_SCAFFOLD_BLOCK_THEME — The block-theme
+ *    scaffolder ability (`sd-ai-agent/scaffold-block-theme`) that
+ *    writes theme.json, style.css, functions.php, and a starter
+ *    templates/index.html into `wp-content/themes/{slug}/`. Disabled
+ *    in the WordPress.org distribution because writing executable
+ *    theme code is the same arbitrary-theme-code modification risk
+ *    covered by the WP.org "Changing Active Plugins" guideline. The
+ *    remaining Theme Builder abilities (activate-theme,
+ *    render-design-previews, generate-menu-page,
+ *    validate-palette-contrast, generate-logo-svg) stay registered.
  *
  * Usage example (wp-config.php):
  *   define( 'SD_AI_AGENT_FEATURE_BRANDING', false );
@@ -161,6 +171,28 @@ final class Features {
 	const FILE_WRITE = 'file_write';
 
 	/**
+	 * Feature: block-theme scaffolder ability.
+	 *
+	 * Gates the `sd-ai-agent/scaffold-block-theme` ability that writes
+	 * theme.json, style.css, functions.php, and a starter
+	 * templates/index.html into `wp-content/themes/{slug}/`. The
+	 * remaining Theme Builder abilities (activate-theme,
+	 * render-design-previews, generate-menu-page,
+	 * validate-palette-contrast, generate-logo-svg) are not gated by
+	 * this flag because they do not write executable theme code to
+	 * disk.
+	 *
+	 * Disabled in the WordPress.org distribution build because
+	 * writing executable PHP/CSS into the active themes directory is
+	 * the same class of arbitrary third-party-code modification
+	 * covered by the WP.org "Changing Active Plugins" guideline. The
+	 * full GitHub release zip leaves it enabled.
+	 *
+	 * Constant: SD_AI_AGENT_FEATURE_SCAFFOLD_BLOCK_THEME
+	 */
+	const SCAFFOLD_BLOCK_THEME = 'scaffold_block_theme';
+
+	/**
 	 * Map of feature name → backing constant name.
 	 *
 	 * @var array<string, string>
@@ -173,6 +205,7 @@ final class Features {
 		self::PLUGIN_STATE_CHANGES    => 'SD_AI_AGENT_FEATURE_PLUGIN_STATE_CHANGES',
 		self::PLUGIN_INSTALL_FROM_URL => 'SD_AI_AGENT_FEATURE_PLUGIN_INSTALL_FROM_URL',
 		self::FILE_WRITE              => 'SD_AI_AGENT_FEATURE_FILE_WRITE',
+		self::SCAFFOLD_BLOCK_THEME    => 'SD_AI_AGENT_FEATURE_SCAFFOLD_BLOCK_THEME',
 	);
 
 	/**

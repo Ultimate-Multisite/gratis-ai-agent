@@ -1,0 +1,63 @@
+/*
+ * Superdav AI Agent — Block Preferences admin sub-page styles.
+ *
+ * Extracted from inline style="" attributes previously emitted by
+ * includes/Admin/BlockPreferencesPage.php so the admin sub-page complies
+ * with the WordPress.org Plugin Review guideline against inline styles.
+ *
+ * Loaded only on the Block Preferences sub-page by
+ * includes/Bootstrap/BlockPreferencesAdminHandler::enqueue_assets().
+ */
+
+/* Two tables flow at fixed widths to mirror the WP admin "widefat" look. */
+.sd-ai-agent-block-prefs-tier-table {
+	max-width: 700px;
+	margin-bottom: 1em;
+}
+
+.sd-ai-agent-block-prefs-table,
+.sd-ai-agent-block-prefs-repl-table {
+	max-width: 700px;
+}
+
+/* Section headings spaced away from the preceding table. */
+.sd-ai-agent-block-prefs-section-heading {
+	margin-top: 2em;
+}
+
+/* Column widths for the preferences table. */
+.sd-ai-agent-block-prefs-col-key {
+	width: 55%;
+}
+
+.sd-ai-agent-block-prefs-col-score {
+	width: 20%;
+}
+
+.sd-ai-agent-block-prefs-col-tier {
+	width: 15%;
+}
+
+.sd-ai-agent-block-prefs-col-actions {
+	width: 10%;
+}
+
+/* Column widths for the replacements table. */
+.sd-ai-agent-block-prefs-col-legacy,
+.sd-ai-agent-block-prefs-col-modern {
+	width: 45%;
+}
+
+/* Input widths inside table cells. */
+.sd-ai-agent-block-prefs-input-text {
+	width: 95%;
+}
+
+.sd-ai-agent-block-prefs-input-score {
+	width: 70px;
+}
+
+/* Submit row spacing. */
+.sd-ai-agent-block-prefs-submit {
+	margin-top: 1.5em;
+}

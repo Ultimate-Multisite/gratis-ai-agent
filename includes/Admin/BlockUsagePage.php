@@ -191,13 +191,12 @@ final class BlockUsagePage {
 				<?php endif; ?>
 			</p>
 
-			<form method="post" action="" style="display:inline-block;margin-bottom:1.5em;">
+			<form method="post" action="" class="sd-ai-agent-block-usage-form">
 				<?php wp_nonce_field( self::NONCE_ACTION, self::NONCE_FIELD ); ?>
 				<button
 					type="submit"
 					class="button button-secondary"
 					<?php disabled( $rate_limited ); ?>
-					onclick="return confirm( <?php echo esc_attr( (string) wp_json_encode( __( 'Refresh block usage stats now? This may take a moment on large sites.', 'superdav-ai-agent' ) ) ); ?> );"
 				>
 					<?php esc_html_e( 'Refresh Block Usage', 'superdav-ai-agent' ); ?>
 				</button>
@@ -205,7 +204,7 @@ final class BlockUsagePage {
 
 			<?php if ( ! empty( $top_namespaces ) ) : ?>
 				<h2><?php esc_html_e( 'Top Namespaces', 'superdav-ai-agent' ); ?></h2>
-				<table class="widefat striped" style="max-width:600px;">
+				<table class="widefat striped sd-ai-agent-block-usage-table-narrow">
 					<thead>
 						<tr>
 							<th><?php esc_html_e( 'Namespace', 'superdav-ai-agent' ); ?></th>
@@ -224,8 +223,8 @@ final class BlockUsagePage {
 			<?php endif; ?>
 
 			<?php if ( ! empty( $block_counts ) ) : ?>
-				<h2 style="margin-top:1.5em;"><?php esc_html_e( 'Block Counts', 'superdav-ai-agent' ); ?></h2>
-				<table class="widefat striped" style="max-width:700px;">
+				<h2 class="sd-ai-agent-block-usage-section-heading"><?php esc_html_e( 'Block Counts', 'superdav-ai-agent' ); ?></h2>
+				<table class="widefat striped sd-ai-agent-block-usage-table-wide">
 					<thead>
 						<tr>
 							<th><?php esc_html_e( 'Block Name', 'superdav-ai-agent' ); ?></th>
@@ -244,8 +243,8 @@ final class BlockUsagePage {
 			<?php endif; ?>
 
 			<?php if ( ! empty( $pattern_counts ) ) : ?>
-				<h2 style="margin-top:1.5em;"><?php esc_html_e( 'Synced Pattern References', 'superdav-ai-agent' ); ?></h2>
-				<table class="widefat striped" style="max-width:700px;">
+				<h2 class="sd-ai-agent-block-usage-section-heading"><?php esc_html_e( 'Synced Pattern References', 'superdav-ai-agent' ); ?></h2>
+				<table class="widefat striped sd-ai-agent-block-usage-table-wide">
 					<thead>
 						<tr>
 							<th><?php esc_html_e( 'Pattern Name', 'superdav-ai-agent' ); ?></th>

@@ -210,7 +210,7 @@ final class BlockPreferencesPage {
 			?>
 			</p>
 
-			<table class="widefat" style="max-width:700px;margin-bottom:1em;">
+			<table class="widefat sd-ai-agent-block-prefs-tier-table">
 				<thead>
 					<tr>
 						<th><?php esc_html_e( 'Score range', 'superdav-ai-agent' ); ?></th>
@@ -245,13 +245,13 @@ final class BlockPreferencesPage {
 					</em>
 				</p>
 
-				<table class="widefat striped" id="sd-pref-table" style="max-width:700px;">
+				<table class="widefat striped sd-ai-agent-block-prefs-table" id="sd-pref-table">
 					<thead>
 						<tr>
-							<th style="width:55%"><?php esc_html_e( 'Namespace or block name', 'superdav-ai-agent' ); ?></th>
-							<th style="width:20%"><?php esc_html_e( 'Score (0–100)', 'superdav-ai-agent' ); ?></th>
-							<th style="width:15%"><?php esc_html_e( 'Tier', 'superdav-ai-agent' ); ?></th>
-							<th style="width:10%"></th>
+							<th class="sd-ai-agent-block-prefs-col-key"><?php esc_html_e( 'Namespace or block name', 'superdav-ai-agent' ); ?></th>
+							<th class="sd-ai-agent-block-prefs-col-score"><?php esc_html_e( 'Score (0–100)', 'superdav-ai-agent' ); ?></th>
+							<th class="sd-ai-agent-block-prefs-col-tier"><?php esc_html_e( 'Tier', 'superdav-ai-agent' ); ?></th>
+							<th class="sd-ai-agent-block-prefs-col-actions"></th>
 						</tr>
 					</thead>
 					<tbody>
@@ -263,8 +263,7 @@ final class BlockPreferencesPage {
 									type="text"
 									name="sd_pref_keys[]"
 									value="<?php echo esc_attr( (string) $key ); ?>"
-									class="regular-text"
-									style="width:95%"
+									class="regular-text sd-ai-agent-block-prefs-input-text"
 								/>
 							</td>
 							<td>
@@ -274,7 +273,7 @@ final class BlockPreferencesPage {
 									value="<?php echo esc_attr( (string) $score ); ?>"
 									min="0"
 									max="100"
-									style="width:70px"
+									class="sd-ai-agent-block-prefs-input-score"
 								/>
 							</td>
 							<td>
@@ -298,7 +297,7 @@ final class BlockPreferencesPage {
 				</table>
 
 				<!-- ── Replacement map ──────────────────────────────────────── -->
-				<h2 style="margin-top:2em;"><?php esc_html_e( 'Legacy Block Replacement Map', 'superdav-ai-agent' ); ?></h2>
+				<h2 class="sd-ai-agent-block-prefs-section-heading"><?php esc_html_e( 'Legacy Block Replacement Map', 'superdav-ai-agent' ); ?></h2>
 				<p>
 					<em>
 					<?php
@@ -310,12 +309,12 @@ final class BlockPreferencesPage {
 					</em>
 				</p>
 
-				<table class="widefat striped" id="sd-repl-table" style="max-width:700px;">
+				<table class="widefat striped sd-ai-agent-block-prefs-repl-table" id="sd-repl-table">
 					<thead>
 						<tr>
-							<th style="width:45%"><?php esc_html_e( 'Legacy block name', 'superdav-ai-agent' ); ?></th>
-							<th style="width:45%"><?php esc_html_e( 'Modern replacement', 'superdav-ai-agent' ); ?></th>
-							<th style="width:10%"></th>
+							<th class="sd-ai-agent-block-prefs-col-legacy"><?php esc_html_e( 'Legacy block name', 'superdav-ai-agent' ); ?></th>
+							<th class="sd-ai-agent-block-prefs-col-modern"><?php esc_html_e( 'Modern replacement', 'superdav-ai-agent' ); ?></th>
+							<th class="sd-ai-agent-block-prefs-col-actions"></th>
 						</tr>
 					</thead>
 					<tbody>
@@ -326,8 +325,7 @@ final class BlockPreferencesPage {
 									type="text"
 									name="sd_repl_legacy[]"
 									value="<?php echo esc_attr( (string) $legacy ); ?>"
-									class="regular-text"
-									style="width:95%"
+									class="regular-text sd-ai-agent-block-prefs-input-text"
 								/>
 							</td>
 							<td>
@@ -335,8 +333,7 @@ final class BlockPreferencesPage {
 									type="text"
 									name="sd_repl_modern[]"
 									value="<?php echo esc_attr( (string) $modern ); ?>"
-									class="regular-text"
-									style="width:95%"
+									class="regular-text sd-ai-agent-block-prefs-input-text"
 								/>
 							</td>
 							<td>
@@ -356,53 +353,17 @@ final class BlockPreferencesPage {
 					</tfoot>
 				</table>
 
-				<p class="submit" style="margin-top:1.5em;">
+				<p class="submit sd-ai-agent-block-prefs-submit">
 					<button type="submit" class="button button-primary">
 						<?php esc_html_e( 'Save Preferences', 'superdav-ai-agent' ); ?>
 					</button>
 				</p>
 			</form>
 		</div>
-
-		<script>
-		( function() {
-			// Remove row.
-			document.addEventListener( 'click', function( e ) {
-				if ( e.target && e.target.classList.contains( 'sd-remove-row' ) ) {
-					e.target.closest( 'tr' ).remove();
-				}
-			} );
-
-			// Add preference row.
-			var addPrefBtn = document.getElementById( 'sd-add-pref-row' );
-			if ( addPrefBtn ) {
-				addPrefBtn.addEventListener( 'click', function() {
-					var tbody = document.querySelector( '#sd-pref-table tbody' );
-					var tr = document.createElement( 'tr' );
-					tr.innerHTML =
-						'<td><input type="text" name="sd_pref_keys[]" value="" class="regular-text" style="width:95%" /></td>' +
-						'<td><input type="number" name="sd_pref_scores[]" value="50" min="0" max="100" style="width:70px" /></td>' +
-						'<td><span class="sd-tier-label">acceptable</span></td>' +
-						'<td><button type="button" class="button button-small sd-remove-row"><?php echo esc_js( __( 'Remove', 'superdav-ai-agent' ) ); ?></button></td>';
-					tbody.appendChild( tr );
-				} );
-			}
-
-			// Add replacement row.
-			var addReplBtn = document.getElementById( 'sd-add-repl-row' );
-			if ( addReplBtn ) {
-				addReplBtn.addEventListener( 'click', function() {
-					var tbody = document.querySelector( '#sd-repl-table tbody' );
-					var tr = document.createElement( 'tr' );
-					tr.innerHTML =
-						'<td><input type="text" name="sd_repl_legacy[]" value="" class="regular-text" style="width:95%" /></td>' +
-						'<td><input type="text" name="sd_repl_modern[]" value="" class="regular-text" style="width:95%" /></td>' +
-						'<td><button type="button" class="button button-small sd-remove-row"><?php echo esc_js( __( 'Remove', 'superdav-ai-agent' ) ); ?></button></td>';
-					tbody.appendChild( tr );
-				} );
-			}
-		} )();
-		</script>
 		<?php
+		// Behaviour (add/remove row) lives in assets/admin/block-preferences.js
+		// enqueued by BlockPreferencesAdminHandler::enqueue_assets() so this
+		// admin page emits no inline <script> tags (WP.org Plugin Review
+		// guideline: register all scripts via wp_enqueue_*).
 	}
 }
