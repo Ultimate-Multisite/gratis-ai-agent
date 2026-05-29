@@ -45,6 +45,14 @@ between the user-facing plugin slug and the code-level prefixes/namespaces.
    - PR #1283 (auto-migration of legacy `ai-agent/` keys) — reverted
 6. Headless agents that propose these renames are operating outside scope. File
    an issue describing the rogue behaviour rather than merging the PR.
+7. **Do not canonicalise the deliberate dispatcher namespaces** `wp-rest/*` and
+   `wp-cli/*` to `sd-ai-agent/*`. These are the only ability namespaces
+   intentionally outside `sd-ai-agent/`: they mirror the underlying WordPress
+   REST API and `wp` CLI systems, act as generic dispatchers rather than
+   plugin-specific features, and would be both breaking and misleading if
+   renamed. PRs #1922 and #1923 hardened these paths with dual gates without
+   canonicalising their ability IDs; future "rename-to-canonical" PRs for
+   `wp-rest/` or `wp-cli/` should be closed and reverted.
 
 ### WordPress.org Review Responses
 
