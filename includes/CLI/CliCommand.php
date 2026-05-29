@@ -16,6 +16,7 @@ namespace SdAiAgent\CLI;
 
 use SdAiAgent\Core\AgentLoop;
 use SdAiAgent\Core\ConversationSerializer;
+use SdAiAgent\Core\Database;
 use SdAiAgent\Models\Agent;
 use WP_CLI;
 
@@ -197,6 +198,33 @@ class CliCommand extends \WP_CLI_Command {
 		// If --skip-tools, pass a bogus ability name so nothing resolves.
 		$abilities = $no_tools ? [ '__none__' ] : [];
 
+		// Persist a fresh session row per invocation so each CLI run leaves a
+		// recoverable trace (messages, tool calls, token usage) in the sessions
+		// table, viewable later via `wp sd-ai-agent trace <id>` or the admin UI.
+		// Without this, every `wp sd-ai-agent prompt` call runs with
+		// session_id=0 and discards its history when the process exits.
+		$session_title = sprintf(
+			/* translators: 1: short prompt preview, 2: timestamp */
+			__( 'CLI: %1$s (%2$s)', 'superdav-ai-agent' ),
+			substr( $prompt, 0, 60 ) . ( strlen( $prompt ) > 60 ? '…' : '' ),
+			gmdate( 'Y-m-d H:i:s' )
+		);
+		$session_id = Database::create_session(
+			[
+				'user_id'     => get_current_user_id(),
+				'title'       => $session_title,
+				'provider_id' => $options['provider_id'] ?? '',
+				'model_id'    => $options['model_id'] ?? '',
+			]
+		);
+		if ( is_int( $session_id ) && $session_id > 0 ) {
+			$options['session_id'] = $session_id;
+			if ( $verbose ) {
+				WP_CLI::log( "Session ID:     {$session_id}" );
+				WP_CLI::log( '' );
+			}
+		}
+
 		$start_time = microtime( true );
 
 		WP_CLI::log( 'Sending prompt to AI agent...' );
@@ -263,6 +291,28 @@ class CliCommand extends \WP_CLI_Command {
 			$iterations = $result['iterations_used'] ?? 0;
 			$model_used = $result['model_id'] ?? '';
 			$reply      = $result['reply'] ?? '';
+		}
+
+		// Persist the run to the session row created at the start of this
+		// invocation so `wp sd-ai-agent trace <id>` and the admin UI can
+		// surface the full message history, tool calls, and token usage.
+		// Mirrors the persistence path in SessionController::handle_chat_job
+		// (lines ~1688-1718) so CLI and REST runs produce equivalent rows.
+		if ( isset( $options['session_id'] ) && (int) $options['session_id'] > 0 ) {
+			$sid          = (int) $options['session_id'];
+			$full_history = is_array( $result ) ? ( $result['history'] ?? [] ) : [];
+			if ( is_array( $full_history ) && ! empty( $full_history ) ) {
+				/** @var list<mixed>                 $full_history */
+				/** @var list<array<string, mixed>> $tool_calls */
+				Database::append_to_session( $sid, array_values( $full_history ), $tool_calls );
+			}
+			if ( ! empty( $usage ) ) {
+				Database::update_session_tokens(
+					$sid,
+					(int) ( $usage['prompt'] ?? 0 ),
+					(int) ( $usage['completion'] ?? 0 )
+				);
+			}
 		}
 
 		// Print tool call log — always shown, detail level depends on --verbose.
@@ -363,6 +413,13 @@ class CliCommand extends \WP_CLI_Command {
 
 			$elapsed = round( microtime( true ) - $start_time, 2 );
 			WP_CLI::log( "Total time: {$elapsed}s" );
+		}
+
+		// Always print the session id (when one was created) so users can
+		// recover the trace via `wp sd-ai-agent trace <id>` regardless of
+		// --verbose mode.
+		if ( isset( $options['session_id'] ) && (int) $options['session_id'] > 0 ) {
+			WP_CLI::log( "Session: {$options['session_id']}" );
 		}
 	}
 }
