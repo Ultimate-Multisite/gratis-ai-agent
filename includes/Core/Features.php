@@ -78,6 +78,13 @@ declare(strict_types=1);
  *    administrator point log writes at an arbitrary absolute filesystem
  *    path, which the WP.org reviewer flagged as out-of-scope for a
  *    public-directory plugin.
+ *  - SD_AI_AGENT_FEATURE_USER_MANAGEMENT — Mutating user-management
+ *    abilities (`sd-ai-agent/create-user`, `sd-ai-agent/update-user-role`).
+ *    Disabled in the WordPress.org distribution because custom user
+ *    creation routes can bypass security plugins (login throttling,
+ *    password-policy enforcers, etc.) that hook the native register/login
+ *    flow — per WP.org reviewer feedback. Read-only `sd-ai-agent/list-users`
+ *    is unaffected and remains available in all builds.
  *
  * Usage example (wp-config.php):
  *   define( 'SD_AI_AGENT_FEATURE_BRANDING', false );
@@ -276,6 +283,26 @@ final class Features {
 	const BENCHMARK = 'benchmark';
 
 	/**
+	 * Feature: mutating user-management abilities.
+	 *
+	 * Gates the `sd-ai-agent/create-user` and
+	 * `sd-ai-agent/update-user-role` abilities. The read-only
+	 * `sd-ai-agent/list-users` ability is unaffected and remains
+	 * available in all builds.
+	 *
+	 * Disabled in the WordPress.org distribution build (and the
+	 * `UserManagementAbilities` source file is physically stripped via
+	 * `.distignore-wporg`) because custom user-creation routes can
+	 * bypass security plugins (login throttling, password-policy
+	 * enforcers, etc.) that hook the native register/login flow —
+	 * per the WordPress.org plugin review team's standing feedback on
+	 * custom user creation/login methods.
+	 *
+	 * Constant: SD_AI_AGENT_FEATURE_USER_MANAGEMENT
+	 */
+	const USER_MANAGEMENT = 'user_management';
+
+	/**
 	 * Map of feature name → backing constant name.
 	 *
 	 * @var array<string, string>
@@ -292,6 +319,7 @@ final class Features {
 		self::WP_REST_DISPATCHER      => 'SD_AI_AGENT_FEATURE_WP_REST_DISPATCHER',
 		self::WP_CLI_DISPATCHER       => 'SD_AI_AGENT_FEATURE_WP_CLI_DISPATCHER',
 		self::BENCHMARK               => 'SD_AI_AGENT_FEATURE_BENCHMARK',
+		self::USER_MANAGEMENT         => 'SD_AI_AGENT_FEATURE_USER_MANAGEMENT',
 	);
 
 	/**

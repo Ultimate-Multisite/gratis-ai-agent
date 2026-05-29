@@ -49,6 +49,7 @@ use SdAiAgent\Abilities\TaxonomyAbilities;
 use SdAiAgent\Abilities\UploadMediaAbility;
 use SdAiAgent\Abilities\UrlResolverAbilities;
 use SdAiAgent\Abilities\UserAbilities;
+use SdAiAgent\Abilities\UserManagementAbilities;
 use SdAiAgent\Abilities\WordPressAbilities;
 use SdAiAgent\Abilities\WpRestAbilities;
 use SdAiAgent\Tools\ToolDiscovery;
@@ -210,6 +211,7 @@ class AbilitySchemaIntegrityTest extends WP_UnitTestCase {
 		FileAbilities::register_abilities();
 		MediaAbilities::register_abilities();
 		UserAbilities::register_abilities();
+		UserManagementAbilities::register_abilities();
 		OptionsAbilities::register_abilities();
 		MenuAbilities::register_abilities();
 		SiteHealthAbilities::register_abilities();

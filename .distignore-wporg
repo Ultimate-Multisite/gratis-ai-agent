@@ -12,6 +12,7 @@
 #  - SD_AI_AGENT_FEATURE_WP_REST_DISPATCHER      (low-level REST dispatcher)
 #  - SD_AI_AGENT_FEATURE_WP_CLI_DISPATCHER       (shell-exec wp-cli dispatcher)
 #  - SD_AI_AGENT_FEATURE_BENCHMARK               (WP-CLI benchmark with arbitrary --log-dir)
+#  - SD_AI_AGENT_FEATURE_USER_MANAGEMENT         (custom user create / role change)
 #
 # Note: the PLUGIN_STATE_CHANGES and PLUGIN_INSTALL_FROM_URL gates only
 # remove individual `wp_register_ability()` calls inside
@@ -49,6 +50,18 @@ includes/Abilities/PluginBuilderAbilities.php
 # Plugin-download abilities expose URLs for AI-modified plugin zips —
 # only meaningful when the plugin builder runs.
 includes/Abilities/PluginDownloadAbilities.php
+
+# ── Mutating user-management abilities ───────────────────────────────────────
+# Per the WordPress.org plugin review team's standing guidance on custom
+# user creation/login methods: creating users via a custom route can bypass
+# security plugins (login throttling, password-policy enforcers) that hook
+# the native register/login flow. The runtime gate is
+# SD_AI_AGENT_FEATURE_USER_MANAGEMENT (forced false in the wporg build by
+# bin/build.sh); the file strip below is defence-in-depth so the surface is
+# physically absent from the submitted zip. The read-only
+# sd-ai-agent/list-users ability lives in UserAbilities.php and is
+# unaffected — that file is NOT stripped.
+includes/Abilities/UserManagementAbilities.php
 
 # Persistence layer used only by the plugin builder.
 includes/Repositories/GeneratedPluginsRepository.php

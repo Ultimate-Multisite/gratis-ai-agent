@@ -24,6 +24,7 @@ use SdAiAgent\Abilities\ContentAbilities;
 use SdAiAgent\Abilities\FileAbilities;
 use SdAiAgent\Abilities\MediaAbilities;
 use SdAiAgent\Abilities\UserAbilities;
+use SdAiAgent\Abilities\UserManagementAbilities;
 use SdAiAgent\Abilities\OptionsAbilities;
 use SdAiAgent\Abilities\MenuAbilities;
 use SdAiAgent\Abilities\SiteHealthAbilities;
@@ -105,6 +106,7 @@ class SdAiAgentPublicFlagTest extends WP_UnitTestCase {
 			FileAbilities::register_abilities();
 			MediaAbilities::register_abilities();
 			UserAbilities::register_abilities();
+			UserManagementAbilities::register_abilities();
 			OptionsAbilities::register_abilities();
 			MenuAbilities::register_abilities();
 			SiteHealthAbilities::register_abilities();
