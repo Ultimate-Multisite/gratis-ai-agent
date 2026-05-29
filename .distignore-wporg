@@ -9,6 +9,8 @@
 #  - SD_AI_AGENT_FEATURE_PLUGIN_STATE_CHANGES    (autonomous activate/deactivate)
 #  - SD_AI_AGENT_FEATURE_PLUGIN_INSTALL_FROM_URL (install from arbitrary ZIP URL)
 #  - SD_AI_AGENT_FEATURE_SCAFFOLD_BLOCK_THEME    (executable theme code writes)
+#  - SD_AI_AGENT_FEATURE_WP_REST_DISPATCHER      (low-level REST dispatcher)
+#  - SD_AI_AGENT_FEATURE_WP_CLI_DISPATCHER       (shell-exec wp-cli dispatcher)
 #
 # Note: the PLUGIN_STATE_CHANGES and PLUGIN_INSTALL_FROM_URL gates only
 # remove individual `wp_register_ability()` calls inside
@@ -66,3 +68,24 @@ includes/Models/DTO/GeneratedPluginRow.php
 # source file gives the WP.org review team a single grep target to
 # confirm the scaffolder cannot be re-enabled by toggling the flag.
 includes/Abilities/ScaffoldBlockThemeAbility.php
+
+# ── WP REST dispatcher source file ───────────────────────────────────────────
+# Registers the wp-rest/discover, wp-rest/inspect, and wp-rest/execute
+# abilities, which let the agent enumerate and invoke any registered
+# WordPress REST endpoint via the internal in-process dispatcher. Even
+# though every dispatched call still goes through the target endpoint's
+# own permission_callback, this is a generic low-level dispatch surface
+# in the same risk class as run-php. Runtime is also gated off via
+# SD_AI_AGENT_FEATURE_WP_REST_DISPATCHER = false (forced in the bundled
+# main plugin file by bin/build.sh below). Stripping the source file
+# gives the WP.org review team a single grep target.
+includes/Abilities/WpRestAbilities.php
+
+# ── WP-CLI dispatcher source file ────────────────────────────────────────────
+# Registers the wp-cli/execute ability, which shells out to the `wp`
+# binary via PHP exec() to run arbitrary WP-CLI subcommands. Same
+# arbitrary-command-execution risk class as PLUGIN_BUILDER and
+# CUSTOM_TOOLS_CLI. Runtime is also gated off via
+# SD_AI_AGENT_FEATURE_WP_CLI_DISPATCHER = false (forced in the bundled
+# main plugin file by bin/build.sh below).
+includes/Abilities/WpCliAbilities.php

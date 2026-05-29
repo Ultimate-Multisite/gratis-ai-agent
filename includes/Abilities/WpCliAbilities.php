@@ -22,6 +22,7 @@ declare(strict_types=1);
 namespace SdAiAgent\Abilities;
 
 use SdAiAgent\Core\ChangeLogger;
+use SdAiAgent\Core\Features;
 use SdAiAgent\Models\ChangesLog;
 use WP_Error;
 
@@ -169,6 +170,15 @@ class WpCliAbilities {
 	 * @return void
 	 */
 	public static function register_category(): void {
+		// Feature-gated: the wp-cli/execute ability is force-disabled in
+		// the WordPress.org distribution build and may be disabled
+		// per-site via SD_AI_AGENT_FEATURE_WP_CLI_DISPATCHER. Skipping
+		// the category registration here means the ability cannot
+		// register against a valid category later in the boot sequence.
+		if ( ! Features::is_enabled( Features::WP_CLI_DISPATCHER ) ) {
+			return;
+		}
+
 		if ( ! function_exists( 'wp_register_ability_category' ) || ! function_exists( 'wp_has_ability_category' ) ) {
 			return;
 		}
@@ -196,6 +206,11 @@ class WpCliAbilities {
 	 * @return void
 	 */
 	public static function register_ability(): void {
+		// Feature-gated: see register_category() for the rationale.
+		if ( ! Features::is_enabled( Features::WP_CLI_DISPATCHER ) ) {
+			return;
+		}
+
 		if ( ! function_exists( 'wp_register_ability' ) || ! function_exists( 'wp_has_ability_category' ) ) {
 			return;
 		}
@@ -238,17 +253,11 @@ class WpCliAbilities {
 				'description'         => $description,
 				'category'            => self::CATEGORY,
 				'permission_callback' => static function () {
-					if ( current_user_can( 'manage_network' ) ) {
-						return true;
-					}
-					if ( current_user_can( 'manage_options' ) ) {
-						return true;
-					}
-					return new WP_Error(
-						'wp_cli_forbidden',
-						__( 'You do not have permission to execute WP-CLI commands. Required capability: manage_options.', 'superdav-ai-agent' ),
-						array( 'status' => 403 )
-					);
+					// Strictest cap set: same as run-php. wp-cli/execute
+					// shells out to the wp binary via PHP exec(); any
+					// administrator who lacks any of these three caps
+					// is correctly excluded.
+					return self::check_permission_level( 'execute' );
 				},
 				'execute_callback'    => array( __CLASS__, 'handle_execute' ),
 				'input_schema'        => array(
@@ -593,38 +602,45 @@ class WpCliAbilities {
 	}
 
 	/**
-	 * Check if the current user has permission for a given access level.
+	 * Check if the current user has the strictest cap set required to
+	 * use the wp-cli/execute dispatcher.
 	 *
-	 * @param string $level 'read', 'write', or 'destructive'.
+	 * The dispatcher shells out to the `wp` binary via PHP `exec()` and
+	 * can run arbitrary WP-CLI subcommands (subject to the
+	 * BLOCKED_COMMANDS / BLOCKED_SUBCOMMANDS allowlist). We therefore
+	 * enforce the same cap set as `sd-ai-agent/run-php`:
+	 * `manage_options` AND `update_core` AND `unfiltered_html`. These
+	 * three caps are individually revocable via role-management
+	 * plugins, and an administrator who loses any one of them
+	 * (typical for managed-hosting customer admins) is correctly
+	 * excluded from the dispatcher.
+	 *
+	 * The `$level` parameter is retained for backward-compatible error
+	 * messages; the underlying cap requirement is the same for every
+	 * level because the dispatcher itself is the risk surface.
+	 *
+	 * @param string $level 'read', 'write', or 'destructive' (used in error message only).
 	 * @return true|WP_Error
 	 */
 	private static function check_permission_level( string $level ) {
-		if ( current_user_can( 'manage_network' ) ) {
-			return true;
+		$required = array( 'manage_options', 'update_core', 'unfiltered_html' );
+
+		foreach ( $required as $cap ) {
+			if ( ! current_user_can( $cap ) ) {
+				return new WP_Error(
+					'wp_cli_forbidden',
+					sprintf(
+						/* translators: 1: access level, 2: list of required capability names */
+						__( 'You do not have permission to execute this %1$s command. Required capabilities (all): %2$s.', 'superdav-ai-agent' ),
+						$level,
+						implode( ', ', $required )
+					),
+					array( 'status' => 403 )
+				);
+			}
 		}
 
-		$capability_map = array(
-			'read'        => 'manage_options',
-			'write'       => 'manage_options',
-			'destructive' => 'manage_network',
-		);
-
-		$required_cap = $capability_map[ $level ] ?? 'manage_network';
-
-		if ( current_user_can( $required_cap ) ) {
-			return true;
-		}
-
-		return new WP_Error(
-			'wp_cli_forbidden',
-			sprintf(
-				/* translators: 1: access level, 2: capability name */
-				__( 'You do not have permission to execute this %1$s command. Required capability: %2$s.', 'superdav-ai-agent' ),
-				$level,
-				$required_cap
-			),
-			array( 'status' => 403 )
-		);
+		return true;
 	}
 
 	// ─── Process execution ──────────────────────────────────────────────

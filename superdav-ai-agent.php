@@ -162,6 +162,38 @@ defined( 'SD_AI_AGENT_FEATURE_FILE_WRITE' ) || define( 'SD_AI_AGENT_FEATURE_FILE
  */
 defined( 'SD_AI_AGENT_FEATURE_SCAFFOLD_BLOCK_THEME' ) || define( 'SD_AI_AGENT_FEATURE_SCAFFOLD_BLOCK_THEME', true );
 
+/**
+ * Feature: WP REST dispatcher abilities (`wp-rest/discover`,
+ * `wp-rest/inspect`, `wp-rest/execute`).
+ *
+ * The dispatcher lets the agent enumerate and invoke any registered
+ * WordPress REST endpoint via the internal in-process dispatcher. When
+ * false the three abilities and their shared `wp-rest` category are
+ * not registered.
+ *
+ * Forced to `false` in the WordPress.org distribution build because the
+ * dispatcher is a generic low-level surface that exposes every
+ * registered REST endpoint to whatever caller has the agent's
+ * permission set — the same arbitrary-script-dispatch risk class as
+ * `run-php`. Self-hosted users running the GitHub release retain the
+ * dispatcher.
+ */
+defined( 'SD_AI_AGENT_FEATURE_WP_REST_DISPATCHER' ) || define( 'SD_AI_AGENT_FEATURE_WP_REST_DISPATCHER', true );
+
+/**
+ * Feature: WP-CLI dispatcher ability (`wp-cli/execute`).
+ *
+ * Shells out to the `wp` binary via PHP `exec()` to run arbitrary
+ * WP-CLI subcommands. When false the ability and its shared `wp-cli`
+ * category are not registered.
+ *
+ * Forced to `false` in the WordPress.org distribution build for the
+ * same arbitrary-command-execution reason as `PLUGIN_BUILDER` and
+ * `CUSTOM_TOOLS_CLI`. Self-hosted users running the GitHub release
+ * retain the dispatcher.
+ */
+defined( 'SD_AI_AGENT_FEATURE_WP_CLI_DISPATCHER' ) || define( 'SD_AI_AGENT_FEATURE_WP_CLI_DISPATCHER', true );
+
 // Load Jetpack Autoloader for PSR-4 autoloading with version conflict resolution.
 // Jetpack Autoloader ensures the newest version of shared packages (like php-ai-client) is used.
 if ( file_exists( SD_AI_AGENT_DIR . '/vendor/autoload_packages.php' ) ) {
