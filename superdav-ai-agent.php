@@ -216,6 +216,17 @@ defined( 'SD_AI_AGENT_FEATURE_WP_CLI_DISPATCHER' ) || define( 'SD_AI_AGENT_FEATU
  */
 defined( 'SD_AI_AGENT_FEATURE_BENCHMARK' ) || define( 'SD_AI_AGENT_FEATURE_BENCHMARK', true );
 
+/**
+ * Feature: mutating user-management abilities (create-user, update-user-role).
+ * When false, those two abilities are not registered and any attempt to
+ * execute them returns a `WP_Error`. The read-only `list-users` ability is
+ * unaffected and remains available. Forced to `false` in the WordPress.org
+ * distribution build because custom user-creation routes can bypass security
+ * plugins (login throttling, password-policy enforcers) that hook the native
+ * register/login flow — per WP.org plugin review team feedback.
+ */
+defined( 'SD_AI_AGENT_FEATURE_USER_MANAGEMENT' ) || define( 'SD_AI_AGENT_FEATURE_USER_MANAGEMENT', true );
+
 // Load Jetpack Autoloader for PSR-4 autoloading with version conflict resolution.
 // Jetpack Autoloader ensures the newest version of shared packages (like php-ai-client) is used.
 if ( file_exists( SD_AI_AGENT_DIR . '/vendor/autoload_packages.php' ) ) {

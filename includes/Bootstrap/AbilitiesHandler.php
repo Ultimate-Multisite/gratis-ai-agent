@@ -62,6 +62,7 @@ use SdAiAgent\Abilities\ThemeBuilderAbilities;
 use SdAiAgent\Abilities\UrlResolverAbilities;
 use SdAiAgent\Abilities\UploadMediaAbility;
 use SdAiAgent\Abilities\UserAbilities;
+use SdAiAgent\Abilities\UserManagementAbilities;
 use SdAiAgent\Abilities\WordPressAbilities;
 use SdAiAgent\Abilities\WpCliAbilities;
 use SdAiAgent\Abilities\WpRestAbilities;
@@ -195,6 +196,19 @@ final class AbilitiesHandler {
 		CustomTaxonomyAbilities::register_abilities();
 		TaxonomyAbilities::register_abilities();
 		UserAbilities::register_abilities();
+		// Mutating user-management abilities (create-user, update-user-role)
+		// are gated behind a feature flag so the WordPress.org distribution
+		// build can disable the custom user-creation surface entirely (which
+		// can bypass security plugins that hook the native register/login
+		// flow). The class_exists() guard handles the case where the source
+		// file has also been stripped from the zip — see bin/build.sh
+		// --target=wporg and .distignore-wporg.
+		if (
+			Features::is_enabled( Features::USER_MANAGEMENT )
+			&& class_exists( UserManagementAbilities::class )
+		) {
+			UserManagementAbilities::register_abilities();
+		}
 		MediaAbilities::register_abilities();
 		UploadMediaAbility::register_abilities();
 		EditorialAbilities::register_abilities();
