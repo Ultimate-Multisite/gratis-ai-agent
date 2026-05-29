@@ -115,8 +115,10 @@ jobs:
             if (!patched) console.log('No files needed patching');
           "
 
-      - name: Install Playwright browsers
-        run: npx playwright install chromium --with-deps
+      - name: Install Playwright browser dependencies
+        run: |
+          npx playwright install-deps chromium
+          google-chrome --version
 
       - name: Build plugin assets
         run: npm run build
@@ -212,6 +214,7 @@ jobs:
           WP_ADMIN_USER: admin
           WP_ADMIN_PASSWORD: password
           CI: true
+          PLAYWRIGHT_USE_SYSTEM_CHROME: '1'
           PLAYWRIGHT_WORKERS: ${{ matrix.playwright_workers }}
 
       - name: Upload Playwright report
