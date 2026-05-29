@@ -4,17 +4,34 @@ declare(strict_types=1);
 /**
  * Per-tool WordPress capability checks for Superdav AI Agent abilities.
  *
- * Provides granular capability checks so each ability can be granted
- * independently via user roles. Capability names follow the pattern
- * `sd_ai_agent_tool_{name}` where `{name}` is derived from the ability ID
- * (e.g. `sd-ai-agent/memory-save` → `sd_ai_agent_tool_memory_save`).
+ * Provides a dual-gate capability check so each ability can be granted
+ * independently via user roles AND is always anchored to a matching
+ * WordPress core capability. Without the core-cap anchor, a misconfigured
+ * role-management plugin (Members, User Role Editor, etc.) that grants the
+ * per-tool capability to a low-privilege role could otherwise bypass the
+ * underlying core gate (`delete_plugins`, `promote_users`, `upload_files`,
+ * etc.).
  *
- * Fallback: if the capability has not been granted to any role, the check
- * falls back to `manage_options` (admin only) so the default behaviour is
- * unchanged until an administrator explicitly delegates a capability.
+ * Resolution order in `current_user_can()`:
  *
- * Filter: `sd_ai_agent_tool_capability` allows overriding the resolved
- * capability name per tool.
+ *   1. Per-tool capability layer.
+ *      Capability names follow the pattern `sd_ai_agent_tool_{name}` where
+ *      `{name}` is derived from the ability ID
+ *      (`sd-ai-agent/memory-save` → `sd_ai_agent_tool_memory_save`).
+ *      If the resolved cap is granted to any role, the current user must
+ *      have it. If it is not granted to any role, the check falls back to
+ *      `manage_options` so the default is admin-only.
+ *
+ *   2. Core-cap layer.
+ *      The {@see CORE_CAP_MAP} entry for the ability ID lists one or more
+ *      WordPress core capabilities the current user MUST also hold. The
+ *      list is filterable via `sd_ai_agent_tool_required_core_cap`.
+ *      Abilities listed in {@see CORE_CAP_OPTOUT} explicitly opt out (used
+ *      for low-risk read-only public-data abilities such as the
+ *      `report-inability` feedback channel).
+ *
+ * Final result is the AND of both layers. Either layer denying access is
+ * sufficient to deny the ability execution.
  *
  * @package SdAiAgent
  * @license GPL-2.0-or-later
@@ -29,7 +46,8 @@ if ( ! defined( 'ABSPATH' ) ) {
 /**
  * ToolCapabilities
  *
- * Static helper that resolves and checks per-tool WordPress capabilities.
+ * Static helper that resolves and checks per-tool WordPress capabilities,
+ * anchored to matching WordPress core capabilities for defence-in-depth.
  */
 class ToolCapabilities {
 
@@ -38,6 +56,234 @@ class ToolCapabilities {
 	 * granted to any role.
 	 */
 	public const FALLBACK_CAP = 'manage_options';
+
+	/**
+	 * Map of ability ID → required WordPress core capability (or list of
+	 * capabilities — all must be held).
+	 *
+	 * Every privileged ability MUST appear here so that even if the
+	 * per-tool capability layer is misconfigured by a role-management
+	 * plugin, the underlying core gate still applies. Abilities that are
+	 * intentionally public-data / low-risk read-only MUST appear in
+	 * {@see CORE_CAP_OPTOUT} instead — silence is not opt-out.
+	 *
+	 * The list is filterable per-ability via the
+	 * `sd_ai_agent_tool_required_core_cap` filter.
+	 *
+	 * @var array<string, string|string[]>
+	 */
+	public const CORE_CAP_MAP = [
+		// ─── Options (admin-only) ───────────────────────────────────────────
+		'sd-ai-agent/get-option'                 => 'manage_options',
+		'sd-ai-agent/update-option'              => 'manage_options',
+		'sd-ai-agent/delete-option'              => 'manage_options',
+		'sd-ai-agent/list-options'               => 'manage_options',
+
+		// ─── Users ──────────────────────────────────────────────────────────
+		'sd-ai-agent/list-users'                 => 'list_users',
+		// Both caps required: create_users gates user creation; promote_users
+		// gates the role assignment that always accompanies a create-user call.
+		// Mirrors the explicit pair enforced inside
+		// UserManagementAbilities::can_create_user().
+		'sd-ai-agent/create-user'                => [ 'create_users', 'promote_users' ],
+		// Both caps required: promote_users is core's role-change gate;
+		// edit_users gates modifying another user. Mirrors the explicit pair
+		// enforced inside UserManagementAbilities::can_update_user_role().
+		'sd-ai-agent/update-user-role'           => [ 'promote_users', 'edit_users' ],
+
+		// ─── Plugins ────────────────────────────────────────────────────────
+		'sd-ai-agent/get-plugins'                => 'activate_plugins',
+		'sd-ai-agent/recommend-plugin'           => 'activate_plugins',
+		'sd-ai-agent/search-plugin-directory'    => 'install_plugins',
+		'sd-ai-agent/list-plugin-updates'        => 'update_plugins',
+		'sd-ai-agent/install-plugin'             => 'install_plugins',
+		'sd-ai-agent/install-plugin-from-url'    => 'install_plugins',
+		'sd-ai-agent/update-plugin'              => 'update_plugins',
+		'sd-ai-agent/activate-plugin'            => 'activate_plugins',
+		'sd-ai-agent/deactivate-plugin'          => 'activate_plugins',
+		'sd-ai-agent/switch-plugin'              => 'activate_plugins',
+		'sd-ai-agent/delete-plugin'              => 'delete_plugins',
+		'sd-ai-agent/list-modified-plugins'      => 'activate_plugins',
+		'sd-ai-agent/get-plugin-download-url'    => 'activate_plugins',
+		'sd-ai-agent/generate-plugin'            => 'install_plugins',
+		'sd-ai-agent/sandbox-test-plugin'        => 'install_plugins',
+		'sd-ai-agent/sandbox-activate-plugin'    => 'install_plugins',
+		'sd-ai-agent/update-plugin-sandboxed'    => 'update_plugins',
+		'sd-ai-agent/scan-plugin-hooks'          => 'install_plugins',
+		'sd-ai-agent/scan-theme-hooks'           => 'install_plugins',
+
+		// ─── Themes / Global styles / Design ────────────────────────────────
+		'sd-ai-agent/get-themes'                 => 'edit_theme_options',
+		'sd-ai-agent/activate-theme'             => 'switch_themes',
+		'sd-ai-agent/get-global-styles'          => 'edit_theme_options',
+		'sd-ai-agent/update-global-styles'       => 'edit_theme_options',
+		'sd-ai-agent/get-theme-json'             => 'edit_theme_options',
+		'sd-ai-agent/reset-global-styles'        => 'edit_theme_options',
+		'sd-ai-agent/inject-custom-css'          => 'edit_theme_options',
+		'sd-ai-agent/curated-block-patterns'     => 'edit_theme_options',
+		'sd-ai-agent/theme-json-presets'         => 'edit_theme_options',
+		'sd-ai-agent/set-site-logo'              => 'edit_theme_options',
+		'sd-ai-agent/scaffold-block-theme'       => 'edit_themes',
+		'sd-ai-agent/render-design-previews'     => 'edit_theme_options',
+		'sd-ai-agent/validate-palette-contrast'  => 'edit_theme_options',
+		'sd-ai-agent/generate-logo-svg'          => 'upload_files',
+
+		// ─── Menus ──────────────────────────────────────────────────────────
+		'sd-ai-agent/list-menus'                 => 'edit_theme_options',
+		'sd-ai-agent/get-menu'                   => 'edit_theme_options',
+		'sd-ai-agent/create-menu'                => 'edit_theme_options',
+		'sd-ai-agent/delete-menu'                => 'edit_theme_options',
+		'sd-ai-agent/add-menu-item'              => 'edit_theme_options',
+		'sd-ai-agent/remove-menu-item'           => 'edit_theme_options',
+		'sd-ai-agent/assign-menu-location'       => 'edit_theme_options',
+		'sd-ai-agent/generate-menu-page'         => 'edit_theme_options',
+
+		// ─── Posts ──────────────────────────────────────────────────────────
+		'sd-ai-agent/get-post'                   => 'edit_posts',
+		'sd-ai-agent/list-posts'                 => 'edit_posts',
+		'sd-ai-agent/create-post'                => 'edit_posts',
+		'sd-ai-agent/update-post'                => 'edit_posts',
+		'sd-ai-agent/append-post-content'        => 'edit_posts',
+		'sd-ai-agent/batch-create-posts'         => 'edit_posts',
+		'sd-ai-agent/delete-post'                => 'delete_posts',
+		'sd-ai-agent/set-featured-image'         => 'edit_posts',
+		'sd-ai-agent/revert-to-revision'         => 'edit_posts',
+		'sd-ai-agent/generate-title'             => 'edit_posts',
+		'sd-ai-agent/generate-excerpt'           => 'edit_posts',
+		'sd-ai-agent/summarize-content'          => 'edit_posts',
+		'sd-ai-agent/review-block'               => 'edit_posts',
+		'sd-ai-agent/generate-alt-text'          => 'edit_posts',
+		'sd-ai-agent/generate-image-prompt'      => 'edit_posts',
+		'sd-ai-agent/create-contact-form'        => 'edit_posts',
+
+		// ─── Blocks ─────────────────────────────────────────────────────────
+		'sd-ai-agent/markdown-to-blocks'         => 'edit_posts',
+		'sd-ai-agent/parse-block-content'        => 'edit_posts',
+		'sd-ai-agent/validate-block-content'     => 'edit_posts',
+		'sd-ai-agent/list-block-types'           => 'edit_posts',
+		'sd-ai-agent/get-block-type'             => 'edit_posts',
+		'sd-ai-agent/list-block-patterns'        => 'edit_posts',
+		'sd-ai-agent/list-block-templates'       => 'edit_posts',
+		'sd-ai-agent/create-block-content'       => 'edit_posts',
+		'sd-ai-agent/get-page-blocks'            => 'edit_posts',
+		'sd-ai-agent/get-site-block-usage'       => 'edit_posts',
+		'sd-ai-agent/edit-block-tree'            => 'edit_posts',
+		'sd-ai-agent/update-blocks'              => 'edit_posts',
+		'sd-ai-agent/rewrite-post-blocks'        => 'edit_posts',
+		'sd-ai-agent/insert-pattern'             => 'edit_posts',
+		'sd-ai-agent/replace-block-range'        => 'edit_posts',
+		'sd-ai-agent/scan-storage-modes'         => 'edit_posts',
+
+		// ─── Media / Image generation ───────────────────────────────────────
+		'sd-ai-agent/list-media'                 => 'upload_files',
+		'sd-ai-agent/upload-media'               => 'upload_files',
+		'sd-ai-agent/upload-media-from-url'      => 'upload_files',
+		'sd-ai-agent/delete-media'               => 'upload_files',
+		'sd-ai-agent/import-base64-image'        => 'upload_files',
+		'sd-ai-agent/generate-image'             => 'upload_files',
+		'sd-ai-agent/stock-image'                => 'upload_files',
+
+		// ─── Taxonomies / Custom types ──────────────────────────────────────
+		'sd-ai-agent/list-terms'                 => 'manage_categories',
+		'sd-ai-agent/list-taxonomies'            => 'manage_options',
+		'sd-ai-agent/register-taxonomy'          => 'manage_options',
+		'sd-ai-agent/delete-taxonomy'            => 'manage_options',
+		'sd-ai-agent/list-post-types'            => 'manage_options',
+		'sd-ai-agent/register-post-type'         => 'manage_options',
+		'sd-ai-agent/delete-post-type'           => 'manage_options',
+
+		// ─── Files (read = admin; write gated separately by FILE_WRITE) ─────
+		'sd-ai-agent/file-read'                  => 'manage_options',
+		'sd-ai-agent/file-list'                  => 'manage_options',
+		'sd-ai-agent/file-search'                => 'manage_options',
+		'sd-ai-agent/content-search'             => 'manage_options',
+		'sd-ai-agent/file-write'                 => [ 'manage_options', 'edit_files' ],
+		'sd-ai-agent/file-edit'                  => [ 'manage_options', 'edit_files' ],
+		'sd-ai-agent/file-delete'                => [ 'manage_options', 'edit_files' ],
+
+		// ─── Git (snapshot/diff = admin; restore = admin + edit_files) ──────
+		'sd-ai-agent/git-list'                   => 'manage_options',
+		'sd-ai-agent/git-diff'                   => 'manage_options',
+		'sd-ai-agent/git-package-summary'        => 'manage_options',
+		'sd-ai-agent/git-snapshot'               => 'manage_options',
+		'sd-ai-agent/git-restore'                => [ 'manage_options', 'edit_files' ],
+		'sd-ai-agent/git-revert-package'         => [ 'manage_options', 'edit_files' ],
+
+		// ─── Site health ────────────────────────────────────────────────────
+		'sd-ai-agent/check-disk-space'           => 'manage_options',
+		'sd-ai-agent/check-performance'          => 'manage_options',
+		'sd-ai-agent/check-security'             => 'manage_options',
+		'sd-ai-agent/check-plugin-updates'       => 'update_plugins',
+		'sd-ai-agent/scan-php-error-log'         => 'manage_options',
+		'sd-ai-agent/site-health-summary'        => 'manage_options',
+		'sd-ai-agent/detect-fresh-install'       => 'manage_options',
+		'sd-ai-agent/site-loopback-check'        => 'manage_options',
+
+		// ─── SEO / Content marketing ────────────────────────────────────────
+		'sd-ai-agent/seo-audit-url'              => 'edit_posts',
+		'sd-ai-agent/seo-analyze-content'        => 'edit_posts',
+		'sd-ai-agent/content-analyze'            => 'edit_posts',
+		'sd-ai-agent/content-performance-report' => 'edit_posts',
+		'sd-ai-agent/fetch-url'                  => 'manage_options',
+		'sd-ai-agent/analyze-headers'            => 'manage_options',
+
+		// ─── Knowledge / Memory / Skills ────────────────────────────────────
+		'sd-ai-agent/knowledge-search'           => 'manage_options',
+		'sd-ai-agent/memory-save'                => 'manage_options',
+		'sd-ai-agent/memory-list'                => 'manage_options',
+		'sd-ai-agent/memory-delete'              => 'manage_options',
+		'sd-ai-agent/skill-load'                 => 'manage_options',
+		'sd-ai-agent/skill-list'                 => 'manage_options',
+
+		// ─── Analytics / Search Console ─────────────────────────────────────
+		'sd-ai-agent/ga-traffic-summary'         => 'manage_options',
+		'sd-ai-agent/ga-top-pages'               => 'manage_options',
+		'sd-ai-agent/ga-realtime'                => 'manage_options',
+		'sd-ai-agent/gsc-site-summary'           => 'manage_options',
+		'sd-ai-agent/gsc-top-queries'            => 'manage_options',
+		'sd-ai-agent/gsc-query-details'          => 'manage_options',
+		'sd-ai-agent/gsc-page-performance'       => 'manage_options',
+
+		// ─── Internet / URL utilities ───────────────────────────────────────
+		'sd-ai-agent/internet-search'            => 'manage_options',
+		'sd-ai-agent/resolve-url'                => 'manage_options',
+		'sd-ai-agent/configure-search-provider'  => 'manage_options',
+
+		// ─── Navigation / Browsing ──────────────────────────────────────────
+		'sd-ai-agent/navigate'                   => 'manage_options',
+		'sd-ai-agent/get-page-html'              => 'manage_options',
+
+		// ─── Database ───────────────────────────────────────────────────────
+		'sd-ai-agent/db-query'                   => [ 'manage_options', 'unfiltered_html' ],
+
+		// ─── Strictest: low-level whitelisted-PHP dispatcher ────────────────
+		// run-php is also feature-flag-gated (SD_AI_AGENT_FEATURE_RUN_PHP)
+		// AND has its source file stripped from the wp.org build. Even when
+		// the feature flag is on, this dual-cap requirement gives a final
+		// belt-and-braces gate so a misconfigured role-management plugin
+		// cannot expose the dispatcher to a non-admin role.
+		'sd-ai-agent/run-php'                    => [ 'manage_options', 'update_core', 'unfiltered_html' ],
+	];
+
+	/**
+	 * Ability IDs that intentionally opt out of the core-cap layer.
+	 *
+	 * These abilities are gated only by the per-tool layer; the dual-gate
+	 * core-cap check is skipped. Reserved for genuinely public-data /
+	 * low-risk read-only abilities (e.g. anonymous feedback ingestion).
+	 *
+	 * Adding to this list requires an explicit security review comment in
+	 * the PR — silence is not opt-out, missing entries fall through to
+	 * {@see resolve_core_caps()} which returns `manage_options` by default.
+	 *
+	 * @var string[]
+	 */
+	public const CORE_CAP_OPTOUT = [
+		// Feedback channel — any logged-in user may report an AI failure
+		// so the data the agent collects covers all roles. Per-tool layer
+		// still applies (so admins can revoke via role plugins).
+		'sd-ai-agent/report-inability',
+	];
 
 	/**
 	 * Derive the tool-specific capability name from an ability ID.
@@ -61,17 +307,70 @@ class ToolCapabilities {
 	}
 
 	/**
+	 * Resolve the required WordPress core capabilities for an ability.
+	 *
+	 * Returns an empty array when the ability is in {@see CORE_CAP_OPTOUT}.
+	 * Returns the {@see CORE_CAP_MAP} entry (normalised to an array of
+	 * strings) when one exists. Falls back to `[FALLBACK_CAP]` so an
+	 * unmapped privileged ability fails closed (admin-only) rather than
+	 * silently downgrading to the per-tool layer alone.
+	 *
+	 * The result is passed through the `sd_ai_agent_tool_required_core_cap`
+	 * filter so admins / extension code can override per-ability.
+	 *
+	 * @param string $ability_id The ability ID.
+	 * @return string[] Zero or more core capability names; all must be held.
+	 */
+	public static function resolve_core_caps( string $ability_id ): array {
+		if ( in_array( $ability_id, self::CORE_CAP_OPTOUT, true ) ) {
+			$caps = [];
+		} elseif ( isset( self::CORE_CAP_MAP[ $ability_id ] ) ) {
+			$raw  = self::CORE_CAP_MAP[ $ability_id ];
+			$caps = is_array( $raw ) ? $raw : [ $raw ];
+		} else {
+			// Unmapped privileged ability: fail closed at admin-only.
+			$caps = [ self::FALLBACK_CAP ];
+		}
+
+		/**
+		 * Filter the WordPress core capabilities required to execute a
+		 * Superdav AI Agent ability.
+		 *
+		 * Return an empty array to opt out of the core-cap layer entirely
+		 * (per-tool layer still applies). Return a non-empty array to
+		 * require all listed capabilities.
+		 *
+		 * @since 1.7.0
+		 *
+		 * @param string[] $caps       Default core capabilities for the ability.
+		 * @param string   $ability_id The full ability ID (e.g. "sd-ai-agent/delete-plugin").
+		 */
+		$caps = apply_filters( 'sd_ai_agent_tool_required_core_cap', $caps, $ability_id );
+
+		return array_values( array_filter( (array) $caps, 'is_string' ) );
+	}
+
+	/**
 	 * Check whether the current user can execute a given ability.
 	 *
-	 * Resolution order:
-	 * 1. Apply the `sd_ai_agent_tool_capability` filter to allow overrides.
-	 * 2. If the resolved capability exists in any role, use it.
-	 * 3. Otherwise fall back to `manage_options`.
+	 * Dual-gate resolution:
+	 *
+	 *   1. Apply the `sd_ai_agent_tool_capability` filter to resolve the
+	 *      per-tool capability name. If the cap exists in any role, the
+	 *      current user must hold it. Otherwise fall back to
+	 *      `manage_options` so the default is admin-only.
+	 *
+	 *   2. Resolve required core capabilities via
+	 *      {@see resolve_core_caps()}. The current user must hold ALL of
+	 *      them (or the ability must be in {@see CORE_CAP_OPTOUT}).
+	 *
+	 * Both layers must pass.
 	 *
 	 * @param string $ability_id The ability ID (e.g. "sd-ai-agent/memory-save").
 	 * @return bool True if the current user has permission.
 	 */
 	public static function current_user_can( string $ability_id ): bool {
+		// ── Layer 1: per-tool capability ────────────────────────────────
 		$tool_cap = self::cap_name( $ability_id );
 
 		/**
@@ -82,13 +381,22 @@ class ToolCapabilities {
 		 */
 		$resolved_cap = (string) apply_filters( 'sd_ai_agent_tool_capability', $tool_cap, $ability_id );
 
-		// If the capability has been granted to at least one role, use it.
-		// Otherwise fall back to manage_options so the default is admin-only.
-		if ( self::capability_exists( $resolved_cap ) ) {
-			return current_user_can( $resolved_cap );
+		$tool_ok = self::capability_exists( $resolved_cap )
+			? current_user_can( $resolved_cap )
+			: current_user_can( self::FALLBACK_CAP );
+
+		if ( ! $tool_ok ) {
+			return false;
 		}
 
-		return current_user_can( self::FALLBACK_CAP );
+		// ── Layer 2: required WordPress core capabilities ───────────────
+		foreach ( self::resolve_core_caps( $ability_id ) as $core_cap ) {
+			if ( ! current_user_can( $core_cap ) ) {
+				return false;
+			}
+		}
+
+		return true;
 	}
 
 	/**
@@ -158,101 +466,16 @@ class ToolCapabilities {
 	 * Return the list of all Superdav AI Agent ability IDs that have tool capabilities.
 	 *
 	 * This list is used both for capability registration and for documentation.
+	 * It is intentionally the union of {@see CORE_CAP_MAP} keys and
+	 * {@see CORE_CAP_OPTOUT} entries plus any historically-registered
+	 * abilities — kept in sync via `tests/SdAiAgent/Abilities/ToolCapabilitiesDualGateTest.php`,
+	 * which fails when a new ability is registered without an entry.
 	 *
 	 * @return string[]
 	 */
 	public static function all_ability_ids(): array {
-		return [
-			// Posts (registered under the WP core "sd-ai-agent/" prefix).
-			'sd-ai-agent/list-posts',
-			'sd-ai-agent/get-post',
-			'sd-ai-agent/create-post',
-			'sd-ai-agent/update-post',
-			'sd-ai-agent/delete-post',
-			// Global styles (registered under the WP core "sd-ai-agent/" prefix).
-			'sd-ai-agent/get-global-styles',
-			'sd-ai-agent/update-global-styles',
-			'sd-ai-agent/get-theme-json',
-			'sd-ai-agent/reset-global-styles',
-			// Memory (registered under the WP core "sd-ai-agent/" prefix).
-			'sd-ai-agent/memory-save',
-			'sd-ai-agent/memory-list',
-			'sd-ai-agent/memory-delete',
-			// Skills (registered under the WP core "sd-ai-agent/" prefix).
-			'sd-ai-agent/skill-load',
-			'sd-ai-agent/skill-list',
-			// Knowledge (registered under the WP core "sd-ai-agent/" prefix).
-			'sd-ai-agent/knowledge-search',
-			// Nav menus (registered under the WP core "sd-ai-agent/" prefix).
-			'sd-ai-agent/list-menus',
-			'sd-ai-agent/get-menu',
-			'sd-ai-agent/create-menu',
-			'sd-ai-agent/delete-menu',
-			'sd-ai-agent/add-menu-item',
-			'sd-ai-agent/remove-menu-item',
-			'sd-ai-agent/assign-menu-location',
-			// Images.
-			'sd-ai-agent/stock-image',
-			'sd-ai-agent/generate-image',
-			// SEO (registered under the WP core "sd-ai-agent/" prefix).
-			'sd-ai-agent/seo-audit-url',
-			'sd-ai-agent/seo-analyze-content',
-			// Content (registered under the WP core "sd-ai-agent/" prefix).
-			'sd-ai-agent/content-analyze',
-			'sd-ai-agent/content-performance-report',
-			// Marketing (registered under the WP core "sd-ai-agent/" prefix).
-			'sd-ai-agent/fetch-url',
-			'sd-ai-agent/analyze-headers',
-			// Blocks (registered under the WP core "sd-ai-agent/" prefix).
-			'sd-ai-agent/markdown-to-blocks',
-			'sd-ai-agent/list-block-types',
-			'sd-ai-agent/get-block-type',
-			'sd-ai-agent/list-block-patterns',
-			'sd-ai-agent/list-block-templates',
-			'sd-ai-agent/create-block-content',
-			'sd-ai-agent/parse-block-content',
-			// Files.
-			'sd-ai-agent/file-read',
-			'sd-ai-agent/file-write',
-			'sd-ai-agent/file-edit',
-			'sd-ai-agent/file-delete',
-			'sd-ai-agent/file-list',
-			'sd-ai-agent/file-search',
-			'sd-ai-agent/content-search',
-			// Database.
-			'sd-ai-agent/db-query',
-			// WordPress management.
-			'sd-ai-agent/get-plugins',
-			'sd-ai-agent/get-themes',
-			'sd-ai-agent/install-plugin',
-			'sd-ai-agent/run-php',
-			// Options management.
-			'sd-ai-agent/get-option',
-			'sd-ai-agent/update-option',
-			'sd-ai-agent/delete-option',
-			'sd-ai-agent/list-options',
-			// Navigation.
-			'sd-ai-agent/navigate',
-			'sd-ai-agent/get-page-html',
-			// Git.
-			'sd-ai-agent/git-list',
-			'sd-ai-agent/git-diff',
-			'sd-ai-agent/git-snapshot',
-			'sd-ai-agent/git-restore',
-			'sd-ai-agent/git-revert-package',
-			'sd-ai-agent/git-package-summary',
-			// Site health.
-			'sd-ai-agent/site-health-summary',
-			'sd-ai-agent/check-plugin-updates',
-			'sd-ai-agent/check-security',
-			'sd-ai-agent/check-performance',
-			'sd-ai-agent/check-disk-space',
-			'sd-ai-agent/detect-fresh-install',
-			'sd-ai-agent/scan-php-error-log',
-			// Google Analytics.
-			'sd-ai-agent/ga-traffic-summary',
-			'sd-ai-agent/ga-top-pages',
-			'sd-ai-agent/ga-realtime',
-		];
+		$ids = array_merge( array_keys( self::CORE_CAP_MAP ), self::CORE_CAP_OPTOUT );
+		sort( $ids );
+		return array_values( array_unique( $ids ) );
 	}
 }

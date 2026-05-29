@@ -127,7 +127,8 @@ class TaxonomyAbilities {
 				],
 				'execute_callback'    => [ __CLASS__, 'handle_list_terms' ],
 				'permission_callback' => function (): bool {
-					return current_user_can( 'edit_posts' );
+					// Dual gate: per-tool cap AND core cap from CORE_CAP_MAP.
+					return ToolCapabilities::current_user_can( 'sd-ai-agent/list-terms' );
 				},
 			]
 		);

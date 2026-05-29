@@ -176,7 +176,9 @@ class GenerateLogoSvgAbility extends AbstractAbility {
 	 * {@inheritdoc}
 	 */
 	protected function permission_callback( mixed $input = null ): bool {
-		return current_user_can( 'upload_files' );
+		// Dual gate: per-tool cap AND core cap (`upload_files`) from
+		// CORE_CAP_MAP. Both must pass.
+		return ToolCapabilities::current_user_can( $this->name );
 	}
 
 	/**

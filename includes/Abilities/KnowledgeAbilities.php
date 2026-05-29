@@ -65,7 +65,9 @@ class KnowledgeAbilities {
 				],
 				'execute_callback'    => [ __CLASS__, 'handle_knowledge_search' ],
 				'permission_callback' => function () {
-					return current_user_can( 'manage_options' ); },
+					// Dual gate: per-tool cap AND core cap from CORE_CAP_MAP.
+					return ToolCapabilities::current_user_can( 'sd-ai-agent/knowledge-search' );
+				},
 			]
 		);
 	}

@@ -19,6 +19,7 @@ declare(strict_types=1);
 namespace SdAiAgent\Abilities\ImageAbilities;
 
 use SdAiAgent\Abilities\ImageSources\ImageSourceFactory;
+use SdAiAgent\Abilities\ToolCapabilities;
 use WP_Error;
 
 if ( ! defined( 'ABSPATH' ) ) {
@@ -171,10 +172,14 @@ class StockImageAbility extends \SdAiAgent\Abilities\AbstractAbility {
 	 * {@inheritdoc}
 	 */
 	protected function permission_callback( mixed $input = null ): bool {
+		// Dual gate: per-tool cap (sd_ai_agent_tool_stock_image) AND core cap
+		// (`upload_files`) from CORE_CAP_MAP. On multisite with an explicit
+		// `site_url`, the check is performed in the target blog's context so
+		// the dual-gate applies to subsite uploads too.
 		$site_url = is_array( $input ) ? (string) ( $input['site_url'] ?? '' ) : '';
 
 		if ( '' === $site_url || ! is_multisite() ) {
-			return current_user_can( 'upload_files' );
+			return ToolCapabilities::current_user_can( 'sd-ai-agent/stock-image' );
 		}
 
 		$blog_id = get_blog_id_from_url(
@@ -187,11 +192,11 @@ class StockImageAbility extends \SdAiAgent\Abilities\AbstractAbility {
 		}
 
 		if ( (int) $blog_id === get_current_blog_id() ) {
-			return current_user_can( 'upload_files' );
+			return ToolCapabilities::current_user_can( 'sd-ai-agent/stock-image' );
 		}
 
 		switch_to_blog( $blog_id );
-		$allowed = current_user_can( 'upload_files' );
+		$allowed = ToolCapabilities::current_user_can( 'sd-ai-agent/stock-image' );
 		restore_current_blog();
 
 		return $allowed;

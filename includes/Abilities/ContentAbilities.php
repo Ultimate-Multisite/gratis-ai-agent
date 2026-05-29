@@ -74,7 +74,8 @@ class ContentAbilities {
 				],
 				'execute_callback'    => [ __CLASS__, 'handle_content_analyze' ],
 				'permission_callback' => function () {
-					return current_user_can( 'edit_posts' );
+					// Dual gate: per-tool cap AND core cap from CORE_CAP_MAP.
+					return ToolCapabilities::current_user_can( 'sd-ai-agent/content-analyze' );
 				},
 			]
 		);
@@ -123,7 +124,8 @@ class ContentAbilities {
 				],
 				'execute_callback'    => [ __CLASS__, 'handle_performance_report' ],
 				'permission_callback' => function () {
-					return current_user_can( 'edit_posts' );
+					// Dual gate: per-tool cap AND core cap from CORE_CAP_MAP.
+					return ToolCapabilities::current_user_can( 'sd-ai-agent/content-performance-report' );
 				},
 			]
 		);
@@ -176,7 +178,8 @@ class ContentAbilities {
 				],
 				'execute_callback'    => [ __CLASS__, 'handle_create_contact_form' ],
 				'permission_callback' => function () {
-					return current_user_can( 'edit_posts' );
+					// Dual gate: per-tool cap AND core cap from CORE_CAP_MAP.
+					return ToolCapabilities::current_user_can( 'sd-ai-agent/create-contact-form' );
 				},
 			]
 		);

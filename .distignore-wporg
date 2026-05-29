@@ -63,6 +63,13 @@ includes/Abilities/PluginDownloadAbilities.php
 # unaffected — that file is NOT stripped.
 includes/Abilities/UserManagementAbilities.php
 
+# ── Low-level whitelisted-PHP dispatcher (sd-ai-agent/run-php) ───────────────
+# Disabled by SD_AI_AGENT_FEATURE_RUN_PHP=false at build time and the source
+# file is physically stripped here so WP.org review can verify with a single
+# `unzip -l | grep RunPhpAbility` check that the dispatcher cannot be
+# reintroduced by re-defining the feature flag.
+includes/Abilities/RunPhpAbility.php
+
 # Persistence layer used only by the plugin builder.
 includes/Repositories/GeneratedPluginsRepository.php
 includes/Models/DTO/GeneratedPluginRow.php

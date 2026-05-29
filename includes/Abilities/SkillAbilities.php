@@ -63,7 +63,9 @@ class SkillAbilities {
 				],
 				'execute_callback'    => [ __CLASS__, 'handle_skill_load' ],
 				'permission_callback' => function () {
-					return current_user_can( 'manage_options' ); },
+					// Dual gate: per-tool cap AND core cap from CORE_CAP_MAP.
+					return ToolCapabilities::current_user_can( 'sd-ai-agent/skill-load' );
+				},
 			]
 		);
 
@@ -94,7 +96,9 @@ class SkillAbilities {
 				],
 				'execute_callback'    => [ __CLASS__, 'handle_skill_list' ],
 				'permission_callback' => function () {
-					return current_user_can( 'manage_options' ); },
+					// Dual gate: per-tool cap AND core cap from CORE_CAP_MAP.
+					return ToolCapabilities::current_user_can( 'sd-ai-agent/skill-list' );
+				},
 			]
 		);
 	}

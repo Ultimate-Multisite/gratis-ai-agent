@@ -79,7 +79,8 @@ class SeoAbilities {
 				],
 				'execute_callback'    => [ __CLASS__, 'handle_audit_url' ],
 				'permission_callback' => function () {
-					return current_user_can( 'edit_posts' );
+					// Dual gate: per-tool cap AND core cap from CORE_CAP_MAP.
+					return ToolCapabilities::current_user_can( 'sd-ai-agent/seo-audit-url' );
 				},
 			]
 		);
@@ -143,7 +144,8 @@ class SeoAbilities {
 				],
 				'execute_callback'    => [ __CLASS__, 'handle_analyze_content' ],
 				'permission_callback' => function () {
-					return current_user_can( 'edit_posts' );
+					// Dual gate: per-tool cap AND core cap from CORE_CAP_MAP.
+					return ToolCapabilities::current_user_can( 'sd-ai-agent/seo-analyze-content' );
 				},
 			]
 		);

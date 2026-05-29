@@ -85,6 +85,16 @@ declare(strict_types=1);
  *    password-policy enforcers, etc.) that hook the native register/login
  *    flow — per WP.org reviewer feedback. Read-only `sd-ai-agent/list-users`
  *    is unaffected and remains available in all builds.
+ *  - SD_AI_AGENT_FEATURE_RUN_PHP — The `sd-ai-agent/run-php` ability,
+ *    which dispatches calls to a whitelisted set of WordPress
+ *    functions via `call_user_func_array()`. Even with a static
+ *    allowlist this surface is a low-level fallback dispatcher and
+ *    WP.org Guideline 4 prohibits plugins that allow arbitrary
+ *    script insertion or low-level PHP dispatch. Disabled in the
+ *    WordPress.org distribution build and the
+ *    `includes/Abilities/RunPhpAbility.php` source file is physically
+ *    stripped from the shipped zip so the review team can verify
+ *    compliance with a single `unzip -l | grep RunPhpAbility` check.
  *
  * Usage example (wp-config.php):
  *   define( 'SD_AI_AGENT_FEATURE_BRANDING', false );
@@ -303,6 +313,23 @@ final class Features {
 	const USER_MANAGEMENT = 'user_management';
 
 	/**
+	 * Feature: low-level whitelisted-PHP dispatcher (`sd-ai-agent/run-php`).
+	 *
+	 * Gates registration of the `sd-ai-agent/run-php` ability, which calls
+	 * functions from a static whitelist via `call_user_func_array()`. With
+	 * this disabled the dispatcher is not registered, the underlying
+	 * `RunPhpAbility` class is not loaded, and (in the wp.org build) the
+	 * source file is physically removed from the shipped zip.
+	 *
+	 * Disabled in the WordPress.org distribution build because WP.org
+	 * Guideline 4 prohibits plugins that allow low-level script insertion
+	 * or arbitrary PHP dispatch — even with an allowlist.
+	 *
+	 * Constant: SD_AI_AGENT_FEATURE_RUN_PHP
+	 */
+	const RUN_PHP = 'run_php';
+
+	/**
 	 * Map of feature name → backing constant name.
 	 *
 	 * @var array<string, string>
@@ -320,6 +347,7 @@ final class Features {
 		self::WP_CLI_DISPATCHER       => 'SD_AI_AGENT_FEATURE_WP_CLI_DISPATCHER',
 		self::BENCHMARK               => 'SD_AI_AGENT_FEATURE_BENCHMARK',
 		self::USER_MANAGEMENT         => 'SD_AI_AGENT_FEATURE_USER_MANAGEMENT',
+		self::RUN_PHP                 => 'SD_AI_AGENT_FEATURE_RUN_PHP',
 	);
 
 	/**

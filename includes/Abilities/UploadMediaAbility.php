@@ -144,7 +144,8 @@ class UploadMediaAbility {
 				],
 				'execute_callback'    => [ __CLASS__, 'handle_upload_media' ],
 				'permission_callback' => function (): bool {
-					return current_user_can( 'upload_files' );
+					// Dual gate: per-tool cap AND core cap from CORE_CAP_MAP.
+					return ToolCapabilities::current_user_can( 'sd-ai-agent/upload-media' );
 				},
 			]
 		);

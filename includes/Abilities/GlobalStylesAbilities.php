@@ -66,7 +66,8 @@ class GlobalStylesAbilities {
 				],
 				'execute_callback'    => [ __CLASS__, 'handle_get_global_styles' ],
 				'permission_callback' => function () {
-					return current_user_can( 'edit_theme_options' );
+					// Dual gate: per-tool cap AND core cap from CORE_CAP_MAP.
+					return ToolCapabilities::current_user_can( 'sd-ai-agent/get-global-styles' );
 				},
 			]
 		);
@@ -114,7 +115,8 @@ class GlobalStylesAbilities {
 				],
 				'execute_callback'    => [ __CLASS__, 'handle_update_global_styles' ],
 				'permission_callback' => function () {
-					return current_user_can( 'edit_theme_options' );
+					// Dual gate: per-tool cap AND core cap from CORE_CAP_MAP.
+					return ToolCapabilities::current_user_can( 'sd-ai-agent/update-global-styles' );
 				},
 			]
 		);
@@ -153,7 +155,8 @@ class GlobalStylesAbilities {
 				],
 				'execute_callback'    => [ __CLASS__, 'handle_get_theme_json' ],
 				'permission_callback' => function () {
-					return current_user_can( 'edit_theme_options' );
+					// Dual gate: per-tool cap AND core cap from CORE_CAP_MAP.
+					return ToolCapabilities::current_user_can( 'sd-ai-agent/get-theme-json' );
 				},
 			]
 		);
@@ -192,7 +195,8 @@ class GlobalStylesAbilities {
 				],
 				'execute_callback'    => [ __CLASS__, 'handle_reset_global_styles' ],
 				'permission_callback' => function () {
-					return current_user_can( 'edit_theme_options' );
+					// Dual gate: per-tool cap AND core cap from CORE_CAP_MAP.
+					return ToolCapabilities::current_user_can( 'sd-ai-agent/reset-global-styles' );
 				},
 			]
 		);
