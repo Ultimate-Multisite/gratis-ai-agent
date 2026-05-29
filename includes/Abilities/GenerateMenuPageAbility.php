@@ -224,7 +224,11 @@ class GenerateMenuPageAbility extends AbstractAbility {
 	 * @return bool True if the current user can publish_pages.
 	 */
 	protected function permission_callback( $input ): bool {
-		return current_user_can( 'publish_pages' );
+		// Dual gate: per-tool cap AND the core cap from CORE_CAP_MAP
+		// (`edit_theme_options`). Adds defence-in-depth so a misconfigured
+		// role-management plugin granting `sd_ai_agent_tool_generate_menu_page`
+		// cannot bypass the theme-options gate.
+		return ToolCapabilities::current_user_can( $this->name );
 	}
 
 	protected function meta(): array {

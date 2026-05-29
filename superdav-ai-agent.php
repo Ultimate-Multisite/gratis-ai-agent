@@ -227,6 +227,16 @@ defined( 'SD_AI_AGENT_FEATURE_BENCHMARK' ) || define( 'SD_AI_AGENT_FEATURE_BENCH
  */
 defined( 'SD_AI_AGENT_FEATURE_USER_MANAGEMENT' ) || define( 'SD_AI_AGENT_FEATURE_USER_MANAGEMENT', true );
 
+/**
+ * Feature: low-level whitelisted-PHP dispatcher (`sd-ai-agent/run-php`).
+ * When false, the run-php ability is not registered and the underlying
+ * `RunPhpAbility` class is not loaded. Forced to `false` in the
+ * WordPress.org distribution build and the `RunPhpAbility.php` source
+ * file is physically stripped from the shipped zip, per WP.org Guideline
+ * 4 (no arbitrary script insertion or low-level PHP dispatch surfaces).
+ */
+defined( 'SD_AI_AGENT_FEATURE_RUN_PHP' ) || define( 'SD_AI_AGENT_FEATURE_RUN_PHP', true );
+
 // Load Jetpack Autoloader for PSR-4 autoloading with version conflict resolution.
 // Jetpack Autoloader ensures the newest version of shared packages (like php-ai-client) is used.
 if ( file_exists( SD_AI_AGENT_DIR . '/vendor/autoload_packages.php' ) ) {

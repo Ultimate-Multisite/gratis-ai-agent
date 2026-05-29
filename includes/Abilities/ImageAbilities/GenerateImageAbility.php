@@ -18,6 +18,7 @@ declare(strict_types=1);
 
 namespace SdAiAgent\Abilities\ImageAbilities;
 
+use SdAiAgent\Abilities\ToolCapabilities;
 use SdAiAgent\Core\Net\SafeHttpClient;
 use WP_Error;
 
@@ -160,12 +161,19 @@ class GenerateImageAbility extends \SdAiAgent\Abilities\AbstractAbility {
 
 	/**
 	 * {@inheritdoc}
+	 *
+	 * Dual gate: routed through {@see ToolCapabilities::current_user_can()},
+	 * which checks the per-tool capability (`sd_ai_agent_tool_generate_image`)
+	 * AND the core capability (`upload_files`) listed in
+	 * `ToolCapabilities::CORE_CAP_MAP`. On multisite with an explicit
+	 * `site_url`, the check is performed in the context of the target blog
+	 * so the same dual-gate applies to subsite uploads.
 	 */
 	protected function permission_callback( mixed $input = null ): bool {
 		$site_url = is_array( $input ) ? (string) ( $input['site_url'] ?? '' ) : '';
 
 		if ( '' === $site_url || ! is_multisite() ) {
-			return current_user_can( 'upload_files' );
+			return ToolCapabilities::current_user_can( 'sd-ai-agent/generate-image' );
 		}
 
 		$blog_id = get_blog_id_from_url(
@@ -178,11 +186,11 @@ class GenerateImageAbility extends \SdAiAgent\Abilities\AbstractAbility {
 		}
 
 		if ( (int) $blog_id === get_current_blog_id() ) {
-			return current_user_can( 'upload_files' );
+			return ToolCapabilities::current_user_can( 'sd-ai-agent/generate-image' );
 		}
 
 		switch_to_blog( $blog_id );
-		$allowed = current_user_can( 'upload_files' );
+		$allowed = ToolCapabilities::current_user_can( 'sd-ai-agent/generate-image' );
 		restore_current_blog();
 
 		return $allowed;

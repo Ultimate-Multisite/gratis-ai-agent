@@ -74,7 +74,8 @@ class UrlResolverAbilities {
 				],
 				'execute_callback'    => [ __CLASS__, 'handle_resolve_url' ],
 				'permission_callback' => static function (): bool {
-					return (bool) current_user_can( 'edit_posts' );
+					// Dual gate: per-tool cap AND core cap from CORE_CAP_MAP.
+					return ToolCapabilities::current_user_can( 'sd-ai-agent/resolve-url' );
 				},
 				'meta'                => [
 					'mcp'         => [ 'public' => true ],

@@ -102,7 +102,8 @@ class PostAbilities {
 				],
 				'execute_callback'    => [ __CLASS__, 'handle_get_post' ],
 				'permission_callback' => function (): bool {
-					return current_user_can( 'edit_posts' );
+					// Dual gate: per-tool cap AND core cap from CORE_CAP_MAP.
+					return ToolCapabilities::current_user_can( 'sd-ai-agent/get-post' );
 				},
 			]
 		);
@@ -187,7 +188,8 @@ class PostAbilities {
 				],
 				'execute_callback'    => [ __CLASS__, 'handle_create_post' ],
 				'permission_callback' => function (): bool {
-					return current_user_can( 'edit_posts' );
+					// Dual gate: per-tool cap AND core cap from CORE_CAP_MAP.
+					return ToolCapabilities::current_user_can( 'sd-ai-agent/create-post' );
 				},
 			]
 		);
@@ -280,7 +282,8 @@ class PostAbilities {
 				],
 				'execute_callback'    => [ __CLASS__, 'handle_update_post' ],
 				'permission_callback' => function (): bool {
-					return current_user_can( 'edit_posts' );
+					// Dual gate: per-tool cap AND core cap from CORE_CAP_MAP.
+					return ToolCapabilities::current_user_can( 'sd-ai-agent/update-post' );
 				},
 			]
 		);
@@ -336,7 +339,8 @@ class PostAbilities {
 				],
 				'execute_callback'    => [ __CLASS__, 'handle_append_post_content' ],
 				'permission_callback' => function (): bool {
-					return current_user_can( 'edit_posts' );
+					// Dual gate: per-tool cap AND core cap from CORE_CAP_MAP.
+					return ToolCapabilities::current_user_can( 'sd-ai-agent/append-post-content' );
 				},
 			]
 		);
@@ -500,7 +504,8 @@ class PostAbilities {
 				],
 				'execute_callback'    => [ __CLASS__, 'handle_list_posts' ],
 				'permission_callback' => function (): bool {
-					return current_user_can( 'edit_posts' );
+					// Dual gate: per-tool cap AND core cap from CORE_CAP_MAP.
+					return ToolCapabilities::current_user_can( 'sd-ai-agent/list-posts' );
 				},
 			]
 		);
@@ -606,7 +611,8 @@ class PostAbilities {
 				],
 				'execute_callback'    => [ __CLASS__, 'handle_batch_create_posts' ],
 				'permission_callback' => function (): bool {
-					return current_user_can( 'edit_posts' );
+					// Dual gate: per-tool cap AND core cap from CORE_CAP_MAP.
+					return ToolCapabilities::current_user_can( 'sd-ai-agent/batch-create-posts' );
 				},
 			]
 		);
@@ -654,7 +660,8 @@ class PostAbilities {
 				],
 				'execute_callback'    => [ __CLASS__, 'handle_delete_post' ],
 				'permission_callback' => function (): bool {
-					return current_user_can( 'delete_posts' );
+					// Dual gate: per-tool cap AND core cap from CORE_CAP_MAP.
+					return ToolCapabilities::current_user_can( 'sd-ai-agent/delete-post' );
 				},
 			]
 		);
@@ -701,7 +708,8 @@ class PostAbilities {
 				],
 				'execute_callback'    => [ __CLASS__, 'handle_set_featured_image' ],
 				'permission_callback' => function (): bool {
-					return current_user_can( 'edit_posts' );
+					// Dual gate: per-tool cap AND core cap from CORE_CAP_MAP.
+					return ToolCapabilities::current_user_can( 'sd-ai-agent/set-featured-image' );
 				},
 			]
 		);

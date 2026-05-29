@@ -80,8 +80,12 @@ class UserAbilities {
 					'show_in_rest' => true,
 				],
 				'execute_callback'    => [ __CLASS__, 'handle_list_users' ],
-				'permission_callback' => function (): bool {
-					return current_user_can( 'list_users' );
+				// Dual gate: per-tool cap (sd_ai_agent_tool_list_users) AND
+				// core cap (list_users) per CORE_CAP_MAP. See
+				// includes/Abilities/ToolCapabilities.php for the layered
+				// resolution order.
+				'permission_callback' => static function (): bool {
+					return ToolCapabilities::current_user_can( 'sd-ai-agent/list-users' );
 				},
 			]
 		);

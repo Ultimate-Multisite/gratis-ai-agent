@@ -65,7 +65,8 @@ class MarketingAbilities {
 				],
 				'execute_callback'    => [ __CLASS__, 'handle_fetch_url' ],
 				'permission_callback' => function () {
-					return current_user_can( 'edit_posts' );
+					// Dual gate: per-tool cap AND core cap from CORE_CAP_MAP.
+					return ToolCapabilities::current_user_can( 'sd-ai-agent/fetch-url' );
 				},
 			]
 		);
@@ -107,7 +108,8 @@ class MarketingAbilities {
 				],
 				'execute_callback'    => [ __CLASS__, 'handle_analyze_headers' ],
 				'permission_callback' => function () {
-					return current_user_can( 'edit_posts' );
+					// Dual gate: per-tool cap AND core cap from CORE_CAP_MAP.
+					return ToolCapabilities::current_user_can( 'sd-ai-agent/analyze-headers' );
 				},
 			]
 		);

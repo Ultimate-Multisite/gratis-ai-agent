@@ -98,7 +98,8 @@ class BlockAbilities {
 				],
 				'execute_callback'    => [ __CLASS__, 'handle_markdown_to_blocks' ],
 				'permission_callback' => function () {
-					return current_user_can( 'edit_posts' );
+					// Dual gate: per-tool cap AND core cap from CORE_CAP_MAP.
+					return ToolCapabilities::current_user_can( 'sd-ai-agent/markdown-to-blocks' );
 				},
 				'meta'                => [
 					'mcp'         => [ 'public' => true ],
@@ -179,7 +180,8 @@ class BlockAbilities {
 				],
 				'execute_callback'    => [ __CLASS__, 'handle_list_block_types' ],
 				'permission_callback' => function () {
-					return current_user_can( 'edit_posts' );
+					// Dual gate: per-tool cap AND core cap from CORE_CAP_MAP.
+					return ToolCapabilities::current_user_can( 'sd-ai-agent/list-block-types' );
 				},
 			]
 		);
@@ -224,7 +226,8 @@ class BlockAbilities {
 				],
 				'execute_callback'    => [ __CLASS__, 'handle_get_block_type' ],
 				'permission_callback' => function () {
-					return current_user_can( 'edit_posts' );
+					// Dual gate: per-tool cap AND core cap from CORE_CAP_MAP.
+					return ToolCapabilities::current_user_can( 'sd-ai-agent/get-block-type' );
 				},
 			]
 		);
@@ -275,7 +278,8 @@ class BlockAbilities {
 				],
 				'execute_callback'    => [ __CLASS__, 'handle_list_block_patterns' ],
 				'permission_callback' => function () {
-					return current_user_can( 'edit_posts' );
+					// Dual gate: per-tool cap AND core cap from CORE_CAP_MAP.
+					return ToolCapabilities::current_user_can( 'sd-ai-agent/list-block-patterns' );
 				},
 			]
 		);
@@ -313,7 +317,8 @@ class BlockAbilities {
 				],
 				'execute_callback'    => [ __CLASS__, 'handle_list_block_templates' ],
 				'permission_callback' => function () {
-					return current_user_can( 'edit_posts' );
+					// Dual gate: per-tool cap AND core cap from CORE_CAP_MAP.
+					return ToolCapabilities::current_user_can( 'sd-ai-agent/list-block-templates' );
 				},
 			]
 		);
@@ -344,7 +349,8 @@ class BlockAbilities {
 				],
 				'execute_callback'    => [ __CLASS__, 'handle_create_block_content' ],
 				'permission_callback' => function () {
-					return current_user_can( 'edit_posts' );
+					// Dual gate: per-tool cap AND core cap from CORE_CAP_MAP.
+					return ToolCapabilities::current_user_can( 'sd-ai-agent/create-block-content' );
 				},
 				'meta'                => [
 					'mcp'         => [ 'public' => true ],
@@ -399,7 +405,8 @@ class BlockAbilities {
 				],
 				'execute_callback'    => [ __CLASS__, 'handle_parse_block_content' ],
 				'permission_callback' => function () {
-					return current_user_can( 'edit_posts' );
+					// Dual gate: per-tool cap AND core cap from CORE_CAP_MAP.
+					return ToolCapabilities::current_user_can( 'sd-ai-agent/parse-block-content' );
 				},
 			]
 		);
@@ -488,7 +495,8 @@ class BlockAbilities {
 				],
 				'execute_callback'    => [ __CLASS__, 'handle_validate_block_content' ],
 				'permission_callback' => function () {
-					return current_user_can( 'edit_posts' );
+					// Dual gate: per-tool cap AND core cap from CORE_CAP_MAP.
+					return ToolCapabilities::current_user_can( 'sd-ai-agent/validate-block-content' );
 				},
 			]
 		);
@@ -566,7 +574,8 @@ class BlockAbilities {
 				],
 				'execute_callback'    => [ __CLASS__, 'handle_get_page_blocks' ],
 				'permission_callback' => function () {
-					return current_user_can( 'edit_posts' );
+					// Dual gate: per-tool cap AND core cap from CORE_CAP_MAP.
+					return ToolCapabilities::current_user_can( 'sd-ai-agent/get-page-blocks' );
 				},
 				'meta'                => [
 					'mcp'         => [ 'public' => true ],
@@ -635,7 +644,8 @@ class BlockAbilities {
 			],
 			'execute_callback'    => [ __CLASS__, 'handle_get_site_block_usage' ],
 			'permission_callback' => function () {
-				return current_user_can( 'edit_posts' );
+				// Dual gate: per-tool cap AND core cap from CORE_CAP_MAP.
+				return ToolCapabilities::current_user_can( 'sd-ai-agent/get-site-block-usage' );
 			},
 		]
 		);
@@ -752,7 +762,8 @@ class BlockAbilities {
 				],
 				'execute_callback'    => [ __CLASS__, 'handle_edit_block_tree' ],
 				'permission_callback' => function () {
-					return current_user_can( 'edit_posts' );
+					// Dual gate: per-tool cap AND core cap from CORE_CAP_MAP.
+					return ToolCapabilities::current_user_can( 'sd-ai-agent/edit-block-tree' );
 				},
 				'meta'                => [
 					'mcp'         => [ 'public' => true ],
@@ -857,7 +868,8 @@ class BlockAbilities {
 				],
 				'execute_callback'    => [ __CLASS__, 'handle_update_blocks' ],
 				'permission_callback' => function () {
-					return current_user_can( 'edit_posts' );
+					// Dual gate: per-tool cap AND core cap from CORE_CAP_MAP.
+					return ToolCapabilities::current_user_can( 'sd-ai-agent/update-blocks' );
 				},
 				'meta'                => [
 					'mcp'         => [ 'public' => true ],
@@ -926,7 +938,8 @@ class BlockAbilities {
 				],
 				'execute_callback'    => [ __CLASS__, 'handle_rewrite_post_blocks' ],
 				'permission_callback' => function () {
-					return current_user_can( 'edit_posts' );
+					// Dual gate: per-tool cap AND core cap from CORE_CAP_MAP.
+					return ToolCapabilities::current_user_can( 'sd-ai-agent/rewrite-post-blocks' );
 				},
 				'meta'                => [
 					'mcp'         => [ 'public' => true ],
@@ -1013,7 +1026,8 @@ class BlockAbilities {
 				],
 				'execute_callback'    => [ __CLASS__, 'handle_insert_pattern' ],
 				'permission_callback' => function () {
-					return current_user_can( 'edit_posts' );
+					// Dual gate: per-tool cap AND core cap from CORE_CAP_MAP.
+					return ToolCapabilities::current_user_can( 'sd-ai-agent/insert-pattern' );
 				},
 				'meta'                => [
 					'mcp'         => [ 'public' => true ],
@@ -1075,7 +1089,8 @@ class BlockAbilities {
 				],
 				'execute_callback'    => [ __CLASS__, 'handle_revert_to_revision' ],
 				'permission_callback' => function () {
-					return current_user_can( 'edit_posts' );
+					// Dual gate: per-tool cap AND core cap from CORE_CAP_MAP.
+					return ToolCapabilities::current_user_can( 'sd-ai-agent/revert-to-revision' );
 				},
 				'meta'                => [
 					'mcp'         => [ 'public' => true ],
@@ -1167,7 +1182,8 @@ class BlockAbilities {
 				],
 				'execute_callback'    => [ __CLASS__, 'handle_replace_block_range' ],
 				'permission_callback' => function () {
-					return current_user_can( 'edit_posts' );
+					// Dual gate: per-tool cap AND core cap from CORE_CAP_MAP.
+					return ToolCapabilities::current_user_can( 'sd-ai-agent/replace-block-range' );
 				},
 				'meta'                => [
 					'mcp'         => [ 'public' => true ],
@@ -1257,7 +1273,8 @@ class BlockAbilities {
 			],
 			'execute_callback'    => [ __CLASS__, 'handle_scan_storage_modes' ],
 			'permission_callback' => function () {
-				return current_user_can( 'edit_posts' );
+				// Dual gate: per-tool cap AND core cap from CORE_CAP_MAP.
+				return ToolCapabilities::current_user_can( 'sd-ai-agent/scan-storage-modes' );
 			},
 			'meta'                => [
 				'mcp'         => [ 'public' => true ],

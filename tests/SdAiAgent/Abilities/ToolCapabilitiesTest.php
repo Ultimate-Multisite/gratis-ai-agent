@@ -100,32 +100,50 @@ class ToolCapabilitiesTest extends WP_UnitTestCase {
 
 	/**
 	 * Test current_user_can uses the specific capability when it exists.
+	 *
+	 * Dual-gate semantics: per-tool cap AND core cap (from CORE_CAP_MAP, or
+	 * `manage_options` fallback for unmapped ad-hoc IDs) must both be held.
 	 */
 	public function test_current_user_can_uses_specific_cap_when_registered(): void {
 		$ability_id = 'sd-ai-agent/test-specific-tool-' . uniqid();
 		$cap        = ToolCapabilities::cap_name( $ability_id );
 
-		// Grant the capability to the editor role.
+		// Grant the per-tool cap to the editor role.
 		$editor_role = get_role( 'editor' );
 		$this->assertNotNull( $editor_role );
 		$editor_role->add_cap( $cap, true );
 
-		// Editor should now have access.
+		// Override CORE_CAP_MAP for this ad-hoc ID so the core-cap layer
+		// is satisfied by a cap the editor role holds by default.
+		$core_filter = static function ( array $caps, string $id ) use ( $ability_id ): array {
+			if ( $id === $ability_id ) {
+				return [ 'edit_posts' ];
+			}
+			return $caps;
+		};
+		add_filter( 'sd_ai_agent_tool_required_core_cap', $core_filter, 10, 2 );
+
+		// Editor should now have access (per-tool granted, edit_posts held).
 		$editor_id = $this->factory->user->create( [ 'role' => 'editor' ] );
 		wp_set_current_user( $editor_id );
 		$this->assertTrue( ToolCapabilities::current_user_can( $ability_id ) );
 
-		// Subscriber should not have access.
+		// Subscriber lacks both per-tool and edit_posts → false.
 		$subscriber_id = $this->factory->user->create( [ 'role' => 'subscriber' ] );
 		wp_set_current_user( $subscriber_id );
 		$this->assertFalse( ToolCapabilities::current_user_can( $ability_id ) );
 
 		// Clean up.
+		remove_filter( 'sd_ai_agent_tool_required_core_cap', $core_filter, 10 );
 		$editor_role->remove_cap( $cap );
 	}
 
 	/**
 	 * Test the sd_ai_agent_tool_capability filter overrides the capability name.
+	 *
+	 * Dual-gate: the per-tool filter changes layer 1, but layer 2 still
+	 * requires the CORE_CAP_MAP-resolved core cap. memory-save maps to
+	 * manage_options, so we also override the core-cap layer for the test.
 	 */
 	public function test_filter_overrides_capability_name(): void {
 		$ability_id   = 'sd-ai-agent/memory-save';
@@ -133,7 +151,7 @@ class ToolCapabilitiesTest extends WP_UnitTestCase {
 
 		add_filter(
 			'sd_ai_agent_tool_capability',
-			function ( string $cap, string $id ) use ( $ability_id, $override_cap ): string {
+			static function ( string $cap, string $id ) use ( $ability_id, $override_cap ): string {
 				if ( $id === $ability_id ) {
 					return $override_cap;
 				}
@@ -143,14 +161,117 @@ class ToolCapabilitiesTest extends WP_UnitTestCase {
 			2
 		);
 
+		// Lower the required core cap to one editor holds.
+		$core_filter = static function ( array $caps, string $id ) use ( $ability_id ): array {
+			if ( $id === $ability_id ) {
+				return [ 'edit_posts' ];
+			}
+			return $caps;
+		};
+		add_filter( 'sd_ai_agent_tool_required_core_cap', $core_filter, 10, 2 );
+
 		// Grant edit_posts to editor role (it already has it by default).
 		$editor_id = $this->factory->user->create( [ 'role' => 'editor' ] );
 		wp_set_current_user( $editor_id );
 
-		// The capability 'edit_posts' exists in roles, so it should be used directly.
+		// Both gates satisfied → true.
 		$this->assertTrue( ToolCapabilities::current_user_can( $ability_id ) );
 
+		remove_filter( 'sd_ai_agent_tool_required_core_cap', $core_filter, 10 );
 		remove_all_filters( 'sd_ai_agent_tool_capability' );
+	}
+
+	/**
+	 * Dual-gate: core cap held but per-tool cap missing → false.
+	 *
+	 * Proves the per-tool layer is enforced even when the user holds the
+	 * mapped WordPress core cap. The site administrator who manages role
+	 * caps via a plugin must explicitly grant the per-tool cap.
+	 */
+	public function test_dual_gate_core_cap_alone_is_not_sufficient(): void {
+		// list-posts is mapped to edit_posts in CORE_CAP_MAP. Editor has
+		// edit_posts by default but no plugin-specific per-tool cap, and
+		// the per-tool cap is not registered (so falls back to
+		// manage_options, which editor lacks).
+		$editor_id = $this->factory->user->create( [ 'role' => 'editor' ] );
+		wp_set_current_user( $editor_id );
+
+		$this->assertFalse( ToolCapabilities::current_user_can( 'sd-ai-agent/list-posts' ) );
+	}
+
+	/**
+	 * Dual-gate: per-tool cap held but core cap missing → false.
+	 *
+	 * Proves the core-cap layer is enforced even when a role plugin
+	 * grants the per-tool cap to a low-privilege role.
+	 */
+	public function test_dual_gate_per_tool_cap_alone_is_not_sufficient(): void {
+		$ability_id = 'sd-ai-agent/delete-plugin'; // CORE_CAP_MAP → delete_plugins.
+		$tool_cap   = ToolCapabilities::cap_name( $ability_id );
+
+		// Pretend a role plugin granted the per-tool cap to subscribers.
+		$role = get_role( 'subscriber' );
+		$this->assertNotNull( $role );
+		$role->add_cap( $tool_cap, true );
+
+		$subscriber_id = $this->factory->user->create( [ 'role' => 'subscriber' ] );
+		wp_set_current_user( $subscriber_id );
+
+		// Subscribers have neither delete_plugins nor manage_options →
+		// the core-cap layer must reject regardless of the per-tool cap.
+		$this->assertFalse( ToolCapabilities::current_user_can( $ability_id ) );
+
+		// Clean up.
+		$role->remove_cap( $tool_cap );
+	}
+
+	/**
+	 * Dual-gate: administrator holds both per-tool and core caps → true.
+	 */
+	public function test_dual_gate_administrator_passes_for_mapped_ability(): void {
+		$admin_id = $this->factory->user->create( [ 'role' => 'administrator' ] );
+		wp_set_current_user( $admin_id );
+
+		$this->assertTrue( ToolCapabilities::current_user_can( 'sd-ai-agent/delete-plugin' ) );
+		$this->assertTrue( ToolCapabilities::current_user_can( 'sd-ai-agent/list-posts' ) );
+		$this->assertTrue( ToolCapabilities::current_user_can( 'sd-ai-agent/run-php' ) );
+	}
+
+	/**
+	 * CORE_CAP_OPTOUT abilities skip the core-cap layer entirely.
+	 *
+	 * `sd-ai-agent/report-inability` is the only opted-out ability — any
+	 * logged-in user may report an AI failure. Per-tool layer still applies.
+	 */
+	public function test_core_cap_optout_skips_core_layer(): void {
+		$tool_cap = ToolCapabilities::cap_name( 'sd-ai-agent/report-inability' );
+		$role     = get_role( 'subscriber' );
+		$this->assertNotNull( $role );
+		// Add the per-tool cap to the role BEFORE creating the user so the
+		// user's allcaps cache picks it up.
+		$role->add_cap( $tool_cap, true );
+
+		$subscriber_id = $this->factory->user->create( [ 'role' => 'subscriber' ] );
+		wp_set_current_user( $subscriber_id );
+
+		// Per-tool granted, core-cap layer skipped → true.
+		$this->assertTrue( ToolCapabilities::current_user_can( 'sd-ai-agent/report-inability' ) );
+
+		$role->remove_cap( $tool_cap );
+	}
+
+	/**
+	 * run-php requires the strictest cap set: manage_options, update_core,
+	 * unfiltered_html — even though SD_AI_AGENT_FEATURE_RUN_PHP also gates
+	 * registration. This is the in-code belt for the belt-and-braces
+	 * defence-in-depth: a misconfigured role plugin must not expose run-php.
+	 */
+	public function test_run_php_requires_strictest_cap_set(): void {
+		$caps = ToolCapabilities::resolve_core_caps( 'sd-ai-agent/run-php' );
+
+		$this->assertContains( 'manage_options', $caps );
+		$this->assertContains( 'update_core', $caps );
+		$this->assertContains( 'unfiltered_html', $caps );
 	}
 
 	/**

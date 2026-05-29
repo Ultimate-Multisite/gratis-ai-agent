@@ -98,7 +98,10 @@ class ImageAbilities {
 					],
 				],
 				'execute_callback'    => [ __CLASS__, 'handle_generate_alt_text' ],
-				'permission_callback' => [ __CLASS__, 'permission_upload_files' ],
+				'permission_callback' => static function (): bool {
+					// Dual gate: per-tool cap AND core cap from CORE_CAP_MAP.
+					return ToolCapabilities::current_user_can( 'sd-ai-agent/generate-alt-text' );
+				},
 				'meta'                => [
 					'mcp'          => [ 'public' => true ],
 					'annotations'  => [
@@ -226,7 +229,10 @@ INSTRUCTION;
 					'description' => __( 'The image generation prompt.', 'superdav-ai-agent' ),
 				],
 				'execute_callback'    => [ __CLASS__, 'handle_generate_image_prompt' ],
-				'permission_callback' => [ __CLASS__, 'permission_edit_posts' ],
+				'permission_callback' => static function (): bool {
+					// Dual gate: per-tool cap AND core cap from CORE_CAP_MAP.
+					return ToolCapabilities::current_user_can( 'sd-ai-agent/generate-image-prompt' );
+				},
 				'meta'                => [
 					'mcp'          => [ 'public' => true ],
 					'annotations'  => [
@@ -422,7 +428,10 @@ INSTRUCTION;
 					],
 				],
 				'execute_callback'    => [ __CLASS__, 'handle_import_base64_image' ],
-				'permission_callback' => [ __CLASS__, 'permission_upload_files' ],
+				'permission_callback' => static function (): bool {
+					// Dual gate: per-tool cap AND core cap from CORE_CAP_MAP.
+					return ToolCapabilities::current_user_can( 'sd-ai-agent/import-base64-image' );
+				},
 				'meta'                => [
 					'mcp'          => [ 'public' => true ],
 					'annotations'  => [

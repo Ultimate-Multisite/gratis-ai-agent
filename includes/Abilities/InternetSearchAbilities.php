@@ -150,7 +150,10 @@ class InternetSearchAbilities {
 					],
 				],
 				'execute_callback'    => [ __CLASS__, 'handle_search' ],
-				'permission_callback' => [ __CLASS__, 'check_permission' ],
+				'permission_callback' => static function (): bool {
+					// Dual gate: per-tool cap AND core cap from CORE_CAP_MAP.
+					return ToolCapabilities::current_user_can( 'sd-ai-agent/internet-search' );
+				},
 			]
 		);
 
@@ -209,7 +212,10 @@ class InternetSearchAbilities {
 					],
 				],
 				'execute_callback'    => [ __CLASS__, 'handle_configure_provider' ],
-				'permission_callback' => [ __CLASS__, 'check_admin_permission' ],
+				'permission_callback' => static function (): bool {
+					// Dual gate: per-tool cap AND core cap from CORE_CAP_MAP.
+					return ToolCapabilities::current_user_can( 'sd-ai-agent/configure-search-provider' );
+				},
 			]
 		);
 	}

@@ -78,7 +78,8 @@ class MediaAbilities {
 				],
 				'execute_callback'    => [ __CLASS__, 'handle_list_media' ],
 				'permission_callback' => function (): bool {
-					return current_user_can( 'upload_files' );
+					// Dual gate: per-tool cap AND core cap from CORE_CAP_MAP.
+					return ToolCapabilities::current_user_can( 'sd-ai-agent/list-media' );
 				},
 			]
 		);
@@ -143,7 +144,8 @@ class MediaAbilities {
 				],
 				'execute_callback'    => [ __CLASS__, 'handle_upload_media_from_url' ],
 				'permission_callback' => function (): bool {
-					return current_user_can( 'upload_files' );
+					// Dual gate: per-tool cap AND core cap from CORE_CAP_MAP.
+					return ToolCapabilities::current_user_can( 'sd-ai-agent/upload-media-from-url' );
 				},
 			]
 		);
@@ -186,7 +188,8 @@ class MediaAbilities {
 				],
 				'execute_callback'    => [ __CLASS__, 'handle_delete_media' ],
 				'permission_callback' => function (): bool {
-					return current_user_can( 'delete_posts' );
+					// Dual gate: per-tool cap AND core cap from CORE_CAP_MAP.
+					return ToolCapabilities::current_user_can( 'sd-ai-agent/delete-media' );
 				},
 			]
 		);
