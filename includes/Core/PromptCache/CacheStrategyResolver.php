@@ -3,12 +3,23 @@
  * Resolves the prompt-cache strategy to apply for a given outgoing
  * HTTP request.
  *
+ * The resolver only knows about strategies that need explicit body
+ * mutation (currently Anthropic and Gemini). Their `matches()`
+ * implementations gate on host names belonging to the AI providers the
+ * plugin discloses in its readme. Any other provider — including all
+ * OpenAI-compatible endpoints that perform server-side prompt caching
+ * automatically — is the responsibility of the third-party connector
+ * plugin that ships its provider integration; this plugin does not
+ * maintain a list of those hostnames.
+ *
+ * Third-party integrators that need to inject a strategy for a custom
+ * endpoint can hook the `sd_ai_agent_resolve_cache_strategy` filter.
+ *
  * Lookup order:
  *   1. {@see CacheStrategyInterface::matches()} — strategies that need
  *      explicit body mutation (Anthropic and Gemini).
- *   2. Known automatic-cache hosts → {@see NoopCacheStrategy}.
- *   3. Filter `sd_ai_agent_resolve_cache_strategy` for custom providers.
- *   4. Null when no strategy applies (URL is not an LLM endpoint).
+ *   2. Filter `sd_ai_agent_resolve_cache_strategy` for custom providers.
+ *   3. Null when no strategy applies (caller leaves the request unchanged).
  *
  * @package SdAiAgent\Core\PromptCache
  * @license GPL-2.0-or-later
@@ -28,52 +39,11 @@ if ( ! defined( 'ABSPATH' ) ) {
 final class CacheStrategyResolver {
 
 	/**
-	 * Hosts where the provider performs server-side caching automatically.
-	 *
-	 * These providers do not require client-side `cache_control` markers —
-	 * they cache prefixes server-side based on hash of the request and
-	 * apply discounts via the response usage block.
-	 *
-	 * Sources (verified 2026-05):
-	 *   - OpenAI: GPT-4o / 4.1 / o-series automatic caching for >=1024 tok.
-	 *   - DeepSeek: automatic context caching, discount on hit.
-	 *   - xAI Grok: automatic prompt caching since late 2025.
-	 *   - Groq / Cerebras / Together / Fireworks: most have automatic
-	 *     caching; surface in usage varies but no client opt-in needed.
-	 *   - Azure OpenAI Service: OpenAI-shape response, automatic caching
-	 *     for >=1024 tok. Subdomain matching covers `*.openai.azure.com`.
-	 *   - OpenRouter: pass-through aggregator; exposes OpenAI-shape usage
-	 *     so the default CacheUsageExtractor picks up cached_tokens already.
-	 *     Registering it here ensures the resolver classifies it as a known
-	 *     LLM endpoint (non-null strategy) for future gating logic.
-	 *
-	 * @var array<int,string>
-	 */
-	private const AUTO_CACHE_HOSTS = array(
-		'api.openai.com',
-		'api.deepseek.com',
-		'api.x.ai',
-		'api.groq.com',
-		'api.cerebras.ai',
-		'api.together.xyz',
-		'api.fireworks.ai',
-		'openai.azure.com',
-		'openrouter.ai',
-	);
-
-	/**
 	 * Ordered list of explicit-marker strategies.
 	 *
 	 * @var list<CacheStrategyInterface>
 	 */
 	private array $strategies;
-
-	/**
-	 * Fallback strategy when an LLM host is known to auto-cache.
-	 *
-	 * @var NoopCacheStrategy
-	 */
-	private NoopCacheStrategy $noop;
 
 	/**
 	 * @param list<CacheStrategyInterface>|null $strategies Optional
@@ -88,7 +58,6 @@ final class CacheStrategyResolver {
 			);
 		}
 		$this->strategies = $strategies;
-		$this->noop       = new NoopCacheStrategy();
 	}
 
 	/**
@@ -96,17 +65,13 @@ final class CacheStrategyResolver {
 	 *
 	 * @param string $url Fully-qualified URL.
 	 * @return CacheStrategyInterface|null Strategy to apply, or null when
-	 *                                     the URL is not a known LLM host.
+	 *                                     no strategy claims the URL.
 	 */
 	public function resolve( string $url ): ?CacheStrategyInterface {
 		foreach ( $this->strategies as $strategy ) {
 			if ( $strategy->matches( $url ) ) {
 				return $strategy;
 			}
-		}
-
-		if ( $this->is_auto_cache_host( $url ) ) {
-			return $this->noop;
 		}
 
 		/**
@@ -124,28 +89,5 @@ final class CacheStrategyResolver {
 		}
 
 		return null;
-	}
-
-	/**
-	 * Whether the URL's host is a known auto-caching LLM endpoint.
-	 *
-	 * @param string $url Fully-qualified URL.
-	 * @return bool
-	 */
-	private function is_auto_cache_host( string $url ): bool {
-		$parsed = wp_parse_url( $url );
-		if ( ! is_array( $parsed ) || empty( $parsed['host'] ) ) {
-			return false;
-		}
-
-		$host = strtolower( (string) $parsed['host'] );
-
-		foreach ( self::AUTO_CACHE_HOSTS as $known ) {
-			if ( $host === $known || str_ends_with( $host, '.' . $known ) ) {
-				return true;
-			}
-		}
-
-		return false;
 	}
 }

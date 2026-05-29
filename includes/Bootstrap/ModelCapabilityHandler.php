@@ -4,15 +4,12 @@
  * `max_output_length` / `context_length` fields into
  * {@see ModelCapabilityRegistry}.
  *
- * Background: OpenAI-compatible providers (Synthetic, OpenRouter, etc.)
- * advertise per-model `max_output_length` in their `/models` payloads.
- * The upstream `ai-provider-for-any-compatible-endpoint` connector
- * strips this field when building its `ModelMetadata` DTO
- * (see `buildModelMetadataMapFromRaw()` in that plugin's
- * `class-model-directory.php`), so by the time the value reaches the
- * SDK it is already gone. We intercept the raw HTTP response at
- * `http_response` priority 9 — one slot ahead of
- * {@see HttpTraceHandler} (priority 10) — so:
+ * Background: many OpenAI-compatible provider endpoints advertise
+ * per-model `max_output_length` in their `/models` payload. Some
+ * connector plugins strip this field when building their model-metadata
+ * DTOs, so by the time the value reaches the SDK it is already gone.
+ * We intercept the raw HTTP response at `http_response` priority 9 —
+ * one slot ahead of {@see HttpTraceHandler} (priority 10) — so:
  *
  *   1. We see the body before the trace logger snapshots it.
  *   2. The connector's `wp_remote_request()` call returns the same
@@ -21,6 +18,11 @@
  * This is the same trick {@see HttpTraceHandler} uses to observe the
  * outgoing prompt body; matching their pattern keeps the registration
  * footprint identical.
+ *
+ * The host allow-list is filterable via
+ * `sd_ai_agent_models_endpoint_hosts` so connector plugins for
+ * additional providers can opt their endpoint in at runtime — this
+ * plugin does not ship a list of third-party connector hostnames.
  *
  * @package SdAiAgent\Bootstrap
  * @license GPL-2.0-or-later
@@ -50,27 +52,61 @@ if ( ! defined( 'ABSPATH' ) ) {
 final class ModelCapabilityHandler {
 
 	/**
-	 * Allowed host suffixes for `/models` capture.
+	 * Default allowed host suffixes for `/models` capture.
 	 *
 	 * Restricts ingestion to LLM provider hosts so unrelated WordPress
 	 * HTTP traffic that happens to use a `/models` path (some REST APIs,
-	 * geo/mapping services) cannot poison the registry.
+	 * geo/mapping services) cannot poison the registry. Limited to the
+	 * provider endpoints this plugin's readme discloses directly.
 	 *
-	 * Match is case-insensitive substring on the parsed host. Add new
-	 * providers here when a connector starts surfacing models data.
+	 * Third-party connector plugins that integrate other providers can
+	 * extend this allow-list at runtime via the
+	 * `sd_ai_agent_models_endpoint_hosts` filter — see
+	 * {@see allowed_host_suffixes()}.
 	 */
-	private const ALLOWED_HOST_SUFFIXES = array(
-		'api.synthetic.new',
+	private const DEFAULT_HOST_SUFFIXES = array(
 		'api.openai.com',
 		'api.anthropic.com',
-		'openrouter.ai',
-		'api.deepinfra.com',
-		'api.together.xyz',
-		'api.fireworks.ai',
-		'api.groq.com',
-		'api.mistral.ai',
 		'generativelanguage.googleapis.com',
 	);
+
+	/**
+	 * Resolve the active allow-list, including any third-party extensions.
+	 *
+	 * @return array<int, string>
+	 */
+	private static function allowed_host_suffixes(): array {
+		/**
+		 * Filter the host suffixes whose `/models` responses may be
+		 * ingested into the {@see ModelCapabilityRegistry}.
+		 *
+		 * Connector plugins that ship integrations for OpenAI-compatible
+		 * providers (or any other endpoint exposing a `/models` route in
+		 * the same JSON shape) can append their host here so per-model
+		 * capability metadata is captured at request time.
+		 *
+		 * The base list is intentionally narrow: only the provider hosts
+		 * this plugin's readme discloses as direct integrations. Anything
+		 * else must opt in via this filter.
+		 *
+		 * @param array<int, string> $hosts Default host suffixes.
+		 */
+		$hosts = apply_filters( 'sd_ai_agent_models_endpoint_hosts', self::DEFAULT_HOST_SUFFIXES );
+
+		if ( ! is_array( $hosts ) ) {
+			return self::DEFAULT_HOST_SUFFIXES;
+		}
+
+		$normalised = array();
+		foreach ( $hosts as $host ) {
+			if ( ! is_string( $host ) || '' === $host ) {
+				continue;
+			}
+			$normalised[] = strtolower( $host );
+		}
+
+		return array() === $normalised ? self::DEFAULT_HOST_SUFFIXES : $normalised;
+	}
 
 	/**
 	 * Capture `/models` responses and persist per-model caps.
@@ -147,9 +183,9 @@ final class ModelCapabilityHandler {
 		$path = (string) $parts['path'];
 
 		$host_ok = false;
-		foreach ( self::ALLOWED_HOST_SUFFIXES as $suffix ) {
+		foreach ( self::allowed_host_suffixes() as $suffix ) {
 			// Match exact host or host.suffix (dot-boundary) to prevent
-			// api.synthetic.new.evil.com from matching api.synthetic.new.
+			// api.openai.com.evil.com from matching api.openai.com.
 			if ( $host === $suffix || str_ends_with( $host, '.' . $suffix ) ) {
 				$host_ok = true;
 				break;
