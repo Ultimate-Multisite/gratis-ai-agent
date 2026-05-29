@@ -125,6 +125,9 @@ jobs:
           fi
           echo "OK: no 'id' => 'superdav-ai-agent' in main plugin file"
 
+      - name: WP.org build strip lists must stay in sync
+        run: python3 .github/scripts/validate-wporg-build-flags.py
+
       - name: Forbid gratis-ai-agent rename code
         # PR #1290 tried to rename gratis-ai-agent → superdav-ai-agent.
         # The correct historical-name policy is "ignore", not "migrate".
