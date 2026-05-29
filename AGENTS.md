@@ -81,6 +81,30 @@ turn it into durable, worker-ready guidance instead of relying on chat history:
 - Keep instruction changes concrete and actionable; avoid copying vague feedback
   without translating it into a rule, reference pattern, or testable outcome.
 
+#### Contributor Insight Completion Checklist
+
+For auto-filed contributor-insight issues, treat the quoted maintainer note as a
+seed, not the finished instruction. A PR for this class of issue is complete only
+when it includes all of the following:
+
+- A durable instruction or deterministic script change, not just a comment on the
+  issue. Choose the narrowest durable target: root `AGENTS.md` for repo-wide
+  rules, `.agents/AGENTS.md` for worker/runtime guardrails, or a command/helper
+  doc when the lesson belongs to one workflow.
+- A translation from shorthand into worker actions. For example, "block
+  `sd-ai-agent/v1`, do secret scrubbing, run as real current user, hide file
+  uploads" means inspect `includes/REST/` controllers plus the
+  `wp-rest/execute` ability path, verify namespace blocking, capability checks,
+  `get_current_user_id()` context, redacted responses/logs, and upload route
+  restrictions.
+- Worker-ready follow-up issue briefs when implementation hardening is broader
+  than the instruction change. Each brief must name the controller or route
+  family, the missing guard or scrubber, expected safe behaviour, and one
+  verification command or REST request.
+- Evidence in the PR body showing the instruction is now loaded by future
+  workers, such as `rg -n "Contributor Insight|sd-ai-agent/v1|secret|current user|file upload" AGENTS.md .agents/AGENTS.md`
+  plus any workflow-specific doc check.
+
 #### Headless GitHub Write Guardrails
 
 Recurring contributor-insight reports show OpenCode headless workers losing time
