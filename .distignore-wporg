@@ -11,6 +11,7 @@
 #  - SD_AI_AGENT_FEATURE_SCAFFOLD_BLOCK_THEME    (executable theme code writes)
 #  - SD_AI_AGENT_FEATURE_WP_REST_DISPATCHER      (low-level REST dispatcher)
 #  - SD_AI_AGENT_FEATURE_WP_CLI_DISPATCHER       (shell-exec wp-cli dispatcher)
+#  - SD_AI_AGENT_FEATURE_BENCHMARK               (WP-CLI benchmark with arbitrary --log-dir)
 #
 # Note: the PLUGIN_STATE_CHANGES and PLUGIN_INSTALL_FROM_URL gates only
 # remove individual `wp_register_ability()` calls inside
@@ -89,3 +90,20 @@ includes/Abilities/WpRestAbilities.php
 # SD_AI_AGENT_FEATURE_WP_CLI_DISPATCHER = false (forced in the bundled
 # main plugin file by bin/build.sh below).
 includes/Abilities/WpCliAbilities.php
+
+# ── WP-CLI benchmark suite (uses --log-dir with arbitrary absolute path) ─────
+# Reviewer feedback on the WP.org submission flagged that
+# `wp sd-ai-agent benchmark run --log-dir=<abs-path>` writes JSON logs
+# anywhere on the filesystem the WordPress user can reach. The full
+# GitHub release retains the command for self-hosted model evaluation;
+# the WP.org build strips both the command class and the benchmark
+# engine, and forces SD_AI_AGENT_FEATURE_BENCHMARK to false in the
+# bundled main plugin file so the conditional registration in
+# CliHandler::register_commands() never reaches the missing class.
+includes/CLI/BenchmarkCommand.php
+includes/Benchmark
+
+# Benchmark tests are already excluded by the `tests` rule in
+# .distignore but listed here for documentation completeness.
+# tests/SdAiAgent/Benchmark
+# tests/benchmark
