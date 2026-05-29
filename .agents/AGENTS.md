@@ -57,9 +57,14 @@ working here in OpenCode headless mode:
   framework sync helpers that add the required aidevops signature footer, such as
   `.agents/scripts/issue-sync-helper.sh`, or write the body to a temporary file
   and pass it with `--body-file` after appending the signed footer.
-- Keep the signed body as a real file throughout the same command. Do not use
-  shell heredocs, process substitution, or command substitution to generate the
-  body inline for a `gh` write; the framework signature gate blocks those forms.
+- Keep the signed body as a real file that already exists before the `gh` write
+  command starts. Do not create the `--body-file` later in the same shell command
+  that invokes `gh`, because the signature gate may inspect the path before the
+  shell has produced it.
+- Do not use shell heredocs, process substitution, or command substitution to
+  generate the body inline for a `gh` write; the framework signature gate blocks
+  those forms. Create or update the markdown with the runtime file-writing tool,
+  then pass that stable file path to `gh --body-file` in a later command.
 - If the signature helper is unavailable, use the helper fallback path rather
   than retrying the same raw `gh` command; repeated unsigned writes are blocked
   by the framework guard.
