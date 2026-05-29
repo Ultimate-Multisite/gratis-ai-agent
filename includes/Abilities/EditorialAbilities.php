@@ -94,7 +94,10 @@ class EditorialAbilities {
 					],
 				],
 				'execute_callback'    => [ __CLASS__, 'handle_generate_title' ],
-				'permission_callback' => [ __CLASS__, 'permission_edit_posts' ],
+				'permission_callback' => static function (): bool {
+					// Dual gate: per-tool cap AND core cap from CORE_CAP_MAP.
+					return ToolCapabilities::current_user_can( 'sd-ai-agent/generate-title' );
+				},
 				'meta'                => [
 					'mcp'          => [ 'public' => true ],
 					'annotations'  => [
@@ -211,7 +214,10 @@ INSTRUCTION;
 					'description' => __( 'Generated excerpt (plain text, ~55 words).', 'superdav-ai-agent' ),
 				],
 				'execute_callback'    => [ __CLASS__, 'handle_generate_excerpt' ],
-				'permission_callback' => [ __CLASS__, 'permission_edit_posts' ],
+				'permission_callback' => static function (): bool {
+					// Dual gate: per-tool cap AND core cap from CORE_CAP_MAP.
+					return ToolCapabilities::current_user_can( 'sd-ai-agent/generate-excerpt' );
+				},
 				'meta'                => [
 					'mcp'          => [ 'public' => true ],
 					'annotations'  => [
@@ -329,7 +335,10 @@ INSTRUCTION;
 					'description' => __( 'Generated summary (plain text).', 'superdav-ai-agent' ),
 				],
 				'execute_callback'    => [ __CLASS__, 'handle_summarize_content' ],
-				'permission_callback' => [ __CLASS__, 'permission_edit_posts' ],
+				'permission_callback' => static function (): bool {
+					// Dual gate: per-tool cap AND core cap from CORE_CAP_MAP.
+					return ToolCapabilities::current_user_can( 'sd-ai-agent/summarize-content' );
+				},
 				'meta'                => [
 					'mcp'          => [ 'public' => true ],
 					'annotations'  => [
@@ -472,7 +481,10 @@ INSTRUCTION;
 					],
 				],
 				'execute_callback'    => [ __CLASS__, 'handle_review_block' ],
-				'permission_callback' => [ __CLASS__, 'permission_edit_posts' ],
+				'permission_callback' => static function (): bool {
+					// Dual gate: per-tool cap AND core cap from CORE_CAP_MAP.
+					return ToolCapabilities::current_user_can( 'sd-ai-agent/review-block' );
+				},
 				'meta'                => [
 					'mcp'          => [ 'public' => true ],
 					'annotations'  => [

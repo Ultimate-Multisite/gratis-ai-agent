@@ -67,7 +67,8 @@ class DesignSystemAbilities {
 				],
 				'execute_callback'    => [ __CLASS__, 'handle_inject_custom_css' ],
 				'permission_callback' => function () {
-					return current_user_can( 'edit_theme_options' );
+					// Dual gate: per-tool cap AND core cap from CORE_CAP_MAP.
+					return ToolCapabilities::current_user_can( 'sd-ai-agent/inject-custom-css' );
 				},
 				'meta'                => [
 					'mcp'         => [ 'public' => true ],
@@ -132,7 +133,8 @@ class DesignSystemAbilities {
 				],
 				'execute_callback'    => [ __CLASS__, 'handle_curated_block_patterns' ],
 				'permission_callback' => function () {
-					return current_user_can( 'edit_posts' );
+					// Dual gate: per-tool cap AND core cap from CORE_CAP_MAP.
+					return ToolCapabilities::current_user_can( 'sd-ai-agent/curated-block-patterns' );
 				},
 				'meta'                => [
 					'mcp'         => [ 'public' => true ],
@@ -181,7 +183,8 @@ class DesignSystemAbilities {
 				],
 				'execute_callback'    => [ __CLASS__, 'handle_set_site_logo' ],
 				'permission_callback' => function () {
-					return current_user_can( 'manage_options' );
+					// Dual gate: per-tool cap AND core cap from CORE_CAP_MAP.
+					return ToolCapabilities::current_user_can( 'sd-ai-agent/set-site-logo' );
 				},
 				'meta'                => [
 					'mcp'         => [ 'public' => true ],
@@ -228,7 +231,8 @@ class DesignSystemAbilities {
 				],
 				'execute_callback'    => [ __CLASS__, 'handle_theme_json_presets' ],
 				'permission_callback' => function () {
-					return current_user_can( 'edit_theme_options' );
+					// Dual gate: per-tool cap AND core cap from CORE_CAP_MAP.
+					return ToolCapabilities::current_user_can( 'sd-ai-agent/theme-json-presets' );
 				},
 				'meta'                => [
 					'mcp'         => [ 'public' => true ],

@@ -56,7 +56,8 @@ class MenuAbilities {
 				],
 				'execute_callback'    => [ __CLASS__, 'handle_list_menus' ],
 				'permission_callback' => function (): bool {
-					return current_user_can( 'edit_theme_options' );
+					// Dual gate: per-tool cap AND core cap from CORE_CAP_MAP.
+					return ToolCapabilities::current_user_can( 'sd-ai-agent/list-menus' );
 				},
 			]
 		);
@@ -101,7 +102,8 @@ class MenuAbilities {
 				],
 				'execute_callback'    => [ __CLASS__, 'handle_get_menu' ],
 				'permission_callback' => function (): bool {
-					return current_user_can( 'edit_theme_options' );
+					// Dual gate: per-tool cap AND core cap from CORE_CAP_MAP.
+					return ToolCapabilities::current_user_can( 'sd-ai-agent/get-menu' );
 				},
 			]
 		);
@@ -170,7 +172,8 @@ class MenuAbilities {
 				],
 				'execute_callback'    => [ __CLASS__, 'handle_create_menu' ],
 				'permission_callback' => function (): bool {
-					return current_user_can( 'edit_theme_options' );
+					// Dual gate: per-tool cap AND core cap from CORE_CAP_MAP.
+					return ToolCapabilities::current_user_can( 'sd-ai-agent/create-menu' );
 				},
 			]
 		);
@@ -213,7 +216,8 @@ class MenuAbilities {
 				],
 				'execute_callback'    => [ __CLASS__, 'handle_delete_menu' ],
 				'permission_callback' => function (): bool {
-					return current_user_can( 'edit_theme_options' );
+					// Dual gate: per-tool cap AND core cap from CORE_CAP_MAP.
+					return ToolCapabilities::current_user_can( 'sd-ai-agent/delete-menu' );
 				},
 			]
 		);
@@ -298,7 +302,8 @@ class MenuAbilities {
 				],
 				'execute_callback'    => [ __CLASS__, 'handle_add_menu_item' ],
 				'permission_callback' => function (): bool {
-					return current_user_can( 'edit_theme_options' );
+					// Dual gate: per-tool cap AND core cap from CORE_CAP_MAP.
+					return ToolCapabilities::current_user_can( 'sd-ai-agent/add-menu-item' );
 				},
 			]
 		);
@@ -337,7 +342,8 @@ class MenuAbilities {
 				],
 				'execute_callback'    => [ __CLASS__, 'handle_remove_menu_item' ],
 				'permission_callback' => function (): bool {
-					return current_user_can( 'edit_theme_options' );
+					// Dual gate: per-tool cap AND core cap from CORE_CAP_MAP.
+					return ToolCapabilities::current_user_can( 'sd-ai-agent/remove-menu-item' );
 				},
 			]
 		);
@@ -385,7 +391,8 @@ class MenuAbilities {
 				],
 				'execute_callback'    => [ __CLASS__, 'handle_assign_menu_location' ],
 				'permission_callback' => function (): bool {
-					return current_user_can( 'edit_theme_options' );
+					// Dual gate: per-tool cap AND core cap from CORE_CAP_MAP.
+					return ToolCapabilities::current_user_can( 'sd-ai-agent/assign-menu-location' );
 				},
 			]
 		);

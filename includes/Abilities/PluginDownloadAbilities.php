@@ -162,7 +162,8 @@ class ListModifiedPluginsAbility extends AbstractAbility {
 	}
 
 	protected function permission_callback( $input ): bool {
-		return current_user_can( 'manage_options' );
+		// Dual gate: per-tool cap AND core cap from CORE_CAP_MAP.
+		return ToolCapabilities::current_user_can( $this->name );
 	}
 
 	protected function meta(): array {
@@ -275,7 +276,8 @@ class GetPluginDownloadUrlAbility extends AbstractAbility {
 	}
 
 	protected function permission_callback( $input ): bool {
-		return current_user_can( 'manage_options' );
+		// Dual gate: per-tool cap AND core cap from CORE_CAP_MAP.
+		return ToolCapabilities::current_user_can( $this->name );
 	}
 
 	protected function meta(): array {

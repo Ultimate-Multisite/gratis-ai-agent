@@ -99,7 +99,8 @@ class GscAbilities {
 				],
 				'execute_callback'    => [ __CLASS__, 'handle_top_queries' ],
 				'permission_callback' => function () {
-					return current_user_can( 'manage_options' );
+					// Dual gate: per-tool cap AND core cap from CORE_CAP_MAP.
+					return ToolCapabilities::current_user_can( 'sd-ai-agent/gsc-top-queries' );
 				},
 			]
 		);
@@ -155,7 +156,8 @@ class GscAbilities {
 				],
 				'execute_callback'    => [ __CLASS__, 'handle_page_performance' ],
 				'permission_callback' => function () {
-					return current_user_can( 'manage_options' );
+					// Dual gate: per-tool cap AND core cap from CORE_CAP_MAP.
+					return ToolCapabilities::current_user_can( 'sd-ai-agent/gsc-page-performance' );
 				},
 			]
 		);
@@ -199,7 +201,8 @@ class GscAbilities {
 				],
 				'execute_callback'    => [ __CLASS__, 'handle_query_details' ],
 				'permission_callback' => function () {
-					return current_user_can( 'manage_options' );
+					// Dual gate: per-tool cap AND core cap from CORE_CAP_MAP.
+					return ToolCapabilities::current_user_can( 'sd-ai-agent/gsc-query-details' );
 				},
 			]
 		);
@@ -243,7 +246,8 @@ class GscAbilities {
 				],
 				'execute_callback'    => [ __CLASS__, 'handle_site_summary' ],
 				'permission_callback' => function () {
-					return current_user_can( 'manage_options' );
+					// Dual gate: per-tool cap AND core cap from CORE_CAP_MAP.
+					return ToolCapabilities::current_user_can( 'sd-ai-agent/gsc-site-summary' );
 				},
 			]
 		);

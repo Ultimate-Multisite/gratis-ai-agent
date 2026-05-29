@@ -71,6 +71,30 @@ declare(strict_types=1);
  *    WordPress.org distribution build and the
  *    `includes/Abilities/WpCliAbilities.php` source file is physically
  *    stripped from the shipped zip.
+ *  - SD_AI_AGENT_FEATURE_BENCHMARK — The `wp sd-ai-agent benchmark …`
+ *    WP-CLI subcommand, which runs the full agent loop and writes a
+ *    JSON log per question. Disabled in the WordPress.org distribution
+ *    because the command's `--log-dir=<abs-path>` override lets an
+ *    administrator point log writes at an arbitrary absolute filesystem
+ *    path, which the WP.org reviewer flagged as out-of-scope for a
+ *    public-directory plugin.
+ *  - SD_AI_AGENT_FEATURE_USER_MANAGEMENT — Mutating user-management
+ *    abilities (`sd-ai-agent/create-user`, `sd-ai-agent/update-user-role`).
+ *    Disabled in the WordPress.org distribution because custom user
+ *    creation routes can bypass security plugins (login throttling,
+ *    password-policy enforcers, etc.) that hook the native register/login
+ *    flow — per WP.org reviewer feedback. Read-only `sd-ai-agent/list-users`
+ *    is unaffected and remains available in all builds.
+ *  - SD_AI_AGENT_FEATURE_RUN_PHP — The `sd-ai-agent/run-php` ability,
+ *    which dispatches calls to a whitelisted set of WordPress
+ *    functions via `call_user_func_array()`. Even with a static
+ *    allowlist this surface is a low-level fallback dispatcher and
+ *    WP.org Guideline 4 prohibits plugins that allow arbitrary
+ *    script insertion or low-level PHP dispatch. Disabled in the
+ *    WordPress.org distribution build and the
+ *    `includes/Abilities/RunPhpAbility.php` source file is physically
+ *    stripped from the shipped zip so the review team can verify
+ *    compliance with a single `unzip -l | grep RunPhpAbility` check.
  *
  * Usage example (wp-config.php):
  *   define( 'SD_AI_AGENT_FEATURE_BRANDING', false );
@@ -249,6 +273,63 @@ final class Features {
 	const WP_CLI_DISPATCHER = 'wp_cli_dispatcher';
 
 	/**
+	 * Feature: WP-CLI functional benchmark suite.
+	 *
+	 * Gates registration of the `wp sd-ai-agent benchmark …` subcommand
+	 * (suites / questions / run). With this disabled the WP-CLI command
+	 * is not advertised under any of the plugin's CLI namespaces and the
+	 * `BenchmarkCommand` class is never instantiated.
+	 *
+	 * Disabled in the WordPress.org distribution build because the
+	 * command's `--log-dir=<abs-path>` flag lets an administrator write
+	 * benchmark logs to an arbitrary absolute filesystem path, which the
+	 * WP.org reviewer flagged as out-of-scope for a public-directory
+	 * plugin (data should land in the database, the uploads dir, or the
+	 * media uploader). The full GitHub release zip retains the command
+	 * for self-hosted model-evaluation use.
+	 *
+	 * Constant: SD_AI_AGENT_FEATURE_BENCHMARK
+	 */
+	const BENCHMARK = 'benchmark';
+
+	/**
+	 * Feature: mutating user-management abilities.
+	 *
+	 * Gates the `sd-ai-agent/create-user` and
+	 * `sd-ai-agent/update-user-role` abilities. The read-only
+	 * `sd-ai-agent/list-users` ability is unaffected and remains
+	 * available in all builds.
+	 *
+	 * Disabled in the WordPress.org distribution build (and the
+	 * `UserManagementAbilities` source file is physically stripped via
+	 * `.distignore-wporg`) because custom user-creation routes can
+	 * bypass security plugins (login throttling, password-policy
+	 * enforcers, etc.) that hook the native register/login flow —
+	 * per the WordPress.org plugin review team's standing feedback on
+	 * custom user creation/login methods.
+	 *
+	 * Constant: SD_AI_AGENT_FEATURE_USER_MANAGEMENT
+	 */
+	const USER_MANAGEMENT = 'user_management';
+
+	/**
+	 * Feature: low-level whitelisted-PHP dispatcher (`sd-ai-agent/run-php`).
+	 *
+	 * Gates registration of the `sd-ai-agent/run-php` ability, which calls
+	 * functions from a static whitelist via `call_user_func_array()`. With
+	 * this disabled the dispatcher is not registered, the underlying
+	 * `RunPhpAbility` class is not loaded, and (in the wp.org build) the
+	 * source file is physically removed from the shipped zip.
+	 *
+	 * Disabled in the WordPress.org distribution build because WP.org
+	 * Guideline 4 prohibits plugins that allow low-level script insertion
+	 * or arbitrary PHP dispatch — even with an allowlist.
+	 *
+	 * Constant: SD_AI_AGENT_FEATURE_RUN_PHP
+	 */
+	const RUN_PHP = 'run_php';
+
+	/**
 	 * Map of feature name → backing constant name.
 	 *
 	 * @var array<string, string>
@@ -264,6 +345,9 @@ final class Features {
 		self::SCAFFOLD_BLOCK_THEME    => 'SD_AI_AGENT_FEATURE_SCAFFOLD_BLOCK_THEME',
 		self::WP_REST_DISPATCHER      => 'SD_AI_AGENT_FEATURE_WP_REST_DISPATCHER',
 		self::WP_CLI_DISPATCHER       => 'SD_AI_AGENT_FEATURE_WP_CLI_DISPATCHER',
+		self::BENCHMARK               => 'SD_AI_AGENT_FEATURE_BENCHMARK',
+		self::USER_MANAGEMENT         => 'SD_AI_AGENT_FEATURE_USER_MANAGEMENT',
+		self::RUN_PHP                 => 'SD_AI_AGENT_FEATURE_RUN_PHP',
 	);
 
 	/**

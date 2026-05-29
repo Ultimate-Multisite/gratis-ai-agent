@@ -141,7 +141,8 @@ class CustomTaxonomyAbilities {
 				],
 				'execute_callback'    => [ __CLASS__, 'handle_register_taxonomy' ],
 				'permission_callback' => function (): bool {
-					return current_user_can( 'manage_options' );
+					// Dual gate: per-tool cap AND core cap from CORE_CAP_MAP.
+					return ToolCapabilities::current_user_can( 'sd-ai-agent/register-taxonomy' );
 				},
 			]
 		);
@@ -178,7 +179,8 @@ class CustomTaxonomyAbilities {
 				],
 				'execute_callback'    => [ __CLASS__, 'handle_list_taxonomies' ],
 				'permission_callback' => function (): bool {
-					return current_user_can( 'edit_posts' );
+					// Dual gate: per-tool cap AND core cap from CORE_CAP_MAP.
+					return ToolCapabilities::current_user_can( 'sd-ai-agent/list-taxonomies' );
 				},
 			]
 		);
@@ -216,7 +218,8 @@ class CustomTaxonomyAbilities {
 				],
 				'execute_callback'    => [ __CLASS__, 'handle_delete_taxonomy' ],
 				'permission_callback' => function (): bool {
-					return current_user_can( 'manage_options' );
+					// Dual gate: per-tool cap AND core cap from CORE_CAP_MAP.
+					return ToolCapabilities::current_user_can( 'sd-ai-agent/delete-taxonomy' );
 				},
 			]
 		);

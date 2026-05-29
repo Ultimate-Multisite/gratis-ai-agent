@@ -202,7 +202,7 @@ EXTRA
 	# prevents trivial bypass and gives the WP.org review team a single
 	# grep target to verify compliance.
 	if [ "$variant" = "wporg" ]; then
-		echo "==> [${variant}] Forcing plugin-builder + CLI + plugin-state + URL-install + file-write + scaffold-block-theme + wp-rest + wp-cli dispatcher feature flags to false..."
+		echo "==> [${variant}] Forcing plugin-builder + CLI + plugin-state + URL-install + file-write + scaffold-block-theme + wp-rest + wp-cli dispatcher + benchmark + user-management + run-php feature flags to false..."
 		local main_file="${dest}/superdav-ai-agent.php"
 
 		# The feature flags this build target forces off are:
@@ -212,8 +212,11 @@ EXTRA
 		# SD_AI_AGENT_FEATURE_PLUGIN_INSTALL_FROM_URL,
 		# SD_AI_AGENT_FEATURE_FILE_WRITE,
 		# SD_AI_AGENT_FEATURE_SCAFFOLD_BLOCK_THEME,
-		# SD_AI_AGENT_FEATURE_WP_REST_DISPATCHER, and
-		# SD_AI_AGENT_FEATURE_WP_CLI_DISPATCHER. Each entry is paired with a
+		# SD_AI_AGENT_FEATURE_WP_REST_DISPATCHER,
+		# SD_AI_AGENT_FEATURE_WP_CLI_DISPATCHER,
+		# SD_AI_AGENT_FEATURE_BENCHMARK,
+		# SD_AI_AGENT_FEATURE_USER_MANAGEMENT, and
+		# SD_AI_AGENT_FEATURE_RUN_PHP. Each entry is paired with a
 		# short rationale that ends up as an inline comment in the bundled
 		# main plugin file (a grep target the WP.org review team can use).
 		local -a flags=(
@@ -225,6 +228,9 @@ EXTRA
 			"SD_AI_AGENT_FEATURE_SCAFFOLD_BLOCK_THEME:executable theme code writes disabled per WP.org Changing Active Plugins guideline"
 			"SD_AI_AGENT_FEATURE_WP_REST_DISPATCHER:low-level REST dispatcher disabled per WP.org Guideline 4"
 			"SD_AI_AGENT_FEATURE_WP_CLI_DISPATCHER:shell-exec wp-cli dispatcher disabled per WP.org Guideline 4"
+			"SD_AI_AGENT_FEATURE_BENCHMARK:wp-cli benchmark suite with arbitrary --log-dir disabled per WP.org reviewer feedback"
+			"SD_AI_AGENT_FEATURE_USER_MANAGEMENT:custom user creation\/role-change disabled per WP.org plugin review feedback - bypasses security plugins on native register\/login flow"
+			"SD_AI_AGENT_FEATURE_RUN_PHP:low-level whitelisted-PHP dispatcher disabled per WP.org Guideline 4"
 		)
 
 		# Replace each `defined() || define( 'NAME', true )` line with a
@@ -262,6 +268,10 @@ EXTRA
 			"${dest}/includes/Abilities/ScaffoldBlockThemeAbility.php"
 			"${dest}/includes/Abilities/WpRestAbilities.php"
 			"${dest}/includes/Abilities/WpCliAbilities.php"
+			"${dest}/includes/Benchmark"
+			"${dest}/includes/CLI/BenchmarkCommand.php"
+			"${dest}/includes/Abilities/UserManagementAbilities.php"
+			"${dest}/includes/Abilities/RunPhpAbility.php"
 		)
 		local p
 		for p in "${stripped_paths[@]}"; do

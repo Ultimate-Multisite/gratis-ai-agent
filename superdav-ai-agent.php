@@ -194,6 +194,49 @@ defined( 'SD_AI_AGENT_FEATURE_WP_REST_DISPATCHER' ) || define( 'SD_AI_AGENT_FEAT
  */
 defined( 'SD_AI_AGENT_FEATURE_WP_CLI_DISPATCHER' ) || define( 'SD_AI_AGENT_FEATURE_WP_CLI_DISPATCHER', true );
 
+/**
+ * Feature: WP-CLI functional benchmark suite (`wp sd-ai-agent benchmark …`).
+ *
+ * Gates registration of the `benchmark` WP-CLI subcommand, which runs the
+ * full agent loop against live WordPress and writes a JSON log per question
+ * to `{uploads}/sd-ai-agent/benchmark-logs/` (overridable per-run via
+ * `--log-dir=<abs-path>`). Disabled in the WordPress.org distribution
+ * build because the `--log-dir` override lets an administrator point log
+ * writes at an arbitrary absolute filesystem path, which the WP.org
+ * reviewer flagged as out-of-scope for a public-directory plugin (data
+ * should land in the database, the uploads dir, or the media uploader —
+ * not at an operator-supplied absolute path).
+ *
+ * The full GitHub release zip retains the command for self-hosted users
+ * who run benchmarks as part of model evaluation. The runtime gate alone
+ * is defence-in-depth: `bin/build.sh --target=wporg` also physically
+ * strips `includes/Benchmark/` and `includes/CLI/BenchmarkCommand.php`
+ * from the zip and forces this constant to `false` in the bundled main
+ * plugin file.
+ */
+defined( 'SD_AI_AGENT_FEATURE_BENCHMARK' ) || define( 'SD_AI_AGENT_FEATURE_BENCHMARK', true );
+
+/**
+ * Feature: mutating user-management abilities (create-user, update-user-role).
+ * When false, those two abilities are not registered and any attempt to
+ * execute them returns a `WP_Error`. The read-only `list-users` ability is
+ * unaffected and remains available. Forced to `false` in the WordPress.org
+ * distribution build because custom user-creation routes can bypass security
+ * plugins (login throttling, password-policy enforcers) that hook the native
+ * register/login flow — per WP.org plugin review team feedback.
+ */
+defined( 'SD_AI_AGENT_FEATURE_USER_MANAGEMENT' ) || define( 'SD_AI_AGENT_FEATURE_USER_MANAGEMENT', true );
+
+/**
+ * Feature: low-level whitelisted-PHP dispatcher (`sd-ai-agent/run-php`).
+ * When false, the run-php ability is not registered and the underlying
+ * `RunPhpAbility` class is not loaded. Forced to `false` in the
+ * WordPress.org distribution build and the `RunPhpAbility.php` source
+ * file is physically stripped from the shipped zip, per WP.org Guideline
+ * 4 (no arbitrary script insertion or low-level PHP dispatch surfaces).
+ */
+defined( 'SD_AI_AGENT_FEATURE_RUN_PHP' ) || define( 'SD_AI_AGENT_FEATURE_RUN_PHP', true );
+
 // Load Jetpack Autoloader for PSR-4 autoloading with version conflict resolution.
 // Jetpack Autoloader ensures the newest version of shared packages (like php-ai-client) is used.
 if ( file_exists( SD_AI_AGENT_DIR . '/vendor/autoload_packages.php' ) ) {
