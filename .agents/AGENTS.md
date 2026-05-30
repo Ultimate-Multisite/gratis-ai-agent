@@ -68,6 +68,12 @@ working here in OpenCode headless mode:
 - If the signature helper is unavailable, use the helper fallback path rather
   than retrying the same raw `gh` command; repeated unsigned writes are blocked
   by the framework guard.
+- Treat `read:file_not_found` as a recoverable path mismatch unless bounded
+  evidence proves the artifact is gone. Compare the requested basename with the
+  prior tool output, check for nearby variants such as `reply3` vs `r3`, verify
+  tracked paths with `git ls-files '<pattern>'`, and retry `Read` with the
+  corrected path before continuing. Do not stop a headless run solely because one
+  optional screenshot, prompt, or generated artifact path was stale.
 
 ## Contributor Insight Follow-through
 

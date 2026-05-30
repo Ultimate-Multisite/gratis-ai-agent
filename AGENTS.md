@@ -135,6 +135,25 @@ whenever creating issues, PR comments, or other GitHub write bodies:
   command form.
 - Verification for guidance-only fixes: run `rg -n "signature gate|body-file|heredoc|process substitution|gh issue create" AGENTS.md .agents/AGENTS.md .agents/scripts/commands/feedback-triage.md` and ensure the policy is present in the root `AGENTS.md` loaded by future workers.
 
+#### Headless File Read Recovery
+
+Recurring contributor-insight reports also show workers stopping after a single
+`read:file_not_found` result when the path was merely misspelled or produced by a
+tool with a nearby filename. Treat missing-file reads as a recovery prompt, not a
+completion state:
+
+- Re-check the exact path and basename against the previous tool output before
+  assuming the artifact is unavailable; common failures include `reply3` vs
+  `r3`, omitted extensions, and stale `/tmp/opencode/` filenames.
+- For tracked repository files, verify the path with `git ls-files '<pattern>'`
+  before retrying `Read`; for untracked/runtime artifacts, inspect the known
+  parent directory or rerun the command that generated the artifact.
+- If the corrected path is found, retry `Read` with that path and continue the
+  task. If no plausible path exists after bounded recovery, record what was
+  checked and continue with the next safe implementation step rather than ending
+  the session solely because one optional artifact is missing.
+- Verification for guidance-only fixes: run `rg -n "read:file_not_found|missing-file reads|git ls-files|signature gate|body-file" AGENTS.md .agents/AGENTS.md .agents/scripts/commands/feedback-triage.md` and ensure both file-read recovery and GitHub write-body policies are present in files loaded by future workers.
+
 ## Build Commands
 - **Build**: `npm run build` or `npx wp-scripts build` (production)
 - **Dev**: `npm start` or `npx wp-scripts start` (watch mode)

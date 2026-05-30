@@ -223,6 +223,15 @@ output and visible to claim routines:
   --label "bug,origin:worker,status:available"
 ```
 
+If any referenced screenshot, prompt, or generated artifact returns
+`read:file_not_found`, do a bounded recovery pass before filing or abandoning the
+triage issue: compare the requested basename with the tool output that introduced
+it, verify tracked repository paths with `git ls-files '<pattern>'`, inspect the
+known parent directory for nearby runtime-artifact names, and retry `Read` with
+the corrected path. If the artifact still cannot be found, include the attempted
+paths in the issue body and continue with the available session evidence instead
+of treating the missing read as the whole outcome.
+
 Capture the issue URL from output. Then update the report (the helper
 routes the third argument to `github_issue_url` for the `issue_created`
 status):
