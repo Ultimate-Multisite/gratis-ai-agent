@@ -134,7 +134,7 @@ class ContentAbilities {
 			'sd-ai-agent/create-contact-form',
 			[
 				'label'               => __( 'Create Contact Form', 'superdav-ai-agent' ),
-				'description'         => __( 'Create a simple contact form for a page. Uses Contact Form 7 when available and otherwise returns a Gutenberg HTML block with a dependency-free form.', 'superdav-ai-agent' ),
+				'description'         => __( 'Create a simple contact form for a page. Uses WPForms Lite or Contact Form 7 when available and otherwise returns a Gutenberg HTML block with a dependency-free mailto form.', 'superdav-ai-agent' ),
 				'category'            => 'sd-ai-agent',
 				'input_schema'        => [
 					'type'       => 'object',
@@ -438,6 +438,12 @@ class ContentAbilities {
 	 * @return array<string,mixed> Contact form result.
 	 */
 	private static function create_contact_form_result( string $title, string $recipient_email, string $submit_label ): array {
+		$wpforms_result = self::create_wpforms_form( $title, $recipient_email, $submit_label );
+
+		if ( ! empty( $wpforms_result ) ) {
+			return $wpforms_result;
+		}
+
 		$cf7_class = 'WPCF7_ContactForm';
 
 		if ( class_exists( $cf7_class ) ) {
@@ -457,6 +463,123 @@ class ContentAbilities {
 			'block'     => $block,
 			'form_id'   => 0,
 			'message'   => __( 'Contact Form 7 is not active; use the returned Gutenberg HTML block in the page content.', 'superdav-ai-agent' ),
+		];
+	}
+
+	/**
+	 * Create a WPForms Lite form when the plugin post type is available.
+	 *
+	 * WPForms Lite does not expose WordPress Abilities on every install. Creating
+	 * the form post directly gives the agent a verifiable shortcode instead of a
+	 * broken placeholder after installing WPForms Lite.
+	 *
+	 * @param string $title           Form title.
+	 * @param string $recipient_email Recipient email address.
+	 * @param string $submit_label    Submit button label.
+	 * @return array<string,mixed> WPForms result, or empty array when unavailable.
+	 */
+	private static function create_wpforms_form( string $title, string $recipient_email, string $submit_label ): array {
+		if ( ! post_type_exists( 'wpforms' ) ) {
+			return [];
+		}
+
+		$form_data = self::build_wpforms_form_data( $title, $recipient_email, $submit_label );
+		$form_id   = wp_insert_post(
+			[
+				'post_title'   => $title,
+				'post_type'    => 'wpforms',
+				'post_status'  => 'publish',
+				'post_content' => wp_slash( (string) wp_json_encode( $form_data ) ),
+			],
+			true
+		);
+
+		if ( is_wp_error( $form_id ) || (int) $form_id <= 0 ) {
+			return [];
+		}
+
+		$form_id = (int) $form_id;
+		update_post_meta( $form_id, '_wpforms_version', defined( 'WPFORMS_VERSION' ) ? (string) WPFORMS_VERSION : '' );
+		update_post_meta( $form_id, '_wpforms_author', get_current_user_id() );
+
+		$shortcode = sprintf( '[wpforms id="%d"]', $form_id );
+
+		return [
+			'provider'  => 'wpforms-lite',
+			'title'     => $title,
+			'shortcode' => $shortcode,
+			'block'     => '<!-- wp:shortcode -->' . "\n" . $shortcode . "\n" . '<!-- /wp:shortcode -->',
+			'form_id'   => $form_id,
+			'message'   => __( 'WPForms Lite form created; insert the shortcode block into page content and verify the frontend renders the form.', 'superdav-ai-agent' ),
+		];
+	}
+
+	/**
+	 * Build WPForms Lite form data for a basic contact form.
+	 *
+	 * @param string $title           Form title.
+	 * @param string $recipient_email Recipient email address.
+	 * @param string $submit_label    Submit button label.
+	 * @return array<string,mixed> WPForms form data.
+	 */
+	private static function build_wpforms_form_data( string $title, string $recipient_email, string $submit_label ): array {
+		return [
+			'field_id' => 4,
+			'fields'   => [
+				'0' => [
+					'id'       => '0',
+					'type'     => 'name',
+					'label'    => __( 'Name', 'superdav-ai-agent' ),
+					'format'   => 'simple',
+					'required' => '1',
+				],
+				'1' => [
+					'id'       => '1',
+					'type'     => 'email',
+					'label'    => __( 'Email', 'superdav-ai-agent' ),
+					'required' => '1',
+				],
+				'2' => [
+					'id'    => '2',
+					'type'  => 'text',
+					'label' => __( 'Subject', 'superdav-ai-agent' ),
+				],
+				'3' => [
+					'id'       => '3',
+					'type'     => 'textarea',
+					'label'    => __( 'Message', 'superdav-ai-agent' ),
+					'required' => '1',
+				],
+			],
+			'settings' => [
+				'form_title'             => $title,
+				'form_desc'              => '',
+				'submit_text'            => $submit_label,
+				'submit_text_processing' => __( 'Sending...', 'superdav-ai-agent' ),
+				'notification_enable'    => '1',
+				'notifications'          => [
+					'1' => [
+						'notification_name' => __( 'Default Notification', 'superdav-ai-agent' ),
+						'email'             => $recipient_email,
+						'subject'           => sprintf(
+							/* translators: %s: contact form title */
+							__( 'New entry: %s', 'superdav-ai-agent' ),
+							$title
+						),
+						'sender_name'       => '{field_id="0"}',
+						'sender_address'    => '{admin_email}',
+						'replyto'           => '{field_id="1"}',
+						'message'           => '{all_fields}',
+					],
+				],
+				'confirmations'          => [
+					'1' => [
+						'name'    => __( 'Default Confirmation', 'superdav-ai-agent' ),
+						'type'    => 'message',
+						'message' => __( 'Thanks for contacting us. We will be in touch soon.', 'superdav-ai-agent' ),
+					],
+				],
+			],
 		];
 	}
 
