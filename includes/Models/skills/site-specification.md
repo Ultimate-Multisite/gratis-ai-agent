@@ -290,7 +290,7 @@ Do not list everything that could be added. The goal is to confirm or correct, n
 
 ## Adjacent Skills
 
-- **block-themes** — auto-loaded when the active theme is FSE. Use after the spec is confirmed to translate `layoutNotes` and `typography` into a `theme.json` and templates.
+- **wp-block-themes** — use after the spec is confirmed to translate `layoutNotes` and `typography` into a `theme.json` and templates.
 - **classic-themes** — auto-loaded for non-FSE themes. Same purpose, classic-theme idioms.
 - **kadence-theme** / **kadence-blocks** — auto-loaded when Kadence is detected.
 - **gutenberg-blocks** — block markup rules for translating `layoutNotes` into pages.

@@ -45,7 +45,7 @@ class SkillAutoInjector {
 	 *
 	 * Order matters: more-specific patterns must appear before catch-all patterns
 	 * that share keyword overlap (e.g. kadence before gutenberg, wp-block-development
-	 * before gutenberg-blocks, wp-block-themes before block-themes).
+	 * before gutenberg-blocks, structural block-theme terms before broader FSE terms).
 	 *
 	 * @var array<string, string>
 	 */
@@ -61,7 +61,7 @@ class SkillAutoInjector {
 		// WP Block development — precedes gutenberg-blocks (content) patterns.
 		'/block\.json|register_block_type|apiVersion|edit\.js|save\.js|\bviewScriptModule\b|\bwp-block-development\b/i'               => 'wp-block-development',
 
-		// WP Block themes (structural) — precedes generic block-themes (content/FSE) pattern.
+		// WP Block themes (structural) — precedes generic block-theme (content/FSE) pattern.
 		'/\btheme\.json\b|\bblock\s+theme\b|\btemplates\/|\bparts\/|\bstyle\s+variation/i'                                            => 'wp-block-themes',
 
 		// WP Plugin development — plugin architecture, hooks, settings, security.
@@ -74,7 +74,7 @@ class SkillAutoInjector {
 		'/\b(?:page|pages|landing|homepage|layout|column|columns|hero|section|block|blocks|gutenberg)\b|\bfull[-\s]?width\b|\bfull[-\s]?bleed\b/i' => 'gutenberg-blocks',
 		'/\b(?:woocommerce|product|products|store|shop|order|orders|cart|checkout|coupon)\b/i'                                         => 'woocommerce',
 		'/\b(?:seo|ranking|rankings|meta\s*tags?|meta\s*description|sitemap|search\s*engine|keyword|keywords)\b/i'                     => 'seo-optimization',
-		'/\b(?:full\s*site\s*edit|fse|block\s*theme|template\s*part|site\s*editor)\b/i'                                               => 'block-themes',
+		'/\b(?:full\s*site\s*edit|fse|block\s*theme|template\s*part|site\s*editor)\b/i'                                               => 'wp-block-themes',
 		'/\b(?:classic\s*theme|customizer|functions\.php|widget\s*area|sidebar\s*widget|child\s*theme)\b/i'                          => 'classic-themes',
 		'/\b(?:multisite|network|subsite|subsites|sub-site)\b/i'                                                                       => 'multisite-management',
 		'/\b(?:content\s*market|editorial|content\s*strateg|publish\s*schedule|content\s*audit)\b/i'                                    => 'content-marketing',
@@ -213,10 +213,10 @@ class SkillAutoInjector {
 		'sd-ai-agent/list-block-templates'   => 'gutenberg-blocks',
 		'sd-ai-agent/list-block-patterns'    => 'gutenberg-blocks',
 		'sd-ai-agent/get-block-type'         => 'gutenberg-blocks',
-		'sd-ai-agent/get-theme-json'         => 'full-site-editing',
-		'sd-ai-agent/get-global-styles'      => 'full-site-editing',
-		'sd-ai-agent/update-global-styles'   => 'full-site-editing',
-		'sd-ai-agent/reset-global-styles'    => 'full-site-editing',
+		'sd-ai-agent/get-theme-json'         => 'wp-block-themes',
+		'sd-ai-agent/get-global-styles'      => 'wp-block-themes',
+		'sd-ai-agent/update-global-styles'   => 'wp-block-themes',
+		'sd-ai-agent/reset-global-styles'    => 'wp-block-themes',
 	];
 
 	/**
@@ -253,7 +253,7 @@ class SkillAutoInjector {
 
 		// @phpstan-ignore-next-line
 		$skill = Skill::get_by_slug( $slug );
-		if ( ! $skill || ! (int) $skill->enabled ) {
+		if ( ! $skill || ( ! (int) $skill->enabled && ! Skill::is_skill_auto_enabled( $slug ) ) ) {
 			return null;
 		}
 

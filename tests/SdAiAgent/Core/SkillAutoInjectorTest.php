@@ -313,6 +313,17 @@ class SkillAutoInjectorTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * Theme/global-style abilities attach the registered wp-block-themes skill.
+	 */
+	public function test_global_style_abilities_map_to_registered_block_themes_skill(): void {
+		$this->assertSame( 'wp-block-themes', SkillAutoInjector::skill_for_ability( 'sd-ai-agent/get-theme-json' ) );
+		$this->assertSame( 'wp-block-themes', SkillAutoInjector::skill_for_ability( 'sd-ai-agent/update-global-styles' ) );
+		$this->assertNotNull( Skill::get_by_slug( 'wp-block-themes' ) );
+		$this->assertNull( Skill::get_by_slug( 'block-themes' ) );
+		$this->assertNull( Skill::get_by_slug( 'full-site-editing' ) );
+	}
+
+	/**
 	 * @return array<string, array{0:string}>
 	 */
 	public function provide_wp_block_themes_phrases(): array {

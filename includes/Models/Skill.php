@@ -140,9 +140,9 @@ class Skill {
 	private static function theme_skill_map(): array {
 		// phpcs:disable Generic.CodeAnalysis.UnusedFunctionParameter -- Predicate signatures are uniform; some implementations don't need the theme slugs.
 		return [
-			'block-themes'   => static fn( string $template, string $stylesheet ): bool => function_exists( 'wp_is_block_theme' ) && wp_is_block_theme(),
-			'classic-themes' => static fn( string $template, string $stylesheet ): bool => function_exists( 'wp_is_block_theme' ) && ! wp_is_block_theme(),
-			'kadence-theme'  => static fn( string $template, string $stylesheet ): bool => 'kadence' === $template || 'kadence' === $stylesheet,
+			'wp-block-themes' => static fn( string $template, string $stylesheet ): bool => true,
+			'classic-themes'  => static fn( string $template, string $stylesheet ): bool => function_exists( 'wp_is_block_theme' ) && ! wp_is_block_theme(),
+			'kadence-theme'   => static fn( string $template, string $stylesheet ): bool => 'kadence' === $template || 'kadence' === $stylesheet,
 		];
 		// phpcs:enable Generic.CodeAnalysis.UnusedFunctionParameter
 	}
@@ -183,7 +183,7 @@ class Skill {
 	 * Resolution order:
 	 *   1. Plugin-based map (PLUGIN_SKILL_MAP) — woocommerce, kadence-blocks, etc.
 	 *   2. Multisite (built into PLUGIN_SKILL_MAP via empty plugin file).
-	 *   3. Theme-based map (theme_skill_map()) — block-themes, classic-themes, kadence-theme.
+	 *   3. Theme-based map (theme_skill_map()) — wp-block-themes, classic-themes, kadence-theme.
 	 *
 	 * @param string $slug Skill slug.
 	 * @return bool True if the skill should be treated as enabled.
@@ -585,7 +585,7 @@ class Skill {
 	 * Idempotent seeding of built-in skills (skips if slug exists).
 	 *
 	 * Also performs one-time slug migrations for renamed built-ins (e.g. the
-	 * `full-site-editing` skill was renamed to `block-themes`). The legacy
+	 * `full-site-editing` / `block-themes` skills were renamed to `wp-block-themes`). The legacy
 	 * slug is migrated in-place when the new slug does not yet exist; the
 	 * caller's customisations are preserved.
 	 */
@@ -628,15 +628,29 @@ class Skill {
 		/** @var \wpdb $wpdb */
 
 		$renames = [
-			// Renamed in t-XXXX (block-themes scope expansion).
-			'full-site-editing' => 'block-themes',
+			// Renamed in t-XXXX (block-themes scope expansion), then aligned with WordPress/agent-skills.
+			'full-site-editing' => 'wp-block-themes',
+			'block-themes'      => 'wp-block-themes',
 		];
 
 		foreach ( $renames as $old_slug => $new_slug ) {
 			$old = self::get_by_slug( $old_slug );
 			$new = self::get_by_slug( $new_slug );
 
-			if ( ! $old || $new ) {
+			if ( ! $old ) {
+				continue;
+			}
+
+			if ( $new ) {
+				if ( $old->is_builtin && ! $old->user_modified ) {
+					// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Custom table; duplicate built-in cleanup during migration.
+					$wpdb->delete(
+						self::table_name(),
+						[ 'id' => $old->id ],
+						[ '%d' ]
+					);
+				}
+
 				continue;
 			}
 
@@ -665,80 +679,120 @@ class Skill {
 	 * @var array<string, array{name: string, description: string, enabled: bool}>
 	 */
 	private const BUILTIN_META = [
-		'wordpress-admin'      => [
+		'wordpress-admin'          => [
 			'name'        => 'WordPress Administration',
 			'description' => 'General WordPress administration (settings, updates, users, options)',
 			'enabled'     => true,
 		],
-		'content-management'   => [
+		'content-management'       => [
 			'name'        => 'Content Management',
 			'description' => 'Managing posts, pages, media, taxonomies',
 			'enabled'     => true,
 		],
-		'woocommerce'          => [
+		'woocommerce'              => [
 			'name'        => 'WooCommerce Store Management',
 			'description' => 'WooCommerce store management (products, orders, coupons)',
 			'enabled'     => false,
 		],
-		'site-troubleshooting' => [
+		'site-troubleshooting'     => [
 			'name'        => 'Site Troubleshooting',
 			'description' => 'Debugging errors, site health, performance diagnosis',
 			'enabled'     => true,
 		],
-		'multisite-management' => [
+		'multisite-management'     => [
 			'name'        => 'Multisite Network Management',
 			'description' => 'WordPress Multisite network administration',
 			'enabled'     => false,
 		],
-		'seo-optimization'     => [
+		'seo-optimization'         => [
 			'name'        => 'SEO Optimization',
 			'description' => 'SEO auditing, on-page optimization, meta tags, technical SEO checks',
 			'enabled'     => true,
 		],
-		'site-specification'   => [
+		'site-specification'       => [
 			'name'        => 'Site Specification',
 			'description' => 'Extract a structured site spec (name, type, audience, tone, sections, typography) from a user description. Foundation for theme generation and content workflows.',
 			'enabled'     => true,
 		],
-		'content-marketing'    => [
+		'content-marketing'        => [
 			'name'        => 'Content Marketing',
 			'description' => 'Content strategy, editorial workflows, content audits, publishing analysis',
 			'enabled'     => true,
 		],
-		'competitive-analysis' => [
+		'competitive-analysis'     => [
 			'name'        => 'Competitive Analysis',
 			'description' => 'Analyzing competitor sites, tech stack discovery, content gap analysis',
 			'enabled'     => false,
 		],
-		'analytics-reporting'  => [
+		'contact-forms'            => [
+			'name'        => 'Contact Forms',
+			'description' => 'Creating contact forms, lead capture forms, inquiry forms, notifications, and form embeds',
+			'enabled'     => true,
+		],
+		'analytics-reporting'      => [
 			'name'        => 'Analytics & Reporting',
 			'description' => 'Content performance reports, site growth metrics, publishing analytics',
 			'enabled'     => true,
 		],
-		'gutenberg-blocks'     => [
+		'working-cadence'          => [
+			'name'        => 'Working Cadence',
+			'description' => 'Skeleton-first workflow, anchor comments, and safe cadence for long content and theme-generation writes',
+			'enabled'     => true,
+		],
+		'design-system-aesthetics' => [
+			'name'        => 'Design System Aesthetics',
+			'description' => 'Theme Builder design-direction guidance for topic-grounded visual worlds, palettes, typography, and aesthetics',
+			'enabled'     => true,
+		],
+		'gutenberg-blocks'         => [
 			'name'        => 'Gutenberg Blocks',
 			'description' => 'Creating content with Gutenberg blocks, converting markdown, building layouts',
 			'enabled'     => true,
 		],
-		'block-themes'         => [
-			'name'        => 'Block Themes (FSE)',
+		'wp-block-development'     => [
+			'name'        => 'WP Block Development',
+			'description' => 'Developing WordPress blocks with block.json, apiVersion, edit.js, save.js, render callbacks, and block supports',
+			'enabled'     => true,
+		],
+		'wp-block-themes'          => [
+			'name'        => 'WP Block Themes',
 			'description' => 'Block theme templates, template parts, theme.json, Site Editor and site-wide layout',
-			// Auto-enabled when the active theme is a block theme (see theme_skill_map()).
+			// Auto-enabled for block-theme generation even when the active theme is classic.
 			'enabled'     => false,
 		],
-		'classic-themes'       => [
+		'wp-plugin-development'    => [
+			'name'        => 'WP Plugin Development',
+			'description' => 'Developing WordPress plugins with plugin headers, hooks, settings APIs, activation routines, security, and testing',
+			'enabled'     => true,
+		],
+		'wp-rest-api'              => [
+			'name'        => 'WP REST API',
+			'description' => 'Developing WordPress REST API endpoints, routes, controllers, schemas, permissions, and authentication',
+			'enabled'     => true,
+		],
+		'wp-rest-fallback'         => [
+			'name'        => 'WP REST Fallback',
+			'description' => 'Using wp-rest dispatcher abilities for registered REST endpoints when no dedicated ability exists',
+			'enabled'     => true,
+		],
+		'wp-wpcli-and-ops'         => [
+			'name'        => 'WP-CLI and Ops',
+			'description' => 'WordPress WP-CLI operations, wp commands, database tasks, cron, cache, search-replace, and operational checks',
+			'enabled'     => true,
+		],
+		'classic-themes'           => [
 			'name'        => 'Classic Themes',
 			'description' => 'Classic theme work — PHP templates, Customizer, widgets, child themes',
 			// Auto-enabled when the active theme is a classic theme.
 			'enabled'     => false,
 		],
-		'kadence-blocks'       => [
+		'kadence-blocks'           => [
 			'name'        => 'Kadence Blocks',
 			'description' => 'Kadence Blocks markup — kadence/rowlayout, kadence/column, kadence/advancedheading, kadence/advancedbtn validation rules',
 			// Auto-enabled when the Kadence Blocks plugin is active.
 			'enabled'     => false,
 		],
-		'kadence-theme'        => [
+		'kadence-theme'            => [
 			'name'        => 'Kadence Theme',
 			'description' => 'Kadence theme — header/footer builder, customizer panels, hooks, child theme guidance',
 			// Auto-enabled when the active (parent) theme is Kadence.

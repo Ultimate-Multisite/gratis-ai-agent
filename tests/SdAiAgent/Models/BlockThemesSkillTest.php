@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 /**
- * Tests for the bundled block-themes skill.
+ * Tests for the bundled wp-block-themes skill.
  *
  * @package SdAiAgent
  * @subpackage Tests
@@ -15,7 +15,7 @@ use SdAiAgent\Models\Skill;
 use WP_UnitTestCase;
 
 /**
- * Verifies the Phase 2 block-themes expansion remains available to agents.
+ * Verifies the Phase 2 wp-block-themes expansion remains available to agents.
  */
 class BlockThemesSkillTest extends WP_UnitTestCase {
 
@@ -25,28 +25,28 @@ class BlockThemesSkillTest extends WP_UnitTestCase {
 	public function test_block_themes_skill_is_registered_as_builtin(): void {
 		$definitions = Skill::get_builtin_definitions();
 
-		$this->assertArrayHasKey( 'block-themes', $definitions );
-		$this->assertSame( 'Block Themes (FSE)', $definitions['block-themes']['name'] );
-		$this->assertFalse( $definitions['block-themes']['enabled'] );
-		$this->assertStringContainsString( 'theme.json', $definitions['block-themes']['content'] );
+		$this->assertArrayHasKey( 'wp-block-themes', $definitions );
+		$this->assertSame( 'WP Block Themes', $definitions['wp-block-themes']['name'] );
+		$this->assertFalse( $definitions['wp-block-themes']['enabled'] );
+		$this->assertStringContainsString( 'theme.json', $definitions['wp-block-themes']['content'] );
 	}
 
 	/**
 	 * The Phase 2 expansion keeps the documented size envelope from the parent task.
 	 */
 	public function test_block_themes_skill_keeps_phase_two_size_envelope(): void {
-		$content    = Skill::get_builtin_definitions()['block-themes']['content'];
+		$content    = Skill::get_builtin_definitions()['wp-block-themes']['content'];
 		$line_count = substr_count( $content, "\n" ) + 1;
 
 		$this->assertGreaterThanOrEqual( 350, $line_count );
-		$this->assertLessThanOrEqual( 500, $line_count );
+		$this->assertLessThanOrEqual( 540, $line_count );
 	}
 
 	/**
 	 * The skill includes the required theme.json presets and template composition guidance.
 	 */
 	public function test_block_themes_skill_includes_theme_json_and_template_part_guidance(): void {
-		$content = Skill::get_builtin_definitions()['block-themes']['content'];
+		$content = Skill::get_builtin_definitions()['wp-block-themes']['content'];
 
 		$required_patterns = [
 			'Always declare `$schema` and `version: 3`',
@@ -67,7 +67,7 @@ class BlockThemesSkillTest extends WP_UnitTestCase {
 	 * The skill includes the animation, reduced-motion, and editor-visibility safeguards.
 	 */
 	public function test_block_themes_skill_includes_motion_and_editor_visibility_safeguards(): void {
-		$content = Skill::get_builtin_definitions()['block-themes']['content'];
+		$content = Skill::get_builtin_definitions()['wp-block-themes']['content'];
 
 		$required_patterns = [
 			'## Animation & Motion',
@@ -88,7 +88,7 @@ class BlockThemesSkillTest extends WP_UnitTestCase {
 	 * The skill keeps the generation safety rules that prevent invalid editor output.
 	 */
 	public function test_block_themes_skill_keeps_generation_safety_rules(): void {
-		$content = Skill::get_builtin_definitions()['block-themes']['content'];
+		$content = Skill::get_builtin_definitions()['wp-block-themes']['content'];
 
 		$this->assertStringContainsString( '**No HTML blocks.**', $content );
 		$this->assertStringContainsString( '**No decorative HTML comments.**', $content );

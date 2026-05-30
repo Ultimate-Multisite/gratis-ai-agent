@@ -12,7 +12,7 @@ input:
   skill_name: design-system-aesthetics
 ```
 
-Call `site-specification` and `block-themes` first (Phase 1); call this skill as the first action in Phase 2.
+Call `site-specification` and `wp-block-themes` first (Phase 1); call this skill as the first action in Phase 2.
 
 ## The Topic-Grounded Framework
 
@@ -347,5 +347,5 @@ The direction title, atmosphere descriptor, and section mock must contain vocabu
 ## Adjacent Skills
 
 - **site-specification** — load before this skill (Phase 1); provides the site brief that grounds direction proposals in the topic.
-- **block-themes** — load alongside this skill (Phase 1 / Phase 2); contains theme.json patterns, animation classes, and FSE markup guidance for Phase 4 build.
+- **wp-block-themes** — load alongside this skill (Phase 1 / Phase 2); contains theme.json patterns, animation classes, and FSE markup guidance for Phase 4 build.
 - **kadence-theme** / **kadence-blocks** — load if Kadence is the active theme framework; design directions remain the same, execution paths in Phase 4 differ.

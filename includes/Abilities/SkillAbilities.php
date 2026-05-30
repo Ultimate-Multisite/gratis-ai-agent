@@ -221,9 +221,9 @@ class SkillAbilities {
 
 		// Check if the skill is theme-aware.
 		$theme_map = [
-			'block-themes'   => __( 'a block theme is active', 'superdav-ai-agent' ),
-			'classic-themes' => __( 'a classic (non-block) theme is active', 'superdav-ai-agent' ),
-			'kadence-theme'  => __( 'the Kadence theme is active', 'superdav-ai-agent' ),
+			'wp-block-themes' => __( 'block-theme generation or editing is requested', 'superdav-ai-agent' ),
+			'classic-themes'  => __( 'a classic (non-block) theme is active', 'superdav-ai-agent' ),
+			'kadence-theme'   => __( 'the Kadence theme is active', 'superdav-ai-agent' ),
 		];
 
 		if ( isset( $theme_map[ $slug ] ) ) {
