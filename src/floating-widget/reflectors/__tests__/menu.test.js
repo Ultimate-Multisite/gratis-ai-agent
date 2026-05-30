@@ -38,6 +38,7 @@ describe( 'reflectMenu', () => {
 	beforeEach( () => {
 		warnSpy = jest.spyOn( console, 'warn' ).mockImplementation( () => {} );
 		global.fetch = jest.fn();
+		window.scrollTo = jest.fn();
 	} );
 
 	afterEach( () => {
