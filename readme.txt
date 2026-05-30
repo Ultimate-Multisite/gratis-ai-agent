@@ -583,7 +583,7 @@ All call sites are either reached only after the shim has loaded the function, o
 == Upgrade Notice ==
 
 = 1.16.2 =
-Documentation and cleanup release addressing WordPress.org review feedback. Clarifies that third-party OpenAI-compatible providers are governed by their own connector plugins, removes hardcoded third-party provider hostnames that were not direct integrations, and adds two filter extension points (`sd_ai_agent_models_endpoint_hosts`, `sd_ai_agent_resolve_cache_strategy`) for connector plugins.
+Documentation and cleanup release for WordPress.org review feedback. Clarifies third-party connector responsibility, removes hardcoded provider hostnames that were not direct integrations, and documents the models endpoint and cache-strategy filters.
 
 = 1.12.0 =
 Documentation and dependency-maintenance release addressing WordPress.org review feedback. Discloses the opt-in feedback service, fixes the Openverse Terms link, removes placeholder URLs, moves the WP-CLI benchmark log directory out of the plugin folder, and updates bundled libraries.
