@@ -3,6 +3,10 @@
 declare (strict_types=1);
 namespace WordPress\AiClientDependencies\Nyholm\Psr7;
 
+if ( ! defined( 'ABSPATH' ) ) {
+    exit;
+}
+
 use WordPress\AiClientDependencies\Psr\Http\Message\StreamInterface;
 use WordPress\AiClientDependencies\Symfony\Component\Debug\ErrorHandler as SymfonyLegacyErrorHandler;
 use WordPress\AiClientDependencies\Symfony\Component\ErrorHandler\ErrorHandler as SymfonyErrorHandler;

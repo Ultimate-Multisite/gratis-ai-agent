@@ -1,6 +1,13 @@
 <?php
 
 declare(strict_types=1);
+
+namespace SdAiAgent\REST;
+
+if ( ! defined( 'ABSPATH' ) ) {
+	exit;
+}
+
 /**
  * HTTP If-Match / ETag header parser and formatter for optimistic concurrency.
  *
@@ -48,13 +55,7 @@ declare(strict_types=1);
  * @see     https://github.com/Ultimate-Multisite/superdav-ai-agent/issues/1785
  */
 
-namespace SdAiAgent\REST;
-
 use WP_Error;
-
-if ( ! defined( 'ABSPATH' ) ) {
-	exit;
-}
 
 /**
  * HTTP If-Match / ETag parser and formatter.

@@ -1,6 +1,13 @@
 <?php
 
 declare(strict_types=1);
+
+namespace SdAiAgent\Core;
+
+if ( ! defined( 'ABSPATH' ) ) {
+	exit;
+}
+
 /**
  * Ability execution hook system.
  *
@@ -63,13 +70,6 @@ declare(strict_types=1);
  * @package SdAiAgent
  * @license GPL-2.0-or-later
  */
-
-namespace SdAiAgent\Core;
-
-if ( ! defined( 'ABSPATH' ) ) {
-	exit;
-}
-
 class AbilityHooks {
 
 	/**

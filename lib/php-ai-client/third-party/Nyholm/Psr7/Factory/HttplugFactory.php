@@ -3,6 +3,10 @@
 declare (strict_types=1);
 namespace WordPress\AiClientDependencies\Nyholm\Psr7\Factory;
 
+if ( ! defined( 'ABSPATH' ) ) {
+    exit;
+}
+
 use WordPress\AiClientDependencies\Http\Message\MessageFactory;
 use WordPress\AiClientDependencies\Http\Message\StreamFactory;
 use WordPress\AiClientDependencies\Http\Message\UriFactory;

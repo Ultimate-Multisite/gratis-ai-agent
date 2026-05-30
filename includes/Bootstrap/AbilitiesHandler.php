@@ -1,4 +1,13 @@
 <?php
+
+declare(strict_types=1);
+
+namespace SdAiAgent\Bootstrap;
+
+if ( ! defined( 'ABSPATH' ) ) {
+	exit;
+}
+
 /**
  * DI handler that registers all WordPress Abilities.
  *
@@ -17,10 +26,6 @@
  * @package SdAiAgent\Bootstrap
  * @license GPL-2.0-or-later
  */
-
-declare(strict_types=1);
-
-namespace SdAiAgent\Bootstrap;
 
 use SdAiAgent\Abilities\AiImageAbilities;
 use SdAiAgent\Abilities\BlockAbilities;
@@ -68,10 +73,6 @@ use SdAiAgent\Abilities\WpCliAbilities;
 use SdAiAgent\Abilities\WpRestAbilities;
 use XWP\DI\Decorators\Action;
 use XWP\DI\Decorators\Handler;
-
-if ( ! defined( 'ABSPATH' ) ) {
-	exit;
-}
 
 /**
  * Registers all ability groups on `wp_abilities_api_init` and wires

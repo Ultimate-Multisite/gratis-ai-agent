@@ -1,4 +1,13 @@
 <?php
+
+declare(strict_types=1);
+
+namespace SdAiAgent\Compat;
+
+if ( ! defined( 'ABSPATH' ) ) {
+	exit;
+}
+
 /**
  * Bridge: restore Gutenberg's Connectors infrastructure on WP 6.9 installs.
  *
@@ -58,14 +67,6 @@
  * @license GPL-2.0-or-later
  * @since   1.11.1
  */
-
-declare(strict_types=1);
-
-namespace SdAiAgent\Compat;
-
-if ( ! defined( 'ABSPATH' ) ) {
-	exit;
-}
 
 /**
  * Restores Gutenberg's Connectors admin page on WP 6.9 when a plugin
