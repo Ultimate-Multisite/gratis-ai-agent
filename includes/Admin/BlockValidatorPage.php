@@ -97,8 +97,10 @@ final class BlockValidatorPage {
 		wp_enqueue_style( 'wp-block-library' );
 		wp_enqueue_style( 'wp-block-library-theme' );
 
-		// Third-party block scripts hook these actions.
+		// Third-party block scripts hook these WordPress core actions.
+		// phpcs:ignore WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedHooknameFound -- Intentionally fires the core block editor enqueue hook so third-party block scripts register for validation.
 		do_action( 'enqueue_block_editor_assets' );
+		// phpcs:ignore WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedHooknameFound -- Intentionally fires the core block asset enqueue hook so third-party block scripts register for validation.
 		do_action( 'enqueue_block_assets' );
 
 		// Determine asset path. Built file lives at build/block-validator.js.
