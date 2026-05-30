@@ -74,7 +74,13 @@ cd "$PLUGIN_DIR"
 : "${SKIP_PLUGINS:=multisite-ultimate-domain-seller}"
 : "${KEEP:=0}"
 
-WP_DIR="${PLUGIN_DIR}/../wordpress"
+# WP_DIR defaults to the sibling ../wordpress dev install per
+# AGENTS.md > Local Development Environment. Override it explicitly when
+# running this script from a git worktree under ~/Git/<repo>-worktrees/,
+# where ${PLUGIN_DIR}/../wordpress points at the wrong directory:
+#
+#   WP_DIR=/home/dave/Git/wordpress npm run wporg-review
+: "${WP_DIR:=${PLUGIN_DIR}/../wordpress}"
 PLUGINS_DIR="${WP_DIR}/wp-content/plugins"
 REPORT_DIR="${PLUGIN_DIR}/build/wporg-review"
 
@@ -197,12 +203,12 @@ echo "==> [3/5] Ensuring Plugin Check (PCP) is installed and recent..."
 # We need PCP ≥ 2.0.0 for the --ai / --ai-model flags.
 # `wp plugin install plugin-check --activate --force` always pulls the
 # latest, which is what we want for review parity with .org.
-wp plugin install plugin-check --activate --force \
+wp --path="$WP_DIR" plugin install plugin-check --activate --force \
 	--skip-plugins="$SKIP_PLUGINS" --skip-themes \
 	>/dev/null
 
 PCP_VERSION="$(
-	wp plugin get plugin-check --field=version \
+	wp --path="$WP_DIR" plugin get plugin-check --field=version \
 		--skip-plugins="$SKIP_PLUGINS" --skip-themes 2>/dev/null || true
 )"
 echo "    Plugin Check version: ${PCP_VERSION:-unknown}"
@@ -232,7 +238,7 @@ mkdir -p "$REPORT_DIR"
 	echo "Review dir     : ${TARGET_DIR}"
 	echo "Reported slug  : ${SUBMISSION_SLUG}"
 	echo "Skipped plugins: ${SKIP_PLUGINS}"
-	echo "Command        : wp plugin check ${REVIEW_SLUG} \\"
+	echo "Command        : wp --path=${WP_DIR} plugin check ${REVIEW_SLUG} \\"
 	echo "                     --slug=${SUBMISSION_SLUG} \\"
 	echo "                     --ai --ai-model=${MODEL} \\"
 	echo "                     --require=${PCP_CLI} \\"
@@ -244,7 +250,7 @@ mkdir -p "$REPORT_DIR"
 # PCP exits non-zero when issues are found — that's the whole point of
 # running it. Capture the exit code but don't abort the script on it.
 set +e
-wp plugin check "$REVIEW_SLUG" \
+wp --path="$WP_DIR" plugin check "$REVIEW_SLUG" \
 	--slug="$SUBMISSION_SLUG" \
 	--ai \
 	--ai-model="$MODEL" \
