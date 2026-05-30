@@ -73,12 +73,12 @@ class AbilityPluginRegistry {
 		[
 			'slug'            => 'wpforms-lite',
 			'name'            => 'WPForms Lite',
-			'ability_count'   => 5,
-			'has_abilities'   => true,
+			'ability_count'   => 0,
+			'has_abilities'   => false,
 			'has_blocks'      => true,
 			'categories'      => [ 'forms', 'contact', 'surveys', 'lead-capture' ],
 			'active_installs' => 6000000,
-			'description'     => 'Recommended form plugin. Registers native WordPress Abilities (v1.9.9.2+) for AI-assisted form creation. Drag-and-drop builder with spam protection and email notifications.',
+			'description'     => 'Recommended form plugin for plugin-backed submissions. WordPress Abilities availability varies by install; use sd-ai-agent/create-contact-form to create and verify forms.',
 		],
 		[
 			'slug'            => 'contact-form-7',

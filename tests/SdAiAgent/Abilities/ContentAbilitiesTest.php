@@ -18,6 +18,17 @@ use WP_UnitTestCase;
 class ContentAbilitiesTest extends WP_UnitTestCase {
 
 	/**
+	 * Clean up registered post types between tests.
+	 */
+	public function tear_down(): void {
+		if ( post_type_exists( 'wpforms' ) ) {
+			unregister_post_type( 'wpforms' );
+		}
+
+		parent::tear_down();
+	}
+
+	/**
 	 * Test handle_content_analyze with no posts returns empty message.
 	 */
 	public function test_handle_content_analyze_no_posts() {
@@ -234,6 +245,39 @@ class ContentAbilitiesTest extends WP_UnitTestCase {
 		$this->assertStringContainsString( '<!-- wp:html -->', $result['block'] );
 		$this->assertStringContainsString( 'sd-ai-agent-contact-form', $result['block'] );
 		$this->assertStringContainsString( 'Send Now', $result['block'] );
+	}
+
+	/**
+	 * Test handle_create_contact_form creates a WPForms form when the post type is registered.
+	 */
+	public function test_handle_create_contact_form_creates_wpforms_form_when_available() {
+		register_post_type(
+			'wpforms',
+			[
+				'public'   => false,
+				'supports' => [ 'title', 'editor' ],
+			]
+		);
+
+		$result = ContentAbilities::handle_create_contact_form( [
+			'title'           => 'Sales Inquiry',
+			'recipient_email' => 'sales@example.test',
+			'submit_label'    => 'Send Inquiry',
+		] );
+
+		$this->assertIsArray( $result );
+		$this->assertSame( 'wpforms-lite', $result['provider'] );
+		$this->assertGreaterThan( 0, $result['form_id'] );
+		$this->assertSame( '[wpforms id="' . $result['form_id'] . '"]', $result['shortcode'] );
+		$this->assertStringContainsString( '<!-- wp:shortcode -->', $result['block'] );
+
+		$form_data = json_decode( (string) get_post_field( 'post_content', (int) $result['form_id'] ), true );
+
+		$this->assertIsArray( $form_data );
+		$this->assertSame( 'Sales Inquiry', $form_data['settings']['form_title'] );
+		$this->assertSame( 'sales@example.test', $form_data['settings']['notifications']['1']['email'] );
+		$this->assertSame( 'Send Inquiry', $form_data['settings']['submit_text'] );
+
 	}
 
 	/**
