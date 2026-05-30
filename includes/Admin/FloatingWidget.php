@@ -15,6 +15,7 @@ namespace SdAiAgent\Admin;
 
 use SdAiAgent\Core\Features;
 use SdAiAgent\Core\OnboardingManager;
+use SdAiAgent\Core\RolePermissions;
 use SdAiAgent\Core\Settings;
 
 if ( ! defined( 'ABSPATH' ) ) {
@@ -65,7 +66,7 @@ class FloatingWidget {
 	/**
 	 * Enqueue the floating widget on frontend pages when enabled in settings.
 	 *
-	 * Only loads for logged-in users with manage_options capability.
+	 * Only loads for logged-in users with configured chat access.
 	 */
 	public static function enqueue_assets_frontend(): void {
 		$settings = Settings::instance()->get();
@@ -76,8 +77,8 @@ class FloatingWidget {
 			return;
 		}
 
-		// Only for users who can access the agent.
-		if ( ! current_user_can( 'manage_options' ) ) {
+		// Mirror the REST chat gate so frontend visibility matches actual access.
+		if ( ! RolePermissions::current_user_has_chat_access() ) {
 			return;
 		}
 
