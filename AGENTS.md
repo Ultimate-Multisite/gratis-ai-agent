@@ -88,6 +88,11 @@ turn it into durable, worker-ready guidance instead of relying on chat history:
   the verification command that should prove the change.
 - Keep instruction changes concrete and actionable; avoid copying vague feedback
   without translating it into a rule, reference pattern, or testable outcome.
+- When a contributor insight contains a pasted local-path skill or prompt excerpt,
+  identify the committed source file it came from before editing. For block-theme
+  or Full Site Editing excerpts, use `includes/Models/skills/wp-block-themes.md`
+  as the durable target; do not paste private local paths or duplicate the whole
+  skill into GitHub comments.
 
 #### Contributor Insight Completion Checklist
 
@@ -112,6 +117,23 @@ when it includes all of the following:
 - Evidence in the PR body showing the instruction is now loaded by future
   workers, such as `rg -n "Contributor Insight|sd-ai-agent/v1|secret|current user|file upload" AGENTS.md .agents/AGENTS.md`
   plus any workflow-specific doc check.
+
+### Block Theme Automation Guidance
+
+When work touches WordPress block themes, Full Site Editing, `theme.json`,
+`templates/*.html`, `parts/*.html`, `patterns/*.php`, or style variations:
+
+- Treat `includes/Models/skills/wp-block-themes.md` as the canonical in-plugin
+  guidance for generated block-theme work. Update that skill when maintainers
+  report recurring block-theme automation failures.
+- Keep block-theme guidance agent-safe and actionable: require core block markup,
+  avoid `core/html` escape hatches, avoid decorative non-block comments, avoid
+  unprovided stock image URLs, and validate generated block content before saving.
+- For active-site diagnosis, confirm whether the theme is a block theme with
+  `sd-ai-agent/site-info`, `wp option get template` / `stylesheet`, or
+  `wp_is_block_theme()` before applying Full Site Editing assumptions.
+- Verification for guidance-only block-theme fixes should include
+  `rg -n "wp-block-themes|Full Site Editing|theme.json|validate-block-content" AGENTS.md includes/Models/skills/wp-block-themes.md`.
 
 #### Headless GitHub Write Guardrails
 

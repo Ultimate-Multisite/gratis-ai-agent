@@ -86,6 +86,10 @@ to change, do not answer only in the issue thread. Make the durable repo change:
   routes in the private `sd-ai-agent/v1` namespace. Convert shorthand feedback
   into explicit checks for capability gates, real current-user context, secret
   scrubbing, and hidden or restricted file-upload endpoints.
+- For pasted local-path skill excerpts, first map the excerpt to the committed
+  in-plugin source. Block theme or Full Site Editing excerpts belong in
+  `includes/Models/skills/wp-block-themes.md`; update that skill or the root
+  `AGENTS.md` summary instead of copying private local paths into GitHub.
 - Do not mark contributor-insight issues complete after documentation reading
   alone. A valid fix changes a durable instruction, workflow doc, or helper, then
   verifies the changed guidance with an exact `rg -n` check that future workers
