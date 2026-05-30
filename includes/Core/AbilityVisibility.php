@@ -1,6 +1,13 @@
 <?php
 
 declare(strict_types=1);
+
+namespace SdAiAgent\Core;
+
+if ( ! defined( 'ABSPATH' ) ) {
+	exit;
+}
+
 /**
  * Centralised visibility resolver for WordPress abilities.
  *
@@ -57,15 +64,9 @@ declare(strict_types=1);
  * @license GPL-2.0-or-later
  */
 
-namespace SdAiAgent\Core;
-
 use SdAiAgent\Abilities\ThirdParty\PartnerAllowlist;
 use SdAiAgent\Core\Settings;
 use WP_Ability;
-
-if ( ! defined( 'ABSPATH' ) ) {
-	exit;
-}
 
 /**
  * Classify abilities and resolve per-surface visibility.

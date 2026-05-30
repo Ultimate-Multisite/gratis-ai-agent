@@ -1,6 +1,13 @@
 <?php
 
 declare(strict_types=1);
+
+namespace SdAiAgent\Core;
+
+if ( ! defined( 'ABSPATH' ) ) {
+	exit;
+}
+
 /**
  * Feature-flag registry.
  *
@@ -102,13 +109,6 @@ declare(strict_types=1);
  * @package SdAiAgent
  * @license GPL-2.0-or-later
  */
-
-namespace SdAiAgent\Core;
-
-if ( ! defined( 'ABSPATH' ) ) {
-	exit;
-}
-
 final class Features {
 
 	/**

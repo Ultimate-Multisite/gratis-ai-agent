@@ -1,4 +1,13 @@
 <?php
+
+declare(strict_types=1);
+
+namespace SdAiAgent;
+
+if ( ! defined( 'ABSPATH' ) ) {
+	exit;
+}
+
 /**
  * Plugin entry-point module for the Superdav AI Agent DI container.
  *
@@ -13,10 +22,6 @@
  * @package SdAiAgent
  * @license GPL-2.0-or-later
  */
-
-declare(strict_types=1);
-
-namespace SdAiAgent;
 
 use SdAiAgent\Bootstrap\AbilitiesHandler;
 use SdAiAgent\Bootstrap\AdminHandler;
@@ -66,10 +71,6 @@ use SdAiAgent\REST\ToolController;
 use SdAiAgent\REST\TraceController;
 use SdAiAgent\REST\WebhookController;
 use XWP\DI\Decorators\Module;
-
-if ( ! defined( 'ABSPATH' ) ) {
-	exit;
-}
 
 /**
  * Root application module for the DI container.
