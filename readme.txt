@@ -197,6 +197,12 @@ The agent has a built-in confirmation system. Potentially destructive tool calls
 
 Yes, the plugin works on both single-site and multisite WordPress installations. Each site has its own settings, sessions, memories, and automations.
 
+= Why does static analysis report `wp_function_not_compatible_with_requires_wp` for `wp_ai_client_prompt()`? =
+
+The plugin's `Requires at least` header is WordPress 6.9, but the agent core uses `wp_ai_client_prompt()`, which only ships natively in WordPress 7.0. The plugin bundles a compatibility shim at `includes/Compat/ai-client/` that defines `wp_ai_client_prompt()` and the supporting prompt-builder classes on WordPress 6.9 installs and yields to the native implementation on WordPress 7.0+.
+
+All call sites are either reached only after the shim has loaded the function, or are guarded by `function_exists( 'wp_ai_client_prompt' )` first. Static analyzers (including the WordPress.org Plugin Check tool's "compatibility with Requires at least" check) cannot follow the shim's load path and may flag these calls as version-incompatible. The bundled compat layer makes them safe on every supported WordPress version.
+
 == Screenshots ==
 
 1. Full-page chat interface with session sidebar and folder organization

@@ -116,8 +116,10 @@ class OnboardingManager {
 
 		global $wpdb;
 		$sessions_table = $wpdb->prefix . 'sd_ai_agent_sessions';
-		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching,WordPress.DB.PreparedSQL.InterpolatedNotPrepared
-		$session_count = (int) $wpdb->get_var( "SELECT COUNT(*) FROM `{$sessions_table}`" );
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching
+		$session_count = (int) $wpdb->get_var(
+			$wpdb->prepare( 'SELECT COUNT(*) FROM %i', $sessions_table )
+		);
 		return $session_count > 0;
 	}
 
