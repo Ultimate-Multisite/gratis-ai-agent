@@ -45,6 +45,7 @@ use SdAiAgent\Bootstrap\ToolDiscoveryHandler;
 use SdAiAgent\Contracts\BudgetCheckerInterface;
 use SdAiAgent\Contracts\SessionRepositoryInterface;
 use SdAiAgent\Contracts\SettingsProviderInterface;
+use SdAiAgent\Frontend\CachePolicy;
 use SdAiAgent\Infrastructure\Adapters\BudgetManagerAdapter;
 use SdAiAgent\Infrastructure\Adapters\DatabaseSessionAdapter;
 use SdAiAgent\Infrastructure\Adapters\StaticSettingsAdapter;
@@ -113,6 +114,7 @@ use XWP\DI\Decorators\Module;
 		AutomationsHandler::class,
 		GitTrackingHandler::class,
 		OnboardingHandler::class,
+		CachePolicy::class,
 		FrontendAssetsHandler::class,
 		MemoryController::class,
 		SkillController::class,

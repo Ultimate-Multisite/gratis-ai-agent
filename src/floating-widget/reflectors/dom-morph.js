@@ -4,20 +4,30 @@
 
 import morphdom from 'morphdom';
 
+const REFLECTOR_HEADER = 'X-Sd-Ai-Agent-Reflector';
+
 /**
  * Fetch a fresh copy of a frontend page as a parsed document.
  *
- * @param {string} url Page URL to fetch.
+ * `cache: 'no-store'` bypasses the browser cache. The timestamp query parameter
+ * is required for page caches/CDNs that key by URL and ignore request
+ * Cache-Control headers.
+ *
+ * @param {string}       url       Page URL to fetch.
+ * @param {typeof fetch} fetchImpl Fetch implementation for tests.
  * @return {Promise<Document>} Parsed fresh document.
  */
-export async function fetchFreshPage( url ) {
-	const target = url || window.location.href;
-	const bust =
-		target + ( target.includes( '?' ) ? '&' : '?' ) + '_=' + Date.now();
-	const res = await fetch( bust, {
+export async function fetchFreshPage( url, fetchImpl = window.fetch ) {
+	const target = new URL( url || window.location.href, window.location.href );
+	target.searchParams.set( '_', String( Date.now() ) );
+
+	const res = await fetchImpl( target.toString(), {
 		credentials: 'same-origin',
 		cache: 'no-store',
-		headers: { Accept: 'text/html' },
+		headers: {
+			Accept: 'text/html',
+			[ REFLECTOR_HEADER ]: '1',
+		},
 	} );
 
 	if ( ! res.ok ) {
@@ -70,3 +80,5 @@ export function morphTargetByElement( currentEl, freshEl ) {
 		},
 	} );
 }
+
+export { REFLECTOR_HEADER };
