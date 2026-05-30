@@ -12,6 +12,11 @@ import STORE_NAME from '../store';
 // Register sd-ai-agent-js/* client-side abilities into core/abilities
 // before the chat mounts (t165 — closes the wiring gap in #815).
 import '../abilities';
+// Spike: subscribe to the frontend live-preview reflection bus and log
+// every tool-applied event to the browser console. Phase 1 only —
+// remove once real DOM reflectors land (Phase 2). See
+// `src/store/reflection-bus.js` and `src/store/reflection-emitter.js`.
+import './reflection-debug';
 import ErrorBoundary from '../components/error-boundary';
 import ChatWidget from '../components/chat-widget';
 import useKeyboardShortcut from './use-keyboard-shortcut';

@@ -523,6 +523,63 @@ class PostAbilitiesTest extends WP_UnitTestCase {
 		$this->assertArrayHasKey( 'status', $result );
 	}
 
+	// ─── affected payload (frontend live-preview bus, Phase 1 spike) ────
+
+	/**
+	 * Test handle_update_post returns an `affected` descriptor for the
+	 * frontend reflection bus when fields are changed. Fields list must
+	 * reflect exactly what the input mutated (post_title here).
+	 */
+	public function test_handle_update_post_returns_affected_payload() {
+		$post_id = $this->factory->post->create( [
+			'post_status' => 'publish',
+			'post_title'  => 'Original title',
+		] );
+
+		$result = PostAbilities::handle_update_post( [
+			'post_id' => $post_id,
+			'title'   => 'Updated title',
+		] );
+
+		$this->assertIsArray( $result );
+		$this->assertArrayHasKey( 'affected', $result );
+		$this->assertIsArray( $result['affected'] );
+		$this->assertSame( 'post', $result['affected']['kind'] );
+		$this->assertSame( $post_id, $result['affected']['post_id'] );
+		$this->assertSame( 'post', $result['affected']['post_type'] );
+		$this->assertNotEmpty( $result['affected']['url'] );
+		$this->assertContains( 'post_title', $result['affected']['fields'] );
+		$this->assertNotContains( 'post_content', $result['affected']['fields'] );
+	}
+
+	/**
+	 * Test that taxonomy + featured-image + meta inputs are reported in
+	 * `affected.fields` even though wp_update_post() does not touch them.
+	 */
+	public function test_handle_update_post_affected_lists_taxonomy_and_meta_fields() {
+		$post_id = $this->factory->post->create( [ 'post_status' => 'publish' ] );
+		$thumb   = $this->factory->attachment->create_upload_object(
+			DIR_TESTDATA . '/images/canola.jpg',
+			$post_id
+		);
+
+		$result = PostAbilities::handle_update_post( [
+			'post_id'           => $post_id,
+			'content'           => 'New body',
+			'tags'              => [ 'live-preview', 'spike' ],
+			'featured_image_id' => $thumb,
+			'meta'              => [ 'sd_test_key' => 'value' ],
+		] );
+
+		$this->assertIsArray( $result );
+		$this->assertArrayHasKey( 'affected', $result );
+		$fields = $result['affected']['fields'];
+		$this->assertContains( 'post_content', $fields );
+		$this->assertContains( 'tags', $fields );
+		$this->assertContains( 'featured_image', $fields );
+		$this->assertContains( 'meta', $fields );
+	}
+
 	// ─── block_validation save-time gate (GH#1584 follow-up) ────────
 
 	/**
