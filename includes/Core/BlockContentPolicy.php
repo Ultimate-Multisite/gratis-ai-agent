@@ -208,7 +208,7 @@ class BlockContentPolicy {
 		 *
 		 * @param array<string, int> $merged Merged scores (defaults + stored).
 		 */
-		return (array) apply_filters( self::OPTION_PREFERENCES, $merged );
+		return (array) apply_filters( 'sd_ai_agent_block_preferences', $merged );
 	}
 
 	/**
@@ -240,7 +240,7 @@ class BlockContentPolicy {
 		 *
 		 * @param array<string, string> $merged Merged replacement map.
 		 */
-		return (array) apply_filters( self::OPTION_REPLACEMENTS, $merged );
+		return (array) apply_filters( 'sd_ai_agent_block_replacements', $merged );
 	}
 
 	/**
