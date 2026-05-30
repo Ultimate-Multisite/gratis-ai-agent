@@ -277,6 +277,12 @@ class ContentAbilitiesTest extends WP_UnitTestCase {
 		$this->assertSame( 'Sales Inquiry', $form_data['settings']['form_title'] );
 		$this->assertSame( 'sales@example.test', $form_data['settings']['notifications']['1']['email'] );
 		$this->assertSame( 'Send Inquiry', $form_data['settings']['submit_text'] );
+		$this->assertArrayHasKey( 'affected', $result );
+		$this->assertSame( 'post', $result['affected']['kind'] );
+		$this->assertSame( $result['form_id'], $result['affected']['post_id'] );
+		$this->assertSame( 'wpforms', $result['affected']['post_type'] );
+		$this->assertNotEmpty( $result['affected']['url'] );
+		$this->assertContains( 'post_content', $result['affected']['fields'] );
 
 	}
 

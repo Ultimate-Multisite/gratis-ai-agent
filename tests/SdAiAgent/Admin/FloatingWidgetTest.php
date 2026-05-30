@@ -148,7 +148,7 @@ class FloatingWidgetTest extends WP_UnitTestCase {
 	}
 
 	/**
-	 * Test enqueue_assets_frontend() skips users without manage_options.
+	 * Test enqueue_assets_frontend() skips users without configured chat access.
 	 */
 	public function test_enqueue_assets_frontend_skips_non_admin(): void {
 		wp_set_current_user( $this->subscriber_id );

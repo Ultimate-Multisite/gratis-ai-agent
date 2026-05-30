@@ -176,6 +176,7 @@ class PostAbilities {
 						'permalink' => [ 'type' => 'string' ],
 						'status'    => [ 'type' => 'string' ],
 						'post_type' => [ 'type' => 'string' ],
+						'affected'  => self::affected_output_schema( 'post' ),
 					],
 				],
 				'meta'                => [
@@ -344,6 +345,7 @@ class PostAbilities {
 							'type'        => [ 'integer', 'null' ],
 							'description' => 'Latest revision ID after the write. null when the post has no revisions yet. Use as expected_revision for the next write.',
 						],
+						'affected'       => self::affected_output_schema( 'post' ),
 					],
 				],
 				'meta'                => [
@@ -616,6 +618,10 @@ class PostAbilities {
 						],
 						'created_count' => [ 'type' => 'integer' ],
 						'error_count'   => [ 'type' => 'integer' ],
+						'affected'      => [
+							'type'  => 'array',
+							'items' => self::affected_output_schema( 'post' ),
+						],
 					],
 				],
 				'meta'                => [
@@ -665,6 +671,7 @@ class PostAbilities {
 						'title'        => [ 'type' => 'string' ],
 						'action'       => [ 'type' => 'string' ],
 						'force_delete' => [ 'type' => 'boolean' ],
+						'affected'     => self::affected_output_schema( 'post' ),
 					],
 				],
 				'meta'                => [
@@ -713,6 +720,7 @@ class PostAbilities {
 						'post_id'           => [ 'type' => 'integer' ],
 						'featured_image_id' => [ 'type' => 'integer' ],
 						'result'            => [ 'type' => 'string' ],
+						'affected'          => self::affected_output_schema( 'post' ),
 					],
 				],
 				'meta'                => [
@@ -1308,6 +1316,8 @@ class PostAbilities {
 			$response['block_validation'] = $validation;
 		}
 
+		$response['affected'] = self::build_affected_payload( $post_id, $created_post, $permalink, $input, $post_data );
+
 		return $response;
 	}
 
@@ -1333,6 +1343,7 @@ class PostAbilities {
 		}
 
 		$results       = [];
+		$affected      = [];
 		$created_count = 0;
 		$error_count   = 0;
 
@@ -1362,6 +1373,9 @@ class PostAbilities {
 				];
 			} else {
 				++$created_count;
+				if ( isset( $result['affected'] ) && is_array( $result['affected'] ) ) {
+					$affected[] = $result['affected'];
+				}
 				$results[] = [
 					'post_id'   => $result['post_id'],
 					'permalink' => $result['permalink'],
@@ -1376,6 +1390,7 @@ class PostAbilities {
 			'results'       => $results,
 			'created_count' => $created_count,
 			'error_count'   => $error_count,
+			'affected'      => $affected,
 		];
 	}
 
@@ -1536,7 +1551,6 @@ class PostAbilities {
 			'status'      => $updated_post instanceof WP_Post ? $updated_post->post_status : '',
 			'post_type'   => $updated_post instanceof WP_Post ? $updated_post->post_type : '',
 			'revision_id' => RevisionGuard::current_revision_id( $post_id ),
-			'affected'    => self::build_affected_payload( $post_id, $updated_post, $permalink, $input, $post_data ),
 		];
 
 		// GH#1584 follow-up: re-validate after update so the model knows
@@ -1547,6 +1561,8 @@ class PostAbilities {
 				$response['block_validation'] = $validation;
 			}
 		}
+
+		$response['affected'] = self::build_affected_payload( $post_id, $updated_post, $permalink, $input, $post_data );
 
 		return $response;
 	}
@@ -1589,7 +1605,7 @@ class PostAbilities {
 		if ( isset( $input['tags'] ) && is_array( $input['tags'] ) ) {
 			$fields[] = 'tags';
 		}
-		if ( isset( $input['featured_image_id'] ) && (int) $input['featured_image_id'] > 0 ) {
+		if ( isset( $input['featured_image_id'] ) ) {
 			$fields[] = 'featured_image';
 		}
 		if ( isset( $input['page_template'] ) ) {
@@ -1716,6 +1732,7 @@ class PostAbilities {
 			'appended_bytes' => $appended_bytes,
 			'total_bytes'    => $total_bytes,
 			'revision_id'    => RevisionGuard::current_revision_id( $post_id ),
+			'affected'       => self::build_affected_payload( $post_id, get_post( $post_id ), $permalink, $input, [ 'post_content' => $new_content ] ),
 		];
 	}
 
@@ -1775,8 +1792,9 @@ class PostAbilities {
 			);
 		}
 
-		$title  = $post->post_title;
-		$result = wp_delete_post( $post_id, $force_delete );
+		$title     = $post->post_title;
+		$permalink = get_permalink( $post_id );
+		$result    = wp_delete_post( $post_id, $force_delete );
 
 		if ( $switched ) {
 			restore_current_blog();
@@ -1795,6 +1813,7 @@ class PostAbilities {
 			'title'        => $title,
 			'action'       => $force_delete ? 'permanently_deleted' : 'trashed',
 			'force_delete' => $force_delete,
+			'affected'     => self::build_affected_payload( $post_id, $post, $permalink, $input, [ 'post_status' => $force_delete ? 'deleted' : 'trash' ] ),
 		];
 	}
 
@@ -1869,6 +1888,33 @@ class PostAbilities {
 			'post_id'           => $post_id,
 			'featured_image_id' => $featured_image_id,
 			'result'            => $action,
+			'affected'          => self::build_affected_payload( $post_id, $post, get_permalink( $post_id ), $input, [] ),
+		];
+	}
+
+	/**
+	 * Build the output-schema fragment for post affected descriptors.
+	 *
+	 * @param string $kind Affected entity kind.
+	 * @return array<string, mixed>
+	 */
+	private static function affected_output_schema( string $kind ): array {
+		return [
+			'type'        => 'object',
+			'description' => 'Transport descriptor for the frontend reflection bus — identifies the entity, its public URL, and which fields changed so the client can refresh the visible page without a full reload.',
+			'properties'  => [
+				'kind'      => [
+					'type' => 'string',
+					'enum' => [ $kind ],
+				],
+				'post_id'   => [ 'type' => 'integer' ],
+				'post_type' => [ 'type' => 'string' ],
+				'url'       => [ 'type' => 'string' ],
+				'fields'    => [
+					'type'  => 'array',
+					'items' => [ 'type' => 'string' ],
+				],
+			],
 		];
 	}
 

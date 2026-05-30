@@ -8,6 +8,7 @@
 
 import bus from '../../store/reflection-bus';
 import { showFallbackToast } from './fallback-toast';
+import { reflectGlobalStyles } from './global-styles';
 import { reflectMenu } from './menu';
 import { reflectPost } from './post';
 
@@ -19,6 +20,9 @@ bus.on( ( event ) => {
 	switch ( event.affected.kind ) {
 		case 'post':
 			reflectPost( event );
+			break;
+		case 'global_styles':
+			reflectGlobalStyles( event );
 			break;
 		case 'menu':
 			reflectMenu( event );

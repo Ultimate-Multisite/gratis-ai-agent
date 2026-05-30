@@ -209,4 +209,24 @@ class MediaAbilitiesTest extends WP_UnitTestCase {
 		$this->assertSame( $attachment_id, $result['attachment_id'] );
 		$this->assertTrue( $result['deleted'] );
 	}
+
+	/**
+	 * Test handle_delete_media returns an affected descriptor.
+	 */
+	public function test_handle_delete_media_returns_affected_payload() {
+		$attachment_id = $this->factory->attachment->create( [
+			'post_title'     => 'Affected Deletable Image',
+			'post_mime_type' => 'image/jpeg',
+			'post_status'    => 'inherit',
+		] );
+
+		$result = MediaAbilities::handle_delete_media( [ 'attachment_id' => $attachment_id ] );
+
+		$this->assertIsArray( $result );
+		$this->assertArrayHasKey( 'affected', $result );
+		$this->assertSame( 'media', $result['affected']['kind'] );
+		$this->assertSame( $attachment_id, $result['affected']['post_id'] );
+		$this->assertArrayHasKey( 'url', $result['affected'] );
+		$this->assertContains( 'deleted', $result['affected']['fields'] );
+	}
 }

@@ -132,6 +132,7 @@ class MediaAbilities {
 						'title'         => [ 'type' => 'string' ],
 						'mime_type'     => [ 'type' => 'string' ],
 						'file_size'     => [ 'type' => 'integer' ],
+						'affected'      => self::affected_output_schema(),
 					],
 				],
 				'meta'                => [
@@ -176,6 +177,7 @@ class MediaAbilities {
 						'attachment_id' => [ 'type' => 'integer' ],
 						'title'         => [ 'type' => 'string' ],
 						'deleted'       => [ 'type' => 'boolean' ],
+						'affected'      => self::affected_output_schema(),
 					],
 				],
 				'meta'                => [
@@ -442,6 +444,7 @@ class MediaAbilities {
 			'title'         => $title,
 			'mime_type'     => $mime_type,
 			'file_size'     => $file_size,
+			'affected'      => self::build_affected_payload( $attachment_id, $attachment_url, [ 'attachment', 'post_title', 'post_excerpt', 'post_content', 'alt_text' ] ),
 		];
 	}
 
@@ -489,8 +492,9 @@ class MediaAbilities {
 			);
 		}
 
-		$title  = $attachment->post_title;
-		$result = wp_delete_attachment( $attachment_id, true );
+		$title          = $attachment->post_title;
+		$attachment_url = wp_get_attachment_url( $attachment_id ) ?: '';
+		$result         = wp_delete_attachment( $attachment_id, true );
 
 		if ( $switched ) {
 			restore_current_blog();
@@ -517,6 +521,48 @@ class MediaAbilities {
 			'attachment_id' => $attachment_id,
 			'title'         => $title,
 			'deleted'       => (bool) $result,
+			'affected'      => self::build_affected_payload( $attachment_id, $attachment_url, [ 'deleted' ] ),
+		];
+	}
+
+	/**
+	 * Build affected descriptor schema for media mutations.
+	 *
+	 * @return array<string, mixed>
+	 */
+	private static function affected_output_schema(): array {
+		return [
+			'type'        => 'object',
+			'description' => 'Transport descriptor for the frontend reflection bus identifying the changed media attachment.',
+			'properties'  => [
+				'kind'    => [
+					'type' => 'string',
+					'enum' => [ 'media' ],
+				],
+				'post_id' => [ 'type' => 'integer' ],
+				'url'     => [ 'type' => 'string' ],
+				'fields'  => [
+					'type'  => 'array',
+					'items' => [ 'type' => 'string' ],
+				],
+			],
+		];
+	}
+
+	/**
+	 * Build affected descriptor for media mutations.
+	 *
+	 * @param int      $attachment_id Attachment post ID.
+	 * @param string   $url           Attachment URL.
+	 * @param string[] $fields        Mutated fields.
+	 * @return array<string, mixed>
+	 */
+	public static function build_affected_payload( int $attachment_id, string $url, array $fields ): array {
+		return [
+			'kind'    => 'media',
+			'post_id' => $attachment_id,
+			'url'     => $url,
+			'fields'  => array_values( array_unique( $fields ) ),
 		];
 	}
 }

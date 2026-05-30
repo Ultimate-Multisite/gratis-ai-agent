@@ -72,4 +72,4 @@ jobs:
           ls -la build/
 
       - name: Check bundle size budgets
-        run: npm run size
+        run: npm run check:bundle

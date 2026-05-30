@@ -518,7 +518,7 @@ class UploadMediaAbilityTest extends WP_UnitTestCase {
 			return;
 		}
 
-		$required_keys = [ 'attachment_id', 'url', 'mime_type', 'filesize_bytes', 'width', 'height', 'source' ];
+		$required_keys = [ 'attachment_id', 'url', 'mime_type', 'filesize_bytes', 'width', 'height', 'source', 'affected' ];
 		foreach ( $required_keys as $key ) {
 			$this->assertArrayHasKey( $key, $result, "Missing response key: {$key}" );
 		}
@@ -529,6 +529,10 @@ class UploadMediaAbilityTest extends WP_UnitTestCase {
 		$this->assertIsInt( $result['width'] );
 		$this->assertIsInt( $result['height'] );
 		$this->assertIsString( $result['source'] );
+		$this->assertSame( 'media', $result['affected']['kind'] );
+		$this->assertSame( $result['attachment_id'], $result['affected']['post_id'] );
+		$this->assertNotEmpty( $result['affected']['url'] );
+		$this->assertContains( 'attachment', $result['affected']['fields'] );
 
 		// Clean up.
 		wp_delete_attachment( $result['attachment_id'], true );

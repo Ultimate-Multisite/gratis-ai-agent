@@ -580,6 +580,97 @@ class PostAbilitiesTest extends WP_UnitTestCase {
 		$this->assertContains( 'meta', $fields );
 	}
 
+	/**
+	 * Test handle_create_post returns an affected descriptor.
+	 */
+	public function test_handle_create_post_returns_affected_payload() {
+		$result = PostAbilities::handle_create_post( [
+			'title'   => 'Affected create',
+			'content' => 'Created body',
+			'status'  => 'publish',
+		] );
+
+		$this->assertIsArray( $result );
+		$this->assertArrayHasKey( 'affected', $result );
+		$this->assertSame( 'post', $result['affected']['kind'] );
+		$this->assertSame( $result['post_id'], $result['affected']['post_id'] );
+		$this->assertNotEmpty( $result['affected']['url'] );
+		$this->assertContains( 'post_content', $result['affected']['fields'] );
+	}
+
+	/**
+	 * Test handle_append_post_content returns an affected descriptor.
+	 */
+	public function test_handle_append_post_content_returns_affected_payload() {
+		$post_id = $this->factory->post->create( [ 'post_status' => 'publish' ] );
+
+		$result = PostAbilities::handle_append_post_content( [
+			'post_id' => $post_id,
+			'content' => '<!-- wp:paragraph --><p>New section.</p><!-- /wp:paragraph -->',
+		] );
+
+		$this->assertIsArray( $result );
+		$this->assertArrayHasKey( 'affected', $result );
+		$this->assertSame( 'post', $result['affected']['kind'] );
+		$this->assertSame( $post_id, $result['affected']['post_id'] );
+		$this->assertNotEmpty( $result['affected']['url'] );
+		$this->assertContains( 'post_content', $result['affected']['fields'] );
+	}
+
+	/**
+	 * Test handle_batch_create_posts returns affected descriptors for successes.
+	 */
+	public function test_handle_batch_create_posts_returns_affected_payload() {
+		$result = PostAbilities::handle_batch_create_posts( [
+			'posts' => [
+				[ 'title' => 'Affected batch one' ],
+				[ 'title' => 'Affected batch two' ],
+			],
+		] );
+
+		$this->assertIsArray( $result );
+		$this->assertArrayHasKey( 'affected', $result );
+		$this->assertCount( 2, $result['affected'] );
+		$this->assertSame( 'post', $result['affected'][0]['kind'] );
+		$this->assertNotEmpty( $result['affected'][0]['url'] );
+		$this->assertContains( 'post_title', $result['affected'][0]['fields'] );
+	}
+
+	/**
+	 * Test handle_delete_post returns an affected descriptor.
+	 */
+	public function test_handle_delete_post_returns_affected_payload() {
+		$post_id = $this->factory->post->create( [ 'post_status' => 'publish' ] );
+
+		$result = PostAbilities::handle_delete_post( [ 'post_id' => $post_id ] );
+
+		$this->assertIsArray( $result );
+		$this->assertArrayHasKey( 'affected', $result );
+		$this->assertSame( 'post', $result['affected']['kind'] );
+		$this->assertSame( $post_id, $result['affected']['post_id'] );
+		$this->assertNotEmpty( $result['affected']['url'] );
+		$this->assertContains( 'post_status', $result['affected']['fields'] );
+	}
+
+	/**
+	 * Test handle_set_featured_image returns an affected descriptor.
+	 */
+	public function test_handle_set_featured_image_returns_affected_payload() {
+		$post_id = $this->factory->post->create( [ 'post_status' => 'publish' ] );
+
+		$result = PostAbilities::handle_set_featured_image( [
+			'post_id'           => $post_id,
+			'featured_image_id' => 0,
+		] );
+
+		$this->assertIsArray( $result );
+		$this->assertArrayHasKey( 'affected', $result );
+		$this->assertSame( 'post', $result['affected']['kind'] );
+		$this->assertSame( $post_id, $result['affected']['post_id'] );
+		$this->assertNotEmpty( $result['affected']['url'] );
+		$this->assertContains( 'featured_image', $result['affected']['fields'] );
+	}
+
 	// ─── block_validation save-time gate (GH#1584 follow-up) ────────
 
 	/**
