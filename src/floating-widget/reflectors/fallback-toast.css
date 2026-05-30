@@ -1,0 +1,56 @@
+.sd-ai-agent-fallback-toast {
+	align-items: center;
+	background: #1e1e1e;
+	border-radius: 8px;
+	bottom: 88px;
+	box-shadow: 0 8px 24px rgba(0, 0, 0, 0.24);
+	color: #fff;
+	display: flex;
+	font-size: 13px;
+	gap: 10px;
+	line-height: 1.4;
+	max-width: min(360px, calc(100vw - 48px));
+	padding: 12px 14px;
+	position: fixed;
+	right: 24px;
+	z-index: 999999;
+}
+
+.sd-ai-agent-fallback-toast__msg {
+	flex: 1 1 auto;
+}
+
+.sd-ai-agent-fallback-toast__reload,
+.sd-ai-agent-fallback-toast__dismiss {
+	appearance: none;
+	border: 0;
+	cursor: pointer;
+	font: inherit;
+}
+
+.sd-ai-agent-fallback-toast__reload {
+	background: #fff;
+	border-radius: 6px;
+	color: #1e1e1e;
+	font-weight: 600;
+	padding: 6px 10px;
+}
+
+.sd-ai-agent-fallback-toast__dismiss {
+	align-items: center;
+	background: transparent;
+	color: #fff;
+	display: inline-flex;
+	font-size: 20px;
+	height: 28px;
+	justify-content: center;
+	line-height: 1;
+	padding: 0;
+	width: 28px;
+}
+
+.sd-ai-agent-fallback-toast__reload:focus-visible,
+.sd-ai-agent-fallback-toast__dismiss:focus-visible {
+	outline: 2px solid #72aee6;
+	outline-offset: 2px;
+}
