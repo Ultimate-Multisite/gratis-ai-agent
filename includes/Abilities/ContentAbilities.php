@@ -167,6 +167,7 @@ class ContentAbilities {
 						'block'     => [ 'type' => 'string' ],
 						'form_id'   => [ 'type' => 'integer' ],
 						'message'   => [ 'type' => 'string' ],
+						'affected'  => self::affected_output_schema(),
 					],
 				],
 				'meta'                => [
@@ -511,6 +512,51 @@ class ContentAbilities {
 			'block'     => '<!-- wp:shortcode -->' . "\n" . $shortcode . "\n" . '<!-- /wp:shortcode -->',
 			'form_id'   => $form_id,
 			'message'   => __( 'WPForms Lite form created; insert the shortcode block into page content and verify the frontend renders the form.', 'superdav-ai-agent' ),
+			'affected'  => self::build_affected_payload( $form_id, [ 'post_title', 'post_content', 'meta' ] ),
+		];
+	}
+
+	/**
+	 * Build affected descriptor schema for contact-form content mutations.
+	 *
+	 * @return array<string, mixed>
+	 */
+	private static function affected_output_schema(): array {
+		return [
+			'type'        => 'object',
+			'description' => 'Transport descriptor for the frontend reflection bus identifying a created form post when the active form provider stores one.',
+			'properties'  => [
+				'kind'      => [
+					'type' => 'string',
+					'enum' => [ 'post' ],
+				],
+				'post_id'   => [ 'type' => 'integer' ],
+				'post_type' => [ 'type' => 'string' ],
+				'url'       => [ 'type' => 'string' ],
+				'fields'    => [
+					'type'  => 'array',
+					'items' => [ 'type' => 'string' ],
+				],
+			],
+		];
+	}
+
+	/**
+	 * Build affected descriptor for created form posts.
+	 *
+	 * @param int      $post_id Created form post ID.
+	 * @param string[] $fields  Mutated fields.
+	 * @return array<string, mixed>
+	 */
+	private static function build_affected_payload( int $post_id, array $fields ): array {
+		$post = get_post( $post_id );
+
+		return [
+			'kind'      => 'post',
+			'post_id'   => $post_id,
+			'post_type' => $post instanceof \WP_Post ? $post->post_type : '',
+			'url'       => get_permalink( $post_id ) ?: home_url( '/' ),
+			'fields'    => array_values( array_unique( $fields ) ),
 		];
 	}
 
