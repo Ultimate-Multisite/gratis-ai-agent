@@ -135,31 +135,45 @@ class OnboardingManagerThemeBuilderTest extends WP_UnitTestCase {
 	}
 
 	/**
-	 * rest_theme_builder_start() does NOT mark onboarding complete.
+	 * rest_theme_builder_start() marks onboarding complete (t276 change).
+	 *
+	 * In the unified-agent world there is no separate "bootstrap discovery"
+	 * flow that runs after theme-builder. Once the user has been through
+	 * the fast-build path they are done with onboarding and the React
+	 * admin-page must stop re-mounting the onboarding bootstrappers.
+	 *
+	 * Previously this test asserted the opposite (the legacy contract
+	 * deferred completion so users could still run the bootstrap flow
+	 * after building a theme — that distinction no longer exists).
 	 */
-	public function test_rest_theme_builder_start_does_not_mark_onboarding_complete(): void {
+	public function test_rest_theme_builder_start_marks_onboarding_complete(): void {
 		$admin_id = self::factory()->user->create( [ 'role' => 'administrator' ] );
 		wp_set_current_user( $admin_id );
 
 		OnboardingManager::rest_theme_builder_start();
 
-		// The COMPLETE_OPTION should NOT be set.
-		$this->assertFalse( (bool) get_option( OnboardingManager::COMPLETE_OPTION ) );
+		// The COMPLETE_OPTION must be set so the React gate stops firing.
+		$this->assertTrue( (bool) get_option( OnboardingManager::COMPLETE_OPTION ) );
 	}
 
 	/**
-	 * rest_theme_builder_start() does NOT set onboarding_complete in Settings.
+	 * rest_theme_builder_start() sets onboarding_complete in Settings (t276 change).
+	 *
+	 * Companion to the test above — both persistence layers must agree
+	 * because the React admin-page reads from Settings while
+	 * OnboardingManager::is_complete() reads from COMPLETE_OPTION.
 	 */
-	public function test_rest_theme_builder_start_does_not_set_settings_onboarding_complete(): void {
+	public function test_rest_theme_builder_start_sets_settings_onboarding_complete(): void {
 		$admin_id = self::factory()->user->create( [ 'role' => 'administrator' ] );
 		wp_set_current_user( $admin_id );
 
 		OnboardingManager::rest_theme_builder_start();
 
-		// The Settings store should NOT have onboarding_complete set.
+		// The Settings store must have onboarding_complete set so the React
+		// admin-page renders the normal ChatRedesign on next mount.
 		$settings = \SdAiAgent\Core\Settings::instance();
 		$all      = $settings->get();
-		$this->assertEmpty( $all['onboarding_complete'] ?? null );
+		$this->assertTrue( (bool) ( $all['onboarding_complete'] ?? false ) );
 	}
 
 	/**

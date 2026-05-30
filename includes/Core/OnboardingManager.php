@@ -354,6 +354,11 @@ class OnboardingManager {
 		$onboarding_agent    = Agent::get_by_slug( Agent::ONBOARDING_AGENT_SLUG );
 		$onboarding_agent_id = $onboarding_agent ? (int) $onboarding_agent->id : 0;
 
+		// The established-site kickoff. The unified Setup Assistant prompt
+		// (see Agent::build_setup_assistant_prompt) runs its silent Phase 0
+		// discovery before responding to this kickoff, then returns a 2-4
+		// sentence summary + suggestion chips. We deliberately pass a neutral
+		// kickoff that lets the agent's own prompt drive the discovery path.
 		$kickoff_message = __(
 			"Hi! I just set up this plugin and I'm ready to get started.",
 			'superdav-ai-agent'
@@ -480,14 +485,25 @@ class OnboardingManager {
 		$settings = Settings::instance();
 		$all      = $settings->get();
 
-		// Resolve the theme-builder agent so the frontend can attach it to
-		// the theme-builder session. The agent's stored system prompt is the
-		// canonical source of truth — no parallel theme-builder prompt is needed.
-		$theme_builder_agent    = Agent::get_by_slug( Agent::THEME_BUILDER_AGENT_SLUG );
-		$theme_builder_agent_id = $theme_builder_agent ? (int) $theme_builder_agent->id : 0;
+		// As of t276 the empty-install onboarding branch uses the unified
+		// Setup Assistant agent (which runs the same fast-build path as the
+		// legacy Theme Builder, plus content-aware branching on resume).
+		// Falling back to the Theme Builder agent if the Setup Assistant
+		// row is missing preserves back-compat on installs that explicitly
+		// deleted the onboarding agent.
+		$onboarding_agent       = Agent::get_by_slug( Agent::ONBOARDING_AGENT_SLUG );
+		$theme_builder_agent_id = $onboarding_agent ? (int) $onboarding_agent->id : 0;
 
+		if ( 0 === $theme_builder_agent_id ) {
+			$theme_builder_agent    = Agent::get_by_slug( Agent::THEME_BUILDER_AGENT_SLUG );
+			$theme_builder_agent_id = $theme_builder_agent ? (int) $theme_builder_agent->id : 0;
+		}
+
+		// Empty-install kickoff. Matches the Setup Assistant's Phase 1
+		// "Capture (one warm turn)" expectation — the agent's stored
+		// system prompt drives the rest of the build conversation.
 		$kickoff_message = __(
-			"I'd like to design a custom block theme for my site. Please start the interview.",
+			"Hi! I'm ready when you are — tell me what you're building (a name and a one-line description is plenty) and I'll have a homepage live in a couple of minutes.",
 			'superdav-ai-agent'
 		);
 
@@ -531,6 +547,17 @@ class OnboardingManager {
 		}
 
 		$session_id = Database::create_session( $session_data );
+
+		// Mark onboarding complete so the React admin-page stops re-mounting
+		// the onboarding bootstrappers. The unified agent handles the rest
+		// of the conversation through normal chat — there is no separate
+		// "after onboarding" state to gate on.
+		if ( $session_id ) {
+			self::mark_complete();
+			if ( empty( $all['onboarding_complete'] ) ) {
+				$settings->update( [ 'onboarding_complete' => true ] );
+			}
+		}
 
 		if ( ! $session_id ) {
 			return new \WP_Error(
