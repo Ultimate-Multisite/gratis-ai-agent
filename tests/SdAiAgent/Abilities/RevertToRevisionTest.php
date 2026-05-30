@@ -41,6 +41,13 @@ class RevertToRevisionTest extends WP_UnitTestCase {
 	private int $admin_id;
 
 	/**
+	 * Post IDs created during the current test.
+	 *
+	 * @var int[]
+	 */
+	private array $created_post_ids = [];
+
+	/**
 	 * Set up an administrator user context before each test.
 	 */
 	public function set_up(): void {
@@ -54,6 +61,11 @@ class RevertToRevisionTest extends WP_UnitTestCase {
 	 * Restore user context after each test.
 	 */
 	public function tear_down(): void {
+		foreach ( array_reverse( $this->created_post_ids ) as $post_id ) {
+			wp_delete_post( $post_id, true );
+		}
+
+		$this->created_post_ids = [];
 		wp_set_current_user( 0 );
 		parent::tear_down();
 	}
@@ -84,6 +96,7 @@ class RevertToRevisionTest extends WP_UnitTestCase {
 
 		$this->assertIsInt( $post_id );
 		$this->assertGreaterThan( 0, $post_id );
+		$this->created_post_ids[] = $post_id;
 
 		return $post_id;
 	}

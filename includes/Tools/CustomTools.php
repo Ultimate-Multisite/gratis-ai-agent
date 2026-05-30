@@ -420,6 +420,11 @@ class CustomTools {
 			if ( ! $cli_enabled && self::TYPE_CLI === $example['type'] ) {
 				continue;
 			}
+
+			if ( self::get_by_slug( (string) $example['slug'] ) ) {
+				continue;
+			}
+
 			self::create( $example );
 		}
 

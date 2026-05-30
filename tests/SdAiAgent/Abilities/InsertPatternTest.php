@@ -47,31 +47,44 @@ class InsertPatternTest extends WP_UnitTestCase {
 	public function set_up(): void {
 		parent::set_up();
 
+		$this->unregister_all_block_patterns();
+
 		// Create an admin user and set as current user for capability checks.
 		$admin_id = self::factory()->user->create( [ 'role' => 'administrator' ] );
 		wp_set_current_user( $admin_id );
 
 		// Register a test pattern for all tests.
-		if ( ! \WP_Block_Patterns_Registry::get_instance()->is_registered( self::TEST_PATTERN ) ) {
-			register_block_pattern(
-				self::TEST_PATTERN,
-				[
-					'title'   => 'Insert Test Pattern',
-					'content' => '<!-- wp:quote --><blockquote class="wp-block-quote"><p>Test quote</p></blockquote><!-- /wp:quote -->',
-				]
-			);
-		}
+		register_block_pattern(
+			self::TEST_PATTERN,
+			[
+				'title'   => 'Insert Test Pattern',
+				'content' => '<!-- wp:quote --><blockquote class="wp-block-quote"><p>Test quote</p></blockquote><!-- /wp:quote -->',
+			]
+		);
 	}
 
 	/**
 	 * Clean up test fixtures.
 	 */
 	public function tear_down(): void {
-		if ( \WP_Block_Patterns_Registry::get_instance()->is_registered( self::TEST_PATTERN ) ) {
-			unregister_block_pattern( self::TEST_PATTERN );
-		}
+		$this->unregister_all_block_patterns();
 
 		parent::tear_down();
+	}
+
+	/**
+	 * Remove all process-global block patterns so each test starts isolated.
+	 */
+	private function unregister_all_block_patterns(): void {
+		$registry = \WP_Block_Patterns_Registry::get_instance();
+
+		foreach ( $registry->get_all_registered() as $pattern_name => $pattern ) {
+			if ( is_int( $pattern_name ) && is_array( $pattern ) && isset( $pattern['name'] ) ) {
+				$pattern_name = $pattern['name'];
+			}
+
+			unregister_block_pattern( $pattern_name );
+		}
 	}
 
 	// ── Helpers ────────────────────────────────────────────────────────────
