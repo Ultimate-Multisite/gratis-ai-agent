@@ -138,6 +138,22 @@
 /test-results
 /skills-lock.json
 
+# Temporary issue-specific dev notes (root *.md files). Listed individually
+# so future ISSUE_*.md scratch notes get added here, not silently shipped.
+/ISSUE_1497_FIX.md
+
+# Editor / agent runtime scratch directories — contain node_modules and
+# session state that must never reach the GitHub release or WP.org zip.
+/.opencode
+/.claude
+/.cursor
+
+# Repository-only dev tooling. The /tools tree holds one-off audit and
+# maintenance scripts (e.g. tools/audit/schema-type-audit.php) — none of it
+# is loaded by the plugin runtime. Distinct from the /sd-ai-agent/tools/
+# REST resource implemented by includes/REST/ToolController.php.
+/tools
+
 # Playwright artefacts (top-level only)
 /playwright-report
 /blob-report
