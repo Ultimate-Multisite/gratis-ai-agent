@@ -246,8 +246,9 @@ class AgentThemeBuilderTest extends WP_UnitTestCase {
 	}
 
 	/**
-	 * The system_prompt references the skills and contract keywords required
-	 * by the issue acceptance criteria.
+	 * The system_prompt references the skills and the unified-agent phase
+	 * contract introduced in t276 (Phase 1 Capture / Phase 2 Build /
+	 * Phase 3 Follow-up — the legacy Phase 4 was merged into Phase 2).
 	 */
 	public function test_system_prompt_references_required_skills_and_contract(): void {
 		Agent::seed_defaults();
@@ -267,16 +268,18 @@ class AgentThemeBuilderTest extends WP_UnitTestCase {
 			$prompt,
 			'system_prompt must reference the wp-block-themes skill'
 		);
-		// The 4-phase contract: all four phase headings must appear.
-		$this->assertStringContainsString( 'Phase 1', $prompt, 'system_prompt must define Phase 1 (Interview)' );
-		$this->assertStringContainsString( 'Phase 2', $prompt, 'system_prompt must define Phase 2 (Designs)' );
-		$this->assertStringContainsString( 'Phase 3', $prompt, 'system_prompt must define Phase 3 (Choose)' );
-		$this->assertStringContainsString( 'Phase 4', $prompt, 'system_prompt must define Phase 4 (Build)' );
-		// No-stock-images rule.
+		// The unified 3-phase contract (t276): Phase 1 (Capture), Phase 2
+		// (Build the homepage), Phase 3 (Follow-up loop). Legacy Phase 4
+		// was merged into Phase 2.
+		$this->assertStringContainsString( 'Phase 1', $prompt, 'system_prompt must define Phase 1 (Capture)' );
+		$this->assertStringContainsString( 'Phase 2', $prompt, 'system_prompt must define Phase 2 (Build the homepage)' );
+		$this->assertStringContainsString( 'Phase 3', $prompt, 'system_prompt must define Phase 3 (Follow-up loop)' );
+		// Stock-imagery flow must be referenced (use sd-ai-agent/stock-image
+		// with action: import — never an external URL in a theme file).
 		$this->assertStringContainsString(
-			'stock image',
+			'stock-image',
 			strtolower( $prompt ),
-			'system_prompt must include the no-stock-images rule'
+			'system_prompt must reference the stock-image flow'
 		);
 	}
 
@@ -343,7 +346,11 @@ class AgentThemeBuilderTest extends WP_UnitTestCase {
 
 	/**
 	 * The system_prompt includes the page-creation prerequisite self-check
-	 * required by issue #1526 section 2.
+	 * required by issue #1526 section 2. Updated for t276: the unified
+	 * prompt enforces the prerequisite check on every create-post call
+	 * EXCEPT the initial empty-install homepage (which is allowed to ship
+	 * with safe inferred copy because the user opted into the fast-build
+	 * path and refines it through Phase 3 follow-up chips).
 	 */
 	public function test_system_prompt_encodes_page_creation_prerequisite_check(): void {
 		Agent::seed_defaults();
@@ -374,9 +381,11 @@ class AgentThemeBuilderTest extends WP_UnitTestCase {
 	}
 
 	/**
-	 * The system_prompt is vertical-aware: it includes question packs for
-	 * the major verticals named in issue #1526 (café/restaurant, retail/shop,
-	 * service business, portfolio, blog, event venue).
+	 * The system_prompt is vertical-aware: it lists the supported verticals
+	 * so the model can pick sensible defaults during Phase 1 inference.
+	 * As of t276 per-vertical question packs are deferred to Phase 3
+	 * follow-up chips — the prompt itself enumerates the verticals and
+	 * delegates depth to the `site-specification` skill.
 	 */
 	public function test_system_prompt_is_vertical_aware(): void {
 		Agent::seed_defaults();
@@ -386,7 +395,7 @@ class AgentThemeBuilderTest extends WP_UnitTestCase {
 
 		$prompt_lower = strtolower( $agent->system_prompt );
 
-		// Each key vertical type must appear in the interview question pack.
+		// Each key vertical type must appear in the supported-verticals list.
 		$verticals = [
 			'café',
 			'restaurant',
@@ -402,17 +411,17 @@ class AgentThemeBuilderTest extends WP_UnitTestCase {
 				$vertical,
 				$prompt_lower,
 				sprintf(
-					'system_prompt must include interview questions for the "%s" vertical',
+					'system_prompt must list "%s" in the supported verticals',
 					$vertical
 				)
 			);
 		}
 
-		// The interview expansion label must be present.
+		// The unified prompt must describe itself as vertical-aware.
 		$this->assertStringContainsString(
 			'vertical-aware',
 			$prompt_lower,
-			'system_prompt must describe itself as vertical-aware in Phase 1'
+			'system_prompt must describe itself as vertical-aware'
 		);
 	}
 
@@ -436,8 +445,13 @@ class AgentThemeBuilderTest extends WP_UnitTestCase {
 	}
 
 	/**
-	 * The system_prompt instructs the agent to ask structured menu questions
-	 * for hospitality verticals (issue #1531 acceptance criterion).
+	 * The system_prompt instructs the agent to run a structured menu
+	 * interview for hospitality verticals (issue #1531 acceptance
+	 * criterion). As of t276 the literal interview script is delegated to
+	 * the Phase 3 "Add menu page" follow-up chip, but the prompt must
+	 * still describe the structured shape (categories → items + prices →
+	 * optional descriptions / dietary tags / PDF URL) and forbid prose
+	 * menus.
 	 */
 	public function test_system_prompt_contains_structured_menu_interview_questions(): void {
 		Agent::seed_defaults();
@@ -447,32 +461,28 @@ class AgentThemeBuilderTest extends WP_UnitTestCase {
 
 		$prompt_lower = strtolower( $agent->system_prompt );
 
-		// The interview must ask for menu categories as a list.
+		// Phase 3 chip must describe the structured menu interview shape.
 		$this->assertStringContainsString(
-			'what categories does your menu have',
+			'categories',
 			$prompt_lower,
-			'system_prompt must ask "What categories does your menu have?"'
+			'system_prompt must reference menu categories in the Phase 3 menu chip'
 		);
-
-		// The interview must ask for items and prices per category.
 		$this->assertStringContainsString(
-			'list the items',
+			'prices',
 			$prompt_lower,
-			'system_prompt must ask to list items with prices per category'
+			'system_prompt must reference per-item prices in the Phase 3 menu chip'
 		);
-
-		// The interview must ask about dietary tags.
+		// Dietary tags remain part of the structured menu interview.
 		$this->assertStringContainsString(
 			'dietary',
 			$prompt_lower,
-			'system_prompt must ask about dietary tags (V, VG, GF, etc.)'
+			'system_prompt must reference dietary tags in the Phase 3 menu chip'
 		);
-
-		// The interview must ask about allergens.
+		// Menu prose is explicitly banned in the hard rules.
 		$this->assertStringContainsString(
-			'allergen',
+			'never write the menu as prose',
 			$prompt_lower,
-			'system_prompt must ask about allergen information'
+			'system_prompt must ban writing the menu as prose'
 		);
 	}
 
@@ -507,7 +517,7 @@ class AgentThemeBuilderTest extends WP_UnitTestCase {
 
 		// The prompt must forbid writing the menu as prose.
 		$this->assertStringContainsString(
-			'not prose',
+			'as prose',
 			$prompt_lower,
 			'system_prompt must ban writing the menu as prose'
 		);
@@ -515,7 +525,8 @@ class AgentThemeBuilderTest extends WP_UnitTestCase {
 
 	/**
 	 * The system_prompt includes the PDF menu preference question
-	 * (issue #1531 Caveats section).
+	 * (issue #1531 Caveats section). As of t276 it lives in the Phase 3
+	 * "Add menu page" chip description rather than the Phase 1 interview.
 	 */
 	public function test_system_prompt_asks_about_pdf_menu_preference(): void {
 		Agent::seed_defaults();
@@ -528,7 +539,7 @@ class AgentThemeBuilderTest extends WP_UnitTestCase {
 		$this->assertStringContainsString(
 			'pdf',
 			$prompt_lower,
-			'system_prompt must ask about downloadable PDF menu preference'
+			'system_prompt must mention downloadable PDF menu support'
 		);
 	}
 

@@ -15,26 +15,32 @@ import ChatRedesign from './chat-redesign';
 import './onboarding-theme-builder.css';
 
 /**
- * Onboarding theme-builder component — shown when the user chose
- * "Design a custom theme" in the onboarding mode picker.
+ * Onboarding component for the empty-install branch — shown when a connector
+ * is configured for the first time and the site has no real published content
+ * yet (default seed posts only).
  *
  * Calls POST /onboarding/theme-builder-start to:
- *  1. Create a new session and resolve the Theme Builder agent_id.
+ *  1. Create a new session and resolve the unified Setup Assistant agent_id
+ *     (as of t276 the endpoint routes to the Setup Assistant agent, which
+ *     mirrors the legacy Theme Builder's fast-build behaviour. The legacy
+ *     Theme Builder agent row is kept as a back-compat fallback for installs
+ *     that explicitly deleted the onboarding agent).
  *  2. Return an `is_fresh_start` boolean indicating whether the server just
  *     created the session (true) or returned an existing one for resume
  *     (false). This is the authoritative signal — the `started_at`
  *     timestamp is also returned but MUST NOT be used to drive kickoff
  *     because both branches return a truthy timestamp (see #1522).
  *
- * On first call (is_fresh_start=true), the component selects the Theme Builder
- * agent and auto-sends a kickoff message. On subsequent calls (is_fresh_start
- * =false), the component skips the kickoff to prevent duplicate messages on
- * reload.
+ * On first call (is_fresh_start=true), the component selects the resolved
+ * agent and auto-sends a kickoff message that matches Phase 1 of the unified
+ * Setup Assistant prompt (one warm capture turn). On subsequent calls
+ * (is_fresh_start=false), the component skips the kickoff to prevent duplicate
+ * messages on reload.
  *
- * The agent's stored system prompt drives the design-theme conversational flow
- * — no parallel onboarding prompt exists.
+ * The agent's stored system prompt drives the conversational flow — no
+ * parallel onboarding prompt exists.
  *
- * @return {JSX.Element} The onboarding theme-builder element.
+ * @return {JSX.Element} The onboarding empty-install element.
  */
 export default function OnboardingThemeBuilder() {
 	const { openSession, sendMessage, setSelectedAgentId } =
@@ -79,7 +85,7 @@ export default function OnboardingThemeBuilder() {
 							sendMessage(
 								data.kickoff_message ||
 									__(
-										"Hello! I'm ready to help you design a custom theme for your WordPress site. Let's start by discussing your vision — what style, colours, and feel are you aiming for?",
+										"Hi! I'm ready when you are — tell me what you're building (a name and a one-line description is plenty) and I'll have a homepage live in a couple of minutes.",
 										'superdav-ai-agent'
 									)
 							);

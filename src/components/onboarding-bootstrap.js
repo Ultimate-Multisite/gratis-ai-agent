@@ -14,16 +14,19 @@ import ChatRedesign from './chat-redesign';
 
 /**
  * Onboarding bootstrap component — shown after a connector is configured
- * for the first time.
+ * for the first time on an install that already has published content
+ * (established-site branch).
  *
  * Calls POST /onboarding/bootstrap-start to:
  *  1. Mark onboarding as complete on the server.
  *  2. Auto-detect WooCommerce and queue RAG indexing.
- *  3. Create a new session and resolve the Setup Assistant agent_id.
+ *  3. Create a new session and resolve the unified Setup Assistant agent_id.
  *
  * Once the session is ready the component selects the Setup Assistant agent
- * and auto-sends a kickoff message. The agent's stored system prompt drives
- * the conversational discovery flow — no parallel onboarding prompt exists.
+ * and auto-sends a kickoff message. As of t276 the agent's stored system
+ * prompt runs Phase 0 silent discovery before the first reply, then takes
+ * the established-site branch (2–4 sentence inferred summary + suggestion
+ * chips). No parallel onboarding prompt exists.
  *
  * @return {JSX.Element} The onboarding bootstrap element.
  */
@@ -63,7 +66,7 @@ export default function OnboardingBootstrap() {
 						sendMessage(
 							data.kickoff_message ||
 								__(
-									"Hello! I'm just getting set up. Please explore this WordPress site and introduce yourself — tell me what you notice and what you can help with.",
+									"Hi! I just set up this plugin and I'm ready to get started.",
 									'superdav-ai-agent'
 								)
 						)

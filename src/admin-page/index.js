@@ -28,9 +28,15 @@ import './style.css';
 // These components are rendered only in specific, uncommon states:
 //  - ConnectorGate          → zero providers configured (first install)
 //  - OnboardingBootstrap    → first install, site already has content
-//                             (drops the user straight into the Setup Assistant agent)
+//                             (drops the user straight into the unified
+//                             Setup Assistant agent, established-site branch)
 //  - OnboardingThemeBuilder → first install, site has no content yet
-//                             (drops the user straight into the Theme Builder agent)
+//                             (drops the user straight into the unified
+//                             Setup Assistant agent, empty-install branch.
+//                             As of t276 both bootstrappers resolve the same
+//                             agent server-side — the React split is kept
+//                             only to send the right Phase 1 kickoff per
+//                             content state.)
 //  - ShortcutsHelp          → user presses Mod+/ (explicitly intentional)
 // None of them appear during a normal chat session, so they are lazy-loaded.
 const ConnectorGate = lazy( () =>
@@ -253,10 +259,12 @@ function AdminPageApp() {
 	//
 	// Onboarding v2 — no wizard, no mode picker. We pick a bootstrapper
 	// based on whether the site has any published content yet:
-	//   - empty install → OnboardingThemeBuilder (Theme Builder agent)
-	//   - has content   → OnboardingBootstrap    (Setup Assistant agent)
-	// Both bootstrappers POST to a `*-start` endpoint that flips
-	// `onboarding_complete` to true and opens an agent session.
+	//   - empty install → OnboardingThemeBuilder (empty-install kickoff)
+	//   - has content   → OnboardingBootstrap    (discover kickoff)
+	// As of t276 both bootstrappers resolve to the unified Setup Assistant
+	// agent server-side and POST to a `*-start` endpoint that flips
+	// `onboarding_complete` to true and opens an agent session. The agent's
+	// own Phase 0 silent discovery then decides which branch to run.
 	if ( ! onboardingComplete ) {
 		// Heuristic probe still in flight — render nothing until we know
 		// which bootstrapper to mount. The probe is one REST call (~50 ms
