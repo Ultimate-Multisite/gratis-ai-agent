@@ -36,7 +36,7 @@ use SdAiAgent\Tools\CustomTools;
 class Database {
 
 	const DB_VERSION_OPTION = 'sd_ai_agent_db_version';
-	const DB_VERSION        = '19.5.0';
+	const DB_VERSION        = '19.5.1';
 
 	// ─── Table Name Registry ──────────────────────────────────────────────────
 

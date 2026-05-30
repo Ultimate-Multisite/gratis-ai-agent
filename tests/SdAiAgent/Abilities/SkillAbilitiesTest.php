@@ -139,7 +139,7 @@ class SkillAbilitiesTest extends WP_UnitTestCase {
 	/**
 	 * Test handle_skill_load provides helpful error message for theme-aware skills.
 	 *
-	 * When a theme-aware skill (block-themes, classic-themes) is disabled and
+		 * When a theme-aware skill (classic-themes) is disabled and
 	 * the current theme doesn't match its auto-enable condition, the error message
 	 * should explain what theme condition would enable it.
 	 */
@@ -148,19 +148,24 @@ class SkillAbilitiesTest extends WP_UnitTestCase {
 
 		Skill::seed_builtins();
 
-		// Force block-themes to disabled.
+		// Force kadence-theme to disabled. It should only auto-enable on Kadence.
 		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
-		$wpdb->query( $wpdb->prepare( 'UPDATE ' . Skill::table_name() . " SET enabled = 0 WHERE slug = %s", 'block-themes' ) );
+		$wpdb->query( $wpdb->prepare( 'UPDATE ' . Skill::table_name() . " SET enabled = 0 WHERE slug = %s", 'kadence-theme' ) );
 
-		// On a classic theme, block-themes should be disabled and the error should mention block themes.
-		$is_block = function_exists( 'wp_is_block_theme' ) && wp_is_block_theme();
-		if ( ! $is_block ) {
-			$result = SkillAbilities::handle_skill_load( [ 'slug' => 'block-themes' ] );
-			$this->assertInstanceOf( \WP_Error::class, $result );
-			$error_msg = $result->get_error_message();
-			$this->assertStringContainsString( 'disabled', $error_msg );
-			$this->assertStringContainsString( 'block theme', $error_msg );
+		$theme       = function_exists( 'wp_get_theme' ) ? wp_get_theme() : null;
+		$template    = $theme ? (string) $theme->get_template() : '';
+		$stylesheet  = $theme ? (string) $theme->get_stylesheet() : '';
+		$is_kadence  = 'kadence' === $template || 'kadence' === $stylesheet;
+
+		if ( $is_kadence ) {
+			$this->markTestSkipped( 'kadence-theme auto-enables on the active Kadence theme.' );
 		}
+
+		$result = SkillAbilities::handle_skill_load( [ 'slug' => 'kadence-theme' ] );
+		$this->assertInstanceOf( \WP_Error::class, $result );
+		$error_msg = $result->get_error_message();
+		$this->assertStringContainsString( 'disabled', $error_msg );
+		$this->assertStringContainsString( 'Kadence', $error_msg );
 	}
 
 	/**
@@ -388,7 +393,7 @@ class SkillAbilitiesTest extends WP_UnitTestCase {
 			'woo: products and orders'     => [ 'WooCommerce store products and orders management', 'woocommerce' ],
 			'multisite: network admin'     => [ 'WordPress Multisite network administration', 'multisite-management' ],
 			'competitive: analyze sites'   => [ 'Analyzing competitor sites and tech stack', 'competitive-analysis' ],
-			'fse: block theme templates'   => [ 'Block theme templates and template parts', 'block-themes' ],
+			'fse: block theme templates'   => [ 'Block theme templates and template parts', 'wp-block-themes' ],
 			'classic: customizer setup'    => [ 'Classic theme customizer and child theme functions', 'classic-themes' ],
 			'kadence: rowlayout markup'    => [ 'Kadence rowlayout colLayout and kbVersion', 'kadence-blocks' ],
 			'kadence: header builder'      => [ 'Kadence theme header builder and footer builder', 'kadence-theme' ],
@@ -400,11 +405,11 @@ class SkillAbilitiesTest extends WP_UnitTestCase {
 	/**
 	 * handle_skill_load respects auto-enable rules for theme-aware skills.
 	 *
-	 * Regression test for issue #1500: block-themes and classic-themes should
+	 * Regression test for issue #1500: wp-block-themes and classic-themes should
 	 * be loadable via the ability even when disabled in the DB, if the current
 	 * theme matches their auto-enable predicate.
 	 *
-	 * This test seeds built-ins, disables block-themes and classic-themes,
+	 * This test seeds built-ins, disables wp-block-themes and classic-themes,
 	 * then verifies that handle_skill_load returns content (not skill_disabled)
 	 * when the active theme matches the skill's auto-enable rule.
 	 */
@@ -414,23 +419,23 @@ class SkillAbilitiesTest extends WP_UnitTestCase {
 		// Ensure built-in skills are seeded.
 		Skill::seed_builtins();
 
-		// Force block-themes and classic-themes to disabled so we test auto-enable.
+		// Force wp-block-themes and classic-themes to disabled so we test auto-enable.
 		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
-		$wpdb->query( $wpdb->prepare( 'UPDATE ' . Skill::table_name() . " SET enabled = 0 WHERE slug IN (%s, %s)", 'block-themes', 'classic-themes' ) );
+		$wpdb->query( $wpdb->prepare( 'UPDATE ' . Skill::table_name() . " SET enabled = 0 WHERE slug IN (%s, %s)", 'wp-block-themes', 'classic-themes' ) );
 
 		$is_block = function_exists( 'wp_is_block_theme' ) && wp_is_block_theme();
 
-		// On a block theme, block-themes should load successfully.
-		if ( $is_block ) {
-			$result = SkillAbilities::handle_skill_load( [ 'slug' => 'block-themes' ] );
-			$this->assertIsArray(
-				$result,
-				'block-themes should load on block themes even when disabled, got WP_Error: '
-				. ( is_wp_error( $result ) ? $result->get_error_message() : '' )
-			);
-			$this->assertArrayHasKey( 'content', $result );
-			$this->assertNotEmpty( $result['content'] );
+		// wp-block-themes should load successfully for block-theme generation regardless of active theme type.
+		$result = SkillAbilities::handle_skill_load( [ 'slug' => 'wp-block-themes' ] );
+		$this->assertIsArray(
+			$result,
+			'wp-block-themes should load for block theme generation even when disabled, got WP_Error: '
+			. ( is_wp_error( $result ) ? $result->get_error_message() : '' )
+		);
+		$this->assertArrayHasKey( 'content', $result );
+		$this->assertNotEmpty( $result['content'] );
 
+		if ( $is_block ) {
 			// classic-themes should NOT load on block themes.
 			$result = SkillAbilities::handle_skill_load( [ 'slug' => 'classic-themes' ] );
 			$this->assertInstanceOf( \WP_Error::class, $result );
@@ -446,10 +451,6 @@ class SkillAbilitiesTest extends WP_UnitTestCase {
 			$this->assertArrayHasKey( 'content', $result );
 			$this->assertNotEmpty( $result['content'] );
 
-			// block-themes should NOT load on classic themes.
-			$result = SkillAbilities::handle_skill_load( [ 'slug' => 'block-themes' ] );
-			$this->assertInstanceOf( \WP_Error::class, $result );
-			$this->assertStringContainsString( 'disabled', $result->get_error_message() );
 		}
 	}
 

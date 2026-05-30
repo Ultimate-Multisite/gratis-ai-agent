@@ -4,7 +4,7 @@
 
 This skill is auto-loaded when the active WordPress theme is a **classic theme** (no Full Site Editing — Astra, GeneratePress, OceanWP, Divi, Avada, Kadence, Storefront, etc., when used without their FSE variants). Use it whenever the user asks about templates, the Customizer, widget areas, menus, or theme functions on a classic theme.
 
-If the active theme is a block theme (`templates/` directory, `theme.json`), use the `block-themes` skill instead.
+If the active theme is a block theme (`templates/` directory, `theme.json`), use the `wp-block-themes` skill instead.
 
 ## How to confirm the active theme is a classic theme
 

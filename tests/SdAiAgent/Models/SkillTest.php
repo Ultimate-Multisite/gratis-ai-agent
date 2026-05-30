@@ -437,6 +437,39 @@ class SkillTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * Every bundled skill markdown file is registered for database seeding.
+	 */
+	public function test_get_builtin_definitions_covers_every_bundled_skill_file(): void {
+		$definitions = Skill::get_builtin_definitions();
+		$files       = glob( Skill::SKILLS_DIR . '/*.md' );
+
+		$this->assertIsArray( $files );
+		$file_slugs = [];
+
+		foreach ( $files as $file ) {
+			$slug = basename( $file, '.md' );
+			$file_slugs[] = $slug;
+			$this->assertArrayHasKey( $slug, $definitions, "Bundled skill file '{$slug}.md' is not registered in BUILTIN_META." );
+		}
+
+		foreach ( array_keys( $definitions ) as $slug ) {
+			$this->assertContains( $slug, $file_slugs, "Built-in skill '{$slug}' does not have a bundled markdown file." );
+		}
+	}
+
+	/**
+	 * Duplicate block-theme skill slugs are not bundled.
+	 */
+	public function test_block_theme_skill_has_single_registered_slug(): void {
+		$definitions = Skill::get_builtin_definitions();
+
+		$this->assertArrayHasKey( 'wp-block-themes', $definitions );
+		$this->assertArrayNotHasKey( 'block-themes', $definitions );
+		$this->assertFileExists( Skill::SKILLS_DIR . '/wp-block-themes.md' );
+		$this->assertFileDoesNotExist( Skill::SKILLS_DIR . '/block-themes.md' );
+	}
+
+	/**
 	 * get_builtin_definitions() includes the site-specification skill with
 	 * the Phase 1 inference tables, worked examples, and site_brief guidance.
 	 */
@@ -478,8 +511,8 @@ class SkillTest extends WP_UnitTestCase {
 	}
 
 	/**
-	 * seed_builtins() migrates a legacy `full-site-editing` row to `block-themes`
-	 * in-place when block-themes does not yet exist.
+	 * seed_builtins() migrates a legacy `full-site-editing` row to `wp-block-themes`
+	 * in-place when wp-block-themes does not yet exist.
 	 */
 	public function test_seed_builtins_migrates_full_site_editing_to_block_themes(): void {
 		global $wpdb;
@@ -499,9 +532,9 @@ class SkillTest extends WP_UnitTestCase {
 
 		Skill::seed_builtins();
 
-		// Legacy slug should be gone; block-themes should hold the original row id.
+		// Legacy slug should be gone; wp-block-themes should hold the original row id.
 		$this->assertNull( Skill::get_by_slug( 'full-site-editing' ) );
-		$migrated = Skill::get_by_slug( 'block-themes' );
+		$migrated = Skill::get_by_slug( 'wp-block-themes' );
 		$this->assertNotNull( $migrated );
 		$this->assertSame( (int) $id, (int) $migrated->id );
 
@@ -511,27 +544,59 @@ class SkillTest extends WP_UnitTestCase {
 	}
 
 	/**
-	 * seed_builtins() does NOT migrate when both legacy and new slugs already exist.
+	 * seed_builtins() removes unmodified legacy duplicates when the new slug exists.
 	 */
-	public function test_seed_builtins_skips_migration_when_new_slug_exists(): void {
+	public function test_seed_builtins_removes_unmodified_duplicate_when_new_slug_exists(): void {
 		global $wpdb;
 		$wpdb->query( "DELETE FROM " . Skill::table_name() . " WHERE is_builtin = 1" );
 		Skill::create( [ 'slug' => 'full-site-editing', 'name' => 'Old', 'description' => 'Old', 'content' => 'old', 'is_builtin' => true, 'enabled' => true ] );
-		Skill::create( [ 'slug' => 'block-themes', 'name' => 'New', 'description' => 'New', 'content' => 'new', 'is_builtin' => true, 'enabled' => true ] );
+		Skill::create( [ 'slug' => 'wp-block-themes', 'name' => 'New', 'description' => 'New', 'content' => 'new', 'is_builtin' => true, 'enabled' => true ] );
 
 		Skill::seed_builtins();
 
-		// Legacy row should remain untouched (migration must not collide).
-		$this->assertNotNull( Skill::get_by_slug( 'full-site-editing' ) );
-		$this->assertNotNull( Skill::get_by_slug( 'block-themes' ) );
+		// The unmodified duplicate legacy row should be removed.
+		$this->assertNull( Skill::get_by_slug( 'full-site-editing' ) );
+		$this->assertNotNull( Skill::get_by_slug( 'wp-block-themes' ) );
 
 		$wpdb->query( "DELETE FROM " . Skill::table_name() . " WHERE is_builtin = 1" );
 		Skill::seed_builtins();
 	}
 
 	/**
-	 * Theme-aware skills (block-themes / classic-themes) are auto-enabled
-	 * based on the active theme even when their stored `enabled` flag is 0.
+	 * seed_builtins() migrates the legacy `block-themes` row to `wp-block-themes`.
+	 */
+	public function test_seed_builtins_migrates_block_themes_to_wp_block_themes(): void {
+		global $wpdb;
+		$wpdb->query( "DELETE FROM " . Skill::table_name() . " WHERE is_builtin = 1" );
+		$id = Skill::create(
+			[
+				'slug'        => 'block-themes',
+				'name'        => 'Block Themes',
+				'description' => 'Legacy block themes skill',
+				'content'     => '# Legacy block theme content',
+				'is_builtin'  => true,
+				'enabled'     => false,
+			]
+		);
+		$this->assertIsInt( $id );
+
+		Skill::seed_builtins();
+
+		$this->assertNull( Skill::get_by_slug( 'block-themes' ) );
+		$migrated = Skill::get_by_slug( 'wp-block-themes' );
+		$this->assertNotNull( $migrated );
+		$this->assertSame( (int) $id, (int) $migrated->id );
+
+		$wpdb->query( "DELETE FROM " . Skill::table_name() . " WHERE is_builtin = 1" );
+		Skill::seed_builtins();
+	}
+
+	/**
+	 * Theme-aware skills remain available when their stored `enabled` flag is 0.
+	 *
+	 * wp-block-themes is always available because it guides building a block theme,
+	 * even when the currently active theme is classic. classic-themes remains
+	 * active-theme-aware.
 	 */
 	public function test_theme_aware_skills_auto_enabled_from_active_theme(): void {
 		global $wpdb;
@@ -540,18 +605,18 @@ class SkillTest extends WP_UnitTestCase {
 
 		// Force the relevant rows to enabled = 0 so we know auto-enable is doing the work.
 		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
-		$wpdb->query( $wpdb->prepare( 'UPDATE ' . Skill::table_name() . " SET enabled = 0 WHERE slug IN (%s, %s)", 'block-themes', 'classic-themes' ) );
+		$wpdb->query( $wpdb->prepare( 'UPDATE ' . Skill::table_name() . " SET enabled = 0 WHERE slug IN (%s, %s)", 'wp-block-themes', 'classic-themes' ) );
 
 		$is_block = function_exists( 'wp_is_block_theme' ) && wp_is_block_theme();
 
-		$block   = Skill::get_content_by_slug( 'block-themes' );
+		$block   = Skill::get_content_by_slug( 'wp-block-themes' );
 		$classic = Skill::get_content_by_slug( 'classic-themes' );
 
+		$this->assertNotNull( $block, 'wp-block-themes should be available for block theme generation.' );
+
 		if ( $is_block ) {
-			$this->assertNotNull( $block, 'block-themes should auto-enable on block themes.' );
 			$this->assertNull( $classic, 'classic-themes should NOT auto-enable on block themes.' );
 		} else {
-			$this->assertNull( $block, 'block-themes should NOT auto-enable on classic themes.' );
 			$this->assertNotNull( $classic, 'classic-themes should auto-enable on classic themes.' );
 		}
 	}
@@ -725,34 +790,34 @@ class SkillTest extends WP_UnitTestCase {
 	}
 
 	/**
-	 * Each built-in skill content contains a "When to Use" section.
+	 * Each built-in skill content contains a "When to Use" or "When to Load" section.
 	 */
 	public function test_builtin_skills_have_when_to_use_section(): void {
 		$definitions = Skill::get_builtin_definitions();
 
 		foreach ( $definitions as $slug => $definition ) {
-			$this->assertStringContainsStringIgnoringCase(
-				'When to Use',
+			$this->assertMatchesRegularExpression(
+				'/When to (Use|use|Load)/',
 				$definition['content'],
-				"Built-in skill '$slug' is missing a 'When to Use' section."
+				"Built-in skill '$slug' is missing a 'When to Use' or 'When to Load' section."
 			);
 		}
 	}
 
 	/**
-	 * Block themes skill covers the Phase 2 theme generation guidance.
+	 * WP block themes skill covers the Phase 2 theme generation guidance.
 	 */
 	public function test_block_themes_skill_covers_phase_two_theme_generation_guidance(): void {
 		$definitions = Skill::get_builtin_definitions();
 
-		$this->assertArrayHasKey( 'block-themes', $definitions );
+		$this->assertArrayHasKey( 'wp-block-themes', $definitions );
 
-		$content = $definitions['block-themes']['content'];
+		$content = $definitions['wp-block-themes']['content'];
 		$lines   = preg_split( '/\R/', $content );
 
 		$this->assertIsArray( $lines );
 		$this->assertGreaterThanOrEqual( 350, count( $lines ) );
-		$this->assertLessThanOrEqual( 500, count( $lines ) );
+		$this->assertLessThanOrEqual( 540, count( $lines ) );
 
 		foreach (
 			[
@@ -831,9 +896,17 @@ class SkillTest extends WP_UnitTestCase {
 			'site-specification'   => [ 'site-specification', [ 'site spec', 'theme generation', 'audience', 'tone' ] ],
 			'content-marketing'    => [ 'content-marketing', [ 'strategy', 'editorial', 'content', 'audit' ] ],
 			'competitive-analysis' => [ 'competitive-analysis', [ 'competitor', 'analysis', 'tech stack' ] ],
+			'contact-forms'        => [ 'contact-forms', [ 'contact', 'form', 'lead', 'inquiry' ] ],
 			'analytics-reporting'  => [ 'analytics-reporting', [ 'performance', 'metrics', 'analytics', 'reporting' ] ],
+			'working-cadence'      => [ 'working-cadence', [ 'cadence', 'skeleton', 'anchor', 'theme-generation' ] ],
+			'design-system-aesthetics' => [ 'design-system-aesthetics', [ 'design', 'aesthetics', 'visual', 'typography' ] ],
 			'gutenberg-blocks'     => [ 'gutenberg-blocks', [ 'blocks', 'gutenberg', 'markdown', 'layouts' ] ],
-			'block-themes'         => [ 'block-themes', [ 'template', 'block theme', 'site editor', 'layout', 'theme.json' ] ],
+			'wp-block-development' => [ 'wp-block-development', [ 'block.json', 'apiVersion', 'edit.js', 'save.js' ] ],
+			'wp-block-themes'      => [ 'wp-block-themes', [ 'template', 'block theme', 'site editor', 'layout', 'theme.json' ] ],
+			'wp-plugin-development' => [ 'wp-plugin-development', [ 'plugin', 'hooks', 'settings', 'activation' ] ],
+			'wp-rest-api'          => [ 'wp-rest-api', [ 'REST API', 'endpoint', 'route', 'controller' ] ],
+			'wp-rest-fallback'     => [ 'wp-rest-fallback', [ 'wp-rest', 'dispatcher', 'REST endpoint', 'dedicated ability' ] ],
+			'wp-wpcli-and-ops'     => [ 'wp-wpcli-and-ops', [ 'WP-CLI', 'wp commands', 'database', 'cron' ] ],
 			'classic-themes'       => [ 'classic-themes', [ 'classic', 'customizer', 'php template', 'widget', 'child theme' ] ],
 			'kadence-blocks'       => [ 'kadence-blocks', [ 'kadence', 'rowlayout', 'advancedheading', 'validation' ] ],
 			'kadence-theme'        => [ 'kadence-theme', [ 'kadence', 'header', 'footer', 'customizer', 'hooks' ] ],

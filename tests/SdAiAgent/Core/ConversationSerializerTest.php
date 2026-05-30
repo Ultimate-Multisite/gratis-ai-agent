@@ -164,7 +164,7 @@ class ConversationSerializerTest extends WP_UnitTestCase {
 		$message = new ModelMessage(
 			[
 				$this->function_call_part( 'toolu_a', 'wpab__sd-ai-agent__skill-load', [ 'slug' => 'site-specification' ] ),
-				$this->function_call_part( 'toolu_b', 'wpab__sd-ai-agent__skill-load', [ 'slug' => 'block-themes' ] ),
+				$this->function_call_part( 'toolu_b', 'wpab__sd-ai-agent__skill-load', [ 'slug' => 'wp-block-themes' ] ),
 			]
 		);
 		$history = [];

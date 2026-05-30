@@ -263,9 +263,9 @@ class AgentThemeBuilderTest extends WP_UnitTestCase {
 			'system_prompt must reference the site-specification skill'
 		);
 		$this->assertStringContainsString(
-			'block-themes',
+			'wp-block-themes',
 			$prompt,
-			'system_prompt must reference the block-themes skill'
+			'system_prompt must reference the wp-block-themes skill'
 		);
 		// The 4-phase contract: all four phase headings must appear.
 		$this->assertStringContainsString( 'Phase 1', $prompt, 'system_prompt must define Phase 1 (Interview)' );

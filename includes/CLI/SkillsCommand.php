@@ -112,7 +112,7 @@ class SkillsCommand extends WP_CLI_Command {
 	}
 
 	/**
-	 * Sync the five curated WordPress/agent-skills into includes/Models/skills/.
+	 * Sync the four curated WordPress/agent-skills into includes/Models/skills/.
 	 *
 	 * Fetches each SKILL.md from WordPress/agent-skills, applies sanitisation
 	 * (removes Studio-specific `studio wp ` CLI prefix, replaces wp-project-triage
