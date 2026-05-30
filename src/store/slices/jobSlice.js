@@ -12,6 +12,7 @@ import { setActiveJob, clearActiveJob } from '../../utils/active-jobs-storage';
 import { notifyConfirmationNeeded } from '../../utils/notification-manager';
 import { playDing, playDong, playThinking } from '../../utils/sound-manager';
 import { executeClientAbility } from '../../abilities/registry';
+import { emitReflectionEvents } from '../reflection-emitter';
 
 export const initialState = {
 	// Active polling job ID (most-recently-started job for the current session).
@@ -239,6 +240,12 @@ export const actions = {
 			let consecutiveErrors = 0;
 			const maxConsecutiveErrors = 8;
 			let lastToolCallsLength = 0;
+			// Cursor for the frontend live-preview reflection bus
+			// (spike/frontend-live-preview-bus). Tracks how far into
+			// result.tool_calls we have already emitted `tool-applied`
+			// events. Persists across poll ticks so each event fires exactly
+			// once even though the log grows incrementally.
+			let reflectionCursor = 0;
 			let visibilityPaused = false;
 			let resumeCallback = null;
 
@@ -313,6 +320,16 @@ export const actions = {
 								toolCalls: result.tool_calls,
 								status: 'processing',
 							} );
+
+							// Fire `tool-applied` reflection events for any
+							// new response entries that carry an `affected`
+							// descriptor. Cursor-driven so each event fires
+							// exactly once across the polling stream.
+							reflectionCursor = emitReflectionEvents(
+								result.tool_calls,
+								reflectionCursor,
+								{ sessionId, jobId }
+							);
 						}
 
 						// Only update live tool calls when this is the active session.
@@ -650,6 +667,17 @@ export const actions = {
 					}
 
 					if ( result.status === 'complete' ) {
+						// Flush any final reflection events for tool responses
+						// that arrived between the last `processing` tick and
+						// this terminal poll.
+						if ( Array.isArray( result.tool_calls ) ) {
+							reflectionCursor = emitReflectionEvents(
+								result.tool_calls,
+								reflectionCursor,
+								{ sessionId, jobId }
+							);
+						}
+
 						// Reload the session from the DB when it's the active session.
 						if (
 							result.session_id &&

@@ -270,6 +270,23 @@ class PostAbilities {
 							'type'        => [ 'integer', 'null' ],
 							'description' => 'Latest revision ID after the write. null when the post has no revisions yet. Use as expected_revision for the next write.',
 						],
+						'affected'    => [
+							'type'        => 'object',
+							'description' => 'Transport descriptor for the frontend reflection bus — identifies the entity, its public URL, and which fields changed so the client can refresh the visible page without a full reload.',
+							'properties'  => [
+								'kind'      => [
+									'type' => 'string',
+									'enum' => [ 'post' ],
+								],
+								'post_id'   => [ 'type' => 'integer' ],
+								'post_type' => [ 'type' => 'string' ],
+								'url'       => [ 'type' => 'string' ],
+								'fields'    => [
+									'type'  => 'array',
+									'items' => [ 'type' => 'string' ],
+								],
+							],
+						],
 					],
 				],
 				'meta'                => [
@@ -1519,6 +1536,7 @@ class PostAbilities {
 			'status'      => $updated_post instanceof WP_Post ? $updated_post->post_status : '',
 			'post_type'   => $updated_post instanceof WP_Post ? $updated_post->post_type : '',
 			'revision_id' => RevisionGuard::current_revision_id( $post_id ),
+			'affected'    => self::build_affected_payload( $post_id, $updated_post, $permalink, $input, $post_data ),
 		];
 
 		// GH#1584 follow-up: re-validate after update so the model knows
@@ -1531,6 +1549,63 @@ class PostAbilities {
 		}
 
 		return $response;
+	}
+
+	/**
+	 * Build the `affected` payload describing what this update changed.
+	 *
+	 * Spike (Phase 1, frontend live-preview bus): a generic, transport-only
+	 * descriptor consumed by the JS reflection bus so future reflectors can
+	 * decide how to refresh the visible page after a tool call. The shape is
+	 * intentionally minimal — just enough for a reflector to identify the
+	 * target entity, its public URL, and which fields the agent touched.
+	 *
+	 * Keep this side-effect free: callers downstream only read these fields.
+	 *
+	 * @param int                  $post_id      Updated post ID.
+	 * @param WP_Post|null         $updated_post Refreshed post object, or null on fetch failure.
+	 * @param string|false         $permalink    Result of get_permalink(), false when unavailable.
+	 * @param array<string, mixed> $input        Original ability input from the model.
+	 * @param array<string, mixed> $post_data    Sanitised wp_update_post() payload.
+	 * @return array<string, mixed>
+	 */
+	private static function build_affected_payload(
+		int $post_id,
+		?WP_Post $updated_post,
+		$permalink,
+		array $input,
+		array $post_data
+	): array {
+		$fields = [];
+		foreach ( [ 'post_title', 'post_content', 'post_excerpt', 'post_status', 'post_name', 'post_parent', 'menu_order' ] as $key ) {
+			if ( array_key_exists( $key, $post_data ) ) {
+				$fields[] = $key;
+			}
+		}
+		// Extra-table writes that handle_update_post performs after wp_update_post().
+		if ( isset( $input['categories'] ) && is_array( $input['categories'] ) ) {
+			$fields[] = 'categories';
+		}
+		if ( isset( $input['tags'] ) && is_array( $input['tags'] ) ) {
+			$fields[] = 'tags';
+		}
+		if ( isset( $input['featured_image_id'] ) && (int) $input['featured_image_id'] > 0 ) {
+			$fields[] = 'featured_image';
+		}
+		if ( isset( $input['page_template'] ) ) {
+			$fields[] = 'page_template';
+		}
+		if ( isset( $input['meta'] ) && is_array( $input['meta'] ) ) {
+			$fields[] = 'meta';
+		}
+
+		return [
+			'kind'      => 'post',
+			'post_id'   => $post_id,
+			'post_type' => $updated_post instanceof WP_Post ? $updated_post->post_type : '',
+			'url'       => is_string( $permalink ) ? $permalink : '',
+			'fields'    => array_values( array_unique( $fields ) ),
+		];
 	}
 
 	/**
