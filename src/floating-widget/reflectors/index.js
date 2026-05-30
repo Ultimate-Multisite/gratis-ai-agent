@@ -9,6 +9,7 @@
 import bus from '../../store/reflection-bus';
 import { showFallbackToast } from './fallback-toast';
 import { reflectMenu } from './menu';
+import { reflectPost } from './post';
 
 bus.on( ( event ) => {
 	if ( event.type !== 'tool-applied' || ! event.affected?.kind ) {
@@ -16,6 +17,9 @@ bus.on( ( event ) => {
 	}
 
 	switch ( event.affected.kind ) {
+		case 'post':
+			reflectPost( event );
+			break;
 		case 'menu':
 			reflectMenu( event );
 			break;
