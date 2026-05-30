@@ -132,6 +132,22 @@ class UploadMediaAbility {
 							'type'        => 'string',
 							'description' => __( 'Echoes the input source discriminator.', 'superdav-ai-agent' ),
 						],
+						'affected'       => [
+							'type'        => 'object',
+							'description' => __( 'Transport descriptor for the frontend reflection bus identifying the changed media attachment.', 'superdav-ai-agent' ),
+							'properties'  => [
+								'kind'    => [
+									'type' => 'string',
+									'enum' => [ 'media' ],
+								],
+								'post_id' => [ 'type' => 'integer' ],
+								'url'     => [ 'type' => 'string' ],
+								'fields'  => [
+									'type'  => 'array',
+									'items' => [ 'type' => 'string' ],
+								],
+							],
+						],
 					],
 				],
 				'meta'                => [
@@ -391,14 +407,17 @@ class UploadMediaAbility {
 		$file_path  = get_attached_file( $attachment_id );
 		$metadata   = wp_get_attachment_metadata( $attachment_id );
 
+		$url = wp_get_attachment_url( $attachment_id ) ?: '';
+
 		return [
 			'attachment_id'  => $attachment_id,
-			'url'            => wp_get_attachment_url( $attachment_id ) ?: '',
+			'url'            => $url,
 			'mime_type'      => $mime_type,
 			'filesize_bytes' => ( $file_path && file_exists( $file_path ) ) ? (int) filesize( $file_path ) : 0,
 			'width'          => is_array( $metadata ) ? (int) ( $metadata['width'] ?? 0 ) : 0,
 			'height'         => is_array( $metadata ) ? (int) ( $metadata['height'] ?? 0 ) : 0,
 			'source'         => $source,
+			'affected'       => MediaAbilities::build_affected_payload( $attachment_id, $url, [ 'attachment', 'post_title', 'post_excerpt', 'post_content', 'alt_text' ] ),
 		];
 	}
 }

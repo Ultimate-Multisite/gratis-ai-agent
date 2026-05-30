@@ -99,10 +99,11 @@ class GlobalStylesAbilities {
 				'output_schema'       => [
 					'type'       => 'object',
 					'properties' => [
-						'success' => [ 'type' => 'boolean' ],
-						'post_id' => [ 'type' => 'integer' ],
-						'message' => [ 'type' => 'string' ],
-						'error'   => [ 'type' => 'string' ],
+						'success'  => [ 'type' => 'boolean' ],
+						'post_id'  => [ 'type' => 'integer' ],
+						'message'  => [ 'type' => 'string' ],
+						'error'    => [ 'type' => 'string' ],
+						'affected' => self::affected_output_schema(),
 					],
 				],
 				'meta'                => [
@@ -180,9 +181,10 @@ class GlobalStylesAbilities {
 				'output_schema'       => [
 					'type'       => 'object',
 					'properties' => [
-						'success' => [ 'type' => 'boolean' ],
-						'message' => [ 'type' => 'string' ],
-						'error'   => [ 'type' => 'string' ],
+						'success'  => [ 'type' => 'boolean' ],
+						'message'  => [ 'type' => 'string' ],
+						'error'    => [ 'type' => 'string' ],
+						'affected' => self::affected_output_schema(),
 					],
 				],
 				'meta'                => [
@@ -313,9 +315,10 @@ class GlobalStylesAbilities {
 		}
 
 		return [
-			'success' => true,
-			'post_id' => $post_id,
-			'message' => __( 'Global styles updated successfully.', 'superdav-ai-agent' ),
+			'success'  => true,
+			'post_id'  => $post_id,
+			'message'  => __( 'Global styles updated successfully.', 'superdav-ai-agent' ),
+			'affected' => self::build_affected_payload( [ 'styles', 'settings' ] ),
 		];
 	}
 
@@ -405,8 +408,46 @@ class GlobalStylesAbilities {
 		}
 
 		return [
-			'success' => true,
-			'message' => __( 'Global styles reset to theme defaults.', 'superdav-ai-agent' ),
+			'success'  => true,
+			'message'  => __( 'Global styles reset to theme defaults.', 'superdav-ai-agent' ),
+			'affected' => self::build_affected_payload( [ 'reset' ] ),
+		];
+	}
+
+	/**
+	 * Build affected descriptor schema for global-styles mutations.
+	 *
+	 * @return array<string, mixed>
+	 */
+	private static function affected_output_schema(): array {
+		return [
+			'type'        => 'object',
+			'description' => 'Transport descriptor for the frontend reflection bus. Global styles affect the whole site, so the public URL is the site home URL.',
+			'properties'  => [
+				'kind'   => [
+					'type' => 'string',
+					'enum' => [ 'global_styles' ],
+				],
+				'url'    => [ 'type' => 'string' ],
+				'fields' => [
+					'type'  => 'array',
+					'items' => [ 'type' => 'string' ],
+				],
+			],
+		];
+	}
+
+	/**
+	 * Build affected descriptor for global-styles mutations.
+	 *
+	 * @param string[] $fields Mutated fields.
+	 * @return array<string, mixed>
+	 */
+	private static function build_affected_payload( array $fields ): array {
+		return [
+			'kind'   => 'global_styles',
+			'url'    => home_url( '/' ),
+			'fields' => array_values( array_unique( $fields ) ),
 		];
 	}
 

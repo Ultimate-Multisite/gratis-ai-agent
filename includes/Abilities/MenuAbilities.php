@@ -160,6 +160,7 @@ class MenuAbilities {
 						'name'        => [ 'type' => 'string' ],
 						'slug'        => [ 'type' => 'string' ],
 						'items_added' => [ 'type' => 'integer' ],
+						'affected'    => self::affected_output_schema(),
 					],
 				],
 				'meta'                => [
@@ -201,9 +202,10 @@ class MenuAbilities {
 				'output_schema'       => [
 					'type'       => 'object',
 					'properties' => [
-						'menu_id' => [ 'type' => 'integer' ],
-						'name'    => [ 'type' => 'string' ],
-						'deleted' => [ 'type' => 'boolean' ],
+						'menu_id'  => [ 'type' => 'integer' ],
+						'name'     => [ 'type' => 'string' ],
+						'deleted'  => [ 'type' => 'boolean' ],
+						'affected' => self::affected_output_schema(),
 					],
 				],
 				'meta'                => [
@@ -286,10 +288,11 @@ class MenuAbilities {
 				'output_schema'       => [
 					'type'       => 'object',
 					'properties' => [
-						'item_id' => [ 'type' => 'integer' ],
-						'title'   => [ 'type' => 'string' ],
-						'url'     => [ 'type' => 'string' ],
-						'menu_id' => [ 'type' => 'integer' ],
+						'item_id'  => [ 'type' => 'integer' ],
+						'title'    => [ 'type' => 'string' ],
+						'url'      => [ 'type' => 'string' ],
+						'menu_id'  => [ 'type' => 'integer' ],
+						'affected' => self::affected_output_schema(),
 					],
 				],
 				'meta'                => [
@@ -327,9 +330,10 @@ class MenuAbilities {
 				'output_schema'       => [
 					'type'       => 'object',
 					'properties' => [
-						'item_id' => [ 'type' => 'integer' ],
-						'title'   => [ 'type' => 'string' ],
-						'deleted' => [ 'type' => 'boolean' ],
+						'item_id'  => [ 'type' => 'integer' ],
+						'title'    => [ 'type' => 'string' ],
+						'deleted'  => [ 'type' => 'boolean' ],
+						'affected' => self::affected_output_schema(),
 					],
 				],
 				'meta'                => [
@@ -379,6 +383,7 @@ class MenuAbilities {
 						'name'     => [ 'type' => 'string' ],
 						'location' => [ 'type' => 'string' ],
 						'assigned' => [ 'type' => 'boolean' ],
+						'affected' => self::affected_output_schema(),
 					],
 				],
 				'meta'                => [
@@ -575,6 +580,7 @@ class MenuAbilities {
 			'name'        => $menu ? $menu->name : $name,
 			'slug'        => $menu ? $menu->slug : sanitize_title( $name ),
 			'items_added' => $items_added,
+			'affected'    => self::build_affected_payload( (int) $menu_id, [ 'name', 'location', 'items' ] ),
 		];
 	}
 
@@ -601,9 +607,10 @@ class MenuAbilities {
 		}
 
 		return [
-			'menu_id' => $menu_id,
-			'name'    => $menu_name,
-			'deleted' => (bool) $result,
+			'menu_id'  => $menu_id,
+			'name'     => $menu_name,
+			'deleted'  => (bool) $result,
+			'affected' => self::build_affected_payload( (int) $menu_id, [ 'deleted' ] ),
 		];
 	}
 
@@ -679,10 +686,11 @@ class MenuAbilities {
 		}
 
 		return [
-			'item_id' => $item_id,
-			'title'   => $title,
-			'url'     => $url,
-			'menu_id' => $menu->term_id,
+			'item_id'  => $item_id,
+			'title'    => $title,
+			'url'      => $url,
+			'menu_id'  => $menu->term_id,
+			'affected' => self::build_affected_payload( (int) $menu->term_id, array_keys( $item_data ) ),
 		];
 	}
 
@@ -714,9 +722,10 @@ class MenuAbilities {
 		$result = wp_delete_post( $item_id, true );
 
 		return [
-			'item_id' => $item_id,
-			'title'   => $title,
-			'deleted' => (bool) $result,
+			'item_id'  => $item_id,
+			'title'    => $title,
+			'deleted'  => (bool) $result,
+			'affected' => self::build_affected_payload( 0, [ 'item_deleted' ] ),
 		];
 	}
 
@@ -749,6 +758,47 @@ class MenuAbilities {
 			'name'     => $menu->name,
 			'location' => $location,
 			'assigned' => true,
+			'affected' => self::build_affected_payload( (int) $menu->term_id, [ 'location' ] ),
+		];
+	}
+
+	/**
+	 * Build affected descriptor schema for menu-mutating abilities.
+	 *
+	 * @return array<string, mixed>
+	 */
+	private static function affected_output_schema(): array {
+		return [
+			'type'        => 'object',
+			'description' => 'Transport descriptor for the frontend reflection bus — menus appear site-wide, so the public URL is the site home URL.',
+			'properties'  => [
+				'kind'    => [
+					'type' => 'string',
+					'enum' => [ 'menu' ],
+				],
+				'menu_id' => [ 'type' => 'integer' ],
+				'url'     => [ 'type' => 'string' ],
+				'fields'  => [
+					'type'  => 'array',
+					'items' => [ 'type' => 'string' ],
+				],
+			],
+		];
+	}
+
+	/**
+	 * Build affected descriptor for menu-mutating abilities.
+	 *
+	 * @param int      $menu_id Menu term ID, or 0 when only a deleted item ID is available.
+	 * @param string[] $fields  Mutated fields.
+	 * @return array<string, mixed>
+	 */
+	private static function build_affected_payload( int $menu_id, array $fields ): array {
+		return [
+			'kind'    => 'menu',
+			'menu_id' => $menu_id,
+			'url'     => home_url( '/' ),
+			'fields'  => array_values( array_unique( $fields ) ),
 		];
 	}
 

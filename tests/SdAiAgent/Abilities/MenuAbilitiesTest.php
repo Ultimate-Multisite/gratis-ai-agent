@@ -154,6 +154,20 @@ class MenuAbilitiesTest extends WP_UnitTestCase {
 		$this->assertSame( 'Persisted Menu', $menu->name );
 	}
 
+	/**
+	 * Test handle_create_menu returns an affected descriptor.
+	 */
+	public function test_handle_create_menu_returns_affected_payload() {
+		$result = MenuAbilities::handle_create_menu( [ 'name' => 'Affected Menu' ] );
+
+		$this->assertIsArray( $result );
+		$this->assertArrayHasKey( 'affected', $result );
+		$this->assertSame( 'menu', $result['affected']['kind'] );
+		$this->assertSame( $result['menu_id'], $result['affected']['menu_id'] );
+		$this->assertNotEmpty( $result['affected']['url'] );
+		$this->assertContains( 'name', $result['affected']['fields'] );
+	}
+
 	// ─── handle_delete_menu ───────────────────────────────────────
 
 	/**
@@ -182,6 +196,23 @@ class MenuAbilitiesTest extends WP_UnitTestCase {
 		// Verify it's gone.
 		$menu = wp_get_nav_menu_object( $menu_id );
 		$this->assertFalse( $menu );
+	}
+
+	/**
+	 * Test handle_delete_menu returns an affected descriptor.
+	 */
+	public function test_handle_delete_menu_returns_affected_payload() {
+		$menu_id = wp_create_nav_menu( 'Affected Delete Menu' );
+		$this->assertIsInt( $menu_id );
+
+		$result = MenuAbilities::handle_delete_menu( [ 'menu_id' => $menu_id ] );
+
+		$this->assertIsArray( $result );
+		$this->assertArrayHasKey( 'affected', $result );
+		$this->assertSame( 'menu', $result['affected']['kind'] );
+		$this->assertSame( $menu_id, $result['affected']['menu_id'] );
+		$this->assertNotEmpty( $result['affected']['url'] );
+		$this->assertContains( 'deleted', $result['affected']['fields'] );
 	}
 
 	// ─── handle_add_menu_item ─────────────────────────────────────
@@ -228,6 +259,27 @@ class MenuAbilitiesTest extends WP_UnitTestCase {
 		$this->assertIsInt( $result['item_id'] );
 		$this->assertSame( 'Home', $result['title'] );
 		$this->assertSame( $menu_id, $result['menu_id'] );
+	}
+
+	/**
+	 * Test handle_add_menu_item returns an affected descriptor.
+	 */
+	public function test_handle_add_menu_item_returns_affected_payload() {
+		$menu_id = wp_create_nav_menu( 'Affected Add Item Menu' );
+		$this->assertIsInt( $menu_id );
+
+		$result = MenuAbilities::handle_add_menu_item( [
+			'menu_id' => $menu_id,
+			'title'   => 'Docs',
+			'url'     => 'https://example.com/docs',
+		] );
+
+		$this->assertIsArray( $result );
+		$this->assertArrayHasKey( 'affected', $result );
+		$this->assertSame( 'menu', $result['affected']['kind'] );
+		$this->assertSame( $menu_id, $result['affected']['menu_id'] );
+		$this->assertNotEmpty( $result['affected']['url'] );
+		$this->assertContains( 'menu-item-title', $result['affected']['fields'] );
 	}
 
 	/**
@@ -379,6 +431,33 @@ class MenuAbilitiesTest extends WP_UnitTestCase {
 		$this->assertIsArray( $result );
 		$this->assertSame( $item_id, $result['item_id'] );
 		$this->assertTrue( $result['deleted'] );
+	}
+
+	/**
+	 * Test handle_remove_menu_item returns an affected descriptor.
+	 */
+	public function test_handle_remove_menu_item_returns_affected_payload() {
+		$menu_id = wp_create_nav_menu( 'Affected Remove Item Menu' );
+		$this->assertIsInt( $menu_id );
+		$item_id = wp_update_nav_menu_item(
+			$menu_id,
+			0,
+			[
+				'menu-item-title'  => 'Remove me',
+				'menu-item-url'    => 'https://example.com/remove-me',
+				'menu-item-type'   => 'custom',
+				'menu-item-status' => 'publish',
+			]
+		);
+		$this->assertIsInt( $item_id );
+
+		$result = MenuAbilities::handle_remove_menu_item( [ 'item_id' => $item_id ] );
+
+		$this->assertIsArray( $result );
+		$this->assertArrayHasKey( 'affected', $result );
+		$this->assertSame( 'menu', $result['affected']['kind'] );
+		$this->assertNotEmpty( $result['affected']['url'] );
+		$this->assertContains( 'item_deleted', $result['affected']['fields'] );
 	}
 
 	// ─── handle_create_menu with items ───────────────────────────
@@ -645,5 +724,25 @@ class MenuAbilitiesTest extends WP_UnitTestCase {
 		$locations = get_nav_menu_locations();
 		$this->assertArrayHasKey( 'primary', $locations );
 		$this->assertSame( $menu_id, $locations['primary'] );
+	}
+
+	/**
+	 * Test handle_assign_menu_location returns an affected descriptor.
+	 */
+	public function test_handle_assign_menu_location_returns_affected_payload() {
+		$menu_id = wp_create_nav_menu( 'Affected Assign Location Menu' );
+		$this->assertIsInt( $menu_id );
+
+		$result = MenuAbilities::handle_assign_menu_location( [
+			'menu_id'  => $menu_id,
+			'location' => 'primary',
+		] );
+
+		$this->assertIsArray( $result );
+		$this->assertArrayHasKey( 'affected', $result );
+		$this->assertSame( 'menu', $result['affected']['kind'] );
+		$this->assertSame( $menu_id, $result['affected']['menu_id'] );
+		$this->assertNotEmpty( $result['affected']['url'] );
+		$this->assertContains( 'location', $result['affected']['fields'] );
 	}
 }
