@@ -155,6 +155,11 @@ whenever creating issues, PR comments, or other GitHub write bodies:
 - If a write is blocked by the signature gate, change the write path to the
   signed-file helper pattern above. Do not retry the same unsigned or inline
   command form.
+- If the blocked output includes `gh-signature-helper.sh invocation failed` or
+  `bash:file_not_found`, treat it as a write-path problem, not a missing repo
+  dependency. Recreate the body as a stable file, use the signed issue/comment
+  helper, and continue; do not spend the run diagnosing the deployed framework
+  helper before the implementation work is complete.
 - Verification for guidance-only fixes: run `rg -n "signature gate|body-file|heredoc|process substitution|gh issue create" AGENTS.md .agents/AGENTS.md .agents/scripts/commands/feedback-triage.md` and ensure the policy is present in the root `AGENTS.md` loaded by future workers.
 
 #### Headless File Read Recovery
@@ -175,6 +180,22 @@ completion state:
   checked and continue with the next safe implementation step rather than ending
   the session solely because one optional artifact is missing.
 - Verification for guidance-only fixes: run `rg -n "read:file_not_found|missing-file reads|git ls-files|signature gate|body-file" AGENTS.md .agents/AGENTS.md .agents/scripts/commands/feedback-triage.md` and ensure both file-read recovery and GitHub write-body policies are present in files loaded by future workers.
+
+#### Headless Tool-Abort Recovery
+
+When a headless run reports `bash:other` / `Tool execution aborted`, do not treat
+the abort text itself as the task outcome:
+
+- Inspect the immediately preceding command and expected artifact. If it was a
+  diagnostic command that only printed context, replace it with the next safe
+  deterministic action instead of replaying ad-hoc shell output.
+- If the aborted command was required, retry once with a narrower, non-inline
+  command and a clear `description`; avoid heredocs, command substitution, and
+  long compound commands that make hook failures hard to attribute.
+- If the retry also aborts, preserve any implementation diff with a commit or
+  patch, record the exact command and blocker, and continue with independent
+  verification steps before considering a BLOCKED outcome.
+- Verification for guidance-only fixes: run `rg -n "Tool execution aborted|bash:other|signature gate|read:file_not_found" AGENTS.md .agents/AGENTS.md .agents/scripts/commands/feedback-triage.md` and ensure the recovery policy is loaded by future workers.
 
 ## Build Commands
 - **Build**: `npm run build` or `npx wp-scripts build` (production)

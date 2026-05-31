@@ -277,6 +277,14 @@ r020 triage complete: <N> reports processed.
 - `feedback-triage.sh fetch` HTTP error → log and stop. Do not attempt partial triage.
 - `feedback-triage.sh get <id>` HTTP error → skip report, log the error, continue with next.
 - `create-signed-issue` failure → do NOT update report status. Log and continue.
+- `gh-signature-helper.sh invocation failed` or `bash:file_not_found` while
+  creating a GitHub body/write → rebuild the issue body as a stable file, rerun
+  the `.agents/scripts/issue-sync-helper.sh create-signed-issue` path, and do
+  not retry raw `gh issue create` or inline body generation.
+- `Tool execution aborted` / `bash:other` while gathering diagnostic context →
+  retry once with a narrower non-inline command. If it still aborts, log the
+  attempted command, continue triage with the available transcript evidence, and
+  do not let one optional diagnostic abort the whole routine.
 - Missing credentials → stop immediately (Step 1 guard).
 
 ## Privacy
