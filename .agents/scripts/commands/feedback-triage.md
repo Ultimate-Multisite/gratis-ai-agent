@@ -151,6 +151,7 @@ Based on `session_data.messages`, `session_data.tool_calls`,
 | `missing_ability` | A legitimate WordPress action the plugin should support but doesn't | Evaluate for enhancement issue |
 | `provider_error` | The AI provider (OpenAI, Anthropic, etc.) returned an error — not plugin fault | Dismiss with provider note |
 | `exit_reason_expected` | `spin`/`timeout`/`max_iterations` on a genuinely complex or unsupported task | Dismiss with explanation |
+| `contributor_insight` | Maintainer feedback says automation needs better instructions, scripts, or durable context | Create a contributor-insight issue with worker guidance that names the durable target and verification |
 
 Apply Step 3.6 validation from `/log-issue-aidevops` before classifying as `real_bug` or
 `missing_ability`:
@@ -161,6 +162,28 @@ Apply Step 3.6 validation from `/log-issue-aidevops` before classifying as `real
   a systematic issue — treat as one issue, not N).
 - For thumbs_down with empty `session_data.messages` and `tool_calls`, treat
   as a test / setup-verification report and dismiss without filing.
+
+For `contributor_insight` reports, convert shorthand into worker-ready actions
+before creating the issue:
+
+- If the note asks whether instructions or scripts should change, direct the
+  worker to change the narrowest durable source instead of replying in comments:
+  root `AGENTS.md` for repo-wide plugin rules, `.agents/AGENTS.md` for
+  repository worker guardrails, or this SOP/helper docs for feedback-triage
+  mechanics.
+- If the report includes a pasted local-path skill excerpt, require the worker
+  to map it to the committed source first. Block theme / Full Site Editing
+  excerpts belong in `includes/Models/skills/wp-block-themes.md`; do not paste
+  private local paths or duplicate the whole skill into GitHub.
+- If the note says “block `sd-ai-agent/v1`, do secret scrubbing, run as real
+  current user, hide file uploads,” translate that into explicit checks for
+  `includes/REST/` controllers and the `wp-rest/execute` ability: capability
+  gates, `get_current_user_id()` context, redacted responses/logs, blocked
+  internal namespace dispatch, and hidden or restricted upload endpoints.
+- Include verification in the issue body, for example
+  `rg -n "Contributor Insight|sd-ai-agent/v1|secret|current user|file upload" AGENTS.md .agents/AGENTS.md .agents/scripts/commands/feedback-triage.md`
+  plus `rg -n "wp-block-themes|Full Site Editing|theme.json|validate-block-content" AGENTS.md includes/Models/skills/wp-block-themes.md`
+  when block-theme guidance is involved.
 
 #### 4d: Dedup check (for real_bug and missing_ability)
 
@@ -245,6 +268,26 @@ status):
 Use `enhancement` in place of `bug`; keep the rest of the label set
 (`enhancement,origin:worker,status:available`). Title format:
 `ability: <action> — <context>`.
+
+#### 4f.1: Create GitHub issue (contributor_insight)
+
+Use `contributor-insight` in place of `bug`; keep the rest of the label set
+(`contributor-insight,origin:worker,status:available`). Title format:
+`Contributor insight: <instruction/script gap>`.
+
+The issue body must include a `## Worker Guidance` section with:
+
+- **Durable target:** exact file(s) to edit, such as `AGENTS.md`,
+  `.agents/AGENTS.md`, `.agents/scripts/commands/feedback-triage.md`, or
+  `includes/Models/skills/wp-block-themes.md`.
+- **Translation:** the maintainer shorthand rewritten as concrete worker checks
+  or implementation steps.
+- **Follow-up briefs:** when the insight identifies broader hardening work,
+  instruct the worker to file signed GitHub issues naming the route/controller,
+  missing guard or scrubber, expected safe behaviour, and verification command.
+- **Verification:** exact `rg -n`, PHPCS/PHPUnit, or REST request evidence that
+  proves future workers will load the new guidance and that any changed code is
+  covered.
 
 #### 4g: Dismiss non-bugs
 
