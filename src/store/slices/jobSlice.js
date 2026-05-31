@@ -666,18 +666,22 @@ export const actions = {
 						}
 					}
 
-					if ( result.status === 'complete' ) {
+					if (
+						( result.status === 'complete' ||
+							result.status === 'error' ) &&
+						Array.isArray( result.tool_calls )
+					) {
 						// Flush any final reflection events for tool responses
 						// that arrived between the last `processing` tick and
 						// this terminal poll.
-						if ( Array.isArray( result.tool_calls ) ) {
-							reflectionCursor = emitReflectionEvents(
-								result.tool_calls,
-								reflectionCursor,
-								{ sessionId, jobId }
-							);
-						}
+						reflectionCursor = emitReflectionEvents(
+							result.tool_calls,
+							reflectionCursor,
+							{ sessionId, jobId }
+						);
+					}
 
+					if ( result.status === 'complete' ) {
 						// Reload the session from the DB when it's the active session.
 						if (
 							result.session_id &&
