@@ -153,6 +153,9 @@ function resolveBus() {
 	if ( ! window[ WIN_KEY ] ) {
 		window[ WIN_KEY ] = createReflectionBus();
 	}
+	if ( window.sdAiAgentReflection !== window[ WIN_KEY ] ) {
+		window.sdAiAgentReflection = window[ WIN_KEY ];
+	}
 	return window[ WIN_KEY ];
 }
 

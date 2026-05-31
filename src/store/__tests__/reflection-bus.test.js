@@ -8,6 +8,7 @@
  * - listener errors are swallowed (one bad listener does not break others)
  * - clear() drops all listeners
  * - cross-bundle singleton on `window`
+ * - documented `window.sdAiAgentReflection` global points at the singleton
  * - __resetReflectionBusForTests() returns a fresh bus
  * - non-function listener is a no-op
  */
@@ -135,6 +136,23 @@ describe( 'reflection-bus', () => {
 		expect( reimported ).toBe( sharedBus );
 		reimported.emit( { type: 'tool-applied' } );
 		expect( listener ).toHaveBeenCalledTimes( 1 );
+	} );
+
+	test( 'publishes the documented window.sdAiAgentReflection global', () => {
+		expect( window.sdAiAgentReflection ).toBe( sharedBus );
+	} );
+
+	test( 'keeps the documented global aligned with the internal singleton', () => {
+		window.sdAiAgentReflection = createReflectionBus();
+
+		let reimported;
+		jest.isolateModules( () => {
+			// eslint-disable-next-line global-require
+			reimported = require( '../reflection-bus' ).default;
+		} );
+
+		expect( reimported ).toBe( sharedBus );
+		expect( window.sdAiAgentReflection ).toBe( sharedBus );
 	} );
 
 	test( '__resetReflectionBusForTests() clears listeners in-place on the shared bus', () => {
