@@ -139,7 +139,7 @@ class FloatingWidgetTest extends WP_UnitTestCase {
 	public function test_enqueue_assets_frontend_skips_when_disabled(): void {
 		wp_set_current_user( $this->admin_id );
 
-		// Default settings have show_on_frontend disabled.
+		// Explicitly disabled sites should still skip the frontend widget.
 		Settings::instance()->update( [ 'show_on_frontend' => false ] );
 
 		FloatingWidget::enqueue_assets_frontend();
