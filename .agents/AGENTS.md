@@ -99,6 +99,11 @@ to change, do not answer only in the issue thread. Make the durable repo change:
   in-plugin source. Block theme or Full Site Editing excerpts belong in
   `includes/Models/skills/wp-block-themes.md`; update that skill or the root
   `AGENTS.md` summary instead of copying private local paths into GitHub.
+- For mixed shorthand reports, map each note before editing: automation/process
+  feedback belongs in `.agents/AGENTS.md`, `.agents/scripts/commands/feedback-triage.md`,
+  or the relevant helper; REST security feedback belongs in root `AGENTS.md`
+  plus the concrete controller or ability family; block-theme excerpts belong in
+  `includes/Models/skills/wp-block-themes.md`.
 - Do not mark contributor-insight issues complete after documentation reading
   alone. A valid fix changes a durable instruction, workflow doc, or helper, then
   verifies the changed guidance with an exact `rg -n` check that future workers

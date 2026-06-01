@@ -118,6 +118,30 @@ when it includes all of the following:
   workers, such as `rg -n "Contributor Insight|sd-ai-agent/v1|secret|current user|file upload" AGENTS.md .agents/AGENTS.md`
   plus any workflow-specific doc check.
 
+#### Contributor Insight Source Mapping
+
+When a contributor-insight issue combines multiple shorthand notes, resolve each
+note to a committed, future-loaded source before editing:
+
+- Treat local-path snippets as evidence only. Identify the matching committed
+  file by title, heading, or distinctive phrases, then edit that file instead of
+  reproducing the private path or pasted excerpt.
+- For block-theme snippets headed `Block Themes`, `Full Site Editing`,
+  `theme.json`, templates, parts, patterns, or style variations, update
+  `includes/Models/skills/wp-block-themes.md` and keep the root summary here in
+  sync.
+- For REST security shorthand involving `sd-ai-agent/v1`, secret scrubbing,
+  current-user execution, or file uploads, update this root guidance and inspect
+  the concrete controller or ability family before deciding whether code or a
+  follow-up issue brief is required.
+- For automation/process shorthand such as "do we need instructions or script",
+  update `.agents/AGENTS.md`, `.agents/scripts/commands/feedback-triage.md`, or
+  the relevant helper so future triage issues include worker-ready files,
+  expectations, and verification commands.
+- Verification for this class of guidance-only fix should include both:
+  `rg -n "Contributor Insight|source mapping|local-path|sd-ai-agent/v1|file upload" AGENTS.md .agents/AGENTS.md .agents/scripts/commands/feedback-triage.md`
+  and `rg -n "wp-block-themes|Full Site Editing|theme.json|validate-block-content" AGENTS.md includes/Models/skills/wp-block-themes.md`.
+
 ### Block Theme Automation Guidance
 
 When work touches WordPress block themes, Full Site Editing, `theme.json`,
