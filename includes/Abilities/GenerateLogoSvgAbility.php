@@ -40,6 +40,11 @@ class GenerateLogoSvgAbility extends AbstractAbility {
 	private const MAX_SVG_BYTES = 512000;
 
 	/**
+	 * Uploads subdirectory for generated logo SVG attachments.
+	 */
+	private const UPLOAD_SUBDIR = 'superdav-ai-agent';
+
+	/**
 	 * Elements that must never appear in a sanitised SVG.
 	 *
 	 * @var list<string>
@@ -708,9 +713,10 @@ INSTRUCTION;
 	/**
 	 * Save SVG content directly to the WordPress media library.
 	 *
-	 * Writes the SVG to the current upload directory and creates an attachment
-	 * post with MIME type `image/svg+xml`. Bypasses `media_handle_sideload()`
-	 * because WordPress's MIME check blocks SVG uploads by default.
+	 * Writes the SVG to a plugin-specific uploads subdirectory and creates an
+	 * attachment post with MIME type `image/svg+xml`. Bypasses
+	 * `media_handle_sideload()` because WordPress's MIME check blocks SVG uploads
+	 * by default.
 	 *
 	 * @param string $svg  Sanitised SVG markup.
 	 * @param string $slug Filename slug (will be sanitised and made unique).
@@ -729,9 +735,21 @@ INSTRUCTION;
 			return new WP_Error( 'upload_dir_error', (string) $upload_dir['error'] );
 		}
 
+		$upload_basedir = trailingslashit( (string) $upload_dir['basedir'] );
+		$upload_baseurl = trailingslashit( (string) $upload_dir['baseurl'] );
+		$target_dir     = $upload_basedir . self::UPLOAD_SUBDIR;
+		$target_url     = $upload_baseurl . self::UPLOAD_SUBDIR;
+
+		if ( ! wp_mkdir_p( $target_dir ) ) {
+			return new WP_Error(
+				'svg_upload_dir_create_failed',
+				__( 'Failed to create the Superdav AI Agent uploads directory.', 'superdav-ai-agent' )
+			);
+		}
+
 		$filename = sanitize_file_name( $slug ) . '-' . substr( uniqid( '', false ), -6 ) . '.svg';
-		$filepath = trailingslashit( (string) $upload_dir['path'] ) . $filename;
-		$url      = trailingslashit( (string) $upload_dir['url'] ) . $filename;
+		$filepath = trailingslashit( $target_dir ) . $filename;
+		$url      = trailingslashit( $target_url ) . $filename;
 
 		// Write SVG to disk.
 		$written = file_put_contents( $filepath, $svg ); // phpcs:ignore WordPress.WP.AlternativeFunctions

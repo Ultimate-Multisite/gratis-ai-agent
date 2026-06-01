@@ -466,6 +466,25 @@ class GenerateLogoSvgAbilityTest extends WP_UnitTestCase {
 		$this->assertStringStartsWith( 'data:image/svg+xml;base64,', $data_uri );
 	}
 
+	/**
+	 * save_svg_to_media_library writes generated files to the plugin uploads folder.
+	 */
+	public function test_save_svg_uses_plugin_uploads_subdirectory(): void {
+		$svg           = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 50" width="100" height="50"><rect x="0" y="0" width="100" height="50" fill="#abc"/></svg>';
+		$attachment_id = $this->call_protected( 'save_svg_to_media_library', $svg, 'test-logo-subdir' );
+
+		if ( is_wp_error( $attachment_id ) ) {
+			$this->fail( 'save_svg_to_media_library returned WP_Error: ' . $attachment_id->get_error_message() );
+		}
+
+		$this->created_attachments[] = $attachment_id;
+
+		$file = get_attached_file( $attachment_id );
+
+		$this->assertIsString( $file );
+		$this->assertStringContainsString( '/superdav-ai-agent/', str_replace( '\\', '/', $file ) );
+	}
+
 	// ─── end-to-end via run() when AI is unavailable ──────────────────────────
 
 	/**
