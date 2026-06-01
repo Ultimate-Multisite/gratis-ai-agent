@@ -180,8 +180,20 @@ before creating the issue:
   `includes/REST/` controllers and the `wp-rest/execute` ability: capability
   gates, `get_current_user_id()` context, redacted responses/logs, blocked
   internal namespace dispatch, and hidden or restricted upload endpoints.
+- If recurring tool errors mention `read:file_not_found`, require durable worker
+  guidance to treat the missing path as a recoverable mismatch: compare the
+  requested basename with the previous tool output, check nearby names such as
+  `reply3` vs `r3`, use `git ls-files '<pattern>'` for tracked files, then retry
+  `Read` before continuing with the next safe implementation step.
+- If recurring tool errors mention `bash:file_not_found`, `gh-signature-helper.sh
+  invocation failed`, `signature gate`, or blocked `gh` writes, require durable
+  worker guidance to create the issue/PR/comment body as an existing stable file,
+  avoid heredocs/process substitution/command substitution/inline markdown, pass
+  that file via `--body-file`, and switch to the signed helper path instead of
+  retrying the same raw unsigned `gh` command.
 - Include verification in the issue body, for example
   `rg -n "Contributor Insight|sd-ai-agent/v1|secret|current user|file upload" AGENTS.md .agents/AGENTS.md .agents/scripts/commands/feedback-triage.md`
+  or `rg -n "read:file_not_found|missing-file reads|git ls-files|signature gate|body-file|gh-signature-helper" AGENTS.md .agents/AGENTS.md .agents/scripts/commands/feedback-triage.md`
   plus `rg -n "wp-block-themes|Full Site Editing|theme.json|validate-block-content" AGENTS.md includes/Models/skills/wp-block-themes.md`
   when block-theme guidance is involved.
 
