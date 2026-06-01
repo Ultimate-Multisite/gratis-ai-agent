@@ -319,10 +319,10 @@ class CustomTools {
 			[
 				'name'         => 'Weather API',
 				'slug'         => 'weather-api',
-				'description'  => 'Get current weather for a city using wttr.in.',
+				'description'  => 'Example HTTP GET tool for a weather-style API. Replace the URL with your chosen provider before enabling.',
 				'type'         => self::TYPE_HTTP,
 				'config'       => [
-					'url'     => 'https://wttr.in/{{city}}?format=j1',
+					'url'     => 'https://example.com/weather?city={{city}}',
 					'method'  => 'GET',
 					'headers' => [],
 				],
