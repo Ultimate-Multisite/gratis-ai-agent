@@ -141,6 +141,10 @@ The internet-search ability is used when you (or the agent on your behalf) expli
 
 * **DuckDuckGo Instant Answer API** (api.duckduckgo.com) — Free fallback web search used when no Tavily or Brave key is configured. Sends the search query only; no API key is required. Terms: https://duckduckgo.com/terms Privacy: https://duckduckgo.com/privacy
 
+= Skill bundle maintenance (WP-CLI only) =
+
+* **GitHub** (api.github.com and raw.githubusercontent.com) — Provides the public WordPress/agent-skills skill files used by the optional WP-CLI maintenance command `wp sd-ai-agent skills sync-wp-agent-skills`. This service is contacted only when a site administrator manually runs that WP-CLI command, including dry runs; it is not contacted on plugin activation, page load, chat requests, scheduled automations, or in the background. The command sends HTTPS GET requests for the public `WordPress/agent-skills` repository paths and skill file names being synced, plus normal HTTP request metadata such as the requesting server IP address and the plugin's user-agent string. It does not send WordPress site content, user records, conversation history, API keys, or plugin settings. Terms: https://docs.github.com/en/site-policy/github-terms/github-terms-of-service Privacy: https://docs.github.com/en/site-policy/privacy-policies/github-general-privacy-statement
+
 = Stock-image services =
 
 These are contacted only when you (or the agent) request a stock image via the image-generation ability. Each request sends image dimensions and the search keyword you supply — no site data, user data, or conversation history is transmitted.
@@ -217,6 +221,7 @@ All call sites are either reached only after the shim has loaded the function, o
 == Changelog ==
 
 = 1.16.2 - Released on 2026-05-29 =
+* Docs: External Services section now discloses the optional WP-CLI skills sync requests to GitHub (`api.github.com` and `raw.githubusercontent.com`), including what is sent, when the command runs, and GitHub Terms and Privacy links
 * Docs: External Services section clarifies that third-party OpenAI-compatible providers reached via a separate WordPress connector plugin are governed by that connector's own documentation and privacy policy, and that Superdav AI Agent does not initiate requests to any provider without an installed and configured connector
 * Cleanup: Remove hardcoded third-party AI provider hostnames from `CacheStrategyResolver`, `ModelCapabilityHandler`, `NoopCacheStrategy`, and `Settings`. The plugin never contacted those endpoints directly — requests to them are made by third-party connector plugins. Static reviewers no longer flag them as undisclosed external services
 * New: `sd_ai_agent_models_endpoint_hosts` filter lets connector plugins extend the `/models` ingestion allow-list at runtime, replacing the previous hardcoded list with a runtime-extensible defaults set scoped to the three providers this plugin's readme discloses directly
