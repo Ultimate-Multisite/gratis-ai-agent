@@ -196,6 +196,17 @@ before creating the issue:
   or `rg -n "read:file_not_found|missing-file reads|git ls-files|signature gate|body-file|gh-signature-helper" AGENTS.md .agents/AGENTS.md .agents/scripts/commands/feedback-triage.md`
   plus `rg -n "wp-block-themes|Full Site Editing|theme.json|validate-block-content" AGENTS.md includes/Models/skills/wp-block-themes.md`
   when block-theme guidance is involved.
+- Add a `## Worker Guidance` section to the created GitHub issue. It must name
+  each durable target file to inspect or edit, translate shorthand notes into
+  explicit worker actions, and include the exact `rg -n` verification commands.
+  Do not file a contributor-insight issue that only quotes the maintainer note;
+  the issue body must be actionable without private paths, chat history, or
+  additional context.
+- If implementation hardening is broader than the instruction change, include a
+  `## Follow-up issue briefs` section with one worker-ready brief per route,
+  controller, helper, or skill family. Each brief names the missing guard or
+  guidance, expected safe behaviour, and one concrete verification command or
+  REST request.
 
 #### 4d: Dedup check (for real_bug and missing_ability)
 
