@@ -86,6 +86,22 @@ class StockImageAbilityTest extends WP_UnitTestCase {
 		$this->assertSame( 'missing_keyword', $result->get_error_code() );
 	}
 
+	/**
+	 * The schema keeps keyword optional so import-by-id calls from a previous
+	 * search result can pass provider + image_id without being rejected before
+	 * execute_callback() applies action-specific validation.
+	 */
+	public function test_schema_does_not_require_keyword_for_import_by_id(): void {
+		$method = new \ReflectionMethod( StockImageAbility::class, 'input_schema' );
+		$method->setAccessible( true );
+
+		/** @var array{required?: list<string>} $schema */
+		$schema = $method->invoke( $this->ability );
+
+		$this->assertArrayHasKey( 'required', $schema );
+		$this->assertNotContains( 'keyword', $schema['required'] );
+	}
+
 	// ─── search mode (action=search) ─────────────────────────────────────────
 
 	/**
@@ -279,6 +295,64 @@ class StockImageAbilityTest extends WP_UnitTestCase {
 		$this->assertSame( 'Photo by Test Author on openverse (CC0)', $stored );
 
 		// Clean up.
+		wp_delete_attachment( $result['attachment_id'], true );
+	}
+
+	/**
+	 * Importing a selected candidate by provider + image_id does not require the
+	 * model to repeat the original keyword; the image ID is used as the fallback
+	 * title/alt base when keyword is omitted.
+	 */
+	public function test_import_mode_with_provider_and_image_id_allows_missing_keyword(): void {
+		$fake_source = new FakeStockImageSource(
+			'openverse',
+			'free',
+			[],
+			[
+				'img-no-keyword' => [
+					'url'         => '',
+					'width'       => 800,
+					'height'      => 600,
+					'author'      => 'Test Author',
+					'author_url'  => 'https://example.com/author',
+					'license'     => 'CC0',
+					'source'      => 'openverse',
+					'attribution' => 'Photo by Test Author on openverse (CC0)',
+				],
+			]
+		);
+
+		$this->set_factory_sources(
+			[
+				'openverse' => $fake_source,
+				'generate'  => new FakeStockImageSource( 'generate', 'api', [] ),
+			]
+		);
+
+		$png_data = base64_decode( 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==' ); // phpcs:ignore WordPress.PHP.DiscouragedPHPFunctions.obfuscation_base64_decode -- test fixture
+		$tmp_file = get_temp_dir() . 'stock-test-' . uniqid() . '.png';
+		file_put_contents( $tmp_file, $png_data ); // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_file_put_contents -- test fixture
+
+		$fake_source->tmp_file = $tmp_file;
+
+		$result = $this->invoke_execute(
+			[
+				'action'   => 'import',
+				'provider' => 'openverse',
+				'image_id' => 'img-no-keyword',
+			]
+		);
+
+		if ( is_wp_error( $result ) ) {
+			$this->markTestSkipped( 'media_handle_sideload not available: ' . $result->get_error_message() );
+			return;
+		}
+
+		$this->assertIsArray( $result );
+		$this->assertGreaterThan( 0, $result['attachment_id'] );
+		$this->assertSame( 'Img No Keyword', $result['title'] );
+		$this->assertSame( [ 'img-no-keyword' ], $fake_source->downloaded_ids );
+
 		wp_delete_attachment( $result['attachment_id'], true );
 	}
 
