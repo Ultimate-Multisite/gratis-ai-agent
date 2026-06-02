@@ -349,19 +349,21 @@ class OnboardingManagerTest extends WP_UnitTestCase {
 	}
 
 	/**
-	 * register_rest_routes() registers the onboarding/bootstrap-start route.
+	 * register_rest_routes() registers the unified onboarding/start route.
 	 *
-	 * The interview route and the deprecated /onboarding/bootstrap route were
-	 * both removed when the Setup Assistant agent took over the discovery flow.
+	 * The split Theme Builder route is removed; bootstrap-start remains only as
+	 * a compatibility alias for existing callers.
 	 */
-	public function test_register_rest_routes_registers_bootstrap_start_route(): void {
+	public function test_register_rest_routes_registers_unified_start_route(): void {
 		do_action( 'rest_api_init' );
 		OnboardingManager::register_rest_routes();
 
 		$server = rest_get_server();
 		$routes = $server->get_routes();
 
+		$this->assertArrayHasKey( '/sd-ai-agent/v1/onboarding/start', $routes );
 		$this->assertArrayHasKey( '/sd-ai-agent/v1/onboarding/bootstrap-start', $routes );
+		$this->assertArrayNotHasKey( '/sd-ai-agent/v1/onboarding/theme-builder-start', $routes );
 		$this->assertArrayNotHasKey( '/sd-ai-agent/v1/onboarding/bootstrap', $routes );
 		$this->assertArrayNotHasKey( '/sd-ai-agent/v1/onboarding/interview', $routes );
 	}
@@ -383,19 +385,78 @@ class OnboardingManagerTest extends WP_UnitTestCase {
 	// ── reset() — v2 cleanup ──────────────────────────────────────────────
 
 	/**
-	 * reset() clears the persisted bootstrap and empty-install session IDs so
-	 * the v2 direct-routing gate creates fresh sessions on the next mount.
+	 * reset() clears the persisted onboarding session ID plus retired
+	 * empty-install state so the direct-routing gate creates a fresh session on
+	 * the next mount.
 	 */
 	public function test_reset_clears_persisted_session_options(): void {
 		update_option( OnboardingManager::COMPLETE_OPTION, true );
 		update_option( OnboardingManager::BOOTSTRAP_SESSION_OPTION, 42 );
 		update_option( OnboardingManager::THEME_BUILDER_SESSION_OPTION, 99 );
+		update_option( OnboardingManager::THEME_BUILDER_STARTED_OPTION, time() );
 
 		OnboardingManager::reset();
 
 		$this->assertFalse( get_option( OnboardingManager::COMPLETE_OPTION ) );
 		$this->assertFalse( get_option( OnboardingManager::BOOTSTRAP_SESSION_OPTION ) );
 		$this->assertFalse( get_option( OnboardingManager::THEME_BUILDER_SESSION_OPTION ) );
+		$this->assertFalse( get_option( OnboardingManager::THEME_BUILDER_STARTED_OPTION ) );
+	}
+
+	// ── rest_start ─────────────────────────────────────────────────────────
+
+	/**
+	 * rest_start() returns a unified Setup Assistant session shape.
+	 */
+	public function test_rest_start_returns_expected_shape(): void {
+		$admin_id = self::factory()->user->create( [ 'role' => 'administrator' ] );
+		wp_set_current_user( $admin_id );
+
+		$response = OnboardingManager::rest_start();
+
+		$this->assertInstanceOf( \WP_REST_Response::class, $response );
+		$this->assertSame( 200, $response->get_status() );
+
+		$data = $response->get_data();
+		$this->assertIsArray( $data );
+		$this->assertTrue( $data['success'] );
+		$this->assertArrayHasKey( 'session_id', $data );
+		$this->assertArrayHasKey( 'agent_id', $data );
+		$this->assertArrayHasKey( 'kickoff_message', $data );
+		$this->assertArrayHasKey( 'onboarding_complete', $data );
+		$this->assertArrayNotHasKey( 'is_fresh_start', $data );
+		$this->assertArrayNotHasKey( 'started_at', $data );
+	}
+
+	/**
+	 * rest_start() persists the unified onboarding session ID and completion flag.
+	 */
+	public function test_rest_start_persists_session_and_marks_complete(): void {
+		$admin_id = self::factory()->user->create( [ 'role' => 'administrator' ] );
+		wp_set_current_user( $admin_id );
+
+		$response = OnboardingManager::rest_start();
+		$data     = $response->get_data();
+
+		$this->assertSame( $data['session_id'], get_option( OnboardingManager::BOOTSTRAP_SESSION_OPTION ) );
+		$this->assertTrue( (bool) get_option( OnboardingManager::COMPLETE_OPTION ) );
+
+		$settings = \SdAiAgent\Core\Settings::instance()->get();
+		$this->assertTrue( (bool) ( $settings['onboarding_complete'] ?? false ) );
+	}
+
+	/**
+	 * rest_start() is idempotent and reuses the existing onboarding session.
+	 */
+	public function test_rest_start_is_idempotent(): void {
+		$admin_id = self::factory()->user->create( [ 'role' => 'administrator' ] );
+		wp_set_current_user( $admin_id );
+
+		$first  = OnboardingManager::rest_start()->get_data();
+		$second = OnboardingManager::rest_start()->get_data();
+
+		$this->assertSame( $first['session_id'], $second['session_id'] );
+		$this->assertTrue( $second['already_complete'] );
 	}
 
 	// ── rest_reset ────────────────────────────────────────────────────────
@@ -420,7 +481,7 @@ class OnboardingManagerTest extends WP_UnitTestCase {
 
 	/**
 	 * rest_reset() flips settings.onboarding_complete back to false. The
-	 * React admin-page gates the bootstrap flow on
+	 * React admin-page gates the onboarding flow on
 	 * `settings.onboarding_complete !== false`, so the option-only reset is
 	 * not enough on its own — the Settings store must also be updated.
 	 */
@@ -433,169 +494,4 @@ class OnboardingManagerTest extends WP_UnitTestCase {
 		$this->assertFalse( (bool) ( $settings['onboarding_complete'] ?? true ) );
 	}
 
-	// ── rest_theme_builder_start ──────────────────────────────────────────
-
-	/**
-	 * register_rest_routes() registers the legacy empty-install onboarding route.
-	 */
-	public function test_register_rest_routes_registers_theme_builder_start_route(): void {
-		do_action( 'rest_api_init' );
-		OnboardingManager::register_rest_routes();
-
-		$server = rest_get_server();
-		$routes = $server->get_routes();
-
-		$this->assertArrayHasKey( '/sd-ai-agent/v1/onboarding/theme-builder-start', $routes );
-	}
-
-	/**
-	 * rest_theme_builder_start() returns a WP_REST_Response with expected keys.
-	 */
-	public function test_rest_theme_builder_start_returns_expected_shape(): void {
-		$admin_id = self::factory()->user->create( [ 'role' => 'administrator' ] );
-		wp_set_current_user( $admin_id );
-
-		$response = OnboardingManager::rest_theme_builder_start();
-
-		$this->assertInstanceOf( \WP_REST_Response::class, $response );
-		$this->assertSame( 200, $response->get_status() );
-
-		$data = $response->get_data();
-		$this->assertIsArray( $data );
-		$this->assertTrue( $data['success'] );
-		$this->assertArrayHasKey( 'session_id', $data );
-		$this->assertArrayHasKey( 'agent_id', $data );
-		$this->assertArrayHasKey( 'kickoff_message', $data );
-		$this->assertArrayHasKey( 'started_at', $data );
-		// is_fresh_start drives the React kickoff guard (see #1522).
-		// `started_at` is retained for observability / back-compat but MUST NOT
-		// be used to distinguish fresh-start from resume because it is truthy
-		// on both branches.
-		$this->assertArrayHasKey( 'is_fresh_start', $data );
-		$this->assertIsBool( $data['is_fresh_start'] );
-	}
-
-	/**
-	 * rest_theme_builder_start() sets the empty-install started option on first call.
-	 */
-	public function test_rest_theme_builder_start_sets_started_option(): void {
-		$admin_id = self::factory()->user->create( [ 'role' => 'administrator' ] );
-		wp_set_current_user( $admin_id );
-
-		OnboardingManager::rest_theme_builder_start();
-
-		$started_at = get_option( OnboardingManager::THEME_BUILDER_STARTED_OPTION );
-		$this->assertNotEmpty( $started_at );
-		$this->assertIsInt( (int) $started_at );
-	}
-
-	/**
-	 * rest_theme_builder_start() persists the session ID.
-	 */
-	public function test_rest_theme_builder_start_persists_session_id(): void {
-		$admin_id = self::factory()->user->create( [ 'role' => 'administrator' ] );
-		wp_set_current_user( $admin_id );
-
-		$response = OnboardingManager::rest_theme_builder_start();
-		$data     = $response->get_data();
-
-		$persisted_session_id = get_option( OnboardingManager::THEME_BUILDER_SESSION_OPTION );
-		$this->assertSame( $data['session_id'], $persisted_session_id );
-	}
-
-	/**
-	 * rest_theme_builder_start() is idempotent — repeat calls return the same
-	 * session ID and started_at timestamp without creating a duplicate session.
-	 */
-	public function test_rest_theme_builder_start_is_idempotent(): void {
-		$admin_id = self::factory()->user->create( [ 'role' => 'administrator' ] );
-		wp_set_current_user( $admin_id );
-
-		// First call.
-		$response1 = OnboardingManager::rest_theme_builder_start();
-		$data1     = $response1->get_data();
-
-		// Second call.
-		$response2 = OnboardingManager::rest_theme_builder_start();
-		$data2     = $response2->get_data();
-
-		// Both calls should return the same session ID.
-		$this->assertSame( $data1['session_id'], $data2['session_id'] );
-
-		// Both calls should return the same started_at timestamp.
-		$this->assertSame( $data1['started_at'], $data2['started_at'] );
-	}
-
-	/**
-	 * rest_theme_builder_start() returns the same started_at timestamp on resume.
-	 *
-	 * Historical note: pre-#1522 the React component used `started_at` as the
-	 * kickoff guard, which was broken because the fresh-create branch also
-	 * stamped a fresh timestamp before returning — so the JS check
-	 * `if ( ! data.started_at )` was false on the very first call and the
-	 * kickoff never fired. `is_fresh_start` is now the authoritative signal
-	 * (see test_rest_theme_builder_start_distinguishes_fresh_start_from_resume
-	 * below). `started_at` is retained for observability and back-compat.
-	 */
-	public function test_rest_theme_builder_start_returns_started_at_on_resume(): void {
-		$admin_id = self::factory()->user->create( [ 'role' => 'administrator' ] );
-		wp_set_current_user( $admin_id );
-
-		// First call — fresh start.
-		$response1 = OnboardingManager::rest_theme_builder_start();
-		$data1     = $response1->get_data();
-
-		// started_at should be set on first call.
-		$this->assertNotEmpty( $data1['started_at'] );
-
-		// Second call — resume.
-		$response2 = OnboardingManager::rest_theme_builder_start();
-		$data2     = $response2->get_data();
-
-		// started_at should still be set on resume and unchanged.
-		$this->assertNotEmpty( $data2['started_at'] );
-		$this->assertSame( $data1['started_at'], $data2['started_at'] );
-	}
-
-	/**
-	 * rest_theme_builder_start() returns is_fresh_start=true on the very first
-	 * call and is_fresh_start=false on every subsequent (resume) call.
-	 *
-	 * Regression coverage for #1522 — the broken signal `started_at` is
-	 * truthy on both branches; `is_fresh_start` is the only field that can
-	 * be used to drive the React component's kickoff guard.
-	 */
-	public function test_rest_theme_builder_start_distinguishes_fresh_start_from_resume(): void {
-		$admin_id = self::factory()->user->create( [ 'role' => 'administrator' ] );
-		wp_set_current_user( $admin_id );
-
-		// First call — fresh start.
-		$first  = OnboardingManager::rest_theme_builder_start()->get_data();
-		$this->assertTrue(
-			$first['is_fresh_start'],
-			'First call must report is_fresh_start=true so the React component fires the kickoff.'
-		);
-
-		// Second call — resume.
-		$second = OnboardingManager::rest_theme_builder_start()->get_data();
-		$this->assertFalse(
-			$second['is_fresh_start'],
-			'Subsequent calls must report is_fresh_start=false so the React component skips the kickoff.'
-		);
-
-		// Sanity: both calls share the same session.
-		$this->assertSame( $first['session_id'], $second['session_id'] );
-	}
-
-	/**
-	 * reset() clears the empty-install started option so the next call to
-	 * rest_theme_builder_start() will be treated as a fresh start.
-	 */
-	public function test_reset_clears_theme_builder_started_option(): void {
-		update_option( OnboardingManager::THEME_BUILDER_STARTED_OPTION, time() );
-
-		OnboardingManager::reset();
-
-		$this->assertFalse( get_option( OnboardingManager::THEME_BUILDER_STARTED_OPTION ) );
-	}
 }

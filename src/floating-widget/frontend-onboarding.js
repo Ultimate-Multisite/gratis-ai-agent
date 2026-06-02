@@ -2,16 +2,13 @@
  * Frontend onboarding helpers.
  *
  * The public floating widget can launch the same first-run Setup Assistant
- * flow as the admin chat page. These helpers keep the branching and endpoint
- * sequencing testable outside React.
+ * flow as the admin chat page. These helpers keep the start sequencing
+ * testable outside React.
  */
 
 import defaultApiFetch from '@wordpress/api-fetch';
 
-const CONTENT_PROBE_PATH = '/wp/v2/posts?per_page=2&status=publish';
-const BOOTSTRAP_START_PATH = '/sd-ai-agent/v1/onboarding/bootstrap-start';
-const THEME_BUILDER_START_PATH =
-	'/sd-ai-agent/v1/onboarding/theme-builder-start';
+const ONBOARDING_START_PATH = '/sd-ai-agent/v1/onboarding/start';
 
 /**
  * Coerce wp_localize_script booleans and REST booleans into a real boolean.
@@ -48,49 +45,6 @@ export function isFrontendOnboardingEnabled( data ) {
 		path.includes( '/wp-admin/' );
 
 	return ! isAdmin;
-}
-
-/**
- * Probe whether the site has more than the default seed post.
- *
- * Mirrors the admin-page heuristic: more than one published post means an
- * established site, while zero/one means the Theme Builder branch is safer.
- * Probe failures default to established-site onboarding.
- *
- * @param {Function} fetcher apiFetch-compatible function.
- * @return {Promise<boolean>} True when the site appears to have content.
- */
-export async function probeSiteHasContent( fetcher ) {
-	try {
-		const posts = await fetcher( { path: CONTENT_PROBE_PATH } );
-		return Array.isArray( posts ) && posts.length > 1;
-	} catch {
-		return true;
-	}
-}
-
-/**
- * Pick the onboarding start endpoint for the detected site state.
- *
- * @param {boolean} siteHasContent Whether the site has published content.
- * @return {string} REST path to start onboarding.
- */
-export function getFrontendOnboardingEndpoint( siteHasContent ) {
-	return siteHasContent ? BOOTSTRAP_START_PATH : THEME_BUILDER_START_PATH;
-}
-
-/**
- * Whether the kickoff message should be auto-sent for the response.
- *
- * Theme-builder resumes set is_fresh_start=false so reloads do not duplicate
- * the first prompt. Established-site bootstrap should send its neutral kickoff.
- *
- * @param {boolean} siteHasContent Whether the site has published content.
- * @param {Object}  data           Onboarding start response.
- * @return {boolean} True when the kickoff should be sent.
- */
-export function shouldSendFrontendOnboardingKickoff( siteHasContent, data ) {
-	return siteHasContent || data?.is_fresh_start !== false;
 }
 
 /**
@@ -143,9 +97,8 @@ export async function startFrontendOnboarding( {
 	setSelectedAgentId,
 	fallbackMessage = "Hi! I'm ready to set up this site.",
 } ) {
-	const siteHasContent = await probeSiteHasContent( apiFetch );
 	const data = await apiFetch( {
-		path: getFrontendOnboardingEndpoint( siteHasContent ),
+		path: ONBOARDING_START_PATH,
 		method: 'POST',
 	} );
 
@@ -159,12 +112,9 @@ export async function startFrontendOnboarding( {
 
 	await openSession( data.session_id );
 
-	if ( shouldSendFrontendOnboardingKickoff( siteHasContent, data ) ) {
-		await sendMessage( data.kickoff_message || fallbackMessage );
-	}
+	await sendMessage( data.kickoff_message || fallbackMessage );
 
 	return {
 		data,
-		siteHasContent,
 	};
 }

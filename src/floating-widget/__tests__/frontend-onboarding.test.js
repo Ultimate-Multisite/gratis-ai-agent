@@ -1,10 +1,7 @@
 import {
-	getFrontendOnboardingEndpoint,
 	hasLiveSiteChangeActivity,
 	isFrontendOnboardingEnabled,
 	isMobileViewport,
-	probeSiteHasContent,
-	shouldSendFrontendOnboardingKickoff,
 	startFrontendOnboarding,
 } from '../frontend-onboarding';
 
@@ -60,47 +57,6 @@ describe( 'frontend onboarding helpers', () => {
 		).toBe( false );
 	} );
 
-	test( 'probes published content using the admin-page threshold', async () => {
-		await expect(
-			probeSiteHasContent( jest.fn().mockResolvedValue( [ {}, {} ] ) )
-		).resolves.toBe( true );
-
-		await expect(
-			probeSiteHasContent( jest.fn().mockResolvedValue( [ {} ] ) )
-		).resolves.toBe( false );
-
-		await expect(
-			probeSiteHasContent( jest.fn().mockRejectedValue( new Error() ) )
-		).resolves.toBe( true );
-	} );
-
-	test( 'selects the matching onboarding endpoint', () => {
-		expect( getFrontendOnboardingEndpoint( true ) ).toBe(
-			'/sd-ai-agent/v1/onboarding/bootstrap-start'
-		);
-		expect( getFrontendOnboardingEndpoint( false ) ).toBe(
-			'/sd-ai-agent/v1/onboarding/theme-builder-start'
-		);
-	} );
-
-	test( 'skips duplicate theme-builder kickoff on resume', () => {
-		expect(
-			shouldSendFrontendOnboardingKickoff( false, {
-				is_fresh_start: false,
-			} )
-		).toBe( false );
-		expect(
-			shouldSendFrontendOnboardingKickoff( false, {
-				is_fresh_start: true,
-			} )
-		).toBe( true );
-		expect(
-			shouldSendFrontendOnboardingKickoff( true, {
-				is_fresh_start: false,
-			} )
-		).toBe( true );
-	} );
-
 	test( 'detects mobile viewport preference', () => {
 		Object.defineProperty( window, 'matchMedia', {
 			configurable: true,
@@ -132,15 +88,12 @@ describe( 'frontend onboarding helpers', () => {
 		).toBe( true );
 	} );
 
-	test( 'starts established-site onboarding from the frontend', async () => {
-		const apiFetch = jest
-			.fn()
-			.mockResolvedValueOnce( [ {}, {} ] )
-			.mockResolvedValueOnce( {
-				agent_id: 7,
-				session_id: 42,
-				kickoff_message: 'Welcome',
-			} );
+	test( 'starts unified onboarding from the frontend', async () => {
+		const apiFetch = jest.fn().mockResolvedValueOnce( {
+			agent_id: 7,
+			session_id: 42,
+			kickoff_message: 'Welcome',
+		} );
 		const openSession = jest.fn().mockResolvedValue( undefined );
 		const sendMessage = jest.fn().mockResolvedValue( undefined );
 		const setSelectedAgentId = jest.fn();
@@ -153,8 +106,8 @@ describe( 'frontend onboarding helpers', () => {
 			fallbackMessage: 'Fallback',
 		} );
 
-		expect( apiFetch ).toHaveBeenNthCalledWith( 2, {
-			path: '/sd-ai-agent/v1/onboarding/bootstrap-start',
+		expect( apiFetch ).toHaveBeenCalledWith( {
+			path: '/sd-ai-agent/v1/onboarding/start',
 			method: 'POST',
 		} );
 		expect( setSelectedAgentId ).toHaveBeenCalledWith( 7 );
@@ -162,16 +115,31 @@ describe( 'frontend onboarding helpers', () => {
 		expect( sendMessage ).toHaveBeenCalledWith( 'Welcome' );
 	} );
 
-	test( 'resumes theme-builder onboarding without duplicate sends', async () => {
-		const apiFetch = jest
-			.fn()
-			.mockResolvedValueOnce( [] )
-			.mockResolvedValueOnce( {
-				agent_id: 7,
-				session_id: 42,
-				kickoff_message: 'Describe the site',
-				is_fresh_start: false,
-			} );
+	test( 'returns null when onboarding start omits a session id', async () => {
+		const apiFetch = jest.fn().mockResolvedValueOnce( {
+			agent_id: 7,
+		} );
+		const openSession = jest.fn().mockResolvedValue( undefined );
+		const sendMessage = jest.fn().mockResolvedValue( undefined );
+
+		await expect(
+			startFrontendOnboarding( {
+				apiFetch,
+				openSession,
+				sendMessage,
+				setSelectedAgentId: jest.fn(),
+				fallbackMessage: 'Fallback',
+			} )
+		).resolves.toBeNull();
+
+		expect( openSession ).not.toHaveBeenCalled();
+		expect( sendMessage ).not.toHaveBeenCalled();
+	} );
+
+	test( 'uses the fallback kickoff when the route omits a message', async () => {
+		const apiFetch = jest.fn().mockResolvedValueOnce( {
+			session_id: 42,
+		} );
 		const openSession = jest.fn().mockResolvedValue( undefined );
 		const sendMessage = jest.fn().mockResolvedValue( undefined );
 
@@ -183,11 +151,7 @@ describe( 'frontend onboarding helpers', () => {
 			fallbackMessage: 'Fallback',
 		} );
 
-		expect( apiFetch ).toHaveBeenNthCalledWith( 2, {
-			path: '/sd-ai-agent/v1/onboarding/theme-builder-start',
-			method: 'POST',
-		} );
 		expect( openSession ).toHaveBeenCalledWith( 42 );
-		expect( sendMessage ).not.toHaveBeenCalled();
+		expect( sendMessage ).toHaveBeenCalledWith( 'Fallback' );
 	} );
 } );

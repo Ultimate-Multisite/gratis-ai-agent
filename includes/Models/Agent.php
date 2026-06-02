@@ -41,8 +41,7 @@ class Agent {
 	/**
 	 * Slug of the retired Theme Builder built-in agent.
 	 *
-	 * Kept only so upgrades can remove the old built-in row and the legacy
-	 * /onboarding/theme-builder-start endpoint can keep its historic route name.
+	 * Kept only so upgrades can remove the old built-in row.
 	 */
 	public const THEME_BUILDER_AGENT_SLUG = 'theme-builder';
 

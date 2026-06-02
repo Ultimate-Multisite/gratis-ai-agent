@@ -13,20 +13,18 @@ import STORE_NAME from '../store';
 import ChatRedesign from './chat-redesign';
 
 /**
- * Onboarding bootstrap component — shown after a connector is configured
- * for the first time on an install that already has published content
- * (established-site branch).
+ * Onboarding bootstrap component — shown after a connector is configured for
+ * the first time and onboarding is incomplete.
  *
- * Calls POST /onboarding/bootstrap-start to:
+ * Calls POST /onboarding/start to:
  *  1. Mark onboarding as complete on the server.
- *  2. Auto-detect WooCommerce and queue RAG indexing.
+ *  2. Auto-detect WooCommerce context.
  *  3. Create a new session and resolve the unified Setup Assistant agent_id.
  *
  * Once the session is ready the component selects the Setup Assistant agent
- * and auto-sends a kickoff message. As of t276 the agent's stored system
- * prompt runs Phase 0 silent discovery before the first reply, then takes
- * the established-site branch (2–4 sentence inferred summary + suggestion
- * chips). No parallel onboarding prompt exists.
+ * and auto-sends a neutral kickoff message. The agent's stored system prompt
+ * performs initial investigation and can build a theme if requested or
+ * required. No parallel onboarding prompt or empty-site route exists.
  *
  * @return {JSX.Element} The onboarding bootstrap element.
  */
@@ -43,7 +41,7 @@ export default function OnboardingBootstrap() {
 		bootstrappedRef.current = true;
 
 		apiFetch( {
-			path: '/sd-ai-agent/v1/onboarding/bootstrap-start',
+			path: '/sd-ai-agent/v1/onboarding/start',
 			method: 'POST',
 		} )
 			.then( ( data ) => {

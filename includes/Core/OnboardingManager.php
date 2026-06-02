@@ -13,11 +13,10 @@ declare(strict_types=1);
  * REST endpoints:
  *   GET  /sd-ai-agent/v1/onboarding/status          — scan status + completion flag
  *   POST /sd-ai-agent/v1/onboarding/rescan          — reset and schedule a new scan
- *   POST /sd-ai-agent/v1/onboarding/bootstrap-start — create the bootstrap discovery session
- *                                                     (attaches the Setup Assistant agent)
- *   POST /sd-ai-agent/v1/onboarding/theme-builder-start — legacy empty-install
- *                                                         setup route (also
- *                                                         attaches Setup Assistant)
+ *   POST /sd-ai-agent/v1/onboarding/start           — create/resume the unified
+ *                                                     Setup Assistant session
+ *   POST /sd-ai-agent/v1/onboarding/bootstrap-start — compatibility alias for
+ *                                                     /onboarding/start
  *
  * @package SdAiAgent
  * @license GPL-2.0-or-later
@@ -47,23 +46,21 @@ class OnboardingManager {
 	const TRIGGERED_OPTION = 'sd_ai_agent_onboarding_triggered';
 
 	/**
-	 * Option key that persists the onboarding bootstrap session ID.
-	 * Stored on first call to rest_bootstrap_start; reused on subsequent calls
+	 * Option key that persists the unified onboarding session ID.
+	 * Stored on first call to rest_start; reused on subsequent calls
 	 * to make the endpoint idempotent — repeat calls return the same session.
 	 */
 	const BOOTSTRAP_SESSION_OPTION = 'sd_ai_agent_bootstrap_session_id';
 
 	/**
-	 * Option key that persists the legacy empty-install onboarding session ID.
-	 * Stored on first call to rest_theme_builder_start; reused on subsequent calls
-	 * to make the endpoint idempotent — repeat calls return the same session.
+	 * Retired option key for the removed empty-install endpoint.
+	 * Kept only so reset() can clear stale state from older installs.
 	 */
 	const THEME_BUILDER_SESSION_OPTION = 'sd_ai_agent_theme_builder_session_id';
 
 	/**
-	 * Option key that records whether the legacy empty-install session has been started.
-	 * Set to true on first call to rest_theme_builder_start to prevent the React
-	 * component from re-firing the kickoff message on reload.
+	 * Retired option key for the removed empty-install endpoint.
+	 * Kept only so reset() can clear stale state from older installs.
 	 */
 	const THEME_BUILDER_STARTED_OPTION = 'sd_ai_agent_theme_builder_started';
 
@@ -169,8 +166,8 @@ class OnboardingManager {
 	/**
 	 * Reset onboarding state (allows re-running the scan and bootstrap session).
 	 *
-	 * Clears the triggered flag, the completion flag, the persisted bootstrap
-	 * and legacy empty-install session IDs, the empty-install started flag, and the
+	 * Clears the triggered flag, the completion flag, the persisted onboarding
+	 * session ID, retired empty-install state, and the
 	 * SiteScanner status so the next admin_init re-evaluates from scratch.
 	 * Also unschedules any pending scan cron event. The Settings store flag
 	 * `onboarding_complete` is NOT modified here — callers that need to re-open
@@ -195,10 +192,10 @@ class OnboardingManager {
 	}
 
 	/**
-	 * Whether the AI-driven onboarding bootstrap session has been completed.
+	 * Whether the AI-driven onboarding session has been completed.
 	 *
-	 * Checks both the completion flag and the presence of a persisted bootstrap
-	 * session ID so that /onboarding/status stays consistent with bootstrap-start.
+	 * Checks both the completion flag and the presence of a persisted onboarding
+	 * session ID so that /onboarding/status stays consistent with /onboarding/start.
 	 *
 	 * @return bool
 	 */
@@ -235,20 +232,20 @@ class OnboardingManager {
 
 		register_rest_route(
 			'sd-ai-agent/v1',
-			'/onboarding/bootstrap-start',
+			'/onboarding/start',
 			[
 				'methods'             => 'POST',
-				'callback'            => [ __CLASS__, 'rest_bootstrap_start' ],
+				'callback'            => [ __CLASS__, 'rest_start' ],
 				'permission_callback' => [ __CLASS__, 'rest_permission' ],
 			]
 		);
 
 		register_rest_route(
 			'sd-ai-agent/v1',
-			'/onboarding/theme-builder-start',
+			'/onboarding/bootstrap-start',
 			[
 				'methods'             => 'POST',
-				'callback'            => [ __CLASS__, 'rest_theme_builder_start' ],
+				'callback'            => [ __CLASS__, 'rest_start' ],
 				'permission_callback' => [ __CLASS__, 'rest_permission' ],
 			]
 		);
@@ -325,10 +322,10 @@ class OnboardingManager {
 		);
 	}
 
-	// ── Bootstrap-start REST handler ──────────────────────────────────────
+	// ── Unified onboarding start REST handler ──────────────────────────────
 
 	/**
-	 * POST /sd-ai-agent/v1/onboarding/bootstrap-start
+	 * POST /sd-ai-agent/v1/onboarding/start
 	 *
 	 * Called by the frontend when a provider is available and onboarding has
 	 * not yet completed. This handler:
@@ -336,34 +333,34 @@ class OnboardingManager {
 	 *  1. Returns early (already_complete) if onboarding was already completed,
 	 *     re-using the persisted session ID so the frontend can resume the chat.
 	 *  2. Silently auto-detects WooCommerce and stores a site-context memory.
-	 *  3. Creates a dedicated onboarding session for the AI discovery conversation.
+	 *  3. Creates a dedicated Setup Assistant session for onboarding.
 	 *  4. Persists the session ID and marks onboarding complete via both the
 	 *     COMPLETE_OPTION WordPress option and the Settings store so that
 	 *     is_complete() and /onboarding/status stay consistent.
 	 *  5. Returns the session ID, the Setup Assistant agent_id, and a kickoff
 	 *     message so the frontend can attach the agent and auto-send the first
-	 *     message — the agent's own system prompt drives the discovery flow.
+	 *     message — the agent's own system prompt drives the initial
+	 *     investigation and any build work the site requires.
 	 *
 	 * Idempotent: repeat calls return the originally-created session ID with
 	 * already_complete=true instead of creating a duplicate session.
 	 *
 	 * @return \WP_REST_Response|\WP_Error
 	 */
-	public static function rest_bootstrap_start(): \WP_REST_Response|\WP_Error {
+	public static function rest_start(): \WP_REST_Response|\WP_Error {
 		$settings = Settings::instance();
 		$all      = $settings->get();
 
 		// Resolve the Setup Assistant agent so the frontend can attach it to
-		// the bootstrap session. The agent's stored system prompt is the
+		// the onboarding session. The agent's stored system prompt is the
 		// canonical source of truth — no parallel bootstrap prompt is needed.
 		$onboarding_agent    = Agent::get_by_slug( Agent::ONBOARDING_AGENT_SLUG );
 		$onboarding_agent_id = $onboarding_agent ? (int) $onboarding_agent->id : 0;
 
-		// The established-site kickoff. The unified Setup Assistant prompt
-		// (see Agent::build_setup_assistant_prompt) runs its silent Phase 0
-		// discovery before responding to this kickoff, then returns a 2-4
-		// sentence summary + suggestion chips. We deliberately pass a neutral
-		// kickoff that lets the agent's own prompt drive the discovery path.
+		// Neutral kickoff. The unified Setup Assistant prompt runs initial
+		// discovery before responding, then decides whether to summarize,
+		// ask a question, or build/update a theme based on site state and user
+		// intent. Do not fork the route based on an empty-site heuristic.
 		$kickoff_message = __(
 			"Hi! I just set up this plugin and I'm ready to get started.",
 			'superdav-ai-agent'
@@ -407,7 +404,7 @@ class OnboardingManager {
 			);
 		}
 
-		// Create the bootstrap session, applying the Setup Assistant agent's
+		// Create the onboarding session, applying the Setup Assistant agent's
 		// provider/model overrides if present so the session starts with the
 		// right model for the first turn.
 		$session_data = [
@@ -431,8 +428,8 @@ class OnboardingManager {
 
 		if ( ! $session_id ) {
 			return new \WP_Error(
-				'bootstrap_session_failed',
-				__( 'Failed to create bootstrap session.', 'superdav-ai-agent' ),
+				'onboarding_session_failed',
+				__( 'Failed to create onboarding session.', 'superdav-ai-agent' ),
 				[ 'status' => 500 ]
 			);
 		}
@@ -456,139 +453,16 @@ class OnboardingManager {
 		);
 	}
 
-	// ── Theme-builder-start REST handler ──────────────────────────────────
-
 	/**
-	 * POST /sd-ai-agent/v1/onboarding/theme-builder-start
+	 * Compatibility callback for callers that still use bootstrap-start.
 	 *
-	 * Legacy empty-install onboarding route. The public route name is retained
-	 * for compatibility with the React bootstrapper, but the old Theme Builder
-	 * agent row has been retired: every first-run branch now attaches the single
-	 * Setup Assistant agent.
-	 *
-	 * This handler mirrors rest_bootstrap_start but:
-	 *
-	 *  1. Sends an empty-install kickoff suited to the Setup Assistant's fast
-	 *     build branch.
-	 *  2. Persists the session ID under THEME_BUILDER_SESSION_OPTION so
-	 *     repeat calls return the same session.
-	 *  3. Sets THEME_BUILDER_STARTED_OPTION on first call to prevent the React
-	 *     component from re-firing the kickoff message on reload.
-	 *  4. Marks onboarding complete because there is no second setup flow after
-	 *     the unified Setup Assistant session starts.
-	 *  5. Returns an explicit `is_fresh_start` boolean so the React component
-	 *     can distinguish a fresh-create request (kickoff SHOULD fire) from a
-	 *     resume request (kickoff MUST NOT fire). The boolean is the
-	 *     authoritative signal — `started_at` is also returned for
-	 *     observability/back-compat but MUST NOT be used to drive kickoff
-	 *     behaviour because both branches return a truthy timestamp.
-	 *  6. Returns the same JSON shape as bootstrap-start so the React entry
-	 *     component can use a single helper.
-	 *
-	 * Idempotent: repeat calls return the originally-created session ID
-	 * instead of creating a duplicate session.
+	 * New frontend and admin code must call /onboarding/start. The legacy
+	 * theme-builder-start route has been removed completely.
 	 *
 	 * @return \WP_REST_Response|\WP_Error
 	 */
-	public static function rest_theme_builder_start(): \WP_REST_Response|\WP_Error {
-		$settings = Settings::instance();
-		$all      = $settings->get();
-
-		// The empty-install onboarding branch always uses the unified Setup
-		// Assistant. The legacy Theme Builder built-in is removed during agent
-		// seeding/reset so it no longer appears as a second setup agent.
-		$onboarding_agent    = Agent::get_by_slug( Agent::ONBOARDING_AGENT_SLUG );
-		$onboarding_agent_id = $onboarding_agent ? (int) $onboarding_agent->id : 0;
-
-		// Empty-install kickoff. Matches the Setup Assistant's Phase 1
-		// "Capture (one warm turn)" expectation — the agent's stored
-		// system prompt drives the rest of the build conversation.
-		$kickoff_message = __(
-			"Hi! I'm ready when you are — tell me what you're building (a name and a one-line description is plenty) and I'll have a homepage live in a couple of minutes.",
-			'superdav-ai-agent'
-		);
-
-		// Early-return if an empty-install onboarding session was already created.
-		// Reuse the persisted session ID so the frontend can resume the same
-		// conversation without re-firing the kickoff message. `is_fresh_start` is
-		// false on this branch so the React component skips the kickoff send.
-		$existing_session_id = get_option( self::THEME_BUILDER_SESSION_OPTION );
-		if ( ! empty( $existing_session_id ) ) {
-			return new \WP_REST_Response(
-				[
-					'success'         => true,
-					'session_id'      => $existing_session_id,
-					'agent_id'        => $onboarding_agent_id,
-					'kickoff_message' => $kickoff_message,
-					'started_at'      => get_option( self::THEME_BUILDER_STARTED_OPTION ),
-					'is_fresh_start'  => false,
-				],
-				200
-			);
-		}
-
-		// Create the empty-install setup session, applying the Setup Assistant
-		// agent's provider/model overrides if present so the session starts with
-		// the right model for the first turn.
-		$session_data = [
-			'user_id'     => get_current_user_id(),
-			'title'       => __( 'Getting started', 'superdav-ai-agent' ),
-			'provider_id' => $all['default_provider'] ?? '',
-			'model_id'    => $all['default_model'] ?? '',
-		];
-
-		if ( $onboarding_agent_id > 0 ) {
-			$agent_options = Agent::get_loop_options( $onboarding_agent_id );
-			if ( ! empty( $agent_options['provider_id'] ) ) {
-				$session_data['provider_id'] = $agent_options['provider_id'];
-			}
-			if ( ! empty( $agent_options['model_id'] ) ) {
-				$session_data['model_id'] = $agent_options['model_id'];
-			}
-		}
-
-		$session_id = Database::create_session( $session_data );
-
-		// Mark onboarding complete so the React admin-page stops re-mounting
-		// the onboarding bootstrappers. The unified agent handles the rest
-		// of the conversation through normal chat — there is no separate
-		// "after onboarding" state to gate on.
-		if ( $session_id ) {
-			self::mark_complete();
-			if ( empty( $all['onboarding_complete'] ) ) {
-				$settings->update( [ 'onboarding_complete' => true ] );
-			}
-		}
-
-		if ( ! $session_id ) {
-			return new \WP_Error(
-				'theme_builder_session_failed',
-				__( 'Failed to create onboarding session.', 'superdav-ai-agent' ),
-				[ 'status' => 500 ]
-			);
-		}
-
-		// Persist the session ID and the started timestamp so repeat calls return
-		// the same session and the React component knows not to re-fire the kickoff.
-		$started_at = time();
-		update_option( self::THEME_BUILDER_SESSION_OPTION, $session_id, false );
-		update_option( self::THEME_BUILDER_STARTED_OPTION, $started_at, false );
-
-		// `is_fresh_start` is true on this branch — the React component will
-		// auto-send the kickoff message exactly once. Subsequent calls hit the
-		// resume branch above (is_fresh_start=false) so reloads never duplicate
-		// the kickoff. See #1522 for the regression this signal fixes.
-		return new \WP_REST_Response(
-			[
-				'success'         => true,
-				'session_id'      => $session_id,
-				'agent_id'        => $onboarding_agent_id,
-				'kickoff_message' => $kickoff_message,
-				'started_at'      => $started_at,
-				'is_fresh_start'  => true,
-			],
-			200
-		);
+	public static function rest_bootstrap_start(): \WP_REST_Response|\WP_Error {
+		return self::rest_start();
 	}
 
 	// ── Reset REST handler ────────────────────────────────────────────────
@@ -596,14 +470,14 @@ class OnboardingManager {
 	/**
 	 * POST /sd-ai-agent/v1/onboarding/reset
 	 *
-	 * Clears onboarding state so the v2 direct-routing gate in
+	 * Clears onboarding state so the direct-routing gate in
 	 * src/admin-page/index.js fires on the next chat-page mount. Used by the
 	 * "Restart Setup Assistant" control on the Settings → Advanced tab.
 	 *
 	 * Unlike the legacy v1 flow, this endpoint does NOT re-launch a wizard.
-	 * The v2 gate probes `/wp/v2/posts` once per mount and drops the user
-	 * into the unified Setup Assistant with either an established-site kickoff
-	 * or an empty-install fast-build kickoff.
+	 * The gate drops the user into the unified Setup Assistant. The agent's own
+	 * prompt performs initial investigation and decides whether building a theme
+	 * is requested or required.
 	 *
 	 * Resets, in order:
 	 *  1. {@see OnboardingManager::reset()} — clears TRIGGERED_OPTION,

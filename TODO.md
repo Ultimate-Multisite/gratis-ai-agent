@@ -372,10 +372,10 @@ Format: `- [ ] tNNN Description @owner #tag ~estimate risk:level logged:date`
 
 - [x] t224 Auto-enable WooCommerce abilities + cleanup dead onboarding code (Phase 3) #enhancement #auto-dispatch ~2h For #t221 blocked-by:t223 logged:2026-04-18 completed:2026-05-18
   - Implemented: Settings::maybe_auto_enable_woo_abilities() auto-enables WooCommerce abilities once a provider is configured (shipped earlier).
-  - Implemented: src/admin-page/index.js — replaced OnboardingWizard branch with direct routing to OnboardingBootstrap (sites with content) or OnboardingThemeBuilder (empty installs); single /wp/v2/posts heuristic probe replaces the multi-step wizard.
+  - Implemented: src/admin-page/index.js — replaced OnboardingWizard branch with direct routing to the unified Setup Assistant onboarding bootstrapper; the old content-count split and separate Theme Builder route were later removed.
   - Implemented: deleted src/components/onboarding-wizard.js (717-line wizard) and src/components/onboarding-interview.js (orphan static form).
   - Implemented: deleted dead `.sdaa-wizard*` CSS block from src/admin-page/style.css.
-  - Implemented: rewrote tests/e2e/onboarding-theme-builder.spec.js to drive the direct-routing path (empty-install probe mock → OnboardingThemeBuilder → ChatRedesign → DONE reply → theme-on-disk assertions); removed wizard-step assertions.
+  - Implemented: rewrote tests/e2e/onboarding-theme-builder.spec.js to drive the direct-routing path (Setup Assistant → ChatRedesign → DONE reply → theme-on-disk assertions); removed wizard-step assertions.
   - Note: OnboardingInterview.php and OnboardingInterviewTest.php were already removed in earlier phases; tests/SdAiAgent/Core/OnboardingManagerTest.php already asserts /onboarding/interview is unregistered.
   - Verify: `composer phpstan && composer phpcs && npm run lint:js && npm run build`
 
