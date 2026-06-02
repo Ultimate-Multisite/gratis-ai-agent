@@ -175,7 +175,7 @@ final class RestController {
 			array(
 				'methods'             => WP_REST_Server::CREATABLE,
 				'callback'            => array( __CLASS__, 'handle_tool_result' ),
-				'permission_callback' => array( $this, 'check_chat_permission' ),
+				'permission_callback' => array( $this, 'check_tool_result_permission' ),
 				'args'                => array(
 					'session_id'   => array(
 						'required'          => true,

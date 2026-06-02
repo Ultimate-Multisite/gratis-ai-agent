@@ -1422,6 +1422,55 @@ class RestControllerTest extends WP_UnitTestCase {
 	// ─── /chat/tool-result regression: 409 loop fix (sd-ai-9ip) ──────────────
 
 	/**
+	 * Test POST /chat/tool-result cannot consume another user's paused state.
+	 *
+	 * The permission callback must verify access to the supplied session_id before
+	 * the handler calls Database::load_and_clear_paused_state().
+	 */
+	public function test_tool_result_rejects_other_users_session_before_clearing_paused_state(): void {
+		wp_set_current_user( $this->admin_id );
+
+		$session_id = Database::create_session( [
+			'user_id' => $this->admin_id,
+			'title'   => 'Paused state owner session',
+		] );
+		Database::save_paused_state(
+			$session_id,
+			[
+				'history'               => [],
+				'iterations_remaining'  => 3,
+				'pending_tool_call_ids' => [ 'call_x' ],
+			]
+		);
+
+		$other_admin = self::factory()->user->create( [ 'role' => 'administrator' ] );
+		wp_set_current_user( $other_admin );
+
+		$request = new WP_REST_Request( 'POST', '/sd-ai-agent/v1/chat/tool-result' );
+		$request->set_body( wp_json_encode( [
+			'session_id'   => $session_id,
+			'tool_results' => [
+				[
+					'id'     => 'call_x',
+					'name'   => 'sd-ai-agent-js/screenshot-url',
+					'result' => [ 'success' => true ],
+				],
+			],
+		] ) );
+		$request->set_header( 'Content-Type', 'application/json' );
+		$response = $this->server->dispatch( $request );
+
+		$this->assertStatus( 403, $response );
+
+		$session_after = Database::get_session( $session_id );
+		$this->assertNotNull( $session_after );
+		$this->assertNotEmpty(
+			$session_after->paused_state,
+			'Unauthorized tool-result requests must not clear another user\'s paused state.'
+		);
+	}
+
+	/**
 	 * Test POST /chat/tool-result returns 409 when no paused_state exists AND
 	 * downgrades a stale 'awaiting_client_tools' job transient/DB row to
 	 * 'error'.

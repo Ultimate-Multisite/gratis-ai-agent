@@ -438,12 +438,21 @@ class PostMutationHealthCheckTest extends WP_UnitTestCase {
 	}
 
 	/**
-	 * Test private-network loopback proxies can access the health endpoint.
+	 * Test loopback addresses can access the health endpoint.
 	 */
-	public function test_health_endpoint_allows_private_network_loopback_proxy(): void {
-		$_SERVER['REMOTE_ADDR'] = '172.18.0.1';
+	public function test_health_endpoint_allows_loopback_address(): void {
+		$_SERVER['REMOTE_ADDR'] = '127.0.0.2';
 
 		$this->assertTrue( HealthEndpoint::check_loopback_permission( new WP_REST_Request( 'GET', '/sd-ai-agent/v1/_health' ) ) );
+	}
+
+	/**
+	 * Test private-network proxy addresses are rejected by the loopback endpoint.
+	 */
+	public function test_health_endpoint_rejects_private_network_address(): void {
+		$_SERVER['REMOTE_ADDR'] = '172.18.0.1';
+
+		$this->assertInstanceOf( WP_Error::class, HealthEndpoint::check_loopback_permission( new WP_REST_Request( 'GET', '/sd-ai-agent/v1/_health' ) ) );
 	}
 
 	/**
@@ -451,6 +460,15 @@ class PostMutationHealthCheckTest extends WP_UnitTestCase {
 	 */
 	public function test_health_endpoint_rejects_public_remote_address(): void {
 		$_SERVER['REMOTE_ADDR'] = '8.8.8.8';
+
+		$this->assertInstanceOf( WP_Error::class, HealthEndpoint::check_loopback_permission( new WP_REST_Request( 'GET', '/sd-ai-agent/v1/_health' ) ) );
+	}
+
+	/**
+	 * Test invalid REMOTE_ADDR values are rejected by the health endpoint.
+	 */
+	public function test_health_endpoint_rejects_invalid_remote_address(): void {
+		$_SERVER['REMOTE_ADDR'] = 'not-an-ip-address';
 
 		$this->assertInstanceOf( WP_Error::class, HealthEndpoint::check_loopback_permission( new WP_REST_Request( 'GET', '/sd-ai-agent/v1/_health' ) ) );
 	}
