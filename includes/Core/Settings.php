@@ -379,7 +379,7 @@ class Settings {
 			'max_history_turns'               => 20,
 			'suggestion_count'                => 3,
 			'yolo_mode'                       => false,
-			'show_on_frontend'                => false,
+			'show_on_frontend'                => true,
 			'keyboard_shortcut'               => 'alt+a',
 			'image_generation_size'           => '1024x1024',
 			'image_generation_quality'        => 'standard',

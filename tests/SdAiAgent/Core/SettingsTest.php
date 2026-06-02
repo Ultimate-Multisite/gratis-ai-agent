@@ -66,6 +66,7 @@ class SettingsTest extends WP_UnitTestCase {
 		$this->assertArrayHasKey( 'temperature', $defaults );
 		$this->assertArrayHasKey( 'max_output_tokens', $defaults );
 		$this->assertArrayHasKey( 'max_history_turns', $defaults );
+		$this->assertArrayHasKey( 'show_on_frontend', $defaults );
 	}
 
 	/**
@@ -81,6 +82,7 @@ class SettingsTest extends WP_UnitTestCase {
 		// and Settings::get_max_output_tokens_for_model(). Was 4096 until sd-ai-7rl.
 		$this->assertSame( 0, $defaults['max_output_tokens'] );
 		$this->assertSame( 20, $defaults['max_history_turns'] );
+		$this->assertTrue( $defaults['show_on_frontend'] );
 	}
 
 	/**
