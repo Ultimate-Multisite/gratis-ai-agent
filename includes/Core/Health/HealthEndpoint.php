@@ -54,22 +54,43 @@ class HealthEndpoint {
 	 * @return bool|WP_Error True if allowed, WP_Error otherwise.
 	 */
 	public static function check_loopback_permission( WP_REST_Request $request ): bool|WP_Error {
-		$remote_addr = isset( $_SERVER['REMOTE_ADDR'] ) ? sanitize_text_field( wp_unslash( $_SERVER['REMOTE_ADDR'] ) ) : '';
+		$remote_addr = isset( $_SERVER['REMOTE_ADDR'] ) ? trim( sanitize_text_field( wp_unslash( $_SERVER['REMOTE_ADDR'] ) ) ) : '';
 
-		// Allow loopback and private-network addresses used by local Docker/dev proxies.
-		if (
-			'127.0.0.1' === $remote_addr
-			|| '::1' === $remote_addr
-			|| (bool) filter_var( $remote_addr, FILTER_VALIDATE_IP, FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE ) === false
-		) {
+		if ( self::is_loopback_address( $remote_addr ) ) {
 			return true;
 		}
 
 		return new WP_Error(
 			'sd_ai_agent_health_forbidden',
-			'Health endpoint is only accessible from loopback or private-network addresses.',
+			'Health endpoint is only accessible from loopback addresses.',
 			[ 'status' => 403 ]
 		);
+	}
+
+	/**
+	 * Check whether an IP address is a true loopback address.
+	 *
+	 * Accepts the full IPv4 127.0.0.0/8 loopback range and IPv6 ::1. Private,
+	 * reserved, empty, or invalid REMOTE_ADDR values are not loopback requests.
+	 *
+	 * @param string $address IP address to check.
+	 * @return bool True when the address is loopback.
+	 */
+	private static function is_loopback_address( string $address ): bool {
+		if ( false === filter_var( $address, FILTER_VALIDATE_IP ) ) {
+			return false;
+		}
+
+		$packed = inet_pton( $address );
+		if ( false === $packed ) {
+			return false;
+		}
+
+		if ( 4 === strlen( $packed ) ) {
+			return 127 === ord( $packed[0] );
+		}
+
+		return inet_pton( '::1' ) === $packed;
 	}
 
 	/**

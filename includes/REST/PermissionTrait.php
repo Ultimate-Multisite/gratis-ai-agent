@@ -60,6 +60,56 @@ trait PermissionTrait {
 	}
 
 	/**
+	 * Permission check for the browser tool-result callback endpoint.
+	 *
+	 * The endpoint mutates session state by consuming paused_state and appending
+	 * resumed loop output, so the current user must both have chat access and be
+	 * allowed to continue the supplied session before paused_state is loaded.
+	 *
+	 * @param WP_REST_Request $request The request object.
+	 * @return bool|WP_Error
+	 */
+	public function check_tool_result_permission( WP_REST_Request $request ) {
+		$chat_permission = $this->check_chat_permission();
+		if ( true !== $chat_permission ) {
+			return $chat_permission;
+		}
+
+		$session_id = self::get_int_param( $request, 'session_id' );
+		if ( ! $session_id ) {
+			return new WP_Error(
+				'sd_ai_agent_missing_session',
+				__( 'session_id is required.', 'superdav-ai-agent' ),
+				array( 'status' => 400 )
+			);
+		}
+
+		$session = Database::get_session( $session_id );
+		if ( ! $session ) {
+			return new WP_Error(
+				'rest_forbidden',
+				__( 'You do not have permission to access this chat session.', 'superdav-ai-agent' ),
+				array( 'status' => 403 )
+			);
+		}
+
+		$is_owner = (int) $session->user_id === get_current_user_id();
+		if ( $is_owner ) {
+			return true;
+		}
+
+		if ( Database::get_shared_session( $session_id ) ) {
+			return true;
+		}
+
+		return new WP_Error(
+			'rest_forbidden',
+			__( 'You do not have permission to access this chat session.', 'superdav-ai-agent' ),
+			array( 'status' => 403 )
+		);
+	}
+
+	/**
 	 * Permission check for session-specific endpoints.
 	 *
 	 * Verifies chat access + (session ownership OR session is shared with all admins).
