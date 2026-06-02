@@ -19,10 +19,11 @@
 #            the WP 6.9 compatibility shims. Also strips source files for the AI
 #            plugin builder (generate / sandbox / activate / update), for
 #            WP-CLI custom tools, the block-theme scaffolder ability that
-#            writes executable theme code, and the git-tracking source-package
-#            snapshot layer. It forces the matching feature flags to false in
-#            the main plugin file so the runtime gates cannot be re-enabled by
-#            re-adding the source files. Output:
+#            writes executable theme code, the git-tracking source-package
+#            snapshot layer, and the dynamic SQL database-query ability. It
+#            forces the matching feature flags to false in the main plugin file
+#            so the runtime gates cannot be re-enabled by re-adding the source
+#            files. Output:
 #               superdav-ai-agent-{version}-wporg.zip
 #
 # Why two targets?  WP.org Plugin Review Guideline 4 prohibits plugins
@@ -277,6 +278,22 @@ EXTRA
 			return 1
 		fi
 
+		# Keep readme.txt metadata in lockstep with the WP.org-only plugin header
+		# rewrite above. Plugin Check treats a header/readme mismatch as a hard
+		# submission error even when the runtime code has already been rewritten.
+		local readme_file="${dest}/readme.txt"
+		if [ -f "$readme_file" ]; then
+			sed -i.bak \
+				-e 's/^Requires at least:.*/Requires at least: 7.0/' \
+				"$readme_file"
+			rm -f "${readme_file}.bak"
+
+			if ! grep -q '^Requires at least: 7.0$' "$readme_file"; then
+				echo "ERROR: failed to force readme.txt Requires at least: 7.0 in wporg build." >&2
+				return 1
+			fi
+		fi
+
 		# The GitTrackingHandler class is stripped below. Remove it from the
 		# bundled module handler list so the DI bootstrap never attempts to reflect
 		# a class that is intentionally absent from the WP.org package.
@@ -332,6 +349,7 @@ PYADMIN
 			"${dest}/includes/CLI/BenchmarkCommand.php"
 			"${dest}/includes/Abilities/UserManagementAbilities.php"
 			"${dest}/includes/Abilities/RunPhpAbility.php"
+			"${dest}/includes/Abilities/DatabaseAbilities.php"
 			"${dest}/includes/Abilities/GitAbilities.php"
 			"${dest}/includes/Abilities/GitSnapshotAbility.php"
 			"${dest}/includes/Abilities/GitDiffAbility.php"
@@ -352,7 +370,7 @@ PYADMIN
 				return 1
 			fi
 		done
-		echo "    Stripped WP 6.9 compatibility shims, plugin-builder + theme-scaffolder + git-tracking source files, forced feature flags to false, and set Requires at least to 7.0."
+		echo "    Stripped WP 6.9 compatibility shims, plugin-builder + theme-scaffolder + git-tracking + dynamic-SQL source files, forced feature flags to false, and set Requires at least to 7.0."
 
 		# ── Neutralise forbidden move_uploaded_file() in bundled PSR-7 ───────
 		# WP.org's plugin-check tool hard-fails on any literal occurrence of

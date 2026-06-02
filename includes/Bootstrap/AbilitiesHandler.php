@@ -170,7 +170,13 @@ final class AbilitiesHandler {
 		) {
 			PluginBuilderAbilities::register_abilities();
 		}
-		DatabaseAbilities::register_abilities();
+		// The WP.org build strips DatabaseAbilities.php to avoid recurring
+		// Plugin Check direct-SQL findings on the dynamic SELECT diagnostics
+		// ability. Keep the full release behaviour unchanged while avoiding a
+		// fatal when the source file is absent from the submitted zip.
+		if ( class_exists( DatabaseAbilities::class ) ) {
+			DatabaseAbilities::register_abilities();
+		}
 		WordPressAbilities::register_abilities();
 		// WP-CLI dispatcher: gated by SD_AI_AGENT_FEATURE_WP_CLI_DISPATCHER
 		// and class_exists() guarded so the WordPress.org build (which
