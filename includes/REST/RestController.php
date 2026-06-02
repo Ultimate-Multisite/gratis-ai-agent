@@ -527,6 +527,7 @@ Assistant: %s',
 			'provider_id'      => (string) ( $paused_state['provider_id'] ?? '' ),
 			'model_id'         => (string) ( $paused_state['model_id'] ?? '' ),
 			'tool_call_log'    => $paused_state['tool_call_log'] ?? array(),
+			'message_log'      => $paused_state['message_log'] ?? array(),
 			'token_usage'      => $paused_state['token_usage'] ?? array(
 				'prompt'     => 0,
 				'completion' => 0,
@@ -569,6 +570,7 @@ Assistant: %s',
 						'prompt'     => 0,
 						'completion' => 0,
 					),
+					'messages'                  => $result['messages'] ?? array(),
 					'iterations_used'           => $result['iterations_used'] ?? 0,
 					'model_id'                  => $result['model_id'] ?? '',
 				),
@@ -617,6 +619,7 @@ Assistant: %s',
 			'reply'           => $result['reply'] ?? '',
 			'history'         => $result['history'] ?? array(),
 			'tool_calls'      => $result['tool_calls'] ?? array(),
+			'messages'        => $result['messages'] ?? array(),
 			'token_usage'     => $token_usage,
 			'iterations_used' => $result['iterations_used'] ?? 0,
 			'model_id'        => $model_id,
@@ -675,12 +678,15 @@ Assistant: %s',
 			$pending_calls = (array) ( $result['pending_client_tool_calls'] ?? array() );
 			/** @var list<array<string, mixed>> $tool_calls */
 			$tool_calls = (array) ( $result['tool_call_log'] ?? array() );
+			/** @var list<array<string, mixed>> $messages */
+			$messages = (array) ( $result['message_log'] ?? array() );
 
 			if ( is_array( $job ) ) {
 				unset( $job['token'] );
 				$job['status']                    = 'awaiting_client_tools';
 				$job['pending_client_tool_calls'] = $pending_calls;
 				$job['tool_calls']                = $tool_calls;
+				$job['messages']                  = $messages;
 				set_transient( $transient_key, $job, self::JOB_TTL );
 			}
 
@@ -702,6 +708,7 @@ Assistant: %s',
 			'reply'           => $result['reply'] ?? '',
 			'history'         => $result['history'] ?? array(),
 			'tool_calls'      => $result['tool_calls'] ?? array(),
+			'messages'        => $result['messages'] ?? array(),
 			'session_id'      => $session_id,
 			'token_usage'     => $result['token_usage'] ?? array(
 				'prompt'     => 0,

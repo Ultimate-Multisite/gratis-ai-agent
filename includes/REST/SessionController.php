@@ -959,6 +959,9 @@ final class SessionController {
 		if ( ! empty( $job['tool_calls'] ) ) {
 			$response['tool_calls'] = $job['tool_calls'];
 		}
+		if ( ! empty( $job['messages'] ) ) {
+			$response['messages'] = $job['messages'];
+		}
 
 		if ( 'awaiting_confirmation' === $job['status'] && isset( $job['pending_tools'] ) ) {
 			$response['pending_tools'] = $job['pending_tools'];
@@ -979,6 +982,8 @@ final class SessionController {
 			$response['history'] = $job['result']['history'] ?? array();
 			// @phpstan-ignore-next-line
 			$response['tool_calls'] = $job['result']['tool_calls'] ?? array();
+			// @phpstan-ignore-next-line
+			$response['messages'] = $job['result']['messages'] ?? array();
 			// @phpstan-ignore-next-line
 			$response['session_id'] = $job['result']['session_id'] ?? null;
 			// @phpstan-ignore-next-line
@@ -1294,6 +1299,7 @@ final class SessionController {
 			'token'      => $token,
 			'user_id'    => get_current_user_id(),
 			'tool_calls' => array(),
+			'messages'   => array(),
 			'params'     => array(
 				'message'            => $request->get_param( 'message' ),
 				'history'            => $request->get_param( 'history' ),
@@ -1493,13 +1499,14 @@ final class SessionController {
 		 */
 		$options['active_job_id'] = $job_id;
 
-		// Progress callback: write live tool-call activity to the job
-		// transient so the polling frontend can display it incrementally.
+		// Progress callback: write live tool-call activity and channel messages
+		// to the job transient so the polling frontend can display them incrementally.
 		$progress_job_id              = $job_id;
-		$options['progress_callback'] = static function ( array $tool_call_log ) use ( $progress_job_id ) {
+		$options['progress_callback'] = static function ( array $tool_call_log, array $message_log = array() ) use ( $progress_job_id ) {
 			$current = get_transient( RestController::JOB_PREFIX . $progress_job_id );
 			if ( is_array( $current ) && 'processing' === ( $current['status'] ?? '' ) ) {
 				$current['tool_calls'] = $tool_call_log;
+				$current['messages']   = $message_log;
 				// Refresh TTL on each update to prevent mid-execution expiration.
 				// Adding 60s buffer ensures the transient outlasts the execution
 				// limit even when the callback fires near the end of the job.
@@ -1515,6 +1522,7 @@ final class SessionController {
 					array(
 						'status'     => 'processing',
 						'tool_calls' => $tool_call_log,
+						'messages'   => $message_log,
 					),
 					RestController::JOB_TTL + 60
 				);
@@ -1543,6 +1551,8 @@ final class SessionController {
 				$resume_options = $options;
 				// @phpstan-ignore-next-line
 				$resume_options['tool_call_log'] = $state['tool_call_log'] ?? array();
+				// @phpstan-ignore-next-line
+				$resume_options['message_log'] = $state['message_log'] ?? array();
 				// @phpstan-ignore-next-line
 				$resume_options['token_usage'] = $state['token_usage'] ?? array(
 					'prompt'     => 0,
@@ -1599,6 +1609,11 @@ final class SessionController {
 		if ( is_wp_error( $result ) ) {
 			$job['status'] = 'error';
 			$job['error']  = $result->get_error_message();
+			$error_data    = $result->get_error_data();
+			if ( is_array( $error_data ) ) {
+				$job['tool_calls'] = $error_data['tool_calls'] ?? ( $job['tool_calls'] ?? array() );
+				$job['messages']   = $error_data['messages'] ?? ( $job['messages'] ?? array() );
+			}
 
 			// Log webhook execution failure.
 			if ( ! empty( $job['webhook_id'] ) ) {
@@ -1619,9 +1634,11 @@ final class SessionController {
 			/** @var array<string, mixed> $result */
 			$job['status']             = 'awaiting_confirmation';
 			$job['pending_tools']      = $result['pending_tools'] ?? array();
+			$job['messages']           = $result['message_log'] ?? array();
 			$job['confirmation_state'] = array(
 				'history'              => $result['history'] ?? array(),
 				'tool_call_log'        => $result['tool_call_log'] ?? array(),
+				'message_log'          => $result['message_log'] ?? array(),
 				'token_usage'          => $result['token_usage'] ?? array(
 					'prompt'     => 0,
 					'completion' => 0,
@@ -1658,6 +1675,7 @@ final class SessionController {
 			$job['pending_client_tool_calls'] = $result['pending_client_tool_calls'];
 			// Preserve live tool-call progress so the UI stays current.
 			$job['tool_calls'] = $result['tool_call_log'] ?? array();
+			$job['messages']   = $result['message_log'] ?? array();
 
 			unset( $job['token'] );
 			set_transient( RestController::JOB_PREFIX . $job_id, $job, RestController::JOB_TTL );

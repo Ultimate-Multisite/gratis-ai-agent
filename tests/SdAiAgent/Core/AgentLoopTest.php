@@ -369,6 +369,7 @@ class AgentLoopTest extends WP_UnitTestCase {
 		$this->assertArrayHasKey( 'reply', $result );
 		$this->assertArrayHasKey( 'history', $result );
 		$this->assertArrayHasKey( 'tool_calls', $result );
+		$this->assertArrayHasKey( 'messages', $result );
 		$this->assertArrayHasKey( 'token_usage', $result );
 		$this->assertArrayHasKey( 'iterations_used', $result );
 		$this->assertArrayHasKey( 'model_id', $result );
@@ -553,7 +554,7 @@ class AgentLoopTest extends WP_UnitTestCase {
 		$this->assertIsArray( $result );
 		$this->assertSame( 'Recovered after retry', $result['reply'] );
 		$this->assertSame( 4, $call_count );
-		$retry_entries = array_filter( $result['tool_calls'], static fn( $entry ) => 'provider_retry' === ( $entry['type'] ?? '' ) );
+		$retry_entries = array_filter( $result['messages'], static fn( $entry ) => 'provider_retry' === ( $entry['type'] ?? '' ) );
 		$this->assertCount( 3, $retry_entries );
 		$this->assertCount( 3, $progress );
 	}
@@ -589,7 +590,7 @@ class AgentLoopTest extends WP_UnitTestCase {
 		$this->assertSame( 3, $call_count );
 		$data = $result->get_error_data();
 		$this->assertIsArray( $data );
-		$retry_entries = array_filter( $data['tool_calls'], static fn( $entry ) => 'provider_retry' === ( $entry['type'] ?? '' ) );
+		$retry_entries = array_filter( $data['messages'], static fn( $entry ) => 'provider_retry' === ( $entry['type'] ?? '' ) );
 		$this->assertCount( 2, $retry_entries );
 	}
 
@@ -860,8 +861,8 @@ class AgentLoopTest extends WP_UnitTestCase {
 		$calls = array_filter( $result['tool_calls'], fn( $entry ) => 'call' === $entry['type'] );
 		$this->assertEmpty( $calls, 'The truncated tool call must not be dispatched or logged as a call.' );
 
-		$events = array_filter( $result['tool_calls'], fn( $entry ) => 'truncated_tool_call' === ( $entry['reason'] ?? '' ) );
-		$this->assertNotEmpty( $events, 'The truncation should be visible in the tool-call log.' );
+		$events = array_filter( $result['messages'], fn( $entry ) => 'truncated_tool_call' === ( $entry['reason'] ?? '' ) );
+		$this->assertNotEmpty( $events, 'The truncation should be visible in the message log.' );
 	}
 
 	/**
@@ -958,12 +959,12 @@ class AgentLoopTest extends WP_UnitTestCase {
 			'The truncated preamble must not leak through as the final reply.'
 		);
 
-		// And the event should be visible in the tool-call log.
+		// And the event should be visible in the message log.
 		$events = array_filter(
-			$result['tool_calls'],
+			$result['messages'],
 			static fn( $entry ) => 'truncated_before_tool_call' === ( $entry['reason'] ?? '' )
 		);
-		$this->assertNotEmpty( $events, 'The preamble truncation should be visible in the tool-call log.' );
+		$this->assertNotEmpty( $events, 'The preamble truncation should be visible in the message log.' );
 	}
 
 	/**
@@ -2346,8 +2347,103 @@ class AgentLoopTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * Identical function calls in one model response should be dispatched once.
+	 */
+	public function test_run_deduplicates_identical_tool_calls_within_iteration(): void {
+		$this->skip_if_sdk_unavailable();
+		if ( ! class_exists( 'WP_AI_Client_Ability_Function_Resolver' ) ) {
+			$this->markTestSkipped( 'WP_AI_Client_Ability_Function_Resolver not available.' );
+		}
+
+		$call_count      = 0;
+		$duplicate_calls = wp_json_encode(
+			[
+				'id'      => 'chatcmpl-duplicate-tools',
+				'object'  => 'chat.completion',
+				'choices' => [
+					[
+						'index'         => 0,
+						'message'       => [
+							'role'       => 'assistant',
+							'content'    => null,
+							'tool_calls' => [
+								[
+									'id'       => 'call_dup_1',
+									'type'     => 'function',
+									'function' => [
+										'name'      => 'wpab__sd-ai-agent__memory-list',
+										'arguments' => '{"query":"same"}',
+									],
+								],
+								[
+									'id'       => 'call_dup_2',
+									'type'     => 'function',
+									'function' => [
+										'name'      => 'wpab__sd-ai-agent__memory-list',
+										'arguments' => '{"query":"same"}',
+									],
+								],
+							],
+						],
+						'finish_reason' => 'tool_calls',
+					],
+				],
+				'usage'   => [ 'prompt_tokens' => 10, 'completion_tokens' => 5, 'total_tokens' => 15 ],
+			]
+		);
+		$final_reply     = wp_json_encode(
+			[
+				'id'      => 'chatcmpl-deduped-final',
+				'object'  => 'chat.completion',
+				'choices' => [
+					[
+						'index'         => 0,
+						'message'       => [ 'role' => 'assistant', 'content' => 'Done.' ],
+						'finish_reason' => 'stop',
+					],
+				],
+				'usage'   => [ 'prompt_tokens' => 20, 'completion_tokens' => 5, 'total_tokens' => 25 ],
+			]
+		);
+
+		add_filter(
+			'pre_http_request',
+			static function ( $preempt, $args, $url ) use ( &$call_count, $duplicate_calls, $final_reply ) {
+				if ( false !== strpos( $url, 'fake-ai-proxy.test' ) ) {
+					++$call_count;
+					return [
+						'headers'  => [ 'content-type' => 'application/json' ],
+						'body'     => ( 1 === $call_count ) ? $duplicate_calls : $final_reply,
+						'response' => [ 'code' => 200, 'message' => 'OK' ],
+						'cookies'  => [],
+						'filename' => '',
+					];
+				}
+				return $preempt;
+			},
+			10,
+			3
+		);
+
+		$loop   = new AgentLoop( 'List memories once' );
+		$result = $loop->run();
+
+		$this->assertIsArray( $result );
+		$calls = array_values( array_filter( $result['tool_calls'], static fn( $entry ) => 'call' === ( $entry['type'] ?? '' ) ) );
+		$this->assertCount( 1, $calls, 'Duplicate identical calls in one iteration must be dispatched once.' );
+		$this->assertSame( 'call_dup_1', $calls[0]['id'] );
+
+		$responses = array_values( array_filter( $result['tool_calls'], static fn( $entry ) => 'response' === ( $entry['type'] ?? '' ) ) );
+		$this->assertCount( 1, $responses, 'Only one response should be logged for the deduped call.' );
+
+		$events = array_values( array_filter( $result['messages'], static fn( $entry ) => 'tool_call_deduplicated' === ( $entry['reason'] ?? '' ) ) );
+		$this->assertCount( 1, $events );
+		$this->assertSame( 1, $events[0]['count'] );
+	}
+
+	/**
 	 * Regression test: preamble text emitted alongside a tool call must appear
-	 * in the live tool_call_log so the polling frontend can render it above
+	 * in the live message log so the polling frontend can render it above
 	 * the tool card while the loop is still running.
 	 *
 	 * The mock turn returns an assistant message that contains both a text
@@ -2429,8 +2525,11 @@ class AgentLoopTest extends WP_UnitTestCase {
 		);
 
 		$options                      = [];
-		$options['progress_callback'] = static function ( array $log ) use ( &$progress_snapshots ): void {
-			$progress_snapshots[] = $log;
+		$options['progress_callback'] = static function ( array $log, array $messages = array() ) use ( &$progress_snapshots ): void {
+			$progress_snapshots[] = array(
+				'tool_calls' => $log,
+				'messages'   => $messages,
+			);
 		};
 
 		$loop   = new AgentLoop( 'Find my notes', [], [], $options );
@@ -2439,28 +2538,29 @@ class AgentLoopTest extends WP_UnitTestCase {
 		$this->assertIsArray( $result );
 		$this->assertArrayHasKey( 'tool_calls', $result );
 
-		// The preamble entry must precede the call entry in original order.
-		$preamble_index = null;
-		$call_index     = null;
-		foreach ( $result['tool_calls'] as $i => $entry ) {
-			if ( null === $preamble_index && 'preamble' === ( $entry['type'] ?? '' ) ) {
-				$preamble_index = $i;
-			}
-			if ( null === $call_index && 'call' === ( $entry['type'] ?? '' ) ) {
-				$call_index = $i;
-			}
-		}
+		$preamble_entries = array_values(
+			array_filter(
+				$result['messages'],
+				static fn( $entry ) => 'preamble' === ( $entry['type'] ?? '' )
+			)
+		);
+		$call_entries     = array_values(
+			array_filter(
+				$result['tool_calls'],
+				static fn( $entry ) => 'call' === ( $entry['type'] ?? '' )
+			)
+		);
 
-		$this->assertNotNull( $preamble_index, 'A preamble entry must be present in tool_call_log when the model emits text alongside a tool call.' );
-		$this->assertNotNull( $call_index, 'The tool call entry must still be present.' );
-		$this->assertLessThan( $call_index, $preamble_index, 'Preamble must be logged before the tool call to match emission order.' );
-		$this->assertSame( $preamble_text, $result['tool_calls'][ $preamble_index ]['text'] );
+		$this->assertNotEmpty( $preamble_entries, 'A preamble entry must be present in messages when the model emits text alongside a tool call.' );
+		$this->assertNotEmpty( $call_entries, 'The tool call entry must still be present.' );
+		$this->assertSame( $preamble_text, $preamble_entries[0]['text'] );
+		$this->assertLessThan( $call_entries[0]['sequence'], $preamble_entries[0]['sequence'], 'Preamble must be sequenced before the tool call to match emission order.' );
 
 		// The progress callback must have observed the preamble in at least
 		// one snapshot so the polling frontend can render it incrementally.
 		$saw_preamble_in_progress = false;
 		foreach ( $progress_snapshots as $snapshot ) {
-			foreach ( $snapshot as $entry ) {
+			foreach ( $snapshot['messages'] as $entry ) {
 				if ( 'preamble' === ( $entry['type'] ?? '' ) && ( $entry['text'] ?? '' ) === $preamble_text ) {
 					$saw_preamble_in_progress = true;
 					break 2;
@@ -2550,7 +2650,7 @@ class AgentLoopTest extends WP_UnitTestCase {
 
 		$this->assertIsArray( $result );
 		$preamble_entries = array_filter(
-			$result['tool_calls'],
+			$result['messages'],
 			static fn( $entry ) => 'preamble' === ( $entry['type'] ?? '' )
 		);
 		$this->assertEmpty( $preamble_entries, 'Whitespace-only assistant text must not be logged as a preamble entry.' );
