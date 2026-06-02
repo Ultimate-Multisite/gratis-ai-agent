@@ -80,7 +80,7 @@ $sd_ai_agent_cron_hooks = [
 	'sd_ai_agent_run_automation',
 	'sd_ai_agent_run_event_automation',
 	'sd_ai_agent_site_scan',
-	'wp_sd_ai_agent_reindex',
+	'sd_ai_agent_reindex',
 ];
 
 foreach ( $sd_ai_agent_cron_hooks as $sd_ai_agent_hook ) {

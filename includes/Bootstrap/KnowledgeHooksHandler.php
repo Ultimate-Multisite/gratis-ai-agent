@@ -65,7 +65,7 @@ final class KnowledgeHooksHandler {
 	/**
 	 * Run the scheduled full reindex cron job.
 	 */
-	#[Action( tag: 'wp_ai_agent_reindex', priority: 10 )]
+	#[Action( tag: KnowledgeHooks::CRON_HOOK, priority: 10 )]
 	public function handle_cron_reindex(): void {
 		KnowledgeHooks::handle_cron_reindex();
 	}
