@@ -14,6 +14,52 @@ import { playDing, playDong, playThinking } from '../../utils/sound-manager';
 import { executeClientAbility } from '../../abilities/registry';
 import { emitReflectionEvents } from '../reflection-emitter';
 
+/**
+ * Merge real tool calls with assistant channel messages for live rendering.
+ *
+ * Backend `tool_calls` now contains only real tool invocations/results. Text
+ * preambles, retry notices, and guardrail messages arrive separately in
+ * `messages`; the live running UI still needs both streams interleaved by the
+ * monotonic `sequence` field.
+ *
+ * @param {Array} toolCalls Tool call/result entries.
+ * @param {Array} messages  Assistant channel or event entries.
+ * @return {Array} Combined activity entries for display only.
+ */
+function mergeActivityForDisplay( toolCalls, messages ) {
+	const callEntries = Array.isArray( toolCalls ) ? toolCalls : [];
+	const messageEntries = Array.isArray( messages ) ? messages : [];
+
+	if ( ! messageEntries.length ) {
+		return callEntries;
+	}
+
+	return [ ...callEntries, ...messageEntries ]
+		.map( ( entry, index ) => ( { ...entry, activityIndex: index } ) )
+		.sort( ( a, b ) => {
+			const aSeq = Number.isFinite( a.sequence ) ? a.sequence : null;
+			const bSeq = Number.isFinite( b.sequence ) ? b.sequence : null;
+
+			if ( aSeq !== null && bSeq !== null && aSeq !== bSeq ) {
+				return aSeq - bSeq;
+			}
+
+			if ( aSeq !== null && bSeq === null ) {
+				return -1;
+			}
+
+			if ( aSeq === null && bSeq !== null ) {
+				return 1;
+			}
+
+			return a.activityIndex - b.activityIndex;
+		} )
+		.map( ( entry ) => {
+			const { activityIndex, ...clean } = entry;
+			return clean;
+		} );
+}
+
 export const initialState = {
 	// Active polling job ID (most-recently-started job for the current session).
 	currentJobId: null,
@@ -311,13 +357,20 @@ export const actions = {
 					// Successful poll — reset the transient-error counter so
 					// only *consecutive* failures count toward the cap.
 					consecutiveErrors = 0;
+					const resultToolCalls = Array.isArray( result.tool_calls )
+						? result.tool_calls
+						: [];
+					const liveActivity = mergeActivityForDisplay(
+						resultToolCalls,
+						result.messages
+					);
 
 					if ( result.status === 'processing' ) {
 						// Update per-session job state for ALL sessions.
-						if ( result.tool_calls?.length ) {
+						if ( liveActivity.length ) {
 							dispatch.setSessionJob( sessionId, {
 								jobId,
-								toolCalls: result.tool_calls,
+								toolCalls: liveActivity,
 								status: 'processing',
 							} );
 
@@ -326,7 +379,7 @@ export const actions = {
 							// descriptor. Cursor-driven so each event fires
 							// exactly once across the polling stream.
 							reflectionCursor = emitReflectionEvents(
-								result.tool_calls,
+								resultToolCalls,
 								reflectionCursor,
 								{ sessionId, jobId }
 							);
@@ -334,14 +387,14 @@ export const actions = {
 
 						// Only update live tool calls when this is the active session.
 						if (
-							result.tool_calls?.length &&
+							liveActivity.length &&
 							select.getCurrentSessionId() === sessionId
 						) {
-							dispatch.setLiveToolCalls( result.tool_calls );
+							dispatch.setLiveToolCalls( liveActivity );
 						}
 
 						// Detect progress: reset backoff when tool_calls length increases.
-						const newLen = result.tool_calls?.length || 0;
+						const newLen = liveActivity.length;
 						if ( newLen > lastToolCallsLength ) {
 							lastToolCallsLength = newLen;
 							attempts = 0; // Reset backoff on progress.
@@ -388,7 +441,7 @@ export const actions = {
 					if ( result.status === 'awaiting_confirmation' ) {
 						dispatch.setSessionJob( sessionId, {
 							jobId,
-							toolCalls: result.tool_calls || [],
+							toolCalls: liveActivity,
 							status: 'awaiting_confirmation',
 						} );
 
@@ -427,7 +480,7 @@ export const actions = {
 						// Show the proposal panel to the user.
 						dispatch.setSessionJob( sessionId, {
 							jobId,
-							toolCalls: result.tool_calls || [],
+							toolCalls: liveActivity,
 							status: 'pending_proposal',
 						} );
 
@@ -675,7 +728,7 @@ export const actions = {
 						// that arrived between the last `processing` tick and
 						// this terminal poll.
 						reflectionCursor = emitReflectionEvents(
-							result.tool_calls,
+							resultToolCalls,
 							reflectionCursor,
 							{ sessionId, jobId }
 						);
@@ -708,7 +761,7 @@ export const actions = {
 									dispatch.appendMessage( {
 										role: 'model',
 										parts: [ { text: result.reply } ],
-										toolCalls: result.tool_calls,
+										toolCalls: resultToolCalls,
 									} );
 								}
 							}
@@ -719,7 +772,7 @@ export const actions = {
 							dispatch.appendMessage( {
 								role: 'model',
 								parts: [ { text: result.reply } ],
-								toolCalls: result.tool_calls,
+								toolCalls: resultToolCalls,
 							} );
 						}
 

@@ -119,7 +119,13 @@ class AgentLoop {
 	private $model_id;
 
 	/** @var list<array<string, mixed>> Logged tool call activity. */
-	private $tool_call_log = array();
+	private array $tool_call_log = array();
+
+	/** @var list<array<string, mixed>> Assistant channel messages separate from real tool calls. */
+	private array $message_log = array();
+
+	/** @var int Monotonic sequence for merging tool calls and channel messages in UI order. */
+	private int $activity_sequence = 0;
 
 	/** @var array<int, array<string, mixed>> Posts that still require block-validation repair. */
 	// phpcs:ignore WordPress.NamingConventions.ValidVariableName.PropertyNotSnakeCase -- Project property naming guidance requires camelCase.
@@ -196,9 +202,9 @@ class AgentLoop {
 	/**
 	 * Optional callback invoked after each tool call/response pair.
 	 *
-	 * Signature: function( list<array<string, mixed>> $tool_call_log ): void
+	 * Signature: function( list<array<string, mixed>> $tool_call_log, list<array<string, mixed>> $message_log ): void
 	 * Used by the job system to write live progress to the transient so the
-	 * polling frontend can show tool activity before the loop completes.
+	 * polling frontend can show tool activity and channel messages before the loop completes.
 	 *
 	 * @var callable|null
 	 */
@@ -326,9 +332,10 @@ class AgentLoop {
 		$raw_perms              = $options['tool_permissions'] ?? ( $settings['tool_permissions'] ?? null );
 		$this->tool_permissions = is_array( $raw_perms ) ? $raw_perms : array();
 		// @phpstan-ignore-next-line
-		$this->yolo_mode = (bool) ( $options['yolo_mode'] ?? ( $settings['yolo_mode'] ?? false ) );
-		// @phpstan-ignore-next-line
-		$this->tool_call_log = $options['tool_call_log'] ?? array();
+		$this->yolo_mode         = (bool) ( $options['yolo_mode'] ?? ( $settings['yolo_mode'] ?? false ) );
+		$this->tool_call_log     = self::normalize_activity_log( $options['tool_call_log'] ?? array() );
+		$this->message_log       = self::normalize_activity_log( $options['message_log'] ?? array() );
+		$this->activity_sequence = $this->get_max_activity_sequence( $this->tool_call_log, $this->message_log );
 		// @phpstan-ignore-next-line
 		$this->session_id = (int) ( $options['session_id'] ?? 0 );
 		// Active job UUID for heartbeat and shutdown-handler updates.
@@ -586,12 +593,19 @@ class AgentLoop {
 
 			// Log the client tool responses for transparency.
 			foreach ( $results as $result ) {
+				$id   = (string) ( $result['id'] ?? '' );
+				$name = (string) ( $result['name'] ?? '' );
+				if ( '' === $id || '' === $name ) {
+					continue;
+				}
+
 				$this->tool_call_log[] = array(
 					'type'     => 'response',
-					'id'       => (string) ( $result['id'] ?? '' ),
-					'name'     => (string) ( $result['name'] ?? '' ),
+					'id'       => $id,
+					'name'     => $name,
 					'response' => $result['result'] ?? $result['error'] ?? null,
 					'source'   => 'client',
+					'sequence' => $this->next_activity_sequence(),
 				);
 			}
 
@@ -605,6 +619,29 @@ class AgentLoop {
 		} finally {
 			AgentEventLog::clear_session();
 		}
+	}
+
+	/**
+	 * Attach channel/message logs to a terminal loop payload.
+	 *
+	 * @param array<string, mixed> $payload Base result payload.
+	 * @return array<string, mixed>
+	 */
+	private function with_result_logs( array $payload ): array {
+		$payload['messages'] = $this->message_log;
+		return $payload;
+	}
+
+	/**
+	 * Attach resumable channel/message logs to a paused loop payload.
+	 *
+	 * @param array<string, mixed> $payload Base pause payload.
+	 * @return array<string, mixed>
+	 */
+	private function with_paused_logs( array $payload ): array {
+		$payload['message_log'] = $this->message_log;
+		$payload['messages']    = $this->message_log;
+		return $payload;
 	}
 
 	/**
@@ -648,17 +685,19 @@ class AgentLoop {
 					)
 				);
 
-				return array(
-					'reply'           => __(
-						'This request took longer than expected and was stopped to protect your usage budget. You can continue the conversation to pick up where it left off.',
-						'superdav-ai-agent'
-					),
-					'history'         => $this->serialize_history(),
-					'tool_calls'      => $this->tool_call_log,
-					'token_usage'     => $this->token_usage,
-					'iterations_used' => $this->iterations_used,
-					'model_id'        => $this->model_id,
-					'exit_reason'     => 'timeout',
+				return $this->with_result_logs(
+					array(
+						'reply'           => __(
+							'This request took longer than expected and was stopped to protect your usage budget. You can continue the conversation to pick up where it left off.',
+							'superdav-ai-agent'
+						),
+						'history'         => $this->serialize_history(),
+						'tool_calls'      => $this->tool_call_log,
+						'token_usage'     => $this->token_usage,
+						'iterations_used' => $this->iterations_used,
+						'model_id'        => $this->model_id,
+						'exit_reason'     => 'timeout',
+					)
 				);
 			}
 
@@ -734,6 +773,12 @@ class AgentLoop {
 			// so an unrelated later truncation doesn't inherit prior state.
 			$this->preamble_truncation_retries = 0;
 
+			// Some providers/models emit the same function call more than once in
+			// a single assistant response when they are hedging. Unless there is an
+			// explicit parallel identifier, execute only the first identical
+			// name+arguments pair so metrics and provider time reflect real work.
+			$assistant_message = $this->deduplicate_tool_calls( $assistant_message );
+
 			// Split multi-part assistant messages so each function_call lives
 			// in its own ModelMessage. The OpenAI Responses API rejects
 			// "function_call + other part" shapes (see
@@ -805,14 +850,16 @@ class AgentLoop {
 				$reply = $this->inject_real_permalinks( $reply );
 
 				return $this->inject_inability_data(
-				array(
-					'reply'           => $reply,
-					'history'         => $this->serialize_history(),
-					'tool_calls'      => $this->tool_call_log,
-					'token_usage'     => $this->token_usage,
-					'iterations_used' => $this->iterations_used,
-					'model_id'        => $this->model_id,
-				)
+					$this->with_result_logs(
+						array(
+							'reply'           => $reply,
+							'history'         => $this->serialize_history(),
+							'tool_calls'      => $this->tool_call_log,
+							'token_usage'     => $this->token_usage,
+							'iterations_used' => $this->iterations_used,
+							'model_id'        => $this->model_id,
+						)
+					)
 				);
 			}
 
@@ -850,6 +897,7 @@ class AgentLoop {
 						$paused_state = array(
 							'history'              => $this->serialize_history(),
 							'tool_call_log'        => $this->tool_call_log,
+							'message_log'          => $this->message_log,
 							'token_usage'          => $this->token_usage,
 							'iterations_remaining' => $iterations,
 							'model_id'             => $this->model_id,
@@ -860,14 +908,16 @@ class AgentLoop {
 					}
 
 					// Return pending client tool calls to the browser.
-					return array(
-						'pending_client_tool_calls' => $partition['client'],
-						'history'                   => $this->serialize_history(),
-						'tool_call_log'             => $this->tool_call_log,
-						'token_usage'               => $this->token_usage,
-						'iterations_remaining'      => $iterations,
-						'iterations_used'           => $this->iterations_used,
-						'model_id'                  => $this->model_id,
+					return $this->with_paused_logs(
+						array(
+							'pending_client_tool_calls' => $partition['client'],
+							'history'                   => $this->serialize_history(),
+							'tool_call_log'             => $this->tool_call_log,
+							'token_usage'               => $this->token_usage,
+							'iterations_remaining'      => $iterations,
+							'iterations_used'           => $this->iterations_used,
+							'model_id'                  => $this->model_id,
+						)
 					);
 				}
 			}
@@ -876,15 +926,17 @@ class AgentLoop {
 			$confirm_needed = $this->permission_resolver->get_tools_needing_confirmation( $assistant_message );
 
 			if ( ! empty( $confirm_needed ) ) {
-				return array(
-					'awaiting_confirmation' => true,
-					'pending_tools'         => $confirm_needed,
-					'history'               => $this->serialize_history(),
-					'tool_call_log'         => $this->tool_call_log,
-					'token_usage'           => $this->token_usage,
-					'iterations_remaining'  => $iterations,
-					'iterations_used'       => $this->iterations_used,
-					'model_id'              => $this->model_id,
+				return $this->with_paused_logs(
+					array(
+						'awaiting_confirmation' => true,
+						'pending_tools'         => $confirm_needed,
+						'history'               => $this->serialize_history(),
+						'tool_call_log'         => $this->tool_call_log,
+						'token_usage'           => $this->token_usage,
+						'iterations_remaining'  => $iterations,
+						'iterations_used'       => $this->iterations_used,
+						'model_id'              => $this->model_id,
+					)
 				);
 			}
 
@@ -906,6 +958,7 @@ class AgentLoop {
 					$paused_state = array(
 						'history'              => $this->serialize_history(),
 						'tool_call_log'        => $this->tool_call_log,
+						'message_log'          => $this->message_log,
 						'token_usage'          => $this->token_usage,
 						'iterations_remaining' => $iterations,
 						'model_id'             => $this->model_id,
@@ -915,14 +968,16 @@ class AgentLoop {
 					Database::save_paused_state( $this->session_id, $paused_state );
 				}
 
-				return array(
-					'pending_proposal'     => $pending_proposal,
-					'history'              => $this->serialize_history(),
-					'tool_call_log'        => $this->tool_call_log,
-					'token_usage'          => $this->token_usage,
-					'iterations_remaining' => $iterations,
-					'iterations_used'      => $this->iterations_used,
-					'model_id'             => $this->model_id,
+				return $this->with_paused_logs(
+					array(
+						'pending_proposal'     => $pending_proposal,
+						'history'              => $this->serialize_history(),
+						'tool_call_log'        => $this->tool_call_log,
+						'token_usage'          => $this->token_usage,
+						'iterations_remaining' => $iterations,
+						'iterations_used'      => $this->iterations_used,
+						'model_id'             => $this->model_id,
+					)
 				);
 			}
 
@@ -955,17 +1010,19 @@ class AgentLoop {
 					)
 				);
 
-				return array(
-					'reply'           => __(
-						'I\'ve been repeating the same operations without making progress. Here\'s what I found so far. Try rephrasing your request or providing more specifics.',
-						'superdav-ai-agent'
-					),
-					'history'         => $this->serialize_history(),
-					'tool_calls'      => $this->tool_call_log,
-					'token_usage'     => $this->token_usage,
-					'iterations_used' => $this->iterations_used,
-					'model_id'        => $this->model_id,
-					'exit_reason'     => 'spin_detected',
+				return $this->with_result_logs(
+					array(
+						'reply'           => __(
+							'I\'ve been repeating the same operations without making progress. Here\'s what I found so far. Try rephrasing your request or providing more specifics.',
+							'superdav-ai-agent'
+						),
+						'history'         => $this->serialize_history(),
+						'tool_calls'      => $this->tool_call_log,
+						'token_usage'     => $this->token_usage,
+						'iterations_used' => $this->iterations_used,
+						'model_id'        => $this->model_id,
+						'exit_reason'     => 'spin_detected',
+					)
 				);
 			}
 		}
@@ -1004,14 +1061,16 @@ class AgentLoop {
 				$reply = $this->inject_real_permalinks( $reply );
 
 				return $this->inject_inability_data(
-				[
-					'reply'           => $reply,
-					'history'         => $this->serialize_history(),
-					'tool_calls'      => $this->tool_call_log,
-					'token_usage'     => $this->token_usage,
-					'iterations_used' => $this->iterations_used,
-					'model_id'        => $this->model_id,
-				]
+					$this->with_result_logs(
+						array(
+							'reply'           => $reply,
+							'history'         => $this->serialize_history(),
+							'tool_calls'      => $this->tool_call_log,
+							'token_usage'     => $this->token_usage,
+							'iterations_used' => $this->iterations_used,
+							'model_id'        => $this->model_id,
+						)
+					)
 				);
 			}
 		}
@@ -1036,12 +1095,14 @@ class AgentLoop {
 				__( 'Agent reached the maximum of %d iterations without completing.', 'superdav-ai-agent' ),
 				$this->max_iterations
 			),
-			array(
-				'tool_calls'      => $this->tool_call_log,
-				'token_usage'     => $this->token_usage,
-				'iterations_used' => $this->iterations_used,
-				'model_id'        => $this->model_id,
-				'history'         => $this->serialize_history(),
+			$this->with_result_logs(
+				array(
+					'tool_calls'      => $this->tool_call_log,
+					'token_usage'     => $this->token_usage,
+					'iterations_used' => $this->iterations_used,
+					'model_id'        => $this->model_id,
+					'history'         => $this->serialize_history(),
+				)
 			)
 		);
 	}
@@ -1387,13 +1448,14 @@ class AgentLoop {
 			$this->provider_retry_max_attempts
 		);
 
-		$this->tool_call_log[] = [
+		$this->message_log[] = [
 			'type'         => 'provider_retry',
 			'message'      => $message,
 			'status_code'  => $status_code,
 			'attempt'      => $next_attempt,
 			'max_attempts' => $this->provider_retry_max_attempts,
 			'delay'        => $delay,
+			'sequence'     => $this->next_activity_sequence(),
 		];
 		$this->fire_progress();
 	}
@@ -1444,6 +1506,7 @@ class AgentLoop {
 				[
 					'history'          => $this->serialize_history(),
 					'tool_call_log'    => $this->tool_call_log,
+					'message_log'      => $this->message_log,
 					'token_usage'      => $this->token_usage,
 					'model_id'         => $this->model_id,
 					'provider_id'      => $this->provider_id,
@@ -1456,14 +1519,16 @@ class AgentLoop {
 		return new WP_Error(
 			'sd_ai_agent_provider_retry_failed',
 			$message,
-			[
-				'tool_calls'      => $this->tool_call_log,
-				'token_usage'     => $this->token_usage,
-				'iterations_used' => $this->iterations_used,
-				'model_id'        => $this->model_id,
-				'history'         => $this->serialize_history(),
-				'elapsed_seconds' => $elapsed_seconds,
-			]
+			$this->with_result_logs(
+				[
+					'tool_calls'      => $this->tool_call_log,
+					'token_usage'     => $this->token_usage,
+					'iterations_used' => $this->iterations_used,
+					'model_id'        => $this->model_id,
+					'history'         => $this->serialize_history(),
+					'elapsed_seconds' => $elapsed_seconds,
+				]
+			)
 		);
 	}
 
@@ -1810,45 +1875,235 @@ class AgentLoop {
 
 	// ── Tool call logging ─────────────────────────────────────────────────
 
+	// Tool-call entries and assistant channel messages share a monotonic
+	// sequence so the live UI can merge them without polluting tool_calls.
 	/**
-	 * Log tool calls (and any preceding/interleaved assistant text) from an
-	 * assistant message for transparency.
+	 * Return the next chronological activity sequence number.
 	 *
-	 * Some models — Claude in particular, but also many OpenAI- and
-	 * Anthropic-derived chat-completion responses — emit a short "preamble"
-	 * text part in the same message as their tool calls (for example
-	 * "Looking up your recent posts first…" immediately followed by a
-	 * function call for list-posts). Without surfacing this text in the live
-	 * progress stream the chat UI shows the tool card with no human-readable
-	 * context for why the model is making that call. Logging text parts here
-	 * — interleaved with call parts in original order — lets the polling
-	 * frontend render the assistant's running commentary above each tool
-	 * card while the loop is still executing.
+	 * @return int Next sequence number.
+	 */
+	private function next_activity_sequence(): int {
+		++$this->activity_sequence;
+		return $this->activity_sequence;
+	}
+
+	/**
+	 * Normalise a persisted activity log into string-keyed entries.
 	 *
-	 * The text part also remains in `$this->history` via the assistant
-	 * message that is appended in the main run loop, so the final persisted
-	 * assistant message still owns the canonical text content. The frontend
-	 * filters preamble entries out of finalised messages via the function-
-	 * call id pairing in {@see associateToolCallsWithMessages}, so there is
-	 * no double-rendering on reload.
+	 * @param mixed $raw Raw option/state value.
+	 * @return list<array<string, mixed>> Normalised activity entries.
+	 */
+	private static function normalize_activity_log( $raw ): array {
+		if ( ! is_array( $raw ) ) {
+			return array();
+		}
+
+		$normalized = array();
+		foreach ( $raw as $entry ) {
+			if ( ! is_array( $entry ) ) {
+				continue;
+			}
+
+			$normalized_entry = array();
+			foreach ( $entry as $key => $value ) {
+				if ( is_string( $key ) ) {
+					$normalized_entry[ $key ] = $value;
+				}
+			}
+
+			if ( ! empty( $normalized_entry ) ) {
+				$normalized[] = $normalized_entry;
+			}
+		}
+
+		return $normalized;
+	}
+
+	/**
+	 * Find the highest existing activity sequence across resumable logs.
+	 *
+	 * @param array<int, array<string, mixed>> ...$logs Existing activity logs.
+	 * @return int Highest sequence found, or 0.
+	 */
+	private function get_max_activity_sequence( array ...$logs ): int {
+		$max = 0;
+		foreach ( $logs as $log ) {
+			foreach ( $log as $entry ) {
+				$sequence = $entry['sequence'] ?? null;
+				if ( is_numeric( $sequence ) ) {
+					$max = max( $max, (int) $sequence );
+				}
+			}
+		}
+
+		return $max;
+	}
+
+	/**
+	 * Remove identical tool calls from one assistant turn before dispatch.
+	 *
+	 * @param Message $message Assistant message returned by the provider.
+	 * @return Message Message with duplicate function calls removed.
+	 */
+	private function deduplicate_tool_calls( Message $message ): Message {
+		$parts       = $message->getParts();
+		$seen        = array();
+		$deduped     = array();
+		$removed     = 0;
+		$has_changes = false;
+
+		foreach ( $parts as $part ) {
+			$call = $part->getFunctionCall();
+			if ( ! $call ) {
+				$deduped[] = $part;
+				continue;
+			}
+
+			$key = $this->build_tool_call_dedupe_key( $call );
+			if ( '' !== $key && ! $this->tool_call_has_parallel_intent( $call ) ) {
+				if ( isset( $seen[ $key ] ) ) {
+					++$removed;
+					$has_changes = true;
+					continue;
+				}
+				$seen[ $key ] = true;
+			}
+
+			$deduped[] = $part;
+		}
+
+		if ( ! $has_changes ) {
+			return $message;
+		}
+
+		$this->message_log[] = array(
+			'type'     => 'event',
+			'reason'   => 'tool_call_deduplicated',
+			'count'    => $removed,
+			'sequence' => $this->next_activity_sequence(),
+		);
+
+		// phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- Required operational observability line for duplicate tool-call suppression.
+		error_log( '[Superdav AI Agent] event=tool_call_deduplicated count=' . $removed );
+
+		AgentEventLog::log(
+			'tool_call_deduplicated',
+			AgentEventLog::SEVERITY_INFO,
+			array(
+				'session_id'  => $this->session_id,
+				'model_id'    => (string) $this->model_id,
+				'provider_id' => (string) $this->provider_id,
+			)
+		);
+
+		return new ModelMessage( $deduped );
+	}
+
+	/**
+	 * Build the per-iteration duplicate key for a function call.
+	 *
+	 * @param FunctionCall $call Function call DTO.
+	 * @return string Stable duplicate key, or empty string when not comparable.
+	 */
+	private function build_tool_call_dedupe_key( FunctionCall $call ): string {
+		$name = (string) $call->getName();
+		if ( '' === $name ) {
+			return '';
+		}
+
+		$args_json = wp_json_encode( self::canonicalize_tool_call_args( $call->getArgs() ) );
+		if ( ! is_string( $args_json ) ) {
+			$args_json = '';
+		}
+
+		return $name . "\n" . $args_json;
+	}
+
+	/**
+	 * Canonicalise arrays so semantically identical argument objects hash equally.
+	 *
+	 * @param mixed $value Raw function-call arguments.
+	 * @return mixed Canonicalised value.
+	 */
+	private static function canonicalize_tool_call_args( $value ) {
+		if ( ! is_array( $value ) ) {
+			return $value;
+		}
+
+		if ( ! array_is_list( $value ) ) {
+			ksort( $value );
+		}
+
+		foreach ( $value as $key => $item ) {
+			$value[ $key ] = self::canonicalize_tool_call_args( $item );
+		}
+
+		return $value;
+	}
+
+	/**
+	 * Whether a call carries an explicit provider/model signal to keep duplicates parallel.
+	 *
+	 * @param FunctionCall $call Function call DTO.
+	 * @return bool True when the call should not be deduped.
+	 */
+	private function tool_call_has_parallel_intent( FunctionCall $call ): bool {
+		$args = $call->getArgs();
+		if ( ! is_array( $args ) ) {
+			return false;
+		}
+
+		foreach ( array( 'parallel_id', 'parallelId', 'parallel_group', 'parallelGroup' ) as $key ) {
+			if ( ! array_key_exists( $key, $args ) ) {
+				continue;
+			}
+
+			$value = $args[ $key ];
+			if ( is_scalar( $value ) && '' !== (string) $value ) {
+				return true;
+			}
+			if ( null !== $value && ! is_scalar( $value ) ) {
+				return true;
+			}
+		}
+
+		return false;
+	}
+
+	/**
+	 * Log real tool calls and separate any assistant preamble text.
+	 *
+	 * Some models emit short narration in the same assistant message as a tool
+	 * call. The narration belongs in the message log, not `tool_calls`, so
+	 * usage dashboards and run summaries can count only real tool activity while
+	 * the live UI can still merge both streams by sequence.
+	 *
+	 * @param Message $message Assistant message to inspect.
 	 */
 	private function log_tool_calls( Message $message ): void {
 		foreach ( $message->getParts() as $part ) {
 			$text = $part->getText();
 			if ( is_string( $text ) && '' !== trim( $text ) ) {
-				$this->tool_call_log[] = array(
-					'type' => 'preamble',
-					'text' => $text,
+				$this->message_log[] = array(
+					'type'     => 'preamble',
+					'text'     => $text,
+					'sequence' => $this->next_activity_sequence(),
 				);
 			}
 
 			$call = $part->getFunctionCall();
 			if ( $call ) {
+				$name = (string) $call->getName();
+				if ( '' === $name ) {
+					continue;
+				}
+
 				$this->tool_call_log[] = array(
-					'type' => 'call',
-					'id'   => $call->getId(),
-					'name' => $call->getName(),
-					'args' => $call->getArgs(),
+					'type'     => 'call',
+					'id'       => $call->getId(),
+					'name'     => $name,
+					'args'     => $call->getArgs(),
+					'sequence' => $this->next_activity_sequence(),
 				);
 			}
 		}
@@ -1972,12 +2227,13 @@ class AgentLoop {
 			$tool_name
 		);
 
-		$this->tool_call_log[] = array(
+		$this->message_log[] = array(
 			'type'       => 'event',
 			'reason'     => 'truncated_tool_call',
 			'name'       => $tool_name,
 			'max_tokens' => $cap,
 			'message'    => $guidance,
+			'sequence'   => $this->next_activity_sequence(),
 		);
 
 		AgentEventLog::log(
@@ -2015,11 +2271,12 @@ class AgentLoop {
 			$cap
 		);
 
-		$this->tool_call_log[] = array(
+		$this->message_log[] = array(
 			'type'       => 'event',
 			'reason'     => 'truncated_before_tool_call',
 			'max_tokens' => $cap,
 			'message'    => $guidance,
+			'sequence'   => $this->next_activity_sequence(),
 		);
 
 		AgentEventLog::log(
@@ -2071,8 +2328,10 @@ class AgentLoop {
 				$cap
 			),
 			array(
-				'cap'     => $cap,
-				'retries' => $this->preamble_truncation_retries,
+				'cap'        => $cap,
+				'retries'    => $this->preamble_truncation_retries,
+				'tool_calls' => $this->tool_call_log,
+				'messages'   => $this->message_log,
 			)
 		);
 	}
@@ -2134,13 +2393,19 @@ class AgentLoop {
 		foreach ( $message->getParts() as $part ) {
 			$response = $part->getFunctionResponse();
 			if ( $response ) {
-				$this->track_block_validation_response( $response->getName(), $response->getResponse() );
+				$name = (string) $response->getName();
+				if ( '' === $name ) {
+					continue;
+				}
+
+				$this->track_block_validation_response( $name, $response->getResponse() );
 
 				$this->tool_call_log[] = array(
 					'type'     => 'response',
 					'id'       => $response->getId(),
-					'name'     => $response->getName(),
+					'name'     => $name,
 					'response' => $response->getResponse(),
+					'sequence' => $this->next_activity_sequence(),
 				);
 			}
 		}
@@ -2218,10 +2483,11 @@ class AgentLoop {
 
 		$this->history[] = new UserMessage( array( new MessagePart( implode( "\n", $lines ) ) ) );
 
-		$this->tool_call_log[] = array(
-			'type'    => 'guardrail',
-			'reason'  => 'block_validation_repair_required',
-			'pending' => $pending,
+		$this->message_log[] = array(
+			'type'     => 'guardrail',
+			'reason'   => 'block_validation_repair_required',
+			'pending'  => $pending,
+			'sequence' => $this->next_activity_sequence(),
 		);
 
 		$this->fire_progress();
@@ -2263,7 +2529,7 @@ class AgentLoop {
 	}
 
 	/**
-	 * Fire the progress callback with the current tool call log.
+	 * Fire the progress callback with the current tool-call and message logs.
 	 *
 	 * Progress reporting is best-effort: if the callback throws, the exception
 	 * is swallowed so a broken progress handler cannot abort the agent loop.
@@ -2274,7 +2540,7 @@ class AgentLoop {
 		}
 
 		try {
-			call_user_func( $this->progress_callback, $this->tool_call_log );
+			call_user_func( $this->progress_callback, $this->tool_call_log, $this->message_log );
 		} catch ( \Throwable $e ) {
 			// Progress reporting is best-effort and must not interrupt the agent loop.
 		}
@@ -2319,9 +2585,10 @@ class AgentLoop {
 			);
 
 			// Log the interrupt for transparency.
-			$this->tool_call_log[] = array(
-				'type'    => 'interrupt',
-				'message' => $message_text,
+			$this->message_log[] = array(
+				'type'     => 'interrupt',
+				'message'  => $message_text,
+				'sequence' => $this->next_activity_sequence(),
 			);
 
 			$this->fire_progress();
