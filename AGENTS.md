@@ -138,9 +138,35 @@ note to a committed, future-loaded source before editing:
   update `.agents/AGENTS.md`, `.agents/scripts/commands/feedback-triage.md`, or
   the relevant helper so future triage issues include worker-ready files,
   expectations, and verification commands.
+- For service-usage questions such as "where do we use Google Search Console
+  API?", map the question to the concrete integration files before answering or
+  filing follow-up work. For GSC, inspect `includes/Abilities/GscAbilities.php`
+  for API calls and ability IDs, `includes/Core/Settings.php` for credential
+  storage, `includes/REST/SettingsController.php` for credential REST routes,
+  and `includes/Abilities/ToolCapabilities.php` for capability gating.
 - Verification for this class of guidance-only fix should include both:
   `rg -n "Contributor Insight|source mapping|local-path|sd-ai-agent/v1|file upload" AGENTS.md .agents/AGENTS.md .agents/scripts/commands/feedback-triage.md`
   and `rg -n "wp-block-themes|Full Site Editing|theme.json|validate-block-content" AGENTS.md includes/Models/skills/wp-block-themes.md`.
+
+### Google Search Console API Usage Mapping
+
+The Google Search Console integration lives in these committed surfaces:
+
+- `includes/Abilities/GscAbilities.php` registers `sd-ai-agent/gsc-*` abilities
+  and calls the Search Analytics API endpoint
+  `searchconsole.googleapis.com/webmasters/v3/sites/{siteUrl}/searchAnalytics/query`.
+- `includes/Core/Settings.php` stores credentials in
+  `sd_ai_agent_gsc_credentials`, separate from general settings so the main
+  settings response does not leak secrets.
+- `includes/REST/SettingsController.php` exposes admin-only create/delete routes
+  for `/settings/gsc-credentials` and reports only configured/type/default-site
+  metadata in settings responses.
+- `includes/Abilities/ToolCapabilities.php` gates all `sd-ai-agent/gsc-*`
+  abilities behind `manage_options`.
+
+When changing or auditing this integration, verify both credential secrecy and
+capability gating with `npm run test:php -- --filter=GscAbilitiesTest` plus the
+relevant REST/settings test when a route or settings response changes.
 
 ### Block Theme Automation Guidance
 
