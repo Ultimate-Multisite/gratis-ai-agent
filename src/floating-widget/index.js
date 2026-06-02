@@ -1,7 +1,13 @@
 /**
  * WordPress dependencies
  */
-import { createRoot, useEffect, useCallback } from '@wordpress/element';
+import {
+	createRoot,
+	useEffect,
+	useCallback,
+	useRef,
+	useState,
+} from '@wordpress/element';
 import { useSelect, useDispatch } from '@wordpress/data';
 import { __ } from '@wordpress/i18n';
 
@@ -34,17 +40,40 @@ function FloatingWidget() {
 		fetchProviders,
 		fetchSessions,
 		fetchAlerts,
+		openSession,
+		sendMessage,
+		setSelectedAgentId,
 		setPageContext,
 		setFloatingOpen,
+		setFloatingMinimized,
 		pollJob,
 		restoreActiveJobs,
 	} = useDispatch( STORE_NAME );
 
-	const { isOpen, settings, bootError } = useSelect(
+	const frontendOnboardingEnabled =
+		!! window.sdAiAgentData?.frontendOnboarding;
+	const [ frontendOnboardingMode, setFrontendOnboardingMode ] = useState(
+		frontendOnboardingEnabled ? 'intro' : null
+	);
+	const frontendOnboardingStartedRef = useRef( false );
+
+	const {
+		isOpen,
+		settings,
+		bootError,
+		providers,
+		providersLoaded,
+		currentSessionId,
+		sessionJobs,
+	} = useSelect(
 		( select ) => ( {
 			isOpen: select( STORE_NAME ).isFloatingOpen(),
 			settings: select( STORE_NAME ).getSettings(),
 			bootError: select( STORE_NAME ).getBootError(),
+			providers: select( STORE_NAME ).getProviders(),
+			providersLoaded: select( STORE_NAME ).getProvidersLoaded(),
+			currentSessionId: select( STORE_NAME ).getCurrentSessionId(),
+			sessionJobs: select( STORE_NAME ).getSessionJobs(),
 		} ),
 		[]
 	);
@@ -62,12 +91,88 @@ function FloatingWidget() {
 		restoreActiveJobs();
 	}, [ fetchProviders, fetchSessions, restoreActiveJobs ] );
 
+	// First-run frontend onboarding: open the widget as a centered assistant,
+	// start the same server-side onboarding session used by the admin chat page,
+	// then dock/minimize once a tool result reports affected frontend content so
+	// live DOM updates are visible on the page being built.
+	useEffect( () => {
+		if ( ! frontendOnboardingEnabled ) {
+			return;
+		}
+
+		setFloatingOpen( true );
+		setFloatingMinimized( false );
+	}, [ frontendOnboardingEnabled, setFloatingOpen, setFloatingMinimized ] );
+
+	useEffect( () => {
+		if (
+			! frontendOnboardingEnabled ||
+			frontendOnboardingStartedRef.current ||
+			! providersLoaded
+		) {
+			return;
+		}
+
+		if ( providers.length === 0 ) {
+			setFrontendOnboardingMode( null );
+			return;
+		}
+
+		frontendOnboardingStartedRef.current = true;
+		import( './frontend-onboarding' )
+			.then( ( { startFrontendOnboarding } ) =>
+				startFrontendOnboarding( {
+					openSession,
+					sendMessage,
+					setSelectedAgentId,
+				} )
+			)
+			.catch( () => {
+				setFrontendOnboardingMode( null );
+			} );
+	}, [
+		frontendOnboardingEnabled,
+		providersLoaded,
+		providers.length,
+		openSession,
+		sendMessage,
+		setSelectedAgentId,
+	] );
+
+	useEffect( () => {
+		const onboardingJob = sessionJobs?.[ currentSessionId ];
+
+		if (
+			! frontendOnboardingMode ||
+			! onboardingJob ||
+			onboardingJob.status !== 'processing'
+		) {
+			if ( frontendOnboardingMode === 'building' ) {
+				setFrontendOnboardingMode( null );
+			}
+
+			return;
+		}
+
+		if (
+			! onboardingJob.toolCalls?.some(
+				( entry ) => entry?.response?.affected
+			)
+		) {
+			return;
+		}
+
+		setFrontendOnboardingMode( 'building' );
+		setFloatingMinimized( window.innerWidth <= 600 );
+	}, [
+		frontendOnboardingMode,
+		currentSessionId,
+		sessionJobs,
+		setFloatingMinimized,
+	] );
+
 	// Refresh providers when user returns to the tab (e.g., after making
 	// changes on the Connectors admin page).
-	const providersLoaded = useSelect(
-		( select ) => select( STORE_NAME ).getProvidersLoaded(),
-		[]
-	);
 	useEffect( () => {
 		const handleVisibilityChange = () => {
 			if ( ! document.hidden && providersLoaded ) {
@@ -136,7 +241,7 @@ function FloatingWidget() {
 		return null;
 	}
 
-	return <ChatWidget />;
+	return <ChatWidget frontendOnboardingMode={ frontendOnboardingMode } />;
 }
 
 /**

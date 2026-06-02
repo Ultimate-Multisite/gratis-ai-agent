@@ -143,6 +143,48 @@
 	cursor: pointer;
 }
 
+.sdaa-w-panel.is-frontend-onboarding {
+	right: 24px;
+	bottom: 24px;
+	left: auto;
+	top: auto;
+	width: 360px;
+	height: min(560px, calc(100vh - 48px));
+	max-width: calc(100vw - 48px);
+	max-height: calc(100vh - 48px);
+	transition:
+		width var(--sdaa-w-duration),
+		height var(--sdaa-w-duration),
+		transform var(--sdaa-w-duration),
+		right var(--sdaa-w-duration),
+		bottom var(--sdaa-w-duration);
+}
+
+.sdaa-w-panel.is-frontend-onboarding.is-onboarding-intro {
+	top: 50%;
+	left: 50%;
+	right: auto;
+	bottom: auto;
+	width: min(560px, calc(100vw - 32px));
+	height: min(720px, calc(100vh - 48px));
+	max-width: calc(100vw - 32px);
+	max-height: calc(100vh - 48px);
+	transform: translate(-50%, -50%);
+	animation: sdaa-w-onboarding-panel-in 220ms ease;
+}
+
+.sdaa-w-panel.is-frontend-onboarding.is-onboarding-building {
+	animation: none;
+}
+
+.sdaa-w-panel.is-frontend-onboarding.is-minimized {
+	height: auto;
+}
+
+.sdaa-w-panel.is-frontend-onboarding .sdaa-w-head {
+	cursor: default;
+}
+
 /* Suppress the panel-in entrance animation while the user is moving or
    resizing — otherwise every state update replays the fade-in. */
 .sdaa-w-panel.is-dragging,
@@ -205,6 +247,18 @@
 	to {
 		opacity: 1;
 		transform: translateY(0);
+	}
+}
+
+@keyframes sdaa-w-onboarding-panel-in {
+	from {
+		opacity: 0;
+		transform: translate(-50%, calc(-50% + 12px));
+	}
+
+	to {
+		opacity: 1;
+		transform: translate(-50%, -50%);
 	}
 }
 
@@ -946,6 +1000,35 @@
 	fill: currentcolor;
 }
 
+.sdaa-w-onboarding-strip {
+	display: flex;
+	flex-shrink: 0;
+	align-items: center;
+	gap: 8px;
+	padding: 8px 12px;
+	border-bottom: 1px solid #b9d8f4;
+	background: #f0f6fc;
+	color: #135e96;
+	font-size: 11.5px;
+	font-weight: 500;
+}
+
+.sdaa-w-onboarding-strip.is-building {
+	border-bottom-color: #9fd2ad;
+	background: #edfaef;
+	color: #006b1a;
+}
+
+.sdaa-w-onboarding-strip-dot {
+	display: inline-block;
+	width: 7px;
+	height: 7px;
+	flex-shrink: 0;
+	border-radius: 50%;
+	background: currentcolor;
+	animation: sdaa-w-pulse 1.5s ease-in-out infinite;
+}
+
 /* Full-width changes strip below the header */
 
 .sdaa-w-changes-strip {
@@ -1248,6 +1331,34 @@
 	.sdaa-w-panel.is-minimized {
 		left: auto;
 		width: 280px;
+		height: auto;
+	}
+
+	.sdaa-w-panel.is-frontend-onboarding,
+	.sdaa-w-panel.is-frontend-onboarding.is-onboarding-building {
+		right: 8px;
+		bottom: 8px;
+		left: 8px;
+		width: auto;
+		height: calc(100vh - 80px);
+		max-width: none;
+	}
+
+	.sdaa-w-panel.is-frontend-onboarding.is-onboarding-intro {
+		top: 50%;
+		right: auto;
+		bottom: auto;
+		left: 50%;
+		width: calc(100vw - 24px);
+		height: min(78vh, calc(100vh - 32px));
+		max-width: calc(100vw - 24px);
+	}
+
+	.sdaa-w-panel.is-frontend-onboarding.is-minimized {
+		right: 8px;
+		bottom: 8px;
+		left: 8px;
+		width: auto;
 		height: auto;
 	}
 
