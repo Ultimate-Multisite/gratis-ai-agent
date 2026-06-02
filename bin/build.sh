@@ -15,7 +15,8 @@
 #            Ultimate Multisite channel. Output:
 #               superdav-ai-agent-{version}.zip
 #
-#   wporg  — WordPress.org-compliant zip. Strips source files for the AI
+#   wporg  — WordPress.org-compliant zip. Requires WordPress 7.0+ and strips
+#            the WP 6.9 compatibility shims. Also strips source files for the AI
 #            plugin builder (generate / sandbox / activate / update), for
 #            WP-CLI custom tools, the block-theme scaffolder ability that
 #            writes executable theme code, and the git-tracking source-package
@@ -259,6 +260,23 @@ EXTRA
 			fi
 		done
 
+		# The WP.org package intentionally requires WordPress 7.0+. Native core
+		# provides the AI Client SDK, wp_ai_client_prompt(), and Connectors API, so
+		# the bundled WP 6.9 compatibility shims are stripped from this build.
+		sed -i.bak \
+			-e 's/^ \* Requires at least:.*/ * Requires at least: 7.0/' \
+			-e '/use SdAiAgent\\Compat\\AiBridgeLoader;/d' \
+			-e '/use SdAiAgent\\Compat\\GutenbergConnectorsBridge;/d' \
+			-e '/use SdAiAgent\\Compat\\SdkLoader;/d' \
+			-e '/^\/\/ Phase 1 (t227): Register the bundled wordpress\/php-ai-client SDK autoloader\./,/^add_action( '\''plugins_loaded'\'', \[ GutenbergConnectorsBridge::class, '\''force_load_connectors_subsystem'\'' \], 1 );/d' \
+			"$main_file"
+		rm -f "${main_file}.bak"
+
+		if ! grep -q '^ \* Requires at least: 7.0$' "$main_file"; then
+			echo "ERROR: failed to force Requires at least: 7.0 in wporg build." >&2
+			return 1
+		fi
+
 		# The GitTrackingHandler class is stripped below. Remove it from the
 		# bundled module handler list so the DI bootstrap never attempts to reflect
 		# a class that is intentionally absent from the WP.org package.
@@ -271,8 +289,37 @@ EXTRA
 			rm -f "${plugin_module}.bak"
 		fi
 
+		# The WP 6.9 Gutenberg Connectors bridge class is stripped below. Remove
+		# the admin-only fallback hook from the bundled handler so the DI bootstrap
+		# never references a compatibility class that is absent from the WP.org zip.
+		local admin_handler="${dest}/includes/Bootstrap/AdminHandler.php"
+		if [ -f "$admin_handler" ]; then
+			python3 - "$admin_handler" <<'PYADMIN'
+import pathlib
+import re
+import sys
+
+p = pathlib.Path(sys.argv[1])
+src = p.read_text()
+src = src.replace("use SdAiAgent\\Compat\\GutenbergConnectorsBridge;\n", "")
+pattern = re.compile(
+    r"\n\t/\*\*\n\t \* Belt-and-braces fallback for the Gutenberg Connectors page on WP 6\.9\..*?\n\t\}\n",
+    re.DOTALL,
+)
+new_src, count = pattern.subn("\n", src, count=1)
+if count != 1:
+    sys.stderr.write(
+        "ERROR: failed to remove Gutenberg Connectors bridge hook from AdminHandler.php.\n"
+    )
+    sys.exit(1)
+p.write_text(new_src)
+PYADMIN
+		fi
+
 		# Sanity-check that the gated source files were actually removed.
 		local stripped_paths=(
+			"${dest}/includes/Compat"
+			"${dest}/lib/php-ai-client"
 			"${dest}/includes/PluginBuilder"
 			"${dest}/includes/Abilities/GeneratePluginAbility.php"
 			"${dest}/includes/Abilities/SandboxActivatePluginAbility.php"
@@ -305,7 +352,7 @@ EXTRA
 				return 1
 			fi
 		done
-		echo "    Stripped plugin-builder + theme-scaffolder + git-tracking source files and forced feature flags to false."
+		echo "    Stripped WP 6.9 compatibility shims, plugin-builder + theme-scaffolder + git-tracking source files, forced feature flags to false, and set Requires at least to 7.0."
 
 		# ── Neutralise forbidden move_uploaded_file() in bundled PSR-7 ───────
 		# WP.org's plugin-check tool hard-fails on any literal occurrence of

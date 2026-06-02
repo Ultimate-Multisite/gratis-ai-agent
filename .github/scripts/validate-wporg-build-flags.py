@@ -110,6 +110,23 @@ def main() -> int:
                 f"bin/build.sh stripped_paths entry {source_rel} is missing from .distignore-wporg."
             )
 
+    if "Requires at least: 7.0" not in script:
+        failures.append(
+            "bin/build.sh must force the WP.org package header to Requires at least: 7.0 "
+            "when stripping WP 6.9 compatibility shims."
+        )
+
+    for required_entry in ("includes/Compat", "lib/php-ai-client"):
+        if required_entry not in dist_entries:
+            failures.append(
+                f".distignore-wporg is missing {required_entry}; WP.org builds must strip WP 6.9 compatibility shims."
+            )
+        if f"${{dest}}/{required_entry}" not in stripped:
+            failures.append(
+                f"bin/build.sh stripped_paths is missing ${{dest}}/{required_entry}; "
+                "the build must fail if a compatibility shim leaks into the WP.org package."
+            )
+
     feature_constant = re.compile(r"SD_AI_AGENT_FEATURE_[A-Z0-9_]+")
     for entry in sorted(dist_entries):
         if not entry.startswith("includes/Abilities/"):
