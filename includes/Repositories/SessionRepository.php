@@ -159,33 +159,56 @@ class SessionRepository {
 		global $wpdb;
 		/** @var \wpdb $wpdb */
 
+		$session_ids = array_values(
+			array_filter(
+				array_map(
+					static function ( $session_id ): int {
+						return absint( $session_id );
+					},
+					$session_ids
+				)
+			)
+		);
 		if ( empty( $session_ids ) || empty( $data ) ) {
 			return 0;
 		}
 
 		$table              = Database::table_name();
 		$data['updated_at'] = current_time( 'mysql', true );
+		$allowed_fields     = [ 'status', 'pinned', 'folder', 'updated_at' ];
 
 		$set_parts = [];
-		$values    = [];
 
 		foreach ( $data as $key => $value ) {
-			$set_parts[] = "{$key} = %s";
-			$values[]    = $value;
+			if ( ! in_array( $key, $allowed_fields, true ) ) {
+				continue;
+			}
+
+			if ( 'pinned' === $key ) {
+				$set_parts[] = $wpdb->prepare( '%i = %d', $key, $value );
+				continue;
+			}
+
+			$set_parts[] = $wpdb->prepare( '%i = %s', $key, $value );
+		}
+
+		if ( empty( $set_parts ) ) {
+			return 0;
 		}
 
 		$set_sql      = implode( ', ', $set_parts );
 		$placeholders = implode( ',', array_fill( 0, count( $session_ids ), '%d' ) );
-		$values       = array_merge( $values, $session_ids, [ $user_id ] );
+		$values       = array_merge( $session_ids, [ $user_id ] );
 
-		// phpcs:disable WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.InterpolatedNotPrepared, PluginCheck.Security.DirectDB.UnescapedDBParameter -- Custom table query; dynamic columns from internal method, not user input.
+		// phpcs:disable WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- Custom table query; SET fragments are prepared from allowlisted column names and values.
 		$result = $wpdb->query(
 			$wpdb->prepare(
-				"UPDATE {$table} SET {$set_sql} WHERE id IN ({$placeholders}) AND user_id = %d",
+				"UPDATE %i SET {$set_sql} WHERE id IN ({$placeholders}) AND user_id = %d",
+				$table,
 				...$values
 			)
 		);
-		// phpcs:enable WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.InterpolatedNotPrepared, PluginCheck.Security.DirectDB.UnescapedDBParameter
+		// phpcs:enable WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.InterpolatedNotPrepared
 
 		return $result !== false ? (int) $result : 0;
 	}
