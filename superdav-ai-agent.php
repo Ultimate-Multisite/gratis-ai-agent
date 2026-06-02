@@ -132,11 +132,12 @@ defined( 'SD_AI_AGENT_FEATURE_PLUGIN_INSTALL_FROM_URL' ) || define( 'SD_AI_AGENT
 
 /**
  * Feature: arbitrary filesystem writes inside wp-content. When false, the
- * file-write, file-edit, file-delete, git-restore, and git-revert-package
- * abilities are not registered; read-only file operations (file-read,
- * file-list, file-search, content-search, git-list, git-diff,
- * git-package-summary, git-snapshot) remain available. Forced to `false`
- * in the WordPress.org distribution build because direct writes to
+ * file-write, file-edit, and file-delete abilities are not registered. The
+ * WordPress.org distribution also omits the git-tracking ability source files
+ * because they inspect and snapshot plugin/theme source packages. Read-only
+ * file operations (file-read, file-list, file-search, content-search) remain
+ * available. Forced to `false` in the WordPress.org distribution build because
+ * direct writes to
  * `wp-content/plugins/` and `wp-content/themes/` constitute arbitrary
  * code modification of other plugins/themes — the same class of risk
  * covered by the WP.org "Changing Active Plugins" guideline.

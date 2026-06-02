@@ -11,6 +11,7 @@ declare(strict_types=1);
 namespace SdAiAgent\REST;
 
 use SdAiAgent\Core\Database;
+use SdAiAgent\Core\WordPressPaths;
 use SdAiAgent\Models\ChangesLog;
 use SdAiAgent\Services\ChangeRevertService;
 use WP_Error;
@@ -445,9 +446,7 @@ final class ChangesController {
 		}
 
 		// Verify the plugin directory exists.
-		// NOTE: Using WP_PLUGIN_DIR per wp.org guidelines.
-		// See: https://developer.wordpress.org/plugins/plugin-basics/determining-plugin-and-content-directories/
-		$plugin_dir = WP_PLUGIN_DIR . '/' . $slug;
+		$plugin_dir = WordPressPaths::plugin_path( $slug );
 		if ( ! is_dir( $plugin_dir ) ) {
 			return new WP_Error(
 				'plugin_not_found',

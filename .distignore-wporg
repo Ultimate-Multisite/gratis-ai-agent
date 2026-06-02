@@ -13,6 +13,7 @@
 #  - SD_AI_AGENT_FEATURE_WP_CLI_DISPATCHER       (shell-exec wp-cli dispatcher)
 #  - SD_AI_AGENT_FEATURE_BENCHMARK               (WP-CLI benchmark with arbitrary --log-dir)
 #  - SD_AI_AGENT_FEATURE_USER_MANAGEMENT         (custom user create / role change)
+#  - SD_AI_AGENT_FEATURE_FILE_WRITE              (git-tracking source package snapshots)
 #
 # Note: the PLUGIN_STATE_CHANGES and PLUGIN_INSTALL_FROM_URL gates only
 # remove individual `wp_register_ability()` calls inside
@@ -73,6 +74,26 @@ includes/Abilities/RunPhpAbility.php
 # Persistence layer used only by the plugin builder.
 includes/Repositories/GeneratedPluginsRepository.php
 includes/Models/DTO/GeneratedPluginRow.php
+
+# ── Git-tracking source package snapshots ────────────────────────────────────
+# The Git ability layer snapshots, diffs, and reverts plugin/theme source
+# packages. In the WP.org build, file mutation is forced off via
+# SD_AI_AGENT_FEATURE_FILE_WRITE=false, so the companion git-tracking source
+# package inspection layer is physically stripped as well. This prevents the
+# review package from shipping paths that resolve other plugins via the plugins
+# root and from exposing a source-code snapshot surface that only makes sense
+# when AI file edits are available.
+includes/Abilities/GitAbilities.php
+includes/Abilities/GitSnapshotAbility.php
+includes/Abilities/GitDiffAbility.php
+includes/Abilities/GitListAbility.php
+includes/Abilities/GitPackageSummaryAbility.php
+includes/Abilities/GitRestoreAbility.php
+includes/Abilities/GitRevertPackageAbility.php
+includes/Bootstrap/GitTrackingHandler.php
+includes/Models/GitTracker.php
+includes/Models/GitTrackerManager.php
+includes/Models/DTO/GitTrackedFileRow.php
 
 # Plugin-builder tests are already excluded by the `tests` rule in
 # .distignore but listed here for documentation completeness.

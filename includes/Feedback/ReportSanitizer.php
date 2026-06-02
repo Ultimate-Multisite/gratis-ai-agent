@@ -174,8 +174,8 @@ class ReportSanitizer {
 		}
 
 		// Redact absolute server file paths (Unix-style).
-		// ABSPATH is always an absolute path in WordPress (e.g. /var/www/html/).
-		$abspath = defined( 'ABSPATH' ) ? ABSPATH : '/var/www/';
+		// ABSPATH is always an absolute path in WordPress.
+		$abspath = ABSPATH;
 		if ( '' !== $abspath ) {
 			$escaped = preg_quote( $abspath, '/' );
 			$value   = (string) preg_replace( '/' . $escaped . '[^\s\'"]+/i', '[REDACTED:server_path]', $value );

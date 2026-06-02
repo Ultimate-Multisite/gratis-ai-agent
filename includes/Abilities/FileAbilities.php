@@ -22,6 +22,7 @@ use SdAiAgent\Core\Filesystem\FileModGate;
 use SdAiAgent\Core\Filesystem\PathCanonicalizer;
 use SdAiAgent\Core\Health\PostMutationHealthCheck;
 use SdAiAgent\Core\Settings;
+use SdAiAgent\Core\WordPressPaths;
 use SdAiAgent\Models\ChangesLog;
 use SdAiAgent\Models\GitTrackerManager;
 use WP_Error;
@@ -259,7 +260,7 @@ abstract class AbstractFileAbility extends AbstractAbility {
 			return new WP_Error( 'sd_ai_agent_empty_path', __( 'Path cannot be empty.', 'superdav-ai-agent' ) );
 		}
 
-		$wp_content_path = WP_CONTENT_DIR;
+		$wp_content_path = WordPressPaths::content_dir();
 		$full_path       = $wp_content_path . '/' . $relative_path;
 
 		// Resolve real path for security check.
@@ -1375,16 +1376,18 @@ class FileSearchAbility extends AbstractFileAbility {
 
 	protected function execute_callback( $input ) {
 		/** @var array<string, mixed> $input */
-		$pattern = $input['pattern'] ?? '';
+		$pattern         = $input['pattern'] ?? '';
+		$wp_content_path = WordPressPaths::content_dir();
+		$wp_content_root = trailingslashit( $wp_content_path );
 		// @phpstan-ignore-next-line
-		$full_pattern = WP_CONTENT_DIR . '/' . ltrim( $pattern, '/' );
+		$full_pattern = $wp_content_root . ltrim( $pattern, '/' );
 
 		$files   = glob( $full_pattern );
 		$results = [];
 
 		if ( false !== $files ) {
 			foreach ( $files as $file ) {
-				$relative  = str_replace( WP_CONTENT_DIR . '/', '', $file );
+				$relative  = str_replace( $wp_content_root, '', $file );
 				$results[] = [
 					'path' => $relative,
 					'type' => is_dir( $file ) ? 'directory' : 'file',
@@ -1474,7 +1477,7 @@ class ContentSearchAbility extends AbstractFileAbility {
 			return new WP_Error( 'sd_ai_agent_empty_needle', __( 'Search text cannot be empty.', 'superdav-ai-agent' ) );
 		}
 
-		$search_path = WP_CONTENT_DIR;
+		$search_path = WordPressPaths::content_dir();
 		if ( ! empty( $directory ) ) {
 			// @phpstan-ignore-next-line
 			$resolved = $this->resolve_path( $directory );
@@ -1526,7 +1529,8 @@ class ContentSearchAbility extends AbstractFileAbility {
 			return;
 		}
 
-		$files = glob( $dir . '/' . $pattern );
+		$files           = glob( $dir . '/' . $pattern );
+		$wp_content_root = trailingslashit( WordPressPaths::content_dir() );
 		if ( false !== $files ) {
 			foreach ( $files as $file ) {
 				if ( count( $results ) >= $limit ) {
@@ -1555,7 +1559,7 @@ class ContentSearchAbility extends AbstractFileAbility {
 				}
 
 				$results[] = [
-					'path'    => str_replace( WP_CONTENT_DIR . '/', '', $file ),
+					'path'    => str_replace( $wp_content_root, '', $file ),
 					'matches' => array_slice( $matching_lines, 0, 5 ),
 				];
 			}

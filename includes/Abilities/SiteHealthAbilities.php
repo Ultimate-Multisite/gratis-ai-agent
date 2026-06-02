@@ -19,6 +19,7 @@ namespace SdAiAgent\Abilities;
 
 use SdAiAgent\Core\OnboardingManager;
 use SdAiAgent\Core\SiteScanner;
+use SdAiAgent\Core\WordPressPaths;
 use SdAiAgent\Models\Memory;
 use WP_Error;
 
@@ -502,7 +503,7 @@ class SiteHealthAbilities {
 	 * @return array<string, mixed>|WP_Error
 	 */
 	public static function handle_check_disk_space( array $input ): array|WP_Error {
-		$abspath = defined( 'ABSPATH' ) ? ABSPATH : '/';
+		$abspath = ABSPATH;
 
 		$disk_total = disk_total_space( $abspath );
 		$disk_free  = disk_free_space( $abspath );
@@ -514,7 +515,7 @@ class SiteHealthAbilities {
 		$disk_used         = $disk_total - $disk_free;
 		$disk_used_percent = $disk_total > 0 ? round( ( $disk_used / $disk_total ) * 100, 1 ) : 0;
 
-		$wp_content_size_mb = self::get_directory_size_mb( WP_CONTENT_DIR );
+		$wp_content_size_mb = self::get_directory_size_mb( WordPressPaths::content_dir() );
 		$uploads_dir        = wp_upload_dir();
 		$uploads_size_mb    = self::get_directory_size_mb( $uploads_dir['basedir'] );
 
@@ -835,7 +836,7 @@ class SiteHealthAbilities {
 		}
 
 		// 2. Default WordPress debug.log location.
-		$default = WP_CONTENT_DIR . '/debug.log';
+		$default = trailingslashit( WordPressPaths::content_dir() ) . 'debug.log';
 		if ( file_exists( $default ) ) {
 			return $default;
 		}

@@ -385,12 +385,12 @@ class SystemInstructionBuilder {
 	 * @return string
 	 */
 	public static function default_system_instruction(): string {
-		$wp_path  = ABSPATH;
+		$wp_path  = WordPressPaths::content_dir();
 		$site_url = get_site_url();
 
 		return "You are a WordPress assistant that ACTS — you execute tasks immediately using your tools.\n\n"
 			. "## WordPress Environment\n"
-			. "- WordPress path: {$wp_path}\n"
+			. "- WordPress content path: {$wp_path}\n"
 			. "- Site URL: {$site_url}\n\n"
 			. "## Core Principles\n"
 			. "1. **Act, don't ask.** Execute the task right away. Don't ask \"shall I proceed?\" or request confirmation unless the task is destructive (deleting data, dropping tables).\n"

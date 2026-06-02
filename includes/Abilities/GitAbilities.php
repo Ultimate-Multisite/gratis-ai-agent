@@ -20,11 +20,9 @@ declare(strict_types=1);
  *
  * Mutation gating: `git-restore` and `git-revert-package` write to
  * tracked files via `$wp_filesystem->put_contents()`, so they are gated
- * behind `Features::FILE_WRITE` and disabled in the WordPress.org
- * distribution build. Read-only abilities (`git-snapshot`, `git-diff`,
- * `git-list`, `git-package-summary`) remain available — `git-snapshot`
- * only writes to the plugin's own DB tracking table, not to the
- * filesystem.
+ * behind `Features::FILE_WRITE`. The WordPress.org distribution strips all
+ * git-tracking ability/model source files because this source-package
+ * inspection and snapshot layer is only meaningful with file mutation enabled.
  *
  * @package SdAiAgent
  * @license GPL-2.0-or-later
