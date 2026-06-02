@@ -4,9 +4,9 @@ declare(strict_types=1);
 /**
  * Options management abilities for the AI agent.
  *
- * Provides get, update, and delete operations for WordPress options with a
- * safety blocklist that prevents the AI from modifying critical site options
- * (e.g. siteurl, admin_email, active_plugins, db_version).
+ * Provides get, update, and delete operations for WordPress options. Writes
+ * are default-deny: only plugin-owned options and site-allowlisted option
+ * names can be modified, and critical core options remain blocklisted.
  *
  * @package SdAiAgent
  * @license GPL-2.0-or-later
@@ -111,6 +111,30 @@ class OptionsAbilities {
 	];
 
 	/**
+	 * Exact option names the AI agent may modify by default.
+	 *
+	 * The default list is intentionally empty. Site owners can opt specific
+	 * third-party options into AI write access with the
+	 * `sd_ai_agent_options_write_allowlist` filter.
+	 *
+	 * @var string[]
+	 */
+	private const WRITE_ALLOWLIST = [];
+
+	/**
+	 * Option-name prefixes the AI agent may modify by default.
+	 *
+	 * Limit default write/delete access to this plugin's own option namespace so
+	 * arbitrary WordPress core or third-party options cannot be changed merely
+	 * because they were missed by the finite blocklist above.
+	 *
+	 * @var string[]
+	 */
+	private const WRITE_ALLOWLIST_PREFIXES = [
+		'sd_ai_agent_',
+	];
+
+	/**
 	 * Register all options management abilities.
 	 */
 	public static function register_abilities(): void {
@@ -131,7 +155,7 @@ class OptionsAbilities {
 			'sd-ai-agent/update-option',
 			[
 				'label'         => __( 'Update Option', 'superdav-ai-agent' ),
-				'description'   => __( 'Create or update a WordPress option. Blocked for critical system options (siteurl, admin_email, active_plugins, etc.).', 'superdav-ai-agent' ),
+				'description'   => __( 'Create or update an allowed WordPress option. Default write access is limited to plugin-owned options; critical system options remain blocked.', 'superdav-ai-agent' ),
 				'ability_class' => UpdateOptionAbility::class,
 			]
 		);
@@ -140,7 +164,7 @@ class OptionsAbilities {
 			'sd-ai-agent/delete-option',
 			[
 				'label'         => __( 'Delete Option', 'superdav-ai-agent' ),
-				'description'   => __( 'Delete a WordPress option by name. Blocked for critical system options.', 'superdav-ai-agent' ),
+				'description'   => __( 'Delete an allowed WordPress option by name. Default delete access is limited to plugin-owned options; critical system options remain blocked.', 'superdav-ai-agent' ),
 				'ability_class' => DeleteOptionAbility::class,
 			]
 		);
@@ -171,6 +195,79 @@ class OptionsAbilities {
 		$blocklist = apply_filters( 'sd_ai_agent_options_blocklist', self::WRITE_BLOCKLIST );
 
 		return array_values( array_filter( (array) $blocklist, 'is_string' ) );
+	}
+
+	/**
+	 * Get exact option names the AI agent may modify.
+	 *
+	 * @return string[]
+	 */
+	public static function get_write_allowlist(): array {
+		/**
+		 * Filters the exact WordPress option names the AI agent may write/delete.
+		 *
+		 * Use this only for options that are safe for an AI-assisted administrator
+		 * to manage. The write blocklist still takes precedence.
+		 *
+		 * @since 1.3.0
+		 *
+		 * @param string[] $allowlist List of allowed option names.
+		 */
+		$allowlist = apply_filters( 'sd_ai_agent_options_write_allowlist', self::WRITE_ALLOWLIST );
+
+		return array_values( array_filter( (array) $allowlist, 'is_string' ) );
+	}
+
+	/**
+	 * Get option-name prefixes the AI agent may modify.
+	 *
+	 * @return string[]
+	 */
+	public static function get_write_allowlist_prefixes(): array {
+		/**
+		 * Filters option-name prefixes the AI agent may write/delete.
+		 *
+		 * The default allows only this plugin's `sd_ai_agent_` options. The write
+		 * blocklist still takes precedence over every prefix.
+		 *
+		 * @since 1.3.0
+		 *
+		 * @param string[] $prefixes List of allowed option-name prefixes.
+		 */
+		$prefixes = apply_filters( 'sd_ai_agent_options_write_allowlist_prefixes', self::WRITE_ALLOWLIST_PREFIXES );
+
+		return array_values( array_filter( (array) $prefixes, 'is_string' ) );
+	}
+
+	/**
+	 * Predicate: may the AI agent modify or delete the given option name?
+	 *
+	 * The write policy is default-deny. Exact allowlist entries and allowed
+	 * prefixes grant access, but the blocklist always takes precedence.
+	 *
+	 * @param string $option_name Option name to test.
+	 * @return bool True if the option is safe for write/delete access.
+	 */
+	public static function is_write_allowed_option( string $option_name ): bool {
+		if ( '' === $option_name ) {
+			return false;
+		}
+
+		if ( in_array( $option_name, self::get_write_blocklist(), true ) ) {
+			return false;
+		}
+
+		if ( in_array( $option_name, self::get_write_allowlist(), true ) ) {
+			return true;
+		}
+
+		foreach ( self::get_write_allowlist_prefixes() as $prefix ) {
+			if ( '' !== $prefix && str_starts_with( $option_name, $prefix ) ) {
+				return true;
+			}
+		}
+
+		return false;
 	}
 
 	/**
@@ -335,7 +432,7 @@ class GetOptionAbility extends AbstractAbility {
 /**
  * Update Option ability.
  *
- * Creates or updates a WordPress option with blocklist enforcement.
+ * Creates or updates an allowed WordPress option.
  *
  * @since 1.2.0
  */
@@ -346,7 +443,7 @@ class UpdateOptionAbility extends AbstractAbility {
 	}
 
 	protected function description(): string {
-		return __( 'Create or update a WordPress option. Blocked for critical system options (siteurl, admin_email, active_plugins, etc.).', 'superdav-ai-agent' );
+		return __( 'Create or update an allowed WordPress option. Default write access is limited to plugin-owned options; critical system options remain blocked.', 'superdav-ai-agent' );
 	}
 
 	protected function input_schema(): array {
@@ -355,7 +452,7 @@ class UpdateOptionAbility extends AbstractAbility {
 			'properties' => [
 				'option_name'  => [
 					'type'        => 'string',
-					'description' => 'The option name to create or update.',
+					'description' => 'The allowed option name to create or update. By default, write access is limited to sd_ai_agent_ options unless site code extends the allowlist.',
 				],
 				'option_value' => [
 					'type'        => array( 'string', 'number', 'integer', 'boolean', 'array', 'object', 'null' ),
@@ -404,6 +501,18 @@ class UpdateOptionAbility extends AbstractAbility {
 					__( 'The option "%s" is protected and cannot be modified by the AI agent.', 'superdav-ai-agent' ),
 					$option_name
 				)
+			);
+		}
+
+		if ( ! OptionsAbilities::is_write_allowed_option( $option_name ) ) {
+			return new WP_Error(
+				'sd_ai_agent_option_not_allowed',
+				sprintf(
+					/* translators: %s: option name */
+					__( 'The option "%s" is not in the AI agent write allowlist. Only plugin-owned options and options explicitly allowed by site code can be modified by this ability.', 'superdav-ai-agent' ),
+					$option_name
+				),
+				array( 'status' => 403 )
 			);
 		}
 
@@ -490,7 +599,7 @@ class UpdateOptionAbility extends AbstractAbility {
 /**
  * Delete Option ability.
  *
- * Removes a WordPress option with blocklist enforcement.
+ * Removes an allowed WordPress option.
  *
  * @since 1.2.0
  */
@@ -501,7 +610,7 @@ class DeleteOptionAbility extends AbstractAbility {
 	}
 
 	protected function description(): string {
-		return __( 'Delete a WordPress option by name. Blocked for critical system options.', 'superdav-ai-agent' );
+		return __( 'Delete an allowed WordPress option by name. Default delete access is limited to plugin-owned options; critical system options remain blocked.', 'superdav-ai-agent' );
 	}
 
 	protected function input_schema(): array {
@@ -510,7 +619,7 @@ class DeleteOptionAbility extends AbstractAbility {
 			'properties' => [
 				'option_name' => [
 					'type'        => 'string',
-					'description' => 'The option name to delete.',
+					'description' => 'The allowed option name to delete. By default, delete access is limited to sd_ai_agent_ options unless site code extends the allowlist.',
 				],
 			],
 			'required'   => [ 'option_name' ],
@@ -549,6 +658,18 @@ class DeleteOptionAbility extends AbstractAbility {
 					__( 'The option "%s" is protected and cannot be deleted by the AI agent.', 'superdav-ai-agent' ),
 					$option_name
 				)
+			);
+		}
+
+		if ( ! OptionsAbilities::is_write_allowed_option( $option_name ) ) {
+			return new WP_Error(
+				'sd_ai_agent_option_not_allowed',
+				sprintf(
+					/* translators: %s: option name */
+					__( 'The option "%s" is not in the AI agent write allowlist. Only plugin-owned options and options explicitly allowed by site code can be deleted by this ability.', 'superdav-ai-agent' ),
+					$option_name
+				),
+				array( 'status' => 403 )
 			);
 		}
 

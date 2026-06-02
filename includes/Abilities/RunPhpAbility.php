@@ -67,9 +67,9 @@ class RunPhpAbility extends AbstractAbility {
 
 	/**
 	 * Option-mutating functions whose first argument is an option name.
-	 * Calls are gated against {@see OptionsAbilities::get_write_blocklist()}
-	 * so the agent cannot regenerate auth keys/salts (which would log out
-	 * every user) by routing around {@see UpdateOptionAbility}.
+	 * Calls are gated against {@see OptionsAbilities::is_write_allowed_option()}
+	 * so the agent cannot mutate arbitrary core or third-party options by
+	 * routing around {@see UpdateOptionAbility}.
 	 *
 	 * @var string[]
 	 */
@@ -233,8 +233,9 @@ class RunPhpAbility extends AbstractAbility {
 			);
 		}
 
-		// Secret-aware gating: option reads/writes against the auth-key
-		// blocklist. Applied AFTER the function allowlist check so any
+		// Secret-aware gating: option reads against the auth-key blocklist and
+		// option writes against the default-deny write policy. Applied AFTER the
+		// function allowlist check so any
 		// extension via `sd_ai_agent_allowed_wp_functions` is still
 		// constrained. Network/site variants of get_option take the option
 		// name in arg position 1 (network ID is arg 0); standard variants
@@ -301,7 +302,7 @@ class RunPhpAbility extends AbstractAbility {
 
 	/**
 	 * Gate option-reading / option-writing function calls against the
-	 * secret read blocklist and the existing write blocklist.
+	 * secret read blocklist and the default-deny write policy.
 	 *
 	 * Without this check, the AI could bypass {@see GetOptionAbility}'s
 	 * secret-read gate (and {@see UpdateOptionAbility}'s write gate) by
@@ -335,18 +336,32 @@ class RunPhpAbility extends AbstractAbility {
 			return OptionsAbilities::secret_read_error( $option_name );
 		}
 
-		if ( in_array( $function_name, self::OPTION_WRITE_FUNCTIONS, true )
-			&& in_array( $option_name, OptionsAbilities::get_write_blocklist(), true ) ) {
-			return new \WP_Error(
-				'sd_ai_agent_option_blocked',
-				sprintf(
-					/* translators: 1: function name, 2: option name */
-					__( 'The function "%1$s" cannot be used to modify the protected option "%2$s".', 'superdav-ai-agent' ),
-					$function_name,
-					$option_name
-				),
-				[ 'status' => 403 ]
-			);
+		if ( in_array( $function_name, self::OPTION_WRITE_FUNCTIONS, true ) ) {
+			if ( in_array( $option_name, OptionsAbilities::get_write_blocklist(), true ) ) {
+				return new \WP_Error(
+					'sd_ai_agent_option_blocked',
+					sprintf(
+						/* translators: 1: function name, 2: option name */
+						__( 'The function "%1$s" cannot be used to modify the protected option "%2$s".', 'superdav-ai-agent' ),
+						$function_name,
+						$option_name
+					),
+					[ 'status' => 403 ]
+				);
+			}
+
+			if ( ! OptionsAbilities::is_write_allowed_option( $option_name ) ) {
+				return new \WP_Error(
+					'sd_ai_agent_option_not_allowed',
+					sprintf(
+						/* translators: 1: function name, 2: option name */
+						__( 'The function "%1$s" cannot be used to modify the unallowlisted option "%2$s".', 'superdav-ai-agent' ),
+						$function_name,
+						$option_name
+					),
+					[ 'status' => 403 ]
+				);
+			}
 		}
 
 		return null;

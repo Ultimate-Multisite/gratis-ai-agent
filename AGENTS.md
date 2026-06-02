@@ -435,6 +435,17 @@ The single source of truth for the read blocklist lives in
 - `OptionsAbilities::secret_read_error( string $name ): WP_Error` — uniform
   `sd_ai_agent_option_secret_redacted` error code (HTTP 403).
 
+For option writes, the same file is the single source of truth for the
+default-deny write policy:
+
+- `OptionsAbilities::get_write_blocklist()` — protected names that always win.
+- `OptionsAbilities::get_write_allowlist()` — exact names site code explicitly
+  opts into AI write/delete access.
+- `OptionsAbilities::get_write_allowlist_prefixes()` — allowed prefixes; by
+  default only this plugin's `sd_ai_agent_` option namespace.
+- `OptionsAbilities::is_write_allowed_option( string $name ): bool` — predicate
+  every option write/delete surface must call after empty-name validation.
+
 **Rules for any new ability, REST controller, CLI command, or SQL helper that
 reads option data:**
 
@@ -449,19 +460,20 @@ reads option data:**
    implementation).
 4. For low-level function callers like `RunPhpAbility`, gate
    `get_option`/`get_site_option`/`get_network_option`/`get_transient`/
-   `get_site_transient` on the predicate and gate the matching write
-   functions on `OptionsAbilities::get_write_blocklist()`.
+   `get_site_transient` on the read predicate and gate the matching write
+   functions on `OptionsAbilities::is_write_allowed_option()`; the blocklist
+   still takes precedence and should keep the protected error path distinct.
 
-**Verification (must run for any PR that touches option reads):**
+**Verification (must run for any PR that touches option reads or writes):**
 
 ```bash
-rg -n "is_secret_option_name|SECRET_REDACTED_PLACEHOLDER|sd_ai_agent_option_secret_redacted|sd_ai_agent_options_read_blocklist" includes/ tests/
+rg -n "is_secret_option_name|is_write_allowed_option|SECRET_REDACTED_PLACEHOLDER|sd_ai_agent_option_secret_redacted|sd_ai_agent_options_write_allowlist|sd_ai_agent_options_read_blocklist" includes/ tests/
 npm run test:php -- --filter='OptionsAbilitiesTest|WordPressAbilitiesTest|DatabaseAbilitiesTest|WpCliAbilitiesTest'
 ```
 
-The first command must show coverage in every read surface (get-option,
-list-options, db-query, run-php, wp-cli). The second must report zero
-failures for the four ability suites.
+The first command must show coverage in every read/write surface (get-option,
+list-options, update-option, delete-option, db-query, run-php, wp-cli). The
+second must report zero failures for the four ability suites.
 
 ### REST API Security and Operational Guidelines
 - **Secret Scrubbing**: All REST endpoints must scrub sensitive data (API keys, tokens,

@@ -55,6 +55,7 @@ class WpCliAbilitiesTest extends WP_UnitTestCase {
 		remove_all_filters( 'sd_ai_agent_wp_cli_binary' );
 		remove_all_filters( 'sd_ai_agent_wp_cli_candidates' );
 		remove_all_filters( 'sd_ai_agent_wp_cli_scan_path' );
+		delete_option( 'sd_ai_agent_test_cli_write_option' );
 
 		if ( '' !== $this->temp_dir && is_dir( $this->temp_dir ) ) {
 			$this->rrmdir( $this->temp_dir );
@@ -544,6 +545,30 @@ class WpCliAbilitiesTest extends WP_UnitTestCase {
 
 		$this->assertWPError( $result );
 		$this->assertSame( 'wp_cli_option_protected', $result->get_error_code() );
+	}
+
+	/**
+	 * `wp option update third_party_test_option value` must be refused unless
+	 * trusted site code explicitly allowlists that option name.
+	 */
+	public function test_execute_blocks_option_update_for_unallowlisted_name(): void {
+		$result = WpCliAbilities::execute( 'option update third_party_test_option value' );
+
+		$this->assertWPError( $result );
+		$this->assertSame( 'wp_cli_option_not_allowed', $result->get_error_code() );
+	}
+
+	/**
+	 * `wp option update sd_ai_agent_* value` remains allowed by the option-write
+	 * policy and may proceed to the subprocess layer.
+	 */
+	public function test_execute_allows_option_update_for_plugin_owned_name(): void {
+		$result = WpCliAbilities::execute( 'option update sd_ai_agent_test_cli_write_option value' );
+
+		if ( is_wp_error( $result ) ) {
+			$this->assertNotSame( 'wp_cli_option_not_allowed', $result->get_error_code() );
+			$this->assertNotSame( 'wp_cli_option_protected', $result->get_error_code() );
+		}
 	}
 
 	/**
