@@ -77,8 +77,11 @@ working here in OpenCode headless mode:
   evidence proves the artifact is gone. Compare the requested basename with the
   prior tool output, check for nearby variants such as `reply3` vs `r3`, verify
   tracked paths with `git ls-files '<pattern>'`, and retry `Read` with the
-  corrected path before continuing. Do not stop a headless run solely because one
-  optional screenshot, prompt, or generated artifact path was stale.
+  corrected path before continuing. If the tool error includes a "you mean one
+  of these?" suggestion, verify and read the suggested path first (for example,
+  a failed `phpcs.xml.dist` read that suggests `bootstrap.php`). Do not stop a
+  headless run solely because one optional screenshot, prompt, or generated
+  artifact path was stale.
 - Treat `bash:other` / `Tool execution aborted` as a recoverable command-shape or
   hook failure first. Inspect the preceding command, retry once with a narrower
   non-inline command and a clear `description`, avoid heredocs/process or command

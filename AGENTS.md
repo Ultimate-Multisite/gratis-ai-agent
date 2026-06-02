@@ -222,6 +222,10 @@ completion state:
 - Re-check the exact path and basename against the previous tool output before
   assuming the artifact is unavailable; common failures include `reply3` vs
   `r3`, omitted extensions, and stale `/tmp/opencode/` filenames.
+- When the read tool reports a nearby-path hint such as "you mean one of
+  these?", treat that hint as the next recovery target. For example, if reading
+  `phpcs.xml.dist` fails but the tool suggests `bootstrap.php`, verify and read
+  the suggested path before concluding the file is unavailable.
 - For tracked repository files, verify the path with `git ls-files '<pattern>'`
   before retrying `Read`; for untracked/runtime artifacts, inspect the known
   parent directory or rerun the command that generated the artifact.

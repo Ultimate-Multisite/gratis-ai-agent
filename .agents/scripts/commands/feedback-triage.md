@@ -202,8 +202,10 @@ before creating the issue:
 - If recurring tool errors mention `read:file_not_found`, require durable worker
   guidance to treat the missing path as a recoverable mismatch: compare the
   requested basename with the previous tool output, check nearby names such as
-  `reply3` vs `r3`, use `git ls-files '<pattern>'` for tracked files, then retry
-  `Read` before continuing with the next safe implementation step.
+  `reply3` vs `r3`, follow any "you mean one of these?" suggested path (for
+  example `phpcs.xml.dist` → `bootstrap.php`), use `git ls-files '<pattern>'`
+  for tracked files, then retry `Read` before continuing with the next safe
+  implementation step.
 - If recurring tool errors mention `bash:file_not_found`, `gh-signature-helper.sh
   invocation failed`, `signature gate`, or blocked `gh` writes, require durable
   worker guidance to create the issue/PR/comment body as an existing stable file,
@@ -291,7 +293,8 @@ output and visible to claim routines:
 If any referenced screenshot, prompt, or generated artifact returns
 `read:file_not_found`, do a bounded recovery pass before filing or abandoning the
 triage issue: compare the requested basename with the tool output that introduced
-it, verify tracked repository paths with `git ls-files '<pattern>'`, inspect the
+it, follow any "you mean one of these?" nearby-path hint from the tool error,
+verify tracked repository paths with `git ls-files '<pattern>'`, inspect the
 known parent directory for nearby runtime-artifact names, and retry `Read` with
 the corrected path. If the artifact still cannot be found, include the attempted
 paths in the issue body and continue with the available session evidence instead
