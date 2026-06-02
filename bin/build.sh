@@ -17,11 +17,11 @@
 #
 #   wporg  — WordPress.org-compliant zip. Strips source files for the AI
 #            plugin builder (generate / sandbox / activate / update), for
-#            WP-CLI custom tools, and for the block-theme scaffolder
-#            ability that writes executable theme code, and forces the
-#            matching feature flags to false in the main plugin file so
-#            the runtime gates cannot be re-enabled by re-adding the
-#            source files. Output:
+#            WP-CLI custom tools, the block-theme scaffolder ability that
+#            writes executable theme code, and the git-tracking source-package
+#            snapshot layer. It forces the matching feature flags to false in
+#            the main plugin file so the runtime gates cannot be re-enabled by
+#            re-adding the source files. Output:
 #               superdav-ai-agent-{version}-wporg.zip
 #
 # Why two targets?  WP.org Plugin Review Guideline 4 prohibits plugins
@@ -119,6 +119,7 @@ restore_dev_vendor() {
 		composer install --quiet || true
 		DEV_VENDOR_RESTORED=1
 	fi
+	return 0
 }
 trap restore_dev_vendor EXIT
 
@@ -202,7 +203,7 @@ EXTRA
 	# prevents trivial bypass and gives the WP.org review team a single
 	# grep target to verify compliance.
 	if [ "$variant" = "wporg" ]; then
-		echo "==> [${variant}] Forcing plugin-builder + CLI + plugin-state + URL-install + file-write + scaffold-block-theme + wp-rest + wp-cli dispatcher + benchmark + user-management + run-php feature flags to false..."
+		echo "==> [${variant}] Forcing plugin-builder + CLI + plugin-state + URL-install + file-write/git-tracking + scaffold-block-theme + wp-rest + wp-cli dispatcher + benchmark + user-management + run-php feature flags to false..."
 		local main_file="${dest}/superdav-ai-agent.php"
 
 		# The feature flags this build target forces off are:
@@ -258,6 +259,18 @@ EXTRA
 			fi
 		done
 
+		# The GitTrackingHandler class is stripped below. Remove it from the
+		# bundled module handler list so the DI bootstrap never attempts to reflect
+		# a class that is intentionally absent from the WP.org package.
+		local plugin_module="${dest}/includes/Plugin.php"
+		if [ -f "$plugin_module" ]; then
+			sed -i.bak \
+				-e '/use SdAiAgent\\Bootstrap\\GitTrackingHandler;/d' \
+				-e '/GitTrackingHandler::class,/d' \
+				"$plugin_module"
+			rm -f "${plugin_module}.bak"
+		fi
+
 		# Sanity-check that the gated source files were actually removed.
 		local stripped_paths=(
 			"${dest}/includes/PluginBuilder"
@@ -272,6 +285,17 @@ EXTRA
 			"${dest}/includes/CLI/BenchmarkCommand.php"
 			"${dest}/includes/Abilities/UserManagementAbilities.php"
 			"${dest}/includes/Abilities/RunPhpAbility.php"
+			"${dest}/includes/Abilities/GitAbilities.php"
+			"${dest}/includes/Abilities/GitSnapshotAbility.php"
+			"${dest}/includes/Abilities/GitDiffAbility.php"
+			"${dest}/includes/Abilities/GitListAbility.php"
+			"${dest}/includes/Abilities/GitPackageSummaryAbility.php"
+			"${dest}/includes/Abilities/GitRestoreAbility.php"
+			"${dest}/includes/Abilities/GitRevertPackageAbility.php"
+			"${dest}/includes/Bootstrap/GitTrackingHandler.php"
+			"${dest}/includes/Models/GitTracker.php"
+			"${dest}/includes/Models/GitTrackerManager.php"
+			"${dest}/includes/Models/DTO/GitTrackedFileRow.php"
 		)
 		local p
 		for p in "${stripped_paths[@]}"; do
@@ -281,7 +305,7 @@ EXTRA
 				return 1
 			fi
 		done
-		echo "    Stripped plugin-builder + theme-scaffolder source files and forced feature flags to false."
+		echo "    Stripped plugin-builder + theme-scaffolder + git-tracking source files and forced feature flags to false."
 
 		# ── Neutralise forbidden move_uploaded_file() in bundled PSR-7 ───────
 		# WP.org's plugin-check tool hard-fails on any literal occurrence of

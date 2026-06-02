@@ -14,6 +14,8 @@ declare(strict_types=1);
 
 namespace SdAiAgent\Abilities;
 
+use SdAiAgent\Core\WordPressPaths;
+
 use WP_Error;
 
 if ( ! defined( 'ABSPATH' ) ) {
@@ -94,11 +96,11 @@ class ListAllowedRootsAbility extends AbstractAbility {
 	 * by resolved realpath so symlinked or alternate-mount duplicates collapse.
 	 *
 	 * Roots include:
-	 * - plugins → WP_PLUGIN_DIR
+	 * - plugins → plugins root derived via plugin_dir_path()
 	 * - themes → get_theme_root()
 	 * - mu-plugins → WPMU_PLUGIN_DIR (only if exists)
 	 * - uploads → wp_upload_dir()['basedir']
-	 * - ai-edits → WP_CONTENT_DIR . '/uploads/ai-edits' (only if exists)
+	 * - ai-edits → uploads/ai-edits (only if exists)
 	 * - Any custom roots registered via sd_ai_agent_allowed_roots filter
 	 *
 	 * @return array<string, string> Associative array of label => resolved path.
@@ -107,16 +109,16 @@ class ListAllowedRootsAbility extends AbstractAbility {
 		$raw = [];
 
 		// Standard WordPress roots.
-		$raw['plugins'] = WP_PLUGIN_DIR;
+		$raw['plugins'] = WordPressPaths::plugins_dir();
 		$raw['themes']  = get_theme_root();
-		$raw['uploads'] = wp_upload_dir()['basedir'];
+		$raw['uploads'] = WordPressPaths::uploads_dir();
 
 		// Optional roots.
 		if ( defined( 'WPMU_PLUGIN_DIR' ) && is_dir( WPMU_PLUGIN_DIR ) ) {
 			$raw['mu-plugins'] = WPMU_PLUGIN_DIR;
 		}
 
-		$ai_edits_dir = WP_CONTENT_DIR . '/uploads/ai-edits';
+		$ai_edits_dir = trailingslashit( WordPressPaths::uploads_dir() ) . 'ai-edits';
 		if ( is_dir( $ai_edits_dir ) ) {
 			$raw['ai-edits'] = $ai_edits_dir;
 		}

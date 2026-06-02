@@ -193,12 +193,13 @@ class SiteScanner {
 			require_once ABSPATH . 'wp-admin/includes/plugin.php';
 		}
 
-		$active  = get_option( 'active_plugins', [] );
-		$plugins = [];
+		$active      = get_option( 'active_plugins', [] );
+		$all_plugins = get_plugins();
+		$plugins     = [];
 
 		foreach ( $active as $plugin_file ) {
-			$plugin_data = get_plugin_data( WP_PLUGIN_DIR . '/' . $plugin_file, false, false );
-			if ( ! empty( $plugin_data['Name'] ) ) {
+			$plugin_data = $all_plugins[ $plugin_file ] ?? [];
+			if ( isset( $plugin_data['Name'] ) && is_string( $plugin_data['Name'] ) && '' !== $plugin_data['Name'] ) {
 				$plugins[] = $plugin_data['Name'];
 			}
 		}

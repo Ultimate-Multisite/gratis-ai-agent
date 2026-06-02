@@ -10,6 +10,7 @@ declare(strict_types=1);
 
 namespace SdAiAgent\Abilities;
 
+use SdAiAgent\Core\WordPressPaths;
 use SdAiAgent\Models\GitTrackerManager;
 use WP_Error;
 
@@ -101,7 +102,7 @@ class GitSnapshotAbility extends AbstractAbility {
 		if ( 'theme' === $package_type ) {
 			$dir = get_theme_root() . '/' . $package_slug;
 		} else {
-			$dir = WP_PLUGIN_DIR . '/' . $package_slug;
+			$dir = WordPressPaths::plugin_path( $package_slug );
 		}
 
 		if ( ! is_dir( $dir ) ) {

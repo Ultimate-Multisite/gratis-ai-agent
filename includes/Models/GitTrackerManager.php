@@ -17,6 +17,7 @@ declare(strict_types=1);
 namespace SdAiAgent\Models;
 
 use SdAiAgent\Core\Database;
+use SdAiAgent\Core\WordPressPaths;
 use WP_Error;
 
 if ( ! defined( 'ABSPATH' ) ) {
@@ -48,7 +49,7 @@ class GitTrackerManager {
 			return self::$trackers[ $plugin_file ];
 		}
 
-		$plugin_dir = WP_PLUGIN_DIR . '/' . dirname( $plugin_file );
+		$plugin_dir = WordPressPaths::plugin_path( dirname( $plugin_file ) );
 
 		if ( ! is_dir( $plugin_dir ) ) {
 			return new WP_Error(
@@ -115,7 +116,7 @@ class GitTrackerManager {
 		}
 
 		// Check plugins directory.
-		$plugin_dir = realpath( WP_PLUGIN_DIR );
+		$plugin_dir = realpath( WordPressPaths::plugins_dir() );
 		if ( false !== $plugin_dir && strpos( $real_path, $plugin_dir . '/' ) === 0 ) {
 			$relative    = substr( $real_path, strlen( $plugin_dir ) + 1 );
 			$parts       = explode( '/', $relative, 2 );

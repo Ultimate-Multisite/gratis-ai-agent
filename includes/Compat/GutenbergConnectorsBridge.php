@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace SdAiAgent\Compat;
 
+use SdAiAgent\Core\WordPressPaths;
+
 if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
@@ -141,11 +143,7 @@ final class GutenbergConnectorsBridge {
 			return;
 		}
 
-		if ( ! defined( 'WP_PLUGIN_DIR' ) ) {
-			return;
-		}
-
-		$loader = WP_PLUGIN_DIR . self::CONNECTORS_LOADER_PATH;
+		$loader = WordPressPaths::plugin_path( ltrim( self::CONNECTORS_LOADER_PATH, '/' ) );
 		if ( file_exists( $loader ) ) {
 			require_once $loader;
 		}
@@ -289,17 +287,13 @@ final class GutenbergConnectorsBridge {
 	/**
 	 * Locate Gutenberg's wp-admin Connectors render-page file on disk.
 	 *
-	 * Uses WP_PLUGIN_DIR rather than guessing because some installs override
+	 * Uses a plugin_dir_path()-derived plugin root because some installs override
 	 * the plugins directory. Confirms the file exists before returning.
 	 *
 	 * @return string|null Absolute path or null if not found.
 	 */
 	private static function locate_gutenberg_render_file(): ?string {
-		if ( ! defined( 'WP_PLUGIN_DIR' ) ) {
-			return null;
-		}
-
-		$path = WP_PLUGIN_DIR . '/gutenberg/build/pages/options-connectors/page-wp-admin.php';
+		$path = WordPressPaths::plugin_path( 'gutenberg/build/pages/options-connectors/page-wp-admin.php' );
 
 		return file_exists( $path ) ? $path : null;
 	}

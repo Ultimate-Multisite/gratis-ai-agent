@@ -23,6 +23,7 @@ declare(strict_types=1);
 
 namespace SdAiAgent\Models;
 
+use SdAiAgent\Core\WordPressPaths;
 use SdAiAgent\Models\DTO\AgentRow;
 
 class Agent {
@@ -800,7 +801,7 @@ class Agent {
 	 * @return array<string, mixed>
 	 */
 	private static function get_general_definition( array $base_tools ): array { // phpcs:ignore Squiz.Commenting.FunctionComment.IncorrectTypeHint -- list<string> is valid PHPStan but not a native PHP type.
-		$wp_path  = defined( 'ABSPATH' ) ? ABSPATH : '';
+		$wp_path  = WordPressPaths::content_dir();
 		$site_url = function_exists( 'get_site_url' ) ? get_site_url() : '';
 
 		return [
@@ -809,7 +810,7 @@ class Agent {
 			'description'   => __( 'Your all-purpose WordPress assistant. Manages content, settings, plugins, and more.', 'superdav-ai-agent' ),
 			'system_prompt' => "You are a WordPress assistant that ACTS - you execute tasks immediately using your tools.\n\n"
 				. "## WordPress Environment\n"
-				. "- WordPress path: {$wp_path}\n"
+				. "- WordPress content path: {$wp_path}\n"
 				. "- Site URL: {$site_url}\n\n"
 				. "## Core Principles\n"
 				. "1. **Act, don't ask.** Execute the task right away. Don't ask \"shall I proceed?\" or request confirmation unless the task is destructive (deleting data, dropping tables).\n"

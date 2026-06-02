@@ -15,6 +15,7 @@ namespace SdAiAgent\Admin;
 
 use SdAiAgent\Core\Features;
 use SdAiAgent\Core\InstructionsAddendum;
+use SdAiAgent\Core\WordPressPaths;
 
 if ( ! defined( 'ABSPATH' ) ) {
 	exit;
@@ -330,8 +331,8 @@ class UnifiedAdminMenu {
 					'endpoint'   => rest_url( 'sd-ai-agent/v1/instructions' ),
 				),
 				// File path editor data for FilePathLink component.
-				'wpContentDir'         => WP_CONTENT_DIR,
-				'wpPluginDir'          => WP_PLUGIN_DIR,
+				'wpContentDir'         => WordPressPaths::content_dir(),
+				'wpPluginDir'          => WordPressPaths::plugins_dir(),
 				'wpThemeRoot'          => get_theme_root(),
 				'pluginEditorUrl'      => admin_url( 'plugin-editor.php' ),
 				'themeEditorUrl'       => admin_url( 'theme-editor.php' ),

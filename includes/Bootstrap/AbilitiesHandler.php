@@ -139,7 +139,15 @@ final class AbilitiesHandler {
 			]
 		);
 		ThemeBuilderAbilities::register_abilities();
-		GitAbilities::register_abilities();
+		// Git tracking is paired with the file-mutation surface. The WP.org build
+		// forces FILE_WRITE off and strips the Git ability/model source files, so
+		// guard both the feature flag and class availability before registration.
+		if (
+			Features::is_enabled( Features::FILE_WRITE )
+			&& class_exists( GitAbilities::class )
+		) {
+			GitAbilities::register_abilities();
+		}
 		// Plugin-download abilities expose download URLs for AI-modified
 		// plugins, so they only make sense when the plugin builder is
 		// available. Gated under the same flag, and the class_exists()

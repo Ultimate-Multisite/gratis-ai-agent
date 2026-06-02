@@ -43,14 +43,13 @@ if ( ! defined( 'ABSPATH' ) ) {
  *    "Changing Active Plugins" guideline only exempts WP.org-directory
  *    installs from the no-autonomous-state-change rule.
  *  - SD_AI_AGENT_FEATURE_FILE_WRITE — Arbitrary filesystem writes
- *    inside wp-content (file-write, file-edit, file-delete, plus the
- *    git-restore and git-revert-package abilities that revert tracked
- *    files via $wp_filesystem->put_contents). Disabled in the
- *    WordPress.org distribution because writes can target
+ *    inside wp-content (file-write, file-edit, file-delete). Disabled in
+ *    the WordPress.org distribution because writes can target
  *    wp-content/plugins/ and wp-content/themes/, which is the same
  *    arbitrary-code-modification risk covered by the WP.org "Changing
- *    Active Plugins" guideline. Read-only file/git abilities remain
- *    available.
+ *    Active Plugins" guideline. The WP.org build also strips git-tracking
+ *    ability/model source files because those source-package inspection and
+ *    snapshot surfaces are only meaningful with file mutation enabled.
  *  - SD_AI_AGENT_FEATURE_SCAFFOLD_BLOCK_THEME — The block-theme
  *    scaffolder ability (`sd-ai-agent/scaffold-block-theme`) that
  *    writes theme.json, style.css, functions.php, and a starter
@@ -194,12 +193,11 @@ final class Features {
 	/**
 	 * Feature: arbitrary filesystem writes inside wp-content.
 	 *
-	 * Gates the `sd-ai-agent/file-write`, `sd-ai-agent/file-edit`,
-	 * `sd-ai-agent/file-delete`, `sd-ai-agent/git-restore`, and
-	 * `sd-ai-agent/git-revert-package` abilities. Read-only file/git
-	 * abilities (file-read, file-list, file-search, content-search,
-	 * git-list, git-diff, git-package-summary, git-snapshot) remain
-	 * available because they cannot mutate plugin/theme source.
+	 * Gates the `sd-ai-agent/file-write`, `sd-ai-agent/file-edit`, and
+	 * `sd-ai-agent/file-delete` abilities. Read-only file abilities
+	 * (file-read, file-list, file-search, content-search) remain available.
+	 * The WordPress.org build also removes git-tracking ability/model files
+	 * because they inspect and snapshot plugin/theme source packages.
 	 *
 	 * Disabled in the WordPress.org distribution build because writes
 	 * resolve under `WP_CONTENT_DIR`, which includes `plugins/` and
