@@ -15,9 +15,11 @@ declare(strict_types=1);
 
 namespace SdAiAgent\Tests\Abilities;
 
+use SdAiAgent\Abilities\DeleteOptionAbility;
 use SdAiAgent\Abilities\GetOptionAbility;
 use SdAiAgent\Abilities\ListOptionsAbility;
 use SdAiAgent\Abilities\OptionsAbilities;
+use SdAiAgent\Abilities\UpdateOptionAbility;
 use WP_UnitTestCase;
 
 /**
@@ -42,7 +44,12 @@ class OptionsAbilitiesTest extends WP_UnitTestCase {
 			delete_option( $name );
 		}
 		delete_option( 'sd_ai_agent_test_visible_option' );
+		delete_option( 'sd_ai_agent_test_write_option' );
+		delete_option( 'third_party_test_option' );
 		remove_all_filters( 'sd_ai_agent_options_read_blocklist' );
+		remove_all_filters( 'sd_ai_agent_options_blocklist' );
+		remove_all_filters( 'sd_ai_agent_options_write_allowlist' );
+		remove_all_filters( 'sd_ai_agent_options_write_allowlist_prefixes' );
 
 		parent::tear_down();
 	}
@@ -100,6 +107,129 @@ class OptionsAbilitiesTest extends WP_UnitTestCase {
 
 		$this->assertTrue( OptionsAbilities::is_secret_option_name( 'my_third_party_api_token' ) );
 		$this->assertContains( 'my_third_party_api_token', OptionsAbilities::get_secret_read_blocklist() );
+	}
+
+	/**
+	 * The write policy is default-deny except for plugin-owned options.
+	 */
+	public function test_write_allowlist_defaults_to_plugin_owned_options(): void {
+		$this->assertTrue( OptionsAbilities::is_write_allowed_option( 'sd_ai_agent_test_write_option' ) );
+		$this->assertFalse( OptionsAbilities::is_write_allowed_option( 'third_party_test_option' ) );
+		$this->assertFalse( OptionsAbilities::is_write_allowed_option( 'siteurl' ) );
+		$this->assertFalse( OptionsAbilities::is_write_allowed_option( '' ) );
+	}
+
+	/**
+	 * Exact and prefix write allowlists can be extended by trusted site code.
+	 */
+	public function test_write_allowlist_filters_can_extend_safe_names(): void {
+		add_filter(
+			'sd_ai_agent_options_write_allowlist',
+			static function ( array $list ): array {
+				$list[] = 'third_party_test_option';
+				return $list;
+			}
+		);
+
+		$this->assertTrue( OptionsAbilities::is_write_allowed_option( 'third_party_test_option' ) );
+
+		add_filter(
+			'sd_ai_agent_options_write_allowlist_prefixes',
+			static function ( array $prefixes ): array {
+				$prefixes[] = 'trusted_prefix_';
+				return $prefixes;
+			}
+		);
+
+		$this->assertTrue( OptionsAbilities::is_write_allowed_option( 'trusted_prefix_setting' ) );
+	}
+
+	/**
+	 * Blocklisted options stay blocked even if a filter tries to allow them.
+	 */
+	public function test_write_blocklist_takes_precedence_over_allowlist(): void {
+		add_filter(
+			'sd_ai_agent_options_write_allowlist',
+			static function ( array $list ): array {
+				$list[] = 'siteurl';
+				return $list;
+			}
+		);
+
+		$this->assertFalse( OptionsAbilities::is_write_allowed_option( 'siteurl' ) );
+	}
+
+	/**
+	 * UpdateOptionAbility rejects arbitrary unallowlisted option names.
+	 */
+	public function test_update_option_ability_blocks_unallowlisted_option(): void {
+		$ability = new UpdateOptionAbility( 'sd-ai-agent/update-option' );
+		$result  = $ability->run(
+			array(
+				'option_name'  => 'third_party_test_option',
+				'option_value' => 'unsafe-write',
+			)
+		);
+
+		$this->assertInstanceOf( \WP_Error::class, $result );
+		$this->assertSame( 'sd_ai_agent_option_not_allowed', $result->get_error_code() );
+		$this->assertFalse( get_option( 'third_party_test_option', false ) );
+	}
+
+	/**
+	 * UpdateOptionAbility still permits plugin-owned options.
+	 */
+	public function test_update_option_ability_allows_plugin_owned_option(): void {
+		$ability = new UpdateOptionAbility( 'sd-ai-agent/update-option' );
+		$result  = $ability->run(
+			array(
+				'option_name'  => 'sd_ai_agent_test_write_option',
+				'option_value' => 'safe-write',
+				'autoload'     => 'no',
+			)
+		);
+
+		$this->assertIsArray( $result );
+		$this->assertSame( 'updated', $result['status'] );
+		$this->assertSame( 'safe-write', get_option( 'sd_ai_agent_test_write_option' ) );
+	}
+
+	/**
+	 * DeleteOptionAbility rejects arbitrary unallowlisted option names.
+	 */
+	public function test_delete_option_ability_blocks_unallowlisted_option(): void {
+		update_option( 'third_party_test_option', 'must-remain' );
+
+		$ability = new DeleteOptionAbility( 'sd-ai-agent/delete-option' );
+		$result  = $ability->run( array( 'option_name' => 'third_party_test_option' ) );
+
+		$this->assertInstanceOf( \WP_Error::class, $result );
+		$this->assertSame( 'sd_ai_agent_option_not_allowed', $result->get_error_code() );
+		$this->assertSame( 'must-remain', get_option( 'third_party_test_option' ) );
+	}
+
+	/**
+	 * UpdateOptionAbility rejects blocklisted options before allowlist checks.
+	 */
+	public function test_update_option_ability_blocks_protected_option_even_when_allowlisted(): void {
+		add_filter(
+			'sd_ai_agent_options_write_allowlist',
+			static function ( array $list ): array {
+				$list[] = 'siteurl';
+				return $list;
+			}
+		);
+
+		$ability = new UpdateOptionAbility( 'sd-ai-agent/update-option' );
+		$result  = $ability->run(
+			array(
+				'option_name'  => 'siteurl',
+				'option_value' => 'https://example.invalid',
+			)
+		);
+
+		$this->assertInstanceOf( \WP_Error::class, $result );
+		$this->assertSame( 'sd_ai_agent_option_blocked', $result->get_error_code() );
 	}
 
 	/**

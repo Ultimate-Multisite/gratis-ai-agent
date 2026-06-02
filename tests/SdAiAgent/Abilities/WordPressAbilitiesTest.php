@@ -376,6 +376,36 @@ class WordPressAbilitiesTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * RunPhpAbility must refuse arbitrary unallowlisted option writes.
+	 */
+	public function test_handle_run_php_blocks_update_option_for_unallowlisted_name() {
+		$result = WordPressAbilities::handle_run_php( [
+			'function' => 'update_option',
+			'args'     => [ 'third_party_test_option', 'blocked-by-policy' ],
+		] );
+
+		$this->assertInstanceOf( \WP_Error::class, $result );
+		$this->assertSame( 'sd_ai_agent_option_not_allowed', $result->get_error_code() );
+		$this->assertFalse( get_option( 'third_party_test_option', false ) );
+	}
+
+	/**
+	 * RunPhpAbility may still update plugin-owned options.
+	 */
+	public function test_handle_run_php_allows_update_option_for_plugin_owned_name() {
+		$result = WordPressAbilities::handle_run_php( [
+			'function' => 'update_option',
+			'args'     => [ 'sd_ai_agent_test_runphp_write_option', 'allowed-by-policy' ],
+		] );
+
+		$this->assertIsArray( $result );
+		$this->assertTrue( $result['result'] );
+		$this->assertSame( 'allowed-by-policy', get_option( 'sd_ai_agent_test_runphp_write_option' ) );
+
+		delete_option( 'sd_ai_agent_test_runphp_write_option' );
+	}
+
+	/**
 	 * RunPhpAbility must refuse delete_option('auth_key').
 	 */
 	public function test_handle_run_php_blocks_delete_option_for_write_blocklist() {

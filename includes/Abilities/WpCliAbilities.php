@@ -1098,7 +1098,7 @@ class WpCliAbilities {
 	 *
 	 * Index value is a classification used by {@see check_secret_option_subcommand()}:
 	 *   - 'read'  → name must not be on the secret read blocklist.
-	 *   - 'write' → name must not be on the existing write blocklist.
+	 *   - 'write' → name must pass the default-deny write allowlist policy.
 	 *
 	 * @var array<string,string>
 	 */
@@ -1114,7 +1114,7 @@ class WpCliAbilities {
 	);
 
 	/**
-	 * Reject `wp option get/pluck/update/delete <secret>` before execution.
+	 * Reject `wp option get/pluck/update/delete <secret-or-unallowlisted>` before execution.
 	 *
 	 * {@see extract_command_path()} stops at the first flag but consumes the
 	 * option name into the positional path (so `option get auth_key` becomes
@@ -1170,18 +1170,32 @@ class WpCliAbilities {
 			);
 		}
 
-		if ( 'write' === $mode
-			&& in_array( $option_name, OptionsAbilities::get_write_blocklist(), true ) ) {
-			return new WP_Error(
-				'wp_cli_option_protected',
-				sprintf(
-					/* translators: 1: WP-CLI subcommand, 2: option name */
-					__( 'The WP-CLI command "wp %1$s %2$s" targets a protected option and is blocked.', 'superdav-ai-agent' ),
-					$prefix,
-					$option_name
-				),
-				array( 'status' => 403 )
-			);
+		if ( 'write' === $mode ) {
+			if ( in_array( $option_name, OptionsAbilities::get_write_blocklist(), true ) ) {
+				return new WP_Error(
+					'wp_cli_option_protected',
+					sprintf(
+						/* translators: 1: WP-CLI subcommand, 2: option name */
+						__( 'The WP-CLI command "wp %1$s %2$s" targets a protected option and is blocked.', 'superdav-ai-agent' ),
+						$prefix,
+						$option_name
+					),
+					array( 'status' => 403 )
+				);
+			}
+
+			if ( ! OptionsAbilities::is_write_allowed_option( $option_name ) ) {
+				return new WP_Error(
+					'wp_cli_option_not_allowed',
+					sprintf(
+						/* translators: 1: WP-CLI subcommand, 2: option name */
+						__( 'The WP-CLI command "wp %1$s %2$s" targets an unallowlisted option and is blocked.', 'superdav-ai-agent' ),
+						$prefix,
+						$option_name
+					),
+					array( 'status' => 403 )
+				);
+			}
 		}
 
 		return null;
