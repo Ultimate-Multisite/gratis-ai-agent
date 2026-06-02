@@ -490,16 +490,16 @@ class AgentTest extends WP_UnitTestCase {
 	}
 
 	/**
-	 * Theme Builder system prompt must contain the no-external-web-fonts rule.
+	 * Setup Assistant system prompt must contain the no-external-web-fonts rule.
 	 *
-	 * Regression test for #1512: Theme Builder agent's system prompt must
-	 * explicitly forbid external web fonts (Google Fonts, Bunny Fonts, etc.)
-	 * in addition to external image URLs, to ensure generated themes are
-	 * GDPR-compliant and self-contained.
+	 * Regression test for #1512: the unified setup/onboarding agent's system
+	 * prompt must explicitly forbid external web fonts (Google Fonts, Bunny
+	 * Fonts, etc.) in addition to external image URLs, to ensure generated
+	 * themes are GDPR-compliant and self-contained.
 	 */
-	public function test_theme_builder_system_prompt_forbids_external_web_fonts(): void {
+	public function test_setup_assistant_system_prompt_forbids_external_web_fonts(): void {
 		$reflection = new \ReflectionClass( Agent::class );
-		$method     = $reflection->getMethod( 'get_theme_builder_definition' );
+		$method     = $reflection->getMethod( 'get_onboarding_definition' );
 		$method->setAccessible( true );
 
 		// Get the base tools (empty array is fine for this test).
@@ -511,25 +511,25 @@ class AgentTest extends WP_UnitTestCase {
 		$this->assertStringContainsString(
 			'fonts.googleapis.com',
 			$prompt,
-			'Theme Builder system prompt must mention fonts.googleapis.com as a forbidden external font CDN.'
+			'Setup Assistant system prompt must mention fonts.googleapis.com as a forbidden external font CDN.'
 		);
 
 		$this->assertStringContainsString(
 			'Web fonts from external CDNs',
 			$prompt,
-			'Theme Builder system prompt must explicitly forbid web fonts from external CDNs.'
+			'Setup Assistant system prompt must explicitly forbid web fonts from external CDNs.'
 		);
 
 		$this->assertStringContainsString(
 			'system font stacks',
 			$prompt,
-			'Theme Builder system prompt must recommend system font stacks for previews.'
+			'Setup Assistant system prompt must recommend system font stacks for previews.'
 		);
 
 		$this->assertStringContainsString(
 			'fontFace',
 			$prompt,
-			'Theme Builder system prompt must mention fontFace entries for bundled fonts in theme.json.'
+			'Setup Assistant system prompt must mention fontFace entries for bundled fonts in theme.json.'
 		);
 	}
 }

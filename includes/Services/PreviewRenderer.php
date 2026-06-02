@@ -5,7 +5,7 @@ declare(strict_types=1);
  * Preview Renderer service.
  *
  * Generates desktop (1280×800) and mobile (375×812) screenshots of HTML
- * preview files written by the Theme Builder agent during design-direction
+ * preview files written by the Setup Assistant during design-direction
  * selection. Falls back to client-side iframe display when server-side
  * headless rendering is not available (no Chromium binary, exec() disabled,
  * or Node.js / Playwright not installed).

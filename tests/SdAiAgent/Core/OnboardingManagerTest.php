@@ -383,7 +383,7 @@ class OnboardingManagerTest extends WP_UnitTestCase {
 	// ── reset() — v2 cleanup ──────────────────────────────────────────────
 
 	/**
-	 * reset() clears the persisted bootstrap and theme-builder session IDs so
+	 * reset() clears the persisted bootstrap and empty-install session IDs so
 	 * the v2 direct-routing gate creates fresh sessions on the next mount.
 	 */
 	public function test_reset_clears_persisted_session_options(): void {
@@ -436,7 +436,7 @@ class OnboardingManagerTest extends WP_UnitTestCase {
 	// ── rest_theme_builder_start ──────────────────────────────────────────
 
 	/**
-	 * register_rest_routes() registers the onboarding/theme-builder-start route.
+	 * register_rest_routes() registers the legacy empty-install onboarding route.
 	 */
 	public function test_register_rest_routes_registers_theme_builder_start_route(): void {
 		do_action( 'rest_api_init' );
@@ -476,7 +476,7 @@ class OnboardingManagerTest extends WP_UnitTestCase {
 	}
 
 	/**
-	 * rest_theme_builder_start() sets the theme-builder started option on first call.
+	 * rest_theme_builder_start() sets the empty-install started option on first call.
 	 */
 	public function test_rest_theme_builder_start_sets_started_option(): void {
 		$admin_id = self::factory()->user->create( [ 'role' => 'administrator' ] );
@@ -588,7 +588,7 @@ class OnboardingManagerTest extends WP_UnitTestCase {
 	}
 
 	/**
-	 * reset() clears the theme-builder started option so the next call to
+	 * reset() clears the empty-install started option so the next call to
 	 * rest_theme_builder_start() will be treated as a fresh start.
 	 */
 	public function test_reset_clears_theme_builder_started_option(): void {

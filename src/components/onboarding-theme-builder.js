@@ -21,10 +21,8 @@ import './onboarding-theme-builder.css';
  *
  * Calls POST /onboarding/theme-builder-start to:
  *  1. Create a new session and resolve the unified Setup Assistant agent_id
- *     (as of t276 the endpoint routes to the Setup Assistant agent, which
- *     mirrors the legacy Theme Builder's fast-build behaviour. The legacy
- *     Theme Builder agent row is kept as a back-compat fallback for installs
- *     that explicitly deleted the onboarding agent).
+ *     (the route name is retained for compatibility, but the separate legacy
+ *     Theme Builder agent row has been retired).
  *  2. Return an `is_fresh_start` boolean indicating whether the server just
  *     created the session (true) or returned an existing one for resume
  *     (false). This is the authoritative signal — the `started_at`
@@ -65,14 +63,14 @@ export default function OnboardingThemeBuilder() {
 					return;
 				}
 
-				// Select the Theme Builder agent so streamMessage attaches
+				// Select the Setup Assistant agent so streamMessage attaches
 				// agent_id to the /run call and AgentLoop applies the agent's
 				// system prompt + tool tier overrides for this session.
 				if ( data.agent_id ) {
 					setSelectedAgentId( data.agent_id );
 				}
 
-				// Activate the theme-builder session in the store.
+				// Activate the empty-install onboarding session in the store.
 				openSession( data.session_id )
 					.then( () => {
 						// Only send the kickoff message on a genuine fresh start.

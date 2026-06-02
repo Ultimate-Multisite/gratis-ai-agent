@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 /**
- * Test case for OnboardingManager theme-builder REST endpoint.
+	 * Test case for the legacy empty-install onboarding REST endpoint.
  *
  * @package SdAiAgent
  * @subpackage Tests
@@ -17,7 +17,10 @@ use SdAiAgent\Models\Agent;
 use WP_UnitTestCase;
 
 /**
- * Test OnboardingManager::rest_theme_builder_start() functionality.
+	 * Test OnboardingManager::rest_theme_builder_start() functionality.
+	 *
+	 * The route name is retained for compatibility, but it now resolves the
+	 * unified Setup Assistant agent instead of a separate Theme Builder agent.
  */
 class OnboardingManagerThemeBuilderTest extends WP_UnitTestCase {
 
@@ -90,18 +93,26 @@ class OnboardingManagerThemeBuilderTest extends WP_UnitTestCase {
 	}
 
 	/**
-	 * rest_theme_builder_start() returns the theme-builder agent ID.
+	 * rest_theme_builder_start() returns the Setup Assistant agent ID.
 	 */
-	public function test_rest_theme_builder_start_returns_agent_id(): void {
+	public function test_rest_theme_builder_start_returns_setup_assistant_agent_id(): void {
+		Agent::reset_defaults();
+		$agent = Agent::get_by_slug( Agent::ONBOARDING_AGENT_SLUG );
+		$this->assertNotNull( $agent );
+
 		$admin_id = self::factory()->user->create( [ 'role' => 'administrator' ] );
 		wp_set_current_user( $admin_id );
 
 		$response = OnboardingManager::rest_theme_builder_start();
 		$data     = $response->get_data();
 
-		// The agent ID should be present (may be 0 if the agent doesn't exist yet).
 		$this->assertArrayHasKey( 'agent_id', $data );
 		$this->assertIsInt( $data['agent_id'] );
+		$this->assertSame( (int) $agent->id, $data['agent_id'] );
+		$this->assertNull(
+			Agent::get_by_slug( Agent::THEME_BUILDER_AGENT_SLUG ),
+			'the retired Theme Builder agent must not be recreated for the legacy route'
+		);
 	}
 
 	/**
@@ -137,9 +148,9 @@ class OnboardingManagerThemeBuilderTest extends WP_UnitTestCase {
 	/**
 	 * rest_theme_builder_start() marks onboarding complete (t276 change).
 	 *
-	 * In the unified-agent world there is no separate "bootstrap discovery"
-	 * flow that runs after theme-builder. Once the user has been through
-	 * the fast-build path they are done with onboarding and the React
+	 * In the unified-agent world there is no separate setup flow after the
+	 * empty-install kickoff. Once the user has been through the fast-build path
+	 * they are done with onboarding and the React
 	 * admin-page must stop re-mounting the onboarding bootstrappers.
 	 *
 	 * Previously this test asserted the opposite (the legacy contract
@@ -280,7 +291,7 @@ class OnboardingManagerThemeBuilderTest extends WP_UnitTestCase {
 	}
 
 	/**
-	 * rest_theme_builder_start() creates a session with the correct title.
+	 * rest_theme_builder_start() creates a session with the unified onboarding title.
 	 */
 	public function test_rest_theme_builder_start_creates_session_with_correct_title(): void {
 		$admin_id = self::factory()->user->create( [ 'role' => 'administrator' ] );
@@ -300,6 +311,6 @@ class OnboardingManagerThemeBuilderTest extends WP_UnitTestCase {
 		);
 
 		$this->assertNotNull( $session_row );
-		$this->assertStringContainsString( 'Theme Builder', $session_row->title );
+		$this->assertStringContainsString( 'Getting started', $session_row->title );
 	}
 }

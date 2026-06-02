@@ -3,7 +3,7 @@
  *
  * Tests cover:
  * - Calls theme-builder-start endpoint on mount
- * - Selects the Theme Builder agent returned by theme-builder-start
+ * - Selects the Setup Assistant agent returned by theme-builder-start
  * - Opens the session returned by theme-builder-start
  * - Sends the kickoff message returned by theme-builder-start
  * - Falls back gracefully when theme-builder-start fails
@@ -106,7 +106,7 @@ describe( 'OnboardingThemeBuilder', () => {
 		} );
 	} );
 
-	test( 'selects the Theme Builder agent returned by theme-builder-start', async () => {
+	test( 'selects the Setup Assistant agent returned by theme-builder-start', async () => {
 		apiFetch.mockResolvedValue( {
 			session_id: 42,
 			agent_id: 7,
@@ -130,12 +130,12 @@ describe( 'OnboardingThemeBuilder', () => {
 		apiFetch.mockResolvedValue( {
 			session_id: 42,
 			agent_id: 7,
-			kickoff_message: 'Hello from theme-builder kickoff',
+			kickoff_message: 'Hello from setup kickoff',
 			is_fresh_start: true,
 		} );
 		await renderThemeBuilder();
 		expect( sendMessageMock ).toHaveBeenCalledWith(
-			'Hello from theme-builder kickoff'
+			'Hello from setup kickoff'
 		);
 	} );
 
