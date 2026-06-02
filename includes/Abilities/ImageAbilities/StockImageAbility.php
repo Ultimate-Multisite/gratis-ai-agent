@@ -74,7 +74,7 @@ class StockImageAbility extends \SdAiAgent\Abilities\AbstractAbility {
 			'properties' => [
 				'keyword'     => [
 					'type'        => 'string',
-					'description' => 'Search term for finding a relevant stock photo (e.g. "mountain landscape", "coffee shop", "team meeting").',
+					'description' => 'Search term for finding a relevant stock photo (e.g. "mountain landscape", "coffee shop", "team meeting"). Required for search and auto-import; optional when importing a specific provider + image_id.',
 				],
 				'action'      => [
 					'type'        => 'string',
@@ -124,7 +124,7 @@ class StockImageAbility extends \SdAiAgent\Abilities\AbstractAbility {
 					'description' => 'Subsite URL to import into on multisite (e.g. "https://example.com/mysite"). Omit for the main site.',
 				],
 			],
-			'required'   => [ 'keyword' ],
+			'required'   => [],
 		];
 	}
 
@@ -216,7 +216,9 @@ class StockImageAbility extends \SdAiAgent\Abilities\AbstractAbility {
 		$height   = (int) ( $input['height'] ?? 800 );
 		$site_url = sanitize_text_field( $input['site_url'] ?? '' );
 
-		if ( empty( $keyword ) ) {
+		$is_specific_import = 'import' === $action && '' !== $image_id && '' !== $provider;
+
+		if ( empty( $keyword ) && ! $is_specific_import ) {
 			return new WP_Error( 'missing_keyword', 'keyword is required.' );
 		}
 
@@ -236,8 +238,9 @@ class StockImageAbility extends \SdAiAgent\Abilities\AbstractAbility {
 		}
 
 		// ── action=import with specific provider + image_id ───────────────────
-		if ( 'import' === $action && '' !== $image_id && '' !== $provider ) {
-			return $this->handle_import_by_id( $keyword, $provider, $image_id, $width, $height, $site_url );
+		if ( $is_specific_import ) {
+			$import_keyword = '' !== $keyword ? $keyword : $image_id;
+			return $this->handle_import_by_id( $import_keyword, $provider, $image_id, $width, $height, $site_url );
 		}
 
 		// ── Default (auto) / action=import without image_id: original behavior ─
