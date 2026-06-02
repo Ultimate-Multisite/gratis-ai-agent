@@ -340,6 +340,23 @@ class DatabaseTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * Test bulk_update_sessions ignores fields outside the allowlist.
+	 */
+	public function test_bulk_update_sessions_ignores_unknown_fields() {
+		$user_id    = self::factory()->user->create();
+		$session_id = Database::create_session( [ 'user_id' => $user_id, 'title' => 'Bulk Unknown' ] );
+
+		$count = Database::bulk_update_sessions(
+			[ $session_id ],
+			$user_id,
+			[ 'title = %s WHERE 1=1 --' => 'Injected' ]
+		);
+
+		$this->assertSame( 0, $count );
+		$this->assertSame( 'Bulk Unknown', Database::get_session( $session_id )->title );
+	}
+
+	/**
 	 * Test empty_trash deletes trashed sessions.
 	 */
 	public function test_empty_trash() {

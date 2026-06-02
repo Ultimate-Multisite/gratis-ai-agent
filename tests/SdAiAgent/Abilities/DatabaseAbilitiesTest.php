@@ -52,7 +52,8 @@ class DatabaseAbilitiesTest extends WP_UnitTestCase {
 		global $wpdb;
 
 		$result = DatabaseAbilities::handle_db_query( [
-			'sql' => 'SELECT option_name FROM {prefix}options WHERE option_name = "siteurl" LIMIT 1',
+			'sql'    => 'SELECT option_name FROM {prefix}options WHERE option_name = %s LIMIT 1',
+			'params' => [ 'siteurl' ],
 		] );
 
 		$this->assertIsArray( $result );
@@ -67,7 +68,8 @@ class DatabaseAbilitiesTest extends WP_UnitTestCase {
 	 */
 	public function test_handle_db_query_real_table() {
 		$result = DatabaseAbilities::handle_db_query( [
-			'sql' => 'SELECT option_name FROM {prefix}options WHERE option_name = "siteurl" LIMIT 1',
+			'sql'    => 'SELECT option_name FROM {prefix}options WHERE option_name = %s LIMIT 1',
+			'params' => [ 'siteurl' ],
 		] );
 
 		$this->assertSame( 1, $result['count'] );
@@ -168,7 +170,8 @@ class DatabaseAbilitiesTest extends WP_UnitTestCase {
 	 */
 	public function test_handle_db_query_empty_result() {
 		$result = DatabaseAbilities::handle_db_query( [
-			'sql' => "SELECT option_name FROM {prefix}options WHERE option_name = 'nonexistent_option_xyz_12345' LIMIT 1",
+			'sql'    => 'SELECT option_name FROM {prefix}options WHERE option_name = %s LIMIT 1',
+			'params' => [ 'nonexistent_option_xyz_12345' ],
 		] );
 
 		$this->assertIsArray( $result );
@@ -185,7 +188,8 @@ class DatabaseAbilitiesTest extends WP_UnitTestCase {
 		update_option( 'auth_key', 'do-not-leak-this-secret' );
 
 		$result = DatabaseAbilities::handle_db_query( [
-			'sql' => "SELECT option_value FROM {prefix}options WHERE option_name = 'auth_key'",
+			'sql'    => 'SELECT option_value FROM {prefix}options WHERE option_name = %s',
+			'params' => [ 'auth_key' ],
 		] );
 
 		$this->assertInstanceOf( \WP_Error::class, $result );
@@ -200,7 +204,8 @@ class DatabaseAbilitiesTest extends WP_UnitTestCase {
 	 */
 	public function test_handle_db_query_rejects_secret_literal_double_quoted() {
 		$result = DatabaseAbilities::handle_db_query( [
-			'sql' => 'SELECT option_value FROM {prefix}options WHERE option_name = "secure_auth_salt"',
+			'sql'    => 'SELECT option_value FROM {prefix}options WHERE option_name = %s',
+			'params' => [ 'secure_auth_salt' ],
 		] );
 
 		$this->assertInstanceOf( \WP_Error::class, $result );
@@ -217,7 +222,8 @@ class DatabaseAbilitiesTest extends WP_UnitTestCase {
 		// SELECT * does not name `auth_key` as a literal, so the pre-check
 		// allows it; the post-process must still redact the value.
 		$result = DatabaseAbilities::handle_db_query( [
-			'sql' => "SELECT option_name, option_value, autoload FROM {prefix}options WHERE option_name LIKE 'auth_%' LIMIT 5",
+			'sql'    => 'SELECT option_name, option_value, autoload FROM {prefix}options WHERE option_name LIKE %s LIMIT 5',
+			'params' => [ 'auth_%' ],
 		] );
 
 		$this->assertIsArray( $result );
@@ -247,7 +253,8 @@ class DatabaseAbilitiesTest extends WP_UnitTestCase {
 	 */
 	public function test_handle_db_query_does_not_scrub_safe_rows() {
 		$result = DatabaseAbilities::handle_db_query( [
-			'sql' => "SELECT option_name, option_value FROM {prefix}options WHERE option_name = 'blogname' LIMIT 1",
+			'sql'    => 'SELECT option_name, option_value FROM {prefix}options WHERE option_name = %s LIMIT 1',
+			'params' => [ 'blogname' ],
 		] );
 
 		$this->assertIsArray( $result );
@@ -272,12 +279,38 @@ class DatabaseAbilitiesTest extends WP_UnitTestCase {
 		);
 
 		$result = DatabaseAbilities::handle_db_query( [
-			'sql' => "SELECT option_value FROM {prefix}options WHERE option_name = 'third_party_api_token'",
+			'sql'    => 'SELECT option_value FROM {prefix}options WHERE option_name = %s',
+			'params' => [ 'third_party_api_token' ],
 		] );
 
 		$this->assertInstanceOf( \WP_Error::class, $result );
 		$this->assertSame( 'sd_ai_agent_sql_secret_literal', $result->get_error_code() );
 
 		remove_all_filters( 'sd_ai_agent_options_read_blocklist' );
+	}
+
+	/**
+	 * Test handle_db_query rejects raw string literals that are not passed via params.
+	 */
+	public function test_handle_db_query_rejects_unprepared_string_literal() {
+		$result = DatabaseAbilities::handle_db_query( [
+			'sql' => "SELECT option_name FROM {prefix}options WHERE option_name = 'blogname' LIMIT 1",
+		] );
+
+		$this->assertInstanceOf( \WP_Error::class, $result );
+		$this->assertSame( 'sd_ai_agent_sql_unprepared_literal', $result->get_error_code() );
+	}
+
+	/**
+	 * Test handle_db_query rejects mismatched placeholders and params.
+	 */
+	public function test_handle_db_query_rejects_placeholder_param_mismatch() {
+		$result = DatabaseAbilities::handle_db_query( [
+			'sql'    => 'SELECT option_name FROM {prefix}options WHERE option_name = %s AND autoload = %s',
+			'params' => [ 'blogname' ],
+		] );
+
+		$this->assertInstanceOf( \WP_Error::class, $result );
+		$this->assertSame( 'sd_ai_agent_sql_placeholder_mismatch', $result->get_error_code() );
 	}
 }
