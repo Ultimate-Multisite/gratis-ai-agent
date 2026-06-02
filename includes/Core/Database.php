@@ -1051,17 +1051,6 @@ class Database {
 			}
 		}
 
-		// 3. Migrate cron hooks.
-		$old_cron_hook = 'wp_ai_agent_reindex';
-		$new_cron_hook = 'wp_sd_ai_agent_reindex';
-		$timestamp     = wp_next_scheduled( $old_cron_hook );
-		if ( $timestamp ) {
-			wp_unschedule_event( $timestamp, $old_cron_hook );
-			if ( ! wp_next_scheduled( $new_cron_hook ) ) {
-				wp_schedule_event( time(), 'hourly', $new_cron_hook );
-			}
-		}
-
 		// Mark migration as complete.
 		update_option( 'sd_ai_agent_migrated_from_ai_agent', '1' );
 	}

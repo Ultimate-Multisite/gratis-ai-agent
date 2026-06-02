@@ -21,20 +21,21 @@ if ( ! defined( 'ABSPATH' ) ) {
 class KnowledgeHooks {
 
 	/**
+	 * Plugin-owned cron hook for scheduled knowledge re-indexing.
+	 */
+	public const CRON_HOOK = 'sd_ai_agent_reindex';
+
+	/**
 	 * Register all hooks.
 	 */
 	public static function register(): void {
 		add_action( 'save_post', [ __CLASS__, 'handle_save_post' ], 20, 2 );
 		add_action( 'delete_post', [ __CLASS__, 'handle_delete_post' ], 10, 1 );
-		add_action( 'wp_ai_agent_reindex', [ __CLASS__, 'handle_cron_reindex' ] );
-		add_action( 'wp_sd_ai_agent_reindex', [ __CLASS__, 'handle_cron_reindex' ] );
+		add_action( self::CRON_HOOK, [ __CLASS__, 'handle_cron_reindex' ] );
 
 		// Schedule hourly reindex if not already scheduled.
-		// NOTE: Using legacy 'wp_ai_agent_reindex' hook for backward compatibility.
-		// The migration in Database.php renames schedules from 'wp_ai_agent_reindex' to 'wp_sd_ai_agent_reindex'
-		// during plugin upgrade. See Database::migrate_from_ai_agent().
-		if ( ! wp_next_scheduled( 'wp_ai_agent_reindex' ) ) {
-			wp_schedule_event( time(), 'hourly', 'wp_ai_agent_reindex' );
+		if ( ! wp_next_scheduled( self::CRON_HOOK ) ) {
+			wp_schedule_event( time(), 'hourly', self::CRON_HOOK );
 		}
 	}
 
@@ -135,9 +136,9 @@ class KnowledgeHooks {
 	 * Clean up scheduled events on plugin deactivation.
 	 */
 	public static function deactivate(): void {
-		$timestamp = wp_next_scheduled( 'wp_ai_agent_reindex' );
+		$timestamp = wp_next_scheduled( self::CRON_HOOK );
 		if ( $timestamp ) {
-			wp_unschedule_event( $timestamp, 'wp_ai_agent_reindex' );
+			wp_unschedule_event( $timestamp, self::CRON_HOOK );
 		}
 	}
 }

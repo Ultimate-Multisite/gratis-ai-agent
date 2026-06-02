@@ -23,9 +23,9 @@ class KnowledgeHooksTest extends WP_UnitTestCase {
 	 * Clean up scheduled events and options after each test.
 	 */
 	public function tear_down(): void {
-		$ts = wp_next_scheduled( 'wp_ai_agent_reindex' );
+		$ts = wp_next_scheduled( KnowledgeHooks::CRON_HOOK );
 		if ( $ts ) {
-			wp_unschedule_event( $ts, 'wp_ai_agent_reindex' );
+			wp_unschedule_event( $ts, KnowledgeHooks::CRON_HOOK );
 		}
 		delete_option( 'sd_ai_agent_settings' );
 		parent::tear_down();
@@ -52,12 +52,12 @@ class KnowledgeHooksTest extends WP_UnitTestCase {
 	}
 
 	/**
-	 * register() hooks handle_cron_reindex to wp_ai_agent_reindex.
+	 * register() hooks handle_cron_reindex to the plugin-owned cron hook.
 	 */
 	public function test_register_hooks_handle_cron_reindex(): void {
 		KnowledgeHooks::register();
 
-		$this->assertNotFalse( has_action( 'wp_ai_agent_reindex', [ KnowledgeHooks::class, 'handle_cron_reindex' ] ) );
+		$this->assertNotFalse( has_action( KnowledgeHooks::CRON_HOOK, [ KnowledgeHooks::class, 'handle_cron_reindex' ] ) );
 	}
 
 	/**
@@ -65,14 +65,14 @@ class KnowledgeHooksTest extends WP_UnitTestCase {
 	 */
 	public function test_register_schedules_hourly_reindex(): void {
 		// Clear any existing scheduled event.
-		$ts = wp_next_scheduled( 'wp_ai_agent_reindex' );
+		$ts = wp_next_scheduled( KnowledgeHooks::CRON_HOOK );
 		if ( $ts ) {
-			wp_unschedule_event( $ts, 'wp_ai_agent_reindex' );
+			wp_unschedule_event( $ts, KnowledgeHooks::CRON_HOOK );
 		}
 
 		KnowledgeHooks::register();
 
-		$this->assertNotFalse( wp_next_scheduled( 'wp_ai_agent_reindex' ) );
+		$this->assertNotFalse( wp_next_scheduled( KnowledgeHooks::CRON_HOOK ) );
 	}
 
 	/**
@@ -80,16 +80,16 @@ class KnowledgeHooksTest extends WP_UnitTestCase {
 	 */
 	public function test_register_does_not_duplicate_cron_event(): void {
 		// Clear any existing scheduled event.
-		$ts = wp_next_scheduled( 'wp_ai_agent_reindex' );
+		$ts = wp_next_scheduled( KnowledgeHooks::CRON_HOOK );
 		if ( $ts ) {
-			wp_unschedule_event( $ts, 'wp_ai_agent_reindex' );
+			wp_unschedule_event( $ts, KnowledgeHooks::CRON_HOOK );
 		}
 
 		KnowledgeHooks::register();
-		$first_ts = wp_next_scheduled( 'wp_ai_agent_reindex' );
+		$first_ts = wp_next_scheduled( KnowledgeHooks::CRON_HOOK );
 
 		KnowledgeHooks::register();
-		$second_ts = wp_next_scheduled( 'wp_ai_agent_reindex' );
+		$second_ts = wp_next_scheduled( KnowledgeHooks::CRON_HOOK );
 
 		$this->assertSame( $first_ts, $second_ts );
 	}
@@ -205,13 +205,13 @@ class KnowledgeHooksTest extends WP_UnitTestCase {
 	 */
 	public function test_deactivate_unschedules_reindex(): void {
 		// Ensure it's scheduled first.
-		if ( ! wp_next_scheduled( 'wp_ai_agent_reindex' ) ) {
-			wp_schedule_event( time(), 'hourly', 'wp_ai_agent_reindex' );
+		if ( ! wp_next_scheduled( KnowledgeHooks::CRON_HOOK ) ) {
+			wp_schedule_event( time(), 'hourly', KnowledgeHooks::CRON_HOOK );
 		}
 
 		KnowledgeHooks::deactivate();
 
-		$this->assertFalse( wp_next_scheduled( 'wp_ai_agent_reindex' ) );
+		$this->assertFalse( wp_next_scheduled( KnowledgeHooks::CRON_HOOK ) );
 	}
 
 	/**
@@ -219,14 +219,14 @@ class KnowledgeHooksTest extends WP_UnitTestCase {
 	 */
 	public function test_deactivate_runs_without_error_when_not_scheduled(): void {
 		// Ensure it's not scheduled.
-		$ts = wp_next_scheduled( 'wp_ai_agent_reindex' );
+		$ts = wp_next_scheduled( KnowledgeHooks::CRON_HOOK );
 		if ( $ts ) {
-			wp_unschedule_event( $ts, 'wp_ai_agent_reindex' );
+			wp_unschedule_event( $ts, KnowledgeHooks::CRON_HOOK );
 		}
 
 		// Should not throw.
 		KnowledgeHooks::deactivate();
 
-		$this->assertFalse( wp_next_scheduled( 'wp_ai_agent_reindex' ) );
+		$this->assertFalse( wp_next_scheduled( KnowledgeHooks::CRON_HOOK ) );
 	}
 }
