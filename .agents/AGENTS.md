@@ -104,6 +104,12 @@ to change, do not answer only in the issue thread. Make the durable repo change:
   or the relevant helper; REST security feedback belongs in root `AGENTS.md`
   plus the concrete controller or ability family; block-theme excerpts belong in
   `includes/Models/skills/wp-block-themes.md`.
+- For service-usage questions, map the named service to the committed integration
+  surfaces before answering. For Google Search Console, inspect
+  `includes/Abilities/GscAbilities.php`, `includes/Core/Settings.php`,
+  `includes/REST/SettingsController.php`, and
+  `includes/Abilities/ToolCapabilities.php` so the response names API calls,
+  credential storage, REST routes, and capability gates.
 - Do not mark contributor-insight issues complete after documentation reading
   alone. A valid fix changes a durable instruction, workflow doc, or helper, then
   verifies the changed guidance with an exact `rg -n` check that future workers

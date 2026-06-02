@@ -103,6 +103,25 @@ Use `get <report_id>` instead when you need the raw JSON payload (rare —
 mostly when crafting an issue body that needs verbatim quotes). The raw
 payload may contain user data; never echo it into chat or commit it.
 
+When a report is a contributor-insight shorthand rather than a direct bug,
+translate each note into committed source surfaces before filing or updating an
+issue. Examples:
+
+- Block-theme or Full Site Editing excerpts headed `Block Themes`, `theme.json`,
+  templates, parts, patterns, or style variations map to
+  `includes/Models/skills/wp-block-themes.md` plus the root `AGENTS.md` summary.
+- REST security shorthand mentioning `sd-ai-agent/v1`, secret scrubbing, current
+  users, file uploads, or WordPress.org readiness maps to root `AGENTS.md`,
+  `includes/REST/`, and the `wp-rest/execute` ability path.
+- Service-usage questions such as "where do we use Google Search Console API?"
+  map to `includes/Abilities/GscAbilities.php`, `includes/Core/Settings.php`,
+  `includes/REST/SettingsController.php`, and
+  `includes/Abilities/ToolCapabilities.php`.
+
+The resulting issue body must name the target files, expected behaviour, and at
+least one verification command; do not leave private local paths or shorthand as
+the only implementation guidance.
+
 Full payload schema (top-level keys):
 
 - `id`, `created_at`, `reviewed_at`, `status`, `report_type`, `api_key_id`
