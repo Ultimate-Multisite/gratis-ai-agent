@@ -14,6 +14,7 @@
 #  - SD_AI_AGENT_FEATURE_BENCHMARK               (WP-CLI benchmark with arbitrary --log-dir)
 #  - SD_AI_AGENT_FEATURE_USER_MANAGEMENT         (custom user create / role change)
 #  - SD_AI_AGENT_FEATURE_FILE_WRITE              (git-tracking source package snapshots)
+#  - DatabaseAbilities.php                       (dynamic SQL read ability)
 #  - WP 6.9 compatibility shims                 (WP.org build requires WP 7.0)
 #
 # Note: the PLUGIN_STATE_CHANGES and PLUGIN_INSTALL_FROM_URL gates only
@@ -71,6 +72,15 @@ includes/Abilities/UserManagementAbilities.php
 # `unzip -l | grep RunPhpAbility` check that the dispatcher cannot be
 # reintroduced by re-defining the feature flag.
 includes/Abilities/RunPhpAbility.php
+
+# ── Dynamic SQL read ability ─────────────────────────────────────────────────
+# The full release keeps sd-ai-agent/db-query for self-hosted administrator
+# diagnostics, with SELECT-only validation and prepared placeholder support.
+# WordPress.org Plugin Check still flags the final validated get_results() call
+# as a direct unescaped DB parameter, so the WP.org package strips this ability
+# entirely rather than shipping a surface that will keep recurring in automated
+# review output.
+includes/Abilities/DatabaseAbilities.php
 
 # Persistence layer used only by the plugin builder.
 includes/Repositories/GeneratedPluginsRepository.php
