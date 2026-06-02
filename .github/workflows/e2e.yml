@@ -45,9 +45,9 @@ jobs:
           - wp: 'trunk'
             wp_env_port: '8890'
             wp_env_override: '{"core":"WordPress/WordPress#master"}'
-            # 2 workers: 3 workers cause resource contention that manifests
-            # as login and SPA-render timeouts on CI runners.
-            playwright_workers: '2'
+            # 1 worker: shard 1 still showed login and SPA-render timeouts
+            # with 2 workers on GitHub-hosted runners under WP trunk load.
+            playwright_workers: '1'
 
     steps:
       - name: Checkout code
@@ -118,6 +118,10 @@ jobs:
       - name: Install Playwright browser dependencies
         run: |
           npx playwright install-deps chromium
+          # Retries record traces/video; install Playwright's ffmpeg binary even
+          # though the tests launch system Chrome. Without this, any retry can
+          # fail before the page opens with "ffmpeg-linux" missing.
+          npx playwright install ffmpeg
           google-chrome --version
 
       - name: Build plugin assets
@@ -165,7 +169,7 @@ jobs:
           npx wp-env run cli wp plugin list --format=table
           echo ""
           echo "=== Verify plugin is active ==="
-          npx wp-env run cli wp plugin is-active sd-ai-agent && echo "Plugin is active" || echo "ERROR: Plugin is NOT active"
+          npx wp-env run cli wp plugin is-active superdav-ai-agent && echo "Plugin is active" || echo "ERROR: Plugin is NOT active"
           echo ""
           echo "=== Check admin page loads (HTTP status) ==="
           # Log in and fetch the admin page to verify the SPA renders.
