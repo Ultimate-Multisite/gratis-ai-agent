@@ -486,17 +486,17 @@ class StockImageAbilityTest extends WP_UnitTestCase {
 		$this->assertStringContainsString( 'pixabay', strtolower( $attribution ) );
 	}
 
-	// ─── Theme Builder tool list ──────────────────────────────────────────────
+	// ─── Setup Assistant tool list ────────────────────────────────────────────
 
 	/**
-	 * The theme-builder built-in agent includes stock-image and generate-image
-	 * in its tier_1_tools so the imagery guidance in Phase 4 can be executed.
+	 * The unified Setup Assistant includes stock-image and generate-image in its
+	 * tier_1_tools so the imagery guidance can be executed.
 	 */
-	public function test_theme_builder_tier_1_tools_include_imagery_abilities(): void {
+	public function test_setup_assistant_tier_1_tools_include_imagery_abilities(): void {
 		\SdAiAgent\Models\Agent::reset_defaults();
 
-		$agent = \SdAiAgent\Models\Agent::get_by_slug( 'theme-builder' );
-		$this->assertNotNull( $agent, 'theme-builder agent must exist after seed_defaults()' );
+		$agent = \SdAiAgent\Models\Agent::get_by_slug( \SdAiAgent\Models\Agent::ONBOARDING_AGENT_SLUG );
+		$this->assertNotNull( $agent, 'Setup Assistant agent must exist after seed_defaults()' );
 
 		$tools = $agent->tier_1_tools;
 		$this->assertIsArray( $tools );
@@ -504,7 +504,7 @@ class StockImageAbilityTest extends WP_UnitTestCase {
 		$this->assertContains(
 			'sd-ai-agent/stock-image',
 			$tools,
-			'tier_1_tools must include sd-ai-agent/stock-image for Phase 4 imagery'
+			'tier_1_tools must include sd-ai-agent/stock-image for setup imagery'
 		);
 
 		$this->assertContains(
@@ -513,20 +513,15 @@ class StockImageAbilityTest extends WP_UnitTestCase {
 			'tier_1_tools must include sd-ai-agent/generate-image as AI imagery fallback'
 		);
 
-		// Clean up.
-		global $wpdb;
-		/** @var \wpdb $wpdb */
-		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Test cleanup; caching not applicable.
-		$wpdb->delete( \SdAiAgent\Models\Agent::table_name(), [ 'slug' => 'theme-builder' ], [ '%s' ] );
 	}
 
 	/**
-	 * The theme-builder system prompt references the stock-image imagery workflow.
+	 * The Setup Assistant system prompt references the stock-image imagery workflow.
 	 */
-	public function test_theme_builder_system_prompt_references_imagery_workflow(): void {
+	public function test_setup_assistant_system_prompt_references_imagery_workflow(): void {
 		\SdAiAgent\Models\Agent::reset_defaults();
 
-		$agent = \SdAiAgent\Models\Agent::get_by_slug( 'theme-builder' );
+		$agent = \SdAiAgent\Models\Agent::get_by_slug( \SdAiAgent\Models\Agent::ONBOARDING_AGENT_SLUG );
 		$this->assertNotNull( $agent );
 
 		$prompt_lower = strtolower( $agent->system_prompt );
@@ -547,11 +542,6 @@ class StockImageAbilityTest extends WP_UnitTestCase {
 			'system_prompt must reference attachment_id for use in create-post'
 		);
 
-		// Clean up.
-		global $wpdb;
-		/** @var \wpdb $wpdb */
-		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Test cleanup; caching not applicable.
-		$wpdb->delete( \SdAiAgent\Models\Agent::table_name(), [ 'slug' => 'theme-builder' ], [ '%s' ] );
 	}
 
 	// ─── Helpers ─────────────────────────────────────────────────────────────

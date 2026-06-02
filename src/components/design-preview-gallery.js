@@ -1,5 +1,5 @@
 /**
- * DesignPreviewGallery — renders desktop + mobile previews for Theme Builder
+ * DesignPreviewGallery — renders desktop + mobile previews for Setup Assistant
  * design-direction selection (issue #1532).
  *
  * Rendered inside a ToolCard when the `sd-ai-agent/render-design-previews`

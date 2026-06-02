@@ -12,8 +12,8 @@ declare(strict_types=1);
  * - tool_profile: legacy, no longer applied — kept on the row for backward compatibility
  * - temperature / max_iterations: per-agent inference settings
  *
- * Six built-in agents are seeded on first install (is_builtin=1):
- * onboarding, general, content-creator, seo, ecommerce, theme-builder.
+ * Five built-in agents are seeded on first install (is_builtin=1):
+ * onboarding, general, content-creator, seo, ecommerce.
  * The "general" agent cannot be deleted. All built-in agents can be reset
  * to factory defaults via reset_defaults().
  *
@@ -39,7 +39,10 @@ class Agent {
 	public const ONBOARDING_AGENT_SLUG = 'onboarding';
 
 	/**
-	 * Slug of the theme-builder agent (4-phase guided block theme creation).
+	 * Slug of the retired Theme Builder built-in agent.
+	 *
+	 * Kept only so upgrades can remove the old built-in row and the legacy
+	 * /onboarding/theme-builder-start endpoint can keep its historic route name.
 	 */
 	public const THEME_BUILDER_AGENT_SLUG = 'theme-builder';
 
@@ -413,6 +416,8 @@ class Agent {
 	 * Database::install() on every schema upgrade.
 	 */
 	public static function seed_defaults(): void {
+		self::remove_retired_theme_builder_builtin();
+
 		$defaults = self::get_builtin_definitions();
 
 		foreach ( $defaults as $def ) {
@@ -433,6 +438,8 @@ class Agent {
 	 * customized those). Missing built-in agents are re-created.
 	 */
 	public static function reset_defaults(): void {
+		self::remove_retired_theme_builder_builtin();
+
 		$defaults = self::get_builtin_definitions();
 
 		foreach ( $defaults as $def ) {
@@ -455,6 +462,29 @@ class Agent {
 				self::create( $def );
 			}
 		}
+	}
+
+	/**
+	 * Remove the retired Theme Builder built-in agent row from upgraded installs.
+	 *
+	 * The Setup Assistant is now the single onboarding/setup agent. Keeping the
+	 * old built-in row enabled made the chat agent picker show two setup agents.
+	 * Only the built-in row is removed; a user-created non-built-in row with the
+	 * same slug would be left alone.
+	 */
+	private static function remove_retired_theme_builder_builtin(): void {
+		global $wpdb;
+		/** @var \wpdb $wpdb */
+
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Built-in agent upgrade cleanup; caching not applicable.
+		$wpdb->delete(
+			self::table_name(),
+			[
+				'slug'       => self::THEME_BUILDER_AGENT_SLUG,
+				'is_builtin' => 1,
+			],
+			[ '%s', '%d' ]
+		);
 	}
 
 	/**
@@ -503,7 +533,6 @@ class Agent {
 			self::get_content_creator_definition( $general_tools ),
 			self::get_seo_definition( $general_tools ),
 			self::get_ecommerce_definition( $general_tools ),
-			self::get_theme_builder_definition( $general_tools ),
 		];
 	}
 
@@ -542,7 +571,7 @@ class Agent {
 			'slug'          => 'onboarding',
 			'name'          => __( 'Setup Assistant', 'superdav-ai-agent' ),
 			'description'   => __( 'Discovers your site, builds your homepage, and helps with everything after. The all-in-one first-run agent.', 'superdav-ai-agent' ),
-			'system_prompt' => self::build_setup_assistant_prompt( $site_title, $site_url, false ),
+			'system_prompt' => self::build_setup_assistant_prompt( $site_title, $site_url ),
 			'greeting'      => __( "Hi! Give me a moment to look around, then I'll show you what I can do.", 'superdav-ai-agent' ),
 			'avatar_icon'   => 'dashicons-welcome-learn-more',
 			'tier_1_tools'  => self::get_unified_onboarding_tier_1_tools( $base_tools ),
@@ -574,9 +603,7 @@ class Agent {
 	}
 
 	/**
-	 * Tier-1 tools for the unified Setup Assistant (and the legacy Theme
-	 * Builder agent, which now mirrors the same fast-build behaviour for
-	 * users who select it explicitly).
+	 * Tier-1 tools for the unified Setup Assistant.
 	 *
 	 * Merges the discovery toolset (list-options, list-posts, get-plugins,
 	 * get-themes) with the full theme/page/image build suite so the single
@@ -618,34 +645,21 @@ class Agent {
 	/**
 	 * Build the unified Setup Assistant system prompt.
 	 *
-	 * Shared by the Setup Assistant agent (`onboarding` slug) and the
-	 * legacy Theme Builder agent (`theme-builder` slug). The `$force_build`
-	 * flag flips the agent into "always run the fast-build path, even on
-	 * established sites" mode — used by Theme Builder so users who select
-	 * it explicitly always get a theme rebuild.
-	 *
 	 * @param string $site_title  Current site title for context.
 	 * @param string $site_url    Current site URL for context.
-	 * @param bool   $force_build When true, skip the content-aware branch
-	 *                            and always run the fast-build path.
 	 */
-	private static function build_setup_assistant_prompt( string $site_title, string $site_url, bool $force_build ): string {
-		$intro = $force_build
-			? "You are a WordPress Theme Builder for the site \"{$site_title}\" ({$site_url}). The user has explicitly asked you to design or rebuild their theme — always run the fast-build path (Phase 2) regardless of whether the site already has content.\n\n"
-			: "You are the Setup Assistant for the WordPress site \"{$site_title}\" ({$site_url}). You are warm, curious, and genuinely interested in helping. You move fast and show results — never quiz the user when you can infer or just do.\n\n";
-
-		$branch_rule = $force_build
-			? "## You are in the fast-build branch by default\n\nSkip the content-aware decision. Run Phase 0 (silent discovery) to gather context, then go straight to Phase 1 capture and Phase 2 build.\n\n"
-			: "## Phase 0: Silent discovery (always, before your first reply)\n\n"
-				. "Before saying anything to the user, silently use your read-only tools to learn the site:\n"
-				. "1. `sd-ai-agent/list-options` — site title, tagline, language, timezone, show_on_front, page_on_front.\n"
-				. "2. `sd-ai-agent/list-posts` — recent posts AND pages (look at post_type, status, title, snippet).\n"
-				. "3. `sd-ai-agent/get-plugins` — what's active (notably WooCommerce).\n"
-				. "4. `sd-ai-agent/get-themes` — the active theme.\n\n"
-				. "Decide which branch you are in. The user never sees this decision:\n\n"
-				. "- **Empty install** = the active theme is a WordPress default (twenty-twentyfive, twenty-twentyfour, twenty-twentythree, etc.) AND there are 0–1 real published posts/pages. The seed \"Hello world!\" post and the seed \"Sample Page\" do NOT count as real content.\n"
-				. "- **Established site** = anything else (a non-default theme, or 2+ real published items).\n\n"
-				. "Do NOT mention these probes to the user. They are how you arrive at the first message already understanding their site.\n\n";
+	private static function build_setup_assistant_prompt( string $site_title, string $site_url ): string {
+		$intro       = "You are the Setup Assistant for the WordPress site \"{$site_title}\" ({$site_url}). You are warm, curious, and genuinely interested in helping. You move fast and show results — never quiz the user when you can infer or just do.\n\n";
+		$branch_rule = "## Phase 0: Silent discovery (always, before your first reply)\n\n"
+			. "Before saying anything to the user, silently use your read-only tools to learn the site:\n"
+			. "1. `sd-ai-agent/list-options` — site title, tagline, language, timezone, show_on_front, page_on_front.\n"
+			. "2. `sd-ai-agent/list-posts` — recent posts AND pages (look at post_type, status, title, snippet).\n"
+			. "3. `sd-ai-agent/get-plugins` — what's active (notably WooCommerce).\n"
+			. "4. `sd-ai-agent/get-themes` — the active theme.\n\n"
+			. "Decide which branch you are in. The user never sees this decision:\n\n"
+			. "- **Empty install** = the active theme is a WordPress default (twenty-twentyfive, twenty-twentyfour, twenty-twentythree, etc.) AND there are 0–1 real published posts/pages. The seed \"Hello world!\" post and the seed \"Sample Page\" do NOT count as real content.\n"
+			. "- **Established site** = anything else (a non-default theme, or 2+ real published items).\n\n"
+			. "Do NOT mention these probes to the user. They are how you arrive at the first message already understanding their site.\n\n";
 
 		$phase_1_empty = "### Empty-install branch — Phase 1: Capture (one warm turn)\n\n"
 			. "Reply with ONE short, warm message that invites a one-line description. Suggested phrasing (adapt to the site context, do not paste verbatim):\n\n"
@@ -727,9 +741,7 @@ class Agent {
 			. "- Do not use placeholder text or robotic templates.\n"
 			. '- Be yourself — curious, helpful, genuinely interested in this site.';
 
-		$phase_1 = $force_build
-			? $phase_1_empty
-			: $phase_1_empty . $phase_1_established;
+		$phase_1 = $phase_1_empty . $phase_1_established;
 
 		return $intro
 			. $branch_rule
@@ -741,57 +753,6 @@ class Agent {
 			. $hard_rules
 			. $memory
 			. $important;
-	}
-
-	/**
-	 * Theme Builder agent definition.
-	 *
-	 * As of t276 this agent shares the unified Setup Assistant prompt with
-	 * `$force_build = true`, so direct selection always runs the fast-build
-	 * path regardless of whether the site already has content. This makes it
-	 * a "redesign my theme right now" specialisation of the Setup Assistant,
-	 * rather than a separate 4-phase interview agent.
-	 *
-	 * Kept as a built-in for back-compat with users who explicitly selected
-	 * the Theme Builder from the agent picker and for the legacy
-	 * `/onboarding/theme-builder-start` REST endpoint (which now resolves to
-	 * the Setup Assistant agent on fresh installs — see OnboardingManager).
-	 *
-	 * @param list<string> $base_tools Base tier 1 tools.
-	 * @return array<string, mixed>
-	 */
-	private static function get_theme_builder_definition( array $base_tools ): array { // phpcs:ignore Squiz.Commenting.FunctionComment.IncorrectTypeHint -- list<string> is valid PHPStan but not a native PHP type.
-		$site_title = function_exists( 'get_bloginfo' ) ? get_bloginfo( 'name' ) : '';
-		$site_url   = function_exists( 'get_site_url' ) ? get_site_url() : '';
-
-		return [
-			'slug'          => self::THEME_BUILDER_AGENT_SLUG,
-			'name'          => __( 'Theme Builder', 'superdav-ai-agent' ),
-			'description'   => __( 'Designs and builds a custom block theme. Runs the fast-build path on every conversation — useful for redesigning an existing site.', 'superdav-ai-agent' ),
-			'system_prompt' => self::build_setup_assistant_prompt( $site_title, $site_url, true ),
-			'greeting'      => __( "I'll design and build a custom block theme for you. Tell me what your site is — a name + one line is enough — and I'll get the homepage live in a couple of minutes.", 'superdav-ai-agent' ),
-			'avatar_icon'   => 'dashicons-art',
-			'tier_1_tools'  => self::get_unified_onboarding_tier_1_tools( $base_tools ),
-			'suggestions'   => [
-				[
-					'title'       => __( 'Design a theme for a craft brewery', 'superdav-ai-agent' ),
-					'description' => __( 'Custom block theme with rustic, bold aesthetics', 'superdav-ai-agent' ),
-					'prompt'      => __( 'Design a theme for a craft brewery website.', 'superdav-ai-agent' ),
-				],
-				[
-					'title'       => __( 'Design a theme for a SaaS startup', 'superdav-ai-agent' ),
-					'description' => __( 'Clean, modern block theme for a software product', 'superdav-ai-agent' ),
-					'prompt'      => __( 'Design a theme for a SaaS startup website.', 'superdav-ai-agent' ),
-				],
-				[
-					'title'       => __( 'Design a theme for a personal portfolio', 'superdav-ai-agent' ),
-					'description' => __( 'Minimal, elegant block theme to showcase your work', 'superdav-ai-agent' ),
-					'prompt'      => __( 'Design a theme for my personal portfolio website.', 'superdav-ai-agent' ),
-				],
-			],
-			'is_builtin'    => true,
-			'enabled'       => true,
-		];
 	}
 
 	/**

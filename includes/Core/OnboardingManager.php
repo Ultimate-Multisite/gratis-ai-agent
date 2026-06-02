@@ -15,6 +15,9 @@ declare(strict_types=1);
  *   POST /sd-ai-agent/v1/onboarding/rescan          — reset and schedule a new scan
  *   POST /sd-ai-agent/v1/onboarding/bootstrap-start — create the bootstrap discovery session
  *                                                     (attaches the Setup Assistant agent)
+ *   POST /sd-ai-agent/v1/onboarding/theme-builder-start — legacy empty-install
+ *                                                         setup route (also
+ *                                                         attaches Setup Assistant)
  *
  * @package SdAiAgent
  * @license GPL-2.0-or-later
@@ -51,14 +54,14 @@ class OnboardingManager {
 	const BOOTSTRAP_SESSION_OPTION = 'sd_ai_agent_bootstrap_session_id';
 
 	/**
-	 * Option key that persists the theme-builder session ID.
+	 * Option key that persists the legacy empty-install onboarding session ID.
 	 * Stored on first call to rest_theme_builder_start; reused on subsequent calls
 	 * to make the endpoint idempotent — repeat calls return the same session.
 	 */
 	const THEME_BUILDER_SESSION_OPTION = 'sd_ai_agent_theme_builder_session_id';
 
 	/**
-	 * Option key that records whether the theme-builder session has been started.
+	 * Option key that records whether the legacy empty-install session has been started.
 	 * Set to true on first call to rest_theme_builder_start to prevent the React
 	 * component from re-firing the kickoff message on reload.
 	 */
@@ -167,7 +170,7 @@ class OnboardingManager {
 	 * Reset onboarding state (allows re-running the scan and bootstrap session).
 	 *
 	 * Clears the triggered flag, the completion flag, the persisted bootstrap
-	 * and theme-builder session IDs, the theme-builder started flag, and the
+	 * and legacy empty-install session IDs, the empty-install started flag, and the
 	 * SiteScanner status so the next admin_init re-evaluates from scratch.
 	 * Also unschedules any pending scan cron event. The Settings store flag
 	 * `onboarding_complete` is NOT modified here — callers that need to re-open
@@ -458,24 +461,28 @@ class OnboardingManager {
 	/**
 	 * POST /sd-ai-agent/v1/onboarding/theme-builder-start
 	 *
-	 * Called by the frontend when a user chooses the theme-builder onboarding
-	 * path. This handler mirrors rest_bootstrap_start but:
+	 * Legacy empty-install onboarding route. The public route name is retained
+	 * for compatibility with the React bootstrapper, but the old Theme Builder
+	 * agent row has been retired: every first-run branch now attaches the single
+	 * Setup Assistant agent.
 	 *
-	 *  1. Resolves the theme-builder agent instead of the onboarding agent.
-	 *  2. Does NOT mark onboarding complete (the user may still want the
-	 *     bootstrap discovery flow after building the theme).
-	 *  3. Does NOT auto-detect WooCommerce.
-	 *  4. Persists the session ID under THEME_BUILDER_SESSION_OPTION so
+	 * This handler mirrors rest_bootstrap_start but:
+	 *
+	 *  1. Sends an empty-install kickoff suited to the Setup Assistant's fast
+	 *     build branch.
+	 *  2. Persists the session ID under THEME_BUILDER_SESSION_OPTION so
 	 *     repeat calls return the same session.
-	 *  5. Sets THEME_BUILDER_STARTED_OPTION on first call to prevent the React
+	 *  3. Sets THEME_BUILDER_STARTED_OPTION on first call to prevent the React
 	 *     component from re-firing the kickoff message on reload.
-	 *  6. Returns an explicit `is_fresh_start` boolean so the React component
+	 *  4. Marks onboarding complete because there is no second setup flow after
+	 *     the unified Setup Assistant session starts.
+	 *  5. Returns an explicit `is_fresh_start` boolean so the React component
 	 *     can distinguish a fresh-create request (kickoff SHOULD fire) from a
 	 *     resume request (kickoff MUST NOT fire). The boolean is the
 	 *     authoritative signal — `started_at` is also returned for
 	 *     observability/back-compat but MUST NOT be used to drive kickoff
 	 *     behaviour because both branches return a truthy timestamp.
-	 *  7. Returns the same JSON shape as bootstrap-start so the React entry
+	 *  6. Returns the same JSON shape as bootstrap-start so the React entry
 	 *     component can use a single helper.
 	 *
 	 * Idempotent: repeat calls return the originally-created session ID
@@ -487,19 +494,11 @@ class OnboardingManager {
 		$settings = Settings::instance();
 		$all      = $settings->get();
 
-		// As of t276 the empty-install onboarding branch uses the unified
-		// Setup Assistant agent (which runs the same fast-build path as the
-		// legacy Theme Builder, plus content-aware branching on resume).
-		// Falling back to the Theme Builder agent if the Setup Assistant
-		// row is missing preserves back-compat on installs that explicitly
-		// deleted the onboarding agent.
-		$onboarding_agent       = Agent::get_by_slug( Agent::ONBOARDING_AGENT_SLUG );
-		$theme_builder_agent_id = $onboarding_agent ? (int) $onboarding_agent->id : 0;
-
-		if ( 0 === $theme_builder_agent_id ) {
-			$theme_builder_agent    = Agent::get_by_slug( Agent::THEME_BUILDER_AGENT_SLUG );
-			$theme_builder_agent_id = $theme_builder_agent ? (int) $theme_builder_agent->id : 0;
-		}
+		// The empty-install onboarding branch always uses the unified Setup
+		// Assistant. The legacy Theme Builder built-in is removed during agent
+		// seeding/reset so it no longer appears as a second setup agent.
+		$onboarding_agent    = Agent::get_by_slug( Agent::ONBOARDING_AGENT_SLUG );
+		$onboarding_agent_id = $onboarding_agent ? (int) $onboarding_agent->id : 0;
 
 		// Empty-install kickoff. Matches the Setup Assistant's Phase 1
 		// "Capture (one warm turn)" expectation — the agent's stored
@@ -509,17 +508,17 @@ class OnboardingManager {
 			'superdav-ai-agent'
 		);
 
-		// Early-return if a theme-builder session was already created. Reuse the
-		// persisted session ID so the frontend can resume the same conversation
-		// without re-firing the kickoff message. `is_fresh_start` is false on
-		// this branch so the React component skips the kickoff send.
+		// Early-return if an empty-install onboarding session was already created.
+		// Reuse the persisted session ID so the frontend can resume the same
+		// conversation without re-firing the kickoff message. `is_fresh_start` is
+		// false on this branch so the React component skips the kickoff send.
 		$existing_session_id = get_option( self::THEME_BUILDER_SESSION_OPTION );
 		if ( ! empty( $existing_session_id ) ) {
 			return new \WP_REST_Response(
 				[
 					'success'         => true,
 					'session_id'      => $existing_session_id,
-					'agent_id'        => $theme_builder_agent_id,
+					'agent_id'        => $onboarding_agent_id,
 					'kickoff_message' => $kickoff_message,
 					'started_at'      => get_option( self::THEME_BUILDER_STARTED_OPTION ),
 					'is_fresh_start'  => false,
@@ -528,18 +527,18 @@ class OnboardingManager {
 			);
 		}
 
-		// Create the theme-builder session, applying the theme-builder agent's
-		// provider/model overrides if present so the session starts with the
-		// right model for the first turn.
+		// Create the empty-install setup session, applying the Setup Assistant
+		// agent's provider/model overrides if present so the session starts with
+		// the right model for the first turn.
 		$session_data = [
 			'user_id'     => get_current_user_id(),
-			'title'       => __( 'Theme Builder', 'superdav-ai-agent' ),
+			'title'       => __( 'Getting started', 'superdav-ai-agent' ),
 			'provider_id' => $all['default_provider'] ?? '',
 			'model_id'    => $all['default_model'] ?? '',
 		];
 
-		if ( $theme_builder_agent_id > 0 ) {
-			$agent_options = Agent::get_loop_options( $theme_builder_agent_id );
+		if ( $onboarding_agent_id > 0 ) {
+			$agent_options = Agent::get_loop_options( $onboarding_agent_id );
 			if ( ! empty( $agent_options['provider_id'] ) ) {
 				$session_data['provider_id'] = $agent_options['provider_id'];
 			}
@@ -564,15 +563,13 @@ class OnboardingManager {
 		if ( ! $session_id ) {
 			return new \WP_Error(
 				'theme_builder_session_failed',
-				__( 'Failed to create theme-builder session.', 'superdav-ai-agent' ),
+				__( 'Failed to create onboarding session.', 'superdav-ai-agent' ),
 				[ 'status' => 500 ]
 			);
 		}
 
 		// Persist the session ID and the started timestamp so repeat calls return
 		// the same session and the React component knows not to re-fire the kickoff.
-		// Note: we do NOT mark onboarding complete — the user may still want
-		// the bootstrap discovery flow after building the theme.
 		$started_at = time();
 		update_option( self::THEME_BUILDER_SESSION_OPTION, $session_id, false );
 		update_option( self::THEME_BUILDER_STARTED_OPTION, $started_at, false );
@@ -585,7 +582,7 @@ class OnboardingManager {
 			[
 				'success'         => true,
 				'session_id'      => $session_id,
-				'agent_id'        => $theme_builder_agent_id,
+				'agent_id'        => $onboarding_agent_id,
 				'kickoff_message' => $kickoff_message,
 				'started_at'      => $started_at,
 				'is_fresh_start'  => true,
@@ -605,9 +602,8 @@ class OnboardingManager {
 	 *
 	 * Unlike the legacy v1 flow, this endpoint does NOT re-launch a wizard.
 	 * The v2 gate probes `/wp/v2/posts` once per mount and drops the user
-	 * into either:
-	 *  - OnboardingBootstrap (Setup Assistant agent) — sites with content
-	 *  - OnboardingThemeBuilder (Theme Builder agent) — empty installs
+	 * into the unified Setup Assistant with either an established-site kickoff
+	 * or an empty-install fast-build kickoff.
 	 *
 	 * Resets, in order:
 	 *  1. {@see OnboardingManager::reset()} — clears TRIGGERED_OPTION,

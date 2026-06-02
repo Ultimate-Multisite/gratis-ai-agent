@@ -340,9 +340,8 @@ export default function SettingsApp() {
 
 	const handleOnboardingReset = useCallback( async () => {
 		// Confirm before discarding onboarding state. The v2 gate will re-fire
-		// on the next chat-page mount and drop the user into either the Setup
-		// Assistant (site with content) or Theme Builder (empty install)
-		// agent — saved settings, memories, and chat history are kept.
+		// on the next chat-page mount and drop the user into the unified Setup
+		// Assistant. Saved settings, memories, and chat history are kept.
 		const confirmMessage = __(
 			'Restart the Setup Assistant? Your existing settings, memories, and chat sessions are kept — the agent will simply reintroduce itself the next time you open the AI Agent chat page.',
 			'superdav-ai-agent'
@@ -2295,7 +2294,7 @@ export default function SettingsApp() {
 										</h3>
 										<p className="description">
 											{ __(
-												'Clears onboarding state. The next time you open the AI Agent chat page, the Setup Assistant will reintroduce itself (or the Theme Builder agent will run on an empty install). Your existing memories, chat sessions, and saved settings are kept.',
+												'Clears onboarding state. The next time you open the AI Agent chat page, the Setup Assistant will reintroduce itself and choose the right setup path for the site. Your existing memories, chat sessions, and saved settings are kept.',
 												'superdav-ai-agent'
 											) }
 										</p>

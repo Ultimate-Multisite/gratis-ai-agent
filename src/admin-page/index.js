@@ -79,8 +79,9 @@ const ShortcutsHelp = lazy( () =>
  *    not yet completed. A single heuristic picks the right bootstrapper:
  *      - site has published content  → OnboardingBootstrap (Setup Assistant
  *        agent: explores the existing site and introduces itself).
- *      - site has no content yet     → OnboardingThemeBuilder (Theme Builder
- *        agent: helps design and scaffold a custom block theme).
+ *      - site has no content yet     → OnboardingThemeBuilder (Setup
+ *        Assistant empty-install kickoff: helps design and scaffold a custom
+ *        block theme).
  *    Both bootstrappers POST to their server endpoint, which flips
  *    `onboarding_complete` to true and opens an agent session.
  *
@@ -91,9 +92,9 @@ const ShortcutsHelp = lazy( () =>
 function AdminPageApp() {
 	/**
 	 * Tracks whether the site has any "real" published content yet. Used to
-	 * pick the default first-run agent: empty install → Theme Builder;
-	 * otherwise → Setup Assistant. `null` means the heuristic probe is still
-	 * in flight.
+	 * pick the default first-run kickoff for the unified Setup Assistant: empty
+	 * install → fast-build kickoff; otherwise → discovery kickoff. `null` means
+	 * the heuristic probe is still in flight.
 	 *
 	 * Probe target: GET /wp/v2/posts?per_page=2&status=publish. The probe
 	 * returns true when at least TWO published posts exist, so the WordPress
@@ -177,13 +178,12 @@ function AdminPageApp() {
 	//
 	// Threshold is `> 1`, not `> 0`, because every fresh WordPress install
 	// ships with one seeded "Hello world!" post. A `> 0` check would always
-	// be true on a default install and the Theme Builder branch would be
+	// be true on a default install and the empty-install branch would be
 	// unreachable. `> 1` treats the seed post as "no real content yet" and
 	// only flips to Setup Assistant once the user has at least two
 	// published posts. Edge case: a user who deletes the seed post and
-	// writes exactly one real post will still be routed to Theme Builder
-	// (they can switch agents from the chat picker if they prefer the
-	// Setup Assistant). Tracked in the v1.16.1 follow-up issue alongside
+	// writes exactly one real post will still be routed to the empty-install
+	// kickoff. Tracked in the v1.16.1 follow-up issue alongside
 	// the broader probe (it currently only counts `post`-type entries and
 	// misses page-only / CPT-only / WooCommerce-only installs).
 	const onboardingComplete = settings?.onboarding_complete !== false;
@@ -260,9 +260,9 @@ function AdminPageApp() {
 	// Onboarding v2 — no wizard, no mode picker. We pick a bootstrapper
 	// based on whether the site has any published content yet:
 	//   - empty install → OnboardingThemeBuilder (empty-install kickoff)
-	//   - has content   → OnboardingBootstrap    (discover kickoff)
-	// As of t276 both bootstrappers resolve to the unified Setup Assistant
-	// agent server-side and POST to a `*-start` endpoint that flips
+	//   - has content   → OnboardingBootstrap    (discovery kickoff)
+	// Both bootstrappers resolve to the unified Setup Assistant agent
+	// server-side and POST to a `*-start` endpoint that flips
 	// `onboarding_complete` to true and opens an agent session. The agent's
 	// own Phase 0 silent discovery then decides which branch to run.
 	if ( ! onboardingComplete ) {
