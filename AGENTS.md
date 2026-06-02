@@ -467,7 +467,7 @@ reads option data:**
 **Verification (must run for any PR that touches option reads or writes):**
 
 ```bash
-rg -n "is_secret_option_name|is_write_allowed_option|SECRET_REDACTED_PLACEHOLDER|sd_ai_agent_option_secret_redacted|sd_ai_agent_options_write_allowlist|sd_ai_agent_options_read_blocklist" includes/ tests/
+rg -n "is_secret_option_name|is_write_allowed_option|get_write_allowlist_prefixes|SECRET_REDACTED_PLACEHOLDER|sd_ai_agent_option_secret_redacted|sd_ai_agent_options_write_allowlist|sd_ai_agent_options_write_allowlist_prefixes|sd_ai_agent_options_read_blocklist" includes/ tests/
 npm run test:php -- --filter='OptionsAbilitiesTest|WordPressAbilitiesTest|DatabaseAbilitiesTest|WpCliAbilitiesTest'
 ```
 
