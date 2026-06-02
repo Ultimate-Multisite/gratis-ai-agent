@@ -14,6 +14,7 @@
 #  - SD_AI_AGENT_FEATURE_BENCHMARK               (WP-CLI benchmark with arbitrary --log-dir)
 #  - SD_AI_AGENT_FEATURE_USER_MANAGEMENT         (custom user create / role change)
 #  - SD_AI_AGENT_FEATURE_FILE_WRITE              (git-tracking source package snapshots)
+#  - WP 6.9 compatibility shims                 (WP.org build requires WP 7.0)
 #
 # Note: the PLUGIN_STATE_CHANGES and PLUGIN_INSTALL_FROM_URL gates only
 # remove individual `wp_register_ability()` calls inside
@@ -148,3 +149,11 @@ includes/Benchmark
 # .distignore but listed here for documentation completeness.
 # tests/SdAiAgent/Benchmark
 # tests/benchmark
+
+# ── WordPress 6.9 compatibility shims ────────────────────────────────────────
+# The WP.org build requires WordPress 7.0+, where the AI Client SDK,
+# wp_ai_client_prompt(), and Connectors API are provided by core. Strip the
+# bundled WP 6.9 bridge/polyfill code from the submitted zip so automated
+# WordPress.org review sees only the native WP 7.0 integration path.
+includes/Compat
+lib/php-ai-client
