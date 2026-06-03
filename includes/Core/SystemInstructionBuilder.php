@@ -403,6 +403,8 @@ class SystemInstructionBuilder {
 			. "To create any page or blog post, use `sd-ai-agent/create-post`.\n"
 			. "To update an existing post or page, use `sd-ai-agent/update-post` (pass post_id plus the fields to change).\n"
 			. "To list or search posts, use `sd-ai-agent/list-posts` (filter by post_type, status, search term, category, or tag).\n"
+			. "To change site-wide theme styles, use `sd-ai-agent/get-global-styles` first, then `sd-ai-agent/update-global-styles` with the style/settings keys to merge. Do not look for a separate manage-global-styles tool.\n"
+			. "Ability names in this plugin use the canonical `sd-ai-agent/` prefix (except generic dispatcher namespaces such as `wp-cli/` and `wp-rest/`). Never call legacy `ai-agent/` ability names. If an expected ability is not in the active tool list, search with `sd-ai-agent/ability-search` and invoke it through `sd-ai-agent/ability-call`.\n"
 			. "- For pages: set `post_type` to `page`.\n"
 			. "- For blog posts: set `post_type` to `post`.\n"
 			. "- **Blog posts and articles**: write content in markdown (`## headings`, `**bold**`, `- lists`). Markdown is auto-converted to Gutenberg blocks.\n"

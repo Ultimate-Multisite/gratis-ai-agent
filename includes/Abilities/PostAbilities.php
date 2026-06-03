@@ -199,7 +199,7 @@ class PostAbilities {
 			'sd-ai-agent/update-post',
 			[
 				'label'               => __( 'Update Post', 'superdav-ai-agent' ),
-				'description'         => __( 'Update an existing WordPress post or page. Only provided fields are changed; omitted fields are left as-is. Can update title, content, excerpt, status, categories, tags, featured image (featured_image_id), and custom meta. IMPORTANT: You must supply post_id — if you do not know it, call list-posts first (search by title) to find it. Do NOT call create-post when the intent is to update an existing post.', 'superdav-ai-agent' ),
+				'description'         => __( 'Update an existing WordPress post or page via the canonical sd-ai-agent/update-post ability. Only provided fields are changed; omitted fields are left as-is. Can update title, content, excerpt, status, categories, tags, page_template, featured image (featured_image_id), and custom meta. IMPORTANT: You must supply post_id — if you do not know it, call sd-ai-agent/list-posts first (search by title, post_type, or status) to find it. Do NOT call create-post when the intent is to update an existing post, and do NOT use legacy ai-agent/update-post names.', 'superdav-ai-agent' ),
 				'category'            => 'sd-ai-agent',
 				'input_schema'        => [
 					'type'       => 'object',

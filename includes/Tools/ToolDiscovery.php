@@ -174,14 +174,14 @@ class ToolDiscovery {
 			'sd-ai-agent/ability-search',
 			array(
 				'label'               => __( 'Search Abilities', 'superdav-ai-agent' ),
-				'description'         => __( 'Search the full catalog of registered WordPress abilities and return matching ids together with their full input/output schemas. Use this whenever you need an ability that is not already loaded in your tool list. Query forms: bare keywords for ranked search ("create site"), `select:foo,bar` to fetch specific abilities by id, or `+substr keyword` to require a substring before ranking.', 'superdav-ai-agent' ),
+				'description'         => __( 'Search the full catalog of registered WordPress abilities and return matching canonical ids together with their full input/output schemas. Use this whenever you need an ability that is not already loaded in your tool list. Query forms: bare keywords for ranked search ("create site"), `select:sd-ai-agent/foo,wp-cli/execute` to fetch specific canonical ids, or `+substr keyword` to require a substring before ranking. Do not use legacy ai-agent/ ids.', 'superdav-ai-agent' ),
 				'category'            => 'sd-ai-agent',
 				'input_schema'        => array(
 					'type'       => 'object',
 					'properties' => array(
 						'query'       => array(
 							'type'        => 'string',
-							'description' => 'Keywords, "select:id1,id2", or "+substr keyword". Required.',
+							'description' => 'Keywords, "select:canonical-id1,canonical-id2", or "+substr keyword". Required. Use sd-ai-agent/ for plugin abilities; do not use legacy ai-agent/ ids.',
 						),
 						'max_results' => array(
 							'type'        => 'integer',
@@ -211,14 +211,14 @@ class ToolDiscovery {
 			'sd-ai-agent/ability-call',
 			array(
 				'label'               => __( 'Call Ability', 'superdav-ai-agent' ),
-				'description'         => __( 'Execute any ability by id with a complete arguments object. CRITICAL: ALWAYS call ability-search FIRST to fetch the target ability\'s input_schema with example_arguments, copy that stub, replace placeholders with real values, then call this tool. Never call without valid arguments.', 'superdav-ai-agent' ),
+				'description'         => __( 'Execute any ability by canonical id with a complete arguments object. CRITICAL: ALWAYS call ability-search FIRST to fetch the target ability\'s input_schema with example_arguments, copy that stub, replace placeholders with real values, then call this tool. Never call without valid arguments, and never use legacy ai-agent/ ids.', 'superdav-ai-agent' ),
 				'category'            => 'sd-ai-agent',
 				'input_schema'        => array(
 					'type'       => 'object',
 					'properties' => array(
 						'ability'   => array(
 							'type'        => 'string',
-							'description' => 'The ability id to invoke (e.g. "multisite-ultimate/site-create-item").',
+							'description' => 'The canonical ability id to invoke (e.g. "sd-ai-agent/update-post" or "wp-cli/execute"). Legacy ai-agent/ ids are not supported.',
 						),
 						'arguments' => array(
 							'type'                 => 'object',
@@ -993,36 +993,15 @@ class ToolDiscovery {
 		self::$schema_cache = array();
 	}
 
-	// ─── Aliasing + unknown-ability self-heal ────────────────────────────
+	// ─── Unknown-ability self-heal ────────────────────────────────────────
 
 	/**
-	 * Canonicalise an ability id, transparently rewriting the legacy
-	 * `ai-agent/` prefix that the model sometimes hallucinates back to the
-	 * canonical `sd-ai-agent/` namespace. Only rewrites when the rewritten
-	 * name resolves to a registered ability.
+	 * Validate an ability id is already in canonical form.
 	 *
 	 * @param string $ability_id Raw ability id from the model.
-	 * @return string Canonical id, or the original if no rewrite applied.
+	 * @return string Original id. Legacy aliases are intentionally unsupported.
 	 */
 	public static function canonicalise_ability_id( string $ability_id ): string {
-		if ( '' === $ability_id ) {
-			return $ability_id;
-		}
-		if ( ! function_exists( 'wp_get_ability' ) ) {
-			return $ability_id;
-		}
-
-		// Rewrite the legacy `ai-agent/` prefix BEFORE probing, so we don't
-		// trigger WP's `doing_it_wrong` notice on the unknown name. Only
-		// keep the rewrite when the canonical name actually resolves.
-		if ( str_starts_with( $ability_id, 'ai-agent/' ) ) {
-			$rewritten = 'sd-' . $ability_id;
-			// @phpstan-ignore-next-line
-			if ( wp_get_ability( $rewritten ) instanceof \WP_Ability ) {
-				return $rewritten;
-			}
-		}
-
 		return $ability_id;
 	}
 
@@ -1049,9 +1028,9 @@ class ToolDiscovery {
 
 		$candidates = self::visible_abilities();
 
-		// Strip a known prefix when ranking so e.g. "ai-agent/foo-bar"
-		// matches "sd-ai-agent/foo-bar" cleanly even if the prefix rewrite
-		// didn't catch it (e.g. typo in slug).
+		// Strip any supplied prefix when ranking so an unknown or typo'd
+		// namespace still receives useful canonical suggestions without
+		// executing a legacy alias.
 		$query = $ability_id;
 		if ( str_contains( $query, '/' ) ) {
 			[ , $tail ] = explode( '/', $query, 2 );

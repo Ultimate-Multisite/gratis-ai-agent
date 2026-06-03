@@ -32,7 +32,7 @@ class GlobalStylesAbilities {
 			'sd-ai-agent/get-global-styles',
 			[
 				'label'               => __( 'Get Global Styles', 'superdav-ai-agent' ),
-				'description'         => __( 'Read the current WordPress global styles (theme.json) including colors, typography, spacing, and layout settings. Returns the merged result of theme defaults and any user customizations.', 'superdav-ai-agent' ),
+				'description'         => __( 'Read the current WordPress global styles (theme.json) via the canonical sd-ai-agent/get-global-styles ability. Use this before changing site-wide design tokens such as colors, typography, spacing, layout, element styles, or block styles. Returns the merged result of theme defaults and user customizations.', 'superdav-ai-agent' ),
 				'category'            => 'sd-ai-agent',
 				'input_schema'        => [
 					'type'       => 'object',
@@ -76,7 +76,7 @@ class GlobalStylesAbilities {
 			'sd-ai-agent/update-global-styles',
 			[
 				'label'               => __( 'Update Global Styles', 'superdav-ai-agent' ),
-				'description'         => __( 'Update WordPress global styles (theme.json customizations). Merges the provided styles into the existing user customizations. Supports color palette, typography, spacing, and layout settings.', 'superdav-ai-agent' ),
+				'description'         => __( 'Update WordPress global styles (theme.json customizations) via the canonical sd-ai-agent/update-global-styles ability. Use this for site-wide visual design changes such as color palette, background/text/link colors, typography, spacing, layout widths, element styles, and block styles. Merges the provided styles/settings into existing user customizations. Do NOT look for manage-global-styles or legacy ai-agent/update-global-styles names.', 'superdav-ai-agent' ),
 				'category'            => 'sd-ai-agent',
 				'input_schema'        => [
 					'type'       => 'object',

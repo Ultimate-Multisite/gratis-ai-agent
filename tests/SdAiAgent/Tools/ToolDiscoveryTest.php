@@ -370,7 +370,9 @@ class ToolDiscoveryTest extends WP_UnitTestCase {
 		$this->assertArrayHasKey( 'hint', $result );
 	}
 
-	public function test_ability_call_aliases_legacy_ai_agent_prefix(): void {
+	public function test_ability_call_rejects_legacy_ai_agent_prefix_with_canonical_suggestion(): void {
+		$this->setExpectedIncorrectUsage( 'WP_Abilities_Registry::get_registered' );
+
 		$result = ToolDiscovery::handle_ability_call(
 			[
 				'ability'   => 'ai-agent/get-plugins',
@@ -379,23 +381,20 @@ class ToolDiscoveryTest extends WP_UnitTestCase {
 		);
 
 		$this->assertIsArray( $result );
-		$this->assertTrue( $result['success'] );
-		$this->assertSame( 'sd-ai-agent/get-plugins', $result['ability'] );
+		$this->assertFalse( $result['success'] );
+		$this->assertSame( 'ability_not_found', $result['code'] );
+		$this->assertSame( 'ai-agent/get-plugins', $result['ability'] );
+		$this->assertSame( 'sd-ai-agent/get-plugins', $result['suggestions'][0]['id'] );
 	}
 
-	public function test_ability_search_select_aliases_legacy_prefix(): void {
+	public function test_ability_search_select_rejects_legacy_prefix(): void {
+		$this->setExpectedIncorrectUsage( 'WP_Abilities_Registry::get_registered' );
+
 		$result = ToolDiscovery::handle_ability_search(
 			[ 'query' => 'select:ai-agent/get-plugins' ]
 		);
 
-		$ids = array_map(
-			static function ( $r ) {
-				return $r['id'];
-			},
-			$result['results']
-		);
-
-		$this->assertContains( 'sd-ai-agent/get-plugins', $ids );
+		$this->assertSame( array(), $result['results'] );
 	}
 
 	public function test_ability_call_returns_error_for_malformed_json_arguments(): void {

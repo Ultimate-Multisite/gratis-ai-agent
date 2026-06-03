@@ -110,6 +110,20 @@ class SystemInstructionBuilderTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * Ability-discovery guidance should name the canonical namespace and the
+	 * known style/post editing tools so the model does not search for stale ids.
+	 */
+	public function test_default_system_instruction_includes_ability_discovery_guidance(): void {
+		$instruction = SystemInstructionBuilder::default_system_instruction();
+
+		$this->assertStringContainsString( 'sd-ai-agent/update-post', $instruction );
+		$this->assertStringContainsString( 'sd-ai-agent/update-global-styles', $instruction );
+		$this->assertStringContainsString( 'sd-ai-agent/ability-search', $instruction );
+		$this->assertStringContainsString( 'Never call legacy `ai-agent/` ability names', $instruction );
+		$this->assertStringContainsString( 'Do not look for a separate manage-global-styles tool', $instruction );
+	}
+
+	/**
 	 * Test that custom system prompt overrides the default.
 	 */
 	public function test_build_uses_custom_system_prompt(): void {
