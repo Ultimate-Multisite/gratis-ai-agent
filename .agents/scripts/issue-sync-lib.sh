@@ -44,11 +44,34 @@ source "${SCRIPT_DIR}/shared-constants.sh"
 # Parse — TODO.md Utilities
 # =============================================================================
 
-# Strip lines inside markdown code-fenced blocks (``` ... ```) from stdin.
-# Prevents task-like lines in format examples from being parsed as real tasks.
+# Strip lines inside markdown code-fenced blocks (``` ... ```) and HTML
+# comments from stdin. Prevents task-like lines in format examples and hidden
+# maintainer notes from being parsed as real tasks.
 # Usage: strip_code_fences < file  OR  grep ... | strip_code_fences
 strip_code_fences() {
-	awk '/^[[:space:]]*```/{in_fence=!in_fence; next} !in_fence{print}'
+	awk '
+		/^[[:space:]]*```/ { in_fence = ! in_fence; next }
+		{
+			if (in_fence) {
+				next
+			}
+
+			if (in_html_comment) {
+				if ($0 ~ /-->/) {
+					in_html_comment = 0
+				}
+				next
+			}
+
+			if ($0 ~ /<!--/) {
+				if ($0 !~ /-->/) {
+					in_html_comment = 1
+				}
+				next
+			}
+
+			print
+		}'
 	return 0
 }
 
@@ -215,7 +238,7 @@ extract_task_block() {
 
 			block="$block"$'\n'"$line"
 		fi
-	done <"$todo_file"
+	done < <(strip_code_fences <"$todo_file")
 
 	echo "$block"
 	return 0
