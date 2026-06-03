@@ -259,6 +259,37 @@ class ToolDiscoveryTest extends WP_UnitTestCase {
 		$this->assertLessThanOrEqual( 3, count( $result['results'] ) );
 	}
 
+	public function test_ability_search_maps_manage_global_styles_to_style_abilities(): void {
+		$result = ToolDiscovery::handle_ability_search(
+			[
+				'query'       => 'manage global styles',
+				'max_results' => 5,
+			]
+		);
+
+		$ids = array_map(
+			static function ( $r ) {
+				return $r['id'];
+			},
+			$result['results']
+		);
+
+		$this->assertContains( 'sd-ai-agent/update-global-styles', $ids );
+		$this->assertContains( 'sd-ai-agent/get-global-styles', $ids );
+	}
+
+	public function test_ability_search_maps_edit_page_to_update_post(): void {
+		$result = ToolDiscovery::handle_ability_search(
+			[
+				'query'       => 'edit page',
+				'max_results' => 3,
+			]
+		);
+
+		$this->assertNotEmpty( $result['results'] );
+		$this->assertSame( 'sd-ai-agent/update-post', $result['results'][0]['id'] );
+	}
+
 	public function test_ability_search_caches_schemas_for_recently_fetched_section(): void {
 		ToolDiscovery::handle_ability_search(
 			[ 'query' => 'select:sd-ai-agent/get-plugins' ]
