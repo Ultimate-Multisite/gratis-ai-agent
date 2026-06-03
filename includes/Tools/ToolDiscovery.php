@@ -667,12 +667,16 @@ class ToolDiscovery {
 			$name  = strtolower( $ability->get_name() );
 			$label = strtolower( $ability->get_label() );
 			$desc  = strtolower( $ability->get_description() );
+			$alias = self::ability_search_aliases( $ability->get_name() );
 
 			$score = 0;
 			if ( $name === $q ) {
 				$score += 100;
 			} elseif ( str_contains( $name, $q ) ) {
 				$score += 50;
+			}
+			if ( '' !== $alias && str_contains( $alias, $q ) ) {
+				$score += 40;
 			}
 			if ( str_contains( $label, $q ) ) {
 				$score += 30;
@@ -682,7 +686,7 @@ class ToolDiscovery {
 			}
 
 			if ( count( $words ) > 1 ) {
-				$haystack = $name . ' ' . $label . ' ' . $desc;
+				$haystack = $name . ' ' . $label . ' ' . $desc . ' ' . $alias;
 				foreach ( $words as $w ) {
 					if ( str_contains( $haystack, $w ) ) {
 						$score += 5;
@@ -711,6 +715,32 @@ class ToolDiscovery {
 			},
 			$scored
 		);
+	}
+
+	/**
+	 * Return canonical discovery synonyms for abilities whose user-facing task
+	 * wording often differs from the registered ability id.
+	 *
+	 * The aliases are search-only hints: they do not create alternate ability
+	 * ids, rename namespaces, or change execution. They help ability-search map
+	 * natural phrases such as "manage global styles" or "edit page" back to the
+	 * canonical `sd-ai-agent/*` ability ids surfaced to the model.
+	 *
+	 * @param string $ability_id Registered ability id.
+	 * @return string Lowercase space-separated aliases.
+	 */
+	private static function ability_search_aliases( string $ability_id ): string {
+		$aliases = array(
+			'sd-ai-agent/update-post'          => 'edit post edit page modify post modify page change content update page update existing page update existing post',
+			'sd-ai-agent/create-post'          => 'add post add page new post new page publish page publish post create page create content',
+			'sd-ai-agent/list-posts'           => 'find post find page search post search page get page id get post id existing pages existing posts',
+			'sd-ai-agent/get-global-styles'    => 'manage global styles read global styles inspect global styles current theme styles style settings theme design settings',
+			'sd-ai-agent/update-global-styles' => 'manage global styles edit global styles change global styles set global styles apply design system update theme styles change colors change colours change fonts theme json customizations',
+			'sd-ai-agent/reset-global-styles'  => 'manage global styles clear global styles restore theme styles remove style overrides reset theme styles',
+			'sd-ai-agent/get-theme-json'       => 'theme json theme settings theme style configuration global styles configuration',
+		);
+
+		return $aliases[ $ability_id ] ?? '';
 	}
 
 	/**
