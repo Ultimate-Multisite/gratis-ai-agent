@@ -11,6 +11,7 @@ declare(strict_types=1);
 namespace SdAiAgent\REST;
 
 use SdAiAgent\Core\Settings;
+use SdAiAgent\Core\SkillUpdateChecker;
 use SdAiAgent\Models\Skill;
 use SdAiAgent\Repositories\SkillUsageRepository;
 use SdAiAgent\Services\SkillService;
@@ -381,12 +382,13 @@ final class SkillController extends XWP_REST_Controller {
 		}
 
 		$body     = wp_remote_retrieve_body( $response );
-		$manifest = json_decode( $body, true );
+		$decoded  = json_decode( $body, true );
+		$manifest = is_array( $decoded ) ? SkillUpdateChecker::normalize_manifest( $decoded ) : [];
 
-		if ( ! is_array( $manifest ) ) {
+		if ( [] === $manifest ) {
 			return new WP_Error(
 				'sd_ai_agent_manifest_invalid',
-				__( 'Skill manifest is not valid JSON or not an array.', 'superdav-ai-agent' ),
+				__( 'Skill manifest is not valid JSON or does not contain skill entries.', 'superdav-ai-agent' ),
 				array( 'status' => 502 )
 			);
 		}

@@ -151,6 +151,52 @@ class SkillUpdateCheckerTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * The checker accepts the planned manifest_version + skills wrapper format.
+	 */
+	public function test_run_accepts_nested_skills_manifest_shape(): void {
+		$this->configure_manifest_settings();
+		Skill::seed_builtins();
+
+		$skill = Skill::get_by_slug( 'wordpress-admin' );
+		$this->assertNotNull( $skill );
+
+		$updated_content = 'Updated nested manifest skill content.';
+		$manifest        = [
+			'manifest_version' => 1,
+			'skills'           => [
+				'wordpress-admin' => [
+					'version'    => '2026.05.14',
+					'content'    => $updated_content,
+					'source_url' => 'https://example.com/skills/wordpress-admin.md',
+				],
+			],
+		];
+
+		add_filter(
+			'pre_http_request',
+			static function () use ( $manifest ) {
+				return [
+					'headers'  => [],
+					'body'     => wp_json_encode( $manifest ),
+					'response' => [ 'code' => 200, 'message' => 'OK' ],
+					'cookies'  => [],
+					'filename' => '',
+				];
+			},
+			10,
+			3
+		);
+
+		SkillUpdateChecker::run();
+
+		$refreshed = Skill::get_by_slug( 'wordpress-admin' );
+
+		$this->assertNotNull( $refreshed );
+		$this->assertSame( $updated_content, $refreshed->content );
+		$this->assertSame( '2026.05.14', $refreshed->version );
+	}
+
+	/**
 	 * The checker is disabled when skill_auto_update is false.
 	 */
 	public function test_run_skips_when_auto_updates_are_disabled(): void {
