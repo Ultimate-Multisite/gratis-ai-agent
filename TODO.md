@@ -883,7 +883,7 @@ Full plan: [todo/PLANS.md#complete-site-building-abilities](PLANS.md#2026-04-09-
   - Verify: `composer phpstan && composer phpcs`
 - [x] t000 Install dependencies and verify code quality baseline verified:2026-03-14 completed:2026-03-14
 - [x] t001 Set up dev environment: composer install, npm ci, wp-env config verified:2026-03-14 completed:2026-03-14
-- [x] t002 php-ai-client already at ^1.3 (latest) verified:2026-03-14 completed:2026-03-14
+- [x] t002 php-ai-client already at ^1.3 (latest) verified:2026-03-14 ref:GH#2005 completed:2026-03-14
 - [x] t003 .wp-env.json created with WP 6.9, PHP 8.2, multisite, debug config verified:2026-03-14 completed:2026-03-14
 - [x] t021 FileAbilities: 7 abilities (read/write/edit/delete/list/search-files/search-content) verified:2026-03-14 completed:2026-03-14
 - [x] t023 DatabaseAbilities: db_query with SELECT-only guard and {prefix} placeholder verified:2026-03-14 completed:2026-03-14

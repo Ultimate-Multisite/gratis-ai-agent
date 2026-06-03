@@ -565,9 +565,10 @@ cmd_pull() {
 			local tid_ere
 			tid_ere=$(_escape_ere "$tid")
 
-			# Ref sync
-			if ! grep -qE "^\s*- \[.\] ${tid_ere} .*ref:GH#${num}" "$todo_file" 2>/dev/null; then
-				if ! grep -qE "^\s*- \[.\] ${tid_ere} " "$todo_file" 2>/dev/null; then
+			# Ref sync. Match against the stripped TODO stream so task-like examples
+			# inside HTML comments or code fences do not masquerade as real tasks.
+			if ! strip_code_fences <"$todo_file" | grep -qE "^\s*- \[.\] ${tid_ere} .*ref:GH#${num}"; then
+				if ! strip_code_fences <"$todo_file" | grep -qE "^\s*- \[.\] ${tid_ere} "; then
 					if [[ "$state" == "open" ]]; then
 						print_warning "ORPHAN: #$num ($tid: $title) — no TODO.md entry"
 						orphan_open=$((orphan_open + 1))
@@ -599,8 +600,21 @@ cmd_pull() {
 				continue
 			fi
 			local ln
-			# Use awk to get line number while skipping code-fenced blocks
-			ln=$(awk -v pat="^[[:space:]]*- \\[.\\] ${tid_ere} " '/^[[:space:]]*```/{f=!f; next} !f && $0 ~ pat {print NR; exit}' "$todo_file")
+			# Use awk to get line number while skipping code-fenced blocks and HTML
+			# comments, matching strip_code_fences semantics without losing line numbers.
+			ln=$(awk -v pat="^[[:space:]]*- \\[.\\] ${tid_ere} " '
+				/^[[:space:]]*```/ { in_fence = ! in_fence; next }
+				in_fence { next }
+				in_html_comment {
+					if ($0 ~ /-->/) { in_html_comment = 0 }
+					next
+				}
+				/<!--/ {
+					if ($0 !~ /-->/) { in_html_comment = 1 }
+					next
+				}
+				$0 ~ pat { print NR; exit }
+			' "$todo_file")
 			if [[ -n "$ln" ]]; then
 				local cl
 				cl=$(sed -n "${ln}p" "$todo_file")
@@ -722,7 +736,7 @@ cmd_status() {
 		[[ -z "$tid" ]] && continue
 		local tid_ere
 		tid_ere=$(_escape_ere "$tid")
-		grep -qE "^\s*- \[x\] ${tid_ere} " "$todo_file" 2>/dev/null && {
+		strip_code_fences <"$todo_file" | grep -qE "^\s*- \[x\] ${tid_ere} " && {
 			drift=$((drift + 1))
 			print_warning "DRIFT: #$(echo "$il" | jq -r '.number') ($tid) open but completed"
 		}
