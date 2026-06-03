@@ -113,6 +113,11 @@ to change, do not answer only in the issue thread. Make the durable repo change:
   `includes/REST/SettingsController.php`, and
   `includes/Abilities/ToolCapabilities.php` so the response names API calls,
   credential storage, REST routes, and capability gates.
+- For WordPress.org review-response prompts, require an issue-by-issue reply
+  that cites the merged fix or evidence-backed rationale for each reviewer
+  finding, includes verification commands, and avoids broad "everything is fixed"
+  or "remaining issues are false positives" claims unless each claim is tied to
+  exact file or pattern evidence.
 - Do not mark contributor-insight issues complete after documentation reading
   alone. A valid fix changes a durable instruction, workflow doc, or helper, then
   verifies the changed guidance with an exact `rg -n` check that future workers
