@@ -65,6 +65,15 @@ class SkillUsageRepositoryTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * create() rejects events that cannot be attributed to a real skill.
+	 */
+	public function test_create_rejects_missing_skill_id(): void {
+		$this->assertFalse( SkillUsageRepository::create( [] ) );
+		$this->assertFalse( SkillUsageRepository::create( [ 'skill_id' => 0 ] ) );
+		$this->assertFalse( SkillUsageRepository::create( [ 'skill_id' => -1 ] ) );
+	}
+
+	/**
 	 * Invalid enum-like values fall back to safe defaults.
 	 */
 	public function test_create_sanitizes_invalid_trigger_and_outcome(): void {
