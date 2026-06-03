@@ -153,13 +153,44 @@ class SkillUpdateChecker {
 		self::set_manifest_cache( $etag, $last_modified );
 
 		$body     = wp_remote_retrieve_body( $response );
-		$manifest = json_decode( $body, true );
+		$decoded  = json_decode( $body, true );
+		$manifest = is_array( $decoded ) ? self::normalize_manifest( $decoded ) : [];
 
-		if ( ! is_array( $manifest ) ) {
+		if ( [] === $manifest ) {
 			return null;
 		}
 
 		return $manifest;
+	}
+
+	/**
+	 * Normalize supported manifest payload shapes into a slug-keyed skill map.
+	 *
+	 * The original phase plan documented manifests as
+	 * `{ "manifest_version": 1, "skills": { "slug": { ... } } }`, while early
+	 * endpoint code accepted a bare `{ "slug": { ... } }` map. Supporting both
+	 * keeps the cron checker compatible with the planned remote directory format
+	 * without breaking existing tests or manually hosted manifests.
+	 *
+	 * @param array<array-key, mixed> $manifest Decoded manifest payload.
+	 * @return array<string, array<string, mixed>> Slug-keyed skill entries.
+	 */
+	public static function normalize_manifest( array $manifest ): array {
+		$entries = isset( $manifest['skills'] ) && is_array( $manifest['skills'] )
+			? $manifest['skills']
+			: $manifest;
+
+		$normalized = [];
+		foreach ( $entries as $slug => $entry ) {
+			if ( ! is_string( $slug ) || '' === $slug || ! is_array( $entry ) ) {
+				continue;
+			}
+
+			/** @var array<string, mixed> $entry */
+			$normalized[ $slug ] = $entry;
+		}
+
+		return $normalized;
 	}
 
 	// ── Update application ───────────────────────────────────────────────

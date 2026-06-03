@@ -11,6 +11,7 @@ declare(strict_types=1);
 namespace SdAiAgent\Models;
 
 use SdAiAgent\Core\Settings;
+use SdAiAgent\Core\SkillUpdateChecker;
 use SdAiAgent\Models\DTO\SkillRow;
 
 class Skill {
@@ -466,9 +467,10 @@ class Skill {
 		}
 
 		$body     = wp_remote_retrieve_body( $response );
-		$manifest = json_decode( $body, true );
+		$decoded  = json_decode( $body, true );
+		$manifest = is_array( $decoded ) ? SkillUpdateChecker::normalize_manifest( $decoded ) : [];
 
-		if ( ! is_array( $manifest ) ) {
+		if ( [] === $manifest ) {
 			return null;
 		}
 
