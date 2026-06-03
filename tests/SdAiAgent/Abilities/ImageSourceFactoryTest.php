@@ -92,6 +92,52 @@ class ImageSourceFactoryTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * An explicitly requested free source is tried first, but its download failure
+	 * does not stop the fallback chain from trying the remaining free providers.
+	 */
+	public function test_import_image_retries_remaining_free_sources_after_requested_source_failure(): void {
+		$openverse = new FakeImageSource(
+			'openverse',
+			'free',
+			[
+				[ 'id' => 'openverse-1', 'source' => 'openverse' ],
+			]
+		);
+		$pixabay   = new FakeImageSource(
+			'pixabay',
+			'free',
+			[
+				[ 'id' => 'pixabay-1', 'source' => 'pixabay' ],
+			]
+		);
+		$generate  = new FakeImageSource( 'generate', 'api', [] );
+
+		$this->set_sources(
+			[
+				'openverse' => $openverse,
+				'pixabay'   => $pixabay,
+				'generate'  => $generate,
+			]
+		);
+
+		$result = ImageSourceFactory::import_image(
+			'test query',
+			'pixabay',
+			1200,
+			800,
+			[ 'no_generate_fallback' => true ]
+		);
+
+		$this->assertInstanceOf( WP_Error::class, $result );
+		$this->assertSame( 'all_sources_failed', $result->get_error_code() );
+		$this->assertSame( [ 'pixabay-1' ], $pixabay->downloaded_ids );
+		$this->assertSame( [ 'openverse-1' ], $openverse->downloaded_ids );
+		$this->assertSame( [], $generate->downloaded_ids );
+		$this->assertStringContainsString( 'pixabay', $result->get_error_message() );
+		$this->assertStringContainsString( 'openverse', $result->get_error_message() );
+	}
+
+	/**
 	 * Get the private source registry.
 	 *
 	 * @return array<string, ImageSourceInterface>
