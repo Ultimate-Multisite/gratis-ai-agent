@@ -75,6 +75,46 @@ strip_code_fences() {
 	return 0
 }
 
+# Find the first TODO.md line matching an awk ERE while ignoring the same hidden
+# regions as strip_code_fences(): markdown code fences and HTML comments.
+# Arguments:
+#   $1 - awk ERE pattern
+#   $2 - TODO.md path
+find_visible_todo_line_number() {
+	local pattern="$1"
+	local todo_file="$2"
+	local awk_pattern
+	awk_pattern=$(printf '%s' "$pattern" | sed 's/\\/\\\\/g')
+
+	awk -v pat="$awk_pattern" '
+		/^[[:space:]]*```/ { in_fence = ! in_fence; next }
+		{
+			if (in_fence) {
+				next
+			}
+
+			if (in_html_comment) {
+				if ($0 ~ /-->/) {
+					in_html_comment = 0
+				}
+				next
+			}
+
+			if ($0 ~ /<!--/) {
+				if ($0 !~ /-->/) {
+					in_html_comment = 1
+				}
+				next
+			}
+
+			if ($0 ~ pat) {
+				print NR
+				exit
+			}
+		}' "$todo_file"
+	return 0
+}
+
 # Escape a string for use in Extended Regular Expressions (ERE).
 # Task IDs like t001.1 contain dots that are regex wildcards — this prevents
 # t001.1 from matching t001x1 in grep -E or awk patterns.
@@ -962,14 +1002,13 @@ fix_gh_ref_in_todo() {
 		return 0
 	fi
 
-	# Find line number outside code fences, then replace only that line
+	# Find line number outside hidden regions, then replace only that line
 	local task_id_ere
 	task_id_ere=$(_escape_ere "$task_id")
 	local line_num
-	line_num=$(awk -v pat="^[[:space:]]*- \\[.\\] ${task_id_ere} .*ref:GH#${old_number}" \
-		'/^[[:space:]]*```/{f=!f; next} !f && $0 ~ pat {print NR; exit}' "$todo_file")
+	line_num=$(find_visible_todo_line_number "^[[:space:]]*- \\[.\\] ${task_id_ere} .*ref:GH#${old_number}" "$todo_file")
 	[[ -z "$line_num" ]] && {
-		log_verbose "$task_id with ref:GH#$old_number not found outside code fences"
+		log_verbose "$task_id with ref:GH#$old_number not found outside visible TODO lines"
 		return 0
 	}
 	sed_inplace "${line_num}s|ref:GH#${old_number}|ref:GH#${new_number}|" "$todo_file"
@@ -1001,13 +1040,13 @@ add_gh_ref_to_todo() {
 		return 0
 	fi
 
-	# Find the line number of the task OUTSIDE code fences, then apply sed to that specific line.
-	# This prevents modifying format examples inside code-fenced blocks.
+	# Find the line number of the task outside hidden regions, then apply sed to
+	# that specific line. This prevents modifying format examples inside code
+	# fences or HTML comments.
 	local line_num
-	line_num=$(awk -v pat="^[[:space:]]*- \\[.\\] ${task_id_ere} " \
-		'/^[[:space:]]*```/{f=!f; next} !f && $0 ~ pat {print NR; exit}' "$todo_file")
+	line_num=$(find_visible_todo_line_number "^[[:space:]]*- \\[.\\] ${task_id_ere} " "$todo_file")
 	[[ -z "$line_num" ]] && {
-		log_verbose "$task_id not found outside code fences"
+		log_verbose "$task_id not found outside visible TODO lines"
 		return 0
 	}
 
@@ -1055,12 +1094,11 @@ add_pr_ref_to_todo() {
 		return 0
 	fi
 
-	# Find line number outside code fences, then modify only that line
+	# Find line number outside hidden regions, then modify only that line
 	local line_num
-	line_num=$(awk -v pat="^[[:space:]]*- \\[.\\] ${task_id_ere} " \
-		'/^[[:space:]]*```/{f=!f; next} !f && $0 ~ pat {print NR; exit}' "$todo_file")
+	line_num=$(find_visible_todo_line_number "^[[:space:]]*- \\[.\\] ${task_id_ere} " "$todo_file")
 	[[ -z "$line_num" ]] && {
-		log_verbose "$task_id not found outside code fences for pr: ref"
+		log_verbose "$task_id not found outside visible TODO lines for pr: ref"
 		return 0
 	}
 
