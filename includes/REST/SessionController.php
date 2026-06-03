@@ -952,6 +952,14 @@ final class SessionController {
 		}
 
 		/** @var array<string, mixed> $job */
+		$db_row = ActiveJobRepository::get_by_job_id( $job_id );
+		if (
+			null !== $db_row &&
+			in_array( $db_row->status, array( 'complete', 'error', 'interrupted', 'abandoned' ), true )
+		) {
+			delete_transient( RestController::JOB_PREFIX . $job_id );
+			return $this->job_status_from_db_row( $job_id, $db_row );
+		}
 
 		$response = array( 'status' => $job['status'] );
 
@@ -1077,8 +1085,9 @@ final class SessionController {
 	private function job_status_from_db_row( string $job_id, ActiveJobRow $row ): WP_REST_Response {
 		$status   = $row->status;
 		$response = [
-			'status'  => $status,
-			'from_db' => true,
+			'status'     => $status,
+			'from_db'    => true,
+			'session_id' => $row->session_id,
 		];
 
 		// Include tool-call progress when present.
@@ -1102,8 +1111,21 @@ final class SessionController {
 			}
 		}
 
+		if ( in_array( $status, array( 'interrupted', 'abandoned' ), true ) ) {
+			$error_detail                = trim( (string) $row->error );
+			$response['status']          = 'error';
+			$response['original_status'] = $status;
+			$response['message']         = '' !== $error_detail
+				? sprintf(
+					/* translators: %s: technical interruption detail. */
+					__( 'The background agent job stopped before it could finish. Technical detail: %s', 'superdav-ai-agent' ),
+					$error_detail
+				)
+				: __( 'The background agent job stopped before it could finish. Please retry the request.', 'superdav-ai-agent' );
+		}
+
 		// Delete DB row on terminal-state delivery (mirrors the transient cleanup).
-		if ( in_array( $status, array( 'complete', 'error' ), true ) ) {
+		if ( in_array( $status, array( 'complete', 'error', 'interrupted', 'abandoned' ), true ) ) {
 			ActiveJobRepository::delete( $job_id );
 		}
 

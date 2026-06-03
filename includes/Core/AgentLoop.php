@@ -178,6 +178,12 @@ class AgentLoop {
 	 */
 	private string $active_job_id = '';
 
+	/** @var float Unix timestamp when this active-job run started. */
+	private float $active_job_started_at = 0.0;
+
+	/** @var string Last coarse loop phase for shutdown diagnostics. */
+	private string $last_loop_phase = 'initializing';
+
 	/** @var int Maximum attempts for retryable provider failures. */
 	private int $provider_retry_max_attempts = self::PROVIDER_RETRY_MAX_ATTEMPTS;
 
@@ -457,20 +463,8 @@ class AgentLoop {
 		// The handler is a no-op when the row is no longer 'processing'
 		// (i.e. the loop finished normally and updated the status first).
 		if ( '' !== $this->active_job_id ) {
-			$active_job_id_for_shutdown = $this->active_job_id;
-			register_shutdown_function(
-				static function () use ( $active_job_id_for_shutdown ): void {
-					$connection_status = connection_status();
-					if ( CONNECTION_ABORTED === $connection_status ) {
-						$reason = 'shutdown handler — client disconnected before loop completion';
-					} elseif ( CONNECTION_TIMEOUT === $connection_status ) {
-						$reason = 'shutdown handler — PHP request timed out before loop completion';
-					} else {
-						$reason = 'shutdown handler — request terminated without loop completion';
-					}
-					ActiveJobRepository::mark_interrupted( $active_job_id_for_shutdown, $reason );
-				}
-			);
+			$this->active_job_started_at = microtime( true );
+			register_shutdown_function( array( $this, 'handle_active_job_shutdown' ) );
 		}
 
 		// Append the new user message to history.
@@ -484,8 +478,115 @@ class AgentLoop {
 
 			return $result;
 		} finally {
+			$this->last_loop_phase = 'agent_loop_exiting';
 			AgentEventLog::clear_session();
 		}
+	}
+
+	/**
+	 * Mark a background job interrupted and include actionable shutdown context.
+	 *
+	 * The database update is guarded by status='processing', so this method is a
+	 * no-op after normal completion/error persistence. When PHP terminates during
+	 * a provider call or ability execution, the row now records the last loop
+	 * phase and any fatal shutdown error instead of a generic interruption note.
+	 *
+	 * @return void
+	 */
+	public function handle_active_job_shutdown(): void {
+		if ( '' === $this->active_job_id ) {
+			return;
+		}
+
+		$connection_status = connection_status();
+		if ( CONNECTION_ABORTED === $connection_status ) {
+			$reason = 'shutdown handler — client disconnected before loop completion';
+		} elseif ( CONNECTION_TIMEOUT === $connection_status ) {
+			$reason = 'shutdown handler — PHP request timed out before loop completion';
+		} else {
+			$reason = 'shutdown handler — request terminated without loop completion';
+		}
+
+		$elapsed = $this->active_job_started_at > 0
+			? max( 0, (int) round( microtime( true ) - $this->active_job_started_at ) )
+			: 0;
+		$details = array(
+			'phase=' . $this->last_loop_phase,
+			'iteration=' . $this->iterations_used . '/' . (int) $this->max_iterations,
+			'elapsed_s=' . $elapsed,
+			'connection_status=' . $this->format_connection_status( $connection_status ),
+			'memory_peak=' . (int) memory_get_peak_usage( true ),
+		);
+
+		$last_error = error_get_last();
+		if ( is_array( $last_error ) && $this->is_fatal_shutdown_error( $last_error ) ) {
+			$message   = isset( $last_error['message'] ) ? (string) $last_error['message'] : '';
+			$file      = isset( $last_error['file'] ) ? (string) $last_error['file'] : '';
+			$line      = isset( $last_error['line'] ) ? (int) $last_error['line'] : 0;
+			$details[] = 'fatal_type=' . (int) ( $last_error['type'] ?? 0 );
+			$details[] = 'fatal=' . $this->shorten_shutdown_detail( $message );
+			if ( '' !== $file ) {
+				$details[] = 'fatal_location=' . $this->shorten_shutdown_detail( $file . ':' . $line );
+			}
+		} else {
+			$details[] = 'fatal=none';
+		}
+
+		ActiveJobRepository::mark_interrupted( $this->active_job_id, $reason . '; ' . implode( '; ', $details ) );
+	}
+
+	/**
+	 * Format a PHP connection status bitmask for shutdown diagnostics.
+	 *
+	 * @param int $status PHP connection_status() bitmask.
+	 * @return string Human-readable status label.
+	 */
+	private function format_connection_status( int $status ): string {
+		if ( CONNECTION_NORMAL === $status ) {
+			return 'normal';
+		}
+
+		$labels = array();
+		if ( ( $status & CONNECTION_ABORTED ) === CONNECTION_ABORTED ) {
+			$labels[] = 'aborted';
+		}
+		if ( ( $status & CONNECTION_TIMEOUT ) === CONNECTION_TIMEOUT ) {
+			$labels[] = 'timeout';
+		}
+
+		return empty( $labels ) ? (string) $status : implode( '+', $labels );
+	}
+
+	/**
+	 * Whether error_get_last() represents a fatal shutdown condition.
+	 *
+	 * @param array<string, mixed> $error Last PHP error array.
+	 * @return bool True when the error type terminates execution.
+	 */
+	private function is_fatal_shutdown_error( array $error ): bool {
+		$type = (int) ( $error['type'] ?? 0 );
+
+		return in_array(
+			$type,
+			array( E_ERROR, E_PARSE, E_CORE_ERROR, E_COMPILE_ERROR, E_USER_ERROR, E_RECOVERABLE_ERROR ),
+			true
+		);
+	}
+
+	/**
+	 * Keep shutdown details compact enough for active_jobs.error.
+	 *
+	 * @param string $detail Raw shutdown detail.
+	 * @return string Trimmed detail.
+	 */
+	private function shorten_shutdown_detail( string $detail ): string {
+		$detail = trim( preg_replace( '/\s+/', ' ', $detail ) ?? $detail );
+
+		if ( strlen( $detail ) <= 220 ) {
+			return $detail;
+		}
+
+		return substr( $detail, 0, 217 ) . '...';
 	}
 
 	/**
@@ -661,6 +762,7 @@ class AgentLoop {
 		while ( $iterations > 0 ) {
 			--$iterations;
 			++$this->iterations_used;
+			$this->last_loop_phase = 'iteration_started';
 
 			// Heartbeat: advance updated_at so the hourly stale-job reaper
 			// can distinguish an actively-running loop from a zombie row.
@@ -719,7 +821,9 @@ class AgentLoop {
 			// calls that cause API 400 errors.
 			$this->history = ConversationTrimmer::validate_tool_pairs( $this->history );
 
-			$result = $this->send_prompt();
+			$this->last_loop_phase = 'provider_call';
+			$result                = $this->send_prompt();
+			$this->last_loop_phase = 'provider_response_received';
 
 			if ( is_wp_error( $result ) ) {
 				/** @var WP_Error $result */
@@ -790,7 +894,8 @@ class AgentLoop {
 			if ( ! $this->get_ability_resolver()->has_ability_calls( $assistant_message ) ) {
 				// No tool calls — we're done.
 				$last_was_tool_call = false;
-				$reply              = '';
+				$reply                 = '';
+				$this->last_loop_phase = 'final_response_received';
 
 				try {
 					$reply = $result->toText();
@@ -941,6 +1046,7 @@ class AgentLoop {
 			}
 
 			// Execute the ability calls and get the function response message.
+			$this->last_loop_phase = 'executing_abilities';
 			ChangeLogger::begin( $this->session_id );
 			try {
 				$response_message = $this->get_ability_resolver()->execute_abilities( $assistant_message );
@@ -948,6 +1054,7 @@ class AgentLoop {
 			} finally {
 				ChangeLogger::end();
 			}
+			$this->last_loop_phase = 'ability_response_received';
 
 			// Check if any tool result is a proposal_pending status.
 			// If so, return it to the client for user approval.
@@ -987,6 +1094,7 @@ class AgentLoop {
 			$truncated_message = self::truncate_tool_results( $response_message );
 			$this->append_tool_response_to_history( $truncated_message );
 			$this->log_tool_responses( $truncated_message );
+			$this->last_loop_phase = 'tool_response_recorded';
 
 			// Reset the wall-clock deadline after each productive tool call.
 			// This allows genuinely long tasks (many sequential tool calls) to
