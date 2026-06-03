@@ -60,7 +60,7 @@ class FloatingWidget {
 		// The floating widget UI (FAB + panel) renders independently of the AI
 		// client. The REST API handles provider availability at message-send time.
 
-		self::enqueue_widget_assets();
+		self::enqueue_widget_assets( 'admin' );
 	}
 
 	/**
@@ -86,13 +86,15 @@ class FloatingWidget {
 		// The floating widget UI (FAB + panel) renders independently of the AI
 		// client. The REST API handles provider availability at message-send time.
 
-		self::enqueue_widget_assets();
+		self::enqueue_widget_assets( 'frontend' );
 	}
 
 	/**
 	 * Shared asset enqueueing logic for both admin and frontend contexts.
+	 *
+	 * @param string $context Either 'admin' or 'frontend'.
 	 */
-	private static function enqueue_widget_assets(): void {
+	private static function enqueue_widget_assets( string $context = 'admin' ): void {
 		$build_dir  = (string) apply_filters( 'sd_ai_agent_build_dir', SD_AI_AGENT_DIR . '/build' );
 		$asset_file = $build_dir . '/floating-widget.asset.php';
 
@@ -164,12 +166,17 @@ class FloatingWidget {
 			);
 		}
 
+		$onboarding_complete = OnboardingManager::is_complete();
+
 		wp_localize_script(
 			'sd-ai-agent-floating-widget',
 			'sdAiAgentData',
 			[
 				'currentUserId'       => get_current_user_id(),
-				'onboarding_complete' => OnboardingManager::is_complete(),
+				'context'             => $context,
+				'isFrontend'          => 'frontend' === $context,
+				'frontendOnboarding'  => ( 'frontend' === $context && ! $onboarding_complete ) ? '1' : '',
+				'onboarding_complete' => $onboarding_complete,
 				'changesPageUrl'      => admin_url( 'admin.php?page=sd-ai-agent#/changes' ),
 			]
 		);

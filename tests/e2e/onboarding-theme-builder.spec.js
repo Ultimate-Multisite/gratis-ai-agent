@@ -1,22 +1,19 @@
 /**
- * E2E spec: theme-builder onboarding flow (Onboarding v2)
+ * E2E spec: Setup Assistant theme-build onboarding flow (Onboarding v2)
  *
- * Drives the AI-driven onboarding "Design a custom theme" path end-to-end:
+ * Drives the unified AI-driven onboarding flow end-to-end and verifies the
+ * Setup Assistant can build a custom theme when requested:
  *
  *  1. With a provider configured, onboarding_complete=false, and the site
- *     reporting an empty published-content set, AdminPageApp mounts
- *     OnboardingThemeBuilder directly (no wizard, no mode-picker).
- *  2. The theme-builder agent opens with at least one chat message visible
+ *     needing onboarding, AdminPageApp mounts the unified Setup Assistant
+ *     directly (no wizard, no mode-picker, no Theme Builder route).
+ *  2. The Setup Assistant opens with at least one chat message visible
  *     (the auto-sent kickoff).
  *  3. A deterministic build instruction receives a "DONE" reply.
  *  4. Theme files exist on disk and the theme is the active stylesheet.
  *
  * Uses test.describe.serial because all steps share browser state (the chat
  * session opened in step 1 is reused in steps 2–4).
- *
- * Stable mocks used:
- *  - GET /wp/v2/posts (empty-content heuristic probe) → [] so the gate routes
- *    to OnboardingThemeBuilder regardless of any CI posts already present.
  *
  * The agent's job flow (POST /run → job polling → DONE reply, scaffold-block-theme
  * and activate-theme abilities) uses the real backend with generous timeouts.
@@ -149,9 +146,8 @@ function wpCliRmdir( wpContentRelPath ) {
 /**
  * Navigate to the admin agent page and wait for the chat UI to render.
  *
- * AdminPageApp probes /wp/v2/posts once, then mounts OnboardingThemeBuilder
- * (empty install) → ChatRedesign. We wait for .sdaa-cr (the redesign root)
- * which is the synchronous render output of OnboardingThemeBuilder.
+ * AdminPageApp mounts the unified onboarding bootstrapper → ChatRedesign. We
+ * wait for .sdaa-cr (the redesign root) as the readiness signal.
  *
  * @param {import('@playwright/test').Page} page - Playwright page.
  */
@@ -169,7 +165,7 @@ async function goToAgentPageForOnboarding( page ) {
 // Serial describe block
 // ---------------------------------------------------------------------------
 
-test.describe.serial( 'Theme-builder onboarding flow (Onboarding v2)', () => {
+test.describe.serial( 'Setup Assistant theme-build onboarding flow (Onboarding v2)', () => {
 	/**
 	 * Shared browser page — all tests in this serial suite reuse the same
 	 * page so the browser session (cookies, React state) persists across steps.
@@ -237,35 +233,9 @@ test.describe.serial( 'Theme-builder onboarding flow (Onboarding v2)', () => {
 			} ).catch( () => {} );
 		} );
 
-		// 5. Clear any stale theme-builder session so theme-builder-start
-		//    creates a fresh one (idempotent endpoint reuses the stored ID
-		//    otherwise, which may point to a closed session).
-		wpCli( 'option delete sd_ai_agent_theme_builder_session_id' );
-
-		// 6. Delete any leftover e2e-test-theme directory from a prior run.
+		// 5. Delete any leftover e2e-test-theme directory from a prior run.
 		//    Non-fatal: the build instruction uses overwrite=true as a safety net.
 		wpCliRmdir( '/themes/e2e-test-theme' );
-
-		// 7. Mock the empty-content heuristic probe so the gate routes to
-		//    OnboardingThemeBuilder regardless of any CI posts already present.
-		//    The probe fires once, on first render after settings load.
-		await page.route(
-			( url ) => {
-				const decoded = decodeURIComponent( url.toString() );
-				return (
-					decoded.includes( '/wp/v2/posts' ) &&
-					decoded.includes( 'per_page=1' ) &&
-					decoded.includes( 'status=publish' )
-				);
-			},
-			async ( route ) => {
-				await route.fulfill( {
-					status: 200,
-					contentType: 'application/json',
-					body: JSON.stringify( [] ),
-				} );
-			}
-		);
 	} );
 
 	test.afterAll( async () => {
@@ -281,13 +251,12 @@ test.describe.serial( 'Theme-builder onboarding flow (Onboarding v2)', () => {
 		await page?.close();
 	} );
 
-	// ── Test 1: ChatRedesign mounts via the empty-install route ───────────
+	// ── Test 1: ChatRedesign mounts via unified onboarding ────────────────
 
-	test( 'fresh install with no published content mounts ChatRedesign directly via OnboardingThemeBuilder', async () => {
+	test( 'fresh install mounts ChatRedesign directly through unified onboarding', async () => {
 		// Navigate to the agent page — AdminPageApp should:
 		//   1. Load settings → see onboarding_complete=false.
-		//   2. Fire the /wp/v2/posts probe → mocked to [].
-		//   3. Mount OnboardingThemeBuilder → renders ChatRedesign (.sdaa-cr).
+		//   2. Mount the unified onboarding bootstrapper → renders ChatRedesign (.sdaa-cr).
 		await goToAgentPageForOnboarding( page );
 
 		// The chat shell must be visible — no wizard, no mode-picker.
@@ -296,8 +265,8 @@ test.describe.serial( 'Theme-builder onboarding flow (Onboarding v2)', () => {
 
 	// ── Test 2: greeting visible ──────────────────────────────────────────
 
-	test( 'theme-builder chat session opens and the kickoff message is visible', async () => {
-		// OnboardingThemeBuilder auto-sends a kickoff message (sendMessage()).
+	test( 'Setup Assistant chat session opens and the kickoff message is visible', async () => {
+		// The unified onboarding bootstrapper auto-sends a kickoff message.
 		// The user message row is appended synchronously before any REST call,
 		// so it is a reliable early-readiness signal.
 		// Allow 45 s for the session POST + /run POST round-trip on CI runners.
@@ -309,7 +278,7 @@ test.describe.serial( 'Theme-builder onboarding flow (Onboarding v2)', () => {
 
 	// ── Test 2b: reload does not re-send kickoff ──────────────────────────
 
-	test( 'reloading the page during the theme-builder flow does NOT re-send the kickoff message', async () => {
+	test( 'reloading the page during onboarding does NOT re-send the kickoff message', async () => {
 		// Count the current number of message rows before reload.
 		const messageRowsBefore = await page
 			.locator( '.sdaa-cr .sdaa-cr-msg-row' )

@@ -51,7 +51,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `complete-site-builder` tier-1 cold-start ability). The fresh-install
   onboarding flow now goes through the Setup Assistant agent
   (`Models/Agent::ONBOARDING_AGENT_SLUG`) instead of a parallel bootstrap
-  prompt; `OnboardingManager::rest_bootstrap_start()` returns the
+	prompt; `OnboardingManager::rest_start()` returns the
   Setup Assistant `agent_id` and the React `OnboardingBootstrap` component
   selects that agent before sending the kickoff message, so the agent's
   stored system prompt drives the conversation.

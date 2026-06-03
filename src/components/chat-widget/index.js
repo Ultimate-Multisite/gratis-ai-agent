@@ -34,9 +34,10 @@ const WidgetPanel = lazy( () =>
 );
 
 /**
- *
+ * @param {Object}      root0                        Component props.
+ * @param {string|null} root0.frontendOnboardingMode Frontend onboarding layout mode.
  */
-export default function ChatWidget() {
+export default function ChatWidget( { frontendOnboardingMode = null } ) {
 	const isOpen = useSelect(
 		( sel ) => sel( STORE_NAME ).isFloatingOpen(),
 		[]
@@ -50,7 +51,7 @@ export default function ChatWidget() {
 	// On a cache hit (prefetch or repeat visit) this is imperceptible.
 	return (
 		<Suspense fallback={ null }>
-			<WidgetPanel />
+			<WidgetPanel frontendOnboardingMode={ frontendOnboardingMode } />
 		</Suspense>
 	);
 }

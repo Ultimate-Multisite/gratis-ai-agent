@@ -43,8 +43,7 @@ class AgentThemeBuilderTest extends WP_UnitTestCase {
 	}
 
 	/**
-	 * THEME_BUILDER_AGENT_SLUG constant is retained for upgrade cleanup and the
-	 * legacy /onboarding/theme-builder-start route name.
+	 * THEME_BUILDER_AGENT_SLUG constant is retained for upgrade cleanup only.
 	 */
 	public function test_theme_builder_agent_slug_constant_is_retained_for_legacy_cleanup(): void {
 		$this->assertSame( self::RETIRED_SLUG, Agent::THEME_BUILDER_AGENT_SLUG );

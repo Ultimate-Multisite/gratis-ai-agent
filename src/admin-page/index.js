@@ -5,12 +5,10 @@ import {
 	createRoot,
 	useEffect,
 	useMemo,
-	useState,
 	lazy,
 	Suspense,
 } from '@wordpress/element';
 import { useDispatch, useSelect } from '@wordpress/data';
-import apiFetch from '@wordpress/api-fetch';
 
 /**
  * Internal dependencies
@@ -27,16 +25,9 @@ import './style.css';
 
 // These components are rendered only in specific, uncommon states:
 //  - ConnectorGate          → zero providers configured (first install)
-//  - OnboardingBootstrap    → first install, site already has content
+//  - OnboardingBootstrap    → first install after a provider is configured
 //                             (drops the user straight into the unified
-//                             Setup Assistant agent, established-site branch)
-//  - OnboardingThemeBuilder → first install, site has no content yet
-//                             (drops the user straight into the unified
-//                             Setup Assistant agent, empty-install branch.
-//                             As of t276 both bootstrappers resolve the same
-//                             agent server-side — the React split is kept
-//                             only to send the right Phase 1 kickoff per
-//                             content state.)
+//                             Setup Assistant agent)
 //  - ShortcutsHelp          → user presses Mod+/ (explicitly intentional)
 // None of them appear during a normal chat session, so they are lazy-loaded.
 const ConnectorGate = lazy( () =>
@@ -49,12 +40,6 @@ const OnboardingBootstrap = lazy( () =>
 	import(
 		/* webpackChunkName: "onboarding-bootstrap", webpackPrefetch: true */
 		'../components/onboarding-bootstrap'
-	)
-);
-const OnboardingThemeBuilder = lazy( () =>
-	import(
-		/* webpackChunkName: "onboarding-theme-builder", webpackPrefetch: true */
-		'../components/onboarding-theme-builder'
 	)
 );
 const ShortcutsHelp = lazy( () =>
@@ -76,34 +61,15 @@ const ShortcutsHelp = lazy( () =>
  *    so it disappears automatically once a provider becomes available.
  *
  * 2. **First-run agent** — shown when a provider exists but onboarding has
- *    not yet completed. A single heuristic picks the right bootstrapper:
- *      - site has published content  → OnboardingBootstrap (Setup Assistant
- *        agent: explores the existing site and introduces itself).
- *      - site has no content yet     → OnboardingThemeBuilder (Setup
- *        Assistant empty-install kickoff: helps design and scaffold a custom
- *        block theme).
- *    Both bootstrappers POST to their server endpoint, which flips
- *    `onboarding_complete` to true and opens an agent session.
+ *    not yet completed. The app opens one unified Setup Assistant session;
+ *    the agent investigates the site and can build a theme if requested or
+ *    required. The old content-count split and Theme Builder route are gone.
  *
  * 3. After onboarding completes the full redesigned chat layout is shown.
  *
  * @return {JSX.Element|null} Admin page app element, or null while settings are loading.
  */
 function AdminPageApp() {
-	/**
-	 * Tracks whether the site has any "real" published content yet. Used to
-	 * pick the default first-run kickoff for the unified Setup Assistant: empty
-	 * install → fast-build kickoff; otherwise → discovery kickoff. `null` means
-	 * the heuristic probe is still in flight.
-	 *
-	 * Probe target: GET /wp/v2/posts?per_page=2&status=publish. The probe
-	 * returns true when at least TWO published posts exist, so the WordPress
-	 * default "Hello world!" seed post is treated as "no real content yet".
-	 * Fired lazily — only when we actually need to show one of the
-	 * bootstrappers — so existing installs pay no probe cost.
-	 */
-	const [ siteHasContent, setSiteHasContent ] = useState( null );
-
 	const {
 		fetchProviders,
 		fetchSessions,
@@ -170,41 +136,7 @@ function AdminPageApp() {
 			);
 	}, [ providersLoaded, fetchProviders ] );
 
-	// First-run content probe.
-	//
-	// When we are about to mount one of the onboarding bootstrappers, probe
-	// /wp/v2/posts once to decide which agent to drop the user into. Fired
-	// lazily — existing installs (onboarding already complete) never call it.
-	//
-	// Threshold is `> 1`, not `> 0`, because every fresh WordPress install
-	// ships with one seeded "Hello world!" post. A `> 0` check would always
-	// be true on a default install and the empty-install branch would be
-	// unreachable. `> 1` treats the seed post as "no real content yet" and
-	// only flips to Setup Assistant once the user has at least two
-	// published posts. Edge case: a user who deletes the seed post and
-	// writes exactly one real post will still be routed to the empty-install
-	// kickoff. Tracked in the v1.16.1 follow-up issue alongside
-	// the broader probe (it currently only counts `post`-type entries and
-	// misses page-only / CPT-only / WooCommerce-only installs).
 	const onboardingComplete = settings?.onboarding_complete !== false;
-	useEffect( () => {
-		if ( ! settingsLoaded || onboardingComplete ) {
-			return;
-		}
-		if ( siteHasContent !== null ) {
-			return;
-		}
-		apiFetch( { path: '/wp/v2/posts?per_page=2&status=publish' } )
-			.then( ( posts ) => {
-				setSiteHasContent( Array.isArray( posts ) && posts.length > 1 );
-			} )
-			.catch( () => {
-				// Probe failed (e.g., REST blocked, network error): treat
-				// the site as having content so we land on the Setup
-				// Assistant (the safer default for an unknown state).
-				setSiteHasContent( true );
-			} );
-	}, [ settingsLoaded, onboardingComplete, siteHasContent ] );
 
 	// Keyboard shortcuts.
 	const shortcuts = useMemo(
@@ -257,30 +189,11 @@ function AdminPageApp() {
 
 	// Phase 2 gate: connector exists but onboarding not yet complete.
 	//
-	// Onboarding v2 — no wizard, no mode picker. We pick a bootstrapper
-	// based on whether the site has any published content yet:
-	//   - empty install → OnboardingThemeBuilder (empty-install kickoff)
-	//   - has content   → OnboardingBootstrap    (discovery kickoff)
-	// Both bootstrappers resolve to the unified Setup Assistant agent
-	// server-side and POST to a `*-start` endpoint that flips
-	// `onboarding_complete` to true and opens an agent session. The agent's
-	// own Phase 0 silent discovery then decides which branch to run.
+	// Onboarding v2 — no wizard, no mode picker, no content-count route split.
+	// The bootstrapper opens one unified Setup Assistant session through
+	// /onboarding/start. The agent investigates first and can build a theme if
+	// the user asks or the site requires it.
 	if ( ! onboardingComplete ) {
-		// Heuristic probe still in flight — render nothing until we know
-		// which bootstrapper to mount. The probe is one REST call (~50 ms
-		// on a warm install).
-		if ( siteHasContent === null ) {
-			return null;
-		}
-
-		if ( siteHasContent === false ) {
-			return (
-				<Suspense fallback={ null }>
-					<OnboardingThemeBuilder />
-				</Suspense>
-			);
-		}
-
 		return (
 			<Suspense fallback={ null }>
 				<OnboardingBootstrap />

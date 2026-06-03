@@ -30,9 +30,10 @@ const PANEL_POSITION_STORAGE_KEY = 'aiAgentWidgetPanelPosition';
 const PANEL_SIZE_STORAGE_KEY = 'aiAgentWidgetPanelSize';
 
 /**
- *
+ * @param {Object}      root0                        Component props.
+ * @param {string|null} root0.frontendOnboardingMode Frontend onboarding layout mode.
  */
-export default function WidgetPanel() {
+export default function WidgetPanel( { frontendOnboardingMode = null } ) {
 	const { confirmToolCall, rejectToolCall, setFloatingMinimized } =
 		useDispatch( STORE_NAME );
 
@@ -154,7 +155,7 @@ export default function WidgetPanel() {
 	const showEmpty = messageCount === 0 && ! sending;
 
 	const panelStyle = {};
-	if ( position ) {
+	if ( position && ! frontendOnboardingMode ) {
 		// Bottom-anchored so minimizing keeps the pill visually at the
 		// bottom of its previous rect (the input row sits where it was).
 		panelStyle.left = `${ position.x }px`;
@@ -162,10 +163,23 @@ export default function WidgetPanel() {
 		panelStyle.right = 'auto';
 		panelStyle.top = 'auto';
 	}
-	if ( size && ! isMinimized ) {
+	if ( size && ! isMinimized && ! frontendOnboardingMode ) {
 		panelStyle.width = `${ size.w }px`;
 		panelStyle.height = `${ size.h }px`;
 	}
+	const onboardingClass = frontendOnboardingMode
+		? ` is-frontend-onboarding is-onboarding-${ frontendOnboardingMode }`
+		: '';
+	const onboardingMessage =
+		frontendOnboardingMode === 'building'
+			? __(
+					'Live build mode: I moved aside so you can watch the site update.',
+					'superdav-ai-agent'
+			  )
+			: __(
+					'Setup starts here. I’ll move aside as soon as live changes begin.',
+					'superdav-ai-agent'
+			  );
 
 	return (
 		<>
@@ -174,7 +188,7 @@ export default function WidgetPanel() {
 					isMinimized ? ' is-minimized' : ''
 				}${ isDragging ? ' is-dragging' : '' }${
 					isResizing ? ' is-resizing' : ''
-				}` }
+				}${ onboardingClass }` }
 				style={ panelStyle }
 				role="presentation"
 				data-drag-target="true"
@@ -186,8 +200,24 @@ export default function WidgetPanel() {
 				<WidgetHeader
 					isMinimized={ isMinimized }
 					onToggleMinimize={ toggleMinimize }
-					onDragHandleMouseDown={ handlePanelDragStart }
+					onDragHandleMouseDown={
+						frontendOnboardingMode
+							? undefined
+							: handlePanelDragStart
+					}
 				/>
+
+				{ ! isMinimized && frontendOnboardingMode && (
+					<div
+						className={ `sdaa-w-onboarding-strip is-${ frontendOnboardingMode }` }
+					>
+						<span
+							className="sdaa-w-onboarding-strip-dot"
+							aria-hidden="true"
+						/>
+						<span>{ onboardingMessage }</span>
+					</div>
+				) }
 
 				{ ! isMinimized && changesCount > 0 && (
 					<div className="sdaa-w-changes-strip">
@@ -249,7 +279,7 @@ export default function WidgetPanel() {
 					</ErrorBoundary>
 				) }
 
-				{ ! isMinimized && (
+				{ ! isMinimized && ! frontendOnboardingMode && (
 					<>
 						<div
 							className="sdaa-w-resize-handle sdaa-w-resize-handle--right"

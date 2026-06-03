@@ -2,14 +2,14 @@
  * Unit tests for components/onboarding-bootstrap.js
  *
  * Tests cover:
- * - Calls bootstrap-start endpoint on mount
- * - Selects the Setup Assistant agent returned by bootstrap-start
- * - Opens the session returned by bootstrap-start
- * - Sends the kickoff message returned by bootstrap-start
- * - Falls back gracefully when bootstrap-start fails
+ * - Calls unified onboarding start endpoint on mount
+ * - Selects the Setup Assistant agent returned by start
+ * - Opens the session returned by start
+ * - Sends the kickoff message returned by start
+ * - Falls back gracefully when start fails
  * - Uses fallback kickoff message when none returned
  * - Skips agent selection when no agent_id returned
- * - Does not call bootstrap-start twice (React 18 strict-mode guard)
+ * - Does not call start twice (React 18 strict-mode guard)
  */
 
 import { createElement } from '@wordpress/element';
@@ -92,7 +92,7 @@ describe( 'OnboardingBootstrap', () => {
 		} );
 	}
 
-	test( 'calls bootstrap-start endpoint on mount', async () => {
+	test( 'calls unified onboarding start endpoint on mount', async () => {
 		apiFetch.mockResolvedValue( {
 			session_id: 42,
 			agent_id: 7,
@@ -100,12 +100,12 @@ describe( 'OnboardingBootstrap', () => {
 		} );
 		await renderBootstrap();
 		expect( apiFetch ).toHaveBeenCalledWith( {
-			path: '/sd-ai-agent/v1/onboarding/bootstrap-start',
+			path: '/sd-ai-agent/v1/onboarding/start',
 			method: 'POST',
 		} );
 	} );
 
-	test( 'selects the Setup Assistant agent returned by bootstrap-start', async () => {
+	test( 'selects the Setup Assistant agent returned by start', async () => {
 		apiFetch.mockResolvedValue( {
 			session_id: 42,
 			agent_id: 7,
@@ -115,7 +115,7 @@ describe( 'OnboardingBootstrap', () => {
 		expect( setSelectedAgentIdMock ).toHaveBeenCalledWith( 7 );
 	} );
 
-	test( 'opens the session returned by bootstrap-start', async () => {
+	test( 'opens the session returned by start', async () => {
 		apiFetch.mockResolvedValue( {
 			session_id: 99,
 			agent_id: 7,
@@ -158,7 +158,7 @@ describe( 'OnboardingBootstrap', () => {
 		expect( typeof msg ).toBe( 'string' );
 	} );
 
-	test( 'does not throw when bootstrap-start fails', async () => {
+	test( 'does not throw when start fails', async () => {
 		apiFetch.mockRejectedValue( new Error( 'Network error' ) );
 		// Should render without throwing.
 		await expect( renderBootstrap() ).resolves.toBeUndefined();
