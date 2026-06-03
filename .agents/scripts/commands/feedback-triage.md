@@ -117,6 +117,10 @@ issue. Examples:
   map to `includes/Abilities/GscAbilities.php`, `includes/Core/Settings.php`,
   `includes/REST/SettingsController.php`, and
   `includes/Abilities/ToolCapabilities.php`.
+- WordPress.org review-response notes map to the root `AGENTS.md`
+  "WordPress.org Review Responses" policy. The issue body should require a
+  concise issue-by-issue response, concrete fix/rationale references, verification
+  evidence, and no broad "false positive" claims without finding-specific proof.
 
 The resulting issue body must name the target files, expected behaviour, and at
 least one verification command; do not leave private local paths or shorthand as
@@ -212,8 +216,13 @@ before creating the issue:
   avoid heredocs/process substitution/command substitution/inline markdown, pass
   that file via `--body-file`, and switch to the signed helper path instead of
   retrying the same raw unsigned `gh` command.
+- If the note asks for a WordPress.org plugin-review email response, require the
+  worker to draft against the root `AGENTS.md` review-response rules: address
+  each reviewer finding separately, cite the merged fix or evidence-backed
+  rationale, include commands/manual checks run, and avoid "all fixed" or
+  "false positive" language unless tied to exact file/pattern evidence.
 - Include verification in the issue body, for example
-  `rg -n "Contributor Insight|sd-ai-agent/v1|secret|current user|file upload" AGENTS.md .agents/AGENTS.md .agents/scripts/commands/feedback-triage.md`
+  `rg -n "Contributor Insight|sd-ai-agent/v1|secret|current user|file upload|WordPress.org Review|false positive" AGENTS.md .agents/AGENTS.md .agents/scripts/commands/feedback-triage.md`
   or `rg -n "read:file_not_found|missing-file reads|git ls-files|signature gate|body-file|gh-signature-helper" AGENTS.md .agents/AGENTS.md .agents/scripts/commands/feedback-triage.md`
   plus `rg -n "wp-block-themes|Full Site Editing|theme.json|validate-block-content" AGENTS.md includes/Models/skills/wp-block-themes.md`
   when block-theme guidance is involved.

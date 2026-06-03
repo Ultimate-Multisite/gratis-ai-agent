@@ -66,6 +66,9 @@ professional, issue-by-issue format:
   or manual review commands that were run.
 - Avoid defensive language, marketing copy, emojis, and broad claims that are not
   backed by a concrete change or test.
+- Do not say remaining reviewer findings are "false positives" unless a specific
+  finding was reproduced, traced to a scanner limitation, and documented with the
+  exact file/pattern evidence that proves the submitted code is safe.
 - Close with the resubmission status and any specific reviewer action requested.
 
 ### Contributor Insight Triage
@@ -144,8 +147,12 @@ note to a committed, future-loaded source before editing:
   for API calls and ability IDs, `includes/Core/Settings.php` for credential
   storage, `includes/REST/SettingsController.php` for credential REST routes,
   and `includes/Abilities/ToolCapabilities.php` for capability gating.
+- For WordPress.org review-response prompts, use the review response rules above:
+  summarize each reviewer finding, cite the merged fix or evidence-backed
+  rationale, include verification commands, and avoid blanket "all fixed" or
+  "false positive" claims that are not tied to a specific finding.
 - Verification for this class of guidance-only fix should include both:
-  `rg -n "Contributor Insight|source mapping|local-path|sd-ai-agent/v1|file upload" AGENTS.md .agents/AGENTS.md .agents/scripts/commands/feedback-triage.md`
+  `rg -n "Contributor Insight|source mapping|local-path|sd-ai-agent/v1|file upload|WordPress.org Review|false positive" AGENTS.md .agents/AGENTS.md .agents/scripts/commands/feedback-triage.md`
   and `rg -n "wp-block-themes|Full Site Editing|theme.json|validate-block-content" AGENTS.md includes/Models/skills/wp-block-themes.md`.
 
 ### Google Search Console API Usage Mapping
