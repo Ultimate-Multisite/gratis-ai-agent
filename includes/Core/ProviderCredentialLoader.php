@@ -13,6 +13,8 @@ declare(strict_types=1);
 
 namespace SdAiAgent\Core;
 
+use SdAiAgent\Infrastructure\AiClient\Superdav\SuperdavAiProvider;
+
 class ProviderCredentialLoader {
 
 	/**
@@ -84,6 +86,15 @@ class ProviderCredentialLoader {
 					new $auth_class( $api_key )
 				);
 			}
+		}
+
+		// Source 1b: first-party Superdav AI provider credential option.
+		$superdav_api_key = get_option( SuperdavAiProvider::CREDENTIAL_OPTION, '' );
+		if ( is_string( $superdav_api_key ) && '' !== $superdav_api_key && $registry->hasProvider( SuperdavAiProvider::PROVIDER_ID ) ) {
+			$registry->setProviderRequestAuthentication(
+				SuperdavAiProvider::PROVIDER_ID,
+				new $auth_class( $superdav_api_key )
+			);
 		}
 
 		// Source 2: AI Experiments plugin credentials option.

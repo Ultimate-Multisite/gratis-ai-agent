@@ -1,0 +1,106 @@
+<?php
+/**
+ * Tests for the first-party Superdav AI Client SDK provider.
+ *
+ * @package SdAiAgent\Tests\Infrastructure\AiClient\Superdav
+ * @license GPL-2.0-or-later
+ */
+
+declare(strict_types=1);
+
+namespace SdAiAgent\Tests\Infrastructure\AiClient\Superdav;
+
+use SdAiAgent\Bootstrap\SuperdavAiProviderHandler;
+use SdAiAgent\Core\ProviderCredentialLoader;
+use SdAiAgent\Infrastructure\AiClient\Superdav\SuperdavAiModelMetadataDirectory;
+use SdAiAgent\Infrastructure\AiClient\Superdav\SuperdavAiProvider;
+use WP_UnitTestCase;
+use WordPress\AiClient\AiClient;
+use WordPress\AiClient\Providers\Http\DTO\Response;
+use WordPress\AiClient\Providers\Models\Enums\CapabilityEnum;
+
+/**
+ * Covers provider metadata, registration, and credential bridging.
+ */
+final class SuperdavAiProviderTest extends WP_UnitTestCase {
+
+	/**
+	 * Clean up provider-specific options.
+	 */
+	public function tear_down(): void {
+		delete_option( SuperdavAiProvider::CREDENTIAL_OPTION );
+		parent::tear_down();
+	}
+
+	/**
+	 * Metadata uses the canonical provider identifiers.
+	 */
+	public function test_metadata_uses_canonical_provider_identifiers(): void {
+		$metadata = SuperdavAiProvider::metadata();
+
+		$this->assertSame( 'sd-ai-agent-cloud', $metadata->getId() );
+		$this->assertSame( 'Superdav AI', $metadata->getName() );
+		$this->assertNotNull( $metadata->getAuthenticationMethod() );
+	}
+
+	/**
+	 * Handler registers the first-party provider with the SDK registry.
+	 */
+	public function test_handler_registers_provider_with_default_registry(): void {
+		$this->skip_if_sdk_unavailable();
+
+		( new SuperdavAiProviderHandler() )->register_provider();
+
+		$this->assertTrue( AiClient::defaultRegistry()->hasProvider( SuperdavAiProvider::PROVIDER_ID ) );
+	}
+
+	/**
+	 * Credential loader bridges the Superdav connector option into SDK auth.
+	 */
+	public function test_credential_loader_sets_superdav_provider_authentication(): void {
+		$this->skip_if_sdk_unavailable();
+
+		( new SuperdavAiProviderHandler() )->register_provider();
+		update_option( SuperdavAiProvider::CREDENTIAL_OPTION, 'test-key' );
+
+		ProviderCredentialLoader::load();
+
+		$auth = AiClient::defaultRegistry()->getProviderRequestAuthentication( SuperdavAiProvider::PROVIDER_ID );
+		$this->assertNotNull( $auth );
+	}
+
+	/**
+	 * Model metadata parsing exposes OpenAI-compatible text generation models.
+	 */
+	public function test_model_metadata_contains_text_generation_capability(): void {
+		$this->skip_if_sdk_unavailable();
+
+		$directory = new SuperdavAiModelMetadataDirectory();
+		$method    = new \ReflectionMethod( $directory, 'parseResponseToModelMetadataList' );
+		$models    = $method->invoke(
+			$directory,
+			new Response(
+				200,
+				array( 'content-type' => 'application/json' ),
+				'{"data":[{"id":"example-model","name":"Example Model"}]}'
+			)
+		);
+
+		$this->assertIsArray( $models );
+		$this->assertCount( 1, $models );
+		$model = $models[0];
+
+		$this->assertSame( 'example-model', $model->getId() );
+		$this->assertSame( 'Example Model', $model->getName() );
+		$this->assertContainsEquals( CapabilityEnum::textGeneration(), $model->getSupportedCapabilities() );
+	}
+
+	/**
+	 * Skip when the SDK was not loaded in the current test environment.
+	 */
+	private function skip_if_sdk_unavailable(): void {
+		if ( ! class_exists( AiClient::class ) ) {
+			$this->markTestSkipped( 'WordPress AI Client SDK is unavailable.' );
+		}
+	}
+}

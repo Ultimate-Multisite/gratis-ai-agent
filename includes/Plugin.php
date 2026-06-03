@@ -41,6 +41,7 @@ use SdAiAgent\Bootstrap\HttpTraceHandler;
 use SdAiAgent\Bootstrap\ModelCapabilityHandler;
 use SdAiAgent\Bootstrap\KnowledgeHooksHandler;
 use SdAiAgent\Bootstrap\OnboardingHandler;
+use SdAiAgent\Bootstrap\SuperdavAiProviderHandler;
 use SdAiAgent\Bootstrap\ToolDiscoveryHandler;
 use SdAiAgent\Contracts\BudgetCheckerInterface;
 use SdAiAgent\Contracts\SessionRepositoryInterface;
@@ -95,6 +96,7 @@ use XWP\DI\Decorators\Module;
 		AbilityCategoryRegistrar::class,
 		UsageInstructionsFilter::class,
 		RequestTimeoutFilter::class,
+		SuperdavAiProviderHandler::class,
 		CliHandler::class,
 		AbilitiesHandler::class,
 		WooCommerceIntegrationHandler::class,

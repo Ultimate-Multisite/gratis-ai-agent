@@ -415,6 +415,9 @@ namespace WordPress\AiClient\Providers\Models\DTO {
 
 		/** @return string */
 		public function getName(): string { return ''; }
+
+		/** @return array<int, mixed> */
+		public function getSupportedCapabilities(): array { return array(); }
 	}
 }
 
@@ -426,20 +429,26 @@ namespace WordPress\AiClient\Providers\DTO {
 	 * Metadata describing an AI provider (stub).
 	 *
 	 * Mirrors WordPress\AiClient\Providers\DTO\ProviderMetadata shipped
-	 * in php-ai-client. Constructor takes (id, name, ProviderTypeEnum).
+	 * in php-ai-client.
 	 */
 	class ProviderMetadata {
 		/**
 		 * Constructor.
 		 *
-		 * @param string                $id   Provider id.
-		 * @param string                $name Provider display name.
-		 * @param ProviderTypeEnum|null $type Provider type enum.
+		 * @param string                                               $id                    Provider id.
+		 * @param string                                               $name                  Provider display name.
+		 * @param ProviderTypeEnum|null                                $type                  Provider type enum.
+		 * @param string|null                                          $credentials_url       Credentials URL.
+		 * @param \WordPress\AiClient\Providers\Http\Enums\RequestAuthenticationMethod|null $authentication_method Authentication method.
+		 * @param string|null                                          $description           Provider description.
 		 */
 		public function __construct(
 			string $id = '',
 			string $name = '',
-			?ProviderTypeEnum $type = null
+			?ProviderTypeEnum $type = null,
+			?string $credentials_url = null,
+			?\WordPress\AiClient\Providers\Http\Enums\RequestAuthenticationMethod $authentication_method = null,
+			?string $description = null
 		) {}
 
 		/** @return string */
@@ -447,6 +456,12 @@ namespace WordPress\AiClient\Providers\DTO {
 
 		/** @return string */
 		public function getName(): string { return ''; }
+
+		/** @return ProviderTypeEnum */
+		public function getType(): ProviderTypeEnum { return new ProviderTypeEnum(); }
+
+		/** @return \WordPress\AiClient\Providers\Http\Enums\RequestAuthenticationMethod|null */
+		public function getAuthenticationMethod(): ?\WordPress\AiClient\Providers\Http\Enums\RequestAuthenticationMethod { return null; }
 	}
 }
 
@@ -466,6 +481,155 @@ namespace WordPress\AiClient\Providers\Enums {
 		public function getValue(): string {
 			return $this->value;
 		}
+
+		/** @return self */
+		public static function cloud(): self { return new self(); }
+
+		/** @return string */
+		public function __toString(): string { return $this->value; }
+	}
+}
+
+namespace WordPress\AiClient\Providers\Contracts {
+
+	interface ProviderAvailabilityInterface {
+		/** @return bool */
+		public function isConfigured(): bool;
+	}
+
+	interface ModelMetadataDirectoryInterface {
+		/** @return array<int, \WordPress\AiClient\Providers\Models\DTO\ModelMetadata> */
+		public function listModelMetadata(): array;
+
+		/** @param string $model_id */
+		public function hasModelMetadata( string $model_id ): bool;
+
+		/** @param string $model_id */
+		public function getModelMetadata( string $model_id ): \WordPress\AiClient\Providers\Models\DTO\ModelMetadata;
+	}
+}
+
+namespace WordPress\AiClient\Providers\Models\Contracts {
+
+	interface ModelInterface {}
+}
+
+namespace WordPress\AiClient\Providers\Http\Contracts {
+
+	interface RequestAuthenticationInterface {}
+
+	interface WithRequestAuthenticationInterface {
+		/** @param RequestAuthenticationInterface $authentication Authentication. */
+		public function setRequestAuthentication( RequestAuthenticationInterface $authentication ): void;
+	}
+}
+
+namespace WordPress\AiClient\Providers\Http\Enums {
+
+	class RequestAuthenticationMethod {
+		/** @return self */
+		public static function apiKey(): self { return new self(); }
+	}
+
+	class HttpMethodEnum {}
+}
+
+namespace WordPress\AiClient\Providers\Http\DTO {
+
+	class Request {
+		/**
+		 * @param \WordPress\AiClient\Providers\Http\Enums\HttpMethodEnum $method  HTTP method.
+		 * @param string                                                   $uri     Request URI.
+		 * @param array<string, string|list<string>>                       $headers Request headers.
+		 * @param string|array<string, mixed>|null                         $data    Request data.
+		 */
+		public function __construct( \WordPress\AiClient\Providers\Http\Enums\HttpMethodEnum $method, string $uri, array $headers = array(), $data = null ) {}
+	}
+
+	class Response {
+		/** @return array<string, mixed>|null */
+		public function getData(): ?array { return null; }
+	}
+
+	class ApiKeyRequestAuthentication implements \WordPress\AiClient\Providers\Http\Contracts\RequestAuthenticationInterface {
+		/** @param string $api_key API key. */
+		public function __construct( string $api_key ) {}
+	}
+}
+
+namespace WordPress\AiClient\Providers\Http\Traits {
+
+	trait WithRequestAuthenticationTrait {
+		/** @var \WordPress\AiClient\Providers\Http\Contracts\RequestAuthenticationInterface|null */
+		private ?\WordPress\AiClient\Providers\Http\Contracts\RequestAuthenticationInterface $request_authentication = null;
+
+		/** @param \WordPress\AiClient\Providers\Http\Contracts\RequestAuthenticationInterface $request_authentication Authentication. */
+		public function setRequestAuthentication( \WordPress\AiClient\Providers\Http\Contracts\RequestAuthenticationInterface $request_authentication ): void {
+			$this->request_authentication = $request_authentication;
+		}
+
+		/** @return \WordPress\AiClient\Providers\Http\Contracts\RequestAuthenticationInterface */
+		public function getRequestAuthentication(): \WordPress\AiClient\Providers\Http\Contracts\RequestAuthenticationInterface {
+			return $this->request_authentication ?? new \WordPress\AiClient\Providers\Http\DTO\ApiKeyRequestAuthentication();
+		}
+	}
+}
+
+namespace WordPress\AiClient\Providers\ApiBasedImplementation {
+
+	abstract class AbstractApiProvider {
+		/** @return \WordPress\AiClient\Providers\DTO\ProviderMetadata */
+		public static function metadata(): \WordPress\AiClient\Providers\DTO\ProviderMetadata { return new \WordPress\AiClient\Providers\DTO\ProviderMetadata(); }
+
+		/** @return \WordPress\AiClient\Providers\Contracts\ProviderAvailabilityInterface */
+		public static function availability(): \WordPress\AiClient\Providers\Contracts\ProviderAvailabilityInterface {
+			return new class() implements \WordPress\AiClient\Providers\Contracts\ProviderAvailabilityInterface {
+				/** @return bool */
+				public function isConfigured(): bool { return false; }
+			};
+		}
+
+		/** @return \WordPress\AiClient\Providers\Contracts\ModelMetadataDirectoryInterface */
+		public static function modelMetadataDirectory(): \WordPress\AiClient\Providers\Contracts\ModelMetadataDirectoryInterface {
+			return new class() implements \WordPress\AiClient\Providers\Contracts\ModelMetadataDirectoryInterface {
+				/** @return array<int, \WordPress\AiClient\Providers\Models\DTO\ModelMetadata> */
+				public function listModelMetadata(): array { return array(); }
+
+				/** @param string $model_id Model id. */
+				public function hasModelMetadata( string $model_id ): bool { return false; }
+
+				/** @param string $model_id Model id. */
+				public function getModelMetadata( string $model_id ): \WordPress\AiClient\Providers\Models\DTO\ModelMetadata { return new \WordPress\AiClient\Providers\Models\DTO\ModelMetadata(); }
+			};
+		}
+
+		/**
+		 * @param string $path Endpoint path.
+		 * @return string
+		 */
+		public static function url( string $path = '' ): string { return $path; }
+	}
+}
+
+namespace WordPress\AiClient\Providers\OpenAiCompatibleImplementation {
+
+	abstract class AbstractOpenAiCompatibleModelMetadataDirectory implements \WordPress\AiClient\Providers\Contracts\ModelMetadataDirectoryInterface {
+		/** @return array<int, \WordPress\AiClient\Providers\Models\DTO\ModelMetadata> */
+		public function listModelMetadata(): array { return array(); }
+
+		/** @param string $model_id */
+		public function hasModelMetadata( string $model_id ): bool { return false; }
+
+		/** @param string $model_id */
+		public function getModelMetadata( string $model_id ): \WordPress\AiClient\Providers\Models\DTO\ModelMetadata { return new \WordPress\AiClient\Providers\Models\DTO\ModelMetadata(); }
+	}
+
+	abstract class AbstractOpenAiCompatibleTextGenerationModel implements \WordPress\AiClient\Providers\Models\Contracts\ModelInterface {
+		/**
+		 * @param \WordPress\AiClient\Providers\Models\DTO\ModelMetadata $metadata          Model metadata.
+		 * @param \WordPress\AiClient\Providers\DTO\ProviderMetadata     $provider_metadata Provider metadata.
+		 */
+		public function __construct( \WordPress\AiClient\Providers\Models\DTO\ModelMetadata $metadata, \WordPress\AiClient\Providers\DTO\ProviderMetadata $provider_metadata ) {}
 	}
 }
 
@@ -475,6 +639,9 @@ namespace WordPress\AiClient {
 	 * AI model registry (stub).
 	 */
 	class ModelRegistry {
+		/** @param class-string $class_name */
+		public function registerProvider( string $class_name ): void {}
+
 		/** @param string $provider_id */
 		public function hasProvider( string $provider_id ): bool { return false; }
 
