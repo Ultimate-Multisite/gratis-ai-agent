@@ -681,7 +681,7 @@ class Agent {
 			. "5. Call `sd-ai-agent/validate-palette-contrast` on the chosen palette and auto-apply the suggested adjustments so the scaffold ships WCAG-AA compliant.\n"
 			. "6. Call `sd-ai-agent/scaffold-block-theme` with the inferred metadata and a `theme.json` using schema **version 3** (never v2) with `\"\$schema\": \"https://schemas.wp.org/trunk/theme.json\"` and `\"version\": 3`.\n"
 			. "7. Write `parts/header.html`, `parts/footer.html`, `templates/index.html`, `templates/page.html`, and `templates/front-page.html` via `sd-ai-agent/file-write`. Validate each one with `sd-ai-agent/validate-block-content`.\n"
-			. "8. Apply the chosen design system (colors, typography, spacing) via `sd-ai-agent/update-global-styles`.\n"
+			. "8. Apply the chosen design system (colors, typography, spacing) via `sd-ai-agent/update-global-styles` with a real, non-empty theme.json partial. The call must include `styles` (for example `styles.color.background`, `styles.color.text`, `styles.typography`, and `styles.elements.button`) and may also include `settings`; never pass empty arrays/objects.\n"
 			. "9. Publish the homepage as a real page via `sd-ai-agent/create-post` (post_type: page, status: publish). Compose hero + about + primary CTA using:\n"
 			. "   - real user-supplied facts (name, location, vertical, photos) FIRST\n"
 			. "   - safe inferred copy where the user gave nothing (e.g. \"Welcome to {name}\", a 2-sentence about paragraph derived from vertical + name, a vertical-appropriate CTA label).\n"

@@ -97,6 +97,40 @@ class SchemaExampleBuilderTest extends WP_UnitTestCase {
 		$this->assertStringContainsString( 'value', $example['phantom'] );
 	}
 
+	public function test_build_example_expands_nested_required_object_shape(): void {
+		$schema = array(
+			'type'       => 'object',
+			'properties' => array(
+				'styles' => array(
+					'type'       => 'object',
+					'properties' => array(
+						'color'      => array(
+							'type'       => 'object',
+							'properties' => array(
+								'background' => array( 'type' => 'string', 'description' => 'Background colour.' ),
+								'text'       => array( 'type' => 'string', 'description' => 'Text colour.' ),
+							),
+						),
+						'typography' => array(
+							'type'       => 'object',
+							'properties' => array(
+								'fontFamily' => array( 'type' => 'string', 'description' => 'Font stack.' ),
+							),
+						),
+					),
+				),
+			),
+			'required'   => array( 'styles' ),
+		);
+
+		$example = SchemaExampleBuilder::build_example( $schema );
+
+		$this->assertIsArray( $example['styles'] );
+		$this->assertArrayHasKey( 'color', $example['styles'] );
+		$this->assertArrayHasKey( 'background', $example['styles']['color'] );
+		$this->assertStringContainsString( 'Background colour', $example['styles']['color']['background'] );
+	}
+
 	// ─── extract_missing_required ────────────────────────────────────
 
 	public function test_extract_missing_required_handles_standard_phrasing(): void {
