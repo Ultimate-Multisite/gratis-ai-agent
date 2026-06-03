@@ -107,6 +107,28 @@ class ImageSourceFactory {
 	}
 
 	/**
+	 * Get IDs for currently available free image sources.
+	 *
+	 * This powers the stock-image ability schema so provider enums do not advertise
+	 * sources that cannot be used in the current site configuration.
+	 *
+	 * @return list<string> Available free source IDs.
+	 */
+	public static function get_available_free_source_ids(): array {
+		$available = self::get_available();
+
+		return array_values(
+			array_map(
+				static fn( ImageSourceInterface $source ): string => $source->get_id(),
+				array_filter(
+					$available,
+					static fn( ImageSourceInterface $source ): bool => 'free' === $source->get_cost_type()
+				)
+			)
+		);
+	}
+
+	/**
 	 * Smart source selection for a keyword.
 	 *
 	 * Chooses the best available source based on preference hierarchy:
@@ -188,15 +210,23 @@ class ImageSourceFactory {
 			static fn( ImageSourceInterface $source ): bool => 'free' === $source->get_cost_type()
 		);
 
-		// If a specific provider is requested, restrict to that source only.
+		// If a specific provider is requested, prefer it only when it is currently
+		// available. Unavailable free providers (for example an unconfigured Pixabay
+		// API key) are omitted from the schema, but older/direct model calls may
+		// still send them. In that case, fall back to the available free-source chain
+		// rather than returning no imagery.
 		if ( '' !== $provider ) {
-			if ( ! isset( $free_sources[ $provider ] ) ) {
+			$known_source = self::get( $provider );
+			if ( ! $known_source || 'free' !== $known_source->get_cost_type() ) {
 				return new WP_Error(
 					'provider_unavailable',
 					sprintf( 'Provider "%s" is not available or is not a free source.', $provider )
 				);
 			}
-			$free_sources = [ $provider => $free_sources[ $provider ] ];
+
+			if ( isset( $free_sources[ $provider ] ) ) {
+				$free_sources = [ $provider => $free_sources[ $provider ] ];
+			}
 		}
 
 		if ( empty( $free_sources ) ) {

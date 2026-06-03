@@ -102,6 +102,29 @@ class StockImageAbilityTest extends WP_UnitTestCase {
 		$this->assertNotContains( 'keyword', $schema['required'] );
 	}
 
+	/**
+	 * The provider schema only advertises free sources that are currently usable,
+	 * so direct model calls are not guided toward an unconfigured Pixabay source.
+	 */
+	public function test_schema_provider_enum_excludes_unavailable_pixabay(): void {
+		$this->set_factory_sources(
+			[
+				'openverse' => new FakeStockImageSource( 'openverse', 'free', [], [], true ),
+				'pixabay'   => new FakeStockImageSource( 'pixabay', 'free', [], [], false ),
+				'generate'  => new FakeStockImageSource( 'generate', 'api', [], [], true ),
+			]
+		);
+
+		$method = new \ReflectionMethod( StockImageAbility::class, 'input_schema' );
+		$method->setAccessible( true );
+
+		/** @var array{properties: array{provider: array{enum: list<string>}}} $schema */
+		$schema = $method->invoke( $this->ability );
+
+		$this->assertSame( [ 'openverse' ], $schema['properties']['provider']['enum'] );
+		$this->assertNotContains( 'pixabay', $schema['properties']['provider']['enum'] );
+	}
+
 	// ─── search mode (action=search) ─────────────────────────────────────────
 
 	/**
@@ -226,6 +249,50 @@ class StockImageAbilityTest extends WP_UnitTestCase {
 		$this->assertSame( 'blue', $filters['colour'] ?? null );
 		$this->assertSame( 1600, $filters['min_width'] ?? 0 );
 		$this->assertSame( 900, $filters['min_height'] ?? 0 );
+	}
+
+	/**
+	 * Direct calls that still send an unavailable free provider fall back to the
+	 * available free-source chain instead of failing the stock-image search.
+	 */
+	public function test_search_mode_falls_back_from_unavailable_pixabay_to_available_provider(): void {
+		$openverse = new FakeStockImageSource(
+			'openverse',
+			'free',
+			[
+				[
+					'id'      => 'ov-ballet-1',
+					'preview' => 'https://openverse.example.com/thumb/ov-ballet-1.jpg',
+					'width'   => 1200,
+					'height'  => 800,
+					'title'   => 'Children ballet class',
+					'license' => 'CC0',
+					'source'  => 'openverse',
+				]
+			]
+		);
+
+		$this->set_factory_sources(
+			[
+				'openverse' => $openverse,
+				'pixabay'   => new FakeStockImageSource( 'pixabay', 'free', [], [], false ),
+				'generate'  => new FakeStockImageSource( 'generate', 'api', [] ),
+			]
+		);
+
+		$result = $this->invoke_execute(
+			[
+				'keyword'  => 'children ballet class',
+				'action'   => 'search',
+				'provider' => 'pixabay',
+			]
+		);
+
+		$this->assertIsArray( $result );
+		$this->assertArrayNotHasKey( 'error', $result );
+		$this->assertCount( 1, $result['candidates'] );
+		$this->assertSame( 'openverse', $result['candidates'][0]['provider'] );
+		$this->assertCount( 1, $openverse->search_calls );
 	}
 
 	// ─── import mode (action=import with provider + image_id) ────────────────
@@ -631,7 +698,8 @@ class FakeStockImageSource implements ImageSourceInterface {
 		private string $id,
 		private string $cost_type,
 		private array $hits,
-		private array $images = []
+		private array $images = [],
+		private bool $available = true
 	) {}
 
 	/** {@inheritdoc} */
@@ -646,7 +714,7 @@ class FakeStockImageSource implements ImageSourceInterface {
 
 	/** {@inheritdoc} */
 	public function is_available(): bool {
-		return true;
+		return $this->available;
 	}
 
 	/** {@inheritdoc} */

@@ -69,6 +69,8 @@ class StockImageAbility extends \SdAiAgent\Abilities\AbstractAbility {
 	 * {@inheritdoc}
 	 */
 	protected function input_schema(): array {
+		$available_providers = ImageSourceFactory::get_available_free_source_ids();
+
 		return [
 			'type'       => 'object',
 			'properties' => [
@@ -87,8 +89,8 @@ class StockImageAbility extends \SdAiAgent\Abilities\AbstractAbility {
 				],
 				'provider'    => [
 					'type'        => 'string',
-					'enum'        => [ 'openverse', 'pixabay' ],
-					'description' => 'Restrict search or import to a specific provider. When action=import, this identifies which provider image_id belongs to.',
+					'enum'        => $available_providers,
+					'description' => 'Restrict search or import to a currently available free provider. Omit this value unless using a provider from this enum; unavailable providers such as unconfigured Pixabay are intentionally hidden so the ability can fall back to available free sources.',
 				],
 				'limit'       => [
 					'type'        => 'integer',
