@@ -892,6 +892,67 @@ class RestControllerTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * Test interrupted DB fallback jobs surface as user-visible errors.
+	 */
+	public function test_job_status_interrupted_from_db_surfaces_error(): void {
+		wp_set_current_user( $this->admin_id );
+
+		$run_response = $this->dispatch( 'POST', '/sd-ai-agent/v1/run', [
+			'message' => 'Interrupted fallback test',
+		] );
+
+		$this->assertStatus( 202, $run_response );
+		$job_id = $run_response->get_data()['job_id'];
+
+		delete_transient( RestController::JOB_PREFIX . $job_id );
+		ActiveJobRepository::mark_interrupted(
+			$job_id,
+			'shutdown handler — request terminated without loop completion; phase=provider_call; fatal_location=/home/runner/work/site/wp-content/plugins/private/file.php:123; token=sk-test-secret-token'
+		);
+
+		$status_response = $this->dispatch( 'GET', "/sd-ai-agent/v1/job/{$job_id}" );
+
+		$this->assertStatus( 200, $status_response );
+		$data = $status_response->get_data();
+
+		$this->assertSame( 'error', $data['status'] );
+		$this->assertSame( 'interrupted', $data['original_status'] );
+		$this->assertStringContainsString( 'phase=provider_call', $data['message'] );
+		$this->assertStringNotContainsString( '/home/runner/work', $data['message'] );
+		$this->assertStringNotContainsString( 'sk-test-secret-token', $data['message'] );
+		$this->assertNull(
+			ActiveJobRepository::get_by_job_id( $job_id ),
+			'Terminal interrupted row should be deleted after delivery.'
+		);
+	}
+
+	/**
+	 * Test terminal DB status wins over a stale processing transient.
+	 */
+	public function test_job_status_prefers_terminal_db_row_over_stale_transient(): void {
+		wp_set_current_user( $this->admin_id );
+
+		$run_response = $this->dispatch( 'POST', '/sd-ai-agent/v1/run', [
+			'message' => 'Stale transient fallback test',
+		] );
+
+		$this->assertStatus( 202, $run_response );
+		$job_id = $run_response->get_data()['job_id'];
+
+		ActiveJobRepository::update_status( $job_id, 'complete' );
+
+		$status_response = $this->dispatch( 'GET', "/sd-ai-agent/v1/job/{$job_id}" );
+
+		$this->assertStatus( 200, $status_response );
+		$data = $status_response->get_data();
+
+		$this->assertSame( 'complete', $data['status'] );
+		$this->assertTrue( $data['from_db'] );
+		$this->assertFalse( get_transient( RestController::JOB_PREFIX . $job_id ) );
+		$this->assertNull( ActiveJobRepository::get_by_job_id( $job_id ) );
+	}
+
+	/**
 	 * Test invalid direct history processing persists the DB job status as error.
 	 */
 	public function test_process_invalid_history_persists_error_status(): void {

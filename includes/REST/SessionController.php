@@ -11,6 +11,7 @@ declare(strict_types=1);
 
 namespace SdAiAgent\REST;
 
+use SdAiAgent\Abilities\OptionsAbilities;
 use SdAiAgent\Core\AgentLoop;
 use SdAiAgent\Core\ConversationSerializer;
 use SdAiAgent\Core\ConversationTrimmer;
@@ -47,6 +48,9 @@ if ( ! defined( 'ABSPATH' ) ) {
 final class SessionController {
 
 	use PermissionTrait;
+
+	/** Maximum safe technical-detail length returned by job status polling. */
+	private const JOB_ERROR_DETAIL_MAX_LENGTH = 180;
 
 	/** @var Database Injected database dependency. */
 	private Database $database;
@@ -952,6 +956,14 @@ final class SessionController {
 		}
 
 		/** @var array<string, mixed> $job */
+		$db_row = ActiveJobRepository::get_by_job_id( $job_id );
+		if (
+			null !== $db_row &&
+			in_array( $db_row->status, array( 'complete', 'error', 'interrupted', 'abandoned' ), true )
+		) {
+			delete_transient( RestController::JOB_PREFIX . $job_id );
+			return $this->job_status_from_db_row( $job_id, $db_row );
+		}
 
 		$response = array( 'status' => $job['status'] );
 
@@ -1077,8 +1089,9 @@ final class SessionController {
 	private function job_status_from_db_row( string $job_id, ActiveJobRow $row ): WP_REST_Response {
 		$status   = $row->status;
 		$response = [
-			'status'  => $status,
-			'from_db' => true,
+			'status'     => $status,
+			'from_db'    => true,
+			'session_id' => $row->session_id,
 		];
 
 		// Include tool-call progress when present.
@@ -1102,12 +1115,68 @@ final class SessionController {
 			}
 		}
 
+		if ( in_array( $status, array( 'interrupted', 'abandoned' ), true ) ) {
+			$error_detail                = $this->sanitize_job_error_detail( (string) $row->error );
+			$response['status']          = 'error';
+			$response['original_status'] = $status;
+			$response['message']         = '' !== $error_detail
+				? sprintf(
+					/* translators: %s: technical interruption detail. */
+					__( 'The background agent job stopped before it could finish. Technical detail: %s', 'superdav-ai-agent' ),
+					$error_detail
+				)
+				: __( 'The background agent job stopped before it could finish. Please retry the request.', 'superdav-ai-agent' );
+		}
+
 		// Delete DB row on terminal-state delivery (mirrors the transient cleanup).
-		if ( in_array( $status, array( 'complete', 'error' ), true ) ) {
+		if ( in_array( $status, array( 'complete', 'error', 'interrupted', 'abandoned' ), true ) ) {
 			ActiveJobRepository::delete( $job_id );
 		}
 
 		return new WP_REST_Response( $response, 200 );
+	}
+
+	/**
+	 * Scrub active-job technical details before they are returned to REST clients.
+	 *
+	 * Active-job rows may contain shutdown or provider details written from low-level
+	 * code paths. Keep the useful phase/status tokens but strip paths, stack traces,
+	 * credential-shaped fragments, and any known secret option names.
+	 *
+	 * @param string $detail Raw active_jobs.error value.
+	 * @return string Bounded, client-safe summary, or empty string when fully redacted.
+	 */
+	private function sanitize_job_error_detail( string $detail ): string {
+		$detail = trim( wp_strip_all_tags( $detail ) );
+		if ( '' === $detail ) {
+			return '';
+		}
+
+		foreach ( OptionsAbilities::get_secret_read_blocklist() as $secret_option ) {
+			if ( preg_match( '/\b' . preg_quote( $secret_option, '/' ) . '\b/i', $detail ) ) {
+				return '';
+			}
+		}
+
+		$detail = preg_replace( '/#[0-9]+\s+[^;]+/', '[stack_trace]', $detail ) ?? $detail;
+		$detail = preg_replace( '#\b(?:/[^\s;:]+){2,}(?::[0-9]+)?#', '[path]', $detail ) ?? $detail;
+		$detail = preg_replace( '#\b[A-Za-z]:\\\\[^\s;]+#', '[path]', $detail ) ?? $detail;
+		$detail = preg_replace( '/\b(?:api[_-]?key|token|secret|password|credential|authorization)\s*[:=]\s*[^\s;]+/i', '[redacted_credential]', $detail ) ?? $detail;
+		$detail = preg_replace( '/\bsk-[A-Za-z0-9_-]{8,}\b/', '[redacted_token]', $detail ) ?? $detail;
+		$detail = preg_replace( '/\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b/', '[redacted_email]', $detail ) ?? $detail;
+		$detail = sanitize_text_field( $detail );
+		$detail = preg_replace( '/\s+/', ' ', $detail ) ?? $detail;
+		$detail = trim( $detail );
+
+		if ( '' === $detail || preg_match( '/^\[(?:path|stack_trace|redacted_credential|redacted_token|redacted_email)\]$/', $detail ) ) {
+			return '';
+		}
+
+		if ( strlen( $detail ) > self::JOB_ERROR_DETAIL_MAX_LENGTH ) {
+			$detail = substr( $detail, 0, self::JOB_ERROR_DETAIL_MAX_LENGTH - 3 ) . '...';
+		}
+
+		return $detail;
 	}
 
 	/**

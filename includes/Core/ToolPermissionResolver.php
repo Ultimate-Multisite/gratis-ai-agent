@@ -56,6 +56,14 @@ class ToolPermissionResolver {
 
 			$fn_name = (string) $call->getName();
 
+			// Non-ability function names are not executable WordPress tools.
+			// Let the resolver return an invalid_ability_call tool result so the
+			// provider receives a matched response for the tool_call ID instead of
+			// pausing forever or sending an unpaired tool call back on the next turn.
+			if ( ! str_starts_with( $fn_name, 'wpab__' ) ) {
+				continue;
+			}
+
 			// Convert function name to ability name for lookups.
 			$ability_name = $fn_name;
 			if ( str_starts_with( $fn_name, 'wpab__' ) && class_exists( 'WP_AI_Client_Ability_Function_Resolver' ) ) {
