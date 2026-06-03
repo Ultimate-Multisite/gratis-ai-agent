@@ -576,6 +576,9 @@ class ToolDiscovery {
 			$found = array();
 			foreach ( $ids as $id ) {
 				$id = self::canonicalise_ability_id( $id );
+				if ( str_starts_with( $id, 'ai-agent/' ) ) {
+					continue;
+				}
 				foreach ( $candidates as $a ) {
 					if ( $a->get_name() === $id ) {
 						$found[] = $a;
@@ -787,6 +790,9 @@ class ToolDiscovery {
 		}
 
 		$ability_id = self::canonicalise_ability_id( $ability_id );
+		if ( str_starts_with( $ability_id, 'ai-agent/' ) ) {
+			return self::format_unknown_ability_response( $ability_id );
+		}
 
 		// @phpstan-ignore-next-line
 		$ability = wp_get_ability( $ability_id );

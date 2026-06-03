@@ -371,8 +371,6 @@ class ToolDiscoveryTest extends WP_UnitTestCase {
 	}
 
 	public function test_ability_call_rejects_legacy_ai_agent_prefix_with_canonical_suggestion(): void {
-		$this->setExpectedIncorrectUsage( 'WP_Abilities_Registry::get_registered' );
-
 		$result = ToolDiscovery::handle_ability_call(
 			[
 				'ability'   => 'ai-agent/get-plugins',
@@ -388,8 +386,6 @@ class ToolDiscoveryTest extends WP_UnitTestCase {
 	}
 
 	public function test_ability_search_select_rejects_legacy_prefix(): void {
-		$this->setExpectedIncorrectUsage( 'WP_Abilities_Registry::get_registered' );
-
 		$result = ToolDiscovery::handle_ability_search(
 			[ 'query' => 'select:ai-agent/get-plugins' ]
 		);
