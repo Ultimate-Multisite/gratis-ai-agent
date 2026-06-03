@@ -96,6 +96,38 @@ final class WooCommerceIntegrationHandler {
 	}
 
 	/**
+	 * Keep WooCommerce's MCP adapter off generic REST requests.
+	 *
+	 * WooCommerce 10.7 initializes its MCP adapter on every REST request when the
+	 * MCP feature flag is enabled. The adapter can recursively initialize the REST
+	 * server while `rest_api_init` is already running, exhausting PHP-FPM workers
+	 * and hanging unrelated routes such as `/wp-json/` and this plugin's
+	 * `/sd-ai-agent/v1/alerts` endpoint. Preserve the stored feature flag for the
+	 * real WooCommerce MCP endpoint, but report the feature as disabled for all
+	 * other REST requests.
+	 *
+	 * @param mixed $pre_option Pre-option value from earlier filters.
+	 * @return mixed Filtered pre-option value.
+	 */
+	#[Filter( tag: 'pre_option_' . self::WOO_MCP_OPTION, priority: 10 )]
+	public function disable_woo_mcp_for_non_mcp_rest_requests( mixed $pre_option ): mixed {
+		if ( ! self::is_woocommerce_active() ) {
+			return $pre_option;
+		}
+
+		if ( ! function_exists( 'wp_is_serving_rest_request' ) || ! wp_is_serving_rest_request() ) {
+			return $pre_option;
+		}
+
+		$request_uri = isset( $_SERVER['REQUEST_URI'] ) ? sanitize_text_field( wp_unslash( $_SERVER['REQUEST_URI'] ) ) : '';
+		if ( str_contains( $request_uri, '/woocommerce/mcp' ) ) {
+			return $pre_option;
+		}
+
+		return 'no';
+	}
+
+	/**
 	 * Register the `woocommerce-rest` ability category for the WP Abilities API.
 	 *
 	 * WooCommerce normally registers this category only when its `AbilitiesRegistry`
