@@ -172,9 +172,11 @@ final class AbilitiesHandler {
 		}
 		// The WP.org build strips DatabaseAbilities.php to avoid recurring
 		// Plugin Check direct-SQL findings on the dynamic SELECT diagnostics
-		// ability. Keep the full release behaviour unchanged while avoiding a
-		// fatal when the source file is absent from the submitted zip.
-		if ( class_exists( DatabaseAbilities::class ) ) {
+		// ability. Check the physical source path before class_exists() because
+		// Jetpack Autoloader can hard-require optimized classmap paths for files
+		// that existed before the WP.org strip step.
+		$database_abilities_file = dirname( __DIR__ ) . '/Abilities/DatabaseAbilities.php';
+		if ( file_exists( $database_abilities_file ) && class_exists( DatabaseAbilities::class ) ) {
 			DatabaseAbilities::register_abilities();
 		}
 		WordPressAbilities::register_abilities();
