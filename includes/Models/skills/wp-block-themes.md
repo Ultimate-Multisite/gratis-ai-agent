@@ -136,6 +136,7 @@ For non-landing templates, create a reusable page-title part or pattern that use
 - `sd-ai-agent/list-block-patterns` — Browse patterns for page creation and templates
 - `sd-ai-agent/parse-block-content` — Inspect template structure
 - `sd-ai-agent/create-block-content` / `sd-ai-agent/validate-block-content` — Build/check block markup before saving
+- `sd-ai-agent/update-global-styles` — Apply the selected design direction with a non-empty theme.json `styles` partial. Never call it with `styles: []`, `settings: []`, `{}`, or unchanged empty arguments; include concrete colors, typography, spacing, or element styles.
 
 ## theme.json Overview
 
@@ -182,6 +183,8 @@ Recommended palette: 5–7 entries (`primary`, `secondary`, `accent`, `backgroun
 ```
 
 ### Styles
+
+When calling `sd-ai-agent/update-global-styles`, pass only the inner `styles` and optional `settings` objects — not the full theme.json wrapper. The `styles` argument is required and must be non-empty.
 
 ```json
 {

@@ -36,13 +36,16 @@ class SchemaExampleBuilder {
 	/**
 	 * Walk an input_schema and produce a stub arguments object containing
 	 * every required field with a placeholder value of the form
-	 * `<{type} — {description}>`. Optional fields are omitted.
+	 * `<{type} — {description}>`. Nested required object/array fields are
+	 * expanded so nudges for complex tools show a usable argument shape instead
+	 * of a top-level `<object>` placeholder. Optional top-level fields are
+	 * omitted.
 	 *
 	 * Returns an empty array when the schema has no required fields, no
 	 * properties, or is malformed.
 	 *
 	 * @param mixed $schema The ability input_schema (assoc array).
-	 * @return array<string, string>
+	 * @return array<string, mixed>
 	 */
 	public static function build_example( $schema ): array {
 		if ( ! is_array( $schema ) ) {
@@ -61,33 +64,74 @@ class SchemaExampleBuilder {
 			if ( ! is_string( $field ) || '' === $field ) {
 				continue;
 			}
-			$prop = isset( $properties[ $field ] ) && is_array( $properties[ $field ] ) ? $properties[ $field ] : array();
-
-			$type = isset( $prop['type'] ) ? $prop['type'] : 'value';
-			if ( is_array( $type ) ) {
-				$type = implode( '|', $type );
-			} else {
-				$type = (string) $type;
-			}
-
-			$desc = isset( $prop['description'] ) ? trim( (string) $prop['description'] ) : '';
-			if ( strlen( $desc ) > 80 ) {
-				$desc = substr( $desc, 0, 77 ) . '...';
-			}
-
-			// If the schema lists an enum, hint with the allowed values
-			// instead of the description — much more actionable.
-			if ( isset( $prop['enum'] ) && is_array( $prop['enum'] ) && ! empty( $prop['enum'] ) ) {
-				$enum_summary = implode( '|', array_map( static fn( $v ) => (string) $v, array_slice( $prop['enum'], 0, 5 ) ) );
-				$desc         = "one of: {$enum_summary}";
-			}
-
-			$example[ $field ] = '' !== $desc
-				? "<{$type} — {$desc}>"
-				: "<{$type}>";
+			$prop              = isset( $properties[ $field ] ) && is_array( $properties[ $field ] ) ? $properties[ $field ] : array();
+			$example[ $field ] = self::build_value( $prop );
 		}
 
 		return $example;
+	}
+
+	/**
+	 * Build an example value for a single schema property.
+	 *
+	 * @param array<string, mixed> $prop  Property schema.
+	 * @param int                  $depth Current recursion depth.
+	 * @return mixed Example value.
+	 */
+	private static function build_value( array $prop, int $depth = 0 ): mixed {
+		$type_raw = isset( $prop['type'] ) ? $prop['type'] : 'value';
+		$type     = is_array( $type_raw )
+			? implode( '|', array_map( static fn( $value ): string => is_scalar( $value ) || null === $value ? (string) $value : gettype( $value ), $type_raw ) )
+			: (string) $type_raw;
+
+		if ( $depth < 4 && str_contains( $type, 'object' ) && isset( $prop['properties'] ) && is_array( $prop['properties'] ) && ! empty( $prop['properties'] ) ) {
+			$fields = isset( $prop['required'] ) && is_array( $prop['required'] ) && ! empty( $prop['required'] )
+				? array_values( array_filter( $prop['required'], 'is_string' ) )
+				: array_keys( $prop['properties'] );
+
+			$value = array();
+			foreach ( $fields as $field ) {
+				if ( ! is_string( $field ) || ! isset( $prop['properties'][ $field ] ) || ! is_array( $prop['properties'][ $field ] ) ) {
+					continue;
+				}
+				$value[ $field ] = self::build_value( $prop['properties'][ $field ], $depth + 1 );
+			}
+
+			if ( ! empty( $value ) ) {
+				return $value;
+			}
+		}
+
+		if ( $depth < 4 && str_contains( $type, 'array' ) && isset( $prop['items'] ) && is_array( $prop['items'] ) && ! empty( $prop['items'] ) ) {
+			return array( self::build_value( $prop['items'], $depth + 1 ) );
+		}
+
+		return self::placeholder( $type, $prop );
+	}
+
+	/**
+	 * Build a scalar placeholder for a schema property.
+	 *
+	 * @param string               $type Property type label.
+	 * @param array<string, mixed> $prop Property schema.
+	 * @return string Placeholder string.
+	 */
+	private static function placeholder( string $type, array $prop ): string {
+		$desc = isset( $prop['description'] ) ? trim( (string) $prop['description'] ) : '';
+		if ( strlen( $desc ) > 80 ) {
+			$desc = substr( $desc, 0, 77 ) . '...';
+		}
+
+		// If the schema lists an enum, hint with the allowed values
+		// instead of the description — much more actionable.
+		if ( isset( $prop['enum'] ) && is_array( $prop['enum'] ) && ! empty( $prop['enum'] ) ) {
+			$enum_summary = implode( '|', array_map( static fn( $v ) => (string) $v, array_slice( $prop['enum'], 0, 5 ) ) );
+			$desc         = "one of: {$enum_summary}";
+		}
+
+		return '' !== $desc
+			? "<{$type} — {$desc}>"
+			: "<{$type}>";
 	}
 
 	/**

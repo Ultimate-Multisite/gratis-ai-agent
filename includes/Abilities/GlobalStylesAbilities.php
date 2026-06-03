@@ -76,25 +76,75 @@ class GlobalStylesAbilities {
 			'sd-ai-agent/update-global-styles',
 			[
 				'label'               => __( 'Update Global Styles', 'superdav-ai-agent' ),
-				'description'         => __( 'Update WordPress global styles (theme.json customizations). Merges the provided styles into the existing user customizations. Supports color palette, typography, spacing, and layout settings.', 'superdav-ai-agent' ),
+				'description'         => __( 'Update WordPress global styles (theme.json customizations). Pass a non-empty theme.json partial in styles (and optionally settings); never call this with empty styles/settings. Merges the provided colors, typography, spacing, elements, and layout into existing user customizations.', 'superdav-ai-agent' ),
 				'category'            => 'sd-ai-agent',
 				'input_schema'        => [
 					'type'       => 'object',
 					'properties' => [
 						'styles'   => [
-							'type'        => 'object',
-							'description' => 'Styles object to merge. Supports nested keys: color (palette, background, text, link), typography (fontFamily, fontSize, fontWeight, lineHeight), spacing (padding, margin, blockGap), layout (contentSize, wideSize).',
+							'type'          => 'object',
+							'minProperties' => 1,
+							'description'   => 'Required non-empty theme.json styles object to merge. Example: {"color":{"background":"#fffaf3","text":"#20120d"},"typography":{"fontFamily":"system-ui, sans-serif","lineHeight":"1.6"},"elements":{"button":{"color":{"background":"#d97706","text":"#ffffff"},"border":{"radius":"0.75rem"}}}}.',
+							'properties'    => [
+								'color'      => [
+									'type'        => 'object',
+									'description' => 'Global color styles.',
+									'properties'  => [
+										'background' => [
+											'type'        => 'string',
+											'description' => 'Page background hex or preset var.',
+										],
+										'text'       => [
+											'type'        => 'string',
+											'description' => 'Body text hex or preset var.',
+										],
+									],
+								],
+								'typography' => [
+									'type'        => 'object',
+									'description' => 'Global typography styles.',
+									'properties'  => [
+										'fontFamily' => [
+											'type'        => 'string',
+											'description' => 'System or bundled font stack.',
+										],
+										'fontSize'   => [
+											'type'        => 'string',
+											'description' => 'Base font size.',
+										],
+										'lineHeight' => [
+											'type'        => 'string',
+											'description' => 'Base line height.',
+										],
+									],
+								],
+								'spacing'    => [
+									'type'        => 'object',
+									'description' => 'Global spacing styles.',
+									'properties'  => [
+										'blockGap' => [
+											'type'        => 'string',
+											'description' => 'Default block gap.',
+										],
+									],
+								],
+								'elements'   => [
+									'type'        => 'object',
+									'description' => 'Element styles such as links, headings, and buttons.',
+								],
+							],
 						],
 						'settings' => [
-							'type'        => 'object',
-							'description' => 'Settings object to merge (e.g. color.palette, typography.fontSizes, spacing.spacingSizes).',
+							'type'          => 'object',
+							'minProperties' => 1,
+							'description'   => 'Optional non-empty theme.json settings object to merge when presets changed (e.g. color.palette, typography.fontSizes, spacing.spacingSizes).',
 						],
 						'site_url' => [
 							'type'        => 'string',
 							'description' => 'Subsite URL for multisite (e.g. "https://example.com/mysite").',
 						],
 					],
-					'required'   => [],
+					'required'   => [ 'styles' ],
 				],
 				'output_schema'       => [
 					'type'       => 'object',
@@ -108,6 +158,9 @@ class GlobalStylesAbilities {
 				],
 				'meta'                => [
 					'mcp'         => [ 'public' => true ],
+					'ai'          => [
+						'usage_instructions' => 'For homepage/theme builds, call update-global-styles exactly once with a real, non-empty theme.json partial. Do not pass [] or {} for styles/settings; include at least styles.color plus typography or element styles from the chosen design direction.',
+					],
 					'annotations' => [
 						'readonly'    => false,
 						'destructive' => false,
