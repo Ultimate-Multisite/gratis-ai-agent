@@ -784,7 +784,7 @@ class AgentLoop {
 			// "function_call + other part" shapes (see
 			// ConversationSerializer::append_assistant_message for the full
 			// rationale and provider-side validator reference).
-			ConversationSerializer::append_assistant_message( $this->history, $assistant_message );
+			$this->append_assistant_message_to_history( $assistant_message );
 
 			// Check if the model wants to call tools.
 			if ( ! $this->get_ability_resolver()->has_ability_calls( $assistant_message ) ) {
@@ -835,7 +835,7 @@ class AgentLoop {
 
 					if ( ! is_wp_error( $followup_result ) ) {
 						$followup_message = $followup_result->toMessage();
-						ConversationSerializer::append_assistant_message( $this->history, $followup_message );
+						$this->append_assistant_message_to_history( $followup_message );
 						$this->accumulate_tokens( $followup_result );
 
 						try {
@@ -1047,7 +1047,7 @@ class AgentLoop {
 
 			if ( ! is_wp_error( $fallback_result ) ) {
 				$fallback_message = $fallback_result->toMessage();
-				ConversationSerializer::append_assistant_message( $this->history, $fallback_message );
+				$this->append_assistant_message_to_history( $fallback_message );
 				$this->accumulate_tokens( $fallback_result );
 
 				$reply = '';
@@ -1651,6 +1651,70 @@ class AgentLoop {
 	 */
 	private function append_tool_response_to_history( Message $message ): void {
 		ConversationSerializer::append_tool_response( $this->history, $message );
+	}
+
+	/**
+	 * Append an assistant message to history using provider-aware preservation.
+	 *
+	 * DeepSeek thinking-mode chat completions require the assistant turn that
+	 * opened tool calls to round-trip with its original thought channel attached
+	 * as `reasoning_content` on that same wire message. The generic serializer
+	 * splits mixed thought+function_call messages so the OpenAI Responses API can
+	 * replay function calls as separate top-level input items, but that split
+	 * severs DeepSeek's reasoning/tool-call pairing. Keep DeepSeek tool-call
+	 * assistant messages intact so the DeepSeek provider can serialize them as a
+	 * single assistant entry with both `tool_calls` and `reasoning_content`.
+	 *
+	 * @param Message $message Assistant message returned by the model.
+	 */
+	private function append_assistant_message_to_history( Message $message ): void {
+		if ( $this->should_preserve_deepseek_tool_call_message( $message ) ) {
+			$this->history[] = $message;
+			return;
+		}
+
+		ConversationSerializer::append_assistant_message( $this->history, $message );
+	}
+
+	/**
+	 * Whether a model-role tool-call message should remain unsplit for DeepSeek.
+	 *
+	 * @param Message $message Assistant message returned by the model.
+	 */
+	private function should_preserve_deepseek_tool_call_message( Message $message ): bool {
+		if ( ! $this->is_deepseek_context() ) {
+			return false;
+		}
+
+		foreach ( $message->getParts() as $part ) {
+			$is_function_call = false;
+			if ( method_exists( $part, 'getType' ) ) {
+				$type = $part->getType();
+				if ( is_object( $type ) && is_callable( array( $type, 'isFunctionCall' ) ) ) {
+					$is_function_call = (bool) $type->isFunctionCall();
+				}
+			}
+
+			if ( ! $is_function_call && method_exists( $part, 'getFunctionCall' ) ) {
+				$is_function_call = null !== $part->getFunctionCall();
+			}
+
+			if ( $is_function_call ) {
+				return true;
+			}
+		}
+
+		return false;
+	}
+
+	/**
+	 * Whether the active provider/model is DeepSeek or an OpenAI-compatible DeepSeek model.
+	 */
+	private function is_deepseek_context(): bool {
+		$provider_id = strtolower( trim( (string) $this->provider_id ) );
+		$model_id    = strtolower( trim( (string) $this->model_id ) );
+
+		return 'deepseek' === $provider_id || str_starts_with( $model_id, 'deepseek-' );
 	}
 
 	/**
