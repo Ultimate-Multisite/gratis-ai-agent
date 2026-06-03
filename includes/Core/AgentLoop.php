@@ -891,7 +891,7 @@ class AgentLoop {
 			$this->append_assistant_message_to_history( $assistant_message );
 
 			// Check if the model wants to call tools.
-			if ( ! $this->get_ability_resolver()->has_ability_calls( $assistant_message ) ) {
+			if ( ! $this->message_has_function_calls( $assistant_message ) ) {
 				// No tool calls — we're done.
 				$last_was_tool_call = false;
 				$reply                 = '';
@@ -1794,6 +1794,21 @@ class AgentLoop {
 			return false;
 		}
 
+		return $this->message_has_function_calls( $message );
+	}
+
+	/**
+	 * Whether a message contains any function-call part, even if not executable.
+	 *
+	 * Resolver::has_ability_calls() intentionally returns false for malformed or
+	 * non-ability function names. The loop still must treat those as tool calls so
+	 * it can return matching error tool results; otherwise the next DeepSeek/OpenAI
+	 * request violates provider tool_call/tool_result pairing requirements.
+	 *
+	 * @param Message $message Assistant message returned by the model.
+	 * @return bool True when the message contains at least one function call part.
+	 */
+	private function message_has_function_calls( Message $message ): bool {
 		foreach ( $message->getParts() as $part ) {
 			$is_function_call = false;
 			if ( method_exists( $part, 'getType' ) ) {
@@ -2290,7 +2305,7 @@ class AgentLoop {
 	 * @param Message $message Assistant message converted from the result.
 	 */
 	private function is_truncated_tool_call_result( $result, Message $message ): bool {
-		if ( ! $this->get_ability_resolver()->has_ability_calls( $message ) ) {
+		if ( ! $this->message_has_function_calls( $message ) ) {
 			return false;
 		}
 
@@ -2315,7 +2330,7 @@ class AgentLoop {
 	 * @param Message $message Assistant message converted from the result.
 	 */
 	private function is_truncated_before_tool_call_result( $result, Message $message ): bool {
-		if ( $this->get_ability_resolver()->has_ability_calls( $message ) ) {
+		if ( $this->message_has_function_calls( $message ) ) {
 			return false;
 		}
 

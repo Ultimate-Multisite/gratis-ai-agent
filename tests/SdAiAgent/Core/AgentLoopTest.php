@@ -865,6 +865,94 @@ class AgentLoopTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * Test malformed direct tool names still receive matching error tool results.
+	 */
+	public function test_run_pairs_invalid_direct_function_call_with_error_response(): void {
+		$this->skip_if_sdk_unavailable();
+		if ( ! class_exists( 'WP_AI_Client_Ability_Function_Resolver' ) ) {
+			$this->markTestSkipped( 'WP_AI_Client_Ability_Function_Resolver not available.' );
+		}
+
+		$call_count          = 0;
+		$second_request_body = '';
+		$tool_call_body      = wp_json_encode(
+			[
+				'id'      => 'chatcmpl-invalid-tool',
+				'object'  => 'chat.completion',
+				'choices' => [
+					[
+						'index'         => 0,
+						'message'       => [
+							'role'       => 'assistant',
+							'content'    => null,
+							'tool_calls' => [
+								[
+									'id'       => 'call_invalid_direct',
+									'type'     => 'function',
+									'function' => [
+										'name'      => 'sd-ai-agent/ability-search',
+										'arguments' => '{"query":"stress-test","max_results":1}',
+									],
+								],
+							],
+						],
+						'finish_reason' => 'tool_calls',
+					],
+				],
+				'usage'   => [ 'prompt_tokens' => 10, 'completion_tokens' => 5, 'total_tokens' => 15 ],
+			]
+		);
+
+		$reply_body = wp_json_encode(
+			[
+				'id'      => 'chatcmpl-invalid-tool-reply',
+				'object'  => 'chat.completion',
+				'choices' => [
+					[
+						'index'         => 0,
+						'message'       => [ 'role' => 'assistant', 'content' => 'Invalid tool call handled.' ],
+						'finish_reason' => 'stop',
+					],
+				],
+				'usage'   => [ 'prompt_tokens' => 20, 'completion_tokens' => 5, 'total_tokens' => 25 ],
+			]
+		);
+
+		add_filter(
+			'pre_http_request',
+			static function ( $preempt, $args, $url ) use ( &$call_count, &$second_request_body, $tool_call_body, $reply_body ) {
+				if ( false !== strpos( $url, 'fake-ai-proxy.test' ) ) {
+					++$call_count;
+					if ( 2 === $call_count ) {
+						$second_request_body = (string) ( $args['body'] ?? '' );
+					}
+
+					return [
+						'headers'  => [ 'content-type' => 'application/json' ],
+						'body'     => 1 === $call_count ? $tool_call_body : $reply_body,
+						'response' => [ 'code' => 200, 'message' => 'OK' ],
+						'cookies'  => [],
+						'filename' => '',
+					];
+				}
+
+				return $preempt;
+			},
+			10,
+			3
+		);
+
+		$loop   = new AgentLoop( 'Run invalid direct tool call regression' );
+		$result = $loop->run();
+
+		$this->assertIsArray( $result );
+		$this->assertSame( 'Invalid tool call handled.', $result['reply'] ?? '' );
+		$this->assertSame( 2, $call_count );
+		$this->assertStringContainsString( 'invalid_ability_call', $second_request_body );
+		$this->assertStringContainsString( 'call_invalid_direct', $second_request_body );
+	}
+
+	/**
 	 * Test length-capped tool calls are discarded and converted to guidance.
 	 */
 	public function test_run_discards_truncated_tool_call_and_continues(): void {
