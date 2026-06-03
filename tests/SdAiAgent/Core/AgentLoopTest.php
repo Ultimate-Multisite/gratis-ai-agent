@@ -77,6 +77,99 @@ class AgentLoopTest extends WP_UnitTestCase {
 		remove_all_filters( 'pre_http_request' );
 	}
 
+	/**
+	 * DeepSeek tool-call messages must keep their thought channel attached.
+	 *
+	 * The DeepSeek provider serializes thought-channel text as the
+	 * `reasoning_content` sibling on the assistant wire message. Splitting a
+	 * thought+tool_calls assistant turn into separate ModelMessages severs that
+	 * pairing and can trigger DeepSeek's 400: "reasoning_content ... must be
+	 * passed back" on the next request.
+	 */
+	public function test_deepseek_tool_call_assistant_message_is_not_split(): void {
+		if ( ! class_exists( 'WordPress\AiClient\Messages\DTO\ModelMessage' ) ) {
+			$this->markTestSkipped( 'WP AI Client message classes are not available.' );
+		}
+
+		$loop = new AgentLoop(
+			'Test prompt',
+			[],
+			[],
+			[
+				'provider_id' => 'deepseek',
+				'model_id'    => 'deepseek-v4-flash',
+			]
+		);
+
+		$message = new \WordPress\AiClient\Messages\DTO\ModelMessage(
+			[
+				new \WordPress\AiClient\Messages\DTO\MessagePart(
+					'I need two tool calls.',
+					\WordPress\AiClient\Messages\Enums\MessagePartChannelEnum::thought()
+				),
+				new \WordPress\AiClient\Messages\DTO\MessagePart(
+					new \WordPress\AiClient\Tools\DTO\FunctionCall( 'call_1', 'wpab__sd-ai-agent__list-posts', [] )
+				),
+				new \WordPress\AiClient\Messages\DTO\MessagePart(
+					new \WordPress\AiClient\Tools\DTO\FunctionCall( 'call_2', 'wpab__sd-ai-agent__site-health-summary', [] )
+				),
+			]
+		);
+
+		$method = new \ReflectionMethod( AgentLoop::class, 'append_assistant_message_to_history' );
+		$method->setAccessible( true );
+		$method->invoke( $loop, $message );
+
+		$history_property = new \ReflectionProperty( AgentLoop::class, 'history' );
+		$history_property->setAccessible( true );
+		$history = $history_property->getValue( $loop );
+
+		$this->assertCount( 1, $history, 'DeepSeek tool-call assistant messages must remain one history message.' );
+		$this->assertSame( $message, $history[0] );
+		$this->assertCount( 3, $history[0]->getParts() );
+	}
+
+	/**
+	 * Non-DeepSeek providers still use the generic split needed by OpenAI Responses.
+	 */
+	public function test_non_deepseek_tool_call_assistant_message_still_splits(): void {
+		if ( ! class_exists( 'WordPress\AiClient\Messages\DTO\ModelMessage' ) ) {
+			$this->markTestSkipped( 'WP AI Client message classes are not available.' );
+		}
+
+		$loop = new AgentLoop(
+			'Test prompt',
+			[],
+			[],
+			[
+				'provider_id' => 'openai',
+				'model_id'    => 'gpt-5.5',
+			]
+		);
+
+		$message = new \WordPress\AiClient\Messages\DTO\ModelMessage(
+			[
+				new \WordPress\AiClient\Messages\DTO\MessagePart( 'Short answer.' ),
+				new \WordPress\AiClient\Messages\DTO\MessagePart(
+					new \WordPress\AiClient\Tools\DTO\FunctionCall( 'call_1', 'wpab__sd-ai-agent__list-posts', [] )
+				),
+				new \WordPress\AiClient\Messages\DTO\MessagePart(
+					new \WordPress\AiClient\Tools\DTO\FunctionCall( 'call_2', 'wpab__sd-ai-agent__site-health-summary', [] )
+				),
+			]
+		);
+
+		$method = new \ReflectionMethod( AgentLoop::class, 'append_assistant_message_to_history' );
+		$method->setAccessible( true );
+		$method->invoke( $loop, $message );
+
+		$history_property = new \ReflectionProperty( AgentLoop::class, 'history' );
+		$history_property->setAccessible( true );
+		$history = $history_property->getValue( $loop );
+
+		$this->assertCount( 3, $history, 'Non-DeepSeek providers should keep the generic split behavior.' );
+	}
+
 	// -------------------------------------------------------------------------
 	// Helpers
 	// -------------------------------------------------------------------------
