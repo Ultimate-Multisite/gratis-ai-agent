@@ -507,11 +507,14 @@ class AgentLoop {
 			$reason = 'shutdown handler — request terminated without loop completion';
 		}
 
-		$elapsed = $this->active_job_started_at > 0
+		$elapsed               = $this->active_job_started_at > 0
 			? max( 0, (int) round( microtime( true ) - $this->active_job_started_at ) )
 			: 0;
+		$interrupted_phase     = $this->last_loop_phase;
+		$this->last_loop_phase = 'shutdown';
+
 		$details = array(
-			'phase=' . $this->last_loop_phase,
+			'phase=' . $interrupted_phase,
 			'iteration=' . $this->iterations_used . '/' . (int) $this->max_iterations,
 			'elapsed_s=' . $elapsed,
 			'connection_status=' . $this->format_connection_status( $connection_status ),
@@ -520,14 +523,24 @@ class AgentLoop {
 
 		$last_error = error_get_last();
 		if ( is_array( $last_error ) && $this->is_fatal_shutdown_error( $last_error ) ) {
-			$message   = isset( $last_error['message'] ) ? (string) $last_error['message'] : '';
-			$file      = isset( $last_error['file'] ) ? (string) $last_error['file'] : '';
-			$line      = isset( $last_error['line'] ) ? (int) $last_error['line'] : 0;
-			$details[] = 'fatal_type=' . (int) ( $last_error['type'] ?? 0 );
-			$details[] = 'fatal=' . $this->shorten_shutdown_detail( $message );
-			if ( '' !== $file ) {
-				$details[] = 'fatal_location=' . $this->shorten_shutdown_detail( $file . ':' . $line );
-			}
+			$message   = (string) $last_error['message'];
+			$file      = (string) $last_error['file'];
+			$line      = (int) $last_error['line'];
+			$type      = (int) $last_error['type'];
+			$details[] = 'fatal_type=' . $type;
+			$details[] = 'fatal=redacted';
+			$details[] = 'fatal_code=php_shutdown_' . $type;
+
+			AgentEventLog::log(
+				'active_job_shutdown_fatal',
+				AgentEventLog::SEVERITY_ERROR,
+				array(
+					'session_id' => $this->session_id,
+					'code'       => 'php_shutdown_' . $type,
+					'reason'     => 'fatal_shutdown',
+					'message'    => $this->shorten_shutdown_detail( $message . ( '' !== $file ? ' in ' . $file . ':' . $line : '' ) ),
+				)
+			);
 		} else {
 			$details[] = 'fatal=none';
 		}
@@ -611,7 +624,8 @@ class AgentLoop {
 		try {
 			if ( $confirmed ) {
 				// The last message in history is the model's tool call message.
-				$assistant_message = end( $this->history );
+				$assistant_message     = end( $this->history );
+				$this->last_loop_phase = 'executing_confirmed_abilities';
 				ChangeLogger::begin( $this->session_id, 'confirmed-tool' );
 				try {
 					$response_message = $this->get_ability_resolver()->execute_abilities( $assistant_message );
@@ -619,6 +633,7 @@ class AgentLoop {
 				} finally {
 					ChangeLogger::end();
 				}
+				$this->last_loop_phase = 'confirmed_ability_response_received';
 				// Truncate then split for OpenAI-compatible providers.
 				$truncated_message = self::truncate_tool_results( $response_message );
 				$this->append_tool_response_to_history( $truncated_message );
@@ -893,7 +908,7 @@ class AgentLoop {
 			// Check if the model wants to call tools.
 			if ( ! $this->message_has_function_calls( $assistant_message ) ) {
 				// No tool calls — we're done.
-				$last_was_tool_call = false;
+				$last_was_tool_call    = false;
 				$reply                 = '';
 				$this->last_loop_phase = 'final_response_received';
 
@@ -936,7 +951,9 @@ class AgentLoop {
 					);
 
 					++$this->iterations_used;
-					$followup_result = $this->send_prompt();
+					$this->last_loop_phase = 'provider_followup_call';
+					$followup_result       = $this->send_prompt();
+					$this->last_loop_phase = 'provider_followup_response_received';
 
 					if ( ! is_wp_error( $followup_result ) ) {
 						$followup_message = $followup_result->toMessage();
@@ -984,7 +1001,8 @@ class AgentLoop {
 				if ( ! empty( $partition['client'] ) ) {
 					// Execute any PHP-side calls inline first.
 					if ( ! empty( $partition['php'] ) ) {
-						$php_message = ClientAbilityRouter::build_message_from_parts( $assistant_message, $partition['php'] );
+						$php_message           = ClientAbilityRouter::build_message_from_parts( $assistant_message, $partition['php'] );
+						$this->last_loop_phase = 'executing_client_partition_abilities';
 						ChangeLogger::begin( $this->session_id );
 						try {
 							$php_response = $this->get_ability_resolver()->execute_abilities( $php_message );
@@ -992,7 +1010,8 @@ class AgentLoop {
 						} finally {
 							ChangeLogger::end();
 						}
-						$truncated_php = self::truncate_tool_results( $php_response );
+						$this->last_loop_phase = 'client_partition_ability_response_received';
+						$truncated_php         = self::truncate_tool_results( $php_response );
 						$this->append_tool_response_to_history( $truncated_php );
 						$this->log_tool_responses( $truncated_php );
 					}
@@ -1151,7 +1170,9 @@ class AgentLoop {
 			);
 
 			++$this->iterations_used;
-			$fallback_result = $this->send_prompt();
+			$this->last_loop_phase = 'provider_fallback_call';
+			$fallback_result       = $this->send_prompt();
+			$this->last_loop_phase = 'provider_fallback_response_received';
 
 			if ( ! is_wp_error( $fallback_result ) ) {
 				$fallback_message = $fallback_result->toMessage();

@@ -907,7 +907,7 @@ class RestControllerTest extends WP_UnitTestCase {
 		delete_transient( RestController::JOB_PREFIX . $job_id );
 		ActiveJobRepository::mark_interrupted(
 			$job_id,
-			'shutdown handler — request terminated without loop completion; phase=provider_call'
+			'shutdown handler — request terminated without loop completion; phase=provider_call; fatal_location=/home/runner/work/site/wp-content/plugins/private/file.php:123; token=sk-test-secret-token'
 		);
 
 		$status_response = $this->dispatch( 'GET', "/sd-ai-agent/v1/job/{$job_id}" );
@@ -918,6 +918,8 @@ class RestControllerTest extends WP_UnitTestCase {
 		$this->assertSame( 'error', $data['status'] );
 		$this->assertSame( 'interrupted', $data['original_status'] );
 		$this->assertStringContainsString( 'phase=provider_call', $data['message'] );
+		$this->assertStringNotContainsString( '/home/runner/work', $data['message'] );
+		$this->assertStringNotContainsString( 'sk-test-secret-token', $data['message'] );
 		$this->assertNull(
 			ActiveJobRepository::get_by_job_id( $job_id ),
 			'Terminal interrupted row should be deleted after delivery.'
@@ -946,7 +948,7 @@ class RestControllerTest extends WP_UnitTestCase {
 
 		$this->assertSame( 'complete', $data['status'] );
 		$this->assertTrue( $data['from_db'] );
-		$this->assertNull( get_transient( RestController::JOB_PREFIX . $job_id ) );
+		$this->assertFalse( get_transient( RestController::JOB_PREFIX . $job_id ) );
 		$this->assertNull( ActiveJobRepository::get_by_job_id( $job_id ) );
 	}
 
