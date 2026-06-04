@@ -1443,13 +1443,20 @@ final class SessionController {
 
 		// Send the HTTP response immediately so the calling process (the
 		// non-blocking loopback from /run or /confirm) can close its
-		// connection. PHP-FPM continues executing after this call.
-		// Without this, FPM kills the process when the client disconnects.
-		if ( function_exists( 'fastcgi_finish_request' ) ) {
+		// connection while PHP continues the job. PHP-FPM exposes
+		// fastcgi_finish_request(); LiteSpeed exposes litespeed_finish_request().
+		// Without a SAPI-specific detach call, some hosts terminate the worker
+		// when the non-blocking client disconnects.
+		if ( function_exists( 'fastcgi_finish_request' ) || function_exists( 'litespeed_finish_request' ) ) {
 			// Send a minimal JSON response before detaching.
 			header( 'Content-Type: application/json' );
 			echo '{"ok":true}';
-			fastcgi_finish_request();
+
+			if ( function_exists( 'fastcgi_finish_request' ) ) {
+				fastcgi_finish_request();
+			} else {
+				litespeed_finish_request();
+			}
 		}
 
 		/** @var array<string, mixed> $job */
