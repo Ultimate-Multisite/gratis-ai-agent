@@ -64,6 +64,10 @@ class WpRestAbilities {
 	private const BLOCKED_ROUTES = array(
 		'DELETE /wp/v2/users',
 		'POST /wp/v2/users',
+		// Full-template REST writes can replace the entire block template body.
+		// Require the agent to use block-level mutators with a prior read instead
+		// of POSTing partial `content` payloads to wp_template endpoints.
+		'POST /wp/v2/templates',
 	);
 
 	/**

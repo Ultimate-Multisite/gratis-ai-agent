@@ -150,6 +150,25 @@ For non-landing templates, create a reusable page-title part or pattern that use
 - `sd-ai-agent/create-block-content` / `sd-ai-agent/validate-block-content` — Build/check block markup before saving
 - `sd-ai-agent/update-global-styles` — Apply the selected design direction with a non-empty theme.json `styles` partial. Never call it with `styles: []`, `settings: []`, `{}`, or unchanged empty arguments; include concrete colors, typography, spacing, or element styles.
 
+### Safe existing-template edits
+
+When modifying an existing template such as `front-page`, preserve every block that
+the user did not ask to change:
+
+1. Inspect the current template first. Use `sd-ai-agent/list-block-templates` to
+   find the template, then fetch its current post/template content before writing.
+2. If a REST template response includes a `wp_id`, use `sd-ai-agent/get-page-blocks`
+   on that post ID and address the hero/section by `ref`, `path`, or `flat_index`.
+3. Use `sd-ai-agent/update-blocks` or `sd-ai-agent/edit-block-tree` for the target
+   hero background/image attributes only. Do not rebuild or replace the full
+   template unless the user explicitly requested a complete redesign.
+4. Validate the full resulting block markup with `sd-ai-agent/validate-block-content`
+   before saving. If validation fails, repair the proposed change and retry; do
+   not save a partial template body.
+5. Do not POST partial `content` payloads to `/wp/v2/templates/...` through
+   `wp-rest/execute`. That endpoint replaces the template body and can delete
+   sibling sections when the payload only contains the edited hero block.
+
 ## theme.json Overview
 
 `theme.json` controls global styles AND editor settings. Two top-level keys: `settings` (what users can do) and `styles` (default appearance). Always declare `$schema` and `version: 3`.
