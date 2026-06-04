@@ -440,6 +440,7 @@ class OnboardingManagerTest extends WP_UnitTestCase {
 
 		$this->assertSame( $data['session_id'], get_option( OnboardingManager::BOOTSTRAP_SESSION_OPTION ) );
 		$this->assertTrue( (bool) get_option( OnboardingManager::COMPLETE_OPTION ) );
+		$this->assertNotNull( \SdAiAgent\Core\Database::get_shared_session( (int) $data['session_id'] ) );
 
 		$settings = \SdAiAgent\Core\Settings::instance()->get();
 		$this->assertTrue( (bool) ( $settings['onboarding_complete'] ?? false ) );
@@ -457,6 +458,30 @@ class OnboardingManagerTest extends WP_UnitTestCase {
 
 		$this->assertSame( $first['session_id'], $second['session_id'] );
 		$this->assertTrue( $second['already_complete'] );
+	}
+
+	/**
+	 * rest_start() shares the reused site-scoped onboarding session so a second
+	 * administrator can open the persisted Setup Assistant chat.
+	 */
+	public function test_rest_start_shares_reused_session_for_second_admin(): void {
+		$first_admin_id = self::factory()->user->create( [ 'role' => 'administrator' ] );
+		wp_set_current_user( $first_admin_id );
+
+		$first      = OnboardingManager::rest_start()->get_data();
+		$session_id = (int) $first['session_id'];
+
+		\SdAiAgent\Core\Database::unshare_session( $session_id );
+		$this->assertNull( \SdAiAgent\Core\Database::get_shared_session( $session_id ) );
+
+		$second_admin_id = self::factory()->user->create( [ 'role' => 'administrator' ] );
+		wp_set_current_user( $second_admin_id );
+
+		$second = OnboardingManager::rest_start()->get_data();
+
+		$this->assertSame( $session_id, (int) $second['session_id'] );
+		$this->assertTrue( $second['already_complete'] );
+		$this->assertNotNull( \SdAiAgent\Core\Database::get_shared_session( $session_id ) );
 	}
 
 	// ── rest_reset ────────────────────────────────────────────────────────

@@ -377,6 +377,10 @@ class OnboardingManager {
 				$settings->update( [ 'onboarding_complete' => true ] );
 			}
 
+			if ( ! empty( $existing_session_id ) ) {
+				self::share_bootstrap_session( (int) $existing_session_id );
+			}
+
 			return new \WP_REST_Response(
 				[
 					'success'             => true,
@@ -437,6 +441,7 @@ class OnboardingManager {
 		// Persist the session ID and mark onboarding complete atomically across
 		// both persistence layers so is_complete() and /onboarding/status agree.
 		update_option( self::BOOTSTRAP_SESSION_OPTION, $session_id, false );
+		self::share_bootstrap_session( (int) $session_id );
 		self::mark_complete();
 		$settings->update( [ 'onboarding_complete' => true ] );
 
@@ -451,6 +456,29 @@ class OnboardingManager {
 			],
 			200
 		);
+	}
+
+	/**
+	 * Share the site-wide onboarding session with admins.
+	 *
+	 * The persisted bootstrap session ID is site-scoped, not user-scoped. If one
+	 * administrator starts onboarding and another administrator later loads the
+	 * Setup Assistant, /onboarding/start returns the same session ID. Marking the
+	 * session as shared keeps that site-scoped behaviour while allowing normal
+	 * session permission checks to grant read/continue access.
+	 *
+	 * @param int $session_id Bootstrap session ID.
+	 */
+	private static function share_bootstrap_session( int $session_id ): void {
+		if ( $session_id <= 0 ) {
+			return;
+		}
+
+		if ( Database::get_shared_session( $session_id ) ) {
+			return;
+		}
+
+		Database::share_session( $session_id, get_current_user_id() );
 	}
 
 	/**
