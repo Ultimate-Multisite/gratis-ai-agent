@@ -67,6 +67,14 @@ class ToolDiscovery {
 		// falling back to WP-CLI or PHP snippets on fresh installs.
 		'sd-ai-agent/update-post',
 		'sd-ai-agent/update-global-styles',
+		// Block-theme editing safety cluster. These stay together so homepage/template
+		// visual edits can inspect the current structure, mutate only the target
+		// block, and validate the result instead of replacing a whole template body
+		// through generic REST/WP-CLI fallbacks.
+		'sd-ai-agent/list-block-templates',
+		'sd-ai-agent/get-page-blocks',
+		'sd-ai-agent/update-blocks',
+		'sd-ai-agent/validate-block-content',
 		// WP-CLI is the proper tool for admin commands like `wp site list`,
 		// `wp plugin list`, etc. Registered by the cli-abilities-bridge plugin.
 		'wp-cli/execute',

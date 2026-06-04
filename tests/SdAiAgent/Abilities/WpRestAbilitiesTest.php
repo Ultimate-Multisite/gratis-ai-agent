@@ -254,6 +254,26 @@ class WpRestAbilitiesTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * Test: execute blocks full-template REST writes so partial hero updates
+	 * cannot replace the rest of the front-page template body.
+	 */
+	public function test_execute_blocks_full_template_writes(): void {
+		$result = WpRestAbilities::handle_execute(
+			array(
+				'method' => 'POST',
+				'route'  => '/wp/v2/templates/example//front-page',
+				'params' => array(
+					'content' => '<!-- wp:group --><div class="wp-block-group"></div><!-- /wp:group -->',
+				),
+			)
+		);
+
+		$this->assertWPError( $result );
+		$this->assertSame( 'wp_rest_route_blocked', $result->get_error_code() );
+		$this->assertSame( 403, $result->get_error_data()['status'] );
+	}
+
+	/**
 	 * Test: classification filter can downgrade a destructive call.
 	 */
 	public function test_execute_classification_via_filter(): void {

@@ -172,6 +172,15 @@ class ToolDiscoveryTest extends WP_UnitTestCase {
 		$this->assertContains( 'sd-ai-agent/update-global-styles', $tier_1 );
 	}
 
+	public function test_tier_1_includes_block_theme_safe_editing_cluster(): void {
+		$tier_1 = ToolDiscovery::tier_1_for_run();
+
+		$this->assertContains( 'sd-ai-agent/list-block-templates', $tier_1 );
+		$this->assertContains( 'sd-ai-agent/get-page-blocks', $tier_1 );
+		$this->assertContains( 'sd-ai-agent/update-blocks', $tier_1 );
+		$this->assertContains( 'sd-ai-agent/validate-block-content', $tier_1 );
+	}
+
 	public function test_tier_1_omits_wp_cli_when_ability_is_not_registered(): void {
 		// phpcs:ignore WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedVariableFound -- Test isolates the Abilities API registry mutation.
 		global $_wp_ability_registry;
