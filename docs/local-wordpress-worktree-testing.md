@@ -20,6 +20,81 @@ authority.
 - Avoid changing canonical plugin identifiers. The plugin directory symlink must
   remain `superdav-ai-agent`; internal IDs such as `sd-ai-agent` are unchanged.
 
+## Implemented helper quickstart
+
+The repository now includes host-native helper scripts under `scripts/local-wp/`.
+They are intended for Dave's CachyOS/Arch development machine and are local-only;
+do not use them in CI or production packaging.
+
+Add the repository-local babysitter binary to `PATH` when orchestrating related
+work from this checkout:
+
+```bash
+export PATH="$PWD/.pi/npm/node_modules/.bin:$PATH"
+```
+
+Run the non-destructive host check first:
+
+```bash
+scripts/local-wp/bootstrap-host.sh --check
+```
+
+The check reports missing commands/services and prints the CachyOS/Arch package,
+dnsmasq, nginx, PHP-FPM, and CA trust commands to run manually. It does not write
+privileged host configuration.
+
+Provision a site for the current git worktree:
+
+```bash
+scripts/local-wp/provision-site.sh --dry-run   # preview commands
+scripts/local-wp/provision-site.sh             # create/update the site
+```
+
+Useful environment overrides:
+
+```bash
+SUPERDAV_WP_SITE_SLUG=feature-x scripts/local-wp/provision-site.sh
+SUPERDAV_LOCAL_WP_SITES_ROOT=$HOME/local-wp-sites scripts/local-wp/list-sites.sh
+SUPERDAV_LOCAL_WP_PHP_FPM_SOCKET=/run/php-fpm85/php-fpm.sock scripts/local-wp/provision-site.sh
+SUPERDAV_LOCAL_WP_MYSQL=mysql scripts/local-wp/provision-site.sh
+```
+
+After provisioning, install the generated nginx config and trust the generated
+root CA using the commands printed by `provision-site.sh` and
+`bootstrap-host.sh --check`. Passing `--install-nginx` will run the nginx symlink,
+`nginx -t`, and reload commands via `sudo`; omit it when you want to review the
+config first.
+
+Lifecycle commands read stable `site.json` metadata and default to the site for
+the current worktree unless a slug is passed:
+
+```bash
+scripts/local-wp/list-sites.sh
+scripts/local-wp/smoke-test.sh [site-slug]
+scripts/local-wp/snapshot-site.sh clean [site-slug]
+scripts/local-wp/reset-site.sh [site-slug]
+scripts/local-wp/restore-site.sh clean [site-slug]
+scripts/local-wp/destroy-site.sh [site-slug] --yes
+```
+
+Safety rules implemented by the helpers:
+
+- generated sites must live under `SUPERDAV_LOCAL_WP_SITES_ROOT`;
+- destructive helpers refuse paths outside that root;
+- database drops are limited to names using the configured `wp_sd_` prefix;
+- the plugin symlink is always `wp-content/plugins/superdav-ai-agent`;
+- internal code identifiers such as `sd-ai-agent` are not renamed or migrated;
+- privileged nginx, dnsmasq, and trust-store changes are printed for review
+  unless explicitly requested.
+
+Verification for script changes:
+
+```bash
+bash -n scripts/local-wp/*.sh
+scripts/local-wp/bootstrap-host.sh --check
+scripts/local-wp/provision-site.sh --dry-run
+```
+
 ## Proposed layout
 
 ```text
