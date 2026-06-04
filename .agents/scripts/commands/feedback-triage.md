@@ -189,6 +189,10 @@ Apply Step 3.6 validation from `/log-issue-aidevops` before classifying as `real
 For `contributor_insight` reports, convert shorthand into worker-ready actions
 before creating the issue:
 
+- For mixed reports with several candidates, create one issue whose `## Worker
+  Guidance` maps each candidate separately. Do not assume a pasted local-path
+  excerpt, REST shorthand, service-usage question, and review-response prompt all
+  belong in the same file; name the narrowest committed source for each note.
 - If the note asks whether instructions or scripts should change, direct the
   worker to change the narrowest durable source instead of replying in comments:
   root `AGENTS.md` for repo-wide plugin rules, `.agents/AGENTS.md` for
@@ -231,7 +235,9 @@ before creating the issue:
   explicit worker actions, and include the exact `rg -n` verification commands.
   Do not file a contributor-insight issue that only quotes the maintainer note;
   the issue body must be actionable without private paths, chat history, or
-  additional context.
+  additional context. When a candidate is a usage-mapping question rather than a
+  code defect, require the worker to document the committed integration surfaces
+  and related secrecy/capability checks instead of answering only in a comment.
 - If implementation hardening is broader than the instruction change, include a
   `## Follow-up issue briefs` section with one worker-ready brief per route,
   controller, helper, or skill family. Each brief names the missing guard or

@@ -20,6 +20,13 @@ Use this skill for block theme work such as:
 
 If the active theme is classic and the task is to modify that active theme, use `classic-themes` instead. If the task is to generate, convert to, or scaffold a block theme, use this skill even when the currently active theme is classic.
 
+When a contributor-insight issue contains a pasted local-path excerpt headed
+`Block Themes`, `Full Site Editing`, `theme.json`, templates, parts, patterns, or
+style variations, treat that excerpt as a source-mapping clue only. Update this
+committed skill file (and the root `AGENTS.md` summary when repo-wide guidance is
+needed); do not copy private local paths or duplicate the full excerpt into
+issues, PRs, templates, or generated theme files.
+
 ## Inputs required
 
 - Target theme directory or the slug/name for the new theme being generated.
@@ -36,6 +43,8 @@ If the active theme is classic and the task is to modify that active theme, use 
 5. Prefer filesystem-owned patterns under `patterns/*.php` when the theme should ship reusable layouts.
 6. Put style variations in `styles/*.json`; remember that once a user selects a style variation, that selection is stored in the database.
 7. Validate generated block markup before writing templates, parts, or patterns.
+8. For contributor-insight or maintenance changes to this skill, verify future
+   workers will load the guidance with `rg -n "wp-block-themes|Full Site Editing|theme.json|validate-block-content" AGENTS.md includes/Models/skills/wp-block-themes.md`.
 
 ## Absolute Rules
 

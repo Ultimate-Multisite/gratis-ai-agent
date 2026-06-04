@@ -120,6 +120,10 @@ when it includes all of the following:
 - Evidence in the PR body showing the instruction is now loaded by future
   workers, such as `rg -n "Contributor Insight|sd-ai-agent/v1|secret|current user|file upload" AGENTS.md .agents/AGENTS.md`
   plus any workflow-specific doc check.
+- If the repository already contains guidance for a reported candidate, tighten
+  the loaded source instead of closing the issue as "already documented". Add the
+  missing worker action, source map, or verification command that would have made
+  the original shorthand unambiguous to a fresh headless worker.
 
 #### Contributor Insight Source Mapping
 
@@ -132,7 +136,9 @@ note to a committed, future-loaded source before editing:
 - For block-theme snippets headed `Block Themes`, `Full Site Editing`,
   `theme.json`, templates, parts, patterns, or style variations, update
   `includes/Models/skills/wp-block-themes.md` and keep the root summary here in
-  sync.
+  sync. The skill itself should explain that pasted local-path excerpts are only
+  clues; future workers must edit the committed skill file and validate generated
+  block content before saving templates, parts, or patterns.
 - For REST security shorthand involving `sd-ai-agent/v1`, secret scrubbing,
   current-user execution, or file uploads, update this root guidance and inspect
   the concrete controller or ability family before deciding whether code or a
