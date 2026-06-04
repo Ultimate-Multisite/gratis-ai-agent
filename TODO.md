@@ -291,15 +291,16 @@ Format: `- [ ] tNNN Description @owner #tag ~estimate risk:level logged:date`
   - Source: Automattic wordpress-block-theming reference (29KB → ~280 lines added) at github.com/Automattic/wordpress-agent-skills/blob/trunk/claude-code/wp-site-creator/references/wordpress-block-theming.md
   - Verify: `wc -l includes/Models/skills/block-themes.md` is 350-450, and `grep -E "Editor Visibility|editor-styles-wrapper|prefers-reduced-motion" includes/Models/skills/block-themes.md` returns matches
 
-- [ ] t232 Ability discovery investigation: why agent misses registered abilities #investigation #parent #plan → [todo/PLANS.md#ability-discovery-investigation] ~5h logged:2026-04-26
+- [x] t232 Ability discovery investigation: why agent misses registered abilities #investigation #parent #plan → [todo/PLANS.md#ability-discovery-investigation] ~5h logged:2026-04-26 pr:#1204,#1228 completed:2026-04-27
 - [x] t234 Audit ability injection pipeline and tool catalog (Phase 1) #investigation #auto-dispatch ~3h For #t232 logged:2026-04-26 pr:#1204 completed:2026-04-27
   - Trace how abilities reach the model: ToolCapabilities.php → AgentLoop.php → wp_ai_client_prompt() injection
   - Check for count limits, filters, or namespace handling that could drop abilities
   - Check site-builder system prompt for tool enumeration gaps
   - Verify: document findings with specific file:line references
-- [ ] t235 Fix ability discoverability — descriptions, system prompt, namespace alignment (Phase 2) #enhancement #auto-dispatch ~2h For #t232 blocked-by:t234 logged:2026-04-26
+- [x] t235 Fix ability discoverability — descriptions, system prompt, namespace alignment (Phase 2) #enhancement #auto-dispatch ~2h For #t232 blocked-by:t234 logged:2026-04-26 pr:#1228 completed:2026-04-27
   - Apply fixes identified in t234: improve descriptions, align namespaces (ai-agent/ vs sd-ai-agent/), update system prompt
   - Verify: `composer phpstan && composer phpcs`
+  - Completion note: #1228 landed the discoverability fixes; current code uses the canonical `sd-ai-agent/` ability namespace and should not reopen legacy-prefix migration work.
 
 - [-] t233 Site builder ability improvements #parent #plan → [todo/PLANS.md#site-builder-ability-improvements] ~9h logged:2026-04-26 obsolete:2026-05-13 (Site Builder mode removed in beads sd-ai-dh0)
 - [ ] t236 Stock image fallback chain: retry all free sources on download failure (Phase 1) #bugfix #auto-dispatch ~1.5h For #t233 logged:2026-04-26
