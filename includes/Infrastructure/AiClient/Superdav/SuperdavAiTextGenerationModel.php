@@ -26,7 +26,7 @@ final class SuperdavAiTextGenerationModel extends AbstractOpenAiCompatibleTextGe
 	 * @param string|array<string, mixed>|null   $data    Request body/query data.
 	 * @return Request
 	 */
-	protected function createRequest( HttpMethodEnum $method, string $path, array $headers = array(), $data = null ): Request {
+	protected function createRequest( HttpMethodEnum $method, string $path, array $headers = array(), mixed $data = null ): Request {
 		return new Request( $method, SuperdavAiProvider::url( $path ), $headers, $data );
 	}
 }
