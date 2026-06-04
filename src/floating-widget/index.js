@@ -154,16 +154,14 @@ function FloatingWidget() {
 			return;
 		}
 
-		if (
-			! onboardingJob.toolCalls?.some(
-				( entry ) => entry?.response?.affected
-			)
-		) {
-			return;
-		}
+		import( './frontend-onboarding' ).then( ( { hasActivity } ) => {
+			if ( ! hasActivity( onboardingJob.toolCalls ) ) {
+				return;
+			}
 
-		setFrontendOnboardingMode( 'building' );
-		setFloatingMinimized( window.innerWidth <= 600 );
+			setFrontendOnboardingMode( 'building' );
+			setFloatingMinimized( innerWidth < 601 );
+		} );
 	}, [
 		frontendOnboardingMode,
 		currentSessionId,
