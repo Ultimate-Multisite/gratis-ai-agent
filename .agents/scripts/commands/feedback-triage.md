@@ -126,6 +126,18 @@ The resulting issue body must name the target files, expected behaviour, and at
 least one verification command; do not leave private local paths or shorthand as
 the only implementation guidance.
 
+For mixed contributor-insight issues, the body must also include a concise
+source map so the worker can start with implementation instead of rediscovering
+the lesson. For the recurring issue #2034 pattern, map the four notes as:
+`Block Themes` excerpts → `includes/Models/skills/wp-block-themes.md`; REST
+security shorthand → root `AGENTS.md`, `includes/REST/`, and
+`includes/Abilities/WpRestAbilities.php`; Google Search Console questions →
+`includes/Abilities/GscAbilities.php`, `includes/Core/Settings.php`,
+`includes/REST/SettingsController.php`, and
+`includes/Abilities/ToolCapabilities.php`; WordPress.org review-response prompts
+→ root `AGENTS.md` "WordPress.org Review Responses". Require the PR body to cite
+the inspected guard or policy when no code change is needed.
+
 Full payload schema (top-level keys):
 
 - `id`, `created_at`, `reviewed_at`, `status`, `report_type`, `api_key_id`
