@@ -172,7 +172,7 @@ class ActiveJobRepository {
 			return false;
 		}
 
-		$allowed = [ 'pending_tools', 'tool_calls' ];
+		$allowed = [ 'pending_tools', 'tool_calls', 'checkpoint', 'checkpoint_phase', 'resume_attempts' ];
 		$data    = array_intersect_key( $extra, array_flip( $allowed ) );
 
 		$data['status']     = $status;
@@ -190,6 +190,65 @@ class ActiveJobRepository {
 		);
 
 		return $result !== false;
+	}
+
+	/**
+	 * Persist a durable agent-loop checkpoint for a processing job.
+	 *
+	 * @param string               $job_id     The job UUID.
+	 * @param string               $phase      Last durable loop phase.
+	 * @param array<string, mixed> $checkpoint Serializable checkpoint payload.
+	 * @return bool True on success, false on failure.
+	 */
+	public static function save_checkpoint( string $job_id, string $phase, array $checkpoint ): bool {
+		global $wpdb;
+		/** @var \wpdb $wpdb */
+
+		$encoded = wp_json_encode( $checkpoint );
+		if ( false === $encoded ) {
+			return false;
+		}
+
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Custom table query; caching not applicable.
+		$result = $wpdb->update(
+			self::table_name(),
+			[
+				'checkpoint'       => $encoded,
+				'checkpoint_phase' => $phase,
+				'updated_at'       => current_time( 'mysql', true ),
+			],
+			[ 'job_id' => $job_id ],
+			[ '%s', '%s', '%s' ],
+			[ '%s' ]
+		);
+
+		return $result !== false;
+	}
+
+	/**
+	 * Claim one automatic resume attempt by returning the row to processing.
+	 *
+	 * @param string $job_id       The job UUID.
+	 * @param int    $max_attempts Maximum permitted attempts.
+	 * @return bool True when an attempt was claimed.
+	 */
+	public static function claim_resume_attempt( string $job_id, int $max_attempts ): bool {
+		global $wpdb;
+		/** @var \wpdb $wpdb */
+
+		$now = current_time( 'mysql', true );
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Custom table query; caching not applicable.
+		$result = $wpdb->query(
+			$wpdb->prepare(
+				"UPDATE %i SET status = 'processing', error = NULL, interrupted_at = NULL, resume_attempts = resume_attempts + 1, updated_at = %s WHERE job_id = %s AND status IN ('interrupted', 'abandoned') AND resume_attempts < %d",
+				self::table_name(),
+				$now,
+				$job_id,
+				$max_attempts
+			)
+		);
+
+		return $result !== false && $result > 0;
 	}
 
 	/**

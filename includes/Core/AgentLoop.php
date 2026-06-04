@@ -78,6 +78,18 @@ class AgentLoop {
 	/** Default exponential backoff schedule in seconds, capped at 60 seconds. */
 	private const PROVIDER_RETRY_DELAYS = array( 1, 2, 4, 8, 16, 32, 60, 60, 60, 60 );
 
+	/** Durable checkpoint phase saved before a provider call is attempted. */
+	public const CHECKPOINT_BEFORE_PROVIDER_CALL = 'before_provider_call';
+
+	/** Durable checkpoint phase saved after an assistant/tool-call response is recorded. */
+	public const CHECKPOINT_PROVIDER_RESPONSE_RECORDED = 'provider_response_recorded';
+
+	/** Non-resumable phase set immediately before PHP abilities execute. */
+	public const CHECKPOINT_TOOL_EXECUTION_STARTED = 'tool_execution_started';
+
+	/** Durable checkpoint phase saved after tool responses are appended. */
+	public const CHECKPOINT_TOOL_RESPONSE_RECORDED = 'tool_response_recorded';
+
 	/**
 	 * Maximum consecutive preamble-only truncations before we abort the loop.
 	 *
@@ -657,6 +669,49 @@ class AgentLoop {
 	}
 
 	/**
+	 * Resume directly from a durable safe-boundary checkpoint.
+	 *
+	 * The checkpoint history already contains the user prompt and any durable
+	 * model/tool messages. Unlike run(), this method must not append a new user
+	 * message or blindly replay work that may have already executed.
+	 *
+	 * @param int $remaining_iterations Remaining loop iterations.
+	 * @return array<string, mixed>|WP_Error
+	 */
+	public function resume_from_checkpoint( int $remaining_iterations ) {
+		if ( ! function_exists( 'wp_ai_client_prompt' ) ) {
+			return new WP_Error(
+				'sd_ai_agent_missing_client',
+				__( 'wp_ai_client_prompt() is not available.', 'superdav-ai-agent' )
+			);
+		}
+
+		$budget_check = BudgetManager::check_budget();
+		if ( is_wp_error( $budget_check ) ) {
+			return $budget_check;
+		}
+
+		IdenticalFailureTracker::reset();
+		ModelHealthTracker::set_current_model( $this->model_id );
+		ProviderCredentialLoader::load();
+		AgentEventLog::set_session( $this->session_id );
+
+		if ( '' !== $this->active_job_id ) {
+			$this->active_job_started_at = microtime( true );
+			register_shutdown_function( array( $this, 'handle_active_job_shutdown' ) );
+		}
+
+		try {
+			$result = $this->run_loop( max( 1, $remaining_iterations ) );
+			$this->evaluate_skill_outcomes( $result );
+			return $result;
+		} finally {
+			$this->last_loop_phase = 'agent_loop_exiting';
+			AgentEventLog::clear_session();
+		}
+	}
+
+	/**
 	 * Resume the agent loop after the browser has executed client-side tool calls.
 	 *
 	 * Called by the /chat/tool-result REST endpoint. Reconstructs a tool-response
@@ -761,6 +816,35 @@ class AgentLoop {
 	}
 
 	/**
+	 * Persist the current loop state for safe automatic background-job resume.
+	 *
+	 * @param string $phase                Durable loop phase.
+	 * @param int    $iterations_remaining Remaining iterations for a resumed loop.
+	 * @return void
+	 */
+	private function save_active_job_checkpoint( string $phase, int $iterations_remaining ): void {
+		if ( '' === $this->active_job_id ) {
+			return;
+		}
+
+		ActiveJobRepository::save_checkpoint(
+			$this->active_job_id,
+			$phase,
+			array(
+				'history'              => $this->serialize_history(),
+				'tool_call_log'        => $this->tool_call_log,
+				'message_log'          => $this->message_log,
+				'token_usage'          => $this->token_usage,
+				'iterations_remaining' => max( 1, $iterations_remaining ),
+				'model_id'             => $this->model_id,
+				'provider_id'          => $this->provider_id,
+				'client_abilities'     => $this->client_abilities,
+				'page_context'         => $this->page_context,
+			)
+		);
+	}
+
+	/**
 	 * Inner loop: send prompts, handle tool calls, repeat.
 	 *
 	 * @param int $iterations Max iterations remaining.
@@ -835,6 +919,7 @@ class AgentLoop {
 			// corruption from session storage could leave orphaned tool
 			// calls that cause API 400 errors.
 			$this->history = ConversationTrimmer::validate_tool_pairs( $this->history );
+			$this->save_active_job_checkpoint( self::CHECKPOINT_BEFORE_PROVIDER_CALL, $iterations + 1 );
 
 			$this->last_loop_phase = 'provider_call';
 			$result                = $this->send_prompt();
@@ -904,6 +989,7 @@ class AgentLoop {
 			// ConversationSerializer::append_assistant_message for the full
 			// rationale and provider-side validator reference).
 			$this->append_assistant_message_to_history( $assistant_message );
+			$this->save_active_job_checkpoint( self::CHECKPOINT_PROVIDER_RESPONSE_RECORDED, $iterations );
 
 			// Check if the model wants to call tools.
 			if ( ! $this->message_has_function_calls( $assistant_message ) ) {
@@ -1074,6 +1160,7 @@ class AgentLoop {
 			}
 
 			// Execute the ability calls and get the function response message.
+			$this->save_active_job_checkpoint( self::CHECKPOINT_TOOL_EXECUTION_STARTED, $iterations );
 			$this->last_loop_phase = 'executing_abilities';
 			ChangeLogger::begin( $this->session_id );
 			try {
@@ -1123,6 +1210,7 @@ class AgentLoop {
 			$this->append_tool_response_to_history( $truncated_message );
 			$this->log_tool_responses( $truncated_message );
 			$this->last_loop_phase = 'tool_response_recorded';
+			$this->save_active_job_checkpoint( self::CHECKPOINT_TOOL_RESPONSE_RECORDED, $iterations );
 
 			// Reset the wall-clock deadline after each productive tool call.
 			// This allows genuinely long tasks (many sequential tool calls) to

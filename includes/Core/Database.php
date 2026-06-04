@@ -36,7 +36,7 @@ use SdAiAgent\Tools\CustomTools;
 class Database {
 
 	const DB_VERSION_OPTION = 'sd_ai_agent_db_version';
-	const DB_VERSION        = '19.5.2';
+	const DB_VERSION        = '19.5.3';
 
 	// ─── Table Name Registry ──────────────────────────────────────────────────
 
@@ -619,6 +619,9 @@ class Database {
 			status varchar(30) NOT NULL DEFAULT 'processing',
 			pending_tools longtext NOT NULL,
 			tool_calls longtext NOT NULL,
+			checkpoint longtext NULL,
+			checkpoint_phase varchar(60) NOT NULL DEFAULT '',
+			resume_attempts int(10) unsigned NOT NULL DEFAULT 0,
 			error text NULL,
 			interrupted_at datetime NULL,
 			created_at datetime NOT NULL,
