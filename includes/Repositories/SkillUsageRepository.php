@@ -40,6 +40,11 @@ class SkillUsageRepository {
 		global $wpdb;
 		/** @var \wpdb $wpdb */
 
+		$skill_id = (int) ( $data['skill_id'] ?? 0 );
+		if ( $skill_id <= 0 ) {
+			return false;
+		}
+
 		$trigger_type = $data['trigger_type'] ?? 'auto';
 		if ( ! in_array( $trigger_type, [ 'auto', 'manual', 'tool_call' ], true ) ) {
 			$trigger_type = 'auto';
@@ -54,7 +59,7 @@ class SkillUsageRepository {
 		$result = $wpdb->insert(
 			Database::skill_usage_table_name(),
 			[
-				'skill_id'        => (int) ( $data['skill_id'] ?? 0 ),
+				'skill_id'        => $skill_id,
 				'session_id'      => (int) ( $data['session_id'] ?? 0 ),
 				'trigger_type'    => $trigger_type,
 				'injected_tokens' => (int) ( $data['injected_tokens'] ?? 0 ),
