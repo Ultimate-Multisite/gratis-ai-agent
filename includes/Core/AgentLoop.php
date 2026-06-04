@@ -2311,14 +2311,31 @@ class AgentLoop {
 	private static function normalize_function_call_args( $args ): array {
 		if ( is_string( $args ) && '' !== $args ) {
 			$decoded = json_decode( $args, true );
-			return is_array( $decoded ) ? $decoded : array();
+			return is_array( $decoded ) ? self::string_keyed_array( $decoded ) : array();
 		}
 
 		if ( is_array( $args ) ) {
-			return $args;
+			return self::string_keyed_array( $args );
 		}
 
 		return array();
+	}
+
+	/**
+	 * Keep only string-keyed values from a decoded JSON object.
+	 *
+	 * @param array<mixed> $value Decoded function-call args.
+	 * @return array<string,mixed>
+	 */
+	private static function string_keyed_array( array $value ): array {
+		$result = array();
+		foreach ( $value as $key => $item ) {
+			if ( is_string( $key ) ) {
+				$result[ $key ] = $item;
+			}
+		}
+
+		return $result;
 	}
 
 	/**
