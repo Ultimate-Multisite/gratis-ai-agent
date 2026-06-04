@@ -59,7 +59,7 @@ fi
 
 if have systemctl; then
 	log "Service state"
-	for unit in mariadb nginx dnsmasq php-fpm85.service php-fpm.service; do
+	for unit in mariadb.service nginx.service dnsmasq.service php-fpm.service php-fpm85.service; do
 		if systemctl list-unit-files "$unit" >/dev/null 2>&1; then
 			state="$(systemctl is-active "$unit" 2>/dev/null || true)"
 			log "$unit: ${state:-unknown}"
@@ -70,14 +70,14 @@ fi
 if [ "$PRINT_CONFIG" = "1" ] || [ "$CHECK" = "1" ]; then
 	cat <<EOF
 
-Suggested CachyOS/Arch package install (verify php85 package names on your host):
-  paru -S --needed nginx mariadb php85 php85-fpm php85-mysql php85-gd php85-intl php85-imagick php85-mbstring php85-opcache php85-zip php85-curl php85-xml wp-cli dnsmasq nss ca-certificates-utils openssl jq
+Suggested CachyOS/Arch package install (verified on this host with PHP 8.5 packages):
+  paru -S --needed nginx mariadb php php-fpm php-gd php-imagick wp-cli dnsmasq nss ca-certificates-utils openssl jq
 
 Suggested services:
-  sudo systemctl enable --now mariadb
-  sudo systemctl enable --now php-fpm85.service
-  sudo systemctl enable --now nginx
-  sudo systemctl enable --now dnsmasq
+  sudo systemctl enable --now mariadb.service
+  sudo systemctl enable --now php-fpm.service
+  sudo systemctl enable --now nginx.service
+  sudo systemctl enable --now dnsmasq.service
 
 Suggested dnsmasq file (/etc/dnsmasq.d/superdav-local-wp.conf):
   address=/.$SUPERDAV_LOCAL_WP_DOMAIN/127.0.0.1

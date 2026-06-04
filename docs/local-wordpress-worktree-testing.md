@@ -146,17 +146,10 @@ Use `paru` rather than distro-agnostic or Debian package commands:
 paru -S --needed \
   nginx \
   mariadb \
-  php85 \
-  php85-fpm \
-  php85-mysql \
-  php85-gd \
-  php85-intl \
-  php85-imagick \
-  php85-mbstring \
-  php85-opcache \
-  php85-zip \
-  php85-curl \
-  php85-xml \
+  php \
+  php-fpm \
+  php-gd \
+  php-imagick \
   wp-cli \
   dnsmasq \
   nss \
@@ -164,9 +157,10 @@ paru -S --needed \
   openssl
 ```
 
-Package names may vary depending on current CachyOS/AUR availability. The
-implementation phase must verify exact package names with `paru -Ss '^php85'`
-and update the final setup guide accordingly.
+Package names vary depending on current CachyOS/AUR availability. On the tested
+CachyOS host, PHP 8.5 is provided by the standard `php` and `php-fpm` packages;
+verify with `paru -Ss '^php$|^php-fpm$|^php85'` before installing on another
+machine.
 
 ### Service setup draft
 
@@ -175,13 +169,14 @@ sudo systemctl enable --now mariadb
 sudo mariadb-install-db --user=mysql --basedir=/usr --datadir=/var/lib/mysql || true
 sudo mysql_secure_installation
 
-sudo systemctl enable --now php-fpm85.service
+sudo systemctl enable --now php-fpm.service
 sudo systemctl enable --now nginx
 sudo systemctl enable --now dnsmasq
 ```
 
-The implementation should verify the exact PHP-FPM unit and socket names on
-CachyOS, then template nginx accordingly.
+On the tested CachyOS host the PHP-FPM unit is `php-fpm.service` and the socket
+is `/run/php-fpm/php-fpm.sock`. The helper still detects common alternatives and
+allows overriding with `SUPERDAV_LOCAL_WP_PHP_FPM_SOCKET`.
 
 ## Phase 2: DNS and HTTPS foundation
 
@@ -310,7 +305,7 @@ server {
 
     location ~ \.php$ {
         include fastcgi.conf;
-        fastcgi_pass unix:/run/php-fpm85/php-fpm.sock;
+        fastcgi_pass unix:/run/php-fpm/php-fpm.sock;
     }
 }
 ```
