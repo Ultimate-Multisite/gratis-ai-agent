@@ -79,6 +79,8 @@ export function hasLiveSiteChangeActivity( toolCalls ) {
 	);
 }
 
+export { hasLiveSiteChangeActivity as hasActivity };
+
 /**
  * Start frontend onboarding and send its first message when appropriate.
  *
