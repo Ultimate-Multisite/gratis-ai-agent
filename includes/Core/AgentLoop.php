@@ -990,6 +990,15 @@ class AgentLoop {
 			// Log tool calls and check for confirmation requirement.
 			$this->log_tool_calls( $assistant_message );
 
+			$empty_global_styles_guard = $this->build_empty_global_styles_guard_response( $assistant_message );
+			if ( null !== $empty_global_styles_guard ) {
+				$this->append_tool_response_to_history( $empty_global_styles_guard );
+				$this->log_tool_responses( $empty_global_styles_guard );
+				$this->inject_empty_global_styles_update_guidance();
+				$this->last_loop_phase = 'empty_global_styles_update_guarded';
+				continue;
+			}
+
 			// ── Client-side ability routing ───────────────────────────────
 			// Partition tool calls into PHP-executable and JS-pending sets.
 			// PHP calls execute inline; JS calls are returned as pending so
@@ -2205,6 +2214,141 @@ class AgentLoop {
 		);
 
 		return new ModelMessage( $deduped );
+	}
+
+	/**
+	 * Build a synthetic tool response for empty update-global-styles calls.
+	 *
+	 * The global-styles ability cannot infer a design direction from
+	 * `styles: []` / `settings: []`. Returning a guard response here prevents
+	 * dispatching a known-empty mutation and gives the model a concrete recovery
+	 * instruction instead of letting it repeat the same validation failure.
+	 *
+	 * @param Message $message Assistant message to inspect.
+	 * @return Message|null Synthetic response when every tool call was guarded; null otherwise.
+	 */
+	private function build_empty_global_styles_guard_response( Message $message ): ?Message {
+		$parts             = array();
+		$function_calls    = 0;
+		$guarded_responses = 0;
+
+		foreach ( $message->getParts() as $part ) {
+			$call = $part->getFunctionCall();
+			if ( ! $call ) {
+				continue;
+			}
+
+			++$function_calls;
+
+			$name = (string) $call->getName();
+			if ( 'sd-ai-agent/update-global-styles' !== self::normalize_logged_tool_name( $name ) ) {
+				continue;
+			}
+
+			$args = self::normalize_function_call_args( $call->getArgs() );
+			if ( ! self::is_empty_global_styles_update_args( $args ) ) {
+				continue;
+			}
+
+			++$guarded_responses;
+			$payload = array(
+				'success'           => false,
+				'code'              => 'sd_ai_agent_empty_global_styles_update_guarded',
+				'error'             => __( 'Empty global styles updates are not dispatched. Provide a non-empty theme.json styles or settings partial.', 'superdav-ai-agent' ),
+				'example_arguments' => array(
+					'styles' => array(
+						'color'      => array(
+							'background' => '<background hex or preset var>',
+							'text'       => '<text hex or preset var>',
+						),
+						'typography' => array(
+							'fontFamily' => '<system or bundled font stack>',
+							'lineHeight' => '<line height>',
+						),
+						'elements'   => array(
+							'button' => array(
+								'color' => array(
+									'background' => '<button background>',
+									'text'       => '<button text>',
+								),
+							),
+						),
+					),
+				),
+				'nudge'             => 'Do not retry update-global-styles with empty or unchanged arguments. Build a concrete design partial from the chosen palette/typography, call get-theme-json first if needed, or skip the style update and report the blocker to the user.',
+			);
+
+			$encoded_payload = wp_json_encode( $payload );
+			$parts[]         = new MessagePart(
+				new FunctionResponse(
+					(string) $call->getId(),
+					$name,
+					is_string( $encoded_payload ) ? $encoded_payload : '{}'
+				)
+			);
+		}
+
+		if ( 0 === $function_calls || $function_calls !== $guarded_responses ) {
+			return null;
+		}
+
+		$this->message_log[] = array(
+			'type'     => 'guardrail',
+			'reason'   => 'empty_global_styles_update_guarded',
+			'count'    => $guarded_responses,
+			'sequence' => $this->next_activity_sequence(),
+		);
+
+		return new UserMessage( $parts );
+	}
+
+	/**
+	 * Normalize function-call args to an array.
+	 *
+	 * @param mixed $args Raw function-call arguments.
+	 * @return array<string,mixed>
+	 */
+	private static function normalize_function_call_args( $args ): array {
+		if ( is_string( $args ) && '' !== $args ) {
+			$decoded = json_decode( $args, true );
+			return is_array( $decoded ) ? $decoded : array();
+		}
+
+		if ( is_array( $args ) ) {
+			return $args;
+		}
+
+		return array();
+	}
+
+	/**
+	 * Whether update-global-styles received no meaningful style/settings data.
+	 *
+	 * @param array<string,mixed> $args Normalized function-call args.
+	 */
+	private static function is_empty_global_styles_update_args( array $args ): bool {
+		$styles   = $args['styles'] ?? array();
+		$settings = $args['settings'] ?? array();
+
+		return empty( $styles ) && empty( $settings );
+	}
+
+	/**
+	 * Inject recovery guidance after the empty global-styles guard fires.
+	 */
+	private function inject_empty_global_styles_update_guidance(): void {
+		$this->history[] = new UserMessage(
+			array(
+				new MessagePart(
+					__(
+						'The previous update-global-styles call was blocked because both styles and settings were empty. Do not retry that call unchanged. Build a concrete non-empty theme.json styles partial from the selected design direction, call get-theme-json if you need existing presets, or skip the style update and tell the user exactly what blocked it before giving a final response.',
+						'superdav-ai-agent'
+					)
+				),
+			)
+		);
+
+		$this->fire_progress();
 	}
 
 	/**
