@@ -210,6 +210,11 @@ before creating the issue:
   example `phpcs.xml.dist` → `bootstrap.php`), use `git ls-files '<pattern>'`
   for tracked files, then retry `Read` before continuing with the next safe
   implementation step.
+- If the same note mentions a WordPress fatal error, plugin activation, or
+  canonical plugin symlinks, require the worker guidance to inspect
+  `../wordpress/wp-content/debug.log` before chasing unrelated missing repo paths,
+  and to verify the local WordPress install symlinks each plugin worktree into the
+  expected canonical plugin directory name.
 - If recurring tool errors mention `bash:file_not_found`, `gh-signature-helper.sh
   invocation failed`, `signature gate`, or blocked `gh` writes, require durable
   worker guidance to create the issue/PR/comment body as an existing stable file,
@@ -223,7 +228,7 @@ before creating the issue:
   "false positive" language unless tied to exact file/pattern evidence.
 - Include verification in the issue body, for example
   `rg -n "Contributor Insight|sd-ai-agent/v1|secret|current user|file upload|WordPress.org Review|false positive" AGENTS.md .agents/AGENTS.md .agents/scripts/commands/feedback-triage.md`
-  or `rg -n "read:file_not_found|missing-file reads|git ls-files|signature gate|body-file|gh-signature-helper" AGENTS.md .agents/AGENTS.md .agents/scripts/commands/feedback-triage.md`
+  or `rg -n "read:file_not_found|missing-file reads|git ls-files|debug.log|canonical plugin|signature gate|body-file|gh-signature-helper" AGENTS.md .agents/AGENTS.md .agents/scripts/commands/feedback-triage.md includes/Models/skills/site-troubleshooting.md`
   plus `rg -n "wp-block-themes|Full Site Editing|theme.json|validate-block-content" AGENTS.md includes/Models/skills/wp-block-themes.md`
   when block-theme guidance is involved.
 - Add a `## Worker Guidance` section to the created GitHub issue. It must name
@@ -305,9 +310,12 @@ triage issue: compare the requested basename with the tool output that introduce
 it, follow any "you mean one of these?" nearby-path hint from the tool error,
 verify tracked repository paths with `git ls-files '<pattern>'`, inspect the
 known parent directory for nearby runtime-artifact names, and retry `Read` with
-the corrected path. If the artifact still cannot be found, include the attempted
-paths in the issue body and continue with the available session evidence instead
-of treating the missing read as the whole outcome.
+the corrected path. For WordPress fatal-error reports, make the known runtime
+artifact `../wordpress/wp-content/debug.log` the next read target and include a
+canonical plugin-symlink check in the worker guidance. If the artifact still
+cannot be found, include the attempted paths in the issue body and continue with
+the available session evidence instead of treating the missing read as the whole
+outcome.
 
 Capture the issue URL from output. Then update the report (the helper
 routes the third argument to `github_issue_url` for the `issue_created`

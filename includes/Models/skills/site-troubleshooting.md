@@ -10,6 +10,8 @@ Use this skill when the user reports errors, performance issues, white screens, 
 - `wp eval "error_reporting(E_ALL); ini_set('display_errors', 1);"` — Check PHP error reporting
 - `wp config get WP_DEBUG` — Check debug mode status
 - `wp config get WP_DEBUG_LOG` — Check if debug logging is on
+- `wp eval "echo file_exists(WP_CONTENT_DIR . '/debug.log') ? file_get_contents(WP_CONTENT_DIR . '/debug.log') : '';"` — Read the runtime debug log without assuming the file exists
+- `wp plugin path <plugin-slug>` — Confirm a plugin resolves through its expected canonical plugin directory or symlink before debugging activation fatals
 
 ### Plugin Conflicts
 - `wp plugin list --status=active --fields=name,version` — List active plugins
@@ -39,9 +41,19 @@ Use this skill when the user reports errors, performance issues, white screens, 
 
 ### White Screen of Death
 1. Enable WP_DEBUG: `wp config set WP_DEBUG true --raw`
-2. Check debug.log: `wp eval "echo file_get_contents(WP_CONTENT_DIR . '/debug.log');"`
+2. Check debug.log: `wp eval "echo file_exists(WP_CONTENT_DIR . '/debug.log') ? file_get_contents(WP_CONTENT_DIR . '/debug.log') : '';"`
 3. Deactivate plugins to find conflict
 4. Switch to default theme
+
+### Plugin Activation Fatal Error
+1. Verify `WP_DEBUG_LOG` is enabled and reproduce the activation once.
+2. Read `../wordpress/wp-content/debug.log` or use the guarded `wp eval` command
+   above; do not stop after a missing repository path such as `vendor/`.
+3. Confirm the shared WordPress install symlinks every checked-out plugin worktree
+   into the plugin's canonical directory name before treating the fatal as an
+   application-code regression.
+4. Activate the plugin by canonical slug, then re-check debug.log for the first
+   new fatal stack trace.
 
 ### 500 Internal Server Error
 1. Check PHP error logs
