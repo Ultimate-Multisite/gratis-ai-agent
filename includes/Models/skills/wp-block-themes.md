@@ -25,7 +25,10 @@ When a contributor-insight issue contains a pasted local-path excerpt headed
 style variations, treat that excerpt as a source-mapping clue only. Update this
 committed skill file (and the root `AGENTS.md` summary when repo-wide guidance is
 needed); do not copy private local paths or duplicate the full excerpt into
-issues, PRs, templates, or generated theme files.
+issues, PRs, templates, or generated theme files. In mixed reports like issue
+#2034, this file is only the block-theme target; REST, Google Search Console, and
+WordPress.org review-response notes must be mapped to their own committed source
+files instead of being folded into this skill.
 
 ## Inputs required
 

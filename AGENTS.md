@@ -157,6 +157,13 @@ note to a committed, future-loaded source before editing:
   summarize each reviewer finding, cite the merged fix or evidence-backed
   rationale, include verification commands, and avoid blanket "all fixed" or
   "false positive" claims that are not tied to a specific finding.
+- For mixed reports like issue #2034, make the mapping explicit in the PR body:
+  block-theme excerpts map to `includes/Models/skills/wp-block-themes.md`; REST
+  hardening shorthand maps to this root REST policy plus `includes/REST/` and
+  `includes/Abilities/WpRestAbilities.php`; Google Search Console questions map
+  to the GSC surfaces listed below; WordPress.org reply prompts map to the
+  review-response policy above. State when the implementation is a guidance
+  hardening only because the inspected code already has the required guard.
 - Verification for this class of guidance-only fix should include both:
   `rg -n "Contributor Insight|source mapping|local-path|sd-ai-agent/v1|file upload|WordPress.org Review|false positive" AGENTS.md .agents/AGENTS.md .agents/scripts/commands/feedback-triage.md`
   and `rg -n "wp-block-themes|Full Site Editing|theme.json|validate-block-content" AGENTS.md includes/Models/skills/wp-block-themes.md`.
@@ -520,6 +527,14 @@ second must report zero failures for the four ability suites.
   verify the controller uses the real current user context, has a capability
   gate, avoids public file-upload exposure, and returns scrubbed responses before
   calling the route WordPress.org-ready.
+- **Evidence checklist for contributor-insight REST hardening**: cite the exact
+  inspected guard before deciding guidance-only is enough. Reference
+  `includes/Abilities/WpRestAbilities.php` for the `sd-ai-agent/v1` execute
+  block, file-upload hiding, current-user dispatcher behaviour, and audit-log
+  secret scrubbing; reference `includes/REST/PermissionTrait.php` or the concrete
+  controller for the route capability check; reference the upload controller
+  method (for example `includes/REST/KnowledgeController.php`) when the note says
+  to hide or restrict uploads.
 - **Follow-up issue briefs**: If a REST hardening pass finds remaining exposure,
   file worker-ready GitHub issue briefs that name the route/controller, the missing
   guard or scrubber, the expected safe behaviour, and the exact verification command
