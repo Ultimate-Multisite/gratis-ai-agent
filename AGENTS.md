@@ -242,11 +242,19 @@ completion state:
 - For tracked repository files, verify the path with `git ls-files '<pattern>'`
   before retrying `Read`; for untracked/runtime artifacts, inspect the known
   parent directory or rerun the command that generated the artifact.
+- For local WordPress fatal-error reports, do not keep retrying unrelated project
+  paths such as `vendor/` after a missing-file read. First inspect the runtime
+  artifact that contains the failure: `../wordpress/wp-content/debug.log`, or
+  enable `WP_DEBUG_LOG` and reproduce once if the log does not exist.
+- Before blaming plugin code for local activation fatals, verify the shared
+  WordPress install has symlinks for every checked-out plugin worktree under its
+  canonical plugin directory name. A missing or basename-only worktree symlink can
+  make WordPress load the wrong path and hide the real debug.log failure.
 - If the corrected path is found, retry `Read` with that path and continue the
   task. If no plausible path exists after bounded recovery, record what was
   checked and continue with the next safe implementation step rather than ending
   the session solely because one optional artifact is missing.
-- Verification for guidance-only fixes: run `rg -n "read:file_not_found|missing-file reads|git ls-files|signature gate|body-file" AGENTS.md .agents/AGENTS.md .agents/scripts/commands/feedback-triage.md` and ensure both file-read recovery and GitHub write-body policies are present in files loaded by future workers.
+- Verification for guidance-only fixes: run `rg -n "read:file_not_found|missing-file reads|git ls-files|debug.log|canonical plugin" AGENTS.md .agents/AGENTS.md .agents/scripts/commands/feedback-triage.md includes/Models/skills/site-troubleshooting.md` and ensure file-read recovery, debug-log triage, and canonical plugin-symlink policies are present in files loaded by future workers.
 
 #### Headless Tool-Abort Recovery
 
@@ -525,7 +533,7 @@ The shared WordPress dev install for testing this plugin is at `../wordpress` (r
 - **URL**: http://wordpress.local:8080
 - **Admin**: http://wordpress.local:8080/wp-admin — `admin` / `admin`
 - **WordPress version**: 7.0-RC2
-- **This plugin**: symlinked into `../wordpress/wp-content/plugins/$(basename $PWD)`
+- **This plugin**: symlinked into `../wordpress/wp-content/plugins/$(basename $PWD)` for the active worktree, and into the canonical WordPress plugin directory when testing slug-specific activation/loading behaviour.
 - **Reset to clean state**: `cd ../wordpress && ./reset.sh`
 
 WP-CLI is configured via `wp-cli.yml` in this repo root — run `wp` commands directly from here without specifying `--path`.

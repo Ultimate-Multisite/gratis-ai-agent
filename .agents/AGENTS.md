@@ -82,6 +82,12 @@ working here in OpenCode headless mode:
   a failed `phpcs.xml.dist` read that suggests `bootstrap.php`). Do not stop a
   headless run solely because one optional screenshot, prompt, or generated
   artifact path was stale.
+- When a missing-file read happens during WordPress fatal-error triage, switch to
+  the runtime evidence before more repo-path probing: inspect
+  `../wordpress/wp-content/debug.log` (enable `WP_DEBUG_LOG` and reproduce once if
+  absent), then verify the shared install's plugin symlinks point at each
+  worktree's canonical plugin directory name rather than a stale or basename-only
+  path.
 - Treat `bash:other` / `Tool execution aborted` as a recoverable command-shape or
   hook failure first. Inspect the preceding command, retry once with a narrower
   non-inline command and a clear `description`, avoid heredocs/process or command
