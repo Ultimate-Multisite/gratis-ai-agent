@@ -74,25 +74,19 @@ There are two possible fixes:
 
 The safer product behavior is option 1: commands should produce stable machine-readable/progress output even when no rows match.
 
-## Remediation plan
+## Remediation implemented
 
-1. **Improve the plugin-generation guidance for WP-CLI migration tasks.**
-   - Add instruction in the relevant skill/prompt path that migration commands must always print the requested final summary exactly.
-   - Include dry-run and zero-row examples.
+1. **Improved the benchmark prompt for WP-CLI migration tasks.**
+   - `includes/Benchmark/BenchmarkSuite.php` now tells the agent that the dry-run command must still print benchmark-compatible progress and summary output when zero posts match.
+   - The prompt includes concrete zero-row examples: `Processed 0/0 posts` and `Migration complete: 0 posts updated`.
+   - The prompt explicitly says not to return early with only a prose empty-state message.
 
-2. **Strengthen benchmark fixture setup or assertion output.**
-   - Ensure the assertion creates at least one post with `_legacy_price` before invoking `meta-migrator run --dry-run`, or
-   - Broaden the assertion pattern only if zero-row output is intentionally accepted.
+2. **Kept the assertion strict.**
+   - The benchmark still expects `dry.run|Migration complete|Processed`.
+   - This preserves the product expectation that generated migration commands produce stable progress/summary output.
 
-3. **Add a regression benchmark/unit check.**
-   - Run `fn-004` alone after the guidance change.
-   - Inspect the generated plugin output for:
-     - `Processed 0/0 posts` or `Processed X/Y posts`
-     - `Migration complete: 0 posts updated` or `Migration complete: X posts updated`
-
-4. **Keep generated WP-CLI command registration robust.**
-   - Register command only when `WP_CLI` is defined.
-   - Register the parent command form that WP-CLI resolves consistently for `wp meta-migrator run`.
+3. **Kept WP-CLI command registration guidance intact.**
+   - The prompt still requires command registration only when `WP_CLI` is defined.
 
 ## Verification
 

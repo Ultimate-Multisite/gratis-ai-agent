@@ -1,4 +1,4 @@
-# Synthetic provider benchmark run summary — 2026-06-05
+# Synthetic provider benchmark, scoring, and customer ranking — 2026-06-05
 
 ## Scope
 
@@ -66,8 +66,73 @@ The Synthetic account ran out of quota during the `syn:large:text` / `abilities-
 
 3. **Benchmark reporting can show `0/0 assertions` for all-agent-error suites.**
    - Affected: quota-failed suites.
-   - This makes scoreboards hard to compare and can hide that no benchmark assertions actually executed.
-   - Planning document: `2026-06-05-benchmark-runner-agent-error-scoring.md`.
+   - Implemented: benchmark suite summaries now classify question status, provider errors, run status, and ranking eligibility in `suite-summary.json`.
+
+## Implemented benchmark reporting changes
+
+The benchmark runner now writes a machine-readable `suite-summary.json` alongside per-question logs with:
+
+- provider ID and model ID;
+- suite and run ID;
+- question count and questions passed;
+- agent errors and provider errors;
+- assertion pass/fail totals;
+- normalized run status;
+- ranking eligibility;
+- compact per-question status summaries.
+
+Question-level statuses include:
+
+- `passed`
+- `assertion_failed`
+- `agent_error`
+- `provider_error`
+
+Provider errors are classified from common transport failures:
+
+- HTTP 402 or quota text: `provider_quota_exhausted`
+- HTTP 429 or rate-limit text: `provider_rate_limited`
+- HTTP 5xx or unavailable text: `provider_unavailable`
+- timeout text: `provider_timeout`
+
+Run statuses:
+
+- `complete` — no assertion failures or agent errors;
+- `partial` — assertion failures or non-provider agent errors;
+- `blocked_provider` — every question failed with provider errors;
+- `inconclusive` — some provider errors occurred, so model quality cannot be cleanly ranked.
+
+## Customer-facing model ranking policy
+
+A customer-facing recommendation should combine:
+
+1. **Task success** — assertion pass rate and question pass rate.
+2. **Reliability** — agent errors, provider errors, retries, timeouts.
+3. **Efficiency** — average turns, runtime, token usage, and cost if available.
+4. **Coverage** — number and diversity of suites completed.
+5. **Safety/compliance** — no secret leakage, no unsafe tool calls, no private REST dispatcher misuse.
+6. **Fit by task class** — content generation, plugin generation, media/design, developer operations, credentialed integrations.
+
+A model should not appear as `recommended` unless it has:
+
+- completed `content-v1` and `functional-v1` without provider-level blocking;
+- completed at least one abilities suite;
+- no critical safety failures;
+- a minimum completed-question count, e.g. 25 questions;
+- provider error rate below 5% for the evaluated run.
+
+Proposed customer score:
+
+```text
+customer_score =
+  0.45 * assertion_pass_rate
++ 0.20 * question_pass_rate
++ 0.15 * suite_coverage_rate
++ 0.10 * reliability_score
++ 0.10 * efficiency_score
+```
+
+Provider-level blocked questions should be excluded from model capability scoring but included in provider reliability notes.
 
 ## Current customer-facing model recommendation
 
@@ -79,6 +144,10 @@ Recommendation status:
 - **Evidence:** 100% on `content-v1`, 97% on `functional-v1`, first 2/12 `abilities-content-v1` questions passed before quota exhaustion.
 - **Caveat:** The run is not sufficient to certify `syn:large:text` across all ability suites because quota exhaustion prevented the rest of the matrix from executing.
 - **Do not rank yet:** `syn:large:vision`, `syn:small:text`, and `syn:small:vision`; every question for these models failed with provider quota errors before any capability signal was collected.
+
+Suggested recommendation text:
+
+> Based on the latest completed evidence, `syn:large:text` is the only Synthetic model with enough successful benchmark signal to recommend provisionally. It passed content generation at 100% and functional plugin/content tasks at 97%. The other Synthetic models were not evaluated because provider quota was exhausted before they could run; they should be treated as inconclusive until the matrix is rerun with sufficient quota.
 
 ## Required rerun after quota fix
 
