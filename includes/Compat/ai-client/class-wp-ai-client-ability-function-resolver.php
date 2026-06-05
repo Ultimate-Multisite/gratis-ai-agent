@@ -22,6 +22,7 @@ if ( class_exists( 'WP_AI_Client_Ability_Function_Resolver' ) ) {
 	return;
 }
 
+use SdAiAgent\Core\AbilityRegistry;
 use WordPress\AiClient\Messages\DTO\Message;
 use WordPress\AiClient\Messages\DTO\MessagePart;
 use WordPress\AiClient\Messages\DTO\UserMessage;
@@ -144,7 +145,7 @@ class WP_AI_Client_Ability_Function_Resolver {
 			);
 		}
 
-		$ability = wp_get_ability( $ability_name );
+		$ability = AbilityRegistry::get( $ability_name );
 
 		if ( ! $ability instanceof WP_Ability ) {
 			return new FunctionResponse(

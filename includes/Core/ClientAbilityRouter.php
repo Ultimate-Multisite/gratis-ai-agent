@@ -101,8 +101,7 @@ final class ClientAbilityRouter {
 			}
 
 			// Check if already registered in the global registry.
-			// @phpstan-ignore-next-line
-			$existing = function_exists( 'wp_get_ability' ) ? wp_get_ability( $name ) : null;
+			$existing = AbilityRegistry::get( $name );
 			if ( $existing instanceof \WP_Ability ) {
 				$stubs[] = $existing;
 				continue;
@@ -131,8 +130,7 @@ final class ClientAbilityRouter {
 				)
 			);
 
-			// @phpstan-ignore-next-line
-			$stub = wp_get_ability( $name );
+			$stub = AbilityRegistry::get( $name );
 			if ( $stub instanceof \WP_Ability ) {
 				$stubs[] = $stub;
 			}
