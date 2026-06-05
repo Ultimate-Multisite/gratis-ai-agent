@@ -1,16 +1,17 @@
 /**
  * Connectors Route — polyfill Connectors admin page for WP 6.9.
  *
- * On WordPress 7.0+ (or WP 6.9 with Gutenberg 22.8.0+), provider API keys
- * are managed on the official Connectors page at
+ * On WordPress 7.0+ (or WP 6.9 with Gutenberg 22.8.0+), third-party provider
+ * API keys are managed on the official Connectors page at
  * options-general.php?page=options-connectors-wp-admin. This route provides
  * an equivalent UI for WordPress 6.9 installations without Gutenberg.
  *
  * Features:
  * - Lists AI provider connector plugins and bundled Superdav AI
  * - Shows plugin install/activation status with action buttons
- * - Allows API key entry and storage (saved as connectors_ai_{id}_api_key)
- * - Detects WP 7.0+ and shows a redirect link to the native page
+ * - Allows third-party API key entry and storage (saved as connectors_ai_{id}_api_key)
+ * - Keeps the bundled Superdav AI managed connect/disconnect flow available
+ *   even when the native Connectors page exists
  *
  * Plugin install/activate calls the native /wp/v2/plugins REST API.
  * API key management calls /sd-ai-agent/v1/connectors/{id}/key.
@@ -537,37 +538,32 @@ export default function ConnectorsRoute() {
 		);
 	}
 
-	// On WP 7.0+: show a redirect notice instead of the full UI.
-	// The native Connectors page handles everything.
-	if ( state.hasNative ) {
-		return (
-			<div className="sdaa-route sdaa-route-connectors">
-				<div className="sd-ai-connectors__native-redirect">
-					<h2>{ __( 'Connectors', 'sd-ai-agent' ) }</h2>
-					<Notice status="info" isDismissible={ false }>
-						{ __(
-							'WordPress 7.0+ includes a built-in Connectors page for managing AI provider API keys.',
-							'sd-ai-agent'
-						) }
-					</Notice>
-					<Button variant="primary" href={ connectorsUrl }>
-						{ __( 'Open Connectors Page →', 'sd-ai-agent' ) }
-					</Button>
-				</div>
-			</div>
-		);
-	}
-
 	return (
 		<div className="sdaa-route sdaa-route-connectors">
 			<div className="sd-ai-connectors__header">
 				<h2>{ __( 'Connectors', 'sd-ai-agent' ) }</h2>
 				<p className="sd-ai-connectors__intro">
-					{ __(
-						'Install and configure AI provider plugins. Each provider needs an API key to connect Superdav AI Agent to its models.',
-						'sd-ai-agent'
-					) }
+					{ state.hasNative
+						? __(
+								'Connect the bundled Superdav AI managed provider here, or use the WordPress Connectors page for third-party provider API keys.',
+								'sd-ai-agent'
+						  )
+						: __(
+								'Connect the bundled Superdav AI managed provider, or install and configure third-party provider plugins with their own API keys.',
+								'sd-ai-agent'
+						  ) }
 				</p>
+				{ state.hasNative && (
+					<Notice status="info" isDismissible={ false }>
+						{ __(
+							'Superdav AI does not require pasting a raw key. Third-party provider keys remain available on the WordPress Connectors page.',
+							'sd-ai-agent'
+						) }{ ' ' }
+						<Button variant="link" href={ connectorsUrl }>
+							{ __( 'Open WordPress Connectors', 'sd-ai-agent' ) }
+						</Button>
+					</Notice>
+				) }
 			</div>
 
 			<div className="sd-ai-connectors__grid">

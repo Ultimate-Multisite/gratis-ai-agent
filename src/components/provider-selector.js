@@ -51,7 +51,10 @@ export default function ProviderSelector( { compact = false } ) {
 							'options-general.php?page=options-connectors-wp-admin'
 						}
 					>
-						{ __( 'Configure a provider', 'superdav-ai-agent' ) }
+						{ __(
+							'Connect Superdav AI or choose another provider',
+							'superdav-ai-agent'
+						) }
 					</a>
 				</p>
 			</div>
