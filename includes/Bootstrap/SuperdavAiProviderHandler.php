@@ -24,8 +24,12 @@ final class SuperdavAiProviderHandler {
 
 	/**
 	 * Register the provider if the WordPress AI Client SDK is available.
+	 *
+	 * The SDK may be loaded by another plugin during `plugins_loaded`, so register
+	 * on early `init` after all `plugins_loaded` callbacks have had a chance to
+	 * expose their SDK classes and before the default connector registry runs.
 	 */
-	#[Action( tag: 'plugins_loaded', priority: 2 )]
+	#[Action( tag: 'init', priority: 5 )]
 	public function register_provider(): void {
 		if ( ! class_exists( '\WordPress\AiClient\AiClient' ) ) {
 			return;
