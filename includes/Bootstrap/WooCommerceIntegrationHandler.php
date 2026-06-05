@@ -144,24 +144,28 @@ final class WooCommerceIntegrationHandler {
 			return;
 		}
 
+		if ( wp_get_ability_category( 'woocommerce-rest' ) ) {
+			return;
+		}
+
 		// Delegate to WooCommerce's own category registration when available so
 		// labels/descriptions stay in sync. Gracefully fall back to our own call
-		// if the class doesn't exist (older WooCommerce).
+		// if the class doesn't exist (older WooCommerce). Guard first because
+		// WooCommerce's category registrar emits a doing_it_wrong notice when the
+		// category has already been registered by another bootstrap path.
 		if ( class_exists( self::CATEGORY_CLASS ) ) {
 			( self::CATEGORY_CLASS )::register_categories();
 			return;
 		}
 
 		// Fallback for WooCommerce versions without AbilitiesCategories.
-		if ( ! wp_get_ability_category( 'woocommerce-rest' ) ) {
-			wp_register_ability_category(
-				'woocommerce-rest',
-				array(
-					'label'       => __( 'WooCommerce REST API', 'superdav-ai-agent' ),
-					'description' => __( 'REST API operations for WooCommerce resources including products, orders, and other store data.', 'superdav-ai-agent' ),
-				)
-			);
-		}
+		wp_register_ability_category(
+			'woocommerce-rest',
+			array(
+				'label'       => __( 'WooCommerce REST API', 'superdav-ai-agent' ),
+				'description' => __( 'REST API operations for WooCommerce resources including products, orders, and other store data.', 'superdav-ai-agent' ),
+			)
+		);
 	}
 
 	/**
@@ -205,7 +209,6 @@ final class WooCommerceIntegrationHandler {
 		try {
 			$ref    = new \ReflectionClass( $bridge_class );
 			$method = $ref->getMethod( 'get_configurations' );
-			$method->setAccessible( true );
 
 			/** @var array<int, array<string, mixed>> $configurations */
 			$configurations = $method->invoke( null );
