@@ -2057,8 +2057,7 @@ class AgentLoop {
 		if ( ! empty( $this->abilities ) ) {
 			$resolved = array();
 			foreach ( $this->abilities as $name ) {
-				// @phpstan-ignore-next-line
-				$ability = wp_get_ability( $name );
+				$ability = AbilityRegistry::get( $name );
 				if ( $ability instanceof \WP_Ability ) {
 					$resolved[] = $ability;
 				}
@@ -2082,8 +2081,7 @@ class AgentLoop {
 			if ( 'disabled' === ( $perms[ $name ] ?? 'auto' ) ) {
 				continue;
 			}
-			// @phpstan-ignore-next-line
-			$ability = wp_get_ability( $name );
+			$ability = AbilityRegistry::get( $name );
 			if ( ! $ability instanceof \WP_Ability ) {
 				continue;
 			}
