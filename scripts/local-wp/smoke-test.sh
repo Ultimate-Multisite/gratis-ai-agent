@@ -11,6 +11,9 @@ require_cmd "$SUPERDAV_LOCAL_WP_WP"
 log "Running smoke checks for $url"
 wp_cli core version --path="$wp_root"
 wp_cli plugin is-active "$SUPERDAV_LOCAL_WP_PLUGIN_SLUG" --path="$wp_root"
+if wp_cli plugin is-installed "$SUPERDAV_LOCAL_WP_ANTHROPIC_MAX_SLUG" --path="$wp_root" >/dev/null 2>&1; then
+	wp_cli plugin is-active "$SUPERDAV_LOCAL_WP_ANTHROPIC_MAX_SLUG" --path="$wp_root"
+fi
 wp_cli option get siteurl --path="$wp_root"
 wp_cli rewrite structure '/%postname%/' --path="$wp_root"
 wp_cli rewrite flush --path="$wp_root"

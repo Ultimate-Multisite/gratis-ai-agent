@@ -8,6 +8,9 @@ SUPERDAV_LOCAL_WP_SITES_ROOT="${SUPERDAV_LOCAL_WP_SITES_ROOT:-$HOME/local-wp-sit
 SUPERDAV_LOCAL_WP_CONFIG_DIR="${SUPERDAV_LOCAL_WP_CONFIG_DIR:-$HOME/.config/superdav-local-wp}"
 SUPERDAV_LOCAL_WP_CA_DIR="${SUPERDAV_LOCAL_WP_CA_DIR:-$HOME/.local/share/superdav-local-ca}"
 SUPERDAV_LOCAL_WP_PLUGIN_SLUG="superdav-ai-agent"
+SUPERDAV_LOCAL_WP_ANTHROPIC_MAX_SLUG="ai-provider-for-anthropic-max"
+SUPERDAV_LOCAL_WP_ANTHROPIC_MAX_URL="${SUPERDAV_LOCAL_WP_ANTHROPIC_MAX_URL:-https://github.com/Ultimate-Multisite/ai-provider-for-anthropic-max/releases/latest/download/ai-provider-for-anthropic-max.zip}"
+SUPERDAV_LOCAL_WP_INSTALL_ANTHROPIC_MAX="${SUPERDAV_LOCAL_WP_INSTALL_ANTHROPIC_MAX:-1}"
 SUPERDAV_LOCAL_WP_DB_PREFIX="${SUPERDAV_LOCAL_WP_DB_PREFIX:-wp_sd_}"
 SUPERDAV_LOCAL_WP_ADMIN_USER="${SUPERDAV_LOCAL_WP_ADMIN_USER:-admin}"
 SUPERDAV_LOCAL_WP_ADMIN_PASSWORD="${SUPERDAV_LOCAL_WP_ADMIN_PASSWORD:-admin}"
@@ -253,6 +256,23 @@ wp_cli() {
 
 mysql_cli() {
 	"$SUPERDAV_LOCAL_WP_MYSQL" "$@"
+}
+
+install_anthropic_max_provider() {
+	local wp_root="$1"
+
+	if [ "$SUPERDAV_LOCAL_WP_INSTALL_ANTHROPIC_MAX" = "0" ]; then
+		log "Skipping Anthropic Max provider install because SUPERDAV_LOCAL_WP_INSTALL_ANTHROPIC_MAX=0"
+		return 0
+	fi
+
+	if [ "$SUPERDAV_LOCAL_WP_DRY_RUN" = "1" ]; then
+		log "DRY RUN: would install and activate $SUPERDAV_LOCAL_WP_ANTHROPIC_MAX_SLUG from $SUPERDAV_LOCAL_WP_ANTHROPIC_MAX_URL"
+		return 0
+	fi
+
+	log "Installing/updating Anthropic Max provider from latest release"
+	run_cmd wp_cli plugin install "$SUPERDAV_LOCAL_WP_ANTHROPIC_MAX_URL" --force --activate --path="$wp_root"
 }
 
 write_site_json() {

@@ -9,10 +9,12 @@ SKIP_DEPS=0
 INSTALL_NGINX=0
 usage() {
 	cat <<EOF
-Usage: scripts/local-wp/provision-site.sh [--dry-run] [--skip-build] [--build] [--skip-deps] [--install-nginx]
+Usage: scripts/local-wp/provision-site.sh [--dry-run] [--skip-build] [--build] [--skip-deps] [--install-nginx] [--skip-anthropic-max]
 
 Creates or updates a host-native WordPress site for the current git worktree.
-Use SUPERDAV_WP_SITE_SLUG to override the derived site slug.
+Use SUPERDAV_WP_SITE_SLUG to override the derived site slug. By default the
+latest ai-provider-for-anthropic-max GitHub release is installed and activated;
+set SUPERDAV_LOCAL_WP_INSTALL_ANTHROPIC_MAX=0 or pass --skip-anthropic-max to skip it.
 EOF
 }
 
@@ -23,6 +25,7 @@ while [ $# -gt 0 ]; do
 		--build) RUN_BUILD=1 ;;
 		--skip-deps) SKIP_DEPS=1 ;;
 		--install-nginx) INSTALL_NGINX=1 ;;
+		--skip-anthropic-max) SUPERDAV_LOCAL_WP_INSTALL_ANTHROPIC_MAX=0 ;;
 		-h|--help) usage; exit 0 ;;
 		*) die "Unknown argument: $1" ;;
 	esac
@@ -102,6 +105,7 @@ if [ ! -e "$plugin_link" ]; then
 fi
 
 run_cmd wp_cli plugin activate "$SUPERDAV_LOCAL_WP_PLUGIN_SLUG" --path="$wp_root"
+install_anthropic_max_provider "$wp_root"
 generate_site_cert "$slug" "$site_root" "$host"
 write_nginx_config "$slug" "$site_root" "$host" "$wp_root"
 

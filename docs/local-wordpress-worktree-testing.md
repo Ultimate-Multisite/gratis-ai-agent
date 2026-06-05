@@ -43,7 +43,9 @@ The check reports missing commands/services and prints the CachyOS/Arch package,
 dnsmasq, nginx, PHP-FPM, and CA trust commands to run manually. It does not write
 privileged host configuration.
 
-Provision a site for the current git worktree:
+Provision a site for the current git worktree. Provisioning installs and
+activates this plugin plus the latest `ai-provider-for-anthropic-max` GitHub
+release by default:
 
 ```bash
 scripts/local-wp/provision-site.sh --dry-run   # preview commands
@@ -57,6 +59,8 @@ SUPERDAV_WP_SITE_SLUG=feature-x scripts/local-wp/provision-site.sh
 SUPERDAV_LOCAL_WP_SITES_ROOT=$HOME/local-wp-sites scripts/local-wp/list-sites.sh
 SUPERDAV_LOCAL_WP_PHP_FPM_SOCKET=/run/php-fpm85/php-fpm.sock scripts/local-wp/provision-site.sh
 SUPERDAV_LOCAL_WP_MYSQL=mysql scripts/local-wp/provision-site.sh
+SUPERDAV_LOCAL_WP_INSTALL_ANTHROPIC_MAX=0 scripts/local-wp/provision-site.sh
+SUPERDAV_LOCAL_WP_ANTHROPIC_MAX_URL=https://github.com/Ultimate-Multisite/ai-provider-for-anthropic-max/releases/download/v1.3.0/ai-provider-for-anthropic-max.zip scripts/local-wp/provision-site.sh
 ```
 
 After provisioning, install the generated nginx config and trust the generated
@@ -84,6 +88,8 @@ Safety rules implemented by the helpers:
 - database drops are limited to names using the configured `wp_sd_` prefix;
 - the plugin symlink is always `wp-content/plugins/superdav-ai-agent`;
 - internal code identifiers such as `sd-ai-agent` are not renamed or migrated;
+- the Anthropic Max provider connector is installed from the latest GitHub
+  release unless `SUPERDAV_LOCAL_WP_INSTALL_ANTHROPIC_MAX=0` is set;
 - privileged nginx, dnsmasq, and trust-store changes are printed for review
   unless explicitly requested.
 
