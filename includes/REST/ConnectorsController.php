@@ -27,7 +27,9 @@ use WP_REST_Response;
 use WP_REST_Server;
 use XWP\DI\Decorators\Action;
 use XWP\DI\Decorators\Handler;
+use SdAiAgent\Core\SuperdavSiteConnectionService;
 use SdAiAgent\Admin\UnifiedAdminMenu;
+use SdAiAgent\Infrastructure\AiClient\Superdav\SuperdavAiProvider;
 
 if ( ! defined( 'ABSPATH' ) ) {
 	exit;
@@ -59,24 +61,32 @@ final class ConnectorsController {
 	 * Option_key mirrors WP 7.0's Connectors API naming convention
 	 * (connectors_ai_{provider}_api_key) for zero-migration on upgrade.
 	 *
-	 * @var array<string, array{name: string, plugin_file: string, plugin_slug: string, option_key: string, description: string}>
+	 * @var array<string, array{name: string, plugin_file: string, plugin_slug: string, option_key: string, description: string, managed?: bool}>
 	 */
 	const PROVIDERS = array(
-		'openai'    => array(
+		SuperdavAiProvider::PROVIDER_ID => array(
+			'name'        => 'Superdav AI',
+			'plugin_file' => '',
+			'plugin_slug' => '',
+			'option_key'  => SuperdavAiProvider::CREDENTIAL_OPTION,
+			'description' => 'Bundled first-party provider with service-managed site connection.',
+			'managed'     => true,
+		),
+		'openai'                        => array(
 			'name'        => 'OpenAI',
 			'plugin_file' => 'ai-provider-for-openai/ai-provider-for-openai.php',
 			'plugin_slug' => 'ai-provider-for-openai',
 			'option_key'  => 'connectors_ai_openai_api_key',
 			'description' => 'GPT-4.1, o3, o4-mini, and other OpenAI models.',
 		),
-		'anthropic' => array(
+		'anthropic'                     => array(
 			'name'        => 'Anthropic',
 			'plugin_file' => 'ai-provider-for-anthropic/ai-provider-for-anthropic.php',
 			'plugin_slug' => 'ai-provider-for-anthropic',
 			'option_key'  => 'connectors_ai_anthropic_api_key',
 			'description' => 'Claude Opus, Sonnet, and Haiku models.',
 		),
-		'google'    => array(
+		'google'                        => array(
 			'name'        => 'Google AI',
 			'plugin_file' => 'ai-provider-for-google/ai-provider-for-google.php',
 			'plugin_slug' => 'ai-provider-for-google',
@@ -137,6 +147,24 @@ final class ConnectorsController {
 				),
 			)
 		);
+
+		// Connect a service-managed provider without accepting raw credentials.
+		register_rest_route(
+			RestController::NAMESPACE,
+			'/connectors/(?P<provider>[a-z0-9_-]+)/connect',
+			array(
+				'methods'             => WP_REST_Server::CREATABLE,
+				'callback'            => array( $this, 'handle_connect' ),
+				'permission_callback' => array( __CLASS__, 'check_admin_permission' ),
+				'args'                => array(
+					'provider' => array(
+						'required'          => true,
+						'type'              => 'string',
+						'sanitize_callback' => 'sanitize_key',
+					),
+				),
+			)
+		);
 	}
 
 	/**
@@ -185,6 +213,14 @@ final class ConnectorsController {
 			);
 		}
 
+		if ( $this->is_managed_provider( $provider_id ) ) {
+			return new WP_Error(
+				'managed_provider_key_rejected',
+				__( 'This provider uses service-managed connection. Use the connect action instead.', 'superdav-ai-agent' ),
+				array( 'status' => 400 )
+			);
+		}
+
 		if ( '' === $api_key ) {
 			return new WP_Error(
 				'empty_api_key',
@@ -225,6 +261,23 @@ final class ConnectorsController {
 			);
 		}
 
+		if ( $this->is_managed_provider( $provider_id ) ) {
+			$status = ( new SuperdavSiteConnectionService() )->disconnect();
+			if ( $status instanceof WP_Error ) {
+				return $status;
+			}
+
+			return new WP_REST_Response(
+				array(
+					'success'    => true,
+					'provider'   => $provider_id,
+					'configured' => false,
+					'status'     => $status,
+				),
+				200
+			);
+		}
+
 		$option_key = self::PROVIDERS[ $provider_id ]['option_key'];
 		delete_option( $option_key );
 
@@ -239,13 +292,73 @@ final class ConnectorsController {
 	}
 
 	/**
+	 * POST /sd-ai-agent/v1/connectors/{provider}/connect
+	 *
+	 * Provisions a service-managed first-party provider connection.
+	 *
+	 * @param WP_REST_Request $request REST request.
+	 * @return WP_REST_Response|WP_Error
+	 */
+	public function handle_connect( WP_REST_Request $request ): WP_REST_Response|WP_Error {
+		$provider_id = (string) $request->get_param( 'provider' );
+
+		if ( ! array_key_exists( $provider_id, self::PROVIDERS ) ) {
+			return new WP_Error(
+				'invalid_provider',
+				__( 'Unknown provider ID.', 'superdav-ai-agent' ),
+				array( 'status' => 400 )
+			);
+		}
+
+		if ( ! $this->is_managed_provider( $provider_id ) ) {
+			return new WP_Error(
+				'provider_not_managed',
+				__( 'This provider does not support managed connection.', 'superdav-ai-agent' ),
+				array( 'status' => 400 )
+			);
+		}
+
+		$status = ( new SuperdavSiteConnectionService() )->provision_site_token();
+		if ( $status instanceof WP_Error ) {
+			return $status;
+		}
+
+		return new WP_REST_Response(
+			array(
+				'success'    => true,
+				'provider'   => $provider_id,
+				'configured' => true,
+				'status'     => $status,
+			),
+			200
+		);
+	}
+
+	/**
 	 * Build the provider data array for the REST response.
 	 *
-	 * @param string                                                                                                 $provider_id Provider ID.
-	 * @param array{name: string, plugin_file: string, plugin_slug: string, option_key: string, description: string} $meta Provider metadata.
+	 * @param string                                                                                                                 $provider_id Provider ID.
+	 * @param array{name: string, plugin_file: string, plugin_slug: string, option_key: string, description: string, managed?: bool} $meta Provider metadata.
 	 * @return array<string, mixed>
 	 */
 	private function build_provider_data( string $provider_id, array $meta ): array {
+		if ( $this->is_managed_provider( $provider_id ) ) {
+			$status = ( new SuperdavSiteConnectionService() )->get_status();
+			return array(
+				'id'          => $provider_id,
+				'name'        => $meta['name'],
+				'description' => $meta['description'],
+				'plugin_file' => '',
+				'plugin_slug' => '',
+				'installed'   => true,
+				'active'      => true,
+				'configured'  => (bool) $status['configured'],
+				'masked_key'  => '',
+				'managed'     => true,
+				'status'      => $status,
+			);
+		}
+
 		$installed  = $this->is_plugin_installed( $meta['plugin_file'] );
 		$active     = $this->is_plugin_active( $meta['plugin_file'] );
 		$api_key    = (string) get_option( $meta['option_key'], '' );
@@ -269,6 +382,13 @@ final class ConnectorsController {
 			'configured'  => $configured,
 			'masked_key'  => $masked_key,
 		);
+	}
+
+	/**
+	 * Check whether a provider uses service-managed connection semantics.
+	 */
+	private function is_managed_provider( string $provider_id ): bool {
+		return ! empty( self::PROVIDERS[ $provider_id ]['managed'] );
 	}
 
 	/**

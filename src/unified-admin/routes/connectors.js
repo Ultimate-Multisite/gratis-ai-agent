@@ -7,7 +7,7 @@
  * an equivalent UI for WordPress 6.9 installations without Gutenberg.
  *
  * Features:
- * - Lists AI provider connector plugins (Anthropic, OpenAI, Google AI)
+ * - Lists AI provider connector plugins and bundled Superdav AI
  * - Shows plugin install/activation status with action buttons
  * - Allows API key entry and storage (saved as connectors_ai_{id}_api_key)
  * - Detects WP 7.0+ and shows a redirect link to the native page
@@ -102,6 +102,7 @@ function ProviderCard( { provider, onRefresh } ) {
 	const [ apiKey, setApiKey ] = useState( '' );
 	const [ saving, setSaving ] = useState( false );
 	const [ clearing, setClearing ] = useState( false );
+	const [ connecting, setConnecting ] = useState( false );
 	const [ installing, setInstalling ] = useState( false );
 	const [ activating, setActivating ] = useState( false );
 	const [ cardNotice, setCardNotice ] = useState( null );
@@ -110,9 +111,9 @@ function ProviderCard( { provider, onRefresh } ) {
 
 	// Derive the plugin file identifier for the WP REST Plugins API.
 	// The API expects the plugin encoded as "folder%2Ffile" (folder/file without .php).
-	const pluginFileEncoded = encodeURIComponent(
-		provider.plugin_file.replace( /\.php$/, '' )
-	);
+	const pluginFileEncoded = provider.plugin_file
+		? encodeURIComponent( provider.plugin_file.replace( /\.php$/, '' ) )
+		: '';
 
 	const handleInstall = useCallback( async () => {
 		setInstalling( true );
@@ -200,10 +201,40 @@ function ProviderCard( { provider, onRefresh } ) {
 		}
 	}, [ apiKey, provider.id, onRefresh ] );
 
+	const handleManagedConnect = useCallback( async () => {
+		setConnecting( true );
+		setCardNotice( null );
+		try {
+			await apiFetch( {
+				path: `/sd-ai-agent/v1/connectors/${ provider.id }/connect`,
+				method: 'POST',
+			} );
+			setCardNotice( {
+				status: 'success',
+				message: __( 'Superdav AI connected.', 'sd-ai-agent' ),
+			} );
+			onRefresh();
+		} catch ( err ) {
+			setCardNotice( {
+				status: 'error',
+				message:
+					err?.message ||
+					__( 'Failed to connect Superdav AI.', 'sd-ai-agent' ),
+			} );
+		} finally {
+			setConnecting( false );
+		}
+	}, [ provider.id, onRefresh ] );
+
 	const handleClearKey = useCallback( async () => {
 		/* eslint-disable no-alert */
 		const confirmed = window.confirm(
-			__( 'Clear the saved API key for this provider?', 'sd-ai-agent' )
+			provider.managed
+				? __( 'Disconnect Superdav AI for this site?', 'sd-ai-agent' )
+				: __(
+						'Clear the saved API key for this provider?',
+						'sd-ai-agent'
+				  )
 		);
 		/* eslint-enable no-alert */
 		if ( ! confirmed ) {
@@ -218,7 +249,9 @@ function ProviderCard( { provider, onRefresh } ) {
 			} );
 			setCardNotice( {
 				status: 'success',
-				message: __( 'API key cleared.', 'sd-ai-agent' ),
+				message: provider.managed
+					? __( 'Superdav AI disconnected.', 'sd-ai-agent' )
+					: __( 'API key cleared.', 'sd-ai-agent' ),
 			} );
 			onRefresh();
 		} catch ( err ) {
@@ -231,9 +264,23 @@ function ProviderCard( { provider, onRefresh } ) {
 		} finally {
 			setClearing( false );
 		}
-	}, [ provider.id, onRefresh ] );
+	}, [ provider.id, provider.managed, onRefresh ] );
 
 	const statusBadge = () => {
+		if ( provider.managed && provider.configured ) {
+			return (
+				<span className="sd-ai-connectors__status sd-ai-connectors__status--active">
+					{ __( 'Connected', 'sd-ai-agent' ) }
+				</span>
+			);
+		}
+		if ( provider.managed ) {
+			return (
+				<span className="sd-ai-connectors__status sd-ai-connectors__status--inactive">
+					{ __( 'Available', 'sd-ai-agent' ) }
+				</span>
+			);
+		}
 		if ( provider.active ) {
 			return (
 				<span className="sd-ai-connectors__status sd-ai-connectors__status--active">
@@ -264,7 +311,7 @@ function ProviderCard( { provider, onRefresh } ) {
 						{ statusBadge() }
 					</div>
 					<div className="sd-ai-connectors__provider-actions">
-						{ ! provider.installed && (
+						{ ! provider.managed && ! provider.installed && (
 							<Button
 								variant="secondary"
 								onClick={ handleInstall }
@@ -276,18 +323,20 @@ function ProviderCard( { provider, onRefresh } ) {
 									: __( 'Install', 'sd-ai-agent' ) }
 							</Button>
 						) }
-						{ provider.installed && ! provider.active && (
-							<Button
-								variant="primary"
-								onClick={ handleActivate }
-								isBusy={ activating }
-								disabled={ activating }
-							>
-								{ activating
-									? __( 'Activating…', 'sd-ai-agent' )
-									: __( 'Activate', 'sd-ai-agent' ) }
-							</Button>
-						) }
+						{ ! provider.managed &&
+							provider.installed &&
+							! provider.active && (
+								<Button
+									variant="primary"
+									onClick={ handleActivate }
+									isBusy={ activating }
+									disabled={ activating }
+								>
+									{ activating
+										? __( 'Activating…', 'sd-ai-agent' )
+										: __( 'Activate', 'sd-ai-agent' ) }
+								</Button>
+							) }
 					</div>
 				</div>
 			</CardHeader>
@@ -307,65 +356,118 @@ function ProviderCard( { provider, onRefresh } ) {
 					{ provider.description }
 				</p>
 
-				<div className="sd-ai-connectors__api-key-section">
-					<div className="sd-ai-connectors__api-key-label">
-						<strong>{ __( 'API Key', 'sd-ai-agent' ) }</strong>
-						{ provider.configured && provider.masked_key && (
-							<span className="sd-ai-connectors__api-key-configured">
-								{ __( 'Configured:', 'sd-ai-agent' ) }{ ' ' }
-								<code>{ provider.masked_key }</code>
-								<Tooltip
-									text={ __(
-										'Clear this API key',
+				{ provider.managed ? (
+					<div className="sd-ai-connectors__managed-section">
+						<p className="sd-ai-connectors__managed-status">
+							{ provider.configured
+								? __(
+										'This site is connected with a service-managed site token. The token is stored securely and is never displayed.',
 										'sd-ai-agent'
-									) }
+								  )
+								: __(
+										'Connect this site to Superdav AI without pasting API keys or installing a separate provider plugin.',
+										'sd-ai-agent'
+								  ) }
+						</p>
+						<div className="sd-ai-connectors__managed-actions">
+							{ provider.configured ? (
+								<Button
+									variant="secondary"
+									isDestructive
+									onClick={ handleClearKey }
+									isBusy={ clearing }
+									disabled={ clearing }
 								>
-									<Button
-										variant="link"
-										isDestructive
-										onClick={ handleClearKey }
-										isBusy={ clearing }
-										disabled={ clearing }
-										className="sd-ai-connectors__clear-key-btn"
+									{ clearing
+										? __( 'Disconnecting…', 'sd-ai-agent' )
+										: __( 'Disconnect', 'sd-ai-agent' ) }
+								</Button>
+							) : (
+								<Button
+									variant="primary"
+									onClick={ handleManagedConnect }
+									isBusy={ connecting }
+									disabled={ connecting }
+								>
+									{ connecting
+										? __( 'Connecting…', 'sd-ai-agent' )
+										: __(
+												'Connect Superdav AI',
+												'sd-ai-agent'
+										  ) }
+								</Button>
+							) }
+							{ provider.status?.account_connect_url && (
+								<Button
+									variant="link"
+									href={ provider.status.account_connect_url }
+								>
+									{ __( 'Connect account', 'sd-ai-agent' ) }
+								</Button>
+							) }
+						</div>
+					</div>
+				) : (
+					<div className="sd-ai-connectors__api-key-section">
+						<div className="sd-ai-connectors__api-key-label">
+							<strong>{ __( 'API Key', 'sd-ai-agent' ) }</strong>
+							{ provider.configured && provider.masked_key && (
+								<span className="sd-ai-connectors__api-key-configured">
+									{ __( 'Configured:', 'sd-ai-agent' ) }{ ' ' }
+									<code>{ provider.masked_key }</code>
+									<Tooltip
+										text={ __(
+											'Clear this API key',
+											'sd-ai-agent'
+										) }
 									>
-										{ __( 'Clear', 'sd-ai-agent' ) }
-									</Button>
-								</Tooltip>
-							</span>
-						) }
+										<Button
+											variant="link"
+											isDestructive
+											onClick={ handleClearKey }
+											isBusy={ clearing }
+											disabled={ clearing }
+											className="sd-ai-connectors__clear-key-btn"
+										>
+											{ __( 'Clear', 'sd-ai-agent' ) }
+										</Button>
+									</Tooltip>
+								</span>
+							) }
+						</div>
+						<div className="sd-ai-connectors__api-key-input">
+							<TextControl
+								label={ __( 'Enter API Key', 'sd-ai-agent' ) }
+								hideLabelFromVision
+								value={ apiKey }
+								onChange={ setApiKey }
+								type="password"
+								placeholder={
+									provider.configured
+										? __(
+												'Enter new key to replace the existing one',
+												'sd-ai-agent'
+										  )
+										: __(
+												'Paste your API key here',
+												'sd-ai-agent'
+										  )
+								}
+								disabled={ saving }
+							/>
+							<Button
+								variant="primary"
+								onClick={ handleSaveKey }
+								isBusy={ saving }
+								disabled={ saving || ! apiKey.trim() }
+							>
+								{ saving
+									? __( 'Saving…', 'sd-ai-agent' )
+									: __( 'Save Key', 'sd-ai-agent' ) }
+							</Button>
+						</div>
 					</div>
-					<div className="sd-ai-connectors__api-key-input">
-						<TextControl
-							label={ __( 'Enter API Key', 'sd-ai-agent' ) }
-							hideLabelFromVision
-							value={ apiKey }
-							onChange={ setApiKey }
-							type="password"
-							placeholder={
-								provider.configured
-									? __(
-											'Enter new key to replace the existing one',
-											'sd-ai-agent'
-									  )
-									: __(
-											'Paste your API key here',
-											'sd-ai-agent'
-									  )
-							}
-							disabled={ saving }
-						/>
-						<Button
-							variant="primary"
-							onClick={ handleSaveKey }
-							isBusy={ saving }
-							disabled={ saving || ! apiKey.trim() }
-						>
-							{ saving
-								? __( 'Saving…', 'sd-ai-agent' )
-								: __( 'Save Key', 'sd-ai-agent' ) }
-						</Button>
-					</div>
-				</div>
+				) }
 			</CardBody>
 		</Card>
 	);
