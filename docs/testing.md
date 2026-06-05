@@ -1,5 +1,9 @@
 # Testing
 
+For full browser-accessible local WordPress testing without Docker, including
+multi-worktree site provisioning, see
+[`local-wordpress-worktree-testing.md`](local-wordpress-worktree-testing.md).
+
 ## PHP unit tests without wp-env
 
 `npm run test:php` runs PHPUnit against a shared WordPress core and
