@@ -144,15 +144,27 @@ final class WooCommerceIntegrationHandler {
 			return;
 		}
 
-		if ( wp_get_ability_category( 'woocommerce-rest' ) ) {
+		if ( function_exists( 'wp_has_ability_category' ) && wp_has_ability_category( 'woocommerce-rest' ) ) {
+			if ( class_exists( self::CATEGORY_CLASS ) ) {
+				remove_action( 'wp_abilities_api_categories_init', array( self::CATEGORY_CLASS, 'register_categories' ) );
+			}
+			return;
+		}
+
+		// WooCommerce 10.8+ registers its categories on this same hook at the
+		// default priority. When that hook is present, let WooCommerce own the
+		// registration; calling its registrar early would make its later callback
+		// emit a duplicate-category doing_it_wrong notice.
+		if (
+			class_exists( self::CATEGORY_CLASS )
+			&& has_action( 'wp_abilities_api_categories_init', array( self::CATEGORY_CLASS, 'register_categories' ) )
+		) {
 			return;
 		}
 
 		// Delegate to WooCommerce's own category registration when available so
 		// labels/descriptions stay in sync. Gracefully fall back to our own call
-		// if the class doesn't exist (older WooCommerce). Guard first because
-		// WooCommerce's category registrar emits a doing_it_wrong notice when the
-		// category has already been registered by another bootstrap path.
+		// if the class doesn't exist or is not hooked (older WooCommerce).
 		if ( class_exists( self::CATEGORY_CLASS ) ) {
 			( self::CATEGORY_CLASS )::register_categories();
 			return;
