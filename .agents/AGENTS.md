@@ -85,9 +85,10 @@ working here in OpenCode headless mode:
 - When a missing-file read happens during WordPress fatal-error triage, switch to
   the runtime evidence before more repo-path probing: inspect
   `../wordpress/wp-content/debug.log` (enable `WP_DEBUG_LOG` and reproduce once if
-  absent), then verify the shared install's plugin symlinks point at each
-  worktree's canonical plugin directory name rather than a stale or basename-only
-  path.
+  absent), then verify the shared install's plugin symlinks point at every
+  checked-out plugin worktree's canonical plugin directory name, not just the
+  current basename. Use `wp plugin path <plugin-slug>` or inspect
+  `../wordpress/wp-content/plugins/` before retrying unrelated repository paths.
 - Treat `bash:other` / `Tool execution aborted` as a recoverable command-shape or
   hook failure first. Inspect the preceding command, retry once with a narrower
   non-inline command and a clear `description`, avoid heredocs/process or command
