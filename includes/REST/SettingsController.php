@@ -18,6 +18,7 @@ use SdAiAgent\Core\AgentLoop;
 use SdAiAgent\Core\BudgetManager;
 use SdAiAgent\Core\Database;
 use SdAiAgent\Core\Features;
+use SdAiAgent\Core\ModelCapabilityRegistry;
 use SdAiAgent\Core\ProviderCredentialLoader;
 use SdAiAgent\Core\RolePermissions;
 use SdAiAgent\Core\Settings;
@@ -775,12 +776,10 @@ final class SettingsController {
 						$model_metadata = $directory->listModelMetadata();
 
 						foreach ( $model_metadata as $model_meta ) {
-							$model_id = $model_meta->getId();
-							$models[] = array(
-								'id'             => $model_id,
-								'name'           => $model_meta->getName(),
-								'context_window' => Settings::MODEL_CONTEXT_WINDOWS[ $model_id ] ?? 128000,
-							);
+							if ( ! is_object( $model_meta ) ) {
+								continue;
+							}
+							$models[] = self::format_model_metadata_for_response( $model_meta );
 						}
 					} catch ( \Throwable $e ) {
 						// Model listing failed — still include the provider.
@@ -800,6 +799,90 @@ final class SettingsController {
 		}
 
 		return new WP_REST_Response( $providers, 200 );
+	}
+
+	/**
+	 * Convert SDK model metadata to the safe provider picker response shape.
+	 *
+	 * @param object $model_meta SDK ModelMetadata-like DTO.
+	 * @return array<string, mixed>
+	 */
+	private static function format_model_metadata_for_response( object $model_meta ): array {
+		$model_id = method_exists( $model_meta, 'getId' ) ? (string) $model_meta->getId() : '';
+		$name     = method_exists( $model_meta, 'getName' ) ? (string) $model_meta->getName() : $model_id;
+		$entry    = ModelCapabilityRegistry::get( $model_id );
+
+		$context_window = (int) ( $entry['context_length'] ?? 0 );
+		if ( $context_window <= 0 ) {
+			$context_window = Settings::MODEL_CONTEXT_WINDOWS[ $model_id ] ?? 128000;
+		}
+
+		$response = array(
+			'id'                    => $model_id,
+			'name'                  => '' !== $name ? $name : $model_id,
+			'context_window'        => $context_window,
+			'max_output_length'     => (int) ( $entry['max_output_tokens'] ?? 0 ),
+			'max_output_tokens'     => (int) ( $entry['max_output_tokens'] ?? 0 ),
+			'capabilities'          => self::capabilities_to_strings( method_exists( $model_meta, 'getSupportedCapabilities' ) ? $model_meta->getSupportedCapabilities() : array() ),
+			'supported_options'     => self::supported_options_to_arrays( method_exists( $model_meta, 'getSupportedOptions' ) ? $model_meta->getSupportedOptions() : array() ),
+			'provider_capabilities' => $entry['provider_capabilities'] ?? array(),
+		);
+
+		return $response;
+	}
+
+	/**
+	 * Convert SDK capability enum objects to scalar strings.
+	 *
+	 * @param mixed $capabilities SDK capability list.
+	 * @return list<string>
+	 */
+	private static function capabilities_to_strings( $capabilities ): array {
+		if ( ! is_array( $capabilities ) ) {
+			return array();
+		}
+
+		$values = array();
+		foreach ( $capabilities as $capability ) {
+			if ( ! is_object( $capability ) ) {
+				continue;
+			}
+
+			$value = $capability->value;
+			if ( is_string( $value ) ) {
+				$values[] = $value;
+			}
+		}
+		return array_values( array_unique( $values ) );
+	}
+
+	/**
+	 * Convert SDK supported options to safe arrays for REST output.
+	 *
+	 * @param mixed $options SDK supported option list.
+	 * @return list<array<string, mixed>>
+	 */
+	private static function supported_options_to_arrays( $options ): array {
+		if ( ! is_array( $options ) ) {
+			return array();
+		}
+
+		$values = array();
+		foreach ( $options as $option ) {
+			if ( is_object( $option ) && method_exists( $option, 'toArray' ) ) {
+				$option_data = $option->toArray();
+				if ( is_array( $option_data ) ) {
+					$safe_option_data = array();
+					foreach ( $option_data as $key => $value ) {
+						if ( is_string( $key ) ) {
+							$safe_option_data[ $key ] = $value;
+						}
+					}
+					$values[] = $safe_option_data;
+				}
+			}
+		}
+		return $values;
 	}
 
 	/**

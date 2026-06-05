@@ -92,4 +92,17 @@ final class SuperdavAiProvider extends AbstractApiProvider {
 
 		return is_string( $base_url ) ? rtrim( $base_url, '/' ) : '';
 	}
+
+	/**
+	 * Return the configured API host for provider `/models` ingestion gates.
+	 *
+	 * @return string Lowercase host, or an empty string when no base URL is configured.
+	 */
+	public static function configured_base_host(): string {
+		$parts = wp_parse_url( self::baseUrl() );
+		if ( ! is_array( $parts ) || empty( $parts['host'] ) ) {
+			return '';
+		}
+		return strtolower( (string) $parts['host'] );
+	}
 }

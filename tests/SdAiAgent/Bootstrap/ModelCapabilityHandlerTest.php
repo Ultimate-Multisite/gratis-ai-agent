@@ -34,6 +34,7 @@ class ModelCapabilityHandlerTest extends WP_UnitTestCase {
 	 */
 	public function tear_down(): void {
 		parent::tear_down();
+		remove_all_filters( 'sd_ai_agent_cloud_base_url' );
 		foreach ( self::TEST_MODELS as $model_id ) {
 			ModelCapabilityRegistry::forget( $model_id );
 		}
@@ -47,9 +48,11 @@ class ModelCapabilityHandlerTest extends WP_UnitTestCase {
 		$payload = array(
 			'data' => array(
 				array(
-					'id'                => 'hf:moonshotai/Kimi-K2.6',
-					'max_output_length' => 131072,
-					'context_length'    => 200000,
+					'id'                    => 'hf:moonshotai/Kimi-K2.6',
+					'name'                  => 'Kimi K2.6',
+					'max_output_length'     => 131072,
+					'context_length'        => 200000,
+					'supports_tool_calling' => true,
 				),
 				array(
 					'id'                => 'hf:zai-org/GLM-5.1',
@@ -66,6 +69,8 @@ class ModelCapabilityHandlerTest extends WP_UnitTestCase {
 		$kimi = ModelCapabilityRegistry::get( 'hf:moonshotai/Kimi-K2.6' );
 		$this->assertSame( 131072, $kimi['max_output_tokens'] );
 		$this->assertSame( 200000, $kimi['context_length'] );
+		$this->assertSame( 'Kimi K2.6', $kimi['display_name'] );
+		$this->assertSame( array( 'supports_tool_calling' => true ), $kimi['provider_capabilities'] );
 		$this->assertSame( ModelCapabilityRegistry::SOURCE_PROVIDER, $kimi['source'] );
 
 		$glm = ModelCapabilityRegistry::get( 'hf:zai-org/GLM-5.1' );
@@ -177,6 +182,23 @@ class ModelCapabilityHandlerTest extends WP_UnitTestCase {
 		// Once the filter is removed, the same URL falls back to disallowed.
 		$this->assertFalse(
 			ModelCapabilityHandler::is_models_endpoint( 'https://api.example-provider.test/v1/models' )
+		);
+	}
+
+	/**
+	 * The first-party Superdav host is derived from the configured cloud base URL.
+	 */
+	public function test_is_models_endpoint_allows_configured_superdav_host(): void {
+		add_filter(
+			'sd_ai_agent_cloud_base_url',
+			static fn(): string => 'https://models.superdav.example/openai/v1'
+		);
+
+		$this->assertTrue(
+			ModelCapabilityHandler::is_models_endpoint( 'https://models.superdav.example/openai/v1/models' )
+		);
+		$this->assertFalse(
+			ModelCapabilityHandler::is_models_endpoint( 'https://models.superdav.example/openai/v1/chat/completions' )
 		);
 	}
 
