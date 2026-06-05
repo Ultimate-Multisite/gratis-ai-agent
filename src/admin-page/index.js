@@ -182,7 +182,7 @@ function AdminPageApp() {
 	if ( ! hasProvider ) {
 		return (
 			<Suspense fallback={ null }>
-				<ConnectorGate />
+				<ConnectorGate onConnected={ fetchProviders } />
 			</Suspense>
 		);
 	}
