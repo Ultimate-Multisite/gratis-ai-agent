@@ -128,6 +128,40 @@ final class WooCommerceIntegrationHandler {
 	}
 
 	/**
+	 * Remove missing tools from WooCommerce's vendored MCP adapter default server.
+	 *
+	 * WooCommerce may load the MCP adapter default server before the adapter's own
+	 * introspection abilities are registered. Its component registry probes those
+	 * tool names with wp_get_ability(), which emits WordPress 6.9+ not-found
+	 * notices. Filter the default server config so only currently registered
+	 * abilities are handed to the adapter for validation.
+	 *
+	 * @param mixed $config MCP adapter default server configuration.
+	 * @return mixed Filtered configuration.
+	 */
+	#[Filter( tag: 'mcp_adapter_default_server_config', priority: 5 )]
+	public function remove_missing_mcp_adapter_default_tools( mixed $config ): mixed {
+		if ( ! is_array( $config ) || ! isset( $config['tools'] ) || ! is_array( $config['tools'] ) ) {
+			return $config;
+		}
+
+		if ( ! function_exists( 'wp_has_ability' ) ) {
+			return $config;
+		}
+
+		$config['tools'] = array_values(
+			array_filter(
+				$config['tools'],
+				static function ( mixed $tool ): bool {
+					return ! is_string( $tool ) || wp_has_ability( $tool );
+				}
+			)
+		);
+
+		return $config;
+	}
+
+	/**
 	 * Register the `woocommerce-rest` ability category for the WP Abilities API.
 	 *
 	 * WooCommerce normally registers this category only when its `AbilitiesRegistry`
