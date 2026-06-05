@@ -157,12 +157,15 @@ note to a committed, future-loaded source before editing:
   summarize each reviewer finding, cite the merged fix or evidence-backed
   rationale, include verification commands, and avoid blanket "all fixed" or
   "false positive" claims that are not tied to a specific finding.
-- For mixed reports like issue #2034, make the mapping explicit in the PR body:
-  block-theme excerpts map to `includes/Models/skills/wp-block-themes.md`; REST
-  hardening shorthand maps to this root REST policy plus `includes/REST/` and
+- For mixed reports like issues #2034 and #2050, make the mapping explicit in
+  the PR body: block-theme excerpts map to
+  `includes/Models/skills/wp-block-themes.md`; REST hardening shorthand maps to
+  this root REST policy plus `includes/REST/` and
   `includes/Abilities/WpRestAbilities.php`; Google Search Console questions map
   to the GSC surfaces listed below; WordPress.org reply prompts map to the
-  review-response policy above. State when the implementation is a guidance
+  review-response policy above. If a mixed report omits one of those categories,
+  do not invent work for it; state the inspected candidate list and the durable
+  source chosen for each note. State when the implementation is a guidance
   hardening only because the inspected code already has the required guard.
 - Verification for this class of guidance-only fix should include both:
   `rg -n "Contributor Insight|source mapping|local-path|sd-ai-agent/v1|file upload|WordPress.org Review|false positive" AGENTS.md .agents/AGENTS.md .agents/scripts/commands/feedback-triage.md`

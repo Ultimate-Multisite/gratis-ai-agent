@@ -128,7 +128,8 @@ the only implementation guidance.
 
 For mixed contributor-insight issues, the body must also include a concise
 source map so the worker can start with implementation instead of rediscovering
-the lesson. For the recurring issue #2034 pattern, map the four notes as:
+the lesson. For the recurring mixed-report pattern seen in issues #2034 and
+#2050, map each note independently. For #2034-style reports, map the four notes as:
 `Block Themes` excerpts → `includes/Models/skills/wp-block-themes.md`; REST
 security shorthand → root `AGENTS.md`, `includes/REST/`, and
 `includes/Abilities/WpRestAbilities.php`; Google Search Console questions →
@@ -137,6 +138,11 @@ security shorthand → root `AGENTS.md`, `includes/REST/`, and
 `includes/Abilities/ToolCapabilities.php`; WordPress.org review-response prompts
 → root `AGENTS.md` "WordPress.org Review Responses". Require the PR body to cite
 the inspected guard or policy when no code change is needed.
+For #2050-style reports that include only block-theme excerpts, Google Search
+Console usage questions, and WordPress.org review-response prompts, update the
+block-theme skill, the GSC usage map, and the review-response policy only; do
+not add unrelated REST hardening work unless the report actually includes REST
+shorthand.
 
 Full payload schema (top-level keys):
 
