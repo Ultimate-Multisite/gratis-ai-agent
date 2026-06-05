@@ -235,8 +235,10 @@ before creating the issue:
 - If the same note mentions a WordPress fatal error, plugin activation, or
   canonical plugin symlinks, require the worker guidance to inspect
   `../wordpress/wp-content/debug.log` before chasing unrelated missing repo paths,
-  and to verify the local WordPress install symlinks each plugin worktree into the
-  expected canonical plugin directory name.
+  and to verify the local WordPress install symlinks every checked-out plugin
+  worktree into the expected canonical plugin directory name. Name
+  `wp plugin path <plugin-slug>` or `../wordpress/wp-content/plugins/` as the
+  concrete check so workers do not only verify the active worktree basename.
 - If recurring tool errors mention `bash:file_not_found`, `gh-signature-helper.sh
   invocation failed`, `signature gate`, or blocked `gh` writes, require durable
   worker guidance to create the issue/PR/comment body as an existing stable file,

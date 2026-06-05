@@ -257,9 +257,12 @@ completion state:
   artifact that contains the failure: `../wordpress/wp-content/debug.log`, or
   enable `WP_DEBUG_LOG` and reproduce once if the log does not exist.
 - Before blaming plugin code for local activation fatals, verify the shared
-  WordPress install has symlinks for every checked-out plugin worktree under its
-  canonical plugin directory name. A missing or basename-only worktree symlink can
-  make WordPress load the wrong path and hide the real debug.log failure.
+  WordPress install has symlinks for every checked-out plugin worktree under each
+  plugin's canonical directory name, not only the active worktree basename. Use
+  `wp plugin path <plugin-slug>` or inspect `../wordpress/wp-content/plugins/`
+  so the failing plugin resolves to the intended checkout. A missing, stale, or
+  basename-only symlink can make WordPress load the wrong path and hide the real
+  debug.log failure.
 - If the corrected path is found, retry `Read` with that path and continue the
   task. If no plausible path exists after bounded recovery, record what was
   checked and continue with the next safe implementation step rather than ending
