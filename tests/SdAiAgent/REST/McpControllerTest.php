@@ -372,9 +372,6 @@ class McpControllerTest extends WP_UnitTestCase {
 			$this->markTestSkipped( 'WordPress Abilities API not available.' );
 		}
 
-		// wp_get_ability() triggers _doing_it_wrong when the ability is not found.
-		$this->setExpectedIncorrectUsage( 'WP_Abilities_Registry::get_registered' );
-
 		$response = $this->dispatch_mcp(
 			[
 				'method' => 'call_tool',
