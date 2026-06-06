@@ -25,6 +25,8 @@ final class ConnectorsControllerTest extends WP_UnitTestCase {
 	 * Clean up connector options.
 	 */
 	public function tear_down(): void {
+		remove_all_filters( 'sd_ai_agent_cloud_registration_endpoint' );
+		remove_all_filters( 'pre_http_request' );
 		delete_option( SuperdavAiProvider::CREDENTIAL_OPTION );
 		delete_option( SuperdavSiteConnectionService::INSTALLATION_ID_OPTION );
 		delete_option( SuperdavSiteConnectionService::TOKEN_METADATA_OPTION );
@@ -69,6 +71,67 @@ final class ConnectorsControllerTest extends WP_UnitTestCase {
 		$this->assertTrue( $data['configured'] );
 		$this->assertSame( SuperdavAiProvider::PROVIDER_ID, $data['provider'] );
 		$this->assertStringNotContainsString( $token, wp_json_encode( $data ) ?: '' );
+	}
+
+	/**
+	 * Managed remote connection sends private-site metadata and stores returned site_token.
+	 */
+	public function test_connect_registers_remote_self_declared_site_token(): void {
+		$endpoint      = 'https://service.example/v1/site/installations';
+		$captured_body = array();
+
+		add_filter( 'sd_ai_agent_cloud_registration_endpoint', static fn(): string => $endpoint );
+		add_filter(
+			'pre_http_request',
+			static function ( mixed $preempt, array $parsed_args, string $url ) use ( $endpoint, &$captured_body ): mixed {
+				if ( $endpoint !== $url ) {
+					return $preempt;
+				}
+
+				$captured_body = json_decode( (string) ( $parsed_args['body'] ?? '' ), true );
+
+				return array(
+					'response' => array(
+						'code'    => 201,
+						'message' => 'Created',
+					),
+					'body'     => wp_json_encode(
+						array(
+							'installation_id'  => $captured_body['installation_id'] ?? '',
+							'site_token'       => 'sdaist_remote_site_token',
+							'tier'             => 'free',
+							'verified'         => false,
+							'connect_required' => false,
+							'verification'     => array(
+								'state' => 'self_declared',
+							),
+						)
+					),
+				);
+			},
+			10,
+			3
+		);
+
+		$request = new WP_REST_Request( 'POST', '/sd-ai-agent/v1/connectors/' . SuperdavAiProvider::PROVIDER_ID . '/connect' );
+		$request->set_param( 'provider', SuperdavAiProvider::PROVIDER_ID );
+
+		$response = ( new ConnectorsController() )->handle_connect( $request );
+		$this->assertNotWPError( $response );
+
+		$this->assertSame( 'sdaist_remote_site_token', get_option( SuperdavAiProvider::CREDENTIAL_OPTION, '' ) );
+		$this->assertIsArray( $captured_body );
+		$this->assertNotEmpty( $captured_body['installation_id'] );
+		$this->assertSame( home_url( '/' ), $captured_body['site_url'] );
+		$this->assertSame( SD_AI_AGENT_VERSION, $captured_body['plugin_version'] );
+		$this->assertNotEmpty( $captured_body['wordpress_version'] );
+		$this->assertArrayNotHasKey( 'verification', $captured_body );
+
+		$data = $response->get_data();
+		$this->assertTrue( $data['configured'] );
+		$this->assertSame( 'site', $data['status']['connection_mode'] );
+		$this->assertFalse( $data['status']['verified'] );
+		$this->assertStringNotContainsString( 'sdaist_remote_site_token', wp_json_encode( $data ) ?: '' );
 	}
 
 	/**
