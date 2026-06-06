@@ -242,7 +242,9 @@ before creating the issue:
   and to verify the local WordPress install symlinks every checked-out plugin
   worktree into the expected canonical plugin directory name. Name
   `wp plugin path <plugin-slug>` or `../wordpress/wp-content/plugins/` as the
-  concrete check so workers do not only verify the active worktree basename.
+  concrete check so workers do not only verify the active worktree basename;
+  when multiple plugins or worktrees are mentioned, require guidance to enumerate
+  each canonical plugin slug and confirm all resolve to the intended checkout.
 - If recurring tool errors mention `bash:file_not_found`, `gh-signature-helper.sh
   invocation failed`, `signature gate`, or blocked `gh` writes, require durable
   worker guidance to create the issue/PR/comment body as an existing stable file,
