@@ -40,9 +40,10 @@ if ( ! function_exists( '_wp_connectors_get_provider_settings' ) ) {
 		// The setting name format is: connectors_ai_{sanitized_provider_id}_api_key
 		// This matches the WP 7.0 Connectors API exactly.
 		$providers = [
-			'anthropic' => 'anthropic',
-			'openai'    => 'openai',
-			'google'    => 'google',
+			'sd-ai-agent-cloud' => 'sd_ai_agent_cloud',
+			'anthropic'         => 'anthropic',
+			'openai'            => 'openai',
+			'google'            => 'google',
 		];
 
 		/**

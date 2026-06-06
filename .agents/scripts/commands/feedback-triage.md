@@ -128,8 +128,9 @@ the only implementation guidance.
 
 For mixed contributor-insight issues, the body must also include a concise
 source map so the worker can start with implementation instead of rediscovering
-the lesson. For the recurring mixed-report pattern seen in issues #2034 and
-#2050, map each note independently. For #2034-style reports, map the four notes as:
+the lesson. For the recurring mixed-report pattern seen in issues #2034, #2050,
+and #2060, map each note independently. For #2034-style reports, map the four
+notes as:
 `Block Themes` excerpts → `includes/Models/skills/wp-block-themes.md`; REST
 security shorthand → root `AGENTS.md`, `includes/REST/`, and
 `includes/Abilities/WpRestAbilities.php`; Google Search Console questions →
@@ -138,11 +139,14 @@ security shorthand → root `AGENTS.md`, `includes/REST/`, and
 `includes/Abilities/ToolCapabilities.php`; WordPress.org review-response prompts
 → root `AGENTS.md` "WordPress.org Review Responses". Require the PR body to cite
 the inspected guard or policy when no code change is needed.
-For #2050-style reports that include only block-theme excerpts, Google Search
-Console usage questions, and WordPress.org review-response prompts, update the
-block-theme skill, the GSC usage map, and the review-response policy only; do
-not add unrelated REST hardening work unless the report actually includes REST
-shorthand.
+For #2050/#2060-style reports that include only block-theme excerpts, Google
+Search Console usage questions, and WordPress.org review-response prompts,
+update the block-theme skill, the GSC usage map, and the review-response policy
+only; do not add unrelated REST hardening work unless the report actually
+includes REST shorthand. When filing the issue, include Worker Guidance that maps
+the exact three candidates to `includes/Models/skills/wp-block-themes.md`,
+`AGENTS.md` Google Search Console API Usage Mapping, and `AGENTS.md`
+WordPress.org Review Responses.
 
 Full payload schema (top-level keys):
 
@@ -250,6 +254,13 @@ before creating the issue:
   each reviewer finding separately, cite the merged fix or evidence-backed
   rationale, include commands/manual checks run, and avoid "all fixed" or
   "false positive" language unless tied to exact file/pattern evidence.
+- If the report matches the #2060 three-candidate pattern (`Block Themes` local
+  excerpt, "where do we use Google Search Console API?", and WordPress.org
+  review-response prompt), file Worker Guidance that explicitly says the durable
+  fix is guidance-only unless inspection finds a missing committed source: update
+  `includes/Models/skills/wp-block-themes.md` for the block-theme excerpt, root
+  `AGENTS.md` for GSC usage mapping and WordPress.org response policy, and this
+  feedback-triage SOP if the issue lacked actionable worker guidance.
 - Include verification in the issue body, for example
   `rg -n "Contributor Insight|sd-ai-agent/v1|secret|current user|file upload|WordPress.org Review|false positive" AGENTS.md .agents/AGENTS.md .agents/scripts/commands/feedback-triage.md`
   or `rg -n "read:file_not_found|missing-file reads|git ls-files|debug.log|canonical plugin|signature gate|body-file|gh-signature-helper" AGENTS.md .agents/AGENTS.md .agents/scripts/commands/feedback-triage.md includes/Models/skills/site-troubleshooting.md`
