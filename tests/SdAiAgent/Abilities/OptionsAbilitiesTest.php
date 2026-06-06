@@ -110,10 +110,16 @@ class OptionsAbilitiesTest extends WP_UnitTestCase {
 	}
 
 	/**
-	 * The write policy is default-deny except for plugin-owned options.
+	 * The write policy is default-deny except for plugin-owned options and the
+	 * narrow core presentation options the setup agent is expected to manage.
 	 */
 	public function test_write_allowlist_defaults_to_plugin_owned_options(): void {
 		$this->assertTrue( OptionsAbilities::is_write_allowed_option( 'sd_ai_agent_test_write_option' ) );
+		$this->assertTrue( OptionsAbilities::is_write_allowed_option( 'blogname' ) );
+		$this->assertTrue( OptionsAbilities::is_write_allowed_option( 'blogdescription' ) );
+		$this->assertTrue( OptionsAbilities::is_write_allowed_option( 'show_on_front' ) );
+		$this->assertTrue( OptionsAbilities::is_write_allowed_option( 'page_on_front' ) );
+		$this->assertTrue( OptionsAbilities::is_write_allowed_option( 'page_for_posts' ) );
 		$this->assertFalse( OptionsAbilities::is_write_allowed_option( 'third_party_test_option' ) );
 		$this->assertFalse( OptionsAbilities::is_write_allowed_option( 'siteurl' ) );
 		$this->assertFalse( OptionsAbilities::is_write_allowed_option( '' ) );

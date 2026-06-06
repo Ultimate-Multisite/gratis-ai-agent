@@ -63,11 +63,45 @@ class ToolDiscovery {
 		'sd-ai-agent/memory-list',
 		'sd-ai-agent/skill-load',
 		'sd-ai-agent/knowledge-search',
+		// Read-only site discovery used by onboarding, health, and page-edit
+		// flows. Keeping these direct avoids fallback WP-CLI calls and preserves
+		// iterations for the actual user request.
+		'sd-ai-agent/list-options',
+		'sd-ai-agent/get-plugins',
+		'sd-ai-agent/get-themes',
+		'sd-ai-agent/site-health-summary',
+		'sd-ai-agent/db-query',
+		'sd-ai-agent/detect-fresh-install',
+		'sd-ai-agent/file-list',
+		'sd-ai-agent/file-read',
 		// Setup Assistant / general-purpose cold-start operations. Kept in tier 1
 		// so the agent updates existing pages and applies theme styles without
 		// falling back to WP-CLI or PHP snippets on fresh installs.
+		'sd-ai-agent/list-posts',
+		'sd-ai-agent/get-post',
+		'sd-ai-agent/get-option',
 		'sd-ai-agent/update-post',
+		'sd-ai-agent/delete-post',
+		'sd-ai-agent/update-option',
 		'sd-ai-agent/update-global-styles',
+		'sd-ai-agent/append-post-content',
+		'sd-ai-agent/batch-create-posts',
+		'sd-ai-agent/create-contact-form',
+		'sd-ai-agent/stock-image',
+		'sd-ai-agent/generate-image',
+		'sd-ai-agent/upload-media',
+		'sd-ai-agent/internet-search',
+		'sd-ai-agent/install-plugin',
+		'sd-ai-agent/activate-plugin',
+		'sd-ai-agent/set-site-logo',
+		'sd-ai-agent/list-menus',
+		'sd-ai-agent/get-menu',
+		'sd-ai-agent/create-menu',
+		'sd-ai-agent/add-menu-item',
+		'sd-ai-agent/remove-menu-item',
+		'sd-ai-agent/assign-menu-location',
+		'sd-ai-agent/get-global-styles',
+		'sd-ai-agent/get-theme-json',
 		// Block-theme editing safety cluster. These stay together so homepage/template
 		// visual edits can inspect the current structure, mutate only the target
 		// block, and validate the result instead of replacing a whole template body
@@ -90,7 +124,7 @@ class ToolDiscovery {
 	 * Hard cap on Tier 1 size (curated + tracked) excluding the two
 	 * meta-tools, which are always added on top.
 	 */
-	public const MAX_TIER_1 = 15;
+	public const MAX_TIER_1 = 50;
 
 	/**
 	 * The two meta-tools — always present in Tier 1.

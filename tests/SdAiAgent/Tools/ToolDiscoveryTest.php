@@ -168,8 +168,38 @@ class ToolDiscoveryTest extends WP_UnitTestCase {
 	public function test_tier_1_includes_cold_start_tools(): void {
 		$tier_1 = ToolDiscovery::tier_1_for_run();
 
+		$this->assertContains( 'sd-ai-agent/list-options', $tier_1 );
+		$this->assertContains( 'sd-ai-agent/get-plugins', $tier_1 );
+		$this->assertContains( 'sd-ai-agent/get-themes', $tier_1 );
+		$this->assertContains( 'sd-ai-agent/site-health-summary', $tier_1 );
+		$this->assertContains( 'sd-ai-agent/db-query', $tier_1 );
+		$this->assertContains( 'sd-ai-agent/detect-fresh-install', $tier_1 );
+		$this->assertContains( 'sd-ai-agent/file-list', $tier_1 );
+		$this->assertContains( 'sd-ai-agent/file-read', $tier_1 );
+		$this->assertContains( 'sd-ai-agent/list-posts', $tier_1 );
+		$this->assertContains( 'sd-ai-agent/get-post', $tier_1 );
+		$this->assertContains( 'sd-ai-agent/get-option', $tier_1 );
 		$this->assertContains( 'sd-ai-agent/update-post', $tier_1 );
+		$this->assertContains( 'sd-ai-agent/delete-post', $tier_1 );
+		$this->assertContains( 'sd-ai-agent/update-option', $tier_1 );
 		$this->assertContains( 'sd-ai-agent/update-global-styles', $tier_1 );
+		$this->assertContains( 'sd-ai-agent/append-post-content', $tier_1 );
+		$this->assertContains( 'sd-ai-agent/batch-create-posts', $tier_1 );
+		$this->assertContains( 'sd-ai-agent/create-contact-form', $tier_1 );
+		$this->assertContains( 'sd-ai-agent/stock-image', $tier_1 );
+		$registered = [];
+		if ( function_exists( 'wp_get_abilities' ) ) {
+			foreach ( wp_get_abilities() as $ability ) {
+				if ( $ability instanceof \WP_Ability ) {
+					$registered[ $ability->get_name() ] = true;
+				}
+			}
+		}
+		foreach ( [ 'sd-ai-agent/generate-image', 'sd-ai-agent/upload-media', 'sd-ai-agent/internet-search', 'sd-ai-agent/install-plugin', 'sd-ai-agent/activate-plugin', 'sd-ai-agent/set-site-logo', 'sd-ai-agent/list-menus', 'sd-ai-agent/get-menu', 'sd-ai-agent/create-menu', 'sd-ai-agent/add-menu-item', 'sd-ai-agent/remove-menu-item', 'sd-ai-agent/assign-menu-location', 'sd-ai-agent/get-global-styles', 'sd-ai-agent/get-theme-json' ] as $optional_tool ) {
+			if ( isset( $registered[ $optional_tool ] ) ) {
+				$this->assertContains( $optional_tool, $tier_1 );
+			}
+		}
 	}
 
 	public function test_tier_1_includes_block_theme_safe_editing_cluster(): void {
@@ -222,7 +252,7 @@ class ToolDiscoveryTest extends WP_UnitTestCase {
 	public function test_tier_1_size_is_capped(): void {
 		$tier_1 = ToolDiscovery::tier_1_for_run();
 
-		// Cap is MAX_TIER_1 (15) plus the two meta-tools always added on top.
+		// Cap is MAX_TIER_1 plus the two meta-tools always added on top.
 		$this->assertLessThanOrEqual( ToolDiscovery::MAX_TIER_1 + 2, count( $tier_1 ) );
 	}
 
