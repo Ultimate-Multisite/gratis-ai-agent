@@ -11,6 +11,7 @@ declare(strict_types=1);
 namespace SdAiAgent\Tests\Infrastructure\AiClient\Superdav;
 
 use SdAiAgent\Bootstrap\SuperdavAiProviderHandler;
+use SdAiAgent\Core\ModelCapabilityRegistry;
 use SdAiAgent\Core\ProviderCredentialLoader;
 use SdAiAgent\Infrastructure\AiClient\Superdav\SuperdavAiModelMetadataDirectory;
 use SdAiAgent\Infrastructure\AiClient\Superdav\SuperdavAiProvider;
@@ -30,6 +31,8 @@ final class SuperdavAiProviderTest extends WP_UnitTestCase {
 	 */
 	public function tear_down(): void {
 		delete_option( SuperdavAiProvider::CREDENTIAL_OPTION );
+		ModelCapabilityRegistry::forget( 'example-model' );
+		remove_all_filters( 'sd_ai_agent_cloud_base_url' );
 		parent::tear_down();
 	}
 
@@ -98,7 +101,7 @@ final class SuperdavAiProviderTest extends WP_UnitTestCase {
 			new Response(
 				200,
 				array( 'content-type' => 'application/json' ),
-				'{"data":[{"id":"example-model","name":"Example Model"}]}'
+				'{"data":[{"id":"example-model","name":"Example Model","context_length":32768,"max_output_length":4096,"supports_tool_calling":true}]}'
 			)
 		);
 
@@ -109,6 +112,24 @@ final class SuperdavAiProviderTest extends WP_UnitTestCase {
 		$this->assertSame( 'example-model', $model->getId() );
 		$this->assertSame( 'Example Model', $model->getName() );
 		$this->assertContainsEquals( CapabilityEnum::textGeneration(), $model->getSupportedCapabilities() );
+
+		$entry = ModelCapabilityRegistry::get( 'example-model' );
+		$this->assertSame( 4096, $entry['max_output_tokens'] );
+		$this->assertSame( 32768, $entry['context_length'] );
+		$this->assertSame( 'Example Model', $entry['display_name'] );
+		$this->assertSame( array( 'supports_tool_calling' => true ), $entry['provider_capabilities'] );
+	}
+
+	/**
+	 * Configured Superdav base URL exposes its host for capability ingestion gates.
+	 */
+	public function test_configured_base_host_uses_filtered_cloud_base_url(): void {
+		add_filter(
+			'sd_ai_agent_cloud_base_url',
+			static fn(): string => 'https://models.superdav.example/openai/v1'
+		);
+
+		$this->assertSame( 'models.superdav.example', SuperdavAiProvider::configured_base_host() );
 	}
 
 	/**

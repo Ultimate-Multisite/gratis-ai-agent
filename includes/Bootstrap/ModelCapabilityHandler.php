@@ -33,6 +33,7 @@ declare(strict_types=1);
 namespace SdAiAgent\Bootstrap;
 
 use SdAiAgent\Core\ModelCapabilityRegistry;
+use SdAiAgent\Infrastructure\AiClient\Superdav\SuperdavAiProvider;
 use XWP\DI\Decorators\Filter;
 use XWP\DI\Decorators\Handler;
 
@@ -91,10 +92,16 @@ final class ModelCapabilityHandler {
 		 *
 		 * @param array<int, string> $hosts Default host suffixes.
 		 */
-		$hosts = apply_filters( 'sd_ai_agent_models_endpoint_hosts', self::DEFAULT_HOST_SUFFIXES );
+		$default_hosts = self::DEFAULT_HOST_SUFFIXES;
+		$superdav_host = SuperdavAiProvider::configured_base_host();
+		if ( '' !== $superdav_host ) {
+			$default_hosts[] = $superdav_host;
+		}
+
+		$hosts = apply_filters( 'sd_ai_agent_models_endpoint_hosts', $default_hosts );
 
 		if ( ! is_array( $hosts ) ) {
-			return self::DEFAULT_HOST_SUFFIXES;
+			return $default_hosts;
 		}
 
 		$normalised = array();
@@ -105,7 +112,7 @@ final class ModelCapabilityHandler {
 			$normalised[] = strtolower( $host );
 		}
 
-		return array() === $normalised ? self::DEFAULT_HOST_SUFFIXES : $normalised;
+		return array() === $normalised ? $default_hosts : array_values( array_unique( $normalised ) );
 	}
 
 	/**
@@ -254,7 +261,7 @@ final class ModelCapabilityHandler {
 				continue;
 			}
 
-			if ( ModelCapabilityRegistry::set( $model_id, $max_output, $context ) ) {
+			if ( ModelCapabilityRegistry::set( $model_id, $max_output, $context, ModelCapabilityRegistry::SOURCE_PROVIDER, 0, self::pick_name( $entry, $model_id ), self::pick_capability_flags( $entry ) ) ) {
 				++$written;
 			}
 		}
@@ -280,5 +287,56 @@ final class ModelCapabilityHandler {
 			}
 		}
 		return 0;
+	}
+
+	/**
+	 * Pick the provider-advertised model display name when present.
+	 *
+	 * @param array<string, mixed> $entry    Decoded model entry.
+	 * @param string               $fallback Model ID fallback.
+	 * @return string
+	 */
+	private static function pick_name( array $entry, string $fallback ): string {
+		if ( isset( $entry['name'] ) && is_string( $entry['name'] ) && '' !== $entry['name'] ) {
+			return $entry['name'];
+		}
+		return $fallback;
+	}
+
+	/**
+	 * Extract safe boolean capability flags from provider metadata.
+	 *
+	 * Accepts `{capabilities: {flag: bool}}`, `{capabilities: ["flag"]}`,
+	 * `{supported_capabilities: [...]}`, and top-level `supports_*` booleans.
+	 *
+	 * @param array<string, mixed> $entry Decoded model entry.
+	 * @return array<string, bool>
+	 */
+	private static function pick_capability_flags( array $entry ): array {
+		$flags = array();
+
+		foreach ( array( 'capabilities', 'supported_capabilities' ) as $key ) {
+			if ( ! isset( $entry[ $key ] ) || ! is_array( $entry[ $key ] ) ) {
+				continue;
+			}
+			foreach ( $entry[ $key ] as $capability_key => $capability_value ) {
+				if ( is_string( $capability_key ) && is_bool( $capability_value ) ) {
+					$flags[ $capability_key ] = $capability_value;
+					continue;
+				}
+				if ( is_string( $capability_value ) && '' !== $capability_value ) {
+					$flags[ $capability_value ] = true;
+				}
+			}
+		}
+
+		foreach ( $entry as $key => $value ) {
+			if ( is_string( $key ) && str_starts_with( $key, 'supports_' ) && is_bool( $value ) ) {
+				$flags[ $key ] = $value;
+			}
+		}
+
+		ksort( $flags );
+		return $flags;
 	}
 }
