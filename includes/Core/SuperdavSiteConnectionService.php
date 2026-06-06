@@ -34,7 +34,7 @@ final class SuperdavSiteConnectionService {
 		$token    = $this->get_stored_token();
 		$metadata = $this->get_metadata();
 
-		return array(
+		$status = array(
 			'configured'                => '' !== $token,
 			'provider'                  => SuperdavAiProvider::PROVIDER_ID,
 			'connection_mode'           => $metadata['connection_mode'] ?? ( '' !== $token ? 'site' : 'none' ),
@@ -44,6 +44,14 @@ final class SuperdavSiteConnectionService {
 			'account_connect_available' => '' !== $this->get_account_connect_url(),
 			'account_connect_url'       => $this->get_account_connect_url(),
 		);
+
+		foreach ( array( 'tier', 'verified', 'usage', 'verification', 'request_id' ) as $key ) {
+			if ( array_key_exists( $key, $metadata ) ) {
+				$status[ $key ] = $metadata[ $key ];
+			}
+		}
+
+		return $status;
 	}
 
 	/**
@@ -52,18 +60,23 @@ final class SuperdavSiteConnectionService {
 	 * @return array<string, mixed>|WP_Error Safe status metadata or error.
 	 */
 	public function provision_site_token(): array|WP_Error {
-		$remote_token = $this->request_remote_site_token();
-		if ( $remote_token instanceof WP_Error ) {
-			return $remote_token;
+		$remote_registration = $this->request_remote_site_token();
+		if ( $remote_registration instanceof WP_Error ) {
+			return $remote_registration;
 		}
 
-		$token = '' !== $remote_token ? $remote_token : $this->create_local_site_token();
+		$remote_token    = is_array( $remote_registration ) ? (string) ( $remote_registration['token'] ?? '' ) : $remote_registration;
+		$remote_metadata = is_array( $remote_registration ) ? (array) ( $remote_registration['metadata'] ?? array() ) : array();
+		$token           = '' !== $remote_token ? $remote_token : $this->create_local_site_token();
 		update_option( SuperdavAiProvider::CREDENTIAL_OPTION, $token, false );
 		update_option(
 			self::TOKEN_METADATA_OPTION,
-			array(
-				'connection_mode' => '' !== $remote_token ? 'site' : 'local-site',
-				'connected_at'    => gmdate( 'c' ),
+			array_merge(
+				$remote_metadata,
+				array(
+					'connection_mode' => '' !== $remote_token ? 'site' : 'local-site',
+					'connected_at'    => gmdate( 'c' ),
+				)
 			),
 			false
 		);
@@ -134,9 +147,9 @@ final class SuperdavSiteConnectionService {
 	/**
 	 * Request a token from a configured cloud registration endpoint.
 	 *
-	 * @return string|WP_Error Token, empty string when no endpoint is configured, or error.
+	 * @return array{token: string, metadata: array<string, mixed>}|string|WP_Error Token registration, empty string when no endpoint is configured, or error.
 	 */
-	private function request_remote_site_token(): string|WP_Error {
+	private function request_remote_site_token(): array|string|WP_Error {
 		/**
 		 * Filters the Superdav site registration endpoint.
 		 *
@@ -150,6 +163,13 @@ final class SuperdavSiteConnectionService {
 			return '';
 		}
 
+		$payload = array(
+			'installation_id'   => $this->get_installation_id(),
+			'site_url'          => $this->get_verified_site_url(),
+			'plugin_version'    => defined( 'SD_AI_AGENT_VERSION' ) ? (string) SD_AI_AGENT_VERSION : 'unknown',
+			'wordpress_version' => get_bloginfo( 'version' ),
+		);
+
 		$response = wp_remote_post(
 			$endpoint,
 			array(
@@ -157,12 +177,7 @@ final class SuperdavSiteConnectionService {
 				'headers' => array(
 					'Content-Type' => 'application/json',
 				),
-				'body'    => wp_json_encode(
-					array(
-						'installation_id' => $this->get_installation_id(),
-						'site_url'        => $this->get_verified_site_url(),
-					)
-				),
+				'body'    => wp_json_encode( $payload ),
 			)
 		);
 
@@ -176,11 +191,21 @@ final class SuperdavSiteConnectionService {
 		}
 
 		$body = json_decode( wp_remote_retrieve_body( $response ), true );
-		if ( ! is_array( $body ) || empty( $body['access_token'] ) || ! is_string( $body['access_token'] ) ) {
+		if ( ! is_array( $body ) ) {
 			return new WP_Error( 'sd_ai_agent_cloud_registration_invalid', __( 'Superdav AI connection response was invalid.', 'superdav-ai-agent' ), array( 'status' => 502 ) );
 		}
 
-		return $body['access_token'];
+		$token = $body['site_token'] ?? $body['access_token'] ?? '';
+		if ( ! is_string( $token ) || '' === $token ) {
+			return new WP_Error( 'sd_ai_agent_cloud_registration_invalid', __( 'Superdav AI connection response was invalid.', 'superdav-ai-agent' ), array( 'status' => 502 ) );
+		}
+
+		unset( $body['site_token'], $body['access_token'] );
+
+		return array(
+			'token'    => $token,
+			'metadata' => $this->sanitize_remote_metadata( $body ),
+		);
 	}
 
 	/**
@@ -227,6 +252,46 @@ final class SuperdavSiteConnectionService {
 		}
 
 		return true;
+	}
+
+	/**
+	 * Keep only safe scalar registration metadata from the remote service.
+	 *
+	 * @param array<string, mixed> $metadata Remote response without token fields.
+	 * @return array<string, mixed>
+	 */
+	private function sanitize_remote_metadata( array $metadata ): array {
+		$allowed_keys = array(
+			'installation_id',
+			'token_expires_at',
+			'tier',
+			'verified',
+			'connect_required',
+			'request_id',
+		);
+		$safe         = array();
+
+		foreach ( $allowed_keys as $key ) {
+			if ( array_key_exists( $key, $metadata ) && ( is_scalar( $metadata[ $key ] ) || null === $metadata[ $key ] ) ) {
+				$safe[ $key ] = $metadata[ $key ];
+			}
+		}
+
+		if ( isset( $metadata['usage'] ) && is_array( $metadata['usage'] ) ) {
+			$safe['usage'] = array_filter(
+				$metadata['usage'],
+				static fn( mixed $value ): bool => is_scalar( $value ) || null === $value
+			);
+		}
+
+		if ( isset( $metadata['verification'] ) && is_array( $metadata['verification'] ) ) {
+			$safe['verification'] = array_filter(
+				$metadata['verification'],
+				static fn( mixed $value ): bool => is_scalar( $value ) || null === $value
+			);
+		}
+
+		return $safe;
 	}
 
 	/**
