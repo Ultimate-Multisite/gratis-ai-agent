@@ -90,7 +90,7 @@ class AbilityFunctionResolver extends \WP_AI_Client_Ability_Function_Resolver {
 			);
 		}
 
-		$ability = wp_get_ability( $ability_name );
+		$ability = AbilityRegistry::get( $ability_name );
 		if ( ! $ability instanceof \WP_Ability ) {
 			return new FunctionResponse(
 				$function_id,

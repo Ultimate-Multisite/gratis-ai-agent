@@ -22,6 +22,7 @@ if ( class_exists( 'WP_AI_Client_Prompt_Builder' ) ) {
 	return;
 }
 
+use SdAiAgent\Core\AbilityRegistry;
 use WordPress\AiClient\AiClient;
 use WordPress\AiClient\Builders\PromptBuilder;
 use WordPress\AiClient\Common\Exception\InvalidArgumentException;
@@ -240,7 +241,7 @@ class WP_AI_Client_Prompt_Builder {
 		foreach ( $abilities as $ability ) {
 			if ( is_string( $ability ) ) {
 				$ability_name = $ability;
-				$ability      = wp_get_ability( $ability );
+				$ability      = AbilityRegistry::get( $ability );
 				if ( ! $ability ) {
 					_doing_it_wrong(
 						__METHOD__,

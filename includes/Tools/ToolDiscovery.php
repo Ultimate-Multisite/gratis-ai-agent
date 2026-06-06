@@ -34,6 +34,7 @@ declare(strict_types=1);
 namespace SdAiAgent\Tools;
 
 use SdAiAgent\Abilities\Js\JsAbilityCatalog;
+use SdAiAgent\Core\AbilityRegistry;
 use SdAiAgent\Core\AbilityVisibility;
 use SdAiAgent\Core\Settings;
 use WP_Error;
@@ -826,8 +827,7 @@ class ToolDiscovery {
 
 		$ability_id = self::canonicalise_ability_id( $ability_id );
 
-		// @phpstan-ignore-next-line
-		$ability = wp_get_ability( $ability_id );
+		$ability = AbilityRegistry::get( $ability_id );
 		if ( ! $ability instanceof \WP_Ability ) {
 			return self::format_unknown_ability_response( $ability_id );
 		}
@@ -1009,8 +1009,7 @@ class ToolDiscovery {
 
 		$lines = array( '## Recently fetched ability schemas', 'These schemas have already been retrieved this session — call them via `ability-call` directly without searching again.', '' );
 		foreach ( array_keys( self::$schema_cache ) as $name ) {
-			// @phpstan-ignore-next-line
-			$ability = wp_get_ability( $name );
+			$ability = AbilityRegistry::get( $name );
 			if ( ! $ability instanceof \WP_Ability ) {
 				continue;
 			}
@@ -1055,8 +1054,7 @@ class ToolDiscovery {
 		// keep the rewrite when the canonical name actually resolves.
 		if ( str_starts_with( $ability_id, 'ai-agent/' ) ) {
 			$rewritten = 'sd-' . $ability_id;
-			// @phpstan-ignore-next-line
-			if ( wp_get_ability( $rewritten ) instanceof \WP_Ability ) {
+			if ( AbilityRegistry::get( $rewritten ) instanceof \WP_Ability ) {
 				return $rewritten;
 			}
 		}

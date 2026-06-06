@@ -397,8 +397,6 @@ class ToolDiscoveryTest extends WP_UnitTestCase {
 	}
 
 	public function test_ability_call_returns_self_heal_payload_for_unknown_ability(): void {
-		$this->setExpectedIncorrectUsage( 'WP_Abilities_Registry::get_registered' );
-
 		$result = ToolDiscovery::handle_ability_call(
 			[ 'ability' => 'no-such/ability' ]
 		);
