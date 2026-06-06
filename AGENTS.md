@@ -269,6 +269,10 @@ completion state:
   so the failing plugin resolves to the intended checkout. A missing, stale, or
   basename-only symlink can make WordPress load the wrong path and hide the real
   debug.log failure.
+- When several local plugins or worktrees are involved, enumerate each expected
+  canonical plugin slug and confirm all of them resolve to their current checkout
+  before retrying activation; a single correct symlink does not prove the shared
+  install is safe.
 - If the corrected path is found, retry `Read` with that path and continue the
   task. If no plausible path exists after bounded recovery, record what was
   checked and continue with the next safe implementation step rather than ending

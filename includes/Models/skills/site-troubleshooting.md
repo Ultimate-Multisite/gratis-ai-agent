@@ -53,7 +53,8 @@ Use this skill when the user reports errors, performance issues, white screens, 
    into each plugin's canonical directory name before treating the fatal as an
    application-code regression. Use `wp plugin path <plugin-slug>` or inspect
    `../wordpress/wp-content/plugins/`; do not only verify the active worktree
-   basename.
+   basename. When several local plugins are involved, enumerate each canonical
+   plugin slug and confirm all resolve to their current checkout.
 4. Activate the plugin by canonical slug, then re-check debug.log for the first
    new fatal stack trace.
 
