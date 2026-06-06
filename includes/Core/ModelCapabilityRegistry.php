@@ -114,7 +114,7 @@ class ModelCapabilityRegistry {
 	 * "is this a transient hit or a catalog entry".
 	 *
 	 * @param string $model_id Provider-advertised model identifier.
-	 * @return array{model_id: string, max_output_tokens: int, context_length: int, source: string, fetched_at: int}
+	 * @return array{model_id: string, display_name: string, max_output_tokens: int, context_length: int, provider_capabilities: array<string, bool>, source: string, fetched_at: int}
 	 */
 	public static function get( string $model_id ): array {
 		$model_id = trim( $model_id );
@@ -125,22 +125,26 @@ class ModelCapabilityRegistry {
 		$transient = get_transient( self::transient_key( $model_id ) );
 		if ( is_array( $transient ) && isset( $transient['max_output_tokens'] ) ) {
 			return array(
-				'model_id'          => $model_id,
-				'max_output_tokens' => max( 0, (int) $transient['max_output_tokens'] ),
-				'context_length'    => max( 0, (int) ( $transient['context_length'] ?? 0 ) ),
-				'source'            => (string) ( $transient['source'] ?? self::SOURCE_PROVIDER ),
-				'fetched_at'        => max( 0, (int) ( $transient['fetched_at'] ?? 0 ) ),
+				'model_id'              => $model_id,
+				'display_name'          => isset( $transient['display_name'] ) && is_string( $transient['display_name'] ) ? $transient['display_name'] : '',
+				'max_output_tokens'     => max( 0, (int) $transient['max_output_tokens'] ),
+				'context_length'        => max( 0, (int) ( $transient['context_length'] ?? 0 ) ),
+				'provider_capabilities' => self::normalise_capabilities( $transient['provider_capabilities'] ?? array() ),
+				'source'                => (string) ( $transient['source'] ?? self::SOURCE_PROVIDER ),
+				'fetched_at'            => max( 0, (int) ( $transient['fetched_at'] ?? 0 ) ),
 			);
 		}
 
 		$catalog = Settings::resolve_max_output_tokens_from_catalog( $model_id );
 		if ( $catalog > 0 ) {
 			return array(
-				'model_id'          => $model_id,
-				'max_output_tokens' => $catalog,
-				'context_length'    => 0,
-				'source'            => self::SOURCE_CATALOG,
-				'fetched_at'        => 0,
+				'model_id'              => $model_id,
+				'display_name'          => '',
+				'max_output_tokens'     => $catalog,
+				'context_length'        => 0,
+				'provider_capabilities' => array(),
+				'source'                => self::SOURCE_CATALOG,
+				'fetched_at'            => 0,
 			);
 		}
 
@@ -154,11 +158,13 @@ class ModelCapabilityRegistry {
 	 * response. Callers may also use this from CLI commands to manually
 	 * seed a cap when the provider does not advertise one.
 	 *
-	 * @param string $model_id          Provider-advertised model identifier. Empty values are dropped.
-	 * @param int    $max_output_tokens Max output tokens the provider advertises. Must be > 0.
-	 * @param int    $context_length    Total context window the provider advertises. 0 if unknown.
-	 * @param string $source            Source marker (defaults to provider). One of the SOURCE_* constants.
-	 * @param int    $ttl_seconds       Override TTL. Defaults to PROVIDER_TTL_SECONDS.
+	 * @param string              $model_id              Provider-advertised model identifier. Empty values are dropped.
+	 * @param int                 $max_output_tokens     Max output tokens the provider advertises. Must be > 0.
+	 * @param int                 $context_length        Total context window the provider advertises. 0 if unknown.
+	 * @param string              $source                Source marker (defaults to provider). One of the SOURCE_* constants.
+	 * @param int                 $ttl_seconds           Override TTL. Defaults to PROVIDER_TTL_SECONDS.
+	 * @param string              $display_name          Optional provider-advertised display name.
+	 * @param array<string, bool> $provider_capabilities Safe provider-advertised boolean capability flags.
 	 * @return bool True on successful write; false on bad inputs or transient failure.
 	 */
 	public static function set(
@@ -166,7 +172,9 @@ class ModelCapabilityRegistry {
 		int $max_output_tokens,
 		int $context_length = 0,
 		string $source = self::SOURCE_PROVIDER,
-		int $ttl_seconds = 0
+		int $ttl_seconds = 0,
+		string $display_name = '',
+		array $provider_capabilities = array()
 	): bool {
 		$model_id = trim( $model_id );
 		if ( '' === $model_id || $max_output_tokens <= 0 ) {
@@ -177,11 +185,13 @@ class ModelCapabilityRegistry {
 		}
 
 		$entry = array(
-			'model_id'          => $model_id,
-			'max_output_tokens' => $max_output_tokens,
-			'context_length'    => max( 0, $context_length ),
-			'source'            => $source,
-			'fetched_at'        => time(),
+			'model_id'              => $model_id,
+			'display_name'          => trim( $display_name ),
+			'max_output_tokens'     => $max_output_tokens,
+			'context_length'        => max( 0, $context_length ),
+			'provider_capabilities' => self::normalise_capabilities( $provider_capabilities ),
+			'source'                => $source,
+			'fetched_at'            => time(),
 		);
 
 		return (bool) set_transient( self::transient_key( $model_id ), $entry, $ttl_seconds );
@@ -216,15 +226,38 @@ class ModelCapabilityRegistry {
 	 *
 	 * @param string $model_id Model id (echoed back for diagnostics).
 	 * @param string $source   Source marker.
-	 * @return array{model_id: string, max_output_tokens: int, context_length: int, source: string, fetched_at: int}
+	 * @return array{model_id: string, display_name: string, max_output_tokens: int, context_length: int, provider_capabilities: array<string, bool>, source: string, fetched_at: int}
 	 */
 	private static function empty_entry( string $model_id, string $source ): array {
 		return array(
-			'model_id'          => $model_id,
-			'max_output_tokens' => 0,
-			'context_length'    => 0,
-			'source'            => $source,
-			'fetched_at'        => 0,
+			'model_id'              => $model_id,
+			'display_name'          => '',
+			'max_output_tokens'     => 0,
+			'context_length'        => 0,
+			'provider_capabilities' => array(),
+			'source'                => $source,
+			'fetched_at'            => 0,
 		);
+	}
+
+	/**
+	 * Keep only string-keyed boolean capability flags.
+	 *
+	 * @param mixed $capabilities Raw transient or provider payload value.
+	 * @return array<string, bool>
+	 */
+	private static function normalise_capabilities( $capabilities ): array {
+		if ( ! is_array( $capabilities ) ) {
+			return array();
+		}
+
+		$normalised = array();
+		foreach ( $capabilities as $key => $value ) {
+			if ( ! is_string( $key ) || ! is_bool( $value ) ) {
+				continue;
+			}
+			$normalised[ $key ] = $value;
+		}
+		return $normalised;
 	}
 }
