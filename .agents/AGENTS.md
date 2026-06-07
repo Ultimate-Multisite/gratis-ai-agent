@@ -87,7 +87,8 @@ working here in OpenCode headless mode:
   `../wordpress/wp-content/debug.log` (enable `WP_DEBUG_LOG` and reproduce once if
   absent), then verify the shared install's plugin symlinks point at every
   checked-out plugin worktree's canonical plugin directory name, not just the
-  current basename. Use `wp plugin path <plugin-slug>` or inspect
+  current basename. If the failed read was `vendor/`, do this before assuming a
+  Composer dependency problem. Use `wp plugin path <plugin-slug>` or inspect
   `../wordpress/wp-content/plugins/` before retrying unrelated repository paths;
   enumerate all involved plugin slugs when multiple local plugins or worktrees
   participate in the failing activation path.
