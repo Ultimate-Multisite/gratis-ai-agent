@@ -244,7 +244,10 @@ before creating the issue:
   `wp plugin path <plugin-slug>` or `../wordpress/wp-content/plugins/` as the
   concrete check so workers do not only verify the active worktree basename;
   when multiple plugins or worktrees are mentioned, require guidance to enumerate
-  each canonical plugin slug and confirm all resolve to the intended checkout.
+  each canonical plugin slug and confirm all resolve to the intended checkout. If
+  the summarized failed command is `read vendor`, explicitly steer workers away
+  from Composer diagnosis until the debug log and canonical symlink checks have
+  been completed.
 - If recurring tool errors mention `bash:file_not_found`, `gh-signature-helper.sh
   invocation failed`, `signature gate`, or blocked `gh` writes, require durable
   worker guidance to create the issue/PR/comment body as an existing stable file,

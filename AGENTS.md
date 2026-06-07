@@ -262,6 +262,9 @@ completion state:
   paths such as `vendor/` after a missing-file read. First inspect the runtime
   artifact that contains the failure: `../wordpress/wp-content/debug.log`, or
   enable `WP_DEBUG_LOG` and reproduce once if the log does not exist.
+- If the first failed read was `vendor/`, treat it as a symptom of looking in
+  the wrong layer until runtime evidence says otherwise: read the WordPress
+  debug log before checking Composer install state or adding dependency fixes.
 - Before blaming plugin code for local activation fatals, verify the shared
   WordPress install has symlinks for every checked-out plugin worktree under each
   plugin's canonical directory name, not only the active worktree basename. Use
