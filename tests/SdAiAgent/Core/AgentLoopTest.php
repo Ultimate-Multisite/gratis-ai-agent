@@ -2208,6 +2208,38 @@ class AgentLoopTest extends WP_UnitTestCase {
 		}
 	}
 
+	/**
+	 * Denied block-theme scaffolding should stop dependent theme-writing steps.
+	 */
+	public function test_scaffold_block_theme_permission_denial_builds_terminal_recovery_reply(): void {
+		if ( ! class_exists( 'WordPress\AiClient\Messages\DTO\UserMessage' ) ) {
+			$this->markTestSkipped( 'WP AI Client message classes are not available.' );
+		}
+
+		$message = new \WordPress\AiClient\Messages\DTO\UserMessage(
+			[
+				new \WordPress\AiClient\Messages\DTO\MessagePart(
+					new \WordPress\AiClient\Tools\DTO\FunctionResponse(
+						'call_scaffold_denied',
+						'wpab__sd-ai-agent__scaffold-block-theme',
+						'ERROR=Ability "sd-ai-agent/scaffold-block-theme" does not have necessary permission.'
+					)
+				),
+			]
+		);
+
+		$loop   = new AgentLoop( 'Build a block theme' );
+		$method = new \ReflectionMethod( AgentLoop::class, 'extract_scaffold_block_theme_permission_denial' );
+		$method->setAccessible( true );
+
+		$reply = $method->invoke( $loop, $message );
+
+		$this->assertIsString( $reply );
+		$this->assertStringContainsString( 'scaffold-block-theme permission was denied or stale', $reply );
+		$this->assertStringContainsString( 'stopped the dependent theme-writing steps', $reply );
+		$this->assertStringContainsString( 're-grant permission', $reply );
+	}
+
 	// -------------------------------------------------------------------------
 	// Production hardening: wall-clock timeout
 	// -------------------------------------------------------------------------
