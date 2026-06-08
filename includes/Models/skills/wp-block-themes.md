@@ -46,7 +46,8 @@ their own committed source files instead of being folded into this skill.
 5. Prefer filesystem-owned patterns under `patterns/*.php` when the theme should ship reusable layouts.
 6. Put style variations in `styles/*.json`; remember that once a user selects a style variation, that selection is stored in the database.
 7. Validate generated block markup before writing templates, parts, or patterns.
-8. For contributor-insight or maintenance changes to this skill, verify future
+8. Perform an explicit final quality review before declaring a generated theme complete. Prefer a browser, screenshot, or front-end render check when available; when visual QA is unavailable, perform the structural review in the verification checklist and report that limitation.
+9. For contributor-insight or maintenance changes to this skill, verify future
    workers will load the guidance with `rg -n "wp-block-themes|Full Site Editing|theme.json|validate-block-content" AGENTS.md includes/Models/skills/wp-block-themes.md`.
 
 ## Absolute Rules
@@ -531,6 +532,7 @@ After editing templates or `theme.json`:
 4. For child theme overrides, confirm the active stylesheet is the child (`wp option get stylesheet`).
 5. Open the block editor on any page that uses entrance-animation classes — every animated section should render visibly, not as an empty box. If a section is invisible, an `.editor-styles-wrapper` override is missing.
 6. Toggle the OS-level "Reduce motion" preference and reload the front-end — animations should collapse to near-zero duration without leaving content stuck at `opacity: 0`.
+7. For generated themes or site scaffolds, perform and report a final quality review before saying the theme is complete: prefer browser/screenshot/front-end review of homepage plus an interior template; if unavailable, structurally review `theme.json`, header/footer, templates, hierarchy, spacing, typography, color contrast, navigation/footer, responsive risks, stock-image avoidance, and state that visual QA was limited.
 
 ## See also
 
