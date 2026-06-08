@@ -1212,6 +1212,23 @@ class AgentLoop {
 			$this->last_loop_phase = 'tool_response_recorded';
 			$this->save_active_job_checkpoint( self::CHECKPOINT_TOOL_RESPONSE_RECORDED, $iterations );
 
+			$scaffold_permission_denial = $this->extract_scaffold_block_theme_permission_denial( $truncated_message );
+			if ( null !== $scaffold_permission_denial ) {
+				$this->last_loop_phase = 'scaffold_block_theme_permission_denied';
+
+				return $this->with_result_logs(
+					array(
+						'reply'           => $scaffold_permission_denial,
+						'history'         => $this->serialize_history(),
+						'tool_calls'      => $this->tool_call_log,
+						'token_usage'     => $this->token_usage,
+						'iterations_used' => $this->iterations_used,
+						'model_id'        => $this->model_id,
+						'exit_reason'     => 'scaffold_block_theme_permission_denied',
+					)
+				);
+			}
+
 			// Reset the wall-clock deadline after each productive tool call.
 			// This allows genuinely long tasks (many sequential tool calls) to
 			// complete while still killing truly stalled loops that make no
@@ -2452,6 +2469,76 @@ class AgentLoop {
 		);
 
 		$this->fire_progress();
+	}
+
+	/**
+	 * Detect a denied scaffold-block-theme response and build a terminal reply.
+	 *
+	 * Block-theme scaffolding is the prerequisite for later theme-writing steps.
+	 * If permission is denied (including stale client-side permission state), the
+	 * safe recovery is to stop the dependent chain and ask for a fresh grant
+	 * instead of letting the model continue into invalid global-style writes.
+	 *
+	 * @param Message $message Tool response message to inspect.
+	 * @return string|null Terminal recovery reply when scaffold permission was denied.
+	 */
+	private function extract_scaffold_block_theme_permission_denial( Message $message ): ?string {
+		foreach ( $message->getParts() as $part ) {
+			$response = $part->getFunctionResponse();
+			if ( ! $response ) {
+				continue;
+			}
+
+			$name = self::normalize_logged_tool_name( (string) $response->getName() );
+			if ( 'sd-ai-agent/scaffold-block-theme' !== $name ) {
+				continue;
+			}
+
+			$response_text = self::stringify_tool_response_for_guard( $response->getResponse() );
+			if ( ! self::is_permission_denied_tool_response( $response_text ) ) {
+				continue;
+			}
+
+			$this->message_log[] = array(
+				'type'     => 'guardrail',
+				'reason'   => 'scaffold_block_theme_permission_denied',
+				'sequence' => $this->next_activity_sequence(),
+			);
+
+			$this->fire_progress();
+
+			return __(
+				'I could not scaffold the block theme because the scaffold-block-theme permission was denied or stale. I stopped the dependent theme-writing steps so I do not make invalid style or template changes. Please re-grant permission for sd-ai-agent/scaffold-block-theme and then retry the scaffold step.',
+				'superdav-ai-agent'
+			);
+		}
+
+		return null;
+	}
+
+	/**
+	 * Convert a tool response payload into text for guard matching.
+	 *
+	 * @param mixed $response Tool response payload.
+	 */
+	private static function stringify_tool_response_for_guard( $response ): string {
+		if ( is_string( $response ) ) {
+			return $response;
+		}
+
+		$encoded = wp_json_encode( $response );
+		return is_string( $encoded ) ? $encoded : '';
+	}
+
+	/**
+	 * Whether a tool response represents a permission denial.
+	 */
+	private static function is_permission_denied_tool_response( string $response_text ): bool {
+		$normalized = strtolower( $response_text );
+
+		return str_contains( $normalized, 'does not have necessary permission' )
+			|| str_contains( $normalized, 'permission denied' )
+			|| str_contains( $normalized, 'not allowed' );
 	}
 
 	/**
