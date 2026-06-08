@@ -259,9 +259,9 @@ completion state:
   before retrying `Read`; for untracked/runtime artifacts, inspect the known
   parent directory or rerun the command that generated the artifact.
 - For local WordPress fatal-error reports, do not keep retrying unrelated project
-  paths such as `vendor/` after a missing-file read. First inspect the runtime
-  artifact that contains the failure: `../wordpress/wp-content/debug.log`, or
-  enable `WP_DEBUG_LOG` and reproduce once if the log does not exist.
+  paths such as `vendor/` after a missing-file read. Make the runtime evidence
+  artifact `../wordpress/wp-content/debug.log` the next read target, or enable
+  `WP_DEBUG_LOG` and reproduce once if the log does not exist.
 - If the first failed read was `vendor/`, treat it as a symptom of looking in
   the wrong layer until runtime evidence says otherwise: read the WordPress
   debug log before checking Composer install state or adding dependency fixes.

@@ -48,9 +48,9 @@ Use this skill when the user reports errors, performance issues, white screens, 
 ### Plugin Activation Fatal Error
 1. Verify `WP_DEBUG_LOG` is enabled and reproduce the activation once.
 2. Read `../wordpress/wp-content/debug.log` or use the guarded `wp eval` command
-   above; do not stop after a missing repository path such as `vendor/`, and do
-   not assume Composer dependencies are the root cause until the runtime log is
-   checked.
+   above; after a missing repository path such as `vendor/`, make this runtime
+   log the next evidence source and do not assume Composer dependencies are the
+   root cause until it is checked.
 3. Confirm the shared WordPress install symlinks every checked-out plugin worktree
    into each plugin's canonical directory name before treating the fatal as an
    application-code regression. Use `wp plugin path <plugin-slug>` or inspect
