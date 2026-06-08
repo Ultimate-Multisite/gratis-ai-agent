@@ -26,7 +26,7 @@ style variations, treat that excerpt as a source-mapping clue only. Update this
 committed skill file (and the root `AGENTS.md` summary when repo-wide guidance is
 needed); do not copy private local paths or duplicate the full excerpt into
 issues, PRs, templates, or generated theme files. In mixed reports like issues
-#2034, #2050, #2060, and #2066, this file is only the block-theme target; REST,
+#2034, #2050, #2060, #2066, and #2074, this file is only the block-theme target; REST,
 Google Search Console, and WordPress.org review-response notes must be mapped to
 their own committed source files instead of being folded into this skill.
 
