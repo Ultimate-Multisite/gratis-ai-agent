@@ -46,7 +46,7 @@ their own committed source files instead of being folded into this skill.
 5. Prefer filesystem-owned patterns under `patterns/*.php` when the theme should ship reusable layouts.
 6. Put style variations in `styles/*.json`; remember that once a user selects a style variation, that selection is stored in the database.
 7. Validate generated block markup before writing templates, parts, or patterns.
-8. Perform an explicit final quality review before declaring a generated theme complete. Prefer a browser, screenshot, or front-end render check when available; when visual QA is unavailable, perform the structural review described in "Final theme quality review" and report that limitation.
+8. Perform an explicit final quality review before declaring a generated theme complete. Prefer a browser, screenshot, or front-end render check when available; when visual QA is unavailable, perform the structural review in the verification checklist and report that limitation.
 9. For contributor-insight or maintenance changes to this skill, verify future
    workers will load the guidance with `rg -n "wp-block-themes|Full Site Editing|theme.json|validate-block-content" AGENTS.md includes/Models/skills/wp-block-themes.md`.
 
@@ -532,27 +532,7 @@ After editing templates or `theme.json`:
 4. For child theme overrides, confirm the active stylesheet is the child (`wp option get stylesheet`).
 5. Open the block editor on any page that uses entrance-animation classes — every animated section should render visibly, not as an empty box. If a section is invisible, an `.editor-styles-wrapper` override is missing.
 6. Toggle the OS-level "Reduce motion" preference and reload the front-end — animations should collapse to near-zero duration without leaving content stuck at `opacity: 0`.
-
-### Final theme quality review
-
-Do not tell the user a generated block theme, site scaffold, or Full Site Editing build is done until you have performed and reported an explicit final review result.
-
-Preferred review path:
-
-1. Open the front-end with an available browser, screenshot, or render-preview ability after activating the theme.
-2. Review the homepage and at least one interior template (`page` or `index`) at desktop width, and use any available responsive/mobile viewport check when possible.
-3. Compare the rendered result with the confirmed site specification and selected design direction. Check hierarchy, spacing, typography, color contrast, CTA prominence, header/navigation, footer, template-part cohesion, and whether the page feels visually complete without unprovided stock imagery.
-4. Fix obvious visual or structural issues, rerun `sd-ai-agent/validate-block-content` for changed templates/parts/patterns, and repeat the review before completion.
-
-If a browser or screenshot review is unavailable, do not skip quality review. Perform a structural review of the generated files instead:
-
-- Confirm `theme.json` defines a coherent palette, typography scale, spacing scale, layout widths, and element/block styles that match the site brief.
-- Inspect `parts/header.html` and `parts/footer.html` for editable core blocks, usable navigation, balanced spacing, and consistent background/typography treatment.
-- Inspect `templates/front-page.html`, `templates/index.html`, and `templates/page.html` for correct template hierarchy, clear section order, constrained vs full-bleed layout choices, responsive layout risks in columns/groups, CTA placement, and no empty or placeholder-looking sections.
-- Check color contrast risks, especially light text on accent bands and button/link states.
-- Check that visual richness comes from blocks, gradients, spacing, typography, or provided assets — not stock image URLs, `core/html`, or decorative non-block comments.
-
-Report the final review before saying the theme is complete. Include what was reviewed, the result, any fixes made, and any limitation such as "browser/screenshot review was unavailable, so I completed a structural review of theme.json, template parts, and templates instead." Do not present the theme/site as finished without this visible quality review summary.
+7. For generated themes or site scaffolds, perform and report a final quality review before saying the theme is complete: prefer browser/screenshot/front-end review of homepage plus an interior template; if unavailable, structurally review `theme.json`, header/footer, templates, hierarchy, spacing, typography, color contrast, navigation/footer, responsive risks, stock-image avoidance, and state that visual QA was limited.
 
 ## See also
 
