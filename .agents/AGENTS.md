@@ -128,7 +128,7 @@ to change, do not answer only in the issue thread. Make the durable repo change:
   finding, includes verification commands, and avoids broad "everything is fixed"
   or "remaining issues are false positives" claims unless each claim is tied to
   exact file or pattern evidence.
-- For mixed reports like issues #2034, #2050, #2060, and #2066, include the source map
+- For mixed reports like issues #2034, #2050, #2060, #2066, and #2074, include the source map
   in the PR body: block-theme excerpts →
   `includes/Models/skills/wp-block-themes.md`; REST
   hardening → root `AGENTS.md`, `includes/REST/`, and
@@ -136,7 +136,7 @@ to change, do not answer only in the issue thread. Make the durable repo change:
   `includes/Abilities/GscAbilities.php`, `includes/Core/Settings.php`,
   `includes/REST/SettingsController.php`, and
   `includes/Abilities/ToolCapabilities.php`; WordPress.org review responses →
-  root `AGENTS.md` review-response policy. For #2060/#2066-style reports with only
+  root `AGENTS.md` review-response policy. For #2060/#2066/#2074-style reports with only
   block-theme, Google Search Console, and WordPress.org review-response notes,
   do not invent REST work; cite the three inspected durable sources instead. If
   code already has the requested guard, cite the exact inspected guard instead of
