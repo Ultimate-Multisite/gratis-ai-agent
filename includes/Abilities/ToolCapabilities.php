@@ -195,6 +195,7 @@ class ToolCapabilities {
 
 		// ─── Files (read = admin; write gated separately by FILE_WRITE) ─────
 		'sd-ai-agent/file-read'                  => 'manage_options',
+		'sd-ai-agent/file-outline'               => 'manage_options',
 		'sd-ai-agent/file-list'                  => 'manage_options',
 		'sd-ai-agent/file-search'                => 'manage_options',
 		'sd-ai-agent/content-search'             => 'manage_options',
