@@ -1,8 +1,10 @@
 import {
+	getHydrationSessionId,
 	hasLiveSiteChangeActivity,
 	isFrontendOnboardingEnabled,
 	isMobileViewport,
-	startFrontendOnboarding,
+	shouldStartFrontendOnboarding,
+	startOnboarding,
 } from '../frontend-onboarding';
 
 describe( 'frontend onboarding helpers', () => {
@@ -88,6 +90,72 @@ describe( 'frontend onboarding helpers', () => {
 		).toBe( true );
 	} );
 
+	test( 'hydrates a running frontend build session before latest recency', () => {
+		expect(
+			getHydrationSessionId(
+				[
+					{ id: '12', title: 'Latest chat' },
+					{ id: '7', title: 'Build session' },
+				],
+				{
+					7: { status: 'processing', jobId: 'job-7' },
+				}
+			)
+		).toBe( 7 );
+	} );
+
+	test( 'hydrates the latest session when no build is running', () => {
+		expect(
+			getHydrationSessionId(
+				[
+					{ id: '12', title: 'Latest chat' },
+					{ id: '7', title: 'Older chat' },
+				],
+				{
+					7: { status: 'complete', jobId: 'job-7' },
+				}
+			)
+		).toBe( 12 );
+	} );
+
+	test( 'starts frontend onboarding only after sessions load empty', () => {
+		expect(
+			shouldStartFrontendOnboarding( {
+				enabled: true,
+				started: false,
+				providersLoaded: true,
+				providerCount: 1,
+				sessionsLoaded: false,
+				sessionCount: 0,
+				currentSessionId: null,
+			} )
+		).toBe( false );
+
+		expect(
+			shouldStartFrontendOnboarding( {
+				enabled: true,
+				started: false,
+				providersLoaded: true,
+				providerCount: 1,
+				sessionsLoaded: true,
+				sessionCount: 1,
+				currentSessionId: null,
+			} )
+		).toBe( false );
+
+		expect(
+			shouldStartFrontendOnboarding( {
+				enabled: true,
+				started: false,
+				providersLoaded: true,
+				providerCount: 1,
+				sessionsLoaded: true,
+				sessionCount: 0,
+				currentSessionId: null,
+			} )
+		).toBe( true );
+	} );
+
 	test( 'starts unified onboarding from the frontend', async () => {
 		const apiFetch = jest.fn().mockResolvedValueOnce( {
 			agent_id: 7,
@@ -98,7 +166,7 @@ describe( 'frontend onboarding helpers', () => {
 		const sendMessage = jest.fn().mockResolvedValue( undefined );
 		const setSelectedAgentId = jest.fn();
 
-		await startFrontendOnboarding( {
+		await startOnboarding( {
 			apiFetch,
 			openSession,
 			sendMessage,
@@ -123,7 +191,7 @@ describe( 'frontend onboarding helpers', () => {
 		const sendMessage = jest.fn().mockResolvedValue( undefined );
 
 		await expect(
-			startFrontendOnboarding( {
+			startOnboarding( {
 				apiFetch,
 				openSession,
 				sendMessage,
@@ -143,7 +211,7 @@ describe( 'frontend onboarding helpers', () => {
 		const openSession = jest.fn().mockResolvedValue( undefined );
 		const sendMessage = jest.fn().mockResolvedValue( undefined );
 
-		await startFrontendOnboarding( {
+		await startOnboarding( {
 			apiFetch,
 			openSession,
 			sendMessage,

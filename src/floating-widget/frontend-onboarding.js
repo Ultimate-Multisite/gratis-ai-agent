@@ -9,6 +9,12 @@
 import defaultApiFetch from '@wordpress/api-fetch';
 
 const ONBOARDING_START_PATH = '/sd-ai-agent/v1/onboarding/start';
+const IN_FLIGHT_JOB_STATUSES = [
+	'processing',
+	'awaiting_confirmation',
+	'pending_proposal',
+	'awaiting_client_tools',
+];
 
 /**
  * Coerce wp_localize_script booleans and REST booleans into a real boolean.
@@ -82,6 +88,80 @@ export function hasLiveSiteChangeActivity( toolCalls ) {
 export { hasLiveSiteChangeActivity as hasActivity };
 
 /**
+ * Pick the conversation the frontend widget should hydrate on page load.
+ *
+ * Running sessions win over recency so a long-running build submitted from the
+ * widget remains visible after navigation/reload. If nothing is running, fall
+ * back to the newest session from the server list.
+ *
+ * @param {Array}  sessions    Session summaries from /sessions.
+ * @param {Object} sessionJobs Map of sessionId → active job metadata.
+ * @return {number|null} Session ID to open, or null when no session exists.
+ */
+export function getHydrationSessionId( sessions, sessionJobs = {} ) {
+	let latestId = null;
+
+	for ( const session of Array.isArray( sessions ) ? sessions : [] ) {
+		const id =
+			typeof session?.id === 'string'
+				? parseInt( session.id, 10 )
+				: session?.id;
+
+		if ( ! Number.isFinite( id ) ) {
+			continue;
+		}
+
+		if ( latestId === null ) {
+			latestId = id;
+		}
+
+		const job = sessionJobs?.[ id ] || sessionJobs?.[ String( id ) ];
+		if ( job?.status && IN_FLIGHT_JOB_STATUSES.includes( job.status ) ) {
+			return id;
+		}
+	}
+
+	return latestId;
+}
+
+/**
+ * Determine whether first-run frontend onboarding may start.
+ *
+ * Onboarding must wait until sessions have loaded. Otherwise a reload during a
+ * real submitted build can briefly look empty and bootstrap a fresh setup
+ * session before the existing conversation list arrives.
+ *
+ * @param {Object}  options
+ * @param {boolean} options.enabled          Frontend onboarding flag.
+ * @param {boolean} options.started          Whether this page already started onboarding.
+ * @param {boolean} options.providersLoaded  Whether providers finished loading.
+ * @param {number}  options.providerCount    Number of available providers.
+ * @param {boolean} options.sessionsLoaded   Whether sessions finished loading.
+ * @param {number}  options.sessionCount     Number of existing sessions.
+ * @param {?number} options.currentSessionId Currently opened session ID.
+ * @return {boolean} True when it is safe to create the setup session.
+ */
+export function shouldStartFrontendOnboarding( {
+	enabled,
+	started,
+	providersLoaded,
+	providerCount,
+	sessionsLoaded,
+	sessionCount,
+	currentSessionId,
+} ) {
+	return (
+		!! enabled &&
+		! started &&
+		!! providersLoaded &&
+		providerCount > 0 &&
+		!! sessionsLoaded &&
+		sessionCount === 0 &&
+		! currentSessionId
+	);
+}
+
+/**
  * Start frontend onboarding and send its first message when appropriate.
  *
  * @param {Object}   options                    Start options.
@@ -92,7 +172,7 @@ export { hasLiveSiteChangeActivity as hasActivity };
  * @param {string}   options.fallbackMessage    Message used when REST omits one.
  * @return {Promise<Object|null>} Start metadata, or null if no session returned.
  */
-export async function startFrontendOnboarding( {
+export async function startOnboarding( {
 	apiFetch = defaultApiFetch,
 	openSession,
 	sendMessage,

@@ -57,24 +57,28 @@ function FloatingWidget() {
 	);
 	const frontendOnboardingStartedRef = useRef( false );
 
-	const {
+	const [
 		isOpen,
 		settings,
 		bootError,
 		providers,
 		providersLoaded,
+		sessions,
+		sessionsLoaded,
 		currentSessionId,
 		sessionJobs,
-	} = useSelect(
-		( select ) => ( {
-			isOpen: select( STORE_NAME ).isFloatingOpen(),
-			settings: select( STORE_NAME ).getSettings(),
-			bootError: select( STORE_NAME ).getBootError(),
-			providers: select( STORE_NAME ).getProviders(),
-			providersLoaded: select( STORE_NAME ).getProvidersLoaded(),
-			currentSessionId: select( STORE_NAME ).getCurrentSessionId(),
-			sessionJobs: select( STORE_NAME ).getSessionJobs(),
-		} ),
+	] = useSelect(
+		( select ) => [
+			select( STORE_NAME ).isFloatingOpen(),
+			select( STORE_NAME ).getSettings(),
+			select( STORE_NAME ).getBootError(),
+			select( STORE_NAME ).getProviders(),
+			select( STORE_NAME ).getProvidersLoaded(),
+			select( STORE_NAME ).getSessions(),
+			select( STORE_NAME ).getSessionsLoaded(),
+			select( STORE_NAME ).getCurrentSessionId(),
+			select( STORE_NAME ).getSessionJobs(),
+		],
 		[]
 	);
 
@@ -105,23 +109,43 @@ function FloatingWidget() {
 	}, [ frontendOnboardingEnabled, setFloatingOpen, setFloatingMinimized ] );
 
 	useEffect( () => {
-		if (
-			! frontendOnboardingEnabled ||
-			frontendOnboardingStartedRef.current ||
-			! providersLoaded
-		) {
+		if ( ! sessionsLoaded ) {
 			return;
 		}
 
-		if ( providers.length === 0 ) {
+		// Keep the public widget attached to the same active/latest conversation as
+		// the dedicated chat page after reloads or frontend navigation.
+		if ( sessions.length || ! providers.length ) {
 			setFrontendOnboardingMode( null );
+			if ( sessions.length && ! currentSessionId ) {
+				import( './frontend-onboarding' ).then(
+					( { getHydrationSessionId } ) => {
+						const sessionId = getHydrationSessionId(
+							sessions,
+							sessionJobs
+						);
+						if ( sessionId ) {
+							openSession( sessionId );
+						}
+					}
+				);
+			}
+			return;
+		}
+
+		if (
+			! frontendOnboardingEnabled ||
+			frontendOnboardingStartedRef.current ||
+			! providersLoaded ||
+			currentSessionId
+		) {
 			return;
 		}
 
 		frontendOnboardingStartedRef.current = true;
 		import( './frontend-onboarding' )
-			.then( ( { startFrontendOnboarding } ) =>
-				startFrontendOnboarding( {
+			.then( ( { startOnboarding } ) =>
+				startOnboarding( {
 					openSession,
 					sendMessage,
 					setSelectedAgentId,
@@ -134,6 +158,10 @@ function FloatingWidget() {
 		frontendOnboardingEnabled,
 		providersLoaded,
 		providers.length,
+		sessionsLoaded,
+		sessions,
+		sessionJobs,
+		currentSessionId,
 		openSession,
 		sendMessage,
 		setSelectedAgentId,
