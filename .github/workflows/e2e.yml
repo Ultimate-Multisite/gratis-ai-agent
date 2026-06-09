@@ -118,10 +118,6 @@ jobs:
       - name: Install Playwright browser dependencies
         run: |
           npx playwright install-deps chromium
-          # Retries record traces/video; install Playwright's ffmpeg binary even
-          # though the tests launch system Chrome. Without this, any retry can
-          # fail before the page opens with "ffmpeg-linux" missing.
-          npx playwright install ffmpeg
           google-chrome --version
 
       - name: Build plugin assets

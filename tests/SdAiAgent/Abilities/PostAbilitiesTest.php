@@ -1050,6 +1050,34 @@ class PostAbilitiesTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * Multi-type array: page + post searches should work instead of producing a
+	 * schema validation retry loop when the agent is locating an unknown target.
+	 */
+	public function test_handle_list_posts_accepts_post_type_array() {
+		$post_id = $this->factory->post->create( [ 'post_status' => 'publish' ] );
+		$page_id = $this->factory->post->create(
+			[
+				'post_status' => 'publish',
+				'post_type'   => 'page',
+			]
+		);
+
+		$result = PostAbilities::handle_list_posts(
+			[
+				'post_type'   => [ 'page', 'post' ],
+				'post_status' => 'publish',
+				'per_page'    => 50,
+			]
+		);
+
+		$this->assertIsArray( $result );
+		$ids = array_column( $result['posts'], 'id' );
+		$this->assertContains( $post_id, $ids );
+		$this->assertContains( $page_id, $ids );
+		$this->assertSame( [ 'page', 'post' ], $result['query_args']['post_type'] );
+	}
+
+	/**
 	 * date_after excludes posts older than the given date.
 	 */
 	public function test_handle_list_posts_date_after() {
