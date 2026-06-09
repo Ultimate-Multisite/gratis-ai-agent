@@ -528,4 +528,45 @@ class WpRestAbilitiesTest extends WP_UnitTestCase {
 			$this->assertArrayHasKey( 'status', $result );
 		}
 	}
+
+	/**
+	 * Register a REST-visible CPT for REST meta tests.
+	 *
+	 * @param bool $supports_custom_fields Whether to include custom-fields support.
+	 */
+	private function register_rest_meta_book_type( bool $supports_custom_fields ): void {
+		$supports = array( 'title', 'editor' );
+		if ( $supports_custom_fields ) {
+			$supports[] = 'custom-fields';
+		}
+
+		register_post_type(
+			'sd_rest_meta_book',
+			array(
+				'label'        => 'REST Meta Books',
+				'public'       => true,
+				'show_in_rest' => true,
+				'rest_base'    => 'sd-rest-meta-books',
+				'supports'     => $supports,
+			)
+		);
+	}
+
+	/**
+	 * Register a REST-visible test meta key with callback presence.
+	 */
+	private function register_book_rating_meta(): void {
+		register_post_meta(
+			'sd_rest_meta_book',
+			'_sd_ai_agent_rest_meta_rating',
+			array(
+				'type'              => 'integer',
+				'single'            => true,
+				'show_in_rest'      => true,
+				'default'           => 0,
+				'sanitize_callback' => 'absint',
+				'auth_callback'     => '__return_true',
+			)
+		);
+	}
 }

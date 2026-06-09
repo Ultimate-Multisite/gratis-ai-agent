@@ -147,6 +147,7 @@ class ToolCapabilities {
 		'sd-ai-agent/batch-create-posts'         => 'edit_posts',
 		'sd-ai-agent/delete-post'                => 'delete_posts',
 		'sd-ai-agent/set-featured-image'         => 'edit_posts',
+		'sd-ai-agent/inspect-rest-meta'          => 'edit_posts',
 		'sd-ai-agent/revert-to-revision'         => 'edit_posts',
 		'sd-ai-agent/generate-title'             => 'edit_posts',
 		'sd-ai-agent/generate-excerpt'           => 'edit_posts',
