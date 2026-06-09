@@ -62,8 +62,11 @@ module.exports = defineConfig( {
 		/* Take screenshot on failure. */
 		screenshot: 'only-on-failure',
 
-		/* Video on first retry. */
-		video: 'on-first-retry',
+		/* Keep CI retries lightweight when launching the preinstalled system
+		 * Chrome. The Playwright ffmpeg download can hang before tests start on
+		 * GitHub runners; traces and failure screenshots provide the artifacts we
+		 * need without requiring the browser-bundled ffmpeg binary. */
+		video: useSystemChrome ? 'off' : 'on-first-retry',
 	},
 
 	projects: [
