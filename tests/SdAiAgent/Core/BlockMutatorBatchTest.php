@@ -456,6 +456,11 @@ class BlockMutatorBatchTest extends WP_UnitTestCase {
 		$this->assertIsArray( $result );
 		$this->assertTrue( $result['success'] );
 		$this->assertSame( 5, $result['updates'] );
+		$this->assertArrayHasKey( 'affected', $result );
+		$this->assertSame( 'post', $result['affected']['kind'] );
+		$this->assertSame( $post_id, $result['affected']['post_id'] );
+		$this->assertNotEmpty( $result['affected']['url'] );
+		$this->assertContains( 'post_content', $result['affected']['fields'] );
 
 		// Count revisions after.
 		$revisions_after = count( wp_get_post_revisions( $post_id ) );
