@@ -19,6 +19,7 @@ use SdAiAgent\Admin\FloatingWidget;
 use SdAiAgent\Admin\ThirdPartyAbilityNoticeHandler;
 use SdAiAgent\Admin\UnifiedAdminMenu;
 use SdAiAgent\Compat\GutenbergConnectorsBridge;
+use SdAiAgent\Core\ActiveJobsCleanupService;
 use SdAiAgent\Core\Database;
 use XWP\DI\Decorators\Action;
 use XWP\DI\Decorators\Filter;
@@ -75,6 +76,7 @@ final class AdminHandler {
 	 * Admin init hooks.
 	 *
 	 * - DB schema safety-net (dbDelta is no-op when schema is current).
+	 * - Active job stale-cleanup cron safety-net for cloned/provisioned tenants.
 	 * - Per-tool capabilities for role-management plugins.
 	 * - Legacy URL redirects to unified menu.
 	 * - Handle third-party ability notice dismissal.
@@ -83,6 +85,7 @@ final class AdminHandler {
 	#[Action( tag: 'admin_init', priority: 10 )]
 	public function on_admin_init(): void {
 		Database::install();
+		ActiveJobsCleanupService::schedule();
 		ToolCapabilities::register_capabilities( ToolCapabilities::all_ability_ids() );
 		UnifiedAdminMenu::handleLegacyRedirects();
 		ThirdPartyAbilityNoticeHandler::handle_dismiss();
