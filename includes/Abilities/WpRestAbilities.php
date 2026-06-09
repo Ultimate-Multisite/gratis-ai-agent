@@ -487,6 +487,11 @@ class WpRestAbilities {
 			'endpoints' => array(),
 		);
 
+		$rest_meta_hint = self::get_rest_meta_diagnostic_hint( $route );
+		if ( null !== $rest_meta_hint ) {
+			$result['rest_meta_diagnostic_hint'] = $rest_meta_hint;
+		}
+
 		foreach ( $endpoints as $endpoint ) {
 			if ( ! is_array( $endpoint ) ) {
 				continue;
@@ -539,6 +544,33 @@ class WpRestAbilities {
 		}
 
 		return $result;
+	}
+
+	/**
+	 * Return a focused REST meta diagnostic hint for post-type collection routes.
+	 *
+	 * @param string $route REST route.
+	 * @return array<string,string>|null
+	 */
+	private static function get_rest_meta_diagnostic_hint( string $route ): ?array {
+		foreach ( get_post_types( array(), 'objects' ) as $post_type => $post_type_object ) {
+			if ( ! is_object( $post_type_object ) || empty( $post_type_object->show_in_rest ) ) {
+				continue;
+			}
+
+			$rest_base = is_string( $post_type_object->rest_base ) && '' !== $post_type_object->rest_base ? $post_type_object->rest_base : (string) $post_type;
+			if ( '/wp/v2/' . $rest_base !== $route ) {
+				continue;
+			}
+
+			return array(
+				'ability'   => RestMetaAbilities::ABILITY_ID,
+				'post_type' => (string) $post_type,
+				'note'      => __( 'If REST `meta` writes return 200 OK but do not persist, call this read-only ability to inspect custom-fields support and REST-visible registered meta keys.', 'superdav-ai-agent' ),
+			);
+		}
+
+		return null;
 	}
 
 	/**
