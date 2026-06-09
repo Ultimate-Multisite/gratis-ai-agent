@@ -82,6 +82,22 @@ describe( 'post reflector', () => {
 		).toEqual( [ '.entry-title', '.entry-content' ] );
 	} );
 
+	test( 'pickTargetsForFields falls back to the block-theme site tree for post content', () => {
+		document.body.innerHTML = `
+			<div class="wp-site-blocks"><h1>Old homepage</h1></div>
+		`;
+		const fresh = new DOMParser().parseFromString(
+			`
+				<div class="wp-site-blocks"><h1>Fresh homepage</h1></div>
+			`,
+			'text/html'
+		);
+
+		expect(
+			pickTargetsForFields( document, fresh, [ 'post_content' ] )
+		).toEqual( [ '.wp-site-blocks' ] );
+	} );
+
 	test( 'reflectPost fetches the current post and morphs changed field targets', async () => {
 		document.body.innerHTML = `
 			<h1 class="entry-title">Old title</h1>

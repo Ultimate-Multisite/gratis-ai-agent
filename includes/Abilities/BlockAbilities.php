@@ -862,6 +862,7 @@ class BlockAbilities {
 							'type'        => 'array',
 							'description' => 'The resulting block tree after all updates.',
 						],
+						'affected'    => self::post_content_affected_output_schema(),
 						'dry_run'     => [ 'type' => 'boolean' ],
 						'error'       => [ 'type' => 'string' ],
 					],
@@ -3161,13 +3162,57 @@ class BlockAbilities {
 			RateLimiter::record( 'write', $post_id );
 		}
 
-		return [
+		$response = [
 			'success'     => true,
 			'dry_run'     => $dry_run,
 			'post_id'     => $post_id,
 			'updates'     => count( $updates ),
 			'revision_id' => RevisionGuard::current_revision_id( $post_id ),
 			'block_tree'  => self::annotate_bindings_tree( $new_tree ),
+		];
+
+		if ( ! $dry_run ) {
+			$response['affected'] = self::build_post_content_affected_payload( $post_id );
+		}
+
+		return $response;
+	}
+
+	/**
+	 * Build the output schema for a post-content affected descriptor.
+	 *
+	 * @return array<string,mixed>
+	 */
+	private static function post_content_affected_output_schema(): array {
+		return [
+			'type'        => 'object',
+			'description' => 'Transport descriptor for the frontend reflection bus — identifies the mutated post content so the current public page can update without a full reload.',
+			'properties'  => [
+				'kind'    => [ 'type' => 'string' ],
+				'post_id' => [ 'type' => 'integer' ],
+				'url'     => [ 'type' => 'string' ],
+				'fields'  => [
+					'type'  => 'array',
+					'items' => [ 'type' => 'string' ],
+				],
+			],
+		];
+	}
+
+	/**
+	 * Build an affected descriptor for block-tree post-content mutations.
+	 *
+	 * @param int $post_id Post ID.
+	 * @return array<string,mixed>
+	 */
+	private static function build_post_content_affected_payload( int $post_id ): array {
+		$permalink = get_permalink( $post_id );
+
+		return [
+			'kind'    => 'post',
+			'post_id' => $post_id,
+			'url'     => is_string( $permalink ) ? $permalink : '',
+			'fields'  => [ 'post_content' ],
 		];
 	}
 
