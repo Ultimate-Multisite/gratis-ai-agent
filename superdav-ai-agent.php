@@ -274,6 +274,7 @@ use SdAiAgent\Bootstrap\LifecycleHandler;
 use SdAiAgent\Compat\AiBridgeLoader;
 use SdAiAgent\Compat\GutenbergConnectorsBridge;
 use SdAiAgent\Compat\SdkLoader;
+use SdAiAgent\Core\ActiveJobsCleanupService;
 use SdAiAgent\Plugin;
 
 // Phase 1 (t227): Register the bundled wordpress/php-ai-client SDK autoloader.
@@ -304,6 +305,11 @@ require_once SD_AI_AGENT_DIR . '/includes/Compat/wp-connectors-polyfill.php';
 // directly requiring Gutenberg's loader restores the full subsystem.
 // On WP 7.0+ (or without Gutenberg ≥ 22.8.0) this hook is a no-op.
 add_action( 'plugins_loaded', [ GutenbergConnectorsBridge::class, 'force_load_connectors_subsystem' ], 1 );
+
+// Register the stale active-jobs cron callback directly from the plugin file so
+// standalone cron runners and queue-worker subprocesses do not depend on admin
+// or REST DI contexts before the hook can be executed.
+add_action( ActiveJobsCleanupService::CRON_HOOK, [ ActiveJobsCleanupService::class, 'run' ] );
 
 // Activation / deactivation hooks fire *before* `plugins_loaded`, so they
 // cannot be wired through the DI container. `LifecycleHandler` consolidates

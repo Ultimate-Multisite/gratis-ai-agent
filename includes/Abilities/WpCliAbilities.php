@@ -4,16 +4,16 @@ declare(strict_types=1);
 /**
  * WP-CLI ability for the AI agent.
  *
- * Registers a single `wp-cli/execute` ability that accepts raw WP-CLI
- * command strings. This is the natural interface for any LLM — pass
- * commands exactly as you would type them in a terminal.
+ * Registers a single `wp-cli/execute` ability that accepts WP-CLI-style
+ * command strings and dispatches them to native PHP handlers. This preserves
+ * the familiar WP-CLI syntax without spawning a shell or external binary.
  *
  * Security layers:
  *   1. Top-level command blocklist (db, eval, shell, config, core, …)
  *   2. Sub-command blocklist (site delete, plugin install, …)
  *   3. Permission classification (read → manage_options, write → manage_options,
  *      destructive → manage_network)
- *   4. Array-based proc_open (no shell interpretation — no injection risk)
+ *   4. Native PHP dispatcher registry (no shell/process interpretation)
  *
  * @package SdAiAgent
  * @license GPL-2.0-or-later
@@ -145,26 +145,6 @@ class WpCliAbilities {
 	);
 
 	/**
-	 * Current site URL for multisite context persistence.
-	 *
-	 * @var string
-	 */
-	private static string $current_site_url = '';
-
-	/**
-	 * Cached resolved WP-CLI binary path for the current request.
-	 *
-	 * Populated lazily by {@see find_wp_cli()}. A non-empty string is a
-	 * successfully resolved path; an empty string means "not yet resolved".
-	 * A failed resolution returns a fresh WP_Error each time so the caller
-	 * sees the latest filesystem reality (cheap because the negative path
-	 * still finishes in microseconds).
-	 *
-	 * @var string
-	 */
-	private static string $cached_binary = '';
-
-	/**
 	 * Register the wp-cli ability category.
 	 *
 	 * @return void
@@ -195,7 +175,7 @@ class WpCliAbilities {
 			self::CATEGORY,
 			array(
 				'label'       => __( 'WP-CLI', 'superdav-ai-agent' ),
-				'description' => __( 'Execute WP-CLI commands on this WordPress installation.', 'superdav-ai-agent' ),
+				'description' => __( 'Execute supported WP-CLI-style commands through native WordPress handlers.', 'superdav-ai-agent' ),
 			)
 		);
 	}
@@ -226,8 +206,8 @@ class WpCliAbilities {
 		$description = implode(
 			"\n",
 			array(
-				'Execute any WP-CLI command and return the output.',
-				'Pass commands exactly as you would type them in a terminal, without the "wp" prefix.',
+				'Execute supported WP-CLI-style commands through native PHP handlers and return structured output.',
+				'Pass commands as you would type them in WP-CLI, without the "wp" prefix. Unsupported command paths fail clearly instead of shelling out.',
 				'',
 				'Examples:',
 				'  post list --post_type=page --format=json',
@@ -242,7 +222,8 @@ class WpCliAbilities {
 				'- Use --format=json for structured data when the command supports it.',
 				'- For multisite, add --url=<site-url> to target a specific site.',
 				'- Commands that modify data require write permissions.',
-				'- Some dangerous commands are blocked: db, eval, shell, config, core, search-replace, scaffold.',
+				'- Implemented command paths: post list/create, option get/list/update, plugin list, user list, site list.',
+				'- Dangerous or unsupported commands are blocked or return unsupported_command; no shell, eval, raw SQL mutation, or external wp binary is used.',
 			)
 		);
 
@@ -253,10 +234,9 @@ class WpCliAbilities {
 				'description'         => $description,
 				'category'            => self::CATEGORY,
 				'permission_callback' => static function () {
-					// Strictest cap set: same as run-php. wp-cli/execute
-					// shells out to the wp binary via PHP exec(); any
-					// administrator who lacks any of these three caps
-					// is correctly excluded.
+					// Strictest cap set retained from the former process-backed
+					// dispatcher because this ability remains a broad WordPress
+					// mutation surface even though execution is now native PHP.
 					return self::check_permission_level( 'execute' );
 				},
 				'execute_callback'    => array( __CLASS__, 'handle_execute' ),
@@ -265,7 +245,7 @@ class WpCliAbilities {
 					'properties'           => array(
 						'command' => array(
 							'type'        => 'string',
-							'description' => 'The WP-CLI command to execute, without the "wp" prefix. Example: "post list --post_type=page --format=json"',
+							'description' => 'The supported WP-CLI-style command to execute through native PHP handlers, without the "wp" prefix. Example: "post list --post_type=page --format=json"',
 						),
 					),
 					'required'             => array( 'command' ),
@@ -295,7 +275,7 @@ class WpCliAbilities {
 	 * Handle a call to wp-cli/execute.
 	 *
 	 * @param array<string,mixed> $input The input arguments.
-	 * @return array<mixed>|string|WP_Error
+	 * @return array<mixed>|bool|int|string|WP_Error
 	 */
 	public static function handle_execute( array $input = array() ) {
 		$command = '';
@@ -311,7 +291,7 @@ class WpCliAbilities {
 	 * Execute a WP-CLI command from a raw command string.
 	 *
 	 * @param string $command The command string without the `wp` prefix.
-	 * @return array<mixed>|string|WP_Error Parsed JSON, raw output, or error.
+	 * @return array<mixed>|bool|int|string|WP_Error Structured output, scalar value, or error.
 	 */
 	public static function execute( string $command ) {
 		$command = trim( $command );
@@ -345,8 +325,8 @@ class WpCliAbilities {
 		}
 
 		// Secret-aware option subcommand gate. Blocks `wp option get auth_key`
-		// and friends before the binary is even invoked, so an unsafe value
-		// is never read from disk or shell-expanded into a log.
+		// and friends before native dispatch, so an unsafe value is never read
+		// or expanded into logs.
 		$secret_gate = self::check_secret_option_subcommand( $command_path, $tokens );
 		if ( is_wp_error( $secret_gate ) ) {
 			return $secret_gate;
@@ -360,81 +340,14 @@ class WpCliAbilities {
 			return $perm_check;
 		}
 
-		if ( ! self::is_proc_open_available() ) {
-			return new WP_Error(
-				'proc_open_unavailable',
-				__( 'WP-CLI execution is unavailable because PHP proc_open() is disabled on this host. Use the REST, posts, options, media, or other WordPress abilities instead. Continue with your next step using an alternative ability.', 'superdav-ai-agent' ),
-				array( 'status' => 501 )
-			);
-		}
-
-		// Find WP-CLI binary.
-		$wp_binary = self::find_wp_cli();
-
-		if ( is_wp_error( $wp_binary ) ) {
-			return $wp_binary;
-		}
-
-		// Track --url if explicitly provided (multisite context persistence).
-		foreach ( $tokens as $token ) {
-			if ( preg_match( '/^--url=(.+)$/', $token, $m ) ) {
-				self::$current_site_url = $m[1];
-			}
-		}
-
-		// Build the process argument array.
-		//
-		// `wp-cli.phar` is a PHP archive, not a native executable. Even when
-		// the file is marked executable and starts with `#!/usr/bin/env php`,
-		// many shared-hosting environments either (a) have no `php` on the
-		// PATH visible to the web user, or (b) refuse to exec scripts owned
-		// by a different UID. Both fail silently with exit code 255 (the
-		// symptom reported in GH-1335). Invoking `PHP_BINARY` explicitly
-		// short-circuits both problems because PHP_BINARY is the exact
-		// interpreter already running WordPress.
-		$proc_args = self::is_phar( $wp_binary )
-			? array( PHP_BINARY, $wp_binary )
-			: array( $wp_binary );
-
-		$proc_args = array_merge( $proc_args, $tokens );
-
-		if ( ! self::tokens_have_flag( $tokens, '--path' ) ) {
-			$proc_args[] = '--path=' . ABSPATH;
-		}
-
-		if ( ! self::tokens_have_flag( $tokens, '--url' ) && is_multisite() ) {
-			$target_url  = self::$current_site_url !== '' ? self::$current_site_url : network_site_url();
-			$proc_args[] = '--url=' . $target_url;
-		}
-
-		if ( ! self::tokens_have_flag( $tokens, '--user' ) ) {
-			$current_user_id = get_current_user_id();
-			if ( $current_user_id > 0 ) {
-				$proc_args[] = '--user=' . (string) $current_user_id;
-			}
-		}
-
-		if ( ! self::tokens_have_flag( $tokens, '--no-color' ) ) {
-			$proc_args[] = '--no-color';
-		}
-
-		/** @var list<string> $proc_args */
-		$result = self::run_process( $proc_args, $command_path );
+		$result = self::dispatch_native_command( $tokens, $command_path );
 
 		// Post-process scrub for `option list` (and any other multi-row
 		// secret-bearing subcommand we add later). Catches secrets that
 		// slip past the pre-check because the option name is not a
 		// positional argument of the subcommand.
-		if ( ! is_wp_error( $result ) ) {
+		if ( ! is_wp_error( $result ) && ( is_array( $result ) || is_string( $result ) ) ) {
 			$result = self::scrub_secret_output( $command_path, $result );
-		}
-
-		// Auto-set current site context after site creation.
-		if ( str_starts_with( $command_path, 'site create' ) && ! is_wp_error( $result ) ) {
-			$url = self::extract_url_from_output( $result );
-			if ( '' !== $url ) {
-				self::$current_site_url = $url;
-			}
 		}
 
 		// Audit trail: log write/destructive WP-CLI commands as unrevertable.
@@ -643,451 +556,459 @@ class WpCliAbilities {
 		return true;
 	}
 
-	// ─── Process execution ──────────────────────────────────────────────
+	// ─── Native dispatcher ───────────────────────────────────────────────
 
 	/**
-	 * Check if a flag is present in the tokens.
-	 *
-	 * @param string[] $tokens Tokenized arguments.
-	 * @param string   $flag   The flag to check.
-	 * @return bool
-	 */
-	private static function tokens_have_flag( array $tokens, string $flag ): bool {
-		foreach ( $tokens as $token ) {
-			if ( $token === $flag || str_starts_with( $token, $flag . '=' ) ) {
-				return true;
-			}
-		}
-		return false;
-	}
-
-	/**
-	 * Determine whether the WP-CLI ability should be advertised this request.
-	 *
-	 * Runtime execution keeps its own guards because the filesystem or filters
-	 * may change between ability registration and invocation. This preflight is
-	 * only used to avoid exposing an unusable tool to the model.
+	 * Determine whether the WP-CLI-style native dispatcher should be advertised.
 	 *
 	 * @return bool
 	 */
 	public static function is_available(): bool {
-		if ( ! self::is_proc_open_available() ) {
-			return false;
-		}
-
-		return ! is_wp_error( self::find_wp_cli() );
+		/**
+		 * Filter whether the native WP-CLI-style dispatcher is available.
+		 *
+		 * @param bool $available Whether the dispatcher is available.
+		 */
+		return (bool) apply_filters( 'sd_ai_agent_wp_cli_dispatcher_available', true );
 	}
 
 	/**
-	 * Determine whether PHP can spawn a WP-CLI subprocess.
+	 * Reset legacy binary cache state.
 	 *
-	 * @return bool
+	 * Retained as a no-op for compatibility with tests and callers that reset
+	 * request-local WP-CLI state. Native dispatch no longer resolves a binary.
+	 *
+	 * @return void
 	 */
-	private static function is_proc_open_available(): bool {
-		$available = function_exists( 'proc_open' );
-
-		/**
-		 * Filter whether the WP-CLI ability may use proc_open().
-		 *
-		 * Primarily useful for tests and hosts that wrap proc_open availability.
-		 *
-		 * @param bool $available Whether proc_open() is available.
-		 */
-		return (bool) apply_filters( 'sd_ai_agent_wp_cli_proc_open_available', $available );
+	public static function reset_binary_cache(): void {
 	}
 
 	/**
-	 * Find the WP-CLI binary path.
+	 * Dispatch tokenized WP-CLI syntax to native handlers.
 	 *
-	 * Resolution order (first match wins):
-	 *   1. `sd_ai_agent_wp_cli_binary` runtime filter.
-	 *   2. `SD_AI_AGENT_WP_CLI_PATH` constant from `wp-config.php`.
-	 *   3. Per-request cache.
-	 *   4. Common system locations (`/usr/local/bin/wp`, `/usr/bin/wp`,
-	 *      `$HOME/.local/bin/wp`).
-	 *   5. WordPress install candidates (`ABSPATH . 'wp-cli.phar'`,
-	 *      `ABSPATH . 'wp'`, `ABSPATH . '../wp-cli.phar'`,
-	 *      `WP_CONTENT_DIR . '/mu-plugins/wp-cli.phar'`,
-	 *      `WP_CONTENT_DIR . '/wp-cli.phar'`).
-	 *   6. Pure-PHP scan of every directory in `getenv('PATH')`.
-	 *   7. `shell_exec('command -v wp')` — only if `shell_exec` is actually
-	 *      callable (not blocked by `disable_functions`).
-	 *
-	 * `.phar` candidates are accepted even when the file is not executable
-	 * (it will be invoked via {@see PHP_BINARY} in {@see execute()}).
-	 *
-	 * @return string|WP_Error
+	 * @param string[] $tokens       Tokenized command arguments.
+	 * @param string   $command_path Full positional command path for diagnostics.
+	 * @return array<mixed>|string|int|bool|WP_Error
 	 */
-	private static function find_wp_cli() {
-		if ( '' !== self::$cached_binary && self::path_is_usable( self::$cached_binary ) ) {
-			return self::$cached_binary;
+	private static function dispatch_native_command( array $tokens, string $command_path ) {
+		$positionals = self::positionals( $tokens );
+		if ( count( $positionals ) < 2 ) {
+			return self::unsupported_command_error( $command_path );
 		}
 
-		/**
-		 * Filter the WP-CLI binary path.
-		 *
-		 * Takes precedence over the `SD_AI_AGENT_WP_CLI_PATH` constant.
-		 *
-		 * @param string $path Path to the WP-CLI binary.
-		 */
-		$filtered = (string) apply_filters( 'sd_ai_agent_wp_cli_binary', '' );
-
-		if ( '' !== $filtered && self::path_is_usable( $filtered ) ) {
-			self::$cached_binary = $filtered;
-			return $filtered;
+		$key      = $positionals[0] . ' ' . $positionals[1];
+		$registry = self::native_command_registry();
+		if ( ! isset( $registry[ $key ] ) ) {
+			return self::unsupported_command_error( $command_path );
 		}
 
-		if ( defined( 'SD_AI_AGENT_WP_CLI_PATH' ) ) {
-			// constant() (vs. the bare name) avoids PHPStan constant-folding
-			// the literal empty-string default from superdav-ai-agent.php and
-			// short-circuiting the rest of the resolver at analysis time.
-			$constant_path = (string) constant( 'SD_AI_AGENT_WP_CLI_PATH' );
-			if ( '' !== $constant_path && self::path_is_usable( $constant_path ) ) {
-				self::$cached_binary = $constant_path;
-				return $constant_path;
+		switch ( $key ) {
+			case 'post list':
+				return self::handle_post_list( $tokens, $positionals );
+			case 'post create':
+				return self::handle_post_create( $tokens, $positionals );
+			case 'option get':
+				return self::handle_option_get( $tokens, $positionals );
+			case 'option list':
+				return self::handle_option_list( $tokens, $positionals );
+			case 'option update':
+				return self::handle_option_update( $tokens, $positionals );
+			case 'plugin list':
+				return self::handle_plugin_list( $tokens, $positionals );
+			case 'user list':
+				return self::handle_user_list( $tokens, $positionals );
+			case 'site list':
+				return self::handle_site_list( $tokens, $positionals );
+		}
+
+		return self::unsupported_command_error( $command_path );
+	}
+
+	/**
+	 * Native handler registry keyed by two-token WP-CLI command path.
+	 *
+	 * @return array<string,string>
+	 */
+	private static function native_command_registry(): array {
+		return array(
+			'post list'     => 'handle_post_list',
+			'post create'   => 'handle_post_create',
+			'option get'    => 'handle_option_get',
+			'option list'   => 'handle_option_list',
+			'option update' => 'handle_option_update',
+			'plugin list'   => 'handle_plugin_list',
+			'user list'     => 'handle_user_list',
+			'site list'     => 'handle_site_list',
+		);
+	}
+
+	/**
+	 * Return non-flag command tokens.
+	 *
+	 * @param string[] $tokens Tokenized command arguments.
+	 * @return string[]
+	 */
+	private static function positionals( array $tokens ): array {
+		$positionals = array();
+		foreach ( $tokens as $token ) {
+			if ( ! str_starts_with( $token, '-' ) ) {
+				$positionals[] = $token;
 			}
 		}
+		return $positionals;
+	}
 
-		$candidates = self::candidate_paths();
-
-		foreach ( $candidates as $candidate ) {
-			if ( '' === $candidate ) {
+	/**
+	 * Parse WP-CLI style flags into an associative array.
+	 *
+	 * @param string[] $tokens Tokenized command arguments.
+	 * @return array<string,string|bool>
+	 */
+	private static function assoc_args( array $tokens ): array {
+		$args = array();
+		foreach ( $tokens as $index => $token ) {
+			if ( ! str_starts_with( $token, '--' ) ) {
 				continue;
 			}
-			if ( self::path_is_usable( $candidate ) ) {
-				self::$cached_binary = $candidate;
-				return $candidate;
+
+			$raw = substr( $token, 2 );
+			if ( str_contains( $raw, '=' ) ) {
+				list( $name, $value ) = explode( '=', $raw, 2 );
+				$args[ $name ]        = $value;
+				continue;
+			}
+
+			$next = $tokens[ $index + 1 ] ?? '';
+			if ( '' !== $next && ! str_starts_with( $next, '-' ) ) {
+				$args[ $raw ] = $next;
+			} else {
+				$args[ $raw ] = true;
 			}
 		}
+		return $args;
+	}
 
-		/**
-		 * Filter whether to scan `$PATH` (and fall back to `shell_exec`)
-		 * after the candidate list has been exhausted.
-		 *
-		 * Useful for:
-		 *   - Deterministic tests that need the resolver to stop after the
-		 *     candidate list.
-		 *   - Locked-down hosts that prefer to fail fast with the actionable
-		 *     "not found" error rather than risk discovering an unsupported
-		 *     `wp` somewhere on `$PATH`.
-		 *
-		 * Default: true.
-		 *
-		 * @param bool $enabled Whether to perform the PATH scan + shell_exec fallback.
-		 */
-		$scan_enabled = (bool) apply_filters( 'sd_ai_agent_wp_cli_scan_path', true );
+	/**
+	 * Build a structured unsupported-command error.
+	 *
+	 * @param string $command_path Command path that was requested.
+	 * @return WP_Error
+	 */
+	private static function unsupported_command_error( string $command_path ): WP_Error {
+		$suggestions = array(
+			'post list'     => 'sd-ai-agent/list-posts',
+			'post create'   => 'sd-ai-agent/create-post',
+			'option get'    => 'sd-ai-agent/get-option',
+			'option list'   => 'sd-ai-agent/list-options',
+			'option update' => 'sd-ai-agent/update-option',
+			'plugin list'   => 'sd-ai-agent/plugin-status',
+			'user list'     => 'sd-ai-agent/list-users',
+			'site list'     => 'sd-ai-agent/site-info',
+		);
 
-		if ( $scan_enabled ) {
-			$path_scan = self::find_in_path( 'wp' );
-			if ( '' !== $path_scan ) {
-				self::$cached_binary = $path_scan;
-				return $path_scan;
-			}
-
-			if ( self::shell_exec_available() ) {
-				// phpcs:ignore WordPress.PHP.DiscouragedPHPFunctions.system_calls_shell_exec -- last-resort PATH lookup; gated on shell_exec_available().
-				$which = trim( (string) shell_exec( 'command -v wp 2>/dev/null' ) );
-
-				if ( '' !== $which && is_executable( $which ) ) {
-					self::$cached_binary = $which;
-					return $which;
-				}
+		$hint = '';
+		foreach ( $suggestions as $path => $ability ) {
+			if ( $command_path === $path || str_starts_with( $command_path, $path . ' ' ) ) {
+				$hint = $ability;
+				break;
 			}
 		}
 
 		return new WP_Error(
-			'wp_cli_not_found',
-			self::not_found_message( $candidates ),
+			'unsupported_command',
+			sprintf(
+				/* translators: %s: command path */
+				__( 'The WP-CLI-style command "%s" is not implemented by the native dispatcher.', 'superdav-ai-agent' ),
+				$command_path
+			),
 			array(
-				'searched_paths'    => $candidates,
-				'abspath'           => ABSPATH,
-				'download_url'      => 'https://raw.githubusercontent.com/wp-cli/builds/gh-pages/phar/wp-cli.phar',
-				'override_constant' => 'SD_AI_AGENT_WP_CLI_PATH',
-				'override_filter'   => 'sd_ai_agent_wp_cli_binary',
+				'status'                  => 501,
+				'command_path'            => $command_path,
+				'suggested_ability'       => $hint,
+				'implemented_command_set' => array_keys( self::native_command_registry() ),
 			)
 		);
 	}
 
 	/**
-	 * Reset the cached WP-CLI binary path.
+	 * Handle `wp option get`.
 	 *
-	 * Exposed for tests and for the (out-of-scope-for-this-patch) admin
-	 * "Re-detect WP-CLI" action.
-	 *
-	 * @return void
+	 * @param string[] $tokens       Tokenized command arguments.
+	 * @param string[] $positionals  Positional command arguments.
+	 * @return mixed|WP_Error
 	 */
-	public static function reset_binary_cache(): void {
-		self::$cached_binary = '';
-	}
-
-	/**
-	 * Determine whether a candidate path is usable as a WP-CLI binary.
-	 *
-	 * `.phar` files are accepted even without the executable bit because
-	 * {@see execute()} invokes them via `PHP_BINARY`. Everything else must
-	 * be executable.
-	 *
-	 * @param string $path Candidate filesystem path.
-	 * @return bool
-	 */
-	private static function path_is_usable( string $path ): bool {
-		if ( '' === $path || ! is_file( $path ) ) {
-			return false;
+	private static function handle_option_get( array $tokens, array $positionals ) {
+		unset( $tokens );
+		$option_name = $positionals[2] ?? '';
+		if ( '' === $option_name ) {
+			return self::usage_error( 'option get', 'option get <name>' );
 		}
-
-		if ( self::is_phar( $path ) ) {
-			return is_readable( $path );
+		if ( OptionsAbilities::is_secret_option_name( $option_name ) ) {
+			return OptionsAbilities::secret_read_error( $option_name );
 		}
-
-		return is_executable( $path );
+		return get_option( $option_name );
 	}
 
 	/**
-	 * Whether a path looks like a PHP Archive (`.phar`).
+	 * Handle `wp option update`.
 	 *
-	 * @param string $path Filesystem path.
-	 * @return bool
+	 * @param string[] $tokens       Tokenized command arguments.
+	 * @param string[] $positionals  Positional command arguments.
+	 * @return array<string,mixed>|WP_Error
 	 */
-	private static function is_phar( string $path ): bool {
-		return str_ends_with( strtolower( $path ), '.phar' );
-	}
-
-	/**
-	 * Build the static candidate path list (system + WordPress install).
-	 *
-	 * Ordered by expected hit rate, cheapest first.
-	 *
-	 * @return string[]
-	 */
-	private static function candidate_paths(): array {
-		$candidates = array(
-			'/usr/local/bin/wp',
-			'/usr/bin/wp',
-			ABSPATH . 'wp-cli.phar',
-			ABSPATH . 'wp',
+	private static function handle_option_update( array $tokens, array $positionals ) {
+		unset( $tokens );
+		$option_name = $positionals[2] ?? '';
+		if ( '' === $option_name || ! array_key_exists( 3, $positionals ) ) {
+			return self::usage_error( 'option update', 'option update <name> <value>' );
+		}
+		$value = implode( ' ', array_slice( $positionals, 3 ) );
+		$ok    = update_option( $option_name, $value );
+		return array(
+			'option_name' => $option_name,
+			'value'       => $value,
+			'updated'     => (bool) $ok,
 		);
+	}
 
-		// Sibling of ABSPATH — e.g. WP in `/public_html/wp/`, .phar in `/public_html/`.
-		$parent = rtrim( dirname( rtrim( ABSPATH, '/\\' ) ), '/\\' );
-		if ( '' !== $parent && '/' !== $parent ) {
-			$candidates[] = $parent . '/wp-cli.phar';
+	/**
+	 * Handle `wp option list`.
+	 *
+	 * @param string[] $tokens       Tokenized command arguments.
+	 * @param string[] $positionals  Positional command arguments.
+	 * @return array<int,array<string,mixed>>
+	 */
+	private static function handle_option_list( array $tokens, array $positionals ): array {
+		unset( $positionals );
+		global $wpdb;
+
+		$args   = self::assoc_args( $tokens );
+		$search = isset( $args['search'] ) && is_string( $args['search'] ) ? $args['search'] : '';
+		$limit  = isset( $args['limit'] ) && is_numeric( $args['limit'] ) ? max( 1, min( 500, (int) $args['limit'] ) ) : 200;
+		$table  = (string) $wpdb->options;
+
+		if ( '' !== $search ) {
+			$like = str_replace( '*', '%', $search );
+			$rows = $wpdb->get_results(
+				$wpdb->prepare(
+					// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- $table is the trusted wp_options table name from wpdb.
+					"SELECT option_name, option_value, autoload FROM {$table} WHERE option_name LIKE %s ORDER BY option_name ASC LIMIT %d",
+					$like,
+					$limit
+				),
+				ARRAY_A
+			);
+		} else {
+			$rows = $wpdb->get_results(
+				$wpdb->prepare(
+					// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- $table is the trusted wp_options table name from wpdb.
+					"SELECT option_name, option_value, autoload FROM {$table} ORDER BY option_name ASC LIMIT %d",
+					$limit
+				),
+				ARRAY_A
+			);
 		}
 
-		if ( defined( 'WP_CONTENT_DIR' ) ) {
-			$content = (string) WP_CONTENT_DIR;
-			if ( '' !== $content ) {
-				$candidates[] = rtrim( $content, '/\\' ) . '/mu-plugins/wp-cli.phar';
-				$candidates[] = rtrim( $content, '/\\' ) . '/wp-cli.phar';
+		$output = array();
+		if ( is_array( $rows ) ) {
+			foreach ( $rows as $row ) {
+				if ( is_array( $row ) ) {
+					$output[] = array(
+						'option_name'  => $row['option_name'] ?? '',
+						'option_value' => $row['option_value'] ?? '',
+						'autoload'     => $row['autoload'] ?? '',
+					);
+				}
 			}
 		}
 
-		$home = getenv( 'HOME' );
-		if ( is_string( $home ) && '' !== $home ) {
-			$candidates[] = rtrim( $home, '/\\' ) . '/.local/bin/wp';
-			$candidates[] = rtrim( $home, '/\\' ) . '/bin/wp';
-			$candidates[] = rtrim( $home, '/\\' ) . '/wp-cli.phar';
-		}
-
-		/**
-		 * Filter the list of candidate WP-CLI binary paths.
-		 *
-		 * The filter runs AFTER the `sd_ai_agent_wp_cli_binary` and
-		 * `SD_AI_AGENT_WP_CLI_PATH` overrides have been consulted, so it
-		 * affects only the auto-discovery fallback list.
-		 *
-		 * @param string[] $candidates Ordered list of candidate file paths.
-		 */
-		return (array) apply_filters( 'sd_ai_agent_wp_cli_candidates', $candidates );
+		return $output;
 	}
 
 	/**
-	 * Scan every directory in `getenv('PATH')` for an executable file.
+	 * Handle `wp post list`.
 	 *
-	 * Replaces a `shell_exec('which …')` call so the discovery flow works
-	 * on hosts where `shell_exec` is in `disable_functions`.
-	 *
-	 * @param string $name Executable name to look for (e.g. `wp`).
-	 * @return string Absolute path on success, empty string on miss.
+	 * @param string[] $tokens       Tokenized command arguments.
+	 * @param string[] $positionals  Positional command arguments.
+	 * @return array<int,array<string,mixed>>
 	 */
-	private static function find_in_path( string $name ): string {
-		$path_env = (string) getenv( 'PATH' );
-		if ( '' === $path_env ) {
-			return '';
+	private static function handle_post_list( array $tokens, array $positionals ): array {
+		unset( $positionals );
+		$args       = self::assoc_args( $tokens );
+		$post_type  = isset( $args['post_type'] ) && is_string( $args['post_type'] ) ? $args['post_type'] : 'post';
+		$post_state = isset( $args['post_status'] ) && is_string( $args['post_status'] ) ? $args['post_status'] : 'any';
+		$number     = isset( $args['posts_per_page'] ) && is_numeric( $args['posts_per_page'] ) ? (int) $args['posts_per_page'] : 100;
+		$number     = isset( $args['number'] ) && is_numeric( $args['number'] ) ? (int) $args['number'] : $number;
+
+		$posts = get_posts(
+			array(
+				'post_type'      => $post_type,
+				'post_status'    => $post_state,
+				'posts_per_page' => max( 1, min( 500, $number ) ),
+				'orderby'        => 'ID',
+				'order'          => 'DESC',
+			)
+		);
+
+		$rows = array();
+		foreach ( $posts as $post ) {
+			$rows[] = array(
+				'ID'          => (int) $post->ID,
+				'post_title'  => $post->post_title,
+				'post_name'   => $post->post_name,
+				'post_date'   => $post->post_date,
+				'post_status' => $post->post_status,
+				'post_type'   => $post->post_type,
+			);
+		}
+		return $rows;
+	}
+
+	/**
+	 * Handle `wp post create`.
+	 *
+	 * @param string[] $tokens       Tokenized command arguments.
+	 * @param string[] $positionals  Positional command arguments.
+	 * @return array<string,mixed>|WP_Error
+	 */
+	private static function handle_post_create( array $tokens, array $positionals ) {
+		unset( $positionals );
+		$args = self::assoc_args( $tokens );
+
+		$postarr = array(
+			'post_author'  => get_current_user_id(),
+			'post_title'   => isset( $args['post_title'] ) && is_string( $args['post_title'] ) ? $args['post_title'] : '',
+			'post_content' => isset( $args['post_content'] ) && is_string( $args['post_content'] ) ? $args['post_content'] : '',
+			'post_status'  => isset( $args['post_status'] ) && is_string( $args['post_status'] ) ? $args['post_status'] : 'draft',
+			'post_type'    => isset( $args['post_type'] ) && is_string( $args['post_type'] ) ? $args['post_type'] : 'post',
+		);
+
+		$post_id = wp_insert_post( $postarr, true );
+		if ( is_wp_error( $post_id ) ) {
+			return $post_id;
 		}
 
-		foreach ( explode( PATH_SEPARATOR, $path_env ) as $dir ) {
-			$dir = trim( $dir );
-			if ( '' === $dir ) {
+		return array(
+			'ID'          => (int) $post_id,
+			'post_title'  => $postarr['post_title'],
+			'post_status' => $postarr['post_status'],
+			'post_type'   => $postarr['post_type'],
+		);
+	}
+
+	/**
+	 * Handle `wp plugin list`.
+	 *
+	 * @param string[] $tokens       Tokenized command arguments.
+	 * @param string[] $positionals  Positional command arguments.
+	 * @return array<int,array<string,mixed>>
+	 */
+	private static function handle_plugin_list( array $tokens, array $positionals ): array {
+		unset( $positionals );
+		if ( ! function_exists( 'get_plugins' ) ) {
+			require_once ABSPATH . 'wp-admin/includes/plugin.php';
+		}
+
+		$args   = self::assoc_args( $tokens );
+		$status = isset( $args['status'] ) && is_string( $args['status'] ) ? $args['status'] : '';
+		$rows   = array();
+		foreach ( get_plugins() as $file => $data ) {
+			$is_active = is_plugin_active( $file );
+			$row       = array(
+				'name'    => $file,
+				'title'   => $data['Name'] ?? '',
+				'status'  => $is_active ? 'active' : 'inactive',
+				'version' => $data['Version'] ?? '',
+			);
+			if ( '' !== $status && $status !== $row['status'] ) {
 				continue;
 			}
-			$candidate = rtrim( $dir, '/\\' ) . DIRECTORY_SEPARATOR . $name;
-			if ( is_file( $candidate ) && is_executable( $candidate ) ) {
-				return $candidate;
-			}
+			$rows[] = $row;
 		}
-
-		return '';
+		return $rows;
 	}
 
 	/**
-	 * Whether `shell_exec()` is callable on this host.
+	 * Handle `wp user list`.
 	 *
-	 * `function_exists()` alone is insufficient: PHP keeps the symbol in
-	 * place even when the function is in `disable_functions`, then emits
-	 * a warning and returns `null` at call time. We check the ini directive
-	 * explicitly.
-	 *
-	 * @return bool
+	 * @param string[] $tokens       Tokenized command arguments.
+	 * @param string[] $positionals  Positional command arguments.
+	 * @return array<int,array<string,mixed>>
 	 */
-	private static function shell_exec_available(): bool {
-		if ( ! function_exists( 'shell_exec' ) ) {
-			return false;
-		}
-
-		$disabled = (string) ini_get( 'disable_functions' );
-		if ( '' === $disabled ) {
-			return true;
-		}
-
-		$disabled_list = array_map( 'trim', explode( ',', $disabled ) );
-		return ! in_array( 'shell_exec', $disabled_list, true );
-	}
-
-	/**
-	 * Build an actionable "WP-CLI not found" error message.
-	 *
-	 * The message tells the admin user (a) exactly which paths were
-	 * searched, (b) where to download the .phar from, (c) where to upload
-	 * it, and (d) how to pin a different path via `wp-config.php`.
-	 *
-	 * @param string[] $searched List of paths that were checked.
-	 * @return string
-	 */
-	private static function not_found_message( array $searched ): string {
-		$abspath        = ABSPATH;
-		$expected_phar  = rtrim( $abspath, '/\\' ) . '/wp-cli.phar';
-		$download_url   = 'https://raw.githubusercontent.com/wp-cli/builds/gh-pages/phar/wp-cli.phar';
-		$searched_lines = '';
-		foreach ( $searched as $path ) {
-			if ( '' !== $path ) {
-				$searched_lines .= '  - ' . $path . "\n";
-			}
-		}
-
-		return sprintf(
-			/* translators: 1: download URL, 2: target upload path, 3: list of searched paths, 4: WordPress root path. */
-			__(
-				"WP-CLI binary not found. To enable WP-CLI commands on this host:\n\n1. Download wp-cli.phar:\n   %1\$s\n\n2. Upload it to your WordPress root (next to wp-config.php):\n   %2\$s\n\nThe plugin will auto-detect it on the next request. No executable bit or PHP-on-PATH required — wp-cli.phar is invoked via the same PHP interpreter that runs WordPress.\n\nAlternatively, add this to wp-config.php to pin a specific path:\n   define( 'SD_AI_AGENT_WP_CLI_PATH', '/absolute/path/to/wp-cli.phar' );\n\nPaths searched:\n%3\$sWordPress root (ABSPATH): %4\$s\n\nFor now, continue with your next step using alternative abilities (REST, posts, options, media, etc.) instead of WP-CLI.",
-				'superdav-ai-agent'
-			),
-			$download_url,
-			$expected_phar,
-			$searched_lines,
-			$abspath
+	private static function handle_user_list( array $tokens, array $positionals ): array {
+		unset( $positionals );
+		$args  = self::assoc_args( $tokens );
+		$query = array(
+			'number' => isset( $args['number'] ) && is_numeric( $args['number'] ) ? max( 1, min( 500, (int) $args['number'] ) ) : 100,
 		);
-	}
+		if ( isset( $args['role'] ) && is_string( $args['role'] ) ) {
+			$query['role'] = $args['role'];
+		}
 
-	/**
-	 * Run a command via array-based proc_open (no shell interpretation).
-	 *
-	 * @param string[] $args         The command as an array of arguments.
-	 * @param string   $command_path The WP-CLI command path for error context.
-	 * @return array<mixed>|string|WP_Error
-	 */
-	private static function run_process( array $args, string $command_path = '' ) {
-		$descriptors = array(
-			0 => array( 'pipe', 'r' ),
-			1 => array( 'pipe', 'w' ),
-			2 => array( 'pipe', 'w' ),
-		);
-
-		/** @var list<string> $args */
-		// phpcs:ignore WordPress.PHP.DiscouragedPHPFunctions.system_calls_proc_open,Generic.PHP.ForbiddenFunctions.Found -- proc_open is essential for executing WP-CLI commands via process pipes.
-		$process = proc_open( $args, $descriptors, $pipes, ABSPATH );
-
-		if ( ! is_resource( $process ) ) {
-			return new WP_Error(
-				'proc_open_failed',
-				__( 'Failed to execute WP-CLI command. Try a different approach or skip this step and continue with your next step.', 'superdav-ai-agent' )
+		$rows = array();
+		foreach ( get_users( $query ) as $user ) {
+			if ( ! $user instanceof \WP_User ) {
+				continue;
+			}
+			$rows[] = array(
+				'ID'           => (int) $user->ID,
+				'user_login'   => $user->user_login,
+				'display_name' => $user->display_name,
+				'user_email'   => $user->user_email,
+				'roles'        => array_values( (array) $user->roles ),
 			);
 		}
+		return $rows;
+	}
 
-		// phpcs:disable WordPress.WP.AlternativeFunctions.file_system_operations_fclose -- Closing proc_open() process pipes.
-		fclose( $pipes[0] );
-
-		$stdout = stream_get_contents( $pipes[1] );
-		fclose( $pipes[1] );
-
-		$stderr = stream_get_contents( $pipes[2] );
-		fclose( $pipes[2] );
-		// phpcs:enable
-
-		$exit_code = proc_close( $process );
-
-		if ( 0 !== $exit_code ) {
-			$raw_msg = ! empty( $stderr ) ? trim( (string) $stderr ) : "WP-CLI exited with code {$exit_code}";
-			$hint    = self::humanize_error( $raw_msg, $command_path );
-
-			return new WP_Error(
-				'wp_cli_error',
-				$hint,
+	/**
+	 * Handle `wp site list`.
+	 *
+	 * @param string[] $tokens       Tokenized command arguments.
+	 * @param string[] $positionals  Positional command arguments.
+	 * @return array<int,array<string,mixed>>
+	 */
+	private static function handle_site_list( array $tokens, array $positionals ): array {
+		unset( $tokens, $positionals );
+		if ( ! is_multisite() ) {
+			return array(
 				array(
-					'exit_code' => $exit_code,
-					'stderr'    => $stderr,
-					'stdout'    => $stdout,
-				)
+					'blog_id' => get_current_blog_id(),
+					'url'     => home_url( '/' ),
+				),
 			);
 		}
 
-		// Try to parse as JSON for structured responses.
-		$decoded = json_decode( (string) $stdout, true );
-
-		if ( JSON_ERROR_NONE === json_last_error() ) {
-			return $decoded;
+		$rows = array();
+		foreach ( get_sites( array( 'number' => 500 ) ) as $site ) {
+			$rows[] = array(
+				'blog_id' => (int) $site->blog_id,
+				'url'     => get_site_url( (int) $site->blog_id, '/' ),
+				'domain'  => $site->domain,
+				'path'    => $site->path,
+			);
 		}
-
-		return trim( (string) $stdout );
+		return $rows;
 	}
 
 	/**
-	 * Generate actionable error hints from WP-CLI stderr output.
+	 * Build a WP-CLI-style usage error.
 	 *
-	 * @param string $stderr       The raw stderr text.
-	 * @param string $command_path The WP-CLI command path for context.
-	 * @return string
+	 * @param string $command_path Command path.
+	 * @param string $usage        Expected usage.
+	 * @return WP_Error
 	 */
-	private static function humanize_error( string $stderr, string $command_path = '' ): string {
-		$hint = '';
-
-		if ( str_contains( $stderr, 'Invalid JSON:' ) ) {
-			$hint = 'Hint: The value was interpreted as JSON. Remove --format or use --format=plaintext for this command.';
-		} elseif ( str_contains( $stderr, "isn't a registered" ) || str_contains( $stderr, 'not a registered' ) ) {
-			$hint = 'Hint: This WP-CLI command is not available. Check that required plugins are active.';
-		} elseif ( preg_match( '/^(usage|Synopsis):/im', $stderr ) ) {
-			$hint = 'Hint: Wrong arguments. Run "help ' . $command_path . '" to see the correct usage.';
-		}
-
-		if ( '' !== $hint ) {
-			return $stderr . "\n" . $hint . "\n\nContinue with your next step — do not stop after this error.";
-		}
-
-		return $stderr . "\n\nContinue with your next step — do not stop after this error.";
-	}
-
-	/**
-	 * Extract a URL from WP-CLI site create output.
-	 *
-	 * @param array<mixed>|string $output The command output.
-	 * @return string
-	 */
-	private static function extract_url_from_output( $output ): string {
-		$text = is_array( $output ) ? (string) wp_json_encode( $output, JSON_UNESCAPED_SLASHES ) : (string) $output;
-
-		if ( preg_match( '#(https?://[^\s"\'}\]>]+)#i', $text, $matches ) ) {
-			return rtrim( $matches[1], '.,;' );
-		}
-
-		return '';
+	private static function usage_error( string $command_path, string $usage ): WP_Error {
+		return new WP_Error(
+			'wp_cli_usage_error',
+			sprintf(
+				/* translators: 1: command path, 2: usage string */
+				__( 'Wrong arguments for "%1$s". Usage: wp %2$s.', 'superdav-ai-agent' ),
+				$command_path,
+				$usage
+			),
+			array( 'status' => 400 )
+		);
 	}
 
 	// ─── Secret-aware option subcommand gating ──────────────────────────

@@ -59,6 +59,7 @@ use SdAiAgent\Abilities\PluginBuilderAbilities;
 use SdAiAgent\Abilities\PluginDownloadAbilities;
 use SdAiAgent\PluginBuilder\PluginSandbox;
 use SdAiAgent\Abilities\PostAbilities;
+use SdAiAgent\Abilities\RestMetaAbilities;
 use SdAiAgent\Core\Features;
 use SdAiAgent\Abilities\SeoAbilities;
 use SdAiAgent\Abilities\SiteHealthAbilities;
@@ -208,6 +209,7 @@ final class AbilitiesHandler {
 		NavigationAbilities::register_abilities();
 		MenuAbilities::register_abilities();
 		PostAbilities::register_abilities();
+		RestMetaAbilities::register_abilities();
 		UrlResolverAbilities::register_abilities();
 		CustomPostTypeAbilities::register_abilities();
 		CustomTaxonomyAbilities::register_abilities();
