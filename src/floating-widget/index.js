@@ -24,6 +24,10 @@ import ErrorBoundary from '../components/error-boundary';
 import ChatWidget from '../components/chat-widget';
 import useKeyboardShortcut from './use-keyboard-shortcut';
 import { getActiveJobs } from '../utils/active-jobs-storage';
+import {
+	getFrontendHydrationSessionId,
+	shouldStartFrontendOnboarding,
+} from './frontend-onboarding';
 import '../components/shared.css';
 
 /**
@@ -63,6 +67,8 @@ function FloatingWidget() {
 		bootError,
 		providers,
 		providersLoaded,
+		sessions,
+		sessionsLoaded,
 		currentSessionId,
 		sessionJobs,
 	} = useSelect(
@@ -72,6 +78,8 @@ function FloatingWidget() {
 			bootError: select( STORE_NAME ).getBootError(),
 			providers: select( STORE_NAME ).getProviders(),
 			providersLoaded: select( STORE_NAME ).getProvidersLoaded(),
+			sessions: select( STORE_NAME ).getSessions(),
+			sessionsLoaded: select( STORE_NAME ).getSessionsLoaded(),
 			currentSessionId: select( STORE_NAME ).getCurrentSessionId(),
 			sessionJobs: select( STORE_NAME ).getSessionJobs(),
 		} ),
@@ -91,6 +99,24 @@ function FloatingWidget() {
 		restoreActiveJobs();
 	}, [ fetchProviders, fetchSessions, restoreActiveJobs ] );
 
+	// Keep the public widget attached to the same active/latest conversation as
+	// the dedicated chat page after reloads or frontend navigation.  Without this
+	// hydration pass, a submitted long-running build can keep running in the
+	// background while the widget reopens as a fresh setup assistant chat.
+	useEffect( () => {
+		if ( ! sessionsLoaded || currentSessionId ) {
+			return;
+		}
+
+		const sessionId = getFrontendHydrationSessionId(
+			sessions,
+			sessionJobs
+		);
+		if ( sessionId ) {
+			openSession( sessionId );
+		}
+	}, [ sessionsLoaded, sessions, sessionJobs, currentSessionId, openSession ] );
+
 	// First-run frontend onboarding: open the widget as a centered assistant,
 	// start the same server-side onboarding session used by the admin chat page,
 	// then dock/minimize once a tool result reports affected frontend content so
@@ -105,16 +131,32 @@ function FloatingWidget() {
 	}, [ frontendOnboardingEnabled, setFloatingOpen, setFloatingMinimized ] );
 
 	useEffect( () => {
-		if (
-			! frontendOnboardingEnabled ||
-			frontendOnboardingStartedRef.current ||
-			! providersLoaded
-		) {
+		if ( sessionsLoaded && sessions.length > 0 ) {
+			setFrontendOnboardingMode( null );
+		}
+	}, [ sessionsLoaded, sessions.length ] );
+
+	useEffect( () => {
+		if ( ! sessionsLoaded ) {
 			return;
 		}
 
 		if ( providers.length === 0 ) {
 			setFrontendOnboardingMode( null );
+			return;
+		}
+
+		if (
+			! shouldStartFrontendOnboarding( {
+				enabled: frontendOnboardingEnabled,
+				started: frontendOnboardingStartedRef.current,
+				providersLoaded,
+				providerCount: providers.length,
+				sessionsLoaded,
+				sessionCount: sessions.length,
+				currentSessionId,
+			} )
+		) {
 			return;
 		}
 
@@ -134,6 +176,9 @@ function FloatingWidget() {
 		frontendOnboardingEnabled,
 		providersLoaded,
 		providers.length,
+		sessionsLoaded,
+		sessions.length,
+		currentSessionId,
 		openSession,
 		sendMessage,
 		setSelectedAgentId,

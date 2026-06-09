@@ -1,7 +1,9 @@
 import {
+	getFrontendHydrationSessionId,
 	hasLiveSiteChangeActivity,
 	isFrontendOnboardingEnabled,
 	isMobileViewport,
+	shouldStartFrontendOnboarding,
 	startFrontendOnboarding,
 } from '../frontend-onboarding';
 
@@ -85,6 +87,72 @@ describe( 'frontend onboarding helpers', () => {
 					response: { affected: { kind: 'post', url: '/' } },
 				},
 			] )
+		).toBe( true );
+	} );
+
+	test( 'hydrates a running frontend build session before latest recency', () => {
+		expect(
+			getFrontendHydrationSessionId(
+				[
+					{ id: '12', title: 'Latest chat' },
+					{ id: '7', title: 'Build session' },
+				],
+				{
+					7: { status: 'processing', jobId: 'job-7' },
+				}
+			)
+		).toBe( 7 );
+	} );
+
+	test( 'hydrates the latest session when no build is running', () => {
+		expect(
+			getFrontendHydrationSessionId(
+				[
+					{ id: '12', title: 'Latest chat' },
+					{ id: '7', title: 'Older chat' },
+				],
+				{
+					7: { status: 'complete', jobId: 'job-7' },
+				}
+			)
+		).toBe( 12 );
+	} );
+
+	test( 'starts frontend onboarding only after sessions load empty', () => {
+		expect(
+			shouldStartFrontendOnboarding( {
+				enabled: true,
+				started: false,
+				providersLoaded: true,
+				providerCount: 1,
+				sessionsLoaded: false,
+				sessionCount: 0,
+				currentSessionId: null,
+			} )
+		).toBe( false );
+
+		expect(
+			shouldStartFrontendOnboarding( {
+				enabled: true,
+				started: false,
+				providersLoaded: true,
+				providerCount: 1,
+				sessionsLoaded: true,
+				sessionCount: 1,
+				currentSessionId: null,
+			} )
+		).toBe( false );
+
+		expect(
+			shouldStartFrontendOnboarding( {
+				enabled: true,
+				started: false,
+				providersLoaded: true,
+				providerCount: 1,
+				sessionsLoaded: true,
+				sessionCount: 0,
+				currentSessionId: null,
+			} )
 		).toBe( true );
 	} );
 

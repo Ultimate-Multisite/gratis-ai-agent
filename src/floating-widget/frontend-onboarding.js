@@ -9,6 +9,12 @@
 import defaultApiFetch from '@wordpress/api-fetch';
 
 const ONBOARDING_START_PATH = '/sd-ai-agent/v1/onboarding/start';
+const IN_FLIGHT_JOB_STATUSES = new Set( [
+	'processing',
+	'awaiting_confirmation',
+	'pending_proposal',
+	'awaiting_client_tools',
+] );
 
 /**
  * Coerce wp_localize_script booleans and REST booleans into a real boolean.
@@ -80,6 +86,85 @@ export function hasLiveSiteChangeActivity( toolCalls ) {
 }
 
 export { hasLiveSiteChangeActivity as hasActivity };
+
+/**
+ * Pick the conversation the frontend widget should hydrate on page load.
+ *
+ * Running sessions win over recency so a long-running build submitted from the
+ * widget remains visible after navigation/reload.  If nothing is running, fall
+ * back to the newest session from the server list so the widget and dedicated
+ * admin chat start from the same latest conversation instead of an empty setup
+ * state.
+ *
+ * @param {Array}  sessions    Session summaries from /sessions.
+ * @param {Object} sessionJobs Map of sessionId → active job metadata.
+ * @return {number|null} Session ID to open, or null when no session exists.
+ */
+export function getFrontendHydrationSessionId( sessions, sessionJobs = {} ) {
+	const normalizedSessions = ( Array.isArray( sessions ) ? sessions : [] )
+		.map( ( session ) => ( {
+			...session,
+			id:
+				typeof session?.id === 'string'
+					? parseInt( session.id, 10 )
+					: session?.id,
+		} ) )
+		.filter( ( session ) => Number.isFinite( session.id ) );
+
+	if ( normalizedSessions.length === 0 ) {
+		return null;
+	}
+
+	const runningSession = normalizedSessions.find( ( session ) => {
+		const job =
+			sessionJobs?.[ session.id ] ||
+			sessionJobs?.[ String( session.id ) ];
+		return job?.status && IN_FLIGHT_JOB_STATUSES.has( job.status );
+	} );
+
+	if ( runningSession ) {
+		return runningSession.id;
+	}
+
+	return normalizedSessions[ 0 ].id;
+}
+
+/**
+ * Determine whether first-run frontend onboarding may start.
+ *
+ * Onboarding must wait until sessions have loaded. Otherwise a reload during a
+ * real submitted build can briefly look empty and bootstrap a fresh Setup
+ * Assistant session before the existing conversation list arrives.
+ *
+ * @param {Object} options
+ * @param {boolean} options.enabled          Frontend onboarding flag.
+ * @param {boolean} options.started          Whether this page already started onboarding.
+ * @param {boolean} options.providersLoaded  Whether providers finished loading.
+ * @param {number}  options.providerCount    Number of available providers.
+ * @param {boolean} options.sessionsLoaded   Whether sessions finished loading.
+ * @param {number}  options.sessionCount     Number of existing sessions.
+ * @param {?number} options.currentSessionId Currently opened session ID.
+ * @return {boolean} True when it is safe to create the setup session.
+ */
+export function shouldStartFrontendOnboarding( {
+	enabled,
+	started,
+	providersLoaded,
+	providerCount,
+	sessionsLoaded,
+	sessionCount,
+	currentSessionId,
+} ) {
+	return (
+		!! enabled &&
+		! started &&
+		!! providersLoaded &&
+		providerCount > 0 &&
+		!! sessionsLoaded &&
+		sessionCount === 0 &&
+		! currentSessionId
+	);
+}
 
 /**
  * Start frontend onboarding and send its first message when appropriate.
