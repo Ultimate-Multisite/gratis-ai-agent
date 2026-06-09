@@ -1204,7 +1204,7 @@ WP 7.0 has been delayed again. The plugin currently hard-requires WP 7.0 for fou
 
 ### [2026-04-26] Ability Discovery Investigation — Why Agent Misses Registered Abilities {#ability-discovery-investigation}
 
-**Status:** Planning
+**Status:** Completed 2026-04-27 via #1204 and #1228
 **Estimate:** ~5h (ai:4h test:0.5h read:0.5h)
 **Tasks:** t232 (parent), t234 (phase 1), t235 (phase 2)
 
@@ -1214,8 +1214,8 @@ During a site builder session the agent reported that `update-post`, `manage-glo
 
 #### Progress
 
-- [ ] (2026-04-26) Phase 1: Audit ability injection pipeline and tool catalog ~3h — t234
-- [ ] (2026-04-26) Phase 2: Fix discoverability — descriptions, system prompt, namespace alignment ~2h — t235
+- [x] (2026-04-26) Phase 1: Audit ability injection pipeline and tool catalog ~3h — t234 (#1204)
+- [x] (2026-04-26) Phase 2: Fix discoverability — descriptions, system prompt, namespace alignment ~2h — t235 (#1228)
 
 #### Context from Discussion
 
@@ -1233,11 +1233,13 @@ During a site builder session the agent reported that `update-post`, `manage-glo
 
 #### Decision Log
 
-(To be populated during implementation)
+- 2026-04-27: Phase 1 documented the injection path and catalog gaps in #1204.
+- 2026-04-27: Phase 2 landed in #1228: fixed ability descriptions, system-prompt references, tool capability registration, and the missing post-listing discovery path.
+- 2026-06-04: Source-of-truth cleanup marked t232/t235 complete so the task sync does not keep redispatching already-merged work. Current code uses the canonical `sd-ai-agent/` ability namespace; do not restart this historical plan as legacy-prefix migration work.
 
 #### Surprises & Discoveries
 
-(To be populated during implementation)
+- The follow-up issue sync left t235 open even though #1228 had already merged the fix, causing repeated worker dispatch attempts against completed work.
 
 ---
 

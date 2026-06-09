@@ -44,12 +44,16 @@ function isConnectorsAvailable() {
  * Polling is handled by the parent (AdminPageApp) which calls fetchProviders
  * every 5 s and re-renders this component away once providers become available.
  *
+ * @param {Object}   root0             Component props.
+ * @param {Function} root0.onConnected Callback fired after managed connection.
  * @return {JSX.Element} The connector gate element.
  */
-export default function ConnectorGate() {
+export default function ConnectorGate( { onConnected } = {} ) {
 	const connectorsAvailable = isConnectorsAvailable();
 	const [ installing, setInstalling ] = useState( false );
+	const [ connecting, setConnecting ] = useState( false );
 	const [ error, setError ] = useState( null );
+	const [ notice, setNotice ] = useState( null );
 
 	const handleInstallGutenberg = useCallback( async () => {
 		setInstalling( true );
@@ -67,45 +71,110 @@ export default function ConnectorGate() {
 				err?.message ||
 					__(
 						'Failed to install Gutenberg. Please install it manually from the Plugins page.',
-						'sd-ai-agent'
+						'superdav-ai-agent'
 					)
 			);
 			setInstalling( false );
 		}
 	}, [] );
 
+	const handleConnectSuperdavAi = useCallback( async () => {
+		setConnecting( true );
+		setError( null );
+		setNotice( null );
+		try {
+			await apiFetch( {
+				path: '/sd-ai-agent/v1/connectors/sd-ai-agent-cloud/connect',
+				method: 'POST',
+			} );
+			setNotice(
+				__(
+					'Superdav AI is connected. Loading available models…',
+					'superdav-ai-agent'
+				)
+			);
+			if ( typeof onConnected === 'function' ) {
+				await onConnected();
+			}
+		} catch ( err ) {
+			setError(
+				err?.message ||
+					__(
+						'Failed to connect Superdav AI. Please try again from the Connectors page.',
+						'superdav-ai-agent'
+					)
+			);
+		} finally {
+			setConnecting( false );
+		}
+	}, [ onConnected ] );
+
 	return (
 		<div className="sdaa-connector-gate">
 			<div className="sdaa-connector-gate__inner">
 				<h2 className="sdaa-connector-gate__title">
-					{ __( 'Set Up an AI Provider', 'sd-ai-agent' ) }
+					{ __( 'Connect Superdav AI', 'superdav-ai-agent' ) }
 				</h2>
 
 				<p className="sdaa-connector-gate__description">
 					{ __(
-						'Superdav AI Agent needs an AI provider to work. Configure an API key for OpenAI, Anthropic, or Google AI on the Connectors page to get started.',
-						'sd-ai-agent'
+						'Superdav AI is the recommended managed connection for first-time setup. Connect this site without pasting API keys, or choose another provider connector.',
+						'superdav-ai-agent'
 					) }
 				</p>
+
+				{ notice && (
+					<Notice status="success" isDismissible={ false }>
+						{ notice }
+					</Notice>
+				) }
+
+				{ error && (
+					<Notice status="error" isDismissible={ false }>
+						{ error }
+					</Notice>
+				) }
 
 				{ connectorsAvailable ? (
 					<>
 						<Notice status="info" isDismissible={ false }>
 							{ __(
-								'You will be brought back here automatically once a connector is set up.',
-								'sd-ai-agent'
+								'Superdav AI uses a service-managed site token. Raw token values are never shown in the admin UI.',
+								'superdav-ai-agent'
 							) }
 						</Notice>
 
 						<div className="sdaa-connector-gate__actions">
 							<Button
 								variant="primary"
+								onClick={ handleConnectSuperdavAi }
+								isBusy={ connecting }
+								disabled={ connecting }
+								className="sdaa-connector-gate__cta"
+							>
+								{ connecting ? (
+									<>
+										<Spinner />
+										{ __(
+											'Connecting Superdav AI…',
+											'superdav-ai-agent'
+										) }
+									</>
+								) : (
+									__(
+										'Connect Superdav AI',
+										'superdav-ai-agent'
+									)
+								) }
+							</Button>
+							<Button
+								variant="secondary"
 								href={ getConnectorsUrl() }
 								className="sdaa-connector-gate__cta"
 							>
 								{ __(
-									'Configure a Connector →',
-									'sd-ai-agent'
+									'Choose another connector →',
+									'superdav-ai-agent'
 								) }
 							</Button>
 						</div>
@@ -115,15 +184,9 @@ export default function ConnectorGate() {
 						<Notice status="warning" isDismissible={ false }>
 							{ __(
 								'Your WordPress version does not include the Connectors page. Install the Gutenberg plugin (version 22.8.0 or newer) to configure AI providers.',
-								'sd-ai-agent'
+								'superdav-ai-agent'
 							) }
 						</Notice>
-
-						{ error && (
-							<Notice status="error" isDismissible={ false }>
-								{ error }
-							</Notice>
-						) }
 
 						<div className="sdaa-connector-gate__actions">
 							<Button
@@ -138,13 +201,13 @@ export default function ConnectorGate() {
 										<Spinner />
 										{ __(
 											'Installing Gutenberg…',
-											'sd-ai-agent'
+											'superdav-ai-agent'
 										) }
 									</>
 								) : (
 									__(
 										'Install & Activate Gutenberg',
-										'sd-ai-agent'
+										'superdav-ai-agent'
 									)
 								) }
 							</Button>

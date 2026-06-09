@@ -121,10 +121,46 @@ issue. Examples:
   "WordPress.org Review Responses" policy. The issue body should require a
   concise issue-by-issue response, concrete fix/rationale references, verification
   evidence, and no broad "false positive" claims without finding-specific proof.
+- `read:file_not_found` reports whose summarized command is `read vendor` and
+  maintainer recovery mentions a fatal error map to headless file-read recovery
+  plus local WordPress activation triage: root `AGENTS.md`, `.agents/AGENTS.md`,
+  and `includes/Models/skills/site-troubleshooting.md`. The Worker Guidance must
+  tell implementers to make `../wordpress/wp-content/debug.log` the next evidence
+  source, then verify every involved plugin resolves through its canonical plugin
+  directory or symlink before diagnosing Composer dependencies.
 
 The resulting issue body must name the target files, expected behaviour, and at
 least one verification command; do not leave private local paths or shorthand as
 the only implementation guidance.
+
+For mixed contributor-insight issues, the body must also include a concise
+source map so the worker can start with implementation instead of rediscovering
+the lesson. For the recurring mixed-report pattern seen in issues #2034, #2050,
+#2060, #2066, #2074, and #2081, map each note independently. For #2034-style reports, map the four
+notes as:
+`Block Themes` excerpts → `includes/Models/skills/wp-block-themes.md`; REST
+security shorthand → root `AGENTS.md`, `includes/REST/`, and
+`includes/Abilities/WpRestAbilities.php`; Google Search Console questions →
+`includes/Abilities/GscAbilities.php`, `includes/Core/Settings.php`,
+`includes/REST/SettingsController.php`, and
+`includes/Abilities/ToolCapabilities.php`; WordPress.org review-response prompts
+→ root `AGENTS.md` "WordPress.org Review Responses". Require the PR body to cite
+the inspected guard or policy when no code change is needed.
+For #2050/#2060/#2066/#2074/#2081-style reports that include only block-theme
+excerpts, Google Search Console usage questions, and WordPress.org review-response prompts,
+update the block-theme skill, the GSC usage map, and the review-response policy
+only; do not add unrelated REST hardening work unless the report actually
+includes REST shorthand. When filing the issue, include Worker Guidance that maps
+the exact three candidates to `includes/Models/skills/wp-block-themes.md`,
+`AGENTS.md` Google Search Console API Usage Mapping, and `AGENTS.md`
+WordPress.org Review Responses.
+
+For #2082-style `read:file_not_found` reports with `read vendor` plus fatal-error
+recovery, include Worker Guidance that maps the issue to root `AGENTS.md`
+"Headless File Read Recovery", `.agents/AGENTS.md` "Headless Worker Tool
+Guardrails", and `includes/Models/skills/site-troubleshooting.md` "Plugin
+Activation Fatal Error". Require verification with
+`rg -n "read:file_not_found|missing-file reads|read vendor|debug.log|canonical plugin|wp plugin path" AGENTS.md .agents/AGENTS.md .agents/scripts/commands/feedback-triage.md includes/Models/skills/site-troubleshooting.md`.
 
 Full payload schema (top-level keys):
 
@@ -217,8 +253,15 @@ before creating the issue:
 - If the same note mentions a WordPress fatal error, plugin activation, or
   canonical plugin symlinks, require the worker guidance to inspect
   `../wordpress/wp-content/debug.log` before chasing unrelated missing repo paths,
-  and to verify the local WordPress install symlinks each plugin worktree into the
-  expected canonical plugin directory name.
+  and to verify the local WordPress install symlinks every checked-out plugin
+  worktree into the expected canonical plugin directory name. Name
+  `wp plugin path <plugin-slug>` or `../wordpress/wp-content/plugins/` as the
+  concrete check so workers do not only verify the active worktree basename;
+  when multiple plugins or worktrees are mentioned, require guidance to enumerate
+  each canonical plugin slug and confirm all resolve to the intended checkout. If
+  the summarized failed command is `read vendor`, explicitly steer workers away
+  from Composer diagnosis until the debug log and canonical symlink checks have
+  been completed.
 - If recurring tool errors mention `bash:file_not_found`, `gh-signature-helper.sh
   invocation failed`, `signature gate`, or blocked `gh` writes, require durable
   worker guidance to create the issue/PR/comment body as an existing stable file,
@@ -230,6 +273,13 @@ before creating the issue:
   each reviewer finding separately, cite the merged fix or evidence-backed
   rationale, include commands/manual checks run, and avoid "all fixed" or
   "false positive" language unless tied to exact file/pattern evidence.
+- If the report matches the #2060 three-candidate pattern (`Block Themes` local
+  excerpt, "where do we use Google Search Console API?", and WordPress.org
+  review-response prompt), file Worker Guidance that explicitly says the durable
+  fix is guidance-only unless inspection finds a missing committed source: update
+  `includes/Models/skills/wp-block-themes.md` for the block-theme excerpt, root
+  `AGENTS.md` for GSC usage mapping and WordPress.org response policy, and this
+  feedback-triage SOP if the issue lacked actionable worker guidance.
 - Include verification in the issue body, for example
   `rg -n "Contributor Insight|sd-ai-agent/v1|secret|current user|file upload|WordPress.org Review|false positive" AGENTS.md .agents/AGENTS.md .agents/scripts/commands/feedback-triage.md`
   or `rg -n "read:file_not_found|missing-file reads|git ls-files|debug.log|canonical plugin|signature gate|body-file|gh-signature-helper" AGENTS.md .agents/AGENTS.md .agents/scripts/commands/feedback-triage.md includes/Models/skills/site-troubleshooting.md`

@@ -11,7 +11,7 @@ Use this skill when the user reports errors, performance issues, white screens, 
 - `wp config get WP_DEBUG` — Check debug mode status
 - `wp config get WP_DEBUG_LOG` — Check if debug logging is on
 - `wp eval "echo file_exists(WP_CONTENT_DIR . '/debug.log') ? file_get_contents(WP_CONTENT_DIR . '/debug.log') : '';"` — Read the runtime debug log without assuming the file exists
-- `wp plugin path <plugin-slug>` — Confirm a plugin resolves through its expected canonical plugin directory or symlink before debugging activation fatals
+- `wp plugin path <plugin-slug>` — Confirm each checked-out plugin resolves through its expected canonical plugin directory or symlink before debugging activation fatals
 
 ### Plugin Conflicts
 - `wp plugin list --status=active --fields=name,version` — List active plugins
@@ -48,10 +48,18 @@ Use this skill when the user reports errors, performance issues, white screens, 
 ### Plugin Activation Fatal Error
 1. Verify `WP_DEBUG_LOG` is enabled and reproduce the activation once.
 2. Read `../wordpress/wp-content/debug.log` or use the guarded `wp eval` command
-   above; do not stop after a missing repository path such as `vendor/`.
+   above; after a missing repository path such as `vendor/`, make this runtime
+   log the next evidence source and do not assume Composer dependencies are the
+   root cause until it is checked.
+   If the failed tool call was literally `read vendor`, treat the missing read as
+   a path/layer mistake: inspect the WordPress debug log before checking
+   `vendor/`, `composer install`, or autoload state.
 3. Confirm the shared WordPress install symlinks every checked-out plugin worktree
-   into the plugin's canonical directory name before treating the fatal as an
-   application-code regression.
+   into each plugin's canonical directory name before treating the fatal as an
+   application-code regression. Use `wp plugin path <plugin-slug>` or inspect
+   `../wordpress/wp-content/plugins/`; do not only verify the active worktree
+   basename. When several local plugins are involved, enumerate each canonical
+   plugin slug and confirm all resolve to their current checkout.
 4. Activate the plugin by canonical slug, then re-check debug.log for the first
    new fatal stack trace.
 

@@ -31,8 +31,17 @@ class GenerateLogoSvgAbility extends AbstractAbility {
 
 	/**
 	 * Maximum number of AI generation attempts per candidate before falling back.
+	 *
+	 * Keep this deliberately low for shared-hosting/browser-triggered agent runs:
+	 * the deterministic wordmark fallback is preferable to letting logo generation
+	 * consume the full background request budget.
 	 */
-	private const MAX_RETRIES = 3;
+	private const MAX_RETRIES = 1;
+
+	/**
+	 * Per-request timeout for AI SVG generation attempts.
+	 */
+	private const AI_REQUEST_TIMEOUT_SECONDS = 8;
 
 	/**
 	 * Maximum allowed SVG byte size (500 KB).
@@ -413,9 +422,15 @@ INSTRUCTION;
 		$last_error = null;
 
 		for ( $attempt = 1; $attempt <= self::MAX_RETRIES; $attempt++ ) {
-			$raw = wp_ai_client_prompt( $prompt )
-				->using_system_instruction( $system_instruction )
-				->generate_text();
+			$timeout_filter = static fn (): int => self::AI_REQUEST_TIMEOUT_SECONDS;
+			add_filter( 'wp_ai_client_default_request_timeout', $timeout_filter, 999 );
+			try {
+				$raw = wp_ai_client_prompt( $prompt )
+					->using_system_instruction( $system_instruction )
+					->generate_text();
+			} finally {
+				remove_filter( 'wp_ai_client_default_request_timeout', $timeout_filter, 999 );
+			}
 
 			if ( is_wp_error( $raw ) ) {
 				$last_error = $raw;

@@ -23,6 +23,7 @@ declare(strict_types=1);
 
 namespace SdAiAgent\REST;
 
+use SdAiAgent\Core\AbilityRegistry;
 use SdAiAgent\Core\AbilityVisibility;
 use SdAiAgent\Core\InstructionsAddendum;
 use SdAiAgent\Core\RevisionGuard;
@@ -233,7 +234,7 @@ final class McpController extends XWP_REST_Controller {
 		}
 
 		$ability_name = self::mcp_name_to_ability_name( $tool_name );
-		$ability      = wp_get_ability( $ability_name );
+		$ability      = AbilityRegistry::get( $ability_name );
 
 		if ( null === $ability ) {
 			return new WP_Error(

@@ -83,10 +83,17 @@ working here in OpenCode headless mode:
   headless run solely because one optional screenshot, prompt, or generated
   artifact path was stale.
 - When a missing-file read happens during WordPress fatal-error triage, switch to
-  the runtime evidence before more repo-path probing: inspect
-  `../wordpress/wp-content/debug.log` (enable `WP_DEBUG_LOG` and reproduce once if
-  absent), then verify the shared install's plugin symlinks point at each
-  worktree's canonical plugin directory name rather than a stale or basename-only
+  the runtime evidence before more repo-path probing: make
+  `../wordpress/wp-content/debug.log` the next read target (enable `WP_DEBUG_LOG`
+  and reproduce once if absent), then verify the shared install's plugin symlinks
+  point at every checked-out plugin worktree's canonical plugin directory name,
+  not just the current basename. If the failed read was `vendor/`, do this before
+  assuming a Composer dependency problem. If maintainer recovery says a fatal
+  appeared after `read vendor`, treat that as a direct instruction to read
+  debug.log and check canonical plugin symlinks before touching dependencies. Use
+  `wp plugin path <plugin-slug>` or inspect `../wordpress/wp-content/plugins/`
+  before retrying unrelated repository paths; enumerate all involved plugin slugs
+  when multiple local plugins or worktrees participate in the failing activation
   path.
 - Treat `bash:other` / `Tool execution aborted` as a recoverable command-shape or
   hook failure first. Inspect the preceding command, retry once with a narrower
@@ -124,6 +131,20 @@ to change, do not answer only in the issue thread. Make the durable repo change:
   finding, includes verification commands, and avoids broad "everything is fixed"
   or "remaining issues are false positives" claims unless each claim is tied to
   exact file or pattern evidence.
+- For mixed reports like issues #2034, #2050, #2060, #2066, #2074, and #2081,
+  include the source map
+  in the PR body: block-theme excerpts →
+  `includes/Models/skills/wp-block-themes.md`; REST
+  hardening → root `AGENTS.md`, `includes/REST/`, and
+  `includes/Abilities/WpRestAbilities.php`; Google Search Console →
+  `includes/Abilities/GscAbilities.php`, `includes/Core/Settings.php`,
+  `includes/REST/SettingsController.php`, and
+  `includes/Abilities/ToolCapabilities.php`; WordPress.org review responses →
+  root `AGENTS.md` review-response policy. For #2060/#2066/#2074/#2081-style
+  reports with only block-theme, Google Search Console, and WordPress.org review-response notes,
+  do not invent REST work; cite the three inspected durable sources instead. If
+  code already has the requested guard, cite the exact inspected guard instead of
+  claiming "already documented".
 - Do not mark contributor-insight issues complete after documentation reading
   alone. A valid fix changes a durable instruction, workflow doc, or helper, then
   verifies the changed guidance with an exact `rg -n` check that future workers

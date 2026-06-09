@@ -78,6 +78,18 @@ class AgentLoop {
 	/** Default exponential backoff schedule in seconds, capped at 60 seconds. */
 	private const PROVIDER_RETRY_DELAYS = array( 1, 2, 4, 8, 16, 32, 60, 60, 60, 60 );
 
+	/** Durable checkpoint phase saved before a provider call is attempted. */
+	public const CHECKPOINT_BEFORE_PROVIDER_CALL = 'before_provider_call';
+
+	/** Durable checkpoint phase saved after an assistant/tool-call response is recorded. */
+	public const CHECKPOINT_PROVIDER_RESPONSE_RECORDED = 'provider_response_recorded';
+
+	/** Non-resumable phase set immediately before PHP abilities execute. */
+	public const CHECKPOINT_TOOL_EXECUTION_STARTED = 'tool_execution_started';
+
+	/** Durable checkpoint phase saved after tool responses are appended. */
+	public const CHECKPOINT_TOOL_RESPONSE_RECORDED = 'tool_response_recorded';
+
 	/**
 	 * Maximum consecutive preamble-only truncations before we abort the loop.
 	 *
@@ -657,6 +669,49 @@ class AgentLoop {
 	}
 
 	/**
+	 * Resume directly from a durable safe-boundary checkpoint.
+	 *
+	 * The checkpoint history already contains the user prompt and any durable
+	 * model/tool messages. Unlike run(), this method must not append a new user
+	 * message or blindly replay work that may have already executed.
+	 *
+	 * @param int $remaining_iterations Remaining loop iterations.
+	 * @return array<string, mixed>|WP_Error
+	 */
+	public function resume_from_checkpoint( int $remaining_iterations ) {
+		if ( ! function_exists( 'wp_ai_client_prompt' ) ) {
+			return new WP_Error(
+				'sd_ai_agent_missing_client',
+				__( 'wp_ai_client_prompt() is not available.', 'superdav-ai-agent' )
+			);
+		}
+
+		$budget_check = BudgetManager::check_budget();
+		if ( is_wp_error( $budget_check ) ) {
+			return $budget_check;
+		}
+
+		IdenticalFailureTracker::reset();
+		ModelHealthTracker::set_current_model( $this->model_id );
+		ProviderCredentialLoader::load();
+		AgentEventLog::set_session( $this->session_id );
+
+		if ( '' !== $this->active_job_id ) {
+			$this->active_job_started_at = microtime( true );
+			register_shutdown_function( array( $this, 'handle_active_job_shutdown' ) );
+		}
+
+		try {
+			$result = $this->run_loop( max( 1, $remaining_iterations ) );
+			$this->evaluate_skill_outcomes( $result );
+			return $result;
+		} finally {
+			$this->last_loop_phase = 'agent_loop_exiting';
+			AgentEventLog::clear_session();
+		}
+	}
+
+	/**
 	 * Resume the agent loop after the browser has executed client-side tool calls.
 	 *
 	 * Called by the /chat/tool-result REST endpoint. Reconstructs a tool-response
@@ -761,6 +816,35 @@ class AgentLoop {
 	}
 
 	/**
+	 * Persist the current loop state for safe automatic background-job resume.
+	 *
+	 * @param string $phase                Durable loop phase.
+	 * @param int    $iterations_remaining Remaining iterations for a resumed loop.
+	 * @return void
+	 */
+	private function save_active_job_checkpoint( string $phase, int $iterations_remaining ): void {
+		if ( '' === $this->active_job_id ) {
+			return;
+		}
+
+		ActiveJobRepository::save_checkpoint(
+			$this->active_job_id,
+			$phase,
+			array(
+				'history'              => $this->serialize_history(),
+				'tool_call_log'        => $this->tool_call_log,
+				'message_log'          => $this->message_log,
+				'token_usage'          => $this->token_usage,
+				'iterations_remaining' => max( 1, $iterations_remaining ),
+				'model_id'             => $this->model_id,
+				'provider_id'          => $this->provider_id,
+				'client_abilities'     => $this->client_abilities,
+				'page_context'         => $this->page_context,
+			)
+		);
+	}
+
+	/**
 	 * Inner loop: send prompts, handle tool calls, repeat.
 	 *
 	 * @param int $iterations Max iterations remaining.
@@ -835,6 +919,7 @@ class AgentLoop {
 			// corruption from session storage could leave orphaned tool
 			// calls that cause API 400 errors.
 			$this->history = ConversationTrimmer::validate_tool_pairs( $this->history );
+			$this->save_active_job_checkpoint( self::CHECKPOINT_BEFORE_PROVIDER_CALL, $iterations + 1 );
 
 			$this->last_loop_phase = 'provider_call';
 			$result                = $this->send_prompt();
@@ -904,6 +989,7 @@ class AgentLoop {
 			// ConversationSerializer::append_assistant_message for the full
 			// rationale and provider-side validator reference).
 			$this->append_assistant_message_to_history( $assistant_message );
+			$this->save_active_job_checkpoint( self::CHECKPOINT_PROVIDER_RESPONSE_RECORDED, $iterations );
 
 			// Check if the model wants to call tools.
 			if ( ! $this->message_has_function_calls( $assistant_message ) ) {
@@ -990,6 +1076,15 @@ class AgentLoop {
 			// Log tool calls and check for confirmation requirement.
 			$this->log_tool_calls( $assistant_message );
 
+			$empty_global_styles_guard = $this->build_empty_global_styles_guard_response( $assistant_message );
+			if ( null !== $empty_global_styles_guard ) {
+				$this->append_tool_response_to_history( $empty_global_styles_guard );
+				$this->log_tool_responses( $empty_global_styles_guard );
+				$this->inject_empty_global_styles_update_guidance();
+				$this->last_loop_phase = 'empty_global_styles_update_guarded';
+				continue;
+			}
+
 			// ── Client-side ability routing ───────────────────────────────
 			// Partition tool calls into PHP-executable and JS-pending sets.
 			// PHP calls execute inline; JS calls are returned as pending so
@@ -1065,6 +1160,7 @@ class AgentLoop {
 			}
 
 			// Execute the ability calls and get the function response message.
+			$this->save_active_job_checkpoint( self::CHECKPOINT_TOOL_EXECUTION_STARTED, $iterations );
 			$this->last_loop_phase = 'executing_abilities';
 			ChangeLogger::begin( $this->session_id );
 			try {
@@ -1114,6 +1210,24 @@ class AgentLoop {
 			$this->append_tool_response_to_history( $truncated_message );
 			$this->log_tool_responses( $truncated_message );
 			$this->last_loop_phase = 'tool_response_recorded';
+			$this->save_active_job_checkpoint( self::CHECKPOINT_TOOL_RESPONSE_RECORDED, $iterations );
+
+			$scaffold_permission_denial = $this->extract_scaffold_block_theme_permission_denial( $truncated_message );
+			if ( null !== $scaffold_permission_denial ) {
+				$this->last_loop_phase = 'scaffold_block_theme_permission_denied';
+
+				return $this->with_result_logs(
+					array(
+						'reply'           => $scaffold_permission_denial,
+						'history'         => $this->serialize_history(),
+						'tool_calls'      => $this->tool_call_log,
+						'token_usage'     => $this->token_usage,
+						'iterations_used' => $this->iterations_used,
+						'model_id'        => $this->model_id,
+						'exit_reason'     => 'scaffold_block_theme_permission_denied',
+					)
+				);
+			}
 
 			// Reset the wall-clock deadline after each productive tool call.
 			// This allows genuinely long tasks (many sequential tool calls) to
@@ -1960,8 +2074,7 @@ class AgentLoop {
 		if ( ! empty( $this->abilities ) ) {
 			$resolved = array();
 			foreach ( $this->abilities as $name ) {
-				// @phpstan-ignore-next-line
-				$ability = wp_get_ability( $name );
+				$ability = AbilityRegistry::get( $name );
 				if ( $ability instanceof \WP_Ability ) {
 					$resolved[] = $ability;
 				}
@@ -1985,8 +2098,7 @@ class AgentLoop {
 			if ( 'disabled' === ( $perms[ $name ] ?? 'auto' ) ) {
 				continue;
 			}
-			// @phpstan-ignore-next-line
-			$ability = wp_get_ability( $name );
+			$ability = AbilityRegistry::get( $name );
 			if ( ! $ability instanceof \WP_Ability ) {
 				continue;
 			}
@@ -2205,6 +2317,228 @@ class AgentLoop {
 		);
 
 		return new ModelMessage( $deduped );
+	}
+
+	/**
+	 * Build a synthetic tool response for empty update-global-styles calls.
+	 *
+	 * The global-styles ability cannot infer a design direction from
+	 * `styles: []` / `settings: []`. Returning a guard response here prevents
+	 * dispatching a known-empty mutation and gives the model a concrete recovery
+	 * instruction instead of letting it repeat the same validation failure.
+	 *
+	 * @param Message $message Assistant message to inspect.
+	 * @return Message|null Synthetic response when every tool call was guarded; null otherwise.
+	 */
+	private function build_empty_global_styles_guard_response( Message $message ): ?Message {
+		$parts             = array();
+		$function_calls    = 0;
+		$guarded_responses = 0;
+
+		foreach ( $message->getParts() as $part ) {
+			$call = $part->getFunctionCall();
+			if ( ! $call ) {
+				continue;
+			}
+
+			++$function_calls;
+
+			$name = (string) $call->getName();
+			if ( 'sd-ai-agent/update-global-styles' !== self::normalize_logged_tool_name( $name ) ) {
+				continue;
+			}
+
+			$args = self::normalize_function_call_args( $call->getArgs() );
+			if ( ! self::is_empty_global_styles_update_args( $args ) ) {
+				continue;
+			}
+
+			++$guarded_responses;
+			$payload = array(
+				'success'           => false,
+				'code'              => 'sd_ai_agent_empty_global_styles_update_guarded',
+				'error'             => __( 'Empty global styles updates are not dispatched. Provide a non-empty theme.json styles or settings partial.', 'superdav-ai-agent' ),
+				'example_arguments' => array(
+					'styles' => array(
+						'color'      => array(
+							'background' => '<background hex or preset var>',
+							'text'       => '<text hex or preset var>',
+						),
+						'typography' => array(
+							'fontFamily' => '<system or bundled font stack>',
+							'lineHeight' => '<line height>',
+						),
+						'elements'   => array(
+							'button' => array(
+								'color' => array(
+									'background' => '<button background>',
+									'text'       => '<button text>',
+								),
+							),
+						),
+					),
+				),
+				'nudge'             => 'Do not retry update-global-styles with empty or unchanged arguments. Build a concrete design partial from the chosen palette/typography, call get-theme-json first if needed, or skip the style update and report the blocker to the user.',
+			);
+
+			$encoded_payload = wp_json_encode( $payload );
+			$parts[]         = new MessagePart(
+				new FunctionResponse(
+					(string) $call->getId(),
+					$name,
+					is_string( $encoded_payload ) ? $encoded_payload : '{}'
+				)
+			);
+		}
+
+		if ( 0 === $function_calls || $function_calls !== $guarded_responses ) {
+			return null;
+		}
+
+		$this->message_log[] = array(
+			'type'     => 'guardrail',
+			'reason'   => 'empty_global_styles_update_guarded',
+			'count'    => $guarded_responses,
+			'sequence' => $this->next_activity_sequence(),
+		);
+
+		return new UserMessage( $parts );
+	}
+
+	/**
+	 * Normalize function-call args to an array.
+	 *
+	 * @param mixed $args Raw function-call arguments.
+	 * @return array<string,mixed>
+	 */
+	private static function normalize_function_call_args( $args ): array {
+		if ( is_string( $args ) && '' !== $args ) {
+			$decoded = json_decode( $args, true );
+			return is_array( $decoded ) ? self::string_keyed_array( $decoded ) : array();
+		}
+
+		if ( is_array( $args ) ) {
+			return self::string_keyed_array( $args );
+		}
+
+		return array();
+	}
+
+	/**
+	 * Keep only string-keyed values from a decoded JSON object.
+	 *
+	 * @param array<mixed> $value Decoded function-call args.
+	 * @return array<string,mixed>
+	 */
+	private static function string_keyed_array( array $value ): array {
+		$result = array();
+		foreach ( $value as $key => $item ) {
+			if ( is_string( $key ) ) {
+				$result[ $key ] = $item;
+			}
+		}
+
+		return $result;
+	}
+
+	/**
+	 * Whether update-global-styles received no meaningful style/settings data.
+	 *
+	 * @param array<string,mixed> $args Normalized function-call args.
+	 */
+	private static function is_empty_global_styles_update_args( array $args ): bool {
+		$styles   = $args['styles'] ?? array();
+		$settings = $args['settings'] ?? array();
+
+		return empty( $styles ) && empty( $settings );
+	}
+
+	/**
+	 * Inject recovery guidance after the empty global-styles guard fires.
+	 */
+	private function inject_empty_global_styles_update_guidance(): void {
+		$this->history[] = new UserMessage(
+			array(
+				new MessagePart(
+					__(
+						'The previous update-global-styles call was blocked because both styles and settings were empty. Do not retry that call unchanged. Build a concrete non-empty theme.json styles partial from the selected design direction, call get-theme-json if you need existing presets, or skip the style update and tell the user exactly what blocked it before giving a final response.',
+						'superdav-ai-agent'
+					)
+				),
+			)
+		);
+
+		$this->fire_progress();
+	}
+
+	/**
+	 * Detect a denied scaffold-block-theme response and build a terminal reply.
+	 *
+	 * Block-theme scaffolding is the prerequisite for later theme-writing steps.
+	 * If permission is denied (including stale client-side permission state), the
+	 * safe recovery is to stop the dependent chain and ask for a fresh grant
+	 * instead of letting the model continue into invalid global-style writes.
+	 *
+	 * @param Message $message Tool response message to inspect.
+	 * @return string|null Terminal recovery reply when scaffold permission was denied.
+	 */
+	private function extract_scaffold_block_theme_permission_denial( Message $message ): ?string {
+		foreach ( $message->getParts() as $part ) {
+			$response = $part->getFunctionResponse();
+			if ( ! $response ) {
+				continue;
+			}
+
+			$name = self::normalize_logged_tool_name( (string) $response->getName() );
+			if ( 'sd-ai-agent/scaffold-block-theme' !== $name ) {
+				continue;
+			}
+
+			$response_text = self::stringify_tool_response_for_guard( $response->getResponse() );
+			if ( ! self::is_permission_denied_tool_response( $response_text ) ) {
+				continue;
+			}
+
+			$this->message_log[] = array(
+				'type'     => 'guardrail',
+				'reason'   => 'scaffold_block_theme_permission_denied',
+				'sequence' => $this->next_activity_sequence(),
+			);
+
+			$this->fire_progress();
+
+			return __(
+				'I could not scaffold the block theme because the scaffold-block-theme permission was denied or stale. I stopped the dependent theme-writing steps so I do not make invalid style or template changes. Please re-grant permission for sd-ai-agent/scaffold-block-theme and then retry the scaffold step.',
+				'superdav-ai-agent'
+			);
+		}
+
+		return null;
+	}
+
+	/**
+	 * Convert a tool response payload into text for guard matching.
+	 *
+	 * @param mixed $response Tool response payload.
+	 */
+	private static function stringify_tool_response_for_guard( $response ): string {
+		if ( is_string( $response ) ) {
+			return $response;
+		}
+
+		$encoded = wp_json_encode( $response );
+		return is_string( $encoded ) ? $encoded : '';
+	}
+
+	/**
+	 * Whether a tool response represents a permission denial.
+	 */
+	private static function is_permission_denied_tool_response( string $response_text ): bool {
+		$normalized = strtolower( $response_text );
+
+		return str_contains( $normalized, 'does not have necessary permission' )
+			|| str_contains( $normalized, 'permission denied' )
+			|| str_contains( $normalized, 'not allowed' );
 	}
 
 	/**

@@ -374,8 +374,9 @@ class PostAbilities {
 					'type'       => 'object',
 					'properties' => [
 						'post_type'       => [
-							'type'        => 'string',
-							'description' => 'Post type to query (default: "post"). Use "page" for pages, "product" for WooCommerce products.',
+							'type'        => [ 'string', 'array' ],
+							'description' => 'Post type to query (default: "post"). Accepts a single post type ("page") or an array (e.g. ["page","post"]) when searching across content types.',
+							'items'       => [ 'type' => 'string' ],
 						],
 						'post_status'     => [
 							'type'        => [ 'string', 'array' ],
@@ -859,9 +860,28 @@ class PostAbilities {
 	private static function sanitize_list_posts_args( array $input ): array|WP_Error {
 		$args = [];
 
-		// post_type.
-		// @phpstan-ignore-next-line
-		$args['post_type'] = sanitize_text_field( $input['post_type'] ?? 'post' );
+		// post_type: string | string[]. Accepting an array prevents agent replays
+		// from burning retries on schema errors when the user asks to search both
+		// pages and posts (see feedback report #17 / GH#2042).
+		$raw_post_type = $input['post_type'] ?? 'post';
+		if ( is_array( $raw_post_type ) ) {
+			$post_types = array_values(
+				array_filter(
+					array_map(
+						static fn( $post_type ): string => sanitize_key( (string) $post_type ),
+						$raw_post_type
+					),
+					static fn( string $post_type ): bool => '' !== $post_type
+				)
+			);
+
+			$args['post_type'] = ! empty( $post_types ) ? $post_types : 'post';
+		} else {
+			$args['post_type'] = sanitize_key( (string) $raw_post_type );
+			if ( '' === $args['post_type'] ) {
+				$args['post_type'] = 'post';
+			}
+		}
 
 		// post_status: string | string[]. Falls back to legacy 'status' field for backward compat.
 		// @phpstan-ignore-next-line

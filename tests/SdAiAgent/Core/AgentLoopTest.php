@@ -2112,6 +2112,134 @@ class AgentLoopTest extends WP_UnitTestCase {
 		$this->assertLessThanOrEqual( AgentLoop::MAX_IDLE_ROUNDS + 1, $result['iterations_used'] );
 	}
 
+	/**
+	 * Empty update-global-styles calls must be blocked before ability dispatch.
+	 */
+	public function test_run_guards_empty_global_styles_update_and_recovers(): void {
+		$this->skip_if_sdk_unavailable();
+
+		$call_count           = 0;
+		$second_request_body  = '';
+		$empty_tool_call_body = static function ( string $call_id ): string {
+			return (string) wp_json_encode(
+				[
+					'id'      => 'chatcmpl-empty-global-styles-' . $call_id,
+					'object'  => 'chat.completion',
+					'choices' => [
+						[
+							'index'         => 0,
+							'message'       => [
+								'role'       => 'assistant',
+								'content'    => null,
+								'tool_calls' => [
+									[
+										'id'       => $call_id,
+										'type'     => 'function',
+										'function' => [
+											'name'      => 'wpab__sd-ai-agent__update-global-styles',
+											'arguments' => '{"styles":[],"settings":[],"site_url":""}',
+										],
+									],
+								],
+							],
+							'finish_reason' => 'tool_calls',
+						],
+					],
+					'usage'   => [ 'prompt_tokens' => 10, 'completion_tokens' => 5, 'total_tokens' => 15 ],
+				]
+			);
+		};
+
+		$final_body = wp_json_encode(
+			[
+				'id'      => 'chatcmpl-empty-global-styles-recovered',
+				'object'  => 'chat.completion',
+				'choices' => [
+					[
+						'index'         => 0,
+						'message'       => [ 'role' => 'assistant', 'content' => 'I could not apply global styles because no concrete style partial was available, so I stopped that step and kept the homepage build moving.' ],
+						'finish_reason' => 'stop',
+					],
+				],
+				'usage'   => [ 'prompt_tokens' => 20, 'completion_tokens' => 12, 'total_tokens' => 32 ],
+			]
+		);
+
+		add_filter(
+			'pre_http_request',
+			static function ( $preempt, $args, $url ) use ( &$call_count, &$second_request_body, $empty_tool_call_body, $final_body ) {
+				if ( false !== strpos( $url, 'fake-ai-proxy.test' ) ) {
+					++$call_count;
+					if ( 2 === $call_count ) {
+						$second_request_body = is_string( $args['body'] ?? null ) ? $args['body'] : (string) wp_json_encode( $args['body'] ?? [] );
+					}
+
+					return [
+						'headers'  => [ 'content-type' => 'application/json' ],
+						'body'     => $call_count < 3 ? $empty_tool_call_body( 'call_empty_' . $call_count ) : $final_body,
+						'response' => [ 'code' => 200, 'message' => 'OK' ],
+						'cookies'  => [],
+						'filename' => '',
+					];
+				}
+
+				return $preempt;
+			},
+			10,
+			3
+		);
+
+		$loop   = new AgentLoop( 'Build a homepage', [], [], [ 'max_iterations' => 4 ] );
+		$result = $loop->run();
+
+		$this->assertIsArray( $result );
+		$this->assertSame( 'I could not apply global styles because no concrete style partial was available, so I stopped that step and kept the homepage build moving.', $result['reply'] );
+		$this->assertStringContainsString( 'Empty global styles updates are not dispatched', $second_request_body );
+		$this->assertStringContainsString( 'Do not retry that call unchanged', $second_request_body );
+
+		$responses = array_filter(
+			$result['tool_calls'],
+			static fn( $entry ) => 'response' === ( $entry['type'] ?? '' )
+		);
+		$this->assertCount( 2, $responses, 'The empty global-styles calls should receive synthetic guard responses.' );
+		foreach ( $responses as $response ) {
+			$this->assertStringContainsString( 'sd_ai_agent_empty_global_styles_update_guarded', (string) $response['response'] );
+			$this->assertStringNotContainsString( 'Either styles or settings is required.', (string) $response['response'] );
+		}
+	}
+
+	/**
+	 * Denied block-theme scaffolding should stop dependent theme-writing steps.
+	 */
+	public function test_scaffold_block_theme_permission_denial_builds_terminal_recovery_reply(): void {
+		if ( ! class_exists( 'WordPress\AiClient\Messages\DTO\UserMessage' ) ) {
+			$this->markTestSkipped( 'WP AI Client message classes are not available.' );
+		}
+
+		$message = new \WordPress\AiClient\Messages\DTO\UserMessage(
+			[
+				new \WordPress\AiClient\Messages\DTO\MessagePart(
+					new \WordPress\AiClient\Tools\DTO\FunctionResponse(
+						'call_scaffold_denied',
+						'wpab__sd-ai-agent__scaffold-block-theme',
+						'ERROR=Ability "sd-ai-agent/scaffold-block-theme" does not have necessary permission.'
+					)
+				),
+			]
+		);
+
+		$loop   = new AgentLoop( 'Build a block theme' );
+		$method = new \ReflectionMethod( AgentLoop::class, 'extract_scaffold_block_theme_permission_denial' );
+		$method->setAccessible( true );
+
+		$reply = $method->invoke( $loop, $message );
+
+		$this->assertIsString( $reply );
+		$this->assertStringContainsString( 'scaffold-block-theme permission was denied or stale', $reply );
+		$this->assertStringContainsString( 'stopped the dependent theme-writing steps', $reply );
+		$this->assertStringContainsString( 're-grant permission', $reply );
+	}
+
 	// -------------------------------------------------------------------------
 	// Production hardening: wall-clock timeout
 	// -------------------------------------------------------------------------

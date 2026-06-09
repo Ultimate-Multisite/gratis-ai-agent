@@ -191,6 +191,7 @@ class BenchmarkCommand extends WP_CLI_Command {
 					$all       = BenchmarkSuite::get_questions( $suite['slug'] );
 					$questions = array_values( array_filter( $all, fn( $q ) => $q['id'] === $question_id ) );
 					if ( ! empty( $questions ) ) {
+						$suite_slug = (string) $suite['slug'];
 						break;
 					}
 				}
@@ -275,12 +276,15 @@ class BenchmarkCommand extends WP_CLI_Command {
 		WP_CLI::log( sprintf( '  Logs     : %s', $run_dir ) );
 		WP_CLI::log( '' );
 
-		$totals = array(
-			'passed'    => 0,
-			'failed'    => 0,
-			'questions' => 0,
-			'errors'    => 0,
+		$totals             = array(
+			'passed'          => 0,
+			'failed'          => 0,
+			'questions'       => 0,
+			'question_passed' => 0,
+			'errors'          => 0,
+			'provider_errors' => 0,
 		);
+		$question_summaries = array();
 
 		foreach ( $questions as $question ) {
 			$q_id = (string) $question['id'];
@@ -291,13 +295,16 @@ class BenchmarkCommand extends WP_CLI_Command {
 			$result['run_id']  = $run_id;
 			$result['log_dir'] = $run_dir;
 
-			// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_file_put_contents, WordPress.WP.AlternativeFunctions.json_encode_json_encode -- CLI-only log writing; WP_Filesystem not initialised in CLI context.
-			file_put_contents( $log_file, wp_json_encode( $result, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES ) );
+			$status = (string) ( $result['status'] ?? 'unknown' );
 
 			// Print summary.
 			if ( ! empty( $result['agent_error'] ) ) {
-				WP_CLI::log( '│  ✗ Agent error: ' . $result['agent_error'] );
+				$error_label = ! empty( $result['provider_error'] ) ? 'Provider error' : 'Agent error';
+				WP_CLI::log( '│  ✗ ' . $error_label . ': ' . $result['agent_error'] );
 				++$totals['errors'];
+				if ( ! empty( $result['provider_error'] ) ) {
+					++$totals['provider_errors'];
+				}
 			} else {
 				$turns = $result['turns_used'] ?? 0;
 				WP_CLI::log( "│  Agent finished in {$turns} turn(s)" );
@@ -319,8 +326,19 @@ class BenchmarkCommand extends WP_CLI_Command {
 				WP_CLI::log( "│  Score: {$p}/{$t} assertions passed" );
 				$totals['passed'] += $p;
 				$totals['failed'] += $assertions['failed'];
+				if ( 0 === (int) $assertions['failed'] && empty( $result['agent_error'] ) ) {
+					$status = 'passed';
+					++$totals['question_passed'];
+				}
 			}
 
+			$result['status'] = $status;
+			// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_file_put_contents, WordPress.WP.AlternativeFunctions.json_encode_json_encode -- CLI-only log writing; WP_Filesystem not initialised in CLI context.
+			file_put_contents( $log_file, wp_json_encode( $result, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES ) );
+
+			$question_summaries[] = $this->summarize_question_result( $result );
+
+			WP_CLI::log( '│  Status: ' . $status );
 			WP_CLI::log( '└─ Log: ' . $log_file );
 			WP_CLI::log( '' );
 			++$totals['questions'];
@@ -328,14 +346,40 @@ class BenchmarkCommand extends WP_CLI_Command {
 
 		// Summary.
 		$total_assertions = $totals['passed'] + $totals['failed'];
+		$run_status       = $this->determine_run_status( $totals );
+		$summary          = array(
+			'run_id'            => $run_id,
+			'provider_id'       => $provider_id ?: 'default',
+			'model_id'          => $model_id ?: 'default',
+			'suite'             => $suite_slug,
+			'question_count'    => $totals['questions'],
+			'questions_passed'  => $totals['question_passed'],
+			'agent_errors'      => $totals['errors'],
+			'provider_errors'   => $totals['provider_errors'],
+			'assertions_passed' => $totals['passed'],
+			'assertions_failed' => $totals['failed'],
+			'assertions_total'  => $total_assertions,
+			'assertion_score'   => $total_assertions > 0 ? round( ( $totals['passed'] / $total_assertions ) * 100 ) : null,
+			'run_status'        => $run_status,
+			'ranking_eligible'  => $this->is_ranking_eligible( $totals, $run_status ),
+			'questions'         => $question_summaries,
+		);
+		$summary_file     = $run_dir . '/suite-summary.json';
+		// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_file_put_contents, WordPress.WP.AlternativeFunctions.json_encode_json_encode -- CLI-only log writing; WP_Filesystem not initialised in CLI context.
+		file_put_contents( $summary_file, wp_json_encode( $summary, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES ) );
+
 		WP_CLI::log( '══════════════════════════════════════════════════════════════' );
-		WP_CLI::log( sprintf( '  Questions run : %d', $totals['questions'] ) );
-		WP_CLI::log( sprintf( '  Agent errors  : %d', $totals['errors'] ) );
-		WP_CLI::log( sprintf( '  Assertions    : %d/%d passed', $totals['passed'], $total_assertions ) );
+		WP_CLI::log( sprintf( '  Questions run    : %d', $totals['questions'] ) );
+		WP_CLI::log( sprintf( '  Questions passed : %d', $totals['question_passed'] ) );
+		WP_CLI::log( sprintf( '  Agent errors     : %d', $totals['errors'] ) );
+		WP_CLI::log( sprintf( '  Provider errors  : %d', $totals['provider_errors'] ) );
+		WP_CLI::log( sprintf( '  Assertions       : %d/%d passed', $totals['passed'], $total_assertions ) );
 		if ( $total_assertions > 0 ) {
-			$pct = round( ( $totals['passed'] / $total_assertions ) * 100 );
-			WP_CLI::log( sprintf( '  Score         : %d%%', $pct ) );
+			WP_CLI::log( sprintf( '  Score            : %d%%', $summary['assertion_score'] ) );
 		}
+		WP_CLI::log( sprintf( '  Run status       : %s', $run_status ) );
+		WP_CLI::log( sprintf( '  Ranking eligible : %s', $summary['ranking_eligible'] ? 'yes' : 'no' ) );
+		WP_CLI::log( sprintf( '  Summary log      : %s', $summary_file ) );
 		WP_CLI::log( '' );
 
 		// Exit with non-zero if any assertions failed (useful for CI).
@@ -355,6 +399,7 @@ class BenchmarkCommand extends WP_CLI_Command {
 	 * @param array<string, mixed> $question    Question definition.
 	 * @param string               $provider_id Provider ID.
 	 * @param string               $model_id    Model ID.
+	 * @param bool                 $no_cleanup  Whether to keep generated plugins.
 	 * @return array<string, mixed> Full result including agent output, tool log, and assertions.
 	 */
 	private function run_question( array $question, string $provider_id, string $model_id, bool $no_cleanup = false ): array {
@@ -400,7 +445,13 @@ class BenchmarkCommand extends WP_CLI_Command {
 			$log['elapsed_ms']    = (int) ( ( microtime( true ) - $start_time ) * 1000 );
 
 			if ( ! empty( $agent_result['error'] ) ) {
-				$log['agent_error']  = $agent_result['error'];
+				$provider_error = $this->classify_provider_error( (string) $agent_result['error'] );
+
+				$log['agent_error'] = $agent_result['error'];
+				$log['status']      = $provider_error ? 'provider_error' : 'agent_error';
+				if ( $provider_error ) {
+					$log['provider_error'] = $provider_error;
+				}
 				$log['assertions']   = array(
 					'passed'  => 0,
 					'failed'  => 0,
@@ -417,6 +468,7 @@ class BenchmarkCommand extends WP_CLI_Command {
 			do_action( 'rest_api_init' );
 			$assertion_ctx['tool_call_log'] = $log['tool_call_log'] ?? array();
 			$log['assertions']              = AssertionEngine::run( $question['assertions'], $assertion_ctx );
+			$log['status']                  = (int) $log['assertions']['failed'] > 0 ? 'assertion_failed' : 'passed';
 
 			$log['completed_at'] = gmdate( 'c' );
 			return $log;
@@ -493,6 +545,114 @@ class BenchmarkCommand extends WP_CLI_Command {
 			'tool_call_log' => $tool_call_log,
 			'exit_reason'   => $result['exit_reason'] ?? '',
 		);
+	}
+
+	/**
+	 * Build the compact per-question summary persisted in suite-summary.json.
+	 *
+	 * @param array<string, mixed> $result Full question result.
+	 * @return array<string, mixed>
+	 */
+	private function summarize_question_result( array $result ): array {
+		$assertions = isset( $result['assertions'] ) && is_array( $result['assertions'] ) ? $result['assertions'] : array();
+
+		return array(
+			'question_id'       => (string) ( $result['question_id'] ?? '' ),
+			'category'          => (string) ( $result['category'] ?? '' ),
+			'status'            => (string) ( $result['status'] ?? 'unknown' ),
+			'assertions_passed' => (int) ( $assertions['passed'] ?? 0 ),
+			'assertions_failed' => (int) ( $assertions['failed'] ?? 0 ),
+			'assertions_total'  => (int) ( $assertions['total'] ?? 0 ),
+			'turns_used'        => (int) ( $result['turns_used'] ?? 0 ),
+			'elapsed_ms'        => (int) ( $result['elapsed_ms'] ?? 0 ),
+			'agent_error'       => (string) ( $result['agent_error'] ?? '' ),
+			'provider_error'    => $result['provider_error'] ?? null,
+		);
+	}
+
+	/**
+	 * Classify provider-level errors so model ranking can distinguish blocked
+	 * providers from model/agent failures.
+	 *
+	 * @param string $message Error message returned by the agent/provider layer.
+	 * @return array{type: string, http_status: int|null, message: string}|null
+	 */
+	private function classify_provider_error( string $message ): ?array {
+		$lower       = strtolower( $message );
+		$http_status = null;
+
+		if ( preg_match( '/\b(?:client|server) error \((\d{3})\)|\bhttp\s*(\d{3})\b/i', $message, $matches ) ) {
+			$http_status = (int) ( ! empty( $matches[1] ) ? $matches[1] : ( $matches[2] ?? 0 ) );
+		}
+
+		$type = '';
+		if ( 402 === $http_status || str_contains( $lower, 'insufficient quota' ) || str_contains( $lower, 'token balance' ) ) {
+			$type = 'provider_quota_exhausted';
+		} elseif ( 429 === $http_status || str_contains( $lower, 'rate limit' ) || str_contains( $lower, 'too many requests' ) ) {
+			$type = 'provider_rate_limited';
+		} elseif ( null !== $http_status && $http_status >= 500 ) {
+			$type = 'provider_unavailable';
+		} elseif ( str_contains( $lower, 'timeout' ) || str_contains( $lower, 'timed out' ) ) {
+			$type = 'provider_timeout';
+		} elseif ( str_contains( $lower, 'provider' ) && ( str_contains( $lower, 'unavailable' ) || str_contains( $lower, 'not found' ) ) ) {
+			$type = 'provider_unavailable';
+		}
+
+		if ( '' === $type ) {
+			return null;
+		}
+
+		return array(
+			'type'        => $type,
+			'http_status' => $http_status,
+			'message'     => $message,
+		);
+	}
+
+	/**
+	 * Determine normalized suite run status.
+	 *
+	 * @param array<string, int> $totals Suite counters.
+	 * @return string
+	 */
+	private function determine_run_status( array $totals ): string {
+		$questions       = (int) ( $totals['questions'] ?? 0 );
+		$errors          = (int) ( $totals['errors'] ?? 0 );
+		$provider_errors = (int) ( $totals['provider_errors'] ?? 0 );
+		$failed          = (int) ( $totals['failed'] ?? 0 );
+
+		if ( $questions > 0 && $provider_errors === $questions ) {
+			return 'blocked_provider';
+		}
+
+		if ( $provider_errors > 0 ) {
+			return 'inconclusive';
+		}
+
+		if ( $errors > 0 || $failed > 0 ) {
+			return 'partial';
+		}
+
+		return 'complete';
+	}
+
+	/**
+	 * Whether a suite result should be included in customer model rankings.
+	 *
+	 * @param array<string, int> $totals Suite counters.
+	 * @param string             $run_status Normalized run status.
+	 * @return bool
+	 */
+	private function is_ranking_eligible( array $totals, string $run_status ): bool {
+		if ( 'complete' !== $run_status && 'partial' !== $run_status ) {
+			return false;
+		}
+
+		if ( (int) ( $totals['provider_errors'] ?? 0 ) > 0 ) {
+			return false;
+		}
+
+		return (int) ( $totals['questions'] ?? 0 ) > 0 && ( (int) ( $totals['passed'] ?? 0 ) + (int) ( $totals['failed'] ?? 0 ) ) > 0;
 	}
 
 	// ── Helpers ───────────────────────────────────────────────────────────────

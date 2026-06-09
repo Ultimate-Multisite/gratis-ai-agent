@@ -25,7 +25,10 @@ When a contributor-insight issue contains a pasted local-path excerpt headed
 style variations, treat that excerpt as a source-mapping clue only. Update this
 committed skill file (and the root `AGENTS.md` summary when repo-wide guidance is
 needed); do not copy private local paths or duplicate the full excerpt into
-issues, PRs, templates, or generated theme files.
+issues, PRs, templates, or generated theme files. In mixed reports like issues
+#2034, #2050, #2060, #2066, #2074, and #2081, this file is only the block-theme target; REST,
+Google Search Console, and WordPress.org review-response notes must be mapped to
+their own committed source files instead of being folded into this skill.
 
 ## Inputs required
 
@@ -43,7 +46,8 @@ issues, PRs, templates, or generated theme files.
 5. Prefer filesystem-owned patterns under `patterns/*.php` when the theme should ship reusable layouts.
 6. Put style variations in `styles/*.json`; remember that once a user selects a style variation, that selection is stored in the database.
 7. Validate generated block markup before writing templates, parts, or patterns.
-8. For contributor-insight or maintenance changes to this skill, verify future
+8. Perform an explicit final quality review before declaring a generated theme complete. Prefer a browser, screenshot, or front-end render check when available; when visual QA is unavailable, perform the structural review in the verification checklist and report that limitation.
+9. For contributor-insight or maintenance changes to this skill, verify future
    workers will load the guidance with `rg -n "wp-block-themes|Full Site Editing|theme.json|validate-block-content" AGENTS.md includes/Models/skills/wp-block-themes.md`.
 
 ## Absolute Rules
@@ -146,6 +150,25 @@ For non-landing templates, create a reusable page-title part or pattern that use
 - `sd-ai-agent/parse-block-content` — Inspect template structure
 - `sd-ai-agent/create-block-content` / `sd-ai-agent/validate-block-content` — Build/check block markup before saving
 - `sd-ai-agent/update-global-styles` — Apply the selected design direction with a non-empty theme.json `styles` partial. Never call it with `styles: []`, `settings: []`, `{}`, or unchanged empty arguments; include concrete colors, typography, spacing, or element styles.
+
+### Safe existing-template edits
+
+When modifying an existing template such as `front-page`, preserve every block that
+the user did not ask to change:
+
+1. Inspect the current template first. Use `sd-ai-agent/list-block-templates` to
+   find the template, then fetch its current post/template content before writing.
+2. If a REST template response includes a `wp_id`, use `sd-ai-agent/get-page-blocks`
+   on that post ID and address the hero/section by `ref`, `path`, or `flat_index`.
+3. Use `sd-ai-agent/update-blocks` or `sd-ai-agent/edit-block-tree` for the target
+   hero background/image attributes only. Do not rebuild or replace the full
+   template unless the user explicitly requested a complete redesign.
+4. Validate the full resulting block markup with `sd-ai-agent/validate-block-content`
+   before saving. If validation fails, repair the proposed change and retry; do
+   not save a partial template body.
+5. Do not POST partial `content` payloads to `/wp/v2/templates/...` through
+   `wp-rest/execute`. That endpoint replaces the template body and can delete
+   sibling sections when the payload only contains the edited hero block.
 
 ## theme.json Overview
 
@@ -509,6 +532,7 @@ After editing templates or `theme.json`:
 4. For child theme overrides, confirm the active stylesheet is the child (`wp option get stylesheet`).
 5. Open the block editor on any page that uses entrance-animation classes — every animated section should render visibly, not as an empty box. If a section is invisible, an `.editor-styles-wrapper` override is missing.
 6. Toggle the OS-level "Reduce motion" preference and reload the front-end — animations should collapse to near-zero duration without leaving content stuck at `opacity: 0`.
+7. For generated themes or site scaffolds, perform and report a final quality review before saying the theme is complete: prefer browser/screenshot/front-end review of homepage plus an interior template; if unavailable, structurally review `theme.json`, header/footer, templates, hierarchy, spacing, typography, color contrast, navigation/footer, responsive risks, stock-image avoidance, and state that visual QA was limited.
 
 ## See also
 

@@ -113,13 +113,20 @@ class OptionsAbilities {
 	/**
 	 * Exact option names the AI agent may modify by default.
 	 *
-	 * The default list is intentionally empty. Site owners can opt specific
-	 * third-party options into AI write access with the
-	 * `sd_ai_agent_options_write_allowlist` filter.
+	 * Keep this list narrow and limited to non-secret presentation settings the
+	 * agent's own setup/page-build instructions explicitly tell it to manage.
+	 * Site owners can opt specific third-party options into AI write access with
+	 * the `sd_ai_agent_options_write_allowlist` filter.
 	 *
 	 * @var string[]
 	 */
-	private const WRITE_ALLOWLIST = [];
+	private const WRITE_ALLOWLIST = [
+		'blogname',
+		'blogdescription',
+		'show_on_front',
+		'page_on_front',
+		'page_for_posts',
+	];
 
 	/**
 	 * Option-name prefixes the AI agent may modify by default.

@@ -12,6 +12,7 @@ declare(strict_types=1);
 
 namespace SdAiAgent\REST;
 
+use SdAiAgent\Core\AbilityRegistry;
 use SdAiAgent\Core\ProposalRegistry;
 use WP_Error;
 use WP_REST_Request;
@@ -141,8 +142,7 @@ final class ProposalsController {
 			);
 		}
 
-		// @phpstan-ignore-next-line
-		$ability = wp_get_ability( $ability_name );
+		$ability = AbilityRegistry::get( $ability_name );
 		if ( ! $ability instanceof \WP_Ability ) {
 			return new WP_Error(
 				'ability_not_found',
@@ -215,8 +215,7 @@ final class ProposalsController {
 			);
 		}
 
-		// @phpstan-ignore-next-line
-		$ability = wp_get_ability( $ability_name );
+		$ability = AbilityRegistry::get( $ability_name );
 		if ( ! $ability instanceof \WP_Ability ) {
 			return new WP_Error(
 				'ability_not_found',

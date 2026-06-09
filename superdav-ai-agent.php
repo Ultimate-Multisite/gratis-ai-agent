@@ -240,18 +240,28 @@ defined( 'SD_AI_AGENT_FEATURE_RUN_PHP' ) || define( 'SD_AI_AGENT_FEATURE_RUN_PHP
 
 // Load Jetpack Autoloader for PSR-4 autoloading with version conflict resolution.
 // Jetpack Autoloader ensures the newest version of shared packages (like php-ai-client) is used.
+// Composer source installs, such as Bedrock sites using a VCS repository, may
+// already expose the plugin and its dependencies through the root project
+// autoloader without copying a plugin-local vendor directory into wp-content.
+$sd_ai_agent_autoload_available = false;
 if ( file_exists( SD_AI_AGENT_DIR . '/vendor/autoload_packages.php' ) ) {
 	require_once SD_AI_AGENT_DIR . '/vendor/autoload_packages.php';
+	$sd_ai_agent_autoload_available = true;
 } elseif ( file_exists( SD_AI_AGENT_DIR . '/vendor/autoload.php' ) ) {
 	require_once SD_AI_AGENT_DIR . '/vendor/autoload.php';
+	$sd_ai_agent_autoload_available = true;
 } else {
+	$sd_ai_agent_autoload_available = class_exists( \SdAiAgent\Compat\SdkLoader::class ) && function_exists( 'xwp_load_app' );
+}
+
+if ( ! $sd_ai_agent_autoload_available ) {
 	add_action(
 		'admin_notices',
 		static function (): void {
 			printf(
 				'<div class="notice notice-error"><p>%s</p></div>',
 				esc_html__(
-					'Superdav AI Agent is missing its vendor dependencies. Please run "composer install" in the plugin directory.',
+					'Superdav AI Agent is missing its Composer dependencies. Please run "composer install" in the plugin directory or root Composer project.',
 					'superdav-ai-agent',
 				),
 			);

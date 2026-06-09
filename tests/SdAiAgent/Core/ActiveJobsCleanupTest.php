@@ -170,6 +170,46 @@ class ActiveJobsCleanupTest extends WP_UnitTestCase {
 		$this->assertSame( 'complete', $row->status, 'Complete row status must not be overwritten' );
 	}
 
+	/**
+	 * save_checkpoint() stores durable loop state for later crash resume.
+	 */
+	public function test_save_checkpoint_persists_phase_and_payload(): void {
+		$this->insert_job( 'test-checkpoint-1', 'processing' );
+
+		$result = ActiveJobRepository::save_checkpoint(
+			'test-checkpoint-1',
+			'before_provider_call',
+			array(
+				'history'              => array( array( 'role' => 'user', 'parts' => array() ) ),
+				'iterations_remaining' => 3,
+			)
+		);
+
+		$row = $this->fetch_row( 'test-checkpoint-1' );
+
+		$this->assertTrue( $result );
+		$this->assertNotNull( $row );
+		$this->assertSame( 'before_provider_call', $row->checkpoint_phase );
+		$this->assertIsArray( json_decode( (string) $row->checkpoint, true ) );
+	}
+
+	/**
+	 * claim_resume_attempt() returns interrupted rows to processing with a retry cap.
+	 */
+	public function test_claim_resume_attempt_caps_retries(): void {
+		$this->insert_job( 'test-resume-1', 'interrupted' );
+
+		$this->assertTrue( ActiveJobRepository::claim_resume_attempt( 'test-resume-1', 1 ) );
+		$row = $this->fetch_row( 'test-resume-1' );
+
+		$this->assertNotNull( $row );
+		$this->assertSame( 'processing', $row->status );
+		$this->assertSame( '1', (string) $row->resume_attempts );
+
+		ActiveJobRepository::mark_interrupted( 'test-resume-1', 'second crash' );
+		$this->assertFalse( ActiveJobRepository::claim_resume_attempt( 'test-resume-1', 1 ) );
+	}
+
 	// ── cleanup_stale() ──────────────────────────────────────────────────
 
 	/**

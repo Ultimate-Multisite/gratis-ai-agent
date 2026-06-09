@@ -157,6 +157,23 @@ note to a committed, future-loaded source before editing:
   summarize each reviewer finding, cite the merged fix or evidence-backed
   rationale, include verification commands, and avoid blanket "all fixed" or
   "false positive" claims that are not tied to a specific finding.
+- For mixed reports like issues #2034, #2050, #2060, #2066, #2074, and #2081,
+  make the mapping
+  explicit in the PR body: block-theme excerpts map to
+  `includes/Models/skills/wp-block-themes.md`; REST hardening shorthand maps to
+  this root REST policy plus `includes/REST/` and
+  `includes/Abilities/WpRestAbilities.php`; Google Search Console questions map
+  to the GSC surfaces listed below; WordPress.org reply prompts map to the
+  review-response policy above. If a mixed report omits one of those categories,
+  do not invent work for it; state the inspected candidate list and the durable
+  source chosen for each note. State when the implementation is a guidance
+  hardening only because the inspected code already has the required guard.
+- For #2060/#2066/#2074/#2081-style reports that include the three candidates `Block Themes`,
+  "where do we use Google Search Console API?", and a WordPress.org
+  review-response prompt, update or verify only those three durable sources:
+  `includes/Models/skills/wp-block-themes.md`, the Google Search Console usage
+  map below, and the WordPress.org review-response policy above. Do not add REST
+  hardening work unless the issue body also includes REST shorthand.
 - Verification for this class of guidance-only fix should include both:
   `rg -n "Contributor Insight|source mapping|local-path|sd-ai-agent/v1|file upload|WordPress.org Review|false positive" AGENTS.md .agents/AGENTS.md .agents/scripts/commands/feedback-triage.md`
   and `rg -n "wp-block-themes|Full Site Editing|theme.json|validate-block-content" AGENTS.md includes/Models/skills/wp-block-themes.md`.
@@ -243,13 +260,27 @@ completion state:
   before retrying `Read`; for untracked/runtime artifacts, inspect the known
   parent directory or rerun the command that generated the artifact.
 - For local WordPress fatal-error reports, do not keep retrying unrelated project
-  paths such as `vendor/` after a missing-file read. First inspect the runtime
-  artifact that contains the failure: `../wordpress/wp-content/debug.log`, or
-  enable `WP_DEBUG_LOG` and reproduce once if the log does not exist.
+  paths such as `vendor/` after a missing-file read. Make the runtime evidence
+  artifact `../wordpress/wp-content/debug.log` the next read target, or enable
+  `WP_DEBUG_LOG` and reproduce once if the log does not exist.
+- If the first failed read was `vendor/`, treat it as a symptom of looking in
+  the wrong layer until runtime evidence says otherwise: read the WordPress
+  debug log before checking Composer install state or adding dependency fixes.
+- When the maintainer recovery mentions a fatal error after `read vendor`, map
+  the report to local WordPress activation triage, not dependency discovery:
+  read `../wordpress/wp-content/debug.log`, then verify every related plugin is
+  symlinked under its canonical plugin slug before changing Composer files.
 - Before blaming plugin code for local activation fatals, verify the shared
-  WordPress install has symlinks for every checked-out plugin worktree under its
-  canonical plugin directory name. A missing or basename-only worktree symlink can
-  make WordPress load the wrong path and hide the real debug.log failure.
+  WordPress install has symlinks for every checked-out plugin worktree under each
+  plugin's canonical directory name, not only the active worktree basename. Use
+  `wp plugin path <plugin-slug>` or inspect `../wordpress/wp-content/plugins/`
+  so the failing plugin resolves to the intended checkout. A missing, stale, or
+  basename-only symlink can make WordPress load the wrong path and hide the real
+  debug.log failure.
+- When several local plugins or worktrees are involved, enumerate each expected
+  canonical plugin slug and confirm all of them resolve to their current checkout
+  before retrying activation; a single correct symlink does not prove the shared
+  install is safe.
 - If the corrected path is found, retry `Read` with that path and continue the
   task. If no plausible path exists after bounded recovery, record what was
   checked and continue with the next safe implementation step rather than ending
@@ -520,6 +551,14 @@ second must report zero failures for the four ability suites.
   verify the controller uses the real current user context, has a capability
   gate, avoids public file-upload exposure, and returns scrubbed responses before
   calling the route WordPress.org-ready.
+- **Evidence checklist for contributor-insight REST hardening**: cite the exact
+  inspected guard before deciding guidance-only is enough. Reference
+  `includes/Abilities/WpRestAbilities.php` for the `sd-ai-agent/v1` execute
+  block, file-upload hiding, current-user dispatcher behaviour, and audit-log
+  secret scrubbing; reference `includes/REST/PermissionTrait.php` or the concrete
+  controller for the route capability check; reference the upload controller
+  method (for example `includes/REST/KnowledgeController.php`) when the note says
+  to hide or restrict uploads.
 - **Follow-up issue briefs**: If a REST hardening pass finds remaining exposure,
   file worker-ready GitHub issue briefs that name the route/controller, the missing
   guard or scrubber, the expected safe behaviour, and the exact verification command

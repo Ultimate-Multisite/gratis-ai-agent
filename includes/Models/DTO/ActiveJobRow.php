@@ -27,6 +27,9 @@ readonly class ActiveJobRow {
 	 * @param string      $status         Job status: processing|awaiting_confirmation|awaiting_client_tools|complete|error|interrupted|abandoned.
 	 * @param string      $pending_tools  JSON-encoded pending tool-call confirmations (default '[]').
 	 * @param string      $tool_calls     JSON-encoded tool-call log (default '[]').
+	 * @param string|null $checkpoint     JSON-encoded durable loop checkpoint, null when absent.
+	 * @param string      $checkpoint_phase Last durable checkpoint phase.
+	 * @param int         $resume_attempts Number of automatic resume attempts.
 	 * @param string|null $error          Error or interruption message, null when not set.
 	 * @param string|null $interrupted_at MySQL datetime string (UTC) when the shutdown handler fired, null if not interrupted.
 	 * @param string      $created_at     MySQL datetime string (UTC).
@@ -40,6 +43,9 @@ readonly class ActiveJobRow {
 		public string $status,
 		public string $pending_tools,
 		public string $tool_calls,
+		public ?string $checkpoint,
+		public string $checkpoint_phase,
+		public int $resume_attempts,
 		public ?string $error,
 		public ?string $interrupted_at,
 		public string $created_at,
@@ -61,6 +67,9 @@ readonly class ActiveJobRow {
 			status:         (string) ( $row->status ?? 'processing' ),
 			pending_tools:  (string) ( $row->pending_tools ?? '[]' ),
 			tool_calls:     (string) ( $row->tool_calls ?? '[]' ),
+			checkpoint:     isset( $row->checkpoint ) ? (string) $row->checkpoint : null,
+			checkpoint_phase: (string) ( $row->checkpoint_phase ?? '' ),
+			resume_attempts: (int) ( $row->resume_attempts ?? 0 ),
 			error:          isset( $row->error ) ? (string) $row->error : null,
 			interrupted_at: isset( $row->interrupted_at ) ? (string) $row->interrupted_at : null,
 			created_at:     (string) ( $row->created_at ?? '' ),

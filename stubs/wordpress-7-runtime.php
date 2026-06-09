@@ -483,7 +483,12 @@ namespace WordPress\AiClient\Providers\Enums {
 		}
 
 		/** @return self */
-		public static function cloud(): self { return new self(); }
+		public static function cloud(): self {
+			$enum        = new self();
+			$enum->value = 'cloud';
+
+			return $enum;
+		}
 
 		/** @return string */
 		public function __toString(): string { return $this->value; }

@@ -192,6 +192,31 @@ class WpRestAbilitiesTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * Test: execute accepts model-generated `parameters` as an alias for params.
+	 */
+	public function test_execute_accepts_parameters_alias(): void {
+		$post_id = self::factory()->post->create(
+			array(
+				'post_title'  => 'WpRest Parameters Alias Post',
+				'post_status' => 'publish',
+			)
+		);
+
+		$result = WpRestAbilities::handle_execute(
+			array(
+				'method'     => 'GET',
+				'route'      => '/wp/v2/posts',
+				'parameters' => array( '_fields' => 'id,title', 'include' => array( $post_id ) ),
+			)
+		);
+
+		$this->assertIsArray( $result );
+		$this->assertSame( 200, $result['status'] );
+		$ids = array_column( (array) ( $result['data'] ?? array() ), 'id' );
+		$this->assertContains( $post_id, $ids );
+	}
+
+	/**
 	 * Test: execute POST /wp/v2/posts creates a post.
 	 */
 	public function test_execute_post_creates_post(): void {
@@ -251,6 +276,26 @@ class WpRestAbilitiesTest extends WP_UnitTestCase {
 
 		$this->assertWPError( $result );
 		$this->assertSame( 'wp_rest_route_blocked', $result->get_error_code() );
+	}
+
+	/**
+	 * Test: execute blocks full-template REST writes so partial hero updates
+	 * cannot replace the rest of the front-page template body.
+	 */
+	public function test_execute_blocks_full_template_writes(): void {
+		$result = WpRestAbilities::handle_execute(
+			array(
+				'method' => 'POST',
+				'route'  => '/wp/v2/templates/example//front-page',
+				'params' => array(
+					'content' => '<!-- wp:group --><div class="wp-block-group"></div><!-- /wp:group -->',
+				),
+			)
+		);
+
+		$this->assertWPError( $result );
+		$this->assertSame( 'wp_rest_route_blocked', $result->get_error_code() );
+		$this->assertSame( 403, $result->get_error_data()['status'] );
 	}
 
 	/**

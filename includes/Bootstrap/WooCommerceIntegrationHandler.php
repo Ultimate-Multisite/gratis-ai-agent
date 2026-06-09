@@ -128,6 +128,40 @@ final class WooCommerceIntegrationHandler {
 	}
 
 	/**
+	 * Remove missing tools from WooCommerce's vendored MCP adapter default server.
+	 *
+	 * WooCommerce may load the MCP adapter default server before the adapter's own
+	 * introspection abilities are registered. Its component registry probes those
+	 * tool names with wp_get_ability(), which emits WordPress 6.9+ not-found
+	 * notices. Filter the default server config so only currently registered
+	 * abilities are handed to the adapter for validation.
+	 *
+	 * @param mixed $config MCP adapter default server configuration.
+	 * @return mixed Filtered configuration.
+	 */
+	#[Filter( tag: 'mcp_adapter_default_server_config', priority: 5 )]
+	public function remove_missing_mcp_adapter_default_tools( mixed $config ): mixed {
+		if ( ! is_array( $config ) || ! isset( $config['tools'] ) || ! is_array( $config['tools'] ) ) {
+			return $config;
+		}
+
+		if ( ! function_exists( 'wp_has_ability' ) ) {
+			return $config;
+		}
+
+		$config['tools'] = array_values(
+			array_filter(
+				$config['tools'],
+				static function ( mixed $tool ): bool {
+					return ! is_string( $tool ) || wp_has_ability( $tool );
+				}
+			)
+		);
+
+		return $config;
+	}
+
+	/**
 	 * Register the `woocommerce-rest` ability category for the WP Abilities API.
 	 *
 	 * WooCommerce normally registers this category only when its `AbilitiesRegistry`
@@ -144,24 +178,40 @@ final class WooCommerceIntegrationHandler {
 			return;
 		}
 
+		if ( function_exists( 'wp_has_ability_category' ) && wp_has_ability_category( 'woocommerce-rest' ) ) {
+			if ( class_exists( self::CATEGORY_CLASS ) ) {
+				remove_action( 'wp_abilities_api_categories_init', array( self::CATEGORY_CLASS, 'register_categories' ) );
+			}
+			return;
+		}
+
+		// WooCommerce 10.8+ registers its categories on this same hook at the
+		// default priority. When that hook is present, let WooCommerce own the
+		// registration; calling its registrar early would make its later callback
+		// emit a duplicate-category doing_it_wrong notice.
+		if (
+			class_exists( self::CATEGORY_CLASS )
+			&& has_action( 'wp_abilities_api_categories_init', array( self::CATEGORY_CLASS, 'register_categories' ) )
+		) {
+			return;
+		}
+
 		// Delegate to WooCommerce's own category registration when available so
 		// labels/descriptions stay in sync. Gracefully fall back to our own call
-		// if the class doesn't exist (older WooCommerce).
+		// if the class doesn't exist or is not hooked (older WooCommerce).
 		if ( class_exists( self::CATEGORY_CLASS ) ) {
 			( self::CATEGORY_CLASS )::register_categories();
 			return;
 		}
 
 		// Fallback for WooCommerce versions without AbilitiesCategories.
-		if ( ! wp_get_ability_category( 'woocommerce-rest' ) ) {
-			wp_register_ability_category(
-				'woocommerce-rest',
-				array(
-					'label'       => __( 'WooCommerce REST API', 'superdav-ai-agent' ),
-					'description' => __( 'REST API operations for WooCommerce resources including products, orders, and other store data.', 'superdav-ai-agent' ),
-				)
-			);
-		}
+		wp_register_ability_category(
+			'woocommerce-rest',
+			array(
+				'label'       => __( 'WooCommerce REST API', 'superdav-ai-agent' ),
+				'description' => __( 'REST API operations for WooCommerce resources including products, orders, and other store data.', 'superdav-ai-agent' ),
+			)
+		);
 	}
 
 	/**
@@ -205,7 +255,6 @@ final class WooCommerceIntegrationHandler {
 		try {
 			$ref    = new \ReflectionClass( $bridge_class );
 			$method = $ref->getMethod( 'get_configurations' );
-			$method->setAccessible( true );
 
 			/** @var array<int, array<string, mixed>> $configurations */
 			$configurations = $method->invoke( null );

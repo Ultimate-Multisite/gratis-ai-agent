@@ -211,10 +211,11 @@ class SiteHealthAbilities {
 				'output_schema'       => [
 					'type'       => 'object',
 					'properties' => [
-						'issues'   => [ 'type' => 'array' ],
-						'warnings' => [ 'type' => 'array' ],
-						'passed'   => [ 'type' => 'array' ],
-						'score'    => [ 'type' => 'integer' ],
+						'issues'         => [ 'type' => 'array' ],
+						'warnings'       => [ 'type' => 'array' ],
+						'passed'         => [ 'type' => 'array' ],
+						'score'          => [ 'type' => 'integer' ],
+						'agent_guidance' => [ 'type' => 'string' ],
 					],
 				],
 				'meta'                => [
@@ -305,6 +306,7 @@ class SiteHealthAbilities {
 						'security'       => [ 'type' => 'object' ],
 						'performance'    => [ 'type' => 'object' ],
 						'generated_at'   => [ 'type' => 'string' ],
+						'agent_guidance' => [ 'type' => 'string' ],
 					],
 				],
 				'meta'                => [
@@ -636,10 +638,11 @@ class SiteHealthAbilities {
 		$score = max( 0, $score );
 
 		return [
-			'issues'   => $issues,
-			'warnings' => $warnings,
-			'passed'   => $passed,
-			'score'    => $score,
+			'issues'         => $issues,
+			'warnings'       => $warnings,
+			'passed'         => $passed,
+			'score'          => $score,
+			'agent_guidance' => self::get_read_only_diagnostic_guidance(),
 		];
 	}
 
@@ -775,6 +778,7 @@ class SiteHealthAbilities {
 			'security'       => is_wp_error( $security ) ? [ 'error' => $security->get_error_message() ] : $security,
 			'performance'    => is_wp_error( $performance ) ? [ 'error' => $performance->get_error_message() ] : $performance,
 			'generated_at'   => gmdate( 'Y-m-d H:i:s' ),
+			'agent_guidance' => self::get_read_only_diagnostic_guidance(),
 		];
 	}
 
@@ -811,6 +815,15 @@ class SiteHealthAbilities {
 	// -------------------------------------------------------------------------
 	// Private helpers
 	// -------------------------------------------------------------------------
+
+	/**
+	 * Return model-facing guidance for read-only diagnostic results.
+	 *
+	 * @return string
+	 */
+	private static function get_read_only_diagnostic_guidance(): string {
+		return 'Summarize these diagnostic findings for the user. Do not install plugins, activate plugins, change security settings, write files, run remediation commands, or navigate away unless the user explicitly requested remediation.';
+	}
 
 	/**
 	 * Resolve the PHP/WordPress error log path.

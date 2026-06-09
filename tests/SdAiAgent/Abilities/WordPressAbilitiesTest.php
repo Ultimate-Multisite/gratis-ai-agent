@@ -406,6 +406,44 @@ class WordPressAbilitiesTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * RunPhpAbility allows safe admin URL helpers so agents can derive the
+	 * correct dashboard context instead of hard-coding wp-admin paths.
+	 */
+	public function test_handle_run_php_allows_safe_admin_url_helpers() {
+		$result = WordPressAbilities::handle_run_php( [
+			'function' => 'get_admin_url',
+			'args'     => [ null, 'admin.php?page=sd-ai-agent' ],
+		] );
+
+		$this->assertIsArray( $result );
+		$this->assertIsString( $result['result'] );
+		$this->assertStringContainsString( '/wp-admin/admin.php?page=sd-ai-agent', $result['result'] );
+	}
+
+	/**
+	 * Network-admin-only plugin screens must be derivable via run-php on
+	 * multisite so agents avoid sending users to dead site-admin URLs.
+	 */
+	public function test_handle_run_php_derives_wordfence_network_admin_url() {
+		if ( ! function_exists( 'network_admin_url' ) ) {
+			$this->markTestSkipped( 'network_admin_url() unavailable in this environment.' );
+		}
+
+		if ( ! is_multisite() ) {
+			$this->markTestSkipped( 'network_admin_url() resolves to site admin outside multisite.' );
+		}
+
+		$result = WordPressAbilities::handle_run_php( [
+			'function' => 'network_admin_url',
+			'args'     => [ 'admin.php?page=Wordfence' ],
+		] );
+
+		$this->assertIsArray( $result );
+		$this->assertIsString( $result['result'] );
+		$this->assertStringContainsString( '/wp-admin/network/admin.php?page=Wordfence', $result['result'] );
+	}
+
+	/**
 	 * RunPhpAbility must refuse delete_option('auth_key').
 	 */
 	public function test_handle_run_php_blocks_delete_option_for_write_blocklist() {

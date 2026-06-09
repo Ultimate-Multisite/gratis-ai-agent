@@ -138,6 +138,8 @@ class RunPhpAbility extends AbstractAbility {
 		'home_url',
 		'site_url',
 		'admin_url',
+		'get_admin_url',
+		'network_admin_url',
 		'wp_upload_dir',
 		'is_multisite',
 		// Plugins / Themes.

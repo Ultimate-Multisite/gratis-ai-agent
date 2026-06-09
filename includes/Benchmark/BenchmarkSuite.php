@@ -553,7 +553,7 @@ class BenchmarkSuite {
 				'id'         => 'fn-004',
 				'category'   => 'wp_cli',
 				'max_turns'  => 25,
-				'prompt'     => 'Build a WordPress plugin called "meta-migrator" that provides a WP-CLI command "wp meta-migrator run". The command should: accept a --dry-run flag that previews changes without writing them, find all posts that have a meta key "_legacy_price" and copy its value to "_price", process posts in batches of 50 to avoid memory issues, output progress as "Processed X/Y posts", and at the end print a summary "Migration complete: X posts updated". Register the WP-CLI command only when WP_CLI is defined. Activate the plugin when done.',
+				'prompt'     => 'Build a WordPress plugin called "meta-migrator" that provides a WP-CLI command "wp meta-migrator run". The command should: accept a --dry-run flag that previews changes without writing them, find all posts that have a meta key "_legacy_price" and copy its value to "_price", process posts in batches of 50 to avoid memory issues, output progress as "Processed X/Y posts", and at the end print a summary "Migration complete: X posts updated". The dry-run command must still print benchmark-compatible progress and summary output when zero posts match, for example "Processed 0/0 posts" and "Migration complete: 0 posts updated"; do not return early with only a prose empty-state message. Register the WP-CLI command only when WP_CLI is defined. Activate the plugin when done.',
 				'assertions' => array(
 					array(
 						'type'        => 'plugin_no_php_errors',

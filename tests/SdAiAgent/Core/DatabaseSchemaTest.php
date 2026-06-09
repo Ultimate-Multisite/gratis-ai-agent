@@ -348,11 +348,11 @@ class DatabaseSchemaTest extends WP_UnitTestCase {
 
 		$columns = $this->get_column_names( Database::active_jobs_table_name() );
 
-		foreach ( [ 'error', 'interrupted_at' ] as $col ) {
+		foreach ( [ 'checkpoint', 'checkpoint_phase', 'resume_attempts', 'error', 'interrupted_at' ] as $col ) {
 			$this->assertContains(
 				$col,
 				$columns,
-				"active_jobs table missing column '{$col}' — see GH#1510."
+				"active_jobs table missing column '{$col}' — see GH#2026."
 			);
 		}
 	}

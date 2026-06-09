@@ -52,6 +52,9 @@ final class SessionController {
 	/** Maximum safe technical-detail length returned by job status polling. */
 	private const JOB_ERROR_DETAIL_MAX_LENGTH = 180;
 
+	/** Maximum automatic resume attempts for a crashed background job. */
+	private const JOB_AUTO_RESUME_MAX_ATTEMPTS = 2;
+
 	/** @var Database Injected database dependency. */
 	private Database $database;
 
@@ -1094,6 +1097,19 @@ final class SessionController {
 			'session_id' => $row->session_id,
 		];
 
+		if ( in_array( $status, array( 'interrupted', 'abandoned' ), true ) && $this->maybe_dispatch_checkpoint_resume( $job_id, $row ) ) {
+			return new WP_REST_Response(
+				array(
+					'status'          => 'processing',
+					'from_db'         => true,
+					'auto_resumed'    => true,
+					'original_status' => $status,
+					'session_id'      => $row->session_id,
+				),
+				202
+			);
+		}
+
 		// Include tool-call progress when present.
 		$tool_calls = json_decode( $row->tool_calls, true );
 		if ( is_array( $tool_calls ) && ! empty( $tool_calls ) ) {
@@ -1134,6 +1150,89 @@ final class SessionController {
 		}
 
 		return new WP_REST_Response( $response, 200 );
+	}
+
+	/**
+	 * Dispatch a crashed job from a safe durable checkpoint when retry budget remains.
+	 *
+	 * @param string       $job_id Job UUID.
+	 * @param ActiveJobRow $row    Active-job row.
+	 * @return bool True when a resume worker was dispatched.
+	 */
+	private function maybe_dispatch_checkpoint_resume( string $job_id, ActiveJobRow $row ): bool {
+		if ( $row->resume_attempts >= self::JOB_AUTO_RESUME_MAX_ATTEMPTS || ! $this->is_auto_resumable_checkpoint_phase( $row->checkpoint_phase ) ) {
+			return false;
+		}
+
+		$checkpoint = json_decode( (string) $row->checkpoint, true );
+		if ( ! is_array( $checkpoint ) || empty( $checkpoint['history'] ) || ! is_array( $checkpoint['history'] ) ) {
+			return false;
+		}
+
+		$token = wp_generate_password( 40, false );
+		$job   = array(
+			'status'            => 'processing',
+			'token'             => $token,
+			'user_id'           => $row->user_id,
+			'tool_calls'        => json_decode( $row->tool_calls, true ) ?: array(),
+			'messages'          => $checkpoint['message_log'] ?? array(),
+			'checkpoint_resume' => true,
+			'checkpoint_state'  => $checkpoint,
+			'params'            => array(
+				'message'            => '',
+				'history'            => array(),
+				'abilities'          => array(),
+				'system_instruction' => '',
+				'bootstrap_prompt'   => '',
+				'max_iterations'     => $checkpoint['iterations_remaining'] ?? null,
+				'session_id'         => $row->session_id,
+				'provider_id'        => $checkpoint['provider_id'] ?? '',
+				'model_id'           => $checkpoint['model_id'] ?? '',
+				'page_context'       => $checkpoint['page_context'] ?? array(),
+				'agent_id'           => 0,
+				'attachments'        => array(),
+				'client_abilities'   => $checkpoint['client_abilities'] ?? array(),
+			),
+		);
+
+		if ( ! ActiveJobRepository::claim_resume_attempt( $job_id, self::JOB_AUTO_RESUME_MAX_ATTEMPTS ) ) {
+			return false;
+		}
+
+		set_transient( RestController::JOB_PREFIX . $job_id, $job, RestController::JOB_TTL );
+		wp_remote_post(
+			rest_url( RestController::NAMESPACE . '/process' ),
+			array(
+				'timeout'  => 0.01,
+				'blocking' => false,
+				'body'     => (string) wp_json_encode(
+					array(
+						'job_id' => $job_id,
+						'token'  => $token,
+					)
+				),
+				'headers'  => array( 'Content-Type' => 'application/json' ),
+			)
+		);
+
+		return true;
+	}
+
+	/**
+	 * Determine whether a checkpoint phase can be resumed without replaying tools.
+	 *
+	 * @param string $phase Durable checkpoint phase.
+	 * @return bool True when automatic resume is safe.
+	 */
+	private function is_auto_resumable_checkpoint_phase( string $phase ): bool {
+		return in_array(
+			$phase,
+			array(
+				AgentLoop::CHECKPOINT_BEFORE_PROVIDER_CALL,
+				AgentLoop::CHECKPOINT_TOOL_RESPONSE_RECORDED,
+			),
+			true
+		);
 	}
 
 	/**
@@ -1443,13 +1542,20 @@ final class SessionController {
 
 		// Send the HTTP response immediately so the calling process (the
 		// non-blocking loopback from /run or /confirm) can close its
-		// connection. PHP-FPM continues executing after this call.
-		// Without this, FPM kills the process when the client disconnects.
-		if ( function_exists( 'fastcgi_finish_request' ) ) {
+		// connection while PHP continues the job. PHP-FPM exposes
+		// fastcgi_finish_request(); LiteSpeed exposes litespeed_finish_request().
+		// Without a SAPI-specific detach call, some hosts terminate the worker
+		// when the non-blocking client disconnects.
+		if ( function_exists( 'fastcgi_finish_request' ) || function_exists( 'litespeed_finish_request' ) ) {
 			// Send a minimal JSON response before detaching.
 			header( 'Content-Type: application/json' );
 			echo '{"ok":true}';
-			fastcgi_finish_request();
+
+			if ( function_exists( 'fastcgi_finish_request' ) ) {
+				fastcgi_finish_request();
+			} else {
+				litespeed_finish_request();
+			}
 		}
 
 		/** @var array<string, mixed> $job */
@@ -1601,15 +1707,39 @@ final class SessionController {
 		// Record start time for webhook duration tracking.
 		$start_ms = (int) round( microtime( true ) * 1000 );
 
-		// Check if this is a resume from a tool confirmation/rejection.
-		$is_resume = ! empty( $job['resume'] );
+		// Check if this is a resume from a tool confirmation/rejection or crash checkpoint.
+		$is_resume            = ! empty( $job['resume'] );
+		$is_checkpoint_resume = ! empty( $job['checkpoint_resume'] );
 
 		// Wrap the entire loop execution in a try/catch so that uncaught
 		// exceptions (e.g. from ability schema validation) are captured
 		// and written to the job transient instead of silently killing
 		// the background worker.
 		try {
-			if ( $is_resume ) {
+			if ( $is_checkpoint_resume ) {
+				$state = $job['checkpoint_state'] ?? array();
+
+				/** @var list<array<string, mixed>> $state_history */
+				$state_history  = is_array( $state ) ? ( $state['history'] ?? array() ) : array();
+				$resume_history = ConversationSerializer::deserialize( array_values( $state_history ) );
+
+				$resume_options = $options;
+				// @phpstan-ignore-next-line
+				$resume_options['tool_call_log'] = is_array( $state ) ? ( $state['tool_call_log'] ?? array() ) : array();
+				// @phpstan-ignore-next-line
+				$resume_options['message_log'] = is_array( $state ) ? ( $state['message_log'] ?? array() ) : array();
+				// @phpstan-ignore-next-line
+				$resume_options['token_usage'] = is_array( $state ) ? ( $state['token_usage'] ?? array(
+					'prompt'     => 0,
+					'completion' => 0,
+				) ) : array(
+					'prompt'     => 0,
+					'completion' => 0,
+				);
+
+				$loop   = new AgentLoop( '', array(), $resume_history, $resume_options );
+				$result = $loop->resume_from_checkpoint( (int) ( is_array( $state ) ? ( $state['iterations_remaining'] ?? 100 ) : 100 ) );
+			} elseif ( $is_resume ) {
 				$confirmed = 'confirm' === $job['resume'];
 				$state     = $job['confirmation_state'] ?? array();
 

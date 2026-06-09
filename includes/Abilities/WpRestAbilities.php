@@ -64,6 +64,10 @@ class WpRestAbilities {
 	private const BLOCKED_ROUTES = array(
 		'DELETE /wp/v2/users',
 		'POST /wp/v2/users',
+		// Full-template REST writes can replace the entire block template body.
+		// Require the agent to use block-level mutators with a prior read instead
+		// of POSTing partial `content` payloads to wp_template endpoints.
+		'POST /wp/v2/templates',
 	);
 
 	/**
@@ -294,20 +298,24 @@ class WpRestAbilities {
 				'input_schema'        => array(
 					'type'                 => 'object',
 					'properties'           => array(
-						'method'  => array(
+						'method'     => array(
 							'type'    => 'string',
 							'enum'    => array( 'GET', 'POST', 'PUT', 'PATCH', 'DELETE' ),
 							'default' => 'GET',
 						),
-						'route'   => array(
+						'route'      => array(
 							'type'        => 'string',
 							'description' => "Route path with concrete IDs, e.g. '/wp/v2/posts/42'. Do NOT include /wp-json prefix.",
 						),
-						'params'  => array(
+						'params'     => array(
 							'type'        => 'object',
 							'description' => 'Query params for GET/DELETE; JSON body for POST/PUT/PATCH.',
 						),
-						'headers' => array(
+						'parameters' => array(
+							'type'        => 'object',
+							'description' => 'Alias for params. Prefer params, but this is accepted to recover from model-generated REST wording.',
+						),
+						'headers'    => array(
 							'type'        => 'object',
 							'description' => 'Rarely needed for internal dispatch.',
 						),
@@ -540,9 +548,12 @@ class WpRestAbilities {
 	 * @return array<mixed>|WP_Error
 	 */
 	public static function handle_execute( array $input = array() ) {
-		$method  = strtoupper( isset( $input['method'] ) ? (string) $input['method'] : 'GET' );
-		$route   = isset( $input['route'] ) ? (string) $input['route'] : '';
-		$params  = isset( $input['params'] ) && is_array( $input['params'] ) ? $input['params'] : array();
+		$method = strtoupper( isset( $input['method'] ) ? (string) $input['method'] : 'GET' );
+		$route  = isset( $input['route'] ) ? (string) $input['route'] : '';
+		$params = isset( $input['params'] ) && is_array( $input['params'] ) ? $input['params'] : array();
+		if ( empty( $params ) && isset( $input['parameters'] ) && is_array( $input['parameters'] ) ) {
+			$params = $input['parameters'];
+		}
 		$headers = isset( $input['headers'] ) && is_array( $input['headers'] ) ? $input['headers'] : array();
 
 		$route = '/' . ltrim( $route, '/' );

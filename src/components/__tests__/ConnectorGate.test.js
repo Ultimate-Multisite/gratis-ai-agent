@@ -5,7 +5,8 @@
  * - Renders the gate wrapper
  * - Renders the title
  * - Renders the description
- * - Renders the CTA link pointing to official Connectors page
+ * - Renders the managed Superdav AI CTA
+ * - Renders the secondary link pointing to official Connectors page
  * - Uses custom connectorsUrl from window.sdAiAgentData when available
  * - Falls back to official Connectors page URL when connectorsUrl is not set
  * - Shows Gutenberg install prompt when connectorsAvailable is false
@@ -60,18 +61,24 @@ describe( 'ConnectorGate', () => {
 
 	test( 'renders the title', () => {
 		const html = renderToStaticMarkup( createElement( ConnectorGate, {} ) );
-		expect( html ).toContain( 'Set Up an AI Provider' );
+		expect( html ).toContain( 'Connect Superdav AI' );
 	} );
 
 	test( 'renders descriptive text about connectors', () => {
 		const html = renderToStaticMarkup( createElement( ConnectorGate, {} ) );
-		expect( html ).toContain( 'Connectors page' );
+		expect( html ).toContain( 'recommended managed connection' );
 	} );
 
-	test( 'renders CTA button when connectors available', () => {
+	test( 'renders managed Superdav AI CTA button when connectors available', () => {
 		window.sdAiAgentData = { connectorsAvailable: '1' };
 		const html = renderToStaticMarkup( createElement( ConnectorGate, {} ) );
-		expect( html ).toContain( 'Configure a Connector' );
+		expect( html ).toContain( 'Connect Superdav AI' );
+	} );
+
+	test( 'renders secondary connector choice when connectors available', () => {
+		window.sdAiAgentData = { connectorsAvailable: '1' };
+		const html = renderToStaticMarkup( createElement( ConnectorGate, {} ) );
+		expect( html ).toContain( 'Choose another connector' );
 	} );
 
 	test( 'CTA button links to official Connectors page when available', () => {
