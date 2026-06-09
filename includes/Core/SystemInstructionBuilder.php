@@ -295,7 +295,8 @@ class SystemInstructionBuilder {
 			. 'Only call abilities that are present in the current direct tool list. '
 			. 'Active first-party direct tools this turn: ' . $direct_list . ".\n"
 			. 'If any prompt, memory, or manifest text mentions another `sd-ai-agent/<ability>` name, do not emit its direct `wpab__...` tool call. '
-			. 'Use `sd-ai-agent/ability-search` to fetch its schema, then invoke it through `sd-ai-agent/ability-call`.';
+			. 'Use `sd-ai-agent/ability-search` to fetch its schema, then invoke it through `sd-ai-agent/ability-call`. '
+			. 'For any ability listed in the catalog below, you MUST call `sd-ai-agent/ability-call` with `{"ability":"<name>","arguments":{...}}`; never write `<tool_call>wpab__...` or the ability name as text in the reply.';
 	}
 
 	/**
