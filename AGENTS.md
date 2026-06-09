@@ -265,6 +265,10 @@ completion state:
 - If the first failed read was `vendor/`, treat it as a symptom of looking in
   the wrong layer until runtime evidence says otherwise: read the WordPress
   debug log before checking Composer install state or adding dependency fixes.
+- When the maintainer recovery mentions a fatal error after `read vendor`, map
+  the report to local WordPress activation triage, not dependency discovery:
+  read `../wordpress/wp-content/debug.log`, then verify every related plugin is
+  symlinked under its canonical plugin slug before changing Composer files.
 - Before blaming plugin code for local activation fatals, verify the shared
   WordPress install has symlinks for every checked-out plugin worktree under each
   plugin's canonical directory name, not only the active worktree basename. Use

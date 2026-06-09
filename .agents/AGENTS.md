@@ -88,10 +88,13 @@ working here in OpenCode headless mode:
   and reproduce once if absent), then verify the shared install's plugin symlinks
   point at every checked-out plugin worktree's canonical plugin directory name,
   not just the current basename. If the failed read was `vendor/`, do this before
-  assuming a Composer dependency problem. Use `wp plugin path <plugin-slug>` or inspect
-  `../wordpress/wp-content/plugins/` before retrying unrelated repository paths;
-  enumerate all involved plugin slugs when multiple local plugins or worktrees
-  participate in the failing activation path.
+  assuming a Composer dependency problem. If maintainer recovery says a fatal
+  appeared after `read vendor`, treat that as a direct instruction to read
+  debug.log and check canonical plugin symlinks before touching dependencies. Use
+  `wp plugin path <plugin-slug>` or inspect `../wordpress/wp-content/plugins/`
+  before retrying unrelated repository paths; enumerate all involved plugin slugs
+  when multiple local plugins or worktrees participate in the failing activation
+  path.
 - Treat `bash:other` / `Tool execution aborted` as a recoverable command-shape or
   hook failure first. Inspect the preceding command, retry once with a narrower
   non-inline command and a clear `description`, avoid heredocs/process or command

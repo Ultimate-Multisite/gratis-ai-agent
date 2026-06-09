@@ -121,6 +121,13 @@ issue. Examples:
   "WordPress.org Review Responses" policy. The issue body should require a
   concise issue-by-issue response, concrete fix/rationale references, verification
   evidence, and no broad "false positive" claims without finding-specific proof.
+- `read:file_not_found` reports whose summarized command is `read vendor` and
+  maintainer recovery mentions a fatal error map to headless file-read recovery
+  plus local WordPress activation triage: root `AGENTS.md`, `.agents/AGENTS.md`,
+  and `includes/Models/skills/site-troubleshooting.md`. The Worker Guidance must
+  tell implementers to make `../wordpress/wp-content/debug.log` the next evidence
+  source, then verify every involved plugin resolves through its canonical plugin
+  directory or symlink before diagnosing Composer dependencies.
 
 The resulting issue body must name the target files, expected behaviour, and at
 least one verification command; do not leave private local paths or shorthand as
@@ -147,6 +154,13 @@ includes REST shorthand. When filing the issue, include Worker Guidance that map
 the exact three candidates to `includes/Models/skills/wp-block-themes.md`,
 `AGENTS.md` Google Search Console API Usage Mapping, and `AGENTS.md`
 WordPress.org Review Responses.
+
+For #2082-style `read:file_not_found` reports with `read vendor` plus fatal-error
+recovery, include Worker Guidance that maps the issue to root `AGENTS.md`
+"Headless File Read Recovery", `.agents/AGENTS.md` "Headless Worker Tool
+Guardrails", and `includes/Models/skills/site-troubleshooting.md` "Plugin
+Activation Fatal Error". Require verification with
+`rg -n "read:file_not_found|missing-file reads|read vendor|debug.log|canonical plugin|wp plugin path" AGENTS.md .agents/AGENTS.md .agents/scripts/commands/feedback-triage.md includes/Models/skills/site-troubleshooting.md`.
 
 Full payload schema (top-level keys):
 
