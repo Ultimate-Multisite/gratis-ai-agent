@@ -372,6 +372,7 @@ PYADMIN
 		done
 		echo "    Stripped WP 6.9 compatibility shims, plugin-builder + theme-scaffolder + git-tracking + dynamic-SQL source files, forced feature flags to false, and set Requires at least to 7.0."
 
+
 		# Composer's optimized autoloader is generated before the WP.org-only
 		# strip list is applied. Regenerate it inside the bundled tree so Jetpack
 		# Autoloader cannot retain classmap entries for source files that were
@@ -379,6 +380,7 @@ PYADMIN
 		echo "==> [${variant}] Regenerating Composer autoloader after WP.org source stripping..."
 		composer --working-dir="$dest" dump-autoload --no-dev --optimize --quiet
 		echo "    Composer autoloader regenerated for stripped WP.org tree."
+
 
 		# ── Neutralise forbidden move_uploaded_file() in bundled PSR-7 ───────
 		# WP.org's plugin-check tool hard-fails on any literal occurrence of
