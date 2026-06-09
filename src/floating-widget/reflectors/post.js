@@ -8,7 +8,7 @@
 import { morphTargetFromFresh } from './dom-morph';
 
 const FIELD_SELECTORS = {
-	post_title: [ '.wp-block-post-title', '.entry-title', 'h1.entry-title' ],
+	post_title: [ '.wp-block-post-title', '.entry-title' ],
 	post_content: [
 		'.wp-block-post-content',
 		'.entry-content',
