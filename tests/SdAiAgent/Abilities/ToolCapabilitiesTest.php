@@ -43,6 +43,7 @@ class ToolCapabilitiesTest extends WP_UnitTestCase {
 			'db-query'                 => [ 'sd-ai-agent/db-query', 'sd_ai_agent_tool_db_query' ],
 			'run-php'                  => [ 'sd-ai-agent/run-php', 'sd_ai_agent_tool_run_php' ],
 			'file-read'                => [ 'sd-ai-agent/file-read', 'sd_ai_agent_tool_file_read' ],
+			'file-outline'             => [ 'sd-ai-agent/file-outline', 'sd_ai_agent_tool_file_outline' ],
 			'get-plugins'              => [ 'sd-ai-agent/get-plugins', 'sd_ai_agent_tool_get_plugins' ],
 			'navigate'                 => [ 'sd-ai-agent/navigate', 'sd_ai_agent_tool_navigate' ],
 			'seo-audit-url'            => [ 'sd-ai-agent/seo-audit-url', 'sd_ai_agent_tool_seo_audit_url' ],
@@ -275,6 +276,16 @@ class ToolCapabilitiesTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * file-outline uses the same core cap as file-read.
+	 */
+	public function test_file_outline_uses_file_read_core_cap(): void {
+		$this->assertSame(
+			ToolCapabilities::resolve_core_caps( 'sd-ai-agent/file-read' ),
+			ToolCapabilities::resolve_core_caps( 'sd-ai-agent/file-outline' )
+		);
+	}
+
+	/**
 	 * Test register_capabilities adds capabilities to the administrator role.
 	 */
 	public function test_register_capabilities_adds_to_admin_role(): void {
@@ -338,6 +349,7 @@ class ToolCapabilitiesTest extends WP_UnitTestCase {
 			'sd-ai-agent/db-query',
 			'sd-ai-agent/run-php',
 			'sd-ai-agent/file-read',
+			'sd-ai-agent/file-outline',
 			'sd-ai-agent/file-write',
 			'sd-ai-agent/navigate',
 		];

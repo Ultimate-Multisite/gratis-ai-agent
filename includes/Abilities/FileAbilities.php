@@ -46,7 +46,25 @@ class FileAbilities {
 			'sd-ai-agent/file-read',
 			[
 				'label'       => __( 'Read File', 'superdav-ai-agent' ),
-				'description' => __( 'Read the contents of a file within the wp-content directory.', 'superdav-ai-agent' ),
+				'description' => __( 'Read the contents of a file within the wp-content directory, optionally limited to a line range.', 'superdav-ai-agent' ),
+			]
+		);
+		// @phpstan-ignore-next-line
+		return $ability->run( $input );
+	}
+
+	/**
+	 * Return a token-efficient file outline.
+	 *
+	 * @param array<string,mixed> $input Input args.
+	 * @return array<string,mixed>|\WP_Error
+	 */
+	public static function handle_outline_file( array $input = [] ) {
+		$ability = new FileOutlineAbility(
+			'sd-ai-agent/file-outline',
+			[
+				'label'       => __( 'File Outline', 'superdav-ai-agent' ),
+				'description' => __( 'Return a bounded outline of landmarks in a file within wp-content before reading line ranges.', 'superdav-ai-agent' ),
 			]
 		);
 		// @phpstan-ignore-next-line
@@ -173,8 +191,17 @@ class FileAbilities {
 			'sd-ai-agent/file-read',
 			[
 				'label'         => __( 'Read File', 'superdav-ai-agent' ),
-				'description'   => __( 'Read the contents of a file within the wp-content directory.', 'superdav-ai-agent' ),
+				'description'   => __( 'Read the contents of a file within the wp-content directory, optionally limited to a line range.', 'superdav-ai-agent' ),
 				'ability_class' => FileReadAbility::class,
+			]
+		);
+
+		wp_register_ability(
+			'sd-ai-agent/file-outline',
+			[
+				'label'         => __( 'File Outline', 'superdav-ai-agent' ),
+				'description'   => __( 'Return a bounded outline of landmarks in a file within wp-content before reading line ranges.', 'superdav-ai-agent' ),
+				'ability_class' => FileOutlineAbility::class,
 			]
 		);
 
@@ -306,6 +333,24 @@ abstract class AbstractFileAbility extends AbstractAbility {
 	 */
 	protected function is_php_file( string $path ): bool {
 		return (bool) preg_match( '/\.php$/i', $path );
+	}
+
+	/**
+	 * Split file content into logical lines without counting a trailing newline
+	 * as an extra empty line.
+	 *
+	 * @param string $content File content.
+	 * @return array<int,string>
+	 */
+	protected function split_file_lines( string $content ): array {
+		$lines = preg_split( '/\R/', $content );
+		$lines = is_array( $lines ) ? $lines : [];
+
+		if ( '' !== $content && preg_match( '/\R\z/', $content ) && '' === end( $lines ) ) {
+			array_pop( $lines );
+		}
+
+		return $lines;
 	}
 
 	/**
@@ -445,16 +490,24 @@ class FileReadAbility extends AbstractFileAbility {
 	}
 
 	protected function description(): string {
-		return __( 'Read the contents of a file within the wp-content directory.', 'superdav-ai-agent' );
+		return __( 'Read the contents of a file within the wp-content directory, optionally limited to a line range.', 'superdav-ai-agent' );
 	}
 
 	protected function input_schema(): array {
 		return [
 			'type'       => 'object',
 			'properties' => [
-				'path' => [
+				'path'       => [
 					'type'        => 'string',
 					'description' => 'Relative path from wp-content (e.g., "plugins/my-plugin/file.php")',
+				],
+				'start_line' => [
+					'type'        => 'integer',
+					'description' => 'Optional 1-based first line to read.',
+				],
+				'end_line'   => [
+					'type'        => 'integer',
+					'description' => 'Optional 1-based final line to read.',
 				],
 			],
 			'required'   => [ 'path' ],
@@ -465,10 +518,13 @@ class FileReadAbility extends AbstractFileAbility {
 		return [
 			'type'       => 'object',
 			'properties' => [
-				'path'     => [ 'type' => 'string' ],
-				'content'  => [ 'type' => 'string' ],
-				'size'     => [ 'type' => 'integer' ],
-				'modified' => [ 'type' => 'string' ],
+				'path'        => [ 'type' => 'string' ],
+				'content'     => [ 'type' => 'string' ],
+				'size'        => [ 'type' => 'integer' ],
+				'modified'    => [ 'type' => 'string' ],
+				'start_line'  => [ 'type' => 'integer' ],
+				'end_line'    => [ 'type' => 'integer' ],
+				'total_lines' => [ 'type' => 'integer' ],
 			],
 		];
 	}
@@ -500,11 +556,306 @@ class FileReadAbility extends AbstractFileAbility {
 			return new WP_Error( 'sd_ai_agent_file_read_failed', sprintf( 'Failed to read file: %s', $path ) );
 		}
 
+		$range_requested = array_key_exists( 'start_line', $input ) || array_key_exists( 'end_line', $input );
+		if ( $range_requested ) {
+			$start_line = isset( $input['start_line'] ) ? (int) $input['start_line'] : 1;
+			$end_line   = isset( $input['end_line'] ) ? (int) $input['end_line'] : null;
+
+			if ( null !== $end_line && $end_line < $start_line ) {
+				return new WP_Error(
+					'sd_ai_agent_invalid_line_range',
+					__( 'Invalid line range: end_line must be greater than or equal to start_line.', 'superdav-ai-agent' )
+				);
+			}
+
+			$lines       = $this->split_file_lines( $content );
+			$total_lines = count( $lines );
+			$start_line  = max( 1, $start_line );
+			$end_line    = null === $end_line ? $total_lines : max( 1, $end_line );
+			if ( $total_lines > 0 ) {
+				$start_line = min( $start_line, $total_lines );
+				$end_line   = min( $end_line, $total_lines );
+			}
+
+			$content = implode( "\n", array_slice( $lines ?: [], $start_line - 1, max( 0, $end_line - $start_line + 1 ) ) );
+
+			return [
+				'path'        => $path,
+				'content'     => $content,
+				'size'        => filesize( $full_path ),
+				'modified'    => gmdate( 'Y-m-d H:i:s', (int) filemtime( $full_path ) ),
+				'start_line'  => $start_line,
+				'end_line'    => $end_line,
+				'total_lines' => $total_lines,
+			];
+		}
+
 		return [
 			'path'     => $path,
 			'content'  => $content,
 			'size'     => filesize( $full_path ),
 			'modified' => gmdate( 'Y-m-d H:i:s', (int) filemtime( $full_path ) ),
+		];
+	}
+
+	protected function permission_callback( $input ): bool {
+		return ToolCapabilities::current_user_can( $this->name );
+	}
+
+	protected function meta(): array {
+		return [
+			'mcp'          => [ 'public' => true ],
+			'annotations'  => [
+				'readonly'    => true,
+				'destructive' => false,
+				'idempotent'  => true,
+			],
+			'show_in_rest' => true,
+		];
+	}
+}
+
+/**
+ * File Outline ability.
+ *
+ * @since 1.0.0
+ */
+class FileOutlineAbility extends AbstractFileAbility {
+
+	private const MAX_OUTLINE_ITEMS = 200;
+
+	protected function label(): string {
+		return __( 'File Outline', 'superdav-ai-agent' );
+	}
+
+	protected function description(): string {
+		return __( 'Return a bounded outline of landmarks in a file within wp-content before reading line ranges.', 'superdav-ai-agent' );
+	}
+
+	protected function input_schema(): array {
+		return [
+			'type'       => 'object',
+			'properties' => [
+				'path' => [
+					'type'        => 'string',
+					'description' => 'Relative path from wp-content (e.g., "themes/my-theme/functions.php")',
+				],
+			],
+			'required'   => [ 'path' ],
+		];
+	}
+
+	protected function output_schema(): array {
+		return [
+			'type'       => 'object',
+			'properties' => [
+				'path'        => [ 'type' => 'string' ],
+				'type'        => [ 'type' => 'string' ],
+				'total_lines' => [ 'type' => 'integer' ],
+				'outline'     => [ 'type' => 'array' ],
+			],
+		];
+	}
+
+	protected function execute_callback( $input ) {
+		/** @var array<string, mixed> $input */
+		$path = $input['path'] ?? '';
+		// @phpstan-ignore-next-line
+		$full_path = $this->resolve_path( $path );
+
+		if ( is_wp_error( $full_path ) ) {
+			return $full_path;
+		}
+
+		if ( ! file_exists( $full_path ) || ! is_file( $full_path ) ) {
+			// @phpstan-ignore-next-line
+			return new WP_Error( 'sd_ai_agent_file_not_found', sprintf( 'File not found: %s', $path ) );
+		}
+
+		if ( ! is_readable( $full_path ) ) {
+			// @phpstan-ignore-next-line
+			return new WP_Error( 'sd_ai_agent_file_not_readable', sprintf( 'File not readable: %s', $path ) );
+		}
+
+		// phpcs:ignore WordPress.WP.AlternativeFunctions.file_get_contents_file_get_contents -- Reading local file, not remote URL.
+		$content = file_get_contents( $full_path );
+		if ( false === $content ) {
+			// @phpstan-ignore-next-line
+			return new WP_Error( 'sd_ai_agent_file_read_failed', sprintf( 'Failed to read file: %s', $path ) );
+		}
+
+		$lines = $this->split_file_lines( $content );
+		$type  = $this->detect_type( $path );
+
+		return [
+			'path'        => $path,
+			'type'        => $type,
+			'total_lines' => count( $lines ),
+			'outline'     => $this->build_outline( $lines, $type ),
+		];
+	}
+
+	/**
+	 * Detect a coarse file type for outline generation.
+	 *
+	 * @param string $path Relative file path.
+	 * @return string
+	 */
+	private function detect_type( string $path ): string {
+		$extension = strtolower( (string) pathinfo( $path, PATHINFO_EXTENSION ) );
+
+		return match ( $extension ) {
+			'php' => 'php',
+			'css', 'scss', 'sass' => 'css',
+			'js', 'jsx', 'ts', 'tsx', 'mjs', 'cjs' => 'js',
+			'html', 'htm' => 'html',
+			default => 'text',
+		};
+	}
+
+	/**
+	 * Build deterministic landmarks for the supported source types.
+	 *
+	 * @param array<int,string> $lines File lines.
+	 * @param string            $type  Detected type.
+	 * @return array<int,array<string,mixed>>
+	 */
+	private function build_outline( array $lines, string $type ): array {
+		$outline = [];
+		foreach ( $lines as $index => $line ) {
+			$line_number = $index + 1;
+			$trimmed     = trim( $line );
+
+			if ( '' === $trimmed ) {
+				continue;
+			}
+
+			if ( 'php' === $type ) {
+				$this->collect_php_landmarks( $outline, $trimmed, $line_number );
+			} elseif ( 'css' === $type ) {
+				$this->collect_css_landmarks( $outline, $trimmed, $line_number );
+			} elseif ( 'js' === $type ) {
+				$this->collect_js_landmarks( $outline, $trimmed, $line_number );
+			} elseif ( 'html' === $type ) {
+				$this->collect_html_landmarks( $outline, $trimmed, $line_number );
+			}
+
+			if ( count( $outline ) >= self::MAX_OUTLINE_ITEMS ) {
+				break;
+			}
+		}
+
+		return $outline;
+	}
+
+	/**
+	 * Collect PHP and PHP-template landmarks from one line.
+	 *
+	 * @param array<int,array<string,mixed>> $outline     Outline accumulator.
+	 * @param string                         $line        Trimmed line.
+	 * @param int                            $line_number 1-based line number.
+	 */
+	private function collect_php_landmarks( array &$outline, string $line, int $line_number ): void {
+		if ( preg_match( '/^(?:abstract\s+|final\s+)?(?:class|interface|trait|enum)\s+([A-Za-z_][A-Za-z0-9_]*)\b/', $line, $match ) ) {
+			$this->add_outline_entry( $outline, $line_number, 'php_symbol', $match[1] );
+		}
+
+		if ( preg_match( '/^(?:public|protected|private|static|final|abstract|\s)*function\s+([A-Za-z_][A-Za-z0-9_]*)\s*\(/', $line, $match ) ) {
+			$this->add_outline_entry( $outline, $line_number, 'php_function', $match[1] );
+		}
+
+		if ( preg_match( '/\badd_(action|filter)\s*\(\s*[\'\"]([^\'\"]+)/', $line, $match ) ) {
+			$this->add_outline_entry( $outline, $line_number, 'wp_hook', $match[1] . ':' . $match[2] );
+		}
+
+		if ( preg_match( '/\b(get_template_part|get_header|get_footer|get_sidebar)\s*\(([^)]*)\)/', $line, $match ) ) {
+			$this->add_outline_entry( $outline, $line_number, 'template_part', $match[1] . '(' . trim( $match[2] ) . ')' );
+		}
+	}
+
+	/**
+	 * Collect CSS landmarks from one line.
+	 *
+	 * @param array<int,array<string,mixed>> $outline     Outline accumulator.
+	 * @param string                         $line        Trimmed line.
+	 * @param int                            $line_number 1-based line number.
+	 */
+	private function collect_css_landmarks( array &$outline, string $line, int $line_number ): void {
+		if ( preg_match( '/^@(media|supports|container|keyframes)\b\s*([^{}]*)/', $line, $match ) ) {
+			$this->add_outline_entry( $outline, $line_number, 'css_at_rule', '@' . $match[1] . ' ' . trim( $match[2] ) );
+			return;
+		}
+
+		if ( str_contains( $line, '{' ) && preg_match( '/^([^{}@][^{]+)\{/', $line, $match ) ) {
+			$this->add_outline_entry( $outline, $line_number, 'css_selector', trim( $match[1] ) );
+		}
+	}
+
+	/**
+	 * Collect JavaScript landmarks from one line.
+	 *
+	 * @param array<int,array<string,mixed>> $outline     Outline accumulator.
+	 * @param string                         $line        Trimmed line.
+	 * @param int                            $line_number 1-based line number.
+	 */
+	private function collect_js_landmarks( array &$outline, string $line, int $line_number ): void {
+		if ( preg_match( '/^(?:export\s+default\s+|export\s+)?class\s+([A-Za-z_$][A-Za-z0-9_$]*)\b/', $line, $match ) ) {
+			$this->add_outline_entry( $outline, $line_number, 'js_class', $match[1] );
+		}
+
+		if ( preg_match( '/^(?:export\s+)?(?:async\s+)?function\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*\(/', $line, $match ) ) {
+			$this->add_outline_entry( $outline, $line_number, 'js_function', $match[1] );
+		}
+
+		if ( preg_match( '/^(?:const|let|var)\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*=\s*(?:async\s*)?\(?[^=]*\)?\s*=>/', $line, $match ) ) {
+			$this->add_outline_entry( $outline, $line_number, 'js_function', $match[1] );
+		}
+
+		if ( preg_match( '/\.addEventListener\s*\(\s*[\'\"]([^\'\"]+)/', $line, $match ) ) {
+			$this->add_outline_entry( $outline, $line_number, 'js_event_listener', $match[1] );
+		}
+	}
+
+	/**
+	 * Collect HTML landmarks from one line.
+	 *
+	 * @param array<int,array<string,mixed>> $outline     Outline accumulator.
+	 * @param string                         $line        Trimmed line.
+	 * @param int                            $line_number 1-based line number.
+	 */
+	private function collect_html_landmarks( array &$outline, string $line, int $line_number ): void {
+		if ( preg_match_all( '/<\s*(main|header|footer|nav|section|article|aside|form|h[1-6])\b([^>]*)>/i', $line, $matches, PREG_SET_ORDER ) ) {
+			foreach ( $matches as $match ) {
+				$name = strtolower( $match[1] );
+				if ( preg_match( '/\b(?:id|class)\s*=\s*[\'\"]([^\'\"]+)/', $match[2], $attribute_match ) ) {
+					$name .= '#' . $attribute_match[1];
+				}
+				$this->add_outline_entry( $outline, $line_number, 'html_landmark', $name );
+			}
+		}
+
+		if ( preg_match( '/<!--\s+wp:(template-part|pattern)\s+({.*?})?\s+-->/', $line, $match ) ) {
+			$this->add_outline_entry( $outline, $line_number, 'block_' . $match[1], isset( $match[2] ) ? $match[2] : $match[1] );
+		}
+	}
+
+	/**
+	 * Add one outline entry when within the output bound.
+	 *
+	 * @param array<int,array<string,mixed>> $outline Outline accumulator.
+	 * @param int                            $line    1-based line number.
+	 * @param string                         $type    Landmark type.
+	 * @param string                         $name    Landmark name.
+	 */
+	private function add_outline_entry( array &$outline, int $line, string $type, string $name ): void {
+		if ( count( $outline ) >= self::MAX_OUTLINE_ITEMS ) {
+			return;
+		}
+
+		$outline[] = [
+			'line' => $line,
+			'type' => $type,
+			'name' => mb_substr( $name, 0, 160 ),
 		];
 	}
 
