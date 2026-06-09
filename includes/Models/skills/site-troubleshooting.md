@@ -51,6 +51,9 @@ Use this skill when the user reports errors, performance issues, white screens, 
    above; after a missing repository path such as `vendor/`, make this runtime
    log the next evidence source and do not assume Composer dependencies are the
    root cause until it is checked.
+   If the failed tool call was literally `read vendor`, treat the missing read as
+   a path/layer mistake: inspect the WordPress debug log before checking
+   `vendor/`, `composer install`, or autoload state.
 3. Confirm the shared WordPress install symlinks every checked-out plugin worktree
    into each plugin's canonical directory name before treating the fatal as an
    application-code regression. Use `wp plugin path <plugin-slug>` or inspect
