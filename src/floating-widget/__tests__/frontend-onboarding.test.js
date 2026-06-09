@@ -1,10 +1,10 @@
 import {
-	getFrontendHydrationSessionId,
+	getHydrationSessionId,
 	hasLiveSiteChangeActivity,
 	isFrontendOnboardingEnabled,
 	isMobileViewport,
 	shouldStartFrontendOnboarding,
-	startFrontendOnboarding,
+	startOnboarding,
 } from '../frontend-onboarding';
 
 describe( 'frontend onboarding helpers', () => {
@@ -92,7 +92,7 @@ describe( 'frontend onboarding helpers', () => {
 
 	test( 'hydrates a running frontend build session before latest recency', () => {
 		expect(
-			getFrontendHydrationSessionId(
+			getHydrationSessionId(
 				[
 					{ id: '12', title: 'Latest chat' },
 					{ id: '7', title: 'Build session' },
@@ -106,7 +106,7 @@ describe( 'frontend onboarding helpers', () => {
 
 	test( 'hydrates the latest session when no build is running', () => {
 		expect(
-			getFrontendHydrationSessionId(
+			getHydrationSessionId(
 				[
 					{ id: '12', title: 'Latest chat' },
 					{ id: '7', title: 'Older chat' },
@@ -166,7 +166,7 @@ describe( 'frontend onboarding helpers', () => {
 		const sendMessage = jest.fn().mockResolvedValue( undefined );
 		const setSelectedAgentId = jest.fn();
 
-		await startFrontendOnboarding( {
+		await startOnboarding( {
 			apiFetch,
 			openSession,
 			sendMessage,
@@ -191,7 +191,7 @@ describe( 'frontend onboarding helpers', () => {
 		const sendMessage = jest.fn().mockResolvedValue( undefined );
 
 		await expect(
-			startFrontendOnboarding( {
+			startOnboarding( {
 				apiFetch,
 				openSession,
 				sendMessage,
@@ -211,7 +211,7 @@ describe( 'frontend onboarding helpers', () => {
 		const openSession = jest.fn().mockResolvedValue( undefined );
 		const sendMessage = jest.fn().mockResolvedValue( undefined );
 
-		await startFrontendOnboarding( {
+		await startOnboarding( {
 			apiFetch,
 			openSession,
 			sendMessage,

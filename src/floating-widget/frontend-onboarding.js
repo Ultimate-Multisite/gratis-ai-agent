@@ -9,12 +9,12 @@
 import defaultApiFetch from '@wordpress/api-fetch';
 
 const ONBOARDING_START_PATH = '/sd-ai-agent/v1/onboarding/start';
-const IN_FLIGHT_JOB_STATUSES = new Set( [
+const IN_FLIGHT_JOB_STATUSES = [
 	'processing',
 	'awaiting_confirmation',
 	'pending_proposal',
 	'awaiting_client_tools',
-] );
+];
 
 /**
  * Coerce wp_localize_script booleans and REST booleans into a real boolean.
@@ -91,50 +91,45 @@ export { hasLiveSiteChangeActivity as hasActivity };
  * Pick the conversation the frontend widget should hydrate on page load.
  *
  * Running sessions win over recency so a long-running build submitted from the
- * widget remains visible after navigation/reload.  If nothing is running, fall
- * back to the newest session from the server list so the widget and dedicated
- * admin chat start from the same latest conversation instead of an empty setup
- * state.
+ * widget remains visible after navigation/reload. If nothing is running, fall
+ * back to the newest session from the server list.
  *
  * @param {Array}  sessions    Session summaries from /sessions.
  * @param {Object} sessionJobs Map of sessionId → active job metadata.
  * @return {number|null} Session ID to open, or null when no session exists.
  */
-export function getFrontendHydrationSessionId( sessions, sessionJobs = {} ) {
-	const normalizedSessions = ( Array.isArray( sessions ) ? sessions : [] )
-		.map( ( session ) => ( {
-			...session,
-			id:
-				typeof session?.id === 'string'
-					? parseInt( session.id, 10 )
-					: session?.id,
-		} ) )
-		.filter( ( session ) => Number.isFinite( session.id ) );
+export function getHydrationSessionId( sessions, sessionJobs = {} ) {
+	let latestId = null;
 
-	if ( normalizedSessions.length === 0 ) {
-		return null;
+	for ( const session of Array.isArray( sessions ) ? sessions : [] ) {
+		const id =
+			typeof session?.id === 'string'
+				? parseInt( session.id, 10 )
+				: session?.id;
+
+		if ( ! Number.isFinite( id ) ) {
+			continue;
+		}
+
+		if ( latestId === null ) {
+			latestId = id;
+		}
+
+		const job = sessionJobs?.[ id ] || sessionJobs?.[ String( id ) ];
+		if ( job?.status && IN_FLIGHT_JOB_STATUSES.includes( job.status ) ) {
+			return id;
+		}
 	}
 
-	const runningSession = normalizedSessions.find( ( session ) => {
-		const job =
-			sessionJobs?.[ session.id ] ||
-			sessionJobs?.[ String( session.id ) ];
-		return job?.status && IN_FLIGHT_JOB_STATUSES.has( job.status );
-	} );
-
-	if ( runningSession ) {
-		return runningSession.id;
-	}
-
-	return normalizedSessions[ 0 ].id;
+	return latestId;
 }
 
 /**
  * Determine whether first-run frontend onboarding may start.
  *
  * Onboarding must wait until sessions have loaded. Otherwise a reload during a
- * real submitted build can briefly look empty and bootstrap a fresh Setup
- * Assistant session before the existing conversation list arrives.
+ * real submitted build can briefly look empty and bootstrap a fresh setup
+ * session before the existing conversation list arrives.
  *
  * @param {Object}  options
  * @param {boolean} options.enabled          Frontend onboarding flag.
@@ -177,7 +172,7 @@ export function shouldStartFrontendOnboarding( {
  * @param {string}   options.fallbackMessage    Message used when REST omits one.
  * @return {Promise<Object|null>} Start metadata, or null if no session returned.
  */
-export async function startFrontendOnboarding( {
+export async function startOnboarding( {
 	apiFetch = defaultApiFetch,
 	openSession,
 	sendMessage,
