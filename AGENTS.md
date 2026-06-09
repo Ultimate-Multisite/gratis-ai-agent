@@ -157,7 +157,8 @@ note to a committed, future-loaded source before editing:
   summarize each reviewer finding, cite the merged fix or evidence-backed
   rationale, include verification commands, and avoid blanket "all fixed" or
   "false positive" claims that are not tied to a specific finding.
-- For mixed reports like issues #2034, #2050, #2060, #2066, and #2074, make the mapping
+- For mixed reports like issues #2034, #2050, #2060, #2066, #2074, and #2081,
+  make the mapping
   explicit in the PR body: block-theme excerpts map to
   `includes/Models/skills/wp-block-themes.md`; REST hardening shorthand maps to
   this root REST policy plus `includes/REST/` and
@@ -167,7 +168,7 @@ note to a committed, future-loaded source before editing:
   do not invent work for it; state the inspected candidate list and the durable
   source chosen for each note. State when the implementation is a guidance
   hardening only because the inspected code already has the required guard.
-- For #2060/#2066/#2074-style reports that include the three candidates `Block Themes`,
+- For #2060/#2066/#2074/#2081-style reports that include the three candidates `Block Themes`,
   "where do we use Google Search Console API?", and a WordPress.org
   review-response prompt, update or verify only those three durable sources:
   `includes/Models/skills/wp-block-themes.md`, the Google Search Console usage
