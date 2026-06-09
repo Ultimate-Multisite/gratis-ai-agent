@@ -28,15 +28,13 @@ const FIELD_SELECTORS = {
  * Normalize a URL to a comparable path without query, hash, or trailing slash.
  *
  * @param {string} url URL or path to normalize.
- * @return {string} Normalized pathname.
+ * @return {string|undefined} Normalized pathname.
  */
 function normalizePath( url ) {
 	try {
 		const parsed = new URL( url, window.location.origin );
 		return parsed.pathname.replace( /\/+$/, '' ) || '/';
-	} catch {
-		return '';
-	}
+	} catch {}
 }
 
 /**
