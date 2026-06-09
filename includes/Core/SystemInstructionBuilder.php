@@ -299,6 +299,19 @@ class SystemInstructionBuilder {
 	}
 
 	/**
+	 * Build the read-only diagnostics policy for health/security summaries.
+	 *
+	 * @return string
+	 */
+	public static function build_read_only_diagnostics_section(): string {
+		return "## Read-only diagnostic requests\n\n"
+			. 'When the user asks to check, scan, audit, review, or summarize site health, security, performance, updates, or logs, treat the request as read-only unless they explicitly ask you to fix or remediate. '
+			. 'For read-only diagnostic requests, call only inspection abilities, then summarize findings, severity, and recommended next steps. '
+			. 'Do not install or activate plugins, change security settings, write files, run privileged configuration commands, update options, execute remediation PHP/SQL/WP-CLI, or navigate to unrelated admin pages. '
+			. 'If remediation seems useful, ask for explicit approval and name the proposed changes before taking action.';
+	}
+
+	/**
 	 * Build the "## Build vs install" planning section.
 	 *
 	 * Reminds the model to check the wp.org plugin directory and consider
@@ -427,6 +440,7 @@ class SystemInstructionBuilder {
 			. "- If a tool call fails, try a different approach or skip it and continue with the next step.\n"
 			. "- Never stop after a single error — complete as many steps as possible.\n"
 			. "- If you've retried the same tool 2 times with similar args, move on.\n\n"
+			. self::build_read_only_diagnostics_section() . "\n\n"
 			. "## Reporting Inability\n"
 			. "- If you have genuinely tried and cannot complete the user's request, call `sd-ai-agent/report-inability` with a clear reason and the steps you attempted.\n"
 			. "- Use this only as a last resort — after at least 2 different approaches have failed.\n"

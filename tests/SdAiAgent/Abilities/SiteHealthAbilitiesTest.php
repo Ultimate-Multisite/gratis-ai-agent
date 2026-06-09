@@ -224,6 +224,7 @@ class SiteHealthAbilitiesTest extends WP_UnitTestCase {
 		$this->assertArrayHasKey( 'warnings', $result );
 		$this->assertArrayHasKey( 'passed', $result );
 		$this->assertArrayHasKey( 'score', $result );
+		$this->assertArrayHasKey( 'agent_guidance', $result );
 	}
 
 	/**
@@ -263,6 +264,18 @@ class SiteHealthAbilitiesTest extends WP_UnitTestCase {
 		$expected_score = max( 0, $expected_score );
 
 		$this->assertSame( $expected_score, $result['score'] );
+	}
+
+	/**
+	 * Security diagnostics must guide the model to summarize instead of remediate.
+	 */
+	public function test_handle_check_security_includes_read_only_guidance() {
+		$result = SiteHealthAbilities::handle_check_security( [] );
+
+		$this->assertIsString( $result['agent_guidance'] );
+		$this->assertStringContainsString( 'Summarize these diagnostic findings', $result['agent_guidance'] );
+		$this->assertStringContainsString( 'Do not install plugins', $result['agent_guidance'] );
+		$this->assertStringContainsString( 'navigate away unless the user explicitly requested remediation', $result['agent_guidance'] );
 	}
 
 	// ─── handle_check_performance ─────────────────────────────────
@@ -330,6 +343,7 @@ class SiteHealthAbilitiesTest extends WP_UnitTestCase {
 		$this->assertArrayHasKey( 'security', $result );
 		$this->assertArrayHasKey( 'performance', $result );
 		$this->assertArrayHasKey( 'generated_at', $result );
+		$this->assertArrayHasKey( 'agent_guidance', $result );
 	}
 
 	/**
@@ -367,6 +381,19 @@ class SiteHealthAbilitiesTest extends WP_UnitTestCase {
 
 		$this->assertIsArray( $result );
 		$this->assertArrayHasKey( 'overall_status', $result );
+	}
+
+	/**
+	 * Site-health summaries must not encourage immediate plugin installs or navigation.
+	 */
+	public function test_handle_site_health_summary_includes_read_only_guidance() {
+		$result = SiteHealthAbilities::handle_site_health_summary( [] );
+
+		$this->assertIsArray( $result );
+		$this->assertIsString( $result['agent_guidance'] );
+		$this->assertStringContainsString( 'Do not install plugins', $result['agent_guidance'] );
+		$this->assertStringContainsString( 'activate plugins', $result['agent_guidance'] );
+		$this->assertStringContainsString( 'unless the user explicitly requested remediation', $result['agent_guidance'] );
 	}
 
 	// ─── handle_detect_fresh_install ───────────────────────────────

@@ -110,6 +110,34 @@ class SystemInstructionBuilderTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * Diagnostic summary prompts must remain read-only unless remediation is explicit.
+	 *
+	 * Regression: issue #2083 — a site health summary request installed and
+	 * configured Wordfence instead of summarizing findings.
+	 */
+	public function test_default_instruction_includes_read_only_diagnostics_policy(): void {
+		$instruction = SystemInstructionBuilder::default_system_instruction();
+
+		$this->assertStringContainsString( '## Read-only diagnostic requests', $instruction );
+		$this->assertStringContainsString( 'summarize site health, security, performance, updates, or logs', $instruction );
+		$this->assertStringContainsString( 'Do not install or activate plugins', $instruction );
+		$this->assertStringContainsString( 'navigate to unrelated admin pages', $instruction );
+		$this->assertStringContainsString( 'ask for explicit approval', $instruction );
+	}
+
+	/**
+	 * The diagnostics policy is also exposed as a focused builder section.
+	 */
+	public function test_read_only_diagnostics_section_blocks_remediation_tools(): void {
+		$section = SystemInstructionBuilder::build_read_only_diagnostics_section();
+
+		$this->assertStringContainsString( 'read-only', $section );
+		$this->assertStringContainsString( 'write files', $section );
+		$this->assertStringContainsString( 'privileged configuration commands', $section );
+		$this->assertStringContainsString( 'update options', $section );
+	}
+
+	/**
 	 * Test that custom system prompt overrides the default.
 	 */
 	public function test_build_uses_custom_system_prompt(): void {
