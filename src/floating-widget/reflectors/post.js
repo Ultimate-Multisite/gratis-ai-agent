@@ -12,7 +12,6 @@ const FIELD_SELECTORS = {
 	post_content: [
 		'.wp-block-post-content',
 		'.entry-content',
-		'article .entry-content',
 		// Block themes can render the homepage/front-page template without a
 		// dedicated post-content wrapper. In that case, morph the public site
 		// block tree so content edited through the agent appears immediately.
