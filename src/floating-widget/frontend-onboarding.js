@@ -136,7 +136,7 @@ export function getFrontendHydrationSessionId( sessions, sessionJobs = {} ) {
  * real submitted build can briefly look empty and bootstrap a fresh Setup
  * Assistant session before the existing conversation list arrives.
  *
- * @param {Object} options
+ * @param {Object}  options
  * @param {boolean} options.enabled          Frontend onboarding flag.
  * @param {boolean} options.started          Whether this page already started onboarding.
  * @param {boolean} options.providersLoaded  Whether providers finished loading.

@@ -115,7 +115,13 @@ function FloatingWidget() {
 		if ( sessionId ) {
 			openSession( sessionId );
 		}
-	}, [ sessionsLoaded, sessions, sessionJobs, currentSessionId, openSession ] );
+	}, [
+		sessionsLoaded,
+		sessions,
+		sessionJobs,
+		currentSessionId,
+		openSession,
+	] );
 
 	// First-run frontend onboarding: open the widget as a centered assistant,
 	// start the same server-side onboarding session used by the admin chat page,
