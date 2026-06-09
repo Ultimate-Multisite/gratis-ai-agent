@@ -170,6 +170,70 @@ class AgentLoopTest extends WP_UnitTestCase {
 		$this->assertCount( 3, $history, 'Non-DeepSeek providers should keep the generic split behavior.' );
 	}
 
+	/**
+	 * XML-ish tool-call text should become an ability-call function part, not a final reply.
+	 */
+	public function test_intercepts_xml_tool_call_text_as_ability_call(): void {
+		if ( ! class_exists( 'WordPress\AiClient\Messages\DTO\ModelMessage' ) ) {
+			$this->markTestSkipped( 'WP AI Client message classes are not available.' );
+		}
+
+		if ( ! function_exists( 'wp_has_ability' ) || ! wp_has_ability( 'sd-ai-agent/get-themes' ) ) {
+			$this->markTestSkipped( 'sd-ai-agent/get-themes ability is not registered.' );
+		}
+
+		$loop    = new AgentLoop( 'List installed themes.' );
+		$message = new \WordPress\AiClient\Messages\DTO\ModelMessage(
+			array(
+				new \WordPress\AiClient\Messages\DTO\MessagePart( '<tool_call>wpab__sd-ai-agent__get-themes</tool_call>' ),
+			)
+		);
+
+		$method = new \ReflectionMethod( AgentLoop::class, 'intercept_text_tool_call' );
+		$method->setAccessible( true );
+
+		$result = $method->invoke( $loop, $message );
+
+		$this->assertInstanceOf( \WordPress\AiClient\Messages\DTO\Message::class, $result );
+		$this->assertCount( 1, $result->getParts() );
+
+		$call = $result->getParts()[0]->getFunctionCall();
+		$this->assertInstanceOf( \WordPress\AiClient\Tools\DTO\FunctionCall::class, $call );
+		$this->assertSame( 'wpab__sd-ai-agent__ability-call', $call->getName() );
+		$this->assertSame(
+			array(
+				'ability'   => 'sd-ai-agent/get-themes',
+				'arguments' => array(),
+			),
+			$call->getArgs()
+		);
+	}
+
+	/**
+	 * Unknown XML-ish tool-call text should produce corrective guidance for another loop turn.
+	 */
+	public function test_unknown_xml_tool_call_text_gets_corrective_prompt(): void {
+		if ( ! class_exists( 'WordPress\AiClient\Messages\DTO\ModelMessage' ) ) {
+			$this->markTestSkipped( 'WP AI Client message classes are not available.' );
+		}
+
+		$loop    = new AgentLoop( 'Do something.' );
+		$message = new \WordPress\AiClient\Messages\DTO\ModelMessage(
+			array(
+				new \WordPress\AiClient\Messages\DTO\MessagePart( '<function_call name="wpab__sd-ai-agent__missing-tool"/>' ),
+			)
+		);
+
+		$method = new \ReflectionMethod( AgentLoop::class, 'intercept_text_tool_call' );
+		$method->setAccessible( true );
+
+		$result = $method->invoke( $loop, $message );
+
+		$this->assertIsString( $result );
+		$this->assertStringContainsString( 'not invokable as assistant text', $result );
+		$this->assertStringContainsString( 'sd-ai-agent/ability-call', $result );
+	}
+
 	// -------------------------------------------------------------------------
 	// Helpers
 	// -------------------------------------------------------------------------

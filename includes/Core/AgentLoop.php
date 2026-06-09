@@ -983,6 +983,15 @@ class AgentLoop {
 			// name+arguments pair so metrics and provider time reflect real work.
 			$assistant_message = $this->deduplicate_tool_calls( $assistant_message );
 
+			$intercepted_xml_tool_call = $this->intercept_text_tool_call( $assistant_message );
+			if ( $intercepted_xml_tool_call instanceof Message ) {
+				$assistant_message = $intercepted_xml_tool_call;
+			} elseif ( is_string( $intercepted_xml_tool_call ) ) {
+				$this->history[]       = new UserMessage( array( new MessagePart( $intercepted_xml_tool_call ) ) );
+				$this->last_loop_phase = 'text_tool_call_corrective_prompt';
+				continue;
+			}
+
 			// Split multi-part assistant messages so each function_call lives
 			// in its own ModelMessage. The OpenAI Responses API rejects
 			// "function_call + other part" shapes (see
@@ -1963,6 +1972,120 @@ class AgentLoop {
 		}
 
 		return false;
+	}
+
+	/**
+	 * Convert raw XML-ish tool-call text into an executable ability-call turn.
+	 *
+	 * Some OpenAI-compatible models trained on XML tool-use traces emit strings
+	 * such as `<tool_call>wpab__sd-ai-agent__get-themes</tool_call>` in assistant
+	 * content instead of using the provider's structured tool-call channel. Catch
+	 * that before the text can become the user-visible final reply.
+	 *
+	 * @param Message $message Assistant message returned by the model.
+	 * @return Message|string|null Synthetic tool-call message, corrective prompt, or null.
+	 */
+	private function intercept_text_tool_call( Message $message ): Message|string|null {
+		if ( $this->message_has_function_calls( $message ) ) {
+			return null;
+		}
+
+		$text = $this->message_text( $message );
+		if ( '' === trim( $text ) ) {
+			return null;
+		}
+
+		$raw_tool_name = $this->extract_text_tool_call_name( $text );
+		if ( null === $raw_tool_name ) {
+			return null;
+		}
+
+		$ability_name = $this->resolve_text_tool_call_ability_name( $raw_tool_name );
+		if ( null === $ability_name ) {
+			return sprintf(
+				/* translators: %s: invalid tool name emitted as text. */
+				__( 'Tool "%s" is not invokable as assistant text. Do not write XML-like tool calls in the reply. Use `sd-ai-agent/ability-search` to find a valid ability, then call `sd-ai-agent/ability-call` with the ability name and arguments.', 'superdav-ai-agent' ),
+				$raw_tool_name
+			);
+		}
+
+		return new ModelMessage(
+			array(
+				new MessagePart(
+					new FunctionCall(
+						'text_tool_call_' . substr( md5( $raw_tool_name ), 0, 12 ),
+						'wpab__sd-ai-agent__ability-call',
+						array(
+							'ability'   => $ability_name,
+							'arguments' => array(),
+						)
+					)
+				),
+			)
+		);
+	}
+
+	/**
+	 * Concatenate text parts from an assistant message.
+	 *
+	 * @param Message $message Assistant message returned by the model.
+	 * @return string Text content.
+	 */
+	private function message_text( Message $message ): string {
+		$text = '';
+
+		foreach ( $message->getParts() as $part ) {
+			if ( method_exists( $part, 'getText' ) && is_string( $part->getText() ) ) {
+				$text .= $part->getText() . "\n";
+			}
+		}
+
+		return trim( $text );
+	}
+
+	/**
+	 * Extract the first XML-ish tool-call name from assistant text.
+	 *
+	 * @param string $text Assistant text.
+	 * @return string|null Raw tool/function name.
+	 */
+	private function extract_text_tool_call_name( string $text ): ?string {
+		$patterns = array(
+			'/<tool_call>\s*([^\s<>]+)\s*<\/tool_call>/i',
+			'/<tool>\s*([^\s<>]+)\s*<\/tool>/i',
+			'/<function_call\s+name=["\']([^"\'<>]+)["\']\s*\/?\s*>/i',
+		);
+
+		foreach ( $patterns as $pattern ) {
+			$matches = array();
+			if ( preg_match( $pattern, $text, $matches ) ) {
+				return trim( (string) $matches[1] );
+			}
+		}
+
+		return null;
+	}
+
+	/**
+	 * Resolve a raw function/tool name from text into a registered ability name.
+	 *
+	 * @param string $raw_tool_name Raw name from assistant text.
+	 * @return string|null Registered ability name, or null when unknown.
+	 */
+	private function resolve_text_tool_call_ability_name( string $raw_tool_name ): ?string {
+		$ability_name = $raw_tool_name;
+
+		if ( str_starts_with( $ability_name, 'wpab__' ) && class_exists( 'WP_AI_Client_Ability_Function_Resolver' ) ) {
+			$ability_name = \WP_AI_Client_Ability_Function_Resolver::function_name_to_ability_name( $ability_name );
+		} elseif ( str_starts_with( $ability_name, 'wpab__sd-ai-agent__' ) ) {
+			$ability_name = 'sd-ai-agent/' . substr( $ability_name, strlen( 'wpab__sd-ai-agent__' ) );
+		}
+
+		if ( ! str_contains( $ability_name, '/' ) ) {
+			return null;
+		}
+
+		return AbilityRegistry::get( $ability_name ) instanceof \WP_Ability ? $ability_name : null;
 	}
 
 	/**
