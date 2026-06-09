@@ -1184,8 +1184,8 @@ class AssertionEngine {
 	 */
 	private static function callback_file( callable $callback ): ?string {
 		try {
-			if ( is_array( $callback ) && isset( $callback[0], $callback[1] ) && ( is_object( $callback[0] ) || is_string( $callback[0] ) ) ) {
-				$reflection = new \ReflectionMethod( $callback[0], (string) $callback[1] );
+			if ( is_array( $callback ) ) {
+				$reflection = new \ReflectionMethod( $callback[0], $callback[1] );
 			} elseif ( is_string( $callback ) && str_contains( $callback, '::' ) ) {
 				$reflection = new \ReflectionMethod( $callback );
 			} elseif ( is_object( $callback ) && ! $callback instanceof \Closure && method_exists( $callback, '__invoke' ) ) {

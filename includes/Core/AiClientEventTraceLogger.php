@@ -293,7 +293,7 @@ class AiClientEventTraceLogger {
 					continue;
 				}
 				$serialized['candidates'][] = [
-					'finish_reason' => $candidate->getFinishReason()->value ?? '',
+					'finish_reason' => $candidate->getFinishReason()->value,
 					'message'       => $candidate->getMessage()->toArray(),
 				];
 			}

@@ -894,12 +894,8 @@ class WpRestAbilities {
 		// Try to extract capability name from closure/function source via reflection.
 		if ( is_callable( $cb ) ) {
 			try {
-				if ( is_array( $cb ) && isset( $cb[0], $cb[1] ) ) {
-					/** @var object|string $class_ref */
-					$class_ref = $cb[0];
-					/** @var string $method_ref */
-					$method_ref = (string) $cb[1];
-					$ref        = new \ReflectionMethod( $class_ref, $method_ref );
+				if ( is_array( $cb ) ) {
+					$ref = new \ReflectionMethod( $cb[0], $cb[1] );
 				} elseif ( $cb instanceof \Closure ) {
 					$ref = new \ReflectionFunction( $cb );
 				} elseif ( is_string( $cb ) ) {
