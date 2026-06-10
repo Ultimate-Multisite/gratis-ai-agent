@@ -161,7 +161,7 @@ class ActiveJobRepository {
 	 *
 	 * @param string               $job_id The job UUID.
 	 * @param string               $status New status value.
-	 * @param array<string, mixed> $extra  Optional extra fields to update (pending_tools, tool_calls).
+	 * @param array<string, mixed> $extra  Optional extra fields to update (pending_tools, tool_calls, error).
 	 * @return bool True on success, false on failure.
 	 */
 	public static function update_status( string $job_id, string $status, array $extra = [] ): bool {
@@ -172,7 +172,7 @@ class ActiveJobRepository {
 			return false;
 		}
 
-		$allowed = [ 'pending_tools', 'tool_calls', 'checkpoint', 'checkpoint_phase', 'resume_attempts' ];
+		$allowed = [ 'pending_tools', 'tool_calls', 'checkpoint', 'checkpoint_phase', 'resume_attempts', 'error' ];
 		$data    = array_intersect_key( $extra, array_flip( $allowed ) );
 
 		$data['status']     = $status;

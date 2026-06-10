@@ -35,6 +35,7 @@
 
 import { registerCategory } from './registry';
 import { registerNavigationAbility } from './navigation';
+import { registerRefreshPageAbility } from './refresh-page';
 import { registerEditorAbility } from './editor';
 import {
 	registerCaptureScreenshotAbility,
@@ -105,6 +106,7 @@ export function ensureRegistered() {
 		await registerCategory();
 		// Now safe to register abilities — the category exists in the store.
 		await registerNavigationAbility();
+		await registerRefreshPageAbility();
 		await registerEditorAbility();
 		await registerCaptureScreenshotAbility();
 		await registerScreenshotUrlAbility();

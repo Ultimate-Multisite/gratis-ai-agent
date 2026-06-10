@@ -167,6 +167,19 @@ class FloatingWidget {
 		}
 
 		$onboarding_complete = OnboardingManager::is_complete();
+		$is_frontend         = 'frontend' === $context;
+		$viewed_post_id      = 0;
+		$viewed_post_type    = '';
+		$viewed_title        = '';
+
+		if ( $is_frontend && is_singular() ) {
+			$viewed_post_id = (int) get_queried_object_id();
+			$viewed_post    = $viewed_post_id > 0 ? get_post( $viewed_post_id ) : null;
+			if ( $viewed_post instanceof \WP_Post ) {
+				$viewed_post_type = $viewed_post->post_type;
+				$viewed_title     = get_the_title( $viewed_post );
+			}
+		}
 
 		wp_localize_script(
 			'sd-ai-agent-floating-widget',
@@ -174,10 +187,13 @@ class FloatingWidget {
 			[
 				'currentUserId'       => get_current_user_id(),
 				'context'             => $context,
-				'isFrontend'          => 'frontend' === $context,
-				'frontendOnboarding'  => ( 'frontend' === $context && ! $onboarding_complete ) ? '1' : '',
+				'isFrontend'          => $is_frontend,
+				'frontendOnboarding'  => ( $is_frontend && ! $onboarding_complete ) ? '1' : '',
 				'onboarding_complete' => $onboarding_complete,
 				'changesPageUrl'      => admin_url( 'admin.php?page=sd-ai-agent#/changes' ),
+				'viewedPostId'        => $viewed_post_id,
+				'viewedPostType'      => $viewed_post_type,
+				'viewedTitle'         => $viewed_title,
 			]
 		);
 	}

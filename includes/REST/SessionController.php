@@ -1131,6 +1131,13 @@ final class SessionController {
 			}
 		}
 
+		if ( 'error' === $status ) {
+			$error_detail        = $this->sanitize_job_error_detail( (string) $row->error );
+			$response['message'] = '' !== $error_detail
+				? $error_detail
+				: __( 'The background agent job failed before it could finish. Please retry the request.', 'superdav-ai-agent' );
+		}
+
 		if ( in_array( $status, array( 'interrupted', 'abandoned' ), true ) ) {
 			$error_detail                = $this->sanitize_job_error_detail( (string) $row->error );
 			$response['status']          = 'error';
@@ -1604,7 +1611,7 @@ final class SessionController {
 				$job['error']  = __( 'Invalid conversation history format.', 'superdav-ai-agent' );
 				unset( $job['token'] );
 				set_transient( RestController::JOB_PREFIX . $job_id, $job, RestController::JOB_TTL );
-				ActiveJobRepository::update_status( $job_id, 'error' );
+				ActiveJobRepository::update_status( $job_id, 'error', [ 'error' => $job['error'] ] );
 				return new WP_REST_Response( array( 'ok' => false ), 200 );
 			}
 		}
@@ -1799,8 +1806,8 @@ final class SessionController {
 			unset( $job['token'] );
 			set_transient( RestController::JOB_PREFIX . $job_id, $job, RestController::JOB_TTL );
 
-			// Persist exception to DB so status survives transient expiry.
-			ActiveJobRepository::update_status( $job_id, 'error' );
+			// Persist exception details to DB so status survives transient expiry.
+			ActiveJobRepository::update_status( $job_id, 'error', [ 'error' => $job['error'] ] );
 
 			return new WP_REST_Response( array( 'ok' => false ), 200 );
 		}
@@ -2017,7 +2024,7 @@ final class SessionController {
 		// @phpstan-ignore-next-line -- status is set above in all paths (error or complete).
 		$db_status = (string) $job['status'];
 		if ( 'error' === $db_status ) {
-			ActiveJobRepository::update_status( $job_id, 'error' );
+			ActiveJobRepository::update_status( $job_id, 'error', [ 'error' => (string) ( $job['error'] ?? '' ) ] );
 		} elseif ( 'complete' === $db_status ) {
 			/** @var array<string, mixed> $complete_result */
 			$complete_result = $job['result'] ?? array();

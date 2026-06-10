@@ -2933,6 +2933,67 @@ class BlockAbilities {
 	}
 
 	/**
+	 * Build the output schema for a post-content affected descriptor.
+	 *
+	 * @return array<string,mixed>
+	 */
+	private static function post_content_affected_output_schema(): array {
+		return [
+			'type'        => 'object',
+			'description' => 'Transport descriptor for the frontend reflection bus — identifies the mutated post content so the current public page can update without a full reload.',
+			'properties'  => [
+				'kind'      => [ 'type' => 'string' ],
+				'post_id'   => [ 'type' => 'integer' ],
+				'post_type' => [ 'type' => 'string' ],
+				'url'       => [ 'type' => 'string' ],
+				'fields'    => [
+					'type'  => 'array',
+					'items' => [ 'type' => 'string' ],
+				],
+			],
+		];
+	}
+
+	/**
+	 * Build the frontend live-preview affected descriptor for block writes.
+	 *
+	 * Block abilities only mutate post_content, so the descriptor always targets
+	 * a post and lists post_content as the changed field. Dry-run callers should
+	 * omit the descriptor because no visible page changed.
+	 *
+	 * @param int $post_id Mutated post ID.
+	 * @return array<string,mixed>
+	 */
+	private static function build_post_content_affected_payload( int $post_id ): array {
+		$post      = get_post( $post_id );
+		$permalink = get_permalink( $post_id );
+
+		return [
+			'kind'      => 'post',
+			'post_id'   => $post_id,
+			'post_type' => $post instanceof \WP_Post ? $post->post_type : '',
+			'url'       => is_string( $permalink ) ? $permalink : '',
+			'fields'    => [ 'post_content' ],
+		];
+	}
+
+	/**
+	 * Attach affected metadata to a successful block-write response.
+	 *
+	 * @param array<string,mixed> $response Ability response.
+	 * @param int                 $post_id  Mutated post ID.
+	 * @param bool                $dry_run  Whether the write was skipped.
+	 * @return array<string,mixed>
+	 */
+	private static function with_post_content_affected_payload( array $response, int $post_id, bool $dry_run = false ): array {
+		if ( ! $dry_run ) {
+			$response['affected'] = self::build_post_content_affected_payload( $post_id );
+		}
+
+		return $response;
+	}
+
+	/**
 	 * Handle the sd-ai-agent/edit-block-tree ability.
 	 *
 	 * Loads the post's block tree, applies the requested mutation via
@@ -3032,13 +3093,17 @@ class BlockAbilities {
 			RateLimiter::record( 'write', $post_id );
 		}
 
-		return [
-			'success'    => true,
-			'dry_run'    => $dry_run,
-			'op'         => $op,
-			'post_id'    => $post_id,
-			'block_tree' => self::annotate_bindings_tree( $new_tree ),
-		];
+		return self::with_post_content_affected_payload(
+			[
+				'success'    => true,
+				'dry_run'    => $dry_run,
+				'op'         => $op,
+				'post_id'    => $post_id,
+				'block_tree' => self::annotate_bindings_tree( $new_tree ),
+			],
+			$post_id,
+			$dry_run
+		);
 	}
 
 	// ─── update-blocks (batch) handler ────────────────────────────
@@ -3162,58 +3227,18 @@ class BlockAbilities {
 			RateLimiter::record( 'write', $post_id );
 		}
 
-		$response = [
-			'success'     => true,
-			'dry_run'     => $dry_run,
-			'post_id'     => $post_id,
-			'updates'     => count( $updates ),
-			'revision_id' => RevisionGuard::current_revision_id( $post_id ),
-			'block_tree'  => self::annotate_bindings_tree( $new_tree ),
-		];
-
-		if ( ! $dry_run ) {
-			$response['affected'] = self::build_post_content_affected_payload( $post_id );
-		}
-
-		return $response;
-	}
-
-	/**
-	 * Build the output schema for a post-content affected descriptor.
-	 *
-	 * @return array<string,mixed>
-	 */
-	private static function post_content_affected_output_schema(): array {
-		return [
-			'type'        => 'object',
-			'description' => 'Transport descriptor for the frontend reflection bus — identifies the mutated post content so the current public page can update without a full reload.',
-			'properties'  => [
-				'kind'    => [ 'type' => 'string' ],
-				'post_id' => [ 'type' => 'integer' ],
-				'url'     => [ 'type' => 'string' ],
-				'fields'  => [
-					'type'  => 'array',
-					'items' => [ 'type' => 'string' ],
-				],
+		return self::with_post_content_affected_payload(
+			[
+				'success'     => true,
+				'dry_run'     => $dry_run,
+				'post_id'     => $post_id,
+				'updates'     => count( $updates ),
+				'revision_id' => RevisionGuard::current_revision_id( $post_id ),
+				'block_tree'  => self::annotate_bindings_tree( $new_tree ),
 			],
-		];
-	}
-
-	/**
-	 * Build an affected descriptor for block-tree post-content mutations.
-	 *
-	 * @param int $post_id Post ID.
-	 * @return array<string,mixed>
-	 */
-	private static function build_post_content_affected_payload( int $post_id ): array {
-		$permalink = get_permalink( $post_id );
-
-		return [
-			'kind'    => 'post',
-			'post_id' => $post_id,
-			'url'     => is_string( $permalink ) ? $permalink : '',
-			'fields'  => [ 'post_content' ],
-		];
+			$post_id,
+			$dry_run
+		);
 	}
 
 	// ─── rewrite-post-blocks handler ──────────────────────────────
@@ -3349,13 +3374,16 @@ class BlockAbilities {
 		// Record rate-limit tick after successful rewrite.
 		RateLimiter::record( 'rewrite', $post_id );
 
-		return [
-			'success'     => true,
-			'post_id'     => $post_id,
-			'revision_id' => RevisionGuard::current_revision_id( $post_id ),
-			'block_count' => count( $final_tree ),
-			'refs_count'  => $refs_count,
-		];
+		return self::with_post_content_affected_payload(
+			[
+				'success'     => true,
+				'post_id'     => $post_id,
+				'revision_id' => RevisionGuard::current_revision_id( $post_id ),
+				'block_count' => count( $final_tree ),
+				'refs_count'  => $refs_count,
+			],
+			$post_id
+		);
 	}
 
 	/**
@@ -3712,15 +3740,19 @@ class BlockAbilities {
 			RateLimiter::record( 'write', $post_id );
 		}
 
-		return [
-			'success'         => true,
-			'dry_run'         => $dry_run,
-			'post_id'         => $post_id,
-			'pattern_type'    => $pattern_type,
-			'blocks_inserted' => $blocks_inserted,
-			'revision_id'     => RevisionGuard::current_revision_id( $post_id ),
-			'block_tree'      => self::annotate_bindings_tree( $blocks ),
-		];
+		return self::with_post_content_affected_payload(
+			[
+				'success'         => true,
+				'dry_run'         => $dry_run,
+				'post_id'         => $post_id,
+				'pattern_type'    => $pattern_type,
+				'blocks_inserted' => $blocks_inserted,
+				'revision_id'     => RevisionGuard::current_revision_id( $post_id ),
+				'block_tree'      => self::annotate_bindings_tree( $blocks ),
+			],
+			$post_id,
+			$dry_run
+		);
 	}
 
 	// ─── replace-block-range handler ──────────────────────────────
@@ -3889,15 +3921,19 @@ class BlockAbilities {
 		// @phpstan-ignore-next-line
 		$block_count = self::count_blocks_in_tree( $result );
 
-		return [
-			'post_id'        => $post_id,
-			'revision_id'    => RevisionGuard::current_revision_id( $post_id ),
-			'refs_added'     => $refs_added,
-			'refs_removed'   => $refs_removed,
-			'refs_preserved' => $refs_preserved,
-			'block_count'    => $block_count,
-			'dry_run'        => $dry_run,
-		];
+		return self::with_post_content_affected_payload(
+			[
+				'post_id'        => $post_id,
+				'revision_id'    => RevisionGuard::current_revision_id( $post_id ),
+				'refs_added'     => $refs_added,
+				'refs_removed'   => $refs_removed,
+				'refs_preserved' => $refs_preserved,
+				'block_count'    => $block_count,
+				'dry_run'        => $dry_run,
+			],
+			$post_id,
+			$dry_run
+		);
 	}
 
 	// ─── revert-to-revision handler ───────────────────────────────
@@ -3952,7 +3988,7 @@ class BlockAbilities {
 		// Record rate-limit tick after successful revert.
 		RateLimiter::record( 'write', $post_id );
 
-		return $result;
+		return self::with_post_content_affected_payload( $result, $post_id );
 	}
 
 	// ─── Tree-counting helpers ────────────────────────────────────

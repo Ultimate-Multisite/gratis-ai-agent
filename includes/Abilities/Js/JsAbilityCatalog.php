@@ -64,6 +64,28 @@ class JsAbilityCatalog {
 				'screens'       => array( 'all' ),
 			),
 			array(
+				'name'          => 'sd-ai-agent-js/refresh-page',
+				'label'         => 'Refresh Current Page',
+				'description'   => 'Refresh the current browser page while preserving the open AI Agent widget and current session. Use after site changes that did not return an affected descriptor for live preview.',
+				'category'      => 'sd-ai-agent-js',
+				'input_schema'  => array(
+					'type'       => 'object',
+					'properties' => array(),
+					'required'   => array(),
+				),
+				'output_schema' => array(
+					'type'       => 'object',
+					'properties' => array(
+						'refresh_scheduled' => array( 'type' => 'boolean' ),
+						'url'               => array( 'type' => 'string' ),
+					),
+				),
+				'annotations'   => array(
+					'readonly' => true,
+				),
+				'screens'       => array( 'all' ),
+			),
+			array(
 				'name'          => 'sd-ai-agent-js/insert-block',
 				'label'         => 'Insert Block',
 				'description'   => 'Insert a Gutenberg block into the active block editor. Only available on editor screens.',

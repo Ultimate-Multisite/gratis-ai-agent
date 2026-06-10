@@ -398,6 +398,21 @@ class ToolDiscoveryTest extends WP_UnitTestCase {
 		$this->assertArrayNotHasKey( 'discovery_hint', $result );
 	}
 
+	public function test_ability_search_warns_js_abilities_must_be_called_directly(): void {
+		$result = ToolDiscovery::handle_ability_search(
+			[
+				'query'       => 'refresh-page',
+				'max_results' => 3,
+			]
+		);
+
+		$this->assertIsArray( $result );
+		$this->assertNotEmpty( $result['results'] );
+		$this->assertSame( 'sd-ai-agent-js/refresh-page', $result['results'][0]['id'] );
+		$this->assertStringContainsString( 'call the listed ability directly', $result['hint'] );
+		$this->assertStringContainsString( 'Do not wrap browser abilities in sd-ai-agent/ability-call', $result['hint'] );
+	}
+
 	// ── ability-call ──────────────────────────────────────────────────
 
 	public function test_ability_call_executes_a_known_ability(): void {
@@ -436,6 +451,21 @@ class ToolDiscoveryTest extends WP_UnitTestCase {
 		$this->assertSame( 'ability_not_found', $result['code'] );
 		$this->assertArrayHasKey( 'suggestions', $result );
 		$this->assertArrayHasKey( 'hint', $result );
+	}
+
+	public function test_ability_call_rejects_js_browser_abilities_with_direct_call_hint(): void {
+		$result = ToolDiscovery::handle_ability_call(
+			[
+				'ability'   => 'sd-ai-agent-js/refresh-page',
+				'arguments' => [],
+			]
+		);
+
+		$this->assertIsArray( $result );
+		$this->assertFalse( $result['success'] );
+		$this->assertSame( 'sd-ai-agent-js/refresh-page', $result['ability'] );
+		$this->assertStringContainsString( 'cannot run through sd-ai-agent/ability-call', $result['error'] );
+		$this->assertStringContainsString( 'Call the browser ability directly', $result['hint'] );
 	}
 
 	public function test_ability_call_aliases_legacy_ai_agent_prefix(): void {

@@ -776,7 +776,7 @@ Assistant: %s',
 
 		// Update the DB row so the transient-expiry fallback also serves
 		// 'error' rather than the stale 'awaiting_client_tools'.
-		ActiveJobRepository::update_status( $job_id, 'error' );
+		ActiveJobRepository::update_status( $job_id, 'error', [ 'error' => $error_message ] );
 	}
 
 	/**
@@ -823,7 +823,7 @@ Assistant: %s',
 
 				set_transient( $transient_key, $job, self::JOB_TTL );
 
-				ActiveJobRepository::update_status( $job_id, 'error' );
+				ActiveJobRepository::update_status( $job_id, 'error', [ 'error' => (string) $job['error'] ] );
 			}
 
 			return;
@@ -833,7 +833,13 @@ Assistant: %s',
 		// advertises the stale 'awaiting_client_tools' status.
 		$db_row = ActiveJobRepository::get_by_job_id( $job_id );
 		if ( null !== $db_row && 'awaiting_client_tools' === $db_row->status ) {
-			ActiveJobRepository::update_status( $job_id, 'error' );
+			ActiveJobRepository::update_status(
+				$job_id,
+				'error',
+				[
+					'error' => __( 'Client tool result arrived after the agent state had already been resumed or expired.', 'superdav-ai-agent' ),
+				]
+			);
 		}
 	}
 }

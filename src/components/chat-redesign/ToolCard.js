@@ -116,13 +116,13 @@ function deriveSummary( call, response ) {
 	const r = response.response;
 	if ( r && typeof r === 'object' ) {
 		if ( r.summary ) {
-			return r.summary;
+			return formatValue( r.summary );
 		}
 		if ( r.title ) {
-			return r.title;
+			return formatValue( r.title );
 		}
 		if ( r.id && r.status ) {
-			return `ID ${ r.id } · ${ r.status }`;
+			return `ID ${ formatValue( r.id ) } · ${ formatValue( r.status ) }`;
 		}
 	}
 	if ( typeof r === 'string' && r.length < 120 ) {
@@ -200,7 +200,9 @@ export default function ToolCard( {
 
 	// Extract design previews when this is a render-design-previews tool call.
 	const designPreviews = extractDesignPreviews( call, response );
-	const previewMessage = response?.response?.message || null;
+	const previewMessage = response?.response?.message
+		? formatValue( response.response.message )
+		: null;
 
 	return (
 		<div

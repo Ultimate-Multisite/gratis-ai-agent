@@ -110,6 +110,27 @@ class SystemInstructionBuilderTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * Frontend widget sessions include live-preview affected/refresh guidance.
+	 */
+	public function test_build_includes_frontend_live_preview_guidance(): void {
+		$builder = new SystemInstructionBuilder(
+			'',
+			'',
+			array(
+				'is_frontend' => true,
+				'url'         => 'https://example.com/',
+			)
+		);
+
+		$instruction = $builder->build( array() );
+
+		$this->assertStringContainsString( '## Frontend live-preview context', $instruction );
+		$this->assertStringContainsString( '`affected` descriptor', $instruction );
+		$this->assertStringContainsString( 'sd-ai-agent-js/refresh-page', $instruction );
+		$this->assertStringContainsString( 'preserving the open widget and current session', $instruction );
+	}
+
+	/**
 	 * Diagnostic summary prompts must remain read-only unless remediation is explicit.
 	 *
 	 * Regression: issue #2083 — a site health summary request installed and

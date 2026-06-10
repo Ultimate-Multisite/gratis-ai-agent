@@ -77,6 +77,60 @@ describe( 'registry — sd-ai-86a regression', () => {
 		).rejects.toThrow( /is not registered on this page/ );
 	} );
 
+	test( 'snapshotDescriptors falls back to locally registered descriptors when wp.abilities is unavailable', async () => {
+		delete global.wp;
+		const { registerClientAbility, snapshotDescriptors } = loadRegistry();
+
+		await registerClientAbility( {
+			name: 'sd-ai-agent-js/local-only',
+			label: 'Local Only',
+			description: 'Available via local fallback',
+			inputSchema: { type: 'object' },
+			outputSchema: { type: 'object' },
+			annotations: { readonly: true },
+			callback: jest.fn(),
+		} );
+
+		await expect( snapshotDescriptors() ).resolves.toEqual( [
+			expect.objectContaining( {
+				name: 'sd-ai-agent-js/local-only',
+				label: 'Local Only',
+				annotations: { readonly: true },
+			} ),
+		] );
+	} );
+
+	test( 'snapshotDescriptors falls back to local descriptors when wp store returns no client abilities', async () => {
+		global.wp = {
+			abilities: {
+				executeAbility: jest.fn(),
+				registerAbility: jest.fn().mockResolvedValue( undefined ),
+				registerAbilityCategory: jest
+					.fn()
+					.mockResolvedValue( undefined ),
+				getAbilities: jest.fn().mockReturnValue( [] ),
+			},
+		};
+		const { registerClientAbility, snapshotDescriptors } = loadRegistry();
+
+		await registerClientAbility( {
+			name: 'sd-ai-agent-js/local-fallback',
+			label: 'Local Fallback',
+			description: 'Store was empty',
+			inputSchema: { type: 'object' },
+			outputSchema: { type: 'object' },
+			annotations: { readonly: true },
+			callback: jest.fn(),
+		} );
+
+		const descriptors = await snapshotDescriptors();
+		expect( descriptors ).toEqual( [
+			expect.objectContaining( {
+				name: 'sd-ai-agent-js/local-fallback',
+			} ),
+		] );
+	} );
+
 	test( 'executeClientAbility falls back to wp.abilities.executeAbility when the local map misses but WP API is present', async () => {
 		// Local map does NOT contain this ability (different module
 		// instance scenario), but wp.abilities.executeAbility is wired up.

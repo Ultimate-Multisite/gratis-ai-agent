@@ -665,6 +665,25 @@ export const actions = {
 							return;
 						}
 
+						if ( window._sdAiAgentPendingPageRefresh ) {
+							const target = window._sdAiAgentPendingPageRefresh;
+							delete window._sdAiAgentPendingPageRefresh;
+							try {
+								sessionStorage.setItem(
+									'sdAiAgent_refreshRestore',
+									JSON.stringify( {
+										sessionId,
+										open: true,
+										minimized: false,
+									} )
+								);
+							} catch ( _err ) {}
+							clearActiveJob( sessionId );
+							unsubscribeVisibility();
+							window.location.assign( target );
+							return;
+						}
+
 						// Resume polling — the server has resumed the agent
 						// loop; we continue polling the same job for the
 						// model's next response or another pause.
