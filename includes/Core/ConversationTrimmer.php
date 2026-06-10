@@ -104,9 +104,9 @@ class ConversationTrimmer {
 	 * Two-pass scrub to satisfy the Anthropic API invariant that every
 	 * tool_result has a matching tool_use earlier in the same request:
 	 *
-	 *   Pass 1 — forward: drop assistant messages whose FunctionCall parts
-	 *   do not all have matching FunctionResponse messages immediately after
-	 *   them. Also drops the partial response cluster.
+	 *   Pass 1 — forward: drop assistant tool-call clusters whose FunctionCall
+	 *   parts do not all have matching FunctionResponse messages immediately
+	 *   after the cluster. Also drops the partial response cluster.
 	 *
 	 *   Pass 2 — orphan tool_result scrub: walk the post-pass-1 history and
 	 *   drop any FunctionResponse whose tool_use_id is not present in the
@@ -141,9 +141,33 @@ class ConversationTrimmer {
 				continue;
 			}
 
-			// Collect the tool-response messages that follow.
+			// Collect consecutive assistant tool-call messages as one logical
+			// provider turn. ConversationSerializer::append_assistant_message()
+			// splits parallel function calls into separate ModelMessages for the
+			// OpenAI Responses API, while append_tool_response() appends the
+			// matching FunctionResponses after the whole split call cluster. Treating
+			// each split call message independently would falsely drop every call
+			// except the final one because the next message is another tool call,
+			// not a response. That was visible in traces as skill-load disappearing
+			// from history and being loaded again on the next turn.
+			$tool_call_ids = [];
+			$call_start    = $i;
+			$call_end      = $i;
+			while ( $call_end < $count ) {
+				$current_call_ids = self::extract_tool_call_ids( $history[ $call_end ] );
+				if ( empty( $current_call_ids ) ) {
+					break;
+				}
+				foreach ( $current_call_ids as $cid ) {
+					$tool_call_ids[] = $cid;
+				}
+				++$call_end;
+			}
+			$tool_call_ids = array_values( array_unique( $tool_call_ids ) );
+
+			// Collect the tool-response messages that follow the entire call cluster.
 			$response_ids   = [];
-			$response_start = $i + 1;
+			$response_start = $call_end;
 			$response_end   = $response_start;
 
 			while ( $response_end < $count ) {
@@ -162,14 +186,16 @@ class ConversationTrimmer {
 			$missing = array_diff( $tool_call_ids, $response_ids );
 
 			if ( empty( $missing ) ) {
-				// All tool calls have responses — keep the entire cycle.
-				$result[] = $message;
+				// All tool calls have responses — keep the entire split cycle.
+				for ( $j = $call_start; $j < $call_end; $j++ ) {
+					$result[] = $history[ $j ];
+				}
 				for ( $j = $response_start; $j < $response_end; $j++ ) {
 					$result[] = $history[ $j ];
 				}
 			}
 			// else: orphaned tool calls — skip the entire cycle (assistant
-			// message + any partial responses) to prevent the API error.
+			// message cluster + any partial responses) to prevent the API error.
 
 			$i = $response_end;
 		}

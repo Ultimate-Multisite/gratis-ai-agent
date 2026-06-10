@@ -430,6 +430,39 @@ class ConversationTrimmerTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * Test validate_tool_pairs keeps split assistant tool-call clusters intact.
+	 *
+	 * AgentLoop splits parallel function calls into one ModelMessage per call for
+	 * the OpenAI Responses API, then appends the matching tool responses after the
+	 * whole call cluster. The validator must treat those consecutive tool-call
+	 * messages as one logical cycle; otherwise it drops earlier calls and their
+	 * responses, causing the model to repeat work such as loading the same skill
+	 * twice on the next turn.
+	 */
+	public function test_validate_tool_pairs_keeps_split_tool_call_cluster() {
+		$history = [
+			$this->create_user_message_mock( 'Edit the homepage' ),
+			$this->create_tool_call_message( [
+				[ 'id' => 'call_skill', 'name' => 'skill-load' ],
+			] ),
+			$this->create_tool_call_message( [
+				[ 'id' => 'call_resolve', 'name' => 'resolve-url' ],
+			] ),
+			$this->create_tool_response_message( 'call_skill', 'skill-load' ),
+			$this->create_tool_response_message( 'call_resolve', 'resolve-url' ),
+			$this->create_assistant_message_mock( 'I found the homepage.' ),
+		];
+
+		$result = ConversationTrimmer::validate_tool_pairs( $history );
+
+		$this->assertCount( 6, $result );
+		$this->assertSame( [ 'call_skill' ], $this->extract_call_ids_for_test( $result[1] ) );
+		$this->assertSame( [ 'call_resolve' ], $this->extract_call_ids_for_test( $result[2] ) );
+		$this->assertSame( [ 'call_skill' ], $this->extract_response_ids_for_test( $result[3] ) );
+		$this->assertSame( [ 'call_resolve' ], $this->extract_response_ids_for_test( $result[4] ) );
+	}
+
+	/**
 	 * Test validate_tool_pairs handles partial responses (some tools missing).
 	 */
 	public function test_validate_tool_pairs_removes_partially_matched_cycles() {
@@ -580,45 +613,77 @@ class ConversationTrimmerTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * Extract FunctionCall IDs from a message for assertions.
+	 *
+	 * @param object $message Message DTO or mock.
+	 * @return string[]
+	 */
+	private function extract_call_ids_for_test( object $message ): array {
+		$ids = [];
+		foreach ( $message->getParts() as $part ) {
+			if ( method_exists( $part, 'getFunctionCall' ) ) {
+				$fc = $part->getFunctionCall();
+				if ( $fc ) {
+					$ids[] = (string) $fc->getId();
+				}
+			}
+		}
+		return $ids;
+	}
+
+	/**
+	 * Extract FunctionResponse IDs from a message for assertions.
+	 *
+	 * @param object $message Message DTO or mock.
+	 * @return string[]
+	 */
+	private function extract_response_ids_for_test( object $message ): array {
+		$ids = [];
+		foreach ( $message->getParts() as $part ) {
+			if ( method_exists( $part, 'getFunctionResponse' ) ) {
+				$fr = $part->getFunctionResponse();
+				if ( $fr ) {
+					$ids[] = (string) $fr->getId();
+				}
+			}
+		}
+		return $ids;
+	}
+
+	/**
 	 * Assert that all tool_use messages in a history have matching tool_results.
 	 *
 	 * @param array $history The conversation history to validate.
 	 */
 	private function assert_tool_pairs_valid( array $history ): void {
 		$count = count( $history );
-		for ( $i = 0; $i < $count; $i++ ) {
-			$message  = $history[ $i ];
-			$call_ids = [];
-
-			foreach ( $message->getParts() as $part ) {
-				if ( method_exists( $part, 'getFunctionCall' ) ) {
-					$fc = $part->getFunctionCall();
-					if ( $fc ) {
-						$call_ids[] = $fc->getId();
-					}
-				}
-			}
-
+		$i     = 0;
+		while ( $i < $count ) {
+			$call_ids = $this->extract_call_ids_for_test( $history[ $i ] );
 			if ( empty( $call_ids ) ) {
+				++$i;
 				continue;
 			}
 
-			// Collect response IDs from the messages that follow.
-			$response_ids = [];
-			for ( $j = $i + 1; $j < $count; $j++ ) {
-				$has_response = false;
-				foreach ( $history[ $j ]->getParts() as $part ) {
-					if ( method_exists( $part, 'getFunctionResponse' ) ) {
-						$fr = $part->getFunctionResponse();
-						if ( $fr ) {
-							$response_ids[] = $fr->getId();
-							$has_response   = true;
-						}
-					}
-				}
-				if ( ! $has_response ) {
+			$call_ids = [];
+			$call_end = $i;
+			while ( $call_end < $count ) {
+				$current_call_ids = $this->extract_call_ids_for_test( $history[ $call_end ] );
+				if ( empty( $current_call_ids ) ) {
 					break;
 				}
+				$call_ids = array_merge( $call_ids, $current_call_ids );
+				++$call_end;
+			}
+			$call_ids = array_values( array_unique( $call_ids ) );
+
+			$response_ids = [];
+			for ( $j = $call_end; $j < $count; $j++ ) {
+				$current_response_ids = $this->extract_response_ids_for_test( $history[ $j ] );
+				if ( empty( $current_response_ids ) ) {
+					break;
+				}
+				$response_ids = array_merge( $response_ids, $current_response_ids );
 			}
 
 			foreach ( $call_ids as $call_id ) {
@@ -628,6 +693,8 @@ class ConversationTrimmerTest extends WP_UnitTestCase {
 					"tool_use ID '$call_id' has no matching tool_result in history"
 				);
 			}
+
+			$i = $call_end;
 		}
 	}
 }
