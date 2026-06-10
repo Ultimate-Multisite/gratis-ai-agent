@@ -277,19 +277,39 @@ class ContextProvidersTest extends WP_UnitTestCase {
 	 */
 	public function test_provide_page_context_extracts_known_fields(): void {
 		$page_context = [
-			'url'        => 'https://example.com/wp-admin/',
-			'admin_page' => 'dashboard',
-			'screen_id'  => 'dashboard',
-			'summary'    => 'WordPress Dashboard',
+			'url'          => 'https://example.com/wp-admin/',
+			'surface'      => 'frontend',
+			'is_frontend'  => true,
+			'post_id'      => 35,
+			'post_type'    => 'page',
+			'page_title'   => 'Home',
+			'admin_page'   => 'dashboard',
+			'screen_id'    => 'dashboard',
+			'summary'      => 'WordPress Dashboard',
+			'live_preview' => [
+				'affected_descriptor_supported'        => true,
+				'requires_refresh_when_missing_affected' => true,
+				'refresh_tool'                         => 'sd-ai-agent-js/refresh-page',
+			],
 		];
 
 		$result = ContextProviders::provide_page_context( $page_context );
 
 		$this->assertArrayHasKey( 'Current URL', $result );
+		$this->assertArrayHasKey( 'Surface', $result );
+		$this->assertArrayHasKey( 'User Is Viewing Frontend', $result );
+		$this->assertArrayHasKey( 'Visible Page Title', $result );
+		$this->assertArrayHasKey( 'Visible Post ID', $result );
+		$this->assertArrayHasKey( 'Visible Post Type', $result );
+		$this->assertArrayHasKey( 'Live Preview Affected Descriptor Supported', $result );
+		$this->assertArrayHasKey( 'Refresh Required When Affected Missing', $result );
+		$this->assertArrayHasKey( 'Refresh Tool', $result );
 		$this->assertArrayHasKey( 'Admin Page', $result );
 		$this->assertArrayHasKey( 'Screen ID', $result );
 		$this->assertArrayHasKey( 'Page Context', $result );
 		$this->assertSame( 'https://example.com/wp-admin/', $result['Current URL'] );
+		$this->assertSame( '35', $result['Visible Post ID'] );
+		$this->assertSame( 'sd-ai-agent-js/refresh-page', $result['Refresh Tool'] );
 	}
 
 	// ── provide_user_context ─────────────────────────────────────────────────

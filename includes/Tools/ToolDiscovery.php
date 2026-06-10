@@ -824,12 +824,19 @@ class ToolDiscovery {
 			$results[] = $result;
 		}
 
+		$contains_js_ability = array_filter(
+			$results,
+			static fn( array $result ): bool => str_starts_with( (string) $result['id'], 'sd-ai-agent-js/' )
+		);
+
 		$response = array(
 			'query'   => $query,
 			'total'   => $total,
 			'count'   => count( $results ),
 			'results' => $results,
-			'hint'    => 'Use sd-ai-agent/ability-call with the chosen `id` and an `arguments` object that matches `input_schema`.',
+			'hint'    => ! empty( $contains_js_ability )
+				? 'For sd-ai-agent-js/* browser abilities, call the listed ability directly in the chat tool interface. Do not wrap browser abilities in sd-ai-agent/ability-call; ability-call can only execute server-side abilities.'
+				: 'Use sd-ai-agent/ability-call with the chosen `id` and an `arguments` object that matches `input_schema`.',
 		);
 
 		if ( '' !== $discovery_hint ) {
@@ -864,6 +871,15 @@ class ToolDiscovery {
 		$ability = AbilityRegistry::get( $ability_id );
 		if ( ! $ability instanceof \WP_Ability ) {
 			return self::format_unknown_ability_response( $ability_id );
+		}
+
+		if ( str_starts_with( $ability_id, 'sd-ai-agent-js/' ) ) {
+			return array(
+				'success' => false,
+				'ability' => $ability_id,
+				'error'   => 'This is a browser-side ability. It cannot run through sd-ai-agent/ability-call on the server.',
+				'hint'    => 'Call the browser ability directly as its own tool call from the chat interface. For refreshes, call sd-ai-agent-js/refresh-page directly with an empty object: {}.',
+			);
 		}
 
 		$perms = self::tool_permissions();

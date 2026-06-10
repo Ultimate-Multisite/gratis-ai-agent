@@ -72,6 +72,19 @@ const registeredAbilityNames = new Set();
 const clientCallbacks = new Map();
 
 /**
+ * Descriptor map — name → serializable descriptor.
+ *
+ * This mirrors the locally registered callback set so snapshotDescriptors()
+ * can still post client abilities to /chat on pages where the WP abilities
+ * global/store is unavailable. Without this fallback the server only exposes
+ * sd-ai-agent-js/* via ability-search/ability-call stubs, and calling those
+ * stubs cannot execute browser actions such as refresh-page.
+ *
+ * @type {Map<string, Object>}
+ */
+const localDescriptors = new Map();
+
+/**
  * Detect whether the WP 7.0 abilities API is available on this page.
  *
  * @return {boolean} True when wp.abilities is loaded and exposes the
@@ -216,6 +229,14 @@ export async function registerClientAbility( def ) {
 	if ( typeof def.callback === 'function' ) {
 		clientCallbacks.set( def.name, def.callback );
 	}
+	localDescriptors.set( def.name, {
+		name: def.name,
+		label: def.label || def.name,
+		description: def.description || '',
+		input_schema: def.inputSchema || {},
+		output_schema: def.outputSchema || {},
+		annotations: def.annotations || {},
+	} );
 
 	// The WP 7.0 store is only updated when the abilities API is present
 	// on this page. If it is not, the local callback above is sufficient
@@ -287,13 +308,13 @@ export async function snapshotDescriptors() {
 		! wp.abilities ||
 		typeof wp.abilities.getAbilities !== 'function'
 	) {
-		return [];
+		return Array.from( localDescriptors.values() );
 	}
 
 	try {
 		const allAbilities = ( await wp.abilities.getAbilities() ) || [];
 
-		return allAbilities
+		const descriptors = allAbilities
 			.filter(
 				( ability ) =>
 					ability &&
@@ -308,8 +329,12 @@ export async function snapshotDescriptors() {
 				output_schema: ability.output_schema || {},
 				annotations: ability.meta?.annotations || {},
 			} ) );
+
+		return descriptors.length
+			? descriptors
+			: Array.from( localDescriptors.values() );
 	} catch ( _err ) {
-		return [];
+		return Array.from( localDescriptors.values() );
 	}
 }
 

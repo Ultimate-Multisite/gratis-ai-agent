@@ -178,6 +178,39 @@ class ContextProviders {
 			$data['Current URL'] = $page_context['url'];
 		}
 
+		if ( ! empty( $page_context['surface'] ) ) {
+			$data['Surface'] = $page_context['surface'];
+		}
+
+		if ( ! empty( $page_context['is_frontend'] ) ) {
+			$data['User Is Viewing Frontend'] = 'Yes';
+		}
+
+		if ( ! empty( $page_context['page_title'] ) ) {
+			$data['Visible Page Title'] = $page_context['page_title'];
+		}
+
+		if ( ! empty( $page_context['post_id'] ) ) {
+			$data['Visible Post ID'] = (string) (int) $page_context['post_id'];
+		}
+
+		if ( ! empty( $page_context['post_type'] ) ) {
+			$data['Visible Post Type'] = $page_context['post_type'];
+		}
+
+		if ( ! empty( $page_context['live_preview'] ) && is_array( $page_context['live_preview'] ) ) {
+			$live_preview = $page_context['live_preview'];
+			if ( ! empty( $live_preview['affected_descriptor_supported'] ) ) {
+				$data['Live Preview Affected Descriptor Supported'] = 'Yes';
+			}
+			if ( ! empty( $live_preview['requires_refresh_when_missing_affected'] ) ) {
+				$data['Refresh Required When Affected Missing'] = 'Yes';
+			}
+			if ( ! empty( $live_preview['refresh_tool'] ) ) {
+				$data['Refresh Tool'] = $live_preview['refresh_tool'];
+			}
+		}
+
 		if ( ! empty( $page_context['admin_page'] ) ) {
 			$data['Admin Page'] = $page_context['admin_page'];
 		}

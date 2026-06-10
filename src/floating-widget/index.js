@@ -93,7 +93,28 @@ function FloatingWidget() {
 		fetchProviders();
 		fetchSessions();
 		restoreActiveJobs();
-	}, [ fetchProviders, fetchSessions, restoreActiveJobs ] );
+
+		try {
+			const raw = sessionStorage.getItem( 'sdAiAgent_refreshRestore' );
+			if ( raw ) {
+				sessionStorage.removeItem( 'sdAiAgent_refreshRestore' );
+				const restore = JSON.parse( raw );
+				const restoreSessionId = parseInt( restore?.sessionId, 10 );
+				if ( restoreSessionId > 0 ) {
+					setFloatingOpen( restore.open !== false );
+					setFloatingMinimized( !! restore.minimized );
+					openSession( restoreSessionId );
+				}
+			}
+		} catch ( _err ) {}
+	}, [
+		fetchProviders,
+		fetchSessions,
+		restoreActiveJobs,
+		setFloatingOpen,
+		setFloatingMinimized,
+		openSession,
+	] );
 
 	// First-run frontend onboarding: open the widget as a centered assistant,
 	// start the same server-side onboarding session used by the admin chat page,
@@ -271,17 +292,27 @@ function FloatingWidget() {
 }
 
 /**
- * Gather structured context about the current WordPress admin page.
+ * Gather structured context about the current WordPress admin/frontend page.
  *
- * Reads from body classes, `window.pagenow`, `window.adminpage`, URL params,
- * and the page heading to build a context object for the AI.
+ * Reads from localized widget data, body classes, `window.pagenow`,
+ * `window.adminpage`, URL params, and page headings to build context for the AI.
  *
- * @return {{url: string, admin_page?: string, screen_id?: string, post_id?: number, page_title?: string}}
+ * @return {{url: string, surface: string, is_frontend: boolean, live_preview: Object, admin_page?: string, screen_id?: string, post_id?: number, post_type?: string, page_title?: string}}
  *   Context object with available page metadata.
  */
 function gatherPageContext() {
+	const widgetData = window.sdAiAgentData || {};
+	const isFrontend = !! widgetData.isFrontend;
 	const context = {
 		url: window.location.href,
+		surface: isFrontend ? 'frontend' : 'admin',
+		is_frontend: isFrontend,
+		live_preview: {
+			affected_descriptor_supported: true,
+			reflection_bus: 'frontend-widget',
+			requires_refresh_when_missing_affected: true,
+			refresh_tool: 'sd-ai-agent-js/refresh-page',
+		},
 	};
 
 	// Admin page slug from body classes.
@@ -303,19 +334,43 @@ function gatherPageContext() {
 		context.screen_id = window.adminpage;
 	}
 
-	// Post ID if on an edit screen.
+	// Post ID if on an edit screen or frontend singular view.
 	const urlParams = new URLSearchParams( window.location.search );
 	const postParam = urlParams.get( 'post' );
 	if ( postParam ) {
 		context.post_id = parseInt( postParam, 10 ) || 0;
 	}
+	if ( widgetData.viewedPostId ) {
+		context.post_id = parseInt( widgetData.viewedPostId, 10 ) || 0;
+	}
+	if ( widgetData.viewedPostType ) {
+		context.post_type = widgetData.viewedPostType;
+	}
+
+	// Frontend fallback: WordPress body classes commonly include page-id-123
+	// or postid-123 even when localized metadata is unavailable.
+	if ( ! context.post_id && isFrontend ) {
+		const idMatch = document.body.className.match(
+			/(?:page-id|postid|attachmentid)-(\d+)/
+		);
+		if ( idMatch ) {
+			context.post_id = parseInt( idMatch[ 1 ], 10 ) || 0;
+		}
+	}
 
 	// Page title for extra context.
 	const heading =
 		document.querySelector( '.wrap > h1' ) ||
-		document.querySelector( '#wpbody-content h1' );
+		document.querySelector( '#wpbody-content h1' ) ||
+		document.querySelector( '.wp-block-post-title' ) ||
+		document.querySelector( '.entry-title' ) ||
+		document.querySelector( 'h1' );
 	if ( heading ) {
 		context.page_title = heading.textContent.trim();
+	} else if ( widgetData.viewedTitle ) {
+		context.page_title = widgetData.viewedTitle;
+	} else if ( document.title ) {
+		context.page_title = document.title;
 	}
 
 	return context;

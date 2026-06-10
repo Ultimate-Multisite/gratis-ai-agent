@@ -953,6 +953,34 @@ class RestControllerTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * Test terminal DB error rows include a user-facing message.
+	 */
+	public function test_job_status_from_db_error_row_includes_message(): void {
+		wp_set_current_user( $this->admin_id );
+
+		$session_id = Database::create_session( [
+			'user_id' => $this->admin_id,
+			'title'   => 'DB error fallback message',
+		] );
+		$job_id     = '33333333-4444-5555-6666-777777777777';
+		$error_text = 'File edit failed: search string was not found.';
+
+		ActiveJobRepository::create( $session_id, $job_id, $this->admin_id, 'processing' );
+		ActiveJobRepository::update_status( $job_id, 'error', [ 'error' => $error_text ] );
+		delete_transient( RestController::JOB_PREFIX . $job_id );
+
+		$status_response = $this->dispatch( 'GET', "/sd-ai-agent/v1/job/{$job_id}" );
+
+		$this->assertStatus( 200, $status_response );
+		$data = $status_response->get_data();
+
+		$this->assertSame( 'error', $data['status'] );
+		$this->assertTrue( $data['from_db'] );
+		$this->assertSame( $error_text, $data['message'] );
+		$this->assertNull( ActiveJobRepository::get_by_job_id( $job_id ) );
+	}
+
+	/**
 	 * Test invalid direct history processing persists the DB job status as error.
 	 */
 	public function test_process_invalid_history_persists_error_status(): void {
@@ -987,6 +1015,7 @@ class RestControllerTest extends WP_UnitTestCase {
 
 		$this->assertNotNull( $db_row );
 		$this->assertSame( 'error', $db_row->status );
+		$this->assertSame( 'Invalid conversation history format.', $db_row->error );
 	}
 
 	/**

@@ -1426,4 +1426,59 @@ class BlockAbilitiesTest extends WP_UnitTestCase {
 		$this->assertIsInt( $get_after['revision_id'], 'After a write, revision_id must be an integer' );
 		$this->assertGreaterThan( 0, $get_after['revision_id'] );
 	}
+
+	/**
+	 * Block tree mutations report affected post_content for the live-preview bus.
+	 */
+	public function test_edit_block_tree_returns_affected_payload_for_live_preview(): void {
+		$post_id = $this->factory->post->create( [
+			'post_content' => '<!-- wp:paragraph --><p>original</p><!-- /wp:paragraph -->',
+			'post_status'  => 'publish',
+		] );
+
+		$get = BlockAbilities::handle_get_page_blocks( [
+			'post_id'      => $post_id,
+			'persist_refs' => true,
+		] );
+		$this->assertIsArray( $get );
+
+		$first_ref = $get['blocks'][0]['ref'] ?? '';
+		$this->assertNotEmpty( $first_ref );
+
+		$result = BlockAbilities::handle_edit_block_tree( [
+			'post_id'   => $post_id,
+			'op'        => 'update-html',
+			'ref'       => $first_ref,
+			'innerHTML' => '<p>updated original</p>',
+		] );
+
+		$this->assertIsArray( $result );
+		$this->assertArrayHasKey( 'affected', $result );
+		$this->assertSame( 'post', $result['affected']['kind'] );
+		$this->assertSame( $post_id, $result['affected']['post_id'] );
+		$this->assertSame( 'post', $result['affected']['post_type'] );
+		$this->assertContains( 'post_content', $result['affected']['fields'] );
+		$this->assertNotEmpty( $result['affected']['url'] );
+	}
+
+	/**
+	 * Dry-run block mutations do not emit affected metadata because no page changed.
+	 */
+	public function test_edit_block_tree_dry_run_omits_affected_payload(): void {
+		$post_id = $this->factory->post->create( [
+			'post_content' => '<!-- wp:paragraph --><p>original</p><!-- /wp:paragraph -->',
+			'post_status'  => 'publish',
+		] );
+
+		$result = BlockAbilities::handle_edit_block_tree( [
+			'post_id'   => $post_id,
+			'op'        => 'update-html',
+			'path'      => [ 0 ],
+			'innerHTML' => '<p>preview only</p>',
+			'dry_run'   => true,
+		] );
+
+		$this->assertIsArray( $result );
+		$this->assertArrayNotHasKey( 'affected', $result );
+	}
 }

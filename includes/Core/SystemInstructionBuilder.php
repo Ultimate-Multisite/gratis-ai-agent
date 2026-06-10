@@ -84,6 +84,20 @@ class SystemInstructionBuilder {
 	}
 
 	/**
+	 * Return frontend live-preview operating rules.
+	 *
+	 * @return string
+	 */
+	public static function build_frontend_live_preview_section(): string {
+		return "## Frontend live-preview context\n\n"
+			. 'The user is viewing the public frontend page that appears in Current Context. '
+			. 'When you mutate that visible page, inspect each tool result for an `affected` descriptor. '
+			. "If the result includes `affected.kind: post`, a matching `post_id`/URL, and `fields` containing `post_content`, the widget's live-preview reflector will attempt to update the visible page automatically; tell the user the page should update live. "
+			. 'If a mutating tool result does not include an `affected` descriptor for the visible page, the browser cannot know what changed and the user must refresh to see it. In that case, call `sd-ai-agent-js/refresh-page` after your server-side write completes; it refreshes the current page while preserving the open widget and current session. '
+			. 'Do not call the refresh tool after a dry run or after read-only inspection. If you are unsure whether live reflection succeeded, use a screenshot/inspection tool or explain that a refresh may be required.';
+	}
+
+	/**
 	 * Build the system instruction, incorporating custom prompt and memories.
 	 *
 	 * @param array<string, mixed> $settings      Plugin settings.
@@ -179,6 +193,11 @@ class SystemInstructionBuilder {
 				// @phpstan-ignore-next-line
 				$base .= "\n\n" . $formatted_context;
 			}
+		}
+
+		if ( ! empty( $this->page_context['is_frontend'] ) ) {
+			// @phpstan-ignore-next-line
+			$base .= "\n\n" . self::build_frontend_live_preview_section();
 		}
 
 		// Append the Tier-2 ability manifest so the model knows what's

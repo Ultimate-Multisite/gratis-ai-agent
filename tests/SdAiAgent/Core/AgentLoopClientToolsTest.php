@@ -62,6 +62,7 @@ class AgentLoopClientToolsTest extends WP_UnitTestCase {
 
 		$names = array_column( $descriptors, 'name' );
 		$this->assertContains( 'sd-ai-agent-js/navigate-to', $names );
+		$this->assertContains( 'sd-ai-agent-js/refresh-page', $names );
 		$this->assertContains( 'sd-ai-agent-js/insert-block', $names );
 	}
 
@@ -70,6 +71,7 @@ class AgentLoopClientToolsTest extends WP_UnitTestCase {
 	 */
 	public function test_catalog_has_method(): void {
 		$this->assertTrue( JsAbilityCatalog::has( 'sd-ai-agent-js/navigate-to' ) );
+		$this->assertTrue( JsAbilityCatalog::has( 'sd-ai-agent-js/refresh-page' ) );
 		$this->assertTrue( JsAbilityCatalog::has( 'sd-ai-agent-js/insert-block' ) );
 		$this->assertFalse( JsAbilityCatalog::has( 'sd-ai-agent-js/unknown-ability' ) );
 		$this->assertFalse( JsAbilityCatalog::has( 'sd-ai-agent/memory-save' ) );
@@ -83,7 +85,12 @@ class AgentLoopClientToolsTest extends WP_UnitTestCase {
 
 		$this->assertIsArray( $map );
 		$this->assertArrayHasKey( 'sd-ai-agent-js/navigate-to', $map );
+		$this->assertArrayHasKey( 'sd-ai-agent-js/refresh-page', $map );
 		$this->assertArrayHasKey( 'sd-ai-agent-js/insert-block', $map );
+
+		$refresh = $map['sd-ai-agent-js/refresh-page'];
+		$this->assertTrue( $refresh['annotations']['readonly'] );
+		$this->assertStringContainsString( 'preserving the open AI Agent widget', $refresh['description'] );
 
 		$navigate = $map['sd-ai-agent-js/navigate-to'];
 		$this->assertSame( 'sd-ai-agent-js', $navigate['category'] );
