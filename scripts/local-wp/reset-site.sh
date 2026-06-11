@@ -77,7 +77,9 @@ log "Reactivating previously active plugins"
 while IFS= read -r plugin_slug; do
 	[ -n "$plugin_slug" ] || continue
 	if wp_cli plugin is-installed "$plugin_slug" --path="$wp_root" >/dev/null 2>&1; then
-		run_cmd wp_cli plugin activate "$plugin_slug" --path="$wp_root"
+		if ! run_cmd wp_cli plugin activate "$plugin_slug" --path="$wp_root"; then
+			warn "Plugin activation failed: $plugin_slug"
+		fi
 	else
 		warn "Plugin not installed after reset, cannot reactivate: $plugin_slug"
 	fi
