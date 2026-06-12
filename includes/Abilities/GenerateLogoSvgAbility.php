@@ -760,11 +760,6 @@ INSTRUCTION;
 			);
 		}
 
-		if ( ! function_exists( 'wp_insert_attachment' ) ) {
-			require_once ABSPATH . 'wp-admin/includes/image.php';
-			require_once ABSPATH . 'wp-admin/includes/media.php';
-		}
-
 		$attachment = [
 			'post_mime_type' => 'image/svg+xml',
 			'post_title'     => sanitize_text_field( $slug ),
