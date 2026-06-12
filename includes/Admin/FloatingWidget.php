@@ -168,9 +168,16 @@ class FloatingWidget {
 
 		$onboarding_complete = OnboardingManager::is_complete();
 		$is_frontend         = 'frontend' === $context;
+		$force_onboarding    = false;
 		$viewed_post_id      = 0;
 		$viewed_post_type    = '';
 		$viewed_title        = '';
+
+		// Read-only launch hint for the frontend widget; no state changes happen here.
+		if ( $is_frontend && isset( $_GET['sd_ai_agent_onboarding'] ) ) { // phpcs:ignore WordPress.Security.NonceVerification.Recommended
+			// phpcs:ignore WordPress.Security.NonceVerification.Recommended
+			$force_onboarding = '1' === sanitize_text_field( wp_unslash( $_GET['sd_ai_agent_onboarding'] ) );
+		}
 
 		if ( $is_frontend && is_singular() ) {
 			$viewed_post_id = (int) get_queried_object_id();
@@ -188,7 +195,7 @@ class FloatingWidget {
 				'currentUserId'       => get_current_user_id(),
 				'context'             => $context,
 				'isFrontend'          => $is_frontend,
-				'frontendOnboarding'  => ( $is_frontend && ! $onboarding_complete ) ? '1' : '',
+				'frontendOnboarding'  => ( $is_frontend && ( ! $onboarding_complete || $force_onboarding ) ) ? '1' : '',
 				'onboarding_complete' => $onboarding_complete,
 				'changesPageUrl'      => admin_url( 'admin.php?page=sd-ai-agent#/changes' ),
 				'viewedPostId'        => $viewed_post_id,
