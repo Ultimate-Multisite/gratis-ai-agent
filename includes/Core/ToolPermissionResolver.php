@@ -78,9 +78,10 @@ class ToolPermissionResolver {
 					// Explicit permission set for this tool.
 					if ( 'confirm' === $permission ) {
 						$confirm[] = array(
-							'id'   => $call->getId(),
-							'name' => $fn_name,
-							'args' => $call->getArgs(),
+							'id'      => $call->getId(),
+							'name'    => $fn_name,
+							'ability' => $ability_name,
+							'args'    => $call->getArgs(),
 						);
 					}
 					// 'auto', 'always_allow', 'disabled' → no confirmation needed.
@@ -96,9 +97,10 @@ class ToolPermissionResolver {
 
 				if ( 'destructive' === $classification ) {
 					$confirm[] = array(
-						'id'   => $call->getId(),
-						'name' => $fn_name,
-						'args' => $call->getArgs(),
+						'id'      => $call->getId(),
+						'name'    => $fn_name,
+						'ability' => $ability_name,
+						'args'    => $call->getArgs(),
 					);
 				}
 				// 'read' and 'write' → auto-execute.
@@ -106,9 +108,10 @@ class ToolPermissionResolver {
 				// Ability not found in registry (e.g. custom tool) — default
 				// to requiring confirmation for safety.
 				$confirm[] = array(
-					'id'   => $call->getId(),
-					'name' => $fn_name,
-					'args' => $call->getArgs(),
+					'id'      => $call->getId(),
+					'name'    => $fn_name,
+					'ability' => $ability_name,
+					'args'    => $call->getArgs(),
 				);
 			}
 		}

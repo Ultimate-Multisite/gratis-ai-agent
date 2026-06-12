@@ -1566,6 +1566,114 @@ class AgentLoopTest extends WP_UnitTestCase {
 		$this->assertStringContainsString( 'not save', $result['reply'] );
 	}
 
+	/**
+	 * Test confirmed tools that were not in the original direct-tool set are
+	 * allowed for the single resumed execution.
+	 */
+	public function test_resume_after_confirmation_allows_confirmed_tool_once(): void {
+		$this->skip_if_sdk_unavailable();
+		if ( ! class_exists( 'WP_AI_Client_Ability_Function_Resolver' ) ) {
+			$this->markTestSkipped( 'WP_AI_Client_Ability_Function_Resolver not available.' );
+		}
+
+		Settings::instance()->update(
+			[
+				'tool_permissions' => [
+					'sd-ai-agent/memory-save' => 'confirm',
+				],
+			]
+		);
+
+		$first_body = wp_json_encode(
+			[
+				'id'      => 'chatcmpl-confirm-once',
+				'object'  => 'chat.completion',
+				'choices' => [
+					[
+						'index'         => 0,
+						'message'       => [
+							'role'       => 'assistant',
+							'content'    => null,
+							'tool_calls' => [
+								[
+									'id'       => 'call_confirm_once',
+									'type'     => 'function',
+									'function' => [
+										'name'      => 'wpab__sd-ai-agent__memory-save',
+										'arguments' => wp_json_encode(
+											[
+												'category' => 'general',
+												'content'  => 'Confirmed one-time tool execution',
+											]
+										),
+									],
+								],
+							],
+						],
+						'finish_reason' => 'tool_calls',
+					],
+				],
+				'usage'   => [ 'prompt_tokens' => 10, 'completion_tokens' => 5, 'total_tokens' => 15 ],
+			]
+		);
+
+		$call_count = 0;
+		$this->mock_ai_response_sequence(
+			[
+				[ 'body' => $first_body ],
+				[ 'reply' => 'Saved after approval.' ],
+			],
+			$call_count
+		);
+
+		$loop   = new AgentLoop( 'Save this after approval', [ 'sd-ai-agent/memory-list' ] );
+		$paused = $loop->run();
+
+		$this->assertIsArray( $paused );
+		$this->assertTrue( $paused['awaiting_confirmation'] ?? false );
+		$this->assertContains( 'sd-ai-agent/memory-save', $paused['approved_once_abilities'] ?? [] );
+
+		$result = $loop->resume_after_confirmation( true, (int) $paused['iterations_remaining'] );
+
+		$this->assertIsArray( $result );
+		$this->assertSame( 'Saved after approval.', $result['reply'] );
+		$this->assertStringNotContainsString( 'ability_not_allowed', wp_json_encode( $result ) ?: '' );
+	}
+
+	/**
+	 * Test one-time confirmed abilities are merged into the resolver tool set.
+	 */
+	public function test_resolve_abilities_includes_approved_once_abilities(): void {
+		if ( ! function_exists( 'wp_get_abilities' ) ) {
+			$this->markTestSkipped( 'Abilities API not available.' );
+		}
+
+		$loop = new AgentLoop(
+			'Test prompt',
+			[ 'sd-ai-agent/memory-list' ],
+			[],
+			[
+				'approved_once_abilities' => [ 'sd-ai-agent/memory-save' ],
+			]
+		);
+
+		$method = new \ReflectionMethod( AgentLoop::class, 'resolve_abilities' );
+		$method->setAccessible( true );
+
+		$resolved = $method->invoke( $loop );
+		$this->assertIsArray( $resolved );
+
+		$names = array_map(
+			static function ( $ability ): string {
+				return $ability instanceof \WP_Ability ? $ability->get_name() : '';
+			},
+			$resolved
+		);
+
+		$this->assertContains( 'sd-ai-agent/memory-list', $names );
+		$this->assertContains( 'sd-ai-agent/memory-save', $names );
+	}
+
 	// -------------------------------------------------------------------------
 	// ensure_provider_credentials_static
 	// -------------------------------------------------------------------------
