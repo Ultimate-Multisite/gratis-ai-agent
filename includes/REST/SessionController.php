@@ -1764,6 +1764,8 @@ final class SessionController {
 					'prompt'     => 0,
 					'completion' => 0,
 				);
+				// @phpstan-ignore-next-line
+				$resume_options['approved_once_abilities'] = $state['approved_once_abilities'] ?? array();
 
 				$loop = new AgentLoop( '', array(), $resume_history, $resume_options );
 				// Fallback to 100 matches the rest of the codebase
@@ -1842,14 +1844,15 @@ final class SessionController {
 			$job['pending_tools']      = $result['pending_tools'] ?? array();
 			$job['messages']           = $result['message_log'] ?? array();
 			$job['confirmation_state'] = array(
-				'history'              => $result['history'] ?? array(),
-				'tool_call_log'        => $result['tool_call_log'] ?? array(),
-				'message_log'          => $result['message_log'] ?? array(),
-				'token_usage'          => $result['token_usage'] ?? array(
+				'history'                 => $result['history'] ?? array(),
+				'tool_call_log'           => $result['tool_call_log'] ?? array(),
+				'message_log'             => $result['message_log'] ?? array(),
+				'token_usage'             => $result['token_usage'] ?? array(
 					'prompt'     => 0,
 					'completion' => 0,
 				),
-				'iterations_remaining' => $result['iterations_remaining'] ?? 5,
+				'approved_once_abilities' => $result['approved_once_abilities'] ?? array(),
+				'iterations_remaining'    => $result['iterations_remaining'] ?? 5,
 			);
 			// Keep token and params for the resume flow.
 			unset( $job['token'] );

@@ -205,6 +205,9 @@ class AgentLoop {
 	/** @var list<string> Per-agent Tier 1 tool override (empty = use global default). */
 	private array $agent_tier_1_tools = array();
 
+	/** @var list<string> Ability names approved for one resumed confirmation turn. */
+	private array $approved_once_abilities = array();
+
 	/** @var int Consecutive preamble-only truncations observed this run. */
 	private int $preamble_truncation_retries = 0;
 
@@ -354,6 +357,8 @@ class AgentLoop {
 		$this->tool_call_log     = self::normalize_activity_log( $options['tool_call_log'] ?? array() );
 		$this->message_log       = self::normalize_activity_log( $options['message_log'] ?? array() );
 		$this->activity_sequence = $this->get_max_activity_sequence( $this->tool_call_log, $this->message_log );
+		// @phpstan-ignore-next-line -- Resumed confirmation state carries scalar ability names.
+		$this->approved_once_abilities = $this->normalize_ability_names( $options['approved_once_abilities'] ?? array() );
 		// @phpstan-ignore-next-line
 		$this->session_id = (int) ( $options['session_id'] ?? 0 );
 		// Active job UUID for heartbeat and shutdown-handler updates.
@@ -1154,16 +1159,19 @@ class AgentLoop {
 			$confirm_needed = $this->permission_resolver->get_tools_needing_confirmation( $assistant_message );
 
 			if ( ! empty( $confirm_needed ) ) {
+				$this->approved_once_abilities = $this->extract_pending_ability_names( $confirm_needed );
+
 				return $this->with_paused_logs(
 					array(
-						'awaiting_confirmation' => true,
-						'pending_tools'         => $confirm_needed,
-						'history'               => $this->serialize_history(),
-						'tool_call_log'         => $this->tool_call_log,
-						'token_usage'           => $this->token_usage,
-						'iterations_remaining'  => $iterations,
-						'iterations_used'       => $this->iterations_used,
-						'model_id'              => $this->model_id,
+						'awaiting_confirmation'   => true,
+						'pending_tools'           => $confirm_needed,
+						'approved_once_abilities' => $this->approved_once_abilities,
+						'history'                 => $this->serialize_history(),
+						'tool_call_log'           => $this->tool_call_log,
+						'token_usage'             => $this->token_usage,
+						'iterations_remaining'    => $iterations,
+						'iterations_used'         => $this->iterations_used,
+						'model_id'                => $this->model_id,
 					)
 				);
 			}
@@ -2170,6 +2178,60 @@ class AgentLoop {
 	// ── Resolve abilities ─────────────────────────────────────────────────
 
 	/**
+	 * Normalise a mixed list of ability names to unique non-empty strings.
+	 *
+	 * @param mixed $raw Raw ability-name list.
+	 * @return list<string> Unique ability names.
+	 */
+	private function normalize_ability_names( $raw ): array {
+		if ( ! is_array( $raw ) ) {
+			return array();
+		}
+
+		$names = array();
+		foreach ( $raw as $name ) {
+			if ( ! is_string( $name ) ) {
+				continue;
+			}
+			$name = trim( $name );
+			if ( '' !== $name ) {
+				$names[ $name ] = true;
+			}
+		}
+
+		return array_keys( $names );
+	}
+
+	/**
+	 * Extract one-turn approved ability names from pending confirmation tools.
+	 *
+	 * @param list<array<string, mixed>> $pending_tools Pending confirmation tool data.
+	 * @return list<string> Ability names approved if the user confirms this pause.
+	 */
+	private function extract_pending_ability_names( array $pending_tools ): array {
+		$names = array();
+
+		foreach ( $pending_tools as $tool ) {
+			$ability_name = '';
+			if ( isset( $tool['ability'] ) && is_string( $tool['ability'] ) ) {
+				$ability_name = $tool['ability'];
+			} elseif ( isset( $tool['name'] ) && is_string( $tool['name'] ) ) {
+				$ability_name = $tool['name'];
+				if ( str_starts_with( $ability_name, 'wpab__' ) && class_exists( 'WP_AI_Client_Ability_Function_Resolver' ) ) {
+					$ability_name = \WP_AI_Client_Ability_Function_Resolver::function_name_to_ability_name( $ability_name );
+				}
+			}
+
+			$ability_name = trim( $ability_name );
+			if ( '' !== $ability_name ) {
+				$names[ $ability_name ] = true;
+			}
+		}
+
+		return array_keys( $names );
+	}
+
+	/**
 	 * Resolve which abilities should be loaded as direct (Tier-1) tools for
 	 * this run. Returns the WP_Ability objects matching {@see ToolDiscovery::tier_1_for_run()}
 	 * (curated cold-start list ∪ top-N most-used ∪ meta-tools), filtered
@@ -2196,7 +2258,7 @@ class AgentLoop {
 		// When set, bypass the auto-discovery layer and return exactly what was asked for.
 		if ( ! empty( $this->abilities ) ) {
 			$resolved = array();
-			foreach ( $this->abilities as $name ) {
+			foreach ( array_merge( $this->abilities, $this->approved_once_abilities ) as $name ) {
 				$ability = AbilityRegistry::get( $name );
 				if ( $ability instanceof \WP_Ability ) {
 					$resolved[] = $ability;
@@ -2214,7 +2276,7 @@ class AgentLoop {
 		$perms        = $this->tool_permissions;
 
 		$resolved = array();
-		foreach ( $tier_1 as $name ) {
+		foreach ( array_merge( $tier_1, $this->approved_once_abilities ) as $name ) {
 			if ( null !== $role_allowed && ! in_array( $name, $role_allowed, true ) ) {
 				continue;
 			}
