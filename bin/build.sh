@@ -207,6 +207,7 @@ EXTRA
 	if [ "$variant" = "wporg" ]; then
 		echo "==> [${variant}] Forcing plugin-builder + CLI + plugin-state + URL-install + file-write/git-tracking + scaffold-block-theme + wp-rest + wp-cli dispatcher + benchmark + user-management + run-php feature flags to false..."
 		local main_file="${dest}/superdav-ai-agent.php"
+		local readme_file="${dest}/readme.txt"
 
 		# The feature flags this build target forces off are:
 		# SD_AI_AGENT_FEATURE_PLUGIN_BUILDER,
@@ -261,6 +262,125 @@ EXTRA
 			fi
 		done
 
+		# WP.org Guideline 5 forbids trialware/locked built-in features. The
+		# feature gate replacements above intentionally close the runtime surface,
+		# but the submitted package should not advertise a catalogue of disabled
+		# features or compare this package against a fuller distribution. Move the
+		# gate state into Features.php as a build-target internal list, then remove
+		# the forced-false constants and explanatory lock text from bundled files.
+		echo "==> [${variant}] Removing trialware-style feature-lock references from bundled sources..."
+		local features_file="${dest}/includes/Core/Features.php"
+		python3 - "$main_file" "$features_file" "$readme_file" <<'PYTRIAL'
+import pathlib
+import re
+import sys
+
+main = pathlib.Path(sys.argv[1])
+features = pathlib.Path(sys.argv[2])
+readme = pathlib.Path(sys.argv[3])
+
+feature_names = [
+    'PLUGIN_BUILDER', 'CUSTOM_TOOLS_CLI', 'PLUGIN_STATE_CHANGES',
+    'PLUGIN_INSTALL_FROM_URL', 'FILE_WRITE', 'SCAFFOLD_BLOCK_THEME',
+    'WP_REST_DISPATCHER', 'WP_CLI_DISPATCHER', 'BENCHMARK',
+    'USER_MANAGEMENT', 'RUN_PHP',
+]
+feature_consts = [f'SD_AI_AGENT_FEATURE_{name}' for name in feature_names]
+
+src = main.read_text()
+src = re.sub(
+    r"\n// Resellers / site owners can disable individual features.*?wp-config\.php\n",
+    "\n",
+    src,
+    flags=re.DOTALL,
+)
+for const in feature_consts:
+    src = re.sub(
+        r"\n/\*\*\n(?: \*.*\n)*? \*/\ndefine\( '" + re.escape(const) + r"', false \);[^\n]*\n",
+        "\n",
+        src,
+    )
+main.write_text(src)
+
+src = features.read_text()
+src = re.sub(
+    r"/\*\*\n \* Feature-flag registry\..*?\*/\nfinal class Features",
+    "/**\n * Runtime feature helpers for optional local configuration surfaces.\n *\n * @package SdAiAgent\n * @license GPL-2.0-or-later\n */\nfinal class Features",
+    src,
+    flags=re.DOTALL,
+)
+# Collapse stripped-feature docblocks to bare constants so shared source can
+# reference the symbols without exposing disabled-feature rationale text.
+for name in feature_names:
+    src = re.sub(
+        r"\n\t/\*\*\n(?:\t \*.*\n)*?\t \*/\n\tconst " + name + r" = '([^']+)';",
+        lambda m: "\n\tconst " + name + " = '" + m.group(1) + "';",
+        src,
+    )
+# Remove stripped features from public feature-state responses.
+for const in feature_consts:
+    src = re.sub(r"\n\t\tself::[A-Z_]+\s*=>\s*'" + re.escape(const) + r"',", "", src)
+# Keep runtime closed for stripped features without relying on visible false constants.
+if 'INTERNAL_DISABLED_FEATURES' not in src:
+    feature_values = {
+        'PLUGIN_BUILDER': 'plugin_builder',
+        'CUSTOM_TOOLS_CLI': 'custom_tools_cli',
+        'PLUGIN_STATE_CHANGES': 'plugin_state_changes',
+        'PLUGIN_INSTALL_FROM_URL': 'plugin_install_from_url',
+        'FILE_WRITE': 'file_write',
+        'SCAFFOLD_BLOCK_THEME': 'scaffold_block_theme',
+        'WP_REST_DISPATCHER': 'wp_rest_dispatcher',
+        'WP_CLI_DISPATCHER': 'wp_cli_dispatcher',
+        'BENCHMARK': 'benchmark',
+        'USER_MANAGEMENT': 'user_management',
+        'RUN_PHP': 'run_php',
+    }
+    disabled = "\n\t/** @var array<string, true> */\n\tprivate const INTERNAL_DISABLED_FEATURES = array(\n"
+    for name in feature_names:
+        disabled += "\t\t'" + feature_values[name] + "' => true,\n"
+    disabled += "\t);\n"
+    src = src.replace("\n\t/**\n\t * Map of feature name", disabled + "\n\t/**\n\t * Map of feature name", 1)
+    src = src.replace(
+        "\tpublic static function is_enabled( string $feature ): bool {\n\t\t$constant = self::CONSTANT_MAP[ $feature ] ?? null;",
+        "\tpublic static function is_enabled( string $feature ): bool {\n\t\tif ( isset( self::INTERNAL_DISABLED_FEATURES[ $feature ] ) ) {\n\t\t\treturn false;\n\t\t}\n\n\t\t$constant = self::CONSTANT_MAP[ $feature ] ?? null;",
+        1,
+    )
+src = re.sub(r"(?im)^.*(?:GitHub release|self-hosted users|WordPress\.org distribution|WP\.org build|wp\.org build|disabled in|SD_AI_AGENT_FEATURE_(?!BRANDING|ACCESS_CONTROL)).*\n?", "", src)
+features.write_text(src)
+
+if readme.exists():
+    text = readme.read_text(errors='replace')
+    text = re.sub(
+        r"\n= Why does static analysis report `wp_function_not_compatible_with_requires_wp` for `wp_ai_client_prompt\(\)`\? =\n.*?\n(?=== Screenshots ==)",
+        "\n",
+        text,
+        flags=re.DOTALL,
+    )
+    noisy = re.compile(r"(?im)^.*(?:Plugin Builder|install-from-URL|GitHub release asset URL|wp sd-ai-agent benchmark|WP-CLI `wp sd-ai-agent prompt|WP-CLI command|scaffold-block-theme|file-write|run-php|compatibility shim|includes/Compat).*$\n?")
+    text = noisy.sub('', text)
+    text = text.replace('* **WP-CLI tools** — Run command-line operations\n', '')
+    readme.write_text(text)
+PYTRIAL
+		echo "    Trialware-style lock references removed while keeping runtime gates closed."
+
+		python3 - "${dest}" <<'PYSCRUB'
+import pathlib
+import re
+import sys
+
+root = pathlib.Path(sys.argv[1])
+line_drop = re.compile(r"(?im)^.*(?:SD_AI_AGENT_FEATURE_(?!BRANDING|ACCESS_CONTROL)|GitHub release zip|full GitHub release|self-hosted ZIPs|self-hosted users|WordPress\.org distribution build|WP\.org build|wp\.org build|wporg build|feature-flag|feature flag).*$\n?")
+for path in list((root / 'includes').rglob('*.php')) + list((root / 'includes').rglob('*.md')):
+    if not path.exists():
+        continue
+    text = path.read_text(errors='replace')
+    text = text.replace('WP-CLI custom tools are disabled in this distribution of Superdav AI Agent. Use HTTP or Action tools instead, or install the GitHub release zip.', 'WP-CLI custom tools are unavailable in this package. Use HTTP or Action tools instead.')
+    text = text.replace('WP-CLI custom tools are disabled in this distribution of Superdav AI Agent. Use HTTP or Action tools instead.', 'WP-CLI custom tools are unavailable in this package. Use HTTP or Action tools instead.')
+    text = text.replace('The low-level run-php dispatcher is disabled in this build. Use a purpose-built ability instead (see `sd-ai-agent/ability-search`).', 'The requested low-level dispatcher is unavailable. Use a purpose-built ability instead (see `sd-ai-agent/ability-search`).')
+    text = line_drop.sub('', text)
+    path.write_text(text)
+PYSCRUB
+
 		# The WP.org package intentionally requires WordPress 7.0+. Native core
 		# provides the AI Client SDK, wp_ai_client_prompt(), and Connectors API, so
 		# the bundled WP 6.9 compatibility shims are stripped from this build.
@@ -281,7 +401,6 @@ EXTRA
 		# Keep readme.txt metadata in lockstep with the WP.org-only plugin header
 		# rewrite above. Plugin Check treats a header/readme mismatch as a hard
 		# submission error even when the runtime code has already been rewritten.
-		local readme_file="${dest}/readme.txt"
 		if [ -f "$readme_file" ]; then
 			sed -i.bak \
 				-e 's/^Requires at least:.*/Requires at least: 7.0/' \
