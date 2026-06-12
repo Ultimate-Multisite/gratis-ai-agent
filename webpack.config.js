@@ -3,6 +3,7 @@ const path = require( 'path' );
 
 module.exports = {
 	...defaultConfig,
+	devtool: 'source-map',
 	entry: {
 		'admin-page': path.resolve(
 			process.cwd(),

@@ -25,6 +25,17 @@ Superdav AI Agent is built on official WordPress APIs available in supported Wor
 
 This means no fragile custom API wrappers, no vendor lock-in, and automatic improvements as WordPress core evolves.
 
+= Source Code and Build Files =
+
+The human-readable source for the compiled JavaScript and CSS assets in `build/` is included in this plugin package under `src/`. The build manifests and tooling configuration are also included: `package.json`, `package-lock.json`, and `webpack.config.js`.
+
+To regenerate the compiled assets from source, run:
+
+1. `npm install`
+2. `npm run build`
+
+Production builds also emit source maps (`build/*.map`) so reviewers and site owners can trace minified bundles back to the original source files. The public source repository is available at https://github.com/Ultimate-Multisite/sd-ai-agent.
+
 = Two Ways to Chat =
 
 * **Full-page chat** at Tools > Superdav AI Agent — A complete workspace with session history, folder organization, search, and export.

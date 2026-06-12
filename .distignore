@@ -24,12 +24,10 @@
 /.distignore
 /.distignore-wporg
 
-# Node / build tooling
+# Node dependencies. Source and build manifests are shipped so reviewers can
+# match compiled assets in build/ back to human-readable source and reproduce
+# the bundles with npm install && npm run build.
 /node_modules
-/src
-/package.json
-/package-lock.json
-/webpack.config.js
 
 # Composer dev metadata.
 #
@@ -113,6 +111,9 @@
 
 # AI agent / automation tooling
 /.agents
+/.a5c
+/.pi
+/.playwright-cli
 /.aidevops.json
 /.beads
 /.claude
@@ -195,7 +196,6 @@ vendor/bin
 
 # Build artefacts that should not be re-packaged (tree-wide is intentional)
 *.zip
-*.map
 build/di-cache
 # Pre-submission AI review reports written by bin/wporg-review.sh —
 # never include these in either the GitHub or WP.org zip.
