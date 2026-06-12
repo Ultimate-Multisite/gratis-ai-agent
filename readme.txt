@@ -4,7 +4,7 @@ Tags: ai, chatbot, assistant, automation, tools
 Requires at least: 6.9
 Tested up to: 7.0
 Requires PHP: 8.2
-Stable tag: 1.16.2
+Stable tag: 1.17.0
 License: GPL-2.0-or-later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -227,6 +227,26 @@ All call sites are either reached only after the shim has loaded the function, o
 8. Settings page with 12 configuration tabs
 
 == Changelog ==
+
+= 1.17.0 - Released on 2026-06-11 =
+* New: Added safer page and post editing tools so the agent can inspect block layouts, find the right section, make targeted updates, and preserve existing content.
+* New: Added stronger safeguards for block editing, including content checks before saving, protection for locked or reusable content, and easier recovery from revisions.
+* New: Added instant previews for changes to posts, site styles, navigation menus, and homepage content so updates are easier to review without manual refreshes.
+* New: Added an in-progress change panel with a side-by-side preview and Apply/Reject controls for file edits.
+* New: Added safer file-editing support with approved folders, editor links, automatic checks, and automatic rollback when a file change breaks the site.
+* New: Added a command palette shortcut so administrators can open Superdav AI Agent faster from the dashboard.
+* New: Added a managed Superdav AI provider option and improved model discovery so sites can connect to supported models with less setup.
+* New: Added crash-resume checkpoints so longer agent tasks can recover more safely after interruptions.
+* New: Added better media and content helpers, including improved stock image imports, safer image uploads, category and tag lookup, web address lookup, and saved pattern insertion.
+* Improved: Combined Setup Assistant and Theme Builder into one faster onboarding experience, and enabled the frontend chat widget by default.
+* Improved: Made the agent better at finding the right tools on busy sites, reading large files in smaller sections, and giving useful next steps when a tool is unavailable.
+* Improved: Strengthened privacy and permission protections around site settings, user management, uploads, WooCommerce order data, and internal plugin actions.
+* Improved: Expanded the External Services section so administrators can more easily understand which optional services may be contacted and when.
+* Fix: Fixed several chat and task-flow issues, including interrupted jobs, duplicate sends, tool-result refreshes, and raw text tool calls.
+* Fix: Fixed onboarding and Theme Builder issues that could affect shared admin sessions, existing homepage content, generated themes, global styles, and hero sections.
+* Fix: Fixed file and plugin-management issues that could leave generated files in the wrong location, miss failed changes, or keep stale plugin data after a reset.
+* Fix: Fixed model and provider handling for Superdav AI, DeepSeek, Claude Opus, and other compatible AI connectors.
+* Fix: Fixed WordPress.org packaging and review issues so the distributed plugin contains the intended files and privacy disclosures.
 
 = 1.16.2 - Released on 2026-05-29 =
 * Docs: Expanded the External Services section after a codebase-wide outbound connection audit to document WordPress.org plugin API/downloads, Google Search Console, Google OAuth token exchanges, admin-supplied skill manifests, custom HTTP tools/webhooks, and user-requested fetch/scrape/media/plugin-download URLs
