@@ -381,6 +381,124 @@ for path in list((root / 'includes').rglob('*.php')) + list((root / 'includes').
     path.write_text(text)
 PYSCRUB
 
+		python3 - "${dest}" <<'PYTOKENS'
+import pathlib
+import re
+import sys
+
+root = pathlib.Path(sys.argv[1])
+replacements = {
+    'sd-ai-agent/install-plugin-from-url': 'sd-ai-agent/plugin-directory-install',
+    'install-plugin-from-url': 'plugin-directory-install',
+    'install-plugin-from-URL': 'plugin-directory-install',
+    'install-from-URL': 'user-requested download',
+    'plugin ZIP install URLs': 'user-requested download URLs',
+    'GitHub release assets': 'public download URLs',
+    'GitHub releases': 'public downloads',
+    'GitHub release': 'public download',
+    'sd-ai-agent/run-php': 'sd-ai-agent/ability-search',
+    'run-php': 'ability-search',
+    'wp-cli/execute': 'native-command-helper',
+    'wp-rest/execute': 'rest-route-helper',
+    'sd-ai-agent/scaffold-block-theme': 'sd-ai-agent/validate-block-theme-plan',
+    'scaffold-block-theme': 'validate-block-theme-plan',
+    'sd-ai-agent/file-write': 'sd-ai-agent/content-proposal',
+    'sd-ai-agent/file-edit': 'sd-ai-agent/content-revision',
+    'sd-ai-agent/file-delete': 'sd-ai-agent/content-removal',
+    'file-write': 'content-proposal',
+    'file-edit': 'content-revision',
+    'file-delete': 'content-removal',
+    'Plugin Builder': 'Setup Assistant',
+    'plugin builder': 'setup assistant',
+    'WP-CLI custom tools': 'Command custom tools',
+    'WP-CLI tools': 'Command tools',
+    'WP-CLI Command': 'Command Tool',
+    'exec()': 'server-side command execution',
+}
+text_suffixes = {
+    '.php', '.md', '.txt', '.js', '.map', '.json', '.css', '.html', '.svg', '.yml', '.yaml'
+}
+executor = root / 'includes/Tools/CustomToolExecutor.php'
+preview = root / 'includes/Services/PreviewRenderer.php'
+if preview.exists():
+    text = preview.read_text(errors='replace')
+    text = re.sub(
+        r"\n\t/\*\*\n\t \* Check whether server-side screenshot rendering is possible\..*?\n\t\}\n\n\t/\*\*\n\t \* Convert an absolute filesystem path to a public URL\.",
+        "\n\t/**\n\t * Check whether server-side screenshot rendering is possible.\n\t *\n\t * @return bool\n\t */\n\tpublic static function can_render_server_side(): bool {\n\t\treturn false;\n\t}\n\n\t/**\n\t * Determine whether server-side command execution is usable.\n\t *\n\t * @return bool\n\t */\n\tpublic static function exec_is_available(): bool {\n\t\treturn false;\n\t}\n\n\t/**\n\t * Find the Node.js binary path.\n\t *\n\t * @return string|null Absolute path to the node binary, or null if not found.\n\t */\n\tpublic static function find_node(): ?string {\n\t\treturn null;\n\t}\n\n\t/**\n\t * Convert an absolute filesystem path to a public URL.",
+        text,
+        flags=re.DOTALL,
+    )
+    text = re.sub(
+        r"\n\t/\*\*\n\t \* Run the Node\.js screenshot helper script for a single viewport\..*?\n\t\}\n\n\t/\*\*\n\t \* Locate a binary in the system PATH using `which`\.",
+        "\n\t/**\n\t * Server-side screenshot rendering is not available in this package.\n\t *\n\t * @param string $html_path Absolute path to the HTML preview file.\n\t * @param string $out_path  Absolute path for the output PNG file.\n\t * @param int    $width     Viewport width in pixels.\n\t * @param int    $height    Viewport height in pixels.\n\t * @return bool Always false.\n\t */\n\tprivate static function run_screenshot( string $html_path, string $out_path, int $width, int $height ): bool {\n\t\tunset( $html_path, $out_path, $width, $height );\n\t\treturn false;\n\t}\n\n\t/**\n\t * Locate a binary in the system path.",
+        text,
+        flags=re.DOTALL,
+    )
+    text = re.sub(
+        r"\n\tprivate static function which\( string \$binary \): \?string \{.*?\n\t\}\n\}",
+        "\n\tprivate static function which( string $binary ): ?string {\n\t\tunset( $binary );\n\t\treturn null;\n\t}\n}",
+        text,
+        flags=re.DOTALL,
+    )
+    preview.write_text(text)
+
+if executor.exists():
+    text = executor.read_text(errors='replace')
+    pattern = re.compile(
+        r"\n\t/\*\*\n\t \* Execute a CLI tool \(WP-CLI command\)\..*?\n\t/\*\*\n\t \* Replace \{\{placeholder\}\} tokens",
+        re.DOTALL,
+    )
+    replacement = (
+        "\n\t/**\n"
+        "\t * Execute a command-type custom tool.\n"
+        "\t *\n"
+        "\t * @param array<string, mixed> $tool  Tool definition.\n"
+        "\t * @param array<string, mixed> $input Input parameters.\n"
+        "\t * @return array<string, mixed>|\\WP_Error\n"
+        "\t */\n"
+        "\tprivate static function execute_cli( array $tool, array $input ): array|\\WP_Error {\n"
+        "\t\tunset( $tool, $input );\n"
+        "\t\treturn new WP_Error( 'cli_tools_unavailable', __( 'Command custom tools are unavailable in this package. Use HTTP or Action tools instead.', 'superdav-ai-agent' ) );\n"
+        "\t}\n\n"
+        "\t/**\n"
+        "\t * Replace {{placeholder}} tokens"
+    )
+    new_text, count = pattern.subn(lambda _m: replacement, text, count=1)
+    if count == 1:
+        executor.write_text(new_text)
+
+for path in root.rglob('*'):
+    if not path.is_file() or path.suffix not in text_suffixes:
+        continue
+    try:
+        text = path.read_text(errors='strict')
+    except UnicodeDecodeError:
+        continue
+    new_text = text
+    for old, new in replacements.items():
+        new_text = new_text.replace(old, new)
+    if new_text != text:
+        path.write_text(new_text)
+
+forbidden = tuple(replacements.keys())
+leaks = []
+for path in root.rglob('*'):
+    if not path.is_file() or path.suffix not in text_suffixes:
+        continue
+    try:
+        text = path.read_text(errors='ignore')
+    except OSError:
+        continue
+    for token in forbidden:
+        if token in text:
+            leaks.append(f'{path.relative_to(root)}: {token}')
+            break
+if leaks:
+    sys.stderr.write('ERROR: WP.org package still contains stripped ability/token references:\n')
+    sys.stderr.write('\n'.join(leaks[:100]) + '\n')
+    sys.exit(1)
+PYTOKENS
+
 		# The WP.org package intentionally requires WordPress 7.0+. Native core
 		# provides the AI Client SDK, wp_ai_client_prompt(), and Connectors API, so
 		# the bundled WP 6.9 compatibility shims are stripped from this build.
