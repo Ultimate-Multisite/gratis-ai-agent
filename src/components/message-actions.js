@@ -11,7 +11,7 @@ import { Icon, copy, pencil, redo, check, thumbsDown } from '@wordpress/icons';
  * Internal dependencies
  */
 import STORE_NAME from '../store';
-import { copyToClipboard } from '../utils/clipboard';
+import { copyToClipboard } from '../utils/copy-text';
 
 /**
  * Per-message action buttons (Copy, Edit, Regenerate, Thumbs-down).

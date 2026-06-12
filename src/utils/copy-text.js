@@ -10,28 +10,23 @@
  * @param {string} text Text to copy.
  * @return {Promise<void>} Resolves when the copy succeeds, rejects on failure.
  */
-export function copyToClipboard( text ) {
+export async function copyToClipboard( text ) {
 	if ( navigator.clipboard ) {
-		return navigator.clipboard.writeText( text );
+		await navigator.clipboard.writeText( text );
+		return;
 	}
 
 	// Fallback for non-secure contexts (HTTP, e.g. http://wordpress.local).
-	return new Promise( ( resolve, reject ) => {
-		const el = document.createElement( 'textarea' );
-		el.value = text;
-		// Keep the element out of the viewport and layout flow.
-		el.style.cssText =
-			'position:fixed;top:-9999px;left:-9999px;opacity:0;pointer-events:none';
-		el.setAttribute( 'readonly', '' );
-		document.body.appendChild( el );
-		el.focus();
-		el.select();
-		const ok = document.execCommand( 'copy' );
-		document.body.removeChild( el );
-		if ( ok ) {
-			resolve();
-		} else {
-			reject( new Error( 'execCommand copy failed' ) );
-		}
-	} );
+	const el = document.createElement( 'textarea' );
+	el.value = text;
+	el.style.cssText = 'position:fixed;top:-9999px;left:-9999px';
+	el.readOnly = true;
+	document.body.appendChild( el );
+	el.focus();
+	el.select();
+	const ok = document.execCommand( 'copy' );
+	document.body.removeChild( el );
+	if ( ! ok ) {
+		throw new Error( 'execCommand copy failed' );
+	}
 }
