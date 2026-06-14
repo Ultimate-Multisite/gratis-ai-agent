@@ -246,17 +246,9 @@ final class ConnectorsController {
 	 * @return array<string, mixed>
 	 */
 	private function build_provider_data( string $provider_id, array $meta ): array {
-		$installed  = $this->is_plugin_installed( $meta['plugin_file'] );
-		$active     = $this->is_plugin_active( $meta['plugin_file'] );
-		$api_key    = (string) get_option( $meta['option_key'], '' );
-		$configured = '' !== $api_key;
-
-		// Build the masked key preview (last 4 chars only).
-		$masked_key = '';
-		if ( $configured ) {
-			$len        = strlen( $api_key );
-			$masked_key = str_repeat( '•', max( 0, $len - 4 ) ) . substr( $api_key, -4 );
-		}
+		$installed        = $this->is_plugin_installed( $meta['plugin_file'] );
+		$active           = $this->is_plugin_active( $meta['plugin_file'] );
+		$credential_state = $this->get_connector_credential_state( $provider_id, $meta['option_key'] );
 
 		return array(
 			'id'          => $provider_id,
@@ -266,8 +258,51 @@ final class ConnectorsController {
 			'plugin_slug' => $meta['plugin_slug'],
 			'installed'   => $installed,
 			'active'      => $active,
-			'configured'  => $configured,
-			'masked_key'  => $masked_key,
+			'configured'  => $credential_state['configured'],
+			'masked_key'  => $credential_state['masked_key'],
+		);
+	}
+
+	/**
+	 * Return safe credential state for a connector provider without reading raw keys.
+	 *
+	 * WordPress 7 stores AI provider credentials behind the Connectors API. The
+	 * controller only needs boolean configured state and the masked preview already
+	 * exposed by that API; it must not read `connectors_ai_*_api_key` directly.
+	 *
+	 * @param string $provider_id Provider ID.
+	 * @param string $option_key  Connector setting option name.
+	 * @return array{configured: bool, masked_key: string}
+	 */
+	private function get_connector_credential_state( string $provider_id, string $option_key ): array {
+		if ( ! function_exists( '_wp_connectors_get_provider_settings' ) ) {
+			return array(
+				'configured' => false,
+				'masked_key' => '',
+			);
+		}
+
+		$settings = _wp_connectors_get_provider_settings();
+		$setting  = $settings[ $option_key ] ?? null;
+
+		if ( ! is_array( $setting ) ) {
+			return array(
+				'configured' => false,
+				'masked_key' => '',
+			);
+		}
+
+		$setting_provider = isset( $setting['provider'] ) ? (string) $setting['provider'] : '';
+		if ( '' !== $setting_provider && $provider_id !== $setting_provider ) {
+			return array(
+				'configured' => false,
+				'masked_key' => '',
+			);
+		}
+
+		return array(
+			'configured' => true,
+			'masked_key' => isset( $setting['mask'] ) && is_string( $setting['mask'] ) ? $setting['mask'] : '',
 		);
 	}
 

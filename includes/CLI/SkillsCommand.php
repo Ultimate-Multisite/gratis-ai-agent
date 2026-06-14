@@ -4,7 +4,7 @@ declare(strict_types=1);
 /**
  * WP-CLI command: wp sd-ai-agent skills
  *
- * Maintenance commands for the vendored WordPress/agent-skills bundle.
+ * Maintenance commands for reviewing the vendored WordPress/agent-skills bundle.
  *
  * @package SdAiAgent\CLI
  * @license GPL-2.0-or-later
@@ -20,15 +20,15 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 /**
- * Manage vendored WordPress agent skills.
+ * Review upstream WordPress agent skills.
  *
  * ## EXAMPLES
  *
- *   # Dry-run: preview what would change
+ *   # Dry-run: preview what would change in the export directory
  *   wp sd-ai-agent skills sync-wp-agent-skills --dry-run
  *
- *   # Perform a live sync
- *   wp sd-ai-agent skills sync-wp-agent-skills
+ *   # Export generated files outside the plugin directory for manual review
+ *   wp sd-ai-agent skills sync-wp-agent-skills --output-dir=/tmp/sd-ai-agent-skills
  */
 class SkillsCommand extends WP_CLI_Command {
 
@@ -112,12 +112,16 @@ class SkillsCommand extends WP_CLI_Command {
 	}
 
 	/**
-	 * Sync the five curated WordPress/agent-skills into includes/Models/skills/.
+	 * Export the five curated WordPress/agent-skills for manual review.
 	 *
 	 * Fetches each SKILL.md from WordPress/agent-skills, applies sanitisation
 	 * (removes Studio-specific `studio wp ` CLI prefix, replaces wp-project-triage
 	 * Node script references), prepends an attribution header, and writes the
-	 * result to `includes/Models/skills/<slug>.md`.
+	 * result to an output directory outside the installed plugin.
+	 *
+	 * Runtime plugin installs must not write into their own plugin directory.
+	 * Maintainers should review the exported files and vendor them during the
+	 * release/build process instead.
 	 *
 	 * Uses `wp_remote_get()` so it works in any WP environment (honours
 	 * `WP_HTTP_BLOCK_EXTERNAL` and proxy settings).
@@ -127,10 +131,14 @@ class SkillsCommand extends WP_CLI_Command {
 	 * [--dry-run]
 	 * : Show what would change without writing any files.
 	 *
+	 * [--output-dir=<path>]
+	 * : Directory for generated files. Defaults to wp-content/uploads/sd-ai-agent/skills-sync/.
+	 *   Paths inside the plugin directory are rejected.
+	 *
 	 * ## EXAMPLES
 	 *
 	 *   wp sd-ai-agent skills sync-wp-agent-skills --dry-run
-	 *   wp sd-ai-agent skills sync-wp-agent-skills
+	 *   wp sd-ai-agent skills sync-wp-agent-skills --output-dir=/tmp/sd-ai-agent-skills
 	 *
 	 * @subcommand sync-wp-agent-skills
 	 * @param array<int, string>   $args       Positional arguments (unused).
@@ -138,11 +146,20 @@ class SkillsCommand extends WP_CLI_Command {
 	 */
 	public function sync_wp_agent_skills( array $args, array $assoc_args ): void {
 		$dry_run    = (bool) ( $assoc_args['dry-run'] ?? false );
-		$skills_dir = SD_AI_AGENT_DIR . 'includes/Models/skills/';
+		$skills_dir = $this->resolve_output_dir( $assoc_args );
 
 		if ( $dry_run ) {
 			WP_CLI::log( '[dry-run] No files will be written.' );
+		} elseif ( ! wp_mkdir_p( $skills_dir ) ) {
+			WP_CLI::error(
+				sprintf(
+					'Unable to create output directory: %s',
+					$skills_dir
+				)
+			);
 		}
+
+		WP_CLI::log( 'Output directory: ' . $skills_dir );
 
 		$results = [];
 
@@ -159,6 +176,33 @@ class SkillsCommand extends WP_CLI_Command {
 		}
 
 		$this->print_summary( $results, $dry_run );
+	}
+
+	/**
+	 * Resolve the safe output directory for generated skill files.
+	 *
+	 * @param array<string, mixed> $assoc_args Named WP-CLI arguments.
+	 * @return string Absolute path with trailing slash.
+	 */
+	private function resolve_output_dir( array $assoc_args ): string {
+		$output_dir = isset( $assoc_args['output-dir'] ) ? (string) $assoc_args['output-dir'] : '';
+
+		if ( '' === $output_dir ) {
+			$uploads    = wp_upload_dir( null, false );
+			$upload_dir = isset( $uploads['basedir'] ) && is_string( $uploads['basedir'] )
+				? $uploads['basedir']
+				: WP_CONTENT_DIR . '/uploads';
+			$output_dir = trailingslashit( $upload_dir ) . 'sd-ai-agent/skills-sync';
+		}
+
+		$output_dir = wp_normalize_path( $output_dir );
+		$plugin_dir = wp_normalize_path( SD_AI_AGENT_DIR );
+
+		if ( str_starts_with( trailingslashit( $output_dir ), trailingslashit( $plugin_dir ) ) ) {
+			WP_CLI::error( 'Refusing to write generated skill files inside the plugin directory. Use --output-dir outside the plugin and vendor reviewed files during the release process.' );
+		}
+
+		return trailingslashit( $output_dir );
 	}
 
 	/**
@@ -183,10 +227,11 @@ class SkillsCommand extends WP_CLI_Command {
 
 		$sanitised = $this->sanitise( $content );
 		$dest_path = $skills_dir . $slug . '.md';
+		$exists    = file_exists( $dest_path );
 
 		// Check if the current file (without attribution header) matches.
 		$existing_body = '';
-		if ( file_exists( $dest_path ) ) {
+		if ( $exists ) {
 			// Reading a local plugin file path, not a remote URL — wp_remote_get() does not apply.
 			// phpcs:ignore WordPress.WP.AlternativeFunctions.file_get_contents_file_get_contents
 			$raw_existing  = (string) file_get_contents( $dest_path );
@@ -221,13 +266,17 @@ class SkillsCommand extends WP_CLI_Command {
 				}
 			}
 
-			// Writing a local plugin file — WP_Filesystem initialization is not appropriate
-			// in a CLI command context where the filesystem transport is always direct.
-			// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_file_put_contents
-			file_put_contents( $dest_path, $final );
-			$action = file_exists( $dest_path ) ? 'updated' : 'created';
+			if ( ! $this->write_generated_file( $dest_path, $final ) ) {
+				return [
+					'slug'    => $slug,
+					'status'  => 'error',
+					'outcome' => 'write_failed',
+				];
+			}
+
+			$action = $exists ? 'updated' : 'created';
 		} else {
-			$action = file_exists( $dest_path ) ? 'would update' : 'would create';
+			$action = $exists ? 'would update' : 'would create';
 		}
 
 		return [
@@ -235,6 +284,36 @@ class SkillsCommand extends WP_CLI_Command {
 			'status'  => $action,
 			'outcome' => 'ok',
 		];
+	}
+
+	/**
+	 * Write generated skill content with the WordPress filesystem abstraction.
+	 *
+	 * @param string $dest_path Absolute destination path.
+	 * @param string $contents  File contents.
+	 * @return bool True when the write succeeds.
+	 */
+	private function write_generated_file( string $dest_path, string $contents ): bool {
+		global $wp_filesystem;
+
+		if ( ! function_exists( 'WP_Filesystem' ) ) {
+			require_once ABSPATH . 'wp-admin/includes/file.php';
+		}
+
+		WP_Filesystem();
+		$filesystem = $wp_filesystem;
+
+		if ( ! $filesystem instanceof \WP_Filesystem_Base ) {
+			if ( ! class_exists( '\WP_Filesystem_Direct' ) ) {
+				require_once ABSPATH . 'wp-admin/includes/class-wp-filesystem-direct.php';
+			}
+
+			$filesystem = new \WP_Filesystem_Direct( array() );
+		}
+
+		$chmod = defined( 'FS_CHMOD_FILE' ) ? (int) constant( 'FS_CHMOD_FILE' ) : 0644;
+
+		return (bool) $filesystem->put_contents( $dest_path, $contents, $chmod );
 	}
 
 	/**

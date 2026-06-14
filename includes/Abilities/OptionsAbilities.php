@@ -36,16 +36,20 @@ class OptionsAbilities {
 	public const SECRET_REDACTED_PLACEHOLDER = '[redacted: secret option]';
 
 	/**
-	 * Authentication keys and salts that must NEVER be returned to the AI
-	 * agent, even when stored in the options table.
+	 * Authentication keys, salts, and known credential options that must NEVER
+	 * be returned to the AI agent, even when stored in the options table.
 	 *
-	 * WordPress writes these names into `wp_options` when `wp-config.php`
-	 * does not define them, so a read path that names them by string would
-	 * leak the values. This list is the single source of truth used by every
-	 * read surface in the plugin (get-option, list-options, db-query,
-	 * run-php with `get_option`/`get_transient`, and wp-cli `option get`).
+	 * WordPress writes auth keys/salts into `wp_options` when `wp-config.php`
+	 * does not define them, and the Connectors API stores provider credentials
+	 * as options. A read path that names these rows by string would leak the
+	 * values. This list is the single source of truth used by every read surface
+	 * in the plugin (get-option, list-options, db-query, run-php with
+	 * `get_option`/`get_transient`, and wp-cli `option get`).
 	 *
-	 * Extend via the `sd_ai_agent_options_read_blocklist` filter.
+	 * Extend exact names via the `sd_ai_agent_options_read_blocklist` filter.
+	 * Open-ended WordPress Connectors API credential names are also blocked by
+	 * {@see OptionsAbilities::is_secret_option_name()} using the
+	 * `connectors_ai_{provider}_api_key` shape.
 	 *
 	 * @var string[]
 	 */
@@ -60,7 +64,23 @@ class OptionsAbilities {
 		'secure_auth_salt',
 		'logged_in_salt',
 		'nonce_salt',
+		// WordPress 7 Connectors API credentials. Third-party provider IDs that
+		// follow the same naming convention are caught by the predicate below.
+		'connectors_ai_openai_api_key',
+		'connectors_ai_anthropic_api_key',
+		'connectors_ai_google_api_key',
+		'connectors_ai_sd_ai_agent_cloud_api_key',
 	];
+
+	/**
+	 * Prefix used by WordPress 7 Connectors API credential option names.
+	 */
+	private const CONNECTORS_AI_OPTION_PREFIX = 'connectors_ai_';
+
+	/**
+	 * Suffix used by WordPress 7 Connectors API credential option names.
+	 */
+	private const CONNECTORS_AI_OPTION_SUFFIX = '_api_key';
 
 	/**
 	 * Options that the AI agent is never allowed to modify or delete.
@@ -271,13 +291,13 @@ class OptionsAbilities {
 	}
 
 	/**
-	 * Get the runtime read blocklist for secret option names.
+	 * Get the runtime read blocklist for exact secret option names.
 	 *
 	 * The list is intentionally narrower than the write blocklist: a few
 	 * options (e.g. `siteurl`, `active_plugins`) are write-blocked because
 	 * mutating them would break the site, but their values are not secrets
 	 * and may legitimately be inspected. Only values whose disclosure would
-	 * enable session forgery or impersonation belong here.
+	 * enable credential misuse, session forgery, or impersonation belong here.
 	 *
 	 * @return string[]
 	 */
@@ -296,10 +316,12 @@ class OptionsAbilities {
 	}
 
 	/**
-	 * Predicate: is the given option name in the secret read blocklist?
+	 * Predicate: is the given option name a blocked secret option?
 	 *
-	 * Comparison is exact-match and case-sensitive — WordPress option names
-	 * are case-sensitive at the storage layer.
+	 * Exact-name comparisons are case-sensitive — WordPress option names are
+	 * case-sensitive at the storage layer. WordPress Connectors API credentials
+	 * are additionally blocked by shape so third-party provider key options do
+	 * not need to be enumerated one by one.
 	 *
 	 * @param string $option_name Option name to test.
 	 * @return bool True if the name is a known secret.
@@ -309,7 +331,28 @@ class OptionsAbilities {
 			return false;
 		}
 
-		return in_array( $option_name, self::get_secret_read_blocklist(), true );
+		if ( in_array( $option_name, self::get_secret_read_blocklist(), true ) ) {
+			return true;
+		}
+
+		return self::is_connector_api_key_option( $option_name );
+	}
+
+	/**
+	 * Predicate: does the option name match the WordPress Connectors API key shape?
+	 *
+	 * WordPress 7 and the local polyfill use `connectors_ai_{provider}_api_key`
+	 * for provider credentials. Provider IDs are open-ended, so this shape gate
+	 * catches future and third-party connector credential options without adding
+	 * brittle option-key allow/deny lists.
+	 *
+	 * @param string $option_name Option name to test.
+	 * @return bool True if the name is a connector credential option.
+	 */
+	private static function is_connector_api_key_option( string $option_name ): bool {
+		return strlen( $option_name ) > strlen( self::CONNECTORS_AI_OPTION_PREFIX ) + strlen( self::CONNECTORS_AI_OPTION_SUFFIX )
+			&& str_starts_with( $option_name, self::CONNECTORS_AI_OPTION_PREFIX )
+			&& str_ends_with( $option_name, self::CONNECTORS_AI_OPTION_SUFFIX );
 	}
 
 	/**
@@ -323,7 +366,7 @@ class OptionsAbilities {
 			'sd_ai_agent_option_secret_redacted',
 			sprintf(
 				/* translators: %s: option name */
-				__( 'The option "%s" stores an authentication secret and cannot be read by the AI agent.', 'superdav-ai-agent' ),
+				__( 'The option "%s" stores a credential secret and cannot be read by the AI agent.', 'superdav-ai-agent' ),
 				$option_name
 			),
 			array( 'status' => 403 )
