@@ -1,15 +1,15 @@
 # SD AI Agent for WordPress
 
-[![Download Plugin Now](https://img.shields.io/github/v/release/Ultimate-Multisite/superdav-ai-agent?style=for-the-badge&label=Download+Plugin+Now&color=0073aa)](https://github.com/Ultimate-Multisite/superdav-ai-agent/releases/latest/download/superdav-ai-agent.zip) &nbsp; Upload the zip to WordPress like any other plugin
+[Download Superdav AI Agent v1.17.0 ZIP](https://github.com/Ultimate-Multisite/superdav-ai-agent/releases/download/v1.17.0/superdav-ai-agent.zip) &nbsp; Upload the zip to WordPress like any other plugin
 
-[![Tests](https://github.com/Ultimate-Multisite/sd-ai-agent/actions/workflows/tests.yml/badge.svg)](https://github.com/Ultimate-Multisite/sd-ai-agent/actions/workflows/tests.yml)
-[![Code Quality](https://github.com/Ultimate-Multisite/sd-ai-agent/actions/workflows/code-quality.yml/badge.svg)](https://github.com/Ultimate-Multisite/sd-ai-agent/actions/workflows/code-quality.yml)
+[![Tests](https://github.com/Ultimate-Multisite/superdav-ai-agent/actions/workflows/tests.yml/badge.svg)](https://github.com/Ultimate-Multisite/superdav-ai-agent/actions/workflows/tests.yml)
+[![Code Quality](https://github.com/Ultimate-Multisite/superdav-ai-agent/actions/workflows/code-quality.yml/badge.svg)](https://github.com/Ultimate-Multisite/superdav-ai-agent/actions/workflows/code-quality.yml)
 [![PHP 8.2+](https://img.shields.io/badge/php-%3E%3D%208.2-blue.svg)](https://www.php.net/)
 [![WordPress 7.0+](https://img.shields.io/badge/WordPress-%3E%3D%207.0-blue.svg)](https://wordpress.org/)
 [![License: GPL v2+](https://img.shields.io/badge/License-GPL%20v2%2B-blue.svg)](https://www.gnu.org/licenses/gpl-2.0.html)
-[![Try in Playground](https://img.shields.io/badge/Try%20in-WordPress%20Playground-3858e9?logo=wordpress&logoColor=white)](https://playground.wordpress.net/?blueprint-url=https://raw.githubusercontent.com/Ultimate-Multisite/sd-ai-agent/refs/heads/main/.wordpress-org/blueprints/blueprint.json)
+[![Try in Playground](https://img.shields.io/badge/Try%20in-WordPress%20Playground-3858e9?logo=wordpress&logoColor=white)](https://playground.wordpress.net/?blueprint-url=https://raw.githubusercontent.com/Ultimate-Multisite/superdav-ai-agent/refs/heads/main/.wordpress-org/blueprints/blueprint.json)
 
-[Documentation](https://github.com/Ultimate-Multisite/sd-ai-agent/wiki)
+[Documentation](https://github.com/Ultimate-Multisite/superdav-ai-agent/wiki)
 
 A universal AI agent for WordPress. It connects to every plugin on your site through WordPress's Abilities API, giving a single AI assistant the power to manage content, products, users, SEO, analytics, media, and more — across any plugin that registers abilities. Bring your own API key, choose any AI provider, and pay only what your provider charges.
 
@@ -78,7 +78,7 @@ AI Agent works with any connector plugin registered through the WordPress Connec
 | [Compatible Endpoints](https://github.com/Ultimate-Multisite/ultimate-ai-connector-compatible-endpoints) | Connect to anything that speaks the OpenAI API format: Ollama (local models, zero cost), Azure OpenAI, Groq, Together AI, OpenRouter, and more. |
 | [WebLLM](https://github.com/Ultimate-Multisite/ultimate-ai-connector-webllm) | Run models entirely in the browser using WebGPU. No API key, no server, no data leaves the machine. Good for demos and privacy-sensitive environments. |
 
-All connectors are included in the [WordPress Playground demo](https://playground.wordpress.net/?blueprint-url=https://raw.githubusercontent.com/Ultimate-Multisite/sd-ai-agent/refs/heads/main/.wordpress-org/blueprints/blueprint.json).
+All connectors are included in the [WordPress Playground demo](https://playground.wordpress.net/?blueprint-url=https://raw.githubusercontent.com/Ultimate-Multisite/superdav-ai-agent/refs/heads/main/.wordpress-org/blueprints/blueprint.json).
 
 ## Features
 
@@ -333,7 +333,7 @@ composer test       # PHPUnit tests
 
 Test the plugin instantly in your browser without any local setup:
 
-- **Latest release**: [Open in WordPress Playground](https://playground.wordpress.net/?blueprint-url=https://raw.githubusercontent.com/Ultimate-Multisite/sd-ai-agent/refs/heads/main/.wordpress-org/blueprints/blueprint.json) (login: `admin` / `password`)
+- **Latest release**: [Open in WordPress Playground](https://playground.wordpress.net/?blueprint-url=https://raw.githubusercontent.com/Ultimate-Multisite/superdav-ai-agent/refs/heads/main/.wordpress-org/blueprints/blueprint.json) (login: `admin` / `password`)
 
 The canonical blueprint lives at `.wordpress-org/blueprints/blueprint.json` — this is the path WordPress.org uses when displaying the plugin in the plugin directory.
 
