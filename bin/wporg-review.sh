@@ -17,14 +17,16 @@
 #   2. Extracts the zip into wp-content/plugins/<REVIEW_SLUG>/ on the
 #      sibling ../wordpress dev install — a *separate* directory from
 #      the dev symlink at wp-content/plugins/superdav-ai-agent/.
-#   3. Ensures the Plugin Check (PCP) plugin is installed and active
+#   3. Runs a deterministic filename guard for libraries already bundled
+#      with WordPress core so path-only findings are caught before AI review.
+#   4. Ensures the Plugin Check (PCP) plugin is installed and active
 #      and is recent enough to support `--ai` and `--ai-model=...`
 #      (PCP 2.0.0+; older versions fall back to non-AI checks).
-#   4. Runs `wp plugin check <REVIEW_SLUG> --slug=superdav-ai-agent
+#   5. Runs `wp plugin check <REVIEW_SLUG> --slug=superdav-ai-agent
 #      --ai --ai-model=<MODEL>` so PCP scans the extracted wporg build
 #      but reports against the real submission slug (so the trademark
-#      / similar-name AI checks see the slug we will actually submit).
-#   5. Writes the report to build/wporg-review/<version>-<timestamp>.txt
+#      / similar-name AI checks see the slug we will actually submit),
+#      writing the report to build/wporg-review/<version>-<timestamp>.txt
 #      (gitignored via build/, distignored via /build/wporg-review).
 #   6. Cleans up the extracted plugin dir unless KEEP=1.
 #
@@ -98,6 +100,87 @@ require_cmd() {
 require_cmd wp
 require_cmd unzip
 require_cmd bash
+require_cmd find
+
+# Mirrors Plugin Check's path-only `File_Type_Check::look_for_library_core_files()`
+# rule closely enough for local wporg builds. The upstream rule uses PCRE
+# lookarounds and scans file paths rather than contents, so a custom helper named
+# `src/utils/clipboard.js` is flagged even when it is not a vendored ClipboardJS
+# copy. Keep this guard deterministic so wp.org-only filename findings surface
+# before submission.
+check_core_library_filenames() {
+	local scan_dir="$1"
+	local file=""
+	local relative_path=""
+	local pattern=""
+	local found=0
+	local nocasematch_was_enabled=0
+	local -a core_library_patterns=(
+		'(^|[^.-])jquery(-[0-9.]+)?(\.slim)?(\.min)?\.js($|[^/])'
+		'jquery-ui(-[0-9.]+)?(\.slim)?(\.min)?\.js($|[^/])'
+		'jquery\.color(\.slim)?(\.min)?\.js($|[^/])'
+		'jquery\.ui\.touch-punch($|[^/])'
+		'jquery\.hoverintent($|[^/])'
+		'jquery\.imgareaselect($|[^/])'
+		'jquery\.hotkeys($|[^/])'
+		'jquery\.ba-serializeobject($|[^/])'
+		'jquery\.query-object($|[^/])'
+		'jquery\.suggest($|[^/])'
+		'polyfill(\.min)?\.js($|[^/])'
+		'iris(\.min)?\.js($|[^/])'
+		'backbone(\.min)?\.js($|[^/])'
+		'clipboard(\.min)?\.js($|[^/])'
+		'closest(\.min)?\.js($|[^/])'
+		'codemirror(\.min)?\.js($|[^/])'
+		'formdata(\.min)?\.js($|[^/])'
+		'json2(\.min)?\.js($|[^/])'
+		'lodash(\.min)?\.js($|[^/])'
+		'masonry(\.pkgd)(\.min)?\.js($|[^/])'
+		'mediaelement-and-player(\.min)?\.js($|[^/])'
+		'moment(\.min)?\.js($|[^/])'
+		'plupload(\.full)(\.min)?\.js($|[^/])'
+		'thickbox(\.min)?\.js($|[^/])'
+		'twemoji(\.min)?\.js($|[^/])'
+		'underscore([.-]min)?\.js($|[^/])'
+		'moxie(\.min)?\.js($|[^/])'
+		'zxcvbn(\.min)?\.js($|[^/])'
+		'getid3\.php($|[^/])'
+		'pclzip\.lib\.php($|[^/])'
+		'PasswordHash\.php($|[^/])'
+		'PHPMailer\.php($|[^/])'
+		'SimplePie\.php($|[^/])'
+	)
+
+	if shopt -q nocasematch; then
+		nocasematch_was_enabled=1
+	fi
+	shopt -s nocasematch
+
+	while IFS= read -r -d '' file; do
+		relative_path="${file#"$scan_dir"/}"
+		for pattern in "${core_library_patterns[@]}"; do
+			if [[ "$relative_path" =~ $pattern ]]; then
+				if [ "$found" -eq 0 ]; then
+					echo "ERROR: wporg build contains filenames Plugin Check treats as bundled WordPress core libraries:" >&2
+				fi
+				echo "       ${relative_path}" >&2
+				found=1
+				break
+			fi
+		done
+	done < <(find "$scan_dir" -type f -print0)
+
+	if [ "$nocasematch_was_enabled" -eq 0 ]; then
+		shopt -u nocasematch
+	fi
+
+	if [ "$found" -ne 0 ]; then
+		echo "       Rename custom helpers so they do not end with core library basenames such as clipboard.js." >&2
+		return 1
+	fi
+
+	return 0
+}
 
 if [ ! -d "$WP_DIR" ]; then
 	echo "ERROR: WordPress dev install not found at ${WP_DIR}" >&2
@@ -140,7 +223,7 @@ echo "    Report path      : ${REPORT_PATH}"
 # ── 1. Build the wporg target ────────────────────────────────────────────────
 
 echo
-echo "==> [1/5] Building wporg target zip..."
+echo "==> [1/6] Building wporg target zip..."
 bash bin/build.sh --target=wporg
 
 if [ ! -f "$ZIP_PATH" ]; then
@@ -152,7 +235,7 @@ fi
 # ── 2. Extract to a separate plugins dir ─────────────────────────────────────
 
 echo
-echo "==> [2/5] Extracting wporg zip into wp-content/plugins/${REVIEW_SLUG}/..."
+echo "==> [2/6] Extracting wporg zip into wp-content/plugins/${REVIEW_SLUG}/..."
 
 # Defence in depth: refuse to touch anything other than our review slug
 # path. This guards against an env-injected REVIEW_SLUG pointing at the
@@ -180,6 +263,7 @@ TMP_EXTRACT="$(mktemp -d)"
 # shellcheck disable=SC2317  # invoked via trap, not directly
 cleanup_tmp() {
 	rm -rf "$TMP_EXTRACT"
+	return 0
 }
 trap cleanup_tmp EXIT
 
@@ -195,10 +279,14 @@ if [ ! -d "${TMP_EXTRACT}/superdav-ai-agent" ]; then
 fi
 mv "${TMP_EXTRACT}/superdav-ai-agent" "$TARGET_DIR"
 
-# ── 3. Ensure Plugin Check is installed and active ───────────────────────────
+echo
+echo "==> [3/6] Checking wporg build for WordPress core-library filenames..."
+check_core_library_filenames "$TARGET_DIR"
+
+# ── 4. Ensure Plugin Check is installed and active ───────────────────────────
 
 echo
-echo "==> [3/5] Ensuring Plugin Check (PCP) is installed and recent..."
+echo "==> [4/6] Ensuring Plugin Check (PCP) is installed and recent..."
 
 # We need PCP ≥ 2.0.0 for the --ai / --ai-model flags.
 # `wp plugin install plugin-check --activate --force` always pulls the
@@ -219,10 +307,10 @@ if [ ! -f "$PCP_CLI" ]; then
 	exit 1
 fi
 
-# ── 4. Run the AI-enabled plugin check ───────────────────────────────────────
+# ── 5. Run the AI-enabled plugin check ───────────────────────────────────────
 
 echo
-echo "==> [4/5] Running wp plugin check ${REVIEW_SLUG}" \
+echo "==> [5/6] Running wp plugin check ${REVIEW_SLUG}" \
 	"--slug=${SUBMISSION_SLUG} --ai --ai-model=${MODEL}..."
 
 mkdir -p "$REPORT_DIR"
@@ -261,10 +349,10 @@ wp --path="$WP_DIR" plugin check "$REVIEW_SLUG" \
 PCP_EXIT=${PIPESTATUS[0]}
 set -e
 
-# ── 5. Cleanup ───────────────────────────────────────────────────────────────
+# ── 6. Cleanup ───────────────────────────────────────────────────────────────
 
 echo
-echo "==> [5/5] Cleanup..."
+echo "==> [6/6] Cleanup..."
 if [ "$KEEP" = "1" ]; then
 	echo "    KEEP=1 — leaving ${TARGET_DIR} in place for inspection."
 else
