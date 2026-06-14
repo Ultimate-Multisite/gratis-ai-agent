@@ -25,6 +25,8 @@ use WP_Error;
 use WP_REST_Request;
 use WP_REST_Response;
 use WP_REST_Server;
+use WordPress\AiClient\AiClient;
+use WordPress\AiClient\Providers\Models\Enums\CapabilityEnum;
 use XWP\DI\Decorators\Action;
 use XWP\DI\Decorators\Handler;
 use SdAiAgent\Admin\UnifiedAdminMenu;
@@ -246,17 +248,9 @@ final class ConnectorsController {
 	 * @return array<string, mixed>
 	 */
 	private function build_provider_data( string $provider_id, array $meta ): array {
-		$installed  = $this->is_plugin_installed( $meta['plugin_file'] );
-		$active     = $this->is_plugin_active( $meta['plugin_file'] );
-		$api_key    = (string) get_option( $meta['option_key'], '' );
-		$configured = '' !== $api_key;
-
-		// Build the masked key preview (last 4 chars only).
-		$masked_key = '';
-		if ( $configured ) {
-			$len        = strlen( $api_key );
-			$masked_key = str_repeat( '•', max( 0, $len - 4 ) ) . substr( $api_key, -4 );
-		}
+		$installed        = $this->is_plugin_installed( $meta['plugin_file'] );
+		$active           = $this->is_plugin_active( $meta['plugin_file'] );
+		$credential_state = $this->get_connector_credential_state( $provider_id );
 
 		return array(
 			'id'          => $provider_id,
@@ -266,9 +260,69 @@ final class ConnectorsController {
 			'plugin_slug' => $meta['plugin_slug'],
 			'installed'   => $installed,
 			'active'      => $active,
-			'configured'  => $configured,
-			'masked_key'  => $masked_key,
+			'configured'  => $credential_state['configured'],
+			'masked_key'  => $credential_state['masked_key'],
 		);
+	}
+
+	/**
+	 * Return safe credential state for a connector provider without reading raw keys.
+	 *
+	 * WordPress 7 stores AI provider credentials behind the Connectors API. This
+	 * controller avoids both direct option reads and private `_wp_connectors_*()`
+	 * helpers; it asks the public AI Client registry whether the provider has a
+	 * configured text-generation model. The raw key is never read, so no masked
+	 * preview is returned.
+	 *
+	 * @param string $provider_id Provider ID.
+	 * @return array{configured: bool, masked_key: string}
+	 */
+	private function get_connector_credential_state( string $provider_id ): array {
+		return array(
+			'configured' => $this->provider_has_configured_text_model( $provider_id ),
+			'masked_key' => '',
+		);
+	}
+
+	/**
+	 * Check whether a provider has a configured text-generation model.
+	 *
+	 * Uses public AI Client SDK APIs rather than reading `connectors_ai_*_api_key`
+	 * options or calling private WordPress Connectors helpers.
+	 *
+	 * @param string $provider_id Provider ID.
+	 * @return bool True when the provider can supply at least one text model.
+	 */
+	private function provider_has_configured_text_model( string $provider_id ): bool {
+		if ( ! class_exists( AiClient::class ) || ! class_exists( CapabilityEnum::class ) ) {
+			return false;
+		}
+
+		try {
+			$registry = AiClient::defaultRegistry();
+			if ( ! $registry->hasProvider( $provider_id ) ) {
+				return false;
+			}
+
+			if ( null === $registry->getProviderRequestAuthentication( $provider_id ) ) {
+				return false;
+			}
+
+			$provider_class = $registry->getProviderClassName( $provider_id );
+			$model_metadata = $provider_class::modelMetadataDirectory()->listModelMetadata();
+
+			foreach ( $model_metadata as $model_meta ) {
+				foreach ( $model_meta->getSupportedCapabilities() as $capability ) {
+					if ( $capability->equals( CapabilityEnum::TEXT_GENERATION ) ) {
+						return true;
+					}
+				}
+			}
+
+			return false;
+		} catch ( \Throwable $e ) {
+			return false;
+		}
 	}
 
 	/**

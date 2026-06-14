@@ -45,6 +45,7 @@ class OptionsAbilitiesTest extends WP_UnitTestCase {
 		}
 		delete_option( 'sd_ai_agent_test_visible_option' );
 		delete_option( 'sd_ai_agent_test_write_option' );
+		delete_option( 'connectors_ai_custom_provider_api_key' );
 		delete_option( 'third_party_test_option' );
 		remove_all_filters( 'sd_ai_agent_options_read_blocklist' );
 		remove_all_filters( 'sd_ai_agent_options_blocklist' );
@@ -52,6 +53,26 @@ class OptionsAbilitiesTest extends WP_UnitTestCase {
 		remove_all_filters( 'sd_ai_agent_options_write_allowlist_prefixes' );
 
 		parent::tear_down();
+	}
+
+	/**
+	 * WordPress Connectors API provider credentials are secret option names.
+	 */
+	public function test_connector_api_key_options_are_secret(): void {
+		$expected = array(
+			'connectors_ai_openai_api_key',
+			'connectors_ai_anthropic_api_key',
+			'connectors_ai_google_api_key',
+			'connectors_ai_sd_ai_agent_cloud_api_key',
+		);
+
+		foreach ( $expected as $name ) {
+			$this->assertContains( $name, OptionsAbilities::get_secret_read_blocklist() );
+			$this->assertTrue( OptionsAbilities::is_secret_option_name( $name ) );
+		}
+
+		$this->assertTrue( OptionsAbilities::is_secret_option_name( 'connectors_ai_custom_provider_api_key' ) );
+		$this->assertFalse( OptionsAbilities::is_secret_option_name( 'connectors_ai__api_key' ) );
 	}
 
 	/**
@@ -252,6 +273,19 @@ class OptionsAbilitiesTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * GetOptionAbility refuses to read WordPress Connectors API credentials.
+	 */
+	public function test_get_option_ability_blocks_connector_api_key(): void {
+		update_option( 'connectors_ai_custom_provider_api_key', self::FIXTURE_SECRET_VALUE );
+
+		$ability = new GetOptionAbility( 'sd-ai-agent/get-option' );
+		$result  = $ability->run( array( 'option_name' => 'connectors_ai_custom_provider_api_key' ) );
+
+		$this->assertInstanceOf( \WP_Error::class, $result );
+		$this->assertSame( 'sd_ai_agent_option_secret_redacted', $result->get_error_code() );
+	}
+
+	/**
 	 * Every shipped secret name is rejected by GetOptionAbility, not just
 	 * the first one in the list.
 	 */
@@ -335,6 +369,29 @@ class OptionsAbilitiesTest extends WP_UnitTestCase {
 				sprintf( 'Secret option "%s" leaked into the response.', $row['option_name'] )
 			);
 		}
+	}
+
+	/**
+	 * ListOptionsAbility omits connector credentials even for open-ended providers.
+	 */
+	public function test_list_options_ability_omits_connector_api_keys(): void {
+		update_option( 'connectors_ai_custom_provider_api_key', self::FIXTURE_SECRET_VALUE );
+
+		$ability = new ListOptionsAbility( 'sd-ai-agent/list-options' );
+		$result  = $ability->run(
+			array(
+				'prefix' => 'connectors_ai_%',
+				'limit'  => 50,
+			)
+		);
+
+		$this->assertIsArray( $result );
+		$this->assertGreaterThanOrEqual( 1, $result['redacted_count'] );
+
+		$encoded = wp_json_encode( $result );
+		$this->assertIsString( $encoded );
+		$this->assertStringNotContainsString( self::FIXTURE_SECRET_VALUE, $encoded );
+		$this->assertStringNotContainsString( 'connectors_ai_custom_provider_api_key', $encoded );
 	}
 
 	/**
