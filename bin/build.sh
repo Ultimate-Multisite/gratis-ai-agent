@@ -192,10 +192,12 @@ EXTRA
 		-o -name '.clinerules' \
 		-o -name '.windsurfrules' \
 		-o -name '.editorconfig' \
+		-o -name '.gitignore' \
 		-o -name '.eslintrc*' \
 		-o -name '.eslintignore' \
 		-o -name '.prettierrc*' \
 		-o -name '.stylelintrc*' \
+		-o -name 'composer.lock' \
 		-o -name '.playwright-mcp' \
 		\) -print -exec rm -rf {} + 2>/dev/null || true
 
