@@ -277,13 +277,7 @@ SdkLoader::register( SD_AI_AGENT_DIR );
 // Requires the wordpress/php-ai-client SDK to be available (registered above).
 AiBridgeLoader::maybe_load();
 
-// Phase 3 (t229): Load Connectors API polyfills on WordPress < 7.0.
-// Provides _wp_connectors_get_provider_settings() and _wp_connectors_get_real_api_key()
-// using the same connectors_ai_{provider}_api_key option names as WP 7.0.
-// On WP 7.0+ the function_exists() guards in the file prevent double-definition.
-require_once SD_AI_AGENT_DIR . '/includes/Compat/wp-connectors-polyfill.php';
-
-// Phase 4 (#1311): Force-load Gutenberg's Connectors subsystem on WP 6.9.
+// Phase 3 (#1311): Force-load Gutenberg's Connectors subsystem on WP 6.9.
 // Gutenberg gates the entire `lib/experimental/connectors/` subsystem on a
 // `class_exists('\WordPress\AiClient\AiClient')` check evaluated at
 // plugin file-load time. Because plugins load alphabetically, our

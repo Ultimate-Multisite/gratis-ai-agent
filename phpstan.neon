@@ -13,10 +13,6 @@ parameters:
 		# the type information PHPStan needs. AiBridgeLoader.php and SdkLoader.php (PSR-4) are not excluded.
 		- includes/Compat/ai-client
 		- includes/Compat/ai-client.php
-		# wp-connectors-polyfill.php defines _wp_connectors_get_provider_settings() and
-		# _wp_connectors_get_real_api_key() which are already stubbed in stubs/wordpress-7-runtime.php.
-		# Exclude to avoid duplicate-function errors.
-		- includes/Compat/wp-connectors-polyfill.php
 	bootstrapFiles:
 		- vendor/autoload.php
 	scanFiles:
@@ -43,8 +39,6 @@ parameters:
 		# SD_AI_AGENT_URL/DIR are string constants defined at runtime; PHPStan sees them as mixed
 		- '#Binary operation "\." between mixed and .* results in an error#'
 		- '#Binary operation "\." between .* and mixed results in an error#'
-		# WordPress functions that may not be stubbed
-		- '#Function _wp_connectors_get_real_api_key not found#'
 		# WordPress\AiClient\* SDK — the php-ai-client package was removed from vendor/ in
 		# commit 7b10461 (issue #769) because WordPress 7.0 bundles it as a core component.
 		# PHPStan cannot resolve these classes without the vendor stubs; suppress all errors

@@ -714,12 +714,11 @@ final class SettingsController {
 		$providers = array();
 
 		// The WP AI Client SDK registry is the single source of truth for which
-		// providers exist and which models each exposes. Provider plugins such
-		// as `ai-provider-for-openai`, `ai-provider-for-anthropic-max`, the
-		// OpenAI-compatible connector, etc. each register themselves there;
-		// credentials are bridged in by ProviderCredentialLoader::load(). A
-		// provider is exposed by this endpoint only when authentication has
-		// been configured for it.
+		// providers exist, which models each exposes, and whether request
+		// authentication has been configured by WordPress core's Connectors
+		// bootstrap. Provider plugins such as `ai-provider-for-openai`,
+		// `ai-provider-for-anthropic-max`, and the OpenAI-compatible connector
+		// each register themselves there.
 		if ( ! class_exists( '\\WordPress\\AiClient\\AiClient' ) ) {
 			return new WP_REST_Response( $providers, 200 );
 		}
@@ -862,10 +861,8 @@ final class SettingsController {
 		$alerts = array();
 
 		// A provider is considered configured iff some registered provider in
-		// the WP AI Client SDK registry has authentication set. Credentials are
-		// bridged from the WP 7.0 Connectors API (and 6.9 polyfill) by
-		// ProviderCredentialLoader::load(), so this single check covers both
-		// SDK-native plugins and the connector API.
+		// the WP AI Client SDK registry has authentication set by the public
+		// SDK/Core Connectors bootstrap.
 		if ( ! ProviderCredentialLoader::has_any_authenticated_provider() ) {
 			$alerts[] = array(
 				'type'           => 'no_provider',

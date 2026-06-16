@@ -2,10 +2,14 @@
 
 declare(strict_types=1);
 /**
- * Loads AI provider credentials into the SDK registry.
+ * AI Client provider registry helpers.
  *
- * Extracted from AgentLoop::ensure_provider_credentials_static() so the
- * credential-loading concern lives in one focused class.
+ * Provider credentials are owned by WordPress core's Connectors API and the
+ * public AI Client SDK registry. This class intentionally does not read
+ * connector option values or construct request-authentication objects from raw
+ * keys; it exists only as a small compatibility facade for older call sites
+ * that used to ask the plugin to "load" credentials before inspecting the SDK
+ * registry.
  *
  * @package SdAiAgent\Core
  * @license GPL-2.0-or-later
@@ -13,22 +17,11 @@ declare(strict_types=1);
 
 namespace SdAiAgent\Core;
 
-use SdAiAgent\Infrastructure\AiClient\Superdav\SuperdavAiProvider;
-use WordPress\AiClient\Providers\Http\DTO\ApiKeyRequestAuthentication;
-
 class ProviderCredentialLoader {
 
 	/**
-	 * Check whether at least one provider in the WP AI Client SDK registry
-	 * has authentication configured.
-	 *
-	 * Idempotently calls {@see load()} first so callers don't have to.
-	 * Returns false when the SDK is unavailable (WP < 7.0 without polyfill,
-	 * registry boot failure, etc.) — treated as "no provider" for alerting.
-	 *
-	 * Use this in lieu of walking option keys directly: the SDK registry is
-	 * the single source of truth for which providers exist and which have
-	 * usable credentials.
+	 * Check whether at least one provider in the WP AI Client SDK registry has
+	 * authentication configured by the public SDK/Core Connectors bootstrap.
 	 *
 	 * @return bool
 	 */
@@ -38,7 +31,6 @@ class ProviderCredentialLoader {
 		}
 
 		try {
-			self::load();
 			$registry = \WordPress\AiClient\AiClient::defaultRegistry();
 			foreach ( $registry->getRegisteredProviderIds() as $provider_id ) {
 				if ( null !== $registry->getProviderRequestAuthentication( $provider_id ) ) {
@@ -53,67 +45,13 @@ class ProviderCredentialLoader {
 	}
 
 	/**
-	 * Ensure AI provider credentials are loaded from the database.
+	 * Compatibility facade for older call sites.
 	 *
-	 * In loopback/background requests the AI Experiments plugin's init
-	 * chain may not fully pass credentials to the registry. This method
-	 * reads the stored credentials option and sets auth on any provider
-	 * that doesn't already have it configured.
+	 * Credentials are populated by WordPress core's Connectors API during normal
+	 * bootstrap. Do not read `connectors_ai_*` options or legacy credential stores
+	 * here; callers should inspect/use the public AI Client SDK registry directly.
 	 */
 	public static function load(): void {
-		try {
-			$registry = \WordPress\AiClient\AiClient::defaultRegistry();
-		} catch ( \Throwable $e ) {
-			return;
-		}
-
-		if ( ! class_exists( ApiKeyRequestAuthentication::class ) ) {
-			return;
-		}
-
-		// Source 1: WordPress 7.0 Connectors API (connectors_ai_*_api_key options).
-		if ( function_exists( '_wp_connectors_get_provider_settings' ) ) {
-			foreach ( _wp_connectors_get_provider_settings() as $setting_name => $config ) {
-				$api_key = _wp_connectors_get_real_api_key( $setting_name, $config['mask'] );
-
-				if ( '' === $api_key || ! $registry->hasProvider( $config['provider'] ) ) {
-					continue;
-				}
-
-				$registry->setProviderRequestAuthentication(
-					$config['provider'],
-					new ApiKeyRequestAuthentication( $api_key )
-				);
-			}
-		}
-
-		// Source 1b: first-party Superdav AI provider credential option.
-		$superdav_api_key = get_option( SuperdavAiProvider::CREDENTIAL_OPTION, '' );
-		if ( is_string( $superdav_api_key ) && '' !== $superdav_api_key && $registry->hasProvider( SuperdavAiProvider::PROVIDER_ID ) ) {
-			$registry->setProviderRequestAuthentication(
-				SuperdavAiProvider::PROVIDER_ID,
-				new ApiKeyRequestAuthentication( $superdav_api_key )
-			);
-		}
-
-		// Source 2: AI Experiments plugin credentials option.
-		$credentials = CredentialResolver::getAiExperimentsCredentials();
-
-		if ( ! empty( $credentials ) ) {
-			foreach ( $credentials as $provider_id => $api_key ) {
-				if ( ! is_string( $api_key ) || '' === $api_key ) {
-					continue;
-				}
-
-				if ( ! $registry->hasProvider( $provider_id ) ) {
-					continue;
-				}
-
-				$registry->setProviderRequestAuthentication(
-					$provider_id,
-					new ApiKeyRequestAuthentication( $api_key )
-				);
-			}
-		}
+		// Intentionally no-op.
 	}
 }

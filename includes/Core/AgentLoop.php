@@ -34,7 +34,6 @@ use SdAiAgent\Tools\ToolDiscovery;
 use SdAiAgent\Core\RolePermissions;
 use WP_AI_Client_Ability_Function_Resolver;
 use WP_Error;
-use SdAiAgent\Core\CredentialResolver;
 use WordPress\AiClient\Messages\DTO\Message;
 use WordPress\AiClient\Messages\DTO\MessagePart;
 use WordPress\AiClient\Messages\DTO\ModelMessage;

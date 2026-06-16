@@ -18,9 +18,6 @@
          SdkLoader.php are PSR-4 and remain checked. -->
     <exclude-pattern>*/Compat/ai-client/*</exclude-pattern>
     <exclude-pattern>*/Compat/ai-client.php</exclude-pattern>
-    <!-- wp-connectors-polyfill.php defines functions in the global namespace (WP convention).
-         Excluded from plugin PHPCS rules for the same reason as ai-client polyfills. -->
-    <exclude-pattern>*/Compat/wp-connectors-polyfill.php</exclude-pattern>
     <!-- lib/ contains bundled WP 7.0 SDK files and PSR-compliant third-party code
          that follows PSR-2/PSR-12 coding standards rather than WordPress coding standards. -->
     <exclude-pattern>*/lib/*</exclude-pattern>

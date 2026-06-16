@@ -22,8 +22,7 @@ if ( ! defined( 'ABSPATH' ) ) {
  */
 final class SuperdavAiProvider extends AbstractApiProvider {
 
-	public const PROVIDER_ID       = 'sd-ai-agent-cloud';
-	public const CREDENTIAL_OPTION = 'connectors_ai_sd_ai_agent_cloud_api_key';
+	public const PROVIDER_ID = 'sd-ai-agent-cloud';
 
 	/**
 	 * Create a model instance for the provider.
@@ -83,8 +82,8 @@ final class SuperdavAiProvider extends AbstractApiProvider {
 		/**
 		 * Filter the Superdav AI cloud OpenAI-compatible API base URL.
 		 *
-		 * The URL must not include credentials. Authentication is supplied via
-		 * {@see SuperdavAiProvider::CREDENTIAL_OPTION} and SDK request auth.
+		 * The URL must not include credentials. Authentication is supplied by
+		 * WordPress core's Connectors bootstrap through SDK request auth.
 		 *
 		 * @param string $base_url Base URL, optionally including an API version path.
 		 */

@@ -11,7 +11,6 @@ declare(strict_types=1);
 namespace SdAiAgent\Tests\Infrastructure\AiClient\Superdav;
 
 use SdAiAgent\Bootstrap\SuperdavAiProviderHandler;
-use SdAiAgent\Core\ProviderCredentialLoader;
 use SdAiAgent\Infrastructure\AiClient\Superdav\SuperdavAiModelMetadataDirectory;
 use SdAiAgent\Infrastructure\AiClient\Superdav\SuperdavAiProvider;
 use WP_UnitTestCase;
@@ -20,17 +19,9 @@ use WordPress\AiClient\Providers\Http\DTO\Response;
 use WordPress\AiClient\Providers\Models\Enums\CapabilityEnum;
 
 /**
- * Covers provider metadata, registration, and credential bridging.
+ * Covers provider metadata and registration.
  */
 final class SuperdavAiProviderTest extends WP_UnitTestCase {
-
-	/**
-	 * Clean up provider-specific options.
-	 */
-	public function tear_down(): void {
-		delete_option( SuperdavAiProvider::CREDENTIAL_OPTION );
-		parent::tear_down();
-	}
 
 	/**
 	 * Metadata uses the canonical provider identifiers.
@@ -55,18 +46,17 @@ final class SuperdavAiProviderTest extends WP_UnitTestCase {
 	}
 
 	/**
-	 * Credential loader bridges the Superdav connector option into SDK auth.
+	 * Provider metadata declares SDK API-key authentication.
+	 *
+	 * WordPress core's Connectors bootstrap uses this public provider metadata to
+	 * create the connector setting and pass request authentication to the SDK;
+	 * plugin code must not read the connector option directly.
 	 */
-	public function test_credential_loader_sets_superdav_provider_authentication(): void {
-		$this->skip_if_sdk_unavailable();
+	public function test_metadata_declares_api_key_authentication_for_connectors(): void {
+		$metadata = SuperdavAiProvider::metadata();
 
-		( new SuperdavAiProviderHandler() )->register_provider();
-		update_option( SuperdavAiProvider::CREDENTIAL_OPTION, 'test-key' );
-
-		ProviderCredentialLoader::load();
-
-		$auth = AiClient::defaultRegistry()->getProviderRequestAuthentication( SuperdavAiProvider::PROVIDER_ID );
-		$this->assertNotNull( $auth );
+		$this->assertNotNull( $metadata->getAuthenticationMethod() );
+		$this->assertTrue( $metadata->getAuthenticationMethod()->isApiKey() );
 	}
 
 	/**
