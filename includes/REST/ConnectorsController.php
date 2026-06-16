@@ -112,8 +112,8 @@ final class ConnectorsController {
 	/**
 	 * Build the provider data array for the REST response.
 	 *
-	 * @param string                                                                                                 $provider_id Provider ID.
-	 * @param array{name: string, plugin_file: string, plugin_slug: string, option_key: string, description: string} $meta Provider metadata.
+	 * @param string                                                                             $provider_id Provider ID.
+	 * @param array{name: string, plugin_file: string, plugin_slug: string, description: string} $meta Provider metadata.
 	 * @return array<string, mixed>
 	 */
 	private function build_provider_data( string $provider_id, array $meta ): array {
