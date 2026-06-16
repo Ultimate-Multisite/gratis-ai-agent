@@ -793,6 +793,13 @@ class PostAbilities {
 				continue;
 			}
 
+			// WP_Query may return non-public post types or statuses when requested.
+			// Filter every row through WordPress' per-post read meta capability before
+			// exposing titles, excerpts, permalinks, or taxonomy data to the agent.
+			if ( ! current_user_can( 'read_post', $post->ID ) ) {
+				continue;
+			}
+
 			$thumbnail_url = '';
 			$thumbnail_id  = get_post_thumbnail_id( $post->ID );
 			if ( $thumbnail_id ) {
@@ -823,7 +830,7 @@ class PostAbilities {
 			];
 		}
 
-		$total = (int) $query->found_posts;
+		$total = count( $posts );
 
 		if ( $switched ) {
 			restore_current_blog();

@@ -1335,4 +1335,38 @@ class PostAbilitiesTest extends WP_UnitTestCase {
 		// The plain HTML freeform segment has no markdown signals; it stays.
 		$this->assertStringContainsString( 'A plain HTML paragraph', $result );
 	}
+
+	/**
+	 * list-posts must not leak private posts just because post_status allows them.
+	 */
+	public function test_handle_list_posts_filters_private_posts_by_read_capability(): void {
+		$admin_id      = self::factory()->user->create( [ 'role' => 'administrator' ] );
+		$subscriber_id = self::factory()->user->create( [ 'role' => 'subscriber' ] );
+
+		wp_set_current_user( $admin_id );
+
+		$private_post_id = self::factory()->post->create(
+			[
+				'post_title'  => 'Private list-posts fixture',
+				'post_status' => 'private',
+				'post_type'   => 'post',
+			]
+		);
+
+		wp_set_current_user( $subscriber_id );
+
+		$result = PostAbilities::handle_list_posts(
+			[
+				'post_type'   => 'post',
+				'post_status' => [ 'private' ],
+				'per_page'    => 10,
+			]
+		);
+
+		wp_delete_post( $private_post_id, true );
+
+		$this->assertIsArray( $result );
+		$this->assertSame( 0, $result['total'] );
+		$this->assertSame( [], $result['posts'] );
+	}
 }

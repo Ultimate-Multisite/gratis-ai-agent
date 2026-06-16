@@ -132,7 +132,7 @@ class SkillsCommand extends WP_CLI_Command {
 	 * : Show what would change without writing any files.
 	 *
 	 * [--output-dir=<path>]
-	 * : Directory for generated files. Defaults to wp-content/uploads/sd-ai-agent/skills-sync/.
+	 * : Directory for generated files. Defaults to the wp_upload_dir() basedir plus superdav-ai-agent/skills-sync/.
 	 *   Paths inside the plugin directory are rejected.
 	 *
 	 * ## EXAMPLES
@@ -188,11 +188,12 @@ class SkillsCommand extends WP_CLI_Command {
 		$output_dir = isset( $assoc_args['output-dir'] ) ? (string) $assoc_args['output-dir'] : '';
 
 		if ( '' === $output_dir ) {
-			$uploads    = wp_upload_dir( null, false );
-			$upload_dir = isset( $uploads['basedir'] ) && is_string( $uploads['basedir'] )
-				? $uploads['basedir']
-				: WP_CONTENT_DIR . '/uploads';
-			$output_dir = trailingslashit( $upload_dir ) . 'sd-ai-agent/skills-sync';
+			$uploads = wp_upload_dir( null, false );
+			if ( ! empty( $uploads['error'] ) || empty( $uploads['basedir'] ) || ! is_string( $uploads['basedir'] ) ) {
+				WP_CLI::error( 'Unable to resolve the WordPress uploads directory via wp_upload_dir().' );
+			}
+
+			$output_dir = trailingslashit( $uploads['basedir'] ) . 'superdav-ai-agent/skills-sync';
 		}
 
 		$output_dir = wp_normalize_path( $output_dir );

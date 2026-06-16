@@ -14,6 +14,7 @@ declare(strict_types=1);
 namespace SdAiAgent\Core;
 
 use SdAiAgent\Infrastructure\AiClient\Superdav\SuperdavAiProvider;
+use WordPress\AiClient\Providers\Http\DTO\ApiKeyRequestAuthentication;
 
 class ProviderCredentialLoader {
 
@@ -66,9 +67,7 @@ class ProviderCredentialLoader {
 			return;
 		}
 
-		$auth_class = '\\WordPress\\AiClient\\Providers\\Http\\DTO\\ApiKeyRequestAuthentication';
-
-		if ( ! class_exists( $auth_class ) ) {
+		if ( ! class_exists( ApiKeyRequestAuthentication::class ) ) {
 			return;
 		}
 
@@ -83,7 +82,7 @@ class ProviderCredentialLoader {
 
 				$registry->setProviderRequestAuthentication(
 					$config['provider'],
-					new $auth_class( $api_key )
+					new ApiKeyRequestAuthentication( $api_key )
 				);
 			}
 		}
@@ -93,7 +92,7 @@ class ProviderCredentialLoader {
 		if ( is_string( $superdav_api_key ) && '' !== $superdav_api_key && $registry->hasProvider( SuperdavAiProvider::PROVIDER_ID ) ) {
 			$registry->setProviderRequestAuthentication(
 				SuperdavAiProvider::PROVIDER_ID,
-				new $auth_class( $superdav_api_key )
+				new ApiKeyRequestAuthentication( $superdav_api_key )
 			);
 		}
 
@@ -112,7 +111,7 @@ class ProviderCredentialLoader {
 
 				$registry->setProviderRequestAuthentication(
 					$provider_id,
-					new $auth_class( $api_key )
+					new ApiKeyRequestAuthentication( $api_key )
 				);
 			}
 		}
