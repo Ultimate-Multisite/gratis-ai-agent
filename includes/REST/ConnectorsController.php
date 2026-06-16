@@ -2,18 +2,11 @@
 
 declare(strict_types=1);
 /**
- * REST API controller for the polyfill Connectors admin page (WP 6.9 compat).
+ * REST API controller for Connectors provider status.
  *
- * On WordPress 7.0+, the native Connectors page at options-connectors.php
- * handles provider API key management. On WordPress 6.9, this controller
- * provides the same functionality so the Superdav AI Agent Connectors page can
- * read/write provider credentials and check plugin install/activation status.
- *
- * Credential option names mirror WP 7.0's Connectors API:
- *   connectors_ai_{provider_id}_api_key
- *
- * This ensures zero-migration when users upgrade from 6.9 to 7.0 — the same
- * option values are read by the native Connectors API.
+ * WordPress 7.0+'s native Connectors page at options-connectors.php handles
+ * provider API key management. This controller only reports provider/plugin
+ * status for the plugin UI and never reads or writes raw connector credentials.
  *
  * @package SdAiAgent\REST
  * @license GPL-2.0-or-later
@@ -21,8 +14,6 @@ declare(strict_types=1);
 
 namespace SdAiAgent\REST;
 
-use WP_Error;
-use WP_REST_Request;
 use WP_REST_Response;
 use WP_REST_Server;
 use WordPress\AiClient\AiClient;
@@ -36,15 +27,10 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 /**
- * Provides REST endpoints for the polyfill Connectors admin page.
+ * Provides the provider-status endpoint used by the Connectors UI.
  *
- * Endpoints:
- *   GET  /sd-ai-agent/v1/connectors           — list all providers with status
- *   POST /sd-ai-agent/v1/connectors/{id}/key  — set an API key
- *   DELETE /sd-ai-agent/v1/connectors/{id}/key — clear an API key
- *
- * Plugin install and activation are handled client-side via the native
- * /wp/v2/plugins REST endpoint.
+ * Plugin install, activation, and credential management are handled by native
+ * WordPress admin/REST surfaces.
  */
 #[Handler(
 	container: 'sd-ai-agent',
@@ -56,33 +42,27 @@ final class ConnectorsController {
 	use PermissionTrait;
 
 	/**
-	 * Known AI provider connectors with their plugin and option metadata.
+	 * Known AI provider connectors with their plugin metadata.
 	 *
-	 * Option_key mirrors WP 7.0's Connectors API naming convention
-	 * (connectors_ai_{provider}_api_key) for zero-migration on upgrade.
-	 *
-	 * @var array<string, array{name: string, plugin_file: string, plugin_slug: string, option_key: string, description: string}>
+	 * @var array<string, array{name: string, plugin_file: string, plugin_slug: string, description: string}>
 	 */
 	const PROVIDERS = array(
 		'openai'    => array(
 			'name'        => 'OpenAI',
 			'plugin_file' => 'ai-provider-for-openai/ai-provider-for-openai.php',
 			'plugin_slug' => 'ai-provider-for-openai',
-			'option_key'  => 'connectors_ai_openai_api_key',
 			'description' => 'GPT-4.1, o3, o4-mini, and other OpenAI models.',
 		),
 		'anthropic' => array(
 			'name'        => 'Anthropic',
 			'plugin_file' => 'ai-provider-for-anthropic/ai-provider-for-anthropic.php',
 			'plugin_slug' => 'ai-provider-for-anthropic',
-			'option_key'  => 'connectors_ai_anthropic_api_key',
 			'description' => 'Claude Opus, Sonnet, and Haiku models.',
 		),
 		'google'    => array(
 			'name'        => 'Google AI',
 			'plugin_file' => 'ai-provider-for-google/ai-provider-for-google.php',
 			'plugin_slug' => 'ai-provider-for-google',
-			'option_key'  => 'connectors_ai_google_api_key',
 			'description' => 'Gemini 2.5 Pro, Flash, and other Google models.',
 		),
 	);
@@ -100,43 +80,6 @@ final class ConnectorsController {
 				'methods'             => WP_REST_Server::READABLE,
 				'callback'            => array( $this, 'handle_list' ),
 				'permission_callback' => array( __CLASS__, 'check_admin_permission' ),
-			)
-		);
-
-		// Set API key for a specific provider.
-		register_rest_route(
-			RestController::NAMESPACE,
-			'/connectors/(?P<provider>[a-z0-9_-]+)/key',
-			array(
-				array(
-					'methods'             => WP_REST_Server::CREATABLE,
-					'callback'            => array( $this, 'handle_set_key' ),
-					'permission_callback' => array( __CLASS__, 'check_admin_permission' ),
-					'args'                => array(
-						'provider' => array(
-							'required'          => true,
-							'type'              => 'string',
-							'sanitize_callback' => 'sanitize_key',
-						),
-						'api_key'  => array(
-							'required'          => true,
-							'type'              => 'string',
-							'sanitize_callback' => 'sanitize_text_field',
-						),
-					),
-				),
-				array(
-					'methods'             => WP_REST_Server::DELETABLE,
-					'callback'            => array( $this, 'handle_clear_key' ),
-					'permission_callback' => array( __CLASS__, 'check_admin_permission' ),
-					'args'                => array(
-						'provider' => array(
-							'required'          => true,
-							'type'              => 'string',
-							'sanitize_callback' => 'sanitize_key',
-						),
-					),
-				),
 			)
 		);
 	}
@@ -161,80 +104,6 @@ final class ConnectorsController {
 			array(
 				'providers'     => $providers,
 				'wp_has_native' => UnifiedAdminMenu::hasNativeConnectorsPage(),
-			),
-			200
-		);
-	}
-
-	/**
-	 * POST /sd-ai-agent/v1/connectors/{provider}/key
-	 *
-	 * Stores the API key in the connectors_ai_{provider}_api_key option.
-	 * Empty string clears the key.
-	 *
-	 * @param WP_REST_Request $request REST request.
-	 * @return WP_REST_Response|WP_Error
-	 */
-	public function handle_set_key( WP_REST_Request $request ): WP_REST_Response|WP_Error {
-		$provider_id = (string) $request->get_param( 'provider' );
-		$api_key     = (string) $request->get_param( 'api_key' );
-
-		if ( ! array_key_exists( $provider_id, self::PROVIDERS ) ) {
-			return new WP_Error(
-				'invalid_provider',
-				__( 'Unknown provider ID.', 'superdav-ai-agent' ),
-				array( 'status' => 400 )
-			);
-		}
-
-		if ( '' === $api_key ) {
-			return new WP_Error(
-				'empty_api_key',
-				__( 'API key cannot be empty. Use DELETE to clear.', 'superdav-ai-agent' ),
-				array( 'status' => 400 )
-			);
-		}
-
-		$option_key = self::PROVIDERS[ $provider_id ]['option_key'];
-		update_option( $option_key, $api_key, false );
-
-		return new WP_REST_Response(
-			array(
-				'success'    => true,
-				'provider'   => $provider_id,
-				'configured' => true,
-			),
-			200
-		);
-	}
-
-	/**
-	 * DELETE /sd-ai-agent/v1/connectors/{provider}/key
-	 *
-	 * Clears the stored API key for the given provider.
-	 *
-	 * @param WP_REST_Request $request REST request.
-	 * @return WP_REST_Response|WP_Error
-	 */
-	public function handle_clear_key( WP_REST_Request $request ): WP_REST_Response|WP_Error {
-		$provider_id = (string) $request->get_param( 'provider' );
-
-		if ( ! array_key_exists( $provider_id, self::PROVIDERS ) ) {
-			return new WP_Error(
-				'invalid_provider',
-				__( 'Unknown provider ID.', 'superdav-ai-agent' ),
-				array( 'status' => 400 )
-			);
-		}
-
-		$option_key = self::PROVIDERS[ $provider_id ]['option_key'];
-		delete_option( $option_key );
-
-		return new WP_REST_Response(
-			array(
-				'success'    => true,
-				'provider'   => $provider_id,
-				'configured' => false,
 			),
 			200
 		);

@@ -341,8 +341,8 @@ class OptionsAbilities {
 	/**
 	 * Predicate: does the option name match the WordPress Connectors API key shape?
 	 *
-	 * WordPress 7 and the local polyfill use `connectors_ai_{provider}_api_key`
-	 * for provider credentials. Provider IDs are open-ended, so this shape gate
+	 * WordPress 7 uses `connectors_ai_{provider}_api_key` for provider
+	 * credentials. Provider IDs are open-ended, so this shape gate
 	 * catches future and third-party connector credential options without adding
 	 * brittle option-key allow/deny lists.
 	 *

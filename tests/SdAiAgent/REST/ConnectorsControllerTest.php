@@ -138,10 +138,9 @@ final class ConnectorsControllerTest extends WP_UnitTestCase {
 	}
 
 	/**
-	 * Clean up connector options.
+	 * Restore SDK registry state.
 	 */
 	public function tear_down(): void {
-		delete_option( 'connectors_ai_openai_api_key' );
 		$this->restore_registry();
 		parent::tear_down();
 	}
@@ -152,9 +151,6 @@ final class ConnectorsControllerTest extends WP_UnitTestCase {
 	public function test_list_reports_configured_connector_status_without_raw_key(): void {
 		$this->register_openai_text_provider();
 
-		$fixture_value = 'fixture-openai-value-tail-1234';
-		update_option( 'connectors_ai_openai_api_key', $fixture_value, false );
-
 		$response  = ( new ConnectorsController() )->handle_list();
 		$data      = $response->get_data();
 		$providers = $data['providers'];
@@ -163,7 +159,7 @@ final class ConnectorsControllerTest extends WP_UnitTestCase {
 		$this->assertNotNull( $openai );
 		$this->assertTrue( $openai['configured'] );
 		$this->assertSame( '', $openai['masked_key'] );
-		$this->assertStringNotContainsString( $fixture_value, wp_json_encode( $openai ) ?: '' );
+		$this->assertStringNotContainsString( 'test-key', wp_json_encode( $openai ) ?: '' );
 	}
 
 	/**
