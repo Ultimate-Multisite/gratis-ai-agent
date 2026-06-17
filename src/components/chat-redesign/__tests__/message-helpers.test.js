@@ -43,11 +43,18 @@ describe( 'extractText', () => {
 		const msg = {
 			parts: [
 				{
-					channel: 'thought',
+					channel: 'THOUGHT',
 					text: 'The user wants me to reveal private reasoning.',
 				},
 				{ channel: 'content', text: 'Visible answer.' },
 			],
+		};
+		expect( extractText( msg ) ).toBe( 'Visible answer.' );
+	} );
+
+	test( 'treats content channel matching as case-insensitive', () => {
+		const msg = {
+			parts: [ { channel: 'CONTENT', text: 'Visible answer.' } ],
 		};
 		expect( extractText( msg ) ).toBe( 'Visible answer.' );
 	} );

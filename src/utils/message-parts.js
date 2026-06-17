@@ -13,10 +13,12 @@
  * @return {boolean} True when the part is visible user-facing content.
  */
 export function isContentPart( part ) {
-	const channel = part?.channel;
+	const rawChannel = part?.channel;
+	const channel =
+		typeof rawChannel === 'string' ? rawChannel.toLowerCase() : rawChannel;
 	return (
-		channel === undefined ||
-		channel === null ||
+		rawChannel === undefined ||
+		rawChannel === null ||
 		channel === '' ||
 		channel === 'content'
 	);
