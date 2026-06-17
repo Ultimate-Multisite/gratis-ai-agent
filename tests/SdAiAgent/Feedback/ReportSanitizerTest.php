@@ -72,4 +72,35 @@ class ReportSanitizerTest extends WP_UnitTestCase {
 		$this->assertStringNotContainsString( 'secret-password-value', $encoded );
 		$this->assertStringContainsString( '[REDACTED:', $encoded );
 	}
+
+	/**
+	 * Test hidden thought-channel parts are stripped before feedback leaves site.
+	 */
+	public function test_sanitize_strips_thought_channel_parts_from_feedback_messages(): void {
+		$payload = array(
+			'session_data' => array(
+				'messages' => array(
+					array(
+						'role'  => 'assistant',
+						'parts' => array(
+							array(
+								'channel' => 'thought',
+								'text'    => 'The user wants hidden reasoning.',
+							),
+							array(
+								'channel' => 'content',
+								'text'    => 'Visible answer.',
+							),
+						),
+					),
+				),
+			),
+		);
+
+		$sanitized = ReportSanitizer::sanitize( $payload );
+		$encoded   = (string) wp_json_encode( $sanitized );
+
+		$this->assertStringNotContainsString( 'hidden reasoning', $encoded );
+		$this->assertStringContainsString( 'Visible answer.', $encoded );
+	}
 }

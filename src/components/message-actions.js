@@ -12,6 +12,7 @@ import { Icon, copy, pencil, redo, check, thumbsDown } from '@wordpress/icons';
  */
 import STORE_NAME from '../store';
 import { copyToClipboard } from '../utils/clipboard';
+import { extractMessageText } from '../utils/message-parts';
 
 /**
  * Per-message action buttons (Copy, Edit, Regenerate, Thumbs-down).
@@ -47,10 +48,7 @@ export default function MessageActions( { message, index, onThumbsDown } ) {
 		[]
 	);
 
-	const text = message.parts
-		?.filter( ( p ) => p.text )
-		.map( ( p ) => p.text )
-		.join( '' );
+	const text = extractMessageText( message );
 
 	const handleCopy = useCallback( () => {
 		copyToClipboard( text || '' ).then( () => {

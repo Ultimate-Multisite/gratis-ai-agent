@@ -38,13 +38,16 @@ class Export {
 	public static function export_json( object $session ): array {
 		$messages   = json_decode( $session->messages, true ) ?: [];
 		$tool_calls = json_decode( $session->tool_calls, true ) ?: [];
+		if ( ! is_array( $messages ) ) {
+			$messages = [];
+		}
 
 		$data = [
 			'format'      => 'sd-ai-agent-v1',
 			'title'       => $session->title,
 			'provider_id' => $session->provider_id,
 			'model_id'    => $session->model_id,
-			'messages'    => $messages,
+			'messages'    => ConversationDisplaySanitizer::sanitize_messages( $messages ),
 			'tool_calls'  => $tool_calls,
 			'token_usage' => [
 				'prompt'     => (int) $session->prompt_tokens,
@@ -70,7 +73,10 @@ class Export {
 	 */
 	public static function export_markdown( object $session ): array {
 		$messages = json_decode( $session->messages, true ) ?: [];
-		$lines    = [];
+		if ( ! is_array( $messages ) ) {
+			$messages = [];
+		}
+		$lines = [];
 
 		$lines[] = '# ' . ( $session->title ?: 'Conversation' );
 		$lines[] = '';
@@ -93,18 +99,7 @@ class Export {
 				continue;
 			}
 
-			$text = '';
-			// @phpstan-ignore-next-line
-			if ( ! empty( $msg['parts'] ) ) {
-				// @phpstan-ignore-next-line
-				foreach ( $msg['parts'] as $part ) {
-					// @phpstan-ignore-next-line
-					if ( ! empty( $part['text'] ) ) {
-						// @phpstan-ignore-next-line
-						$text .= $part['text'];
-					}
-				}
-			}
+			$text = is_array( $msg ) ? ConversationDisplaySanitizer::extract_text( $msg ) : '';
 
 			if ( empty( $text ) ) {
 				continue;

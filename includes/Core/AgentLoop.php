@@ -2043,12 +2043,44 @@ class AgentLoop {
 		$text = '';
 
 		foreach ( $message->getParts() as $part ) {
-			if ( method_exists( $part, 'getText' ) && is_string( $part->getText() ) ) {
-				$text .= $part->getText() . "\n";
+			$part_text = $this->visible_content_text( $part );
+			if ( '' !== $part_text ) {
+				$text .= $part_text . "\n";
 			}
 		}
 
 		return trim( $text );
+	}
+
+	/**
+	 * Return user-visible content-channel text for a message part.
+	 *
+	 * Thought-channel text is preserved in history for provider round-trips, but
+	 * it must never be treated as assistant preamble, XML tool-call text, or final
+	 * display text.
+	 *
+	 * @param MessagePart $part Message part to inspect.
+	 */
+	private function visible_content_text( MessagePart $part ): string {
+		$text = $part->getText();
+		if ( ! is_string( $text ) || '' === trim( $text ) ) {
+			return '';
+		}
+
+		$channel = method_exists( $part, 'getChannel' ) ? $part->getChannel() : null;
+		if ( is_object( $channel ) && is_callable( array( $channel, 'isContent' ) ) ) {
+			return (bool) $channel->isContent() ? $text : '';
+		}
+
+		if ( is_object( $channel ) && isset( $channel->value ) ) {
+			return 'content' === strtolower( (string) $channel->value ) ? $text : '';
+		}
+
+		if ( is_string( $channel ) ) {
+			return ( '' === $channel || 'content' === strtolower( $channel ) ) ? $text : '';
+		}
+
+		return $text;
 	}
 
 	/**
@@ -2809,8 +2841,8 @@ class AgentLoop {
 	 */
 	private function log_tool_calls( Message $message ): void {
 		foreach ( $message->getParts() as $part ) {
-			$text = $part->getText();
-			if ( is_string( $text ) && '' !== trim( $text ) ) {
+			$text = $this->visible_content_text( $part );
+			if ( '' !== $text ) {
 				$this->message_log[] = array(
 					'type'     => 'preamble',
 					'text'     => $text,
@@ -2903,8 +2935,7 @@ class AgentLoop {
 	 */
 	private function message_has_assistant_text( Message $message ): bool {
 		foreach ( $message->getParts() as $part ) {
-			$text = $part->getText();
-			if ( is_string( $text ) && '' !== trim( $text ) ) {
+			if ( '' !== $this->visible_content_text( $part ) ) {
 				return true;
 			}
 		}

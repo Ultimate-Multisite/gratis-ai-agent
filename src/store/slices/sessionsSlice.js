@@ -19,6 +19,10 @@ import { __ } from '@wordpress/i18n';
 import { snapshotDescriptors } from '../../abilities/registry';
 import { ensureRegistered as ensureClientAbilitiesRegistered } from '../../abilities';
 import { clearNotification } from '../../utils/notification-manager';
+import {
+	extractMessageText,
+	isVisibleTextPart,
+} from '../../utils/message-parts';
 
 /**
  * Coerce session-like objects from the REST API so that `id` is always an
@@ -81,7 +85,7 @@ function associateToolCallsWithMessages( messages, toolCalls ) {
 			}
 
 			// Check if this model message has text content (visible message).
-			const hasText = msg.parts.some( ( p ) => p.text );
+			const hasText = msg.parts.some( isVisibleTextPart );
 			if ( hasText && pendingCallIds.length > 0 ) {
 				// Build the toolCalls array for this message from matched pairs.
 				const msgToolCalls = [];
@@ -846,10 +850,7 @@ export const actions = {
 			if ( userIdx < 0 ) {
 				return;
 			}
-			const userText = messages[ userIdx ]?.parts
-				?.filter( ( p ) => p.text )
-				.map( ( p ) => p.text )
-				.join( '' );
+			const userText = extractMessageText( messages[ userIdx ] );
 			if ( ! userText ) {
 				return;
 			}
@@ -1363,10 +1364,7 @@ export const actions = {
 			const summaryText = messages
 				.map( ( m ) => {
 					const role = m.role === 'model' ? 'Assistant' : 'User';
-					const text = m.parts
-						?.filter( ( p ) => p.text )
-						.map( ( p ) => p.text )
-						.join( '' );
+					const text = extractMessageText( m );
 					return text ? `${ role }: ${ text }` : null;
 				} )
 				.filter( Boolean )
