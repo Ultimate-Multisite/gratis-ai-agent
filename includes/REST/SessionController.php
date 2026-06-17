@@ -13,6 +13,7 @@ namespace SdAiAgent\REST;
 
 use SdAiAgent\Abilities\OptionsAbilities;
 use SdAiAgent\Core\AgentLoop;
+use SdAiAgent\Core\ConversationDisplaySanitizer;
 use SdAiAgent\Core\ConversationSerializer;
 use SdAiAgent\Core\ConversationTrimmer;
 use SdAiAgent\Core\CostCalculator;
@@ -655,13 +656,18 @@ final class SessionController {
 		$shared    = Database::get_shared_session( (int) $session->id );
 		$is_shared = $shared !== null;
 
+		$messages = json_decode( $session->messages, true ) ?: array();
+		if ( ! is_array( $messages ) ) {
+			$messages = array();
+		}
+
 		return new WP_REST_Response(
 			array(
 				'id'          => (int) $session->id,
 				'title'       => $session->title,
 				'provider_id' => $session->provider_id,
 				'model_id'    => $session->model_id,
-				'messages'    => json_decode( $session->messages, true ) ?: array(),
+				'messages'    => ConversationDisplaySanitizer::sanitize_messages( $messages ),
 				'tool_calls'  => json_decode( $session->tool_calls, true ) ?: array(),
 				'token_usage' => array(
 					'prompt'     => (int) ( $session->prompt_tokens ?? 0 ),
@@ -994,7 +1000,8 @@ final class SessionController {
 			// @phpstan-ignore-next-line
 			$response['reply'] = $job['result']['reply'] ?? '';
 			// @phpstan-ignore-next-line
-			$response['history'] = $job['result']['history'] ?? array();
+			$history             = $job['result']['history'] ?? array();
+			$response['history'] = is_array( $history ) ? ConversationDisplaySanitizer::sanitize_messages( $history ) : array();
 			// @phpstan-ignore-next-line
 			$response['tool_calls'] = $job['result']['tool_calls'] ?? array();
 			// @phpstan-ignore-next-line

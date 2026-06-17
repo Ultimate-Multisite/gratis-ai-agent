@@ -39,6 +39,33 @@ describe( 'extractText', () => {
 		expect( extractText( msg ) ).toBe( 'Hi there' );
 	} );
 
+	test( 'ignores hidden thought-channel text parts', () => {
+		const msg = {
+			parts: [
+				{
+					channel: 'THOUGHT',
+					text: 'The user wants me to reveal private reasoning.',
+				},
+				{ channel: 'content', text: 'Visible answer.' },
+			],
+		};
+		expect( extractText( msg ) ).toBe( 'Visible answer.' );
+	} );
+
+	test( 'treats content channel matching as case-insensitive', () => {
+		const msg = {
+			parts: [ { channel: 'CONTENT', text: 'Visible answer.' } ],
+		};
+		expect( extractText( msg ) ).toBe( 'Visible answer.' );
+	} );
+
+	test( 'treats missing channel as visible content', () => {
+		const msg = {
+			parts: [ { text: 'Legacy visible text.' } ],
+		};
+		expect( extractText( msg ) ).toBe( 'Legacy visible text.' );
+	} );
+
 	test( 'returns empty string for missing/empty parts', () => {
 		expect( extractText( {} ) ).toBe( '' );
 		expect( extractText( { parts: [] } ) ).toBe( '' );

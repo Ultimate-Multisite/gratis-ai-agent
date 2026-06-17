@@ -14,6 +14,8 @@ declare(strict_types=1);
 
 namespace SdAiAgent\Feedback;
 
+use SdAiAgent\Core\ConversationDisplaySanitizer;
+
 class ReportSanitizer {
 
 	/**
@@ -78,6 +80,8 @@ class ReportSanitizer {
 	 * @return array<int, array<string, mixed>> Sanitized messages.
 	 */
 	private static function sanitize_messages( array $messages ): array {
+		$messages = ConversationDisplaySanitizer::sanitize_messages( $messages );
+
 		return array_map(
 			static function ( array $msg ): array {
 				if ( is_string( $msg['content'] ?? null ) ) {
@@ -97,6 +101,23 @@ class ReportSanitizer {
 							return $part;
 						},
 						$msg['content']
+					);
+				}
+				if ( is_array( $msg['parts'] ?? null ) ) {
+					$msg['parts'] = array_map(
+						static function ( mixed $part ): mixed {
+							if ( ! is_array( $part ) ) {
+								return $part;
+							}
+							if ( is_string( $part['text'] ?? null ) ) {
+								$part['text'] = self::sanitize_string( $part['text'] );
+							}
+							if ( is_string( $part['content'] ?? null ) ) {
+								$part['content'] = self::sanitize_string( $part['content'] );
+							}
+							return $part;
+						},
+						$msg['parts']
 					);
 				}
 				return $msg;

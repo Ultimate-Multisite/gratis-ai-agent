@@ -171,6 +171,50 @@ class AgentLoopTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * Thought-channel text must not be logged as live assistant preamble.
+	 */
+	public function test_thought_channel_text_is_not_logged_as_preamble(): void {
+		if ( ! class_exists( 'WordPress\AiClient\Messages\DTO\ModelMessage' ) ) {
+			$this->markTestSkipped( 'WP AI Client message classes are not available.' );
+		}
+
+		$loop = new AgentLoop(
+			'Test prompt',
+			[],
+			[],
+			[
+				'provider_id' => 'openai_compat',
+				'model_id'    => 'moonshotai/Kimi-K2.6',
+			]
+		);
+
+		$message = new \WordPress\AiClient\Messages\DTO\ModelMessage(
+			[
+				new \WordPress\AiClient\Messages\DTO\MessagePart(
+					'The user wants me to expose hidden reasoning.',
+					\WordPress\AiClient\Messages\Enums\MessagePartChannelEnum::thought()
+				),
+				new \WordPress\AiClient\Messages\DTO\MessagePart( 'Visible preamble.' ),
+				new \WordPress\AiClient\Messages\DTO\MessagePart(
+					new \WordPress\AiClient\Tools\DTO\FunctionCall( 'call_1', 'wpab__sd-ai-agent__site-info', [] )
+				),
+			]
+		);
+
+		$method = new \ReflectionMethod( AgentLoop::class, 'log_tool_calls' );
+		$method->setAccessible( true );
+		$method->invoke( $loop, $message );
+
+		$message_log_property = new \ReflectionProperty( AgentLoop::class, 'message_log' );
+		$message_log_property->setAccessible( true );
+		$message_log = $message_log_property->getValue( $loop );
+
+		$this->assertCount( 1, $message_log, 'Only content-channel text should be logged as preamble.' );
+		$this->assertSame( 'Visible preamble.', $message_log[0]['text'] );
+		$this->assertStringNotContainsString( 'hidden reasoning', (string) wp_json_encode( $message_log ) );
+	}
+
+	/**
 	 * XML-ish tool-call text should become an ability-call function part, not a final reply.
 	 */
 	public function test_intercepts_xml_tool_call_text_as_ability_call(): void {

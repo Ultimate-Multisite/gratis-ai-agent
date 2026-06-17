@@ -4,18 +4,14 @@
  * in one place so the two UIs render the same store data identically.
  */
 
+import { extractMessageText } from '../../utils/message-parts';
+
 /**
  *
  * @param {Object} message
  */
 export function extractText( message ) {
-	if ( ! message.parts?.length ) {
-		return '';
-	}
-	return message.parts
-		.filter( ( p ) => p.text )
-		.map( ( p ) => p.text )
-		.join( '' );
+	return extractMessageText( message );
 }
 
 /**

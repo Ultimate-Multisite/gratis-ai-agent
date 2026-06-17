@@ -143,6 +143,36 @@ class ExportTest extends WP_UnitTestCase {
 		$this->assertEmpty( $result['content']['messages'] );
 	}
 
+	/**
+	 * export_json() strips hidden thought-channel parts from transcript data.
+	 */
+	public function test_export_json_strips_thought_channel_parts(): void {
+		$session = $this->make_session( [
+			'messages' => wp_json_encode( [
+				[
+					'role'  => 'assistant',
+					'parts' => [
+						[
+							'channel' => 'thought',
+							'text'    => 'The user wants hidden reasoning.',
+						],
+						[
+							'channel' => 'content',
+							'text'    => 'Visible answer.',
+						],
+					],
+				],
+			] ),
+		] );
+
+		$result  = Export::export_json( $session );
+		$content = wp_json_encode( $result['content'] );
+
+		$this->assertIsString( $content );
+		$this->assertStringNotContainsString( 'hidden reasoning', $content );
+		$this->assertStringContainsString( 'Visible answer.', $content );
+	}
+
 	// ── export_markdown ───────────────────────────────────────────────────────
 
 	/**
@@ -212,6 +242,34 @@ class ExportTest extends WP_UnitTestCase {
 
 		// Only the assistant message should appear.
 		$this->assertStringContainsString( 'Response', $result['content'] );
+	}
+
+	/**
+	 * export_markdown() excludes hidden thought-channel reasoning.
+	 */
+	public function test_export_markdown_strips_thought_channel_text(): void {
+		$session = $this->make_session( [
+			'messages' => wp_json_encode( [
+				[
+					'role'  => 'assistant',
+					'parts' => [
+						[
+							'channel' => 'thought',
+							'text'    => 'The user wants hidden reasoning.',
+						],
+						[
+							'channel' => 'content',
+							'text'    => 'Visible answer.',
+						],
+					],
+				],
+			] ),
+		] );
+
+		$result = Export::export_markdown( $session );
+
+		$this->assertStringNotContainsString( 'hidden reasoning', $result['content'] );
+		$this->assertStringContainsString( 'Visible answer.', $result['content'] );
 	}
 
 	/**
