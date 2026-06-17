@@ -13,6 +13,7 @@ namespace SdAiAgent\Tests\Admin;
 
 use SdAiAgent\Admin\FloatingWidget;
 use SdAiAgent\Admin\UnifiedAdminMenu;
+use SdAiAgent\Core\OnboardingManager;
 use SdAiAgent\Core\Settings;
 use WP_UnitTestCase;
 
@@ -36,6 +37,13 @@ class FloatingWidgetTest extends WP_UnitTestCase {
 	protected int $subscriber_id;
 
 	/**
+	 * Temporary build directory for enqueue tests.
+	 *
+	 * @var string
+	 */
+	protected string $fake_build_dir = '';
+
+	/**
 	 * Set up test users before each test.
 	 */
 	public function set_up(): void {
@@ -48,10 +56,43 @@ class FloatingWidgetTest extends WP_UnitTestCase {
 	 * Clean up settings and dequeue scripts after each test.
 	 */
 	public function tear_down(): void {
+		unset( $_GET['sd_ai_agent_onboarding'] );
+		delete_option( OnboardingManager::COMPLETE_OPTION );
+		delete_option( OnboardingManager::BOOTSTRAP_SESSION_OPTION );
+		remove_all_filters( 'sd_ai_agent_build_dir' );
+
+		if ( '' !== $this->fake_build_dir ) {
+			$asset_file = $this->fake_build_dir . '/floating-widget.asset.php';
+			if ( file_exists( $asset_file ) ) {
+				unlink( $asset_file );
+			}
+			if ( is_dir( $this->fake_build_dir ) ) {
+				rmdir( $this->fake_build_dir );
+			}
+			$this->fake_build_dir = '';
+		}
+
 		parent::tear_down();
 		delete_option( Settings::OPTION_NAME );
 		wp_dequeue_script( 'sd-ai-agent-floating-widget' );
 		wp_deregister_script( 'sd-ai-agent-floating-widget' );
+	}
+
+	/**
+	 * Provide a fake floating widget asset manifest so enqueue can proceed.
+	 */
+	private function add_fake_floating_widget_asset(): void {
+		$this->fake_build_dir = sys_get_temp_dir() . '/sd-ai-agent-floating-widget-' . wp_generate_uuid4();
+		wp_mkdir_p( $this->fake_build_dir );
+		file_put_contents(
+			$this->fake_build_dir . '/floating-widget.asset.php',
+			"<?php\nreturn [ 'dependencies' => [], 'version' => 'test' ];\n"
+		);
+
+		add_filter(
+			'sd_ai_agent_build_dir',
+			fn() => $this->fake_build_dir
+		);
 	}
 
 	// ─── Hook Registration ────────────────────────────────────────────────────
@@ -176,5 +217,24 @@ class FloatingWidgetTest extends WP_UnitTestCase {
 		remove_all_filters( 'sd_ai_agent_build_dir' );
 
 		$this->assertFalse( wp_script_is( 'sd-ai-agent-floating-widget', 'enqueued' ) );
+	}
+
+	/**
+	 * Test enqueue_assets_frontend() lets the query parameter force onboarding.
+	 */
+	public function test_enqueue_assets_frontend_query_forces_onboarding_when_complete(): void {
+		wp_set_current_user( $this->admin_id );
+		Settings::instance()->update( [ 'show_on_frontend' => true ] );
+		update_option( OnboardingManager::COMPLETE_OPTION, true );
+		$_GET['sd_ai_agent_onboarding'] = '1';
+		$this->add_fake_floating_widget_asset();
+
+		FloatingWidget::enqueue_assets_frontend();
+
+		$localized_data = (string) wp_scripts()->get_data( 'sd-ai-agent-floating-widget', 'data' );
+		$this->assertTrue( wp_script_is( 'sd-ai-agent-floating-widget', 'enqueued' ) );
+		$this->assertStringContainsString( '"frontendOnboarding":"1"', $localized_data );
+		$this->assertStringContainsString( '"frontendOnboardingForced":"1"', $localized_data );
+		$this->assertStringContainsString( '"onboarding_complete":"1"', $localized_data );
 	}
 }

@@ -484,6 +484,30 @@ class OnboardingManagerTest extends WP_UnitTestCase {
 		$this->assertNotNull( \SdAiAgent\Core\Database::get_shared_session( $session_id ) );
 	}
 
+	/**
+	 * rest_start() force mode creates a setup session when completed state exists
+	 * without a persisted onboarding session.
+	 */
+	public function test_rest_start_force_creates_session_when_completed_without_persisted_session(): void {
+		$admin_id = self::factory()->user->create( [ 'role' => 'administrator' ] );
+		wp_set_current_user( $admin_id );
+		\SdAiAgent\Core\Settings::instance()->update( [ 'onboarding_complete' => true ] );
+		update_option( OnboardingManager::COMPLETE_OPTION, true );
+		delete_option( OnboardingManager::BOOTSTRAP_SESSION_OPTION );
+
+		$request = new \WP_REST_Request( 'POST', '/sd-ai-agent/v1/onboarding/start' );
+		$request->set_param( 'force', true );
+
+		$response = OnboardingManager::rest_start( $request );
+		$data     = $response->get_data();
+
+		$this->assertInstanceOf( \WP_REST_Response::class, $response );
+		$this->assertSame( 200, $response->get_status() );
+		$this->assertNotEmpty( $data['session_id'] );
+		$this->assertSame( $data['session_id'], get_option( OnboardingManager::BOOTSTRAP_SESSION_OPTION ) );
+		$this->assertArrayNotHasKey( 'already_complete', $data );
+	}
+
 	// ── rest_reset ────────────────────────────────────────────────────────
 
 	/**

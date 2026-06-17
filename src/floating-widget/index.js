@@ -52,6 +52,8 @@ function FloatingWidget() {
 
 	const frontendOnboardingEnabled =
 		!! window.sdAiAgentData?.frontendOnboarding;
+	const frontendOnboardingForced =
+		!! window.sdAiAgentData?.frontendOnboardingForced;
 	const [ frontendOnboardingMode, setFrontendOnboardingMode ] = useState(
 		frontendOnboardingEnabled ? 'intro' : null
 	);
@@ -136,7 +138,13 @@ function FloatingWidget() {
 
 		// Keep the public widget attached to the same active/latest conversation as
 		// the dedicated chat page after reloads or frontend navigation.
-		if ( sessions.length || ! providers.length ) {
+		const shouldForceStartWithExistingSessions =
+			frontendOnboardingForced && providers.length > 0;
+
+		if (
+			( sessions.length || ! providers.length ) &&
+			! shouldForceStartWithExistingSessions
+		) {
 			setFrontendOnboardingMode( null );
 			if ( sessions.length && ! currentSessionId ) {
 				import( './frontend-onboarding' ).then(
@@ -158,11 +166,12 @@ function FloatingWidget() {
 			! frontendOnboardingEnabled ||
 			frontendOnboardingStartedRef.current ||
 			! providersLoaded ||
-			currentSessionId
+			( ! frontendOnboardingForced && currentSessionId )
 		) {
 			return;
 		}
 
+		setFrontendOnboardingMode( 'intro' );
 		frontendOnboardingStartedRef.current = true;
 		import( './frontend-onboarding' )
 			.then( ( { startOnboarding } ) =>
@@ -170,6 +179,7 @@ function FloatingWidget() {
 					openSession,
 					sendMessage,
 					setSelectedAgentId,
+					force: frontendOnboardingForced,
 				} )
 			)
 			.catch( () => {
@@ -177,6 +187,7 @@ function FloatingWidget() {
 			} );
 	}, [
 		frontendOnboardingEnabled,
+		frontendOnboardingForced,
 		providersLoaded,
 		providers.length,
 		sessionsLoaded,
