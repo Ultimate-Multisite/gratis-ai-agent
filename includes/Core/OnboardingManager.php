@@ -345,11 +345,16 @@ class OnboardingManager {
 	 * Idempotent: repeat calls return the originally-created session ID with
 	 * already_complete=true instead of creating a duplicate session.
 	 *
+	 * @param \WP_REST_Request|null $request Request with optional force flag.
 	 * @return \WP_REST_Response|\WP_Error
 	 */
-	public static function rest_start(): \WP_REST_Response|\WP_Error {
-		$settings = Settings::instance();
-		$all      = $settings->get();
+	public static function rest_start( ?\WP_REST_Request $request = null ): \WP_REST_Response|\WP_Error {
+		$settings    = Settings::instance();
+		$all         = $settings->get();
+		$force_param = $request instanceof \WP_REST_Request ? $request->get_param( 'force' ) : false;
+		$force       = is_bool( $force_param ) || is_int( $force_param ) || is_string( $force_param )
+			? rest_sanitize_boolean( $force_param )
+			: false;
 
 		// Resolve the Setup Assistant agent so the frontend can attach it to
 		// the onboarding session. The agent's stored system prompt is the
@@ -369,7 +374,10 @@ class OnboardingManager {
 		// Early-return if onboarding was already completed. Reuse the persisted
 		// session ID so the frontend can resume the same conversation.
 		$existing_session_id = get_option( self::BOOTSTRAP_SESSION_OPTION );
-		if ( self::is_complete() || ! empty( $all['onboarding_complete'] ) ) {
+		if (
+			( self::is_complete() || ! empty( $all['onboarding_complete'] ) )
+			&& ( ! $force || ! empty( $existing_session_id ) )
+		) {
 			// Ensure both persistence layers are consistent on legacy installs
 			// where only one of the two stores was set.
 			self::mark_complete();

@@ -46,6 +46,14 @@ describe( 'frontend onboarding helpers', () => {
 				onboarding_complete: '1',
 			} )
 		).toBe( false );
+
+		expect(
+			isFrontendOnboardingEnabled( {
+				context: 'frontend',
+				onboarding_complete: '1',
+				frontendOnboardingForced: '1',
+			} )
+		).toBe( true );
 	} );
 
 	test( 'falls back to page context when localized context is absent', () => {
@@ -154,6 +162,19 @@ describe( 'frontend onboarding helpers', () => {
 				currentSessionId: null,
 			} )
 		).toBe( true );
+
+		expect(
+			shouldStartFrontendOnboarding( {
+				enabled: true,
+				started: false,
+				providersLoaded: true,
+				providerCount: 1,
+				sessionsLoaded: true,
+				sessionCount: 2,
+				currentSessionId: 12,
+				force: true,
+			} )
+		).toBe( true );
 	} );
 
 	test( 'starts unified onboarding from the frontend', async () => {
@@ -181,6 +202,29 @@ describe( 'frontend onboarding helpers', () => {
 		expect( setSelectedAgentId ).toHaveBeenCalledWith( 7 );
 		expect( openSession ).toHaveBeenCalledWith( 42 );
 		expect( sendMessage ).toHaveBeenCalledWith( 'Welcome' );
+	} );
+
+	test( 'sends force when starting explicitly requested onboarding', async () => {
+		const apiFetch = jest.fn().mockResolvedValueOnce( {
+			session_id: 42,
+		} );
+		const openSession = jest.fn().mockResolvedValue( undefined );
+		const sendMessage = jest.fn().mockResolvedValue( undefined );
+
+		await startOnboarding( {
+			apiFetch,
+			openSession,
+			sendMessage,
+			setSelectedAgentId: jest.fn(),
+			fallbackMessage: 'Fallback',
+			force: true,
+		} );
+
+		expect( apiFetch ).toHaveBeenCalledWith( {
+			path: '/sd-ai-agent/v1/onboarding/start',
+			method: 'POST',
+			data: { force: true },
+		} );
 	} );
 
 	test( 'returns null when onboarding start omits a session id', async () => {

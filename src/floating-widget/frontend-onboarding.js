@@ -33,7 +33,9 @@ function isTruthyFlag( value ) {
  * @return {boolean} True when the frontend widget should bootstrap onboarding.
  */
 export function isFrontendOnboardingEnabled( data ) {
-	if ( isTruthyFlag( data?.onboarding_complete ) ) {
+	const forced = isTruthyFlag( data?.frontendOnboardingForced );
+
+	if ( isTruthyFlag( data?.onboarding_complete ) && ! forced ) {
 		return false;
 	}
 
@@ -139,6 +141,7 @@ export function getHydrationSessionId( sessions, sessionJobs = {} ) {
  * @param {boolean} options.sessionsLoaded   Whether sessions finished loading.
  * @param {number}  options.sessionCount     Number of existing sessions.
  * @param {?number} options.currentSessionId Currently opened session ID.
+ * @param {boolean} options.force            Whether an explicit launch requested onboarding.
  * @return {boolean} True when it is safe to create the setup session.
  */
 export function shouldStartFrontendOnboarding( {
@@ -149,6 +152,7 @@ export function shouldStartFrontendOnboarding( {
 	sessionsLoaded,
 	sessionCount,
 	currentSessionId,
+	force = false,
 } ) {
 	return (
 		!! enabled &&
@@ -156,8 +160,8 @@ export function shouldStartFrontendOnboarding( {
 		!! providersLoaded &&
 		providerCount > 0 &&
 		!! sessionsLoaded &&
-		sessionCount === 0 &&
-		! currentSessionId
+		( !! force || sessionCount === 0 ) &&
+		( !! force || ! currentSessionId )
 	);
 }
 
@@ -170,6 +174,7 @@ export function shouldStartFrontendOnboarding( {
  * @param {Function} options.sendMessage        Store action to send a message.
  * @param {Function} options.setSelectedAgentId Store action to select an agent.
  * @param {string}   options.fallbackMessage    Message used when REST omits one.
+ * @param {boolean}  options.force              Recover from completed state without a persisted session.
  * @return {Promise<Object|null>} Start metadata, or null if no session returned.
  */
 export async function startOnboarding( {
@@ -178,11 +183,18 @@ export async function startOnboarding( {
 	sendMessage,
 	setSelectedAgentId,
 	fallbackMessage = "Hi! I'm ready to set up this site.",
+	force = false,
 } ) {
-	const data = await apiFetch( {
+	const request = {
 		path: ONBOARDING_START_PATH,
 		method: 'POST',
-	} );
+	};
+
+	if ( force ) {
+		request.data = { force: true };
+	}
+
+	const data = await apiFetch( request );
 
 	if ( data?.agent_id ) {
 		setSelectedAgentId( data.agent_id );
