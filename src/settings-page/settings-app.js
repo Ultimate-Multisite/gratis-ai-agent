@@ -63,6 +63,7 @@ export default function SettingsApp() {
 		settings,
 		settingsLoaded,
 		providers,
+		selectedProviderId,
 		ttsEnabled,
 		ttsVoiceURI,
 		ttsRate,
@@ -75,6 +76,7 @@ export default function SettingsApp() {
 			settings: select( STORE_NAME ).getSettings(),
 			settingsLoaded: select( STORE_NAME ).getSettingsLoaded(),
 			providers: select( STORE_NAME ).getProviders(),
+			selectedProviderId: select( STORE_NAME ).getSelectedProviderId(),
 			ttsEnabled: select( STORE_NAME ).isTtsEnabled(),
 			ttsVoiceURI: select( STORE_NAME ).getTtsVoiceURI(),
 			ttsRate: select( STORE_NAME ).getTtsRate(),
@@ -447,6 +449,18 @@ export default function SettingsApp() {
 		setLocal( ( prev ) => ( { ...prev, [ key ]: value } ) );
 	}, [] );
 
+	const handleDefaultProviderChange = useCallback(
+		( providerId ) => {
+			const provider = providers.find( ( p ) => p.id === providerId );
+			setLocal( ( prev ) => ( {
+				...prev,
+				default_provider: providerId,
+				default_model: provider?.models?.[ 0 ]?.id || '',
+			} ) );
+		},
+		[ providers ]
+	);
+
 	const handleSave = useCallback( async () => {
 		setSaving( true );
 		try {
@@ -484,9 +498,11 @@ export default function SettingsApp() {
 		...providers.map( ( p ) => ( { label: p.name, value: p.id } ) ),
 	];
 
-	const selectedProvider = providers.find(
-		( p ) => p.id === local.default_provider
-	);
+	const selectedProvider =
+		providers.find( ( p ) => p.id === local.default_provider ) ||
+		providers.find( ( p ) => p.id === selectedProviderId ) ||
+		providers.find( ( p ) => p.models?.length ) ||
+		providers[ 0 ];
 
 	// Provider trace is a debug-only feature — only show the tab when
 	// WP_DEBUG is active (communicated from PHP via sdAiAgentData.wpDebug).
@@ -622,11 +638,8 @@ export default function SettingsApp() {
 															options={
 																providerOptions
 															}
-															onChange={ ( v ) =>
-																updateField(
-																	'default_provider',
-																	v
-																)
+															onChange={
+																handleDefaultProviderChange
 															}
 															__nextHasNoMarginBottom
 														/>

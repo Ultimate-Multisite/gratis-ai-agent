@@ -54,6 +54,7 @@ jest.mock( '@wordpress/data', () => ( {
 require( '../index' );
 
 const { reducer, actions, selectors } = capturedConfig;
+const { resolveProviderSelection } = require( '../slices/providersSlice' );
 
 // ─── Default state ────────────────────────────────────────────────────────────
 
@@ -288,6 +289,29 @@ describe( 'actions', () => {
 
 	test( 'sendMessage returns a thunk function', () => {
 		expect( typeof actions.sendMessage( 'hello' ) ).toBe( 'function' );
+	} );
+} );
+
+describe( 'resolveProviderSelection', () => {
+	test( 'replaces a stale saved model with the first advertised provider model', () => {
+		const selection = resolveProviderSelection(
+			[
+				{
+					id: 'sd-ai-agent-cloud',
+					models: [
+						{ id: 'superdav-chat-fast' },
+						{ id: 'superdav-chat-pro' },
+					],
+				},
+			],
+			'sd-ai-agent-cloud',
+			'chat-fast'
+		);
+
+		expect( selection ).toEqual( {
+			providerId: 'sd-ai-agent-cloud',
+			modelId: 'superdav-chat-fast',
+		} );
 	} );
 } );
 

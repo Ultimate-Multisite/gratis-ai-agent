@@ -9,6 +9,37 @@
 import apiFetch from '@wordpress/api-fetch';
 import { __ } from '@wordpress/i18n';
 
+/**
+ * Resolve a persisted provider/model selection against a fresh provider list.
+ *
+ * @param {Provider[]} providers       Available providers from REST.
+ * @param {string}     savedProviderId Provider ID from localStorage.
+ * @param {string}     savedModelId    Model ID from localStorage.
+ * @return {{providerId: string, modelId: string}} Resolved provider/model IDs.
+ */
+export function resolveProviderSelection(
+	providers,
+	savedProviderId,
+	savedModelId
+) {
+	const provider =
+		providers.find( ( candidate ) => candidate.id === savedProviderId ) ||
+		providers.find( ( candidate ) => candidate.models?.length ) ||
+		providers[ 0 ];
+
+	if ( ! provider ) {
+		return { providerId: '', modelId: '' };
+	}
+
+	const models = Array.isArray( provider.models ) ? provider.models : [];
+	const hasSavedModel = models.some( ( model ) => model.id === savedModelId );
+
+	return {
+		providerId: provider.id,
+		modelId: hasSavedModel ? savedModelId : models[ 0 ]?.id || '',
+	};
+}
+
 export const initialState = {
 	providers: [],
 	providersLoaded: false,
@@ -79,21 +110,22 @@ export const actions = {
 				} );
 				dispatch.setProviders( providers );
 
-				// Auto-select first provider if none saved or saved one is unavailable.
-				const saved = localStorage.getItem( 'sdAiAgentProvider' );
-				if (
-					( ! saved ||
-						! providers.find( ( p ) => p.id === saved ) ) &&
-					providers.length
-				) {
-					dispatch.setSelectedProvider( providers[ 0 ].id );
-					if ( providers[ 0 ].models?.length ) {
-						dispatch.setSelectedModel(
-							providers[ 0 ].models[ 0 ].id
-						);
-					} else {
-						dispatch.setSelectedModel( '' );
-					}
+				const savedProviderId =
+					localStorage.getItem( 'sdAiAgentProvider' ) || '';
+				const savedModelId =
+					localStorage.getItem( 'sdAiAgentModel' ) || '';
+				const selection = resolveProviderSelection(
+					providers,
+					savedProviderId,
+					savedModelId
+				);
+
+				if ( selection.providerId !== savedProviderId ) {
+					dispatch.setSelectedProvider( selection.providerId );
+				}
+
+				if ( selection.modelId !== savedModelId ) {
+					dispatch.setSelectedModel( selection.modelId );
 				}
 			} catch ( err ) {
 				dispatch.setProviders( [] );
