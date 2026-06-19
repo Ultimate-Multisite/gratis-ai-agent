@@ -22,6 +22,9 @@ import { __ } from '@wordpress/i18n';
  * @type {Object.<string, [number, number]>}
  */
 const PRICING = {
+	// Superdav managed models.
+	'superdav-chat-fast': [ 0.25, 1.0 ],
+	'superdav-chat-pro': [ 1.5, 6.0 ],
 	// Claude models.
 	'claude-haiku-4': [ 0.8, 4.0 ],
 	'claude-sonnet-4': [ 3.0, 15.0 ],
@@ -81,6 +84,19 @@ const TIERS = [
  * @type {Array<{id: string, provider: string, name: string, note: string}>}
  */
 const MODEL_CATALOG = [
+	// Superdav
+	{
+		id: 'superdav-chat-fast',
+		provider: 'sd-ai-agent-cloud',
+		name: 'Superdav Chat Fast',
+		note: __( 'fast', 'sd-ai-agent' ),
+	},
+	{
+		id: 'superdav-chat-pro',
+		provider: 'sd-ai-agent-cloud',
+		name: 'Superdav Chat Pro',
+		note: __( '$10 free credit eligible', 'sd-ai-agent' ),
+	},
 	// Anthropic
 	{
 		id: 'claude-haiku-4',
