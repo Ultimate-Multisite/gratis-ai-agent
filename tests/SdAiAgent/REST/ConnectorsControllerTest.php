@@ -25,7 +25,9 @@ final class ConnectorsControllerTest extends WP_UnitTestCase {
 	 * Clean up connector options.
 	 */
 	public function tear_down(): void {
+		remove_all_filters( 'sd_ai_agent_cloud_base_url' );
 		remove_all_filters( 'sd_ai_agent_cloud_registration_endpoint' );
+		remove_all_filters( 'sd_ai_agent_cloud_revocation_endpoint' );
 		remove_all_filters( 'pre_http_request' );
 		delete_option( SuperdavAiProvider::CREDENTIAL_OPTION );
 		delete_option( SuperdavSiteConnectionService::INSTALLATION_ID_OPTION );
@@ -135,6 +137,51 @@ final class ConnectorsControllerTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * The configured cloud base URL defaults site registration to `/site/installations`.
+	 */
+	public function test_connect_registers_against_cloud_base_url_default_endpoint(): void {
+		$base_url     = 'https://service.example/v1';
+		$expected_url = $base_url . '/site/installations';
+		$captured_url = '';
+
+		add_filter( 'sd_ai_agent_cloud_base_url', static fn(): string => $base_url );
+		add_filter(
+			'pre_http_request',
+			static function ( mixed $preempt, array $parsed_args, string $url ) use ( $expected_url, &$captured_url ): mixed {
+				$captured_url = $url;
+				$body         = json_decode( (string) ( $parsed_args['body'] ?? '' ), true );
+
+				return array(
+					'response' => array(
+						'code'    => $expected_url === $url ? 201 : 404,
+						'message' => $expected_url === $url ? 'Created' : 'Not Found',
+					),
+					'body'     => wp_json_encode(
+						array(
+							'installation_id'  => is_array( $body ) ? (string) ( $body['installation_id'] ?? '' ) : '',
+							'site_token'       => 'sdaist_remote_site_token',
+							'tier'             => 'free',
+							'verified'         => false,
+							'connect_required' => false,
+						)
+					),
+				);
+			},
+			10,
+			3
+		);
+
+		$request = new WP_REST_Request( 'POST', '/sd-ai-agent/v1/connectors/' . SuperdavAiProvider::PROVIDER_ID . '/connect' );
+		$request->set_param( 'provider', SuperdavAiProvider::PROVIDER_ID );
+
+		$response = ( new ConnectorsController() )->handle_connect( $request );
+		$this->assertNotWPError( $response );
+
+		$this->assertSame( $expected_url, $captured_url );
+		$this->assertSame( 'sdaist_remote_site_token', get_option( SuperdavAiProvider::CREDENTIAL_OPTION, '' ) );
+	}
+
+	/**
 	 * Managed providers reject manual raw API-key storage.
 	 */
 	public function test_managed_provider_rejects_manual_api_key(): void {
@@ -163,6 +210,49 @@ final class ConnectorsControllerTest extends WP_UnitTestCase {
 
 		$data = $response->get_data();
 		$this->assertFalse( $data['configured'] );
+		$this->assertSame( '', get_option( SuperdavAiProvider::CREDENTIAL_OPTION, '' ) );
+	}
+
+	/**
+	 * The configured cloud base URL defaults token revocation to `/site/token/revoke`.
+	 */
+	public function test_disconnect_revokes_against_cloud_base_url_default_endpoint(): void {
+		$base_url        = 'https://service.example/v1';
+		$expected_url    = $base_url . '/site/token/revoke';
+		$captured_url    = '';
+		$captured_header = '';
+
+		update_option( SuperdavAiProvider::CREDENTIAL_OPTION, 'secret-site-token', false );
+		add_filter( 'sd_ai_agent_cloud_base_url', static fn(): string => $base_url );
+		add_filter(
+			'pre_http_request',
+			static function ( mixed $preempt, array $parsed_args, string $url ) use ( $expected_url, &$captured_url, &$captured_header ): mixed {
+				$captured_url    = $url;
+				$headers         = isset( $parsed_args['headers'] ) && is_array( $parsed_args['headers'] ) ? $parsed_args['headers'] : array();
+				$captured_header = is_string( $headers['Authorization'] ?? null ) ? $headers['Authorization'] : '';
+
+				return array(
+					'response' => array(
+						'code'    => $expected_url === $url ? 200 : 404,
+						'message' => $expected_url === $url ? 'OK' : 'Not Found',
+					),
+					'body'     => '{}',
+				);
+			},
+			10,
+			3
+		);
+
+		$request = new WP_REST_Request( 'DELETE', '/sd-ai-agent/v1/connectors/' . SuperdavAiProvider::PROVIDER_ID . '/key' );
+		$request->set_param( 'provider', SuperdavAiProvider::PROVIDER_ID );
+
+		$response = ( new ConnectorsController() )->handle_clear_key( $request );
+		$this->assertNotWPError( $response );
+
+		$data = $response->get_data();
+		$this->assertFalse( $data['configured'] );
+		$this->assertSame( $expected_url, $captured_url );
+		$this->assertSame( 'Bearer secret-site-token', $captured_header );
 		$this->assertSame( '', get_option( SuperdavAiProvider::CREDENTIAL_OPTION, '' ) );
 	}
 

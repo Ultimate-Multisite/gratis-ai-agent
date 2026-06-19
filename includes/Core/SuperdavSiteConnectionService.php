@@ -25,6 +25,9 @@ final class SuperdavSiteConnectionService {
 	public const INSTALLATION_ID_OPTION = 'sd_ai_agent_site_installation_id';
 	public const TOKEN_METADATA_OPTION  = 'sd_ai_agent_cloud_connection_metadata';
 
+	private const REGISTRATION_ENDPOINT_PATH = 'site/installations';
+	private const REVOCATION_ENDPOINT_PATH   = 'site/token/revoke';
+
 	/**
 	 * Build safe connector status metadata.
 	 *
@@ -82,6 +85,13 @@ final class SuperdavSiteConnectionService {
 		);
 
 		return $this->get_status();
+	}
+
+	/**
+	 * Determine whether a remote Superdav registration endpoint is configured.
+	 */
+	public function has_remote_registration_endpoint(): bool {
+		return '' !== $this->get_registration_endpoint();
 	}
 
 	/**
@@ -150,15 +160,7 @@ final class SuperdavSiteConnectionService {
 	 * @return array{token: string, metadata: array<string, mixed>}|string|WP_Error Token registration, empty string when no endpoint is configured, or error.
 	 */
 	private function request_remote_site_token(): array|string|WP_Error {
-		/**
-		 * Filters the Superdav site registration endpoint.
-		 *
-		 * Return an empty string to use local development provisioning.
-		 *
-		 * @param string $endpoint Registration endpoint URL.
-		 */
-		$endpoint = apply_filters( 'sd_ai_agent_cloud_registration_endpoint', '' );
-		$endpoint = is_string( $endpoint ) ? esc_url_raw( $endpoint ) : '';
+		$endpoint = $this->get_registration_endpoint();
 		if ( '' === $endpoint ) {
 			return '';
 		}
@@ -212,15 +214,7 @@ final class SuperdavSiteConnectionService {
 	 * Revoke a token against a configured endpoint when available.
 	 */
 	private function revoke_remote_token( string $token ): bool|WP_Error {
-		/**
-		 * Filters the Superdav token revocation endpoint.
-		 *
-		 * Return an empty string when revocation is unavailable.
-		 *
-		 * @param string $endpoint Revocation endpoint URL.
-		 */
-		$endpoint = apply_filters( 'sd_ai_agent_cloud_revocation_endpoint', '' );
-		$endpoint = is_string( $endpoint ) ? esc_url_raw( $endpoint ) : '';
+		$endpoint = $this->get_revocation_endpoint();
 		if ( '' === $endpoint ) {
 			return true;
 		}
@@ -252,6 +246,65 @@ final class SuperdavSiteConnectionService {
 		}
 
 		return true;
+	}
+
+	/**
+	 * Resolve the site registration endpoint from explicit config or base URL.
+	 */
+	private function get_registration_endpoint(): string {
+		$endpoint = $this->configured_endpoint( 'SD_AI_AGENT_CLOUD_REGISTRATION_ENDPOINT', self::REGISTRATION_ENDPOINT_PATH );
+
+		/**
+		 * Filters the Superdav site registration endpoint.
+		 *
+		 * Return an empty string to use local development provisioning.
+		 * The default is SD_AI_AGENT_CLOUD_REGISTRATION_ENDPOINT, or the
+		 * configured cloud base URL plus `/site/installations`.
+		 *
+		 * @param string $endpoint Registration endpoint URL.
+		 */
+		$endpoint = apply_filters( 'sd_ai_agent_cloud_registration_endpoint', $endpoint );
+
+		return is_string( $endpoint ) ? esc_url_raw( $endpoint ) : '';
+	}
+
+	/**
+	 * Resolve the token revocation endpoint from explicit config or base URL.
+	 */
+	private function get_revocation_endpoint(): string {
+		$endpoint = $this->configured_endpoint( 'SD_AI_AGENT_CLOUD_REVOCATION_ENDPOINT', self::REVOCATION_ENDPOINT_PATH );
+
+		/**
+		 * Filters the Superdav token revocation endpoint.
+		 *
+		 * Return an empty string when revocation is unavailable.
+		 * The default is SD_AI_AGENT_CLOUD_REVOCATION_ENDPOINT, or the
+		 * configured cloud base URL plus `/site/token/revoke`.
+		 *
+		 * @param string $endpoint Revocation endpoint URL.
+		 */
+		$endpoint = apply_filters( 'sd_ai_agent_cloud_revocation_endpoint', $endpoint );
+
+		return is_string( $endpoint ) ? esc_url_raw( $endpoint ) : '';
+	}
+
+	/**
+	 * Resolve a service endpoint from a specific constant or the cloud base URL.
+	 *
+	 * @param string $constant_name Endpoint override constant name.
+	 * @param string $path          Path relative to the configured cloud base URL.
+	 * @return string Resolved endpoint URL, or empty when not configured.
+	 */
+	private function configured_endpoint( string $constant_name, string $path ): string {
+		$endpoint = defined( $constant_name ) && is_string( constant( $constant_name ) )
+			? (string) constant( $constant_name )
+			: '';
+
+		if ( '' === $endpoint ) {
+			$endpoint = SuperdavAiProvider::configured_service_url( $path );
+		}
+
+		return is_string( $endpoint ) ? esc_url_raw( $endpoint ) : '';
 	}
 
 	/**

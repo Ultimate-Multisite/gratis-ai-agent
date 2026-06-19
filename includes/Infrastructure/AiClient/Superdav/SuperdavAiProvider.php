@@ -94,6 +94,30 @@ final class SuperdavAiProvider extends AbstractApiProvider {
 	}
 
 	/**
+	 * Return the configured OpenAI-compatible API base URL.
+	 *
+	 * @return string Base URL without a trailing slash, or empty when not configured.
+	 */
+	public static function configured_base_url(): string {
+		return self::baseUrl();
+	}
+
+	/**
+	 * Build a Superdav service URL from the configured cloud base URL.
+	 *
+	 * @param string $path Service path relative to the configured base URL.
+	 * @return string Full URL, or empty when the cloud base URL is not configured.
+	 */
+	public static function configured_service_url( string $path ): string {
+		$base_url = self::configured_base_url();
+		if ( '' === $base_url ) {
+			return '';
+		}
+
+		return $base_url . '/' . ltrim( $path, '/' );
+	}
+
+	/**
 	 * Return the configured API host for provider `/models` ingestion gates.
 	 *
 	 * @return string Lowercase host, or an empty string when no base URL is configured.

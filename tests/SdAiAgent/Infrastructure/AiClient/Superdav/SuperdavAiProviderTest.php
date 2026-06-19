@@ -133,6 +133,21 @@ final class SuperdavAiProviderTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * Service helper URLs use the same configured `/v1` base as the OpenAI-compatible provider.
+	 */
+	public function test_configured_service_url_uses_filtered_cloud_base_url(): void {
+		add_filter(
+			'sd_ai_agent_cloud_base_url',
+			static fn(): string => 'https://service.example/v1'
+		);
+
+		$this->assertSame(
+			'https://service.example/v1/site/installations',
+			SuperdavAiProvider::configured_service_url( 'site/installations' )
+		);
+	}
+
+	/**
 	 * Skip when the SDK was not loaded in the current test environment.
 	 */
 	private function skip_if_sdk_unavailable(): void {

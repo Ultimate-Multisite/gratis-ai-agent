@@ -80,6 +80,16 @@ AI Agent works with any connector plugin registered through the WordPress Connec
 
 All connectors are included in the [WordPress Playground demo](https://playground.wordpress.net/?blueprint-url=https://raw.githubusercontent.com/Ultimate-Multisite/sd-ai-agent/refs/heads/main/.wordpress-org/blueprints/blueprint.json).
 
+### Managed Superdav AI service
+
+The bundled **Superdav AI** connector uses a service-managed site token instead of a customer-provided provider key. For local Superdav AI Service testing, configure the OpenAI-compatible `/v1` base URL in `wp-config.php`:
+
+```php
+define( 'SD_AI_AGENT_CLOUD_BASE_URL', 'http://127.0.0.1:3000/v1' );
+```
+
+When this base URL is set, plugin activation and the connector **Connect** action register the site at `POST /v1/site/installations`; model listing and chat use `GET /v1/models` and `POST /v1/chat/completions` with the stored site token as `Authorization: Bearer <SITE_ACCESS_TOKEN>`. Override `SD_AI_AGENT_CLOUD_REGISTRATION_ENDPOINT` or `SD_AI_AGENT_CLOUD_REVOCATION_ENDPOINT` only when those endpoints live outside the configured base URL.
+
 ## Features
 
 ### Agentic chat

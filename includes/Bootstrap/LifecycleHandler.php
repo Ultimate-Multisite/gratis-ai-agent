@@ -29,6 +29,7 @@ use SdAiAgent\Core\Database;
 use SdAiAgent\Core\OnboardingManager;
 use SdAiAgent\Core\SkillUpdateChecker;
 use SdAiAgent\Core\SiteScanner;
+use SdAiAgent\Core\SuperdavSiteConnectionService;
 use SdAiAgent\Knowledge\KnowledgeHooks;
 
 if ( ! defined( 'ABSPATH' ) ) {
@@ -58,6 +59,7 @@ final class LifecycleHandler {
 		SkillUpdateChecker::schedule();
 		ActiveJobsCleanupService::schedule();
 		ToolCapabilities::register_capabilities( ToolCapabilities::all_ability_ids() );
+		self::maybe_provision_superdav_site_connection();
 	}
 
 	/**
@@ -74,5 +76,27 @@ final class LifecycleHandler {
 		SkillUpdateChecker::unschedule();
 		ActiveJobsCleanupService::unschedule();
 		BlockInventory::unschedule();
+	}
+
+	/**
+	 * Provision the first-party site token during activation when a remote edge is configured.
+	 *
+	 * Activation must not fail only because the managed AI service is temporarily
+	 * unavailable, so connection errors are intentionally ignored here. The
+	 * connector page can retry the same registration flow interactively.
+	 */
+	private static function maybe_provision_superdav_site_connection(): void {
+		try {
+			$service = new SuperdavSiteConnectionService();
+			$status  = $service->get_status();
+
+			if ( ! empty( $status['configured'] ) || ! $service->has_remote_registration_endpoint() ) {
+				return;
+			}
+
+			$service->provision_site_token();
+		} catch ( \Throwable ) {
+			return;
+		}
 	}
 }
