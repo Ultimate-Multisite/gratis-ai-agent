@@ -155,6 +155,30 @@ class OptionsAbilities {
 	];
 
 	/**
+	 * Exact option names the AI agent may read by default.
+	 *
+	 * The default list is intentionally empty. Site owners can opt specific
+	 * non-secret third-party options into AI read access with the
+	 * `sd_ai_agent_options_read_allowlist` filter.
+	 *
+	 * @var string[]
+	 */
+	private const READ_ALLOWLIST = [];
+
+	/**
+	 * Option-name prefixes the AI agent may read by default.
+	 *
+	 * Limit default read access to this plugin's own option namespace so arbitrary
+	 * third-party options cannot be disclosed merely because they were missed by a
+	 * finite secret-name blocklist.
+	 *
+	 * @var string[]
+	 */
+	private const READ_ALLOWLIST_PREFIXES = [
+		'sd_ai_agent_',
+	];
+
+	/**
 	 * Register all options management abilities.
 	 */
 	public static function register_abilities(): void {
@@ -282,6 +306,74 @@ class OptionsAbilities {
 		}
 
 		foreach ( self::get_write_allowlist_prefixes() as $prefix ) {
+			if ( '' !== $prefix && str_starts_with( $option_name, $prefix ) ) {
+				return true;
+			}
+		}
+
+		return false;
+	}
+
+	/**
+	 * Get exact option names the AI agent may read.
+	 *
+	 * @return string[]
+	 */
+	public static function get_read_allowlist(): array {
+		/**
+		 * Filters exact WordPress option names the AI agent may read.
+		 *
+		 * Secret option names remain blocked even when added to this allowlist.
+		 *
+		 * @since 1.16.3
+		 *
+		 * @param string[] $allowlist List of allowed option names.
+		 */
+		$allowlist = apply_filters( 'sd_ai_agent_options_read_allowlist', self::READ_ALLOWLIST );
+
+		return array_values( array_filter( (array) $allowlist, 'is_string' ) );
+	}
+
+	/**
+	 * Get option-name prefixes the AI agent may read.
+	 *
+	 * @return string[]
+	 */
+	public static function get_read_allowlist_prefixes(): array {
+		/**
+		 * Filters option-name prefixes the AI agent may read.
+		 *
+		 * The default allows only this plugin's `sd_ai_agent_` options. Secret
+		 * option names remain blocked even when they match an allowed prefix.
+		 *
+		 * @since 1.16.3
+		 *
+		 * @param string[] $prefixes List of allowed option-name prefixes.
+		 */
+		$prefixes = apply_filters( 'sd_ai_agent_options_read_allowlist_prefixes', self::READ_ALLOWLIST_PREFIXES );
+
+		return array_values( array_filter( (array) $prefixes, 'is_string' ) );
+	}
+
+	/**
+	 * Predicate: may the AI agent read the given option name?
+	 *
+	 * The read policy is default-deny except for plugin-owned options and explicit
+	 * site-owner allowlist entries. The secret blocklist always takes precedence.
+	 *
+	 * @param string $option_name Option name to test.
+	 * @return bool True if the option is safe for read access.
+	 */
+	public static function is_read_allowed_option( string $option_name ): bool {
+		if ( '' === $option_name || self::is_secret_option_name( $option_name ) ) {
+			return false;
+		}
+
+		if ( in_array( $option_name, self::get_read_allowlist(), true ) ) {
+			return true;
+		}
+
+		foreach ( self::get_read_allowlist_prefixes() as $prefix ) {
 			if ( '' !== $prefix && str_starts_with( $option_name, $prefix ) ) {
 				return true;
 			}
@@ -433,11 +525,23 @@ class GetOptionAbility extends AbstractAbility {
 			);
 		}
 
-		// Secret-option read gate. WordPress writes auth keys/salts into
-		// `wp_options` when wp-config.php does not define them; returning
-		// their values would enable session forgery.
+		// Default-deny read gate. Secret options are blocked with the uniform
+		// redaction error; all other third-party options must be explicitly opted in
+		// by site code before their values can be disclosed to the agent.
 		if ( OptionsAbilities::is_secret_option_name( $option_name ) ) {
 			return OptionsAbilities::secret_read_error( $option_name );
+		}
+
+		if ( ! OptionsAbilities::is_read_allowed_option( $option_name ) ) {
+			return new WP_Error(
+				'sd_ai_agent_option_read_not_allowed',
+				sprintf(
+					/* translators: %s: option name */
+					__( 'The option "%s" is not in the AI agent read allowlist. Only plugin-owned options and options explicitly allowed by site code can be read by this ability.', 'superdav-ai-agent' ),
+					$option_name
+				),
+				[ 'status' => 403 ]
+			);
 		}
 
 		$default = $input['default'] ?? false;
@@ -797,7 +901,7 @@ class ListOptionsAbility extends AbstractAbility {
 	}
 
 	protected function description(): string {
-		return __( 'List WordPress options with optional prefix filtering. Returns option names and values (truncated for large values). Useful for discovering plugin/theme settings.', 'superdav-ai-agent' );
+		return __( 'List allowed WordPress options with optional prefix filtering. Default read access is limited to plugin-owned options; site code can opt in specific non-secret third-party options.', 'superdav-ai-agent' );
 	}
 
 	protected function input_schema(): array {
@@ -806,7 +910,7 @@ class ListOptionsAbility extends AbstractAbility {
 			'properties' => [
 				'prefix'   => [
 					'type'        => 'string',
-					'description' => 'Filter options whose names start with this prefix (e.g. "woocommerce_", "elementor_"). Leave empty to list all options.',
+					'description' => 'Filter allowed options whose names start with this prefix. Leave empty to list this plugin\'s sd_ai_agent_ options. Third-party prefixes require a site-code read allowlist filter.',
 					'default'     => '',
 				],
 				'limit'    => [
@@ -833,7 +937,7 @@ class ListOptionsAbility extends AbstractAbility {
 				'prefix'         => [ 'type' => 'string' ],
 				'redacted_count' => [
 					'type'        => 'integer',
-					'description' => 'Number of rows removed from the response because their option_name is on the secret read blocklist (e.g. auth_key, secure_auth_salt).',
+					'description' => 'Number of rows removed from the response because their option_name is not permitted by the read allowlist or is secret.',
 				],
 			],
 		];
@@ -844,58 +948,47 @@ class ListOptionsAbility extends AbstractAbility {
 		/** @var \wpdb $wpdb */
 
 		$prefix   = isset( $input['prefix'] ) ? (string) $input['prefix'] : '';
+		$prefix   = '' === $prefix ? 'sd_ai_agent_' : $prefix;
 		$limit    = min( 200, max( 1, (int) ( $input['limit'] ?? 50 ) ) );
 		$autoload = isset( $input['autoload'] ) ? (string) $input['autoload'] : 'all';
+
+		$prefix_allowed = false;
+		foreach ( OptionsAbilities::get_read_allowlist_prefixes() as $allowed_prefix ) {
+			if ( '' !== $allowed_prefix && str_starts_with( $prefix, $allowed_prefix ) ) {
+				$prefix_allowed = true;
+				break;
+			}
+		}
+
+		if ( ! $prefix_allowed ) {
+			return new WP_Error(
+				'sd_ai_agent_option_read_prefix_not_allowed',
+				__( 'The requested option prefix is not in the AI agent read allowlist.', 'superdav-ai-agent' ),
+				[ 'status' => 403 ]
+			);
+		}
+
+		$like_prefix = $prefix . '%';
 
 		// Each branch uses a fully static SQL template — $autoload and $prefix are never
 		// interpolated into SQL; only %i/%s/%d placeholders carry runtime values.
 		// phpcs:disable WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Discovery query; caching not appropriate for dynamic option listings.
-		if ( '' !== $prefix ) {
-			if ( 'yes' === $autoload ) {
-				$rows = $wpdb->get_results(
-					$wpdb->prepare(
-						"SELECT option_name, option_value, autoload FROM %i WHERE option_name LIKE %s AND autoload IN ('yes', 'on', '1', 'true') ORDER BY option_name LIMIT %d",
-						$wpdb->options,
-						$prefix,
-						$limit
-					),
-					ARRAY_A
-				);
-			} elseif ( 'no' === $autoload ) {
-				$rows = $wpdb->get_results(
-					$wpdb->prepare(
-						"SELECT option_name, option_value, autoload FROM %i WHERE option_name LIKE %s AND autoload NOT IN ('yes', 'on', '1', 'true') ORDER BY option_name LIMIT %d",
-						$wpdb->options,
-						$prefix,
-						$limit
-					),
-					ARRAY_A
-				);
-			} else {
-				$rows = $wpdb->get_results(
-					$wpdb->prepare(
-						'SELECT option_name, option_value, autoload FROM %i WHERE option_name LIKE %s ORDER BY option_name LIMIT %d',
-						$wpdb->options,
-						$prefix,
-						$limit
-					),
-					ARRAY_A
-				);
-			}
-		} elseif ( 'yes' === $autoload ) {
-				$rows = $wpdb->get_results(
-					$wpdb->prepare(
-						"SELECT option_name, option_value, autoload FROM %i WHERE autoload IN ('yes', 'on', '1', 'true') ORDER BY option_name LIMIT %d",
-						$wpdb->options,
-						$limit
-					),
-					ARRAY_A
-				);
+		if ( 'yes' === $autoload ) {
+			$rows = $wpdb->get_results(
+				$wpdb->prepare(
+					"SELECT option_name, option_value, autoload FROM %i WHERE option_name LIKE %s AND autoload IN ('yes', 'on', '1', 'true') ORDER BY option_name LIMIT %d",
+					$wpdb->options,
+					$like_prefix,
+					$limit
+				),
+				ARRAY_A
+			);
 		} elseif ( 'no' === $autoload ) {
 			$rows = $wpdb->get_results(
 				$wpdb->prepare(
-					"SELECT option_name, option_value, autoload FROM %i WHERE autoload NOT IN ('yes', 'on', '1', 'true') ORDER BY option_name LIMIT %d",
+					"SELECT option_name, option_value, autoload FROM %i WHERE option_name LIKE %s AND autoload NOT IN ('yes', 'on', '1', 'true') ORDER BY option_name LIMIT %d",
 					$wpdb->options,
+					$like_prefix,
 					$limit
 				),
 				ARRAY_A
@@ -903,8 +996,9 @@ class ListOptionsAbility extends AbstractAbility {
 		} else {
 			$rows = $wpdb->get_results(
 				$wpdb->prepare(
-					'SELECT option_name, option_value, autoload FROM %i ORDER BY option_name LIMIT %d',
+					'SELECT option_name, option_value, autoload FROM %i WHERE option_name LIKE %s ORDER BY option_name LIMIT %d',
 					$wpdb->options,
+					$like_prefix,
 					$limit
 				),
 				ARRAY_A
@@ -922,10 +1016,11 @@ class ListOptionsAbility extends AbstractAbility {
 		$options        = [];
 		$redacted_count = 0;
 		foreach ( $rows as $row ) {
-			// Secret-option read gate. Omit the row entirely so the AI
-			// neither sees the value nor learns whether the option is
-			// stored as an option or defined in wp-config.php.
-			if ( OptionsAbilities::is_secret_option_name( (string) $row['option_name'] ) ) {
+			$option_name = (string) $row['option_name'];
+
+			// Read gate. Omit blocked rows entirely so the AI neither sees their
+			// values nor learns whether a sensitive option is stored in wp_options.
+			if ( ! OptionsAbilities::is_read_allowed_option( $option_name ) ) {
 				++$redacted_count;
 				continue;
 			}
@@ -947,7 +1042,7 @@ class ListOptionsAbility extends AbstractAbility {
 			}
 
 			$options[] = [
-				'option_name'  => $row['option_name'],
+				'option_name'  => $option_name,
 				'option_value' => $unserialized,
 				'autoload'     => $row['autoload'],
 			];

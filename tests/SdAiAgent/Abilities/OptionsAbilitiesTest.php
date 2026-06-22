@@ -48,6 +48,8 @@ class OptionsAbilitiesTest extends WP_UnitTestCase {
 		delete_option( 'connectors_ai_custom_provider_api_key' );
 		delete_option( 'third_party_test_option' );
 		remove_all_filters( 'sd_ai_agent_options_read_blocklist' );
+		remove_all_filters( 'sd_ai_agent_options_read_allowlist' );
+		remove_all_filters( 'sd_ai_agent_options_read_allowlist_prefixes' );
 		remove_all_filters( 'sd_ai_agent_options_blocklist' );
 		remove_all_filters( 'sd_ai_agent_options_write_allowlist' );
 		remove_all_filters( 'sd_ai_agent_options_write_allowlist_prefixes' );
@@ -320,6 +322,19 @@ class OptionsAbilitiesTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * Third-party options are denied unless site code explicitly opts them in.
+	 */
+	public function test_get_option_ability_blocks_unallowlisted_third_party_option(): void {
+		update_option( 'third_party_test_option', 'do-not-disclose' );
+
+		$ability = new GetOptionAbility( 'sd-ai-agent/get-option' );
+		$result  = $ability->run( array( 'option_name' => 'third_party_test_option' ) );
+
+		$this->assertInstanceOf( \WP_Error::class, $result );
+		$this->assertSame( 'sd_ai_agent_option_read_not_allowed', $result->get_error_code() );
+	}
+
+	/**
 	 * Filter-added names are also blocked by GetOptionAbility.
 	 */
 	public function test_get_option_ability_honours_filter_added_secret(): void {
@@ -346,6 +361,7 @@ class OptionsAbilitiesTest extends WP_UnitTestCase {
 	public function test_list_options_ability_omits_secret_rows(): void {
 		update_option( 'auth_key', self::FIXTURE_SECRET_VALUE );
 		update_option( 'nonce_salt', self::FIXTURE_SECRET_VALUE );
+		update_option( 'sd_ai_agent_test_visible_option', 'hello' );
 
 		$ability = new ListOptionsAbility( 'sd-ai-agent/list-options' );
 		$result  = $ability->run( array( 'limit' => 200 ) );
@@ -353,10 +369,11 @@ class OptionsAbilitiesTest extends WP_UnitTestCase {
 		$this->assertIsArray( $result );
 		$this->assertArrayHasKey( 'options', $result );
 		$this->assertArrayHasKey( 'redacted_count', $result );
-		$this->assertGreaterThanOrEqual( 2, $result['redacted_count'] );
+		$this->assertSame( 0, $result['redacted_count'] );
 
 		$encoded = wp_json_encode( $result );
 		$this->assertIsString( $encoded );
+		$this->assertStringContainsString( 'sd_ai_agent_test_visible_option', $encoded );
 		$this->assertStringNotContainsString(
 			self::FIXTURE_SECRET_VALUE,
 			$encoded,
@@ -364,10 +381,7 @@ class OptionsAbilitiesTest extends WP_UnitTestCase {
 		);
 
 		foreach ( $result['options'] as $row ) {
-			$this->assertFalse(
-				OptionsAbilities::is_secret_option_name( (string) $row['option_name'] ),
-				sprintf( 'Secret option "%s" leaked into the response.', $row['option_name'] )
-			);
+			$this->assertStringStartsWith( 'sd_ai_agent_', (string) $row['option_name'] );
 		}
 	}
 
@@ -380,18 +394,13 @@ class OptionsAbilitiesTest extends WP_UnitTestCase {
 		$ability = new ListOptionsAbility( 'sd-ai-agent/list-options' );
 		$result  = $ability->run(
 			array(
-				'prefix' => 'connectors_ai_%',
+				'prefix' => 'connectors_ai_',
 				'limit'  => 50,
 			)
 		);
 
-		$this->assertIsArray( $result );
-		$this->assertGreaterThanOrEqual( 1, $result['redacted_count'] );
-
-		$encoded = wp_json_encode( $result );
-		$this->assertIsString( $encoded );
-		$this->assertStringNotContainsString( self::FIXTURE_SECRET_VALUE, $encoded );
-		$this->assertStringNotContainsString( 'connectors_ai_custom_provider_api_key', $encoded );
+		$this->assertInstanceOf( \WP_Error::class, $result );
+		$this->assertSame( 'sd_ai_agent_option_read_prefix_not_allowed', $result->get_error_code() );
 	}
 
 	/**

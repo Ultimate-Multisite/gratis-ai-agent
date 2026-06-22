@@ -17,6 +17,11 @@ use WP_UnitTestCase;
  */
 class GlobalStylesAbilitiesTest extends WP_UnitTestCase {
 
+	public function set_up(): void {
+		parent::set_up();
+		wp_set_current_user( self::factory()->user->create( [ 'role' => 'administrator' ] ) );
+	}
+
 	/**
 	 * Test update-global-styles schema nudges agents toward non-empty styles.
 	 */

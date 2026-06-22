@@ -274,6 +274,11 @@ class GlobalStylesAbilities {
 			return $switched;
 		}
 
+		$target_permission = self::ensure_current_blog_permission( 'sd-ai-agent/get-global-styles', (bool) $switched );
+		if ( is_wp_error( $target_permission ) ) {
+			return $target_permission;
+		}
+
 		$styles = self::get_merged_global_styles();
 
 		if ( $switched ) {
@@ -311,6 +316,11 @@ class GlobalStylesAbilities {
 		$switched = self::maybe_switch_blog( $site_url );
 		if ( is_wp_error( $switched ) ) {
 			return $switched;
+		}
+
+		$target_permission = self::ensure_current_blog_permission( 'sd-ai-agent/update-global-styles', (bool) $switched );
+		if ( is_wp_error( $target_permission ) ) {
+			return $target_permission;
 		}
 
 		$post_id = self::get_or_create_global_styles_post();
@@ -389,6 +399,11 @@ class GlobalStylesAbilities {
 			return $switched;
 		}
 
+		$target_permission = self::ensure_current_blog_permission( 'sd-ai-agent/get-theme-json', (bool) $switched );
+		if ( is_wp_error( $target_permission ) ) {
+			return $target_permission;
+		}
+
 		$theme      = wp_get_theme();
 		$theme_name = $theme->get( 'Name' );
 
@@ -436,6 +451,11 @@ class GlobalStylesAbilities {
 		$switched = self::maybe_switch_blog( $site_url );
 		if ( is_wp_error( $switched ) ) {
 			return $switched;
+		}
+
+		$target_permission = self::ensure_current_blog_permission( 'sd-ai-agent/reset-global-styles', (bool) $switched );
+		if ( is_wp_error( $target_permission ) ) {
+			return $target_permission;
 		}
 
 		$post_id = self::find_global_styles_post();
@@ -628,6 +648,29 @@ class GlobalStylesAbilities {
 		}
 
 		return false;
+	}
+
+	/**
+	 * Verify permissions after a multisite blog switch.
+	 *
+	 * @param string $ability_id Ability ID to check in the current blog context.
+	 * @param bool   $switched   Whether the handler switched blogs and must restore on failure.
+	 * @return null|\WP_Error Null when allowed, WP_Error when denied.
+	 */
+	private static function ensure_current_blog_permission( string $ability_id, bool $switched ): ?\WP_Error {
+		if ( ToolCapabilities::current_user_can( $ability_id ) ) {
+			return null;
+		}
+
+		if ( $switched ) {
+			restore_current_blog();
+		}
+
+		return new \WP_Error(
+			'insufficient_capability',
+			__( 'You do not have permission to manage global styles on the target site.', 'superdav-ai-agent' ),
+			[ 'status' => 403 ]
+		);
 	}
 
 	/**

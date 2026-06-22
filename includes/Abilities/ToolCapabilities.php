@@ -96,8 +96,8 @@ class ToolCapabilities {
 		'sd-ai-agent/recommend-plugin'           => 'activate_plugins',
 		'sd-ai-agent/search-plugin-directory'    => 'install_plugins',
 		'sd-ai-agent/list-plugin-updates'        => 'update_plugins',
-		'sd-ai-agent/install-plugin'             => 'install_plugins',
-		'sd-ai-agent/install-plugin-from-url'    => 'install_plugins',
+		'sd-ai-agent/install-plugin'             => [ 'install_plugins', 'activate_plugins' ],
+		'sd-ai-agent/install-plugin-from-url'    => [ 'install_plugins', 'activate_plugins' ],
 		'sd-ai-agent/update-plugin'              => 'update_plugins',
 		'sd-ai-agent/activate-plugin'            => 'activate_plugins',
 		'sd-ai-agent/deactivate-plugin'          => 'activate_plugins',
@@ -123,10 +123,10 @@ class ToolCapabilities {
 		'sd-ai-agent/curated-block-patterns'     => 'edit_theme_options',
 		'sd-ai-agent/theme-json-presets'         => 'edit_theme_options',
 		'sd-ai-agent/set-site-logo'              => 'edit_theme_options',
-		'sd-ai-agent/scaffold-block-theme'       => 'edit_themes',
+		'sd-ai-agent/scaffold-block-theme'       => 'install_themes',
 		'sd-ai-agent/render-design-previews'     => 'edit_theme_options',
 		'sd-ai-agent/validate-palette-contrast'  => 'edit_theme_options',
-		'sd-ai-agent/generate-logo-svg'          => 'upload_files',
+		'sd-ai-agent/generate-logo-svg'          => [ 'upload_files', 'edit_theme_options' ],
 
 		// ─── Menus ──────────────────────────────────────────────────────────
 		'sd-ai-agent/list-menus'                 => 'edit_theme_options',
@@ -136,7 +136,7 @@ class ToolCapabilities {
 		'sd-ai-agent/add-menu-item'              => 'edit_theme_options',
 		'sd-ai-agent/remove-menu-item'           => 'edit_theme_options',
 		'sd-ai-agent/assign-menu-location'       => 'edit_theme_options',
-		'sd-ai-agent/generate-menu-page'         => 'edit_theme_options',
+		'sd-ai-agent/generate-menu-page'         => [ 'edit_pages', 'publish_pages' ],
 
 		// ─── Posts ──────────────────────────────────────────────────────────
 		'sd-ai-agent/get-post'                   => 'edit_posts',
