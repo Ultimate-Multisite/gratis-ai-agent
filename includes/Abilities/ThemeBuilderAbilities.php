@@ -19,8 +19,6 @@ declare(strict_types=1);
 
 namespace SdAiAgent\Abilities;
 
-use SdAiAgent\Core\Features;
-
 if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
@@ -44,29 +42,7 @@ class ThemeBuilderAbilities {
 			return;
 		}
 
-		// The block-theme scaffolder writes executable PHP/CSS into the
-		// active themes directory, so the WordPress.org distribution build
-		// disables it via SD_AI_AGENT_FEATURE_SCAFFOLD_BLOCK_THEME = false
-		// (see bin/build.sh --target=wporg). The class_exists() guard
-		// covers the matching .distignore-wporg strip — when the source
-		// file is removed from the zip, the registration is skipped
-		// instead of fatal-erroring on the missing class.
-		if (
-			Features::is_enabled( Features::SCAFFOLD_BLOCK_THEME )
-			&& class_exists( ScaffoldBlockThemeAbility::class )
-		) {
-			wp_register_ability(
-				'sd-ai-agent/scaffold-block-theme',
-				[
-					'label'         => __( 'Scaffold Block Theme', 'superdav-ai-agent' ),
-					'description'   => __(
-						'Create the on-disk skeleton for a new WordPress block theme (theme.json, style.css, functions.php, templates/index.html) inside wp-content/themes/{slug}/. Requires the install_themes capability. If the user mentioned an existing site URL in the conversation, prefer calling sd-ai-agent/site-scrape first to pre-fill brand facts before scaffolding — but never block the build to ask for a URL the user has not already volunteered.',
-						'superdav-ai-agent'
-					),
-					'ability_class' => ScaffoldBlockThemeAbility::class,
-				]
-			);
-		}
+		// The block-theme scaffolder is supplied by Superdav AI Agent Advanced.
 
 		wp_register_ability(
 			'sd-ai-agent/activate-theme',

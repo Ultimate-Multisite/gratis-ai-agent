@@ -10,12 +10,10 @@
 #   2. SVN checked out: svn checkout https://plugins.svn.wordpress.org/superdav-ai-agent/ ~/svn/superdav-ai-agent
 #   3. svn CLI installed (apt-get install subversion / brew install subversion)
 #
-# Note: this script always builds the WP.org-compliant variant via
-# `bin/build.sh --target=wporg`, which strips the AI plugin builder and
-# WP-CLI custom-tool source files (per WP.org Guideline 4 prohibiting
-# plugins that allow arbitrary script insertion). The full GitHub
-# release zip — which retains those features — is produced separately
-# by `.github/workflows/release.yml` on tag push.
+# Note: this script always builds the core WordPress.org package via
+# `bin/build.sh --target=wporg` (alias of `--target=core`). Advanced
+# features are packaged separately from /advanced-plugin as
+# superdav-ai-agent-advanced and never sync to the WP.org SVN trunk.
 #
 # What this script does:
 #   1. Builds production assets and ZIP via bin/build.sh
@@ -30,10 +28,8 @@ set -euo pipefail
 
 # ── Defaults ──────────────────────────────────────────────────────────────────
 PLUGIN_DIR="$(cd "$(dirname "$0")/.." && pwd)"
-# The SVN slug is whatever the WP.org review team approves. As of writing
-# the plugin has not been submitted; once approved, override --svn-dir to
-# match the assigned slug if it differs from the default below. The slug
-# should match the text domain (`superdav-ai-agent`) per WP.org conventions.
+# The SVN slug is the WordPress.org-approved plugin slug. Override --svn-dir
+# only when using a non-default local checkout path.
 SVN_DIR="${HOME}/svn/superdav-ai-agent"
 WP_USERNAME=""
 VERSION=""
@@ -57,20 +53,35 @@ Examples:
   bin/deploy-wporg.sh --version 1.2.0 --username developer-dave
   bin/deploy-wporg.sh --version 1.3.0 --username developer-dave --dry-run
 EOF
-	exit 1
+	return 0
 }
 
 while [ $# -gt 0 ]; do
 	case "$1" in
 	--version)
+		if [ $# -lt 2 ]; then
+			echo "ERROR: --version requires a value." >&2
+			usage
+			exit 1
+		fi
 		VERSION="$2"
 		shift 2
 		;;
 	--username)
+		if [ $# -lt 2 ]; then
+			echo "ERROR: --username requires a value." >&2
+			usage
+			exit 1
+		fi
 		WP_USERNAME="$2"
 		shift 2
 		;;
 	--svn-dir)
+		if [ $# -lt 2 ]; then
+			echo "ERROR: --svn-dir requires a value." >&2
+			usage
+			exit 1
+		fi
 		SVN_DIR="$2"
 		shift 2
 		;;
@@ -78,10 +89,14 @@ while [ $# -gt 0 ]; do
 		DRY_RUN=true
 		shift
 		;;
-	--help | -h) usage ;;
+	--help | -h)
+		usage
+		exit 0
+		;;
 	*)
 		echo "Unknown option: $1" >&2
 		usage
+		exit 1
 		;;
 	esac
 done
@@ -89,6 +104,7 @@ done
 if [ -z "$VERSION" ] || [ -z "$WP_USERNAME" ]; then
 	echo "ERROR: --version and --username are required." >&2
 	usage
+	exit 1
 fi
 
 # ── Validate prerequisites ────────────────────────────────────────────────────
@@ -130,14 +146,13 @@ if [ "$README_STABLE" != "$VERSION" ]; then
 fi
 
 # ── Build ─────────────────────────────────────────────────────────────────────
-# Always build the WP.org-compliant variant for the SVN deployment. The full
-# (GitHub release) zip is published separately by .github/workflows/release.yml
-# and intentionally retains the AI plugin builder + WP-CLI custom tools.
-echo "==> Building Superdav AI Agent v${VERSION} (target: wporg)..."
+# Always build the core WordPress.org package for SVN deployment. The advanced
+# companion plugin is built and distributed separately.
+echo "==> Building Superdav AI Agent v${VERSION} (target: wporg/core)..."
 cd "$PLUGIN_DIR"
 bin/build.sh --target=wporg
 
-ZIP_PATH="${PLUGIN_DIR}/superdav-ai-agent-${VERSION}-wporg.zip"
+ZIP_PATH="${PLUGIN_DIR}/superdav-ai-agent-${VERSION}.zip"
 if [ ! -f "$ZIP_PATH" ]; then
 	echo "ERROR: Expected ZIP not found: ${ZIP_PATH}" >&2
 	echo "       Did bin/build.sh --target=wporg succeed? Re-run it manually to investigate." >&2
@@ -149,6 +164,7 @@ echo "    Built: ${ZIP_PATH}"
 EXTRACT_DIR="$(mktemp -d)"
 cleanup() {
 	rm -rf "$EXTRACT_DIR"
+	return 0
 }
 trap cleanup EXIT
 

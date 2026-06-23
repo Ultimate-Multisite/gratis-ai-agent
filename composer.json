@@ -1,6 +1,6 @@
 {
 	"name": "ultimate-multisite/superdav-ai-agent",
-	"description": "Agentic AI loop for WordPress — chat with an AI that can call WordPress abilities (tools) autonomously.",
+	"description": "Agentic AI loop for WordPress \u2014 chat with an AI that can call WordPress abilities (tools) autonomously.",
 	"type": "wordpress-plugin",
 	"license": "GPL-2.0-or-later",
 	"authors": [
@@ -47,6 +47,7 @@
 	},
 	"archive": {
 		"exclude": [
+			"advanced-plugin",
 			"tests",
 			".wp-env.json",
 			"phpunit.xml.dist",
@@ -133,14 +134,17 @@
 	"scripts": {
 		"phpcs": "vendor/bin/phpcs",
 		"phpcbf": "vendor/bin/phpcbf",
-		"phpstan": "php -d memory_limit=1G vendor/bin/phpstan analyse",
+		"phpstan": "php -d memory_limit=2G vendor/bin/phpstan analyse --memory-limit=2G",
 		"test": "vendor/bin/phpunit",
 		"test:stress": "vendor/bin/phpunit --testsuite=stress",
-		"lint": ["@phpcs", "@phpstan"]
+		"lint": [
+			"@phpcs",
+			"@phpstan"
+		]
 	},
-	"homepage": "https://github.com/Ultimate-Multisite/sd-ai-agent",
+	"homepage": "https://github.com/Ultimate-Multisite/superdav-ai-agent",
 	"support": {
-		"issues": "https://github.com/Ultimate-Multisite/sd-ai-agent/issues",
-		"source": "https://github.com/Ultimate-Multisite/sd-ai-agent"
+		"issues": "https://github.com/Ultimate-Multisite/superdav-ai-agent/issues",
+		"source": "https://github.com/Ultimate-Multisite/superdav-ai-agent"
 	}
 }

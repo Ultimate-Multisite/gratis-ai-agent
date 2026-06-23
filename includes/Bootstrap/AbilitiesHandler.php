@@ -35,12 +35,10 @@ use SdAiAgent\Abilities\ContentAbilities;
 use SdAiAgent\Abilities\CustomPostTypeAbilities;
 use SdAiAgent\Abilities\CustomTaxonomyAbilities;
 use SdAiAgent\Abilities\TaxonomyAbilities;
-use SdAiAgent\Abilities\DatabaseAbilities;
 use SdAiAgent\Abilities\DesignSystemAbilities;
 use SdAiAgent\Abilities\EditorialAbilities;
 use SdAiAgent\Abilities\FeedbackAbilities;
 use SdAiAgent\Abilities\FileAbilities;
-use SdAiAgent\Abilities\GitAbilities;
 use SdAiAgent\Abilities\GlobalStylesAbilities;
 use SdAiAgent\Abilities\GoogleAnalyticsAbilities;
 use SdAiAgent\Abilities\GscAbilities;
@@ -55,12 +53,8 @@ use SdAiAgent\Abilities\MemoryAbilities;
 use SdAiAgent\Abilities\MenuAbilities;
 use SdAiAgent\Abilities\NavigationAbilities;
 use SdAiAgent\Abilities\OptionsAbilities;
-use SdAiAgent\Abilities\PluginBuilderAbilities;
-use SdAiAgent\Abilities\PluginDownloadAbilities;
-use SdAiAgent\PluginBuilder\PluginSandbox;
 use SdAiAgent\Abilities\PostAbilities;
 use SdAiAgent\Abilities\RestMetaAbilities;
-use SdAiAgent\Core\Features;
 use SdAiAgent\Abilities\SeoAbilities;
 use SdAiAgent\Abilities\SiteHealthAbilities;
 use SdAiAgent\Abilities\SkillAbilities;
@@ -68,10 +62,7 @@ use SdAiAgent\Abilities\ThemeBuilderAbilities;
 use SdAiAgent\Abilities\UrlResolverAbilities;
 use SdAiAgent\Abilities\UploadMediaAbility;
 use SdAiAgent\Abilities\UserAbilities;
-use SdAiAgent\Abilities\UserManagementAbilities;
 use SdAiAgent\Abilities\WordPressAbilities;
-use SdAiAgent\Abilities\WpCliAbilities;
-use SdAiAgent\Abilities\WpRestAbilities;
 use XWP\DI\Decorators\Action;
 use XWP\DI\Decorators\Handler;
 
@@ -140,66 +131,11 @@ final class AbilitiesHandler {
 			]
 		);
 		ThemeBuilderAbilities::register_abilities();
-		// Git tracking is paired with the file-mutation surface. The WP.org build
-		// forces FILE_WRITE off and strips the Git ability/model source files, so
-		// guard both the feature flag and class availability before registration.
-		if (
-			Features::is_enabled( Features::FILE_WRITE )
-			&& class_exists( GitAbilities::class )
-		) {
-			GitAbilities::register_abilities();
-		}
-		// Plugin-download abilities expose download URLs for AI-modified
-		// plugins, so they only make sense when the plugin builder is
-		// available. Gated under the same flag, and the class_exists()
-		// guard handles the case where bin/build.sh --target=wporg has
-		// also stripped the source file.
-		if (
-			Features::is_enabled( Features::PLUGIN_BUILDER )
-			&& class_exists( PluginDownloadAbilities::class )
-		) {
-			PluginDownloadAbilities::register_abilities();
-		}
-		// Plugin builder abilities are gated behind a feature flag so the
-		// WordPress.org distribution build can disable arbitrary PHP code
-		// generation/execution. The class_exists() guard handles the case
-		// where the source files are also stripped from the zip — see
-		// bin/build.sh --target=wporg.
-		if (
-			Features::is_enabled( Features::PLUGIN_BUILDER )
-			&& class_exists( PluginBuilderAbilities::class )
-		) {
-			PluginBuilderAbilities::register_abilities();
-		}
-		// The WP.org build strips DatabaseAbilities.php to avoid recurring
-		// Plugin Check direct-SQL findings on the dynamic SELECT diagnostics
-		// ability. Check the physical source path before class_exists() because
-		// Jetpack Autoloader can hard-require optimized classmap paths for files
-		// that existed before the WP.org strip step.
-		$database_abilities_file = dirname( __DIR__ ) . '/Abilities/DatabaseAbilities.php';
-		if ( file_exists( $database_abilities_file ) && class_exists( DatabaseAbilities::class ) ) {
-			DatabaseAbilities::register_abilities();
-		}
+		// Advanced-only filesystem mutation, git tracking, plugin builder,
+		// low-level dispatchers, raw database diagnostics, and mutating
+		// user/plugin-management abilities are registered by the companion
+		// Superdav AI Agent Advanced plugin.
 		WordPressAbilities::register_abilities();
-		// WP-CLI dispatcher: gated by SD_AI_AGENT_FEATURE_WP_CLI_DISPATCHER
-		// and class_exists() guarded so the WordPress.org build (which
-		// strips includes/Abilities/WpCliAbilities.php via
-		// .distignore-wporg + bin/build.sh stripped_paths) does not
-		// fatal here.
-		if (
-			Features::is_enabled( Features::WP_CLI_DISPATCHER )
-			&& class_exists( WpCliAbilities::class )
-		) {
-			WpCliAbilities::register_ability();
-		}
-		// WP REST dispatcher: gated by SD_AI_AGENT_FEATURE_WP_REST_DISPATCHER
-		// and class_exists() guarded for the same wp.org-strip reason.
-		if (
-			Features::is_enabled( Features::WP_REST_DISPATCHER )
-			&& class_exists( WpRestAbilities::class )
-		) {
-			WpRestAbilities::register_abilities();
-		}
 		OptionsAbilities::register_abilities();
 		// WooCommerce abilities are now registered by WooCommerceIntegrationHandler
 		// via WooCommerce's own AbilitiesRestBridge, making WooCommerce's native
@@ -215,49 +151,11 @@ final class AbilitiesHandler {
 		CustomTaxonomyAbilities::register_abilities();
 		TaxonomyAbilities::register_abilities();
 		UserAbilities::register_abilities();
-		// Mutating user-management abilities (create-user, update-user-role)
-		// are gated behind a feature flag so the WordPress.org distribution
-		// build can disable the custom user-creation surface entirely (which
-		// can bypass security plugins that hook the native register/login
-		// flow). The class_exists() guard handles the case where the source
-		// file has also been stripped from the zip — see bin/build.sh
-		// --target=wporg and .distignore-wporg.
-		if (
-			Features::is_enabled( Features::USER_MANAGEMENT )
-			&& class_exists( UserManagementAbilities::class )
-		) {
-			UserManagementAbilities::register_abilities();
-		}
 		MediaAbilities::register_abilities();
 		UploadMediaAbility::register_abilities();
 		EditorialAbilities::register_abilities();
 		ImageAbilities::register_abilities();
 		DesignSystemAbilities::register_abilities();
-	}
-
-	/**
-	 * Register the WP-CLI ability category.
-	 *
-	 * WpCliAbilities uses a separate hook (`wp_abilities_api_categories_init`)
-	 * for its category registration, unlike the other ability classes.
-	 */
-	#[Action( tag: 'wp_abilities_api_categories_init', priority: 10 )]
-	public function register_wpcli_category(): void {
-		// Both categories are feature-gated AND class_exists() guarded
-		// so the WordPress.org build (which strips the source files)
-		// does not fatal here.
-		if (
-			Features::is_enabled( Features::WP_CLI_DISPATCHER )
-			&& class_exists( WpCliAbilities::class )
-		) {
-			WpCliAbilities::register_category();
-		}
-		if (
-			Features::is_enabled( Features::WP_REST_DISPATCHER )
-			&& class_exists( WpRestAbilities::class )
-		) {
-			WpRestAbilities::register_category();
-		}
 	}
 
 	/**
@@ -273,27 +171,5 @@ final class AbilitiesHandler {
 	public function restore_persisted_types(): void {
 		CustomPostTypeAbilities::restore_persisted_post_types();
 		CustomTaxonomyAbilities::restore_persisted_taxonomies();
-	}
-
-	/**
-	 * Auto-deactivate plugins that triggered a fatal error on a previous activation.
-	 *
-	 * Previously wired by PluginBuilderAbilities::register() via add_action() —
-	 * that register() stub has been removed.
-	 *
-	 * Skipped when the plugin-builder feature is disabled (the safety net only
-	 * matters when this plugin is actively installing plugins it generated)
-	 * or when the PluginSandbox class has been stripped from the build.
-	 */
-	#[Action( tag: 'init', priority: 10 )]
-	public function auto_deactivate_fatal_plugins(): void {
-		if (
-			! Features::is_enabled( Features::PLUGIN_BUILDER )
-			|| ! class_exists( PluginSandbox::class )
-		) {
-			return;
-		}
-
-		PluginSandbox::auto_deactivate_fatal_plugins();
 	}
 }

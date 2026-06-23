@@ -5,18 +5,12 @@ parameters:
 	level: 10
 	paths:
 		- includes
+		- advanced-plugin/includes
 		- superdav-ai-agent.php
+		- advanced-plugin/superdav-ai-agent-advanced.php
 	excludePaths:
 		- includes/CLI
-		# Compat polyfill files define the same global classes/functions as stubs/wordpress-7-runtime.php.
-		# Exclude them from PHPStan analysis to avoid duplicate-class errors; the stubs already provide
-		# the type information PHPStan needs. AiBridgeLoader.php and SdkLoader.php (PSR-4) are not excluded.
-		- includes/Compat/ai-client
-		- includes/Compat/ai-client.php
-		# wp-connectors-polyfill.php defines _wp_connectors_get_provider_settings() and
-		# _wp_connectors_get_real_api_key() which are already stubbed in stubs/wordpress-7-runtime.php.
-		# Exclude to avoid duplicate-function errors.
-		- includes/Compat/wp-connectors-polyfill.php
+		- advanced-plugin/includes/CLI
 	bootstrapFiles:
 		- vendor/autoload.php
 	scanFiles:
@@ -28,16 +22,6 @@ parameters:
 	ignoreErrors:
 		# WP_CLI is only available when running in CLI context
 		- '#Call to static method .* on an unknown class WP_CLI#'
-		# AiBridgeLoader: polyfill classes (WP_AI_Client_Cache, WP_AI_Client_Discovery_Strategy,
-		# WP_AI_Client_Event_Dispatcher) are defined in includes/Compat/ai-client/ which is excluded
-		# from PHPStan analysis. Their stubs do not define these specific classes, and the SDK
-		# AiClient::setCache() / setEventDispatcher() methods are not in the WP 7.0 stubs.
-		- '#Instantiated class WP_AI_Client_Cache not found#'
-		- '#Instantiated class WP_AI_Client_Event_Dispatcher not found#'
-		- '#Instantiated class WP_AI_Client_Discovery_Strategy not found#'
-		- '#Call to static method init\(\) on an unknown class WP_AI_Client_Discovery_Strategy#'
-		- '#Call to an undefined static method WordPress\\AiClient\\AiClient::setCache\(\)#'
-		- '#Call to an undefined static method WordPress\\AiClient\\AiClient::setEventDispatcher\(\)#'
 		# Constants defined at runtime (plugin_dir_url/plugin_dir_path return string at runtime)
 		- '#Constant SD_AI_AGENT_.* not found#'
 		# SD_AI_AGENT_URL/DIR are string constants defined at runtime; PHPStan sees them as mixed
@@ -344,4 +328,3 @@ parameters:
 		# The phpstan-ignore-next-line comment is used in the code.
 		- message: '#Parameter .* of function curl_setopt expects CurlHandle, CurlHandle\|resource given#'
 		  identifier: argument.type
-

@@ -1,0 +1,15 @@
+{
+	"name": "ultimate-multisite/superdav-ai-agent-advanced",
+	"description": "Advanced companion plugin for Superdav AI Agent.",
+	"type": "wordpress-plugin",
+	"license": "GPL-2.0-or-later",
+	"require": {
+		"php": ">=8.2"
+	},
+	"autoload": {
+		"psr-4": {
+			"SdAiAgentAdvanced\\": "includes/",
+			"SdAiAgent\\": "includes/"
+		}
+	}
+}

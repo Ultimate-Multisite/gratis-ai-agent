@@ -48,13 +48,30 @@ class CustomToolsTest extends WP_UnitTestCase {
 	}
 
 	/**
-	 * Test VALID_TYPES contains all three types.
+	 * Test VALID_TYPES contains core tool types only.
 	 */
 	public function test_valid_types_constant(): void {
 		$this->assertContains( 'http', CustomTools::VALID_TYPES );
 		$this->assertContains( 'action', CustomTools::VALID_TYPES );
-		$this->assertContains( 'cli', CustomTools::VALID_TYPES );
-		$this->assertCount( 3, CustomTools::VALID_TYPES );
+		$this->assertNotContains( 'cli', CustomTools::VALID_TYPES );
+		$this->assertCount( 2, CustomTools::VALID_TYPES );
+	}
+
+	/**
+	 * Test valid_types() can include advanced companion plugin types.
+	 */
+	public function test_valid_types_method_allows_filtered_types(): void {
+		$filter = static function ( array $types ): array {
+			$types[] = CustomTools::TYPE_CLI;
+			return $types;
+		};
+
+		add_filter( 'sd_ai_agent_custom_tool_types', $filter );
+		try {
+			$this->assertContains( 'cli', CustomTools::valid_types() );
+		} finally {
+			remove_filter( 'sd_ai_agent_custom_tool_types', $filter );
+		}
 	}
 
 	/**

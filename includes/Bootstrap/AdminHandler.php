@@ -18,7 +18,6 @@ use SdAiAgent\Admin\DefaultModelNoticeHandler;
 use SdAiAgent\Admin\FloatingWidget;
 use SdAiAgent\Admin\ThirdPartyAbilityNoticeHandler;
 use SdAiAgent\Admin\UnifiedAdminMenu;
-use SdAiAgent\Compat\GutenbergConnectorsBridge;
 use SdAiAgent\Core\ActiveJobsCleanupService;
 use SdAiAgent\Core\Database;
 use XWP\DI\Decorators\Action;
@@ -45,31 +44,6 @@ final class AdminHandler {
 	#[Action( tag: 'admin_menu', priority: 10 )]
 	public function register_menus(): void {
 		UnifiedAdminMenu::register();
-	}
-
-	/**
-	 * Belt-and-braces fallback for the Gutenberg Connectors page on WP 6.9.
-	 *
-	 * The PRIMARY fix for the missing-Connectors-page bug runs at
-	 * `plugins_loaded:1` from `superdav-ai-agent.php`, where we directly
-	 * require Gutenberg's `lib/experimental/connectors/load.php`. That
-	 * loader registers Gutenberg's own `admin_menu:11` callback which adds
-	 * the Settings → Connectors menu item normally.
-	 *
-	 * This admin-only fallback runs at `admin_menu:12` (one tick after
-	 * Gutenberg's own callback) and registers the menu item directly —
-	 * but ONLY if it has not already been registered. So in the normal
-	 * happy path (primary fix worked) this method is a no-op; it only
-	 * creates a menu item if a future Gutenberg release moves the loader
-	 * path or otherwise breaks the primary fix, ensuring the page is at
-	 * least reachable while we ship a follow-up.
-	 *
-	 * @see GutenbergConnectorsBridge::force_load_connectors_subsystem()
-	 * @see GutenbergConnectorsBridge::maybe_register()
-	 */
-	#[Action( tag: 'admin_menu', priority: 12 )]
-	public function register_gutenberg_connectors_bridge(): void {
-		GutenbergConnectorsBridge::maybe_register();
 	}
 
 	/**

@@ -4,11 +4,10 @@
  *
  * The constants under test (SD_AI_AGENT_FEATURE_*) are defined once per
  * PHP process by the plugin bootstrap and cannot be undefined for the
- * test run. We therefore exercise the registry via the WordPress.org
- * build's perspective: each gated feature must be reachable as a
- * named map entry, the constant-name mapping must match what
- * bin/build.sh greps for, and Features::all() must include every
- * gated flag so the JS bundle can render the right UI.
+ * test run. We therefore exercise the registry via the split-package
+ * contract: each advanced feature must be reachable as a named map entry,
+ * the constant-name mapping must remain stable, and Features::all() must
+ * include every gated flag so the JS bundle can render the right UI.
  *
  * @package SdAiAgent
  * @subpackage Tests
@@ -28,20 +27,25 @@ use WP_UnitTestCase;
 class FeaturesTest extends WP_UnitTestCase {
 
 	/**
-	 * The five feature flags that the WordPress.org build forces to
-	 * `false`. If you remove one of these, also remove the matching
-	 * `flags=()` entry in `bin/build.sh` and the row in
-	 * `docs/wordpress-org-submission.md` Build Matrix.
+	 * Feature flags supplied by the Superdav AI Agent Advanced companion plugin.
+	 * If you remove one, also update advanced registration, feature docs, and the
+	 * row in `docs/wordpress-org-submission.md` Build Matrix.
 	 *
 	 * @return array<int, array{0: string, 1: string}>
 	 */
-	public static function wporg_gated_flags(): array {
+	public static function advanced_feature_flags(): array {
 		return [
 			[ Features::PLUGIN_BUILDER, 'SD_AI_AGENT_FEATURE_PLUGIN_BUILDER' ],
 			[ Features::CUSTOM_TOOLS_CLI, 'SD_AI_AGENT_FEATURE_CUSTOM_TOOLS_CLI' ],
 			[ Features::PLUGIN_STATE_CHANGES, 'SD_AI_AGENT_FEATURE_PLUGIN_STATE_CHANGES' ],
 			[ Features::PLUGIN_INSTALL_FROM_URL, 'SD_AI_AGENT_FEATURE_PLUGIN_INSTALL_FROM_URL' ],
 			[ Features::FILE_WRITE, 'SD_AI_AGENT_FEATURE_FILE_WRITE' ],
+			[ Features::SCAFFOLD_BLOCK_THEME, 'SD_AI_AGENT_FEATURE_SCAFFOLD_BLOCK_THEME' ],
+			[ Features::WP_REST_DISPATCHER, 'SD_AI_AGENT_FEATURE_WP_REST_DISPATCHER' ],
+			[ Features::WP_CLI_DISPATCHER, 'SD_AI_AGENT_FEATURE_WP_CLI_DISPATCHER' ],
+			[ Features::BENCHMARK, 'SD_AI_AGENT_FEATURE_BENCHMARK' ],
+			[ Features::USER_MANAGEMENT, 'SD_AI_AGENT_FEATURE_USER_MANAGEMENT' ],
+			[ Features::RUN_PHP, 'SD_AI_AGENT_FEATURE_RUN_PHP' ],
 		];
 	}
 
@@ -49,7 +53,7 @@ class FeaturesTest extends WP_UnitTestCase {
 	 * Each gated feature must appear in Features::all() so the JS
 	 * bundle can hide the corresponding UI when the flag is off.
 	 *
-	 * @dataProvider wporg_gated_flags
+	 * @dataProvider advanced_feature_flags
 	 *
 	 * @param string $feature_key Feature identifier (e.g. 'plugin_builder').
 	 * @param string $constant    Backing constant name (unused here but
@@ -69,35 +73,31 @@ class FeaturesTest extends WP_UnitTestCase {
 	}
 
 	/**
-	 * Features::is_enabled() defaults to `true` for every gated
-	 * feature when the backing constant is not defined. The full
-	 * GitHub-release build relies on this default so site owners can
-	 * keep using the plugin builder without any extra configuration.
+	 * Features::is_enabled() defaults to `true` for every advanced feature when
+	 * the advanced companion plugin is loaded and the backing constant is not
+	 * defined. The core package alone returns `false` for these features.
 	 *
-	 * @dataProvider wporg_gated_flags
+	 * @dataProvider advanced_feature_flags
 	 *
 	 * @param string $feature_key Feature identifier.
 	 * @param string $constant    Backing constant name.
 	 */
-	public function test_gated_feature_defaults_to_enabled_when_constant_undefined( string $feature_key, string $constant ): void {
-		// PHPUnit runs after the plugin bootstrap, which already defines
-		// the constants. We can't undefine them, but we can assert that
-		// when defined-and-true (the bootstrap default in
-		// superdav-ai-agent.php) the registry returns true.
-		if ( defined( $constant ) && constant( $constant ) === true ) {
-			$this->assertTrue(
-				Features::is_enabled( $feature_key ),
-				"Feature '{$feature_key}' should be enabled when {$constant} is defined as true."
+	public function test_advanced_feature_defaults_to_enabled_when_loaded( string $feature_key, string $constant ): void {
+		if ( ! defined( 'SD_AI_AGENT_ADVANCED_LOADED' ) || constant( 'SD_AI_AGENT_ADVANCED_LOADED' ) !== true ) {
+			$this->markTestSkipped(
+				"Skipping defaults check for '{$feature_key}' because the advanced companion plugin is not loaded."
 			);
-			return;
 		}
 
-		// In CI the feature flags should be defined-and-true (full build).
-		// If not, this test runs in a configuration we don't expect — make
-		// the failure explicit so the CI matrix can be fixed rather than
-		// silently passing.
-		$this->markTestSkipped(
-			"Skipping defaults check for '{$feature_key}' because {$constant} is not defined as true in this environment."
+		if ( defined( $constant ) && constant( $constant ) === false ) {
+			$this->markTestSkipped(
+				"Skipping defaults check for '{$feature_key}' because {$constant} is explicitly disabled in this environment."
+			);
+		}
+
+		$this->assertTrue(
+			Features::is_enabled( $feature_key ),
+			"Feature '{$feature_key}' should be enabled when the advanced companion plugin is loaded and {$constant} is not false."
 		);
 	}
 
@@ -110,11 +110,11 @@ class FeaturesTest extends WP_UnitTestCase {
 	}
 
 	/**
-	 * Smoke test: the constant-name mapping covered by the data provider
-	 * must match what `bin/build.sh` rewrites in the WP.org build. This
-	 * is the contract that lets the build script grep-verify compliance.
+	 * Smoke test: the constant-name mapping covered by the data provider must
+	 * remain stable for wp-config.php overrides, REST/UI feature snapshots, and
+	 * advanced companion plugin registration.
 	 *
-	 * @dataProvider wporg_gated_flags
+	 * @dataProvider advanced_feature_flags
 	 *
 	 * @param string $feature_key Feature identifier.
 	 * @param string $constant    Expected backing constant name.
