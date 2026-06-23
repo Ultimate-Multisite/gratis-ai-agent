@@ -12,49 +12,52 @@ if ( ! defined( 'ABSPATH' ) ) {
  * Feature-flag registry.
  *
  * Each feature is backed by a PHP constant that site owners (or resellers)
- * can define in wp-config.php before the plugin loads. The constants default
- * to `true` so stock installations retain all functionality; setting one to
- * `false` disables the corresponding UI and REST surface.
+ * can define in wp-config.php before the plugin loads. Core feature constants
+ * default to `true`. Advanced feature constants default to enabled only when
+ * the Superdav AI Agent Advanced companion plugin is loaded; without that
+ * companion plugin, advanced surfaces return `false` even when no constant is
+ * defined. Setting any constant to `false` disables the corresponding UI,
+ * ability, CLI command, or REST surface.
  *
- * Defined constants (all default true):
+ * Defined constants:
  *  - SD_AI_AGENT_FEATURE_BRANDING            — White-label / branding settings:
  *    agent name, brand colours, logo URL, greeting message.
  *  - SD_AI_AGENT_FEATURE_ACCESS_CONTROL      — Role-based access control:
  *    the Role Permissions manager and its /role-permissions REST routes.
  *  - SD_AI_AGENT_FEATURE_PLUGIN_BUILDER      — AI plugin generation, sandboxed
- *    activation, sandboxed updates, and hook scanning. Disabled in the
- *    WordPress.org distribution because WP.org Guideline 4 prohibits
+ *    activation, sandboxed updates, and hook scanning. Supplied by the
+ *    advanced companion plugin because WP.org Guideline 4 prohibits
  *    plugins that "process custom CSS/JS/PHP" or "allow arbitrary
  *    script insertion".
  *  - SD_AI_AGENT_FEATURE_CUSTOM_TOOLS_CLI    — The WP-CLI custom tool type,
- *    which executes shell commands via PHP `exec()`. Disabled in the
- *    WordPress.org distribution for the same reason as above.
+ *    which executes shell commands via PHP shell execution. Supplied by the
+ *    advanced companion plugin for the same reason as above.
  *  - SD_AI_AGENT_FEATURE_PLUGIN_STATE_CHANGES — Abilities that change the
  *    active plugin set without explicit per-action user intervention:
  *    activate-plugin, deactivate-plugin, delete-plugin, switch-plugin,
- *    and update-plugin. Disabled in the WordPress.org distribution
+ *    and update-plugin. Supplied by the advanced companion plugin
  *    because the WP.org "Changing Active Plugins" guideline forbids
  *    plugins from activating or deactivating other plugins
  *    autonomously, even with capability checks.
  *  - SD_AI_AGENT_FEATURE_PLUGIN_INSTALL_FROM_URL — The
  *    install-plugin-from-url ability, which fetches and installs a
  *    plugin from any direct ZIP URL (e.g. GitHub release assets).
- *    Disabled in the WordPress.org distribution because the
+ *    Supplied by the advanced companion plugin because the
  *    "Changing Active Plugins" guideline only exempts WP.org-directory
  *    installs from the no-autonomous-state-change rule.
  *  - SD_AI_AGENT_FEATURE_FILE_WRITE — Arbitrary filesystem writes
- *    inside wp-content (file-write, file-edit, file-delete). Disabled in
- *    the WordPress.org distribution because writes can target
+ *    inside wp-content (file-write, file-edit, file-delete). Supplied by
+ *    the advanced companion plugin because writes can target
  *    wp-content/plugins/ and wp-content/themes/, which is the same
  *    arbitrary-code-modification risk covered by the WP.org "Changing
- *    Active Plugins" guideline. The WP.org build also strips git-tracking
- *    ability/model source files because those source-package inspection and
- *    snapshot surfaces are only meaningful with file mutation enabled.
+ *    Active Plugins" guideline. Git-tracking ability/model source also lives
+ *    in the advanced companion plugin because those source-package inspection
+ *    and snapshot surfaces are only meaningful with file mutation enabled.
  *  - SD_AI_AGENT_FEATURE_SCAFFOLD_BLOCK_THEME — The block-theme
  *    scaffolder ability (`sd-ai-agent/scaffold-block-theme`) that
  *    writes theme.json, style.css, functions.php, and a starter
- *    templates/index.html into `wp-content/themes/{slug}/`. Disabled
- *    in the WordPress.org distribution because writing executable
+ *    templates/index.html into `wp-content/themes/{slug}/`. Supplied by
+ *    the advanced companion plugin because writing executable
  *    theme code is the same arbitrary-theme-code modification risk
  *    covered by the WP.org "Changing Active Plugins" guideline. The
  *    remaining Theme Builder abilities (activate-theme,
@@ -67,26 +70,23 @@ if ( ! defined( 'ABSPATH' ) ) {
  *    goes through the target endpoint's own `permission_callback`, the
  *    enumeration + execute surface is a generic low-level dispatcher
  *    and the same class of arbitrary-script-dispatch risk as run-php.
- *    Disabled in the WordPress.org distribution build and the
- *    `includes/Abilities/WpRestAbilities.php` source file is physically
- *    stripped from the shipped zip.
+ *    Supplied by the advanced companion plugin and absent from the core
+ *    WordPress.org package.
  *  - SD_AI_AGENT_FEATURE_WP_CLI_DISPATCHER — The `wp-cli/execute`
- *    ability, which shells out to the `wp` binary via PHP `exec()` to
+ *    ability, which shells out to the `wp` binary via PHP shell execution to
  *    run arbitrary WP-CLI commands. Same class of arbitrary-command
- *    risk as run-php and CUSTOM_TOOLS_CLI. Disabled in the
- *    WordPress.org distribution build and the
- *    `includes/Abilities/WpCliAbilities.php` source file is physically
- *    stripped from the shipped zip.
+ *    risk as run-php and CUSTOM_TOOLS_CLI. Supplied by the advanced companion
+ *    plugin and absent from the core WordPress.org package.
  *  - SD_AI_AGENT_FEATURE_BENCHMARK — The `wp sd-ai-agent benchmark …`
  *    WP-CLI subcommand, which runs the full agent loop and writes a
- *    JSON log per question. Disabled in the WordPress.org distribution
+ *    JSON log per question. Supplied by the advanced companion plugin
  *    because the command's `--log-dir=<abs-path>` override lets an
  *    administrator point log writes at an arbitrary absolute filesystem
  *    path, which the WP.org reviewer flagged as out-of-scope for a
  *    public-directory plugin.
  *  - SD_AI_AGENT_FEATURE_USER_MANAGEMENT — Mutating user-management
  *    abilities (`sd-ai-agent/create-user`, `sd-ai-agent/update-user-role`).
- *    Disabled in the WordPress.org distribution because custom user
+ *    Supplied by the advanced companion plugin because custom user
  *    creation routes can bypass security plugins (login throttling,
  *    password-policy enforcers, etc.) that hook the native register/login
  *    flow — per WP.org reviewer feedback. Read-only `sd-ai-agent/list-users`
@@ -96,11 +96,8 @@ if ( ! defined( 'ABSPATH' ) ) {
  *    functions via `call_user_func_array()`. Even with a static
  *    allowlist this surface is a low-level fallback dispatcher and
  *    WP.org Guideline 4 prohibits plugins that allow arbitrary
- *    script insertion or low-level PHP dispatch. Disabled in the
- *    WordPress.org distribution build and the
- *    `includes/Abilities/RunPhpAbility.php` source file is physically
- *    stripped from the shipped zip so the review team can verify
- *    compliance with a single `unzip -l | grep RunPhpAbility` check.
+ *    script insertion or low-level PHP dispatch. Supplied by the advanced
+ *    companion plugin and absent from the core WordPress.org package.
  *
  * Usage example (wp-config.php):
  *   define( 'SD_AI_AGENT_FEATURE_BRANDING', false );
@@ -131,10 +128,9 @@ final class Features {
 	 * and `sd-ai-agent/scan-theme-hooks` abilities, plus the
 	 * `auto_deactivate_fatal_plugins` init hook.
 	 *
-	 * Disabled in the WordPress.org distribution build (`bin/build.sh
-	 * --target=wporg`) because the WP.org plugin guidelines prohibit
-	 * plugins that allow arbitrary PHP insertion. The full feature set
-	 * remains available in the GitHub release zip.
+	 * Supplied by the Superdav AI Agent Advanced companion plugin because the
+	 * WP.org plugin guidelines prohibit plugins that allow arbitrary PHP
+	 * insertion.
 	 *
 	 * Constant: SD_AI_AGENT_FEATURE_PLUGIN_BUILDER
 	 */
@@ -144,10 +140,9 @@ final class Features {
 	 * Feature: WP-CLI custom-tool type.
 	 *
 	 * Gates registration and execution of custom tools whose `type` is
-	 * `cli` — these tools shell out to `wp` via PHP `exec()`. Disabled in
-	 * the WordPress.org distribution for the same arbitrary-code-execution
-	 * reason as PLUGIN_BUILDER. HTTP and Action tool types remain
-	 * available in both builds.
+	 * `cli` — these tools shell out to `wp` via PHP shell execution. Supplied by
+	 * the advanced companion plugin for the same arbitrary-code-execution reason
+	 * as PLUGIN_BUILDER. HTTP and Action tool types remain available in core.
 	 *
 	 * Constant: SD_AI_AGENT_FEATURE_CUSTOM_TOOLS_CLI
 	 */
@@ -165,8 +160,8 @@ final class Features {
 	 * plugins are active without the user clicking through the standard
 	 * WP admin Plugins screen.
 	 *
-	 * Disabled in the WordPress.org distribution build to comply with
-	 * the WP.org "Changing Active Plugins" guideline.
+	 * Supplied by the advanced companion plugin to comply with the WP.org
+	 * "Changing Active Plugins" guideline in the core package.
 	 *
 	 * Constant: SD_AI_AGENT_FEATURE_PLUGIN_STATE_CHANGES
 	 */
@@ -180,11 +175,9 @@ final class Features {
 	 * WordPress.org directory by slug (`sd-ai-agent/install-plugin`),
 	 * but cannot fetch a ZIP from any third-party URL.
 	 *
-	 * Disabled in the WordPress.org distribution build because the
-	 * "Changing Active Plugins" guideline restricts plugin-installation
-	 * automation to the WP.org-directory channel. The full GitHub
-	 * release zip retains the broader URL-install ability for
-	 * self-hosted users.
+	 * Supplied by the advanced companion plugin because the "Changing Active
+	 * Plugins" guideline restricts plugin-installation automation in the core
+	 * WordPress.org package to the WP.org-directory channel.
 	 *
 	 * Constant: SD_AI_AGENT_FEATURE_PLUGIN_INSTALL_FROM_URL
 	 */
@@ -196,10 +189,10 @@ final class Features {
 	 * Gates the `sd-ai-agent/file-write`, `sd-ai-agent/file-edit`, and
 	 * `sd-ai-agent/file-delete` abilities. Read-only file abilities
 	 * (file-read, file-list, file-search, content-search) remain available.
-	 * The WordPress.org build also removes git-tracking ability/model files
+	 * Git-tracking ability/model files live in the advanced companion plugin
 	 * because they inspect and snapshot plugin/theme source packages.
 	 *
-	 * Disabled in the WordPress.org distribution build because writes
+	 * Supplied by the advanced companion plugin because writes
 	 * resolve under `WP_CONTENT_DIR`, which includes `plugins/` and
 	 * `themes/` — direct edits there are the same class of arbitrary
 	 * third-party-code modification covered by the WP.org "Changing
@@ -221,11 +214,10 @@ final class Features {
 	 * this flag because they do not write executable theme code to
 	 * disk.
 	 *
-	 * Disabled in the WordPress.org distribution build because
+	 * Supplied by the advanced companion plugin because
 	 * writing executable PHP/CSS into the active themes directory is
 	 * the same class of arbitrary third-party-code modification
-	 * covered by the WP.org "Changing Active Plugins" guideline. The
-	 * full GitHub release zip leaves it enabled.
+	 * covered by the WP.org "Changing Active Plugins" guideline.
 	 *
 	 * Constant: SD_AI_AGENT_FEATURE_SCAFFOLD_BLOCK_THEME
 	 */
@@ -240,13 +232,11 @@ final class Features {
 	 * or invoke arbitrary WordPress REST endpoints through the
 	 * internal dispatcher.
 	 *
-	 * Disabled in the WordPress.org distribution build because the
+	 * Supplied by the advanced companion plugin because the
 	 * dispatcher is a generic low-level surface that, once enabled,
 	 * exposes every registered REST endpoint to whatever caller has
 	 * the agent's permission set — the same class of low-level
-	 * dispatch risk as `run-php`. The
-	 * `includes/Abilities/WpRestAbilities.php` source file is
-	 * physically stripped from the shipped zip.
+	 * dispatch risk as `run-php`.
 	 *
 	 * Constant: SD_AI_AGENT_FEATURE_WP_REST_DISPATCHER
 	 */
@@ -257,14 +247,12 @@ final class Features {
 	 *
 	 * Gates registration of the `wp-cli/execute` ability and its
 	 * shared `wp-cli` ability category. The ability shells out to the
-	 * `wp` binary via PHP `exec()` and runs arbitrary WP-CLI
+	 * `wp` binary via PHP shell execution and runs arbitrary WP-CLI
 	 * subcommands.
 	 *
-	 * Disabled in the WordPress.org distribution build for the same
+	 * Supplied by the advanced companion plugin for the same
 	 * arbitrary-command-execution reason as PLUGIN_BUILDER and
-	 * CUSTOM_TOOLS_CLI. The
-	 * `includes/Abilities/WpCliAbilities.php` source file is
-	 * physically stripped from the shipped zip.
+	 * CUSTOM_TOOLS_CLI.
 	 *
 	 * Constant: SD_AI_AGENT_FEATURE_WP_CLI_DISPATCHER
 	 */
@@ -278,13 +266,12 @@ final class Features {
 	 * is not advertised under any of the plugin's CLI namespaces and the
 	 * `BenchmarkCommand` class is never instantiated.
 	 *
-	 * Disabled in the WordPress.org distribution build because the
+	 * Supplied by the advanced companion plugin because the
 	 * command's `--log-dir=<abs-path>` flag lets an administrator write
 	 * benchmark logs to an arbitrary absolute filesystem path, which the
 	 * WP.org reviewer flagged as out-of-scope for a public-directory
 	 * plugin (data should land in the database, the uploads dir, or the
-	 * media uploader). The full GitHub release zip retains the command
-	 * for self-hosted model-evaluation use.
+	 * media uploader).
 	 *
 	 * Constant: SD_AI_AGENT_FEATURE_BENCHMARK
 	 */
@@ -298,10 +285,8 @@ final class Features {
 	 * `sd-ai-agent/list-users` ability is unaffected and remains
 	 * available in all builds.
 	 *
-	 * Disabled in the WordPress.org distribution build (and the
-	 * `UserManagementAbilities` source file is physically stripped via
-	 * `.distignore-wporg`) because custom user-creation routes can
-	 * bypass security plugins (login throttling, password-policy
+	 * Supplied by the advanced companion plugin because custom user-creation
+	 * routes can bypass security plugins (login throttling, password-policy
 	 * enforcers, etc.) that hook the native register/login flow —
 	 * per the WordPress.org plugin review team's standing feedback on
 	 * custom user creation/login methods.
@@ -316,10 +301,9 @@ final class Features {
 	 * Gates registration of the `sd-ai-agent/run-php` ability, which calls
 	 * functions from a static whitelist via `call_user_func_array()`. With
 	 * this disabled the dispatcher is not registered, the underlying
-	 * `RunPhpAbility` class is not loaded, and (in the wp.org build) the
-	 * source file is physically removed from the shipped zip.
+	 * `RunPhpAbility` class is not loaded.
 	 *
-	 * Disabled in the WordPress.org distribution build because WP.org
+	 * Supplied by the advanced companion plugin because WP.org
 	 * Guideline 4 prohibits plugins that allow low-level script insertion
 	 * or arbitrary PHP dispatch — even with an allowlist.
 	 *
@@ -349,10 +333,30 @@ final class Features {
 	);
 
 	/**
+	 * Features supplied by the Superdav AI Agent Advanced companion plugin.
+	 *
+	 * @var list<string>
+	 */
+	private const ADVANCED_FEATURES = array(
+		self::PLUGIN_BUILDER,
+		self::CUSTOM_TOOLS_CLI,
+		self::PLUGIN_STATE_CHANGES,
+		self::PLUGIN_INSTALL_FROM_URL,
+		self::FILE_WRITE,
+		self::SCAFFOLD_BLOCK_THEME,
+		self::WP_REST_DISPATCHER,
+		self::WP_CLI_DISPATCHER,
+		self::BENCHMARK,
+		self::USER_MANAGEMENT,
+		self::RUN_PHP,
+	);
+
+	/**
 	 * Check whether a feature is enabled.
 	 *
-	 * Returns `true` when the backing constant is not defined (default-on).
-	 * Returns `(bool) CONSTANT_VALUE` when the constant is defined.
+	 * Returns `false` for advanced features when the advanced companion plugin is
+	 * not loaded. Otherwise returns `true` when the backing constant is not
+	 * defined, or `(bool) CONSTANT_VALUE` when the constant is defined.
 	 *
 	 * @param string $feature One of the Features::* class constants.
 	 * @return bool
@@ -365,8 +369,15 @@ final class Features {
 			return true;
 		}
 
+		$is_advanced_feature = in_array( $feature, self::ADVANCED_FEATURES, true );
+		$advanced_loaded     = defined( 'SD_AI_AGENT_ADVANCED_LOADED' ) && (bool) constant( 'SD_AI_AGENT_ADVANCED_LOADED' );
+
+		if ( $is_advanced_feature && ! $advanced_loaded ) {
+			return false;
+		}
+
 		if ( ! defined( $constant ) ) {
-			// Constant not set by the site owner → default enabled.
+			// Constant not set by the site owner → default enabled for available features.
 			return true;
 		}
 

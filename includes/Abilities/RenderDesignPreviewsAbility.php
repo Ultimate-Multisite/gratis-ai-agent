@@ -9,7 +9,7 @@ declare(strict_types=1);
  * agent. Returns public URLs so the chat UI can render both viewports
  * side-by-side with click-to-zoom.
  *
- * When server-side headless rendering is unavailable (no exec(), no Node.js,
+ * When server-side headless rendering is unavailable (advanced plugin inactive,
  * or Playwright not installed), the ability returns `rendering_method: iframe`
  * and the front-end falls back to responsive iframes.
  *

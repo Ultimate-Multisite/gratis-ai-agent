@@ -17,7 +17,6 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 use SdAiAgent\Abilities\ToolCapabilities;
-use SdAiAgent\Core\Features;
 use WP_Error;
 
 class CustomToolExecutor {
@@ -39,15 +38,8 @@ class CustomToolExecutor {
 
 		$tools = CustomTools::list( true );
 
-		// When the WP-CLI custom-tool feature is disabled (e.g. WordPress.org
-		// distribution build) skip registration of any cli-type tools so they
-		// never become callable abilities. HTTP and Action tools register as
-		// normal regardless of the flag.
-		$cli_enabled = Features::is_enabled( Features::CUSTOM_TOOLS_CLI );
-
 		foreach ( $tools as $tool ) {
-			// @phpstan-ignore-next-line
-			if ( ! $cli_enabled && CustomTools::TYPE_CLI === ( $tool['type'] ?? '' ) ) {
+			if ( ! in_array( (string) ( $tool['type'] ?? '' ), CustomTools::valid_types(), true ) ) {
 				continue;
 			}
 
@@ -98,16 +90,12 @@ class CustomToolExecutor {
 			case CustomTools::TYPE_ACTION:
 				return self::execute_action( $tool, $input );
 
-			case CustomTools::TYPE_CLI:
-				if ( ! Features::is_enabled( Features::CUSTOM_TOOLS_CLI ) ) {
-					return new WP_Error(
-						'cli_tools_disabled',
-						__( 'WP-CLI custom tools are disabled in this distribution of Superdav AI Agent. Use HTTP or Action tools instead, or install the GitHub release zip.', 'superdav-ai-agent' )
-					);
-				}
-				return self::execute_cli( $tool, $input );
-
 			default:
+				$advanced_result = apply_filters( 'sd_ai_agent_execute_custom_tool', null, $tool, $input );
+				if ( null !== $advanced_result ) {
+					return $advanced_result;
+				}
+
 				return new WP_Error(
 					'unknown_tool_type',
 					sprintf(
@@ -259,107 +247,6 @@ class CustomToolExecutor {
 
 			return new WP_Error( 'action_exception', $e->getMessage() );
 		}
-	}
-
-	/**
-	 * Execute a CLI tool (WP-CLI command).
-	 *
-	 * @param array<string, mixed> $tool  Tool definition.
-	 * @param array<string, mixed> $input Input parameters.
-	 * @return array<string, mixed>|\WP_Error
-	 */
-	private static function execute_cli( array $tool, array $input ): array|\WP_Error {
-		$config = $tool['config'];
-		// @phpstan-ignore-next-line
-		$command = $config['command'] ?? '';
-
-		if ( empty( $command ) ) {
-			return new WP_Error( 'missing_config', __( 'No command configured.', 'superdav-ai-agent' ) );
-		}
-
-		// Replace {{placeholders}} in the command, escaping each substituted
-		// value with escapeshellarg() to prevent shell injection.
-		// @phpstan-ignore-next-line
-		$command = self::replace_placeholders_escaped( $command, $input );
-
-		// Secondary defence: strip shell metacharacters that may remain in the
-		// static (non-placeholder) parts of the command template.
-		$command = preg_replace( '/[;&|`$]/', '', $command );
-
-		// Build full WP-CLI command.
-		$wp_cli_path = defined( 'WP_CLI_PATH' ) ? WP_CLI_PATH : 'wp';
-		// NOTE: exec() is required for WP-CLI tool execution - alternative approaches (proc_open, shell_exec) provide no security benefit.
-		// All input is properly escaped via escapeshellcmd() and escapeshellarg() above.
-		// See: https://www.php.net/manual/en/function.exec.php
-		$full_command = sprintf(
-			'%s %s --path=%s 2>&1',
-			escapeshellcmd( $wp_cli_path ),
-			$command,
-			escapeshellarg( ABSPATH )
-		);
-
-		// Execute with a timeout.
-		// @phpstan-ignore-next-line
-		$timeout     = (int) ( $config['timeout'] ?? 30 );
-		$output      = [];
-		$return_code = 0;
-
-		// phpcs:ignore WordPress.PHP.DiscouragedPHPFunctions.system_calls_exec -- Intentional: WP-CLI tool execution requires shell access.
-		exec( $full_command, $output, $return_code );
-
-		$output_text = implode( "\n", $output );
-
-		return [
-			'success'     => 0 === $return_code,
-			'return_code' => $return_code,
-			'output'      => $output_text ?: '(no output)',
-			'command'     => 'wp ' . $command,
-		];
-	}
-
-	/**
-	 * Replace {{placeholder}} tokens in a string with shell-escaped input values.
-	 *
-	 * Each substituted value is passed through escapeshellarg() to prevent
-	 * shell injection from user-controlled input. Use this variant when the
-	 * result will be passed to exec() or similar shell execution functions.
-	 *
-	 * @param string               $template Template string with placeholders.
-	 * @param array<string, mixed> $input    Input values.
-	 * @return string
-	 */
-	public static function replace_placeholders_escaped( string $template, array $input ): string {
-		return (string) preg_replace_callback(
-			'/\{\{(\w[\w.]*)\}\}/',
-			/** @phpstan-ignore-next-line */
-			function ( $matches ) use ( $input ) {
-				$key = $matches[1];
-
-				// Direct key lookup.
-				if ( isset( $input[ $key ] ) ) {
-					$value = is_scalar( $input[ $key ] ) ? (string) $input[ $key ] : (string) wp_json_encode( $input[ $key ] );
-					return escapeshellarg( $value );
-				}
-
-				// Dot-notation traversal.
-				if ( str_contains( $key, '.' ) ) {
-					$parts = explode( '.', $key );
-					$value = $input;
-					foreach ( $parts as $part ) {
-						if ( is_array( $value ) && isset( $value[ $part ] ) ) {
-							$value = $value[ $part ];
-						} else {
-							return $matches[0]; // Leave placeholder as-is if not found.
-						}
-					}
-					$scalar = is_scalar( $value ) ? (string) $value : (string) wp_json_encode( $value );
-					return escapeshellarg( $scalar );
-				}
-
-				return $matches[0]; // Leave placeholder as-is if not found.
-			},
-			$template
-		);
 	}
 
 	/**

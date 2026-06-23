@@ -22,17 +22,29 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
-use SdAiAgent\Core\Features;
-
 class CustomTools {
 
 	const TYPE_HTTP   = 'http';
 	const TYPE_ACTION = 'action';
 	const TYPE_CLI    = 'cli';
 
-	const VALID_TYPES = [ self::TYPE_HTTP, self::TYPE_ACTION, self::TYPE_CLI ];
+	const VALID_TYPES = [ self::TYPE_HTTP, self::TYPE_ACTION ];
 
 	const VALID_HTTP_METHODS = [ 'GET', 'POST', 'PUT', 'PATCH', 'DELETE' ];
+
+	/**
+	 * Return valid custom tool types, allowing companion plugins to add types.
+	 *
+	 * @return list<string>
+	 */
+	public static function valid_types(): array {
+		$types = apply_filters( 'sd_ai_agent_custom_tool_types', self::VALID_TYPES );
+		if ( ! is_array( $types ) ) {
+			return self::VALID_TYPES;
+		}
+
+		return array_values( array_unique( array_filter( $types, 'is_string' ) ) );
+	}
 
 	/**
 	 * Get the table name.
@@ -173,7 +185,7 @@ class CustomTools {
 			$formats[]             = '%s';
 		}
 
-		if ( isset( $data['type'] ) && in_array( $data['type'], self::VALID_TYPES, true ) ) {
+		if ( isset( $data['type'] ) && in_array( $data['type'], self::valid_types(), true ) ) {
 			$update['type'] = $data['type'];
 			$formats[]      = '%s';
 		}
@@ -244,16 +256,14 @@ class CustomTools {
 			return new \WP_Error( 'missing_name', __( 'Tool name is required.', 'superdav-ai-agent' ) );
 		}
 
-		if ( empty( $data['type'] ) || ! in_array( $data['type'], self::VALID_TYPES, true ) ) {
-			return new \WP_Error( 'invalid_type', __( 'Tool type must be http, action, or cli.', 'superdav-ai-agent' ) );
-		}
-
-		// Reject CLI tools when the feature is disabled (e.g. WordPress.org
-		// distribution build). HTTP and Action tools remain creatable.
-		if ( self::TYPE_CLI === $data['type'] && ! Features::is_enabled( Features::CUSTOM_TOOLS_CLI ) ) {
+		if ( empty( $data['type'] ) || ! in_array( $data['type'], self::valid_types(), true ) ) {
 			return new \WP_Error(
-				'cli_tools_disabled',
-				__( 'WP-CLI custom tools are disabled in this distribution of Superdav AI Agent. Use HTTP or Action tools instead.', 'superdav-ai-agent' )
+				'invalid_type',
+				sprintf(
+					/* translators: %s: comma-separated custom tool types */
+					__( 'Tool type must be one of: %s.', 'superdav-ai-agent' ),
+					implode( ', ', self::valid_types() )
+				)
 			);
 		}
 
@@ -294,10 +304,13 @@ class CustomTools {
 				}
 				break;
 
-			case self::TYPE_CLI:
-				// @phpstan-ignore-next-line
-				if ( empty( $config['command'] ) ) {
-					return new \WP_Error( 'missing_command', __( 'CLI tools require a command template.', 'superdav-ai-agent' ) );
+			default:
+				$validated_config = apply_filters( 'sd_ai_agent_validate_custom_tool_config', null, $data, $config );
+				if ( is_wp_error( $validated_config ) ) {
+					return $validated_config;
+				}
+				if ( is_array( $validated_config ) ) {
+					$config = $validated_config;
 				}
 				break;
 		}
@@ -361,41 +374,6 @@ class CustomTools {
 				'enabled'      => 0,
 			],
 			[
-				'name'         => 'Clear Object Cache',
-				'slug'         => 'clear-object-cache',
-				'description'  => 'Flush the WordPress object cache.',
-				'type'         => self::TYPE_CLI,
-				'config'       => [
-					'command' => 'cache flush',
-				],
-				'input_schema' => [
-					'type'       => 'object',
-					'properties' => new \stdClass(),
-				],
-				'enabled'      => 1,
-			],
-			[
-				'name'         => 'Toggle Maintenance Mode',
-				'slug'         => 'maintenance-mode',
-				'description'  => 'Enable or disable WordPress maintenance mode.',
-				'type'         => self::TYPE_CLI,
-				'config'       => [
-					'command' => 'maintenance-mode {{action}}',
-				],
-				'input_schema' => [
-					'type'       => 'object',
-					'properties' => [
-						'action' => [
-							'type'        => 'string',
-							'enum'        => [ 'activate', 'deactivate', 'status' ],
-							'description' => 'Whether to activate, deactivate, or check maintenance mode.',
-						],
-					],
-					'required'   => [ 'action' ],
-				],
-				'enabled'      => 1,
-			],
-			[
 				'name'         => 'Site Health Check',
 				'slug'         => 'site-health-check',
 				'description'  => 'Fire the site health check action to trigger health checks.',
@@ -412,15 +390,7 @@ class CustomTools {
 			],
 		];
 
-		// Skip CLI examples when the feature is disabled so the
-		// WordPress.org distribution build does not seed shell-exec tools.
-		$cli_enabled = Features::is_enabled( Features::CUSTOM_TOOLS_CLI );
-
 		foreach ( $examples as $example ) {
-			if ( ! $cli_enabled && self::TYPE_CLI === $example['type'] ) {
-				continue;
-			}
-
 			if ( self::get_by_slug( (string) $example['slug'] ) ) {
 				continue;
 			}

@@ -35,7 +35,7 @@
     <arg value="ps"/>
 
     <!-- WordPress version -->
-    <config name="minimum_supported_wp_version" value="6.9"/>
+    <config name="minimum_supported_wp_version" value="7.0"/>
 
     <!-- Text domain -->
     <config name="text_domain" value="superdav-ai-agent"/>
@@ -118,6 +118,7 @@
         <properties>
             <property name="text_domain" type="array">
                 <element value="superdav-ai-agent"/>
+                <element value="superdav-ai-agent-advanced"/>
             </property>
         </properties>
     </rule>
@@ -154,10 +155,10 @@
     exclusion to the specific files where re-firing is intentional and
     necessary:
 
-      - includes/Benchmark/AssertionEngine.php  — assertions inspect
+      - advanced-plugin/includes/Benchmark/AssertionEngine.php  — assertions inspect
         rest_get_server() before the normal request lifecycle has fired
         rest_api_init, so we re-fire it manually.
-      - includes/CLI/BenchmarkCommand.php       — same, in CLI context.
+      - advanced-plugin/includes/CLI/BenchmarkCommand.php       — same, in CLI context.
 
     Do NOT add new files here without a similar justification — prefer
     prefixing custom hooks correctly. See PR #1316 for the original context.
@@ -172,8 +173,8 @@
     are what suppress the equivalent WPCS warning in our CI. Both layers
     are needed because they are evaluated by different tools. -->
     <rule ref="WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedHooknameFound">
-        <exclude-pattern>*/includes/Benchmark/AssertionEngine\.php</exclude-pattern>
-        <exclude-pattern>*/includes/CLI/BenchmarkCommand\.php</exclude-pattern>
+        <exclude-pattern>*/advanced-plugin/includes/Benchmark/AssertionEngine\.php</exclude-pattern>
+        <exclude-pattern>*/advanced-plugin/includes/CLI/BenchmarkCommand\.php</exclude-pattern>
     </rule>
 
 </ruleset>

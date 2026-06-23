@@ -35,7 +35,6 @@ use SdAiAgent\Bootstrap\AutomationsHandler;
 use SdAiAgent\Bootstrap\ChangeLoggingHandler;
 use SdAiAgent\Bootstrap\CliHandler;
 use SdAiAgent\Bootstrap\FrontendAssetsHandler;
-use SdAiAgent\Bootstrap\GitTrackingHandler;
 use SdAiAgent\Bootstrap\HealthEndpointHandler;
 use SdAiAgent\Bootstrap\HttpTraceHandler;
 use SdAiAgent\Bootstrap\ModelCapabilityHandler;
@@ -114,7 +113,6 @@ use XWP\DI\Decorators\Module;
 		ToolDiscoveryHandler::class,
 		HealthEndpointHandler::class,
 		AutomationsHandler::class,
-		GitTrackingHandler::class,
 		OnboardingHandler::class,
 		CachePolicy::class,
 		FrontendAssetsHandler::class,

@@ -3,15 +3,15 @@
 This document covers the complete process for submitting Superdav AI Agent to the
 WordPress.org plugin directory and managing subsequent releases via SVN.
 
-**Current status:** Pre-submission. The SVN repository at
-`https://plugins.svn.wordpress.org/superdav-ai-agent/` does not yet exist — it is
-created by WordPress.org only after the plugin passes manual review.
+**Current status:** Approved for the WordPress.org plugin directory. The core
+package is `superdav-ai-agent`; advanced features are distributed separately as
+`superdav-ai-agent-advanced` from the same Git repository.
 
 ---
 
 ## Table of Contents
 
-- [Build Matrix: Full vs. WP.org Variants](#build-matrix-full-vs-wporg-variants)
+- [Build Matrix: Core vs. Advanced Packages](#build-matrix-core-vs-advanced-packages)
 - [Prerequisites](#prerequisites)
 - [Step 1 — Submit for Review](#step-1--submit-for-review)
 - [Step 2 — Wait for Approval](#step-2--wait-for-approval)
@@ -24,100 +24,67 @@ created by WordPress.org only after the plugin passes manual review.
 
 ---
 
-## Build Matrix: Full vs. WP.org Variants
+## Build Matrix: Core vs. Advanced Packages
 
-This repository produces **two** distribution zips on every release. The
-WordPress.org plugin guidelines prohibit features that the GitHub-channel
-audience legitimately needs (the AI plugin builder, WP-CLI custom tools,
-autonomous plugin state changes, install-from-arbitrary-URL, and arbitrary
-filesystem writes inside `wp-content`), so we ship the full feature set on
-GitHub and a stripped-but-still-useful variant on WP.org.
+This repository now produces **two separate WordPress plugins**:
 
-| Feature surface                              | Full (`*.zip`) | WP.org (`*-wporg.zip`) | Why gated                                                                                |
-| -------------------------------------------- | :------------: | :--------------------: | ---------------------------------------------------------------------------------------- |
-| AI plugin generation / sandbox / activate / update | ✅       |          ❌            | WP.org Guideline 4 — "attempting to process custom CSS/JS/PHP / allowing arbitrary script insertion" |
-| WP-CLI custom tools (shell `exec`)            |       ✅       |          ❌            | Same as above (arbitrary command execution)                                              |
-| Autonomous activate / deactivate / delete / switch / update plugin | ✅ |    ❌    | WP.org "Changing Active Plugins" — plugins must not change other plugins' state without per-action user intervention |
-| Install plugin from arbitrary ZIP URL / GitHub |     ✅       |          ❌            | "Changing Active Plugins" only exempts WP.org-directory installs                          |
-| `file-write` / `file-edit` / `file-delete`, plus `git-restore` / `git-revert-package` | ✅ | ❌ | Writes resolve under `WP_CONTENT_DIR`, which includes `plugins/` and `themes/` — same arbitrary third-party-code modification risk as "Changing Active Plugins" |
-| Install plugin from WordPress.org directory by slug | ✅      |          ✅            | Allowed exception under "Changing Active Plugins"                                        |
-| Read-only file ops (`file-read`, `file-list`, `file-search`, `content-search`) | ✅ | ✅ | Read-only — cannot mutate plugin/theme source                                            |
-| Read-only git ops (`git-snapshot`, `git-diff`, `git-list`, `git-package-summary`) | ✅ | ✅ | `git-snapshot` writes only to the plugin's own DB tracking table, not to the filesystem  |
-| List / search / recommend plugins (read-only) |       ✅       |          ✅            | Read-only operations are unrestricted                                                    |
-| `run-php` (whitelisted WordPress functions only) |   ✅      |          ✅            | Whitelist excludes `activate_plugin`, `deactivate_plugins`, etc.                         |
-| Memory, knowledge, automations, abilities, chat | ✅           |          ✅            | Core agent functionality — no policy concerns                                            |
+- `superdav-ai-agent` — the WordPress.org-approved core plugin.
+- `superdav-ai-agent-advanced` — a separately distributed companion plugin under
+  `advanced-plugin/` for self-hosted administrator/developer tools that are not
+  permitted in the WordPress.org directory.
 
-### How the gates work
+The core plugin remains the canonical WordPress.org package. Advanced code is no
+longer stripped from the core zip at build time; it lives in `advanced-plugin/`
+and is packaged as its own plugin zip.
 
-Each gated feature has a corresponding `SD_AI_AGENT_FEATURE_*` constant
-defined in `superdav-ai-agent.php`. The `Features` registry
-(`includes/Core/Features.php`) reads these constants at runtime and the
-`AbilitiesHandler`, `WordPressAbilities`, and `CustomToolExecutor`
-classes skip registration when a flag is `false`.
+| Feature surface | Core `superdav-ai-agent` | Advanced `superdav-ai-agent-advanced` |
+| --- | :---: | :---: |
+| Memory, knowledge, automations, abilities, chat | ✅ | Extends core |
+| WordPress.org plugin directory install by slug | ✅ | — |
+| Read-only file ops (`file-read`, `file-list`, `file-search`, `content-search`) | ✅ | — |
+| AI plugin generation / sandbox / activate / update | ❌ | ✅ |
+| WP-CLI custom tools and `wp-cli/execute` | ❌ | ✅ |
+| WP REST dispatcher (`wp-rest/*`) | ❌ | ✅ |
+| Raw SQL diagnostics (`sd-ai-agent/db-query`) | ❌ | ✅ |
+| `run-php` low-level dispatcher | ❌ | ✅ |
+| `file-write` / `file-edit` / `file-delete` and git source snapshots/reverts | ❌ | ✅ |
+| Autonomous activate / deactivate / delete / switch / update plugin | ❌ | ✅ |
+| Install plugin from arbitrary ZIP URL / GitHub | ❌ | ✅ |
+| Mutating user-management abilities | ❌ | ✅ |
+| Block-theme filesystem scaffolder | ❌ | ✅ |
+| Benchmark WP-CLI command/engine | ❌ | ✅ |
 
-The full build leaves all flags at their default `true` value. Site
-owners on the GitHub channel can still individually disable any feature
-by adding `define( 'SD_AI_AGENT_FEATURE_NAME', false );` to
-`wp-config.php`.
-
-The WP.org build (`bin/build.sh --target=wporg`) does two extra things
-on top of the runtime gates, both as defence-in-depth for the WP.org
-review:
-
-1. **Hard-defines the five constants to `false`** in the bundled
-   `superdav-ai-agent.php`. Because each constant uses
-   `defined( 'NAME' ) || define( 'NAME', true )`, hard-defining the
-   constant earlier in the file prevents any later override (including
-   from `wp-config.php`). The five constants are
-   `SD_AI_AGENT_FEATURE_PLUGIN_BUILDER`,
-   `SD_AI_AGENT_FEATURE_CUSTOM_TOOLS_CLI`,
-   `SD_AI_AGENT_FEATURE_PLUGIN_STATE_CHANGES`,
-   `SD_AI_AGENT_FEATURE_PLUGIN_INSTALL_FROM_URL`, and
-   `SD_AI_AGENT_FEATURE_FILE_WRITE`.
-2. **Strips the gated source files** from the zip via
-   `.distignore-wporg`. The `PluginBuilder/`, `GeneratePluginAbility`,
-   `SandboxActivatePluginAbility`, etc. files are not present in the
-   submitted zip, so the WP.org reviewer can `grep` for the offending
-   class names and see they are absent. (The `FileAbilities` and
-   `GitAbilities` source files cannot be stripped because they also
-   contain read-only abilities that remain available on WP.org; their
-   write surfaces are gated at runtime via `Features::FILE_WRITE`.)
-
-The WP.org Plugin Review team can therefore verify compliance with a
-single command:
+### Packaging commands
 
 ```bash
-unzip -p superdav-ai-agent-X.Y.Z-wporg.zip superdav-ai-agent/superdav-ai-agent.php \
-    | grep -E "SD_AI_AGENT_FEATURE_(PLUGIN_BUILDER|CUSTOM_TOOLS_CLI|PLUGIN_STATE_CHANGES|PLUGIN_INSTALL_FROM_URL|FILE_WRITE)"
-# Expected: each constant is hard-defined to false with a "wporg-build:" comment.
+bin/build.sh                    # core package (default)
+bin/build.sh --target=core      # core package: superdav-ai-agent-X.Y.Z.zip
+bin/build.sh --target=wporg     # alias for core
+bin/build.sh --target=advanced  # advanced package: superdav-ai-agent-advanced-X.Y.Z.zip
+bin/build.sh --target=both      # both packages
 ```
 
-### Producing the variants
+The core zip contains one top-level directory named `superdav-ai-agent/`. The
+advanced zip contains one top-level directory named `superdav-ai-agent-advanced/`.
+The core package excludes `/advanced-plugin` via `.distignore` and
+`composer.json` archive rules.
 
-```bash
-bin/build.sh                  # full target (default)
-bin/build.sh --target=wporg   # WP.org variant only
-bin/build.sh --target=both    # both, in one run
-```
+### Development checkout behaviour
 
-The `release.yml` GitHub Actions workflow runs `--target=both` on every
-tag push and uploads all three zips (`*.zip`,
-`*-${VERSION}.zip`, `*-${VERSION}-wporg.zip`) to the GitHub release.
+In a repository checkout, `superdav-ai-agent.php` includes
+`advanced-plugin/superdav-ai-agent-advanced.php` when that file exists before the
+core DI container boots. This keeps local development simple: activating the core
+checkout loads both core and advanced handlers. Distribution zips exclude
+`advanced-plugin/`, so production users install the advanced companion plugin
+separately if they need the advanced feature set.
 
-### When to update which list
+### When to update which package
 
-If you add a new ability or feature that touches arbitrary code/CSS/JS
-execution, plugin-state changes, or arbitrary-URL fetches, you must:
-
-1. Add a runtime gate via `Features::is_enabled()` in the registration
-   path (and, where the source file is dedicated to the feature, add it
-   to `.distignore-wporg`).
-2. Update the table above and the `bin/build.sh` `flags` array if you
-   added a new feature flag.
-3. If your change affects the WP.org-permissibility classification of an
-   existing ability (e.g. you added a new write surface to a
-   previously-read-only ability), revisit the table and move the row to
-   the gated section.
+If a new feature touches arbitrary code/CSS/JS execution, shell/WP-CLI dispatch,
+raw SQL, plugin/theme/user state changes, direct filesystem mutation, or other
+surfaces disallowed in the WordPress.org directory, implement it under
+`advanced-plugin/` and register it through the advanced companion module. Keep
+WordPress.org-safe core features in the root plugin.
 
 ---
 
@@ -138,7 +105,7 @@ Before submitting, confirm all of the following:
 ### Run Plugin Check
 
 Install the [Plugin Check plugin](https://wordpress.org/plugins/plugin-check/) on a
-WordPress 6.9 instance, then:
+WordPress 7.0 instance, then:
 
 ```bash
 wp plugin check superdav-ai-agent --format=table
@@ -161,16 +128,13 @@ justification in the submission notes.
 
 ### Build the submission ZIP
 
-Always submit the **WP.org-compliant variant** — never the full GitHub-release
-zip. The full zip contains features that violate the WP.org guidelines (see
-the [Build Matrix](#build-matrix-full-vs-wporg-variants) above).
+Always submit the **core** package. The advanced companion plugin is distributed
+separately and must not be uploaded to the WordPress.org plugin directory.
 
 ```bash
-# From the repo root — builds the WP.org-compliant zip with the AI plugin
-# builder, WP-CLI custom tools, autonomous plugin-state changes, and
-# install-from-arbitrary-URL features stripped out.
+# From the repo root — builds the core WordPress.org package.
 bin/build.sh --target=wporg
-# Output: superdav-ai-agent-1.2.0-wporg.zip
+# Output: superdav-ai-agent-1.2.0.zip
 ```
 
 The ZIP must contain a single top-level directory named `superdav-ai-agent/`
@@ -183,7 +147,7 @@ The review team reads these. Be specific:
 
 ```
 Superdav AI Agent is an agentic AI assistant for WordPress built on the official
-WordPress 6.9 AI Client SDK and Abilities API. It requires a connector plugin
+WordPress 7.0 AI Client SDK and Abilities API. It requires a connector plugin
 (e.g., the OpenAI connector) to function — it does not bundle any AI provider
 credentials or make API calls without explicit user configuration.
 
@@ -192,30 +156,19 @@ External API calls: The plugin calls the user's configured AI provider endpoint
 are entered by the site administrator in Settings > AI Credentials. No data is
 sent to any third-party server controlled by the plugin author.
 
-This zip is built with `bin/build.sh --target=wporg`, which removes four
-classes of feature that the standard GitHub release retains:
+This zip is built with `bin/build.sh --target=wporg` (alias of
+`--target=core`). Advanced features that are not permitted in the WordPress.org
+plugin directory have been moved into a separate companion plugin under
+`advanced-plugin/` and are not present in the submitted zip.
 
-  1. AI plugin generation / sandbox activation / sandboxed update / hook
-     scanning (would constitute "arbitrary script insertion" per Guideline 4).
-  2. WP-CLI custom-tool type (shell `exec()` execution).
-  3. Autonomous activate / deactivate / delete / switch / update of other
-     plugins (per "Changing Active Plugins" — only WP.org-directory installs
-     are exempt from the no-autonomous-state-change rule).
-  4. Install-plugin-from-arbitrary-URL (e.g. GitHub release ZIPs).
+The submitted core package still installs plugins from the WordPress.org
+directory by slug (`sd-ai-agent/install-plugin`), which is the allowed exception
+under "Changing Active Plugins". Advanced surfaces such as plugin generation,
+WP-CLI/REST dispatchers, raw SQL diagnostics, run-php, direct filesystem
+mutation, arbitrary ZIP installs, mutating user management, and benchmark tooling
+ship only in `superdav-ai-agent-advanced`.
 
-The four `SD_AI_AGENT_FEATURE_*` constants gating these features are
-hard-defined to `false` in the bundled `superdav-ai-agent.php`; the source
-files for surfaces 1 and 2 are also stripped from the zip. Reviewers can
-verify with:
-
-  unzip -p superdav-ai-agent-X.Y.Z-wporg.zip superdav-ai-agent/superdav-ai-agent.php \
-      | grep "SD_AI_AGENT_FEATURE_"
-
-The plugin still installs from the WordPress.org directory by slug
-(`sd-ai-agent/install-plugin`), which is the allowed exception under
-"Changing Active Plugins".
-
-PHP 8.2+ is required (strict types, enums). WordPress 6.9+ is required (AI
+PHP 8.2+ is required (strict types, enums). WordPress 7.0+ is required (AI
 Client SDK, Abilities API).
 ```
 
@@ -357,7 +310,7 @@ For each new version:
 1. Update `Version:` in `superdav-ai-agent.php`
 2. Update `Stable tag:` in `readme.txt`
 3. Add a changelog entry under `== Changelog ==` in `readme.txt`
-4. Run `bin/build.sh` to build the ZIP
+4. Run `bin/build.sh --target=wporg` to build the core ZIP
 5. Run `bin/deploy-wporg.sh --version X.Y.Z` (see below) or follow the manual steps above
 6. Tag the release: `svn copy trunk/ tags/X.Y.Z -m "Tag vX.Y.Z"`
 
@@ -417,7 +370,7 @@ bin/deploy-wporg.sh --version 1.3.0 --username YOUR_WP_USERNAME
 ```
 
 The script:
-1. Builds the production ZIP via `bin/build.sh`
+1. Builds the core production ZIP via `bin/build.sh --target=wporg`
 2. Syncs the built files into `trunk/` using `rsync`
 3. Runs `svn add` on new files and `svn delete` on removed files
 4. Commits trunk with a standard message

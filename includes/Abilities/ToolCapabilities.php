@@ -259,9 +259,9 @@ class ToolCapabilities {
 		'sd-ai-agent/db-query'                   => [ 'manage_options', 'unfiltered_html' ],
 
 		// ─── Strictest: low-level whitelisted-PHP dispatcher ────────────────
-		// run-php is also feature-flag-gated (SD_AI_AGENT_FEATURE_RUN_PHP)
-		// AND has its source file stripped from the wp.org build. Even when
-		// the feature flag is on, this dual-cap requirement gives a final
+		// run-php is supplied by the advanced companion plugin and remains
+		// feature-flag-gated (SD_AI_AGENT_FEATURE_RUN_PHP). Even when the
+		// advanced plugin and feature flag are on, this dual-cap requirement gives a final
 		// belt-and-braces gate so a misconfigured role-management plugin
 		// cannot expose the dispatcher to a non-admin role.
 		'sd-ai-agent/run-php'                    => [ 'manage_options', 'update_core', 'unfiltered_html' ],

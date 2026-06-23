@@ -6,9 +6,8 @@ declare(strict_types=1);
  *
  * Generates desktop (1280×800) and mobile (375×812) screenshots of HTML
  * preview files written by the Setup Assistant during design-direction
- * selection. Falls back to client-side iframe display when server-side
- * headless rendering is not available (no Chromium binary, exec() disabled,
- * or Node.js / Playwright not installed).
+ * selection. Core falls back to client-side iframe display; server-side
+ * headless screenshot rendering is provided by the advanced companion plugin.
  *
  * @package SdAiAgent\Services
  * @license GPL-2.0-or-later
@@ -25,9 +24,7 @@ if ( ! defined( 'ABSPATH' ) ) {
  *
  * Rendering pipeline:
  *   1. Check if cached screenshots already exist (skip re-rendering).
- *   2. If not cached: probe for Node.js + Playwright and run the bundled
- *      `bin/render-preview.js` script to capture PNG screenshots.
- *   3. If server-side rendering is unavailable, return the HTML file URL so
+ *   2. Return the HTML file URL so
  *      the front-end can display responsive iframes instead (fallback).
  *
  * @since 1.15.0
@@ -95,23 +92,23 @@ final class PreviewRenderer {
 			];
 		}
 
-		// Attempt server-side rendering only when exec() and Node.js are available.
-		if ( self::can_render_server_side() ) {
-			$desktop_ok = file_exists( $desktop_path )
-				|| self::run_screenshot( $html_path, $desktop_path, self::DESKTOP_WIDTH, self::DESKTOP_HEIGHT );
-			$mobile_ok  = file_exists( $mobile_path )
-				|| self::run_screenshot( $html_path, $mobile_path, self::MOBILE_WIDTH, self::MOBILE_HEIGHT );
+		$advanced_result = apply_filters( 'sd_ai_agent_preview_renderer_result', null, $html_path, $desktop_path, $mobile_path );
+		if ( is_array( $advanced_result ) ) {
+			$advanced_html_url         = isset( $advanced_result['html_url'] ) && is_string( $advanced_result['html_url'] ) ? $advanced_result['html_url'] : $html_url;
+			$advanced_desktop_url      = isset( $advanced_result['desktop_url'] ) && is_string( $advanced_result['desktop_url'] ) ? $advanced_result['desktop_url'] : null;
+			$advanced_mobile_url       = isset( $advanced_result['mobile_url'] ) && is_string( $advanced_result['mobile_url'] ) ? $advanced_result['mobile_url'] : null;
+			$desktop_unavailable       = isset( $advanced_result['desktop_unavailable'] ) ? (bool) $advanced_result['desktop_unavailable'] : false;
+			$mobile_unavailable        = isset( $advanced_result['mobile_unavailable'] ) ? (bool) $advanced_result['mobile_unavailable'] : false;
+			$advanced_rendering_method = isset( $advanced_result['rendering_method'] ) && is_string( $advanced_result['rendering_method'] ) ? $advanced_result['rendering_method'] : 'screenshot';
 
-			if ( $desktop_ok || $mobile_ok ) {
-				return [
-					'html_url'            => $html_url,
-					'desktop_url'         => $desktop_ok ? $desktop_url : null,
-					'mobile_url'          => $mobile_ok ? $mobile_url : null,
-					'desktop_unavailable' => ! $desktop_ok,
-					'mobile_unavailable'  => ! $mobile_ok,
-					'rendering_method'    => 'screenshot',
-				];
-			}
+			return [
+				'html_url'            => $advanced_html_url,
+				'desktop_url'         => $advanced_desktop_url,
+				'mobile_url'          => $advanced_mobile_url,
+				'desktop_unavailable' => $desktop_unavailable,
+				'mobile_unavailable'  => $mobile_unavailable,
+				'rendering_method'    => $advanced_rendering_method,
+			];
 		}
 
 		// Fallback: instruct the front-end to render iframes client-side.
@@ -126,46 +123,29 @@ final class PreviewRenderer {
 	}
 
 	/**
-	 * Check whether server-side screenshot rendering is possible.
-	 *
-	 * Requires: exec() not disabled + Node.js binary available.
+	 * Check whether core server-side screenshot rendering is available.
 	 *
 	 * @return bool
 	 */
 	public static function can_render_server_side(): bool {
-		return self::exec_is_available() && self::find_node() !== null;
+		return false;
 	}
 
 	/**
-	 * Determine whether exec() is usable (not listed in disable_functions).
+	 * Core never uses shell execution for preview rendering.
 	 *
 	 * @return bool
 	 */
 	public static function exec_is_available(): bool {
-		if ( ! function_exists( 'exec' ) ) {
-			return false;
-		}
-		$disabled = ini_get( 'disable_functions' );
-		if ( ! is_string( $disabled ) ) {
-			return false;
-		}
-		$disabled_list = array_map( 'trim', explode( ',', $disabled ) );
-		return ! in_array( 'exec', $disabled_list, true );
+		return false;
 	}
 
 	/**
-	 * Find the Node.js binary path by probing common locations.
+	 * Core does not probe for a Node.js binary.
 	 *
-	 * @return string|null Absolute path to the node binary, or null if not found.
+	 * @return null Always null in the core plugin.
 	 */
-	public static function find_node(): ?string {
-		$candidates = [ 'node', 'nodejs', '/usr/local/bin/node', '/usr/bin/node', '/opt/homebrew/bin/node' ];
-		foreach ( $candidates as $binary ) {
-			$path = self::which( $binary );
-			if ( $path !== null ) {
-				return $path;
-			}
-		}
+	public static function find_node(): null {
 		return null;
 	}
 
@@ -197,74 +177,5 @@ final class PreviewRenderer {
 	 */
 	public static function get_script_path(): string {
 		return SD_AI_AGENT_DIR . 'bin/render-preview.js';
-	}
-
-	/**
-	 * Run the Node.js screenshot helper script for a single viewport.
-	 *
-	 * @param string $html_path Absolute path to the HTML preview file.
-	 * @param string $out_path  Absolute path for the output PNG file.
-	 * @param int    $width     Viewport width in pixels.
-	 * @param int    $height    Viewport height in pixels.
-	 * @return bool True when the screenshot was captured successfully.
-	 */
-	private static function run_screenshot( string $html_path, string $out_path, int $width, int $height ): bool {
-		$node   = self::find_node();
-		$script = self::get_script_path();
-
-		if ( null === $node || ! file_exists( $script ) ) {
-			return false;
-		}
-
-		// Ensure output directory exists.
-		$out_dir = dirname( $out_path );
-		if ( ! is_dir( $out_dir ) ) {
-			wp_mkdir_p( $out_dir );
-		}
-
-		$cmd = sprintf(
-			'%s %s --html %s --output %s --width %d --height %d 2>/dev/null',
-			escapeshellarg( $node ),
-			escapeshellarg( $script ),
-			escapeshellarg( $html_path ),
-			escapeshellarg( $out_path ),
-			$width,
-			$height
-		);
-
-		$output    = [];
-		$exit_code = -1;
-		// phpcs:ignore WordPress.PHP.DiscouragedPHPFunctions.system_calls_exec
-		exec( $cmd, $output, $exit_code );
-
-		return 0 === $exit_code && file_exists( $out_path );
-	}
-
-	/**
-	 * Locate a binary in the system PATH using `which`.
-	 *
-	 * @param string $binary Binary name or absolute path.
-	 * @return string|null Resolved executable path, or null if not found.
-	 */
-	private static function which( string $binary ): ?string {
-		if ( ! self::exec_is_available() ) {
-			return null;
-		}
-
-		// Absolute path: check directly.
-		if ( str_starts_with( $binary, '/' ) && is_executable( $binary ) ) {
-			return $binary;
-		}
-
-		$output    = [];
-		$exit_code = -1;
-		// phpcs:ignore WordPress.PHP.DiscouragedPHPFunctions.system_calls_exec
-		exec( 'which ' . escapeshellarg( $binary ) . ' 2>/dev/null', $output, $exit_code );
-
-		if ( 0 === $exit_code && ! empty( $output[0] ) && is_executable( $output[0] ) ) {
-			return trim( $output[0] );
-		}
-
-		return null;
 	}
 }

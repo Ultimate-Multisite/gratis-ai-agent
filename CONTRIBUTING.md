@@ -37,8 +37,8 @@ Install Docker Desktop (macOS/Windows) or Docker Engine (Linux) and ensure the d
 ### 1. Clone and install dependencies
 
 ```bash
-git clone https://github.com/Ultimate-Multisite/ai-agent.git
-cd ai-agent
+git clone https://github.com/Ultimate-Multisite/superdav-ai-agent.git
+cd superdav-ai-agent
 
 # Install PHP dependencies (includes PHPUnit, PHPCS, PHPStan)
 composer install
@@ -67,7 +67,7 @@ This starts two WordPress instances:
 - **Development** at `http://localhost:8888` — for manual testing
 - **Tests** at `http://localhost:8889` — used by PHPUnit
 
-Both run WordPress 6.9 in multisite mode (path-based, not subdomain) with `WP_DEBUG` enabled. The plugin is mounted at `wp-content/plugins/ai-agent` in both containers.
+Both run WordPress 7.0 in multisite mode (path-based, not subdomain) with `WP_DEBUG` enabled. The plugin is mounted from the current checkout in both containers.
 
 Stop the environment when you are done:
 
@@ -86,8 +86,9 @@ npm run wp-env:clean
 ## Project Structure
 
 ```
-ai-agent/
-├── ai-agent.php          # Plugin entry point
+superdav-ai-agent/
+├── superdav-ai-agent.php # Core plugin entry point
+├── advanced-plugin/      # Separately packaged advanced companion plugin
 ├── includes/
 │   ├── Core/             # Database, Settings, AgentLoop
 │   ├── Models/           # Memory, Skill, Chunker
@@ -142,12 +143,12 @@ npm run wp-env:stop
 ```
 
 The test environment is configured in `.wp-env.json`:
-- WordPress 6.9, PHP 8.2
+- WordPress 7.0/trunk, PHP 8.2
 - Multisite enabled (path-based)
 - `WP_DEBUG` and `SCRIPT_DEBUG` enabled
 - Must-use plugins from `tests/mu-plugins/` loaded automatically
 
-PHPUnit configuration is in `phpunit.xml.dist`. Test files live in `tests/AiAgent/` and must be named `*Test.php`.
+PHPUnit configuration is in `phpunit.xml.dist`. Test files live in `tests/SdAiAgent/` and must be named `*Test.php`.
 
 **Writing tests:**
 
@@ -156,7 +157,7 @@ PHPUnit configuration is in `phpunit.xml.dist`. Test files live in `tests/AiAgen
 
 declare(strict_types=1);
 
-namespace AiAgent\Tests;
+namespace SdAiAgent\Tests;
 
 use WP_UnitTestCase;
 
@@ -215,7 +216,7 @@ Configuration: `phpcs.xml`. Key rules in effect:
 
 ### PHPStan (static analysis)
 
-Runs at level 5 against `includes/` and `ai-agent.php`.
+Runs at level 10 against `includes/`, `advanced-plugin/includes/`, and the plugin entry points.
 
 ```bash
 vendor/bin/phpstan analyse
@@ -308,11 +309,11 @@ git commit -m "chore: bump @wordpress/scripts to 30.x"
 
 ```bash
 # Fork on GitHub, then clone your fork
-git clone https://github.com/YOUR_USERNAME/ai-agent.git
-cd ai-agent
+git clone https://github.com/YOUR_USERNAME/superdav-ai-agent.git
+cd superdav-ai-agent
 
 # Add the upstream remote
-git remote add upstream https://github.com/Ultimate-Multisite/ai-agent.git
+git remote add upstream https://github.com/Ultimate-Multisite/superdav-ai-agent.git
 
 # Create a branch from main
 git checkout -b feat/my-feature
@@ -378,9 +379,9 @@ CI runs on GitHub Actions (`.github/workflows/tests.yml` and `.github/workflows/
 
 ### Test file location and naming
 
-- Test files go in `tests/AiAgent/`
+- Test files go in `tests/SdAiAgent/`
 - File name: `{ClassName}Test.php` matching the class under test
-- Class name: `{ClassName}Test` in namespace `AiAgent\Tests`
+- Class name: `{ClassName}Test` in namespace `SdAiAgent\Tests`
 
 ### What to test
 
@@ -403,7 +404,7 @@ CI runs on GitHub Actions (`.github/workflows/tests.yml` and `.github/workflows/
 
 ### PHP
 
-- **Namespace**: PSR-4 under `AiAgent\` (e.g., `namespace AiAgent\Core;`)
+- **Namespace**: PSR-4 under `SdAiAgent\` (e.g., `namespace SdAiAgent\Core;`)
 - **File naming**: `{ClassName}.php` — must match the class name exactly
 - **Strict types**: every file must start with `declare(strict_types=1);`
 - **Type declarations**: required on all parameters and return types
@@ -418,7 +419,7 @@ CI runs on GitHub Actions (`.github/workflows/tests.yml` and `.github/workflows/
 
 declare(strict_types=1);
 
-namespace AiAgent\Core;
+namespace SdAiAgent\Core;
 
 class MyClass {
 
@@ -470,7 +471,7 @@ export function MyComponent() {
 
 ## WordPress.org Plugin Directory
 
-The plugin is distributed through the [WordPress.org plugin directory](https://wordpress.org/plugins/sd-ai-agent/).
+The plugin is distributed through the [WordPress.org plugin directory](https://wordpress.org/plugins/superdav-ai-agent/).
 Releases are published via SVN after passing the WP.org review process.
 
 For the complete submission and release workflow — including the initial review
@@ -480,7 +481,7 @@ submission, SVN checkout, trunk deployment, and version tagging — see
 ### Quick reference: releasing a new version
 
 ```bash
-# 1. Update Version: in sd-ai-agent.php and Stable tag: in readme.txt
+# 1. Update Version: in superdav-ai-agent.php and Stable tag: in readme.txt
 # 2. Add changelog entry to readme.txt
 
 # 3. Deploy to WP.org SVN (requires prior SVN checkout)
@@ -493,6 +494,6 @@ See `bin/deploy-wporg.sh --help` for all options, including `--dry-run`.
 
 ## Getting Help
 
-- Open a [GitHub Discussion](https://github.com/Ultimate-Multisite/ai-agent/discussions) for questions
-- Open an [issue](https://github.com/Ultimate-Multisite/ai-agent/issues) for bugs or feature requests
+- Open a [GitHub Discussion](https://github.com/Ultimate-Multisite/superdav-ai-agent/discussions) for questions
+- Open an [issue](https://github.com/Ultimate-Multisite/superdav-ai-agent/issues) for bugs or feature requests
 - See [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) for community guidelines

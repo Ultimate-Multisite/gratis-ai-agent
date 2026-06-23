@@ -1,7 +1,7 @@
 === Superdav AI Agent ===
 Contributors: superdav42
 Tags: ai, chatbot, assistant, automation, tools
-Requires at least: 6.9
+Requires at least: 7.0
 Tested up to: 7.0
 Requires PHP: 8.2
 Stable tag: 1.17.0
@@ -12,7 +12,7 @@ An AI assistant in your dashboard. Chat with it, teach it about your site, and l
 
 == Description ==
 
-Superdav AI Agent adds a powerful AI assistant directly inside your WordPress admin. Ask it questions, give it tasks, and it will use your site's tools to get the job done — creating posts, managing users, checking site health, calling external APIs, and more.
+Superdav AI Agent adds a powerful AI assistant directly inside your WordPress admin. Ask it questions, give it tasks, and it will use your site's tools to get the job done — creating posts, reviewing site data, checking site health, calling external APIs, and more.
 
 **You bring your own API key.** Superdav AI Agent connects directly to your chosen AI provider (OpenAI, Anthropic, or any OpenAI-compatible service). There is no middleman, no markup on API costs, and no data routed through third-party servers. You pay only what your provider charges, and you can see every cent in their dashboard.
 
@@ -44,7 +44,7 @@ Create tools the agent can use — no plugin development needed:
 
 * **HTTP tools** — Connect to any external API (weather services, Zapier, Slack, CRMs)
 * **WordPress action tools** — Trigger any WordPress hook
-* **WP-CLI tools** — Run command-line operations
+* **Advanced companion plugin** — Adds WP-CLI custom tools for trusted developer workflows
 
 Five example tools are included to get you started.
 
@@ -102,7 +102,7 @@ The Superdav AI Agent discovers abilities at runtime from any plugin that regist
 
 == Installation ==
 
-1. Upload the `sd-ai-agent` folder to `/wp-content/plugins/` or install through the WordPress plugin screen.
+1. Upload the `superdav-ai-agent` folder to `/wp-content/plugins/` or install through the WordPress plugin screen.
 2. Activate the plugin.
 3. Go to **Settings > AI Credentials** and configure a connector for your AI provider (OpenAI, Anthropic, etc.). You will need an API key from your provider.
 4. Visit **Tools > Superdav AI Agent Settings** to choose your default provider and model.
@@ -110,7 +110,7 @@ The Superdav AI Agent discovers abilities at runtime from any plugin that regist
 
 = Requirements =
 
-* WordPress 6.9 or higher
+* WordPress 7.0 or higher
 * PHP 8.2 or higher
 * An AI provider connector plugin registered through the WordPress Connectors API
 * An AI key from your chosen AI provider (OpenAI, Anthropic, etc.)
@@ -143,7 +143,7 @@ The internet-search ability is used when you (or the agent on your behalf) expli
 
 = Plugin and skill maintenance =
 
-* **GitHub** (github.com, api.github.com, and raw.githubusercontent.com) — Provides public ZIP downloads for optional GitHub-hosted ability plugin recommendations and the public WordPress/agent-skills skill files used by the optional WP-CLI maintenance command `wp sd-ai-agent skills sync-wp-agent-skills`. GitHub is contacted only when a site administrator manually runs the WP-CLI skills sync command, asks the agent/admin UI to install a GitHub-hosted recommended plugin, or supplies a GitHub release asset URL to the install-from-URL ability. These requests send the public repository path, release asset path, or skill file name being requested, plus normal HTTP request metadata such as the requesting server IP address and the plugin's user-agent string. They do not send WordPress site content, user records, conversation history, API keys, or plugin settings. The plugin may also display the public WP-CLI Phar URL from `raw.githubusercontent.com` as an administrator download instruction when WP-CLI is missing; it does not download that Phar automatically. Terms: https://docs.github.com/en/site-policy/github-terms/github-terms-of-service Privacy: https://docs.github.com/en/site-policy/privacy-policies/github-general-privacy-statement
+* **GitHub** (github.com, api.github.com, and raw.githubusercontent.com) — Provides public ZIP downloads for optional GitHub-hosted ability plugin recommendations and the public WordPress/agent-skills skill files used by the optional WP-CLI maintenance command `wp sd-ai-agent skills sync-wp-agent-skills`. GitHub is contacted only when a site administrator manually runs the WP-CLI skills sync command or asks the agent/admin UI to install a GitHub-hosted recommended plugin. These requests send the public repository path, release asset path, or skill file name being requested, plus normal HTTP request metadata such as the requesting server IP address and the plugin's user-agent string. They do not send WordPress site content, user records, conversation history, API keys, or plugin settings. The plugin may also display the public WP-CLI Phar URL from `raw.githubusercontent.com` as an administrator download instruction when WP-CLI is missing; it does not download that Phar automatically. Terms: https://docs.github.com/en/site-policy/github-terms/github-terms-of-service Privacy: https://docs.github.com/en/site-policy/privacy-policies/github-general-privacy-statement
 
 * **WordPress.org Plugin Directory** (api.wordpress.org and downloads.wordpress.org) — Provides plugin search, plugin metadata, and plugin ZIP downloads when you ask the agent to search for or install a WordPress.org-hosted plugin by slug. The request sends the search keyword or plugin slug, requested result count, and normal HTTP request metadata. If installation is confirmed, WordPress downloads the plugin ZIP from WordPress.org. It does not send conversation history, API keys, or plugin settings. Terms / directory guidelines: https://developer.wordpress.org/plugins/wordpress-org/detailed-plugin-guidelines/ Privacy: https://wordpress.org/about/privacy/
 
@@ -167,7 +167,7 @@ These are contacted only when you (or the agent) request a stock image via the i
 
 * **Custom HTTP tools and webhooks** — Site administrators can create HTTP tools that call any external API URL they configure. The disabled example tools include an editable placeholder weather-style URL and a Zapier webhook URL (`hooks.zapier.com`); they are not contacted unless an administrator enables the tool and the agent runs it. When an HTTP tool runs, the plugin sends the configured URL path, method, headers, placeholder-substituted input values, and request body configured for that tool. Terms and privacy depend on the service configured by the administrator. Zapier Terms: https://zapier.com/tos Zapier Privacy: https://zapier.com/privacy
 
-* **User-requested URL fetch, site scrape, media import, and plugin ZIP install URLs** — Tools such as URL metadata fetches, SEO URL audits, existing-site scrape, upload-media-from-url, generated-image URL import, install-plugin-from-URL, and the low-level `wp_remote_get` / `wp_remote_post` function-caller fallback contact the exact URL you provide or approve. These requests are made only after a user/administrator asks the agent to fetch, scrape, download, import, install from, or call that URL. Depending on the tool, the target site may receive the requested URL path, query string, normal HTTP request metadata, and a plugin/WordPress user-agent string; media/plugin import tools download the remote file into WordPress. The plugin does not send unrelated WordPress site data, user records, conversation history, API keys, or plugin settings to arbitrary URLs. Because these destinations are chosen by the user or administrator, review the terms and privacy policy of the target site before running the tool.
+* **User-requested URL fetch, site scrape, and media import URLs** — Tools such as URL metadata fetches, SEO URL audits, existing-site scrape, upload-media-from-url, and generated-image URL import contact the exact URL you provide or approve. These requests are made only after a user/administrator asks the agent to fetch, scrape, download, or import from that URL. Depending on the tool, the target site may receive the requested URL path, query string, normal HTTP request metadata, and a plugin/WordPress user-agent string; media import tools download the remote file into WordPress. The plugin does not send unrelated WordPress site data, user records, conversation history, API keys, or plugin settings to arbitrary URLs. Because these destinations are chosen by the user or administrator, review the terms and privacy policy of the target site before running the tool. The separate Superdav AI Agent Advanced companion plugin adds additional administrator-only URL and low-level dispatcher tools, including arbitrary plugin ZIP installs and whitelisted `wp_remote_get` / `wp_remote_post` function calls.
 
 = Notifications (optional) =
 
@@ -199,7 +199,7 @@ Yes. If you run a local model through Ollama or any OpenAI-compatible server, co
 
 = What can the agent actually do? =
 
-The agent can use any tool (ability) registered on your WordPress site. Out of the box this includes managing posts, pages, users, comments, media, site options, and more. With custom tools you can extend it to call external APIs, trigger WordPress hooks, or run WP-CLI commands. Any plugin that registers abilities through the WordPress Abilities API automatically makes those tools available to the agent.
+The agent can use any tool (ability) registered on your WordPress site. Out of the box this includes managing posts, pages, comments, media, site options, and more. With custom tools you can extend it to call external APIs or trigger WordPress hooks. The separate Superdav AI Agent Advanced companion plugin adds trusted developer tools such as WP-CLI dispatchers, filesystem mutation, raw database diagnostics, and low-level WordPress function calls. Any plugin that registers abilities through the WordPress Abilities API automatically makes those tools available to the agent.
 
 = Is it safe? Will the AI break my site? =
 
@@ -209,17 +209,15 @@ The agent has a built-in confirmation system. Potentially destructive tool calls
 
 Yes, the plugin works on both single-site and multisite WordPress installations. Each site has its own settings, sessions, memories, and automations.
 
-= Why does static analysis report `wp_function_not_compatible_with_requires_wp` for `wp_ai_client_prompt()`? =
+= Why does the plugin require WordPress 7.0? =
 
-The plugin's `Requires at least` header is WordPress 6.9, but the agent core uses `wp_ai_client_prompt()`, which only ships natively in WordPress 7.0. The plugin bundles a compatibility shim at `includes/Compat/ai-client/` that defines `wp_ai_client_prompt()` and the supporting prompt-builder classes on WordPress 6.9 installs and yields to the native implementation on WordPress 7.0+.
-
-All call sites are either reached only after the shim has loaded the function, or are guarded by `function_exists( 'wp_ai_client_prompt' )` first. Static analyzers (including the WordPress.org Plugin Check tool's "compatibility with Requires at least" check) cannot follow the shim's load path and may flag these calls as version-incompatible. The bundled compat layer makes them safe on every supported WordPress version.
+Superdav AI Agent uses the native WordPress AI Client SDK and Abilities API. These APIs are available in WordPress 7.0 and later, so the plugin no longer bundles compatibility shims for older WordPress versions.
 
 == Screenshots ==
 
 1. Full-page chat interface with session sidebar and folder organization
 2. Floating widget available on every admin page
-3. Custom Tools tab — create HTTP, ACTION, and CLI tools without code
+3. Custom Tools tab — create HTTP and ACTION tools without code
 4. Tool Profiles — restrict what the agent can access
 5. Scheduled Automations with quick-start templates
 6. Event-Driven Automations with WordPress and WooCommerce triggers

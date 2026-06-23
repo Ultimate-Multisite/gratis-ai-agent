@@ -1,19 +1,19 @@
 #!/usr/bin/env bash
 #
 # bin/wporg-review.sh — Mirror the WordPress.org Plugin Check AI review
-# pipeline locally against the *wporg-target build* of this plugin.
+# pipeline locally against the core WordPress.org build of this plugin.
 #
 # Why: the WP.org review team runs github.com/WordPress/plugin-check
 # (PCP) with the AI checks enabled. PCP scans the EXACT zip that was
 # submitted, not the dev source tree. Reviewing the source tree as-is
-# produces irrelevant noise (node_modules, vendor/, src/, tests/, the
-# AI plugin builder, CLI custom tools — none of which ship in the
-# wporg zip per .distignore + .distignore-wporg).
+# produces irrelevant noise (node_modules, vendor/, src/, tests/, and the
+# advanced-plugin companion package — none of which ship in the core
+# WordPress.org zip per .distignore).
 #
 # This script:
-#   1. Builds the wporg-target zip via `bin/build.sh --target=wporg`
-#      (which strips the features banned by WP.org Guideline 4 and
-#      forces the matching feature-flag constants to false).
+#   1. Builds the core WordPress.org zip via `bin/build.sh --target=wporg`
+#      (alias of `--target=core`). Advanced features live in the separate
+#      superdav-ai-agent-advanced package and are not copied into this zip.
 #   2. Extracts the zip into wp-content/plugins/<REVIEW_SLUG>/ on the
 #      sibling ../wordpress dev install — a *separate* directory from
 #      the dev symlink at wp-content/plugins/superdav-ai-agent/.
@@ -21,7 +21,7 @@
 #      and is recent enough to support `--ai` and `--ai-model=...`
 #      (PCP 2.0.0+; older versions fall back to non-AI checks).
 #   4. Runs `wp plugin check <REVIEW_SLUG> --slug=superdav-ai-agent
-#      --ai --ai-model=<MODEL>` so PCP scans the extracted wporg build
+#      --ai --ai-model=<MODEL>` so PCP scans the extracted core build
 #      but reports against the real submission slug (so the trademark
 #      / similar-name AI checks see the slug we will actually submit).
 #   5. Writes the report to build/wporg-review/<version>-<timestamp>.txt
@@ -125,7 +125,7 @@ if [ -z "$VERSION" ]; then
 fi
 
 TIMESTAMP="$(date -u +%Y%m%dT%H%M%SZ)"
-ZIP_PATH="${PLUGIN_DIR}/superdav-ai-agent-${VERSION}-wporg.zip"
+ZIP_PATH="${PLUGIN_DIR}/superdav-ai-agent-${VERSION}.zip"
 TARGET_DIR="${PLUGINS_DIR}/${REVIEW_SLUG}"
 REPORT_PATH="${REPORT_DIR}/${VERSION}-${TIMESTAMP}.txt"
 
@@ -140,7 +140,7 @@ echo "    Report path      : ${REPORT_PATH}"
 # ── 1. Build the wporg target ────────────────────────────────────────────────
 
 echo
-echo "==> [1/5] Building wporg target zip..."
+echo "==> [1/5] Building core wporg zip..."
 bash bin/build.sh --target=wporg
 
 if [ ! -f "$ZIP_PATH" ]; then
@@ -152,7 +152,7 @@ fi
 # ── 2. Extract to a separate plugins dir ─────────────────────────────────────
 
 echo
-echo "==> [2/5] Extracting wporg zip into wp-content/plugins/${REVIEW_SLUG}/..."
+echo "==> [2/5] Extracting core wporg zip into wp-content/plugins/${REVIEW_SLUG}/..."
 
 # Defence in depth: refuse to touch anything other than our review slug
 # path. This guards against an env-injected REVIEW_SLUG pointing at the
@@ -180,6 +180,7 @@ TMP_EXTRACT="$(mktemp -d)"
 # shellcheck disable=SC2317  # invoked via trap, not directly
 cleanup_tmp() {
 	rm -rf "$TMP_EXTRACT"
+	return 0
 }
 trap cleanup_tmp EXIT
 
