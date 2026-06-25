@@ -318,7 +318,15 @@ final class ConnectorsController {
 			);
 		}
 
-		$status = ( new SuperdavSiteConnectionService() )->provision_site_token();
+		$service        = new SuperdavSiteConnectionService();
+		$was_configured = ! empty( $service->get_status()['configured'] );
+		if ( $was_configured ) {
+			$status = $service->get_status();
+		} elseif ( $service->has_remote_registration_endpoint() ) {
+			$status = $service->provision_site_token();
+		} else {
+			$status = $service->provision_local_site_token();
+		}
 		if ( $status instanceof WP_Error ) {
 			return $status;
 		}
@@ -328,6 +336,7 @@ final class ConnectorsController {
 				'success'    => true,
 				'provider'   => $provider_id,
 				'configured' => true,
+				'created'    => ! $was_configured,
 				'status'     => $status,
 			),
 			200

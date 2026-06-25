@@ -3,8 +3,11 @@
  */
 import {
 	createRoot,
+	useCallback,
 	useEffect,
 	useMemo,
+	useRef,
+	useState,
 	lazy,
 	Suspense,
 } from '@wordpress/element';
@@ -20,22 +23,20 @@ import '../abilities';
 import ChatRedesign from '../components/chat-redesign';
 import BootError from '../components/boot-error';
 import { useKeyboardShortcuts } from '../utils/keyboard-shortcuts';
+import {
+	buildConnectionNoticeText,
+	claimConnectionNotice,
+	findSuperdavProvider,
+} from './superdav-autoconnect';
 import '../components/shared.css';
 import './style.css';
 
 // These components are rendered only in specific, uncommon states:
-//  - ConnectorGate          → zero providers configured (first install)
 //  - OnboardingBootstrap    → first install after a provider is configured
 //                             (drops the user straight into the unified
 //                             Setup Assistant agent)
 //  - ShortcutsHelp          → user presses Mod+/ (explicitly intentional)
 // None of them appear during a normal chat session, so they are lazy-loaded.
-const ConnectorGate = lazy( () =>
-	import(
-		/* webpackChunkName: "connector-gate", webpackPrefetch: true */
-		'../components/connector-gate'
-	)
-);
 const OnboardingBootstrap = lazy( () =>
 	import(
 		/* webpackChunkName: "onboarding-bootstrap", webpackPrefetch: true */
@@ -56,9 +57,9 @@ const ShortcutsHelp = lazy( () =>
  * + AI-Driven Discovery"). The legacy multi-step wizard is gone — the AI
  * agent drives discovery conversationally.
  *
- * 1. **Connector gate** — shown when no AI provider is configured. The user
- *    is directed to the WordPress Connectors page. The gate polls every 5 s
- *    so it disappears automatically once a provider becomes available.
+ * 1. **Silent service connection** — the chat opens immediately. If no AI
+ *    provider is configured yet, /providers auto-provisions the bundled
+ *    Superdav AI service token and the chat shows a one-time notice.
  *
  * 2. **First-run agent** — shown when a provider exists but onboarding has
  *    not yet completed. The app opens one unified Setup Assistant session;
@@ -77,7 +78,15 @@ function AdminPageApp() {
 		clearCurrentSession,
 		restoreActiveJobs,
 		setShowShortcutsHelp,
+		appendMessage,
 	} = useDispatch( STORE_NAME );
+	const serviceNoticeDisplayedRef = useRef( false );
+	const [ serviceConnectionNotice, setServiceConnectionNotice ] =
+		useState( '' );
+	const [
+		serviceConnectionNoticeSettled,
+		setServiceConnectionNoticeSettled,
+	] = useState( false );
 	const {
 		settings,
 		settingsLoaded,
@@ -104,8 +113,48 @@ function AdminPageApp() {
 		restoreActiveJobs();
 	}, [ fetchProviders, fetchSessions, fetchSettings, restoreActiveJobs ] );
 
-	// Poll for providers every 5 s while the connector gate is shown.
-	// Stops once at least one provider appears.
+	const appendServiceConnectionNotice = useCallback(
+		( notice ) => {
+			if ( ! notice || serviceNoticeDisplayedRef.current ) {
+				return;
+			}
+
+			serviceNoticeDisplayedRef.current = true;
+			appendMessage( {
+				role: 'system',
+				parts: [ { text: notice } ],
+				ts: new Date().toISOString(),
+			} );
+		},
+		[ appendMessage ]
+	);
+	const markServiceConnectionNoticeDisplayed = useCallback( () => {
+		serviceNoticeDisplayedRef.current = true;
+	}, [] );
+
+	// Build a one-time chat notice when the backend reports a freshly-created
+	// managed service token. This notice is held back from the normal chat path
+	// when onboarding will open a session so it can be inserted after openSession()
+	// and before the Setup Assistant kickoff message.
+	useEffect( () => {
+		if ( ! settingsLoaded || ! providersLoaded ) {
+			return;
+		}
+
+		const superdavProvider = findSuperdavProvider( providers );
+		const status = superdavProvider?.status || {};
+		if (
+			status.connection_notice_pending &&
+			claimConnectionNotice( status )
+		) {
+			setServiceConnectionNotice( buildConnectionNoticeText( status ) );
+		}
+		setServiceConnectionNoticeSettled( true );
+	}, [ settingsLoaded, providersLoaded, providers ] );
+
+	// Poll for providers while /providers is still trying to auto-provision the
+	// managed Superdav connection. The chat remains open; no connector screen is
+	// rendered for this state.
 	useEffect( () => {
 		const hasProvider = providers.length > 0;
 		if ( ! providersLoaded || hasProvider ) {
@@ -137,6 +186,20 @@ function AdminPageApp() {
 	}, [ providersLoaded, fetchProviders ] );
 
 	const onboardingComplete = settings?.onboarding_complete !== false;
+	const hasProvider = providersLoaded && providers.length > 0;
+
+	useEffect( () => {
+		if ( ! settingsLoaded || ! onboardingComplete ) {
+			return;
+		}
+
+		appendServiceConnectionNotice( serviceConnectionNotice );
+	}, [
+		settingsLoaded,
+		onboardingComplete,
+		serviceConnectionNotice,
+		appendServiceConnectionNotice,
+	] );
 
 	// Keyboard shortcuts.
 	const shortcuts = useMemo(
@@ -166,26 +229,20 @@ function AdminPageApp() {
 	// providersLoaded (~1,180 ms with the SDK's live model-listing call) so
 	// the chat shell renders within one network round-trip.
 	//
-	// Gating logic while providers are still loading:
+	// Startup logic while providers are still loading:
 	//   - Assume a provider exists (optimistic) so ChatRedesign renders.
 	//   - The model picker already handles an empty providers array gracefully.
-	//   - If providers finish loading with an empty list, we swap to ConnectorGate.
-	//   - Onboarding state is derived from settings (already loaded), so that
-	//     gate can still fire correctly without waiting for providers.
+	//   - If providers finish loading with an empty list, background /providers
+	//     retries keep running without replacing the chat shell.
+	//   - Onboarding waits until a provider exists so the Setup Assistant kickoff
+	//     can use the managed service token that was just provisioned.
 	if ( ! settingsLoaded ) {
 		return null;
 	}
 
-	// Phase 1 gate: no connector → show connector gate.
-	// While providers are still loading we skip this gate (assume configured).
-	const hasProvider = ! providersLoaded || providers.length > 0;
-	if ( ! hasProvider ) {
-		return (
-			<Suspense fallback={ null }>
-				<ConnectorGate onConnected={ fetchProviders } />
-			</Suspense>
-		);
-	}
+	// Phase 1 is intentionally not a visible gate. The chat opens immediately;
+	// /providers handles managed Superdav auto-provisioning and this component
+	// only surfaces the resulting token-created notice inside the conversation.
 
 	// Phase 2 gate: connector exists but onboarding not yet complete.
 	//
@@ -193,10 +250,19 @@ function AdminPageApp() {
 	// The bootstrapper opens one unified Setup Assistant session through
 	// /onboarding/start. The agent investigates first and can build a theme if
 	// the user asks or the site requires it.
-	if ( ! onboardingComplete ) {
+	if (
+		! onboardingComplete &&
+		hasProvider &&
+		serviceConnectionNoticeSettled
+	) {
 		return (
 			<Suspense fallback={ null }>
-				<OnboardingBootstrap />
+				<OnboardingBootstrap
+					initialSystemNotice={ serviceConnectionNotice }
+					onInitialSystemNoticeAppended={
+						markServiceConnectionNoticeDisplayed
+					}
+				/>
 			</Suspense>
 		);
 	}

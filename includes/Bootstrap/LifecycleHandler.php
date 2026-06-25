@@ -87,14 +87,7 @@ final class LifecycleHandler {
 	 */
 	private static function maybe_provision_superdav_site_connection(): void {
 		try {
-			$service = new SuperdavSiteConnectionService();
-			$status  = $service->get_status();
-
-			if ( ! empty( $status['configured'] ) || ! $service->has_remote_registration_endpoint() ) {
-				return;
-			}
-
-			$service->provision_site_token();
+			( new SuperdavSiteConnectionService() )->ensure_site_token();
 		} catch ( \Throwable ) {
 			return;
 		}

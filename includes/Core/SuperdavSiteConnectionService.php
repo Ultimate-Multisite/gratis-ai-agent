@@ -48,7 +48,17 @@ final class SuperdavSiteConnectionService {
 			'account_connect_url'       => $this->get_account_connect_url(),
 		);
 
-		foreach ( array( 'tier', 'verified', 'usage', 'verification', 'request_id' ) as $key ) {
+		$metadata_keys = array(
+			'tier',
+			'verified',
+			'usage',
+			'verification',
+			'request_id',
+			'wallet',
+			'connection_notice_pending',
+		);
+
+		foreach ( $metadata_keys as $key ) {
 			if ( array_key_exists( $key, $metadata ) ) {
 				$status[ $key ] = $metadata[ $key ];
 			}
@@ -63,28 +73,76 @@ final class SuperdavSiteConnectionService {
 	 * @return array<string, mixed>|WP_Error Safe status metadata or error.
 	 */
 	public function provision_site_token(): array|WP_Error {
+		$created             = '' === $this->get_stored_token();
 		$remote_registration = $this->request_remote_site_token();
 		if ( $remote_registration instanceof WP_Error ) {
 			return $remote_registration;
 		}
 
-		$remote_token    = is_array( $remote_registration ) ? (string) ( $remote_registration['token'] ?? '' ) : $remote_registration;
-		$remote_metadata = is_array( $remote_registration ) ? (array) ( $remote_registration['metadata'] ?? array() ) : array();
+		$remote_token    = is_array( $remote_registration )
+			? (string) ( $remote_registration['token'] ?? '' )
+			: $remote_registration;
+		$remote_metadata = is_array( $remote_registration )
+			? (array) ( $remote_registration['metadata'] ?? array() )
+			: array();
 		$token           = '' !== $remote_token ? $remote_token : $this->create_local_site_token();
-		update_option( SuperdavAiProvider::CREDENTIAL_OPTION, $token, false );
-		update_option(
-			self::TOKEN_METADATA_OPTION,
-			array_merge(
-				$remote_metadata,
-				array(
-					'connection_mode' => '' !== $remote_token ? 'site' : 'local-site',
-					'connected_at'    => gmdate( 'c' ),
-				)
-			),
-			false
+		$metadata        = array_merge(
+			$remote_metadata,
+			array(
+				'connection_mode' => '' !== $remote_token ? 'site' : 'local-site',
+				'connected_at'    => gmdate( 'c' ),
+			)
 		);
 
+		if ( $created ) {
+			$metadata['connection_notice_pending'] = true;
+		}
+
+		update_option( SuperdavAiProvider::CREDENTIAL_OPTION, $token, false );
+		update_option( self::TOKEN_METADATA_OPTION, $metadata, false );
+
 		return $this->get_status();
+	}
+
+	/**
+	 * Store a freshly provisioned local development token when no remote edge is configured.
+	 *
+	 * Production installs should use the managed edge so the durable installation
+	 * ID maps to exactly one free plan and one starter-credit grant. Local tokens
+	 * are intentionally marked as local-site and never claim a remote free wallet.
+	 *
+	 * @return array<string, mixed> Safe status metadata.
+	 */
+	public function provision_local_site_token(): array {
+		$created  = '' === $this->get_stored_token();
+		$token    = $this->create_local_site_token();
+		$metadata = array(
+			'connection_mode' => 'local-site',
+			'connected_at'    => gmdate( 'c' ),
+		);
+
+		if ( $created ) {
+			$metadata['connection_notice_pending'] = true;
+		}
+
+		update_option( SuperdavAiProvider::CREDENTIAL_OPTION, $token, false );
+		update_option( self::TOKEN_METADATA_OPTION, $metadata, false );
+
+		return $this->get_status();
+	}
+
+	/**
+	 * Ensure the site has a service-managed Superdav token when the edge is configured.
+	 *
+	 * @return array<string, mixed>|WP_Error Safe status metadata or provisioning error.
+	 */
+	public function ensure_site_token(): array|WP_Error {
+		$status = $this->get_status();
+		if ( ! empty( $status['configured'] ) || ! $this->has_remote_registration_endpoint() ) {
+			return $status;
+		}
+
+		return $this->provision_site_token();
 	}
 
 	/**
@@ -341,6 +399,23 @@ final class SuperdavSiteConnectionService {
 			$safe['verification'] = array_filter(
 				$metadata['verification'],
 				static fn( mixed $value ): bool => is_scalar( $value ) || null === $value
+			);
+		}
+
+		if ( isset( $metadata['wallet'] ) && is_array( $metadata['wallet'] ) ) {
+			$safe['wallet'] = array_intersect_key(
+				array_filter(
+					$metadata['wallet'],
+					static fn( mixed $value ): bool => is_scalar( $value ) || null === $value
+				),
+				array_flip(
+					array(
+						'currency',
+						'promo_usd_micros',
+						'cash_usd_micros',
+						'total_usd_micros',
+					)
+				)
 			);
 		}
 

@@ -82,13 +82,17 @@ All connectors are included in the [WordPress Playground demo](https://playgroun
 
 ### Managed Superdav AI service
 
-The bundled **Superdav AI** connector uses a service-managed site token instead of a customer-provided provider key. For local Superdav AI Service testing, configure the OpenAI-compatible `/v1` base URL in `wp-config.php`:
+The bundled **Superdav AI** connector uses a service-managed site token instead of a customer-provided provider key. New installs default to the production Superdav edge at `https://api.sdaiagent.com/v1`; plugin activation and the first provider-list request both try to register the site automatically so the chat can open without a manual Connect step.
+
+Registration is keyed by the plugin's durable site installation ID. The Superdav edge must treat repeated `/site/installations` calls for that ID as an idempotent refresh of the same free plan and starter-credit wallet, not a new free-credit grant.
+
+For local Superdav AI Service testing, override the OpenAI-compatible `/v1` base URL in `wp-config.php`:
 
 ```php
 define( 'SD_AI_AGENT_CLOUD_BASE_URL', 'http://127.0.0.1:3000/v1' );
 ```
 
-When this base URL is set, plugin activation and the connector **Connect** action register the site at `POST /v1/site/installations`; model listing and chat use `GET /v1/models` and `POST /v1/chat/completions` with the stored site token as `Authorization: Bearer <SITE_ACCESS_TOKEN>`. Override `SD_AI_AGENT_CLOUD_REGISTRATION_ENDPOINT` or `SD_AI_AGENT_CLOUD_REVOCATION_ENDPOINT` only when those endpoints live outside the configured base URL.
+Model listing and chat use `GET /v1/models` and `POST /v1/chat/completions` with the stored site token as `Authorization: Bearer <SITE_ACCESS_TOKEN>`. Override `SD_AI_AGENT_CLOUD_REGISTRATION_ENDPOINT` or `SD_AI_AGENT_CLOUD_REVOCATION_ENDPOINT` only when those endpoints live outside the configured base URL.
 
 ## Features
 

@@ -51,10 +51,11 @@ add_action(
 /**
  * Register a deterministic AI Client SDK provider for Playwright E2E tests.
  *
- * The admin chat UI intentionally renders the ConnectorGate when the
- * /sd-ai-agent/v1/providers endpoint returns no authenticated SDK providers.
- * CI does not install third-party ai-provider-for-* plugins, so the workflow
- * opts into this provider with the sd_ai_agent_e2e_register_provider option.
+ * The admin chat UI now opens immediately and relies on managed Superdav AI
+ * auto-provisioning when /sd-ai-agent/v1/providers returns no authenticated
+ * SDK providers. CI can still opt into this deterministic provider with the
+ * sd_ai_agent_e2e_register_provider option when tests need a stable
+ * provider/model list without calling the managed service.
  *
  * Fallback: If the SDK provider registration fails (e.g., on WP trunk where
  * the SDK shape may differ), set a fake OpenAI key via the Connectors API

@@ -24,6 +24,7 @@ final class SuperdavAiProvider extends AbstractApiProvider {
 
 	public const PROVIDER_ID       = 'sd-ai-agent-cloud';
 	public const CREDENTIAL_OPTION = 'connectors_ai_sd_ai_agent_cloud_api_key';
+	public const DEFAULT_BASE_URL  = 'https://api.sdaiagent.com/v1';
 
 	/**
 	 * Create a model instance for the provider.
@@ -78,7 +79,7 @@ final class SuperdavAiProvider extends AbstractApiProvider {
 	protected static function baseUrl(): string {
 		$base_url = defined( 'SD_AI_AGENT_CLOUD_BASE_URL' ) && is_string( constant( 'SD_AI_AGENT_CLOUD_BASE_URL' ) )
 			? (string) constant( 'SD_AI_AGENT_CLOUD_BASE_URL' )
-			: '';
+			: self::DEFAULT_BASE_URL;
 
 		/**
 		 * Filter the Superdav AI cloud OpenAI-compatible API base URL.
