@@ -89,6 +89,17 @@ final class SuperdavAiProviderTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * The managed provider defaults to the production edge for first-install setup.
+	 */
+	public function test_default_base_url_points_to_production_edge(): void {
+		$this->assertSame( SuperdavAiProvider::DEFAULT_BASE_URL, SuperdavAiProvider::configured_base_url() );
+		$this->assertSame(
+			'https://api.sdaiagent.com/v1/site/installations',
+			SuperdavAiProvider::configured_service_url( 'site/installations' )
+		);
+	}
+
+	/**
 	 * Model metadata parsing exposes OpenAI-compatible text generation models.
 	 */
 	public function test_model_metadata_contains_text_generation_capability(): void {

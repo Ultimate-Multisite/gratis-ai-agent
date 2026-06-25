@@ -59,6 +59,8 @@ final class ConnectorsControllerTest extends WP_UnitTestCase {
 	 * Managed connection provisions a local site token and returns safe metadata.
 	 */
 	public function test_connect_provisions_site_token_without_returning_secret(): void {
+		add_filter( 'sd_ai_agent_cloud_registration_endpoint', static fn(): string => '' );
+
 		$request = new WP_REST_Request( 'POST', '/sd-ai-agent/v1/connectors/' . SuperdavAiProvider::PROVIDER_ID . '/connect' );
 		$request->set_param( 'provider', SuperdavAiProvider::PROVIDER_ID );
 
@@ -71,7 +73,9 @@ final class ConnectorsControllerTest extends WP_UnitTestCase {
 
 		$data = $response->get_data();
 		$this->assertTrue( $data['configured'] );
+		$this->assertTrue( $data['created'] );
 		$this->assertSame( SuperdavAiProvider::PROVIDER_ID, $data['provider'] );
+		$this->assertTrue( $data['status']['connection_notice_pending'] );
 		$this->assertStringNotContainsString( $token, wp_json_encode( $data ) ?: '' );
 	}
 
@@ -104,6 +108,14 @@ final class ConnectorsControllerTest extends WP_UnitTestCase {
 							'tier'             => 'free',
 							'verified'         => false,
 							'connect_required' => false,
+							'wallet'           => array(
+								'account_id'        => 'acct_internal_123',
+								'currency'          => 'USD',
+								'promo_usd_micros'  => 10000000,
+								'cash_usd_micros'   => 0,
+								'total_usd_micros'  => 10000000,
+								'internal_metadata' => 'hidden',
+							),
 							'verification'     => array(
 								'state' => 'self_declared',
 							),
@@ -131,9 +143,50 @@ final class ConnectorsControllerTest extends WP_UnitTestCase {
 
 		$data = $response->get_data();
 		$this->assertTrue( $data['configured'] );
+		$this->assertTrue( $data['created'] );
 		$this->assertSame( 'site', $data['status']['connection_mode'] );
 		$this->assertFalse( $data['status']['verified'] );
+		$this->assertTrue( $data['status']['connection_notice_pending'] );
+		$this->assertSame( 10000000, $data['status']['wallet']['promo_usd_micros'] );
+		$this->assertArrayNotHasKey( 'account_id', $data['status']['wallet'] );
+		$this->assertArrayNotHasKey( 'internal_metadata', $data['status']['wallet'] );
 		$this->assertStringNotContainsString( 'sdaist_remote_site_token', wp_json_encode( $data ) ?: '' );
+	}
+
+	/**
+	 * Existing managed tokens are reported without re-registering a new free entitlement.
+	 */
+	public function test_connect_does_not_re_register_existing_managed_token(): void {
+		$endpoint          = 'https://service.example/v1/site/installations';
+		$registration_hits = 0;
+
+		update_option( SuperdavAiProvider::CREDENTIAL_OPTION, 'existing-site-token', false );
+		add_filter( 'sd_ai_agent_cloud_registration_endpoint', static fn(): string => $endpoint );
+		add_filter(
+			'pre_http_request',
+			static function ( mixed $preempt, array $parsed_args, string $url ) use ( $endpoint, &$registration_hits ): mixed {
+				if ( $endpoint === $url ) {
+					++$registration_hits;
+				}
+
+				return $preempt;
+			},
+			10,
+			3
+		);
+
+		$request = new WP_REST_Request( 'POST', '/sd-ai-agent/v1/connectors/' . SuperdavAiProvider::PROVIDER_ID . '/connect' );
+		$request->set_param( 'provider', SuperdavAiProvider::PROVIDER_ID );
+
+		$response = ( new ConnectorsController() )->handle_connect( $request );
+		$this->assertNotWPError( $response );
+
+		$data = $response->get_data();
+		$this->assertTrue( $data['configured'] );
+		$this->assertFalse( $data['created'] );
+		$this->assertSame( 0, $registration_hits );
+		$this->assertSame( 'existing-site-token', get_option( SuperdavAiProvider::CREDENTIAL_OPTION, '' ) );
+		$this->assertArrayNotHasKey( 'connection_notice_pending', $data['status'] );
 	}
 
 	/**
@@ -201,6 +254,7 @@ final class ConnectorsControllerTest extends WP_UnitTestCase {
 	 */
 	public function test_disconnect_clears_managed_provider_token(): void {
 		update_option( SuperdavAiProvider::CREDENTIAL_OPTION, 'secret-site-token', false );
+		add_filter( 'sd_ai_agent_cloud_revocation_endpoint', static fn(): string => '' );
 
 		$request = new WP_REST_Request( 'DELETE', '/sd-ai-agent/v1/connectors/' . SuperdavAiProvider::PROVIDER_ID . '/key' );
 		$request->set_param( 'provider', SuperdavAiProvider::PROVIDER_ID );

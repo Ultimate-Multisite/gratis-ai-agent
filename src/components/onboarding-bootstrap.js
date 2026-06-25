@@ -26,10 +26,16 @@ import ChatRedesign from './chat-redesign';
  * performs initial investigation and can build a theme if requested or
  * required. No parallel onboarding prompt or empty-site route exists.
  *
+ * @param {Object}   root0                               Component props.
+ * @param {string}   root0.initialSystemNotice           Optional notice to append before kickoff.
+ * @param {Function} root0.onInitialSystemNoticeAppended Optional callback after notice append.
  * @return {JSX.Element} The onboarding bootstrap element.
  */
-export default function OnboardingBootstrap() {
-	const { openSession, sendMessage, setSelectedAgentId } =
+export default function OnboardingBootstrap( {
+	initialSystemNotice = '',
+	onInitialSystemNoticeAppended = () => {},
+} ) {
+	const { openSession, sendMessage, setSelectedAgentId, appendMessage } =
 		useDispatch( STORE_NAME );
 	const bootstrappedRef = useRef( false );
 
@@ -60,15 +66,24 @@ export default function OnboardingBootstrap() {
 
 				// Activate the bootstrap session in the store.
 				openSession( data.session_id )
-					.then( () =>
-						sendMessage(
+					.then( () => {
+						if ( initialSystemNotice ) {
+							appendMessage( {
+								role: 'system',
+								parts: [ { text: initialSystemNotice } ],
+								ts: new Date().toISOString(),
+							} );
+							onInitialSystemNoticeAppended();
+						}
+
+						return sendMessage(
 							data.kickoff_message ||
 								__(
 									"Hi! I just set up this plugin and I'm ready to get started.",
 									'superdav-ai-agent'
 								)
-						)
-					)
+						);
+					} )
 					.catch( () => {
 						// Non-fatal: user can continue manually from chat UI.
 					} );
@@ -76,7 +91,14 @@ export default function OnboardingBootstrap() {
 			.catch( () => {
 				// Non-fatal: the user can start chatting manually.
 			} );
-	}, [ openSession, sendMessage, setSelectedAgentId ] );
+	}, [
+		openSession,
+		sendMessage,
+		setSelectedAgentId,
+		appendMessage,
+		initialSystemNotice,
+		onInitialSystemNoticeAppended,
+	] );
 
 	return <ChatRedesign />;
 }

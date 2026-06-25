@@ -64,6 +64,7 @@
  * @property {string}          id       - Provider identifier.
  * @property {string}          name     - Human-readable provider name.
  * @property {ProviderModel[]} [models] - Available models for this provider.
+ * @property {Object}          [status] - Provider-specific safe status metadata.
  */
 
 /**

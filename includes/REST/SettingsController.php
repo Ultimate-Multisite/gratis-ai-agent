@@ -22,11 +22,14 @@ use SdAiAgent\Core\ModelCapabilityRegistry;
 use SdAiAgent\Core\ProviderCredentialLoader;
 use SdAiAgent\Core\RolePermissions;
 use SdAiAgent\Core\Settings;
+use SdAiAgent\Core\SuperdavSiteConnectionService;
 use SdAiAgent\Core\SystemInstructionBuilder;
+use SdAiAgent\Infrastructure\AiClient\Superdav\SuperdavAiProvider;
 use WP_Error;
 use WP_REST_Request;
 use WP_REST_Response;
 use WP_REST_Server;
+use WordPress\AiClient\Providers\Http\Exception\ClientException;
 use XWP\DI\Decorators\Action;
 use XWP\DI\Decorators\Handler;
 
@@ -732,6 +735,7 @@ final class SettingsController {
 			return new WP_REST_Response( $providers, 200 );
 		}
 
+		$this->maybe_auto_provision_superdav_provider();
 		ProviderCredentialLoader::load();
 
 		foreach ( $provider_ids as $provider_id ) {
@@ -771,34 +775,126 @@ final class SettingsController {
 						}
 					}
 				} else {
-					try {
-						$directory      = $class::modelMetadataDirectory();
-						$model_metadata = $directory->listModelMetadata();
-
-						foreach ( $model_metadata as $model_meta ) {
-							if ( ! is_object( $model_meta ) ) {
-								continue;
-							}
-							$models[] = self::format_model_metadata_for_response( $model_meta );
-						}
-					} catch ( \Throwable $e ) {
-						// Model listing failed — still include the provider.
-					}
+					$models = $this->list_model_metadata_for_provider( $provider_id, $class );
 				}
 
-				$providers[] = array(
+				$provider_response = array(
 					'id'         => $provider_id,
 					'name'       => $metadata->getName(),
 					'type'       => (string) $metadata->getType(),
 					'configured' => true,
 					'models'     => $models,
 				);
+
+				if ( SuperdavAiProvider::PROVIDER_ID === $provider_id ) {
+					$provider_response['status'] = ( new SuperdavSiteConnectionService() )->get_status();
+				}
+
+				$providers[] = $provider_response;
 			} catch ( \Throwable $e ) {
 				continue;
 			}
 		}
 
 		return new WP_REST_Response( $providers, 200 );
+	}
+
+	/**
+	 * Provision the bundled managed Superdav provider before the provider list is returned.
+	 *
+	 * First-install screens call /providers before onboarding can start. If the
+	 * activation hook could not provision yet, retry here so users can move
+	 * straight into the Setup Assistant instead of seeing a manual connect gate.
+	 */
+	private function maybe_auto_provision_superdav_provider(): void {
+		try {
+			( new SuperdavSiteConnectionService() )->ensure_site_token();
+		} catch ( \Throwable ) {
+			return;
+		}
+	}
+
+	/**
+	 * List provider model metadata, refreshing the managed Superdav token once when it is stale.
+	 *
+	 * @param string $provider_id Provider ID.
+	 * @param string $class       Provider class name.
+	 * @return array<int, array<string, mixed>> Safe model rows for the provider picker.
+	 */
+	private function list_model_metadata_for_provider( string $provider_id, string $class ): array {
+		try {
+			return self::list_model_metadata_from_directory( $class::modelMetadataDirectory() );
+		} catch ( \Throwable $e ) {
+			if ( SuperdavAiProvider::PROVIDER_ID !== $provider_id || ! self::is_unauthorized_model_listing_error( $e ) ) {
+				return array();
+			}
+		}
+
+		$status = ( new SuperdavSiteConnectionService() )->provision_site_token();
+		if ( $status instanceof WP_Error ) {
+			return array();
+		}
+
+		ProviderCredentialLoader::load();
+
+		try {
+			$directory = $class::modelMetadataDirectory();
+			if ( is_object( $directory ) && method_exists( $directory, 'invalidateCaches' ) ) {
+				$directory->invalidateCaches();
+			}
+
+			return self::list_model_metadata_from_directory( $directory );
+		} catch ( \Throwable ) {
+			return array();
+		}
+	}
+
+	/**
+	 * List and format model metadata from an SDK directory-like object.
+	 *
+	 * @param mixed $directory SDK model metadata directory candidate.
+	 * @return array<int, array<string, mixed>> Safe model rows for the provider picker.
+	 */
+	private static function list_model_metadata_from_directory( mixed $directory ): array {
+		if ( ! is_object( $directory ) || ! method_exists( $directory, 'listModelMetadata' ) ) {
+			return array();
+		}
+
+		$model_metadata = $directory->listModelMetadata();
+		if ( ! is_array( $model_metadata ) ) {
+			return array();
+		}
+
+		return self::format_model_metadata_list_for_response( array_values( $model_metadata ) );
+	}
+
+	/**
+	 * Format SDK model metadata entries for the provider picker response.
+	 *
+	 * @param array<int, mixed> $model_metadata SDK model metadata entries.
+	 * @return array<int, array<string, mixed>> Safe model rows for the provider picker.
+	 */
+	private static function format_model_metadata_list_for_response( array $model_metadata ): array {
+		$models = array();
+		foreach ( $model_metadata as $model_meta ) {
+			if ( ! is_object( $model_meta ) ) {
+				continue;
+			}
+			$models[] = self::format_model_metadata_for_response( $model_meta );
+		}
+
+		return $models;
+	}
+
+	/**
+	 * Determine whether a model listing failure is due to an invalid/stale site token.
+	 */
+	private static function is_unauthorized_model_listing_error( \Throwable $error ): bool {
+		if ( $error instanceof ClientException && 401 === (int) $error->getCode() ) {
+			return true;
+		}
+
+		return str_contains( $error->getMessage(), 'Unauthorized (401)' );
 	}
 
 	/**

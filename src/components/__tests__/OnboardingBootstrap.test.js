@@ -58,16 +58,19 @@ describe( 'OnboardingBootstrap', () => {
 	let openSessionMock;
 	let sendMessageMock;
 	let setSelectedAgentIdMock;
+	let appendMessageMock;
 
 	beforeEach( () => {
 		openSessionMock = jest.fn().mockResolvedValue( undefined );
 		sendMessageMock = jest.fn().mockResolvedValue( undefined );
 		setSelectedAgentIdMock = jest.fn();
+		appendMessageMock = jest.fn();
 
 		useDispatch.mockReturnValue( {
 			openSession: openSessionMock,
 			sendMessage: sendMessageMock,
 			setSelectedAgentId: setSelectedAgentIdMock,
+			appendMessage: appendMessageMock,
 		} );
 
 		container = document.createElement( 'div' );
@@ -84,11 +87,13 @@ describe( 'OnboardingBootstrap', () => {
 	} );
 
 	/**
+	 * Render the onboarding bootstrap component.
 	 *
+	 * @param {Object} props Component props.
 	 */
-	async function renderBootstrap() {
+	async function renderBootstrap( props = {} ) {
 		await act( async () => {
-			root.render( createElement( OnboardingBootstrap, {} ) );
+			root.render( createElement( OnboardingBootstrap, props ) );
 		} );
 	}
 
@@ -133,6 +138,31 @@ describe( 'OnboardingBootstrap', () => {
 		} );
 		await renderBootstrap();
 		expect( sendMessageMock ).toHaveBeenCalledWith( 'Hello from kickoff' );
+	} );
+
+	test( 'appends the initial system notice before kickoff', async () => {
+		const onInitialSystemNoticeAppended = jest.fn();
+		apiFetch.mockResolvedValue( {
+			session_id: 42,
+			agent_id: 7,
+			kickoff_message: 'Hello from kickoff',
+		} );
+
+		await renderBootstrap( {
+			initialSystemNotice: 'Superdav AI is connected.',
+			onInitialSystemNoticeAppended,
+		} );
+
+		expect( appendMessageMock ).toHaveBeenCalledWith(
+			expect.objectContaining( {
+				role: 'system',
+				parts: [ { text: 'Superdav AI is connected.' } ],
+			} )
+		);
+		expect( onInitialSystemNoticeAppended ).toHaveBeenCalledTimes( 1 );
+		expect( appendMessageMock.mock.invocationCallOrder[ 0 ] ).toBeLessThan(
+			sendMessageMock.mock.invocationCallOrder[ 0 ]
+		);
 	} );
 
 	test( 'skips agent selection when no agent_id returned', async () => {
