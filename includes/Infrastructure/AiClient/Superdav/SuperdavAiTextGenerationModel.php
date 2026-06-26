@@ -27,6 +27,14 @@ final class SuperdavAiTextGenerationModel extends AbstractOpenAiCompatibleTextGe
 	 * @return Request
 	 */
 	protected function createRequest( HttpMethodEnum $method, string $path, array $headers = array(), mixed $data = null ): Request {
+		if ( 'chat/completions' === trim( $path, '/' ) && is_array( $data ) && ! array_key_exists( 'reasoning_effort', $data ) ) {
+			$model_id = isset( $data['model'] ) && is_string( $data['model'] ) ? $data['model'] : '';
+			$effort   = SuperdavAiProvider::reasoning_effort_for_model( $model_id );
+			if ( '' !== $effort ) {
+				$data['reasoning_effort'] = $effort;
+			}
+		}
+
 		return new Request( $method, SuperdavAiProvider::url( $path ), $headers, $data, $this->getRequestOptions() );
 	}
 }

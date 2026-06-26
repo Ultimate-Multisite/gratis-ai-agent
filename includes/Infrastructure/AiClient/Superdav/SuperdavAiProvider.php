@@ -25,6 +25,67 @@ final class SuperdavAiProvider extends AbstractApiProvider {
 	public const PROVIDER_ID       = 'sd-ai-agent-cloud';
 	public const CREDENTIAL_OPTION = 'connectors_ai_sd_ai_agent_cloud_api_key';
 	public const DEFAULT_BASE_URL  = 'https://api.sdaiagent.com/v1';
+	public const FAST_MODEL_ID     = 'superdav-chat-fast';
+	public const DEFAULT_MODEL_ID  = 'superdav-chat-pro';
+
+	/**
+	 * Reasoning effort hints for managed Superdav model aliases.
+	 *
+	 * The plugin sends these as OpenAI-compatible `reasoning_effort` custom
+	 * options so the managed service receives an explicit effort level instead
+	 * of relying on an opaque backend default. Values intentionally stay within
+	 * the OpenAI-compatible low/medium/high vocabulary.
+	 *
+	 * @var array<string, string>
+	 */
+	private const MODEL_REASONING_EFFORTS = array(
+		self::FAST_MODEL_ID    => 'medium',
+		self::DEFAULT_MODEL_ID => 'high',
+	);
+
+	/**
+	 * Return the managed model that new Superdav-provider installs should prefer.
+	 */
+	public static function default_model_id(): string {
+		/**
+		 * Filter the preferred managed Superdav model ID for clean installs.
+		 *
+		 * The returned value is still validated against the provider's advertised
+		 * models before Settings uses it.
+		 *
+		 * @param string $model_id Built-in preferred model ID.
+		 */
+		$model_id = apply_filters( 'sd_ai_agent_superdav_default_model', self::DEFAULT_MODEL_ID );
+
+		return is_string( $model_id ) && '' !== trim( $model_id )
+			? trim( $model_id )
+			: self::DEFAULT_MODEL_ID;
+	}
+
+	/**
+	 * Return the reasoning-effort hint to send for a managed model alias.
+	 */
+	public static function reasoning_effort_for_model( string $model_id ): string {
+		$normalised = strtolower( trim( $model_id ) );
+		$effort     = self::MODEL_REASONING_EFFORTS[ $normalised ] ?? '';
+
+		/**
+		 * Filter the OpenAI-compatible `reasoning_effort` sent to Superdav cloud.
+		 *
+		 * Return an empty string to omit the field. Non-standard values are ignored
+		 * to avoid sending request bodies the managed endpoint may reject.
+		 *
+		 * @param string $effort   Built-in effort hint: '', 'low', 'medium', or 'high'.
+		 * @param string $model_id Model ID from the outgoing chat-completions body.
+		 */
+		$effort = apply_filters( 'sd_ai_agent_superdav_reasoning_effort', $effort, $model_id );
+		if ( ! is_string( $effort ) ) {
+			return '';
+		}
+
+		$effort = strtolower( trim( $effort ) );
+		return in_array( $effort, array( 'low', 'medium', 'high' ), true ) ? $effort : '';
+	}
 
 	/**
 	 * Create a model instance for the provider.

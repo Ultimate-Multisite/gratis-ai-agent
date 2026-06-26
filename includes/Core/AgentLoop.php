@@ -35,6 +35,7 @@ use SdAiAgent\Core\RolePermissions;
 use WP_AI_Client_Ability_Function_Resolver;
 use WP_Error;
 use SdAiAgent\Core\CredentialResolver;
+use SdAiAgent\Infrastructure\AiClient\Superdav\SuperdavAiProvider;
 use WordPress\AiClient\Messages\DTO\Message;
 use WordPress\AiClient\Messages\DTO\MessagePart;
 use WordPress\AiClient\Messages\DTO\ModelMessage;
@@ -70,13 +71,13 @@ class AgentLoop {
 	const MAX_TOOL_RESULT_CHARS = 40000;
 
 	/** Maximum provider-call attempts for retryable transient failures. */
-	private const PROVIDER_RETRY_MAX_ATTEMPTS = 10;
+	private const PROVIDER_RETRY_MAX_ATTEMPTS = 4;
 
 	/** Retryable upstream/network statuses. */
 	private const PROVIDER_RETRYABLE_STATUS_CODES = array( 408, 429, 500, 502, 503, 504 );
 
-	/** Default exponential backoff schedule in seconds, capped at 60 seconds. */
-	private const PROVIDER_RETRY_DELAYS = array( 1, 2, 4, 8, 16, 32, 60, 60, 60, 60 );
+	/** Default exponential backoff schedule in seconds. */
+	private const PROVIDER_RETRY_DELAYS = array( 1, 2, 4 );
 
 	/** Durable checkpoint phase saved before a provider call is attempted. */
 	public const CHECKPOINT_BEFORE_PROVIDER_CALL = 'before_provider_call';
@@ -365,7 +366,7 @@ class AgentLoop {
 		// Empty string when the loop is not running under a background job.
 		// @phpstan-ignore-next-line
 		$this->active_job_id = (string) ( $options['active_job_id'] ?? '' );
-		// @phpstan-ignore-next-line -- Test/job callers may lower attempts or delays; production defaults remain 10 attempts.
+		// @phpstan-ignore-next-line -- Test/job callers may lower attempts or delays; production defaults remain four attempts.
 		$this->provider_retry_max_attempts = max( 1, (int) ( $options['provider_retry_max_attempts'] ?? self::PROVIDER_RETRY_MAX_ATTEMPTS ) );
 		// @phpstan-ignore-next-line -- Values are normalised below to non-negative integer seconds.
 		$retry_delays = $options['provider_retry_delays'] ?? self::PROVIDER_RETRY_DELAYS;
@@ -1717,6 +1718,9 @@ class AgentLoop {
 			'delay'        => $delay,
 			'sequence'     => $this->next_activity_sequence(),
 		];
+		if ( '' !== $this->active_job_id ) {
+			ActiveJobRepository::heartbeat( $this->active_job_id );
+		}
 		$this->fire_progress();
 	}
 
@@ -1760,6 +1764,11 @@ class AgentLoop {
 			$this->get_provider_error_message( $error )
 		);
 
+		$hint = $this->get_provider_retry_failure_hint();
+		if ( '' !== $hint ) {
+			$message .= ' ' . $hint;
+		}
+
 		if ( $this->session_id > 0 ) {
 			Database::save_paused_state(
 				$this->session_id,
@@ -1790,6 +1799,17 @@ class AgentLoop {
 				]
 			)
 		);
+	}
+
+	/**
+	 * Return provider-specific retry exhaustion guidance.
+	 */
+	private function get_provider_retry_failure_hint(): string {
+		if ( SuperdavAiProvider::PROVIDER_ID !== $this->resolve_provider_id() ) {
+			return '';
+		}
+
+		return __( 'The managed Superdav service could not be reached from this site. Check outbound HTTPS/network access from the host, try again shortly, or switch provider/model if it continues.', 'superdav-ai-agent' );
 	}
 
 	/**

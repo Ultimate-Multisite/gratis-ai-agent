@@ -17,6 +17,8 @@ declare(strict_types=1);
 
 namespace SdAiAgent\Core;
 
+use SdAiAgent\Infrastructure\AiClient\Superdav\SuperdavAiProvider;
+
 if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
@@ -65,6 +67,9 @@ class Settings {
 	 * @var array<string, int>
 	 */
 	const MODEL_CONTEXT_WINDOWS = array(
+		// Superdav managed models.
+		'superdav-chat-fast'            => 128000,
+		'superdav-chat-pro'             => 200000,
 		// Anthropic.
 		'claude-opus-4-6'               => 200000,
 		'claude-sonnet-4-6'             => 200000,
@@ -163,6 +168,9 @@ class Settings {
 	 * @var array<string, int>
 	 */
 	const MODEL_MAX_OUTPUT_TOKENS = array(
+		// ── Superdav managed models ───────────────────────────────────────
+		'superdav-chat-fast'          => 8192,
+		'superdav-chat-pro'           => 16384,
 		// ── Anthropic ──────────────────────────────────────────────────
 		// Opus 4.6 / 4.7 document 128K; Opus 4.5 documents 64K; Opus 4.1
 		// and Opus 4 document 32K. Newer point releases have higher caps
@@ -690,7 +698,15 @@ class Settings {
 		// must not silently degrade to "SDK picks something different".
 		$filter_pinned = ( $filtered_builtin !== $builtin );
 		if ( '' === $saved_model && ! $filter_pinned ) {
-			return array( self::resolve_provider_hint( $saved_provider, $registered ), '' );
+			$provider_hint = self::resolve_provider_hint( $saved_provider, $registered );
+			if ( SuperdavAiProvider::PROVIDER_ID === $provider_hint ) {
+				$superdav_default_model = self::resolve_superdav_default_model( $registered[ $provider_hint ] ?? array() );
+				if ( '' !== $superdav_default_model ) {
+					return array( $provider_hint, $superdav_default_model );
+				}
+			}
+
+			return array( $provider_hint, '' );
 		}
 
 		// Candidate model = filter override if set, else saved. The saved
@@ -778,6 +794,22 @@ class Settings {
 			return (string) array_key_first( $registered );
 		}
 		return '';
+	}
+
+	/**
+	 * Resolve the clean-install default model for the bundled Superdav provider.
+	 *
+	 * Clean installs normally return an empty model so the SDK can use each
+	 * provider's own default. The managed Superdav provider is the exception:
+	 * realistic setup-assistant site builds should start on the pro alias when
+	 * it is advertised, regardless of the `/models` ordering returned by the
+	 * service.
+	 *
+	 * @param array<int, string> $models Model IDs advertised by the Superdav provider.
+	 */
+	private static function resolve_superdav_default_model( array $models ): string {
+		$default_model = SuperdavAiProvider::default_model_id();
+		return in_array( $default_model, $models, true ) ? $default_model : '';
 	}
 
 	/**

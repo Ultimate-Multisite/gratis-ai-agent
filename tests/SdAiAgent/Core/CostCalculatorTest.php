@@ -10,6 +10,7 @@
 namespace SdAiAgent\Tests\Core;
 
 use SdAiAgent\Core\CostCalculator;
+use SdAiAgent\Infrastructure\AiClient\Superdav\SuperdavAiProvider;
 use WP_UnitTestCase;
 
 /**
@@ -52,6 +53,15 @@ class CostCalculatorTest extends WP_UnitTestCase {
 		// 1M input tokens at $0.15 + 1M output tokens at $0.60 = $0.75
 		$cost = CostCalculator::calculate_cost( 'gpt-4o-mini', 1_000_000, 1_000_000 );
 		$this->assertSame( 0.75, $cost );
+	}
+
+	/**
+	 * Test calculate_cost with the managed Superdav pro model.
+	 */
+	public function test_calculate_cost_superdav_pro() {
+		// 1M input tokens at $1.50 + 1M output tokens at $6.00 = $7.50
+		$cost = CostCalculator::calculate_cost( SuperdavAiProvider::DEFAULT_MODEL_ID, 1_000_000, 1_000_000 );
+		$this->assertSame( 7.5, $cost );
 	}
 
 	/**
@@ -113,6 +123,7 @@ class CostCalculatorTest extends WP_UnitTestCase {
 		$this->assertArrayHasKey( 'claude-sonnet-4', $all );
 		$this->assertArrayHasKey( 'gpt-4o', $all );
 		$this->assertArrayHasKey( 'gpt-4o-mini', $all );
+		$this->assertArrayHasKey( SuperdavAiProvider::DEFAULT_MODEL_ID, $all );
 	}
 
 	/**

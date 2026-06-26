@@ -11,6 +11,7 @@ namespace SdAiAgent\Tests\Core;
 
 use SdAiAgent\Core\ModelCapabilityRegistry;
 use SdAiAgent\Core\Settings;
+use SdAiAgent\Infrastructure\AiClient\Superdav\SuperdavAiProvider;
 use WP_UnitTestCase;
 
 /**
@@ -40,6 +41,8 @@ class SettingsTest extends WP_UnitTestCase {
 		// clear the handful this suite touches so cases stay independent.
 		foreach (
 			array(
+				SuperdavAiProvider::FAST_MODEL_ID,
+				SuperdavAiProvider::DEFAULT_MODEL_ID,
 				'gpt-4o',
 				'hf:moonshotai/Kimi-K2.6',
 				'hf:moonshotai/Kimi-K2.7',
@@ -223,6 +226,21 @@ class SettingsTest extends WP_UnitTestCase {
 		$this->assertSame(
 			Settings::MAX_OUTPUT_TOKENS_FALLBACK,
 			Settings::get_max_output_tokens_for_model( 'wholly-made-up-model-9000' )
+		);
+	}
+
+	/**
+	 * Managed Superdav aliases use stable catalog caps before live /models
+	 * metadata has been ingested.
+	 */
+	public function test_max_output_tokens_resolves_superdav_managed_models(): void {
+		$this->assertSame(
+			8192,
+			Settings::get_max_output_tokens_for_model( SuperdavAiProvider::FAST_MODEL_ID )
+		);
+		$this->assertSame(
+			16384,
+			Settings::get_max_output_tokens_for_model( SuperdavAiProvider::DEFAULT_MODEL_ID )
 		);
 	}
 
@@ -504,8 +522,9 @@ class SettingsTest extends WP_UnitTestCase {
 			)
 		);
 
-		// SD_AI_AGENT_DEFAULT_MODEL is `claude-sonnet-4`, which the fake
-		// registry advertises under anthropic — the resolver picks it.
+		// SD_AI_AGENT_DEFAULT_MODEL is Superdav's pro alias, which this fake
+		// registry does not advertise, so the resolver falls through to the
+		// first registered Anthropic model.
 		$this->assertSame( 'claude-sonnet-4', Settings::instance()->get_default_model() );
 		$this->assertSame( 'anthropic', Settings::instance()->get_default_provider() );
 
@@ -608,6 +627,23 @@ class SettingsTest extends WP_UnitTestCase {
 		// No update() call — saved value is the empty default.
 		$this->assertSame( '', Settings::instance()->get_default_model() );
 		$this->assertSame( 'anthropic', Settings::instance()->get_default_provider() );
+		$this->assertFalse( (bool) get_option( Settings::INVALID_DEFAULT_NOTICE_OPTION ) );
+	}
+
+	/**
+	 * Clean Superdav-provider installs should start on the pro managed alias
+	 * when the service advertises it, even if /models lists fast first.
+	 */
+	public function test_get_default_model_empty_saved_prefers_superdav_pro(): void {
+		$this->fake_registry( array(
+			SuperdavAiProvider::PROVIDER_ID => array(
+				SuperdavAiProvider::FAST_MODEL_ID,
+				SuperdavAiProvider::DEFAULT_MODEL_ID,
+			),
+		) );
+
+		$this->assertSame( SuperdavAiProvider::DEFAULT_MODEL_ID, Settings::instance()->get_default_model() );
+		$this->assertSame( SuperdavAiProvider::PROVIDER_ID, Settings::instance()->get_default_provider() );
 		$this->assertFalse( (bool) get_option( Settings::INVALID_DEFAULT_NOTICE_OPTION ) );
 	}
 

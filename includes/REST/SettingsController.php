@@ -787,7 +787,8 @@ final class SettingsController {
 				);
 
 				if ( SuperdavAiProvider::PROVIDER_ID === $provider_id ) {
-					$provider_response['status'] = ( new SuperdavSiteConnectionService() )->get_status();
+					$provider_response['default_model'] = SuperdavAiProvider::default_model_id();
+					$provider_response['status']        = ( new SuperdavSiteConnectionService() )->get_status();
 				}
 
 				$providers[] = $provider_response;
