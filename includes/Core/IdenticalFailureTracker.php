@@ -88,7 +88,7 @@ class IdenticalFailureTracker {
 		$example_json = empty( $example ) ? '{}' : (string) wp_json_encode( $example );
 
 		return sprintf(
-			"STOP. You have called `%s` with the same arguments and received the same error twice in a row. Do not retry with empty or unchanged arguments.\n\nYou MUST either:\n  (1) Call ability-call again with arguments that look like this stub (replace every `<placeholder>` with a real value):\n      %s\n  (2) Or call a different ability that does not need those fields.\n\nIf you do not know a value, call a different ability to fetch it first.",
+			"STOP. You have called `%s` with the same arguments and received the same error twice in a row. Do not retry with empty or unchanged arguments.\n\nYou MUST either:\n  (1) Retry only with arguments that look like this stub (replace every `<placeholder>` with a real value):\n      %s\n  (2) Or call a different ability that does not need those fields.\n\nIf you do not know a value, call a different ability to fetch it first.",
 			$ability_name,
 			$example_json
 		);

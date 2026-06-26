@@ -163,6 +163,8 @@ class AbilityFunctionResolver extends \WP_AI_Client_Ability_Function_Resolver {
 			// @phpstan-ignore-next-line — execute() exists at runtime in WP 7.0.
 			$result = $ability->execute( $args );
 		} catch ( \Throwable $e ) {
+			$error_code = self::is_input_validation_exception( $e ) ? 'ability_invalid_input' : 'ability_exception';
+
 			// Errors in schema validation (validate_input/validate_output)
 			// are not caught by WP core's invoke_callback(). Capture them
 			// here with full context so the model can report the location.
@@ -178,24 +180,31 @@ class AbilityFunctionResolver extends \WP_AI_Client_Ability_Function_Resolver {
 				AgentEventLog::SEVERITY_ERROR,
 				array(
 					'ability' => $ability_name,
-					'code'    => 'ability_exception',
+					'code'    => $error_code,
 					'message' => $e->getMessage(),
 				)
 			);
 
+			$response_data = array(
+				'error'         => $e->getMessage(),
+				'code'          => $error_code,
+				'error_context' => sprintf(
+					'%s:%d — %s',
+					$e->getFile(),
+					$e->getLine(),
+					implode( ' → ', array_slice( $trace_frames, 0, 3 ) )
+				),
+			);
+
+			if ( 'ability_invalid_input' === $error_code ) {
+				$response_data = self::enrich_validation_error_response( $response_data, $ability, (string) $e->getMessage() );
+				$response_data = self::enrich_identical_failure_response( $response_data, $ability_name, $args, $error_code, $ability );
+			}
+
 			return new FunctionResponse(
 				$function_id,
 				$function_name,
-				array(
-					'error'         => $e->getMessage(),
-					'code'          => 'ability_exception',
-					'error_context' => sprintf(
-						'%s:%d — %s',
-						$e->getFile(),
-						$e->getLine(),
-						implode( ' → ', array_slice( $trace_frames, 0, 3 ) )
-					),
-				)
+				$response_data
 			);
 		}
 
@@ -240,31 +249,14 @@ class AbilityFunctionResolver extends \WP_AI_Client_Ability_Function_Resolver {
 			// the same arguments forever. Also feeds model-health telemetry
 			// so weak models accumulate a worse score over time.
 			if ( 'ability_invalid_input' === $error_code ) {
-				// @phpstan-ignore-next-line — get_input_schema() exists at runtime in WP 7.0.
-				$schema                        = $ability->get_input_schema();
-				$response_data['input_schema'] = $schema;
-
-				// Pull the specific missing field name(s) from the error
-				// message and synthesise a copy-paste-ready example. This
-				// is the single biggest weak-model unblocker.
-				$missing                                  = SchemaExampleBuilder::extract_missing_required( (string) $result->get_error_message() );
-				$response_data['missing_required_fields'] = $missing;
-				$response_data['example_arguments']       = SchemaExampleBuilder::build_example( $schema );
-				$response_data['hint']                    = 'Copy `example_arguments`, replace each `<placeholder>` with a real value, then call ability-call again. Do not retry with empty arguments.';
-
-				ModelHealthTracker::record_validation_error();
+				$response_data = self::enrich_validation_error_response( $response_data, $ability, (string) $result->get_error_message() );
 			}
 
 			// Per-call spin detection: after the second identical failure
 			// (same ability + same args + same error code), replace the
 			// hint with a hard nudge that tells the model to stop and
 			// either supply different args or call a different ability.
-			$count = IdenticalFailureTracker::record( $ability_name, $args, $error_code );
-			if ( IdenticalFailureTracker::should_nudge( $count ) ) {
-				$schema_for_nudge       = $response_data['input_schema'] ?? $ability->get_input_schema();
-				$response_data['nudge'] = IdenticalFailureTracker::nudge_message( $ability_name, $schema_for_nudge );
-				ModelHealthTracker::record_nudge();
-			}
+			$response_data = self::enrich_identical_failure_response( $response_data, $ability_name, $args, $error_code, $ability );
 
 			return new FunctionResponse(
 				$function_id,
@@ -300,5 +292,72 @@ class AbilityFunctionResolver extends \WP_AI_Client_Ability_Function_Resolver {
 			}
 		}
 		return $args;
+	}
+
+	/**
+	 * Determine whether a thrown ability error is input-schema validation.
+	 *
+	 * WordPress ability validation can throw before the callback is invoked,
+	 * which bypasses the WP_Error branch that already inlines schemas for model
+	 * self-correction. Detect the validator's stable message shapes so direct
+	 * tool calls such as `skill-load({})` and `ability-search({})` get the same
+	 * corrective payload instead of a bare `ability_exception`.
+	 *
+	 * @param \Throwable $e Throwable raised while executing the ability.
+	 * @return bool True when the error came from input-schema validation.
+	 */
+	private static function is_input_validation_exception( \Throwable $e ): bool {
+		$message = trim( $e->getMessage() );
+		if ( '' === $message ) {
+			return false;
+		}
+
+		return 1 === preg_match( '/`?[\w_-]+`?\s+is\s+a\s+required\s+property\s+of\s+input\b/i', $message )
+			|| 1 === preg_match( '/\binput(?:\[[^\]]+\])?\s+is\s+not\s+of\s+type\b/i', $message )
+			|| 1 === preg_match( '/\binput(?:\[[^\]]+\])?\s+is\s+not\s+one\s+of\b/i', $message );
+	}
+
+	/**
+	 * Add schema, missing-field, example, and hint data to validation failures.
+	 *
+	 * @param array<string, mixed> $response_data Existing response payload.
+	 * @param \WP_Ability          $ability       Ability that failed validation.
+	 * @param string               $error_message Validation error message.
+	 * @return array<string, mixed> Enriched response payload.
+	 */
+	private static function enrich_validation_error_response( array $response_data, \WP_Ability $ability, string $error_message ): array {
+		// @phpstan-ignore-next-line — get_input_schema() exists at runtime in WP 7.0.
+		$schema = $ability->get_input_schema();
+
+		$response_data['input_schema']            = $schema;
+		$response_data['missing_required_fields'] = SchemaExampleBuilder::extract_missing_required( $error_message );
+		$response_data['example_arguments']       = SchemaExampleBuilder::build_example( $schema );
+		$response_data['hint']                    = 'Copy `example_arguments`, replace each `<placeholder>` with a real value, then retry the ability with those arguments. Do not retry with empty arguments.';
+
+		ModelHealthTracker::record_validation_error();
+
+		return $response_data;
+	}
+
+	/**
+	 * Add a hard nudge after repeated identical failures.
+	 *
+	 * @param array<string, mixed> $response_data Existing response payload.
+	 * @param string               $ability_name  Ability that failed.
+	 * @param array<string, mixed> $args          Normalised arguments passed to the ability.
+	 * @param string               $error_code    Failure code used in the response.
+	 * @param \WP_Ability          $ability       Ability that failed.
+	 * @return array<string, mixed> Response payload, possibly with a nudge.
+	 */
+	private static function enrich_identical_failure_response( array $response_data, string $ability_name, array $args, string $error_code, \WP_Ability $ability ): array {
+		$count = IdenticalFailureTracker::record( $ability_name, $args, $error_code );
+		if ( IdenticalFailureTracker::should_nudge( $count ) ) {
+			// @phpstan-ignore-next-line — get_input_schema() exists at runtime in WP 7.0.
+			$schema_for_nudge       = $response_data['input_schema'] ?? $ability->get_input_schema();
+			$response_data['nudge'] = IdenticalFailureTracker::nudge_message( $ability_name, $schema_for_nudge );
+			ModelHealthTracker::record_nudge();
+		}
+
+		return $response_data;
 	}
 }
