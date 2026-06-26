@@ -547,8 +547,25 @@ namespace WordPress\AiClient\Providers\Http\DTO {
 		 * @param string                                                   $uri     Request URI.
 		 * @param array<string, string|list<string>>                       $headers Request headers.
 		 * @param string|array<string, mixed>|null                         $data    Request data.
+		 * @param RequestOptions|null                                      $options Request options.
 		 */
-		public function __construct( \WordPress\AiClient\Providers\Http\Enums\HttpMethodEnum $method, string $uri, array $headers = array(), $data = null ) {}
+		public function __construct( \WordPress\AiClient\Providers\Http\Enums\HttpMethodEnum $method, string $uri, array $headers = array(), $data = null, ?RequestOptions $options = null ) {}
+	}
+
+	class RequestOptions {
+		public const KEY_TIMEOUT = 'timeout';
+
+		/** @return float|null */
+		public function getTimeout(): ?float { return null; }
+
+		/** @param float|null $timeout Timeout in seconds. */
+		public function setTimeout( ?float $timeout ): void {}
+
+		/**
+		 * @param array<string, mixed> $array Request options.
+		 * @return self
+		 */
+		public static function fromArray( array $array ): self { return new self(); }
 	}
 
 	class Response {
@@ -635,6 +652,12 @@ namespace WordPress\AiClient\Providers\OpenAiCompatibleImplementation {
 		 * @param \WordPress\AiClient\Providers\DTO\ProviderMetadata     $provider_metadata Provider metadata.
 		 */
 		public function __construct( \WordPress\AiClient\Providers\Models\DTO\ModelMetadata $metadata, \WordPress\AiClient\Providers\DTO\ProviderMetadata $provider_metadata ) {}
+
+		/** @param \WordPress\AiClient\Providers\Http\DTO\RequestOptions $request_options Request options. */
+		public function setRequestOptions( \WordPress\AiClient\Providers\Http\DTO\RequestOptions $request_options ): void {}
+
+		/** @return \WordPress\AiClient\Providers\Http\DTO\RequestOptions|null */
+		public function getRequestOptions(): ?\WordPress\AiClient\Providers\Http\DTO\RequestOptions { return null; }
 	}
 }
 
