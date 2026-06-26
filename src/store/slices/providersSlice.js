@@ -33,10 +33,23 @@ export function resolveProviderSelection(
 
 	const models = Array.isArray( provider.models ) ? provider.models : [];
 	const hasSavedModel = models.some( ( model ) => model.id === savedModelId );
+	const defaultModelId = provider.default_model || '';
+	const hasProviderDefaultModel = models.some(
+		( model ) => model.id === defaultModelId
+	);
+	let modelId = models[ 0 ]?.id || '';
+
+	if ( hasProviderDefaultModel ) {
+		modelId = defaultModelId;
+	}
+
+	if ( hasSavedModel ) {
+		modelId = savedModelId;
+	}
 
 	return {
 		providerId: provider.id,
-		modelId: hasSavedModel ? savedModelId : models[ 0 ]?.id || '',
+		modelId,
 	};
 }
 

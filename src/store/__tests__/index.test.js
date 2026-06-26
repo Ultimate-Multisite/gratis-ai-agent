@@ -293,11 +293,12 @@ describe( 'actions', () => {
 } );
 
 describe( 'resolveProviderSelection', () => {
-	test( 'replaces a stale saved model with the first advertised provider model', () => {
+	test( 'replaces a stale saved model with the provider default model', () => {
 		const selection = resolveProviderSelection(
 			[
 				{
 					id: 'sd-ai-agent-cloud',
+					default_model: 'superdav-chat-pro',
 					models: [
 						{ id: 'superdav-chat-fast' },
 						{ id: 'superdav-chat-pro' },
@@ -306,6 +307,28 @@ describe( 'resolveProviderSelection', () => {
 			],
 			'sd-ai-agent-cloud',
 			'chat-fast'
+		);
+
+		expect( selection ).toEqual( {
+			providerId: 'sd-ai-agent-cloud',
+			modelId: 'superdav-chat-pro',
+		} );
+	} );
+
+	test( 'keeps a saved model when it is still advertised', () => {
+		const selection = resolveProviderSelection(
+			[
+				{
+					id: 'sd-ai-agent-cloud',
+					default_model: 'superdav-chat-pro',
+					models: [
+						{ id: 'superdav-chat-fast' },
+						{ id: 'superdav-chat-pro' },
+					],
+				},
+			],
+			'sd-ai-agent-cloud',
+			'superdav-chat-fast'
 		);
 
 		expect( selection ).toEqual( {

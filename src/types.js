@@ -61,10 +61,11 @@
  * An AI provider configuration.
  *
  * @typedef {Object} Provider
- * @property {string}          id       - Provider identifier.
- * @property {string}          name     - Human-readable provider name.
- * @property {ProviderModel[]} [models] - Available models for this provider.
- * @property {Object}          [status] - Provider-specific safe status metadata.
+ * @property {string}          id              - Provider identifier.
+ * @property {string}          name            - Human-readable provider name.
+ * @property {string}          [default_model] - Provider-preferred default model ID.
+ * @property {ProviderModel[]} [models]        - Available models for this provider.
+ * @property {Object}          [status]        - Provider-specific safe status metadata.
  */
 
 /**

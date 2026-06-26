@@ -37,6 +37,8 @@ final class SuperdavAiProviderTest extends WP_UnitTestCase {
 		delete_option( SuperdavAiProvider::CREDENTIAL_OPTION );
 		ModelCapabilityRegistry::forget( 'example-model' );
 		remove_all_filters( 'sd_ai_agent_cloud_base_url' );
+		remove_all_filters( 'sd_ai_agent_superdav_default_model' );
+		remove_all_filters( 'sd_ai_agent_superdav_reasoning_effort' );
 		parent::tear_down();
 	}
 
@@ -100,6 +102,62 @@ final class SuperdavAiProviderTest extends WP_UnitTestCase {
 		$this->assertSame(
 			'https://api.sdaiagent.com/v1/site/installations',
 			SuperdavAiProvider::configured_service_url( 'site/installations' )
+		);
+	}
+
+	/**
+	 * The bundled provider defaults clean installs to the pro managed alias.
+	 */
+	public function test_default_model_is_managed_pro_alias(): void {
+		$this->assertSame( 'superdav-chat-pro', SuperdavAiProvider::default_model_id() );
+	}
+
+	/**
+	 * Managed Superdav aliases resolve to explicit effort levels.
+	 *
+	 * @dataProvider managed_model_effort_provider
+	 */
+	public function test_managed_model_reasoning_effort_mapping( string $model_id, string $expected_effort ): void {
+		$this->assertSame( $expected_effort, SuperdavAiProvider::reasoning_effort_for_model( $model_id ) );
+	}
+
+	/**
+	 * The managed provider sends explicit effort hints for Superdav aliases.
+	 *
+	 * @dataProvider managed_model_effort_provider
+	 */
+	public function test_text_generation_request_includes_managed_reasoning_effort( string $model_id, string $expected_effort ): void {
+		$this->skip_if_sdk_unavailable();
+
+		$model  = new SuperdavAiTextGenerationModel(
+			new ModelMetadata( $model_id, $model_id, array(), array() ),
+			SuperdavAiProvider::metadata()
+		);
+		$method = new \ReflectionMethod( $model, 'createRequest' );
+		$method->setAccessible( true );
+
+		$request = $method->invoke(
+			$model,
+			HttpMethodEnum::POST(),
+			'chat/completions',
+			array( 'Content-Type' => 'application/json' ),
+			array( 'model' => $model_id )
+		);
+
+		$this->assertIsObject( $request );
+		$this->assertTrue( method_exists( $request, 'getData' ) );
+		$data = $request->getData();
+		$this->assertIsArray( $data );
+		$this->assertSame( $expected_effort, $data['reasoning_effort'] ?? '' );
+	}
+
+	/**
+	 * @return array<string, array{0:string, 1:string}>
+	 */
+	public function managed_model_effort_provider(): array {
+		return array(
+			'fast' => array( SuperdavAiProvider::FAST_MODEL_ID, 'medium' ),
+			'pro'  => array( SuperdavAiProvider::DEFAULT_MODEL_ID, 'high' ),
 		);
 	}
 

@@ -44,6 +44,26 @@ import AbilitiesManager from './abilities-manager';
 import ProviderTraceViewer from './provider-trace-viewer';
 
 /**
+ * Resolve the default model to select for a provider row.
+ *
+ * @param {Object|undefined} provider Provider row from the REST API.
+ * @return {string} Model ID to select, or an empty string.
+ */
+function resolveProviderDefaultModel( provider ) {
+	const models = Array.isArray( provider?.models ) ? provider.models : [];
+	const defaultModelId = provider?.default_model || '';
+
+	if (
+		defaultModelId &&
+		models.some( ( model ) => model.id === defaultModelId )
+	) {
+		return defaultModelId;
+	}
+
+	return models[ 0 ]?.id || '';
+}
+
+/**
  *
  */
 export default function SettingsApp() {
@@ -455,7 +475,7 @@ export default function SettingsApp() {
 			setLocal( ( prev ) => ( {
 				...prev,
 				default_provider: providerId,
-				default_model: provider?.models?.[ 0 ]?.id || '',
+				default_model: resolveProviderDefaultModel( provider ),
 			} ) );
 		},
 		[ providers ]

@@ -127,6 +127,7 @@ final class SettingsControllerTest extends WP_UnitTestCase {
 		$this->assertSame( 'sdaist_auto_provisioned_token', get_option( SuperdavAiProvider::CREDENTIAL_OPTION, '' ) );
 		$this->assertNotNull( $superdav );
 		$this->assertTrue( $superdav['configured'] );
+		$this->assertSame( SuperdavAiProvider::DEFAULT_MODEL_ID, $superdav['default_model'] ?? '' );
 		$this->assertTrue( $superdav['status']['connection_notice_pending'] );
 		$this->assertSame( 10000000, $superdav['status']['wallet']['promo_usd_micros'] );
 		$this->assertSame( 'superdav-chat-fast', $superdav['models'][0]['id'] ?? '' );
@@ -241,6 +242,7 @@ final class SettingsControllerTest extends WP_UnitTestCase {
 		$this->assertSame( 2, $model_hits );
 		$this->assertSame( 'sdaist_refreshed_token', get_option( SuperdavAiProvider::CREDENTIAL_OPTION, '' ) );
 		$this->assertNotNull( $superdav );
+		$this->assertSame( SuperdavAiProvider::DEFAULT_MODEL_ID, $superdav['default_model'] ?? '' );
 		$this->assertSame( array( 'superdav-chat-fast', 'superdav-chat-pro' ), wp_list_pluck( $superdav['models'] ?? array(), 'id' ) );
 	}
 

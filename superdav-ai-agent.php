@@ -44,7 +44,7 @@ define( 'SD_AI_AGENT_URL', plugin_dir_url( __FILE__ ) );
  * Developers can override the effective default at runtime via the
  * `sd_ai_agent_default_model` filter rather than changing this constant.
  */
-define( 'SD_AI_AGENT_DEFAULT_MODEL', 'claude-sonnet-4' );
+define( 'SD_AI_AGENT_DEFAULT_MODEL', 'superdav-chat-pro' );
 
 // ── Feature flags ─────────────────────────────────────────────────────────────
 // Each constant defaults to `true` (enabled) when not defined.
