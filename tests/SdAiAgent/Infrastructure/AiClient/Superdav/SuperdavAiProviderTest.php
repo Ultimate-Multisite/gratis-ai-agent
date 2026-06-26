@@ -15,9 +15,13 @@ use SdAiAgent\Core\ModelCapabilityRegistry;
 use SdAiAgent\Core\ProviderCredentialLoader;
 use SdAiAgent\Infrastructure\AiClient\Superdav\SuperdavAiModelMetadataDirectory;
 use SdAiAgent\Infrastructure\AiClient\Superdav\SuperdavAiProvider;
+use SdAiAgent\Infrastructure\AiClient\Superdav\SuperdavAiTextGenerationModel;
 use WP_UnitTestCase;
 use WordPress\AiClient\AiClient;
+use WordPress\AiClient\Providers\Http\DTO\RequestOptions;
 use WordPress\AiClient\Providers\Http\DTO\Response;
+use WordPress\AiClient\Providers\Http\Enums\HttpMethodEnum;
+use WordPress\AiClient\Providers\Models\DTO\ModelMetadata;
 use WordPress\AiClient\Providers\Models\Enums\CapabilityEnum;
 use XWP\DI\Decorators\Action;
 
@@ -156,6 +160,42 @@ final class SuperdavAiProviderTest extends WP_UnitTestCase {
 			'https://service.example/v1/site/installations',
 			SuperdavAiProvider::configured_service_url( 'site/installations' )
 		);
+	}
+
+	/**
+	 * Chat completion requests include the SDK request options bound by PromptBuilder.
+	 */
+	public function test_text_generation_request_attaches_sdk_request_options(): void {
+		$this->skip_if_sdk_unavailable();
+
+		$model = new SuperdavAiTextGenerationModel(
+			new ModelMetadata(
+				'example-model',
+				'Example Model',
+				array( CapabilityEnum::textGeneration() ),
+				array()
+			),
+			SuperdavAiProvider::metadata()
+		);
+
+		$options = RequestOptions::fromArray(
+			array(
+				RequestOptions::KEY_TIMEOUT => 123.0,
+			)
+		);
+		$model->setRequestOptions( $options );
+
+		$method  = new \ReflectionMethod( $model, 'createRequest' );
+		$request = $method->invoke(
+			$model,
+			HttpMethodEnum::POST(),
+			'chat/completions',
+			array( 'Content-Type' => 'application/json' ),
+			array( 'model' => 'example-model' )
+		);
+
+		$this->assertNotNull( $request->getOptions() );
+		$this->assertSame( 123.0, $request->getOptions()->getTimeout() );
 	}
 
 	/**
