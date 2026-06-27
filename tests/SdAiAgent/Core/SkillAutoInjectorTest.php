@@ -176,6 +176,7 @@ class SkillAutoInjectorTest extends WP_UnitTestCase {
 		$this->assertNotEmpty( $result );
 		$this->assertStringContainsString( 'site-troubleshooting', $result );
 		$this->assertStringContainsString( 'skill-load', $result );
+		$this->assertStringContainsString( '{"slug":"site-troubleshooting"}', $result );
 	}
 
 	/**

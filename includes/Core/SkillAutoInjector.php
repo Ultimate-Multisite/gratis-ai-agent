@@ -157,9 +157,15 @@ class SkillAutoInjector {
 			return '';
 		}
 
-		return '> **Skill hint:** the following skill guide(s) are likely relevant to this request — '
-			. 'call `sd-ai-agent/skill-load` before proceeding: `'
+		$examples = array_map(
+			static fn( string $slug ): string => '{"slug":"' . $slug . '"}',
+			$matched_slugs
+		);
+
+		return '> **Skill hint:** likely guide(s): `'
 			. implode( '`, `', $matched_slugs )
+			. '`. Before proceeding, call `sd-ai-agent/skill-load` with `'
+			. implode( '`, `', $examples )
 			. '`';
 	}
 

@@ -65,11 +65,15 @@ class ModelHealthTracker {
 
 	/**
 	 * Substrings in a model id that flag it as weak by name. Conservative
-	 * — limited to small parameter counts and known-weak quantizations.
+	 * — limited to explicit managed-model overrides, small parameter counts,
+	 * and known-weak quantizations.
 	 *
 	 * @var string[]
 	 */
 	private const WEAK_NAME_HINTS = array(
+		// Managed cloud fast route: bootstrap with stricter schema-following
+		// guidance after field reports of empty required-argument tool calls.
+		'superdav-chat-fast',
 		// Small parameter counts.
 		'-1b',
 		'-2b',
