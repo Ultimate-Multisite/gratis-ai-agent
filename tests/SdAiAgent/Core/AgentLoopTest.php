@@ -810,6 +810,39 @@ class AgentLoopTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * A crashed checkpoint ending in a model turn must not be sent back to the provider.
+	 */
+	public function test_resume_from_checkpoint_rejects_model_ended_history_before_provider_call(): void {
+		if ( ! function_exists( 'wp_ai_client_prompt' ) ) {
+			$this->markTestSkipped( 'wp_ai_client_prompt() is not available.' );
+		}
+		if ( ! class_exists( 'WordPress\AiClient\Messages\DTO\UserMessage' ) ) {
+			$this->markTestSkipped( 'AI Client SDK message classes are not available.' );
+		}
+
+		$history = [
+			new \WordPress\AiClient\Messages\DTO\UserMessage(
+				[ new \WordPress\AiClient\Messages\DTO\MessagePart( 'Build the page.' ) ]
+			),
+			new \WordPress\AiClient\Messages\DTO\ModelMessage(
+				[ new \WordPress\AiClient\Messages\DTO\MessagePart( 'I found the theme details.' ) ]
+			),
+		];
+
+		$loop   = new AgentLoop( '', [], $history );
+		$result = $loop->resume_from_checkpoint( 1 );
+
+		$this->assertInstanceOf( \WP_Error::class, $result );
+		$this->assertSame( 'sd_ai_agent_history_needs_user_turn', $result->get_error_code() );
+
+		$data = $result->get_error_data();
+		$this->assertIsArray( $data );
+		$this->assertTrue( $data['recoverable'] );
+		$this->assertCount( 2, $data['history'] );
+		$this->assertSame( 'model', $data['history'][1]['role'] );
+	}
+
+	/**
 	 * Test run() returns WP_Error with 401 Unauthorized response.
 	 */
 	public function test_run_returns_wp_error_on_unauthorized(): void {

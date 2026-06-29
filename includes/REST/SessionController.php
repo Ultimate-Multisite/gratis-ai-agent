@@ -1042,11 +1042,19 @@ final class SessionController {
 		}
 
 		if ( 'error' === $job['status'] && isset( $job['error'] ) ) {
-			$error_context = array(
+			$job_session_id = $this->get_job_session_id( $job );
+			$error_context  = array(
 				'job_id'        => $job_id,
-				'session_id'    => isset( $job['session_id'] ) ? (int) $job['session_id'] : 0,
+				'session_id'    => $job_session_id,
 				'error_context' => $job['error_context'] ?? null,
 			);
+
+			if ( $job_session_id > 0 ) {
+				$response['session_id'] = $job_session_id;
+			}
+			if ( ! empty( $job['recoverable'] ) ) {
+				$response['recoverable'] = true;
+			}
 
 			/**
 			 * Filter the error message returned to the chat client.
@@ -1290,6 +1298,192 @@ final class SessionController {
 		}
 
 		return $detail;
+	}
+
+	/**
+	 * Resolve a session ID from a transient-backed job array.
+	 *
+	 * @param array<string, mixed> $job Job transient payload.
+	 * @return int Session ID, or 0 when none is known.
+	 */
+	private function get_job_session_id( array $job ): int {
+		if ( ! empty( $job['session_id'] ) ) {
+			return absint( $job['session_id'] );
+		}
+
+		$params = $job['params'] ?? array();
+		if ( is_array( $params ) && ! empty( $params['session_id'] ) ) {
+			return absint( $params['session_id'] );
+		}
+
+		return 0;
+	}
+
+	/**
+	 * Build a best-effort history payload when an exception prevents AgentLoop
+	 * from returning structured recovery data.
+	 *
+	 * @param array $history Existing deserialized session history.
+	 * @param array $params  Job params.
+	 * @return list<array<string, mixed>> Serialized history.
+	 *
+	 * @phpstan-param list<\WordPress\AiClient\Messages\DTO\Message> $history
+	 * @phpstan-param array<string, mixed> $params
+	 */
+	private function build_exception_recovery_history( array $history, array $params ): array {
+		$serialized = ConversationSerializer::serialize( $history );
+		$message    = isset( $params['message'] ) ? (string) $params['message'] : '';
+
+		if ( '' === trim( $message ) ) {
+			return $serialized;
+		}
+
+		try {
+			$user_turn = new \WordPress\AiClient\Messages\DTO\UserMessage(
+				array(
+					new \WordPress\AiClient\Messages\DTO\MessagePart( $message ),
+				)
+			);
+
+			return array_merge( $serialized, ConversationSerializer::serialize( array( $user_turn ) ) );
+		} catch ( \Throwable $e ) {
+			return $serialized;
+		}
+	}
+
+	/**
+	 * Persist enough failed-job state for the chat UI to reload and continue.
+	 *
+	 * Provider and SDK errors often occur after the new user turn has been added
+	 * to AgentLoop history but before a final assistant response exists. Append the
+	 * history delta to the session and save the latest safe state so a refresh or
+	 * retry does not make the user's prompt disappear.
+	 *
+	 * @param int                  $session_id Session ID.
+	 * @param WP_Error             $error      Loop/provider error.
+	 * @param array<string, mixed> $error_data Structured recovery data.
+	 * @param array<string, mixed> $params     Job params.
+	 * @param array<string, mixed> $options    Loop options.
+	 * @param array<string, mixed> $job        Job payload, updated by reference.
+	 */
+	private function persist_error_recovery_to_session(
+		int $session_id,
+		WP_Error $error,
+		array $error_data,
+		array $params,
+		array $options,
+		array &$job
+	): void {
+		$history = $this->normalize_serialized_rows( $error_data['history'] ?? array() );
+		if ( empty( $history ) ) {
+			$history = $this->build_exception_recovery_history( array(), $params );
+		}
+
+		if ( empty( $history ) ) {
+			return;
+		}
+
+		$tool_calls = $this->normalize_serialized_rows( $error_data['tool_calls'] ?? array() );
+		$this->append_history_delta_to_session(
+			$session_id,
+			$history,
+			$tool_calls
+		);
+
+		$message_log = $error_data['messages'] ?? array();
+		$message_log = is_array( $message_log ) ? $message_log : array();
+		$token_usage = $error_data['token_usage'] ?? array();
+		$token_usage = is_array( $token_usage ) ? $token_usage : array();
+
+		$client_abilities = $error_data['client_abilities'] ?? ( $params['client_abilities'] ?? array() );
+		$client_abilities = is_array( $client_abilities ) ? $client_abilities : array();
+
+		$this->database->save_paused_state(
+			$session_id,
+			array(
+				'history'          => array_values( $history ),
+				'tool_call_log'    => array_values( $tool_calls ),
+				'message_log'      => array_values( $message_log ),
+				'token_usage'      => $token_usage,
+				'model_id'         => (string) ( $error_data['model_id']
+					?? $options['model_id']
+					?? $params['model_id']
+					?? '' ),
+				'provider_id'      => (string) ( $error_data['provider_id']
+					?? $options['provider_id']
+					?? $params['provider_id']
+					?? '' ),
+				'client_abilities' => $client_abilities,
+				'exit_reason'      => (string) $error->get_error_code(),
+			)
+		);
+
+		$job['session_id']  = $session_id;
+		$job['recoverable'] = true;
+	}
+
+	/**
+	 * Normalize a mixed serialized payload into a list of string-keyed rows.
+	 *
+	 * @param mixed $value Serialized rows candidate.
+	 * @return list<array<string, mixed>>
+	 */
+	private function normalize_serialized_rows( mixed $value ): array {
+		if ( ! is_array( $value ) ) {
+			return array();
+		}
+
+		$rows = array();
+		foreach ( $value as $item ) {
+			if ( ! is_array( $item ) ) {
+				continue;
+			}
+
+			$row = array();
+			foreach ( $item as $key => $entry ) {
+				if ( is_string( $key ) ) {
+					$row[ $key ] = $entry;
+				}
+			}
+
+			$rows[] = $row;
+		}
+
+		return $rows;
+	}
+
+	/**
+	 * Append only messages that are newer than the currently persisted session.
+	 *
+	 * @param int   $session_id   Session ID.
+	 * @param array $full_history Full serialized loop history.
+	 * @param array $tool_calls   Tool-call log entries.
+	 * @return bool Whether persistence succeeded.
+	 *
+	 * @phpstan-param list<array<string, mixed>> $full_history
+	 * @phpstan-param list<array<string, mixed>> $tool_calls
+	 */
+	private function append_history_delta_to_session(
+		int $session_id,
+		array $full_history,
+		array $tool_calls
+	): bool {
+		$session = $this->database->get_session( $session_id );
+		if ( ! $session ) {
+			return false;
+		}
+
+		$existing_messages = json_decode( (string) $session->messages, true );
+		if ( ! is_array( $existing_messages ) ) {
+			$existing_messages = array();
+		}
+
+		$appended = array_slice( $full_history, count( $existing_messages ) );
+		if ( empty( $appended ) && empty( $tool_calls ) ) {
+			return true;
+		}
+
+		return $this->database->append_to_session( $session_id, array_values( $appended ), $tool_calls );
 	}
 
 	/**
@@ -1554,24 +1748,6 @@ final class SessionController {
 			return new WP_REST_Response( array( 'ok' => false ), 200 );
 		}
 
-		// Send the HTTP response immediately so the calling process (the
-		// non-blocking loopback from /run or /confirm) can close its
-		// connection while PHP continues the job. PHP-FPM exposes
-		// fastcgi_finish_request(); LiteSpeed exposes litespeed_finish_request().
-		// Without a SAPI-specific detach call, some hosts terminate the worker
-		// when the non-blocking client disconnects.
-		if ( function_exists( 'fastcgi_finish_request' ) || function_exists( 'litespeed_finish_request' ) ) {
-			// Send a minimal JSON response before detaching.
-			header( 'Content-Type: application/json' );
-			echo '{"ok":true}';
-
-			if ( function_exists( 'fastcgi_finish_request' ) ) {
-				fastcgi_finish_request();
-			} else {
-				litespeed_finish_request();
-			}
-		}
-
 		/** @var array<string, mixed> $job */
 
 		// Restore the user context — the loopback request has no cookies,
@@ -1812,6 +1988,34 @@ final class SessionController {
 				'trace' => $trace_frames,
 			);
 
+			if ( $session_id ) {
+				$recovery_error = new WP_Error(
+					'sd_ai_agent_loop_exception',
+					$e->getMessage(),
+					array(
+						'history'     => $this->build_exception_recovery_history( array_values( $history ), $params ),
+						'tool_calls'  => is_array( $job['tool_calls'] ?? null )
+							? $job['tool_calls']
+							: array(),
+						'messages'    => is_array( $job['messages'] ?? null )
+							? $job['messages']
+							: array(),
+						'token_usage' => array(
+							'prompt'     => 0,
+							'completion' => 0,
+						),
+					)
+				);
+				$this->persist_error_recovery_to_session(
+					$session_id,
+					$recovery_error,
+					(array) $recovery_error->get_error_data(),
+					$params,
+					$options,
+					$job
+				);
+			}
+
 			unset( $job['token'] );
 			set_transient( RestController::JOB_PREFIX . $job_id, $job, RestController::JOB_TTL );
 
@@ -1828,6 +2032,16 @@ final class SessionController {
 			if ( is_array( $error_data ) ) {
 				$job['tool_calls'] = $error_data['tool_calls'] ?? ( $job['tool_calls'] ?? array() );
 				$job['messages']   = $error_data['messages'] ?? ( $job['messages'] ?? array() );
+				if ( $session_id ) {
+					$this->persist_error_recovery_to_session(
+						$session_id,
+						$result,
+						$error_data,
+						$params,
+						$options,
+						$job
+					);
+				}
 			}
 
 			// Log webhook execution failure.
@@ -2034,7 +2248,11 @@ final class SessionController {
 		// @phpstan-ignore-next-line -- status is set above in all paths (error or complete).
 		$db_status = (string) $job['status'];
 		if ( 'error' === $db_status ) {
-			ActiveJobRepository::update_status( $job_id, 'error', [ 'error' => (string) ( $job['error'] ?? '' ) ] );
+			$error_extra = [ 'error' => (string) ( $job['error'] ?? '' ) ];
+			if ( ! empty( $job['tool_calls'] ) && is_array( $job['tool_calls'] ) ) {
+				$error_extra['tool_calls'] = wp_json_encode( $job['tool_calls'] );
+			}
+			ActiveJobRepository::update_status( $job_id, 'error', $error_extra );
 		} elseif ( 'complete' === $db_status ) {
 			/** @var array<string, mixed> $complete_result */
 			$complete_result = $job['result'] ?? array();
