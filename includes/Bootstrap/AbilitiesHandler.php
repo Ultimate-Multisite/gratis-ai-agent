@@ -41,6 +41,7 @@ use SdAiAgent\Abilities\FeedbackAbilities;
 use SdAiAgent\Abilities\FileAbilities;
 use SdAiAgent\Abilities\GlobalStylesAbilities;
 use SdAiAgent\Abilities\GoogleAnalyticsAbilities;
+use SdAiAgent\Abilities\GoogleCalendarAbilities;
 use SdAiAgent\Abilities\GscAbilities;
 use SdAiAgent\Abilities\ImageAbilities;
 use SdAiAgent\Abilities\InternetSearchAbilities;
@@ -109,6 +110,7 @@ final class AbilitiesHandler {
 		ContentAbilities::register_abilities();
 		MarketingAbilities::register_abilities();
 		GoogleAnalyticsAbilities::register_abilities();
+		GoogleCalendarAbilities::register_abilities();
 		// Wire the block enricher registry before registering block
 		// abilities so handle_get_page_blocks can use it. The registry
 		// is created once (singleton per request), the core/image

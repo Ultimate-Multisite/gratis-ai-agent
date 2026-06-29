@@ -268,6 +268,18 @@ class ToolCapabilities {
 	];
 
 	/**
+	 * Google Calendar abilities are kept in a small companion map so the long
+	 * ability IDs do not force noisy alignment churn across CORE_CAP_MAP.
+	 *
+	 * @var array<string, string>
+	 */
+	private const GOOGLE_CALENDAR_CORE_CAP_MAP = [
+		'sd-ai-agent/google-calendar-list-events'    => 'manage_options',
+		'sd-ai-agent/google-calendar-get-event'      => 'manage_options',
+		'sd-ai-agent/google-calendar-list-calendars' => 'manage_options',
+	];
+
+	/**
 	 * Ability IDs that intentionally opt out of the core-cap layer.
 	 *
 	 * These abilities are gated only by the per-tool layer; the dual-gate
@@ -326,6 +338,9 @@ class ToolCapabilities {
 	public static function resolve_core_caps( string $ability_id ): array {
 		if ( in_array( $ability_id, self::CORE_CAP_OPTOUT, true ) ) {
 			$caps = [];
+		} elseif ( isset( self::GOOGLE_CALENDAR_CORE_CAP_MAP[ $ability_id ] ) ) {
+			$raw  = self::GOOGLE_CALENDAR_CORE_CAP_MAP[ $ability_id ];
+			$caps = [ $raw ];
 		} elseif ( isset( self::CORE_CAP_MAP[ $ability_id ] ) ) {
 			$raw  = self::CORE_CAP_MAP[ $ability_id ];
 			$caps = is_array( $raw ) ? $raw : [ $raw ];

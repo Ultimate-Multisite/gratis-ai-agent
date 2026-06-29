@@ -16,6 +16,7 @@ use SdAiAgent\Core\Settings;
 use SdAiAgent\Core\SuperdavSiteConnectionService;
 use SdAiAgent\Infrastructure\AiClient\Superdav\SuperdavAiProvider;
 use SdAiAgent\REST\SettingsController;
+use WP_REST_Request;
 use WP_UnitTestCase;
 use WordPress\AiClient\AiClient;
 
@@ -37,12 +38,56 @@ final class SettingsControllerTest extends WP_UnitTestCase {
 	 */
 	public function tear_down(): void {
 		$this->invalidate_superdav_model_cache();
+		Settings::instance()->set_google_calendar_credentials( array() );
 		delete_option( SuperdavAiProvider::CREDENTIAL_OPTION );
 		delete_option( SuperdavSiteConnectionService::INSTALLATION_ID_OPTION );
 		delete_option( SuperdavSiteConnectionService::TOKEN_METADATA_OPTION );
 		remove_all_filters( 'sd_ai_agent_cloud_base_url' );
 		remove_all_filters( 'pre_http_request' );
 		parent::tear_down();
+	}
+
+	/** Google Calendar credential GET responses expose metadata without secrets. */
+	public function test_google_calendar_credentials_responses_do_not_expose_secrets(): void {
+		$controller = new SettingsController( new Settings(), new Database() );
+		$request    = new WP_REST_Request( 'POST', '/sd-ai-agent/v1/settings/google-calendar' );
+		$request->set_body(
+			(string) wp_json_encode(
+				array(
+					'type'                => 'oauth2_refresh_token',
+					'client_id'           => 'calendar-client-id',
+					'client_secret'       => 'calendar-client-secret',
+					'refresh_token'       => 'calendar-refresh-token',
+					'default_calendar_id' => 'team@example.com',
+				)
+			)
+		);
+		$request->set_header( 'Content-Type', 'application/json' );
+
+		$save_response = $controller->handle_set_google_calendar_credentials( $request );
+		$get_response  = $controller->handle_get_google_calendar_credentials();
+		$settings      = $controller->handle_get_settings();
+
+		$this->assertSame( 200, $save_response->get_status() );
+		$this->assertStringNotContainsString( 'calendar-client-secret', wp_json_encode( $save_response->get_data() ) ?: '' );
+		$this->assertStringNotContainsString( 'calendar-refresh-token', wp_json_encode( $save_response->get_data() ) ?: '' );
+		$this->assertStringNotContainsString( 'calendar-client-secret', wp_json_encode( $get_response->get_data() ) ?: '' );
+		$this->assertStringNotContainsString( 'calendar-refresh-token', wp_json_encode( $get_response->get_data() ) ?: '' );
+		$this->assertStringNotContainsString( 'calendar-client-secret', wp_json_encode( $settings->get_data() ) ?: '' );
+		$this->assertStringNotContainsString( 'calendar-refresh-token', wp_json_encode( $settings->get_data() ) ?: '' );
+		$this->assertSame( 'team@example.com', $get_response->get_data()['default_calendar_id'] ?? '' );
+	}
+
+	/** Google Calendar credential save validates supported credential type. */
+	public function test_google_calendar_credentials_reject_invalid_type(): void {
+		$controller = new SettingsController( new Settings(), new Database() );
+		$request    = new WP_REST_Request( 'POST', '/sd-ai-agent/v1/settings/google-calendar' );
+		$request->set_body( (string) wp_json_encode( array( 'type' => 'service_account' ) ) );
+		$request->set_header( 'Content-Type', 'application/json' );
+
+		$response = $controller->handle_set_google_calendar_credentials( $request );
+
+		$this->assertSame( 400, $response->get_status() );
 	}
 
 	/**
