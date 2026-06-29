@@ -138,7 +138,7 @@ class GoogleCalendarAbilities {
 	 * @param array<string, mixed> $input Input arguments.
 	 * @return array<string, mixed>|WP_Error
 	 */
-	public static function handle_list_events( array $input = [] ) {
+	public static function handle_list_events( array $input = [] ): array|WP_Error {
 		$token = self::get_access_token();
 		if ( is_wp_error( $token ) ) {
 			return $token;
@@ -181,7 +181,7 @@ class GoogleCalendarAbilities {
 	 * @param array<string, mixed> $input Input arguments.
 	 * @return array<string, mixed>|WP_Error
 	 */
-	public static function handle_get_event( array $input = [] ) {
+	public static function handle_get_event( array $input = [] ): array|WP_Error {
 		$event_id = sanitize_text_field( (string) ( $input['event_id'] ?? '' ) );
 		if ( '' === $event_id ) {
 			return new WP_Error( 'google_calendar_missing_event_id', __( 'event_id is required.', 'superdav-ai-agent' ) );
@@ -207,7 +207,7 @@ class GoogleCalendarAbilities {
 	 * @param array<string, mixed> $input Input arguments.
 	 * @return array<string, mixed>|WP_Error
 	 */
-	public static function handle_list_calendars( array $input = [] ) {
+	public static function handle_list_calendars( array $input = [] ): array|WP_Error {
 		unset( $input );
 		$token = self::get_access_token();
 		if ( is_wp_error( $token ) ) {
@@ -260,7 +260,11 @@ class GoogleCalendarAbilities {
 			return new WP_Error( 'google_calendar_invalid_credentials', __( 'Google Calendar OAuth2 credentials are incomplete.', 'superdav-ai-agent' ) );
 		}
 
-		$cache_key = 'sd_google_calendar_token_' . substr( md5( $client_id . ':' . $refresh_token ), 0, 12 );
+		$cache_key = 'sd_google_calendar_token_' . substr(
+			hash_hmac( 'sha256', $client_id . ':' . $refresh_token, wp_salt( 'auth' ) ),
+			0,
+			24
+		);
 		$cached    = get_transient( $cache_key );
 		if ( is_string( $cached ) && '' !== $cached ) {
 			return $cached;

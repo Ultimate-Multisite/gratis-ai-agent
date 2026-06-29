@@ -144,6 +144,52 @@ final class GoogleCalendarAbilitiesTest extends WP_UnitTestCase {
 		$this->assertSame( 'a@example.com', $result['events'][0]['attendees'][0]['email'] );
 	}
 
+	/** Token cache keys use a salted HMAC fingerprint rather than unsalted MD5. */
+	public function test_token_cache_key_uses_salted_hmac_fingerprint(): void {
+		$credentials = $this->credentials( 'cache-test@example.com' );
+		Settings::instance()->set_google_calendar_credentials( $credentials );
+
+		$token_requests = 0;
+		add_filter(
+			'pre_http_request',
+			static function ( mixed $preempt, array $parsed_args, string $url ) use ( &$token_requests ): mixed {
+				unset( $parsed_args );
+				if ( 'https://oauth2.googleapis.com/token' === $url ) {
+					++$token_requests;
+					return array(
+						'response' => array( 'code' => 200, 'message' => 'OK' ),
+						'body'     => wp_json_encode( array( 'access_token' => 'cached-calendar-token', 'expires_in' => 3600 ) ),
+					);
+				}
+
+				if ( str_starts_with( $url, 'https://www.googleapis.com/calendar/v3/users/me/calendarList' ) ) {
+					return array(
+						'response' => array( 'code' => 200, 'message' => 'OK' ),
+						'body'     => wp_json_encode( array( 'items' => array() ) ),
+					);
+				}
+
+				return $preempt;
+			},
+			10,
+			3
+		);
+
+		$result = GoogleCalendarAbilities::handle_list_calendars();
+
+		$hmac_key = 'sd_google_calendar_token_' . substr(
+			hash_hmac( 'sha256', $credentials['client_id'] . ':' . $credentials['refresh_token'], wp_salt( 'auth' ) ),
+			0,
+			24
+		);
+		$md5_key  = 'sd_google_calendar_token_' . substr( md5( $credentials['client_id'] . ':' . $credentials['refresh_token'] ), 0, 12 );
+
+		$this->assertIsArray( $result );
+		$this->assertSame( 1, $token_requests );
+		$this->assertSame( 'cached-calendar-token', get_transient( $hmac_key ) );
+		$this->assertFalse( get_transient( $md5_key ) );
+	}
+
 	/** Get event requires event_id. */
 	public function test_get_event_requires_event_id(): void {
 		$result = GoogleCalendarAbilities::handle_get_event( array() );
