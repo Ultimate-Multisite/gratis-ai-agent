@@ -60,6 +60,7 @@ use SdAiAgent\Abilities\RestMetaAbilities;
 use SdAiAgent\Abilities\SeoAbilities;
 use SdAiAgent\Abilities\SiteHealthAbilities;
 use SdAiAgent\Abilities\SkillAbilities;
+use SdAiAgent\Abilities\SmsAbilities;
 use SdAiAgent\Abilities\ThemeBuilderAbilities;
 use SdAiAgent\Abilities\UrlResolverAbilities;
 use SdAiAgent\Abilities\UploadMediaAbility;
@@ -113,6 +114,7 @@ final class AbilitiesHandler {
 		MarketingAbilities::register_abilities();
 		GoogleAnalyticsAbilities::register_abilities();
 		GoogleCalendarAbilities::register_abilities();
+		SmsAbilities::register_abilities();
 		// Wire the block enricher registry before registering block
 		// abilities so handle_get_page_blocks can use it. The registry
 		// is created once (singleton per request), the core/image

@@ -45,6 +45,13 @@ class Settings {
 	const GOOGLE_CALENDAR_CREDENTIALS_OPTION = 'sd_ai_agent_google_calendar_credentials';
 
 	/**
+	 * Option name for SMS provider credentials.
+	 * Stored separately from general settings to avoid leaking credentials
+	 * through the GET /settings endpoint.
+	 */
+	const SMS_PROVIDER_OPTION = 'sd_ai_agent_sms_provider';
+
+	/**
 	 * Option name that records the most recent saved default-model value
 	 * which was rejected by {@see resolve_default_provider_and_model()}
 	 * because the configured provider/model was not advertised by any
@@ -602,6 +609,49 @@ class Settings {
 	public function has_google_calendar_credentials(): bool {
 		$creds = $this->get_google_calendar_credentials();
 		return ! empty( $creds['type'] );
+	}
+
+	/**
+	 * Get the stored SMS provider configuration.
+	 *
+	 * Returns raw credentials for internal provider callers only. REST settings
+	 * responses must expose only safe metadata.
+	 *
+	 * @return array<string, mixed> SMS provider configuration or empty array.
+	 */
+	public function get_sms_provider(): array {
+		$config = get_option( self::SMS_PROVIDER_OPTION, array() );
+		/** @var array<string, mixed> $result */
+		$result = is_array( $config ) ? $config : array();
+		return $result;
+	}
+
+	/**
+	 * Persist SMS provider configuration.
+	 *
+	 * Pass an empty array to clear the credentials.
+	 *
+	 * @param array<string, mixed> $config SMS provider configuration.
+	 * @return bool True on success.
+	 */
+	public function set_sms_provider( array $config ): bool {
+		if ( empty( $config ) ) {
+			return delete_option( self::SMS_PROVIDER_OPTION );
+		}
+
+		return update_option( self::SMS_PROVIDER_OPTION, $config );
+	}
+
+	/**
+	 * Check whether SMS provider credentials are configured.
+	 *
+	 * @return bool
+	 */
+	public function has_sms_provider(): bool {
+		$config = $this->get_sms_provider();
+		return 'textbee' === ( $config['provider'] ?? '' )
+			&& ! empty( $config['api_key'] )
+			&& ! empty( $config['device_id'] );
 	}
 
 	/**
