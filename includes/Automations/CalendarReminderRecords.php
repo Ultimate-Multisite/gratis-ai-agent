@@ -144,7 +144,7 @@ class CalendarReminderRecords {
 	public static function hash_phone( string $phone ): string {
 		$digits = preg_replace( '/\D+/', '', $phone ) ?: '';
 
-		return '' === $digits ? '' : hash( 'sha256', $digits );
+		return '' === $digits ? '' : hash_hmac( 'sha256', $digits, wp_salt( 'auth' ) );
 	}
 
 	/**
@@ -188,24 +188,56 @@ class CalendarReminderRecords {
 		);
 
 		if ( null !== $existing ) {
-			$update = $record;
-			unset( $update['calendar_id'], $update['event_id'], $update['event_start_at'], $update['reminder_date'], $update['attendee_email'], $update['created_at'] );
-			$update['updated_at'] = $now;
-
-			// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Custom table query; caching not applicable.
-			$updated = $wpdb->update(
-				self::table_name(),
-				$update,
-				[ 'id' => (int) $existing['id'] ]
-			);
-
-			return false === $updated ? false : (int) $existing['id'];
+			return self::update_existing_record( (int) $existing['id'], $record, $now );
 		}
 
 		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery -- Custom table query; caching not applicable.
 		$result = $wpdb->insert( self::table_name(), $record );
 
-		return $result ? (int) $wpdb->insert_id : false;
+		if ( $result ) {
+			return (int) $wpdb->insert_id;
+		}
+
+		$existing = self::find_by_identity(
+			$record['calendar_id'],
+			$record['event_id'],
+			$record['attendee_email'],
+			$record['reminder_date']
+		);
+
+		return null === $existing ? false : self::update_existing_record( (int) $existing['id'], $record, $now );
+	}
+
+	/**
+	 * Update an existing reminder record while preserving optional metadata unless new values are supplied.
+	 *
+	 * @param int                  $id     Reminder record ID.
+	 * @param array<string, mixed> $record Sanitized reminder record.
+	 * @param string               $now    Current MySQL datetime.
+	 */
+	private static function update_existing_record( int $id, array $record, string $now ): int|false {
+		global $wpdb;
+		/** @var \wpdb $wpdb */
+
+		$update = $record;
+		unset( $update['calendar_id'], $update['event_id'], $update['event_start_at'], $update['reminder_date'], $update['attendee_email'], $update['created_at'] );
+
+		foreach ( [ 'phone_hash', 'skip_reason', 'provider', 'provider_message_id', 'approval_request_id', 'sent_at' ] as $optional_field ) {
+			if ( empty( $update[ $optional_field ] ) ) {
+				unset( $update[ $optional_field ] );
+			}
+		}
+
+		$update['updated_at'] = $now;
+
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Custom table query; caching not applicable.
+		$updated = $wpdb->update(
+			self::table_name(),
+			$update,
+			[ 'id' => $id ]
+		);
+
+		return false === $updated ? false : $id;
 	}
 
 	/**
