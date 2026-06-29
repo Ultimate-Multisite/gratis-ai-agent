@@ -18,6 +18,13 @@ use WordPress\AiClient\Messages\DTO\Message;
 class ToolPermissionResolver {
 
 	/**
+	 * Ability IDs approved for exactly this confirmed tool-resume request.
+	 *
+	 * @var array<string, true>
+	 */
+	private static array $one_turn_approved_abilities = array();
+
+	/**
 	 * @param bool                     $yolo_mode        When true, skip all confirmations.
 	 * @param array<int|string, mixed> $tool_permissions Tool permission levels from settings.
 	 */
@@ -31,10 +38,16 @@ class ToolPermissionResolver {
 	 *
 	 * Permission resolution order (first match wins):
 	 * 1. YOLO mode → skip all confirmations.
-	 * 2. Explicit tool_permissions setting ('auto'|'confirm'|'disabled'|'always_allow') → use it.
+	 * 2. Explicit tool_permissions setting:
+	 *    - confirm → require confirmation.
+	 *    - always_allow/disabled → do not pause here (disabled is enforced before execution).
+	 *    - auto or unset → continue to the default annotation policy.
 	 * 3. Annotation-based classification:
-	 *    - readonly=true  → auto-execute (read-only, safe).
-	 *    - readonly=false or null → require confirmation (write operation).
+	 *    - readonly=true      → auto-execute (read-only, safe).
+	 *    - destructive=false  → auto-execute (non-destructive write).
+	 *    - destructive=true or unknown → require confirmation.
+	 * 4. For sd-ai-agent/ability-call, classify the nested target ability so the
+	 *    meta-tool cannot bypass a target tool's confirmation policy.
 	 *
 	 * @param Message $message The assistant's tool-call message.
 	 * @return list<array<string, mixed>> Array of tool details needing confirmation (empty if none).
@@ -70,47 +83,16 @@ class ToolPermissionResolver {
 				$ability_name = \WP_AI_Client_Ability_Function_Resolver::function_name_to_ability_name( $fn_name );
 			}
 
-			// 1. Check explicit tool_permissions setting first.
-			if ( ! empty( $this->tool_permissions ) ) {
-				$permission = $this->tool_permissions[ $ability_name ] ?? null;
+			$args                    = self::normalize_function_call_args( $call->getArgs() );
+			$confirmation_ability_id = self::get_confirmation_ability_id( $ability_name, $args, $all_abilities );
+			$ability                 = $all_abilities[ $confirmation_ability_id ] ?? null;
+			$ability                 = $ability instanceof \WP_Ability ? $ability : null;
 
-				if ( null !== $permission ) {
-					// Explicit permission set for this tool.
-					if ( 'confirm' === $permission ) {
-						$confirm[] = array(
-							'id'      => $call->getId(),
-							'name'    => $fn_name,
-							'ability' => $ability_name,
-							'args'    => $call->getArgs(),
-						);
-					}
-					// 'auto', 'always_allow', 'disabled' → no confirmation needed.
-					continue;
-				}
-			}
-
-			// 2. No explicit permission — use annotation-based classification.
-			$ability = $all_abilities[ $ability_name ] ?? null;
-
-			if ( null !== $ability ) {
-				$classification = self::classify_ability( $ability );
-
-				if ( 'destructive' === $classification ) {
-					$confirm[] = array(
-						'id'      => $call->getId(),
-						'name'    => $fn_name,
-						'ability' => $ability_name,
-						'args'    => $call->getArgs(),
-					);
-				}
-				// 'read' and 'write' → auto-execute.
-			} else {
-				// Ability not found in registry (e.g. custom tool) — default
-				// to requiring confirmation for safety.
+			if ( self::ability_needs_confirmation( $confirmation_ability_id, $ability, $this->tool_permissions ) ) {
 				$confirm[] = array(
 					'id'      => $call->getId(),
 					'name'    => $fn_name,
-					'ability' => $ability_name,
+					'ability' => $confirmation_ability_id,
 					'args'    => $call->getArgs(),
 				);
 			}
@@ -156,6 +138,60 @@ class ToolPermissionResolver {
 	}
 
 	/**
+	 * Whether an ability should pause for user confirmation.
+	 *
+	 * @param string                   $ability_name     Ability ID.
+	 * @param \WP_Ability|null         $ability          Registered ability, if known.
+	 * @param array<int|string, mixed> $tool_permissions Per-tool permission map.
+	 */
+	public static function ability_needs_confirmation( string $ability_name, ?\WP_Ability $ability, array $tool_permissions ): bool {
+		$permission = $tool_permissions[ $ability_name ] ?? null;
+
+		if ( 'confirm' === $permission ) {
+			return true;
+		}
+
+		if ( 'always_allow' === $permission || 'disabled' === $permission ) {
+			return false;
+		}
+
+		if ( ! $ability instanceof \WP_Ability ) {
+			return true;
+		}
+
+		return 'destructive' === self::classify_ability( $ability );
+	}
+
+	/**
+	 * Store one-turn approvals for the current confirmed resume request.
+	 *
+	 * @param array<int, mixed> $ability_names Ability IDs.
+	 */
+	public static function set_one_turn_approved_abilities( array $ability_names ): void {
+		self::$one_turn_approved_abilities = array();
+
+		foreach ( $ability_names as $ability_name ) {
+			if ( is_string( $ability_name ) && '' !== $ability_name ) {
+				self::$one_turn_approved_abilities[ $ability_name ] = true;
+			}
+		}
+	}
+
+	/**
+	 * Clear request-scoped one-turn approvals.
+	 */
+	public static function clear_one_turn_approved_abilities(): void {
+		self::$one_turn_approved_abilities = array();
+	}
+
+	/**
+	 * Whether an ability was approved for this confirmed resume request.
+	 */
+	public static function is_one_turn_approved( string $ability_name ): bool {
+		return isset( self::$one_turn_approved_abilities[ $ability_name ] );
+	}
+
+	/**
 	 * Persist an "always allow" permission for a specific ability.
 	 *
 	 * @param string $ability_name The ability name (e.g. 'sd-ai-agent/memory-save').
@@ -190,5 +226,75 @@ class ToolPermissionResolver {
 		}
 
 		return $always;
+	}
+
+	/**
+	 * Return the ability ID whose policy should govern a tool call.
+	 *
+	 * For direct tools this is the tool itself. For sd-ai-agent/ability-call it is
+	 * the nested registered target ability, when present, so the meta-tool cannot
+	 * bypass the target's confirmation policy.
+	 *
+	 * @param string                         $ability_name  Direct ability ID.
+	 * @param array<string, mixed>           $args          Normalized tool-call args.
+	 * @param array<int|string, \WP_Ability> $all_abilities Registered abilities.
+	 */
+	private static function get_confirmation_ability_id( string $ability_name, array $args, array $all_abilities ): string {
+		if ( 'sd-ai-agent/ability-call' !== $ability_name ) {
+			return $ability_name;
+		}
+
+		$target = isset( $args['ability'] ) && is_string( $args['ability'] ) ? trim( $args['ability'] ) : '';
+		if ( '' === $target ) {
+			return $ability_name;
+		}
+
+		if ( class_exists( \SdAiAgent\Tools\ToolDiscovery::class ) ) {
+			$target = \SdAiAgent\Tools\ToolDiscovery::canonicalise_ability_id( $target );
+		}
+
+		return isset( $all_abilities[ $target ] ) ? $target : $ability_name;
+	}
+
+	/**
+	 * Normalize function-call args to a string-keyed array.
+	 *
+	 * @param mixed $args Raw function-call arguments.
+	 * @return array<string, mixed>
+	 */
+	private static function normalize_function_call_args( $args ): array {
+		if ( is_string( $args ) && '' !== $args ) {
+			$decoded = json_decode( $args, true );
+			return is_array( $decoded ) ? self::string_keyed_array( $decoded ) : array();
+		}
+
+		if ( is_array( $args ) ) {
+			return self::string_keyed_array( $args );
+		}
+
+		if ( is_object( $args ) ) {
+			$encoded = wp_json_encode( $args );
+			$decoded = is_string( $encoded ) ? json_decode( $encoded, true ) : null;
+			return is_array( $decoded ) ? self::string_keyed_array( $decoded ) : array();
+		}
+
+		return array();
+	}
+
+	/**
+	 * Keep only string-keyed values from a decoded JSON object.
+	 *
+	 * @param array<mixed> $value Decoded function-call args.
+	 * @return array<string, mixed>
+	 */
+	private static function string_keyed_array( array $value ): array {
+		$result = array();
+		foreach ( $value as $key => $item ) {
+			if ( is_string( $key ) ) {
+				$result[ $key ] = $item;
+			}
+		}
+
+		return $result;
 	}
 }

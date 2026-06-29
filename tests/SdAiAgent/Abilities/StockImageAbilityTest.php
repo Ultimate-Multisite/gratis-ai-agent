@@ -21,6 +21,7 @@ namespace SdAiAgent\Tests\Abilities;
 use SdAiAgent\Abilities\ImageAbilities\StockImageAbility;
 use SdAiAgent\Abilities\ImageSources\ImageSourceFactory;
 use SdAiAgent\Abilities\ImageSources\ImageSourceInterface;
+use SdAiAgent\Core\ToolPermissionResolver;
 use WP_Error;
 use WP_UnitTestCase;
 
@@ -100,6 +101,19 @@ class StockImageAbilityTest extends WP_UnitTestCase {
 
 		$this->assertArrayHasKey( 'required', $schema );
 		$this->assertNotContains( 'keyword', $schema['required'] );
+	}
+
+	/**
+	 * Stock-image imports are safe writes, not destructive operations, so the
+	 * default tool policy should not pause for user confirmation.
+	 */
+	public function test_stock_image_is_non_destructive_for_default_tool_policy(): void {
+		$meta = $this->ability->get_meta();
+
+		$this->assertIsArray( $meta['annotations'] ?? null );
+		$this->assertFalse( $meta['annotations']['readonly'] );
+		$this->assertFalse( $meta['annotations']['destructive'] );
+		$this->assertSame( 'write', ToolPermissionResolver::classify_ability( $this->ability ) );
 	}
 
 	/**

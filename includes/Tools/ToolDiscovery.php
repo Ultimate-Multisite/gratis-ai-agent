@@ -36,7 +36,9 @@ namespace SdAiAgent\Tools;
 use SdAiAgent\Abilities\Js\JsAbilityCatalog;
 use SdAiAgent\Core\AbilityRegistry;
 use SdAiAgent\Core\AbilityVisibility;
+use SdAiAgent\Core\RolePermissions;
 use SdAiAgent\Core\Settings;
+use SdAiAgent\Core\ToolPermissionResolver;
 use WP_Error;
 
 if ( ! defined( 'ABSPATH' ) ) {
@@ -430,6 +432,10 @@ class ToolDiscovery {
 			}
 
 			if ( 'disabled' === ( $perms[ $name ] ?? 'auto' ) ) {
+				continue;
+			}
+
+			if ( ! RolePermissions::current_user_can_use_ability( $name ) ) {
 				continue;
 			}
 
@@ -894,6 +900,33 @@ class ToolDiscovery {
 			);
 		}
 
+		if ( ! RolePermissions::current_user_can_use_ability( $ability_id ) ) {
+			return new WP_Error(
+				'ability_forbidden',
+				sprintf(
+					/* translators: %s: ability id */
+					__( 'Your role is not allowed to use ability "%s".', 'superdav-ai-agent' ),
+					$ability_id
+				),
+				array( 'status' => 403 )
+			);
+		}
+
+		if (
+			ToolPermissionResolver::ability_needs_confirmation( $ability_id, $ability, $perms )
+			&& ! ToolPermissionResolver::is_one_turn_approved( $ability_id )
+		) {
+			return new WP_Error(
+				'ability_requires_confirmation',
+				sprintf(
+					/* translators: %s: ability id */
+					__( 'Ability "%s" requires user confirmation before it can run through sd-ai-agent/ability-call.', 'superdav-ai-agent' ),
+					$ability_id
+				),
+				array( 'status' => 403 )
+			);
+		}
+
 		// Normalize the arguments to a plain PHP associative array.
 		//
 		// Three cases handled:
@@ -1204,6 +1237,9 @@ class ToolDiscovery {
 				continue;
 			}
 			if ( 'disabled' === ( $perms[ $ability->get_name() ] ?? 'auto' ) ) {
+				continue;
+			}
+			if ( ! RolePermissions::current_user_can_use_ability( $ability->get_name() ) ) {
 				continue;
 			}
 			$out[] = $ability;
