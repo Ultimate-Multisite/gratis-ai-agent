@@ -180,8 +180,8 @@ src/**/__snapshots__
 
 # Vendor dev-only packages (safety net — prefer composer install --no-dev)
 # These are require-dev packages that should not ship in a production zip.
-vendor/pondermatic
-vendor/**/composer.lock
+/vendor/pondermatic
+/vendor/**/composer.lock
 vendor/dealerdirect
 vendor/doctrine
 vendor/myclabs

@@ -162,8 +162,16 @@ echo "    Built: ${ZIP_PATH}"
 
 # ── Extract ZIP into a temp directory ────────────────────────────────────────
 EXTRACT_DIR="$(mktemp -d)"
+NEW_FILES_LIST=""
+DELETED_FILES_LIST=""
 cleanup() {
 	rm -rf "$EXTRACT_DIR"
+	if [ -n "$NEW_FILES_LIST" ]; then
+		rm -f "$NEW_FILES_LIST"
+	fi
+	if [ -n "$DELETED_FILES_LIST" ]; then
+		rm -f "$DELETED_FILES_LIST"
+	fi
 	return 0
 }
 trap cleanup EXIT
@@ -191,25 +199,28 @@ echo "    Sync complete."
 echo "==> Staging SVN changes..."
 cd "$SVN_DIR"
 
+NEW_FILES_LIST="$(mktemp "${TMPDIR:-/tmp}/sd-ai-agent-svn-new-files.XXXXXX")"
+DELETED_FILES_LIST="$(mktemp "${TMPDIR:-/tmp}/sd-ai-agent-svn-deleted-files.XXXXXX")"
+
 # Add new files. The grep commands intentionally tolerate no-match results so a
 # release with only edits or only deletes does not abort under `set -o pipefail`.
-svn status | grep '^?' | awk '{print $2}' > /tmp/sd-ai-agent-svn-new-files.txt || true
-NEW_COUNT="$(wc -l < /tmp/sd-ai-agent-svn-new-files.txt)"
+svn status | grep '^?' | awk '{print $2}' > "$NEW_FILES_LIST" || true
+NEW_COUNT="$(wc -l < "$NEW_FILES_LIST")"
 echo "    New files: ${NEW_COUNT}"
 if [ "$NEW_COUNT" -gt 0 ]; then
 	while IFS= read -r f; do
 		svn add --parents "$f"
-	done < /tmp/sd-ai-agent-svn-new-files.txt
+	done < "$NEW_FILES_LIST"
 fi
 
 # Remove deleted files.
-svn status | grep '^!' | awk '{print $2}' > /tmp/sd-ai-agent-svn-deleted-files.txt || true
-DEL_COUNT="$(wc -l < /tmp/sd-ai-agent-svn-deleted-files.txt)"
+svn status | grep '^!' | awk '{print $2}' > "$DELETED_FILES_LIST" || true
+DEL_COUNT="$(wc -l < "$DELETED_FILES_LIST")"
 echo "    Deleted files: ${DEL_COUNT}"
 if [ "$DEL_COUNT" -gt 0 ]; then
 	while IFS= read -r f; do
 		svn delete --force "$f"
-	done < /tmp/sd-ai-agent-svn-deleted-files.txt
+	done < "$DELETED_FILES_LIST"
 fi
 
 echo "    SVN status:"

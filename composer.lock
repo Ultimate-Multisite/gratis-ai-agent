@@ -4,20 +4,20 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "eb2bb57c92f1185e82fc8301bb1eb686",
+    "content-hash": "ce64d11cc73ac39af00680511946ed06",
     "packages": [
         {
             "name": "automattic/jetpack-autoloader",
-            "version": "v5.0.18",
+            "version": "v5.0.19",
             "source": {
                 "type": "git",
                 "url": "https://github.com/Automattic/jetpack-autoloader.git",
-                "reference": "be5ea0f2109f3300a22a05727721587c9116ffe8"
+                "reference": "2b195d4ba0c6d9851aca1e5220e47b2072f6c93c"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/Automattic/jetpack-autoloader/zipball/be5ea0f2109f3300a22a05727721587c9116ffe8",
-                "reference": "be5ea0f2109f3300a22a05727721587c9116ffe8",
+                "url": "https://api.github.com/repos/Automattic/jetpack-autoloader/zipball/2b195d4ba0c6d9851aca1e5220e47b2072f6c93c",
+                "reference": "2b195d4ba0c6d9851aca1e5220e47b2072f6c93c",
                 "shasum": ""
             },
             "require": {
@@ -25,7 +25,7 @@
                 "php": ">=7.2"
             },
             "require-dev": {
-                "automattic/phpunit-select-config": "^1.0.6",
+                "automattic/phpunit-select-config": "^1.0.8",
                 "composer/composer": "^2.2",
                 "yoast/phpunit-polyfills": "^4.0.0"
             },
@@ -66,9 +66,9 @@
                 "wordpress"
             ],
             "support": {
-                "source": "https://github.com/Automattic/jetpack-autoloader/tree/v5.0.18"
+                "source": "https://github.com/Automattic/jetpack-autoloader/tree/v5.0.19"
             },
-            "time": "2026-05-19T09:17:26+00:00"
+            "time": "2026-06-08T08:27:29+00:00"
         },
         {
             "name": "automattic/jetpack-constants",
@@ -467,16 +467,16 @@
         },
         {
             "name": "symfony/polyfill-mbstring",
-            "version": "v1.37.0",
+            "version": "v1.38.2",
             "source": {
                 "type": "git",
                 "url": "https://github.com/symfony/polyfill-mbstring.git",
-                "reference": "6a21eb99c6973357967f6ce3708cd55a6bec6315"
+                "reference": "d3d318bad5e7a1bfbd026009c8bfb8d8f99ae6b6"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/symfony/polyfill-mbstring/zipball/6a21eb99c6973357967f6ce3708cd55a6bec6315",
-                "reference": "6a21eb99c6973357967f6ce3708cd55a6bec6315",
+                "url": "https://api.github.com/repos/symfony/polyfill-mbstring/zipball/d3d318bad5e7a1bfbd026009c8bfb8d8f99ae6b6",
+                "reference": "d3d318bad5e7a1bfbd026009c8bfb8d8f99ae6b6",
                 "shasum": ""
             },
             "require": {
@@ -528,7 +528,7 @@
                 "shim"
             ],
             "support": {
-                "source": "https://github.com/symfony/polyfill-mbstring/tree/v1.37.0"
+                "source": "https://github.com/symfony/polyfill-mbstring/tree/v1.38.2"
             },
             "funding": [
                 {
@@ -548,7 +548,7 @@
                     "type": "tidelift"
                 }
             ],
-            "time": "2026-04-10T17:25:58+00:00"
+            "time": "2026-05-27T06:59:30+00:00"
         },
         {
             "name": "x-wp/di",

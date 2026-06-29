@@ -48,6 +48,8 @@ def main() -> int:
         "/advanced-plugin": ".distignore must exclude /advanced-plugin so the WP.org/core zip never ships the advanced companion plugin.",
         "/VERSION": ".distignore must exclude /VERSION because the plugin header/readme are the runtime version sources.",
         "/verify-output.txt": ".distignore must exclude /verify-output.txt because local verification transcripts are not runtime files.",
+        "/vendor/pondermatic": ".distignore must exclude /vendor/pondermatic because composer-archive-project is build tooling only.",
+        "/vendor/**/composer.lock": ".distignore must exclude /vendor/**/composer.lock because nested Composer lockfiles are not runtime files.",
     }
 
     for entry, message in required_dist_entries.items():

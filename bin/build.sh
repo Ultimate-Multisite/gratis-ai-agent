@@ -236,8 +236,8 @@ validate_zip_contents() {
 		fi
 	done <<'EOF'
 advanced-plugin(/|$)
-(\.git|\.github|node_modules|src|tests|bin|scripts|docs|stubs|tools|playground|\.agents|\.claude|\.opencode|\.husky|\.wordpress-org|screenshots|playwright-report|blob-report|coverage-html)(/|$)
-(package\.json|package-lock\.json|webpack\.config\.js|wp-cli\.yml|phpunit\.xml(\.dist)?|phpcs\.xml|phpstan\.neon(\.dist)?|composer\.lock|AGENTS\.md|CLAUDE\.md|README\.md|TODO\.md|CHANGELOG\.md|CONTRIBUTING\.md|CODE_OF_CONDUCT\.md|SECURITY\.md|DESIGN\.md|MODELS\.md|ROADMAP\.md|ISSUE_1497_FIX\.md|verify-output\.txt|VERSION|\.distignore|\.gitattributes|\.gitignore|\.eslintignore|\.eslintrc\.json|\.stylelintrc\.json|\.wp-env\.json|\.task-counter|\.clinerules|\.cursorrules|\.windsurfrules|codecov\.yml|playwright\.config\.js)$
+(\.git|\.github|node_modules|src|tests|bin|scripts|docs|stubs|tools|playground|seeds|migrations|schemas|\.agents|\.claude|\.cursor|\.opencode|\.husky|\.wordpress-org|screenshots|playwright-report|blob-report|coverage-html)(/|$)
+(package\.json|package-lock\.json|webpack\.config\.js|wp-cli\.yml|phpunit\.xml(\.dist)?|phpcs\.xml|phpstan\.neon(\.dist)?|composer\.lock|AGENTS\.md|CLAUDE\.md|README\.md|TODO\.md|CHANGELOG\.md|CONTRIBUTING\.md|CODE_OF_CONDUCT\.md|SECURITY\.md|DESIGN\.md|MODELS\.md|ROADMAP\.md|PLANS-AI-AGENT-MASTERPLAN\.md|ISSUE_1497_FIX\.md|verify-output\.txt|VERSION|\.distignore|\.gitattributes|\.gitignore|\.eslintignore|\.eslintrc\.json|\.stylelintrc\.json|\.wp-env\.json|\.task-counter|\.phpunit\.result\.cache|\.phpunit\.cache|\.aidevops\.json|\.beads|\.beads-credential-key|\.dolt|\.clinerules|\.cursorrules|\.windsurfrules|codecov\.yml|playwright\.config\.(js|ts)|coverage\.xml|skills-lock\.json)$
 build/(di-cache|wporg-review)(/|$)
 vendor/pondermatic(/|$)
 vendor/.*/composer\.lock$
