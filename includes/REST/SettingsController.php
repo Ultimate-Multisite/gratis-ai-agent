@@ -13,6 +13,7 @@ namespace SdAiAgent\REST;
 
 use SdAiAgent\Abilities\GoogleAnalyticsAbilities;
 use SdAiAgent\Abilities\InternetSearchAbilities;
+use SdAiAgent\Abilities\SmsAbilities;
 use SdAiAgent\Admin\UnifiedAdminMenu;
 use SdAiAgent\Core\AgentLoop;
 use SdAiAgent\Core\BudgetManager;
@@ -178,6 +179,29 @@ final class SettingsController {
 				array(
 					'methods'             => WP_REST_Server::DELETABLE,
 					'callback'            => array( $this, 'handle_delete_gsc_credentials' ),
+					'permission_callback' => array( __CLASS__, 'check_admin_permission' ),
+				),
+			)
+		);
+
+		// SMS provider credentials endpoint.
+		register_rest_route(
+			RestController::NAMESPACE,
+			'/settings/sms-provider',
+			array(
+				array(
+					'methods'             => WP_REST_Server::READABLE,
+					'callback'            => array( $this, 'handle_get_sms_provider' ),
+					'permission_callback' => array( __CLASS__, 'check_admin_permission' ),
+				),
+				array(
+					'methods'             => WP_REST_Server::CREATABLE,
+					'callback'            => array( $this, 'handle_set_sms_provider' ),
+					'permission_callback' => array( __CLASS__, 'check_admin_permission' ),
+				),
+				array(
+					'methods'             => WP_REST_Server::DELETABLE,
+					'callback'            => array( $this, 'handle_delete_sms_provider' ),
 					'permission_callback' => array( __CLASS__, 'check_admin_permission' ),
 				),
 			)
@@ -352,6 +376,8 @@ final class SettingsController {
 		$settings['_brave_search_key_configured'] = '' !== InternetSearchAbilities::get_brave_api_key();
 		// @phpstan-ignore-next-line
 		$settings['_tavily_api_key_configured'] = '' !== InternetSearchAbilities::get_tavily_api_key();
+		// @phpstan-ignore-next-line
+		$settings['_sms_provider'] = $this->get_sms_provider_metadata();
 
 		// Indicate whether a feedback-report receiver API key is configured (boolean only, no key value — t180).
 		// @phpstan-ignore-next-line
@@ -608,6 +634,111 @@ final class SettingsController {
 			),
 			200
 		);
+	}
+
+	/**
+	 * Handle GET /settings/sms-provider — return safe SMS provider metadata.
+	 */
+	public function handle_get_sms_provider(): WP_REST_Response {
+		return new WP_REST_Response( $this->get_sms_provider_metadata(), 200 );
+	}
+
+	/**
+	 * Handle POST /settings/sms-provider — save SMS provider credentials.
+	 *
+	 * @param WP_REST_Request $request The request object.
+	 */
+	public function handle_set_sms_provider( WP_REST_Request $request ): WP_REST_Response {
+		$params = $request->get_json_params();
+		if ( empty( $params ) || ! is_array( $params ) ) {
+			return new WP_REST_Response( array( 'error' => 'No data provided.' ), 400 );
+		}
+
+		$provider     = sanitize_text_field( (string) ( $params['provider'] ?? 'textbee' ) );
+		$api_key      = sanitize_text_field( (string) ( $params['api_key'] ?? '' ) );
+		$device_id    = sanitize_text_field( (string) ( $params['device_id'] ?? '' ) );
+		$api_base_url = sanitize_text_field( (string) ( $params['api_base_url'] ?? SmsAbilities::DEFAULT_API_BASE_URL ) );
+
+		if ( 'textbee' !== $provider ) {
+			return new WP_REST_Response( array( 'error' => 'provider must be "textbee".' ), 400 );
+		}
+
+		if ( '' === $api_key ) {
+			return new WP_REST_Response( array( 'error' => 'api_key is required.' ), 400 );
+		}
+
+		if ( '' === $device_id ) {
+			return new WP_REST_Response( array( 'error' => 'device_id is required.' ), 400 );
+		}
+
+		$normalised_api_base_url = SmsAbilities::normalise_api_base_url( $api_base_url );
+		if ( is_wp_error( $normalised_api_base_url ) ) {
+			return new WP_REST_Response( array( 'error' => $normalised_api_base_url->get_error_message() ), 400 );
+		}
+
+		$success = $this->settings->set_sms_provider(
+			array(
+				'provider'     => 'textbee',
+				'api_key'      => $api_key,
+				'device_id'    => $device_id,
+				'api_base_url' => $normalised_api_base_url,
+			)
+		);
+
+		if ( ! $success ) {
+			return new WP_REST_Response( array( 'error' => 'Failed to save SMS provider credentials.' ), 500 );
+		}
+
+		return new WP_REST_Response( array_merge( array( 'saved' => true ), $this->get_sms_provider_metadata() ), 200 );
+	}
+
+	/**
+	 * Handle DELETE /settings/sms-provider — remove SMS provider credentials.
+	 *
+	 * @param WP_REST_Request $request The request object.
+	 */
+	public function handle_delete_sms_provider( WP_REST_Request $request ): WP_REST_Response {
+		$this->settings->set_sms_provider( array() );
+
+		return new WP_REST_Response(
+			array(
+				'deleted'     => true,
+				'configured'  => false,
+				'provider'    => null,
+				'has_api_key' => false,
+			),
+			200
+		);
+	}
+
+	/**
+	 * Return safe SMS provider metadata for REST responses.
+	 *
+	 * @return array<string, mixed>
+	 */
+	private function get_sms_provider_metadata(): array {
+		$config    = $this->settings->get_sms_provider();
+		$device_id = (string) ( $config['device_id'] ?? '' );
+
+		return array(
+			'configured'         => $this->settings->has_sms_provider(),
+			'provider'           => $config['provider'] ?? null,
+			'has_api_key'        => ! empty( $config['api_key'] ),
+			'has_device_id'      => '' !== $device_id,
+			'device_id_redacted' => '' !== $device_id ? $this->redact_device_id( $device_id ) : null,
+			'api_base_url'       => $config['api_base_url'] ?? SmsAbilities::DEFAULT_API_BASE_URL,
+		);
+	}
+
+	/**
+	 * Redact a TextBee device ID for metadata responses.
+	 *
+	 * @param string $device_id TextBee device ID.
+	 * @return string
+	 */
+	private function redact_device_id( string $device_id ): string {
+		$visible = substr( $device_id, -4 );
+		return '********' . $visible;
 	}
 
 	/**
