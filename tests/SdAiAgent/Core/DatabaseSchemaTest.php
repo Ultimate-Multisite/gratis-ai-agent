@@ -43,6 +43,7 @@ class DatabaseSchemaTest extends WP_UnitTestCase {
 		'sd_ai_agent_custom_tools',
 		'sd_ai_agent_automations',
 		'sd_ai_agent_automation_logs',
+		'sd_ai_agent_calendar_reminders',
 		'sd_ai_agent_event_automations',
 		'sd_ai_agent_knowledge_collections',
 		'sd_ai_agent_knowledge_sources',
@@ -235,6 +236,26 @@ class DatabaseSchemaTest extends WP_UnitTestCase {
 		foreach ( [ 'id', 'automation_id', 'trigger_type', 'status', 'reply', 'tool_calls', 'prompt_tokens', 'completion_tokens', 'duration_ms', 'created_at' ] as $col ) {
 			$this->assertContains( $col, $columns, "Automation logs table missing column '{$col}'." );
 		}
+	}
+
+	/**
+	 * Calendar reminder state table has the required columns and duplicate guard.
+	 */
+	public function test_calendar_reminders_table_has_required_columns_and_indexes(): void {
+		global $wpdb;
+
+		Database::install();
+
+		$table   = Database::calendar_reminders_table_name();
+		$columns = $this->get_column_names( $table );
+
+		foreach ( [ 'id', 'calendar_id', 'event_id', 'event_start_at', 'reminder_date', 'attendee_email', 'phone_hash', 'status', 'skip_reason', 'provider', 'provider_message_id', 'approval_request_id', 'sent_at', 'created_at', 'updated_at' ] as $col ) {
+			$this->assertContains( $col, $columns, "Calendar reminders table missing column '{$col}'." );
+		}
+
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- Test-only introspection query.
+		$unique_exists = $wpdb->get_var( "SHOW INDEX FROM {$table} WHERE Key_name = 'reminder_dedupe' AND Non_unique = 0" );
+		$this->assertNotNull( $unique_exists, "Calendar reminders table should have UNIQUE KEY 'reminder_dedupe'." );
 	}
 
 	/**
