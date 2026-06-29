@@ -4,7 +4,7 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "f3620d0db0d1f2dfd5cbbd3af64c70e2",
+    "content-hash": "ce64d11cc73ac39af00680511946ed06",
     "packages": [
         {
             "name": "automattic/jetpack-autoloader",
@@ -309,54 +309,6 @@
                 }
             ],
             "time": "2025-08-16T11:10:48+00:00"
-        },
-        {
-            "name": "pondermatic/composer-archive-project",
-            "version": "1.1.0",
-            "source": {
-                "type": "git",
-                "url": "https://gitlab.com/pondermatic-llc/composer-archive-project.git",
-                "reference": "7747b3f0215830f3c760d7a61f94106384a8357d"
-            },
-            "dist": {
-                "type": "zip",
-                "url": "https://gitlab.com/api/v4/projects/pondermatic-llc%2Fcomposer-archive-project/repository/archive.zip?sha=7747b3f0215830f3c760d7a61f94106384a8357d",
-                "reference": "7747b3f0215830f3c760d7a61f94106384a8357d",
-                "shasum": ""
-            },
-            "require": {
-                "composer-plugin-api": "^2.3",
-                "ext-zip": "*"
-            },
-            "require-dev": {
-                "composer/composer": "^2.4"
-            },
-            "type": "composer-plugin",
-            "extra": {
-                "class": "Pondermatic\\ComposerArchiveProject\\Plugin"
-            },
-            "autoload": {
-                "psr-4": {
-                    "Pondermatic\\ComposerArchiveProject\\": "src/"
-                }
-            },
-            "notification-url": "https://packagist.org/downloads/",
-            "license": [
-                "MIT"
-            ],
-            "description": "Creates an archive of a composer package with a root project directory.",
-            "homepage": "https://gitlab.com/pondermatic-llc/composer-archive-project",
-            "keywords": [
-                "archive",
-                "composer-plugin",
-                "project",
-                "wordpress"
-            ],
-            "support": {
-                "issues": "https://gitlab.com/pondermatic-llc/composer-archive-project/-/issues",
-                "source": "https://gitlab.com/pondermatic-llc/composer-archive-project/-/tree/1.1.0"
-            },
-            "time": "2024-02-24T08:08:59+00:00"
         },
         {
             "name": "psr/container",

@@ -111,6 +111,7 @@ restore_dev_vendor() {
 build_assets_and_vendor() {
 	echo "==> Building Superdav AI Agent v${VERSION} assets..."
 	npx wp-scripts build
+	node scripts/add-strict-types.js
 	echo "    Assets built."
 
 	DEV_VENDOR_RESTORED=0
@@ -185,6 +186,79 @@ zip_dir() {
 	return 0
 }
 
+validate_zip_contents() {
+	local zip_path="$1"
+	local top_dir="$2"
+	local package_label="$3"
+	local required_file="$4"
+	local forbid_composer_json="${5:-no}"
+	local listing_file=""
+	local bad_file=""
+	local forbidden_pattern=""
+
+	if ! command -v unzip >/dev/null 2>&1; then
+		echo "ERROR: unzip is required to validate ${zip_path}." >&2
+		return 1
+	fi
+
+	listing_file="$(mktemp)"
+	bad_file="$(mktemp)"
+
+	if ! unzip -Z1 "$zip_path" >"$listing_file"; then
+		echo "ERROR: Could not inspect ${zip_path}." >&2
+		rm -f "$listing_file" "$bad_file"
+		return 1
+	fi
+
+	if grep -Ev "^${top_dir}(/|$)" "$listing_file" >"$bad_file"; then
+		echo "ERROR: ${package_label} zip contains files outside ${top_dir}/:" >&2
+		sed -n '1,20p' "$bad_file" >&2
+		rm -f "$listing_file" "$bad_file"
+		return 1
+	fi
+
+	if ! grep -Fxq "${top_dir}/${required_file}" "$listing_file"; then
+		echo "ERROR: ${package_label} zip is missing ${top_dir}/${required_file}." >&2
+		rm -f "$listing_file" "$bad_file"
+		return 1
+	fi
+
+	while IFS= read -r forbidden_pattern; do
+		if [ -z "$forbidden_pattern" ]; then
+			continue
+		fi
+
+		if grep -E "^${top_dir}/${forbidden_pattern}" "$listing_file" >"$bad_file"; then
+			echo "ERROR: ${package_label} zip contains excluded development files:" >&2
+			sed -n '1,20p' "$bad_file" >&2
+			rm -f "$listing_file" "$bad_file"
+			return 1
+		fi
+	done <<'EOF'
+advanced-plugin(/|$)
+(\.git|\.github|node_modules|src|tests|bin|scripts|docs|stubs|tools|playground|seeds|migrations|schemas|\.agents|\.claude|\.cursor|\.opencode|\.husky|\.wordpress-org|screenshots|playwright-report|blob-report|coverage-html)(/|$)
+(package\.json|package-lock\.json|webpack\.config\.js|wp-cli\.yml|phpunit\.xml(\.dist)?|phpcs\.xml|phpstan\.neon(\.dist)?|composer\.lock|AGENTS\.md|CLAUDE\.md|README\.md|TODO\.md|CHANGELOG\.md|CONTRIBUTING\.md|CODE_OF_CONDUCT\.md|SECURITY\.md|DESIGN\.md|MODELS\.md|ROADMAP\.md|PLANS-AI-AGENT-MASTERPLAN\.md|ISSUE_1497_FIX\.md|verify-output\.txt|VERSION|\.distignore|\.gitattributes|\.gitignore|\.eslintignore|\.eslintrc\.json|\.stylelintrc\.json|\.wp-env\.json|\.task-counter|\.phpunit\.result\.cache|\.phpunit\.cache|\.aidevops\.json|\.beads|\.beads-credential-key|\.dolt|\.clinerules|\.cursorrules|\.windsurfrules|codecov\.yml|playwright\.config\.(js|ts)|coverage\.xml|skills-lock\.json)$
+build/(di-cache|wporg-review)(/|$)
+vendor/pondermatic(/|$)
+vendor/.*/composer\.lock$
+.*\.zip$
+.*\.map$
+.*\.log$
+.*\.db$
+EOF
+
+	if [ "$forbid_composer_json" = "yes" ] && grep -E "^${top_dir}/composer\.json$" "$listing_file" >"$bad_file"; then
+		echo "ERROR: ${package_label} zip contains composer.json, which is not needed for this package:" >&2
+		sed -n '1,20p' "$bad_file" >&2
+		rm -f "$listing_file" "$bad_file"
+		return 1
+	fi
+
+	rm -f "$listing_file" "$bad_file"
+	echo "    Contents validated: ${package_label} zip contains only release files."
+	return 0
+}
+
 build_core() {
 	local build_dir=""
 	local exclude_file=""
@@ -208,6 +282,7 @@ build_core() {
 	prune_dev_metadata "$dest"
 	composer --working-dir="$dest" dump-autoload --no-dev --optimize --quiet
 	zip_dir "$build_dir" "superdav-ai-agent" "superdav-ai-agent-${VERSION}.zip"
+	validate_zip_contents "${PLUGIN_DIR}/superdav-ai-agent-${VERSION}.zip" "superdav-ai-agent" "core" "superdav-ai-agent.php" "no"
 	return 0
 }
 
@@ -230,11 +305,13 @@ build_advanced() {
 	echo "==> [advanced] Copying advanced plugin files..."
 	rsync -a --delete \
 		--exclude='vendor' \
+		--exclude='composer.json' \
 		--exclude='composer.lock' \
 		"${PLUGIN_DIR}/advanced-plugin/" "$dest/"
 
 	prune_dev_metadata "$dest"
 	zip_dir "$build_dir" "superdav-ai-agent-advanced" "superdav-ai-agent-advanced-${VERSION}.zip"
+	validate_zip_contents "${PLUGIN_DIR}/superdav-ai-agent-advanced-${VERSION}.zip" "superdav-ai-agent-advanced" "advanced" "superdav-ai-agent-advanced.php" "yes"
 	return 0
 }
 

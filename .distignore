@@ -139,6 +139,10 @@
 /test-results
 /skills-lock.json
 
+# Release bookkeeping / local verification transcripts not needed at runtime
+/VERSION
+/verify-output.txt
+
 # Temporary issue-specific dev notes (root *.md files). Listed individually
 # so future ISSUE_*.md scratch notes get added here, not silently shipped.
 /ISSUE_1497_FIX.md
@@ -176,6 +180,8 @@ src/**/__snapshots__
 
 # Vendor dev-only packages (safety net — prefer composer install --no-dev)
 # These are require-dev packages that should not ship in a production zip.
+/vendor/pondermatic
+/vendor/**/composer.lock
 vendor/dealerdirect
 vendor/doctrine
 vendor/myclabs
