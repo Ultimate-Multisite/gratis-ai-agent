@@ -36,7 +36,7 @@ use SdAiAgent\Tools\CustomTools;
 class Database {
 
 	const DB_VERSION_OPTION = 'sd_ai_agent_db_version';
-	const DB_VERSION        = '19.5.5';
+	const DB_VERSION        = '19.5.6';
 
 	// ─── Table Name Registry ──────────────────────────────────────────────────
 
@@ -469,7 +469,7 @@ class Database {
 			created_at datetime NOT NULL,
 			updated_at datetime NOT NULL,
 			PRIMARY KEY  (id),
-			UNIQUE KEY reminder_dedupe (calendar_id(80), event_id(120), attendee_email(120), reminder_date),
+			UNIQUE KEY reminder_dedupe (calendar_id, event_id, attendee_email, reminder_date),
 			KEY status (status),
 			KEY reminder_date (reminder_date),
 			KEY approval_request_id (approval_request_id),
@@ -747,6 +747,8 @@ class Database {
 		require_once ABSPATH . 'wp-admin/includes/upgrade.php';
 		dbDelta( $sql );
 
+		self::ensure_calendar_reminder_dedupe_index( $calendar_reminders_table );
+
 		// Add FULLTEXT index on memories table if not present.
 		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.InterpolatedNotPrepared, PluginCheck.Security.DirectDB.UnescapedDBParameter -- Custom table query; table name from internal method.
 		$ft_exists = $wpdb->get_var( "SHOW INDEX FROM {$memories_table} WHERE Key_name = 'ft_content'" );
@@ -768,6 +770,27 @@ class Database {
 		Agent::seed_defaults();
 
 		update_option( self::DB_VERSION_OPTION, self::DB_VERSION );
+	}
+
+	/**
+	 * Ensure the calendar reminder dedupe key uses the full reminder identity.
+	 */
+	private static function ensure_calendar_reminder_dedupe_index( string $table ): void {
+		global $wpdb;
+		/** @var \wpdb $wpdb */
+
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.InterpolatedNotPrepared, PluginCheck.Security.DirectDB.UnescapedDBParameter -- Schema introspection for an internal table name.
+		$prefixed_parts = $wpdb->get_col( "SHOW INDEX FROM {$table} WHERE Key_name = 'reminder_dedupe' AND Sub_part IS NOT NULL" );
+
+		if ( [] === $prefixed_parts ) {
+			return;
+		}
+
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.SchemaChange, WordPress.DB.PreparedSQL.InterpolatedNotPrepared, PluginCheck.Security.DirectDB.UnescapedDBParameter -- Required schema repair for the calendar reminder dedupe index.
+		$wpdb->query( "ALTER TABLE {$table} DROP INDEX reminder_dedupe" );
+
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.SchemaChange, WordPress.DB.PreparedSQL.InterpolatedNotPrepared, PluginCheck.Security.DirectDB.UnescapedDBParameter -- Required schema repair for the calendar reminder dedupe index.
+		$wpdb->query( "ALTER TABLE {$table} ADD UNIQUE KEY reminder_dedupe (calendar_id, event_id, attendee_email, reminder_date)" );
 	}
 
 	// ─── Session Delegates ────────────────────────────────────────────────────

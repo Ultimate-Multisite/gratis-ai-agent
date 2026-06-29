@@ -291,6 +291,10 @@ class DatabaseSchemaTest extends WP_UnitTestCase {
 		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- Test-only introspection query.
 		$unique_exists = $wpdb->get_var( "SHOW INDEX FROM {$table} WHERE Key_name = 'reminder_dedupe' AND Non_unique = 0" );
 		$this->assertNotNull( $unique_exists, "Calendar reminders table should have UNIQUE KEY 'reminder_dedupe'." );
+
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- Test-only introspection query.
+		$sub_parts = $wpdb->get_col( "SHOW INDEX FROM {$table} WHERE Key_name = 'reminder_dedupe' AND Sub_part IS NOT NULL" );
+		$this->assertSame( [], $sub_parts, "Calendar reminders table should use full columns for UNIQUE KEY 'reminder_dedupe'." );
 	}
 
 	/**
