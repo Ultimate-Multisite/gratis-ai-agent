@@ -1020,6 +1020,81 @@ class RestControllerTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * Test failed agent jobs persist the current user turn for recovery.
+	 */
+	public function test_error_recovery_persists_failed_turn_to_session(): void {
+		if ( ! class_exists( 'WordPress\AiClient\Messages\DTO\UserMessage' ) ) {
+			$this->markTestSkipped( 'AI Client SDK message classes are not available.' );
+		}
+
+		wp_set_current_user( $this->admin_id );
+
+		$session_id = Database::create_session( [
+			'user_id' => $this->admin_id,
+			'title'   => 'Recover failed turn',
+		] );
+
+		$existing = \SdAiAgent\Core\ConversationSerializer::serialize(
+			[
+				new \WordPress\AiClient\Messages\DTO\UserMessage(
+					[ new \WordPress\AiClient\Messages\DTO\MessagePart( 'Start the site.' ) ]
+				),
+				new \WordPress\AiClient\Messages\DTO\ModelMessage(
+					[ new \WordPress\AiClient\Messages\DTO\MessagePart( 'I checked the site.' ) ]
+				),
+			]
+		);
+		Database::append_to_session( $session_id, $existing );
+
+		$failed_turn = \SdAiAgent\Core\ConversationSerializer::serialize(
+			[
+				new \WordPress\AiClient\Messages\DTO\UserMessage(
+					[ new \WordPress\AiClient\Messages\DTO\MessagePart( 'Please continue after the error.' ) ]
+				),
+			]
+		);
+		$history     = array_merge( $existing, $failed_turn );
+		$error       = new \WP_Error(
+			'prompt_invalid_argument',
+			'The last message must be from a user role, not from model',
+			[
+				'history'          => $history,
+				'tool_calls'       => [ [ 'type' => 'call', 'id' => 'call_1', 'name' => 'wpab__sd-ai-agent__site-info' ] ],
+				'messages'         => [ [ 'type' => 'provider_error', 'message' => 'Provider rejected history.' ] ],
+				'token_usage'      => [ 'prompt' => 12, 'completion' => 0 ],
+				'model_id'         => 'superdav-chat-pro',
+				'provider_id'      => 'sd-ai-agent-cloud',
+				'client_abilities' => [],
+			]
+		);
+
+		$controller = new \SdAiAgent\REST\SessionController( new Database() );
+		$method     = new \ReflectionMethod( \SdAiAgent\REST\SessionController::class, 'persist_error_recovery_to_session' );
+		$method->setAccessible( true );
+
+		$params     = [ 'message' => 'Please continue after the error.', 'session_id' => $session_id ];
+		$options    = [ 'provider_id' => 'sd-ai-agent-cloud', 'model_id' => 'superdav-chat-pro' ];
+		$job        = [ 'status' => 'error', 'error' => $error->get_error_message(), 'params' => $params ];
+		$error_data = $error->get_error_data();
+		$this->assertIsArray( $error_data );
+
+		$method->invokeArgs( $controller, [ $session_id, $error, $error_data, $params, $options, &$job ] );
+
+		$session  = Database::get_session( $session_id );
+		$messages = json_decode( (string) $session->messages, true );
+		$paused   = json_decode( (string) $session->paused_state, true );
+
+		$this->assertCount( 3, $messages );
+		$this->assertSame( 'user', $messages[2]['role'] );
+		$this->assertStringContainsString( 'Please continue', wp_json_encode( $messages[2] ) );
+		$this->assertIsArray( $paused );
+		$this->assertSame( 'prompt_invalid_argument', $paused['exit_reason'] );
+		$this->assertCount( 3, $paused['history'] );
+		$this->assertSame( $session_id, $job['session_id'] );
+		$this->assertTrue( $job['recoverable'] );
+	}
+
+	/**
 	 * Test GET /job/{id} requires authentication.
 	 */
 	public function test_job_status_requires_auth(): void {

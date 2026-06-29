@@ -927,6 +927,35 @@ class AgentLoop {
 			// corruption from session storage could leave orphaned tool
 			// calls that cause API 400 errors.
 			$this->history = ConversationTrimmer::validate_tool_pairs( $this->history );
+
+			if ( $this->history_ends_with_model_message() ) {
+				$result = $this->with_error_recovery_data(
+					new WP_Error(
+						'sd_ai_agent_history_needs_user_turn',
+						__(
+							'The previous agent run stopped after an assistant message. Send a new message to continue from the saved chat history.',
+							'superdav-ai-agent'
+						)
+					)
+				);
+
+				AgentEventLog::log(
+					'agent_loop_aborted',
+					AgentEventLog::SEVERITY_ERROR,
+					array(
+						'session_id'      => $this->session_id,
+						'reason'          => (string) $result->get_error_code(),
+						'iterations_used' => $this->iterations_used,
+						'iterations_max'  => (int) $this->max_iterations,
+						'model_id'        => (string) $this->model_id,
+						'provider_id'     => (string) $this->provider_id,
+						'message'         => (string) $result->get_error_message(),
+					)
+				);
+
+				return $result;
+			}
+
 			$this->save_active_job_checkpoint( self::CHECKPOINT_BEFORE_PROVIDER_CALL, $iterations + 1 );
 
 			$this->last_loop_phase = 'provider_call';
@@ -935,6 +964,7 @@ class AgentLoop {
 
 			if ( is_wp_error( $result ) ) {
 				/** @var WP_Error $result */
+				$result = $this->with_error_recovery_data( $result );
 				AgentEventLog::log(
 					'agent_loop_aborted',
 					AgentEventLog::SEVERITY_ERROR,
@@ -1924,6 +1954,91 @@ class AgentLoop {
 	 */
 	private function serialize_history(): array {
 		return ConversationSerializer::serialize( $this->history );
+	}
+
+	/**
+	 * Whether the prompt history currently ends with an assistant/model turn.
+	 *
+	 * Provider SDKs require a resumed request to continue from a user/tool result
+	 * boundary. If a crashed checkpoint or stale paused state ends with a plain
+	 * model response, sending it again produces provider validation errors such as
+	 * "The last message must be from a user role, not from model". Surface a
+	 * recoverable local error instead so the browser can keep the saved history and
+	 * the user can send a fresh continuation message.
+	 */
+	private function history_ends_with_model_message(): bool {
+		$last = end( $this->history );
+		reset( $this->history );
+
+		if ( ! $last instanceof Message ) {
+			return false;
+		}
+
+		return in_array( $this->message_role_string( $last ), array( 'model', 'assistant' ), true );
+	}
+
+	/**
+	 * Return a stable role string for SDK message objects.
+	 *
+	 * @param Message $message Message to inspect.
+	 */
+	private function message_role_string( Message $message ): string {
+		try {
+			$data = $message->toArray();
+			$role = $data['role'] ?? '';
+
+			if ( is_scalar( $role ) ) {
+				return (string) $role;
+			}
+
+			if ( $role instanceof \BackedEnum ) {
+				return (string) $role->value;
+			}
+
+			if ( is_object( $role ) && method_exists( $role, 'getValue' ) ) {
+				return (string) $role->getValue();
+			}
+
+			return '';
+		} catch ( \Throwable $e ) {
+			return '';
+		}
+	}
+
+	/**
+	 * Attach resumable conversation context to a loop error.
+	 *
+	 * Job/session persistence layers use this data to keep the user's failed turn
+	 * and the latest safe history instead of dropping the prompt when the provider
+	 * or SDK rejects a request.
+	 *
+	 * @param WP_Error $error Error returned from a provider/loop boundary.
+	 */
+	private function with_error_recovery_data( WP_Error $error ): WP_Error {
+		$error_data = $error->get_error_data();
+		$data       = is_array( $error_data ) ? $error_data : array();
+
+		$defaults = array(
+			'tool_calls'       => $this->tool_call_log,
+			'token_usage'      => $this->token_usage,
+			'iterations_used'  => $this->iterations_used,
+			'model_id'         => $this->model_id,
+			'provider_id'      => $this->provider_id,
+			'history'          => $this->serialize_history(),
+			'client_abilities' => $this->client_abilities,
+			'recoverable'      => true,
+		);
+
+		foreach ( $defaults as $key => $value ) {
+			if ( ! array_key_exists( $key, $data ) ) {
+				$data[ $key ] = $value;
+			}
+		}
+
+		$data = $this->with_result_logs( $data );
+		$error->add_data( $data );
+
+		return $error;
 	}
 
 	/**
