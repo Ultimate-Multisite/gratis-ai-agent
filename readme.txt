@@ -4,7 +4,7 @@ Tags: ai, chatbot, assistant, automation, tools
 Requires at least: 7.0
 Tested up to: 7.0
 Requires PHP: 8.2
-Stable tag: 1.17.0
+Stable tag: 1.18.0
 License: GPL-2.0-or-later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -225,6 +225,17 @@ Superdav AI Agent uses the native WordPress AI Client SDK and Abilities API. The
 8. Settings page with 12 configuration tabs
 
 == Changelog ==
+
+= 1.18.0 - Released on 2026-06-29 =
+* New: Added Google Calendar tools so the agent can read calendars and events when configured.
+* New: Added contact mapping and attendee helpers so automations can match calendar participants to site users and contacts.
+* New: Added human approval gates and reminder records so automations can pause for review and avoid duplicate notifications.
+* New: Added TextBee SMS provider support for sending configured text-message notifications.
+* New: Added the Advanced companion package for trusted developer workflows, with filesystem, database, WP-CLI, REST dispatcher, plugin builder, git snapshot, user-management, and benchmark tools distributed separately from the WordPress.org build.
+* Improved: Added managed Superdav service endpoints and automatic connection provisioning so supported sites can use the hosted provider with less setup.
+* Improved: Updated release packaging to build separate core and Advanced ZIPs, publish both on GitHub, and send only the core package to WordPress.org.
+* Fix: Fixed model selection, request timeouts, default setup model, reasoning-text handling, and clearer retry guidance when tool calls are invalid.
+* Fix: Fixed Google Calendar token and reminder-deduplication hardening, frontend onboarding launches, confirmed ability resumes, and WordPress.org packaging review issues.
 
 = 1.17.0 - Released on 2026-06-11 =
 * New: Added safer page and post editing tools so the agent can inspect block layouts, find the right section, make targeted updates, and preserve existing content.
