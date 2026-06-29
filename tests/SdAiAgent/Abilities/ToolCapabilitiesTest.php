@@ -57,7 +57,8 @@ class ToolCapabilitiesTest extends WP_UnitTestCase {
 			'sd-ai-agent/memory-save'     => [ 'sd-ai-agent/memory-save', 'sd_ai_agent_tool_memory_save' ],
 			'sd-ai-agent/create-post'     => [ 'sd-ai-agent/create-post', 'sd_ai_agent_tool_create_post' ],
 			'sd-ai-agent/update-post'     => [ 'sd-ai-agent/update-post', 'sd_ai_agent_tool_update_post' ],
-			'sd-ai-agent/list-posts'      => [ 'sd-ai-agent/list-posts', 'sd_ai_agent_tool_list_posts' ],
+			'sd-ai-agent/list-posts'         => [ 'sd-ai-agent/list-posts', 'sd_ai_agent_tool_list_posts' ],
+			'contact-phone-lookup'           => [ 'sd-ai-agent/contact-phone-lookup', 'sd_ai_agent_tool_contact_phone_lookup' ],
 		];
 	}
 

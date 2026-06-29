@@ -61,6 +61,7 @@ class DatabaseSchemaTest extends WP_UnitTestCase {
 		'sd_ai_agent_generated_plugins',
 		'sd_ai_agent_active_jobs',
 		'sd_ai_agent_skill_usage',
+		'sd_ai_agent_contact_mappings',
 	];
 
 	/**
@@ -194,6 +195,26 @@ class DatabaseSchemaTest extends WP_UnitTestCase {
 			$index_exists = $wpdb->get_var( "SHOW INDEX FROM {$table} WHERE Key_name = '{$index}'" );
 			$this->assertNotNull( $index_exists, "Skill usage table missing index '{$index}'." );
 		}
+	}
+
+	/**
+	 * Contact mappings table has the required columns and indexes.
+	 */
+	public function test_contact_mappings_table_has_required_columns_and_indexes(): void {
+		global $wpdb;
+
+		Database::install();
+
+		$table   = Database::contact_mappings_table_name();
+		$columns = $this->get_column_names( $table );
+
+		foreach ( [ 'id', 'attendee_email', 'phone_e164', 'sms_consent', 'display_name', 'source', 'notes', 'created_at', 'updated_at' ] as $col ) {
+			$this->assertContains( $col, $columns, "Contact mappings table missing column '{$col}'." );
+		}
+
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- Test-only introspection query.
+		$unique_exists = $wpdb->get_var( "SHOW INDEX FROM {$table} WHERE Key_name = 'attendee_email' AND Non_unique = 0" );
+		$this->assertNotNull( $unique_exists, "Contact mappings table should have UNIQUE KEY on 'attendee_email'." );
 	}
 
 	/**
@@ -594,7 +615,7 @@ class DatabaseSchemaTest extends WP_UnitTestCase {
 	// ── Table count ───────────────────────────────────────────────────────
 
 	/**
-	 * Exactly the expected number of plugin tables exist after install().
+	 * All expected plugin tables exist after install().
 	 */
 	public function test_install_creates_correct_table_count(): void {
 		global $wpdb;
@@ -605,13 +626,18 @@ class DatabaseSchemaTest extends WP_UnitTestCase {
 		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- Test-only introspection query.
 		$tables  = $wpdb->get_col( "SHOW TABLES LIKE '{$prefix}%'" );
 
-		$this->assertCount(
-			count( self::EXPECTED_TABLES ),
-			$tables,
+		$expected_tables = array_map(
+			static fn( string $suffix ): string => $wpdb->prefix . $suffix,
+			self::EXPECTED_TABLES
+		);
+		$missing_tables  = array_values( array_diff( $expected_tables, $tables ) );
+
+		$this->assertSame(
+			array(),
+			$missing_tables,
 			sprintf(
-				'Expected %d plugin tables, found %d: %s',
-				count( self::EXPECTED_TABLES ),
-				count( $tables ),
+				'Missing expected plugin tables: %s. Found: %s',
+				implode( ', ', $missing_tables ),
 				implode( ', ', $tables )
 			)
 		);

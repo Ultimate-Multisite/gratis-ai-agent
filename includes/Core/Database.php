@@ -36,7 +36,7 @@ use SdAiAgent\Tools\CustomTools;
 class Database {
 
 	const DB_VERSION_OPTION = 'sd_ai_agent_db_version';
-	const DB_VERSION        = '19.5.3';
+	const DB_VERSION        = '19.5.4';
 
 	// ─── Table Name Registry ──────────────────────────────────────────────────
 
@@ -228,6 +228,15 @@ class Database {
 		return $wpdb->prefix . 'sd_ai_agent_skill_usage';
 	}
 
+	/**
+	 * Get the attendee contact mappings table name.
+	 */
+	public static function contact_mappings_table_name(): string {
+		global $wpdb;
+		/** @var \wpdb $wpdb */
+		return $wpdb->prefix . 'sd_ai_agent_contact_mappings';
+	}
+
 	// ─── Schema Installation ──────────────────────────────────────────────────
 
 	/**
@@ -266,6 +275,7 @@ class Database {
 		$generated_plugins_table      = self::generated_plugins_table_name();
 		$active_jobs_table            = self::active_jobs_table_name();
 		$skill_usage_table            = self::skill_usage_table_name();
+		$contact_mappings_table       = self::contact_mappings_table_name();
 		$charset                      = $wpdb->get_charset_collate();
 
 		// Knowledge tables.
@@ -649,6 +659,22 @@ class Database {
 			KEY outcome (outcome),
 			KEY model_id (model_id),
 			KEY created_at (created_at)
+		) {$charset};
+
+		CREATE TABLE {$contact_mappings_table} (
+			id bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+			attendee_email varchar(190) NOT NULL,
+			phone_e164 varchar(20) NOT NULL DEFAULT '',
+			sms_consent tinyint(1) NOT NULL DEFAULT 0,
+			display_name varchar(255) NOT NULL DEFAULT '',
+			source varchar(100) NOT NULL DEFAULT '',
+			notes text NOT NULL DEFAULT '',
+			created_at datetime NOT NULL,
+			updated_at datetime NOT NULL,
+			PRIMARY KEY  (id),
+			UNIQUE KEY attendee_email (attendee_email),
+			KEY sms_consent (sms_consent),
+			KEY updated_at (updated_at)
 		) {$charset};";
 
 		require_once ABSPATH . 'wp-admin/includes/upgrade.php';

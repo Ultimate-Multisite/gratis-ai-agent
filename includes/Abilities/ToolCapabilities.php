@@ -78,6 +78,7 @@ class ToolCapabilities {
 		'sd-ai-agent/update-option'              => 'manage_options',
 		'sd-ai-agent/delete-option'              => 'manage_options',
 		'sd-ai-agent/list-options'               => 'manage_options',
+		'sd-ai-agent/contact-phone-lookup'       => 'manage_options',
 
 		// ─── Users ──────────────────────────────────────────────────────────
 		'sd-ai-agent/list-users'                 => 'list_users',
