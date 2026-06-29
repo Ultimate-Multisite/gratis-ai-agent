@@ -36,7 +36,7 @@ use SdAiAgent\Tools\CustomTools;
 class Database {
 
 	const DB_VERSION_OPTION = 'sd_ai_agent_db_version';
-	const DB_VERSION        = '19.5.3';
+	const DB_VERSION        = '19.5.4';
 
 	// ─── Table Name Registry ──────────────────────────────────────────────────
 
@@ -101,6 +101,15 @@ class Database {
 		global $wpdb;
 		/** @var \wpdb $wpdb */
 		return $wpdb->prefix . 'sd_ai_agent_automation_logs';
+	}
+
+	/**
+	 * Get the human approval requests table name.
+	 */
+	public static function approval_requests_table_name(): string {
+		global $wpdb;
+		/** @var \wpdb $wpdb */
+		return $wpdb->prefix . 'sd_ai_agent_approval_requests';
 	}
 
 	/**
@@ -253,6 +262,7 @@ class Database {
 		$custom_tools_table           = self::custom_tools_table_name();
 		$automations_table            = self::automations_table_name();
 		$automation_logs_table        = self::automation_logs_table_name();
+		$approval_requests_table      = self::approval_requests_table_name();
 		$event_automations_table      = self::event_automations_table_name();
 		$conversation_templates_table = self::conversation_templates_table_name();
 		$git_tracked_files_table      = self::git_tracked_files_table_name();
@@ -396,6 +406,29 @@ class Database {
 			PRIMARY KEY  (id),
 			KEY automation_id (automation_id),
 			KEY trigger_type (trigger_type),
+			KEY created_at (created_at)
+		) {$charset};
+
+		CREATE TABLE {$approval_requests_table} (
+			id bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+			source_type varchar(40) NOT NULL DEFAULT 'automation',
+			source_id bigint(20) unsigned NOT NULL DEFAULT 0,
+			action_type varchar(100) NOT NULL DEFAULT '',
+			status varchar(20) NOT NULL DEFAULT 'pending',
+			payload longtext NOT NULL,
+			payload_hash varchar(64) NOT NULL DEFAULT '',
+			result longtext NOT NULL,
+			requested_by bigint(20) unsigned NOT NULL DEFAULT 0,
+			approved_by bigint(20) unsigned NOT NULL DEFAULT 0,
+			expires_at datetime DEFAULT NULL,
+			created_at datetime NOT NULL,
+			updated_at datetime NOT NULL,
+			PRIMARY KEY  (id),
+			KEY source_lookup (source_type, source_id),
+			KEY action_type (action_type),
+			KEY status (status),
+			KEY payload_hash (payload_hash),
+			KEY expires_at (expires_at),
 			KEY created_at (created_at)
 		) {$charset};
 

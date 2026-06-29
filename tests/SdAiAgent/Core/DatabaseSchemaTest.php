@@ -43,6 +43,7 @@ class DatabaseSchemaTest extends WP_UnitTestCase {
 		'sd_ai_agent_custom_tools',
 		'sd_ai_agent_automations',
 		'sd_ai_agent_automation_logs',
+		'sd_ai_agent_approval_requests',
 		'sd_ai_agent_event_automations',
 		'sd_ai_agent_knowledge_collections',
 		'sd_ai_agent_knowledge_sources',
@@ -234,6 +235,19 @@ class DatabaseSchemaTest extends WP_UnitTestCase {
 
 		foreach ( [ 'id', 'automation_id', 'trigger_type', 'status', 'reply', 'tool_calls', 'prompt_tokens', 'completion_tokens', 'duration_ms', 'created_at' ] as $col ) {
 			$this->assertContains( $col, $columns, "Automation logs table missing column '{$col}'." );
+		}
+	}
+
+	/**
+	 * Approval requests table has the required columns.
+	 */
+	public function test_approval_requests_table_has_required_columns(): void {
+		Database::install();
+
+		$columns = $this->get_column_names( Database::approval_requests_table_name() );
+
+		foreach ( [ 'id', 'source_type', 'source_id', 'action_type', 'status', 'payload', 'payload_hash', 'result', 'requested_by', 'approved_by', 'expires_at', 'created_at', 'updated_at' ] as $col ) {
+			$this->assertContains( $col, $columns, "Approval requests table missing column '{$col}'." );
 		}
 	}
 
