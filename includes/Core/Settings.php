@@ -38,6 +38,13 @@ class Settings {
 	const GSC_CREDENTIALS_OPTION = 'sd_ai_agent_gsc_credentials';
 
 	/**
+	 * Option name for Google Calendar credentials.
+	 * Stored separately from general settings so OAuth client secrets and refresh
+	 * tokens are never returned by the general GET /settings endpoint.
+	 */
+	const GOOGLE_CALENDAR_CREDENTIALS_OPTION = 'sd_ai_agent_google_calendar_credentials';
+
+	/**
 	 * Option name that records the most recent saved default-model value
 	 * which was rejected by {@see resolve_default_provider_and_model()}
 	 * because the configured provider/model was not advertised by any
@@ -549,6 +556,51 @@ class Settings {
 	 */
 	public function has_gsc_credentials(): bool {
 		$creds = $this->get_gsc_credentials();
+		return ! empty( $creds['type'] );
+	}
+
+	/**
+	 * Get stored Google Calendar credentials.
+	 *
+	 * Supported shape:
+	 *   OAuth2 refresh token: ['type' => 'oauth2_refresh_token', 'client_id' => '...', 'client_secret' => '...', 'refresh_token' => '...', 'default_calendar_id' => '...']
+	 *
+	 * Raw credential values must only be used by Google Calendar abilities and
+	 * dedicated admin-only save/delete routes; settings read responses expose
+	 * metadata only.
+	 *
+	 * @return array<string, mixed> Credential array or empty array.
+	 */
+	public function get_google_calendar_credentials(): array {
+		$creds = get_option( self::GOOGLE_CALENDAR_CREDENTIALS_OPTION, array() );
+		/** @var array<string, mixed> $result */
+		$result = is_array( $creds ) ? $creds : array();
+		return $result;
+	}
+
+	/**
+	 * Persist Google Calendar credentials.
+	 *
+	 * Pass an empty array to clear the credentials.
+	 *
+	 * @param array<string, mixed> $credentials Credential array.
+	 * @return bool True on success.
+	 */
+	public function set_google_calendar_credentials( array $credentials ): bool {
+		if ( empty( $credentials ) ) {
+			return delete_option( self::GOOGLE_CALENDAR_CREDENTIALS_OPTION );
+		}
+
+		return update_option( self::GOOGLE_CALENDAR_CREDENTIALS_OPTION, $credentials );
+	}
+
+	/**
+	 * Check whether Google Calendar credentials are configured.
+	 *
+	 * @return bool
+	 */
+	public function has_google_calendar_credentials(): bool {
+		$creds = $this->get_google_calendar_credentials();
 		return ! empty( $creds['type'] );
 	}
 

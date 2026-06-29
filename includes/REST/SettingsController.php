@@ -267,6 +267,29 @@ final class SettingsController {
 			)
 		);
 
+		// Google Calendar OAuth2 credentials endpoint.
+		register_rest_route(
+			RestController::NAMESPACE,
+			'/settings/google-calendar',
+			array(
+				array(
+					'methods'             => WP_REST_Server::READABLE,
+					'callback'            => array( $this, 'handle_get_google_calendar_credentials' ),
+					'permission_callback' => array( __CLASS__, 'check_admin_permission' ),
+				),
+				array(
+					'methods'             => WP_REST_Server::CREATABLE,
+					'callback'            => array( $this, 'handle_set_google_calendar_credentials' ),
+					'permission_callback' => array( __CLASS__, 'check_admin_permission' ),
+				),
+				array(
+					'methods'             => WP_REST_Server::DELETABLE,
+					'callback'            => array( $this, 'handle_delete_google_calendar_credentials' ),
+					'permission_callback' => array( __CLASS__, 'check_admin_permission' ),
+				),
+			)
+		);
+
 		// Google Search Console credentials endpoint.
 		register_rest_route(
 			RestController::NAMESPACE,
@@ -345,6 +368,14 @@ final class SettingsController {
 			'configured'       => $this->settings->has_gsc_credentials(),
 			'type'             => $gsc_creds['type'] ?? null,
 			'default_site_url' => $gsc_creds['default_site_url'] ?? null,
+		);
+
+		$calendar_creds = $this->settings->get_google_calendar_credentials();
+		// @phpstan-ignore-next-line
+		$settings['_google_calendar_credentials'] = array(
+			'configured'          => $this->settings->has_google_calendar_credentials(),
+			'type'                => $calendar_creds['type'] ?? null,
+			'default_calendar_id' => $calendar_creds['default_calendar_id'] ?? null,
 		);
 
 		// Indicate whether search provider API keys are configured (boolean only, no key values).
@@ -506,6 +537,85 @@ final class SettingsController {
 	public function handle_clear_ga_credentials(): WP_REST_Response {
 		GoogleAnalyticsAbilities::clear_credentials();
 		return new WP_REST_Response( array( 'cleared' => true ), 200 );
+	}
+
+	/**
+	 * Handle GET /settings/google-calendar — return metadata only.
+	 */
+	public function handle_get_google_calendar_credentials(): WP_REST_Response {
+		$creds = $this->settings->get_google_calendar_credentials();
+		return new WP_REST_Response(
+			array(
+				'has_credentials'     => $this->settings->has_google_calendar_credentials(),
+				'type'                => $creds['type'] ?? null,
+				'default_calendar_id' => $creds['default_calendar_id'] ?? null,
+			),
+			200
+		);
+	}
+
+	/**
+	 * Handle POST /settings/google-calendar — save OAuth2 refresh-token credentials.
+	 *
+	 * @param WP_REST_Request $request The request object.
+	 */
+	public function handle_set_google_calendar_credentials( WP_REST_Request $request ): WP_REST_Response {
+		$params = $request->get_json_params();
+		if ( empty( $params ) || ! is_array( $params ) ) {
+			return new WP_REST_Response( array( 'error' => __( 'No data provided.', 'superdav-ai-agent' ) ), 400 );
+		}
+
+		$type = sanitize_text_field( (string) ( $params['type'] ?? '' ) );
+		if ( 'oauth2_refresh_token' !== $type ) {
+			return new WP_REST_Response( array( 'error' => __( 'type must be "oauth2_refresh_token".', 'superdav-ai-agent' ) ), 400 );
+		}
+
+		$client_id           = sanitize_text_field( (string) ( $params['client_id'] ?? '' ) );
+		$client_secret       = sanitize_text_field( (string) ( $params['client_secret'] ?? '' ) );
+		$refresh_token       = sanitize_text_field( (string) ( $params['refresh_token'] ?? '' ) );
+		$default_calendar_id = sanitize_text_field( (string) ( $params['default_calendar_id'] ?? 'primary' ) );
+
+		if ( '' === $client_id || '' === $client_secret || '' === $refresh_token ) {
+			return new WP_REST_Response( array( 'error' => __( 'client_id, client_secret, and refresh_token are required.', 'superdav-ai-agent' ) ), 400 );
+		}
+
+		$success = $this->settings->set_google_calendar_credentials(
+			array(
+				'type'                => $type,
+				'client_id'           => $client_id,
+				'client_secret'       => $client_secret,
+				'refresh_token'       => $refresh_token,
+				'default_calendar_id' => '' !== $default_calendar_id ? $default_calendar_id : 'primary',
+			)
+		);
+
+		if ( ! $success ) {
+			return new WP_REST_Response( array( 'error' => __( 'Failed to save Google Calendar credentials.', 'superdav-ai-agent' ) ), 500 );
+		}
+
+		return new WP_REST_Response(
+			array(
+				'saved'               => true,
+				'has_credentials'     => true,
+				'type'                => $type,
+				'default_calendar_id' => '' !== $default_calendar_id ? $default_calendar_id : 'primary',
+			),
+			200
+		);
+	}
+
+	/**
+	 * Handle DELETE /settings/google-calendar — clear Google Calendar credentials.
+	 */
+	public function handle_delete_google_calendar_credentials(): WP_REST_Response {
+		$this->settings->set_google_calendar_credentials( array() );
+		return new WP_REST_Response(
+			array(
+				'deleted'         => true,
+				'has_credentials' => false,
+			),
+			200
+			);
 	}
 
 	/**
