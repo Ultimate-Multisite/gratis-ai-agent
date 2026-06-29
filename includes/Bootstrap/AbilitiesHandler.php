@@ -32,6 +32,7 @@ use SdAiAgent\Abilities\BlockAbilities;
 use SdAiAgent\Core\BlockEnricherRegistry;
 use SdAiAgent\Enrichers\CoreImageEnricher;
 use SdAiAgent\Abilities\ContentAbilities;
+use SdAiAgent\Abilities\ContactMappingAbilities;
 use SdAiAgent\Abilities\CustomPostTypeAbilities;
 use SdAiAgent\Abilities\CustomTaxonomyAbilities;
 use SdAiAgent\Abilities\TaxonomyAbilities;
@@ -108,6 +109,7 @@ final class AbilitiesHandler {
 		SeoAbilities::register_abilities();
 		GscAbilities::register_abilities();
 		ContentAbilities::register_abilities();
+		ContactMappingAbilities::register_abilities();
 		MarketingAbilities::register_abilities();
 		GoogleAnalyticsAbilities::register_abilities();
 		GoogleCalendarAbilities::register_abilities();

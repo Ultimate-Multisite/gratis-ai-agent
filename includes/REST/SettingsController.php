@@ -25,6 +25,7 @@ use SdAiAgent\Core\Settings;
 use SdAiAgent\Core\SuperdavSiteConnectionService;
 use SdAiAgent\Core\SystemInstructionBuilder;
 use SdAiAgent\Infrastructure\AiClient\Superdav\SuperdavAiProvider;
+use SdAiAgent\Models\ContactMapping;
 use WP_Error;
 use WP_REST_Request;
 use WP_REST_Response;
@@ -178,6 +179,46 @@ final class SettingsController {
 				array(
 					'methods'             => WP_REST_Server::DELETABLE,
 					'callback'            => array( $this, 'handle_delete_gsc_credentials' ),
+					'permission_callback' => array( __CLASS__, 'check_admin_permission' ),
+				),
+			)
+		);
+
+		// Attendee contact mapping endpoints.
+		register_rest_route(
+			RestController::NAMESPACE,
+			'/settings/contact-mappings',
+			array(
+				array(
+					'methods'             => WP_REST_Server::READABLE,
+					'callback'            => array( $this, 'handle_list_contact_mappings' ),
+					'permission_callback' => array( __CLASS__, 'check_admin_permission' ),
+				),
+				array(
+					'methods'             => WP_REST_Server::CREATABLE,
+					'callback'            => array( $this, 'handle_create_contact_mapping' ),
+					'permission_callback' => array( __CLASS__, 'check_admin_permission' ),
+				),
+			)
+		);
+
+		register_rest_route(
+			RestController::NAMESPACE,
+			'/settings/contact-mappings/(?P<id>[\d]+)',
+			array(
+				array(
+					'methods'             => WP_REST_Server::READABLE,
+					'callback'            => array( $this, 'handle_get_contact_mapping' ),
+					'permission_callback' => array( __CLASS__, 'check_admin_permission' ),
+				),
+				array(
+					'methods'             => WP_REST_Server::EDITABLE,
+					'callback'            => array( $this, 'handle_update_contact_mapping' ),
+					'permission_callback' => array( __CLASS__, 'check_admin_permission' ),
+				),
+				array(
+					'methods'             => WP_REST_Server::DELETABLE,
+					'callback'            => array( $this, 'handle_delete_contact_mapping' ),
 					'permission_callback' => array( __CLASS__, 'check_admin_permission' ),
 				),
 			)
@@ -411,6 +452,87 @@ final class SettingsController {
 		$this->settings->update( $data );
 
 		return new WP_REST_Response( $this->settings->get(), 200 );
+	}
+
+	/**
+	 * Handle GET /settings/contact-mappings.
+	 *
+	 * @param WP_REST_Request $request The request object.
+	 */
+	public function handle_list_contact_mappings( WP_REST_Request $request ): WP_REST_Response {
+		$limit  = (int) $request->get_param( 'limit' );
+		$offset = (int) $request->get_param( 'offset' );
+
+		return new WP_REST_Response(
+			array(
+				'contacts' => ContactMapping::list( $limit > 0 ? $limit : 100, $offset ),
+			),
+			200
+		);
+	}
+
+	/**
+	 * Handle GET /settings/contact-mappings/{id}.
+	 *
+	 * @param WP_REST_Request $request The request object.
+	 * @return WP_REST_Response|WP_Error
+	 */
+	public function handle_get_contact_mapping( WP_REST_Request $request ) {
+		$contact = ContactMapping::get( (int) $request->get_param( 'id' ) );
+		if ( null === $contact ) {
+			return new WP_Error( 'sd_ai_agent_contact_not_found', __( 'Contact mapping not found.', 'superdav-ai-agent' ), array( 'status' => 404 ) );
+		}
+
+		return new WP_REST_Response( $contact, 200 );
+	}
+
+	/**
+	 * Handle POST /settings/contact-mappings.
+	 *
+	 * @param WP_REST_Request $request The request object.
+	 * @return WP_REST_Response|WP_Error
+	 */
+	public function handle_create_contact_mapping( WP_REST_Request $request ) {
+		$data    = $request->get_json_params();
+		$contact = ContactMapping::create( is_array( $data ) ? $data : array() );
+
+		if ( is_wp_error( $contact ) ) {
+			return $contact;
+		}
+
+		return new WP_REST_Response( $contact, 201 );
+	}
+
+	/**
+	 * Handle PATCH /settings/contact-mappings/{id}.
+	 *
+	 * @param WP_REST_Request $request The request object.
+	 * @return WP_REST_Response|WP_Error
+	 */
+	public function handle_update_contact_mapping( WP_REST_Request $request ) {
+		$data    = $request->get_json_params();
+		$contact = ContactMapping::update( (int) $request->get_param( 'id' ), is_array( $data ) ? $data : array() );
+
+		if ( is_wp_error( $contact ) ) {
+			return $contact;
+		}
+
+		return new WP_REST_Response( $contact, 200 );
+	}
+
+	/**
+	 * Handle DELETE /settings/contact-mappings/{id}.
+	 *
+	 * @param WP_REST_Request $request The request object.
+	 * @return WP_REST_Response|WP_Error
+	 */
+	public function handle_delete_contact_mapping( WP_REST_Request $request ) {
+		$deleted = ContactMapping::delete( (int) $request->get_param( 'id' ) );
+		if ( is_wp_error( $deleted ) ) {
+			return $deleted;
+		}
+
+		return new WP_REST_Response( array( 'deleted' => true ), 200 );
 	}
 
 	/**
