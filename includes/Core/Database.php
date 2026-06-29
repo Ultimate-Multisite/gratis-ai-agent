@@ -36,7 +36,7 @@ use SdAiAgent\Tools\CustomTools;
 class Database {
 
 	const DB_VERSION_OPTION = 'sd_ai_agent_db_version';
-	const DB_VERSION        = '19.5.4';
+	const DB_VERSION        = '19.5.5';
 
 	// ─── Table Name Registry ──────────────────────────────────────────────────
 
@@ -110,6 +110,15 @@ class Database {
 		global $wpdb;
 		/** @var \wpdb $wpdb */
 		return $wpdb->prefix . 'sd_ai_agent_approval_requests';
+	}
+
+	/**
+	 * Get the calendar reminder state table name.
+	 */
+	public static function calendar_reminders_table_name(): string {
+		global $wpdb;
+		/** @var \wpdb $wpdb */
+		return $wpdb->prefix . 'sd_ai_agent_calendar_reminders';
 	}
 
 	/**
@@ -272,6 +281,7 @@ class Database {
 		$automations_table            = self::automations_table_name();
 		$automation_logs_table        = self::automation_logs_table_name();
 		$approval_requests_table      = self::approval_requests_table_name();
+		$calendar_reminders_table     = self::calendar_reminders_table_name();
 		$event_automations_table      = self::event_automations_table_name();
 		$conversation_templates_table = self::conversation_templates_table_name();
 		$git_tracked_files_table      = self::git_tracked_files_table_name();
@@ -440,6 +450,30 @@ class Database {
 			KEY payload_hash (payload_hash),
 			KEY expires_at (expires_at),
 			KEY created_at (created_at)
+		) {$charset};
+
+		CREATE TABLE {$calendar_reminders_table} (
+			id bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+			calendar_id varchar(191) NOT NULL,
+			event_id varchar(191) NOT NULL,
+			event_start_at datetime NOT NULL,
+			reminder_date date NOT NULL,
+			attendee_email varchar(191) NOT NULL,
+			phone_hash varchar(64) NOT NULL DEFAULT '',
+			status varchar(20) NOT NULL DEFAULT 'pending_approval',
+			skip_reason text NOT NULL DEFAULT '',
+			provider varchar(100) NOT NULL DEFAULT '',
+			provider_message_id varchar(191) NOT NULL DEFAULT '',
+			approval_request_id varchar(191) NOT NULL DEFAULT '',
+			sent_at datetime DEFAULT NULL,
+			created_at datetime NOT NULL,
+			updated_at datetime NOT NULL,
+			PRIMARY KEY  (id),
+			UNIQUE KEY reminder_dedupe (calendar_id(80), event_id(120), attendee_email(120), reminder_date),
+			KEY status (status),
+			KEY reminder_date (reminder_date),
+			KEY approval_request_id (approval_request_id),
+			KEY provider_message_id (provider_message_id)
 		) {$charset};
 
 		CREATE TABLE {$event_automations_table} (
