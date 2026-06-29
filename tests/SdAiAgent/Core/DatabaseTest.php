@@ -81,6 +81,15 @@ class DatabaseTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * Test approval_requests_table_name returns correct table name.
+	 */
+	public function test_approval_requests_table_name() {
+		global $wpdb;
+		$expected = $wpdb->prefix . 'sd_ai_agent_approval_requests';
+		$this->assertSame( $expected, Database::approval_requests_table_name() );
+	}
+
+	/**
 	 * Test event_automations_table_name returns correct table name.
 	 */
 	public function test_event_automations_table_name() {

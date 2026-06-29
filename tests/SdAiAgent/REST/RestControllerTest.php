@@ -22,6 +22,7 @@ declare(strict_types=1);
 namespace SdAiAgent\Tests\REST;
 
 use SdAiAgent\Core\Database;
+use SdAiAgent\Automations\HumanApprovalGate;
 use SdAiAgent\Models\ActiveJobRepository;
 use SdAiAgent\Models\Memory;
 use SdAiAgent\Models\Skill;
@@ -1353,6 +1354,54 @@ class RestControllerTest extends WP_UnitTestCase {
 		$response = $this->dispatch( 'GET', '/sd-ai-agent/v1/automation-logs' );
 		$this->assertStatus( 200, $response );
 		$this->assertIsArray( $response->get_data() );
+	}
+
+	/**
+	 * Test approval request REST routes are admin gated and redact payload data.
+	 */
+	public function test_automation_approvals_rest_flow(): void {
+		wp_set_current_user( $this->admin_id );
+		HumanApprovalGate::register_handler(
+			'sms-send',
+			static function (): array {
+				return [ 'provider_token' => 'secret-token', 'message_id' => 'msg_123' ];
+			}
+		);
+
+		$request = HumanApprovalGate::create_pending(
+			[
+				'source_type' => 'automation',
+				'source_id'   => 999,
+				'action_type' => 'sms-send',
+				'payload'     => [
+					'recipient_phone' => '+1 555 222 3333',
+					'api_key'         => 'secret-api-key',
+					'message'         => 'Please review this SMS.',
+				],
+			]
+		);
+		$this->assertIsArray( $request );
+
+		$list = $this->dispatch( 'GET', '/sd-ai-agent/v1/automation-approvals', [ 'status' => 'pending' ] );
+		$this->assertStatus( 200, $list );
+		$data = $list->get_data();
+		$this->assertSame( '***3333', $data[0]['payload']['recipient_phone'] );
+		$this->assertSame( '[redacted]', $data[0]['payload']['api_key'] );
+
+		$approved = $this->dispatch( 'POST', '/sd-ai-agent/v1/automation-approvals/' . $request['id'] . '/approve' );
+		$this->assertStatus( 200, $approved );
+		$approved_data = $approved->get_data();
+		$this->assertSame( HumanApprovalGate::STATUS_EXECUTED, $approved_data['status'] );
+		$this->assertSame( '[redacted]', $approved_data['result']['data']['provider_token'] );
+	}
+
+	/**
+	 * Test unauthenticated access to approval requests is rejected.
+	 */
+	public function test_automation_approvals_require_auth(): void {
+		wp_set_current_user( 0 );
+		$response = $this->dispatch( 'GET', '/sd-ai-agent/v1/automation-approvals' );
+		$this->assertStatus( 401, $response );
 	}
 
 	/**

@@ -16,6 +16,7 @@ use SdAiAgent\Automations\AutomationRunner;
 use SdAiAgent\Automations\Automations;
 use SdAiAgent\Automations\EventAutomations;
 use SdAiAgent\Automations\EventTriggerRegistry;
+use SdAiAgent\Automations\HumanApprovalGate;
 use SdAiAgent\Automations\NotificationDispatcher;
 use WP_Error;
 use WP_REST_Request;
@@ -246,6 +247,84 @@ final class AutomationController {
 
 		register_rest_route(
 			RestController::NAMESPACE,
+			'/automation-approvals',
+			array(
+				'methods'             => WP_REST_Server::READABLE,
+				'callback'            => array( $this, 'handle_list_approval_requests' ),
+				'permission_callback' => array( $this, 'check_permission' ),
+				'args'                => array(
+					'status' => array(
+						'required'          => false,
+						'type'              => 'string',
+						'sanitize_callback' => 'sanitize_key',
+					),
+					'limit'  => array(
+						'required'          => false,
+						'type'              => 'integer',
+						'sanitize_callback' => 'absint',
+					),
+				),
+			)
+		);
+
+		register_rest_route(
+			RestController::NAMESPACE,
+			'/automation-approvals/(?P<id>\d+)',
+			array(
+				'methods'             => WP_REST_Server::READABLE,
+				'callback'            => array( $this, 'handle_get_approval_request' ),
+				'permission_callback' => array( $this, 'check_permission' ),
+				'args'                => array(
+					'id' => array(
+						'required'          => true,
+						'type'              => 'integer',
+						'sanitize_callback' => 'absint',
+					),
+				),
+			)
+		);
+
+		register_rest_route(
+			RestController::NAMESPACE,
+			'/automation-approvals/(?P<id>\d+)/approve',
+			array(
+				'methods'             => WP_REST_Server::CREATABLE,
+				'callback'            => array( $this, 'handle_approve_request' ),
+				'permission_callback' => array( $this, 'check_permission' ),
+				'args'                => array(
+					'id'      => array(
+						'required'          => true,
+						'type'              => 'integer',
+						'sanitize_callback' => 'absint',
+					),
+					'execute' => array(
+						'required' => false,
+						'type'     => 'boolean',
+						'default'  => true,
+					),
+				),
+			)
+		);
+
+		register_rest_route(
+			RestController::NAMESPACE,
+			'/automation-approvals/(?P<id>\d+)/reject',
+			array(
+				'methods'             => WP_REST_Server::CREATABLE,
+				'callback'            => array( $this, 'handle_reject_request' ),
+				'permission_callback' => array( $this, 'check_permission' ),
+				'args'                => array(
+					'id' => array(
+						'required'          => true,
+						'type'              => 'integer',
+						'sanitize_callback' => 'absint',
+					),
+				),
+			)
+		);
+
+		register_rest_route(
+			RestController::NAMESPACE,
 			'/automations/test-notification',
 			array(
 				'methods'             => WP_REST_Server::CREATABLE,
@@ -406,6 +485,57 @@ final class AutomationController {
 	 */
 	public function handle_list_all_logs(): WP_REST_Response {
 		return new WP_REST_Response( AutomationLogs::list_recent(), 200 );
+	}
+
+	/**
+	 * List approval requests.
+	 */
+	public function handle_list_approval_requests( WP_REST_Request $request ): WP_REST_Response {
+		$status = (string) $request->get_param( 'status' );
+		$limit  = absint( $request->get_param( 'limit' ) ?: 50 );
+
+		return new WP_REST_Response( HumanApprovalGate::list( $status, $limit ), 200 );
+	}
+
+	/**
+	 * Get one approval request.
+	 */
+	public function handle_get_approval_request( WP_REST_Request $request ): WP_REST_Response|WP_Error {
+		$approval = HumanApprovalGate::get( self::get_int_param( $request, 'id' ) );
+
+		if ( null === $approval ) {
+			return new WP_Error( 'not_found', __( 'Approval request not found.', 'superdav-ai-agent' ), array( 'status' => 404 ) );
+		}
+
+		return new WP_REST_Response( $approval, 200 );
+	}
+
+	/**
+	 * Approve and optionally execute a request.
+	 */
+	public function handle_approve_request( WP_REST_Request $request ): WP_REST_Response|WP_Error {
+		$execute_param = $request->get_param( 'execute' );
+		$execute       = is_bool( $execute_param ) || is_int( $execute_param ) || is_string( $execute_param ) ? rest_sanitize_boolean( $execute_param ) : true;
+		$result        = HumanApprovalGate::approve( self::get_int_param( $request, 'id' ), get_current_user_id(), $execute );
+
+		if ( is_wp_error( $result ) ) {
+			return $result;
+		}
+
+		return new WP_REST_Response( $result, 200 );
+	}
+
+	/**
+	 * Reject a request.
+	 */
+	public function handle_reject_request( WP_REST_Request $request ): WP_REST_Response|WP_Error {
+		$result = HumanApprovalGate::reject( self::get_int_param( $request, 'id' ), get_current_user_id() );
+
+		if ( is_wp_error( $result ) ) {
+			return $result;
+		}
+
+		return new WP_REST_Response( $result, 200 );
 	}
 
 	/**
