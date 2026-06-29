@@ -5,10 +5,8 @@
 	"license": "GPL-2.0-or-later",
 	"scripts": {
 		"build": "wp-scripts build",
-		"postbuild": "node scripts/add-strict-types.js && npm run archive",
-		"prearchive": "composer install --no-dev -o",
+		"postbuild": "node scripts/add-strict-types.js",
 		"archive": "node scripts/archive.js",
-		"postarchive": "true || composer install",
 		"start": "wp-scripts start",
 		"lint:js": "wp-scripts lint-js src/",
 		"lint:js:fix": "wp-scripts lint-js src/ --fix",

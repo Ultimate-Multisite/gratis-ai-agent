@@ -62,6 +62,7 @@ bin/build.sh --target=core      # core package: superdav-ai-agent-X.Y.Z.zip
 bin/build.sh --target=wporg     # alias for core
 bin/build.sh --target=advanced  # advanced package: superdav-ai-agent-advanced-X.Y.Z.zip
 bin/build.sh --target=both      # both packages
+npm run archive                 # both packages plus slug-only local aliases
 ```
 
 The core zip contains one top-level directory named `superdav-ai-agent/`. The
@@ -310,9 +311,12 @@ For each new version:
 1. Update `Version:` in `superdav-ai-agent.php`
 2. Update `Stable tag:` in `readme.txt`
 3. Add a changelog entry under `== Changelog ==` in `readme.txt`
-4. Run `bin/build.sh --target=wporg` to build the core ZIP
-5. Run `bin/deploy-wporg.sh --version X.Y.Z` (see below) or follow the manual steps above
-6. Tag the release: `svn copy trunk/ tags/X.Y.Z -m "Tag vX.Y.Z"`
+4. Run `bin/build.sh --target=both` to build and validate both ZIPs locally
+5. Push a `vX.Y.Z` tag. The GitHub release workflow attaches both ZIPs to the
+   release, deploys only the core `superdav-ai-agent` package to WordPress.org
+   SVN for stable tags, and skips SVN for pre-release tags.
+6. If the workflow is unavailable, run `bin/deploy-wporg.sh --version X.Y.Z`
+   (see below) or follow the manual steps above for the core package only.
 
 ---
 
@@ -359,7 +363,13 @@ not the descriptive names used in the Git repo.
 
 ## Automated SVN Deployment
 
-`bin/deploy-wporg.sh` automates the trunk update and tagging steps.
+The GitHub release workflow is the primary automation. It expects repository
+secrets named `SVN_USERNAME` and `SVN_PASSWORD`; stable tags deploy only the core
+ZIP to WordPress.org SVN, while the advanced companion ZIP remains a GitHub
+release asset only.
+
+`bin/deploy-wporg.sh` remains available for local/manual trunk updates and
+tagging of the core package.
 
 ```bash
 # First deployment (after SVN checkout already exists at ~/svn/superdav-ai-agent)

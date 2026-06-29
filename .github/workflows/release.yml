@@ -1,26 +1,26 @@
-name: Release
+name: Release WordPress Plugins
 
 on:
   push:
     tags:
-      - 'v*'
+      - 'v*.*.*'
+
+permissions:
+  contents: write
 
 jobs:
   build:
     name: Build and Release
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
+    outputs:
+      version: ${{ steps.version.outputs.VERSION }}
+      is_prerelease: ${{ steps.version.outputs.IS_PRERELEASE }}
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v6
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v6
         with:
-          node-version: '24'
-          cache: 'npm'
+          fetch-depth: 0
 
       - name: Setup PHP
         uses: shivammathur/setup-php@v2
@@ -29,54 +29,237 @@ jobs:
           extensions: mbstring, intl, zip
           tools: composer:v2
 
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          cache: 'npm'
+
       - name: Get version from tag
         id: version
-        run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+        run: |
+          VERSION="${GITHUB_REF#refs/tags/v}"
+          case "$VERSION" in
+            *-alpha*|*-beta*|*-rc*|*-dev*|*-preview*)
+              IS_PRERELEASE=true
+              ;;
+            *)
+              IS_PRERELEASE=false
+              ;;
+          esac
+
+          echo "VERSION=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "IS_PRERELEASE=${IS_PRERELEASE}" >> "$GITHUB_OUTPUT"
+          echo "VERSION=${VERSION}" >> "$GITHUB_ENV"
+          echo "IS_PRERELEASE=${IS_PRERELEASE}" >> "$GITHUB_ENV"
 
       - name: Install Node dependencies
         run: npm ci
 
-      - name: Install Composer dependencies (production only)
-        run: composer install --no-dev --prefer-dist --no-progress
-
-      - name: Build assets
-        run: npm run build
-
-      - name: Create distribution ZIPs (full + wporg)
+      - name: Verify version matches
         run: |
-          # bin/build.sh produces:
-          #   superdav-ai-agent-${VERSION}.zip       (full feature set)
-          #   superdav-ai-agent-${VERSION}-wporg.zip (WP.org-compliant variant
-          #                                           — strips AI plugin
-          #                                           builder, WP-CLI custom
-          #                                           tools, autonomous
-          #                                           plugin-state changes,
-          #                                           and install-from-URL)
+          CORE_HEADER_VERSION="$(grep -m 1 ' \* Version:' superdav-ai-agent.php | sed 's/.*Version:[[:space:]]*//' | tr -d '[:space:]')"
+          CORE_CONSTANT_VERSION="$(grep -m 1 "define( 'SD_AI_AGENT_VERSION'" superdav-ai-agent.php | sed -E "s/.*'SD_AI_AGENT_VERSION',[[:space:]]*'([^']+)'.*/\1/")"
+          CORE_STABLE_VERSION="$(grep -m 1 '^Stable tag:' readme.txt | sed 's/^Stable tag:[[:space:]]*//' | tr -d '[:space:]')"
+
+          ADVANCED_HEADER_VERSION="$(grep -m 1 ' \* Version:' advanced-plugin/superdav-ai-agent-advanced.php | sed 's/.*Version:[[:space:]]*//' | tr -d '[:space:]')"
+          ADVANCED_CONSTANT_VERSION="$(grep -m 1 "define( 'SD_AI_AGENT_ADVANCED_VERSION'" advanced-plugin/superdav-ai-agent-advanced.php | sed -E "s/.*'SD_AI_AGENT_ADVANCED_VERSION',[[:space:]]*'([^']+)'.*/\1/")"
+          ADVANCED_STABLE_VERSION="$(grep -m 1 '^Stable tag:' advanced-plugin/readme.txt | sed 's/^Stable tag:[[:space:]]*//' | tr -d '[:space:]')"
+
+          PACKAGE_VERSION="$(node -p "require('./package.json').version")"
+          ROOT_VERSION="$(tr -d '[:space:]' < VERSION)"
+
+          echo "Tag version: ${VERSION}"
+          echo "Core plugin header: ${CORE_HEADER_VERSION}"
+          echo "Core constant: ${CORE_CONSTANT_VERSION}"
+          echo "Core readme.txt Stable tag: ${CORE_STABLE_VERSION}"
+          echo "Advanced plugin header: ${ADVANCED_HEADER_VERSION}"
+          echo "Advanced constant: ${ADVANCED_CONSTANT_VERSION}"
+          echo "Advanced readme.txt Stable tag: ${ADVANCED_STABLE_VERSION}"
+          echo "package.json: ${PACKAGE_VERSION}"
+          echo "VERSION file: ${ROOT_VERSION}"
+
+          if [ "$CORE_HEADER_VERSION" != "$VERSION" ] \
+            || [ "$CORE_CONSTANT_VERSION" != "$VERSION" ] \
+            || [ "$ADVANCED_HEADER_VERSION" != "$VERSION" ] \
+            || [ "$ADVANCED_CONSTANT_VERSION" != "$VERSION" ] \
+            || [ "$PACKAGE_VERSION" != "$VERSION" ] \
+            || [ "$ROOT_VERSION" != "$VERSION" ]; then
+            echo "Error: Version mismatch detected."
+            exit 1
+          fi
+
+          if [ "$IS_PRERELEASE" != "true" ]; then
+            if [ "$CORE_STABLE_VERSION" != "$VERSION" ] \
+              || [ "$ADVANCED_STABLE_VERSION" != "$VERSION" ]; then
+              echo "Error: Stable tag mismatch detected for a stable release."
+              exit 1
+            fi
+          fi
+
+      - name: Build release ZIPs
+        run: |
           bin/build.sh --target=both
+          mkdir -p build
+          mv "superdav-ai-agent-${VERSION}.zip" "build/superdav-ai-agent-${VERSION}.zip"
+          mv "superdav-ai-agent-advanced-${VERSION}.zip" "build/superdav-ai-agent-advanced-${VERSION}.zip"
 
-          # Keep a slug-only copy of the full zip as the primary artefact for
-          # users who download "the latest" without specifying a version.
-          cp "superdav-ai-agent-${{ steps.version.outputs.VERSION }}.zip" superdav-ai-agent.zip
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: superdav-ai-agent-release-zips
+          path: |
+            build/superdav-ai-agent-${{ env.VERSION }}.zip
+            build/superdav-ai-agent-advanced-${{ env.VERSION }}.zip
+          retention-days: 7
 
-      - name: Create Release
+      - name: Create GitHub release
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            superdav-ai-agent-${{ steps.version.outputs.VERSION }}.zip
-            superdav-ai-agent-${{ steps.version.outputs.VERSION }}-wporg.zip
-            superdav-ai-agent.zip
-          name: Superdav AI Agent v${{ steps.version.outputs.VERSION }}
+            build/superdav-ai-agent-${{ env.VERSION }}.zip
+            build/superdav-ai-agent-advanced-${{ env.VERSION }}.zip
+          name: Superdav AI Agent v${{ env.VERSION }}
+          draft: false
+          prerelease: ${{ env.IS_PRERELEASE == 'true' }}
           body: |
+            # Superdav AI Agent v${{ env.VERSION }}
+
             ## Downloads
 
-            - **`superdav-ai-agent-${{ steps.version.outputs.VERSION }}.zip`** — Full feature set, recommended for self-hosted users. Includes the AI plugin builder, WP-CLI custom tools, autonomous plugin activate/deactivate, and install-plugin-from-URL.
-            - **`superdav-ai-agent-${{ steps.version.outputs.VERSION }}-wporg.zip`** — WordPress.org-compliant build. The four feature classes above are removed at build time and the matching `SD_AI_AGENT_FEATURE_*` constants are hard-defined to `false` so they cannot be re-enabled via `wp-config.php`. This is the artefact submitted via `bin/deploy-wporg.sh`.
+            - `superdav-ai-agent-${{ env.VERSION }}.zip` — core plugin. This is the WordPress.org package and is also attached here for direct GitHub installs.
+            - `superdav-ai-agent-advanced-${{ env.VERSION }}.zip` — advanced companion plugin for self-hosted administrator/developer tools. This package is attached to the GitHub release only and is not deployed to WordPress.org SVN.
 
-            See `docs/wordpress-org-submission.md` for the build-matrix rationale.
-          draft: false
-          prerelease: false
-          generate_release_notes: true
+            ## WordPress.org
+
+            Stable `v*.*.*` releases publish only the core `superdav-ai-agent` package to the WordPress.org SVN trunk and tag. Pre-release tags create GitHub release assets but skip SVN deployment.
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
+  deploy-to-wporg:
+    name: Deploy core plugin to WordPress.org
+    runs-on: ubuntu-latest
+    needs: build
+    if: ${{ needs.build.outputs.is_prerelease != 'true' }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Download build artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: superdav-ai-agent-release-zips
+          path: build/
+
+      - name: Extract core build artifact
+        env:
+          VERSION: ${{ needs.build.outputs.version }}
+        run: |
+          set -euo pipefail
+          mkdir -p wporg-package
+          unzip -q "build/superdav-ai-agent-${VERSION}.zip" -d wporg-package
+          test -f wporg-package/superdav-ai-agent/superdav-ai-agent.php
+          test ! -e wporg-package/superdav-ai-agent/advanced-plugin
+
+      - name: Install SVN
+        run: sudo apt-get update && sudo apt-get install -y subversion
+
+      - name: Deploy trunk to WordPress.org SVN
+        env:
+          SVN_USERNAME: ${{ secrets.SVN_USERNAME }}
+          SVN_PASSWORD: ${{ secrets.SVN_PASSWORD }}
+          SLUG: superdav-ai-agent
+          VERSION: ${{ needs.build.outputs.version }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "${SVN_USERNAME}" ] || [ -z "${SVN_PASSWORD}" ]; then
+            echo "::error::SVN_USERNAME and SVN_PASSWORD secrets are required for WordPress.org deployment."
+            exit 1
+          fi
+
+          SVN_URL="https://plugins.svn.wordpress.org/${SLUG}"
+          SVN_DIR="${HOME}/svn-${SLUG}"
+
+          svn checkout --depth=immediates "${SVN_URL}" "${SVN_DIR}"
+          svn update --set-depth=infinity "${SVN_DIR}/trunk"
+
+          rsync -rc --delete "wporg-package/superdav-ai-agent/" "${SVN_DIR}/trunk/" \
+            --exclude='.svn' --exclude='.git' --exclude='.github'
+
+          cd "${SVN_DIR}"
+
+          svn status trunk | grep '^?' | awk '{print $2}' > /tmp/svn-new-files.txt || true
+          NEW_COUNT="$(wc -l < /tmp/svn-new-files.txt)"
+          echo "New files to add: ${NEW_COUNT}"
+          if [ "${NEW_COUNT}" -gt 0 ]; then
+            split -l 500 /tmp/svn-new-files.txt /tmp/svn-batch-add-
+            for batch in /tmp/svn-batch-add-*; do
+              echo "Adding batch: $(wc -l < "$batch") files"
+              xargs -r svn add --parents -q < "$batch"
+            done
+          fi
+
+          svn status trunk | grep '^!' | awk '{print $2}' > /tmp/svn-del-files.txt || true
+          DEL_COUNT="$(wc -l < /tmp/svn-del-files.txt)"
+          echo "Deleted files to remove: ${DEL_COUNT}"
+          if [ "${DEL_COUNT}" -gt 0 ]; then
+            split -l 500 /tmp/svn-del-files.txt /tmp/svn-batch-del-
+            for batch in /tmp/svn-batch-del-*; do
+              echo "Deleting batch: $(wc -l < "$batch") files"
+              xargs -r svn delete --force -q < "$batch"
+            done
+          fi
+
+          svn status trunk > /tmp/svn-status.txt || true
+          sed -n '1,50p' /tmp/svn-status.txt
+          CHANGES="$(wc -l < /tmp/svn-status.txt)"
+          echo "Total trunk changes: ${CHANGES}"
+
+          if [ "${CHANGES}" -eq 0 ]; then
+            echo "No changes to commit to trunk."
+            exit 0
+          fi
+
+          svn commit trunk \
+            --username "${SVN_USERNAME}" \
+            --password "${SVN_PASSWORD}" \
+            --no-auth-cache \
+            --non-interactive \
+            -m "Update trunk to Superdav AI Agent v${VERSION}"
+
+      - name: Tag release on WordPress.org SVN
+        env:
+          SVN_USERNAME: ${{ secrets.SVN_USERNAME }}
+          SVN_PASSWORD: ${{ secrets.SVN_PASSWORD }}
+          SLUG: superdav-ai-agent
+          VERSION: ${{ needs.build.outputs.version }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "${SVN_USERNAME}" ] || [ -z "${SVN_PASSWORD}" ]; then
+            echo "::error::SVN_USERNAME and SVN_PASSWORD secrets are required for WordPress.org tagging."
+            exit 1
+          fi
+
+          SVN_URL="https://plugins.svn.wordpress.org/${SLUG}"
+
+          if svn info "${SVN_URL}/tags/${VERSION}" > /dev/null 2>&1; then
+            echo "Tag ${VERSION} already exists in SVN — skipping."
+            exit 0
+          fi
+
+          svn copy \
+            "${SVN_URL}/trunk" \
+            "${SVN_URL}/tags/${VERSION}" \
+            --username "${SVN_USERNAME}" \
+            --password "${SVN_PASSWORD}" \
+            --no-auth-cache \
+            --non-interactive \
+            -m "Tag Superdav AI Agent v${VERSION}"
+
+          echo "Successfully tagged ${VERSION} on WordPress.org."

@@ -12,7 +12,6 @@
 	"require": {
 		"php": ">=8.2",
 		"automattic/jetpack-autoloader": "^3.0 || ^4.0 || ^5.0",
-		"pondermatic/composer-archive-project": "^1.1",
 		"psr/simple-cache": "^1.0 || ^2.0 || ^3.0",
 		"smalot/pdfparser": "^2.0",
 		"x-wp/di": "dev-fix/rest-context-plain-permalink-support as 1.9.99"
@@ -66,6 +65,7 @@
 			"webpack.config.js",
 			"stubs",
 			"scripts",
+			"tools",
 			"todo",
 			"bin",
 			"TODO.md",
@@ -86,6 +86,7 @@
 			".clinerules",
 			".cursorrules",
 			".windsurfrules",
+			".opencode",
 			".opencode.json",
 			".husky",
 			".claude",
@@ -100,6 +101,8 @@
 			"*.zip",
 			".playwright-mcp",
 			"test-results",
+			"VERSION",
+			"verify-output.txt",
 			"playwright-report",
 			"blob-report",
 			"coverage-html",
@@ -116,14 +119,15 @@
 			"**/.typos.toml",
 			"**/.doctrine-project.json",
 			"vendor/smalot/pdfparser/Makefile",
-			"vendor/smalot/pdfparser/alt_autoload.php-dist"
+			"vendor/smalot/pdfparser/alt_autoload.php-dist",
+			"vendor/pondermatic",
+			"vendor/**/composer.lock"
 		]
 	},
 	"config": {
 		"allow-plugins": {
 			"automattic/jetpack-autoloader": true,
-			"dealerdirect/phpcodesniffer-composer-installer": true,
-			"pondermatic/composer-archive-project": true
+			"dealerdirect/phpcodesniffer-composer-installer": true
 		},
 		"platform": {
 			"php": "8.2.0"

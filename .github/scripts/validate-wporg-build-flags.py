@@ -44,10 +44,15 @@ def main() -> int:
             "readme.txt must require WordPress 7.0+ after removing WP 6.9 compatibility shims."
         )
 
-    if "/advanced-plugin" not in dist_entries:
-        failures.append(
-            ".distignore must exclude /advanced-plugin so the WP.org/core zip never ships the advanced companion plugin."
-        )
+    required_dist_entries = {
+        "/advanced-plugin": ".distignore must exclude /advanced-plugin so the WP.org/core zip never ships the advanced companion plugin.",
+        "/VERSION": ".distignore must exclude /VERSION because the plugin header/readme are the runtime version sources.",
+        "/verify-output.txt": ".distignore must exclude /verify-output.txt because local verification transcripts are not runtime files.",
+    }
+
+    for entry, message in required_dist_entries.items():
+        if entry not in dist_entries:
+            failures.append(message)
 
     if ".distignore" not in script or "--exclude-from=\"$exclude_file\"" not in script:
         failures.append(

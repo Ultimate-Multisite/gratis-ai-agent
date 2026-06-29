@@ -191,15 +191,26 @@ echo "    Sync complete."
 echo "==> Staging SVN changes..."
 cd "$SVN_DIR"
 
-# Add new files
-svn status | grep '^?' | awk '{print $2}' | while IFS= read -r f; do
-	svn add "$f"
-done
+# Add new files. The grep commands intentionally tolerate no-match results so a
+# release with only edits or only deletes does not abort under `set -o pipefail`.
+svn status | grep '^?' | awk '{print $2}' > /tmp/sd-ai-agent-svn-new-files.txt || true
+NEW_COUNT="$(wc -l < /tmp/sd-ai-agent-svn-new-files.txt)"
+echo "    New files: ${NEW_COUNT}"
+if [ "$NEW_COUNT" -gt 0 ]; then
+	while IFS= read -r f; do
+		svn add --parents "$f"
+	done < /tmp/sd-ai-agent-svn-new-files.txt
+fi
 
-# Remove deleted files
-svn status | grep '^!' | awk '{print $2}' | while IFS= read -r f; do
-	svn delete "$f"
-done
+# Remove deleted files.
+svn status | grep '^!' | awk '{print $2}' > /tmp/sd-ai-agent-svn-deleted-files.txt || true
+DEL_COUNT="$(wc -l < /tmp/sd-ai-agent-svn-deleted-files.txt)"
+echo "    Deleted files: ${DEL_COUNT}"
+if [ "$DEL_COUNT" -gt 0 ]; then
+	while IFS= read -r f; do
+		svn delete --force "$f"
+	done < /tmp/sd-ai-agent-svn-deleted-files.txt
+fi
 
 echo "    SVN status:"
 svn status
