@@ -11,6 +11,7 @@ declare(strict_types=1);
 namespace SdAiAgent\Tests\REST;
 
 use SdAiAgent\Bootstrap\SuperdavAiProviderHandler;
+use SdAiAgent\Abilities\SmsAbilities;
 use SdAiAgent\Core\Database;
 use SdAiAgent\Core\Settings;
 use SdAiAgent\Core\SuperdavSiteConnectionService;
@@ -40,6 +41,7 @@ final class SettingsControllerTest extends WP_UnitTestCase {
 		$this->invalidate_superdav_model_cache();
 		Settings::instance()->set_google_calendar_credentials( array() );
 		delete_option( SuperdavAiProvider::CREDENTIAL_OPTION );
+		delete_option( Settings::SMS_PROVIDER_OPTION );
 		delete_option( SuperdavSiteConnectionService::INSTALLATION_ID_OPTION );
 		delete_option( SuperdavSiteConnectionService::TOKEN_METADATA_OPTION );
 		remove_all_filters( 'sd_ai_agent_cloud_base_url' );
@@ -292,6 +294,83 @@ final class SettingsControllerTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * SMS provider settings can be saved and read without exposing the API key.
+	 */
+	public function test_handle_sms_provider_save_and_get_returns_safe_metadata(): void {
+		$controller = new SettingsController( new Settings(), new Database() );
+
+		$response = $controller->handle_set_sms_provider(
+			$this->json_request(
+				[
+					'provider'     => 'textbee',
+					'api_key'      => 'tb_secret_key',
+					'device_id'    => 'android-device-1234',
+					'api_base_url' => 'https://textbee.example/',
+				]
+			)
+		);
+
+		$this->assertSame( 200, $response->get_status() );
+		$data = $response->get_data();
+		$this->assertIsArray( $data );
+		$this->assertTrue( $data['configured'] );
+		$this->assertTrue( $data['has_api_key'] );
+		$this->assertSame( 'textbee', $data['provider'] );
+		$this->assertSame( 'https://textbee.example', $data['api_base_url'] );
+		$this->assertSame( '********1234', $data['device_id_redacted'] );
+		$this->assertArrayNotHasKey( 'api_key', $data );
+		$this->assertStringNotContainsString( 'tb_secret_key', wp_json_encode( $data ) ?: '' );
+
+		$get_response = $controller->handle_get_sms_provider();
+		$get_data     = $get_response->get_data();
+		$this->assertIsArray( $get_data );
+		$this->assertTrue( $get_data['configured'] );
+		$this->assertArrayNotHasKey( 'api_key', $get_data );
+		$this->assertStringNotContainsString( 'tb_secret_key', wp_json_encode( $get_data ) ?: '' );
+	}
+
+	/**
+	 * Invalid SMS provider base URLs are rejected.
+	 */
+	public function test_handle_sms_provider_invalid_base_url_returns_error(): void {
+		$controller = new SettingsController( new Settings(), new Database() );
+		$response   = $controller->handle_set_sms_provider(
+			$this->json_request(
+				[
+					'provider'     => 'textbee',
+					'api_key'      => 'tb_secret_key',
+					'device_id'    => 'android-device-1234',
+					'api_base_url' => 'not-a-url',
+				]
+			)
+		);
+
+		$this->assertSame( 400, $response->get_status() );
+		$this->assertFalse( ( new Settings() )->has_sms_provider() );
+	}
+
+	/**
+	 * SMS provider credentials can be deleted.
+	 */
+	public function test_handle_sms_provider_delete_clears_credentials(): void {
+		$settings = new Settings();
+		$settings->set_sms_provider(
+			[
+				'provider'     => 'textbee',
+				'api_key'      => 'tb_secret_key',
+				'device_id'    => 'android-device-1234',
+				'api_base_url' => SmsAbilities::DEFAULT_API_BASE_URL,
+			]
+		);
+
+		$controller = new SettingsController( $settings, new Database() );
+		$response   = $controller->handle_delete_sms_provider( new WP_REST_Request( 'DELETE', '/sd-ai-agent/v1/settings/sms-provider' ) );
+
+		$this->assertSame( 200, $response->get_status() );
+		$this->assertFalse( $settings->has_sms_provider() );
+	}
+
+	/**
 	 * Find a provider entry by ID.
 	 *
 	 * @param array<int, array<string, mixed>> $providers Provider rows.
@@ -329,6 +408,20 @@ final class SettingsControllerTest extends WP_UnitTestCase {
 		}
 
 		return '';
+	}
+
+	/**
+	 * Build a JSON REST request for controller tests.
+	 *
+	 * @param array<string, mixed> $params JSON request parameters.
+	 * @return WP_REST_Request
+	 */
+	private function json_request( array $params ): WP_REST_Request {
+		$request = new WP_REST_Request( 'POST', '/sd-ai-agent/v1/settings/sms-provider' );
+		$request->set_header( 'Content-Type', 'application/json' );
+		$request->set_body( wp_json_encode( $params ) ?: '{}' );
+
+		return $request;
 	}
 
 	/**

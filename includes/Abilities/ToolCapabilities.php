@@ -246,6 +246,7 @@ class ToolCapabilities {
 		'sd-ai-agent/gsc-top-queries'            => 'manage_options',
 		'sd-ai-agent/gsc-query-details'          => 'manage_options',
 		'sd-ai-agent/gsc-page-performance'       => 'manage_options',
+		'sd-ai-agent/sms-send'                   => 'manage_options',
 
 		// ─── Internet / URL utilities ───────────────────────────────────────
 		'sd-ai-agent/internet-search'            => 'manage_options',
