@@ -2573,6 +2573,42 @@ class AgentLoopTest extends WP_UnitTestCase {
 		$this->assertSame( 'destructive', ToolPermissionResolver::classify_ability( $ability ) );
 	}
 
+	/**
+	 * Explicit stored "auto" means use the default annotation policy, not force
+	 * execution without confirmation.
+	 */
+	public function test_auto_permission_uses_default_destructive_policy(): void {
+		if ( ! class_exists( 'WP_Ability' ) ) {
+			$this->markTestSkipped( 'WP_Ability not available.' );
+		}
+
+		$ability = new \WP_Ability(
+			'test/auto-default-destructive',
+			[
+				'label'               => 'Auto Default Destructive',
+				'description'         => 'A destructive ability with an explicit auto setting.',
+				'category'            => 'sd-ai-agent',
+				'execute_callback'    => '__return_true',
+				'permission_callback' => '__return_true',
+				'meta'                => [
+					'annotations' => [
+						'readonly'    => false,
+						'destructive' => true,
+						'idempotent'  => false,
+					],
+				],
+			]
+		);
+
+		$this->assertTrue(
+			ToolPermissionResolver::ability_needs_confirmation(
+				'test/auto-default-destructive',
+				$ability,
+				[ 'test/auto-default-destructive' => 'auto' ]
+			)
+		);
+	}
+
 	// -------------------------------------------------------------------------
 	// Always-allow persistence
 	// -------------------------------------------------------------------------
@@ -2688,6 +2724,84 @@ class AgentLoopTest extends WP_UnitTestCase {
 		$this->assertIsArray( $result );
 		$this->assertArrayHasKey( 'awaiting_confirmation', $result );
 		$this->assertTrue( $result['awaiting_confirmation'] );
+	}
+
+	/**
+	 * sd-ai-agent/ability-call must inherit the nested target ability's
+	 * confirmation policy instead of auto-executing the meta-tool wrapper.
+	 */
+	public function test_ability_call_target_requires_confirmation_by_default(): void {
+		$this->skip_if_sdk_unavailable();
+		if ( ! class_exists( 'WP_AI_Client_Ability_Function_Resolver' ) ) {
+			$this->markTestSkipped( 'WP_AI_Client_Ability_Function_Resolver not available.' );
+		}
+		if ( ! function_exists( 'wp_register_ability' ) ) {
+			$this->markTestSkipped( 'wp_register_ability() not available.' );
+		}
+
+		delete_option( Settings::OPTION_NAME );
+
+		$target = 'sd-ai-agent/test-ability-call-destructive-target';
+
+		// phpcs:ignore WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedVariableFound -- Standard WordPress hook stack global.
+		global $wp_current_filter;
+		$wp_current_filter[] = 'wp_abilities_api_init';
+
+		try {
+			wp_register_ability(
+				$target,
+				[
+					'label'               => 'Test Ability Call Destructive Target',
+					'description'         => 'A destructive target called through ability-call.',
+					'category'            => 'sd-ai-agent',
+					'execute_callback'    => '__return_true',
+					'permission_callback' => '__return_true',
+					'meta'                => [
+						'annotations' => [
+							'readonly'    => false,
+							'destructive' => true,
+							'idempotent'  => false,
+						],
+					],
+				]
+			);
+		} finally {
+			array_pop( $wp_current_filter );
+		}
+
+		try {
+			$this->mock_ai_response(
+				'',
+				[
+					[
+						'id'       => 'call_ability_call_target',
+						'type'     => 'function',
+						'function' => [
+							'name'      => 'wpab__sd-ai-agent__ability-call',
+							'arguments' => wp_json_encode(
+								[
+									'ability'   => $target,
+									'arguments' => [],
+								]
+							),
+						],
+					],
+				]
+			);
+
+			$loop   = new AgentLoop( 'Call a destructive target through ability-call' );
+			$result = $loop->run();
+
+			$this->assertIsArray( $result );
+			$this->assertArrayHasKey( 'awaiting_confirmation', $result );
+			$this->assertTrue( $result['awaiting_confirmation'] );
+			$this->assertSame( $target, $result['pending_tools'][0]['ability'] ?? '' );
+			$this->assertSame( 'wpab__sd-ai-agent__ability-call', $result['pending_tools'][0]['name'] ?? '' );
+		} finally {
+			if ( function_exists( 'wp_unregister_ability' ) ) {
+				wp_unregister_ability( $target );
+			}
+		}
 	}
 
 	/**

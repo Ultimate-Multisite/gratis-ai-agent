@@ -644,12 +644,14 @@ class AgentLoop {
 				// The last message in history is the model's tool call message.
 				$assistant_message     = end( $this->history );
 				$this->last_loop_phase = 'executing_confirmed_abilities';
+				ToolPermissionResolver::set_one_turn_approved_abilities( $this->approved_once_abilities );
 				ChangeLogger::begin( $this->session_id, 'confirmed-tool' );
 				try {
 					$response_message = $this->get_ability_resolver()->execute_abilities( $assistant_message );
 					/** @var \WordPress\AiClient\Messages\DTO\Message $response_message */
 				} finally {
 					ChangeLogger::end();
+					ToolPermissionResolver::clear_one_turn_approved_abilities();
 				}
 				$this->last_loop_phase = 'confirmed_ability_response_received';
 				// Truncate then split for OpenAI-compatible providers.

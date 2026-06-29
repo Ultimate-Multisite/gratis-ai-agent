@@ -173,6 +173,20 @@ class StockImageAbility extends \SdAiAgent\Abilities\AbstractAbility {
 	/**
 	 * {@inheritdoc}
 	 */
+	protected function meta(): array {
+		$meta                = parent::meta();
+		$meta['annotations'] = [
+			'readonly'    => false,
+			'destructive' => false,
+			'idempotent'  => false,
+		];
+
+		return $meta;
+	}
+
+	/**
+	 * {@inheritdoc}
+	 */
 	protected function permission_callback( mixed $input = null ): bool {
 		// Dual gate: per-tool cap (sd_ai_agent_tool_stock_image) AND core cap
 		// (`upload_files`) from CORE_CAP_MAP. On multisite with an explicit

@@ -10,6 +10,7 @@
 namespace SdAiAgent\Tests\Tools;
 
 use SdAiAgent\Core\IdenticalFailureTracker;
+use SdAiAgent\Core\RolePermissions;
 use SdAiAgent\Tools\AbilityUsageTracker;
 use SdAiAgent\Tools\ToolDiscovery;
 use WP_UnitTestCase;
@@ -73,6 +74,7 @@ class ToolDiscoveryTest extends WP_UnitTestCase {
 		ToolDiscovery::reset_schema_cache();
 		ToolDiscovery::reset_keyword_search_state();
 		IdenticalFailureTracker::reset();
+		delete_option( RolePermissions::OPTION_NAME );
 	}
 
 	/**
@@ -518,6 +520,107 @@ class ToolDiscoveryTest extends WP_UnitTestCase {
 
 		$this->assertInstanceOf( \WP_Error::class, $result );
 		$this->assertSame( 'invalid_ability_arguments', $result->get_error_code() );
+	}
+
+	public function test_ability_call_rejects_role_restricted_target(): void {
+		$executed = false;
+		$target   = 'sd-ai-agent/role-restricted-tool';
+
+		$this->register_test_ability(
+			$target,
+			[
+				'label'               => 'Role Restricted Tool',
+				'description'         => 'Role restricted execution target.',
+				'category'            => 'sd-ai-agent',
+				'input_schema'        => [ 'type' => 'object' ],
+				'output_schema'       => [ 'type' => 'object' ],
+				'execute_callback'    => static function () use ( &$executed ): array {
+					$executed = true;
+					return [ 'ok' => true ];
+				},
+				'permission_callback' => '__return_true',
+				'meta'                => [
+					'annotations' => [
+						'readonly'    => false,
+						'destructive' => false,
+					],
+				],
+			]
+		);
+
+		update_option(
+			RolePermissions::OPTION_NAME,
+			[
+				'author' => [
+					'chat_access'       => true,
+					'allowed_abilities' => [ 'sd-ai-agent/get-plugins' ],
+				],
+			]
+		);
+		$author_id = self::factory()->user->create( [ 'role' => 'author' ] );
+		wp_set_current_user( $author_id );
+
+		$result = ToolDiscovery::handle_ability_call(
+			[
+				'ability'   => $target,
+				'arguments' => [],
+			]
+		);
+
+		$this->assertInstanceOf( \WP_Error::class, $result );
+		$this->assertSame( 'ability_forbidden', $result->get_error_code() );
+		$this->assertFalse( $executed );
+	}
+
+	public function test_ability_search_hides_role_restricted_targets(): void {
+		$target = 'sd-ai-agent/hidden-role-search-tool';
+
+		$this->register_test_ability(
+			$target,
+			[
+				'label'               => 'Hidden Role Search Tool',
+				'description'         => 'needle-role-hidden-search unique marker.',
+				'category'            => 'sd-ai-agent',
+				'input_schema'        => [ 'type' => 'object' ],
+				'output_schema'       => [ 'type' => 'object' ],
+				'execute_callback'    => '__return_true',
+				'permission_callback' => '__return_true',
+				'meta'                => [
+					'annotations' => [
+						'readonly'    => false,
+						'destructive' => false,
+					],
+				],
+			]
+		);
+
+		update_option(
+			RolePermissions::OPTION_NAME,
+			[
+				'author' => [
+					'chat_access'       => true,
+					'allowed_abilities' => [ 'sd-ai-agent/get-plugins' ],
+				],
+			]
+		);
+		$author_id = self::factory()->user->create( [ 'role' => 'author' ] );
+		wp_set_current_user( $author_id );
+
+		$result = ToolDiscovery::handle_ability_search(
+			[
+				'query'       => 'needle-role-hidden-search',
+				'max_results' => 10,
+			]
+		);
+
+		$ids = array_map(
+			static function ( array $row ): string {
+				return (string) $row['id'];
+			},
+			$result['results'] ?? []
+		);
+
+		$this->assertNotContains( $target, $ids );
 	}
 
 	// ── manifest ──────────────────────────────────────────────────────

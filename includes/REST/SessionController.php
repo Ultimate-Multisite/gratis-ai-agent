@@ -1316,11 +1316,14 @@ final class SessionController {
 		}
 
 		// "Always allow" — persist permission so this tool auto-executes in future.
+		// For sd-ai-agent/ability-call confirmations, `ability` is the nested
+		// target ability whose policy triggered the pause; `name` remains the
+		// executable meta-tool function name so the confirmed resume can run.
 		if ( $request->get_param( 'always_allow' ) && ! empty( $job['pending_tools'] ) ) {
 			// @phpstan-ignore-next-line
 			foreach ( $job['pending_tools'] as $tool ) {
 				/** @var array<string, mixed> $tool */
-				$tool_name = (string) ( $tool['name'] ?? '' );
+				$tool_name = (string) ( $tool['ability'] ?? ( $tool['name'] ?? '' ) );
 				// Convert function name (wpab__...) to ability name for storage.
 				if ( str_starts_with( $tool_name, 'wpab__' ) && class_exists( 'WP_AI_Client_Ability_Function_Resolver' ) ) {
 					$tool_name = \WP_AI_Client_Ability_Function_Resolver::function_name_to_ability_name( $tool_name );
