@@ -149,6 +149,73 @@ make_exclude_file() {
 	return 0
 }
 
+path_matches_exclude_glob() {
+	local path="$1"
+	local pattern="$2"
+
+	# .distignore patterns are intentionally treated as globs.
+	# shellcheck disable=SC2254
+	case "$path" in
+	$pattern | $pattern/*)
+		return 0
+		;;
+	*)
+		return 1
+		;;
+	esac
+}
+
+dist_exclude_pattern_matches() {
+	local path="$1"
+	local pattern="$2"
+	local anchored=0
+	local segment=""
+
+	if [ -z "$pattern" ]; then
+		return 1
+	fi
+
+	if [[ "$pattern" == /* ]]; then
+		anchored=1
+		pattern="${pattern#/}"
+	fi
+	pattern="${pattern%/}"
+
+	if [ -z "$pattern" ]; then
+		return 1
+	fi
+
+	if [ "$anchored" -eq 1 ]; then
+		if path_matches_exclude_glob "$path" "$pattern"; then
+			return 0
+		fi
+		return 1
+	fi
+
+	if [[ "$pattern" != */* ]]; then
+		segment="$path"
+		while true; do
+			if path_matches_exclude_glob "$segment" "$pattern"; then
+				return 0
+			fi
+
+			if [[ "$segment" != */* ]]; then
+				break
+			fi
+
+			segment="${segment#*/}"
+		done
+
+		return 1
+	fi
+
+	if path_matches_exclude_glob "$path" "$pattern"; then
+		return 0
+	fi
+
+	return 1
+}
+
 prune_dev_metadata() {
 	local dest="$1"
 
@@ -194,7 +261,12 @@ validate_zip_contents() {
 	local forbid_composer_json="${5:-no}"
 	local listing_file=""
 	local bad_file=""
+	local exclude_file=""
 	local forbidden_pattern=""
+	local relative_path=""
+	local zip_entry=""
+	local -a forbidden_patterns=()
+	local -a zip_entries=()
 
 	if ! command -v unzip >/dev/null 2>&1; then
 		echo "ERROR: unzip is required to validate ${zip_path}." >&2
@@ -203,58 +275,60 @@ validate_zip_contents() {
 
 	listing_file="$(mktemp)"
 	bad_file="$(mktemp)"
+	exclude_file="$(mktemp)"
+	make_exclude_file "$exclude_file"
 
 	if ! unzip -Z1 "$zip_path" >"$listing_file"; then
 		echo "ERROR: Could not inspect ${zip_path}." >&2
-		rm -f "$listing_file" "$bad_file"
+		rm -f "$listing_file" "$bad_file" "$exclude_file"
 		return 1
 	fi
 
 	if grep -Ev "^${top_dir}(/|$)" "$listing_file" >"$bad_file"; then
 		echo "ERROR: ${package_label} zip contains files outside ${top_dir}/:" >&2
 		sed -n '1,20p' "$bad_file" >&2
-		rm -f "$listing_file" "$bad_file"
+		rm -f "$listing_file" "$bad_file" "$exclude_file"
 		return 1
 	fi
 
 	if ! grep -Fxq "${top_dir}/${required_file}" "$listing_file"; then
 		echo "ERROR: ${package_label} zip is missing ${top_dir}/${required_file}." >&2
-		rm -f "$listing_file" "$bad_file"
+		rm -f "$listing_file" "$bad_file" "$exclude_file"
 		return 1
 	fi
+	mapfile -t zip_entries <"$listing_file"
+	mapfile -t forbidden_patterns <"$exclude_file"
 
-	while IFS= read -r forbidden_pattern; do
-		if [ -z "$forbidden_pattern" ]; then
-			continue
-		fi
+	for forbidden_pattern in "${forbidden_patterns[@]}"; do
+		for zip_entry in "${zip_entries[@]}"; do
+			relative_path="${zip_entry#"${top_dir}"/}"
+			if [ "$relative_path" = "$zip_entry" ]; then
+				continue
+			fi
 
-		if grep -E "^${top_dir}/${forbidden_pattern}" "$listing_file" >"$bad_file"; then
+			if dist_exclude_pattern_matches "$relative_path" "$forbidden_pattern"; then
+				printf '%s\n' "$zip_entry" >>"$bad_file"
+			fi
+		done
+
+		if [ -s "$bad_file" ]; then
 			echo "ERROR: ${package_label} zip contains excluded development files:" >&2
 			sed -n '1,20p' "$bad_file" >&2
-			rm -f "$listing_file" "$bad_file"
+			rm -f "$listing_file" "$bad_file" "$exclude_file"
 			return 1
 		fi
-	done <<'EOF'
-advanced-plugin(/|$)
-(\.git|\.github|node_modules|src|tests|bin|scripts|docs|stubs|tools|playground|seeds|migrations|schemas|\.agents|\.claude|\.cursor|\.opencode|\.husky|\.wordpress-org|screenshots|playwright-report|blob-report|coverage-html)(/|$)
-(package\.json|package-lock\.json|webpack\.config\.js|wp-cli\.yml|phpunit\.xml(\.dist)?|phpcs\.xml|phpstan\.neon(\.dist)?|composer\.lock|AGENTS\.md|CLAUDE\.md|README\.md|TODO\.md|CHANGELOG\.md|CONTRIBUTING\.md|CODE_OF_CONDUCT\.md|SECURITY\.md|DESIGN\.md|MODELS\.md|ROADMAP\.md|PLANS-AI-AGENT-MASTERPLAN\.md|ISSUE_1497_FIX\.md|verify-output\.txt|VERSION|\.distignore|\.gitattributes|\.gitignore|\.eslintignore|\.eslintrc\.json|\.stylelintrc\.json|\.wp-env\.json|\.task-counter|\.phpunit\.result\.cache|\.phpunit\.cache|\.aidevops\.json|\.beads|\.beads-credential-key|\.dolt|\.clinerules|\.cursorrules|\.windsurfrules|codecov\.yml|playwright\.config\.(js|ts)|coverage\.xml|skills-lock\.json)$
-build/(di-cache|wporg-review)(/|$)
-vendor/pondermatic(/|$)
-vendor/.*/composer\.lock$
-.*\.zip$
-.*\.map$
-.*\.log$
-.*\.db$
-EOF
+
+		: >"$bad_file"
+	done
 
 	if [ "$forbid_composer_json" = "yes" ] && grep -E "^${top_dir}/composer\.json$" "$listing_file" >"$bad_file"; then
 		echo "ERROR: ${package_label} zip contains composer.json, which is not needed for this package:" >&2
 		sed -n '1,20p' "$bad_file" >&2
-		rm -f "$listing_file" "$bad_file"
+		rm -f "$listing_file" "$bad_file" "$exclude_file"
 		return 1
 	fi
 
-	rm -f "$listing_file" "$bad_file"
+	rm -f "$listing_file" "$bad_file" "$exclude_file"
 	echo "    Contents validated: ${package_label} zip contains only release files."
 	return 0
 }
