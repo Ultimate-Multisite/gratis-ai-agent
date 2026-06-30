@@ -1059,6 +1059,36 @@ class RestControllerTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * Test /process stays on the WordPress REST response path.
+	 *
+	 * Hosted FastCGI/LiteSpeed stacks reported "headers already sent" warnings
+	 * when this callback manually emitted a JSON response before WordPress REST
+	 * finalized its own response headers. Keep that detach implementation out of
+	 * the REST callback so loopback workers return through WP_REST_Server.
+	 */
+	public function test_process_callback_does_not_manually_emit_response_or_detach(): void {
+		$method = new \ReflectionMethod( \SdAiAgent\REST\SessionController::class, 'handle_process' );
+		$file   = (string) $method->getFileName();
+		$lines  = file( $file );
+
+		$this->assertIsArray( $lines );
+
+		$body = implode(
+			'',
+			array_slice(
+				$lines,
+				$method->getStartLine() - 1,
+				$method->getEndLine() - $method->getStartLine() + 1
+			)
+		);
+
+		$this->assertStringNotContainsString( 'header(', $body );
+		$this->assertStringNotContainsString( 'echo ', $body );
+		$this->assertStringNotContainsString( 'fastcgi_finish_request', $body );
+		$this->assertStringNotContainsString( 'litespeed_finish_request', $body );
+	}
+
+	/**
 	 * Test failed agent jobs persist the current user turn for recovery.
 	 */
 	public function test_error_recovery_persists_failed_turn_to_session(): void {
