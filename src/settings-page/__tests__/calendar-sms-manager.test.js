@@ -110,4 +110,45 @@ describe( 'CalendarSmsManager', () => {
 		expect( container.textContent ).toContain( 'attendee@example.com' );
 		expect( container.textContent ).toContain( '2026-06-29 08:05:00' );
 	} );
+
+	test( 'renders legacy raw-array contact mappings', async () => {
+		apiFetch.mockImplementation( ( options ) => {
+			if (
+				options.path === '/sd-ai-agent/v1/settings/contact-mappings'
+			) {
+				return Promise.resolve( [
+					{
+						id: 8,
+						attendee_email: 'legacy@example.com',
+						phone_e164: '+15557654321',
+						sms_consent: true,
+						display_name: 'Legacy Example',
+					},
+				] );
+			}
+
+			if (
+				Object.prototype.hasOwnProperty.call(
+					routeResponses,
+					options.path
+				)
+			) {
+				return Promise.resolve( routeResponses[ options.path ] );
+			}
+
+			return Promise.reject(
+				new Error( `Unexpected path: ${ options.path }` )
+			);
+		} );
+
+		await act( async () => {
+			root.render( createElement( CalendarSmsManager, {} ) );
+		} );
+		await act( async () => {
+			await Promise.resolve();
+		} );
+
+		expect( container.textContent ).toContain( 'legacy@example.com' );
+		expect( container.textContent ).toContain( '+15557654321' );
+	} );
 } );
