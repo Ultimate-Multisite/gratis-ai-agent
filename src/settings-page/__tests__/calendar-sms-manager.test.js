@@ -22,15 +22,17 @@ const routeResponses = {
 		api_base_url: 'https://api.textbee.dev',
 		device_id_redacted: '********1234',
 	},
-	'/sd-ai-agent/v1/settings/contact-mappings': [
-		{
-			id: 7,
-			attendee_email: 'attendee@example.com',
-			phone_e164: '+15551234567',
-			sms_consent: true,
-			display_name: 'Attendee Example',
-		},
-	],
+	'/sd-ai-agent/v1/settings/contact-mappings': {
+		contacts: [
+			{
+				id: 7,
+				attendee_email: 'attendee@example.com',
+				phone_e164: '+15551234567',
+				sms_consent: true,
+				display_name: 'Attendee Example',
+			},
+		],
+	},
 	'/sd-ai-agent/v1/automations': [
 		{
 			id: 11,
