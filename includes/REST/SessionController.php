@@ -1151,6 +1151,10 @@ final class SessionController {
 			$response['message'] = '' !== $error_detail
 				? $error_detail
 				: __( 'The background agent job failed before it could finish. Please retry the request.', 'superdav-ai-agent' );
+
+			if ( $this->session_has_recoverable_paused_state( $row->session_id ) ) {
+				$response['recoverable'] = true;
+			}
 		}
 
 		if ( in_array( $status, array( 'interrupted', 'abandoned' ), true ) ) {
@@ -1331,8 +1335,12 @@ final class SessionController {
 	 * @phpstan-param array<string, mixed> $params
 	 */
 	private function build_exception_recovery_history( array $history, array $params ): array {
-		$serialized = ConversationSerializer::serialize( $history );
-		$message    = isset( $params['message'] ) ? (string) $params['message'] : '';
+		try {
+			$serialized = ConversationSerializer::serialize( $history );
+		} catch ( \Throwable $e ) {
+			$serialized = array();
+		}
+		$message = isset( $params['message'] ) ? (string) $params['message'] : '';
 
 		if ( '' === trim( $message ) ) {
 			return $serialized;
@@ -1384,7 +1392,7 @@ final class SessionController {
 		}
 
 		$tool_calls = $this->normalize_serialized_rows( $error_data['tool_calls'] ?? array() );
-		$this->append_history_delta_to_session(
+		$appended   = $this->append_history_delta_to_session(
 			$session_id,
 			$history,
 			$tool_calls
@@ -1398,7 +1406,7 @@ final class SessionController {
 		$client_abilities = $error_data['client_abilities'] ?? ( $params['client_abilities'] ?? array() );
 		$client_abilities = is_array( $client_abilities ) ? $client_abilities : array();
 
-		$this->database->save_paused_state(
+		$paused_saved = $this->database->save_paused_state(
 			$session_id,
 			array(
 				'history'          => array_values( $history ),
@@ -1417,6 +1425,10 @@ final class SessionController {
 				'exit_reason'      => (string) $error->get_error_code(),
 			)
 		);
+
+		if ( ! $appended || ! $paused_saved ) {
+			return;
+		}
 
 		$job['session_id']  = $session_id;
 		$job['recoverable'] = true;
@@ -1478,12 +1490,70 @@ final class SessionController {
 			$existing_messages = array();
 		}
 
-		$appended = array_slice( $full_history, count( $existing_messages ) );
+		$append_offset = $this->get_history_append_offset( $full_history, $existing_messages );
+		$appended      = array_slice( $full_history, $append_offset );
 		if ( empty( $appended ) && empty( $tool_calls ) ) {
 			return true;
 		}
 
 		return $this->database->append_to_session( $session_id, array_values( $appended ), $tool_calls );
+	}
+
+	/**
+	 * Find the first recovery-history row not already persisted in the session.
+	 *
+	 * Recovery payloads can be full histories or best-effort suffixes. Prefer the
+	 * longest identity prefix; when the persisted session is not a prefix of the
+	 * payload, treat the payload as a suffix so a failed user turn is not dropped.
+	 *
+	 * @param array $full_history      Serialized recovery history.
+	 * @param array $existing_messages Serialized messages already persisted.
+	 * @return int Offset in $full_history from which rows should be appended.
+	 *
+	 * @phpstan-param list<array<string, mixed>> $full_history
+	 * @phpstan-param array<mixed> $existing_messages
+	 */
+	private function get_history_append_offset( array $full_history, array $existing_messages ): int {
+		$common_prefix = 0;
+		foreach ( $full_history as $index => $row ) {
+			if ( ! isset( $existing_messages[ $index ] ) || $existing_messages[ $index ] !== $row ) {
+				break;
+			}
+
+			++$common_prefix;
+		}
+
+		if ( $common_prefix > 0 || empty( $existing_messages ) ) {
+			return $common_prefix;
+		}
+
+		foreach ( $full_history as $index => $row ) {
+			if ( ! in_array( $row, $existing_messages, true ) ) {
+				return $index;
+			}
+		}
+
+		return count( $full_history );
+	}
+
+	/**
+	 * Determine whether a session has durable paused state for an error job.
+	 *
+	 * @param int $session_id Session ID.
+	 * @return bool Whether recovery state exists.
+	 */
+	private function session_has_recoverable_paused_state( int $session_id ): bool {
+		if ( $session_id <= 0 ) {
+			return false;
+		}
+
+		$session = $this->database->get_session( $session_id );
+		if ( ! $session || empty( $session->paused_state ) ) {
+			return false;
+		}
+
+		$paused_state = json_decode( (string) $session->paused_state, true );
+		return is_array( $paused_state ) && ! empty( $paused_state['history'] );
 	}
 
 	/**
