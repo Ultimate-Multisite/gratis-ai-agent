@@ -80,6 +80,9 @@ final class CalendarReminderAbilitiesTest extends WP_UnitTestCase {
 		$this->assertContains( 'event_cancelled', array_column( $result['skipped'], 'reason' ) );
 		$this->assertContains( 'attendee_declined', array_column( $result['skipped'], 'reason' ) );
 		$this->assertContains( 'sms_consent_missing', array_column( $result['skipped'], 'reason' ) );
+		foreach ( $result['skipped'] as $item ) {
+			$this->assertArrayNotHasKey( 'message', $item );
+		}
 	}
 
 	/** Missing Google Calendar credentials surface setup-required status. */
@@ -149,6 +152,16 @@ final class CalendarReminderAbilitiesTest extends WP_UnitTestCase {
 		$record = CalendarReminderRecords::find_by_identity( 'primary', 'evt-accepted', 'accepted@example.com', '2026-07-01' );
 		$this->assertIsArray( $record );
 		$this->assertSame( CalendarReminderRecords::STATUS_SENT, $record['status'] );
+	}
+
+	/** Safe text truncation keeps the returned byte length within the configured limit. */
+	public function test_safe_text_truncation_includes_ellipsis_within_limit(): void {
+		$method = new \ReflectionMethod( CalendarReminderAbilities::class, 'safe_text' );
+		$result = $method->invoke( null, str_repeat( 'A', 20 ), 10 );
+
+		$this->assertIsString( $result );
+		$this->assertLessThanOrEqual( 10, strlen( $result ) );
+		$this->assertStringEndsWith( '…', $result );
 	}
 
 	/** @param int $sms_requests Counter passed by reference. */

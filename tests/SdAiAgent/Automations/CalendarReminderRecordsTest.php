@@ -109,6 +109,37 @@ class CalendarReminderRecordsTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * Delivery claims reserve an unprocessed identity before non-idempotent sends.
+	 */
+	public function test_claim_for_delivery_reserves_identity_once(): void {
+		$first_id  = CalendarReminderRecords::claim_for_delivery( $this->make_reminder() );
+		$second_id = CalendarReminderRecords::claim_for_delivery( $this->make_reminder() );
+
+		$this->assertIsInt( $first_id );
+		$this->assertFalse( $second_id );
+
+		$record = CalendarReminderRecords::get( (int) $first_id );
+		$this->assertSame( CalendarReminderRecords::STATUS_CLAIMED, $record['status'] );
+		$this->assertTrue( CalendarReminderRecords::already_processed( 'primary', 'event-123', 'person@example.com', '2026-07-01' ) );
+	}
+
+	/**
+	 * Approved reminders may claim the exact pending approval once before sending.
+	 */
+	public function test_claim_for_delivery_claims_pending_approval_once(): void {
+		$pending_id = CalendarReminderRecords::record_pending_approval( $this->make_reminder( [ 'approval_request_id' => 'approval-1' ] ) );
+		$claim_id   = CalendarReminderRecords::claim_for_delivery( $this->make_reminder( [ 'approval_request_id' => 'approval-1' ] ) );
+		$retry_id   = CalendarReminderRecords::claim_for_delivery( $this->make_reminder( [ 'approval_request_id' => 'approval-1' ] ) );
+
+		$this->assertSame( $pending_id, $claim_id );
+		$this->assertFalse( $retry_id );
+
+		$record = CalendarReminderRecords::get( (int) $pending_id );
+		$this->assertSame( CalendarReminderRecords::STATUS_CLAIMED, $record['status'] );
+		$this->assertSame( 'approval-1', $record['approval_request_id'] );
+	}
+
+	/**
 	 * Reminder state can represent skipped, pending approval, failed, and sent outcomes.
 	 */
 	public function test_status_helpers_record_supported_states(): void {
