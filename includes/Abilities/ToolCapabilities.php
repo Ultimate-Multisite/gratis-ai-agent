@@ -279,6 +279,7 @@ class ToolCapabilities {
 		'sd-ai-agent/google-calendar-list-events'    => 'manage_options',
 		'sd-ai-agent/google-calendar-get-event'      => 'manage_options',
 		'sd-ai-agent/google-calendar-list-calendars' => 'manage_options',
+		'sd-ai-agent/calendar-send-sms-reminders'    => 'manage_options',
 	];
 
 	/**

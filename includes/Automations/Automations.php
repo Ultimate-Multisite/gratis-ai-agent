@@ -296,6 +296,12 @@ class Automations {
 				'tool_profile' => 'site-health',
 			],
 			[
+				'name'        => __( 'Daily Google Calendar SMS Reminders', 'superdav-ai-agent' ),
+				'description' => __( 'Check upcoming Google Calendar events daily and send or queue TextBee SMS reminders only for mapped, consenting attendees.', 'superdav-ai-agent' ),
+				'prompt'      => 'Run sd-ai-agent/calendar-send-sms-reminders with calendar_id=primary, lookahead_hours=24, approval_mode=require_approval, max_events=10, and max_recipients=50. Report the structured sent, skipped, pending, and failed counts. Do not manually chain lower-level calendar, contact, or SMS tools for this workflow.',
+				'schedule'    => 'daily',
+			],
+			[
 				'name'        => __( 'Weekly Plugin Update Check', 'superdav-ai-agent' ),
 				'description' => __( 'Check for plugin updates and report what needs updating.', 'superdav-ai-agent' ),
 				'prompt'      => "List all plugins that have updates available. For each:\n- Plugin name and current version\n- Available version\n- Whether it's a major, minor, or patch update\n\nDo NOT update any plugins — just report.",
