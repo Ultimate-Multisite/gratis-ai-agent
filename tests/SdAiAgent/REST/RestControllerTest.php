@@ -978,6 +978,45 @@ class RestControllerTest extends WP_UnitTestCase {
 		$this->assertSame( 'error', $data['status'] );
 		$this->assertTrue( $data['from_db'] );
 		$this->assertSame( $error_text, $data['message'] );
+		$this->assertArrayNotHasKey( 'recoverable', $data );
+		$this->assertNull( ActiveJobRepository::get_by_job_id( $job_id ) );
+	}
+
+	/**
+	 * Test terminal DB error rows keep recoverable metadata when paused state exists.
+	 */
+	public function test_job_status_from_db_error_row_includes_recoverable_when_paused_state_exists(): void {
+		wp_set_current_user( $this->admin_id );
+
+		$session_id = Database::create_session( [
+			'user_id' => $this->admin_id,
+			'title'   => 'DB recoverable fallback',
+		] );
+		$job_id     = '44444444-5555-6666-7777-888888888888';
+		$error_text = 'Provider rejected the recovery prompt.';
+
+		Database::save_paused_state(
+			$session_id,
+			[
+				'history'       => [ [ 'role' => 'user', 'parts' => [ [ 'text' => 'Recover this turn.' ] ] ] ],
+				'tool_call_log' => [],
+				'message_log'   => [],
+				'token_usage'   => [ 'prompt' => 0, 'completion' => 0 ],
+			]
+		);
+		ActiveJobRepository::create( $session_id, $job_id, $this->admin_id, 'processing' );
+		ActiveJobRepository::update_status( $job_id, 'error', [ 'error' => $error_text ] );
+		delete_transient( RestController::JOB_PREFIX . $job_id );
+
+		$status_response = $this->dispatch( 'GET', "/sd-ai-agent/v1/job/{$job_id}" );
+
+		$this->assertStatus( 200, $status_response );
+		$data = $status_response->get_data();
+
+		$this->assertSame( 'error', $data['status'] );
+		$this->assertTrue( $data['from_db'] );
+		$this->assertSame( $error_text, $data['message'] );
+		$this->assertTrue( $data['recoverable'] );
 		$this->assertNull( ActiveJobRepository::get_by_job_id( $job_id ) );
 	}
 
@@ -1090,6 +1129,68 @@ class RestControllerTest extends WP_UnitTestCase {
 		$this->assertIsArray( $paused );
 		$this->assertSame( 'prompt_invalid_argument', $paused['exit_reason'] );
 		$this->assertCount( 3, $paused['history'] );
+		$this->assertSame( $session_id, $job['session_id'] );
+		$this->assertTrue( $job['recoverable'] );
+	}
+
+	/**
+	 * Test recovery persistence appends a suffix payload instead of dropping it by count.
+	 */
+	public function test_persist_error_recovery_appends_shorter_failed_turn_suffix(): void {
+		$session_id = Database::create_session( [
+			'user_id' => $this->admin_id,
+			'title'   => 'Recover shorter history suffix',
+		] );
+
+		$existing = \SdAiAgent\Core\ConversationSerializer::serialize(
+			[
+				new \WordPress\AiClient\Messages\DTO\UserMessage(
+					[ new \WordPress\AiClient\Messages\DTO\MessagePart( 'Start the site.' ) ]
+				),
+				new \WordPress\AiClient\Messages\DTO\ModelMessage(
+					[ new \WordPress\AiClient\Messages\DTO\MessagePart( 'I checked the site.' ) ]
+				),
+			]
+		);
+		Database::append_to_session( $session_id, $existing );
+
+		$failed_turn = \SdAiAgent\Core\ConversationSerializer::serialize(
+			[
+				new \WordPress\AiClient\Messages\DTO\UserMessage(
+					[ new \WordPress\AiClient\Messages\DTO\MessagePart( 'Please keep this shorter payload.' ) ]
+				),
+			]
+		);
+		$error       = new \WP_Error(
+			'prompt_invalid_argument',
+			'The provider rejected the prompt.',
+			[
+				'history'          => $failed_turn,
+				'tool_calls'       => [],
+				'messages'         => [],
+				'token_usage'      => [ 'prompt' => 1, 'completion' => 0 ],
+				'client_abilities' => [],
+			]
+		);
+
+		$controller = new \SdAiAgent\REST\SessionController( new Database() );
+		$method     = new \ReflectionMethod( \SdAiAgent\REST\SessionController::class, 'persist_error_recovery_to_session' );
+		$method->setAccessible( true );
+
+		$params     = [ 'message' => 'Please keep this shorter payload.', 'session_id' => $session_id ];
+		$options    = [];
+		$job        = [ 'status' => 'error', 'error' => $error->get_error_message(), 'params' => $params ];
+		$error_data = $error->get_error_data();
+		$this->assertIsArray( $error_data );
+
+		$method->invokeArgs( $controller, [ $session_id, $error, $error_data, $params, $options, &$job ] );
+
+		$session  = Database::get_session( $session_id );
+		$messages = json_decode( (string) $session->messages, true );
+
+		$this->assertCount( 3, $messages );
+		$this->assertSame( 'user', $messages[2]['role'] );
+		$this->assertStringContainsString( 'shorter payload', wp_json_encode( $messages[2] ) );
 		$this->assertSame( $session_id, $job['session_id'] );
 		$this->assertTrue( $job['recoverable'] );
 	}

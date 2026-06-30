@@ -915,6 +915,11 @@ class AgentLoop {
 			// aware of the new context on this iteration.
 			$this->check_and_inject_interrupts();
 
+			// Preserve the full pre-trim history for recovery payloads. The provider
+			// call may need a trimmed prompt, but error recovery must append against
+			// the untrimmed session prefix so the failed user turn is not skipped.
+			$recovery_history = $this->history;
+
 			// Smart conversation trimming before each LLM call.
 			// @phpstan-ignore-next-line
 			$max_turns = (int) $this->settings_service->get( 'max_history_turns' );
@@ -936,7 +941,8 @@ class AgentLoop {
 							'The previous agent run stopped after an assistant message. Send a new message to continue from the saved chat history.',
 							'superdav-ai-agent'
 						)
-					)
+					),
+					$recovery_history
 				);
 
 				AgentEventLog::log(
@@ -964,7 +970,7 @@ class AgentLoop {
 
 			if ( is_wp_error( $result ) ) {
 				/** @var WP_Error $result */
-				$result = $this->with_error_recovery_data( $result );
+				$result = $this->with_error_recovery_data( $result, $recovery_history );
 				AgentEventLog::log(
 					'agent_loop_aborted',
 					AgentEventLog::SEVERITY_ERROR,
@@ -2012,11 +2018,15 @@ class AgentLoop {
 	 * and the latest safe history instead of dropping the prompt when the provider
 	 * or SDK rejects a request.
 	 *
-	 * @param WP_Error $error Error returned from a provider/loop boundary.
+	 * @param WP_Error $error           Error returned from a provider/loop boundary.
+	 * @param array    $recovery_history Optional pre-trim history to serialize for recovery.
+	 *
+	 * @phpstan-param array<int|string, Message>|null $recovery_history
 	 */
-	private function with_error_recovery_data( WP_Error $error ): WP_Error {
+	private function with_error_recovery_data( WP_Error $error, ?array $recovery_history = null ): WP_Error {
 		$error_data = $error->get_error_data();
 		$data       = is_array( $error_data ) ? $error_data : array();
+		$history    = $recovery_history ?? $this->history;
 
 		$defaults = array(
 			'tool_calls'       => $this->tool_call_log,
@@ -2024,7 +2034,7 @@ class AgentLoop {
 			'iterations_used'  => $this->iterations_used,
 			'model_id'         => $this->model_id,
 			'provider_id'      => $this->provider_id,
-			'history'          => $this->serialize_history(),
+			'history'          => ConversationSerializer::serialize( $history ),
 			'client_abilities' => $this->client_abilities,
 			'recoverable'      => true,
 		);
