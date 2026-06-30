@@ -82,6 +82,17 @@ final class CalendarReminderAbilitiesTest extends WP_UnitTestCase {
 		$this->assertContains( 'sms_consent_missing', array_column( $result['skipped'], 'reason' ) );
 	}
 
+	/** Missing Google Calendar credentials surface setup-required status. */
+	public function test_dry_run_missing_google_calendar_credentials_returns_setup_status(): void {
+		Settings::instance()->set_google_calendar_credentials( [] );
+
+		$result = CalendarReminderAbilities::handle_send_sms_reminders( [ 'approval_mode' => 'dry_run' ] );
+
+		$this->assertInstanceOf( \WP_Error::class, $result );
+		$this->assertSame( 'google_calendar_not_configured', $result->get_error_code() );
+		$this->assertSame( 412, $result->get_error_data()['status'] ?? null );
+	}
+
 	/** Approval mode queues a human request and prevents duplicate queueing on retry. */
 	public function test_approval_mode_queues_without_sending_and_prevents_duplicates(): void {
 		$sms_requests = 0;
