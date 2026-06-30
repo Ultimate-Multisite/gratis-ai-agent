@@ -139,6 +139,36 @@ class CalendarReminderRecords {
 	}
 
 	/**
+	 * List recent reminder records for the admin setup UI.
+	 *
+	 * @return list<array<string, mixed>>
+	 */
+	public static function list_recent( int $limit = 25 ): array {
+		global $wpdb;
+		/** @var \wpdb $wpdb */
+
+		$limit = max( 1, min( 100, $limit ) );
+
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Custom table query; caching not applicable.
+		$rows = $wpdb->get_results(
+			$wpdb->prepare( 'SELECT * FROM %i ORDER BY updated_at DESC, id DESC LIMIT %d', self::table_name(), $limit )
+		);
+
+		if ( ! is_array( $rows ) ) {
+			return array();
+		}
+
+		$records = array();
+		foreach ( $rows as $row ) {
+			if ( is_object( $row ) ) {
+				$records[] = self::decode_row( $row );
+			}
+		}
+
+		return $records;
+	}
+
+	/**
 	 * Hash a phone number for storage without retaining the raw value.
 	 */
 	public static function hash_phone( string $phone ): string {

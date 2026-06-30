@@ -14,6 +14,7 @@ namespace SdAiAgent\REST;
 use SdAiAgent\Automations\AutomationLogs;
 use SdAiAgent\Automations\AutomationRunner;
 use SdAiAgent\Automations\Automations;
+use SdAiAgent\Automations\CalendarReminderRecords;
 use SdAiAgent\Automations\EventAutomations;
 use SdAiAgent\Automations\EventTriggerRegistry;
 use SdAiAgent\Automations\HumanApprovalGate;
@@ -242,6 +243,23 @@ final class AutomationController {
 				'methods'             => WP_REST_Server::READABLE,
 				'callback'            => array( $this, 'handle_list_all_logs' ),
 				'permission_callback' => array( $this, 'check_permission' ),
+			)
+		);
+
+		register_rest_route(
+			RestController::NAMESPACE,
+			'/calendar-reminder-records',
+			array(
+				'methods'             => WP_REST_Server::READABLE,
+				'callback'            => array( $this, 'handle_list_calendar_reminder_records' ),
+				'permission_callback' => array( $this, 'check_permission' ),
+				'args'                => array(
+					'limit' => array(
+						'required'          => false,
+						'type'              => 'integer',
+						'sanitize_callback' => 'absint',
+					),
+				),
 			)
 		);
 
@@ -485,6 +503,16 @@ final class AutomationController {
 	 */
 	public function handle_list_all_logs(): WP_REST_Response {
 		return new WP_REST_Response( AutomationLogs::list_recent(), 200 );
+	}
+
+	/**
+	 * List recent calendar SMS reminder records.
+	 *
+	 * @param WP_REST_Request $request The request object.
+	 * @return WP_REST_Response
+	 */
+	public function handle_list_calendar_reminder_records( WP_REST_Request $request ): WP_REST_Response {
+		return new WP_REST_Response( CalendarReminderRecords::list_recent( absint( $request->get_param( 'limit' ) ?: 25 ) ), 200 );
 	}
 
 	/**

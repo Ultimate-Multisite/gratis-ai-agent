@@ -36,6 +36,7 @@ import KnowledgeManager from './knowledge-manager';
 import UsageDashboard from './usage-dashboard';
 import CustomToolsManager from './custom-tools-manager';
 import AutomationsManager from './automations-manager';
+import CalendarSmsManager from './calendar-sms-manager';
 import EventsManager from './events-manager';
 import RolePermissionsManager from './role-permissions-manager';
 import AgentBuilder from './agent-builder';
@@ -1706,6 +1707,21 @@ export default function SettingsApp() {
 							case 'automations':
 								return (
 									<div className="sdaa-settings-section">
+										<h3 className="sdaa-settings-section-title">
+											{ __(
+												'Calendar SMS Reminders',
+												'sd-ai-agent'
+											) }
+										</h3>
+										<ErrorBoundary
+											label={ __(
+												'Calendar SMS reminders manager',
+												'sd-ai-agent'
+											) }
+										>
+											<CalendarSmsManager />
+										</ErrorBoundary>
+
 										<h3 className="sdaa-settings-section-title">
 											{ __(
 												'Automations',

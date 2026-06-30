@@ -11,6 +11,7 @@ declare(strict_types=1);
 
 namespace SdAiAgent\REST;
 
+use SdAiAgent\Abilities\CalendarReminderAbilities;
 use SdAiAgent\Abilities\GoogleAnalyticsAbilities;
 use SdAiAgent\Abilities\InternetSearchAbilities;
 use SdAiAgent\Abilities\SmsAbilities;
@@ -352,6 +353,27 @@ final class SettingsController {
 					'callback'            => array( $this, 'handle_delete_google_calendar_credentials' ),
 					'permission_callback' => array( __CLASS__, 'check_admin_permission' ),
 				),
+			)
+		);
+
+		// Safe calendar SMS reminder test endpoints for the admin setup UI.
+		register_rest_route(
+			RestController::NAMESPACE,
+			'/settings/sms-provider/test',
+			array(
+				'methods'             => WP_REST_Server::CREATABLE,
+				'callback'            => array( $this, 'handle_test_sms_provider' ),
+				'permission_callback' => array( __CLASS__, 'check_admin_permission' ),
+			)
+		);
+
+		register_rest_route(
+			RestController::NAMESPACE,
+			'/settings/calendar-reminders/dry-run',
+			array(
+				'methods'             => WP_REST_Server::CREATABLE,
+				'callback'            => array( $this, 'handle_calendar_reminders_dry_run' ),
+				'permission_callback' => array( __CLASS__, 'check_admin_permission' ),
 			)
 		);
 
@@ -764,6 +786,60 @@ final class SettingsController {
 			),
 			200
 			);
+	}
+
+	/**
+	 * Handle POST /settings/sms-provider/test — send an explicit test SMS.
+	 *
+	 * @param WP_REST_Request $request The request object.
+	 * @return WP_REST_Response|WP_Error
+	 */
+	public function handle_test_sms_provider( WP_REST_Request $request ): WP_REST_Response|WP_Error {
+		$params    = $request->get_json_params();
+		$params    = is_array( $params ) ? $params : array();
+		$recipient = sanitize_text_field( (string) ( $params['recipient'] ?? '' ) );
+		$message   = sanitize_textarea_field( (string) ( $params['message'] ?? __( 'This is a Superdav AI Agent TextBee test message.', 'superdav-ai-agent' ) ) );
+
+		$result = SmsAbilities::handle_sms_send(
+			array(
+				'recipients' => array( $recipient ),
+				'message'    => $message,
+			)
+		);
+
+		if ( is_wp_error( $result ) ) {
+			return $result;
+		}
+
+		return new WP_REST_Response( $result, 200 );
+	}
+
+	/**
+	 * Handle POST /settings/calendar-reminders/dry-run — preview reminders without sending SMS.
+	 *
+	 * @param WP_REST_Request $request The request object.
+	 * @return WP_REST_Response|WP_Error
+	 */
+	public function handle_calendar_reminders_dry_run( WP_REST_Request $request ): WP_REST_Response|WP_Error {
+		$params = $request->get_json_params();
+		$params = is_array( $params ) ? $params : array();
+
+		$result = CalendarReminderAbilities::handle_send_sms_reminders(
+			array(
+				'calendar_id'      => sanitize_text_field( (string) ( $params['calendar_id'] ?? 'primary' ) ),
+				'lookahead_hours'  => absint( $params['lookahead_hours'] ?? 24 ),
+				'approval_mode'    => 'dry_run',
+				'message_template' => sanitize_textarea_field( (string) ( $params['message_template'] ?? '' ) ),
+				'max_events'       => absint( $params['max_events'] ?? 10 ),
+				'max_recipients'   => absint( $params['max_recipients'] ?? 50 ),
+			)
+		);
+
+		if ( is_wp_error( $result ) ) {
+			return $result;
+		}
+
+		return new WP_REST_Response( $result, 200 );
 	}
 
 	/**
