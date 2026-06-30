@@ -494,7 +494,11 @@ class ToolCapabilities {
 	 * @return string[]
 	 */
 	public static function all_ability_ids(): array {
-		$ids = array_merge( array_keys( self::CORE_CAP_MAP ), self::CORE_CAP_OPTOUT );
+		$ids = array_merge(
+			array_keys( self::CORE_CAP_MAP ),
+			array_keys( self::GOOGLE_CALENDAR_CORE_CAP_MAP ),
+			self::CORE_CAP_OPTOUT
+		);
 		sort( $ids );
 		return array_values( array_unique( $ids ) );
 	}

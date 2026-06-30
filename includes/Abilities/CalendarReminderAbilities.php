@@ -143,12 +143,22 @@ class CalendarReminderAbilities {
 	 * @return array<string, mixed>|WP_Error
 	 */
 	public static function handle_approved_reminder( array $payload, array $request = [] ): array|WP_Error {
-		unset( $request );
 		$contact = ContactMapping::get_by_email( (string) ( $payload['attendee_email'] ?? '' ) );
 		if ( ! is_array( $contact ) || true !== $contact['sms_consent'] ) {
 			$error = new WP_Error( 'calendar_reminder_contact_unavailable', __( 'Consented attendee phone mapping is no longer available.', 'superdav-ai-agent' ), [ 'status' => 409 ] );
 			self::record_failed_from_payload( $payload, $error );
 			return $error;
+		}
+
+		$record_data = self::record_data_from_payload(
+			$payload,
+			[
+				'approval_request_id' => (string) ( $request['id'] ?? $payload['approval_request_id'] ?? '' ),
+				'phone'               => (string) $contact['phone_e164'],
+			]
+		);
+		if ( false === CalendarReminderRecords::claim_for_delivery( $record_data ) ) {
+			return new WP_Error( 'calendar_reminder_already_processed', __( 'Reminder was already processed or claimed.', 'superdav-ai-agent' ), [ 'status' => 409 ] );
 		}
 
 		$result = self::send_sms( (string) $contact['phone_e164'], (string) ( $payload['message'] ?? '' ) );
@@ -158,10 +168,9 @@ class CalendarReminderAbilities {
 		}
 
 		CalendarReminderRecords::record_sent(
-			self::record_data_from_payload(
-				$payload,
+			array_merge(
+				$record_data,
 				[
-					'phone'    => (string) $contact['phone_e164'],
 					'provider' => 'textbee',
 				]
 			)
@@ -274,7 +283,7 @@ class CalendarReminderAbilities {
 			++$processed;
 			$record_data = self::record_data( $calendar_id, $event, $email, $event_start, $date, (string) ( $contact['phone_e164'] ?? '' ) );
 			if ( 'dry_run' === $args['approval_mode'] ) {
-				$result['skipped'][] = self::skip_item( $event, $email, 'dry_run', [ 'message' => $message ] );
+				$result['skipped'][] = self::skip_item( $event, $email, 'dry_run' );
 				continue;
 			}
 
@@ -289,17 +298,22 @@ class CalendarReminderAbilities {
 				continue;
 			}
 
+			if ( false === CalendarReminderRecords::claim_for_delivery( $record_data ) ) {
+				$result['skipped'][] = self::skip_item( $event, $email, 'already_processed' );
+				continue;
+			}
+
 			$sent = self::send_sms( (string) ( $contact['phone_e164'] ?? '' ), $message );
 			if ( is_wp_error( $sent ) ) {
 				CalendarReminderRecords::record_failed(
 					array_merge(
-					$record_data,
-					[
-						'provider'      => 'textbee',
-						'error_message' => $sent->get_error_message(),
-					]
+						$record_data,
+						[
+							'provider'      => 'textbee',
+							'error_message' => $sent->get_error_message(),
+						]
 					)
-					);
+				);
 				$result['failed'][] = self::failure_item( $event, $email, $sent );
 				continue;
 			}
@@ -402,7 +416,16 @@ class CalendarReminderAbilities {
 	private static function safe_text( string $text, int $max_length ): string {
 		$text = wp_strip_all_tags( preg_replace( '/\s+/', ' ', $text ) ?: '' );
 		$text = trim( str_replace( [ "\r", "\n" ], ' ', $text ) );
-		return strlen( $text ) > $max_length ? substr( $text, 0, max( 0, $max_length - 1 ) ) . '…' : $text;
+		if ( strlen( $text ) <= $max_length ) {
+			return $text;
+		}
+
+		$ellipsis = '…';
+		if ( $max_length <= strlen( $ellipsis ) ) {
+			return substr( $text, 0, max( 0, $max_length ) );
+		}
+
+		return substr( $text, 0, max( 0, $max_length - strlen( $ellipsis ) ) ) . $ellipsis;
 	}
 
 	/**

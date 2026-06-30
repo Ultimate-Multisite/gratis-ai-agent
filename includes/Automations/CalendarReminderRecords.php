@@ -17,6 +17,7 @@ class CalendarReminderRecords {
 	public const STATUS_SENT             = 'sent';
 	public const STATUS_SKIPPED          = 'skipped';
 	public const STATUS_PENDING_APPROVAL = 'pending_approval';
+	public const STATUS_CLAIMED          = 'claimed';
 	public const STATUS_FAILED           = 'failed';
 
 	/**
@@ -95,6 +96,52 @@ class CalendarReminderRecords {
 				'skip_reason'         => sanitize_textarea_field( (string) ( $data['error_message'] ?? $data['skip_reason'] ?? '' ) ),
 			]
 		);
+	}
+
+	/**
+	 * Atomically claim a reminder identity before non-idempotent delivery.
+	 *
+	 * @param array<string, mixed> $data Reminder data.
+	 */
+	public static function claim_for_delivery( array $data ): int|false {
+		global $wpdb;
+		/** @var \wpdb $wpdb */
+
+		$now                 = current_time( 'mysql', true );
+		$approval_request_id = sanitize_text_field( (string) ( $data['approval_request_id'] ?? '' ) );
+		$record              = self::prepare_record(
+			$data,
+			self::STATUS_CLAIMED,
+			[
+				'approval_request_id' => $approval_request_id,
+			]
+		);
+
+		$previous_suppression = $wpdb->suppress_errors( true );
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery -- Custom table write; claim must be durable before SMS delivery.
+		$result = $wpdb->insert( self::table_name(), $record );
+		$wpdb->suppress_errors( $previous_suppression );
+		if ( $result ) {
+			return (int) $wpdb->insert_id;
+		}
+
+		$existing = self::find_by_identity(
+			$record['calendar_id'],
+			$record['event_id'],
+			$record['attendee_email'],
+			$record['reminder_date']
+		);
+
+		if (
+			null !== $existing
+			&& '' !== $approval_request_id
+			&& self::STATUS_PENDING_APPROVAL === $existing['status']
+			&& $approval_request_id === (string) $existing['approval_request_id']
+		) {
+			return self::update_existing_record( (int) $existing['id'], $record, $now );
+		}
+
+		return false;
 	}
 
 	/**
@@ -189,26 +236,8 @@ class CalendarReminderRecords {
 		global $wpdb;
 		/** @var \wpdb $wpdb */
 
-		$now           = current_time( 'mysql', true );
-		$reminder_date = self::sanitize_date( (string) ( $data['reminder_date'] ?? $data['event_start_at'] ?? $now ) );
-		$base          = [
-			'calendar_id'         => self::sanitize_identifier( (string) ( $data['calendar_id'] ?? '' ) ),
-			'event_id'            => self::sanitize_identifier( (string) ( $data['event_id'] ?? '' ) ),
-			'event_start_at'      => self::sanitize_datetime( (string) ( $data['event_start_at'] ?? $now ) ),
-			'reminder_date'       => $reminder_date,
-			'attendee_email'      => self::sanitize_email( (string) ( $data['attendee_email'] ?? '' ) ),
-			'phone_hash'          => self::phone_hash_from_data( $data ),
-			'status'              => self::sanitize_status( $status ),
-			'skip_reason'         => '',
-			'provider'            => '',
-			'provider_message_id' => '',
-			'approval_request_id' => '',
-			'sent_at'             => null,
-			'created_at'          => $now,
-			'updated_at'          => $now,
-		];
-
-		$record = array_merge( $base, $fields );
+		$now    = current_time( 'mysql', true );
+		$record = self::prepare_record( $data, $status, $fields );
 
 		$existing = self::find_by_identity(
 			$record['calendar_id'],
@@ -236,6 +265,37 @@ class CalendarReminderRecords {
 		);
 
 		return null === $existing ? false : self::update_existing_record( (int) $existing['id'], $record, $now );
+	}
+
+	/**
+	 * Build a sanitized reminder record for insert/update operations.
+	 *
+	 * @param array<string, mixed> $data   Reminder data.
+	 * @param string               $status Reminder status.
+	 * @param array<string, mixed> $fields Additional fields.
+	 * @return array<string, mixed>
+	 */
+	private static function prepare_record( array $data, string $status, array $fields = [] ): array {
+		$now           = current_time( 'mysql', true );
+		$reminder_date = self::sanitize_date( (string) ( $data['reminder_date'] ?? $data['event_start_at'] ?? $now ) );
+		$base          = [
+			'calendar_id'         => self::sanitize_identifier( (string) ( $data['calendar_id'] ?? '' ) ),
+			'event_id'            => self::sanitize_identifier( (string) ( $data['event_id'] ?? '' ) ),
+			'event_start_at'      => self::sanitize_datetime( (string) ( $data['event_start_at'] ?? $now ) ),
+			'reminder_date'       => $reminder_date,
+			'attendee_email'      => self::sanitize_email( (string) ( $data['attendee_email'] ?? '' ) ),
+			'phone_hash'          => self::phone_hash_from_data( $data ),
+			'status'              => self::sanitize_status( $status ),
+			'skip_reason'         => '',
+			'provider'            => '',
+			'provider_message_id' => '',
+			'approval_request_id' => '',
+			'sent_at'             => null,
+			'created_at'          => $now,
+			'updated_at'          => $now,
+		];
+
+		return array_merge( $base, $fields );
 	}
 
 	/**
@@ -328,7 +388,7 @@ class CalendarReminderRecords {
 	 * Sanitize a supported status.
 	 */
 	private static function sanitize_status( string $status ): string {
-		$allowed = [ self::STATUS_SENT, self::STATUS_SKIPPED, self::STATUS_PENDING_APPROVAL, self::STATUS_FAILED ];
+		$allowed = [ self::STATUS_SENT, self::STATUS_SKIPPED, self::STATUS_PENDING_APPROVAL, self::STATUS_CLAIMED, self::STATUS_FAILED ];
 
 		return in_array( $status, $allowed, true ) ? $status : self::STATUS_FAILED;
 	}
