@@ -182,23 +182,23 @@ src/**/__snapshots__
 # These are require-dev packages that should not ship in a production zip.
 /vendor/pondermatic
 /vendor/**/composer.lock
-vendor/dealerdirect
-vendor/doctrine
-vendor/myclabs
-vendor/nikic
-vendor/phar-io
-vendor/phpcompatibility
-vendor/phpcsstandards
-vendor/phpstan
-vendor/php-stubs
-vendor/phpunit
-vendor/sebastian
-vendor/squizlabs
-vendor/szepeviktor
-vendor/theseer
-vendor/wp-coding-standards
-vendor/yoast
-vendor/bin
+/vendor/dealerdirect
+/vendor/doctrine
+/vendor/myclabs
+/vendor/nikic
+/vendor/phar-io
+/vendor/phpcompatibility
+/vendor/phpcsstandards
+/vendor/phpstan
+/vendor/php-stubs
+/vendor/phpunit
+/vendor/sebastian
+/vendor/squizlabs
+/vendor/szepeviktor
+/vendor/theseer
+/vendor/wp-coding-standards
+/vendor/yoast
+/vendor/bin
 
 # Build artefacts that should not be re-packaged (tree-wide is intentional)
 *.zip
