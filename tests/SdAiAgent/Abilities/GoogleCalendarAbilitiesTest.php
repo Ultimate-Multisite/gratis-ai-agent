@@ -39,6 +39,7 @@ final class GoogleCalendarAbilitiesTest extends WP_UnitTestCase {
 
 		$this->assertInstanceOf( \WP_Error::class, $result );
 		$this->assertSame( 'google_calendar_not_configured', $result->get_error_code() );
+		$this->assertSame( 412, $result->get_error_data()['status'] ?? null );
 	}
 
 	/** Unknown credential types fail closed. */

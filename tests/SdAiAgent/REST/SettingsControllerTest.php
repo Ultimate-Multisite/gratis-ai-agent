@@ -92,6 +92,20 @@ final class SettingsControllerTest extends WP_UnitTestCase {
 		$this->assertSame( 400, $response->get_status() );
 	}
 
+	/** Calendar reminder dry-run returns setup status when Google Calendar is not connected. */
+	public function test_calendar_reminders_dry_run_missing_google_calendar_credentials_returns_setup_status(): void {
+		$controller = new SettingsController( new Settings(), new Database() );
+		$request    = new WP_REST_Request( 'POST', '/sd-ai-agent/v1/settings/calendar-reminders/dry-run' );
+		$request->set_body( (string) wp_json_encode( array() ) );
+		$request->set_header( 'Content-Type', 'application/json' );
+
+		$response = $controller->handle_calendar_reminders_dry_run( $request );
+
+		$this->assertInstanceOf( \WP_Error::class, $response );
+		$this->assertSame( 'google_calendar_not_configured', $response->get_error_code() );
+		$this->assertSame( 412, $response->get_error_data()['status'] ?? null );
+	}
+
 	/**
 	 * /providers auto-provisions the managed Superdav token before listing providers.
 	 */

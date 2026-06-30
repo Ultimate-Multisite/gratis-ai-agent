@@ -22,8 +22,9 @@ if ( ! defined( 'ABSPATH' ) ) {
 
 class GoogleCalendarAbilities {
 
-	private const TOKEN_URL = 'https://oauth2.googleapis.com/token';
-	private const API_BASE  = 'https://www.googleapis.com/calendar/v3';
+	private const TOKEN_URL             = 'https://oauth2.googleapis.com/token';
+	private const API_BASE              = 'https://www.googleapis.com/calendar/v3';
+	private const SETUP_REQUIRED_STATUS = 412;
 
 	/**
 	 * Register Google Calendar abilities.
@@ -246,7 +247,7 @@ class GoogleCalendarAbilities {
 	private static function get_access_token(): string|WP_Error {
 		$creds = Settings::instance()->get_google_calendar_credentials();
 		if ( empty( $creds ) || empty( $creds['type'] ) ) {
-			return new WP_Error( 'google_calendar_not_configured', __( 'Google Calendar credentials are not configured.', 'superdav-ai-agent' ) );
+			return new WP_Error( 'google_calendar_not_configured', __( 'Google Calendar credentials are not configured.', 'superdav-ai-agent' ), [ 'status' => self::SETUP_REQUIRED_STATUS ] );
 		}
 
 		if ( 'oauth2_refresh_token' !== $creds['type'] ) {
