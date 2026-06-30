@@ -29,6 +29,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 
 use SdAiAgent\Abilities\AiImageAbilities;
 use SdAiAgent\Abilities\BlockAbilities;
+use SdAiAgent\Abilities\CalendarReminderAbilities;
 use SdAiAgent\Core\BlockEnricherRegistry;
 use SdAiAgent\Enrichers\CoreImageEnricher;
 use SdAiAgent\Abilities\ContentAbilities;
@@ -115,6 +116,7 @@ final class AbilitiesHandler {
 		GoogleAnalyticsAbilities::register_abilities();
 		GoogleCalendarAbilities::register_abilities();
 		SmsAbilities::register_abilities();
+		CalendarReminderAbilities::register_abilities();
 		// Wire the block enricher registry before registering block
 		// abilities so handle_get_page_blocks can use it. The registry
 		// is created once (singleton per request), the core/image
