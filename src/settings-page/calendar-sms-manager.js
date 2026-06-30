@@ -33,6 +33,14 @@ const statusLabel = ( configured ) =>
 		? __( 'Configured', 'superdav-ai-agent' )
 		: __( 'Needs setup', 'superdav-ai-agent' );
 
+const normalizeContactMappings = ( mappingRows ) => {
+	if ( Array.isArray( mappingRows?.contacts ) ) {
+		return mappingRows.contacts;
+	}
+
+	return Array.isArray( mappingRows ) ? mappingRows : [];
+};
+
 /**
  * Calendar SMS reminder setup surface.
  *
@@ -120,7 +128,7 @@ export default function CalendarSmsManager() {
 
 			setCalendarStatus( calendar );
 			setSmsStatus( sms );
-			setContacts( Array.isArray( mappingRows ) ? mappingRows : [] );
+			setContacts( normalizeContactMappings( mappingRows ) );
 			setAutomations(
 				Array.isArray( automationRows ) ? automationRows : []
 			);
