@@ -1813,6 +1813,11 @@ final class SessionController {
 		// phpcs:ignore Squiz.PHP.DiscouragedFunctions.Discouraged -- Agent loops need extended execution time.
 		set_time_limit( 600 );
 
+		// Keep response emission under WP_REST_Server. Manually sending headers,
+		// echoing JSON, or calling SAPI-specific finish-request functions here
+		// races WordPress' REST finalization and can trigger "headers already sent"
+		// warnings on hosted FastCGI/LiteSpeed stacks.
+
 		// @phpstan-ignore-next-line
 		$job_id = (string) $request->get_param( 'job_id' );
 		$job    = get_transient( RestController::JOB_PREFIX . $job_id );
