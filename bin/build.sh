@@ -236,6 +236,16 @@ prune_dev_metadata() {
 	return 0
 }
 
+compile_di_cache() {
+	local dest="$1"
+
+	echo "==> [core] Compiling DI cache for release..."
+	php "${PLUGIN_DIR}/bin/compile-di-cache.php" "$dest" "$VERSION"
+	echo "    DI cache compiled."
+
+	return 0
+}
+
 zip_dir() {
 	local build_dir="$1"
 	local top_dir="$2"
@@ -250,6 +260,30 @@ zip_dir() {
 
 	echo "    File: ${zip_path}"
 	echo "    Size: ${zip_size}"
+	return 0
+}
+
+validate_core_di_cache_in_zip() {
+	local zip_path="$1"
+	local top_dir="$2"
+	local listing_file=""
+	local cache_entry="${top_dir}/build/di-cache/${VERSION}/CompiledContainerSdAiAgent.php"
+
+	listing_file="$(mktemp)"
+	if ! unzip -Z1 "$zip_path" >"$listing_file"; then
+		echo "ERROR: Could not inspect ${zip_path}." >&2
+		rm -f "$listing_file"
+		return 1
+	fi
+
+	if ! grep -Fxq "$cache_entry" "$listing_file"; then
+		echo "ERROR: core zip is missing the compiled DI cache: ${cache_entry}" >&2
+		rm -f "$listing_file"
+		return 1
+	fi
+
+	rm -f "$listing_file"
+	echo "    DI cache validated: ${cache_entry} is packaged."
 	return 0
 }
 
@@ -355,8 +389,10 @@ build_core() {
 
 	prune_dev_metadata "$dest"
 	composer --working-dir="$dest" dump-autoload --no-dev --optimize --quiet
+	compile_di_cache "$dest"
 	zip_dir "$build_dir" "superdav-ai-agent" "superdav-ai-agent-${VERSION}.zip"
 	validate_zip_contents "${PLUGIN_DIR}/superdav-ai-agent-${VERSION}.zip" "superdav-ai-agent" "core" "superdav-ai-agent.php" "no"
+	validate_core_di_cache_in_zip "${PLUGIN_DIR}/superdav-ai-agent-${VERSION}.zip" "superdav-ai-agent"
 	return 0
 }
 
