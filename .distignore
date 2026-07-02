@@ -203,7 +203,9 @@ src/**/__snapshots__
 # Build artefacts that should not be re-packaged (tree-wide is intentional)
 *.zip
 *.map
-build/di-cache
+# build/di-cache is intentionally packaged: bin/build.sh refreshes the
+# versioned CompiledContainerSdAiAgent.php during the core release build so
+# WordPress installs do not generate checksum-drifting cache files at runtime.
 # Pre-submission AI review reports written by bin/wporg-review.sh —
 # never include these in either the GitHub or WP.org zip.
 build/wporg-review

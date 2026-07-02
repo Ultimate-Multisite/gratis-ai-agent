@@ -338,7 +338,7 @@ protected function get4() {
 }
 ```
 
-**`compile_dir` can stay absolute** — it's only used during compilation on the development machine, not at runtime.
+`bin/build.sh` compiles `build/di-cache/{SD_AI_AGENT_VERSION}/CompiledContainerSdAiAgent.php` inside the staged release directory and packages it in the WordPress.org ZIP. That keeps installs checksum-stable because PHP-DI sees the versioned compiled file on first load instead of creating it after activation. The build helper validates that the compiled file does not contain the staging path; keep install-specific definitions as `\DI\factory()` values so the packaged cache remains portable.
 
 ### 11. Pre-commit vendor dance
 
