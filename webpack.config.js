@@ -14,6 +14,11 @@ module.exports = {
 			'src/floating-widget',
 			'index.js'
 		),
+		'embed-widget': path.resolve(
+			process.cwd(),
+			'src/embed-widget',
+			'index.js'
+		),
 		'unified-admin': path.resolve(
 			process.cwd(),
 			'src/unified-admin',

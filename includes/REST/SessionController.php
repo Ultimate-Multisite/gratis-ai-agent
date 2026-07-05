@@ -19,6 +19,7 @@ use SdAiAgent\Core\ConversationTrimmer;
 use SdAiAgent\Core\CostCalculator;
 use SdAiAgent\Core\Database;
 use SdAiAgent\Core\Export;
+use SdAiAgent\Core\Settings;
 use SdAiAgent\Core\ToolPermissionResolver;
 use SdAiAgent\Models\ActiveJobRepository;
 use SdAiAgent\Models\Agent;
@@ -56,20 +57,24 @@ final class SessionController {
 	/** Maximum automatic resume attempts for a crashed background job. */
 	private const JOB_AUTO_RESUME_MAX_ATTEMPTS = 2;
 
+	/** Public chat token lifetime, in seconds. */
+	private const PUBLIC_CHAT_JOB_TTL = 600;
+
 	/** @var Database Injected database dependency. */
 	private Database $database;
+
+	/** @var Settings Injected settings dependency. */
+	private Settings $settings;
 
 	/**
 	 * Constructor — receives injected dependencies from the DI container.
 	 *
-	 * The Settings dependency was previously injected here for the Site
-	 * Builder routes; those routes were removed in beads sd-ai-dh0 along
-	 * with Site Builder mode, so the property is no longer needed.
-	 *
-	 * @param Database $database  Injected Database service.
+	 * @param Database      $database  Injected Database service.
+	 * @param Settings|null $settings Injected Settings service.
 	 */
-	public function __construct( Database $database ) {
+	public function __construct( Database $database, ?Settings $settings = null ) {
 		$this->database = $database;
+		$this->settings = $settings ?? Settings::instance();
 	}
 
 	/**
@@ -542,6 +547,314 @@ final class SessionController {
 					),
 				),
 			)
+		);
+
+		// Public customer chat endpoints for static documentation embeds.
+		register_rest_route(
+			RestController::NAMESPACE,
+			'/public-chat/config',
+			array(
+				'methods'             => WP_REST_Server::READABLE,
+				'callback'            => array( $this, 'handle_public_chat_config' ),
+				'permission_callback' => '__return_true',
+			)
+		);
+
+		register_rest_route(
+			RestController::NAMESPACE,
+			'/public-chat/run',
+			array(
+				'methods'             => WP_REST_Server::CREATABLE,
+				'callback'            => array( $this, 'handle_public_chat_run' ),
+				'permission_callback' => array( $this, 'check_public_chat_permission' ),
+				'args'                => array(
+					'message'    => array(
+						'required'          => true,
+						'type'              => 'string',
+						'sanitize_callback' => 'sanitize_text_field',
+					),
+					'history'    => array(
+						'required' => false,
+						'type'     => 'array',
+						'default'  => array(),
+					),
+					'embed_id'   => array(
+						'required'          => false,
+						'type'              => 'string',
+						'sanitize_callback' => 'sanitize_key',
+					),
+					'agent_id'   => array(
+						'required'          => false,
+						'type'              => 'integer',
+						'sanitize_callback' => 'absint',
+					),
+					'collection' => array(
+						'required'          => false,
+						'type'              => 'string',
+						'sanitize_callback' => 'sanitize_text_field',
+					),
+					'locale'     => array(
+						'required'          => false,
+						'type'              => 'string',
+						'sanitize_callback' => 'sanitize_text_field',
+					),
+				),
+			)
+		);
+
+		register_rest_route(
+			RestController::NAMESPACE,
+			'/public-chat/job/(?P<id>[a-f0-9-]+)',
+			array(
+				'methods'             => WP_REST_Server::READABLE,
+				'callback'            => array( $this, 'handle_public_chat_job_status' ),
+				'permission_callback' => array( $this, 'check_public_chat_permission' ),
+				'args'                => array(
+					'id'    => array(
+						'required'          => true,
+						'type'              => 'string',
+						'sanitize_callback' => 'sanitize_text_field',
+					),
+					'token' => array(
+						'required'          => true,
+						'type'              => 'string',
+						'sanitize_callback' => 'sanitize_text_field',
+					),
+				),
+			)
+		);
+	}
+
+	/**
+	 * Return public embed configuration visible to static docs pages.
+	 *
+	 * @param WP_REST_Request $request The request object.
+	 * @return WP_REST_Response
+	 */
+	public function handle_public_chat_config( WP_REST_Request $request ): WP_REST_Response {
+		$origin  = $this->get_request_origin( $request );
+		$enabled = $this->is_public_chat_enabled() && $this->is_public_chat_origin_allowed( $origin );
+
+		return $this->with_public_chat_cors(
+			new WP_REST_Response(
+				array(
+					'enabled'    => $enabled,
+					'embed_id'   => (string) $this->settings->get( 'public_chat_embed_id' ),
+					'agent_id'   => (int) $this->settings->get( 'public_chat_agent_id' ),
+					'collection' => (string) $this->settings->get( 'public_chat_collection' ),
+				),
+				200
+			),
+			$origin
+		);
+	}
+
+	/**
+	 * Create an anonymous public customer-chat job.
+	 *
+	 * @param WP_REST_Request $request The request object.
+	 * @return WP_REST_Response
+	 */
+	public function handle_public_chat_run( WP_REST_Request $request ): WP_REST_Response {
+		$job_id        = wp_generate_uuid4();
+		$process_token = wp_generate_password( 40, false );
+		$public_token  = wp_generate_password( 40, false );
+		$origin        = $this->get_request_origin( $request );
+		$agent_id      = (int) ( $request->get_param( 'agent_id' ) ?: $this->settings->get( 'public_chat_agent_id' ) );
+		$history       = $request->get_param( 'history' );
+
+		$job = array(
+			'status'       => 'processing',
+			'token'        => $process_token,
+			'public_token' => $public_token,
+			'public_mode'  => true,
+			'user_id'      => 0,
+			'origin'       => $origin,
+			'tool_calls'   => array(),
+			'messages'     => array(),
+			'params'       => array(
+				'message'            => $request->get_param( 'message' ),
+				'history'            => is_array( $history ) ? $history : array(),
+				'abilities'          => array(),
+				'system_instruction' => $this->public_chat_system_instruction( $request ),
+				'bootstrap_prompt'   => null,
+				'max_iterations'     => 8,
+				'session_id'         => 0,
+				'provider_id'        => null,
+				'model_id'           => null,
+				'page_context'       => array(
+					'source'     => 'public_embed',
+					'embed_id'   => $request->get_param( 'embed_id' ),
+					'collection' => $request->get_param( 'collection' ),
+					'locale'     => $request->get_param( 'locale' ),
+				),
+				'agent_id'           => $agent_id,
+				'attachments'        => array(),
+				'client_abilities'   => array(),
+			),
+		);
+
+		set_transient( RestController::JOB_PREFIX . $job_id, $job, self::PUBLIC_CHAT_JOB_TTL );
+		ActiveJobRepository::create( 0, $job_id, 0 );
+
+		wp_remote_post(
+			rest_url( RestController::NAMESPACE . '/process' ),
+			array(
+				'timeout'  => 0.01,
+				'blocking' => false,
+				'body'     => (string) wp_json_encode(
+					array(
+						'job_id' => $job_id,
+						'token'  => $process_token,
+					)
+				),
+				'headers'  => array(
+					'Content-Type' => 'application/json',
+				),
+			)
+		);
+
+		return $this->with_public_chat_cors(
+			new WP_REST_Response(
+				array(
+					'job_id'    => $job_id,
+					'job_token' => $public_token,
+					'status'    => 'processing',
+				),
+				202
+			),
+			$origin
+		);
+	}
+
+	/**
+	 * Poll an anonymous public customer-chat job.
+	 *
+	 * @param WP_REST_Request $request The request object.
+	 * @return WP_REST_Response|WP_Error
+	 */
+	public function handle_public_chat_job_status( WP_REST_Request $request ) {
+		$job_id = self::get_string_param( $request, 'id' );
+		$token  = self::get_string_param( $request, 'token' );
+		$origin = $this->get_request_origin( $request );
+		$job    = get_transient( RestController::JOB_PREFIX . $job_id );
+
+		if ( ! is_array( $job ) || empty( $job['public_mode'] ) ) {
+			return new WP_Error( 'sd_ai_agent_public_job_not_found', __( 'Job not found or expired.', 'superdav-ai-agent' ), array( 'status' => 404 ) );
+		}
+
+		if ( ! hash_equals( (string) ( $job['public_token'] ?? '' ), $token ) ) {
+			return new WP_Error( 'sd_ai_agent_public_job_forbidden', __( 'Invalid public chat token.', 'superdav-ai-agent' ), array( 'status' => 403 ) );
+		}
+
+		$response = array( 'status' => (string) ( $job['status'] ?? 'processing' ) );
+		if ( 'complete' === $response['status'] && isset( $job['result'] ) && is_array( $job['result'] ) ) {
+			$response['reply'] = (string) ( $job['result']['reply'] ?? '' );
+			delete_transient( RestController::JOB_PREFIX . $job_id );
+			ActiveJobRepository::delete( $job_id );
+		} elseif ( 'error' === $response['status'] ) {
+			$response['error'] = __( 'The chat assistant is unavailable right now.', 'superdav-ai-agent' );
+		}
+
+		return $this->with_public_chat_cors( new WP_REST_Response( $response, 200 ), $origin );
+	}
+
+	/**
+	 * Check whether public chat is enabled and the request origin is allowed.
+	 *
+	 * @param WP_REST_Request $request The request object.
+	 * @return bool|WP_Error
+	 */
+	public function check_public_chat_permission( WP_REST_Request $request ) {
+		$origin = $this->get_request_origin( $request );
+		if ( $this->is_public_chat_enabled() && $this->is_public_chat_origin_allowed( $origin ) ) {
+			return true;
+		}
+
+		return new WP_Error( 'sd_ai_agent_public_chat_forbidden', __( 'Public chat is not available for this origin.', 'superdav-ai-agent' ), array( 'status' => 403 ) );
+	}
+
+	/**
+	 * Whether public chat is enabled.
+	 *
+	 * @return bool
+	 */
+	private function is_public_chat_enabled(): bool {
+		return (bool) $this->settings->get( 'public_chat_enabled' );
+	}
+
+	/**
+	 * Whether an Origin header matches the configured allowlist.
+	 *
+	 * @param string $origin Request origin.
+	 * @return bool
+	 */
+	private function is_public_chat_origin_allowed( string $origin ): bool {
+		if ( '' === $origin ) {
+			return false;
+		}
+
+		$allowed = $this->settings->get( 'public_chat_allowed_origins' );
+		if ( is_string( $allowed ) ) {
+			$allowed = preg_split( '/[\r\n,]+/', $allowed ) ?: array();
+		}
+		if ( ! is_array( $allowed ) ) {
+			return false;
+		}
+
+		$normalised_origin = untrailingslashit( esc_url_raw( $origin ) );
+		foreach ( $allowed as $allowed_origin ) {
+			$normalised_allowed = untrailingslashit( esc_url_raw( (string) $allowed_origin ) );
+			if ( '' !== $normalised_allowed && hash_equals( $normalised_allowed, $normalised_origin ) ) {
+				return true;
+			}
+		}
+
+		return false;
+	}
+
+	/**
+	 * Get the request Origin header.
+	 *
+	 * @param WP_REST_Request $request The request object.
+	 * @return string
+	 */
+	private function get_request_origin( WP_REST_Request $request ): string {
+		return (string) ( $request->get_header( 'origin' ) ?: '' );
+	}
+
+	/**
+	 * Add CORS headers only for allowlisted docs origins.
+	 *
+	 * @param WP_REST_Response $response Response object.
+	 * @param string           $origin   Request origin.
+	 * @return WP_REST_Response
+	 */
+	private function with_public_chat_cors( WP_REST_Response $response, string $origin ): WP_REST_Response {
+		if ( $this->is_public_chat_origin_allowed( $origin ) ) {
+			$response->header( 'Access-Control-Allow-Origin', $origin );
+			$response->header( 'Vary', 'Origin' );
+			$response->header( 'Access-Control-Allow-Credentials', 'false' );
+		}
+
+		return $response;
+	}
+
+	/**
+	 * Build a constrained system instruction for public docs chat.
+	 *
+	 * @param WP_REST_Request $request The request object.
+	 * @return string
+	 */
+	private function public_chat_system_instruction( WP_REST_Request $request ): string {
+		$collection = (string) ( $request->get_param( 'collection' ) ?: $this->settings->get( 'public_chat_collection' ) );
+		$locale     = (string) ( $request->get_param( 'locale' ) ?: 'en' );
+
+		return sprintf(
+			/* translators: 1: collection identifier, 2: locale. */
+			__( 'You are a customer-facing documentation assistant. Answer only using public documentation and safe public knowledge. Do not request credentials, cookies, nonces, or admin access. Collection: %1$s. Locale: %2$s.', 'superdav-ai-agent' ),
+			sanitize_text_field( $collection ),
+			sanitize_text_field( $locale )
 		);
 	}
 
