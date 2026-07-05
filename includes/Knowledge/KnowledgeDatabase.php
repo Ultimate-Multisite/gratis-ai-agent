@@ -397,7 +397,7 @@ class KnowledgeDatabase {
 		global $wpdb;
 		/** @var \wpdb $wpdb */
 
-		$allowed = [ 'title', 'status', 'chunk_count', 'content_hash', 'error_message' ];
+		$allowed = [ 'title', 'source_url', 'status', 'chunk_count', 'content_hash', 'error_message' ];
 		$update  = [];
 		$formats = [];
 

@@ -17,6 +17,67 @@ use WP_Error;
 class DocumentParser {
 
 	/**
+	 * Extract visible text and metadata from Markdown/MDX content.
+	 *
+	 * Keeps fenced code blocks intact, strips YAML frontmatter into metadata,
+	 * removes MDX import/export plumbing, and unwraps simple JSX tags so visible
+	 * copy remains searchable.
+	 *
+	 * @param string $content Markdown or MDX content.
+	 * @return array{text: string, metadata: array<string, mixed>, headings: list<string>}
+	 */
+	public static function extract_markdown_content( string $content ): array {
+		$metadata = [];
+		$content  = str_replace( [ "\r\n", "\r" ], "\n", $content );
+
+		if ( str_starts_with( $content, "---\n" ) ) {
+			$end = strpos( $content, "\n---\n", 4 );
+			if ( false !== $end ) {
+				$frontmatter = substr( $content, 4, $end - 4 );
+				$metadata    = self::parse_simple_yaml_frontmatter( $frontmatter );
+				$content     = substr( $content, $end + 5 );
+			}
+		}
+
+		$lines         = explode( "\n", $content );
+		$visible_lines = [];
+		$headings      = [];
+		$in_fence      = false;
+
+		foreach ( $lines as $line ) {
+			$trimmed = trim( $line );
+			if ( str_starts_with( $trimmed, '```' ) || str_starts_with( $trimmed, '~~~' ) ) {
+				$in_fence        = ! $in_fence;
+				$visible_lines[] = $line;
+				continue;
+			}
+
+			if ( ! $in_fence && preg_match( '/^(import|export)\s+/i', $trimmed ) ) {
+				continue;
+			}
+
+			if ( ! $in_fence && preg_match( '/^#{1,6}\s+(.+)$/', $trimmed, $matches ) ) {
+				$headings[] = trim( wp_strip_all_tags( $matches[1] ) );
+			}
+
+			if ( ! $in_fence ) {
+				$line = (string) preg_replace( '/<([A-Z][A-Za-z0-9_:.]*)(\s[^>]*)?>/', '', $line );
+				$line = (string) preg_replace( '/<\/([A-Z][A-Za-z0-9_:.]*)>/', '', $line );
+				$line = (string) preg_replace( '/<([A-Z][A-Za-z0-9_:.]*)(\s[^>]*)?\/>/', '', $line );
+				$line = (string) preg_replace( '/\{\/\*.*?\*\/\}/', '', $line );
+			}
+
+			$visible_lines[] = $line;
+		}
+
+		return [
+			'text'     => self::clean_text( implode( "\n", $visible_lines ) ),
+			'metadata' => $metadata,
+			'headings' => $headings,
+		];
+	}
+
+	/**
 	 * Extract text from a WordPress attachment.
 	 *
 	 * @param int $attachment_id The attachment post ID.
@@ -245,5 +306,28 @@ class DocumentParser {
 		$text = (string) preg_replace( '/[\x00-\x08\x0B\x0C\x0E-\x1F]/', '', $text );
 
 		return trim( $text );
+	}
+
+	/**
+	 * Parse simple YAML frontmatter key/value pairs.
+	 *
+	 * @param string $frontmatter Raw frontmatter block.
+	 * @return array<string, mixed>
+	 */
+	private static function parse_simple_yaml_frontmatter( string $frontmatter ): array {
+		$metadata = [];
+		foreach ( explode( "\n", $frontmatter ) as $line ) {
+			if ( ! str_contains( $line, ':' ) ) {
+				continue;
+			}
+			list( $key, $value ) = array_map( 'trim', explode( ':', $line, 2 ) );
+			if ( '' === $key ) {
+				continue;
+			}
+			$value            = trim( $value, " \t\n\r\0\x0B\"'" );
+			$metadata[ $key ] = $value;
+		}
+
+		return $metadata;
 	}
 }
