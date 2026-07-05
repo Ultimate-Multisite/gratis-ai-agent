@@ -11,6 +11,7 @@ declare(strict_types=1);
 namespace SdAiAgent\Bootstrap;
 
 use SdAiAgent\CLI\CliCommand;
+use SdAiAgent\CLI\KnowledgeCommand;
 use SdAiAgent\CLI\ModelsCommand;
 use SdAiAgent\CLI\SkillsCommand;
 use SdAiAgent\CLI\TraceCommand;
@@ -55,9 +56,10 @@ final class CliHandler {
 	 * @var array<string,class-string>
 	 */
 	private const COMMANDS = array(
-		'prompt' => CliCommand::class,
-		'models' => ModelsCommand::class,
-		'skills' => SkillsCommand::class,
+		'prompt'    => CliCommand::class,
+		'knowledge' => KnowledgeCommand::class,
+		'models'    => ModelsCommand::class,
+		'skills'    => SkillsCommand::class,
 	);
 
 	/**

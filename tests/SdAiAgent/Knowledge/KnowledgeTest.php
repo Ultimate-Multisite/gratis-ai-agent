@@ -260,6 +260,160 @@ class KnowledgeTest extends WP_UnitTestCase {
 		$this->assertIsArray( $results );
 	}
 
+	// ── static docs manifest import ────────────────────────────────────────
+
+	/**
+	 * Test static documentation manifest import creates searchable file sources.
+	 */
+	public function test_import_static_docs_manifest_creates_sources_and_chunks(): void {
+		$col_id = KnowledgeDatabase::create_collection( [
+			'name' => 'Docs Collection',
+			'slug' => 'docs-collection',
+		] );
+
+		$stats = Knowledge::import_static_docs_manifest(
+			$col_id,
+			[
+				[
+					'id'       => 'docs/addons/example/setup.mdx',
+					'path'     => 'docs/addons/example/setup.mdx',
+					'title'    => 'Addon setup',
+					'url'      => '/addons/example/setup',
+					'locale'   => 'en',
+					'product'  => 'Ultimate Multisite',
+					'addon'    => 'example',
+					'metadata' => [ 'section' => 'addons' ],
+					'content'  => "---\ntitle: Frontmatter title\n---\nimport Tabs from '@theme/Tabs';\n\n# Addon setup\n\n<Note>Visible docs copy.</Note>\n\n```php\nwp option get blogname\n```",
+				],
+			]
+		);
+
+		$this->assertIsArray( $stats );
+		$this->assertSame( 1, $stats['imported'] );
+		$this->assertSame( 0, $stats['errors'] );
+
+		$sources = KnowledgeDatabase::get_sources_for_collection( $col_id );
+		$this->assertCount( 1, $sources );
+		$this->assertSame( 'static_file', $sources[0]->source_type );
+		$this->assertSame( '/addons/example/setup', $sources[0]->source_url );
+		$this->assertSame( 'Addon setup', $sources[0]->title );
+
+		global $wpdb;
+		$chunk = $wpdb->get_row(
+			$wpdb->prepare(
+				'SELECT chunk_text, metadata FROM %i WHERE source_id = %d',
+				KnowledgeDatabase::chunks_table(),
+				$sources[0]->id
+			)
+		);
+
+		$this->assertNotNull( $chunk );
+		$this->assertStringContainsString( 'Visible docs copy.', $chunk->chunk_text );
+		$this->assertStringContainsString( 'wp option get blogname', $chunk->chunk_text );
+		$this->assertStringNotContainsString( 'import Tabs', $chunk->chunk_text );
+
+		$metadata = json_decode( $chunk->metadata, true );
+		$this->assertSame( 'en', $metadata['locale'] );
+		$this->assertSame( 'example', $metadata['addon'] );
+		$this->assertSame( 'addons', $metadata['section'] );
+		$this->assertSame( [ 'Addon setup' ], $metadata['headings'] );
+	}
+
+	/**
+	 * Test static documentation manifest imports skip unchanged records.
+	 */
+	public function test_import_static_docs_manifest_skips_unchanged_records(): void {
+		$col_id = KnowledgeDatabase::create_collection( [
+			'name' => 'Docs Skip Collection',
+			'slug' => 'docs-skip-collection',
+		] );
+		$record = [
+			'id'      => 'docs/setup.md',
+			'title'   => 'Setup',
+			'url'     => '/setup',
+			'content' => '# Setup\n\nInstall the addon.',
+		];
+
+		Knowledge::import_static_docs_manifest( $col_id, [ $record ] );
+		$stats = Knowledge::import_static_docs_manifest( $col_id, [ $record ] );
+
+		$this->assertIsArray( $stats );
+		$this->assertSame( 1, $stats['skipped'] );
+		$this->assertSame( 0, $stats['updated'] );
+	}
+
+	/**
+	 * Test static documentation manifest imports update changed records.
+	 */
+	public function test_import_static_docs_manifest_updates_changed_records(): void {
+		$col_id = KnowledgeDatabase::create_collection( [
+			'name' => 'Docs Update Collection',
+			'slug' => 'docs-update-collection',
+		] );
+
+		Knowledge::import_static_docs_manifest(
+			$col_id,
+			[
+				[
+					'id'      => 'docs/setup.md',
+					'title'   => 'Setup',
+					'url'     => '/setup',
+					'content' => '# Setup\n\nOriginal copy.',
+				],
+			]
+		);
+
+		$stats = Knowledge::import_static_docs_manifest(
+			$col_id,
+			[
+				[
+					'id'      => 'docs/setup.md',
+					'title'   => 'Setup updated',
+					'url'     => '/setup-updated',
+					'content' => '# Setup\n\nUpdated copy.',
+				],
+			]
+		);
+
+		$this->assertIsArray( $stats );
+		$this->assertSame( 1, $stats['updated'] );
+
+		$sources = KnowledgeDatabase::get_sources_for_collection( $col_id );
+		$this->assertCount( 1, $sources );
+		$this->assertSame( 'Setup updated', $sources[0]->title );
+		$this->assertSame( '/setup-updated', $sources[0]->source_url );
+	}
+
+	/**
+	 * Test static documentation manifest prune removes missing records.
+	 */
+	public function test_import_static_docs_manifest_prunes_removed_records(): void {
+		$col_id = KnowledgeDatabase::create_collection( [
+			'name' => 'Docs Prune Collection',
+			'slug' => 'docs-prune-collection',
+		] );
+
+		Knowledge::import_static_docs_manifest(
+			$col_id,
+			[
+				[ 'id' => 'docs/a.md', 'title' => 'A', 'content' => '# A\n\nAlpha.' ],
+				[ 'id' => 'docs/b.md', 'title' => 'B', 'content' => '# B\n\nBravo.' ],
+			]
+		);
+
+		$stats = Knowledge::import_static_docs_manifest(
+			$col_id,
+			[
+				[ 'id' => 'docs/a.md', 'title' => 'A', 'content' => '# A\n\nAlpha.' ],
+			],
+			[ 'prune' => true ]
+		);
+
+		$this->assertIsArray( $stats );
+		$this->assertSame( 1, $stats['pruned'] );
+		$this->assertCount( 1, KnowledgeDatabase::get_sources_for_collection( $col_id ) );
+	}
+
 	// ── get_context_for_query ─────────────────────────────────────────────
 
 	/**
