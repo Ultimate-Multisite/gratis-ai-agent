@@ -161,6 +161,8 @@ class PublicChatControllerTest extends WP_UnitTestCase {
 		$this->assertSame( 0, $job['user_id'] );
 		$this->assertSame( array( 'sd-ai-agent/knowledge-search' ), $job['params']['abilities'] );
 		$this->assertStringContainsString( 'Never call knowledge-search with empty arguments', $job['params']['system_instruction'] );
+		$this->assertStringContainsString( 'Before answering any substantive product or documentation question', $job['params']['system_instruction'] );
+		$this->assertStringContainsString( 'rewrite it into a concrete overview/getting-started documentation query', $job['params']['system_instruction'] );
 		$this->assertStringContainsString( '"query":"customer docs question"', $job['params']['system_instruction'] );
 		$this->assertStringContainsString( 'docs', $job['params']['system_instruction'] );
 

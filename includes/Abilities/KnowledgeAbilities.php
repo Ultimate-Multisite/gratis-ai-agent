@@ -83,13 +83,6 @@ class KnowledgeAbilities {
 			$args['query'] = self::$public_default_query;
 		}
 
-		if ( empty( $args['collection'] ) ) {
-			$collection = array_key_first( self::$public_collection_allowlist );
-			if ( is_string( $collection ) ) {
-				$args['collection'] = $collection;
-			}
-		}
-
 		return $args;
 	}
 
@@ -171,13 +164,75 @@ class KnowledgeAbilities {
 				return new \WP_Error( 'sd_ai_agent_public_collection_forbidden', 'This public chat session cannot search that collection.' );
 			}
 
-			$options['collection'] = '' !== $requested ? $requested : (string) array_key_first( self::$public_collection_allowlist );
+			if ( '' !== $requested ) {
+				$options['collection'] = $requested;
+			} else {
+				$results = self::search_public_collections( (string) $query, $options );
+				return self::format_knowledge_search_results( $results );
+			}
 		} elseif ( ! empty( $input['collection'] ) ) {
 			$options['collection'] = $input['collection'];
 		}
 
 		// @phpstan-ignore-next-line
 		$results = Knowledge::search( $query, $options );
+
+		return self::format_knowledge_search_results( $results );
+	}
+
+	/**
+	 * Search every allowlisted public collection and merge the highest scoring hits.
+	 *
+	 * @param string               $query   Search query.
+	 * @param array<string, mixed> $options Search options.
+	 * @return list<array<string, mixed>>
+	 */
+	private static function search_public_collections( string $query, array $options ): array {
+		$merged = [];
+		foreach ( array_keys( self::$public_collection_allowlist ) as $collection ) {
+			$options['collection'] = $collection;
+			$results               = Knowledge::search( $query, $options );
+			foreach ( $results as $result ) {
+				$merged[] = $result;
+			}
+		}
+
+		if ( empty( $merged ) && self::query_needs_overview_fallback( $query ) ) {
+			foreach ( array_keys( self::$public_collection_allowlist ) as $collection ) {
+				$options['collection'] = $collection;
+				$results               = Knowledge::search( 'overview getting started introduction documentation guide', $options );
+				foreach ( $results as $result ) {
+					$merged[] = $result;
+				}
+			}
+		}
+
+		usort(
+			$merged,
+			static fn( array $a, array $b ): int => ( $b['score'] ?? 0 ) <=> ( $a['score'] ?? 0 )
+		);
+
+		return array_slice( $merged, 0, (int) ( $options['limit'] ?? 8 ) );
+	}
+
+	/**
+	 * Whether a public query is too contextual to search literally.
+	 *
+	 * @param string $query Customer query.
+	 * @return bool
+	 */
+	private static function query_needs_overview_fallback( string $query ): bool {
+		$normalized = strtolower( trim( preg_replace( '/\s+/', ' ', $query ) ?? $query ) );
+		return (bool) preg_match( '/\b(?:what\s+(?:is|are)\s+(?:this|that|it|these|those|thing|things)|tell\s+me\s+about\s+(?:this|that|it)|how\s+does\s+(?:this|that|it)\s+work)\b/', $normalized );
+	}
+
+	/**
+	 * Format raw knowledge search rows for tool output.
+	 *
+	 * @param list<array<string, mixed>> $results Raw search results.
+	 * @return array<string, mixed>
+	 */
+	private static function format_knowledge_search_results( array $results ): array {
 
 		if ( empty( $results ) ) {
 			return [

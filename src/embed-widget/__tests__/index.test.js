@@ -49,4 +49,26 @@ describe( 'embed widget', () => {
 			expect.objectContaining( { credentials: 'omit' } )
 		);
 	} );
+
+	test( 'starts collapsed and close button collapses the panel', () => {
+		const root = module.mountEmbed( {
+			...module.resolveConfig( null, {} ),
+			apiBase: 'https://example.test/wp-json/sd-ai-agent/v1',
+			mount: '#mount',
+		} );
+		const launcher = root.querySelector( '.sdaa-embed__launcher' );
+		const panel = root.querySelector( '.sdaa-embed__panel' );
+		const close = root.querySelector( '.sdaa-embed__close' );
+
+		expect( panel.hidden ).toBe( true );
+		expect( launcher.getAttribute( 'aria-expanded' ) ).toBe( 'false' );
+
+		launcher.click();
+		expect( panel.hidden ).toBe( false );
+		expect( launcher.getAttribute( 'aria-expanded' ) ).toBe( 'true' );
+
+		close.click();
+		expect( panel.hidden ).toBe( true );
+		expect( launcher.getAttribute( 'aria-expanded' ) ).toBe( 'false' );
+	} );
 } );
