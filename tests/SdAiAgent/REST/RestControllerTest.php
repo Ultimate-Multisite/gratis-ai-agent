@@ -22,6 +22,7 @@ declare(strict_types=1);
 namespace SdAiAgent\Tests\REST;
 
 use SdAiAgent\Core\Database;
+use SdAiAgent\Core\Settings;
 use SdAiAgent\Automations\HumanApprovalGate;
 use SdAiAgent\Models\ActiveJobRepository;
 use SdAiAgent\Models\Memory;
@@ -140,6 +141,9 @@ class RestControllerTest extends WP_UnitTestCase {
 
 		$expected_routes = [
 			'/sd-ai-agent/v1/run',
+			'/sd-ai-agent/v1/public-chat/session',
+			'/sd-ai-agent/v1/public-chat/run',
+			'/sd-ai-agent/v1/public-chat/job/(?P<id>[a-f0-9-]+)',
 			'/sd-ai-agent/v1/job/(?P<id>[a-f0-9-]+)',
 			'/sd-ai-agent/v1/process',
 			'/sd-ai-agent/v1/abilities',
@@ -855,6 +859,110 @@ class RestControllerTest extends WP_UnitTestCase {
 		$this->assertArrayHasKey( 'status', $data );
 		$this->assertSame( 'processing', $data['status'] );
 		$this->assertNotEmpty( $data['job_id'] );
+	}
+
+	/** Public chat is disabled for anonymous visitors by default. */
+	public function test_public_chat_session_disabled_by_default(): void {
+		wp_set_current_user( 0 );
+
+		$response = $this->dispatch( 'POST', '/sd-ai-agent/v1/public-chat/session' );
+
+		$this->assertStatus( 404, $response );
+	}
+
+	/** Public chat creates a signed token only when explicitly enabled and configured. */
+	public function test_public_chat_session_creates_token_when_enabled(): void {
+		wp_set_current_user( 0 );
+		Settings::instance()->update(
+			array(
+				'public_chat_enabled'         => true,
+				'public_chat_collection_ids'  => array( 'docs' ),
+				'public_chat_allowed_origins' => array(),
+			)
+		);
+
+		$response = $this->dispatch( 'POST', '/sd-ai-agent/v1/public-chat/session' );
+
+		$this->assertStatus( 201, $response );
+		$data = $response->get_data();
+		$this->assertArrayHasKey( 'token', $data );
+		$this->assertNotEmpty( $data['token'] );
+	}
+
+	/** Public chat ignores browser-supplied model/tool overrides and stores safe job params. */
+	public function test_public_chat_run_uses_server_controlled_options(): void {
+		wp_set_current_user( 0 );
+		Settings::instance()->update(
+			array(
+				'public_chat_enabled'           => true,
+				'public_chat_collection_ids'    => array( 'docs' ),
+				'public_chat_allowed_origins'   => array(),
+				'public_chat_provider_id'       => 'server-provider',
+				'public_chat_model_id'          => 'server-model',
+				'public_chat_allowed_abilities' => array( 'sd-ai-agent/knowledge-search' ),
+			)
+		);
+
+		$session_response = $this->dispatch( 'POST', '/sd-ai-agent/v1/public-chat/session' );
+		$this->assertStatus( 201, $session_response );
+		$token = $session_response->get_data()['token'];
+
+		$response = $this->dispatch(
+			'POST',
+			'/sd-ai-agent/v1/public-chat/run',
+			array(
+				'token'       => $token,
+				'message'     => 'Where are the setup docs?',
+				'provider_id' => 'browser-provider',
+				'model_id'    => 'browser-model',
+				'abilities'   => array( 'wp-cli/execute' ),
+			)
+		);
+
+		$this->assertStatus( 202, $response );
+		$job_id = $response->get_data()['job_id'];
+		$job    = get_transient( RestController::JOB_PREFIX . $job_id );
+		$this->assertIsArray( $job );
+		$this->assertTrue( $job['public_chat'] );
+		$this->assertSame( 'server-provider', $job['params']['provider_id'] );
+		$this->assertSame( 'server-model', $job['params']['model_id'] );
+		$this->assertSame( array( 'sd-ai-agent/knowledge-search' ), $job['params']['abilities'] );
+		$this->assertSame( array( 'docs' ), $job['params']['anonymous_allowed_collections'] );
+	}
+
+	/** Public job polling requires the same anonymous session token. */
+	public function test_public_chat_job_status_requires_matching_token(): void {
+		wp_set_current_user( 0 );
+		Settings::instance()->update(
+			array(
+				'public_chat_enabled'        => true,
+				'public_chat_collection_ids' => array( 'docs' ),
+			)
+		);
+
+		$first  = $this->dispatch( 'POST', '/sd-ai-agent/v1/public-chat/session' );
+		$second = $this->dispatch( 'POST', '/sd-ai-agent/v1/public-chat/session' );
+		$this->assertStatus( 201, $first );
+		$this->assertStatus( 201, $second );
+
+		$run = $this->dispatch(
+			'POST',
+			'/sd-ai-agent/v1/public-chat/run',
+			array(
+				'token'   => $first->get_data()['token'],
+				'message' => 'Docs question',
+			)
+		);
+		$this->assertStatus( 202, $run );
+
+		$job_id   = $run->get_data()['job_id'];
+		$response = $this->dispatch(
+			'GET',
+			"/sd-ai-agent/v1/public-chat/job/{$job_id}",
+			array( 'token' => $second->get_data()['token'] )
+		);
+
+		$this->assertStatus( 404, $response );
 	}
 
 	/**

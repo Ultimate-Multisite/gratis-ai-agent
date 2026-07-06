@@ -158,6 +158,52 @@ class ToolDiscovery {
 	private static bool $keyword_search_seen_this_request = false;
 
 	/**
+	 * Request-scoped anonymous public-chat ability allowlist.
+	 *
+	 * Empty means normal authenticated behaviour. Non-empty constrains Tier 1,
+	 * manifest/search output, and ability-call targets to the server supplied
+	 * public-safe ability set.
+	 *
+	 * @var array<string, true>
+	 */
+	private static array $anonymous_allowed_abilities = array();
+
+	/**
+	 * Apply anonymous public-chat ability gating for the current request.
+	 *
+	 * @param list<string> $ability_names Allowed ability IDs.
+	 */
+	// phpcs:ignore Squiz.Commenting.FunctionComment.IncorrectTypeHint -- list<string> is valid PHPStan but not a native PHP type.
+	public static function set_anonymous_allowed_abilities( array $ability_names ): void {
+		self::$anonymous_allowed_abilities = array();
+		foreach ( $ability_names as $ability_name ) {
+			$ability_name = trim( $ability_name );
+			if ( '' !== $ability_name ) {
+				self::$anonymous_allowed_abilities[ self::canonicalise_ability_id( $ability_name ) ] = true;
+			}
+		}
+	}
+
+	/** Clear anonymous public-chat ability gating for the current request. */
+	public static function clear_anonymous_allowed_abilities(): void {
+		self::$anonymous_allowed_abilities = array();
+	}
+
+	/** Whether anonymous ability gating is active. */
+	public static function is_anonymous_ability_mode(): bool {
+		return ! empty( self::$anonymous_allowed_abilities );
+	}
+
+	/** Whether an ability is allowed by the anonymous public-chat allowlist. */
+	public static function anonymous_mode_allows( string $ability_name ): bool {
+		if ( ! self::is_anonymous_ability_mode() ) {
+			return true;
+		}
+
+		return isset( self::$anonymous_allowed_abilities[ self::canonicalise_ability_id( $ability_name ) ] );
+	}
+
+	/**
 	 * Reset the keyword-search tracking flag.
 	 *
 	 * Intended for use in unit tests so each test starts with a clean state.
@@ -357,7 +403,11 @@ class ToolDiscovery {
 		} else {
 			$curated = self::DEFAULT_TIER_1;
 		}
-		$tracked = AbilityUsageTracker::top( self::MAX_TIER_1 - count( $curated ) );
+		if ( self::is_anonymous_ability_mode() ) {
+			$curated = array_keys( self::$anonymous_allowed_abilities );
+		}
+
+		$tracked = self::is_anonymous_ability_mode() ? array() : AbilityUsageTracker::top( self::MAX_TIER_1 - count( $curated ) );
 
 		// Tracked first (so the most-used floats to the top of the list);
 		// curated entries fill remaining slots up to the cap.
@@ -368,6 +418,9 @@ class ToolDiscovery {
 			$names = array_slice( $names, 0, self::MAX_TIER_1 );
 		}
 		foreach ( self::META_TOOLS as $meta ) {
+			if ( self::is_anonymous_ability_mode() ) {
+				continue;
+			}
 			if ( ! in_array( $meta, $names, true ) ) {
 				$names[] = $meta;
 			}
@@ -423,6 +476,10 @@ class ToolDiscovery {
 		foreach ( wp_get_abilities() as $ability ) {
 			$name = $ability->get_name();
 
+			if ( ! self::anonymous_mode_allows( $name ) ) {
+				continue;
+			}
+
 			if ( isset( $tier_1_set[ $name ] ) ) {
 				continue;
 			}
@@ -435,7 +492,7 @@ class ToolDiscovery {
 				continue;
 			}
 
-			if ( ! RolePermissions::current_user_can_use_ability( $name ) ) {
+			if ( ! self::is_anonymous_ability_mode() && ! RolePermissions::current_user_can_use_ability( $name ) ) {
 				continue;
 			}
 
@@ -873,6 +930,13 @@ class ToolDiscovery {
 		}
 
 		$ability_id = self::canonicalise_ability_id( $ability_id );
+		if ( ! self::anonymous_mode_allows( $ability_id ) ) {
+			return new WP_Error(
+				'ability_forbidden',
+				__( 'This public chat session is not allowed to use that ability.', 'superdav-ai-agent' ),
+				array( 'status' => 403 )
+			);
+		}
 
 		$ability = AbilityRegistry::get( $ability_id );
 		if ( ! $ability instanceof \WP_Ability ) {
@@ -900,7 +964,7 @@ class ToolDiscovery {
 			);
 		}
 
-		if ( ! RolePermissions::current_user_can_use_ability( $ability_id ) ) {
+		if ( ! self::is_anonymous_ability_mode() && ! RolePermissions::current_user_can_use_ability( $ability_id ) ) {
 			return new WP_Error(
 				'ability_forbidden',
 				sprintf(
@@ -1233,13 +1297,16 @@ class ToolDiscovery {
 		$perms = self::tool_permissions();
 		$out   = array();
 		foreach ( wp_get_abilities() as $ability ) {
+			if ( ! self::anonymous_mode_allows( $ability->get_name() ) ) {
+				continue;
+			}
 			if ( ! AbilityVisibility::for_ai_chat( $ability ) ) {
 				continue;
 			}
 			if ( 'disabled' === ( $perms[ $ability->get_name() ] ?? 'auto' ) ) {
 				continue;
 			}
-			if ( ! RolePermissions::current_user_can_use_ability( $ability->get_name() ) ) {
+			if ( ! self::is_anonymous_ability_mode() && ! RolePermissions::current_user_can_use_ability( $ability->get_name() ) ) {
 				continue;
 			}
 			$out[] = $ability;
