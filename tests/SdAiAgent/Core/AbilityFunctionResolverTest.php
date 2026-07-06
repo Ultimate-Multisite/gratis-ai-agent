@@ -11,6 +11,8 @@ declare(strict_types=1);
 
 namespace SdAiAgent\Tests\Core;
 
+use SdAiAgent\Abilities\KnowledgeAbilities;
+use SdAiAgent\Core\AbilityRegistry;
 use SdAiAgent\Core\AbilityFunctionResolver;
 use SdAiAgent\Core\IdenticalFailureTracker;
 use WordPress\AiClient\Tools\DTO\FunctionCall;
@@ -102,6 +104,31 @@ class AbilityFunctionResolverTest extends WP_UnitTestCase {
 		$this->assertStringContainsString( 'Retry only with arguments', $payload['nudge'] );
 	}
 
+	public function test_public_knowledge_search_hydrates_empty_args_from_customer_query(): void {
+		$this->skip_if_resolver_unavailable();
+		$this->ensure_knowledge_search_registered();
+
+		KnowledgeAbilities::set_public_collection_allowlist( array( 'docs' ), 'How do I embed the customer widget?' );
+
+		try {
+			$resolver = new AbilityFunctionResolver( 'sd-ai-agent/knowledge-search' );
+			$response = $resolver->execute_ability(
+				new FunctionCall(
+					'call_public_knowledge_empty_args',
+					\WP_AI_Client_Ability_Function_Resolver::ability_name_to_function_name( 'sd-ai-agent/knowledge-search' ),
+					null
+				)
+			);
+		} finally {
+			KnowledgeAbilities::clear_public_collection_allowlist();
+		}
+
+		$payload = $this->normalise_response_payload( $response->getResponse() );
+
+		$this->assertArrayHasKey( 'results', $payload );
+		$this->assertArrayNotHasKey( 'code', $payload );
+	}
+
 	private function skip_if_resolver_unavailable(): void {
 		if (
 			! class_exists( 'WP_AI_Client_Ability_Function_Resolver' )
@@ -146,6 +173,22 @@ class AbilityFunctionResolverTest extends WP_UnitTestCase {
 					},
 				)
 			);
+		} finally {
+			array_pop( $wp_current_filter );
+		}
+	}
+
+	private function ensure_knowledge_search_registered(): void {
+		if ( AbilityRegistry::get( 'sd-ai-agent/knowledge-search' ) ) {
+			return;
+		}
+
+		// phpcs:ignore WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedVariableFound -- Standard WordPress hook stack global.
+		global $wp_current_filter;
+		$wp_current_filter[] = 'wp_abilities_api_init';
+
+		try {
+			KnowledgeAbilities::register_abilities();
 		} finally {
 			array_pop( $wp_current_filter );
 		}

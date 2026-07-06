@@ -160,6 +160,9 @@ class PublicChatControllerTest extends WP_UnitTestCase {
 		$this->assertTrue( $job['public_chat'] );
 		$this->assertSame( 0, $job['user_id'] );
 		$this->assertSame( array( 'sd-ai-agent/knowledge-search' ), $job['params']['abilities'] );
+		$this->assertStringContainsString( 'Never call knowledge-search with empty arguments', $job['params']['system_instruction'] );
+		$this->assertStringContainsString( '"query":"customer docs question"', $job['params']['system_instruction'] );
+		$this->assertStringContainsString( 'docs', $job['params']['system_instruction'] );
 
 		ActiveJobRepository::delete( $data['job_id'] );
 		delete_transient( RestController::JOB_PREFIX . $data['job_id'] );

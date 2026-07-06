@@ -232,6 +232,7 @@ class ToolCapabilities {
 
 		// ─── Knowledge / Memory / Skills ────────────────────────────────────
 		'sd-ai-agent/knowledge-search'           => 'manage_options',
+		'sd-ai-agent/public-chat-setup'          => 'manage_options',
 		'sd-ai-agent/memory-save'                => 'manage_options',
 		'sd-ai-agent/memory-list'                => 'manage_options',
 		'sd-ai-agent/memory-delete'              => 'manage_options',

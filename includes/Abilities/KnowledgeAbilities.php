@@ -30,13 +30,21 @@ class KnowledgeAbilities {
 	private static array $public_collection_allowlist = [];
 
 	/**
+	 * Request-scoped fallback query for public-chat knowledge calls.
+	 *
+	 * @var string
+	 */
+	private static string $public_default_query = '';
+
+	/**
 	 * Enable request-scoped public collection gating.
 	 *
 	 * @param list<string> $collections Collection slugs allowed for this run.
 	 */
 	// phpcs:ignore Squiz.Commenting.FunctionComment.IncorrectTypeHint -- list<string> is valid PHPStan but not a native PHP type.
-	public static function set_public_collection_allowlist( array $collections ): void {
+	public static function set_public_collection_allowlist( array $collections, string $default_query = '' ): void {
 		self::$public_collection_allowlist = [];
+		self::$public_default_query        = trim( $default_query );
 		foreach ( $collections as $collection ) {
 			$collection = sanitize_key( $collection );
 			if ( '' !== $collection ) {
@@ -48,11 +56,41 @@ class KnowledgeAbilities {
 	/** Clear request-scoped public collection gating. */
 	public static function clear_public_collection_allowlist(): void {
 		self::$public_collection_allowlist = [];
+		self::$public_default_query        = '';
 	}
 
 	/** Whether public collection gating is active for this request. */
 	public static function is_public_collection_mode(): bool {
 		return ! empty( self::$public_collection_allowlist );
+	}
+
+	/**
+	 * Fill missing public-chat knowledge-search args from the current customer turn.
+	 *
+	 * Some fast models can select the right public tool but emit an empty argument
+	 * object. In anonymous public-chat mode this fallback is safe because the tool
+	 * is already constrained to the server-selected documentation collection(s).
+	 *
+	 * @param array<string, mixed> $args Tool-call arguments.
+	 * @return array<string, mixed>
+	 */
+	public static function hydrate_public_search_args( array $args ): array {
+		if ( ! self::is_public_collection_mode() ) {
+			return $args;
+		}
+
+		if ( empty( $args['query'] ) && '' !== self::$public_default_query ) {
+			$args['query'] = self::$public_default_query;
+		}
+
+		if ( empty( $args['collection'] ) ) {
+			$collection = array_key_first( self::$public_collection_allowlist );
+			if ( is_string( $collection ) ) {
+				$args['collection'] = $collection;
+			}
+		}
+
+		return $args;
 	}
 
 	/**

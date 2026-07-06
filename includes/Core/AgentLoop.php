@@ -521,7 +521,7 @@ class AgentLoop {
 		}
 
 		ToolDiscovery::set_anonymous_allowed_abilities( $this->anonymous_allowed_abilities );
-		KnowledgeAbilities::set_public_collection_allowlist( $this->anonymous_allowed_collections );
+		KnowledgeAbilities::set_public_collection_allowlist( $this->anonymous_allowed_collections, $this->user_message );
 	}
 
 	/** Clear request-scoped anonymous public-chat gating from tool helpers. */

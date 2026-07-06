@@ -57,6 +57,7 @@ use SdAiAgent\Abilities\MenuAbilities;
 use SdAiAgent\Abilities\NavigationAbilities;
 use SdAiAgent\Abilities\OptionsAbilities;
 use SdAiAgent\Abilities\PostAbilities;
+use SdAiAgent\Abilities\PublicChatSetupAbilities;
 use SdAiAgent\Abilities\RestMetaAbilities;
 use SdAiAgent\Abilities\SeoAbilities;
 use SdAiAgent\Abilities\SiteHealthAbilities;
@@ -97,6 +98,7 @@ final class AbilitiesHandler {
 		FeedbackAbilities::register_abilities();
 		SkillAbilities::register_abilities();
 		KnowledgeAbilities::register_abilities();
+		PublicChatSetupAbilities::register_abilities();
 		ImageAbilities\StockImageAbility::register();
 		AiImageAbilities::register_abilities();
 		InternetSearchAbilities::register_abilities();

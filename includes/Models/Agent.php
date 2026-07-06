@@ -510,6 +510,7 @@ class Agent {
 			'sd-ai-agent/memory-list',
 			'sd-ai-agent/skill-load',
 			'sd-ai-agent/knowledge-search',
+			'sd-ai-agent/public-chat-setup',
 			'wp-cli/execute',
 			'sd-ai-agent/create-post',
 			'sd-ai-agent/update-post',
