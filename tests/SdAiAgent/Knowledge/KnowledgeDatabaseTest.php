@@ -609,4 +609,29 @@ class KnowledgeDatabaseTest extends WP_UnitTestCase {
 		$this->assertIsArray( $results );
 		$this->assertEmpty( $results );
 	}
+
+	/**
+	 * Test search_chunks handles natural-language questions with stopwords.
+	 */
+	public function test_search_chunks_handles_natural_language_question(): void {
+		$col_id    = KnowledgeDatabase::create_collection( [ 'name' => 'Docs', 'slug' => 'docs' ] );
+		$source_id = KnowledgeDatabase::create_source( [
+			'collection_id' => $col_id,
+			'source_type'   => 'static_file',
+			'source_id'     => 101,
+			'title'         => 'Managing Sites',
+		] );
+
+		KnowledgeDatabase::insert_chunks( $col_id, $source_id, [
+			[
+				'text'  => 'Sites are the core of your WaaS business. Ultimate Multisite can create new customer sites from templates.',
+				'index' => 0,
+			],
+		] );
+
+		$results = KnowledgeDatabase::search_chunks( 'how does Ultimate Multisite create new sites?', $col_id, 3 );
+
+		$this->assertNotEmpty( $results );
+		$this->assertSame( 'Managing Sites', $results[0]->source_title );
+	}
 }

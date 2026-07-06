@@ -557,21 +557,125 @@ class KnowledgeDatabase {
 		$sources_table     = self::sources_table();
 		$collections_table = self::collections_table();
 
-		// Build boolean mode search terms: prefix each word with +.
-		$words         = preg_split( '/\s+/', trim( $query ) );
-		$boolean_terms = [];
-		foreach ( $words ?: [] as $word ) {
-			$word = (string) preg_replace( '/[^\w]/', '', $word );
-			if ( strlen( $word ) > 1 ) {
-				$boolean_terms[] = '+' . $word . '*';
-			}
-		}
-
-		if ( empty( $boolean_terms ) ) {
+		$search_expr = self::build_boolean_search_expression( $query, true );
+		if ( '' === $search_expr ) {
 			return [];
 		}
 
-		$search_expr = implode( ' ', $boolean_terms );
+		$results = self::run_chunk_search_query( $search_expr, $collection_id, $limit, $chunks_table, $sources_table, $collections_table );
+
+		if ( empty( $results ) ) {
+			$fallback_expr = self::build_boolean_search_expression( $query, false );
+			if ( '' !== $fallback_expr && $fallback_expr !== $search_expr ) {
+				$results = self::run_chunk_search_query( $fallback_expr, $collection_id, $limit, $chunks_table, $sources_table, $collections_table );
+			}
+		}
+
+		if ( empty( $results ) ) {
+			$results = self::run_chunk_like_search_query( self::extract_search_terms( $query ), $collection_id, $limit, $chunks_table, $sources_table, $collections_table );
+		}
+
+		return $results ?: [];
+	}
+
+	/**
+	 * Build a MySQL boolean fulltext expression from a natural-language query.
+	 *
+	 * @param string $query    User query.
+	 * @param bool   $required Whether every term should be required.
+	 * @return string
+	 */
+	private static function build_boolean_search_expression( string $query, bool $required ): string {
+		$terms = self::extract_search_terms( $query );
+		if ( empty( $terms ) ) {
+			return '';
+		}
+
+		$prefix = $required ? '+' : '';
+		return implode(
+			' ',
+			array_map(
+				static fn( string $term ): string => $prefix . $term . '*',
+				$terms
+			)
+		);
+	}
+
+	/**
+	 * Extract useful fulltext terms from a natural-language query.
+	 *
+	 * @param string $query User query.
+	 * @return list<string>
+	 */
+	private static function extract_search_terms( string $query ): array {
+		$stopwords = array_fill_keys(
+			[
+				'a',
+				'an',
+				'and',
+				'are',
+				'as',
+				'at',
+				'be',
+				'by',
+				'can',
+				'do',
+				'does',
+				'for',
+				'from',
+				'how',
+				'i',
+				'in',
+				'is',
+				'it',
+				'of',
+				'on',
+				'or',
+				'so',
+				'that',
+				'the',
+				'this',
+				'to',
+				'what',
+				'when',
+				'where',
+				'which',
+				'who',
+				'why',
+				'with',
+				'you',
+				'your',
+			],
+			true
+		);
+		$terms     = [];
+
+		foreach ( preg_split( '/\s+/', strtolower( trim( $query ) ) ) ?: [] as $word ) {
+			$word = (string) preg_replace( '/[^a-z0-9_]/', '', (string) $word );
+			if ( strlen( $word ) < 4 || isset( $stopwords[ $word ] ) ) {
+				continue;
+			}
+
+			$terms[] = $word;
+		}
+
+		return array_values( array_unique( $terms ) );
+	}
+
+	/**
+	 * Execute a chunk search query.
+	 *
+	 * @param string $search_expr       Boolean fulltext search expression.
+	 * @param ?int   $collection_id     Optional collection ID.
+	 * @param int    $limit             Max results.
+	 * @param string $chunks_table      Chunks table name.
+	 * @param string $sources_table     Sources table name.
+	 * @param string $collections_table Collections table name.
+	 * @return list<object>
+	 */
+	private static function run_chunk_search_query( string $search_expr, ?int $collection_id, int $limit, string $chunks_table, string $sources_table, string $collections_table ): array {
+		global $wpdb;
+		/** @var \wpdb $wpdb */
 
 		if ( $collection_id ) {
 			// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.NotPrepared -- Custom table query; caching not applicable.
@@ -620,6 +724,60 @@ class KnowledgeDatabase {
 				)
 			);
 		}
+
+		return $results ?: [];
+	}
+
+	/**
+	 * Execute a LIKE fallback query when FULLTEXT returns no hits.
+	 *
+	 * @param string[] $terms Query terms.
+	 * @param ?int     $collection_id Optional collection ID.
+	 * @param int      $limit         Max results.
+	 * @param string   $chunks_table  Chunks table name.
+	 * @param string   $sources_table Sources table name.
+	 * @param string   $collections_table Collections table name.
+	 * @return list<object>
+	 */
+	private static function run_chunk_like_search_query( array $terms, ?int $collection_id, int $limit, string $chunks_table, string $sources_table, string $collections_table ): array {
+		global $wpdb;
+		/** @var \wpdb $wpdb */
+
+		if ( empty( $terms ) ) {
+			return [];
+		}
+
+		$where_parts     = [];
+		$relevance_parts = [];
+		$values          = [];
+
+		foreach ( $terms as $term ) {
+			$like              = '%' . $wpdb->esc_like( $term ) . '%';
+			$where_parts[]     = 'c.chunk_text LIKE %s';
+			$relevance_parts[] = 'CASE WHEN c.chunk_text LIKE %s THEN 1 ELSE 0 END';
+			$values[]          = $like;
+		}
+
+		$sql = 'SELECT c.id, c.chunk_text, c.chunk_index, c.metadata,
+				s.title AS source_title, s.source_type, s.source_id, s.source_url,
+				col.name AS collection_name, col.slug AS collection_slug,
+				(' . implode( ' + ', $relevance_parts ) . ') AS relevance
+			FROM %i c
+			INNER JOIN %i s ON c.source_id = s.id
+			INNER JOIN %i col ON c.collection_id = col.id
+			WHERE (' . implode( ' OR ', $where_parts ) . ')';
+
+		$query_values = array_merge( $values, [ $chunks_table, $sources_table, $collections_table ], $values );
+		if ( $collection_id ) {
+			$sql           .= ' AND c.collection_id = %d';
+			$query_values[] = $collection_id;
+		}
+
+		$sql           .= ' ORDER BY relevance DESC LIMIT %d';
+		$query_values[] = $limit;
+
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.NotPrepared -- Custom table query; caching not applicable.
+		$results = $wpdb->get_results( $wpdb->prepare( $sql, $query_values ) );
 
 		return $results ?: [];
 	}

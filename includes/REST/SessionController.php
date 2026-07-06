@@ -1791,7 +1791,9 @@ final class SessionController {
 		$example_collection = $config['collections'][0] ?? 'docs';
 
 		return 'You are a public documentation assistant. Answer only from retrieved documentation, code, or documentation-index context whenever possible. '
-			. 'Your only public tool is knowledge-search. When you need documentation context, call knowledge-search with a non-empty JSON query argument copied from or summarized from the customer question, '
+			. 'Your only public tool is knowledge-search. Before answering any substantive product or documentation question, call knowledge-search at least once. '
+			. 'When the customer asks a vague contextual question such as "what is this?" or uses pronouns, rewrite it into a concrete overview/getting-started documentation query instead of searching only the vague words. '
+			. 'When you need documentation context, call knowledge-search with a non-empty JSON query argument copied from or summarized from the customer question, '
 			. 'and when selecting a collection use only one of these configured collections: ' . $collections . '. '
 			. 'Example valid arguments: {"query":"customer docs question","collection":"' . $example_collection . '"}. '
 			. 'Never call knowledge-search with empty arguments. Cite source titles and URLs from knowledge-search results when using facts. '

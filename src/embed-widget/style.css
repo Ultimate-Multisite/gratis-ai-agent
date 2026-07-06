@@ -51,6 +51,10 @@
 	color: var(--sdaa-embed-text);
 }
 
+.sdaa-embed__panel[hidden] {
+	display: none !important;
+}
+
 .sdaa-embed__header,
 .sdaa-embed__form {
 	display: flex;
