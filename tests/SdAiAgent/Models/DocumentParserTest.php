@@ -128,6 +128,17 @@ class DocumentParserTest extends WP_UnitTestCase {
 		$this->assertStringContainsString( 'Markdown content', $result );
 	}
 
+	/**
+	 * extract_markdown_content() preserves prose that starts with capitalized import/export words.
+	 */
+	public function test_extract_markdown_content_preserves_capitalized_import_export_prose(): void {
+		$result = DocumentParser::extract_markdown_content( "import Widget from './Widget';\nImport the file before continuing.\nExport your settings after setup." );
+
+		$this->assertStringNotContainsString( 'import Widget', $result['text'] );
+		$this->assertStringContainsString( 'Import the file before continuing.', $result['text'] );
+		$this->assertStringContainsString( 'Export your settings after setup.', $result['text'] );
+	}
+
 	// ─── extract_from_file() — text/html ─────────────────────────────────────
 
 	/**
