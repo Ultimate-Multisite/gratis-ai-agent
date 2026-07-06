@@ -402,6 +402,7 @@ class Settings {
 			'suggestion_count'                => 3,
 			'yolo_mode'                       => false,
 			'show_on_frontend'                => true,
+			'public_chat_embed_id'            => 'docs',
 			'keyboard_shortcut'               => 'alt+a',
 			// Public docs/customer chat is opt-in and uses a server-controlled,
 			// anonymous-safe execution profile. Browser requests cannot override

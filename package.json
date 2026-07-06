@@ -131,6 +131,12 @@
 			"gzip": true
 		},
 		{
+			"name": "embed-widget",
+			"path": "build/embed-widget.js",
+			"limit": "60 KB",
+			"gzip": true
+		},
+		{
 			"name": "unified-admin",
 			"path": "build/unified-admin.js",
 			"limit": "500 KB",
