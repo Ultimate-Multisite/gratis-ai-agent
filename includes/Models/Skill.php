@@ -736,6 +736,11 @@ class Skill {
 			'description' => 'Content performance reports, site growth metrics, publishing analytics',
 			'enabled'     => true,
 		],
+		'customer-chat-setup'      => [
+			'name'        => 'Customer Chat Setup',
+			'description' => 'Configuring the public customer docs chat, safe tool allowlist, static embed snippet, and manual verification checks',
+			'enabled'     => true,
+		],
 		'working-cadence'          => [
 			'name'        => 'Working Cadence',
 			'description' => 'Skeleton-first workflow, anchor comments, and safe cadence for long content and theme-generation writes',

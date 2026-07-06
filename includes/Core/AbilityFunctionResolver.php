@@ -17,6 +17,7 @@ declare(strict_types=1);
 
 namespace SdAiAgent\Core;
 
+use SdAiAgent\Abilities\KnowledgeAbilities;
 use SdAiAgent\Tools\AbilityUsageTracker;
 use SdAiAgent\Tools\ModelHealthTracker;
 use SdAiAgent\Tools\SchemaExampleBuilder;
@@ -121,6 +122,10 @@ class AbilityFunctionResolver extends \WP_AI_Client_Ability_Function_Resolver {
 		// Recursively convert any remaining nested stdClass objects to
 		// associative arrays. Abilities expect plain PHP arrays throughout.
 		$args = self::normalize_args( $args );
+
+		if ( 'sd-ai-agent/knowledge-search' === $ability_name ) {
+			$args = KnowledgeAbilities::hydrate_public_search_args( $args );
+		}
 
 		// Meta-tool argument coercion for `sd-ai-agent/ability-call`:
 		// Claude (and other LLMs) sometimes emits the nested `arguments`

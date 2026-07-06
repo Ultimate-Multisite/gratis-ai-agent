@@ -74,6 +74,20 @@ class KnowledgeAbilitiesTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * Test public chat search args hydrate from the customer turn when a fast model emits empty args.
+	 */
+	public function test_public_search_args_hydrate_from_default_query() {
+		KnowledgeAbilities::set_public_collection_allowlist( [ 'docs' ], 'How do I embed the widget?' );
+
+		$args = KnowledgeAbilities::hydrate_public_search_args( [] );
+
+		KnowledgeAbilities::clear_public_collection_allowlist();
+
+		$this->assertSame( 'How do I embed the widget?', $args['query'] );
+		$this->assertSame( 'docs', $args['collection'] );
+	}
+
+	/**
 	 * Test handle_knowledge_search result structure when results exist.
 	 */
 	public function test_handle_knowledge_search_result_structure() {
