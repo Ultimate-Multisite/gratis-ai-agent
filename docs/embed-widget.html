@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en">
+	<head>
+		<meta charset="utf-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1" />
+		<title>Superdav AI Agent static embed fixture</title>
+	</head>
+	<body>
+		<h1>Static docs chat fixture</h1>
+		<p>This page intentionally runs outside WordPress and must not provide any <code>wp</code> globals.</p>
+		<script>
+			window.sdAiAgentEmbed = {
+				apiBase: 'https://example.com/wp-json/sd-ai-agent/v1',
+				embedId: 'docs',
+				theme: 'light',
+				locale: 'en',
+				collection: 'docs',
+			};
+		</script>
+		<script src="../build/embed-widget.js" data-api-base="https://example.com/wp-json/sd-ai-agent/v1" data-embed-id="docs" defer></script>
+	</body>
+</html>

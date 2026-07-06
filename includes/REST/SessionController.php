@@ -66,17 +66,18 @@ final class SessionController {
 	/** @var Database Injected database dependency. */
 	private Database $database;
 
+	/** @var Settings Injected settings dependency. */
+	private Settings $settings;
+
 	/**
 	 * Constructor — receives injected dependencies from the DI container.
 	 *
-	 * The Settings dependency was previously injected here for the Site
-	 * Builder routes; those routes were removed in beads sd-ai-dh0 along
-	 * with Site Builder mode, so the property is no longer needed.
-	 *
-	 * @param Database $database  Injected Database service.
+	 * @param Database      $database  Injected Database service.
+	 * @param Settings|null $settings Injected Settings service.
 	 */
-	public function __construct( Database $database ) {
+	public function __construct( Database $database, ?Settings $settings = null ) {
 		$this->database = $database;
+		$this->settings = $settings ?? Settings::instance();
 	}
 
 	/**
@@ -605,6 +606,43 @@ final class SessionController {
 					),
 				),
 			)
+		);
+
+		// Public customer chat config for static documentation embeds.
+		register_rest_route(
+			RestController::NAMESPACE,
+			'/public-chat/config',
+			array(
+				'methods'             => WP_REST_Server::READABLE,
+				'callback'            => array( $this, 'handle_public_chat_config' ),
+				'permission_callback' => '__return_true',
+			)
+		);
+	}
+
+	/**
+	 * Return public embed configuration visible to static docs pages.
+	 *
+	 * @param WP_REST_Request $request The request object.
+	 * @return WP_REST_Response
+	 */
+	public function handle_public_chat_config( WP_REST_Request $request ): WP_REST_Response {
+		$config  = $this->get_public_chat_settings();
+		$origin  = $this->get_public_chat_request_origin( $request );
+		$enabled = ! empty( $config['enabled'] ) && ! empty( $config['collections'] ) && $this->public_origin_is_allowed( $origin, $config['origins'] );
+
+		return $this->add_public_chat_cors(
+			new WP_REST_Response(
+				array(
+					'enabled'     => $enabled,
+					'embed_id'    => sanitize_key( (string) $this->settings->get( 'public_chat_embed_id' ) ),
+					'agent_id'    => (int) $config['agent_id'],
+					'collections' => $config['collections'],
+				),
+				200
+			),
+			$origin,
+			$config['origins']
 		);
 	}
 
@@ -1433,16 +1471,41 @@ final class SessionController {
 			return new WP_Error( 'sd_ai_agent_public_chat_unconfigured', __( 'Public chat has no documentation collection configured.', 'superdav-ai-agent' ), array( 'status' => 503 ) );
 		}
 
-		$origin = (string) $request->get_header( 'origin' );
-		if ( '' === $origin ) {
-			$origin = (string) $request->get_header( 'referer' );
-		}
+		$origin = $this->get_public_chat_request_origin( $request );
 
 		if ( ! $this->public_origin_is_allowed( $origin, $config['origins'] ) ) {
 			return new WP_Error( 'sd_ai_agent_public_chat_origin_forbidden', __( 'This origin is not allowed to use public chat.', 'superdav-ai-agent' ), array( 'status' => 403 ) );
 		}
 
 		return true;
+	}
+
+	/** Resolve the public-chat request origin or referer. */
+	private function get_public_chat_request_origin( WP_REST_Request $request ): string {
+		$origin = (string) $request->get_header( 'origin' );
+		if ( '' === $origin ) {
+			$origin = (string) $request->get_header( 'referer' );
+		}
+
+		return $origin;
+	}
+
+	/**
+	 * Add public-chat CORS headers for allowlisted static-site origins.
+	 *
+	 * @param WP_REST_Response $response        REST response.
+	 * @param string           $origin          Request origin/referer.
+	 * @param list<string>     $allowed_origins Allowed origins/hosts.
+	 */
+	// phpcs:ignore Squiz.Commenting.FunctionComment.IncorrectTypeHint -- list<string> is valid PHPStan but not a native PHP type.
+	private function add_public_chat_cors( WP_REST_Response $response, string $origin, array $allowed_origins ): WP_REST_Response {
+		if ( $this->public_origin_is_allowed( $origin, $allowed_origins ) ) {
+			$response->header( 'Access-Control-Allow-Origin', $origin );
+			$response->header( 'Access-Control-Allow-Credentials', 'false' );
+			$response->header( 'Vary', 'Origin' );
+		}
+
+		return $response;
 	}
 
 	/**
@@ -1545,6 +1608,8 @@ final class SessionController {
 		if ( true !== $available ) {
 			return $available;
 		}
+		$config = $this->get_public_chat_settings();
+		$origin = $this->get_public_chat_request_origin( $request );
 
 		$session_uuid = wp_generate_uuid4();
 		$token        = $this->create_public_chat_token( $session_uuid );
@@ -1557,12 +1622,16 @@ final class SessionController {
 			self::PUBLIC_CHAT_SESSION_TTL
 		);
 
-		return new WP_REST_Response(
-			array(
-				'token'      => $token,
-				'expires_in' => self::PUBLIC_CHAT_SESSION_TTL,
+		return $this->add_public_chat_cors(
+			new WP_REST_Response(
+				array(
+					'token'      => $token,
+					'expires_in' => self::PUBLIC_CHAT_SESSION_TTL,
+				),
+				201
 			),
-			201
+			$origin,
+			$config['origins']
 		);
 	}
 
@@ -1574,6 +1643,7 @@ final class SessionController {
 		}
 
 		$config = $this->get_public_chat_settings();
+		$origin = $this->get_public_chat_request_origin( $request );
 		$token  = self::get_string_param( $request, 'token' );
 		$parsed = $this->parse_public_chat_token( $token );
 		if ( is_wp_error( $parsed ) ) {
@@ -1651,12 +1721,16 @@ final class SessionController {
 			)
 		);
 
-		return new WP_REST_Response(
-			array(
-				'job_id' => $job_id,
-				'status' => 'processing',
+		return $this->add_public_chat_cors(
+			new WP_REST_Response(
+				array(
+					'job_id' => $job_id,
+					'status' => 'processing',
+				),
+				202
 			),
-			202
+			$origin,
+			$config['origins']
 		);
 	}
 
@@ -1666,6 +1740,8 @@ final class SessionController {
 		if ( true !== $available ) {
 			return $available;
 		}
+		$config = $this->get_public_chat_settings();
+		$origin = $this->get_public_chat_request_origin( $request );
 
 		$token  = self::get_string_param( $request, 'token' );
 		$parsed = $this->parse_public_chat_token( $token );
@@ -1703,7 +1779,7 @@ final class SessionController {
 			ActiveJobRepository::delete( $job_id );
 		}
 
-		return new WP_REST_Response( $response, 200 );
+		return $this->add_public_chat_cors( new WP_REST_Response( $response, 200 ), $origin, $config['origins'] );
 	}
 
 	/** Public chat system instruction. */
