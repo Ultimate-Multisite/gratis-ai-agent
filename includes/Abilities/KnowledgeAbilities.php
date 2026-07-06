@@ -19,6 +19,43 @@ if ( ! defined( 'ABSPATH' ) ) {
 class KnowledgeAbilities {
 
 	/**
+	 * Request-scoped public chat collection allowlist.
+	 *
+	 * Empty means normal authenticated behaviour. Non-empty means anonymous
+	 * public chat mode is active and knowledge searches must stay inside these
+	 * server-configured documentation collections.
+	 *
+	 * @var array<string, true>
+	 */
+	private static array $public_collection_allowlist = [];
+
+	/**
+	 * Enable request-scoped public collection gating.
+	 *
+	 * @param list<string> $collections Collection slugs allowed for this run.
+	 */
+	// phpcs:ignore Squiz.Commenting.FunctionComment.IncorrectTypeHint -- list<string> is valid PHPStan but not a native PHP type.
+	public static function set_public_collection_allowlist( array $collections ): void {
+		self::$public_collection_allowlist = [];
+		foreach ( $collections as $collection ) {
+			$collection = sanitize_key( $collection );
+			if ( '' !== $collection ) {
+				self::$public_collection_allowlist[ $collection ] = true;
+			}
+		}
+	}
+
+	/** Clear request-scoped public collection gating. */
+	public static function clear_public_collection_allowlist(): void {
+		self::$public_collection_allowlist = [];
+	}
+
+	/** Whether public collection gating is active for this request. */
+	public static function is_public_collection_mode(): bool {
+		return ! empty( self::$public_collection_allowlist );
+	}
+
+	/**
 	 * Register the knowledge search ability.
 	 */
 	public static function register_abilities(): void {
@@ -65,6 +102,9 @@ class KnowledgeAbilities {
 				],
 				'execute_callback'    => [ __CLASS__, 'handle_knowledge_search' ],
 				'permission_callback' => function () {
+					if ( self::is_public_collection_mode() ) {
+						return true;
+					}
 					// Dual gate: per-tool cap AND core cap from CORE_CAP_MAP.
 					return ToolCapabilities::current_user_can( 'sd-ai-agent/knowledge-search' );
 				},
@@ -87,7 +127,14 @@ class KnowledgeAbilities {
 
 		$options = [ 'limit' => 8 ];
 
-		if ( ! empty( $input['collection'] ) ) {
+		if ( self::is_public_collection_mode() ) {
+			$requested = ! empty( $input['collection'] ) ? sanitize_key( (string) $input['collection'] ) : '';
+			if ( '' !== $requested && ! isset( self::$public_collection_allowlist[ $requested ] ) ) {
+				return new \WP_Error( 'sd_ai_agent_public_collection_forbidden', 'This public chat session cannot search that collection.' );
+			}
+
+			$options['collection'] = '' !== $requested ? $requested : (string) array_key_first( self::$public_collection_allowlist );
+		} elseif ( ! empty( $input['collection'] ) ) {
 			$options['collection'] = $input['collection'];
 		}
 

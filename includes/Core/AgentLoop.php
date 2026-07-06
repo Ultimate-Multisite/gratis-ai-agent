@@ -24,6 +24,7 @@ namespace SdAiAgent\Core;
 
 use SdAiAgent\Admin\UnifiedAdminMenu;
 use SdAiAgent\Abilities\FeedbackAbilities;
+use SdAiAgent\Abilities\KnowledgeAbilities;
 use SdAiAgent\Core\AbilityVisibility;
 use SdAiAgent\Core\BudgetManager;
 use SdAiAgent\Core\ChangeLogger;
@@ -209,6 +210,12 @@ class AgentLoop {
 	/** @var list<string> Ability names approved for one resumed confirmation turn. */
 	private array $approved_once_abilities = array();
 
+	/** @var list<string> Anonymous public-chat ability allowlist for this run. */
+	private array $anonymous_allowed_abilities = array();
+
+	/** @var list<string> Anonymous public-chat knowledge collection allowlist for this run. */
+	private array $anonymous_allowed_collections = array();
+
 	/** @var int Consecutive preamble-only truncations observed this run. */
 	private int $preamble_truncation_retries = 0;
 
@@ -360,6 +367,10 @@ class AgentLoop {
 		$this->activity_sequence = $this->get_max_activity_sequence( $this->tool_call_log, $this->message_log );
 		// @phpstan-ignore-next-line -- Resumed confirmation state carries scalar ability names.
 		$this->approved_once_abilities = $this->normalize_ability_names( $options['approved_once_abilities'] ?? array() );
+		// @phpstan-ignore-next-line -- Public-chat options are scalar string lists.
+		$this->anonymous_allowed_abilities = $this->normalize_ability_names( $options['anonymous_allowed_abilities'] ?? array() );
+		// @phpstan-ignore-next-line -- Public-chat options are scalar string lists.
+		$this->anonymous_allowed_collections = $this->normalize_ability_names( $options['anonymous_allowed_collections'] ?? array() );
 		// @phpstan-ignore-next-line
 		$this->session_id = (int) ( $options['session_id'] ?? 0 );
 		// Active job UUID for heartbeat and shutdown-handler updates.
@@ -463,6 +474,7 @@ class AgentLoop {
 		// attribute subsequent telemetry to the configured model.
 		IdenticalFailureTracker::reset();
 		ModelHealthTracker::set_current_model( $this->model_id );
+		$this->apply_anonymous_mode_context();
 
 		// Make session_id available to event-log emitters in sub-layers
 		// (AbilityFunctionResolver, ProviderTraceLogger) that don't carry
@@ -497,8 +509,29 @@ class AgentLoop {
 			return $result;
 		} finally {
 			$this->last_loop_phase = 'agent_loop_exiting';
+			$this->clear_anonymous_mode_context();
 			AgentEventLog::clear_session();
 		}
+	}
+
+	/** Apply request-scoped anonymous public-chat gating to tool helpers. */
+	private function apply_anonymous_mode_context(): void {
+		if ( empty( $this->anonymous_allowed_abilities ) ) {
+			return;
+		}
+
+		ToolDiscovery::set_anonymous_allowed_abilities( $this->anonymous_allowed_abilities );
+		KnowledgeAbilities::set_public_collection_allowlist( $this->anonymous_allowed_collections );
+	}
+
+	/** Clear request-scoped anonymous public-chat gating from tool helpers. */
+	private function clear_anonymous_mode_context(): void {
+		if ( empty( $this->anonymous_allowed_abilities ) ) {
+			return;
+		}
+
+		ToolDiscovery::clear_anonymous_allowed_abilities();
+		KnowledgeAbilities::clear_public_collection_allowlist();
 	}
 
 	/**
@@ -2438,6 +2471,9 @@ class AgentLoop {
 		if ( ! empty( $this->abilities ) ) {
 			$resolved = array();
 			foreach ( array_merge( $this->abilities, $this->approved_once_abilities ) as $name ) {
+				if ( ! ToolDiscovery::anonymous_mode_allows( $name ) ) {
+					continue;
+				}
 				$ability = AbilityRegistry::get( $name );
 				if ( $ability instanceof \WP_Ability ) {
 					$resolved[] = $ability;
@@ -2451,11 +2487,14 @@ class AgentLoop {
 
 		$tier_1 = ToolDiscovery::tier_1_for_run( $this->agent_tier_1_tools );
 
-		$role_allowed = RolePermissions::get_allowed_abilities_for_current_user();
+		$role_allowed = ToolDiscovery::is_anonymous_ability_mode() ? null : RolePermissions::get_allowed_abilities_for_current_user();
 		$perms        = $this->tool_permissions;
 
 		$resolved = array();
 		foreach ( array_merge( $tier_1, $this->approved_once_abilities ) as $name ) {
+			if ( ! ToolDiscovery::anonymous_mode_allows( $name ) ) {
+				continue;
+			}
 			if ( null !== $role_allowed && ! in_array( $name, $role_allowed, true ) ) {
 				continue;
 			}
