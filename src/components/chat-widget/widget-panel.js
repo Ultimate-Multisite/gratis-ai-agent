@@ -15,6 +15,7 @@ import ErrorBoundary from '../error-boundary';
 import ToolConfirmationDialog from '../tool-confirmation-dialog';
 import ProposalPanel from '../proposal-panel';
 import ChangesDrawer from '../chat-redesign/ChangesDrawer';
+import { isCustomerSimpleMode } from '../../utils/chat-ui-mode';
 // chat-redesign base styles (.sdaa-cr-*) are only needed by panel
 // sub-components, so the import lives here rather than in index.js.
 // This keeps the CSS in the async panel chunk and out of the initial bundle.
@@ -32,8 +33,13 @@ const PANEL_SIZE_STORAGE_KEY = 'aiAgentWidgetPanelSize';
 /**
  * @param {Object}      root0                        Component props.
  * @param {string|null} root0.frontendOnboardingMode Frontend onboarding layout mode.
+ * @param {string}      root0.uiMode                 Chat UI mode.
  */
-export default function WidgetPanel( { frontendOnboardingMode = null } ) {
+export default function WidgetPanel( {
+	frontendOnboardingMode = null,
+	uiMode = 'admin',
+} ) {
+	const isSimpleMode = isCustomerSimpleMode( uiMode );
 	const { confirmToolCall, rejectToolCall, setFloatingMinimized } =
 		useDispatch( STORE_NAME );
 
@@ -69,6 +75,10 @@ export default function WidgetPanel( { frontendOnboardingMode = null } ) {
 	}, [ yoloMode, pendingConfirmation, confirmToolCall ] );
 
 	const refreshChangesCount = useCallback( async () => {
+		if ( isSimpleMode ) {
+			setChangesCount( 0 );
+			return;
+		}
 		if ( ! currentSessionId ) {
 			setChangesCount( 0 );
 			return;
@@ -81,7 +91,7 @@ export default function WidgetPanel( { frontendOnboardingMode = null } ) {
 		} catch {
 			setChangesCount( 0 );
 		}
-	}, [ currentSessionId ] );
+	}, [ currentSessionId, isSimpleMode ] );
 
 	useEffect( () => {
 		refreshChangesCount();
@@ -188,7 +198,9 @@ export default function WidgetPanel( { frontendOnboardingMode = null } ) {
 					isMinimized ? ' is-minimized' : ''
 				}${ isDragging ? ' is-dragging' : '' }${
 					isResizing ? ' is-resizing' : ''
-				}${ onboardingClass }` }
+				}${ onboardingClass }${
+					isSimpleMode ? ' is-customer-simple' : ''
+				}` }
 				style={ panelStyle }
 				role="presentation"
 				data-drag-target="true"
@@ -200,6 +212,7 @@ export default function WidgetPanel( { frontendOnboardingMode = null } ) {
 				<WidgetHeader
 					isMinimized={ isMinimized }
 					onToggleMinimize={ toggleMinimize }
+					isSimpleMode={ isSimpleMode }
 					onDragHandleMouseDown={
 						frontendOnboardingMode
 							? undefined
@@ -219,7 +232,7 @@ export default function WidgetPanel( { frontendOnboardingMode = null } ) {
 					</div>
 				) }
 
-				{ ! isMinimized && changesCount > 0 && (
+				{ ! isMinimized && ! isSimpleMode && changesCount > 0 && (
 					<div className="sdaa-w-changes-strip">
 						<span className="sdaa-w-changes-strip-text">
 							<span className="sdaa-w-changes-count">
@@ -259,7 +272,7 @@ export default function WidgetPanel( { frontendOnboardingMode = null } ) {
 								<WidgetMessageList />
 							) }
 						</ErrorBoundary>
-						{ showChanges && (
+						{ ! isSimpleMode && showChanges && (
 							<div className="sdaa-w-changes-drawer-wrap sdaa-cr">
 								<ChangesDrawer
 									sessionId={ currentSessionId }
@@ -275,7 +288,7 @@ export default function WidgetPanel( { frontendOnboardingMode = null } ) {
 					<ErrorBoundary
 						label={ __( 'Message input', 'sd-ai-agent' ) }
 					>
-						<WidgetInput />
+						<WidgetInput isSimpleMode={ isSimpleMode } />
 					</ErrorBoundary>
 				) }
 
@@ -306,7 +319,7 @@ export default function WidgetPanel( { frontendOnboardingMode = null } ) {
 				) }
 			</div>
 
-			{ pendingConfirmation && ! yoloMode && (
+			{ pendingConfirmation && ! yoloMode && ! isSimpleMode && (
 				<ToolConfirmationDialog
 					confirmation={ pendingConfirmation }
 					onConfirm={ ( alwaysAllow ) =>
@@ -321,7 +334,7 @@ export default function WidgetPanel( { frontendOnboardingMode = null } ) {
 				/>
 			) }
 
-			{ pendingProposal && (
+			{ ! isSimpleMode && pendingProposal && (
 				<ProposalPanel
 					proposal={ pendingProposal }
 					onClose={ () => {

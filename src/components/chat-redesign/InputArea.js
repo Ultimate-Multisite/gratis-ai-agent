@@ -44,10 +44,13 @@ function readAsDataUrl( file ) {
 }
 
 /**
- * Input area with slash-command autocomplete, file upload, voice input,
+ * Input area with optional slash-command autocomplete, file upload, voice input,
  * and send/stop controls.
+ *
+ * @param {Object}  root0
+ * @param {boolean} root0.isSimpleMode Whether customer/simple UI mode is active.
  */
-export default function InputArea() {
+export default function InputArea( { isSimpleMode = false } = {} ) {
 	const {
 		sendMessage,
 		stopGeneration,
@@ -103,8 +106,10 @@ export default function InputArea() {
 	// Show slash menu while the user is still typing the command name
 	// (starts with / and has no space yet). Hide once they start arguments.
 	useEffect( () => {
-		setShowSlash( text.startsWith( '/' ) && ! text.includes( ' ' ) );
-	}, [ text ] );
+		setShowSlash(
+			! isSimpleMode && text.startsWith( '/' ) && ! text.includes( ' ' )
+		);
+	}, [ text, isSimpleMode ] );
 
 	const processFiles = useCallback( async ( files ) => {
 		const next = [];
@@ -141,7 +146,7 @@ export default function InputArea() {
 		}
 
 		// /remember <fact>
-		if ( trimmed.startsWith( '/remember ' ) ) {
+		if ( ! isSimpleMode && trimmed.startsWith( '/remember ' ) ) {
 			const fact = trimmed.slice( 10 ).trim();
 			if ( fact ) {
 				apiFetch( {
@@ -155,7 +160,7 @@ export default function InputArea() {
 		}
 
 		// /forget <topic>
-		if ( trimmed.startsWith( '/forget ' ) ) {
+		if ( ! isSimpleMode && trimmed.startsWith( '/forget ' ) ) {
 			const topic = trimmed.slice( 8 ).trim();
 			if ( topic ) {
 				apiFetch( {
@@ -189,7 +194,7 @@ export default function InputArea() {
 		setText( '' );
 		setAttachments( [] );
 		setTimeout( () => taRef.current?.focus( { preventScroll: true } ), 0 );
-	}, [ text, attachments, sendMessage ] );
+	}, [ text, attachments, sendMessage, isSimpleMode ] );
 
 	const handleSlashSelect = useCallback(
 		( cmd ) => {
@@ -322,10 +327,20 @@ export default function InputArea() {
 		e.preventDefault();
 		taRef.current?.focus( { preventScroll: true } );
 	}, [] );
+	let placeholder = __(
+		'Ask the agent to do something, or type / for commands…',
+		'sd-ai-agent'
+	);
+	if ( isSimpleMode ) {
+		placeholder = __( 'Ask a question…', 'sd-ai-agent' );
+	}
+	if ( sending ) {
+		placeholder = __( 'Type to queue a message…', 'sd-ai-agent' );
+	}
 
 	return (
 		<div className="sdaa-cr-input-area">
-			{ showSlash && (
+			{ ! isSimpleMode && showSlash && (
 				<SlashCommandMenu
 					filter={ text }
 					onSelect={ handleSlashSelect }
@@ -417,17 +432,7 @@ export default function InputArea() {
 					<textarea
 						ref={ taRef }
 						className="sdaa-cr-input-textarea"
-						placeholder={
-							sending
-								? __(
-										'Type to queue a message…',
-										'sd-ai-agent'
-								  )
-								: __(
-										'Ask the agent to do something, or type / for commands…',
-										'sd-ai-agent'
-								  )
-						}
+						placeholder={ placeholder }
 						value={ text }
 						onChange={ ( e ) => setText( e.target.value ) }
 						onKeyDown={ handleKey }
@@ -460,8 +465,8 @@ export default function InputArea() {
 							>
 								<Paperclip />
 							</button>
-							<ModelPicker />
-							<AgentPicker />
+							{ ! isSimpleMode && <ModelPicker /> }
+							{ ! isSimpleMode && <AgentPicker /> }
 						</div>
 						<div className="sdaa-cr-input-toolbar-right">
 							{ micSupported && (

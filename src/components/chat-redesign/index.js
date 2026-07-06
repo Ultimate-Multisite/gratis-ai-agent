@@ -14,6 +14,7 @@ import STORE_NAME from '../../store';
 import ChatBanners from '../chat-banners';
 import ErrorBoundary from '../error-boundary';
 import ToolConfirmationDialog from '../tool-confirmation-dialog';
+import { getChatUiMode, isCustomerSimpleMode } from '../../utils/chat-ui-mode';
 import Sidebar from './Sidebar';
 import ConvoHeader from './ConvoHeader';
 import ChangesDrawer from './ChangesDrawer';
@@ -26,8 +27,11 @@ const DENSITY_STORAGE_KEY = 'sdAiAgentChatDensity';
 
 /**
  *
+ * @param {Object} [root0]
+ * @param {string} [root0.uiMode] Chat UI mode.
  */
-export default function ChatRedesign() {
+export default function ChatRedesign( { uiMode = getChatUiMode() } = {} ) {
+	const isSimpleMode = isCustomerSimpleMode( uiMode );
 	const [ sidebarCollapsed, setSidebarCollapsed ] = useState( () => {
 		// On medium or larger screens (≥782px — wp-admin's tablet breakpoint)
 		// the sidebar should always start open. Saved collapse preference
@@ -89,6 +93,10 @@ export default function ChatRedesign() {
 
 	// Refresh the changes count when the session changes or a turn finishes.
 	const refreshChangesCount = useCallback( async () => {
+		if ( isSimpleMode ) {
+			setChangesCount( 0 );
+			return;
+		}
 		if ( ! currentSessionId ) {
 			setChangesCount( 0 );
 			return;
@@ -101,7 +109,7 @@ export default function ChatRedesign() {
 		} catch {
 			setChangesCount( 0 );
 		}
-	}, [ currentSessionId ] );
+	}, [ currentSessionId, isSimpleMode ] );
 
 	useEffect( () => {
 		refreshChangesCount();
@@ -114,18 +122,28 @@ export default function ChatRedesign() {
 	}, [ sending, currentSessionId, refreshChangesCount ] );
 
 	return (
-		<div className={ `sdaa-cr is-density-${ density }` }>
+		<div
+			className={ `sdaa-cr is-density-${ density }${
+				isSimpleMode ? ' is-customer-simple' : ''
+			}` }
+		>
 			<div
 				className={ `sdaa-cr-shell${
-					sidebarCollapsed ? ' is-sidebar-collapsed' : ''
+					sidebarCollapsed || isSimpleMode
+						? ' is-sidebar-collapsed'
+						: ''
 				}` }
 			>
-				<ErrorBoundary label={ __( 'Sidebar', 'superdav-ai-agent' ) }>
-					<Sidebar
-						collapsed={ sidebarCollapsed }
-						onToggleCollapse={ toggleSidebar }
-					/>
-				</ErrorBoundary>
+				{ ! isSimpleMode && (
+					<ErrorBoundary
+						label={ __( 'Sidebar', 'superdav-ai-agent' ) }
+					>
+						<Sidebar
+							collapsed={ sidebarCollapsed }
+							onToggleCollapse={ toggleSidebar }
+						/>
+					</ErrorBoundary>
+				) }
 
 				<section className="sdaa-cr-convo">
 					<ConvoHeader
@@ -133,6 +151,7 @@ export default function ChatRedesign() {
 						onExpandSidebar={ () => setSidebarCollapsed( false ) }
 						changesCount={ changesCount }
 						onShowChanges={ () => setShowChanges( true ) }
+						isSimpleMode={ isSimpleMode }
 					/>
 
 					<ErrorBoundary
@@ -141,7 +160,7 @@ export default function ChatRedesign() {
 						<ChatBanners />
 					</ErrorBoundary>
 
-					{ showChanges && (
+					{ ! isSimpleMode && showChanges && (
 						<ChangesDrawer
 							sessionId={ currentSessionId }
 							onClose={ () => setShowChanges( false ) }
@@ -158,12 +177,12 @@ export default function ChatRedesign() {
 					<ErrorBoundary
 						label={ __( 'Message input', 'superdav-ai-agent' ) }
 					>
-						<InputArea />
+						<InputArea isSimpleMode={ isSimpleMode } />
 					</ErrorBoundary>
 				</section>
 			</div>
 
-			{ pendingConfirmation && ! yoloMode && (
+			{ pendingConfirmation && ! yoloMode && ! isSimpleMode && (
 				<ToolConfirmationDialog
 					confirmation={ pendingConfirmation }
 					onConfirm={ ( alwaysAllow ) =>

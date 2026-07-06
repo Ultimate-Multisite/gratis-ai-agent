@@ -1,7 +1,7 @@
 /**
  * Compact input row for the widget — same wiring as the chat-redesign
  * InputArea (sendMessage / stopGeneration / speech / attachments) but
- * rendered as a tight 1-line textarea with paperclip, model chip, mic
+ * rendered as a tight 1-line textarea with paperclip, optional model chip, mic
  * and send/stop in a single toolbar.
  */
 
@@ -44,8 +44,10 @@ function readAsDataUrl( file ) {
 
 /**
  *
+ * @param {Object}  root0
+ * @param {boolean} root0.isSimpleMode Whether customer/simple UI mode is active.
  */
-export default function WidgetInput() {
+export default function WidgetInput( { isSimpleMode = false } = {} ) {
 	const {
 		sendMessage,
 		stopGeneration,
@@ -95,8 +97,10 @@ export default function WidgetInput() {
 	}, [ text ] );
 
 	useEffect( () => {
-		setShowSlash( text.startsWith( '/' ) && ! text.includes( ' ' ) );
-	}, [ text ] );
+		setShowSlash(
+			! isSimpleMode && text.startsWith( '/' ) && ! text.includes( ' ' )
+		);
+	}, [ text, isSimpleMode ] );
 
 	const processFiles = useCallback( async ( files ) => {
 		const next = [];
@@ -132,7 +136,7 @@ export default function WidgetInput() {
 			return;
 		}
 
-		if ( trimmed.startsWith( '/remember ' ) ) {
+		if ( ! isSimpleMode && trimmed.startsWith( '/remember ' ) ) {
 			const fact = trimmed.slice( 10 ).trim();
 			if ( fact ) {
 				apiFetch( {
@@ -149,7 +153,7 @@ export default function WidgetInput() {
 			return;
 		}
 
-		if ( trimmed.startsWith( '/forget ' ) ) {
+		if ( ! isSimpleMode && trimmed.startsWith( '/forget ' ) ) {
 			const topic = trimmed.slice( 8 ).trim();
 			if ( topic ) {
 				apiFetch( {
@@ -187,7 +191,7 @@ export default function WidgetInput() {
 		setText( '' );
 		setAttachments( [] );
 		setTimeout( () => taRef.current?.focus( { preventScroll: true } ), 0 );
-	}, [ text, attachments, sendMessage ] );
+	}, [ text, attachments, sendMessage, isSimpleMode ] );
 
 	const handleSlashSelect = useCallback(
 		( cmd ) => {
@@ -301,10 +305,20 @@ export default function WidgetInput() {
 		e.preventDefault();
 		taRef.current?.focus( { preventScroll: true } );
 	}, [] );
+	let placeholder = __(
+		'Ask the agent or type / for commands…',
+		'sd-ai-agent'
+	);
+	if ( isSimpleMode ) {
+		placeholder = __( 'Ask a question…', 'sd-ai-agent' );
+	}
+	if ( sending ) {
+		placeholder = __( 'Type to queue a message…', 'sd-ai-agent' );
+	}
 
 	return (
 		<div className="sdaa-w-input">
-			{ showSlash && (
+			{ ! isSimpleMode && showSlash && (
 				<SlashCommandMenu
 					filter={ text }
 					onSelect={ handleSlashSelect }
@@ -376,14 +390,7 @@ export default function WidgetInput() {
 				<textarea
 					ref={ taRef }
 					className="sdaa-w-input-textarea"
-					placeholder={
-						sending
-							? __( 'Type to queue a message…', 'sd-ai-agent' )
-							: __(
-									'Ask the agent or type / for commands…',
-									'sd-ai-agent'
-							  )
-					}
+					placeholder={ placeholder }
 					value={ text }
 					onChange={ ( e ) => setText( e.target.value ) }
 					onKeyDown={ handleKey }
@@ -414,8 +421,8 @@ export default function WidgetInput() {
 						>
 							<Paperclip />
 						</button>
-						<ModelPicker />
-						<AgentPicker />
+						{ ! isSimpleMode && <ModelPicker /> }
+						{ ! isSimpleMode && <AgentPicker /> }
 					</div>
 					<div className="sdaa-w-input-toolbar-right">
 						{ micSupported && (

@@ -9,23 +9,26 @@ import { __ } from '@wordpress/i18n';
 import { Icon, moreHorizontal, sidebar as sidebarIcon } from '@wordpress/icons';
 
 import STORE_NAME from '../../store';
+import { getBranding } from '../../utils/branding';
 import { isTTSSupported } from '../use-text-to-speech';
 import SessionContextMenu from '../session-context-menu';
 import { AiIcon, Speaker, SpeakerMuted } from './icons';
 
 /**
  *
- * @param {Object} root0
- * @param {*}      root0.sidebarCollapsed
- * @param {*}      root0.onExpandSidebar
- * @param {*}      root0.changesCount
- * @param {*}      root0.onShowChanges
+ * @param {Object}  root0
+ * @param {*}       root0.sidebarCollapsed
+ * @param {*}       root0.onExpandSidebar
+ * @param {*}       root0.changesCount
+ * @param {*}       root0.onShowChanges
+ * @param {boolean} root0.isSimpleMode
  */
 export default function ConvoHeader( {
 	sidebarCollapsed,
 	onExpandSidebar,
 	changesCount,
 	onShowChanges,
+	isSimpleMode = false,
 } ) {
 	const { renameSession, setTtsEnabled } = useDispatch( STORE_NAME );
 	const { session, isRunning, ttsEnabled } = useSelect( ( sel ) => {
@@ -53,7 +56,10 @@ export default function ConvoHeader( {
 		}
 	}, [ editing ] );
 
-	const title = session?.title || __( 'New conversation', 'sd-ai-agent' );
+	const branding = getBranding();
+	const title = isSimpleMode
+		? branding.agentName || __( 'AI Agent', 'sd-ai-agent' )
+		: session?.title || __( 'New conversation', 'sd-ai-agent' );
 
 	const startRename = useCallback( () => {
 		if ( ! session ) {
@@ -72,7 +78,7 @@ export default function ConvoHeader( {
 
 	return (
 		<div className="sdaa-cr-convo-head">
-			{ sidebarCollapsed && (
+			{ sidebarCollapsed && ! isSimpleMode && (
 				<button
 					type="button"
 					className="sdaa-cr-icon-btn"
@@ -103,8 +109,10 @@ export default function ConvoHeader( {
 				<button
 					type="button"
 					className="sdaa-cr-convo-head-title"
-					onClick={ session ? startRename : undefined }
-					disabled={ ! session }
+					onClick={
+						session && ! isSimpleMode ? startRename : undefined
+					}
+					disabled={ ! session || isSimpleMode }
 					title={ title }
 				>
 					<span className="sdaa-cr-convo-head-title-text">
@@ -116,7 +124,7 @@ export default function ConvoHeader( {
 							title={ __( 'Agent running', 'sd-ai-agent' ) }
 						/>
 					) }
-					{ session && (
+					{ session && ! isSimpleMode && (
 						<span className="sdaa-cr-convo-head-rename-hint">
 							{ __( 'Click to rename', 'sd-ai-agent' ) }
 						</span>
@@ -131,7 +139,7 @@ export default function ConvoHeader( {
 				>
 					<AiIcon thinking={ isRunning } size={ 16 } />
 				</span>
-				{ changesCount > 0 && (
+				{ ! isSimpleMode && changesCount > 0 && (
 					<span
 						className="sdaa-cr-changes-pill"
 						title={ __(
@@ -169,28 +177,30 @@ export default function ConvoHeader( {
 						{ ttsEnabled ? <Speaker /> : <SpeakerMuted /> }
 					</button>
 				) }
-				<div className="sdaa-cr-convo-head-menu-wrap">
-					<button
-						type="button"
-						className="sdaa-cr-icon-btn"
-						aria-label={ __( 'More options', 'sd-ai-agent' ) }
-						aria-haspopup="menu"
-						aria-expanded={ showMenu }
-						disabled={ ! session }
-						onClick={ () => setShowMenu( ( v ) => ! v ) }
-					>
-						<Icon icon={ moreHorizontal } size={ 16 } />
-					</button>
-					{ showMenu && session && (
-						<div className="sdaa-cr-context-menu sdaa-cr-context-menu--header">
-							<SessionContextMenu
-								session={ session }
-								onClose={ () => setShowMenu( false ) }
-								isOwner={ true }
-							/>
-						</div>
-					) }
-				</div>
+				{ ! isSimpleMode && (
+					<div className="sdaa-cr-convo-head-menu-wrap">
+						<button
+							type="button"
+							className="sdaa-cr-icon-btn"
+							aria-label={ __( 'More options', 'sd-ai-agent' ) }
+							aria-haspopup="menu"
+							aria-expanded={ showMenu }
+							disabled={ ! session }
+							onClick={ () => setShowMenu( ( v ) => ! v ) }
+						>
+							<Icon icon={ moreHorizontal } size={ 16 } />
+						</button>
+						{ showMenu && session && (
+							<div className="sdaa-cr-context-menu sdaa-cr-context-menu--header">
+								<SessionContextMenu
+									session={ session }
+									onClose={ () => setShowMenu( false ) }
+									isOwner={ true }
+								/>
+							</div>
+						) }
+					</div>
+				) }
 			</div>
 		</div>
 	);
