@@ -52,7 +52,7 @@ class DocumentParser {
 				continue;
 			}
 
-			if ( ! $in_fence && preg_match( '/^(import|export)\s+/i', $trimmed ) ) {
+			if ( ! $in_fence && preg_match( '/^(import|export)\s+/', $trimmed ) ) {
 				continue;
 			}
 

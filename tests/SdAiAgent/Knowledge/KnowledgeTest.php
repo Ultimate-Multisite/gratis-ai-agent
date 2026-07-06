@@ -414,6 +414,40 @@ class KnowledgeTest extends WP_UnitTestCase {
 		$this->assertCount( 1, KnowledgeDatabase::get_sources_for_collection( $col_id ) );
 	}
 
+	/**
+	 * Test static documentation manifest prune preserves present records that fail re-indexing.
+	 */
+	public function test_import_static_docs_manifest_prune_preserves_errored_present_records(): void {
+		$col_id = KnowledgeDatabase::create_collection( [
+			'name' => 'Docs Error Prune Collection',
+			'slug' => 'docs-error-prune-collection',
+		] );
+
+		Knowledge::import_static_docs_manifest(
+			$col_id,
+			[
+				[ 'id' => 'docs/a.md', 'title' => 'A', 'content' => '# A\n\nAlpha.' ],
+				[ 'id' => 'docs/b.md', 'title' => 'B', 'content' => '# B\n\nBravo.' ],
+			]
+		);
+
+		$stats = Knowledge::import_static_docs_manifest(
+			$col_id,
+			[
+				[ 'id' => 'docs/b.md', 'title' => 'B', 'content' => '' ],
+			],
+			[ 'prune' => true ]
+		);
+
+		$this->assertIsArray( $stats );
+		$this->assertSame( 1, $stats['errors'] );
+		$this->assertSame( 1, $stats['pruned'] );
+
+		$sources = KnowledgeDatabase::get_sources_for_collection( $col_id );
+		$this->assertCount( 1, $sources );
+		$this->assertSame( 'B', $sources[0]->title );
+	}
+
 	// ── get_context_for_query ─────────────────────────────────────────────
 
 	/**

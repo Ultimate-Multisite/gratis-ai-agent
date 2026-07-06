@@ -238,13 +238,17 @@ class Knowledge {
 		$seen  = [];
 
 		foreach ( $records as $record ) {
+			$identity = self::get_static_doc_identity( $record );
+			if ( '' !== $identity ) {
+				$seen[] = self::stable_static_doc_source_key( $identity );
+			}
+
 			$result = self::index_static_doc_record( $collection_id, $record );
 			if ( is_wp_error( $result ) ) {
 				++$stats['errors'];
 				continue;
 			}
 
-			$seen[] = $result['source_key'];
 			++$stats[ $result['action'] ];
 		}
 
@@ -591,7 +595,10 @@ class Knowledge {
 	 * Build stable numeric key for static docs source identity.
 	 */
 	private static function stable_static_doc_source_key( string $identity ): int {
-		return (int) sprintf( '%u', crc32( $identity ) );
+		// Use 60 bits of sha1 for a far larger keyspace than crc32's 32 bits,
+		// while still fitting comfortably in PHP's signed 64-bit int and the
+		// bigint(20) unsigned source_id column.
+		return (int) hexdec( substr( sha1( $identity ), 0, 15 ) );
 	}
 
 	/**
