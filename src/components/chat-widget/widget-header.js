@@ -71,15 +71,17 @@ function relativeTime( dateStr ) {
 
 /**
  *
- * @param {Object} root0
- * @param {*}      root0.isMinimized
- * @param {*}      root0.onToggleMinimize
- * @param {*}      root0.onDragHandleMouseDown
+ * @param {Object}  root0
+ * @param {*}       root0.isMinimized
+ * @param {*}       root0.onToggleMinimize
+ * @param {*}       root0.onDragHandleMouseDown
+ * @param {boolean} root0.isSimpleMode
  */
 export default function WidgetHeader( {
 	isMinimized,
 	onToggleMinimize,
 	onDragHandleMouseDown,
+	isSimpleMode = false,
 } ) {
 	const { setFloatingOpen, clearCurrentSession, openSession, fetchSessions } =
 		useDispatch( STORE_NAME );
@@ -132,7 +134,7 @@ export default function WidgetHeader( {
 	const session = sessions.find( ( s ) => s.id === currentSessionId ) || null;
 	const branding = getBranding();
 	const agentName = branding.agentName || __( 'AI Agent', 'sd-ai-agent' );
-	const title = session?.title || agentName;
+	const title = isSimpleMode ? agentName : session?.title || agentName;
 	const runningJob = currentSessionId
 		? sessionJobs[ currentSessionId ]
 		: null;
@@ -147,6 +149,9 @@ export default function WidgetHeader( {
 				return __( 'Working…', 'sd-ai-agent' );
 			}
 			return __( 'Working…', 'sd-ai-agent' );
+		}
+		if ( isSimpleMode ) {
+			return __( 'Ready', 'sd-ai-agent' );
 		}
 		return activeModelName
 			? `${ __( 'Ready', 'sd-ai-agent' ) } · ${ activeModelName }`
@@ -175,15 +180,34 @@ export default function WidgetHeader( {
 			onMouseDown={ onDragHandleMouseDown }
 		>
 			<div className="sdaa-w-head-title-wrap" ref={ drawerRef }>
-				<button
-					type="button"
+				<div
 					className={ `sdaa-w-head-session${
-						drawerOpen ? ' is-open' : ''
+						drawerOpen && ! isSimpleMode ? ' is-open' : ''
 					}` }
-					onClick={ () => setDrawerOpen( ( v ) => ! v ) }
-					title={ __( 'Switch session', 'sd-ai-agent' ) }
-					aria-haspopup="menu"
-					aria-expanded={ drawerOpen }
+					role={ isSimpleMode ? undefined : 'button' }
+					tabIndex={ isSimpleMode ? undefined : 0 }
+					onClick={
+						isSimpleMode
+							? undefined
+							: () => setDrawerOpen( ( v ) => ! v )
+					}
+					onKeyDown={
+						isSimpleMode
+							? undefined
+							: ( e ) => {
+									if ( e.key === 'Enter' || e.key === ' ' ) {
+										e.preventDefault();
+										setDrawerOpen( ( v ) => ! v );
+									}
+							  }
+					}
+					title={
+						isSimpleMode
+							? title
+							: __( 'Switch session', 'sd-ai-agent' )
+					}
+					aria-haspopup={ isSimpleMode ? undefined : 'menu' }
+					aria-expanded={ isSimpleMode ? undefined : drawerOpen }
 				>
 					<span className="sdaa-w-avatar" aria-hidden="true">
 						{ branding.logoUrl ? (
@@ -201,9 +225,11 @@ export default function WidgetHeader( {
 							<span className="sdaa-w-head-name-text">
 								{ title }
 							</span>
-							<span className="sdaa-w-head-caret">
-								<Icon icon={ chevronDown } size={ 14 } />
-							</span>
+							{ ! isSimpleMode && (
+								<span className="sdaa-w-head-caret">
+									<Icon icon={ chevronDown } size={ 14 } />
+								</span>
+							) }
 						</span>
 						<span
 							className={ `sdaa-w-head-status${
@@ -216,9 +242,9 @@ export default function WidgetHeader( {
 							</span>
 						</span>
 					</span>
-				</button>
+				</div>
 
-				{ drawerOpen && (
+				{ ! isSimpleMode && drawerOpen && (
 					<div className="sdaa-w-session-drawer" role="menu">
 						<div className="sdaa-w-session-drawer-head">
 							<span>
@@ -286,15 +312,17 @@ export default function WidgetHeader( {
 				) }
 			</div>
 
-			<button
-				type="button"
-				className="sdaa-w-new-btn"
-				onClick={ handleNewChat }
-				aria-label={ __( 'Start new chat', 'sd-ai-agent' ) }
-				title={ __( 'Start new chat', 'sd-ai-agent' ) }
-			>
-				<Icon icon={ plus } size={ 18 } />
-			</button>
+			{ ! isSimpleMode && (
+				<button
+					type="button"
+					className="sdaa-w-new-btn"
+					onClick={ handleNewChat }
+					aria-label={ __( 'Start new chat', 'sd-ai-agent' ) }
+					title={ __( 'Start new chat', 'sd-ai-agent' ) }
+				>
+					<Icon icon={ plus } size={ 18 } />
+				</button>
+			) }
 
 			<div className="sdaa-w-head-actions">
 				<button

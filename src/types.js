@@ -142,40 +142,41 @@
  * The Redux store state shape.
  *
  * @typedef {Object} StoreState
- * @property {Provider[]}               providers               - Available AI providers.
- * @property {boolean}                  providersLoaded         - Whether providers have been fetched.
- * @property {boolean}                  providersLoading        - Whether a providers fetch is in-flight.
- * @property {Session[]}                sessions                - Session list.
- * @property {boolean}                  sessionsLoaded          - Whether sessions have been fetched.
- * @property {number|null}              currentSessionId        - Active session ID.
- * @property {Message[]}                currentSessionMessages  - Messages in the active session.
- * @property {ToolCall[]}               currentSessionToolCalls - Tool calls in the active session.
- * @property {boolean}                  sending                 - Whether a message is in-flight.
- * @property {string|null}              currentJobId            - Active polling job ID.
- * @property {string}                   selectedProviderId      - Currently selected provider ID.
- * @property {string}                   selectedModelId         - Currently selected model ID.
- * @property {boolean}                  floatingOpen            - Whether the floating panel is open.
- * @property {boolean}                  floatingMinimized       - Whether the floating panel is minimized.
- * @property {string|Object}            pageContext             - Structured page context for the AI.
- * @property {string}                   sessionFilter           - Active session filter tab.
- * @property {string}                   sessionFolder           - Active folder filter.
- * @property {string}                   sessionSearch           - Active search query.
- * @property {string[]}                 folders                 - Available folder names.
- * @property {boolean}                  foldersLoaded           - Whether folders have been fetched.
- * @property {Settings|null}            settings                - Plugin settings.
- * @property {boolean}                  settingsLoaded          - Whether settings have been fetched.
- * @property {boolean}                  settingsLoading         - Whether a settings fetch is in-flight.
- * @property {Memory[]}                 memories                - Memory entries.
- * @property {boolean}                  memoriesLoaded          - Whether memories have been fetched.
- * @property {Skill[]}                  skills                  - Skill entries.
- * @property {boolean}                  skillsLoaded            - Whether skills have been fetched.
- * @property {Object}                   skillStats              - Aggregated usage stats indexed by skill_id.
- * @property {boolean}                  skillStatsLoaded        - Whether skill stats have been fetched.
- * @property {Object}                   skillUpdates            - Update availability map from check-updates, indexed by skill_id.
- * @property {boolean}                  skillUpdatesChecking    - Whether a check-updates request is in flight.
- * @property {TokenUsage}               tokenUsage              - Cumulative token usage for the session.
- * @property {PendingConfirmation|null} pendingConfirmation     - Pending tool confirmation.
- * @property {number}                   sendTimestamp           - Timestamp of the last send (ms since epoch).
+ * @property {Provider[]}                                                providers               - Available AI providers.
+ * @property {boolean}                                                   providersLoaded         - Whether providers have been fetched.
+ * @property {boolean}                                                   providersLoading        - Whether a providers fetch is in-flight.
+ * @property {Session[]}                                                 sessions                - Session list.
+ * @property {boolean}                                                   sessionsLoaded          - Whether sessions have been fetched.
+ * @property {number|null}                                               currentSessionId        - Active session ID.
+ * @property {Message[]}                                                 currentSessionMessages  - Messages in the active session.
+ * @property {ToolCall[]}                                                currentSessionToolCalls - Tool calls in the active session.
+ * @property {boolean}                                                   sending                 - Whether a message is in-flight.
+ * @property {string|null}                                               currentJobId            - Active polling job ID.
+ * @property {string}                                                    selectedProviderId      - Currently selected provider ID.
+ * @property {string}                                                    selectedModelId         - Currently selected model ID.
+ * @property {'admin'|'frontend'|'customer_simple'|'public_docs'|string} [chatUiMode]            - Active chat UI mode.
+ * @property {boolean}                                                   floatingOpen            - Whether the floating panel is open.
+ * @property {boolean}                                                   floatingMinimized       - Whether the floating panel is minimized.
+ * @property {string|Object}                                             pageContext             - Structured page context for the AI.
+ * @property {string}                                                    sessionFilter           - Active session filter tab.
+ * @property {string}                                                    sessionFolder           - Active folder filter.
+ * @property {string}                                                    sessionSearch           - Active search query.
+ * @property {string[]}                                                  folders                 - Available folder names.
+ * @property {boolean}                                                   foldersLoaded           - Whether folders have been fetched.
+ * @property {Settings|null}                                             settings                - Plugin settings.
+ * @property {boolean}                                                   settingsLoaded          - Whether settings have been fetched.
+ * @property {boolean}                                                   settingsLoading         - Whether a settings fetch is in-flight.
+ * @property {Memory[]}                                                  memories                - Memory entries.
+ * @property {boolean}                                                   memoriesLoaded          - Whether memories have been fetched.
+ * @property {Skill[]}                                                   skills                  - Skill entries.
+ * @property {boolean}                                                   skillsLoaded            - Whether skills have been fetched.
+ * @property {Object}                                                    skillStats              - Aggregated usage stats indexed by skill_id.
+ * @property {boolean}                                                   skillStatsLoaded        - Whether skill stats have been fetched.
+ * @property {Object}                                                    skillUpdates            - Update availability map from check-updates, indexed by skill_id.
+ * @property {boolean}                                                   skillUpdatesChecking    - Whether a check-updates request is in flight.
+ * @property {TokenUsage}                                                tokenUsage              - Cumulative token usage for the session.
+ * @property {PendingConfirmation|null}                                  pendingConfirmation     - Pending tool confirmation.
+ * @property {number}                                                    sendTimestamp           - Timestamp of the last send (ms since epoch).
  */
 
 /**

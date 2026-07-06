@@ -335,6 +335,14 @@
 	background: var(--sdaa-w-surface-hover);
 }
 
+.sdaa-w-panel.is-customer-simple .sdaa-w-head-session {
+	cursor: default;
+}
+
+.sdaa-w-panel.is-customer-simple .sdaa-w-head-session:hover {
+	background: transparent;
+}
+
 .sdaa-w-avatar {
 	display: inline-flex;
 	width: 26px;
