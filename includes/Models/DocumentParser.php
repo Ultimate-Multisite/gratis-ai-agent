@@ -52,7 +52,7 @@ class DocumentParser {
 				continue;
 			}
 
-			if ( ! $in_fence && preg_match( '/^(import|export)\s+/', $trimmed ) ) {
+			if ( ! $in_fence && self::is_mdx_module_statement( $trimmed ) ) {
 				continue;
 			}
 
@@ -287,6 +287,29 @@ class DocumentParser {
 		];
 
 		return $map[ $ext ] ?? 'application/octet-stream';
+	}
+
+	/**
+	 * Determine whether a line is MDX module syntax that should be hidden.
+	 *
+	 * @param string $line Trimmed markdown line.
+	 * @return bool True when the line is import/export module plumbing.
+	 */
+	private static function is_mdx_module_statement( string $line ): bool {
+		$patterns = [
+			'/^import\s+(?:[\w*{}\s,]+\s+from\s+)?[\'\"][^\'\"]+[\'\"]\s*;?$/',
+			'/^export\s+(?:default\s+)?(?:const|let|var|function|class)\b/',
+			'/^export\s+(?:\*|\{[^}]+\})\s+from\s+[\'\"][^\'\"]+[\'\"]\s*;?$/',
+			'/^export\s+\{[^}]+\}\s*;?$/',
+		];
+
+		foreach ( $patterns as $pattern ) {
+			if ( preg_match( $pattern, $line ) ) {
+				return true;
+			}
+		}
+
+		return false;
 	}
 
 	/**
