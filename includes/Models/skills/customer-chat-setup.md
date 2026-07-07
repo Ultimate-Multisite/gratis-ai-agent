@@ -18,7 +18,8 @@ support chat.
    manifest with WP-CLI:
 
    ```bash
-   wp sd-ai-agent knowledge import_static_docs build/docs-manifest.jsonl --collection=docs --prune
+   wp sd-ai-agent knowledge import-static-docs build/docs-manifest.jsonl \
+     --collection=docs --prune
    ```
 
    Do not ask public/browser input to read arbitrary server paths. The importer

@@ -79,6 +79,7 @@ class PublicChatSetupAbilitiesTest extends WP_UnitTestCase {
 		$result = PublicChatSetupAbilities::handle_public_chat_setup(
 			array(
 				'action'             => 'configure',
+				'enabled'            => true,
 				'origins'            => array( 'HTTPS://Docs.Example.com/path' ),
 				'collection_slugs'   => array( $this->collection_slug ),
 				'provider_id'        => 'sd-ai-agent-cloud',
@@ -137,5 +138,35 @@ class PublicChatSetupAbilitiesTest extends WP_UnitTestCase {
 		$this->assertSame( 'disabled', $result['status'] );
 		$this->assertFalse( $result['settings']['public_chat_enabled'] );
 		$this->assertSame( array( $this->collection_slug ), $result['settings']['public_chat_collection_ids'] );
+	}
+
+	/** Configure preserves a disabled public chat state when enabled is omitted. */
+	public function test_configure_preserves_disabled_state_when_enabled_is_omitted(): void {
+		PublicChatSetupAbilities::handle_public_chat_setup(
+			array(
+				'action'           => 'configure',
+				'enabled'          => true,
+				'collection_slugs' => array( $this->collection_slug ),
+				'provider_id'      => 'sd-ai-agent-cloud',
+				'model_id'         => 'superdav-chat-pro',
+			)
+		);
+
+		PublicChatSetupAbilities::handle_public_chat_setup(
+			array(
+				'action' => 'disable',
+			)
+		);
+
+		$result = PublicChatSetupAbilities::handle_public_chat_setup(
+			array(
+				'action'             => 'configure',
+				'rate_limit_per_min' => 12,
+			)
+		);
+
+		$this->assertIsArray( $result );
+		$this->assertFalse( $result['settings']['public_chat_enabled'] );
+		$this->assertSame( 12, $result['settings']['public_chat_rate_limit_per_min'] );
 	}
 }
