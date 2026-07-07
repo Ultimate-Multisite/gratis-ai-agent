@@ -299,6 +299,8 @@ class DocumentParser {
 		$patterns = [
 			'/^import\s+(?:[\w*{}\s,]+\s+from\s+)?[\'\"][^\'\"]+[\'\"]\s*;?$/',
 			'/^export\s+(?:default\s+)?(?:const|let|var|function|class)\b/',
+			'/^export\s+default\s+[A-Za-z_$][\w$]*\s*;?$/',
+			'/^export\s+\*\s+as\s+[A-Za-z_$][\w$]*\s+from\s+[\'\"][^\'\"]+[\'\"]\s*;?$/',
 			'/^export\s+(?:\*|\{[^}]+\})\s+from\s+[\'\"][^\'\"]+[\'\"]\s*;?$/',
 			'/^export\s+\{[^}]+\}\s*;?$/',
 		];

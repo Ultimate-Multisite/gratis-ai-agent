@@ -151,6 +151,18 @@ class DocumentParserTest extends WP_UnitTestCase {
 		$this->assertStringContainsString( 'import the file after setup.', $result['text'] );
 	}
 
+	/**
+	 * extract_markdown_content() hides bare default and namespace re-export MDX statements.
+	 */
+	public function test_extract_markdown_content_hides_bare_default_and_namespace_exports(): void {
+		$result = DocumentParser::extract_markdown_content( "export default Layout;\nexport * as components from './components';\n# Visible heading\nVisible copy remains." );
+
+		$this->assertStringNotContainsString( 'export default Layout', $result['text'] );
+		$this->assertStringNotContainsString( 'export * as components', $result['text'] );
+		$this->assertStringContainsString( 'Visible heading', $result['text'] );
+		$this->assertStringContainsString( 'Visible copy remains.', $result['text'] );
+	}
+
 	// ─── extract_from_file() — text/html ─────────────────────────────────────
 
 	/**
