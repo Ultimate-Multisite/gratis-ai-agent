@@ -49,7 +49,7 @@ class PublicChatSetupAbilities {
 						),
 						'enabled'            => array(
 							'type'        => 'boolean',
-							'description' => 'Whether public chat should be enabled during configure. Defaults to true for configure.',
+							'description' => 'Whether public chat should be enabled during configure. Defaults to the currently saved state when omitted.',
 						),
 						'origins'            => array(
 							'type'        => 'array',
@@ -165,8 +165,9 @@ class PublicChatSetupAbilities {
 	 */
 	private static function configure_public_chat( Settings $settings, array $input ): true|WP_Error {
 		$current = self::public_chat_settings( $settings );
+		$enabled = array_key_exists( 'enabled', $input ) ? (bool) $input['enabled'] : (bool) $current['public_chat_enabled'];
 		$updates = array(
-			'public_chat_enabled'           => array_key_exists( 'enabled', $input ) ? (bool) $input['enabled'] : true,
+			'public_chat_enabled'           => $enabled,
 			'public_chat_allowed_abilities' => self::SAFE_PUBLIC_ABILITIES,
 		);
 
