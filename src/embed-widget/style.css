@@ -98,13 +98,15 @@
 	background: var(--sdaa-embed-surface);
 	box-shadow: 0 1px 2px rgb(0 0 0 / 8%);
 	line-height: 1.45;
-	white-space: pre-wrap;
+	overflow-wrap: anywhere;
+	white-space: normal;
 }
 
 .sdaa-embed__message--user {
 	margin-left: auto;
 	background: var(--sdaa-embed-primary);
 	color: #fff;
+	white-space: pre-wrap;
 }
 
 .sdaa-embed__message--system {
@@ -113,6 +115,63 @@
 	box-shadow: none;
 	color: var(--sdaa-embed-muted);
 	font-size: 12px;
+	white-space: pre-wrap;
+}
+
+.sdaa-embed__message--assistant p,
+.sdaa-embed__message--assistant ul,
+.sdaa-embed__message--assistant ol,
+.sdaa-embed__message--assistant blockquote,
+.sdaa-embed__message--assistant pre,
+.sdaa-embed__message--assistant h1,
+.sdaa-embed__message--assistant h2,
+.sdaa-embed__message--assistant h3,
+.sdaa-embed__message--assistant h4,
+.sdaa-embed__message--assistant h5,
+.sdaa-embed__message--assistant h6 {
+	margin: 0 0 0.75em;
+}
+
+.sdaa-embed__message--assistant > :last-child {
+	margin-bottom: 0;
+}
+
+.sdaa-embed__message--assistant ul,
+.sdaa-embed__message--assistant ol {
+	padding-left: 1.25em;
+}
+
+.sdaa-embed__message--assistant blockquote {
+	padding-left: 0.75em;
+	border-left: 3px solid var(--sdaa-embed-border);
+	color: var(--sdaa-embed-muted);
+}
+
+.sdaa-embed__message--assistant pre {
+	overflow: auto;
+	padding: 8px;
+	border: 1px solid var(--sdaa-embed-border);
+	border-radius: 8px;
+	background: color-mix(in srgb, var(--sdaa-embed-surface) 86%, #000);
+}
+
+.sdaa-embed__message--assistant code {
+	padding: 0.1em 0.3em;
+	border-radius: 4px;
+	background: color-mix(in srgb, var(--sdaa-embed-surface) 82%, #000);
+	font-family: ui-monospace, sfmono-regular, Consolas, "Liberation Mono", monospace;
+	font-size: 0.92em;
+}
+
+.sdaa-embed__message--assistant pre code {
+	padding: 0;
+	background: transparent;
+}
+
+.sdaa-embed__message--assistant a {
+	color: var(--sdaa-embed-primary);
+	text-decoration: underline;
+	text-underline-offset: 2px;
 }
 
 .sdaa-embed__input {

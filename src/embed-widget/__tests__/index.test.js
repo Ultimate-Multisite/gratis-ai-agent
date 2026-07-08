@@ -71,4 +71,51 @@ describe( 'embed widget', () => {
 		expect( panel.hidden ).toBe( true );
 		expect( launcher.getAttribute( 'aria-expanded' ) ).toBe( 'false' );
 	} );
+
+	test( 'renders assistant markdown and makes source URLs clickable', () => {
+		const root = module.mountEmbed( {
+			...module.resolveConfig( null, {} ),
+			apiBase: 'https://example.test/wp-json/sd-ai-agent/v1',
+			greeting:
+				'Read **Setup Wizard**. Source: https://example.test/docs/setup.',
+			mount: '#mount',
+		} );
+
+		const message = root.querySelector( '.sdaa-embed__message--assistant' );
+		const sourceLink = message.querySelector( 'a' );
+
+		expect( message.querySelector( 'strong' ).textContent ).toBe(
+			'Setup Wizard'
+		);
+		expect( sourceLink.textContent ).toBe(
+			'https://example.test/docs/setup'
+		);
+		expect( sourceLink.getAttribute( 'href' ) ).toBe(
+			'https://example.test/docs/setup'
+		);
+		expect( sourceLink.getAttribute( 'target' ) ).toBe( '_blank' );
+		expect( sourceLink.getAttribute( 'rel' ) ).toBe(
+			'noopener noreferrer'
+		);
+		expect( message.textContent ).toBe(
+			'Read Setup Wizard. Source: https://example.test/docs/setup.'
+		);
+	} );
+
+	test( 'escapes raw HTML while rendering inline code', () => {
+		const container = document.createElement( 'div' );
+		container.appendChild(
+			module.renderMarkdown(
+				'Use <img src=x onerror=alert(1)> and `wp config`.'
+			)
+		);
+
+		expect( container.querySelector( 'img' ) ).toBeNull();
+		expect( container.querySelector( 'code' ).textContent ).toBe(
+			'wp config'
+		);
+		expect( container.textContent ).toContain(
+			'<img src=x onerror=alert(1)>'
+		);
+	} );
 } );
