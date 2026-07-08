@@ -203,6 +203,11 @@ class DatabaseQueryAbility extends AbstractAbility {
 			}
 		}
 
+		$expensive_knowledge_count_error = self::get_expensive_knowledge_count_error( $sql );
+		if ( $expensive_knowledge_count_error instanceof WP_Error ) {
+			return $expensive_knowledge_count_error;
+		}
+
 		$results = $wpdb->get_results( $sql, ARRAY_A ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.NotPrepared -- AI agent database ability executes validated SELECT queries; raw string literals are rejected and placeholder values are prepared above.
 
 		if ( $wpdb->last_error ) {
@@ -281,6 +286,69 @@ class DatabaseQueryAbility extends AbstractAbility {
 		}
 
 		return count( $matches[0] );
+	}
+
+	/**
+	 * Block the expensive knowledge-count anti-pattern that joins sources and
+	 * chunks directly to collections by collection_id.
+	 *
+	 * That join shape multiplies each collection's source rows by its chunk rows
+	 * before aggregation. Existing collection_id indexes cannot fix the row
+	 * explosion; callers should read the stored collection chunk_count and count
+	 * sources in a separate subquery instead.
+	 *
+	 * @param string $sql Prepared SQL.
+	 * @return WP_Error|null Error when the query matches the anti-pattern.
+	 */
+	private static function get_expensive_knowledge_count_error( string $sql ): ?WP_Error {
+		$normalized = strtolower( (string) preg_replace( '/\s+/', ' ', $sql ) );
+
+		if ( ! str_contains( $normalized, 'sd_ai_agent_knowledge_collections' )
+			|| ! str_contains( $normalized, 'sd_ai_agent_knowledge_sources' )
+			|| ! str_contains( $normalized, 'sd_ai_agent_knowledge_chunks' )
+			|| ! str_contains( $normalized, 'count(' ) ) {
+			return null;
+		}
+
+		$sources_parent = self::get_knowledge_join_parent_alias( $normalized, 'sd_ai_agent_knowledge_sources' );
+		$chunks_parent  = self::get_knowledge_join_parent_alias( $normalized, 'sd_ai_agent_knowledge_chunks' );
+
+		if ( null === $sources_parent || null === $chunks_parent || $sources_parent !== $chunks_parent ) {
+			return null;
+		}
+
+		return new WP_Error(
+			'sd_ai_agent_sql_expensive_knowledge_count_join',
+			__( 'This knowledge-count query joins sources and chunks directly by collection_id, which multiplies each collection\'s sources by its chunks. Use the collections chunk_count column plus a separate source count instead.', 'superdav-ai-agent' ),
+			array(
+				'status'     => 400,
+				'suggestion' => 'SELECT col.slug, (SELECT COUNT(*) FROM {prefix}sd_ai_agent_knowledge_sources s WHERE s.collection_id = col.id) AS sources, col.chunk_count AS chunks FROM {prefix}sd_ai_agent_knowledge_collections col WHERE col.slug IN (%s, ...) ORDER BY col.slug',
+			)
+		);
+	}
+
+	/**
+	 * Extract the parent collection alias from a direct knowledge-table join.
+	 *
+	 * @param string $normalized_sql Lowercase whitespace-normalized SQL.
+	 * @param string $table_name     Knowledge child table name without site prefix.
+	 * @return string|null Parent alias when the join is child.collection_id = parent.id.
+	 */
+	private static function get_knowledge_join_parent_alias( string $normalized_sql, string $table_name ): ?string {
+		$table = preg_quote( $table_name, '/' );
+
+		$patterns = array(
+			'/\bjoin\s+`?(?:[a-z0-9_]+_)?' . $table . '`?\s+(?:as\s+)?([a-z][a-z0-9_]*)\s+on\s+\1\.collection_id\s*=\s*([a-z][a-z0-9_]*)\.id\b/',
+			'/\bjoin\s+`?(?:[a-z0-9_]+_)?' . $table . '`?\s+(?:as\s+)?([a-z][a-z0-9_]*)\s+on\s+([a-z][a-z0-9_]*)\.id\s*=\s*\1\.collection_id\b/',
+		);
+
+		foreach ( $patterns as $pattern ) {
+			if ( preg_match( $pattern, $normalized_sql, $matches ) ) {
+				return $matches[2];
+			}
+		}
+
+		return null;
 	}
 
 	/**
