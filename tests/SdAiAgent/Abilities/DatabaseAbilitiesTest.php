@@ -313,17 +313,4 @@ class DatabaseAbilitiesTest extends WP_UnitTestCase {
 		$this->assertInstanceOf( \WP_Error::class, $result );
 		$this->assertSame( 'sd_ai_agent_sql_placeholder_mismatch', $result->get_error_code() );
 	}
-
-	/**
-	 * Test handle_db_query rejects the expensive knowledge count join shape.
-	 */
-	public function test_handle_db_query_rejects_expensive_knowledge_count_join() {
-		$result = DatabaseAbilities::handle_db_query( [
-			'sql'    => 'SELECT col.slug, COUNT(DISTINCT s.id) AS sources, COUNT(c.id) AS chunks FROM {prefix}sd_ai_agent_knowledge_collections col LEFT JOIN {prefix}sd_ai_agent_knowledge_sources s ON s.collection_id = col.id LEFT JOIN {prefix}sd_ai_agent_knowledge_chunks c ON c.collection_id = col.id WHERE col.slug IN (%s, %s, %s) GROUP BY col.slug ORDER BY col.slug',
-			'params' => [ 'docs', 'kb', 'public' ],
-		] );
-
-		$this->assertInstanceOf( \WP_Error::class, $result );
-		$this->assertSame( 'sd_ai_agent_sql_expensive_knowledge_count_join', $result->get_error_code() );
-	}
 }

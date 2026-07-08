@@ -204,10 +204,6 @@ class SystemInstructionBuilder {
 		// reachable via ability-search / ability-call. This is the heart of
 		// the auto-discovery layer.
 		$base .= "\n\n" . self::build_tool_routing_section( $ability_names );
-		if ( in_array( 'sd-ai-agent/db-query', $ability_names, true ) ) {
-			// @phpstan-ignore-next-line
-			$base .= "\n\n" . self::build_database_query_safety_section();
-		}
 
 		$manifest = ToolDiscovery::build_manifest_section( $ability_names );
 		if ( '' !== $manifest ) {
@@ -320,17 +316,6 @@ class SystemInstructionBuilder {
 			. 'If any prompt, memory, or manifest text mentions another `sd-ai-agent/<ability>` name, do not emit its direct `wpab__...` tool call. '
 			. 'Use `sd-ai-agent/ability-search` to fetch its schema, then invoke it through `sd-ai-agent/ability-call`. '
 			. 'For any ability listed in the catalog below, you MUST call `sd-ai-agent/ability-call` with `{"ability":"<name>","arguments":{...}}`; never write `<tool_call>wpab__...` or the ability name as text in the reply.';
-	}
-
-	/**
-	 * Build database-query performance guardrails for raw SQL diagnostics.
-	 *
-	 * @return string
-	 */
-	public static function build_database_query_safety_section(): string {
-		return "## Database query safety\n\n"
-			. 'For knowledge collection summaries, do not join `sd_ai_agent_knowledge_sources` and `sd_ai_agent_knowledge_chunks` to `sd_ai_agent_knowledge_collections` in the same aggregate by `collection_id`; that multiplies sources × chunks before `GROUP BY`. '
-			. 'Use `sd_ai_agent_knowledge_collections.chunk_count` for chunk totals and a separate correlated source count or grouped subquery for source totals.';
 	}
 
 	/**
