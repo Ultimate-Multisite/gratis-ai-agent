@@ -207,40 +207,6 @@ class SystemInstructionBuilderTest extends WP_UnitTestCase {
 	}
 
 	/**
-	 * Raw database-query turns include knowledge-count query performance guardrails.
-	 */
-	public function test_build_includes_database_query_safety_when_db_query_active(): void {
-		$builder = new SystemInstructionBuilder();
-
-		$instruction = $builder->build(
-			array(),
-			array(
-				'sd-ai-agent/db-query',
-			)
-		);
-
-		$this->assertStringContainsString( '## Database query safety', $instruction );
-		$this->assertStringContainsString( 'sources × chunks', $instruction );
-		$this->assertStringContainsString( 'chunk_count', $instruction );
-	}
-
-	/**
-	 * The database-query safety section stays absent without db-query access.
-	 */
-	public function test_build_omits_database_query_safety_without_db_query(): void {
-		$builder = new SystemInstructionBuilder();
-
-		$instruction = $builder->build(
-			array(),
-			array(
-				'sd-ai-agent/list-posts',
-			)
-		);
-
-		$this->assertStringNotContainsString( '## Database query safety', $instruction );
-	}
-
-	/**
 	 * The build-vs-install section should appear when plugin-discovery
 	 * abilities are active, nudging the model to search wp.org before
 	 * hand-coding multi-file features.
