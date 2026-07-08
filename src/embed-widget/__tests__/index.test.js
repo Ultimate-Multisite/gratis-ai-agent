@@ -118,4 +118,21 @@ describe( 'embed widget', () => {
 			'<img src=x onerror=alert(1)>'
 		);
 	} );
+
+	test( 'keeps underscores and asterisks inside identifiers literal', () => {
+		const container = document.createElement( 'div' );
+		container.appendChild(
+			module.renderMarkdown(
+				'Keep wp_config_value, some_snake_case, and word*star*word literal; render _emphasis_.'
+			)
+		);
+
+		expect( container.querySelectorAll( 'em' ) ).toHaveLength( 1 );
+		expect( container.querySelector( 'em' ).textContent ).toBe(
+			'emphasis'
+		);
+		expect( container.textContent ).toContain( 'wp_config_value' );
+		expect( container.textContent ).toContain( 'some_snake_case' );
+		expect( container.textContent ).toContain( 'word*star*word' );
+	} );
 } );

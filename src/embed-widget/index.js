@@ -31,6 +31,7 @@ const STRINGS = {
 };
 
 const TRAILING_URL_PUNCTUATION = /[.,;:!?'")\]]+$/;
+const INLINE_MARKDOWN_WORD_BOUNDARY = /[A-Za-z0-9_]/;
 
 /**
  * Create a fresh inline markdown matcher.
@@ -43,6 +44,40 @@ const TRAILING_URL_PUNCTUATION = /[.,;:!?'")\]]+$/;
  */
 function createInlineMarkdownRegex() {
 	return /\[([^\]\n]+)\]\((https?:\/\/[^\s)]+)\)|`([^`\n]+)`|\*\*([^*\n]+)\*\*|__([^_\n]+)__|\*([^*\n]+)\*|_([^_\n]+)_|https?:\/\/[^\s<>"']+/g;
+}
+
+/**
+ * Check whether emphasis delimiters are outside identifier words.
+ *
+ * This avoids lookbehind so the embeddable widget remains compatible with older
+ * Safari versions while keeping snake_case and word*star*word text literal.
+ *
+ * @param {string} source          Full markdown source.
+ * @param {number} matchIndex      Matched delimiter start.
+ * @param {number} matchLength     Full matched delimiter span.
+ * @param {number} delimiterLength Number of delimiter characters.
+ * @return {boolean} True when the match is boundary-safe.
+ */
+function isEmphasisBoundarySafe(
+	source,
+	matchIndex,
+	matchLength,
+	delimiterLength
+) {
+	const before = matchIndex > 0 ? source.charAt( matchIndex - 1 ) : '';
+	const after = source.charAt( matchIndex + matchLength );
+
+	return (
+		! INLINE_MARKDOWN_WORD_BOUNDARY.test( before ) &&
+		! INLINE_MARKDOWN_WORD_BOUNDARY.test( after ) &&
+		! /^\s/.test( source.charAt( matchIndex + delimiterLength ) ) &&
+		! /\s$/.test(
+			source.slice(
+				matchIndex + delimiterLength,
+				matchIndex + matchLength - delimiterLength
+			)
+		)
+	);
 }
 
 /**
@@ -118,6 +153,21 @@ function appendInlineMarkdown( parent, text ) {
 	let match;
 
 	while ( ( match = regex.exec( source ) ) !== null ) {
+		const isStrong = Boolean( match[ 4 ] || match[ 5 ] );
+		const isEmphasis = Boolean( match[ 6 ] || match[ 7 ] );
+
+		if (
+			( isStrong || isEmphasis ) &&
+			! isEmphasisBoundarySafe(
+				source,
+				match.index,
+				match[ 0 ].length,
+				isStrong ? 2 : 1
+			)
+		) {
+			continue;
+		}
+
 		if ( match.index > lastIndex ) {
 			parent.appendChild(
 				document.createTextNode(
