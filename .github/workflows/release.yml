@@ -136,9 +136,27 @@ jobs:
             ## WordPress.org
 
             Stable `v*.*.*` releases publish only the core `superdav-ai-agent` package to the WordPress.org SVN trunk and tag. Pre-release tags create GitHub release assets but skip SVN deployment.
+
+            ## WooCommerce Marketplace
+
+            This repository does not publish either package to the WooCommerce Marketplace. The advanced companion ZIP remains a GitHub release asset only unless a separate marketplace deployment workflow is added later with explicit product targets and credentials.
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+      - name: Summarize release channels
+        run: |
+          {
+            echo "## Release channels"
+            echo ""
+            echo "- GitHub release: core and advanced ZIP assets uploaded."
+            if [ "${IS_PRERELEASE}" = "true" ]; then
+              echo "- WordPress.org SVN: skipped for pre-release tag."
+            else
+              echo "- WordPress.org SVN: core package deploy runs in the dependent job."
+            fi
+            echo "- WooCommerce Marketplace: not configured for this repository; no marketplace upload is attempted."
+          } >> "$GITHUB_STEP_SUMMARY"
 
   deploy-to-wporg:
     name: Deploy core plugin to WordPress.org
@@ -267,3 +285,15 @@ jobs:
             -m "Tag Superdav AI Agent v${VERSION}"
 
           echo "Successfully tagged ${VERSION} on WordPress.org."
+
+      - name: Summarize WordPress.org deployment
+        env:
+          VERSION: ${{ needs.build.outputs.version }}
+        run: |
+          {
+            echo "## WordPress.org deployment"
+            echo ""
+            echo "- Core package: deployed to WordPress.org SVN trunk and tag ${VERSION}."
+            echo "- Advanced companion package: not deployed to WordPress.org SVN."
+            echo "- WooCommerce Marketplace: not configured for this repository; no marketplace upload is attempted."
+          } >> "$GITHUB_STEP_SUMMARY"

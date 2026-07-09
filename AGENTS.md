@@ -71,6 +71,16 @@ professional, issue-by-issue format:
   exact file/pattern evidence that proves the submitted code is safe.
 - Close with the resubmission status and any specific reviewer action requested.
 
+### Release Channel Policy
+
+For `/wp-release` work in this repository, do not claim WooCommerce Marketplace
+publication. Stable tags create GitHub release assets for the core and advanced
+ZIPs, then deploy only the core `superdav-ai-agent` package to WordPress.org SVN;
+the advanced companion ZIP remains a GitHub release asset only. WooCommerce
+Marketplace deployment is out of scope unless a future workflow adds explicit
+marketplace product targets, repository secrets, and a verified upload/update
+job.
+
 ### Contributor Insight Triage
 
 When recurring maintainer feedback suggests that automation is missing context,
