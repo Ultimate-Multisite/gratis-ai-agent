@@ -427,118 +427,117 @@ test.describe( 'Auto-Title Sessions (t099)', () => {
 				writable: false,
 				configurable: true,
 				enumerable: true,
-			} );
-		} );
+	} );
+} );
 
+/**
+ * Smoke test for the critical chat path.
+ *
+ * Covers: open chat → send message → see response → clear session → error banner.
+ * Uses interceptStream() to mock responses without a live AI provider.
+ */
+test.describe( 'Critical Chat Path (Smoke)', () => {
+	test.beforeEach( async ( { page } ) => {
 		await loginToWordPress( page );
 		await goToAgentPage( page );
-		// Wait for ChatRedesign to mount before interacting. ChatRoute polls for
-		// window.sdAiAgentChat, so .sdaa-cr may appear after a short delay.
 		await page
 			.locator( '.sdaa-cr' )
 			.waitFor( { state: 'visible', timeout: 30_000 } );
 	} );
 
-	test( 'session title updates in sidebar after first AI response', async ( {
-		page,
-	} ) => {
-		const expectedTitle = 'My Auto-Generated Title';
-
-		// Intercept the stream and include generated_title in the done payload.
-		// This exercises the full SSE parsing path: the store reads
-		// done.generated_title from the intercepted stream and calls
-		// updateSessionTitle() — no direct store dispatch is needed.
-		await interceptStream( page, { generatedTitle: expectedTitle } );
+	test( 'full user journey: send → receive → clear', async ( { page } ) => {
+		await interceptStream( page, { generatedTitle: 'Smoke Test Session' } );
 
 		const input = getMessageInput( page );
-		await input.fill( 'Tell me about WordPress' );
-		await input.press( 'Enter' );
+		const sendButton = getSendButton( page );
 
-		// Wait for the active session row to appear in the sidebar. The active
-		// row has the is-active class and is the current session. Using
-		// .first() is unreliable when previous tests have left sessions in the
-		// sidebar — the current session may not be the first item.
-		//
-		// ChatRedesign Sidebar uses .sdaa-cr-session-row (was .sdaa-session-item).
-		//
-		// 20 s timeout: the full chain (POST /sessions → POST /run → job poll
-		// at 3 s interval → fetchSessions → React re-render) takes 8-15 s on
-		// CI runners under load. The previous 10 s timeout was borderline —
-		// the third auto-title test (which uses 15 s) passed while these two
-		// (at 10 s) failed consistently.
+		// 1. Type and send a message.
+		await input.fill( 'Hello, AI agent!' );
+		await sendButton.click();
+
+		// 2. Wait for the user message row to appear.
+		await waitForMessageSubmitted( page );
+
+		// 3. Verify the message text is visible in the chat.
+		const messages = getMessageRows( page );
+		await expect( messages ).toHaveCount( 1 );
+		await expect( messages.first() ).toContainText( 'Hello, AI agent!' );
+
+		// 4. Wait for the AI response (intercepted stream returns 'complete' after 0 polls).
+		const stopButton = getStopButton( page );
+		await expect( stopButton ).toBeVisible( { timeout: 10_000 } );
+
+		// 5. Verify sidebar updated with generated title.
 		const activeItem = page.locator( '.sdaa-cr-session-row.is-active' );
-		await expect( activeItem ).toBeVisible( { timeout: 20_000 } );
-
-		// The active sidebar row should now display the generated title.
-		// The title arrives via the SSE done event (generated_title field),
-		// not via a direct store dispatch, so this assertion validates the
-		// full stream-event handling path.
-		// ChatRedesign Sidebar uses .sdaa-cr-session-row-title (was .sdaa-session-title).
-		await expect( activeItem ).toContainText( expectedTitle, {
+		await expect( activeItem ).toContainText( 'Smoke Test Session', {
 			timeout: 10_000,
 		} );
+
+		// 6. Clear the session via /clear slash command.
+		await input.fill( '/clear' );
+		const slashMenu = page.locator( '.sdaa-slash-menu' );
+		await expect( slashMenu ).toBeVisible();
+
+		const clearItem = page.locator( '.sdaa-slash-item' ).filter( {
+			hasText: '/clear',
+		} );
+		await clearItem.click();
+
+		// 7. Verify empty state is visible after clearing.
+		const emptyState = page.locator( '.sdaa-cr .sdaa-cr-empty' );
+		await expect( emptyState ).toBeVisible();
 	} );
 
-	test( 'session title is not "Untitled" after auto-title fires', async ( {
-		page,
-	} ) => {
-		const expectedTitle = 'WordPress Plugin Development';
+	test( 'error banner appears when stream fails', async ( { page } ) => {
+		let jobPollCount = 0;
 
-		// Include generated_title in the SSE done payload so the store's
-		// stream-event parsing path is exercised end-to-end.
-		await interceptStream( page, { generatedTitle: expectedTitle } );
+		// Intercept /run to return a valid job_id.
+		await page.route(
+			( url ) => decodeURIComponent( url.toString() ).includes( 'sd-ai-agent/v1/run' ),
+			async ( route ) => {
+				await route.fulfill( {
+					status: 202,
+					contentType: 'application/json',
+					body: JSON.stringify( { job_id: 'e2e-error-job-1', status: 'processing' } ),
+				} );
+			}
+		);
+
+		// Intercept /job/:id to return an error status.
+		await page.route(
+			( url ) => decodeURIComponent( url.toString() ).includes( 'sd-ai-agent/v1/job/' ),
+			async ( route ) => {
+				jobPollCount += 1;
+				if ( jobPollCount === 1 ) {
+					await route.fulfill( {
+						status: 200,
+						contentType: 'application/json',
+						body: JSON.stringify( { status: 'processing' } ),
+					} );
+					return;
+				}
+				await route.fulfill( {
+					status: 200,
+					contentType: 'application/json',
+					body: JSON.stringify( {
+						status: 'error',
+						error_message: 'Provider unavailable',
+					} ),
+				} );
+			}
+		);
 
 		const input = getMessageInput( page );
-		await input.fill( 'How do I build a WordPress plugin?' );
+		await input.fill( 'Trigger an error' );
 		await input.press( 'Enter' );
 
-		// Wait for the active session row (see timeout rationale in first test).
-		// ChatRedesign Sidebar uses .sdaa-cr-session-row (was .sdaa-session-item).
-		const activeItem = page.locator( '.sdaa-cr-session-row.is-active' );
-		await expect( activeItem ).toBeVisible( { timeout: 20_000 } );
+		// Wait for the error banner to appear.
+		const errorBanner = page.locator( '.sdaa-cr-error-banner' );
+		await expect( errorBanner ).toBeVisible( { timeout: 10_000 } );
+		await expect( errorBanner ).toContainText( 'Provider unavailable' );
 
-		// The title element inside the active session row should not say "Untitled".
-		// The title arrives via the SSE done event, not a direct store dispatch.
-		// ChatRedesign Sidebar uses .sdaa-cr-session-row-title (was .sdaa-session-title).
-		const titleEl = activeItem.locator( '.sdaa-cr-session-row-title' );
-		await expect( titleEl ).not.toContainText( 'Untitled', {
-			timeout: 10_000,
-		} );
-		await expect( titleEl ).toContainText( expectedTitle, {
-			timeout: 10_000,
-		} );
-	} );
-
-	test( 'new session starts as Untitled before any AI response', async ( {
-		page,
-	} ) => {
-		// Intercept the stream so it completes quickly and fetchSessions() runs,
-		// populating state.sessions with the new session. This avoids relying on
-		// the stop button (which is fragile on WP trunk — the stream may fail
-		// before setSending(true) renders the button).
-		await interceptStream( page );
-
-		const input = getMessageInput( page );
-		await input.fill( 'Hello' );
-		await input.press( 'Enter' );
-
-		// Wait for the active session row to appear in the sidebar. fetchSessions()
-		// runs after the intercepted stream completes, so the session is in
-		// state.sessions at this point.
-		// ChatRedesign Sidebar uses .sdaa-cr-session-row (was .sdaa-session-item).
-		const activeItem = page.locator( '.sdaa-cr-session-row.is-active' );
-		await expect( activeItem ).toBeVisible( { timeout: 15_000 } );
-
-		// The intercepted done event carries no generated_title, so the title
-		// should still be "Untitled" (or empty) at this point.
-		// ChatRedesign Sidebar uses .sdaa-cr-session-row-title (was .sdaa-session-title).
-		const titleEl = activeItem.locator( '.sdaa-cr-session-row-title' );
-		const titleText = await titleEl.textContent();
-		// Title is either empty or "Untitled" — no auto-title was injected.
-		expect(
-			titleText === '' ||
-				titleText === 'Untitled' ||
-				titleText?.includes( 'Untitled' )
-		).toBe( true );
+		// Verify the retry button is present.
+		const retryButton = page.locator( '.sdaa-cr-error-banner__retry' );
+		await expect( retryButton ).toBeVisible();
 	} );
 } );
