@@ -4,7 +4,7 @@ Tags: ai, chatbot, assistant, automation, tools
 Requires at least: 7.0
 Tested up to: 7.0
 Requires PHP: 8.2
-Stable tag: 1.18.0
+Stable tag: 1.19.0
 License: GPL-2.0-or-later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -225,6 +225,13 @@ Superdav AI Agent uses the native WordPress AI Client SDK and Abilities API. The
 8. Settings page with 12 configuration tabs
 
 == Changelog ==
+
+= 1.19.0 - Released on 2026-07-09 =
+* New: Added static documentation knowledge imports so the agent can build a searchable knowledge base from documentation sites.
+* New: Added anonymous public chat, embeddable docs chat widgets, customer simple chat mode, and a customer chat setup tool for customer-facing assistant experiences.
+* New: Added calendar SMS reminder setup and orchestration so configured calendars can drive text-message reminder workflows.
+* Improved: Improved public docs chat behavior, packaging validation, and bundled DI cache packaging for more reliable releases.
+* Fix: Fixed chat retry and recovery states, embedded assistant markdown rendering, provider/model handling, knowledge count queries, calendar SMS mappings, and tool permission defaults.
 
 = 1.18.0 - Released on 2026-06-29 =
 * New: Added Google Calendar tools so the agent can read calendars and events when configured.
