@@ -402,6 +402,32 @@ describe( 'resolveProviderSelection', () => {
 			modelId: 'superdav-chat-fast',
 		} );
 	} );
+
+	test( 'moves away from a saved provider that has no advertised models', () => {
+		const selection = resolveProviderSelection(
+			[
+				{
+					id: 'ollama',
+					models: [],
+				},
+				{
+					id: 'sd-ai-agent-cloud',
+					default_model: 'superdav-chat-pro',
+					models: [
+						{ id: 'superdav-chat-fast' },
+						{ id: 'superdav-chat-pro' },
+					],
+				},
+			],
+			'ollama',
+			''
+		);
+
+		expect( selection ).toEqual( {
+			providerId: 'sd-ai-agent-cloud',
+			modelId: 'superdav-chat-pro',
+		} );
+	} );
 } );
 
 // ─── Reducer ──────────────────────────────────────────────────────────────────

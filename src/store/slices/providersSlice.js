@@ -22,9 +22,18 @@ export function resolveProviderSelection(
 	savedProviderId,
 	savedModelId
 ) {
+	const providerHasModels = ( candidate ) =>
+		Array.isArray( candidate?.models ) && candidate.models.length > 0;
+	const savedProvider = providers.find(
+		( candidate ) => candidate.id === savedProviderId
+	);
+	const firstProviderWithModels = providers.find( providerHasModels );
 	const provider =
-		providers.find( ( candidate ) => candidate.id === savedProviderId ) ||
-		providers.find( ( candidate ) => candidate.models?.length ) ||
+		( savedProvider && providerHasModels( savedProvider )
+			? savedProvider
+			: null ) ||
+		firstProviderWithModels ||
+		savedProvider ||
 		providers[ 0 ];
 
 	if ( ! provider ) {
