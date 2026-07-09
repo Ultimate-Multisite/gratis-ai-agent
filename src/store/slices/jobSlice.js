@@ -726,6 +726,7 @@ export const actions = {
 								role: 'system',
 								parts: [ { text: errorText } ],
 							} );
+							dispatch.setStreamError( true, sessionId );
 							// WP_Error max_iterations — show feedback banner (t183).
 							const errMsg = result.message || '';
 							if ( /max.?iteration/i.test( errMsg ) ) {
@@ -976,6 +977,7 @@ export const actions = {
 									},
 								],
 							} );
+							dispatch.setStreamError( true, sessionId );
 							dispatch.setSending( false );
 							dispatch.setLiveToolCalls( [] );
 						}

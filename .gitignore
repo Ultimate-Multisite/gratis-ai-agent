@@ -15,6 +15,7 @@ blob-report/
 tests/benchmark/results/
 # Local AI tooling artifacts
 .claude/
+.opencode/opencode-loop/
 .agents/skills/
 skills-lock.json
 # Local wp-env port overrides

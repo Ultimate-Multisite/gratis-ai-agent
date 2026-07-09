@@ -47,6 +47,7 @@ export default function MessageList() {
 		ttsVoiceURI,
 		ttsRate,
 		ttsPitch,
+		hasStreamError,
 	} = useSelect( ( sel ) => {
 		const store = sel( STORE_NAME );
 		return {
@@ -65,10 +66,11 @@ export default function MessageList() {
 			ttsVoiceURI: store.getTtsVoiceURI(),
 			ttsRate: store.getTtsRate(),
 			ttsPitch: store.getTtsPitch(),
+			hasStreamError: store.hasStreamError(),
 		};
 	}, [] );
 
-	const { sendMessage } = useDispatch( STORE_NAME );
+	const { sendMessage, retryLastMessage } = useDispatch( STORE_NAME );
 	const ref = useRef( null );
 
 	/** True when the scroll container is within SCROLL_THRESHOLD px of the bottom. */
@@ -290,6 +292,24 @@ export default function MessageList() {
 							step={ runningStep }
 							liveToolCalls={ runningToolCalls }
 						/>
+					) }
+
+					{ hasStreamError && currentSessionId && ! sending && (
+						<div className="sdaa-cr-error-banner" role="status">
+							<span className="sdaa-cr-error-banner__message">
+								{ __(
+									'Something went wrong while sending your message.',
+									'superdav-ai-agent'
+								) }
+							</span>
+							<button
+								type="button"
+								className="sdaa-cr-error-banner__retry"
+								onClick={ retryLastMessage }
+							>
+								{ __( 'Try again', 'superdav-ai-agent' ) }
+							</button>
+						</div>
 					) }
 				</div>
 			</div>

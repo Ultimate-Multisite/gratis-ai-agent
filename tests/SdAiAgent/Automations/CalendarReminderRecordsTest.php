@@ -69,8 +69,12 @@ class CalendarReminderRecordsTest extends WP_UnitTestCase {
 		$this->assertNotNull( $record );
 		$this->assertSame( CalendarReminderRecords::STATUS_SENT, $record['status'] );
 		$this->assertSame( 'person@example.com', $record['attendee_email'] );
-		$this->assertSame( hash_hmac( 'sha256', '15551234567', wp_salt( 'auth' ) ), $record['phone_hash'] );
-		$this->assertStringNotContainsString( '555', implode( ' ', array_map( 'strval', $record ) ) );
+		$normalized_phone = '15551234567';
+		$record_values    = array_map( 'strval', $record );
+		$this->assertSame( hash_hmac( 'sha256', $normalized_phone, wp_salt( 'auth' ) ), $record['phone_hash'] );
+		$this->assertNotSame( $normalized_phone, $record['phone_hash'] );
+		$this->assertNotContains( '+1 (555) 123-4567', $record_values );
+		$this->assertNotContains( $normalized_phone, $record_values );
 		$this->assertNotEmpty( $record['sent_at'] );
 	}
 

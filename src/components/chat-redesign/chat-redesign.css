@@ -1876,6 +1876,46 @@ textarea.sdaa-cr-input-textarea {
 	font-weight: 700;
 }
 
+/* ─── Error Banner (send failure retry) ─────────────────────────────── */
+
+.sdaa-cr-error-banner {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 12px;
+	margin: 8px 0;
+	padding: 10px 14px;
+	border: 1px solid #fecaca;
+	border-radius: var(--sdaa-radius-md);
+	background: #fef2f2;
+	color: #991b1b;
+	font-size: 13px;
+}
+
+.sdaa-cr-error-banner__message {
+	flex: 1;
+	min-width: 0;
+	line-height: 1.4;
+}
+
+.sdaa-cr-error-banner__retry {
+	flex-shrink: 0;
+	padding: 4px 12px;
+	border: 0;
+	border-radius: var(--sdaa-radius-sm);
+	background: #dc2626;
+	color: #fff;
+	font-size: 12.5px;
+	font-weight: 600;
+	cursor: pointer;
+	transition: background var(--sdaa-duration);
+}
+
+.sdaa-cr-error-banner__retry:hover,
+.sdaa-cr-error-banner__retry:focus-visible {
+	background: #b91c1c;
+}
+
 /* ─── Design Preview Gallery (issue #1532) ──────────────────────────── */
 
 .sd-ai-agent-design-preview-gallery {
