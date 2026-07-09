@@ -16,16 +16,15 @@ Improve the application in small safe steps.
 - [x] Review the project structure and identify the next safe improvement.
 - [x] Fix the highest-priority failing test.
 - [x] Improve the user-facing error state in the main flow.
-- [ ] Add a visible retry button when streamMessage fails (current session only).
+- [x] Add a visible retry button when streamMessage fails (current session only).
 
 ## Completed
 - [x] Added initial project notes.
 - [x] Fix the highest-priority failing test (CalendarReminderRecordsTest).
 - [x] Wire up streamError flag in MessageList with a visible "Try again" banner.
+- [x] Add smoke test for the critical path (send → receive → clear, error banner).
 
 ## Backlog Ideas
-- [ ] Add a visible retry button when streamMessage fails (current session only).
-- [ ] Add smoke test for the critical path.
 - [ ] Improve developer setup documentation.
 
 ## Blocked
