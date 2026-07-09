@@ -368,6 +368,12 @@ secrets named `SVN_USERNAME` and `SVN_PASSWORD`; stable tags deploy only the cor
 ZIP to WordPress.org SVN, while the advanced companion ZIP remains a GitHub
 release asset only.
 
+This repository does not publish either ZIP to the WooCommerce Marketplace. The
+`/wp-release` expectation for this repo is GitHub release asset creation plus
+WordPress.org SVN deployment for stable core releases only. Do not claim a
+WooCommerce Marketplace deployment unless a future workflow adds explicit
+marketplace product targets, credentials, and a successful upload/update step.
+
 `bin/deploy-wporg.sh` remains available for local/manual trunk updates and
 tagging of the core package.
 
