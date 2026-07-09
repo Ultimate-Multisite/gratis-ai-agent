@@ -151,6 +151,9 @@
  * @property {Message[]}                                                 currentSessionMessages  - Messages in the active session.
  * @property {ToolCall[]}                                                currentSessionToolCalls - Tool calls in the active session.
  * @property {boolean}                                                   sending                 - Whether a message is in-flight.
+ * @property {boolean}                                                   streamError             - Whether the last send failed.
+ * @property {number|null}                                               streamErrorSessionId    - Session ID associated with the current send error.
+ * @property {string}                                                    lastUserMessage         - Last user message text for retry fallback.
  * @property {string|null}                                               currentJobId            - Active polling job ID.
  * @property {string}                                                    selectedProviderId      - Currently selected provider ID.
  * @property {string}                                                    selectedModelId         - Currently selected model ID.

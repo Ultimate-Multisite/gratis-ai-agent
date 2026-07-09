@@ -68,6 +68,9 @@ const DEFAULT_STATE = {
 	currentSessionMessages: [],
 	currentSessionToolCalls: [],
 	sending: false,
+	streamError: false,
+	streamErrorSessionId: null,
+	lastUserMessage: '',
 	currentJobId: null,
 	selectedProviderId: '',
 	selectedModelId: '',
@@ -271,6 +274,21 @@ describe( 'actions', () => {
 		} );
 	} );
 
+	test( 'setStreamError scopes the error to a session', () => {
+		expect( actions.setStreamError( true, 42 ) ).toEqual( {
+			type: 'SET_STREAM_ERROR',
+			error: true,
+			sessionId: 42,
+		} );
+	} );
+
+	test( 'setLastUserMessage stores retry text', () => {
+		expect( actions.setLastUserMessage( 'retry me' ) ).toEqual( {
+			type: 'SET_LAST_USER_MESSAGE',
+			message: 'retry me',
+		} );
+	} );
+
 	test( 'setPageContext returns correct action', () => {
 		expect( actions.setPageContext( 'page-ctx' ) ).toEqual( {
 			type: 'SET_PAGE_CONTEXT',
@@ -289,6 +307,54 @@ describe( 'actions', () => {
 
 	test( 'sendMessage returns a thunk function', () => {
 		expect( typeof actions.sendMessage( 'hello' ) ).toBe( 'function' );
+	} );
+
+	test( 'retryLastMessage rewinds to the last user message and resends it', async () => {
+		const dispatch = {
+			truncateMessagesTo: jest.fn(),
+			setStreamError: jest.fn(),
+			streamMessage: jest.fn(),
+		};
+		const select = {
+			getCurrentSessionMessages: jest.fn( () => [
+				{ role: 'model', parts: [ { text: 'Previous reply' } ] },
+				{
+					role: 'user',
+					parts: [ { text: 'Retry this' } ],
+					attachments: [ { name: 'image.png', isImage: true } ],
+				},
+				{ role: 'system', parts: [ { text: 'Error: failed' } ] },
+			] ),
+			getLastUserMessage: jest.fn( () => 'fallback' ),
+		};
+
+		await actions.retryLastMessage()( { dispatch, select } );
+
+		expect( dispatch.truncateMessagesTo ).toHaveBeenCalledWith( 1 );
+		expect( dispatch.setStreamError ).toHaveBeenCalledWith( false );
+		expect( dispatch.streamMessage ).toHaveBeenCalledWith( 'Retry this', [
+			{ name: 'image.png', isImage: true },
+		] );
+	} );
+
+	test( 'retryLastMessage does not delete messages when no user message exists', async () => {
+		const dispatch = {
+			truncateMessagesTo: jest.fn(),
+			setStreamError: jest.fn(),
+			streamMessage: jest.fn(),
+		};
+		const select = {
+			getCurrentSessionMessages: jest.fn( () => [
+				{ role: 'system', parts: [ { text: 'Error only' } ] },
+			] ),
+			getLastUserMessage: jest.fn( () => '' ),
+		};
+
+		await actions.retryLastMessage()( { dispatch, select } );
+
+		expect( dispatch.truncateMessagesTo ).not.toHaveBeenCalled();
+		expect( dispatch.setStreamError ).not.toHaveBeenCalled();
+		expect( dispatch.streamMessage ).not.toHaveBeenCalled();
 	} );
 } );
 
@@ -463,12 +529,18 @@ describe( 'reducer', () => {
 			currentSessionMessages: [ { role: 'user' } ],
 			currentSessionToolCalls: [ {} ],
 			tokenUsage: { prompt: 100, completion: 50 },
+			streamError: true,
+			streamErrorSessionId: 5,
+			lastUserMessage: 'hello',
 		};
 		const state = reducer( populated, { type: 'CLEAR_CURRENT_SESSION' } );
 		expect( state.currentSessionId ).toBeNull();
 		expect( state.currentSessionMessages ).toEqual( [] );
 		expect( state.currentSessionToolCalls ).toEqual( [] );
 		expect( state.tokenUsage ).toEqual( { prompt: 0, completion: 0 } );
+		expect( state.streamError ).toBe( false );
+		expect( state.streamErrorSessionId ).toBeNull();
+		expect( state.lastUserMessage ).toBe( '' );
 	} );
 
 	test( 'SET_SENDING updates sending flag', () => {
@@ -477,6 +549,39 @@ describe( 'reducer', () => {
 			sending: true,
 		} );
 		expect( state.sending ).toBe( true );
+	} );
+
+	test( 'SET_STREAM_ERROR records the current session when no session is provided', () => {
+		const state = reducer(
+			{ ...DEFAULT_STATE, currentSessionId: 42 },
+			{ type: 'SET_STREAM_ERROR', error: true, sessionId: null }
+		);
+
+		expect( state.streamError ).toBe( true );
+		expect( state.streamErrorSessionId ).toBe( 42 );
+	} );
+
+	test( 'SET_STREAM_ERROR clears the error session when dismissed', () => {
+		const state = reducer(
+			{
+				...DEFAULT_STATE,
+				streamError: true,
+				streamErrorSessionId: 42,
+			},
+			{ type: 'SET_STREAM_ERROR', error: false, sessionId: null }
+		);
+
+		expect( state.streamError ).toBe( false );
+		expect( state.streamErrorSessionId ).toBeNull();
+	} );
+
+	test( 'SET_LAST_USER_MESSAGE stores retry text', () => {
+		const state = reducer( DEFAULT_STATE, {
+			type: 'SET_LAST_USER_MESSAGE',
+			message: 'retry text',
+		} );
+
+		expect( state.lastUserMessage ).toBe( 'retry text' );
 	} );
 
 	test( 'SET_CURRENT_JOB_ID updates jobId', () => {
@@ -726,6 +831,9 @@ describe( 'selectors', () => {
 		foldersLoaded: true,
 		pendingConfirmation: { jobId: 'j1' },
 		sendTimestamp: 12345,
+		streamError: true,
+		streamErrorSessionId: 42,
+		lastUserMessage: 'retry text',
 	};
 
 	test( 'getProviders returns providers array', () => {
@@ -868,6 +976,17 @@ describe( 'selectors', () => {
 
 	test( 'getSendTimestamp returns sendTimestamp', () => {
 		expect( selectors.getSendTimestamp( state ) ).toBe( 12345 );
+	} );
+
+	test( 'hasStreamError returns true only for the active session', () => {
+		expect( selectors.hasStreamError( state ) ).toBe( true );
+		expect(
+			selectors.hasStreamError( { ...state, currentSessionId: 7 } )
+		).toBe( false );
+	} );
+
+	test( 'getLastUserMessage returns retry text', () => {
+		expect( selectors.getLastUserMessage( state ) ).toBe( 'retry text' );
 	} );
 
 	test( 'getContextPercentage calculates percentage from known model', () => {

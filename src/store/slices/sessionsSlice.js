@@ -165,6 +165,7 @@ export const initialState = {
 	// Stream error state — true when the last send attempt failed.
 	// Used to show a "Try again" button in the message list.
 	streamError: false,
+	streamErrorSessionId: null,
 
 	// Last user message text — stored so retryLastMessage can resend it.
 	lastUserMessage: '',
@@ -371,11 +372,12 @@ export const actions = {
 	/**
 	 * Set or clear the stream error flag.
 	 *
-	 * @param {boolean} error - Whether the last stream attempt failed.
+	 * @param {boolean}     error     - Whether the last stream attempt failed.
+	 * @param {number|null} sessionId - Session the error belongs to.
 	 * @return {Object} Redux action.
 	 */
-	setStreamError( error ) {
-		return { type: 'SET_STREAM_ERROR', error };
+	setStreamError( error, sessionId = null ) {
+		return { type: 'SET_STREAM_ERROR', error, sessionId };
 	},
 
 	/**
@@ -888,25 +890,46 @@ export const actions = {
 	},
 
 	/**
-	 * Retry the last failed stream by removing the error message and
-	 * resending the last user message via streamMessage.
+	 * Retry the last failed send by rewinding to the last user message and
+	 * resending it. This avoids blindly removing the last two messages, which can
+	 * delete unrelated messages if the session was reloaded or the failure shape
+	 * differs from the expected user+system pair.
 	 *
 	 * @return {Function} Redux thunk.
 	 */
 	retryLastMessage() {
 		return async ( { dispatch, select } ) => {
-			const lastMessage = select.getLastUserMessage();
-			if ( ! lastMessage ) {
+			const messages = select.getCurrentSessionMessages() || [];
+			let userIndex = -1;
+			for ( let i = messages.length - 1; i >= 0; i-- ) {
+				if ( messages[ i ]?.role === 'user' ) {
+					userIndex = i;
+					break;
+				}
+			}
+
+			if ( userIndex < 0 ) {
 				return;
 			}
-			// Remove the error system message appended on failure.
-			dispatch.removeLastMessage();
-			// Remove the user message that was appended before the failure.
-			dispatch.removeLastMessage();
-			// Clear the error flag.
+
+			const lastUserMessage = messages[ userIndex ];
+			const messageText =
+				extractMessageText( lastUserMessage ) ||
+				select.getLastUserMessage();
+			const attachments = Array.isArray( lastUserMessage.attachments )
+				? lastUserMessage.attachments
+				: [];
+
+			if ( ! messageText && attachments.length === 0 ) {
+				return;
+			}
+
+			// Remove the failed user message and any local error messages after it,
+			// then resend through the normal stream path so provider/model selection is
+			// read fresh and UI state is rebuilt consistently.
+			dispatch.truncateMessagesTo( userIndex );
 			dispatch.setStreamError( false );
-			// Resend.
-			dispatch.streamMessage( lastMessage );
+			dispatch.streamMessage( messageText, attachments );
 		};
 	},
 
@@ -1125,7 +1148,7 @@ export const actions = {
 						},
 					],
 				} );
-				dispatch.setStreamError( true );
+				dispatch.setStreamError( true, sessionId );
 				dispatch.setSending( false );
 				return;
 			}
@@ -1156,6 +1179,7 @@ export const actions = {
 						},
 					],
 				} );
+				dispatch.setStreamError( true, sessionId );
 				dispatch.setSending( false );
 			}
 		};
@@ -1536,7 +1560,10 @@ export const selectors = {
 	 * @return {boolean} Whether the last stream attempt failed with an error.
 	 */
 	hasStreamError( state ) {
-		return state.streamError;
+		return Boolean(
+			state.streamError &&
+				state.streamErrorSessionId === state.currentSessionId
+		);
 	},
 
 	/**
@@ -1689,6 +1716,9 @@ export function reducer( state, action ) {
 				sessionTokens: 0,
 				sessionCost: 0,
 				messageTokens: [],
+				streamError: false,
+				streamErrorSessionId: null,
+				lastUserMessage: '',
 				feedbackBanner: null,
 				messageQueue: [],
 			};
@@ -1741,8 +1771,17 @@ export function reducer( state, action ) {
 			};
 		case 'SET_SEND_TIMESTAMP':
 			return { ...state, sendTimestamp: action.ts };
-		case 'SET_STREAM_ERROR':
-			return { ...state, streamError: action.error };
+		case 'SET_STREAM_ERROR': {
+			let errorSessionId = action.sessionId ?? state.currentSessionId;
+			if ( typeof errorSessionId === 'string' ) {
+				errorSessionId = parseInt( errorSessionId, 10 );
+			}
+			return {
+				...state,
+				streamError: Boolean( action.error ),
+				streamErrorSessionId: action.error ? errorSessionId : null,
+			};
+		}
 		case 'SET_LAST_USER_MESSAGE':
 			return { ...state, lastUserMessage: action.message };
 		case 'SET_EDITING_MESSAGE_INDEX':
