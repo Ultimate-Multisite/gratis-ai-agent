@@ -1486,9 +1486,11 @@ class AgentLoop {
 		$builder = wp_ai_client_prompt();
 		/** @var \WP_AI_Client_Prompt_Builder $builder */
 
-		// Resolve abilities once here so they are available for both the
-		// system-instruction rebuild (cadence injection) and the prompt
-		// builder's using_abilities() call below.
+		// Resolve abilities once here so they are available for both the prompt
+		// builder's using_abilities() call and the system-instruction rebuild.
+		// When native Responses tool search is active this may include the full
+		// visible catalog, while the system prompt still uses the compact Tier-1
+		// names so it does not re-inline every searchable tool in prose.
 		$abilities = $this->resolve_abilities();
 
 		// Rebuild the system instruction unless the caller pinned a static
@@ -1497,10 +1499,7 @@ class AgentLoop {
 		// Pass active ability names so the cadence section is injected
 		// when content-generation or theme-modification tools are in scope.
 		if ( ! $this->system_instruction_locked ) {
-			$ability_names            = array_map(
-				static fn( \WP_Ability $a ): string => $a->get_name(),
-				$abilities
-			);
+			$ability_names            = $this->system_prompt_ability_names( $abilities );
 			$this->system_instruction = $this->instruction_builder->build( $this->settings_for_prompt, $ability_names );
 		}
 		$builder->using_system_instruction( $this->system_instruction );
@@ -2485,6 +2484,15 @@ class AgentLoop {
 			);
 		}
 
+		if ( $this->should_use_native_tool_search() ) {
+			return $this->deduplicate_by_function_name(
+				array_merge(
+					ToolDiscovery::visible_ai_chat_abilities(),
+					$this->client_router->build_stubs()
+				)
+			);
+		}
+
 		$tier_1 = ToolDiscovery::tier_1_for_run( $this->agent_tier_1_tools );
 
 		$role_allowed = ToolDiscovery::is_anonymous_ability_mode() ? null : RolePermissions::get_allowed_abilities_for_current_user();
@@ -2515,6 +2523,47 @@ class AgentLoop {
 		return $this->deduplicate_by_function_name(
 			array_merge( $resolved, $this->client_router->build_stubs() )
 		);
+	}
+
+	/**
+	 * Return compact ability names for the system prompt.
+	 *
+	 * Native OpenAI tool search receives the full visible catalog as deferred
+	 * function tools. Keeping the prose prompt on Tier 1 preserves the existing
+	 * ability-search guidance and avoids paying for a duplicate direct-tool list.
+	 *
+	 * @param \WP_Ability[] $resolved_abilities Abilities passed to the provider.
+	 * @return list<string>
+	 */
+	private function system_prompt_ability_names( array $resolved_abilities ): array {
+		if ( ! $this->should_use_native_tool_search() ) {
+			return array_values(
+				array_map(
+					static fn( \WP_Ability $a ): string => $a->get_name(),
+					$resolved_abilities
+				)
+			);
+		}
+
+		$names = array_merge( ToolDiscovery::tier_1_for_run( $this->agent_tier_1_tools ), $this->approved_once_abilities );
+		return array_values(
+			array_unique(
+				array_filter(
+					$names,
+					static fn( string $name ): bool => '' !== $name
+				)
+			)
+		);
+	}
+
+	/** Whether the active Superdav provider/model should use Responses tool search. */
+	private function should_use_native_tool_search(): bool {
+		$model_id = (string) $this->model_id;
+		if ( '' === $model_id && function_exists( 'OpenAiCompatibleConnector\\get_default_model' ) ) {
+			$model_id = (string) \OpenAiCompatibleConnector\get_default_model();
+		}
+
+		return SuperdavAiProvider::responses_tool_search_enabled( $this->resolve_provider_id(), $model_id );
 	}
 
 	/**
@@ -3287,7 +3336,10 @@ class AgentLoop {
 		foreach ( $message->getParts() as $part ) {
 			$call = $part->getFunctionCall();
 			if ( $call ) {
-				return $call->getName();
+				$name = $call->getName();
+				if ( is_string( $name ) && '' !== $name ) {
+					return $name;
+				}
 			}
 		}
 
