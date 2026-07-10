@@ -1284,6 +1284,19 @@ class ToolDiscovery {
 	}
 
 	/**
+	 * Return all currently visible AI-chat abilities for native provider tool search.
+	 *
+	 * This intentionally applies the same visibility, permission, role, and
+	 * anonymous-chat gates as `ability-search` so provider-native discovery never
+	 * exposes a broader tool catalog than the plugin's existing meta-tool path.
+	 *
+	 * @return \WP_Ability[]
+	 */
+	public static function visible_ai_chat_abilities(): array {
+		return self::visible_abilities();
+	}
+
+	/**
 	 * All registered abilities the current user can see — `ai_hidden` and
 	 * `disabled` entries removed.
 	 *

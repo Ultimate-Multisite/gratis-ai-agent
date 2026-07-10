@@ -95,7 +95,62 @@ final class SuperdavAiProvider extends AbstractApiProvider {
 	 * @return ModelInterface
 	 */
 	protected static function createModel( ModelMetadata $model_metadata, ProviderMetadata $provider_metadata ): ModelInterface {
+		if ( self::responses_tool_search_enabled( $provider_metadata->getId(), $model_metadata->getId() ) ) {
+			return new SuperdavAiResponsesToolSearchTextGenerationModel( $model_metadata, $provider_metadata );
+		}
+
 		return new SuperdavAiTextGenerationModel( $model_metadata, $provider_metadata );
+	}
+
+	/**
+	 * Whether the Responses API tool-search experiment should handle a model.
+	 *
+	 * Tool search is an OpenAI Responses API feature (not Chat Completions) and
+	 * is documented for GPT-5.4+ models. Keep the switch filterable so managed
+	 * aliases can opt in once the service confirms the underlying model/endpoint
+	 * supports `/responses` with `tool_search`.
+	 */
+	public static function responses_tool_search_enabled( string $provider_id, string $model_id ): bool {
+		if ( self::PROVIDER_ID !== $provider_id ) {
+			return false;
+		}
+
+		$supported = self::model_supports_responses_tool_search( $model_id );
+
+		/**
+		 * Filter whether the Superdav provider should use OpenAI Responses tool search.
+		 *
+		 * Return true to opt a managed alias into the experiment after verifying the
+		 * endpoint supports `/responses` and the backing model is GPT-5.4 or later.
+		 *
+		 * @param bool   $enabled     Default true only for explicit GPT-5.4+ IDs.
+		 * @param string $provider_id AI Client provider ID.
+		 * @param string $model_id    Provider model ID.
+		 * @param bool   $supported   Whether the model ID itself matches GPT-5.4+.
+		 */
+		$enabled = apply_filters( 'sd_ai_agent_openai_tool_search_enabled', $supported, $provider_id, $model_id, $supported );
+
+		return (bool) $enabled;
+	}
+
+	/**
+	 * Whether a model ID is in the documented OpenAI tool-search support range.
+	 */
+	public static function model_supports_responses_tool_search( string $model_id ): bool {
+		$normalised = strtolower( trim( $model_id ) );
+		if ( '' === $normalised ) {
+			return false;
+		}
+
+		if ( preg_match( '/^gpt-5\.(\d+)(?:[^0-9]|$)/', $normalised, $matches ) ) {
+			return (int) $matches[1] >= 4;
+		}
+
+		if ( preg_match( '/^gpt-(\d+)(?:[.\-]|$)/', $normalised, $matches ) ) {
+			return (int) $matches[1] >= 6;
+		}
+
+		return false;
 	}
 
 	/**
