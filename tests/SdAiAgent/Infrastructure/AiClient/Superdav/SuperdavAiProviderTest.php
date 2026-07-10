@@ -20,7 +20,9 @@ use SdAiAgent\Infrastructure\AiClient\Superdav\SuperdavAiTextGenerationModel;
 use WP_UnitTestCase;
 use WordPress\AiClient\AiClient;
 use WordPress\AiClient\Messages\DTO\MessagePart;
+use WordPress\AiClient\Messages\DTO\ModelMessage;
 use WordPress\AiClient\Messages\DTO\UserMessage;
+use WordPress\AiClient\Messages\Enums\MessagePartChannelEnum;
 use WordPress\AiClient\Providers\Http\DTO\RequestOptions;
 use WordPress\AiClient\Providers\Http\DTO\Response;
 use WordPress\AiClient\Providers\Http\Enums\HttpMethodEnum;
@@ -28,6 +30,7 @@ use WordPress\AiClient\Providers\Models\DTO\ModelConfig;
 use WordPress\AiClient\Providers\Models\DTO\ModelMetadata;
 use WordPress\AiClient\Providers\Models\Enums\CapabilityEnum;
 use WordPress\AiClient\Tools\DTO\FunctionDeclaration;
+use WordPress\AiClient\Tools\DTO\FunctionCall;
 use XWP\DI\Decorators\Action;
 
 /**
@@ -155,6 +158,49 @@ final class SuperdavAiProviderTest extends WP_UnitTestCase {
 		$data = $request->getData();
 		$this->assertIsArray( $data );
 		$this->assertSame( $expected_effort, $data['reasoning_effort'] ?? '' );
+	}
+
+	/**
+	 * The managed provider must round-trip hidden reasoning context on later turns.
+	 */
+	public function test_text_generation_request_round_trips_reasoning_content(): void {
+		$this->skip_if_sdk_unavailable();
+
+		$model = new SuperdavAiTextGenerationModel(
+			new ModelMetadata(
+				SuperdavAiProvider::DEFAULT_MODEL_ID,
+				SuperdavAiProvider::DEFAULT_MODEL_ID,
+				array( CapabilityEnum::textGeneration() ),
+				array()
+			),
+			SuperdavAiProvider::metadata()
+		);
+
+		$method = new \ReflectionMethod( $model, 'prepareGenerateTextParams' );
+		$method->setAccessible( true );
+
+		$params = $method->invoke(
+			$model,
+			array(
+				new ModelMessage(
+					array(
+						new MessagePart( 'Use the prior tool result.', MessagePartChannelEnum::thought() ),
+						new MessagePart( 'Visible assistant preamble.' ),
+						new MessagePart( new FunctionCall( 'call_1', 'wpab__sd-ai-agent__site-info', array() ) ),
+					)
+				),
+			)
+		);
+
+		$this->assertIsArray( $params );
+		$this->assertIsArray( $params['messages'] ?? null );
+		$this->assertSame( 'assistant', $params['messages'][0]['role'] ?? '' );
+		$this->assertSame( 'Use the prior tool result.', $params['messages'][0]['reasoning_content'] ?? '' );
+		$this->assertSame(
+			array( array( 'type' => 'text', 'text' => 'Visible assistant preamble.' ) ),
+			$params['messages'][0]['content'] ?? array()
+		);
+		$this->assertNotEmpty( $params['messages'][0]['tool_calls'] ?? array() );
 	}
 
 	/**

@@ -162,6 +162,9 @@ namespace WordPress\AiClient\Messages\Enums {
 			$enum->value = 'thought';
 			return $enum;
 		}
+
+		/** @return bool */
+		public function isThought(): bool { return 'thought' === $this->value; }
 	}
 }
 
@@ -884,6 +887,12 @@ namespace WordPress\AiClient\Providers\OpenAiCompatibleImplementation {
 
 		/** @param list<\WordPress\AiClient\Messages\DTO\Message> $prompt Prompt messages. */
 		public function generateTextResult( array $prompt ): \WordPress\AiClient\Results\DTO\GenerativeAiResult { return new \WordPress\AiClient\Results\DTO\GenerativeAiResult(); }
+
+		/**
+		 * @param array<int, \WordPress\AiClient\Messages\DTO\Message> $messages
+		 * @return array<int, array<string, mixed>>
+		 */
+		protected function prepareMessagesParam( array $messages, ?string $system_instruction = null ): array { return array(); }
 	}
 }
 
