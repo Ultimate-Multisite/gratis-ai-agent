@@ -329,6 +329,13 @@ final class SuperdavAiProviderTest extends WP_UnitTestCase {
 						),
 					)
 				),
+				new FunctionDeclaration(
+					'wpab__example-plugin__long-tail',
+					'Long-tail example tool.',
+					array(
+						'type' => 'object',
+					)
+				),
 			)
 		);
 		$model->setConfig( $config );
@@ -341,12 +348,15 @@ final class SuperdavAiProviderTest extends WP_UnitTestCase {
 		$this->assertSame( 512, $params['max_output_tokens'] );
 		$this->assertSame( 'You are a WordPress assistant.', $params['instructions'] );
 		$this->assertFalse( $params['parallel_tool_calls'] );
-		$this->assertSame( array( 'type' => 'tool_search' ), $params['tools'][1] );
+		$this->assertSame( array( 'type' => 'tool_search' ), $params['tools'][2] );
 		$this->assertSame( 'namespace', $params['tools'][0]['type'] );
 		$this->assertSame( 'wp_abilities_sd_ai_agent', $params['tools'][0]['name'] );
 		$this->assertSame( 'function', $params['tools'][0]['tools'][0]['type'] );
-		$this->assertTrue( $params['tools'][0]['tools'][0]['defer_loading'] );
+		$this->assertArrayNotHasKey( 'defer_loading', $params['tools'][0]['tools'][0] );
 		$this->assertSame( 'wpab__sd-ai-agent__list-posts', $params['tools'][0]['tools'][0]['name'] );
+		$this->assertSame( 'namespace', $params['tools'][1]['type'] );
+		$this->assertSame( 'wp_abilities_example_plugin', $params['tools'][1]['name'] );
+		$this->assertTrue( $params['tools'][1]['tools'][0]['defer_loading'] );
 	}
 
 	/**
@@ -404,6 +414,47 @@ final class SuperdavAiProviderTest extends WP_UnitTestCase {
 		$this->assertSame( 'call_123', $call->getId() );
 		$this->assertSame( 'wpab__sd-ai-agent__list-posts', $call->getName() );
 		$this->assertSame( array( 'post_type' => 'page' ), $call->getArgs() );
+	}
+
+	/**
+	 * Incomplete Responses payloads caused by max_output_tokens surface as length finishes.
+	 */
+	public function test_responses_tool_search_response_parses_max_output_tokens_as_length(): void {
+		$this->skip_if_sdk_unavailable();
+
+		$model = new SuperdavAiResponsesToolSearchTextGenerationModel(
+			new ModelMetadata( 'gpt-5.5', 'GPT-5.5', array( CapabilityEnum::textGeneration() ), array() ),
+			SuperdavAiProvider::metadata()
+		);
+
+		$parse  = new \ReflectionMethod( $model, 'parse_response_to_generative_ai_result' );
+		$result = $parse->invoke(
+			$model,
+			new Response(
+				200,
+				array( 'content-type' => 'application/json' ),
+				(string) wp_json_encode(
+					array(
+						'id'                 => 'resp_truncated',
+						'status'             => 'incomplete',
+						'incomplete_details' => array( 'reason' => 'max_output_tokens' ),
+						'output'             => array(
+							array(
+								'type'    => 'message',
+								'content' => array(
+									array(
+										'type' => 'output_text',
+										'text' => 'Partially generated text.',
+									),
+								),
+							),
+						),
+					)
+				)
+			)
+		);
+
+		$this->assertSame( 'length', (string) $result->getCandidates()[0]->getFinishReason() );
 	}
 
 	/**

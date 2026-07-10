@@ -311,6 +311,9 @@ namespace WordPress\AiClient\Results\Enums {
 		/** @return self */
 		public static function toolCalls(): self { return new self(); }
 
+		/** @return self */
+		public static function length(): self { return new self(); }
+
 		/** @return string */
 		public function __toString(): string {
 			return $this->value;

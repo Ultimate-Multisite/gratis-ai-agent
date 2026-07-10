@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace SdAiAgent\Infrastructure\AiClient\Superdav;
 
+use SdAiAgent\Tools\ToolDiscovery;
 use WordPress\AiClient\Common\Exception\InvalidArgumentException;
 use WordPress\AiClient\Messages\DTO\Message;
 use WordPress\AiClient\Messages\DTO\MessagePart;
@@ -236,14 +237,16 @@ final class SuperdavAiResponsesToolSearchTextGenerationModel extends AbstractApi
 			return array();
 		}
 
-		$groups = array();
+		$immediate_function_names = $this->immediate_tool_function_names();
+		$groups                   = array();
 		foreach ( $declarations as $declaration ) {
 			if ( ! $declaration instanceof FunctionDeclaration ) {
 				continue;
 			}
 
-			$key              = $this->namespace_key_for_function( $declaration->getName() );
-			$groups[ $key ][] = $this->function_declaration_to_tool( $declaration );
+			$function_name    = $declaration->getName();
+			$key              = $this->namespace_key_for_function( $function_name );
+			$groups[ $key ][] = $this->function_declaration_to_tool( $declaration, ! isset( $immediate_function_names[ $function_name ] ) );
 		}
 
 		$tools = array();
@@ -267,14 +270,16 @@ final class SuperdavAiResponsesToolSearchTextGenerationModel extends AbstractApi
 		return $tools;
 	}
 
-	/** Convert a FunctionDeclaration DTO to a deferred Responses function tool. */
-	private function function_declaration_to_tool( FunctionDeclaration $declaration ): array {
+	/** Convert a FunctionDeclaration DTO to a Responses function tool. */
+	private function function_declaration_to_tool( FunctionDeclaration $declaration, bool $defer_loading ): array {
 		$tool = array(
-			'type'          => 'function',
-			'name'          => $declaration->getName(),
-			'description'   => $declaration->getDescription(),
-			'defer_loading' => true,
+			'type'        => 'function',
+			'name'        => $declaration->getName(),
+			'description' => $declaration->getDescription(),
 		);
+		if ( $defer_loading ) {
+			$tool['defer_loading'] = true;
+		}
 
 		$parameters = $declaration->getParameters();
 		if ( is_array( $parameters ) && ! empty( $parameters ) ) {
@@ -282,6 +287,34 @@ final class SuperdavAiResponsesToolSearchTextGenerationModel extends AbstractApi
 		}
 
 		return $tool;
+	}
+
+	/**
+	 * Return function names that should remain immediately visible to the model.
+	 *
+	 * Native Responses tool search receives the whole visible catalog. Keeping the
+	 * established Tier-1 abilities non-deferred preserves the cold-start direct
+	 * tool path while the long tail stays searchable behind `tool_search`.
+	 *
+	 * @return array<string, true>
+	 */
+	private function immediate_tool_function_names(): array {
+		$ability_names = ToolDiscovery::DEFAULT_TIER_1;
+		foreach ( ToolDiscovery::tier_1_for_run() as $ability_name ) {
+			$ability_names[] = $ability_name;
+		}
+
+		$function_names = array();
+		foreach ( array_unique( $ability_names ) as $ability_name ) {
+			if ( class_exists( '\\WP_AI_Client_Ability_Function_Resolver' ) ) {
+				$function_names[ \WP_AI_Client_Ability_Function_Resolver::ability_name_to_function_name( $ability_name ) ] = true;
+				continue;
+			}
+
+			$function_names[ 'wpab__' . str_replace( '/', '__', $ability_name ) ] = true;
+		}
+
+		return $function_names;
 	}
 
 	/** Return a stable namespace key for a WordPress ability function name. */
@@ -356,7 +389,7 @@ final class SuperdavAiResponsesToolSearchTextGenerationModel extends AbstractApi
 			$parts[] = new MessagePart( '' );
 		}
 
-		$finish_reason = $has_function_call ? FinishReasonEnum::toolCalls() : FinishReasonEnum::stop();
+		$finish_reason = $this->finish_reason_for_response_data( $data, $has_function_call );
 		$candidate     = new Candidate( new ModelMessage( $parts ), $finish_reason );
 		$usage         = $this->parse_token_usage( is_array( $data['usage'] ?? null ) ? $data['usage'] : array() );
 
@@ -368,6 +401,25 @@ final class SuperdavAiResponsesToolSearchTextGenerationModel extends AbstractApi
 			$this->metadata(),
 			array( 'responses_output' => $output )
 		);
+	}
+
+	/**
+	 * Return the SDK finish reason for a Responses API payload.
+	 *
+	 * @param array<string, mixed> $data              Decoded Responses payload.
+	 * @param bool                 $has_function_call Whether the output included a function call.
+	 */
+	private function finish_reason_for_response_data( array $data, bool $has_function_call ): FinishReasonEnum {
+		$incomplete_details = $data['incomplete_details'] ?? null;
+		$incomplete_reason  = is_array( $incomplete_details ) && isset( $incomplete_details['reason'] )
+			? (string) $incomplete_details['reason']
+			: '';
+
+		if ( 'incomplete' === (string) ( $data['status'] ?? '' ) && 'max_output_tokens' === $incomplete_reason ) {
+			return FinishReasonEnum::length();
+		}
+
+		return $has_function_call ? FinishReasonEnum::toolCalls() : FinishReasonEnum::stop();
 	}
 
 	/**
