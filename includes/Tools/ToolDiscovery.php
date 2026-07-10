@@ -34,6 +34,7 @@ declare(strict_types=1);
 namespace SdAiAgent\Tools;
 
 use SdAiAgent\Abilities\Js\JsAbilityCatalog;
+use SdAiAgent\Abilities\ToolCapabilities;
 use SdAiAgent\Core\AbilityRegistry;
 use SdAiAgent\Core\AbilityVisibility;
 use SdAiAgent\Core\RolePermissions;
@@ -989,6 +990,11 @@ class ToolDiscovery {
 				),
 				array( 'status' => 403 )
 			);
+		}
+
+		$permission_denial = ToolCapabilities::permission_denial_error( $ability_id );
+		if ( $permission_denial instanceof WP_Error ) {
+			return $permission_denial;
 		}
 
 		// Normalize the arguments to a plain PHP associative array.

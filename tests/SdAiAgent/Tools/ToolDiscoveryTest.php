@@ -11,6 +11,7 @@ namespace SdAiAgent\Tests\Tools;
 
 use SdAiAgent\Core\IdenticalFailureTracker;
 use SdAiAgent\Core\RolePermissions;
+use SdAiAgent\Core\ToolPermissionResolver;
 use SdAiAgent\Tools\AbilityUsageTracker;
 use SdAiAgent\Tools\ToolDiscovery;
 use WP_UnitTestCase;
@@ -570,6 +571,36 @@ class ToolDiscoveryTest extends WP_UnitTestCase {
 		$this->assertInstanceOf( \WP_Error::class, $result );
 		$this->assertSame( 'ability_forbidden', $result->get_error_code() );
 		$this->assertFalse( $executed );
+	}
+
+	public function test_ability_call_reports_missing_file_edit_core_cap_after_confirmation(): void {
+		$target = 'sd-ai-agent/file-edit';
+		$this->assertNotNull( \wp_get_ability( $target ), 'file-edit must be registered by the advanced file mutation abilities.' );
+
+		$role = get_role( 'subscriber' );
+		$this->assertNotNull( $role );
+		$role->add_cap( 'manage_options', true );
+		$role->add_cap( 'sd_ai_agent_tool_file_edit', true );
+
+		$subscriber_id = self::factory()->user->create( [ 'role' => 'subscriber' ] );
+		wp_set_current_user( $subscriber_id );
+		ToolPermissionResolver::set_one_turn_approved_abilities( [ $target ] );
+
+		$result = ToolDiscovery::handle_ability_call(
+			[
+				'ability'   => $target,
+				'arguments' => [],
+			]
+		);
+
+		$this->assertInstanceOf( \WP_Error::class, $result );
+		$this->assertSame( 'ability_invalid_permissions', $result->get_error_code() );
+		$this->assertSame( 'edit_files', $result->get_error_data()['missing_capability'] );
+		$this->assertStringContainsString( 'approved for this turn', $result->get_error_message() );
+
+		ToolPermissionResolver::clear_one_turn_approved_abilities();
+		$role->remove_cap( 'manage_options' );
+		$role->remove_cap( 'sd_ai_agent_tool_file_edit' );
 	}
 
 	public function test_ability_search_hides_role_restricted_targets(): void {

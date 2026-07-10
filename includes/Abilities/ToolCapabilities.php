@@ -421,6 +421,66 @@ class ToolCapabilities {
 	}
 
 	/**
+	 * Return a precise denial error for an ability the current user cannot run.
+	 *
+	 * This mirrors {@see current_user_can()} but preserves which layer denied the
+	 * request so meta-tools such as `sd-ai-agent/ability-call` can distinguish a
+	 * user-approved tool confirmation from a missing WordPress capability such as
+	 * `edit_files`.
+	 *
+	 * @param string $ability_id The ability ID.
+	 * @return \WP_Error|null Error when denied; null when the current user passes both gates.
+	 */
+	public static function permission_denial_error( string $ability_id ): ?\WP_Error {
+		$tool_cap = self::cap_name( $ability_id );
+
+		/** This filter is documented in {@see current_user_can()}. */
+		$resolved_cap = (string) apply_filters( 'sd_ai_agent_tool_capability', $tool_cap, $ability_id );
+
+		if ( self::capability_exists( $resolved_cap ) ) {
+			if ( ! current_user_can( $resolved_cap ) ) {
+				return self::capability_denial_error( $ability_id, $resolved_cap, 'per-tool' );
+			}
+		} elseif ( ! current_user_can( self::FALLBACK_CAP ) ) {
+			return self::capability_denial_error( $ability_id, self::FALLBACK_CAP, 'fallback' );
+		}
+
+		foreach ( self::resolve_core_caps( $ability_id ) as $core_cap ) {
+			if ( ! current_user_can( $core_cap ) ) {
+				return self::capability_denial_error( $ability_id, $core_cap, 'core' );
+			}
+		}
+
+		return null;
+	}
+
+	/**
+	 * Build a user-actionable capability denial error.
+	 *
+	 * @param string $ability_id The denied ability ID.
+	 * @param string $capability Missing capability.
+	 * @param string $layer Permission layer that denied the request.
+	 */
+	private static function capability_denial_error( string $ability_id, string $capability, string $layer ): \WP_Error {
+		return new \WP_Error(
+			'ability_invalid_permissions',
+			sprintf(
+				/* translators: 1: ability id, 2: WordPress capability, 3: permission layer */
+				__( 'Ability "%1$s" was approved for this turn, but the current WordPress user still lacks the "%2$s" capability required by the %3$s permission layer. Grant that capability or switch to a user role that has it, then approve the tool call again.', 'superdav-ai-agent' ),
+				$ability_id,
+				$capability,
+				$layer
+			),
+			[
+				'status'             => 403,
+				'ability'            => $ability_id,
+				'missing_capability' => $capability,
+				'permission_layer'   => $layer,
+			]
+		);
+	}
+
+	/**
 	 * Check whether a capability has been granted to at least one role.
 	 *
 	 * This is used to distinguish between "capability exists but user lacks it"

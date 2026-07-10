@@ -230,6 +230,33 @@ class ToolCapabilitiesTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * Denial diagnostics identify the missing core capability after a tool grant.
+	 */
+	public function test_permission_denial_error_identifies_missing_core_capability(): void {
+		$ability_id = 'sd-ai-agent/file-edit';
+		$tool_cap   = ToolCapabilities::cap_name( $ability_id );
+
+		$role = get_role( 'subscriber' );
+		$this->assertNotNull( $role );
+		$role->add_cap( $tool_cap, true );
+		$role->add_cap( 'manage_options', true );
+
+		$user_id = $this->factory->user->create( [ 'role' => 'subscriber' ] );
+		wp_set_current_user( $user_id );
+
+		$error = ToolCapabilities::permission_denial_error( $ability_id );
+
+		$this->assertInstanceOf( \WP_Error::class, $error );
+		$this->assertSame( 'ability_invalid_permissions', $error->get_error_code() );
+		$this->assertSame( 'edit_files', $error->get_error_data()['missing_capability'] );
+		$this->assertSame( 'core', $error->get_error_data()['permission_layer'] );
+		$this->assertStringContainsString( 'approved for this turn', $error->get_error_message() );
+
+		$role->remove_cap( $tool_cap );
+		$role->remove_cap( 'manage_options' );
+	}
+
+	/**
 	 * Dual-gate: administrator holds both per-tool and core caps → true.
 	 */
 	public function test_dual_gate_administrator_passes_for_mapped_ability(): void {
