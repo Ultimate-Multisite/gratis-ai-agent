@@ -15,6 +15,13 @@ use SdAiAgent\Models\DTO\MemoryRow;
 class Memory {
 
 	/**
+	 * Most recent persistence error, safe for ability responses.
+	 *
+	 * @var string
+	 */
+	private static string $last_error = '';
+
+	/**
 	 * Valid memory categories.
 	 *
 	 * `site_brief` is a dedicated category for the structured site
@@ -32,6 +39,13 @@ class Memory {
 		global $wpdb;
 		/** @var \wpdb $wpdb */
 		return $wpdb->prefix . 'sd_ai_agent_memories';
+	}
+
+	/**
+	 * Return the most recent persistence error.
+	 */
+	public static function get_last_error(): string {
+		return self::$last_error;
 	}
 
 	/**
@@ -92,9 +106,14 @@ class Memory {
 	public static function create( string $category, string $content ) {
 		global $wpdb;
 		/** @var \wpdb $wpdb */
+		self::$last_error = '';
 
 		if ( ! in_array( $category, self::CATEGORIES, true ) ) {
 			$category = 'general';
+		}
+
+		if ( ! self::ensure_table_available() ) {
+			return false;
 		}
 
 		$now = current_time( 'mysql', true );
@@ -110,7 +129,77 @@ class Memory {
 			[ '%s', '%s', '%s', '%s' ]
 		);
 
-		return $result ? (int) $wpdb->insert_id : false;
+		if ( $result ) {
+			return (int) $wpdb->insert_id;
+		}
+
+		self::$last_error = '' !== $wpdb->last_error
+			? $wpdb->last_error
+			: 'The memory table insert did not complete.';
+
+		return false;
+	}
+
+	/**
+	 * Ensure the memory table exists for the current blog before writing.
+	 */
+	private static function ensure_table_available(): bool {
+		global $wpdb;
+		/** @var \wpdb $wpdb */
+
+		$table = self::table_name();
+
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Schema introspection for the current blog's internal memory table.
+		$found = $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $table ) );
+		if ( $found === $table ) {
+			return true;
+		}
+
+		self::install_table();
+
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Re-check after running the schema installer.
+		$found = $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $table ) );
+		if ( $found === $table ) {
+			return true;
+		}
+
+		self::$last_error = sprintf(
+			'The memory table %s is unavailable for the current site. Run the Superdav AI Agent database upgrade for this blog and retry.',
+			$table
+		);
+
+		return false;
+	}
+
+	/**
+	 * Create the memory table for the current blog prefix.
+	 */
+	private static function install_table(): void {
+		global $wpdb;
+		/** @var \wpdb $wpdb */
+
+		$table   = self::table_name();
+		$charset = $wpdb->get_charset_collate();
+
+		$sql = "CREATE TABLE {$table} (
+			id bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+			category varchar(50) NOT NULL DEFAULT 'general',
+			content text NOT NULL,
+			created_at datetime NOT NULL,
+			updated_at datetime NOT NULL,
+			PRIMARY KEY  (id),
+			KEY category (category)
+		) {$charset};";
+
+		require_once ABSPATH . 'wp-admin/includes/upgrade.php';
+		dbDelta( $sql );
+
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.InterpolatedNotPrepared, PluginCheck.Security.DirectDB.UnescapedDBParameter -- Schema introspection for an internal table name.
+		$ft_exists = $wpdb->get_var( "SHOW INDEX FROM {$table} WHERE Key_name = 'ft_content'" );
+		if ( ! $ft_exists ) {
+			// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.DirectDatabaseQuery.SchemaChange, WordPress.DB.PreparedSQL.InterpolatedNotPrepared, PluginCheck.Security.DirectDB.UnescapedDBParameter -- Required for fulltext index creation during memory table repair.
+			$wpdb->query( "ALTER TABLE {$table} ADD FULLTEXT KEY ft_content (content)" );
+		}
 	}
 
 	/**

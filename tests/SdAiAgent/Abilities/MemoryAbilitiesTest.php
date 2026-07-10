@@ -33,6 +33,89 @@ class MemoryAbilitiesTest extends WP_UnitTestCase {
 		$this->assertIsInt( $result['id'] );
 		$this->assertGreaterThan( 0, $result['id'] );
 		$this->assertStringContainsString( 'site_info', $result['message'] );
+
+		$memories = Memory::get_by_category( 'site_info' );
+		$found    = false;
+		foreach ( $memories as $memory ) {
+			if ( (int) $memory->id === $result['id'] ) {
+				$found = true;
+				$this->assertSame( 'Test site info content', $memory->content );
+				break;
+			}
+		}
+		$this->assertTrue( $found, 'site_info memory should be persisted.' );
+	}
+
+	/**
+	 * Test handle_memory_save returns actionable database error detail.
+	 */
+	public function test_handle_memory_save_failure_includes_persistence_detail() {
+		global $wpdb;
+
+		$original_wpdb = $wpdb;
+		$wpdb          = new class( $original_wpdb ) {
+			/** @var \wpdb */
+			private $delegate;
+			/** @var string */
+			public string $prefix;
+			/** @var int */
+			public int $insert_id = 0;
+			/** @var string */
+			public string $last_error = 'Simulated memory insert failure.';
+
+			/**
+			 * @param \wpdb $delegate Original wpdb instance.
+			 */
+			public function __construct( $delegate ) {
+				$this->delegate = $delegate;
+				$this->prefix   = $delegate->prefix;
+			}
+
+			/**
+			 * Proxy method calls to the original wpdb instance.
+			 *
+			 * @param string       $name      Method name.
+			 * @param array<mixed> $arguments Arguments.
+			 * @return mixed
+			 */
+			public function __call( string $name, array $arguments ) {
+				return $this->delegate->{$name}( ...$arguments );
+			}
+
+			/**
+			 * Proxy property reads to the original wpdb instance.
+			 *
+			 * @param string $name Property name.
+			 * @return mixed
+			 */
+			public function __get( string $name ) {
+				return $this->delegate->{$name};
+			}
+
+			/**
+			 * Simulate a failed insert after the table availability check succeeds.
+			 *
+			 * @return false
+			 */
+			public function insert() {
+				return false;
+			}
+		};
+
+		try {
+			$result = MemoryAbilities::handle_memory_save( [
+				'category' => 'site_info',
+				'content'  => 'Initial discovery fact',
+			] );
+		} finally {
+			$wpdb = $original_wpdb;
+		}
+
+		$this->assertIsArray( $result );
+		$this->assertFalse( $result['success'] );
+		$this->assertStringContainsString( 'Failed to save memory:', $result['error'] );
+		$this->assertStringContainsString( 'Simulated memory insert failure.', $result['error'] );
+		$this->assertNotSame( 'Failed to save memory.', $result['error'] );
 	}
 
 	/**
