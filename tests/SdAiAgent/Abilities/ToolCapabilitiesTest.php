@@ -12,6 +12,7 @@ declare(strict_types=1);
 namespace SdAiAgent\Tests\Abilities;
 
 use SdAiAgent\Abilities\ToolCapabilities;
+use SdAiAgent\Core\ToolPermissionResolver;
 use WP_UnitTestCase;
 
 /**
@@ -186,11 +187,12 @@ class ToolCapabilitiesTest extends WP_UnitTestCase {
 	}
 
 	/**
-	 * Dual-gate: core cap held but per-tool cap missing → false.
+	 * Dual-gate: core cap held but per-tool cap missing → false until confirmed.
 	 *
 	 * Proves the per-tool layer is enforced even when the user holds the
 	 * mapped WordPress core cap. The site administrator who manages role
-	 * caps via a plugin must explicitly grant the per-tool cap.
+	 * caps via a plugin must explicitly grant the per-tool cap, or the user must
+	 * explicitly approve the tool for the current agent turn.
 	 */
 	public function test_dual_gate_core_cap_alone_is_not_sufficient(): void {
 		// list-posts is mapped to edit_posts in CORE_CAP_MAP. Editor has
@@ -201,6 +203,15 @@ class ToolCapabilitiesTest extends WP_UnitTestCase {
 		wp_set_current_user( $editor_id );
 
 		$this->assertFalse( ToolCapabilities::current_user_can( 'sd-ai-agent/list-posts' ) );
+
+		ToolPermissionResolver::set_one_turn_approved_abilities( [ 'sd-ai-agent/list-posts' ] );
+
+		try {
+			$this->assertTrue( ToolCapabilities::current_user_can( 'sd-ai-agent/list-posts' ) );
+			$this->assertNull( ToolCapabilities::permission_denial_error( 'sd-ai-agent/list-posts' ) );
+		} finally {
+			ToolPermissionResolver::clear_one_turn_approved_abilities();
+		}
 	}
 
 	/**
@@ -227,6 +238,29 @@ class ToolCapabilitiesTest extends WP_UnitTestCase {
 
 		// Clean up.
 		$role->remove_cap( $tool_cap );
+	}
+
+	/**
+	 * One-turn approval never bypasses the required WordPress core capability.
+	 */
+	public function test_one_turn_approval_does_not_bypass_core_capability(): void {
+		$ability_id = 'sd-ai-agent/delete-plugin'; // CORE_CAP_MAP → delete_plugins.
+
+		$subscriber_id = $this->factory->user->create( [ 'role' => 'subscriber' ] );
+		wp_set_current_user( $subscriber_id );
+		ToolPermissionResolver::set_one_turn_approved_abilities( [ $ability_id ] );
+
+		try {
+			$this->assertFalse( ToolCapabilities::current_user_can( $ability_id ) );
+
+			$error = ToolCapabilities::permission_denial_error( $ability_id );
+			$this->assertInstanceOf( \WP_Error::class, $error );
+			$this->assertSame( 'ability_invalid_permissions', $error->get_error_code() );
+			$this->assertSame( 'delete_plugins', $error->get_error_data()['missing_capability'] );
+			$this->assertSame( 'core', $error->get_error_data()['permission_layer'] );
+		} finally {
+			ToolPermissionResolver::clear_one_turn_approved_abilities();
+		}
 	}
 
 	/**

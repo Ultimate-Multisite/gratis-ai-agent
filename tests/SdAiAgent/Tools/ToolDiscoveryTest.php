@@ -9,6 +9,7 @@
 
 namespace SdAiAgent\Tests\Tools;
 
+use SdAiAgent\Abilities\ToolCapabilities;
 use SdAiAgent\Core\IdenticalFailureTracker;
 use SdAiAgent\Core\RolePermissions;
 use SdAiAgent\Core\ToolPermissionResolver;
@@ -601,6 +602,64 @@ class ToolDiscoveryTest extends WP_UnitTestCase {
 		ToolPermissionResolver::clear_one_turn_approved_abilities();
 		$role->remove_cap( 'manage_options' );
 		$role->remove_cap( 'sd_ai_agent_tool_file_edit' );
+	}
+
+	public function test_ability_call_executes_one_turn_approved_target_when_core_cap_allows(): void {
+		$executed = false;
+		$target   = 'sd-ai-agent/approved-core-edit-tool';
+
+		$core_filter = static function ( array $caps, string $id ) use ( $target ): array {
+			if ( $id === $target ) {
+				return [ 'edit_posts' ];
+			}
+
+			return $caps;
+		};
+		add_filter( 'sd_ai_agent_tool_required_core_cap', $core_filter, 10, 2 );
+
+		$this->register_test_ability(
+			$target,
+			[
+				'label'               => 'Approved Core Edit Tool',
+				'description'         => 'Requires confirmation plus an edit_posts core capability.',
+				'category'            => 'sd-ai-agent',
+				'input_schema'        => [ 'type' => 'object' ],
+				'output_schema'       => [ 'type' => 'object' ],
+				'execute_callback'    => static function () use ( &$executed ): array {
+					$executed = true;
+					return [ 'ok' => true ];
+				},
+				'permission_callback' => static function () use ( $target ): bool {
+					return ToolCapabilities::current_user_can( $target );
+				},
+				'meta'                => [
+					'annotations' => [
+						'readonly'    => false,
+						'destructive' => true,
+					],
+				],
+			]
+		);
+
+		$editor_id = self::factory()->user->create( [ 'role' => 'editor' ] );
+		wp_set_current_user( $editor_id );
+		ToolPermissionResolver::set_one_turn_approved_abilities( [ $target ] );
+
+		try {
+			$result = ToolDiscovery::handle_ability_call(
+				[
+					'ability'   => $target,
+					'arguments' => [],
+				]
+			);
+
+			$this->assertIsArray( $result );
+			$this->assertTrue( $result['success'] );
+			$this->assertTrue( $executed );
+		} finally {
+			ToolPermissionResolver::clear_one_turn_approved_abilities();
+			remove_filter( 'sd_ai_agent_tool_required_core_cap', $core_filter, 10 );
+		}
 	}
 
 	public function test_ability_search_hides_role_restricted_targets(): void {
