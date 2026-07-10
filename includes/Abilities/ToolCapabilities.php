@@ -18,9 +18,13 @@ declare(strict_types=1);
  *      Capability names follow the pattern `sd_ai_agent_tool_{name}` where
  *      `{name}` is derived from the ability ID
  *      (`sd-ai-agent/memory-save` → `sd_ai_agent_tool_memory_save`).
+ *      A user confirmation for the current agent turn also satisfies this
+ *      plugin-specific layer so an approved prompt can continue into the
+ *      ability's own permission callback.
  *      If the resolved cap is granted to any role, the current user must
  *      have it. If it is not granted to any role, the check falls back to
- *      `manage_options` so the default is admin-only.
+ *      `manage_options` so the default is admin-only when no turn approval
+ *      exists.
  *
  *   2. Core-cap layer.
  *      The {@see CORE_CAP_MAP} entry for the ability ID lists one or more
@@ -30,14 +34,16 @@ declare(strict_types=1);
  *      for low-risk read-only public-data abilities such as the
  *      `report-inability` feedback channel).
  *
- * Final result is the AND of both layers. Either layer denying access is
- * sufficient to deny the ability execution.
+ * Final result is the per-tool layer or current-turn approval, AND the core
+ * layer. The WordPress core-cap anchor is never bypassed by confirmation.
  *
  * @package SdAiAgent
  * @license GPL-2.0-or-later
  */
 
 namespace SdAiAgent\Abilities;
+
+use SdAiAgent\Core\ToolPermissionResolver;
 
 if ( ! defined( 'ABSPATH' ) ) {
 	exit;
@@ -380,12 +386,14 @@ class ToolCapabilities {
 	 *      per-tool capability name. If the cap exists in any role, the
 	 *      current user must hold it. Otherwise fall back to
 	 *      `manage_options` so the default is admin-only.
+	 *      A current-turn user approval also satisfies this plugin prompt layer.
 	 *
 	 *   2. Resolve required core capabilities via
 	 *      {@see resolve_core_caps()}. The current user must hold ALL of
 	 *      them (or the ability must be in {@see CORE_CAP_OPTOUT}).
 	 *
-	 * Both layers must pass.
+	 * The plugin prompt layer must pass via capability or current-turn approval;
+	 * the core-cap layer must always pass.
 	 *
 	 * @param string $ability_id The ability ID (e.g. "sd-ai-agent/memory-save").
 	 * @return bool True if the current user has permission.
@@ -402,9 +410,10 @@ class ToolCapabilities {
 		 */
 		$resolved_cap = (string) apply_filters( 'sd_ai_agent_tool_capability', $tool_cap, $ability_id );
 
-		$tool_ok = self::capability_exists( $resolved_cap )
-			? current_user_can( $resolved_cap )
-			: current_user_can( self::FALLBACK_CAP );
+		$tool_ok = self::is_one_turn_approved( $ability_id )
+			|| ( self::capability_exists( $resolved_cap )
+				? current_user_can( $resolved_cap )
+				: current_user_can( self::FALLBACK_CAP ) );
 
 		if ( ! $tool_ok ) {
 			return false;
@@ -437,11 +446,13 @@ class ToolCapabilities {
 		/** This filter is documented in {@see current_user_can()}. */
 		$resolved_cap = (string) apply_filters( 'sd_ai_agent_tool_capability', $tool_cap, $ability_id );
 
-		if ( self::capability_exists( $resolved_cap ) ) {
+		$skip_tool_layer = self::is_one_turn_approved( $ability_id );
+
+		if ( ! $skip_tool_layer && self::capability_exists( $resolved_cap ) ) {
 			if ( ! current_user_can( $resolved_cap ) ) {
 				return self::capability_denial_error( $ability_id, $resolved_cap, 'per-tool' );
 			}
-		} elseif ( ! current_user_can( self::FALLBACK_CAP ) ) {
+		} elseif ( ! $skip_tool_layer && ! current_user_can( self::FALLBACK_CAP ) ) {
 			return self::capability_denial_error( $ability_id, self::FALLBACK_CAP, 'fallback' );
 		}
 
@@ -452,6 +463,21 @@ class ToolCapabilities {
 		}
 
 		return null;
+	}
+
+	/**
+	 * Whether the current confirmed agent turn approved this ability.
+	 *
+	 * Confirmation is intentionally narrower than WordPress authorization: it
+	 * satisfies only the plugin's per-tool approval layer. The required core
+	 * capabilities from {@see resolve_core_caps()} remain mandatory so a user
+	 * cannot click through into operations their WordPress role cannot perform.
+	 *
+	 * @param string $ability_id The ability ID.
+	 */
+	private static function is_one_turn_approved( string $ability_id ): bool {
+		return class_exists( ToolPermissionResolver::class )
+			&& ToolPermissionResolver::is_one_turn_approved( $ability_id );
 	}
 
 	/**
