@@ -13,6 +13,7 @@ namespace SdAiAgent\Tests\Infrastructure\AiClient\Superdav;
 use SdAiAgent\Bootstrap\SuperdavAiProviderHandler;
 use SdAiAgent\Core\ModelCapabilityRegistry;
 use SdAiAgent\Core\ProviderCredentialLoader;
+use SdAiAgent\Infrastructure\AiClient\Superdav\SuperdavAiImageGenerationModel;
 use SdAiAgent\Infrastructure\AiClient\Superdav\SuperdavAiModelMetadataDirectory;
 use SdAiAgent\Infrastructure\AiClient\Superdav\SuperdavAiProvider;
 use SdAiAgent\Infrastructure\AiClient\Superdav\SuperdavAiResponsesToolSearchTextGenerationModel;
@@ -28,6 +29,7 @@ use WordPress\AiClient\Providers\Http\DTO\Response;
 use WordPress\AiClient\Providers\Http\Enums\HttpMethodEnum;
 use WordPress\AiClient\Providers\Models\DTO\ModelConfig;
 use WordPress\AiClient\Providers\Models\DTO\ModelMetadata;
+use WordPress\AiClient\Providers\Models\DTO\SupportedOption;
 use WordPress\AiClient\Providers\Models\Enums\CapabilityEnum;
 use WordPress\AiClient\Tools\DTO\FunctionDeclaration;
 use WordPress\AiClient\Tools\DTO\FunctionCall;
@@ -244,6 +246,63 @@ final class SuperdavAiProviderTest extends WP_UnitTestCase {
 		$this->assertSame( 32768, $entry['context_length'] );
 		$this->assertSame( 'Example Model', $entry['display_name'] );
 		$this->assertSame( array( 'supports_tool_calling' => true ), $entry['provider_capabilities'] );
+	}
+
+	/**
+	 * Model metadata parsing exposes Superdav image models to the SDK.
+	 */
+	public function test_model_metadata_contains_image_generation_capability(): void {
+		$this->skip_if_sdk_unavailable();
+
+		$directory = new SuperdavAiModelMetadataDirectory();
+		$method    = new \ReflectionMethod( $directory, 'parseResponseToModelMetadataList' );
+		$models    = $method->invoke(
+			$directory,
+			new Response(
+				200,
+				array( 'content-type' => 'application/json' ),
+				'{"data":[{"id":"superdav-image","name":"Superdav Image","capabilities":{"image_generation":true,"text_generation":false}}]}'
+			)
+		);
+
+		$this->assertIsArray( $models );
+		$this->assertCount( 1, $models );
+		$model = $models[0];
+
+		$this->assertSame( SuperdavAiProvider::IMAGE_MODEL_ID, $model->getId() );
+		$this->assertSame( 'Superdav Image', $model->getName() );
+		$this->assertContainsEquals( CapabilityEnum::imageGeneration(), $model->getSupportedCapabilities() );
+
+		$option_names = array_map(
+			static fn( SupportedOption $option ): string => $option->getName()->value,
+			$model->getSupportedOptions()
+		);
+
+		$this->assertContains( 'outputMimeType', $option_names );
+		$this->assertContains( 'outputFileType', $option_names );
+		$this->assertContains( 'outputMediaOrientation', $option_names );
+	}
+
+	/**
+	 * Image-capable metadata creates an image generation model instance.
+	 */
+	public function test_provider_creates_image_generation_model_for_image_capability(): void {
+		$this->skip_if_sdk_unavailable();
+
+		$method = new \ReflectionMethod( SuperdavAiProvider::class, 'createModel' );
+		$method->setAccessible( true );
+		$model = $method->invoke(
+			null,
+			new ModelMetadata(
+				SuperdavAiProvider::IMAGE_MODEL_ID,
+				'Superdav Image',
+				array( CapabilityEnum::imageGeneration() ),
+				array()
+			),
+			SuperdavAiProvider::metadata()
+		);
+
+		$this->assertInstanceOf( SuperdavAiImageGenerationModel::class, $model );
 	}
 
 	/**

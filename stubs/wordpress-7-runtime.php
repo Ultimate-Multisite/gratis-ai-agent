@@ -894,6 +894,26 @@ namespace WordPress\AiClient\Providers\OpenAiCompatibleImplementation {
 		 */
 		protected function prepareMessagesParam( array $messages, ?string $system_instruction = null ): array { return array(); }
 	}
+
+	abstract class AbstractOpenAiCompatibleImageGenerationModel implements \WordPress\AiClient\Providers\Models\Contracts\ModelInterface {
+		/**
+		 * @param \WordPress\AiClient\Providers\Models\DTO\ModelMetadata $metadata          Model metadata.
+		 * @param \WordPress\AiClient\Providers\DTO\ProviderMetadata     $provider_metadata Provider metadata.
+		 */
+		public function __construct( \WordPress\AiClient\Providers\Models\DTO\ModelMetadata $metadata, \WordPress\AiClient\Providers\DTO\ProviderMetadata $provider_metadata ) {}
+
+		/** @param \WordPress\AiClient\Providers\Http\DTO\RequestOptions $request_options Request options. */
+		public function setRequestOptions( \WordPress\AiClient\Providers\Http\DTO\RequestOptions $request_options ): void {}
+
+		/** @return \WordPress\AiClient\Providers\Http\DTO\RequestOptions|null */
+		public function getRequestOptions(): ?\WordPress\AiClient\Providers\Http\DTO\RequestOptions { return null; }
+
+		/**
+		 * @param array<int, mixed> $prompt Prompt.
+		 * @return array<string, mixed>
+		 */
+		protected function prepareGenerateImageParams( array $prompt ): array { return array(); }
+	}
 }
 
 namespace WordPress\AiClient {

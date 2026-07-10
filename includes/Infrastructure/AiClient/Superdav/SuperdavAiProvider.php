@@ -12,6 +12,7 @@ use WordPress\AiClient\Providers\Enums\ProviderTypeEnum;
 use WordPress\AiClient\Providers\Http\Enums\RequestAuthenticationMethod;
 use WordPress\AiClient\Providers\Models\Contracts\ModelInterface;
 use WordPress\AiClient\Providers\Models\DTO\ModelMetadata;
+use WordPress\AiClient\Providers\Models\Enums\CapabilityEnum;
 
 if ( ! defined( 'ABSPATH' ) ) {
 	exit;
@@ -27,6 +28,7 @@ final class SuperdavAiProvider extends AbstractApiProvider {
 	public const DEFAULT_BASE_URL  = 'https://api.sdaiagent.com/v1';
 	public const FAST_MODEL_ID     = 'superdav-chat-fast';
 	public const DEFAULT_MODEL_ID  = 'superdav-chat-pro';
+	public const IMAGE_MODEL_ID    = 'superdav-image';
 
 	/**
 	 * Reasoning effort hints for managed Superdav model aliases.
@@ -95,6 +97,12 @@ final class SuperdavAiProvider extends AbstractApiProvider {
 	 * @return ModelInterface
 	 */
 	protected static function createModel( ModelMetadata $model_metadata, ProviderMetadata $provider_metadata ): ModelInterface {
+		foreach ( $model_metadata->getSupportedCapabilities() as $capability ) {
+			if ( $capability->equals( CapabilityEnum::imageGeneration() ) ) {
+				return new SuperdavAiImageGenerationModel( $model_metadata, $provider_metadata );
+			}
+		}
+
 		if ( self::responses_tool_search_enabled( $provider_metadata->getId(), $model_metadata->getId() ) ) {
 			return new SuperdavAiResponsesToolSearchTextGenerationModel( $model_metadata, $provider_metadata );
 		}
