@@ -1068,7 +1068,7 @@ class ContentSearchAbility extends AbstractFileAbility {
 	}
 
 	protected function description(): string {
-		return __( 'Search for text content within files in wp-content.', 'superdav-ai-agent' );
+		return __( 'Search for literal text within files in wp-content. The needle argument is required and must contain the text to find; derive it from the user request before calling. Never call this ability with empty arguments.', 'superdav-ai-agent' );
 	}
 
 	protected function input_schema(): array {
@@ -1077,7 +1077,7 @@ class ContentSearchAbility extends AbstractFileAbility {
 			'properties' => [
 				'needle'       => [
 					'type'        => 'string',
-					'description' => 'The text to search for',
+					'description' => 'Required literal text to search for (for example, a template name, CSS class, URL fragment, or visible label from the user request).',
 				],
 				'directory'    => [
 					'type'        => 'string',

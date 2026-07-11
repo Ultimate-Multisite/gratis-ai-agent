@@ -64,6 +64,18 @@ class GetPageHtmlAbilityTest extends WP_UnitTestCase {
 		$this->assertSame( 'sd_ai_agent_empty_selector', $result->get_error_code() );
 	}
 
+	/**
+	 * The model-facing schema explains how to recover when the exact selector is unknown.
+	 */
+	public function test_schema_exposes_required_selector_with_fallback_guidance(): void {
+		$ability = $this->make_ability();
+		$schema  = $ability->get_input_schema();
+
+		$this->assertSame( [ 'selector' ], $schema['required'] );
+		$this->assertStringContainsString( 'Required CSS selector', $schema['properties']['selector']['description'] );
+		$this->assertStringContainsString( 'Use "body"', $schema['properties']['selector']['description'] );
+	}
+
 	// ── execute_callback — valid selector ─────────────────────────────────
 
 	/**

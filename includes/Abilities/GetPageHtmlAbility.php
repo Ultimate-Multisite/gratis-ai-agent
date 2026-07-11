@@ -30,7 +30,7 @@ class GetPageHtmlAbility extends AbstractAbility {
 	}
 
 	protected function description(): string {
-		return __( 'Get the HTML content of elements on the current page the user is viewing. Use CSS selectors to query specific elements. Returns the outer HTML of matched elements.', 'superdav-ai-agent' );
+		return __( 'Get the HTML content of elements on the current page the user is viewing. The selector argument is required; use "body" when the exact element is unknown, then refine the selector from the returned HTML. Never call this ability with empty arguments.', 'superdav-ai-agent' );
 	}
 
 	protected function input_schema(): array {
@@ -39,7 +39,7 @@ class GetPageHtmlAbility extends AbstractAbility {
 			'properties' => [
 				'selector'   => [
 					'type'        => 'string',
-					'description' => 'CSS selector to query (e.g., "#main-content", ".entry-title", "article", "body")',
+					'description' => 'Required CSS selector to query (e.g., "#main-content", ".entry-title", "article"). Use "body" when the exact selector is unknown.',
 				],
 				'max_length' => [
 					'type'        => 'number',
