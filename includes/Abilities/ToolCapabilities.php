@@ -410,12 +410,7 @@ class ToolCapabilities {
 		 */
 		$resolved_cap = (string) apply_filters( 'sd_ai_agent_tool_capability', $tool_cap, $ability_id );
 
-		$tool_ok = self::is_one_turn_approved( $ability_id )
-			|| ( self::capability_exists( $resolved_cap )
-				? current_user_can( $resolved_cap )
-				: current_user_can( self::FALLBACK_CAP ) );
-
-		if ( ! $tool_ok ) {
+		if ( ! self::tool_layer_passes( $ability_id, $resolved_cap ) ) {
 			return false;
 		}
 
@@ -446,14 +441,12 @@ class ToolCapabilities {
 		/** This filter is documented in {@see current_user_can()}. */
 		$resolved_cap = (string) apply_filters( 'sd_ai_agent_tool_capability', $tool_cap, $ability_id );
 
-		$skip_tool_layer = self::is_one_turn_approved( $ability_id );
+		if ( ! self::tool_layer_passes( $ability_id, $resolved_cap ) ) {
+			$resolved_cap_exists = self::capability_exists( $resolved_cap );
+			$capability          = $resolved_cap_exists ? $resolved_cap : self::FALLBACK_CAP;
+			$layer               = $resolved_cap_exists ? 'per-tool' : 'fallback';
 
-		if ( ! $skip_tool_layer && self::capability_exists( $resolved_cap ) ) {
-			if ( ! current_user_can( $resolved_cap ) ) {
-				return self::capability_denial_error( $ability_id, $resolved_cap, 'per-tool' );
-			}
-		} elseif ( ! $skip_tool_layer && ! current_user_can( self::FALLBACK_CAP ) ) {
-			return self::capability_denial_error( $ability_id, self::FALLBACK_CAP, 'fallback' );
+			return self::capability_denial_error( $ability_id, $capability, $layer );
 		}
 
 		foreach ( self::resolve_core_caps( $ability_id ) as $core_cap ) {
@@ -463,6 +456,23 @@ class ToolCapabilities {
 		}
 
 		return null;
+	}
+
+	/**
+	 * Whether the plugin-specific permission layer passes for an ability.
+	 *
+	 * Current-turn approval satisfies this layer. Otherwise, the current user
+	 * must hold the resolved per-tool capability when it exists, or the
+	 * admin-only fallback capability when it does not.
+	 *
+	 * @param string $ability_id   The ability ID.
+	 * @param string $resolved_cap The filtered per-tool capability name.
+	 */
+	private static function tool_layer_passes( string $ability_id, string $resolved_cap ): bool {
+		return self::is_one_turn_approved( $ability_id )
+			|| ( self::capability_exists( $resolved_cap )
+				? current_user_can( $resolved_cap )
+				: current_user_can( self::FALLBACK_CAP ) );
 	}
 
 	/**
