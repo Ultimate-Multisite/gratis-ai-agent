@@ -569,6 +569,24 @@ class FileAbilitiesTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * The model-facing schema makes the search term requirement actionable.
+	 */
+	public function test_content_search_schema_exposes_required_needle_guidance(): void {
+		$ability = new \SdAiAgent\Abilities\ContentSearchAbility(
+			'sd-ai-agent/content-search',
+			[
+				'label'       => 'Search Content',
+				'description' => 'Search for text content within files in wp-content.',
+			]
+		);
+		$schema  = $ability->get_input_schema();
+
+		$this->assertSame( [ 'needle' ], $schema['required'] );
+		$this->assertStringContainsString( 'Required literal text', $schema['properties']['needle']['description'] );
+		$this->assertStringContainsString( 'user request', $schema['properties']['needle']['description'] );
+	}
+
+	/**
 	 * Test handle_search_content returns array structure.
 	 */
 	public function test_handle_search_content_returns_structure() {
