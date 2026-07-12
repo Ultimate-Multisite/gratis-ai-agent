@@ -284,7 +284,7 @@ class SiteHealthAbilities {
 			'sd-ai-agent/site-health-summary',
 			[
 				'label'               => __( 'Site Health Summary', 'superdav-ai-agent' ),
-				'description'         => __( 'Run all site health checks (plugins, errors, disk, security, performance) in one call and return a consolidated summary report.', 'superdav-ai-agent' ),
+				'description'         => __( 'Run site availability and health checks (public frontend, multisite context, tenant limits, plugins, errors, disk, security, performance) in one read-only call.', 'superdav-ai-agent' ),
 				'category'            => 'sd-ai-agent',
 				'input_schema'        => [
 					'type'       => 'object',
@@ -300,6 +300,7 @@ class SiteHealthAbilities {
 					'type'       => 'object',
 					'properties' => [
 						'overall_status' => [ 'type' => 'string' ],
+						'availability'   => [ 'type' => 'object' ],
 						'plugin_updates' => [ 'type' => 'object' ],
 						'error_log'      => [ 'type' => 'object' ],
 						'disk_space'     => [ 'type' => 'object' ],
@@ -741,6 +742,7 @@ class SiteHealthAbilities {
 	 */
 	public static function handle_site_health_summary( array $input ): array|WP_Error {
 		$force_refresh = (bool) ( $input['force_refresh'] ?? false );
+		$availability  = self::diagnose_site_availability();
 
 		$plugin_updates = self::handle_check_plugin_updates( [ 'force_refresh' => $force_refresh ] );
 		$error_log      = self::handle_scan_php_error_log(
@@ -757,7 +759,9 @@ class SiteHealthAbilities {
 		// Determine overall status.
 		$overall_status = 'healthy';
 
-		if ( ! is_wp_error( $security ) && ! empty( $security['issues'] ) ) {
+		if ( 'critical' === $availability['status'] ) {
+			$overall_status = 'critical';
+		} elseif ( ! is_wp_error( $security ) && ! empty( $security['issues'] ) ) {
 			$overall_status = 'critical';
 		} elseif ( ! is_wp_error( $disk_space ) && 'critical' === ( $disk_space['status'] ?? '' ) ) {
 			$overall_status = 'critical';
@@ -772,6 +776,7 @@ class SiteHealthAbilities {
 
 		return [
 			'overall_status' => $overall_status,
+			'availability'   => $availability,
 			'plugin_updates' => is_wp_error( $plugin_updates ) ? [ 'error' => $plugin_updates->get_error_message() ] : $plugin_updates,
 			'error_log'      => is_wp_error( $error_log ) ? [ 'error' => $error_log->get_error_message() ] : $error_log,
 			'disk_space'     => is_wp_error( $disk_space ) ? [ 'error' => $disk_space->get_error_message() ] : $disk_space,
@@ -779,6 +784,87 @@ class SiteHealthAbilities {
 			'performance'    => is_wp_error( $performance ) ? [ 'error' => $performance->get_error_message() ] : $performance,
 			'generated_at'   => gmdate( 'Y-m-d H:i:s' ),
 			'agent_guidance' => self::get_read_only_diagnostic_guidance(),
+		];
+	}
+
+	/**
+	 * Diagnose the public frontend and mapped-tenant availability without mutation.
+	 *
+	 * Ultimate Multisite integrations can supply tenant data through the
+	 * `sd_ai_agent_site_availability_tenant_context` filter. Expected keys are
+	 * visits_enabled, visit_limit, current_month_visits, site_type, customer_id,
+	 * membership_id, domain_active, and domain_primary.
+	 *
+	 * @return array<string, mixed>
+	 */
+	public static function diagnose_site_availability(): array {
+		$url      = home_url( '/' );
+		$response = wp_safe_remote_get(
+			$url,
+			[
+				'timeout'     => 10,
+				'redirection' => 5,
+			]
+		);
+
+		$frontend = [
+			'url'              => $url,
+			'effective_url'    => $url,
+			'status_code'      => 0,
+			'title'            => '',
+			'body_fingerprint' => '',
+			'wp_die_page'      => false,
+		];
+
+		if ( is_wp_error( $response ) ) {
+			$frontend['transport_error'] = $response->get_error_message();
+		} else {
+			$body                        = (string) wp_remote_retrieve_body( $response );
+			$frontend['status_code']     = wp_remote_retrieve_response_code( $response );
+			$frontend['server']          = (string) wp_remote_retrieve_header( $response, 'server' );
+			$frontend['cache_control']   = (string) wp_remote_retrieve_header( $response, 'cache-control' );
+			$frontend['title']           = self::extract_response_title( $body );
+			$plain_body                  = trim( preg_replace( '/\s+/', ' ', wp_strip_all_tags( $body ) ) ?? '' );
+			$frontend['body_fingerprint'] = mb_substr( $plain_body, 0, 240 );
+			$frontend['wp_die_page']     = 'not available' === strtolower( $frontend['title'] )
+				|| str_contains( strtolower( $plain_body ), 'this site is not available at this time' );
+		}
+
+		/**
+		 * Filter read-only tenant availability context supplied by a WaaS plugin.
+		 *
+		 * @param array<string, mixed> $tenant Tenant context.
+		 * @param int                  $blog_id Current blog ID.
+		 * @param string               $url Exact mapped site URL being diagnosed.
+		 */
+		$tenant = self::get_ultimate_multisite_tenant_context();
+		$tenant = apply_filters( 'sd_ai_agent_site_availability_tenant_context', $tenant, get_current_blog_id(), $url );
+		$tenant = is_array( $tenant ) ? $tenant : [];
+		$enabled = ! empty( $tenant['visits_enabled'] );
+		$limit   = isset( $tenant['visit_limit'] ) ? (int) $tenant['visit_limit'] : 0;
+		$current = isset( $tenant['current_month_visits'] ) ? (int) $tenant['current_month_visits'] : 0;
+		$locked  = $enabled && $limit > 0 && $current > $limit;
+		$tenant['would_lock_frontend'] = $locked;
+		$tenant['lock_reason']         = $locked ? 'visits_exceeded' : null;
+
+		$is_critical = isset( $frontend['transport_error'] )
+			|| (int) $frontend['status_code'] >= 400
+			|| true === $frontend['wp_die_page']
+			|| $locked;
+
+		return [
+			'status'            => $is_critical ? 'critical' : 'healthy',
+			'frontend'          => $frontend,
+			'wordpress_context' => [
+				'home'                => home_url(),
+				'siteurl'             => site_url(),
+				'is_multisite'        => is_multisite(),
+				'blog_id'             => get_current_blog_id(),
+				'current_host'        => (string) wp_parse_url( $url, PHP_URL_HOST ),
+				'domain_current_site' => defined( 'DOMAIN_CURRENT_SITE' ) ? (string) constant( 'DOMAIN_CURRENT_SITE' ) : null,
+				'install_id'          => basename( untrailingslashit( ABSPATH ) ),
+			],
+			'tenant'            => $tenant,
 		];
 	}
 
@@ -823,6 +909,68 @@ class SiteHealthAbilities {
 	 */
 	private static function get_read_only_diagnostic_guidance(): string {
 		return 'Summarize these diagnostic findings for the user. Do not install plugins, activate plugins, change security settings, write files, run remediation commands, or navigate away unless the user explicitly requested remediation.';
+	}
+
+	/**
+	 * Extract a safe HTML response title.
+	 *
+	 * @param string $body Response body.
+	 * @return string
+	 */
+	private static function extract_response_title( string $body ): string {
+		if ( 1 !== preg_match( '/<title[^>]*>(.*?)<\/title>/is', $body, $matches ) ) {
+			return '';
+		}
+
+		return trim( wp_strip_all_tags( html_entity_decode( $matches[1], ENT_QUOTES | ENT_HTML5, 'UTF-8' ) ) );
+	}
+
+	/**
+	 * Read supported availability fields from the current Ultimate Multisite site.
+	 *
+	 * The filter in diagnose_site_availability remains the integration point for
+	 * versions or extensions that store these values under different keys.
+	 *
+	 * @return array<string, mixed>
+	 */
+	private static function get_ultimate_multisite_tenant_context(): array {
+		if ( ! function_exists( 'wu_get_current_site' ) ) {
+			return [];
+		}
+
+		$site = wu_get_current_site();
+		if ( ! is_object( $site ) ) {
+			return [];
+		}
+
+		$tenant = [];
+		$methods = [
+			'site_type'            => 'get_type',
+			'customer_id'          => 'get_customer_id',
+			'membership_id'        => 'get_membership_id',
+			'current_month_visits' => 'get_visits_count',
+		];
+		foreach ( $methods as $key => $method ) {
+			if ( is_callable( [ $site, $method ] ) ) {
+				$tenant[ $key ] = $site->{$method}();
+			}
+		}
+
+		if ( is_callable( [ $site, 'get_meta' ] ) ) {
+			$meta_keys = [
+				'visits_enabled'       => 'visits_enabled',
+				'visit_limit'          => 'visits_limit',
+				'current_month_visits' => 'visits_current_month',
+			];
+			foreach ( $meta_keys as $key => $meta_key ) {
+				$value = $site->get_meta( $meta_key );
+				if ( null !== $value && '' !== $value ) {
+					$tenant[ $key ] = $value;
+				}
+			}
+		}
+
+		return $tenant;
 	}
 
 	/**

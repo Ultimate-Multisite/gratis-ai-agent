@@ -396,6 +396,70 @@ class SiteHealthAbilitiesTest extends WP_UnitTestCase {
 		$this->assertStringContainsString( 'unless the user explicitly requested remediation', $result['agent_guidance'] );
 	}
 
+	/**
+	 * A public WordPress unavailable page must make availability critical.
+	 */
+	public function test_availability_reports_frontend_404_wp_die_as_critical() {
+		add_filter(
+			'pre_http_request',
+			static function () {
+				return [
+					'headers'  => [ 'server' => 'test' ],
+					'body'     => '<html><head><title>Not available</title></head><body>This site is not available at this time.</body></html>',
+					'response' => [ 'code' => 404, 'message' => 'Not Found' ],
+					'cookies'  => [],
+					'filename' => null,
+				];
+			}
+		);
+
+		try {
+			$result = SiteHealthAbilities::diagnose_site_availability();
+			$this->assertSame( 'critical', $result['status'] );
+			$this->assertSame( 404, $result['frontend']['status_code'] );
+			$this->assertTrue( $result['frontend']['wp_die_page'] );
+			$this->assertSame( 'Not available', $result['frontend']['title'] );
+		} finally {
+			remove_all_filters( 'pre_http_request' );
+		}
+	}
+
+	/**
+	 * Ultimate Multisite visit overages must expose the frontend lock reason.
+	 */
+	public function test_availability_reports_tenant_visit_limit_lock() {
+		add_filter(
+			'pre_http_request',
+			static function () {
+				return [
+					'headers'  => [],
+					'body'     => '<html><head><title>Site</title></head><body>OK</body></html>',
+					'response' => [ 'code' => 200, 'message' => 'OK' ],
+					'cookies'  => [],
+					'filename' => null,
+				];
+			}
+		);
+		add_filter(
+			'sd_ai_agent_site_availability_tenant_context',
+			static fn() => [
+				'visits_enabled'      => true,
+				'visit_limit'         => 2,
+				'current_month_visits' => 3,
+			]
+		);
+
+		try {
+			$result = SiteHealthAbilities::diagnose_site_availability();
+			$this->assertSame( 'critical', $result['status'] );
+			$this->assertTrue( $result['tenant']['would_lock_frontend'] );
+			$this->assertSame( 'visits_exceeded', $result['tenant']['lock_reason'] );
+		} finally {
+			remove_all_filters( 'pre_http_request' );
+			remove_all_filters( 'sd_ai_agent_site_availability_tenant_context' );
+		}
+	}
+
 	// ─── handle_detect_fresh_install ───────────────────────────────
 
 	/**

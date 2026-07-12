@@ -11,6 +11,7 @@ Use this skill when the user asks about managing a WordPress Multisite network �
 - `wp site activate <id>` — Activate a site
 - `wp site deactivate <id>` — Deactivate a site
 - `wp site archive <id>` — Archive a site
+- Mapped custom domains must be diagnosed using their exact public URL. Pass `--url=<mapped-site-url>` so WordPress selects the intended blog; a network-domain check can target a different tenant and hide frontend locks.
 
 ### Super Admins
 - `wp super-admin list` — List super admins
@@ -41,3 +42,4 @@ After network changes:
 2. Check that plugins/themes are correctly activated
 3. Confirm user roles across relevant sites
 4. Test network admin access
+5. For Ultimate Multisite customer-owned sites, verify the primary domain mapping and tenant limits (including monthly visits) against the exact mapped URL
