@@ -5,6 +5,12 @@ Use this skill when the user reports errors, performance issues, white screens, 
 
 ## Diagnostic Commands
 
+### Availability First
+- Run `sd-ai-agent/site-health-summary` first and inspect its `availability` result. A public frontend HTTP 4xx/5xx or WordPress `wp_die` page is critical even when REST, login, and admin routes work.
+- Compare the exact public frontend host with REST, login, and admin responses; do not infer frontend health from an API-only check.
+- On Multisite, target the mapped site URL exactly (`wp --url=<mapped-site-url> ...`) and verify the returned blog/domain context before inspecting tenant limits.
+- For Ultimate Multisite tenants, inspect the active/primary domain mapping, site/customer/membership identity, monthly-visits setting, limit, and current-month total. Keep diagnosis read-only unless remediation was explicitly requested.
+
 ### Error Investigation
 - `wp option get siteurl` / `wp option get home` — Check for URL mismatches
 - `wp eval "error_reporting(E_ALL); ini_set('display_errors', 1);"` — Check PHP error reporting
