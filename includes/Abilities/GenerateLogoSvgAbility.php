@@ -356,10 +356,10 @@ class GenerateLogoSvgAbility extends AbstractAbility {
 			'selected_attachment_id' => $attachment_id,
 			'logo_set'               => true,
 			'logo_visible'           => $visibility['visible'],
-			'visibility_context'      => $visibility['context'],
-			'refresh_url'             => $visibility['refresh_url'],
-			'next_step'               => $visibility['next_step'],
-			'message'                 => $message,
+			'visibility_context'     => $visibility['context'],
+			'refresh_url'            => $visibility['refresh_url'],
+			'next_step'              => $visibility['next_step'],
+			'message'                => $message,
 		];
 	}
 
@@ -387,7 +387,7 @@ class GenerateLogoSvgAbility extends AbstractAbility {
 
 		$header_parts = get_block_templates( [ 'area' => 'header' ], 'wp_template_part' );
 		foreach ( $header_parts as $header_part ) {
-			if ( isset( $header_part->content ) && has_block( 'core/site-logo', $header_part->content ) ) {
+			if ( has_block( 'core/site-logo', $header_part->content ) ) {
 				return [
 					'visible'     => true,
 					'context'     => 'block_theme_header',
