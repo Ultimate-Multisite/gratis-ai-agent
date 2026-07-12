@@ -47,7 +47,7 @@ class MemoryAbilitiesTest extends WP_UnitTestCase {
 	}
 
 	/**
-	 * Test handle_memory_save returns actionable database error detail.
+	 * Test handle_memory_save returns a safe, actionable database diagnostic.
 	 */
 	public function test_handle_memory_save_failure_includes_persistence_detail() {
 		global $wpdb;
@@ -114,7 +114,9 @@ class MemoryAbilitiesTest extends WP_UnitTestCase {
 		$this->assertIsArray( $result );
 		$this->assertFalse( $result['success'] );
 		$this->assertStringContainsString( 'Failed to save memory:', $result['error'] );
-		$this->assertStringContainsString( 'Simulated memory insert failure.', $result['error'] );
+		$this->assertSame( 'memory_insert_failed', $result['error_code'] );
+		$this->assertStringContainsString( 'database error log', $result['error'] );
+		$this->assertStringNotContainsString( 'Simulated memory insert failure.', $result['error'] );
 		$this->assertNotSame( 'Failed to save memory.', $result['error'] );
 	}
 

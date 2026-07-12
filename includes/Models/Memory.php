@@ -22,6 +22,13 @@ class Memory {
 	private static string $last_error = '';
 
 	/**
+	 * Stable code for the most recent persistence error.
+	 *
+	 * @var string
+	 */
+	private static string $last_error_code = '';
+
+	/**
 	 * Valid memory categories.
 	 *
 	 * `site_brief` is a dedicated category for the structured site
@@ -46,6 +53,13 @@ class Memory {
 	 */
 	public static function get_last_error(): string {
 		return self::$last_error;
+	}
+
+	/**
+	 * Return the stable code for the most recent persistence error.
+	 */
+	public static function get_last_error_code(): string {
+		return self::$last_error_code;
 	}
 
 	/**
@@ -106,7 +120,8 @@ class Memory {
 	public static function create( string $category, string $content ) {
 		global $wpdb;
 		/** @var \wpdb $wpdb */
-		self::$last_error = '';
+		self::$last_error      = '';
+		self::$last_error_code = '';
 
 		if ( ! in_array( $category, self::CATEGORIES, true ) ) {
 			$category = 'general';
@@ -133,9 +148,8 @@ class Memory {
 			return (int) $wpdb->insert_id;
 		}
 
-		self::$last_error = '' !== $wpdb->last_error
-			? $wpdb->last_error
-			: 'The memory table insert did not complete.';
+		self::$last_error_code = 'memory_insert_failed';
+		self::$last_error      = 'The database rejected the memory insert. Check the database error log and retry.';
 
 		return false;
 	}
@@ -163,7 +177,8 @@ class Memory {
 			return true;
 		}
 
-		self::$last_error = sprintf(
+		self::$last_error_code = 'memory_table_unavailable';
+		self::$last_error      = sprintf(
 			'The memory table %s is unavailable for the current site. Run the Superdav AI Agent database upgrade for this blog and retry.',
 			$table
 		);

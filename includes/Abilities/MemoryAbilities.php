@@ -164,16 +164,19 @@ class MemoryAbilities {
 		$id = Memory::create( $category, $content );
 
 		if ( false === $id ) {
-			$error = Memory::get_last_error();
+			$error      = Memory::get_last_error();
+			$error_code = Memory::get_last_error_code();
 			if ( '' === $error ) {
-				$error = 'Memory persistence is unavailable. Check that the Superdav AI Agent database tables exist for the current site and retry.';
+				$error      = 'Memory persistence is unavailable. Check that the Superdav AI Agent database tables exist for the current site and retry.';
+				$error_code = 'memory_persistence_unavailable';
 			}
 
 			return [
-				'success' => false,
-				'id'      => 0,
-				'message' => '',
-				'error'   => 'Failed to save memory: ' . $error,
+				'success'    => false,
+				'id'         => 0,
+				'message'    => '',
+				'error_code' => $error_code,
+				'error'      => 'Failed to save memory: ' . $error,
 			];
 		}
 
