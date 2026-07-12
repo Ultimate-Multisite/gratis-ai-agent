@@ -425,6 +425,62 @@ class SiteHealthAbilitiesTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * Frontend transport failures must make availability critical.
+	 */
+	public function test_availability_reports_transport_failure_as_critical() {
+		add_filter(
+			'pre_http_request',
+			static function ( mixed $preempt, array $parsed_args ): \WP_Error {
+				unset( $preempt );
+				self::assertSame( 5, $parsed_args['timeout'] );
+				self::assertSame( 2, $parsed_args['redirection'] );
+
+				return new \WP_Error( 'http_request_failed', 'Connection refused' );
+			},
+			10,
+			2
+		);
+
+		try {
+			$result = SiteHealthAbilities::diagnose_site_availability();
+			$this->assertSame( 'critical', $result['status'] );
+			$this->assertSame( 'Connection refused', $result['frontend']['transport_error'] );
+			$this->assertSame( 0, $result['frontend']['status_code'] );
+		} finally {
+			remove_all_filters( 'pre_http_request' );
+		}
+	}
+
+	/**
+	 * A normal frontend response without a tenant lock must remain healthy.
+	 */
+	public function test_availability_reports_healthy_frontend() {
+		add_filter(
+			'pre_http_request',
+			static function () {
+				return [
+					'headers'  => [],
+					'body'     => '<html><head><title>Healthy site</title></head><body>Welcome</body></html>',
+					'response' => [ 'code' => 200, 'message' => 'OK' ],
+					'cookies'  => [],
+					'filename' => null,
+				];
+			}
+		);
+
+		try {
+			$result = SiteHealthAbilities::diagnose_site_availability();
+			$this->assertSame( 'healthy', $result['status'] );
+			$this->assertSame( 200, $result['frontend']['status_code'] );
+			$this->assertFalse( $result['frontend']['wp_die_page'] );
+			$this->assertArrayNotHasKey( 'transport_error', $result['frontend'] );
+			$this->assertArrayNotHasKey( 'effective_url', $result['frontend'] );
+		} finally {
+			remove_all_filters( 'pre_http_request' );
+		}
+	}
+
+	/**
 	 * Ultimate Multisite visit overages must expose the frontend lock reason.
 	 */
 	public function test_availability_reports_tenant_visit_limit_lock() {
