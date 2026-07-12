@@ -430,12 +430,12 @@ class SiteHealthAbilitiesTest extends WP_UnitTestCase {
 	public function test_availability_reports_transport_failure_as_critical() {
 		add_filter(
 			'pre_http_request',
-			static function ( mixed $preempt, array $parsed_args ): WP_Error {
+			static function ( mixed $preempt, array $parsed_args ): \WP_Error {
 				unset( $preempt );
 				self::assertSame( 5, $parsed_args['timeout'] );
 				self::assertSame( 2, $parsed_args['redirection'] );
 
-				return new WP_Error( 'http_request_failed', 'Connection refused' );
+				return new \WP_Error( 'http_request_failed', 'Connection refused' );
 			},
 			10,
 			2
