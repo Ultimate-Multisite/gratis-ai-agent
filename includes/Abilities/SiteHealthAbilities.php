@@ -819,14 +819,16 @@ class SiteHealthAbilities {
 		if ( is_wp_error( $response ) ) {
 			$frontend['transport_error'] = $response->get_error_message();
 		} else {
-			$body                        = (string) wp_remote_retrieve_body( $response );
-			$frontend['status_code']     = wp_remote_retrieve_response_code( $response );
-			$frontend['server']          = (string) wp_remote_retrieve_header( $response, 'server' );
-			$frontend['cache_control']   = (string) wp_remote_retrieve_header( $response, 'cache-control' );
-			$frontend['title']           = self::extract_response_title( $body );
-			$plain_body                  = trim( preg_replace( '/\s+/', ' ', wp_strip_all_tags( $body ) ) ?? '' );
+			$body                         = (string) wp_remote_retrieve_body( $response );
+			$server_header                = wp_remote_retrieve_header( $response, 'server' );
+			$cache_header                 = wp_remote_retrieve_header( $response, 'cache-control' );
+			$frontend['status_code']      = wp_remote_retrieve_response_code( $response );
+			$frontend['server']           = self::normalize_header_value( $server_header );
+			$frontend['cache_control']    = self::normalize_header_value( $cache_header );
+			$frontend['title']            = self::extract_response_title( $body );
+			$plain_body                   = trim( preg_replace( '/\s+/', ' ', wp_strip_all_tags( $body ) ) ?? '' );
 			$frontend['body_fingerprint'] = mb_substr( $plain_body, 0, 240 );
-			$frontend['wp_die_page']     = 'not available' === strtolower( $frontend['title'] )
+			$frontend['wp_die_page']      = 'not available' === strtolower( $frontend['title'] )
 				|| str_contains( strtolower( $plain_body ), 'this site is not available at this time' );
 		}
 
@@ -837,13 +839,14 @@ class SiteHealthAbilities {
 		 * @param int                  $blog_id Current blog ID.
 		 * @param string               $url Exact mapped site URL being diagnosed.
 		 */
-		$tenant = self::get_ultimate_multisite_tenant_context();
-		$tenant = apply_filters( 'sd_ai_agent_site_availability_tenant_context', $tenant, get_current_blog_id(), $url );
-		$tenant = is_array( $tenant ) ? $tenant : [];
+		$tenant  = self::get_ultimate_multisite_tenant_context();
+		$tenant  = apply_filters( 'sd_ai_agent_site_availability_tenant_context', $tenant, get_current_blog_id(), $url );
+		$tenant  = is_array( $tenant ) ? $tenant : [];
 		$enabled = ! empty( $tenant['visits_enabled'] );
 		$limit   = isset( $tenant['visit_limit'] ) ? (int) $tenant['visit_limit'] : 0;
 		$current = isset( $tenant['current_month_visits'] ) ? (int) $tenant['current_month_visits'] : 0;
 		$locked  = $enabled && $limit > 0 && $current > $limit;
+
 		$tenant['would_lock_frontend'] = $locked;
 		$tenant['lock_reason']         = $locked ? 'visits_exceeded' : null;
 
@@ -926,6 +929,25 @@ class SiteHealthAbilities {
 	}
 
 	/**
+	 * Normalize a WordPress HTTP header to a printable string.
+	 *
+	 * @param string|array<mixed> $header Header value.
+	 * @return string
+	 */
+	private static function normalize_header_value( string|array $header ): string {
+		if ( is_string( $header ) ) {
+			return $header;
+		}
+
+		$values = array_map(
+			static fn( mixed $value ): string => is_scalar( $value ) ? (string) $value : '',
+			$header
+		);
+
+		return implode( ', ', array_filter( $values ) );
+	}
+
+	/**
 	 * Read supported availability fields from the current Ultimate Multisite site.
 	 *
 	 * The filter in diagnose_site_availability remains the integration point for
@@ -943,7 +965,7 @@ class SiteHealthAbilities {
 			return [];
 		}
 
-		$tenant = [];
+		$tenant  = [];
 		$methods = [
 			'site_type'            => 'get_type',
 			'customer_id'          => 'get_customer_id',
