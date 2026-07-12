@@ -174,6 +174,62 @@ class GenerateLogoSvgAbilityTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * Selection distinguishes updating the custom-logo setting from visibility.
+	 */
+	public function test_select_candidate_warns_when_block_theme_header_omits_site_logo(): void {
+		$attachment_id = $this->create_test_svg_attachment();
+		$ability       = new class( 'sd-ai-agent/generate-logo-svg' ) extends GenerateLogoSvgAbility {
+			protected function site_logo_visibility_context(): array {
+				return [
+					'visible'     => false,
+					'context'     => 'block_theme_header_missing_site_logo',
+					'refresh_url' => 'https://example.org/wp-admin/site-editor.php?path=%2Fpatterns',
+					'next_step'   => 'Add a Site Logo block.',
+				];
+			}
+		};
+
+		$result = $ability->run( [
+			'action'        => 'select_candidate',
+			'attachment_id' => $attachment_id,
+		] );
+
+		$this->assertIsArray( $result );
+		$this->assertTrue( $result['logo_set'] );
+		$this->assertFalse( $result['logo_visible'] );
+		$this->assertSame( 'block_theme_header_missing_site_logo', $result['visibility_context'] );
+		$this->assertStringContainsString( 'not visible yet', $result['message'] );
+		$this->assertStringContainsString( 'Site Logo block', $result['next_step'] );
+	}
+
+	/**
+	 * Selection identifies a block-theme header that renders the logo.
+	 */
+	public function test_select_candidate_returns_frontend_refresh_for_rendered_site_logo(): void {
+		$attachment_id = $this->create_test_svg_attachment();
+		$ability       = new class( 'sd-ai-agent/generate-logo-svg' ) extends GenerateLogoSvgAbility {
+			protected function site_logo_visibility_context(): array {
+				return [
+					'visible'     => true,
+					'context'     => 'block_theme_header',
+					'refresh_url' => 'https://example.org/',
+					'next_step'   => 'Refresh the site front end.',
+				];
+			}
+		};
+
+		$result = $ability->run( [
+			'action'        => 'select_candidate',
+			'attachment_id' => $attachment_id,
+		] );
+
+		$this->assertIsArray( $result );
+		$this->assertTrue( $result['logo_visible'] );
+		$this->assertSame( 'https://example.org/', $result['refresh_url'] );
+		$this->assertStringContainsString( 'refresh the site front end', $result['message'] );
+	}
+
+	/**
 	 * select_candidate wires site_icon option for SVG attachments.
 	 */
 	public function test_select_candidate_sets_site_icon_for_svg(): void {

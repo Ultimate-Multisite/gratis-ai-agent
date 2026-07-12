@@ -343,10 +343,65 @@ class GenerateLogoSvgAbility extends AbstractAbility {
 			update_option( 'site_icon', $attachment_id );
 		}
 
+		$visibility = $this->site_logo_visibility_context();
+		$message    = __( 'The selected attachment is now the WordPress custom logo.', 'superdav-ai-agent' );
+
+		if ( false === $visibility['visible'] ) {
+			$message .= ' ' . __( 'The active block theme does not render a Site Logo block in its header, so the logo is not visible yet. Add a Site Logo block to the active header in the Site Editor.', 'superdav-ai-agent' );
+		} elseif ( true === $visibility['visible'] ) {
+			$message .= ' ' . __( 'The active block-theme header renders a Site Logo block; refresh the site front end to see it.', 'superdav-ai-agent' );
+		}
+
 		return [
 			'selected_attachment_id' => $attachment_id,
 			'logo_set'               => true,
-			'message'                => __( 'Site logo updated successfully.', 'superdav-ai-agent' ),
+			'logo_visible'           => $visibility['visible'],
+			'visibility_context'      => $visibility['context'],
+			'refresh_url'             => $visibility['refresh_url'],
+			'next_step'               => $visibility['next_step'],
+			'message'                 => $message,
+		];
+	}
+
+	/**
+	 * Describe whether the active theme is known to render the custom logo.
+	 *
+	 * Classic themes decide where to call the custom-logo API at runtime, so their
+	 * visibility cannot be established safely here. For block themes, inspect the
+	 * active header template parts for a core/site-logo block before claiming that
+	 * the newly selected attachment is visible.
+	 *
+	 * @return array{visible:bool|null,context:string,refresh_url:string,next_step:string}
+	 */
+	protected function site_logo_visibility_context(): array {
+		$front_url = home_url( '/' );
+
+		if ( ! function_exists( 'wp_is_block_theme' ) || ! wp_is_block_theme() ) {
+			return [
+				'visible'     => null,
+				'context'     => 'classic_theme_unverified',
+				'refresh_url' => $front_url,
+				'next_step'   => __( 'Refresh the site front end and verify that the active theme renders its custom logo.', 'superdav-ai-agent' ),
+			];
+		}
+
+		$header_parts = get_block_templates( [ 'area' => 'header' ], 'wp_template_part' );
+		foreach ( $header_parts as $header_part ) {
+			if ( isset( $header_part->content ) && has_block( 'core/site-logo', $header_part->content ) ) {
+				return [
+					'visible'     => true,
+					'context'     => 'block_theme_header',
+					'refresh_url' => $front_url,
+					'next_step'   => __( 'Refresh the site front end to verify the rendered logo.', 'superdav-ai-agent' ),
+				];
+			}
+		}
+
+		return [
+			'visible'     => false,
+			'context'     => 'block_theme_header_missing_site_logo',
+			'refresh_url' => admin_url( 'site-editor.php?path=%2Fpatterns' ),
+			'next_step'   => __( 'Open the Site Editor, edit the active header, and add a Site Logo block.', 'superdav-ai-agent' ),
 		];
 	}
 
