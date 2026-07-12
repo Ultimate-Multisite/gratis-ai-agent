@@ -802,14 +802,13 @@ class SiteHealthAbilities {
 		$response = wp_safe_remote_get(
 			$url,
 			[
-				'timeout'     => 10,
-				'redirection' => 5,
+				'timeout'     => 5,
+				'redirection' => 2,
 			]
 		);
 
 		$frontend = [
 			'url'              => $url,
-			'effective_url'    => $url,
 			'status_code'      => 0,
 			'title'            => '',
 			'body_fingerprint' => '',
@@ -986,7 +985,7 @@ class SiteHealthAbilities {
 			];
 			foreach ( $meta_keys as $key => $meta_key ) {
 				$value = $site->get_meta( $meta_key );
-				if ( null !== $value && '' !== $value ) {
+				if ( ! array_key_exists( $key, $tenant ) && null !== $value && '' !== $value ) {
 					$tenant[ $key ] = $value;
 				}
 			}
