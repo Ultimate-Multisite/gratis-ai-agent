@@ -466,7 +466,7 @@ export function mountEmbed( config ) {
 			</header>
 			<div class="sdaa-embed__messages"></div>
 			<form class="sdaa-embed__form">
-				<input class="sdaa-embed__input" type="text" autocomplete="off" placeholder="${ STRINGS.placeholder }" />
+				<textarea class="sdaa-embed__input" rows="1" autocomplete="off" placeholder="${ STRINGS.placeholder }"></textarea>
 				<button class="sdaa-embed__send" type="submit">${ STRINGS.send }</button>
 			</form>
 		</section>`;
@@ -483,6 +483,11 @@ export function mountEmbed( config ) {
 	const form = root.querySelector( '.sdaa-embed__form' );
 	const input = root.querySelector( '.sdaa-embed__input' );
 	let sessionToken = '';
+
+	const autosizeInput = () => {
+		input.style.height = 'auto';
+		input.style.height = `${ input.scrollHeight }px`;
+	};
 
 	const setMessageContent = ( item, role, text ) => {
 		item.textContent = '';
@@ -504,6 +509,7 @@ export function mountEmbed( config ) {
 	};
 
 	addMessage( 'assistant', config.greeting );
+	autosizeInput();
 
 	const setUnavailable = ( message = STRINGS.unavailable ) => {
 		root.classList.add( 'is-unavailable' );
@@ -543,6 +549,23 @@ export function mountEmbed( config ) {
 		launcher.setAttribute( 'aria-expanded', 'false' );
 	} );
 
+	input.addEventListener( 'input', autosizeInput );
+
+	input.addEventListener( 'keydown', ( event ) => {
+		if ( event.key !== 'Enter' || event.shiftKey || event.isComposing ) {
+			return;
+		}
+
+		event.preventDefault();
+		if ( typeof form.requestSubmit === 'function' ) {
+			form.requestSubmit();
+		} else {
+			form.dispatchEvent(
+				new Event( 'submit', { bubbles: true, cancelable: true } )
+			);
+		}
+	} );
+
 	form.addEventListener( 'submit', async ( event ) => {
 		event.preventDefault();
 		const message = input.value.trim();
@@ -550,6 +573,7 @@ export function mountEmbed( config ) {
 			return;
 		}
 		input.value = '';
+		autosizeInput();
 		addMessage( 'user', message );
 		const pending = addMessage( 'assistant', STRINGS.thinking );
 		try {

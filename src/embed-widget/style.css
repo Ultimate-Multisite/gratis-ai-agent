@@ -65,6 +65,7 @@
 }
 
 .sdaa-embed__form {
+	align-items: flex-end;
 	border-top: 1px solid var(--sdaa-embed-border);
 	border-bottom: 0;
 }
@@ -176,12 +177,17 @@
 
 .sdaa-embed__input {
 	min-width: 0;
+	max-height: 140px;
 	flex: 1;
 	padding: 10px 12px;
+	overflow-y: auto;
 	border: 1px solid var(--sdaa-embed-border);
-	border-radius: 999px;
+	border-radius: 20px;
 	background: var(--sdaa-embed-surface);
 	color: var(--sdaa-embed-text);
+	font: inherit;
+	line-height: 1.35;
+	resize: none;
 }
 
 .sdaa-embed__send {
