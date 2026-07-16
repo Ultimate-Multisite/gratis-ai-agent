@@ -72,6 +72,52 @@ describe( 'embed widget', () => {
 		expect( launcher.getAttribute( 'aria-expanded' ) ).toBe( 'false' );
 	} );
 
+	test( 'uses an autosizing multiline textarea for user input', () => {
+		const root = module.mountEmbed( {
+			...module.resolveConfig( null, {} ),
+			apiBase: 'https://example.test/wp-json/sd-ai-agent/v1',
+			mount: '#mount',
+		} );
+		const input = root.querySelector( '.sdaa-embed__input' );
+
+		expect( input.tagName ).toBe( 'TEXTAREA' );
+		expect( input.getAttribute( 'rows' ) ).toBe( '1' );
+
+		Object.defineProperty( input, 'scrollHeight', {
+			configurable: true,
+			value: 72,
+		} );
+		input.value = 'Line one\nLine two\nLine three';
+		input.dispatchEvent( new Event( 'input', { bubbles: true } ) );
+
+		expect( input.style.height ).toBe( '72px' );
+	} );
+
+	test( 'submits textarea on Enter while preserving Shift+Enter for newlines', () => {
+		const root = module.mountEmbed( {
+			...module.resolveConfig( null, {} ),
+			apiBase: 'https://example.test/wp-json/sd-ai-agent/v1',
+			mount: '#mount',
+		} );
+		const form = root.querySelector( '.sdaa-embed__form' );
+		const input = root.querySelector( '.sdaa-embed__input' );
+		form.requestSubmit = jest.fn();
+
+		input.dispatchEvent(
+			new KeyboardEvent( 'keydown', {
+				bubbles: true,
+				key: 'Enter',
+				shiftKey: true,
+			} )
+		);
+		expect( form.requestSubmit ).not.toHaveBeenCalled();
+
+		input.dispatchEvent(
+			new KeyboardEvent( 'keydown', { bubbles: true, key: 'Enter' } )
+		);
+		expect( form.requestSubmit ).toHaveBeenCalledTimes( 1 );
+	} );
+
 	test( 'renders assistant markdown and makes source URLs clickable', () => {
 		const root = module.mountEmbed( {
 			...module.resolveConfig( null, {} ),
