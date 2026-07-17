@@ -129,6 +129,24 @@ final class SettingsController {
 			)
 		);
 
+		// Superdav AI account balance and account-portal metadata.
+		register_rest_route(
+			RestController::NAMESPACE,
+			'/superdav-account',
+			array(
+				array(
+					'methods'             => WP_REST_Server::READABLE,
+					'callback'            => array( $this, 'handle_get_superdav_account' ),
+					'permission_callback' => array( __CLASS__, 'check_admin_permission' ),
+				),
+				array(
+					'methods'             => WP_REST_Server::CREATABLE,
+					'callback'            => array( $this, 'handle_refresh_superdav_account' ),
+					'permission_callback' => array( __CLASS__, 'check_admin_permission' ),
+				),
+			)
+		);
+
 		// Role permissions endpoints — only registered when access control feature is enabled.
 		if ( Features::is_enabled( Features::ACCESS_CONTROL ) ) {
 			register_rest_route(
@@ -500,6 +518,27 @@ final class SettingsController {
 		$this->settings->update( $data );
 
 		return new WP_REST_Response( $this->settings->get(), 200 );
+	}
+
+	/**
+	 * Return safe account metadata for the Superdav AI account manager.
+	 */
+	public function handle_get_superdav_account(): WP_REST_Response {
+		return new WP_REST_Response( ( new SuperdavSiteConnectionService() )->get_status(), 200 );
+	}
+
+	/**
+	 * Refresh the account balance from the managed Superdav service.
+	 *
+	 * @return WP_REST_Response|WP_Error Safe account status or service error.
+	 */
+	public function handle_refresh_superdav_account(): WP_REST_Response|WP_Error {
+		$status = ( new SuperdavSiteConnectionService() )->refresh_account_status();
+		if ( $status instanceof WP_Error ) {
+			return $status;
+		}
+
+		return new WP_REST_Response( $status, 200 );
 	}
 
 	/**

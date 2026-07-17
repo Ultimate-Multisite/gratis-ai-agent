@@ -25,8 +25,9 @@ final class SuperdavSiteConnectionService {
 	public const INSTALLATION_ID_OPTION = 'sd_ai_agent_site_installation_id';
 	public const TOKEN_METADATA_OPTION  = 'sd_ai_agent_cloud_connection_metadata';
 
-	private const REGISTRATION_ENDPOINT_PATH = 'site/installations';
-	private const REVOCATION_ENDPOINT_PATH   = 'site/token/revoke';
+	private const REGISTRATION_ENDPOINT_PATH   = 'site/installations';
+	private const REVOCATION_ENDPOINT_PATH     = 'site/token/revoke';
+	private const ACCOUNT_STATUS_ENDPOINT_PATH = 'site/account';
 
 	/**
 	 * Build safe connector status metadata.
@@ -37,6 +38,8 @@ final class SuperdavSiteConnectionService {
 		$token    = $this->get_stored_token();
 		$metadata = $this->get_metadata();
 
+		$account_portal_url = $this->get_account_portal_url( $metadata );
+
 		$status = array(
 			'configured'                => '' !== $token,
 			'provider'                  => SuperdavAiProvider::PROVIDER_ID,
@@ -44,8 +47,9 @@ final class SuperdavSiteConnectionService {
 			'installation_id'           => $this->get_installation_id(),
 			'site_url'                  => $this->get_verified_site_url(),
 			'connected_at'              => $metadata['connected_at'] ?? null,
-			'account_connect_available' => '' !== $this->get_account_connect_url(),
-			'account_connect_url'       => $this->get_account_connect_url(),
+			'account_connect_available' => '' !== $account_portal_url,
+			'account_connect_url'       => $account_portal_url,
+			'account_portal_url'        => $account_portal_url,
 		);
 
 		foreach ( array( 'tier', 'verified', 'request_id', 'connection_notice_pending' ) as $key ) {
@@ -68,6 +72,62 @@ final class SuperdavSiteConnectionService {
 		}
 
 		return $status;
+	}
+
+	/**
+	 * Refresh safe account metadata from the managed Superdav service.
+	 *
+	 * The bearer token remains inside WordPress and is never included in the
+	 * response. Payment data is handled only by the external account portal.
+	 *
+	 * @return array<string, mixed>|WP_Error Safe account status or refresh error.
+	 */
+	public function refresh_account_status(): array|WP_Error {
+		$token = $this->get_stored_token();
+		if ( '' === $token ) {
+			return new WP_Error( 'sd_ai_agent_cloud_account_unavailable', __( 'Connect Superdav AI before refreshing your account.', 'superdav-ai-agent' ), array( 'status' => 412 ) );
+		}
+
+		$endpoint = $this->get_account_status_endpoint();
+		if ( '' === $endpoint ) {
+			return new WP_Error( 'sd_ai_agent_cloud_account_unavailable', __( 'Superdav AI account status is unavailable.', 'superdav-ai-agent' ), array( 'status' => 503 ) );
+		}
+
+		$response = wp_remote_post(
+			$endpoint,
+			array(
+				'timeout' => 15,
+				'headers' => array(
+					'Authorization' => 'Bearer ' . $token,
+					'Content-Type'  => 'application/json',
+				),
+				'body'    => wp_json_encode(
+					array(
+						'installation_id' => $this->get_installation_id(),
+						'site_url'        => $this->get_verified_site_url(),
+					)
+				),
+			)
+		);
+
+		if ( is_wp_error( $response ) ) {
+			return new WP_Error( 'sd_ai_agent_cloud_account_refresh_failed', __( 'Superdav AI account refresh failed.', 'superdav-ai-agent' ), array( 'status' => 502 ) );
+		}
+
+		$status_code = (int) wp_remote_retrieve_response_code( $response );
+		if ( $status_code < 200 || $status_code >= 300 ) {
+			return new WP_Error( 'sd_ai_agent_cloud_account_refresh_failed', __( 'Superdav AI account refresh failed.', 'superdav-ai-agent' ), array( 'status' => 502 ) );
+		}
+
+		$body = json_decode( wp_remote_retrieve_body( $response ), true );
+		if ( ! is_array( $body ) ) {
+			return new WP_Error( 'sd_ai_agent_cloud_account_invalid', __( 'Superdav AI account response was invalid.', 'superdav-ai-agent' ), array( 'status' => 502 ) );
+		}
+
+		$metadata = array_merge( $this->get_metadata(), $this->sanitize_remote_metadata( $body ) );
+		update_option( self::TOKEN_METADATA_OPTION, $metadata, false );
+
+		return $this->get_status();
 	}
 
 	/**
@@ -198,9 +258,11 @@ final class SuperdavSiteConnectionService {
 	}
 
 	/**
-	 * Return the account/OAuth connect URL when the service exposes one.
+	 * Return the account portal URL when the service exposes one.
+	 *
+	 * @param array<string, mixed> $metadata Safe connection metadata.
 	 */
-	private function get_account_connect_url(): string {
+	private function get_account_portal_url( array $metadata ): string {
 		/**
 		 * Filters the Superdav account connection URL for future paid-account flows.
 		 *
@@ -210,9 +272,30 @@ final class SuperdavSiteConnectionService {
 		 * @param string $installation_id Durable site-installation identity.
 		 * @param string $site_url        Verified site URL.
 		 */
-		$url = apply_filters( 'sd_ai_agent_cloud_account_connect_url', '', $this->get_installation_id(), $this->get_verified_site_url() );
+		$default_url = $metadata['account_portal_url'] ?? '';
+		$default_url = is_string( $default_url ) ? $default_url : '';
+		$url         = apply_filters( 'sd_ai_agent_cloud_account_connect_url', $default_url, $this->get_installation_id(), $this->get_verified_site_url() );
 
 		return is_string( $url ) ? esc_url_raw( $url ) : '';
+	}
+
+	/**
+	 * Resolve the managed service endpoint used to refresh safe wallet metadata.
+	 */
+	private function get_account_status_endpoint(): string {
+		$endpoint = $this->configured_endpoint( 'SD_AI_AGENT_CLOUD_ACCOUNT_STATUS_ENDPOINT', self::ACCOUNT_STATUS_ENDPOINT_PATH );
+
+		/**
+		 * Filters the Superdav account status endpoint.
+		 *
+		 * The endpoint receives the site token server-to-server and must never be
+		 * exposed to the browser or include credential query parameters.
+		 *
+		 * @param string $endpoint Account-status endpoint URL.
+		 */
+		$endpoint = apply_filters( 'sd_ai_agent_cloud_account_status_endpoint', $endpoint );
+
+		return is_string( $endpoint ) ? esc_url_raw( $endpoint ) : '';
 	}
 
 	/**
@@ -382,6 +465,7 @@ final class SuperdavSiteConnectionService {
 			'verified',
 			'connect_required',
 			'request_id',
+			'account_portal_url',
 		);
 		$safe         = array();
 
