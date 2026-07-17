@@ -894,6 +894,58 @@ namespace WordPress\AiClient\Providers\OpenAiCompatibleImplementation {
 		 */
 		protected function prepareMessagesParam( array $messages, ?string $system_instruction = null ): array { return array(); }
 	}
+
+	abstract class AbstractOpenAiCompatibleImageGenerationModel implements \WordPress\AiClient\Providers\Models\Contracts\ModelInterface {
+		/**
+		 * @param \WordPress\AiClient\Providers\Models\DTO\ModelMetadata $metadata          Model metadata.
+		 * @param \WordPress\AiClient\Providers\DTO\ProviderMetadata     $provider_metadata Provider metadata.
+		 */
+		public function __construct( \WordPress\AiClient\Providers\Models\DTO\ModelMetadata $metadata, \WordPress\AiClient\Providers\DTO\ProviderMetadata $provider_metadata ) {}
+
+		/** @param \WordPress\AiClient\Providers\Http\DTO\RequestOptions $request_options Request options. */
+		public function setRequestOptions( \WordPress\AiClient\Providers\Http\DTO\RequestOptions $request_options ): void {}
+
+		/** @return \WordPress\AiClient\Providers\Http\DTO\RequestOptions|null */
+		public function getRequestOptions(): ?\WordPress\AiClient\Providers\Http\DTO\RequestOptions { return null; }
+
+		/** @param \WordPress\AiClient\Providers\Models\DTO\ModelConfig $config Model config. */
+		public function setConfig( \WordPress\AiClient\Providers\Models\DTO\ModelConfig $config ): void {}
+
+		/** @return \WordPress\AiClient\Providers\Models\DTO\ModelConfig */
+		public function getConfig(): \WordPress\AiClient\Providers\Models\DTO\ModelConfig { return new \WordPress\AiClient\Providers\Models\DTO\ModelConfig(); }
+
+		/** @return \WordPress\AiClient\Providers\Models\DTO\ModelMetadata */
+		public function metadata(): \WordPress\AiClient\Providers\Models\DTO\ModelMetadata { return new \WordPress\AiClient\Providers\Models\DTO\ModelMetadata(); }
+
+		/** @return \WordPress\AiClient\Providers\DTO\ProviderMetadata */
+		public function providerMetadata(): \WordPress\AiClient\Providers\DTO\ProviderMetadata { return new \WordPress\AiClient\Providers\DTO\ProviderMetadata(); }
+
+		/** @param \WordPress\AiClient\Providers\Http\Contracts\HttpTransporterInterface $httpTransporter HTTP transporter. */
+		public function setHttpTransporter( \WordPress\AiClient\Providers\Http\Contracts\HttpTransporterInterface $httpTransporter ): void {}
+
+		/** @return \WordPress\AiClient\Providers\Http\Contracts\HttpTransporterInterface */
+		public function getHttpTransporter(): \WordPress\AiClient\Providers\Http\Contracts\HttpTransporterInterface {
+			return new class() implements \WordPress\AiClient\Providers\Http\Contracts\HttpTransporterInterface {
+				public function send( \WordPress\AiClient\Providers\Http\DTO\Request $request ): \WordPress\AiClient\Providers\Http\DTO\Response { return new \WordPress\AiClient\Providers\Http\DTO\Response(); }
+			};
+		}
+
+		/** @param \WordPress\AiClient\Providers\Http\Contracts\RequestAuthenticationInterface $requestAuthentication Request authentication. */
+		public function setRequestAuthentication( \WordPress\AiClient\Providers\Http\Contracts\RequestAuthenticationInterface $requestAuthentication ): void {}
+
+		/** @return \WordPress\AiClient\Providers\Http\Contracts\RequestAuthenticationInterface */
+		public function getRequestAuthentication(): \WordPress\AiClient\Providers\Http\Contracts\RequestAuthenticationInterface {
+			return new class() implements \WordPress\AiClient\Providers\Http\Contracts\RequestAuthenticationInterface {
+				public function authenticateRequest( \WordPress\AiClient\Providers\Http\DTO\Request $request ): \WordPress\AiClient\Providers\Http\DTO\Request { return $request; }
+			};
+		}
+
+		/**
+		 * @param array<int, mixed> $prompt Prompt.
+		 * @return array<string, mixed>
+		 */
+		protected function prepareGenerateImageParams( array $prompt ): array { return array(); }
+	}
 }
 
 namespace WordPress\AiClient {

@@ -84,6 +84,7 @@ class Settings {
 		// Superdav managed models.
 		'superdav-chat-fast'            => 128000,
 		'superdav-chat-pro'             => 200000,
+		'superdav-image'                => 32000,
 		// Anthropic.
 		'claude-opus-4-6'               => 200000,
 		'claude-sonnet-4-6'             => 200000,
@@ -185,6 +186,7 @@ class Settings {
 		// ── Superdav managed models ───────────────────────────────────────
 		'superdav-chat-fast'          => 8192,
 		'superdav-chat-pro'           => 16384,
+		'superdav-image'              => 1,
 		// ── Anthropic ──────────────────────────────────────────────────
 		// Opus 4.6 / 4.7 document 128K; Opus 4.5 documents 64K; Opus 4.1
 		// and Opus 4 document 32K. Newer point releases have higher caps

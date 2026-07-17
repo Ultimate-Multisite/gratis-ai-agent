@@ -5,6 +5,9 @@ declare(strict_types=1);
 namespace SdAiAgent\Infrastructure\AiClient\Superdav;
 
 use SdAiAgent\Bootstrap\ModelCapabilityHandler;
+use WordPress\AiClient\Files\Enums\FileTypeEnum;
+use WordPress\AiClient\Files\Enums\MediaOrientationEnum;
+use WordPress\AiClient\Messages\Enums\ModalityEnum;
 use WordPress\AiClient\Providers\Http\DTO\Request;
 use WordPress\AiClient\Providers\Http\DTO\Response;
 use WordPress\AiClient\Providers\Http\Enums\HttpMethodEnum;
@@ -61,11 +64,13 @@ final class SuperdavAiModelMetadataDirectory extends AbstractOpenAiCompatibleMod
 				? $item['name']
 				: $item['id'];
 
+			$capabilities = self::supported_capabilities( $item );
+
 			$models[] = new ModelMetadata(
 				$item['id'],
 				$name,
-				self::supported_capabilities( $item ),
-				self::supported_options()
+				$capabilities,
+				self::supported_options( $capabilities )
 			);
 		}
 
@@ -73,11 +78,26 @@ final class SuperdavAiModelMetadataDirectory extends AbstractOpenAiCompatibleMod
 	}
 
 	/**
+	 * Common OpenAI-compatible options for the advertised model capabilities.
+	 *
+	 * @param array $capabilities Model capabilities.
+	 * @phpstan-param list<CapabilityEnum> $capabilities
+	 * @return list<SupportedOption>
+	 */
+	private static function supported_options( array $capabilities ): array {
+		if ( self::has_capability( $capabilities, CapabilityEnum::imageGeneration() ) ) {
+			return self::image_supported_options();
+		}
+
+		return self::text_supported_options();
+	}
+
+	/**
 	 * Common OpenAI-compatible text generation options.
 	 *
 	 * @return list<SupportedOption>
 	 */
-	private static function supported_options(): array {
+	private static function text_supported_options(): array {
 		return array(
 			new SupportedOption( OptionEnum::systemInstruction() ),
 			new SupportedOption( OptionEnum::maxTokens() ),
@@ -91,6 +111,49 @@ final class SuperdavAiModelMetadataDirectory extends AbstractOpenAiCompatibleMod
 			new SupportedOption( OptionEnum::outputSchema() ),
 			new SupportedOption( OptionEnum::customOptions() ),
 		);
+	}
+
+	/**
+	 * Common OpenAI-compatible image generation options.
+	 *
+	 * @return list<SupportedOption>
+	 */
+	private static function image_supported_options(): array {
+		return array(
+			new SupportedOption( OptionEnum::inputModalities(), array( array( ModalityEnum::text() ) ) ),
+			new SupportedOption( OptionEnum::outputModalities(), array( array( ModalityEnum::image() ) ) ),
+			new SupportedOption( OptionEnum::candidateCount() ),
+			new SupportedOption( OptionEnum::outputMimeType(), array( 'image/png', 'image/jpeg', 'image/webp' ) ),
+			new SupportedOption( OptionEnum::outputFileType(), array( FileTypeEnum::inline() ) ),
+			new SupportedOption(
+				OptionEnum::outputMediaOrientation(),
+				array(
+					MediaOrientationEnum::square(),
+					MediaOrientationEnum::landscape(),
+					MediaOrientationEnum::portrait(),
+				)
+			),
+			new SupportedOption( OptionEnum::outputMediaAspectRatio(), array( '1:1', '3:2', '2:3' ) ),
+			new SupportedOption( OptionEnum::customOptions() ),
+		);
+	}
+
+	/**
+	 * Determine whether a capability list contains a specific capability.
+	 *
+	 * @param array          $capabilities Model capabilities.
+	 * @phpstan-param list<CapabilityEnum> $capabilities
+	 * @param CapabilityEnum $target Capability to find.
+	 * @return bool
+	 */
+	private static function has_capability( array $capabilities, CapabilityEnum $target ): bool {
+		foreach ( $capabilities as $capability ) {
+			if ( $capability->equals( $target ) ) {
+				return true;
+			}
+		}
+
+		return false;
 	}
 
 	/**
