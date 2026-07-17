@@ -207,6 +207,13 @@ class AgentLoop {
 	/** @var list<string> Per-agent Tier 1 tool override (empty = use global default). */
 	private array $agent_tier_1_tools = array();
 
+	/**
+	 * Whether this run already consumed its single reduced-payload 413 fallback.
+	 *
+	 * @var bool
+	 */
+	private bool $provider_payload_fallback_used = false;
+
 	/** @var list<string> Ability names approved for one resumed confirmation turn. */
 	private array $approved_once_abilities = array();
 
@@ -998,7 +1005,7 @@ class AgentLoop {
 			$this->save_active_job_checkpoint( self::CHECKPOINT_BEFORE_PROVIDER_CALL, $iterations + 1 );
 
 			$this->last_loop_phase = 'provider_call';
-			$result                = $this->send_prompt();
+			$result                = $this->send_prompt_with_payload_recovery();
 			$this->last_loop_phase = 'provider_response_received';
 
 			if ( is_wp_error( $result ) ) {
@@ -1124,7 +1131,7 @@ class AgentLoop {
 
 					++$this->iterations_used;
 					$this->last_loop_phase = 'provider_followup_call';
-					$followup_result       = $this->send_prompt();
+					$followup_result       = $this->send_prompt_with_payload_recovery();
 					$this->last_loop_phase = 'provider_followup_response_received';
 
 					if ( ! is_wp_error( $followup_result ) ) {
@@ -1374,7 +1381,7 @@ class AgentLoop {
 
 			++$this->iterations_used;
 			$this->last_loop_phase = 'provider_fallback_call';
-			$fallback_result       = $this->send_prompt();
+			$fallback_result       = $this->send_prompt_with_payload_recovery();
 			$this->last_loop_phase = 'provider_fallback_response_received';
 
 			if ( ! is_wp_error( $fallback_result ) ) {
@@ -1437,6 +1444,146 @@ class AgentLoop {
 				)
 			)
 		);
+	}
+
+	/**
+	 * Apply local input budgets and make at most one reduced 413 fallback.
+	 *
+	 * @return \WordPress\AiClient\Results\DTO\GenerativeAiResult|WP_Error
+	 */
+	private function send_prompt_with_payload_recovery() {
+		$provider_id  = $this->resolve_provider_id();
+		$model_id     = (string) $this->model_id;
+		$byte_budget  = ConversationTrimmer::get_request_byte_budget( $provider_id, $model_id );
+		$token_budget = ConversationTrimmer::get_request_token_budget( $provider_id, $model_id );
+
+		$this->history = ConversationTrimmer::trim_to_budget( $this->history, $byte_budget, $token_budget );
+		$before_bytes  = ConversationTrimmer::estimate_total_bytes( $this->history );
+		$before_tokens = ConversationTrimmer::estimate_total_tokens( $this->history );
+
+		if ( ! ConversationTrimmer::fits_budget( $this->history, $byte_budget, $token_budget ) ) {
+			ProviderTraceLogger::record_payload_limit(
+				$provider_id,
+				$model_id,
+				413,
+				$before_bytes,
+				$before_tokens,
+				$byte_budget,
+				true,
+				false,
+				true
+			);
+
+			return new WP_Error(
+				'sd_ai_agent_provider_payload_budget_exceeded',
+				__( 'This request is too large to send safely. Compact the conversation or shorten the latest message and remove large attachments before retrying.', 'superdav-ai-agent' ),
+				array(
+					'status_code'             => 413,
+					'provider_id'             => $provider_id,
+					'model_id'                => $model_id,
+					'request_bytes_estimate'  => $before_bytes,
+					'request_tokens_estimate' => $before_tokens,
+					'request_budget_bytes'    => $byte_budget,
+					'local_rejection'         => true,
+					'fallback_attempted'      => false,
+				)
+			);
+		}
+
+		$result = $this->send_prompt();
+		if ( ! is_wp_error( $result ) || ! $this->is_payload_limit_error( $result ) ) {
+			return $result;
+		}
+
+		ProviderTraceLogger::record_payload_limit(
+			$provider_id,
+			$model_id,
+			413,
+			$before_bytes,
+			$before_tokens,
+			$byte_budget,
+			false,
+			$this->provider_payload_fallback_used,
+			true
+		);
+
+		if ( $this->provider_payload_fallback_used ) {
+			return $this->with_payload_recovery_metadata( $result, $before_bytes, $before_tokens, false );
+		}
+
+		$target_bytes  = max( 1, (int) floor( $before_bytes * 0.6 ) );
+		$target_tokens = max( 1, (int) floor( $before_tokens * 0.6 ) );
+		$reduced       = ConversationTrimmer::trim_to_budget( $this->history, $target_bytes, $target_tokens );
+		$after_bytes   = ConversationTrimmer::estimate_total_bytes( $reduced );
+		$after_tokens  = ConversationTrimmer::estimate_total_tokens( $reduced );
+
+		if ( $after_bytes >= $before_bytes ) {
+			return $this->with_payload_recovery_metadata( $result, $before_bytes, $before_tokens, false );
+		}
+
+		$this->provider_payload_fallback_used = true;
+		$this->history                        = $reduced;
+		$this->message_log[]                  = array(
+			'type'               => 'provider_payload_recovery',
+			'message'            => __( 'The provider rejected the request size. Retrying once with reduced conversation history.', 'superdav-ai-agent' ),
+			'status_code'        => 413,
+			'request_size_class' => ProviderTraceLogger::classify_request_size( $before_bytes ),
+			'fallback_attempted' => true,
+			'payload_reduced'    => true,
+			'sequence'           => $this->next_activity_sequence(),
+		);
+		$this->fire_progress();
+
+		$retry_result = $this->send_prompt();
+		if ( is_wp_error( $retry_result ) ) {
+			if ( $this->is_payload_limit_error( $retry_result ) ) {
+				ProviderTraceLogger::record_payload_limit(
+					$provider_id,
+					$model_id,
+					413,
+					$after_bytes,
+					$after_tokens,
+					$byte_budget,
+					false,
+					true,
+					true
+				);
+			}
+
+			return $this->with_payload_recovery_metadata( $retry_result, $after_bytes, $after_tokens, true );
+		}
+
+		return $retry_result;
+	}
+
+	/** Whether an error represents a local or upstream HTTP 413. */
+	private function is_payload_limit_error( WP_Error $error ): bool {
+		if ( in_array( $error->get_error_code(), array( 'sd_ai_agent_provider_payload_too_large', 'sd_ai_agent_provider_payload_budget_exceeded' ), true ) ) {
+			return true;
+		}
+
+		$data = $error->get_error_data();
+		return is_array( $data ) && 413 === (int) ( $data['status_code'] ?? 0 );
+	}
+
+	/**
+	 * Attach safe fallback diagnostics without replacing recoverable history data.
+	 *
+	 * @param WP_Error $error          Payload error.
+	 * @param int      $request_bytes  Estimated history bytes sent most recently.
+	 * @param int      $request_tokens Estimated history tokens sent most recently.
+	 * @param bool     $reduced        Whether the outgoing history was reduced.
+	 */
+	private function with_payload_recovery_metadata( WP_Error $error, int $request_bytes, int $request_tokens, bool $reduced ): WP_Error {
+		$error_data                      = $error->get_error_data();
+		$data                            = is_array( $error_data ) ? $error_data : array();
+		$data['request_bytes_estimate']  = $request_bytes;
+		$data['request_tokens_estimate'] = $request_tokens;
+		$data['fallback_attempted']      = $this->provider_payload_fallback_used;
+		$data['payload_reduced']         = $reduced;
+		$error->add_data( $data );
+
+		return $error;
 	}
 
 	/**
@@ -1558,6 +1705,7 @@ class AgentLoop {
 		$last_error = null;
 
 		for ( $attempt = 1; $attempt <= $this->provider_retry_max_attempts; ++$attempt ) {
+			ProviderTraceLogger::set_runtime_context( $provider_id, (string) $resolved_model_id );
 			try {
 				$result = $builder->generate_text_result();
 				if ( is_wp_error( $result ) ) {
@@ -1568,6 +1716,8 @@ class AgentLoop {
 				}
 			} catch ( \Throwable $e ) {
 				$last_error = $e;
+			} finally {
+				ProviderTraceLogger::clear_runtime_context();
 			}
 
 			$status_code = $this->extract_provider_error_status( $last_error );
@@ -1802,12 +1952,37 @@ class AgentLoop {
 	 */
 	private function provider_error_to_wp_error( $error, int $status_code ): WP_Error {
 		if ( 413 === $status_code ) {
+			$data     = array( 'status_code' => $status_code );
+			$is_local = false;
+			if ( $error instanceof WP_Error ) {
+				$source_data = $error->get_error_data();
+				$is_local    = 'sd_ai_agent_provider_payload_budget_exceeded' === $error->get_error_code()
+					|| ( is_array( $source_data ) && ! empty( $source_data['local_rejection'] ) );
+
+				if ( is_array( $source_data ) ) {
+					$safe_keys = array(
+						'provider_id',
+						'model_id',
+						'request_bytes',
+						'request_tokens_estimate',
+						'request_budget_bytes',
+						'request_size_class',
+						'local_rejection',
+					);
+					foreach ( $safe_keys as $safe_key ) {
+						if ( isset( $source_data[ $safe_key ] ) && is_scalar( $source_data[ $safe_key ] ) ) {
+							$data[ $safe_key ] = $source_data[ $safe_key ];
+						}
+					}
+				}
+			}
+
 			return new WP_Error(
-				'sd_ai_agent_provider_payload_too_large',
-				__( 'The AI provider rejected this request because it exceeds its payload limit. Start a new chat and send a smaller request. If you attached files, remove or reduce them before retrying.', 'superdav-ai-agent' ),
-				array(
-					'status_code' => $status_code,
-				)
+				$is_local ? 'sd_ai_agent_provider_payload_budget_exceeded' : 'sd_ai_agent_provider_payload_too_large',
+				$is_local
+					? __( 'This request is too large to send safely. Compact the conversation or shorten the latest message and remove large attachments before retrying.', 'superdav-ai-agent' )
+					: __( 'The selected AI provider or intermediary rejected this request because it exceeds its payload limit. Start a new chat and send a smaller request. If you attached files, remove or reduce them before retrying.', 'superdav-ai-agent' ),
+				$data
 			);
 		}
 

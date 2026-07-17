@@ -35,6 +35,16 @@ class ProviderTraceLogger {
 	private static array $inflight = [];
 
 	/**
+	 * Runtime-selected provider/model for the synchronous SDK request in flight.
+	 *
+	 * @var array{provider_id:string,model_id:string}
+	 */
+	private static array $runtime_context = array(
+		'provider_id' => '',
+		'model_id'    => '',
+	);
+
+	/**
 	 * Known AI provider URL patterns and their canonical provider IDs.
 	 *
 	 * These IDs are used by the lightweight error-log path that runs even
@@ -91,21 +101,48 @@ class ProviderTraceLogger {
 	}
 
 	/**
+	 * Set safe runtime attribution for the next synchronous provider request.
+	 *
+	 * @param string $provider_id Runtime-selected provider ID.
+	 * @param string $model_id    Runtime-selected model ID.
+	 */
+	public static function set_runtime_context( string $provider_id, string $model_id ): void {
+		self::$runtime_context = array(
+			'provider_id' => sanitize_key( $provider_id ),
+			'model_id'    => sanitize_text_field( $model_id ),
+		);
+	}
+
+	/** Clear runtime provider attribution after a synchronous request. */
+	public static function clear_runtime_context(): void {
+		self::$runtime_context = array(
+			'provider_id' => '',
+			'model_id'    => '',
+		);
+	}
+
+	/**
 	 * Hook: pre_http_request — capture outgoing request details.
 	 *
 	 * @param false|array<string, mixed>|\WP_Error $response    A preemptive return value of an HTTP request. Default false.
 	 * @param array<string, mixed>                 $parsed_args HTTP request arguments.
 	 * @param string                               $url         The request URL.
-	 * @return false|array<string, mixed>|\WP_Error Unchanged response (we never short-circuit).
+	 * @return false|array<string, mixed>|\WP_Error Unchanged response, or a safe local size rejection.
 	 */
 	public static function on_pre_http_request( $response, array $parsed_args, string $url ) {
-		if ( ! ProviderTrace::is_enabled() ) {
+		if ( false !== $response ) {
 			return $response;
 		}
 
-		$request_body = is_string( $parsed_args['body'] ?? null )
+		$request_body  = is_string( $parsed_args['body'] ?? null )
 			? $parsed_args['body']
 			: (string) wp_json_encode( $parsed_args['body'] ?? '' );
+		$trace_enabled = ProviderTrace::is_enabled();
+		$has_context   = '' !== self::$runtime_context['provider_id'];
+
+		if ( ! $trace_enabled && ! $has_context ) {
+			return $response;
+		}
 
 		// When tracing is enabled we cast a wider net than the canonical
 		// allowlist so connector plugins that proxy to HuggingFace,
@@ -113,14 +150,55 @@ class ProviderTraceLogger {
 		// captured. The error-log path on `on_http_response()` still uses
 		// the strict allowlist so we don't spam logs for unrelated 4xx
 		// responses.
-		$provider_id = self::resolve_provider_for_trace( $url, $request_body );
-		if ( '' === $provider_id ) {
+		$matched_provider_id = self::resolve_provider_for_trace( $url, $request_body );
+		if ( '' === $matched_provider_id ) {
+			return $response;
+		}
+
+		$provider_id = $has_context ? self::$runtime_context['provider_id'] : $matched_provider_id;
+		$model_id    = self::$runtime_context['model_id'];
+		if ( '' === $model_id ) {
+			$model_id = self::extract_model_id( $request_body );
+		}
+
+		$request_bytes = strlen( $request_body );
+		$byte_budget   = ConversationTrimmer::get_request_byte_budget( $provider_id, $model_id );
+		if ( $has_context && $request_bytes > $byte_budget ) {
+			self::record_payload_limit(
+				$provider_id,
+				$model_id,
+				413,
+				$request_bytes,
+				(int) ceil( $request_bytes / 4 ),
+				$byte_budget,
+				true,
+				false
+			);
+
+			return new \WP_Error(
+				'sd_ai_agent_provider_payload_budget_exceeded',
+				__( 'This request is too large to send safely. Compact the conversation or shorten the latest message and remove large attachments before retrying.', 'superdav-ai-agent' ),
+				array(
+					'status_code'             => 413,
+					'provider_id'             => $provider_id,
+					'model_id'                => $model_id,
+					'request_bytes'           => $request_bytes,
+					'request_tokens_estimate' => (int) ceil( $request_bytes / 4 ),
+					'request_budget_bytes'    => $byte_budget,
+					'request_size_class'      => self::classify_request_size( $request_bytes ),
+					'local_rejection'         => true,
+				)
+			);
+		}
+
+		if ( ! $trace_enabled ) {
 			return $response;
 		}
 
 		// Store in-flight data for correlation with the response.
 		self::$inflight[ $url ] = [
 			'provider_id'     => $provider_id,
+			'model_id'        => $model_id,
 			'url'             => $url,
 			'method'          => strtoupper( $parsed_args['method'] ?? 'POST' ),
 			'request_headers' => self::extract_headers( $parsed_args['headers'] ?? [] ),
@@ -148,31 +226,56 @@ class ProviderTraceLogger {
 	 * @return array<string, mixed> Unchanged response.
 	 */
 	public static function on_http_response( array $response, array $parsed_args, string $url ): array {
+		$request_body = is_string( $parsed_args['body'] ?? null )
+			? $parsed_args['body']
+			: (string) wp_json_encode( $parsed_args['body'] ?? '' );
+		$has_context  = '' !== self::$runtime_context['provider_id'];
+
 		// Lightweight error-log path: emit a greppable line for 4xx/5xx
 		// responses from canonical AI providers regardless of debug mode.
 		// Uses the strict allowlist so unrelated 4xx responses (update
 		// checks, WP.org, etc.) never produce noise here.
 		$canonical_provider_id = self::match_provider( $url );
-		if ( '' !== $canonical_provider_id ) {
+		$request_provider_id   = $canonical_provider_id;
+		if ( $has_context && '' !== self::resolve_provider_for_trace( $url, $request_body ) ) {
+			$request_provider_id = self::$runtime_context['provider_id'];
+		}
+		if ( '' !== $request_provider_id ) {
 			$status_code_for_log = (int) wp_remote_retrieve_response_code( $response );
 			if ( $status_code_for_log >= 400 ) {
-				$model_id_for_log = '';
-				if ( isset( $parsed_args['body'] ) ) {
-					$body_for_log     = is_string( $parsed_args['body'] )
-						? $parsed_args['body']
-						: (string) wp_json_encode( $parsed_args['body'] );
-					$model_id_for_log = self::extract_model_id( $body_for_log );
+				$model_id_for_log = self::$runtime_context['model_id'];
+				if ( '' === $model_id_for_log ) {
+					$model_id_for_log = self::extract_model_id( $request_body );
 				}
+				$request_bytes = strlen( $request_body );
+				$byte_budget   = ConversationTrimmer::get_request_byte_budget( $request_provider_id, $model_id_for_log );
 
-				AgentEventLog::log(
-					'provider_http_error',
-					AgentEventLog::SEVERITY_ERROR,
-					array(
-						'provider_id' => $canonical_provider_id,
-						'model_id'    => $model_id_for_log,
-						'status_code' => $status_code_for_log,
-					)
-				);
+				if ( 413 === $status_code_for_log ) {
+					self::record_payload_limit(
+						$request_provider_id,
+						$model_id_for_log,
+						$status_code_for_log,
+						$request_bytes,
+						(int) ceil( $request_bytes / 4 ),
+						$byte_budget,
+						false,
+						false
+					);
+				} else {
+					AgentEventLog::log(
+						'provider_http_error',
+						AgentEventLog::SEVERITY_ERROR,
+						array(
+							'provider_id'             => $request_provider_id,
+							'model_id'                => $model_id_for_log,
+							'status_code'             => $status_code_for_log,
+							'request_bytes'           => $request_bytes,
+							'request_tokens_estimate' => (int) ceil( $request_bytes / 4 ),
+							'request_size_class'      => self::classify_request_size( $request_bytes ),
+							'request_size_source'     => 'http_body',
+						)
+					);
+				}
 			}
 		}
 
@@ -199,7 +302,10 @@ class ProviderTraceLogger {
 		$response_headers = wp_remote_retrieve_headers( $response );
 
 		// Extract model_id from request body if possible.
-		$model_id = self::extract_model_id( $inflight['request_body'] ?? '' );
+		$model_id = (string) ( $inflight['model_id'] ?? '' );
+		if ( '' === $model_id ) {
+			$model_id = self::extract_model_id( $inflight['request_body'] ?? '' );
+		}
 
 		$decoded_response = null;
 		if ( $status_code >= 200 && $status_code < 300 ) {
@@ -254,25 +360,122 @@ class ProviderTraceLogger {
 			);
 		}
 
+		$trace_url              = $inflight['url'] ?? $url;
+		$trace_request_headers  = $inflight['request_headers'] ?? '{}';
+		$trace_request_body     = $inflight['request_body'] ?? '';
+		$trace_response_headers = $response_headers_json;
+		$trace_response_body    = $response_body;
+		if ( 413 === $status_code ) {
+			$request_bytes          = strlen( (string) $trace_request_body );
+			$trace_url              = self::safe_trace_url( (string) $trace_url );
+			$trace_request_headers  = '{}';
+			$trace_request_body     = (string) wp_json_encode(
+				array(
+					'request_bytes'           => $request_bytes,
+					'request_tokens_estimate' => (int) ceil( $request_bytes / 4 ),
+					'request_size_class'      => self::classify_request_size( $request_bytes ),
+				)
+			);
+			$trace_response_headers = '{}';
+			$trace_response_body    = '';
+			$error                  = 'HTTP 413';
+		}
+
 		ProviderTrace::insert(
 			[
 				'provider_id'           => $inflight['provider_id'] ?? '',
 				'model_id'              => $model_id,
-				'url'                   => $inflight['url'] ?? $url,
+				'url'                   => $trace_url,
 				'method'                => $inflight['method'] ?? 'POST',
 				'status_code'           => $status_code,
 				'duration_ms'           => $duration_ms,
 				'cache_creation_tokens' => $cache_tokens['creation'],
 				'cache_read_tokens'     => $cache_tokens['read'],
-				'request_headers'       => $inflight['request_headers'] ?? '{}',
-				'request_body'          => $inflight['request_body'] ?? '',
-				'response_headers'      => $response_headers_json,
-				'response_body'         => $response_body,
+				'request_headers'       => $trace_request_headers,
+				'request_body'          => $trace_request_body,
+				'response_headers'      => $trace_response_headers,
+				'response_body'         => $trace_response_body,
 				'error'                 => $error,
 			]
 		);
 
 		return $response;
+	}
+
+	/**
+	 * Emit prompt-free payload-limit diagnostics.
+	 *
+	 * @param string $provider_id       Runtime-selected provider ID.
+	 * @param string $model_id          Runtime-selected model ID.
+	 * @param int    $status_code       HTTP-like status code.
+	 * @param int    $request_bytes     Actual or estimated request bytes.
+	 * @param int    $request_tokens    Estimated request tokens.
+	 * @param int    $request_budget    Configured request byte budget.
+	 * @param bool   $local_rejection   Whether dispatch was blocked locally.
+	 * @param bool   $fallback_attempted Whether a reduced fallback was attempted.
+	 * @param bool   $bytes_estimated   Whether request_bytes is a history estimate.
+	 */
+	public static function record_payload_limit(
+		string $provider_id,
+		string $model_id,
+		int $status_code,
+		int $request_bytes,
+		int $request_tokens,
+		int $request_budget,
+		bool $local_rejection,
+		bool $fallback_attempted,
+		bool $bytes_estimated = false
+	): void {
+		$context               = array(
+			'provider_id'             => sanitize_key( $provider_id ),
+			'model_id'                => sanitize_text_field( $model_id ),
+			'status_code'             => $status_code,
+			'request_tokens_estimate' => max( 0, $request_tokens ),
+			'request_budget_bytes'    => max( 0, $request_budget ),
+			'request_size_class'      => self::classify_request_size( $request_bytes ),
+			'request_size_source'     => $bytes_estimated ? 'history_estimate' : 'http_body',
+			'local_rejection'         => $local_rejection,
+			'fallback_attempted'      => $fallback_attempted,
+		);
+		$bytes_key             = $bytes_estimated ? 'request_bytes_estimate' : 'request_bytes';
+		$context[ $bytes_key ] = max( 0, $request_bytes );
+
+		AgentEventLog::log( 'provider_payload_limit', AgentEventLog::SEVERITY_ERROR, $context );
+	}
+
+	/** Classify request size without retaining request content. */
+	public static function classify_request_size( int $request_bytes ): string {
+		if ( $request_bytes < 65536 ) {
+			return 'small';
+		}
+		if ( $request_bytes < 262144 ) {
+			return 'medium';
+		}
+		if ( $request_bytes < 1048576 ) {
+			return 'large';
+		}
+
+		return 'very_large';
+	}
+
+	/**
+	 * Remove query/user-info fragments that can carry credentials from a trace URL.
+	 *
+	 * @param string $url Provider URL.
+	 */
+	private static function safe_trace_url( string $url ): string {
+		$parts = wp_parse_url( $url );
+		if ( ! is_array( $parts ) || empty( $parts['host'] ) ) {
+			return '';
+		}
+
+		$safe = ( $parts['scheme'] ?? 'https' ) . '://' . $parts['host'];
+		if ( isset( $parts['port'] ) ) {
+			$safe .= ':' . (int) $parts['port'];
+		}
+		$safe .= $parts['path'] ?? '';
+
+		return $safe;
 	}
 
 	/**
