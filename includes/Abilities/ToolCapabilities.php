@@ -441,17 +441,19 @@ class ToolCapabilities {
 		/** This filter is documented in {@see current_user_can()}. */
 		$resolved_cap = (string) apply_filters( 'sd_ai_agent_tool_capability', $tool_cap, $ability_id );
 
+		$approved_for_turn = self::is_one_turn_approved( $ability_id );
+
 		if ( ! self::tool_layer_passes( $ability_id, $resolved_cap ) ) {
 			$resolved_cap_exists = self::capability_exists( $resolved_cap );
 			$capability          = $resolved_cap_exists ? $resolved_cap : self::FALLBACK_CAP;
 			$layer               = $resolved_cap_exists ? 'per-tool' : 'fallback';
 
-			return self::capability_denial_error( $ability_id, $capability, $layer );
+			return self::capability_denial_error( $ability_id, $capability, $layer, false );
 		}
 
 		foreach ( self::resolve_core_caps( $ability_id ) as $core_cap ) {
 			if ( ! current_user_can( $core_cap ) ) {
-				return self::capability_denial_error( $ability_id, $core_cap, 'core' );
+				return self::capability_denial_error( $ability_id, $core_cap, 'core', $approved_for_turn );
 			}
 		}
 
@@ -496,22 +498,36 @@ class ToolCapabilities {
 	 * @param string $ability_id The denied ability ID.
 	 * @param string $capability Missing capability.
 	 * @param string $layer Permission layer that denied the request.
+	 * @param bool   $approved_for_turn Whether current-turn approval satisfied the tool layer.
 	 */
-	private static function capability_denial_error( string $ability_id, string $capability, string $layer ): \WP_Error {
-		return new \WP_Error(
-			'ability_invalid_permissions',
-			sprintf(
+	private static function capability_denial_error( string $ability_id, string $capability, string $layer, bool $approved_for_turn ): \WP_Error {
+		if ( $approved_for_turn ) {
+			$message = sprintf(
 				/* translators: 1: ability id, 2: WordPress capability, 3: permission layer */
 				__( 'Ability "%1$s" was approved for this turn, but the current WordPress user still lacks the "%2$s" capability required by the %3$s permission layer. Grant that capability or switch to a user role that has it, then approve the tool call again.', 'superdav-ai-agent' ),
 				$ability_id,
 				$capability,
 				$layer
-			),
+			);
+		} else {
+			$message = sprintf(
+				/* translators: 1: ability id, 2: WordPress capability, 3: permission layer */
+				__( 'Ability "%1$s" cannot run because the current WordPress user lacks the "%2$s" capability required by the %3$s permission layer. Grant that capability or switch to a user role that has it, then retry the tool call.', 'superdav-ai-agent' ),
+				$ability_id,
+				$capability,
+				$layer
+			);
+		}
+
+		return new \WP_Error(
+			'ability_invalid_permissions',
+			$message,
 			[
 				'status'             => 403,
 				'ability'            => $ability_id,
 				'missing_capability' => $capability,
 				'permission_layer'   => $layer,
+				'approved_for_turn'  => $approved_for_turn,
 			]
 		);
 	}

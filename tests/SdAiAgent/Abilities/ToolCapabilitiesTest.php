@@ -203,6 +203,10 @@ class ToolCapabilitiesTest extends WP_UnitTestCase {
 		wp_set_current_user( $editor_id );
 
 		$this->assertFalse( ToolCapabilities::current_user_can( 'sd-ai-agent/list-posts' ) );
+		$error = ToolCapabilities::permission_denial_error( 'sd-ai-agent/list-posts' );
+		$this->assertInstanceOf( \WP_Error::class, $error );
+		$this->assertSame( 'fallback', $error->get_error_data()['permission_layer'] );
+		$this->assertStringNotContainsString( 'approved for this turn', $error->get_error_message() );
 
 		ToolPermissionResolver::set_one_turn_approved_abilities( [ 'sd-ai-agent/list-posts' ] );
 
@@ -258,6 +262,8 @@ class ToolCapabilitiesTest extends WP_UnitTestCase {
 			$this->assertSame( 'ability_invalid_permissions', $error->get_error_code() );
 			$this->assertSame( 'delete_plugins', $error->get_error_data()['missing_capability'] );
 			$this->assertSame( 'core', $error->get_error_data()['permission_layer'] );
+			$this->assertTrue( $error->get_error_data()['approved_for_turn'] );
+			$this->assertStringContainsString( 'approved for this turn', $error->get_error_message() );
 		} finally {
 			ToolPermissionResolver::clear_one_turn_approved_abilities();
 		}
@@ -284,7 +290,7 @@ class ToolCapabilitiesTest extends WP_UnitTestCase {
 		$this->assertSame( 'ability_invalid_permissions', $error->get_error_code() );
 		$this->assertSame( 'edit_files', $error->get_error_data()['missing_capability'] );
 		$this->assertSame( 'core', $error->get_error_data()['permission_layer'] );
-		$this->assertStringContainsString( 'approved for this turn', $error->get_error_message() );
+		$this->assertStringNotContainsString( 'approved for this turn', $error->get_error_message() );
 
 		$role->remove_cap( $tool_cap );
 		$role->remove_cap( 'manage_options' );
