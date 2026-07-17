@@ -270,6 +270,60 @@ class ConversationTrimmerTest extends WP_UnitTestCase {
 		$this->assertContains( 'call_current', $this->extract_all_response_ids_for_test( $result ) );
 	}
 
+	/**
+	 * Server-side compacting returns a bounded seed and omits raw binary/tool payloads.
+	 */
+	public function test_compact_serialized_history_builds_bounded_safe_seed(): void {
+		$messages = [
+			[
+				'role'  => 'user',
+				'parts' => [ [ 'text' => str_repeat( 'old transcript ', 1000 ) ] ],
+			],
+			[
+				'role'  => 'model',
+				'parts' => [
+					[
+						'functionCall' => [
+							'name' => 'sd-ai-agent/site-info',
+							'args' => [ 'secret' => 'SHOULD_NOT_COPY_ARGS' ],
+						],
+					],
+				],
+			],
+			[
+				'role'  => 'user',
+				'parts' => [
+					[
+						'functionResponse' => [
+							'name'     => 'sd-ai-agent/site-info',
+							'response' => 'SECRET_TOOL_RESPONSE_SHOULD_NOT_COPY',
+						],
+					],
+				],
+			],
+			[
+				'role'  => 'user',
+				'parts' => [
+					[
+						'text'      => 'Latest request survives compaction.',
+						'image_url' => 'data:image/png;base64,' . str_repeat( 'A', 4000 ),
+					],
+				],
+			],
+		];
+
+		$result = ConversationTrimmer::compact_serialized_history( $messages, 1024, 256 );
+		$json   = (string) wp_json_encode( $result['messages'] );
+
+		$this->assertCount( 1, $result['messages'] );
+		$this->assertLessThanOrEqual( 1024, $result['meta']['estimated_bytes'] );
+		$this->assertSame( 4, $result['meta']['source_message_count'] );
+		$this->assertStringContainsString( 'Latest request survives compaction.', $json );
+		$this->assertStringNotContainsString( 'data:image', $json );
+		$this->assertStringNotContainsString( 'SHOULD_NOT_COPY_ARGS', $json );
+		$this->assertStringNotContainsString( 'SECRET_TOOL_RESPONSE_SHOULD_NOT_COPY', $json );
+	}
+
 	// ── Tool-response pairing tests ──────────────────────────────────────
 
 	/**

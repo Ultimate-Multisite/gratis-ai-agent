@@ -260,6 +260,33 @@ final class SessionController {
 			)
 		);
 
+		register_rest_route(
+			RestController::NAMESPACE,
+			'/sessions/(?P<id>\d+)/compact',
+			array(
+				'methods'             => WP_REST_Server::CREATABLE,
+				'callback'            => array( $this, 'handle_compact_session' ),
+				'permission_callback' => array( $this, 'check_session_permission' ),
+				'args'                => array(
+					'id'          => array(
+						'required'          => true,
+						'type'              => 'integer',
+						'sanitize_callback' => 'absint',
+					),
+					'provider_id' => array(
+						'required'          => false,
+						'type'              => 'string',
+						'sanitize_callback' => 'sanitize_text_field',
+					),
+					'model_id'    => array(
+						'required'          => false,
+						'type'              => 'string',
+						'sanitize_callback' => 'sanitize_text_field',
+					),
+				),
+			)
+		);
+
 		// Export endpoint.
 		register_rest_route(
 			RestController::NAMESPACE,
@@ -844,6 +871,126 @@ final class SessionController {
 			),
 			201
 		);
+	}
+
+	/**
+	 * Handle POST /sessions/{id}/compact — create a bounded continuation session.
+	 *
+	 * The source transcript is read from the server-side session row and reduced to
+	 * one deterministic context seed. The browser never submits the full transcript
+	 * back to `/run`, which prevents `/compact` itself from hitting provider input
+	 * limits or logging raw attachment/tool payloads.
+	 *
+	 * @param WP_REST_Request $request The request object.
+	 * @return WP_REST_Response|WP_Error
+	 */
+	public function handle_compact_session( WP_REST_Request $request ) {
+		$source_session_id = self::get_int_param( $request, 'id' );
+		$source_session    = $this->database->get_session( $source_session_id );
+
+		if ( ! $source_session ) {
+			return new WP_Error(
+				'sd_ai_agent_session_not_found',
+				__( 'Session not found.', 'superdav-ai-agent' ),
+				array( 'status' => 404 )
+			);
+		}
+
+		$decoded_messages = json_decode( (string) $source_session->messages, true );
+		$source_messages  = is_array( $decoded_messages ) ? array_values( array_filter( $decoded_messages, 'is_array' ) ) : array();
+
+		if ( empty( $source_messages ) ) {
+			return new WP_Error(
+				'sd_ai_agent_compact_empty_session',
+				__( 'This conversation has no saved messages to compact.', 'superdav-ai-agent' ),
+				array( 'status' => 400 )
+			);
+		}
+
+		$compacted     = ConversationTrimmer::compact_serialized_history( $source_messages );
+		$seed_messages = $compacted['messages'];
+		if ( empty( $seed_messages ) ) {
+			return new WP_Error(
+				'sd_ai_agent_compact_failed',
+				__( 'Failed to build compact conversation context.', 'superdav-ai-agent' ),
+				array( 'status' => 500 )
+			);
+		}
+
+		$provider_id = (string) ( $request->get_param( 'provider_id' ) ?: $source_session->provider_id );
+		$model_id    = (string) ( $request->get_param( 'model_id' ) ?: $source_session->model_id );
+		$title       = $this->build_compacted_session_title( (string) $source_session->title );
+
+		$new_session_id = $this->database->create_session(
+			array(
+				'user_id'     => get_current_user_id(),
+				'title'       => $title,
+				'provider_id' => sanitize_text_field( $provider_id ),
+				'model_id'    => sanitize_text_field( $model_id ),
+			)
+		);
+
+		if ( ! $new_session_id ) {
+			return new WP_Error(
+				'sd_ai_agent_session_create_failed',
+				__( 'Failed to create compacted session.', 'superdav-ai-agent' ),
+				array( 'status' => 500 )
+			);
+		}
+
+		if ( ! $this->database->append_to_session( (int) $new_session_id, $seed_messages, array() ) ) {
+			$this->database->delete_session( (int) $new_session_id );
+			return new WP_Error(
+				'sd_ai_agent_compact_failed',
+				__( 'Failed to save compact conversation context.', 'superdav-ai-agent' ),
+				array( 'status' => 500 )
+			);
+		}
+
+		$new_session = $this->database->get_session( (int) $new_session_id );
+		if ( ! $new_session ) {
+			return new WP_Error(
+				'sd_ai_agent_session_not_found',
+				__( 'Session not found after compaction.', 'superdav-ai-agent' ),
+				array( 'status' => 500 )
+			);
+		}
+
+		return new WP_REST_Response(
+			array(
+				'id'             => (int) $new_session->id,
+				'title'          => $new_session->title,
+				'provider_id'    => $new_session->provider_id,
+				'model_id'       => $new_session->model_id,
+				'messages'       => ConversationDisplaySanitizer::sanitize_messages( $seed_messages ),
+				'tool_calls'     => array(),
+				'token_usage'    => array(
+					'prompt'     => 0,
+					'completion' => 0,
+				),
+				'compacted_from' => $source_session_id,
+				'compaction'     => $compacted['meta'],
+				'created_at'     => $new_session->created_at,
+				'updated_at'     => $new_session->updated_at,
+			),
+			201
+		);
+	}
+
+	/** Build a safe title for a server-compacted continuation session. */
+	private function build_compacted_session_title( string $source_title ): string {
+		$source_title = sanitize_text_field( $source_title );
+		if ( '' === $source_title ) {
+			$source_title = __( 'conversation', 'superdav-ai-agent' );
+		}
+
+		$title = sprintf(
+			/* translators: %s: original conversation title. */
+			__( 'Compacted: %s', 'superdav-ai-agent' ),
+			$source_title
+		);
+
+		return strlen( $title ) > 190 ? substr( $title, 0, 189 ) . '…' : $title;
 	}
 
 	/**

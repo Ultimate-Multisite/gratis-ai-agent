@@ -1377,49 +1377,43 @@ export const actions = {
 	},
 
 	/**
-	 * Compact the current conversation into a new session with a summary.
-	 * Builds a text summary of all messages, creates a new session, and
-	 * sends the summary as the first message to preserve context.
+	 * Compact the current conversation into a new bounded continuation session.
+	 *
+	 * The server reads the persisted session transcript and stores one compact
+	 * context seed in the new session. The browser intentionally does not submit
+	 * the whole in-memory transcript as a `/run` prompt.
 	 *
 	 * @return {Function} Redux thunk.
 	 */
 	compactConversation() {
 		return async ( { dispatch, select } ) => {
-			const messages = select.getCurrentSessionMessages();
-			if ( ! messages.length ) {
+			const sessionId = select.getCurrentSessionId();
+			if ( ! sessionId ) {
 				return;
 			}
 
-			// Build a summary request.
-			const summaryText = messages
-				.map( ( m ) => {
-					const role = m.role === 'model' ? 'Assistant' : 'User';
-					const text = extractMessageText( m );
-					return text ? `${ role }: ${ text }` : null;
-				} )
-				.filter( Boolean )
-				.join( '\n' );
-
-			// Create a new session.
 			try {
 				const session = await apiFetch( {
-					path: '/sd-ai-agent/v1/sessions',
+					path: `/sd-ai-agent/v1/sessions/${ sessionId }/compact`,
 					method: 'POST',
 					data: {
-						title: 'Compacted conversation',
 						provider_id: select.getSelectedProviderId(),
 						model_id: select.getSelectedModelId(),
 					},
 				} );
 
-				// Send the summary as the first message in the new session.
-				dispatch.setCurrentSession( session.id, [], [] );
+				const compactedSessionId =
+					typeof session.id === 'string'
+						? parseInt( session.id, 10 )
+						: session.id;
+
+				dispatch.setCurrentSession(
+					compactedSessionId,
+					session.messages || [],
+					session.tool_calls || []
+				);
 				dispatch.setTokenUsage( { prompt: 0, completion: 0 } );
 				dispatch.resetSessionTokens();
-				dispatch.sendMessage(
-					'Please provide a concise summary of this conversation so we can continue in a fresh context:\n\n' +
-						summaryText
-				);
 				dispatch.fetchSessions();
 			} catch {
 				// ignore

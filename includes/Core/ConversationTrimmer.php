@@ -37,6 +37,9 @@ class ConversationTrimmer {
 	/** Maximum estimated tokens copied into a deterministically compacted session. */
 	const COMPACT_MAX_TOKENS = 16000;
 
+	/** Maximum characters copied from any single message into compact context. */
+	private const COMPACT_MAX_MESSAGE_CHARS = 2000;
+
 	/** Marker inserted when older turns are removed by a request-size budget. */
 	private const BUDGET_MARKER_TEXT = '[Earlier conversation turns were compacted to stay within the request safety budget.]';
 
@@ -182,6 +185,242 @@ class ConversationTrimmer {
 		}
 
 		return self::validate_tool_pairs( $kept );
+	}
+
+	/**
+	 * Build a bounded deterministic seed message for a compacted session.
+	 *
+	 * This is intentionally not an AI summary request. It runs server-side against
+	 * the already-persisted session, keeps newest useful excerpts until the compact
+	 * budget is reached, and omits attachment bytes plus raw tool arguments/results.
+	 * The client can switch to the returned session without submitting the whole
+	 * transcript back through `/run` as a new prompt.
+	 *
+	 * @param array<int, mixed> $messages   Serialized session messages.
+	 * @param int               $max_bytes  Maximum serialized seed-message bytes.
+	 * @param int               $max_tokens Maximum estimated seed-message tokens.
+	 * @return array{messages:list<array<string,mixed>>,meta:array<string,int|bool>}
+	 */
+	public static function compact_serialized_history( array $messages, int $max_bytes = self::COMPACT_MAX_BYTES, int $max_tokens = self::COMPACT_MAX_TOKENS ): array {
+		$normalized = array();
+		foreach ( $messages as $message ) {
+			if ( is_array( $message ) ) {
+				$normalized[] = $message;
+			}
+		}
+
+		$source_count = count( $normalized );
+		$max_bytes    = max( 1024, $max_bytes );
+		$max_tokens   = max( 256, $max_tokens );
+
+		$per_message_chars = max(
+			160,
+			min( self::COMPACT_MAX_MESSAGE_CHARS, (int) floor( $max_bytes / 4 ) )
+		);
+
+		$lines = array();
+		for ( $i = $source_count - 1; $i >= 0; --$i ) {
+			$excerpt = self::serialized_message_to_compact_excerpt( $normalized[ $i ], $per_message_chars );
+			if ( '' === $excerpt ) {
+				continue;
+			}
+
+			$candidate = $lines;
+			array_unshift( $candidate, $excerpt );
+			if ( self::compact_lines_fit_budget( $candidate, $source_count, $max_bytes, $max_tokens ) ) {
+				$lines = $candidate;
+			}
+		}
+
+		$retained_count = count( $lines );
+		if ( empty( $lines ) ) {
+			$lines          = array( '[No individual message excerpt fit within the compact budget.]' );
+			$retained_count = 0;
+		}
+
+		$text       = self::build_compact_context_text( $source_count, $retained_count, $lines );
+		$message    = self::compact_text_to_message( $text );
+		$line_count = count( $lines );
+
+		while ( ! self::fits_budget( array( $message ), $max_bytes, $max_tokens ) && $line_count > 1 ) {
+			array_shift( $lines );
+			$retained_count = count( $lines );
+			$line_count     = $retained_count;
+			$text           = self::build_compact_context_text( $source_count, $retained_count, $lines );
+			$message        = self::compact_text_to_message( $text );
+		}
+
+		if ( ! self::fits_budget( array( $message ), $max_bytes, $max_tokens ) ) {
+			$retained_count = 0;
+			$text           = self::build_compact_context_text(
+				$source_count,
+				$retained_count,
+				array( '[Conversation details were omitted because the compact budget is smaller than the required metadata.]' )
+			);
+			$message        = self::compact_text_to_message( $text );
+		}
+
+		$estimated_bytes  = self::estimate_bytes( $message );
+		$estimated_tokens = self::estimate_tokens( $message );
+
+		return array(
+			'messages' => array( $message->toArray() ),
+			'meta'     => array(
+				'source_message_count'   => $source_count,
+				'retained_excerpt_count' => $retained_count,
+				'boundary_omitted_count' => max( 0, $source_count - $retained_count ),
+				'estimated_bytes'        => $estimated_bytes,
+				'estimated_tokens'       => $estimated_tokens,
+				'max_bytes'              => $max_bytes,
+				'max_tokens'             => $max_tokens,
+				'attachments_omitted'    => true,
+				'tool_payloads_omitted'  => true,
+			),
+		);
+	}
+
+	/**
+	 * Test whether compact context lines fit the target budgets.
+	 *
+	 * @param string[] $lines        Candidate context lines.
+	 * @param int      $source_count Original message count.
+	 * @param int      $max_bytes    Byte budget.
+	 * @param int      $max_tokens   Estimated-token budget.
+	 */
+	private static function compact_lines_fit_budget( array $lines, int $source_count, int $max_bytes, int $max_tokens ): bool {
+		$message = self::compact_text_to_message(
+			self::build_compact_context_text( $source_count, count( $lines ), $lines )
+		);
+
+		return self::fits_budget( array( $message ), $max_bytes, $max_tokens );
+	}
+
+	/**
+	 * Build the compact-context prompt text.
+	 *
+	 * @param int      $source_count   Original message count.
+	 * @param int      $retained_count Retained excerpt count.
+	 * @param string[] $lines          Retained message excerpts.
+	 */
+	private static function build_compact_context_text( int $source_count, int $retained_count, array $lines ): string {
+		$omitted_count = max( 0, $source_count - $retained_count );
+
+		$header = array(
+			'Conversation compacted server-side to avoid provider payload limits.',
+			"Source messages: {$source_count}; retained excerpts: {$retained_count}; omitted messages: {$omitted_count}.",
+			'Use this compact context to continue from the user\'s next message. File attachments, inline image bytes, and raw tool payloads were omitted.',
+		);
+
+		return implode( "\n", $header ) . "\n\n" . implode( "\n\n", $lines );
+	}
+
+	/** Convert compact text into a single user-message seed. */
+	private static function compact_text_to_message( string $text ): UserMessage {
+		return new UserMessage(
+			array(
+				new MessagePart( $text ),
+			)
+		);
+	}
+
+	/**
+	 * Convert a serialized message to a bounded compact-context excerpt.
+	 *
+	 * @param array<string, mixed> $message   Serialized message array.
+	 * @param int                  $max_chars Character limit for the excerpt body.
+	 */
+	private static function serialized_message_to_compact_excerpt( array $message, int $max_chars ): string {
+		$role  = self::compact_role_label( (string) ( $message['role'] ?? 'message' ) );
+		$parts = isset( $message['parts'] ) && is_array( $message['parts'] ) ? $message['parts'] : array();
+
+		$pieces = array();
+		foreach ( $parts as $part ) {
+			if ( ! is_array( $part ) ) {
+				continue;
+			}
+
+			$piece = self::compact_piece_from_part( $part );
+			if ( '' !== $piece ) {
+				$pieces[] = $piece;
+			}
+		}
+
+		if ( empty( $pieces ) && isset( $message['content'] ) && is_string( $message['content'] ) ) {
+			$pieces[] = $message['content'];
+		}
+
+		$text = self::normalize_compact_text( implode( ' ', $pieces ) );
+		if ( '' === $text ) {
+			return '';
+		}
+
+		if ( strlen( $text ) > $max_chars ) {
+			$text = substr( $text, 0, max( 0, $max_chars - 1 ) ) . '…';
+		}
+
+		return $role . ': ' . $text;
+	}
+
+	/**
+	 * Return a safe compact-context fragment for a serialized message part.
+	 *
+	 * @param array<string, mixed> $part Serialized message part.
+	 */
+	private static function compact_piece_from_part( array $part ): string {
+		if ( isset( $part['text'] ) && is_string( $part['text'] ) ) {
+			return $part['text'];
+		}
+
+		$function_call = $part['functionCall'] ?? $part['function_call'] ?? null;
+		if ( is_array( $function_call ) ) {
+			$name = self::compact_tool_name( $function_call['name'] ?? 'tool' );
+			return '[tool call: ' . $name . ']';
+		}
+
+		$function_response = $part['functionResponse'] ?? $part['function_response'] ?? null;
+		if ( is_array( $function_response ) ) {
+			$name = self::compact_tool_name( $function_response['name'] ?? 'tool' );
+			return '[tool result omitted: ' . $name . ']';
+		}
+
+		if ( isset( $part['image_url'] ) || isset( $part['inlineData'] ) || isset( $part['inline_data'] ) ) {
+			$name = isset( $part['image_name'] ) && is_string( $part['image_name'] ) ? self::normalize_compact_text( $part['image_name'] ) : '';
+			return '' !== $name ? '[image attachment omitted: ' . $name . ']' : '[image attachment omitted]';
+		}
+
+		return '';
+	}
+
+	/** Convert serialized roles into compact-context labels. */
+	private static function compact_role_label( string $role ): string {
+		$role = strtolower( trim( $role ) );
+		return match ( $role ) {
+			'model', 'assistant' => 'Assistant',
+			'user' => 'User',
+			'tool' => 'Tool',
+			default => 'Message',
+		};
+	}
+
+	/** Normalize a tool name for compact context. */
+	private static function compact_tool_name( mixed $name ): string {
+		$name = is_scalar( $name ) ? (string) $name : 'tool';
+		$name = self::normalize_compact_text( $name );
+		if ( '' === $name ) {
+			return 'tool';
+		}
+
+		return strlen( $name ) > 80 ? substr( $name, 0, 79 ) . '…' : $name;
+	}
+
+	/** Normalize compact text while removing inline binary/data payloads. */
+	private static function normalize_compact_text( string $text ): string {
+		$text = preg_replace( '/data:[^;\s]+;base64,[A-Za-z0-9+\/=\r\n]+/i', '[inline data omitted]', $text );
+		$text = is_string( $text ) ? wp_strip_all_tags( $text ) : '';
+		$text = preg_replace( '/[\x00-\x1F\x7F]+/', ' ', $text );
+		$text = is_string( $text ) ? preg_replace( '/\s+/', ' ', $text ) : '';
+
+		return is_string( $text ) ? trim( $text ) : '';
 	}
 
 	/**
