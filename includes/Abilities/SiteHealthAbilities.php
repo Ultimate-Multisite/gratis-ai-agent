@@ -788,12 +788,12 @@ class SiteHealthAbilities {
 	}
 
 	/**
-	 * Diagnose the public frontend and mapped-tenant availability without mutation.
+	 * Diagnose generic public frontend availability without mutation.
 	 *
-	 * Ultimate Multisite integrations can supply tenant data through the
-	 * `sd_ai_agent_site_availability_tenant_context` filter. Expected keys are
-	 * visits_enabled, visit_limit, current_month_visits, site_type, customer_id,
-	 * membership_id, domain_active, and domain_primary.
+	 * Authoritative tenant, mapped-domain, hosting-lock, and visit-limit facts
+	 * belong to the Ultimate Multisite plugin. This generic WordPress health check
+	 * only reports public HTTP evidence and tells the agent which external ability
+	 * family should be used when Ultimate Multisite is installed.
 	 *
 	 * @return array<string, mixed>
 	 */
@@ -831,33 +831,14 @@ class SiteHealthAbilities {
 				|| str_contains( strtolower( $plain_body ), 'this site is not available at this time' );
 		}
 
-		/**
-		 * Filter read-only tenant availability context supplied by a WaaS plugin.
-		 *
-		 * @param array<string, mixed> $tenant Tenant context.
-		 * @param int                  $blog_id Current blog ID.
-		 * @param string               $url Exact mapped site URL being diagnosed.
-		 */
-		$tenant  = self::get_ultimate_multisite_tenant_context();
-		$tenant  = apply_filters( 'sd_ai_agent_site_availability_tenant_context', $tenant, get_current_blog_id(), $url );
-		$tenant  = is_array( $tenant ) ? $tenant : [];
-		$enabled = ! empty( $tenant['visits_enabled'] );
-		$limit   = isset( $tenant['visit_limit'] ) ? (int) $tenant['visit_limit'] : 0;
-		$current = isset( $tenant['current_month_visits'] ) ? (int) $tenant['current_month_visits'] : 0;
-		$locked  = $enabled && $limit > 0 && $current > $limit;
-
-		$tenant['would_lock_frontend'] = $locked;
-		$tenant['lock_reason']         = $locked ? 'visits_exceeded' : null;
-
 		$is_critical = isset( $frontend['transport_error'] )
 			|| (int) $frontend['status_code'] >= 400
-			|| true === $frontend['wp_die_page']
-			|| $locked;
+			|| true === $frontend['wp_die_page'];
 
 		return [
-			'status'            => $is_critical ? 'critical' : 'healthy',
-			'frontend'          => $frontend,
-			'wordpress_context' => [
+			'status'                => $is_critical ? 'critical' : 'healthy',
+			'frontend'              => $frontend,
+			'wordpress_context'     => [
 				'home'                => home_url(),
 				'siteurl'             => site_url(),
 				'is_multisite'        => is_multisite(),
@@ -866,7 +847,7 @@ class SiteHealthAbilities {
 				'domain_current_site' => defined( 'DOMAIN_CURRENT_SITE' ) ? (string) constant( 'DOMAIN_CURRENT_SITE' ) : null,
 				'install_id'          => basename( untrailingslashit( ABSPATH ) ),
 			],
-			'tenant'            => $tenant,
+			'delegated_diagnostics' => self::get_ultimate_multisite_delegation_guidance(),
 		];
 	}
 
@@ -947,51 +928,16 @@ class SiteHealthAbilities {
 	}
 
 	/**
-	 * Read supported availability fields from the current Ultimate Multisite site.
-	 *
-	 * The filter in diagnose_site_availability remains the integration point for
-	 * versions or extensions that store these values under different keys.
+	 * Return guidance for external Ultimate Multisite availability diagnosis.
 	 *
 	 * @return array<string, mixed>
 	 */
-	private static function get_ultimate_multisite_tenant_context(): array {
-		if ( ! function_exists( 'wu_get_current_site' ) ) {
-			return [];
-		}
-
-		$site = wu_get_current_site();
-		if ( ! is_object( $site ) ) {
-			return [];
-		}
-
-		$tenant  = [];
-		$methods = [
-			'site_type'            => 'get_type',
-			'customer_id'          => 'get_customer_id',
-			'membership_id'        => 'get_membership_id',
-			'current_month_visits' => 'get_visits_count',
+	private static function get_ultimate_multisite_delegation_guidance(): array {
+		return [
+			'ultimate_multisite_authoritative' => true,
+			'expected_ability'                 => 'multisite-ultimate/site-availability-diagnose',
+			'fallback_guidance'                => 'If the Ultimate Multisite diagnostic ability is unavailable, report that authoritative tenant lock diagnostics are unavailable instead of inferring visit limits, domain mapping state, or lock reasons from Superdav AI Agent.',
 		];
-		foreach ( $methods as $key => $method ) {
-			if ( is_callable( [ $site, $method ] ) ) {
-				$tenant[ $key ] = $site->{$method}();
-			}
-		}
-
-		if ( is_callable( [ $site, 'get_meta' ] ) ) {
-			$meta_keys = [
-				'visits_enabled'       => 'visits_enabled',
-				'visit_limit'          => 'visits_limit',
-				'current_month_visits' => 'visits_current_month',
-			];
-			foreach ( $meta_keys as $key => $meta_key ) {
-				$value = $site->get_meta( $meta_key );
-				if ( ! array_key_exists( $key, $tenant ) && null !== $value && '' !== $value ) {
-					$tenant[ $key ] = $value;
-				}
-			}
-		}
-
-		return $tenant;
 	}
 
 	/**

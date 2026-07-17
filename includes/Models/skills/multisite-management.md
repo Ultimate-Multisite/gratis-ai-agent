@@ -13,6 +13,12 @@ Use this skill when the user asks about managing a WordPress Multisite network �
 - `wp site archive <id>` — Archive a site
 - Mapped custom domains must be diagnosed using their exact public URL. Pass `--url=<mapped-site-url>` so WordPress selects the intended blog; a network-domain check can target a different tenant and hide frontend locks.
 
+### Ultimate Multisite Availability
+- Start with a public smoke check against the exact mapped frontend URL.
+- Verify the live WordPress context before reading site facts: `ABSPATH`, `home_url()`, `get_current_blog_id()`, and `wp --url=<mapped-site-url> ...` must all point at the intended tenant.
+- Authoritative tenant, domain, hosting, limit, and lock-state diagnostics belong to Ultimate Multisite. If the `multisite-ultimate/site-availability-diagnose` ability is available, call it for those facts instead of inferring them in Superdav AI Agent.
+- If the Ultimate Multisite diagnostic ability is unavailable, say that authoritative tenant lock diagnostics are unavailable and recommend using the Ultimate Multisite admin/API. Do not guess lock reasons from raw SQL, `wu_*` meta, or Superdav-owned visit calculations.
+
 ### Super Admins
 - `wp super-admin list` — List super admins
 - `wp super-admin add <user>` — Grant super admin
@@ -42,4 +48,4 @@ After network changes:
 2. Check that plugins/themes are correctly activated
 3. Confirm user roles across relevant sites
 4. Test network admin access
-5. For Ultimate Multisite customer-owned sites, verify the primary domain mapping and tenant limits (including monthly visits) against the exact mapped URL
+5. For Ultimate Multisite customer-owned sites, delegate primary domain mapping, tenant limits, monthly visits, and lock-state diagnosis to `multisite-ultimate/site-availability-diagnose` or the Ultimate Multisite admin/API
