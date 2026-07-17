@@ -477,75 +477,75 @@
 }
 
 /* Superdav AI account manager */
-.sdaa-superdav-account-loading {
+.sd-ai-agent-superdav-account-loading {
 	padding: 40px;
 	text-align: center;
 }
 
-.sdaa-superdav-account-header {
+.sd-ai-agent-superdav-account-header {
 	display: flex;
 	align-items: flex-start;
 	justify-content: space-between;
 	gap: 16px;
 }
 
-.sdaa-superdav-account-header h3 {
+.sd-ai-agent-superdav-account-header h3 {
 	margin: 0 0 4px;
 	font-size: 15px;
 }
 
-.sdaa-superdav-account-header .description {
+.sd-ai-agent-superdav-account-header .description {
 	margin: 0;
 }
 
-.sdaa-superdav-account-balance {
+.sd-ai-agent-superdav-account-balance {
 	padding: 20px;
 	border: 1px solid #c5d9ed;
 	border-radius: 6px;
 	background: #f0f6fc;
 }
 
-.sdaa-superdav-account-balance-label,
-.sdaa-superdav-account-tier,
-.sdaa-superdav-account-breakdown span {
+.sd-ai-agent-superdav-account-balance-label,
+.sd-ai-agent-superdav-account-tier,
+.sd-ai-agent-superdav-account-breakdown span {
 	display: block;
 	color: #50575e;
 	font-size: 12px;
 }
 
-.sdaa-superdav-account-balance-value {
+.sd-ai-agent-superdav-account-balance-value {
 	margin: 4px 0;
 	font-size: 28px;
 	font-weight: 600;
 	line-height: 1.2;
 }
 
-.sdaa-superdav-account-breakdown {
+.sd-ai-agent-superdav-account-breakdown {
 	display: grid;
 	grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
 	gap: 12px;
 }
 
-.sdaa-superdav-account-breakdown > div {
+.sd-ai-agent-superdav-account-breakdown > div {
 	padding: 12px 14px;
 	border: 1px solid #dcdcde;
 	border-radius: 4px;
 }
 
-.sdaa-superdav-account-breakdown strong {
+.sd-ai-agent-superdav-account-breakdown strong {
 	display: block;
 	margin-top: 4px;
 	font-size: 16px;
 }
 
-.sdaa-superdav-account-actions {
+.sd-ai-agent-superdav-account-actions {
 	display: flex;
 	flex-wrap: wrap;
 	gap: 8px;
 }
 
 @media screen and (max-width: 600px) {
-	.sdaa-superdav-account-header {
+	.sd-ai-agent-superdav-account-header {
 		flex-direction: column;
 	}
 }
