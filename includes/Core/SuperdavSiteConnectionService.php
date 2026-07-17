@@ -48,20 +48,23 @@ final class SuperdavSiteConnectionService {
 			'account_connect_url'       => $this->get_account_connect_url(),
 		);
 
-		$metadata_keys = array(
-			'tier',
-			'verified',
-			'usage',
-			'verification',
-			'request_id',
-			'wallet',
-			'connection_notice_pending',
-		);
-
-		foreach ( $metadata_keys as $key ) {
-			if ( array_key_exists( $key, $metadata ) ) {
+		foreach ( array( 'tier', 'verified', 'request_id', 'connection_notice_pending' ) as $key ) {
+			if ( array_key_exists( $key, $metadata ) && ( is_scalar( $metadata[ $key ] ) || null === $metadata[ $key ] ) ) {
 				$status[ $key ] = $metadata[ $key ];
 			}
+		}
+
+		foreach ( array( 'usage', 'verification' ) as $key ) {
+			if ( isset( $metadata[ $key ] ) && is_array( $metadata[ $key ] ) ) {
+				$status[ $key ] = array_filter(
+					$metadata[ $key ],
+					static fn( mixed $value ): bool => is_scalar( $value ) || null === $value
+				);
+			}
+		}
+
+		if ( isset( $metadata['wallet'] ) && is_array( $metadata['wallet'] ) ) {
+			$status['wallet'] = $this->sanitize_wallet_metadata( $metadata['wallet'] );
 		}
 
 		return $status;
@@ -403,23 +406,33 @@ final class SuperdavSiteConnectionService {
 		}
 
 		if ( isset( $metadata['wallet'] ) && is_array( $metadata['wallet'] ) ) {
-			$safe['wallet'] = array_intersect_key(
-				array_filter(
-					$metadata['wallet'],
-					static fn( mixed $value ): bool => is_scalar( $value ) || null === $value
-				),
-				array_flip(
-					array(
-						'currency',
-						'promo_usd_micros',
-						'cash_usd_micros',
-						'total_usd_micros',
-					)
-				)
-			);
+			$safe['wallet'] = $this->sanitize_wallet_metadata( $metadata['wallet'] );
 		}
 
 		return $safe;
+	}
+
+	/**
+	 * Keep only safe scalar wallet metadata for UI balance notices.
+	 *
+	 * @param array<string, mixed> $wallet Remote or stored wallet metadata.
+	 * @return array<string, mixed>
+	 */
+	private function sanitize_wallet_metadata( array $wallet ): array {
+		return array_intersect_key(
+			array_filter(
+				$wallet,
+				static fn( mixed $value ): bool => is_scalar( $value ) || null === $value
+			),
+			array_flip(
+				array(
+					'currency',
+					'promo_usd_micros',
+					'cash_usd_micros',
+					'total_usd_micros',
+				)
+			)
+		);
 	}
 
 	/**

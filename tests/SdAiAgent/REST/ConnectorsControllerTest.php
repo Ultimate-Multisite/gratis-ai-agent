@@ -56,6 +56,43 @@ final class ConnectorsControllerTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * Stored managed-provider metadata is scrubbed before it reaches connector responses.
+	 */
+	public function test_list_sanitizes_stored_managed_wallet_metadata(): void {
+		update_option( SuperdavAiProvider::CREDENTIAL_OPTION, 'secret-site-token', false );
+		update_option(
+			SuperdavSiteConnectionService::TOKEN_METADATA_OPTION,
+			array(
+				'wallet' => array(
+					'account_id'        => 'acct_secretish_internal',
+					'currency'          => 'USD',
+					'promo_usd_micros'  => 10000000,
+					'internal_metadata' => 'hidden',
+				),
+				'usage'  => array(
+					'remaining' => 10,
+					'internal'  => array( 'secret' => 'hidden' ),
+				),
+			),
+			false
+		);
+
+		$response  = ( new ConnectorsController() )->handle_list();
+		$data      = $response->get_data();
+		$superdav  = $this->find_provider( $data['providers'], SuperdavAiProvider::PROVIDER_ID );
+		$status    = $superdav['status'];
+		$serialized = wp_json_encode( $superdav ) ?: '';
+
+		$this->assertSame( 10000000, $status['wallet']['promo_usd_micros'] );
+		$this->assertSame( 'USD', $status['wallet']['currency'] );
+		$this->assertArrayNotHasKey( 'account_id', $status['wallet'] );
+		$this->assertArrayNotHasKey( 'internal_metadata', $status['wallet'] );
+		$this->assertSame( array( 'remaining' => 10 ), $status['usage'] );
+		$this->assertStringNotContainsString( 'secret-site-token', $serialized );
+		$this->assertStringNotContainsString( 'acct_secretish_internal', $serialized );
+	}
+
+	/**
 	 * Managed connection provisions a local site token and returns safe metadata.
 	 */
 	public function test_connect_provisions_site_token_without_returning_secret(): void {
