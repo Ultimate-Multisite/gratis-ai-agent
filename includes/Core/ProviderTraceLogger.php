@@ -39,7 +39,8 @@ class ProviderTraceLogger {
 	 *
 	 * @var array{provider_id:string,model_id:string}
 	 */
-	private static array $runtime_context = array(
+	// phpcs:ignore WordPress.NamingConventions.ValidVariableName.PropertyNotSnakeCase -- Project property naming guidance requires camelCase.
+	private static array $runtimeContext = array(
 		'provider_id' => '',
 		'model_id'    => '',
 	);
@@ -107,7 +108,7 @@ class ProviderTraceLogger {
 	 * @param string $model_id    Runtime-selected model ID.
 	 */
 	public static function set_runtime_context( string $provider_id, string $model_id ): void {
-		self::$runtime_context = array(
+		self::$runtimeContext = array(
 			'provider_id' => sanitize_key( $provider_id ),
 			'model_id'    => sanitize_text_field( $model_id ),
 		);
@@ -115,7 +116,7 @@ class ProviderTraceLogger {
 
 	/** Clear runtime provider attribution after a synchronous request. */
 	public static function clear_runtime_context(): void {
-		self::$runtime_context = array(
+		self::$runtimeContext = array(
 			'provider_id' => '',
 			'model_id'    => '',
 		);
@@ -129,7 +130,7 @@ class ProviderTraceLogger {
 	 * @param string                               $url         The request URL.
 	 * @return false|array<string, mixed>|\WP_Error Unchanged response, or a safe local size rejection.
 	 */
-	public static function on_pre_http_request( $response, array $parsed_args, string $url ) {
+	public static function on_pre_http_request( false|array|\WP_Error $response, array $parsed_args, string $url ): false|array|\WP_Error {
 		if ( false !== $response ) {
 			return $response;
 		}
@@ -138,25 +139,17 @@ class ProviderTraceLogger {
 			? $parsed_args['body']
 			: (string) wp_json_encode( $parsed_args['body'] ?? '' );
 		$trace_enabled = ProviderTrace::is_enabled();
-		$has_context   = '' !== self::$runtime_context['provider_id'];
+		$has_context   = '' !== self::$runtimeContext['provider_id'];
 
 		if ( ! $trace_enabled && ! $has_context ) {
 			return $response;
 		}
 
-		// When tracing is enabled we cast a wider net than the canonical
-		// allowlist so connector plugins that proxy to HuggingFace,
-		// OpenRouter, custom OpenAI-compatible endpoints, etc. are also
-		// captured. The error-log path on `on_http_response()` still uses
-		// the strict allowlist so we don't spam logs for unrelated 4xx
-		// responses.
-		$matched_provider_id = self::resolve_provider_for_trace( $url, $request_body );
-		if ( '' === $matched_provider_id ) {
-			return $response;
-		}
-
-		$provider_id = $has_context ? self::$runtime_context['provider_id'] : $matched_provider_id;
-		$model_id    = self::$runtime_context['model_id'];
+		// Runtime attribution is set only around the synchronous SDK provider
+		// invocation. Trust it for local enforcement so a trace callback cannot
+		// inspect prompt content or veto the request-size guard.
+		$provider_id = $has_context ? self::$runtimeContext['provider_id'] : '';
+		$model_id    = self::$runtimeContext['model_id'];
 		if ( '' === $model_id ) {
 			$model_id = self::extract_model_id( $request_body );
 		}
@@ -195,6 +188,17 @@ class ProviderTraceLogger {
 			return $response;
 		}
 
+		// Only explicit debug tracing may pass a request body through the wider
+		// provider matcher and its extension filter. Payload enforcement above is
+		// deliberately independent of this trace-only resolution result.
+		$matched_provider_id = self::resolve_provider_for_trace( $url, $request_body );
+		if ( '' === $matched_provider_id ) {
+			return $response;
+		}
+		if ( ! $has_context ) {
+			$provider_id = $matched_provider_id;
+		}
+
 		// Store in-flight data for correlation with the response.
 		self::$inflight[ $url ] = [
 			'provider_id'     => $provider_id,
@@ -229,21 +233,18 @@ class ProviderTraceLogger {
 		$request_body = is_string( $parsed_args['body'] ?? null )
 			? $parsed_args['body']
 			: (string) wp_json_encode( $parsed_args['body'] ?? '' );
-		$has_context  = '' !== self::$runtime_context['provider_id'];
+		$has_context  = '' !== self::$runtimeContext['provider_id'];
 
 		// Lightweight error-log path: emit a greppable line for 4xx/5xx
 		// responses from canonical AI providers regardless of debug mode.
 		// Uses the strict allowlist so unrelated 4xx responses (update
 		// checks, WP.org, etc.) never produce noise here.
 		$canonical_provider_id = self::match_provider( $url );
-		$request_provider_id   = $canonical_provider_id;
-		if ( $has_context && '' !== self::resolve_provider_for_trace( $url, $request_body ) ) {
-			$request_provider_id = self::$runtime_context['provider_id'];
-		}
+		$request_provider_id   = $has_context ? self::$runtimeContext['provider_id'] : $canonical_provider_id;
 		if ( '' !== $request_provider_id ) {
 			$status_code_for_log = (int) wp_remote_retrieve_response_code( $response );
 			if ( $status_code_for_log >= 400 ) {
-				$model_id_for_log = self::$runtime_context['model_id'];
+				$model_id_for_log = self::$runtimeContext['model_id'];
 				if ( '' === $model_id_for_log ) {
 					$model_id_for_log = self::extract_model_id( $request_body );
 				}

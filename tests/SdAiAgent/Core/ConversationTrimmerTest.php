@@ -1,4 +1,6 @@
 <?php
+
+declare(strict_types=1);
 /**
  * Test case for ConversationTrimmer class.
  *
@@ -11,6 +13,7 @@ namespace SdAiAgent\Tests\Core;
 
 use SdAiAgent\Core\ConversationTrimmer;
 use SdAiAgent\Core\Settings;
+use WordPress\AiClient\Messages\DTO\Message;
 use WordPress\AiClient\Messages\DTO\UserMessage;
 use WordPress\AiClient\Messages\DTO\AssistantMessage;
 use WordPress\AiClient\Messages\DTO\MessagePart;
@@ -221,7 +224,7 @@ class ConversationTrimmerTest extends WP_UnitTestCase {
 		$result  = ConversationTrimmer::trim_to_budget( $history, 512, 0 );
 		$encoded = (string) wp_json_encode(
 			array_map(
-				static fn( $message ): array => $message->toArray(),
+				static fn( Message $message ): array => $message->toArray(),
 				$result
 			)
 		);

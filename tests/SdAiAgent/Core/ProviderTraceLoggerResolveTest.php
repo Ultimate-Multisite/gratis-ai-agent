@@ -26,8 +26,11 @@ use WP_UnitTestCase;
 class ProviderTraceLoggerResolveTest extends WP_UnitTestCase {
 
 	public function tear_down(): void {
+		ProviderTraceLogger::clear_runtime_context();
 		remove_all_filters( 'sd_ai_agent_trace_match_provider' );
 		remove_all_filters( 'sd_ai_agent_trace_resolve_provider' );
+		remove_all_filters( 'sd_ai_agent_provider_trace_enabled' );
+		remove_all_filters( 'sd_ai_agent_provider_request_max_bytes' );
 		parent::tear_down();
 	}
 
@@ -194,5 +197,87 @@ class ProviderTraceLoggerResolveTest extends WP_UnitTestCase {
 			'anthropic',
 			ProviderTraceLogger::match_provider( 'https://api.anthropic.com/v1/messages' )
 		);
+	}
+
+	/**
+	 * Runtime payload enforcement must not expose prompts to trace callbacks or
+	 * allow a trace veto to disable the local byte guard.
+	 */
+	public function test_runtime_payload_guard_is_independent_of_disabled_tracing(): void {
+		add_filter( 'sd_ai_agent_provider_trace_enabled', '__return_false' );
+		add_filter( 'sd_ai_agent_provider_request_max_bytes', static fn(): int => 1024 );
+
+		$body_seen = null;
+		add_filter(
+			'sd_ai_agent_trace_resolve_provider',
+			static function ( string $provider_id, string $url, string $body ) use ( &$body_seen ): string {
+				$body_seen = $body;
+				return '';
+			},
+			10,
+			3
+		);
+
+		ProviderTraceLogger::set_runtime_context( 'openai_compat', 'gpt-test' );
+		$request_body = (string) wp_json_encode(
+			array(
+				'model'  => 'gpt-test',
+				'prompt' => str_repeat( 'PRIVATE_PROMPT_CONTENT', 100 ),
+			)
+		);
+		$result       = ProviderTraceLogger::on_pre_http_request(
+			false,
+			array( 'body' => $request_body ),
+			'https://private-provider.example/v1/infer'
+		);
+
+		$this->assertInstanceOf( \WP_Error::class, $result );
+		$this->assertSame( 'sd_ai_agent_provider_payload_budget_exceeded', $result->get_error_code() );
+		$this->assertTrue( $result->get_error_data()['local_rejection'] );
+		$this->assertNull( $body_seen, 'Disabled tracing must not pass prompt bodies to trace resolution filters.' );
+	}
+
+	/** A traced provider context attributes 413 diagnostics without invoking trace filters when disabled. */
+	public function test_runtime_http_error_attribution_does_not_expose_body_when_tracing_is_disabled(): void {
+		add_filter( 'sd_ai_agent_provider_trace_enabled', '__return_false' );
+
+		$body_seen = null;
+		add_filter(
+			'sd_ai_agent_trace_resolve_provider',
+			static function ( string $provider_id, string $url, string $body ) use ( &$body_seen ): string {
+				$body_seen = $body;
+				return $provider_id;
+			},
+			10,
+			3
+		);
+
+		ProviderTraceLogger::set_runtime_context( 'anthropic', 'claude-test' );
+		$request_body = (string) wp_json_encode(
+			array(
+				'model'    => 'claude-test',
+				'messages' => array( array( 'content' => 'PRIVATE_HTTP_PROMPT' ) ),
+			)
+		);
+		$response     = array(
+			'headers'  => array(),
+			'body'     => (string) wp_json_encode( array( 'error' => array( 'message' => 'Payload too large' ) ) ),
+			'response' => array(
+				'code'    => 413,
+				'message' => 'Payload Too Large',
+			),
+			'cookies'  => array(),
+			'filename' => '',
+		);
+
+		$this->assertSame(
+			$response,
+			ProviderTraceLogger::on_http_response(
+				$response,
+				array( 'body' => $request_body ),
+				'https://private-provider.example/v1/infer'
+			)
+		);
+		$this->assertNull( $body_seen, 'Disabled tracing must not pass 413 prompt bodies to trace resolution filters.' );
 	}
 }
