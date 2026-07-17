@@ -9,6 +9,7 @@
 
 namespace SdAiAgent\Tests\Core;
 
+use SdAiAgent\Core\ConversationTrimmer;
 use SdAiAgent\Core\ModelCapabilityRegistry;
 use SdAiAgent\Core\Settings;
 use SdAiAgent\Infrastructure\AiClient\Superdav\SuperdavAiProvider;
@@ -69,6 +70,8 @@ class SettingsTest extends WP_UnitTestCase {
 		$this->assertArrayHasKey( 'temperature', $defaults );
 		$this->assertArrayHasKey( 'max_output_tokens', $defaults );
 		$this->assertArrayHasKey( 'max_history_turns', $defaults );
+		$this->assertArrayHasKey( 'provider_request_max_bytes', $defaults );
+		$this->assertArrayHasKey( 'provider_request_max_tokens', $defaults );
 		$this->assertArrayHasKey( 'show_on_frontend', $defaults );
 	}
 
@@ -85,6 +88,8 @@ class SettingsTest extends WP_UnitTestCase {
 		// and Settings::get_max_output_tokens_for_model(). Was 4096 until sd-ai-7rl.
 		$this->assertSame( 0, $defaults['max_output_tokens'] );
 		$this->assertSame( 20, $defaults['max_history_turns'] );
+		$this->assertSame( ConversationTrimmer::DEFAULT_MAX_REQUEST_BYTES, $defaults['provider_request_max_bytes'] );
+		$this->assertSame( ConversationTrimmer::DEFAULT_MAX_REQUEST_TOKENS, $defaults['provider_request_max_tokens'] );
 		$this->assertTrue( $defaults['show_on_frontend'] );
 	}
 

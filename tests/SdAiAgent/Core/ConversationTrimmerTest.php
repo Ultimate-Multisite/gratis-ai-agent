@@ -206,6 +206,70 @@ class ConversationTrimmerTest extends WP_UnitTestCase {
 		$this->assertCount( 2, $result );
 	}
 
+	/**
+	 * Byte-budget trimming may discard an oversized first turn.
+	 */
+	public function test_trim_to_budget_drops_oversized_first_turn(): void {
+		$oversized = str_repeat( 'old-context-', 600 );
+		$history   = [
+			$this->create_user_message( $oversized ),
+			$this->create_assistant_message( 'Old response' ),
+			$this->create_user_message( 'Current request' ),
+			$this->create_assistant_message( 'Current response' ),
+		];
+
+		$result  = ConversationTrimmer::trim_to_budget( $history, 512, 0 );
+		$encoded = (string) wp_json_encode(
+			array_map(
+				static fn( $message ): array => $message->toArray(),
+				$result
+			)
+		);
+
+		$this->assertLessThanOrEqual( 512, ConversationTrimmer::estimate_total_bytes( $result ) );
+		$this->assertStringNotContainsString( $oversized, $encoded );
+		$this->assertStringContainsString( 'Current request', $encoded );
+		$this->assertStringContainsString( 'compacted', $encoded );
+	}
+
+	/**
+	 * The newest turn is retained for a caller-side local rejection when it
+	 * cannot fit by itself.
+	 */
+	public function test_trim_to_budget_does_not_silently_drop_oversized_current_turn(): void {
+		$current = str_repeat( 'current-request-', 200 );
+		$history = [ $this->create_user_message( $current ) ];
+
+		$result = ConversationTrimmer::trim_to_budget( $history, 256, 64 );
+
+		$this->assertCount( 1, $result );
+		$this->assertFalse( ConversationTrimmer::fits_budget( $result, 256, 64 ) );
+		$this->assertStringContainsString( $current, (string) wp_json_encode( $result[0]->toArray() ) );
+	}
+
+	/**
+	 * Budget trimming keeps a complete recent tool-call/result cycle.
+	 */
+	public function test_trim_to_budget_preserves_recent_tool_pairs(): void {
+		$history = [
+			$this->create_user_message_mock( str_repeat( 'old context ', 600 ) ),
+			$this->create_assistant_message_mock( 'Old answer' ),
+			$this->create_user_message_mock( 'Run the current tool' ),
+			$this->create_tool_call_message( [
+				[ 'id' => 'call_current', 'name' => 'site-info' ],
+			] ),
+			$this->create_tool_response_message( 'call_current', 'site-info' ),
+			$this->create_assistant_message_mock( 'Current tool completed.' ),
+		];
+
+		$result = ConversationTrimmer::trim_to_budget( $history, 1400, 350 );
+
+		$this->assertTrue( ConversationTrimmer::fits_budget( $result, 1400, 350 ) );
+		$this->assert_tool_pairs_valid( $result );
+		$this->assertContains( 'call_current', $this->extract_all_call_ids_for_test( $result ) );
+		$this->assertContains( 'call_current', $this->extract_all_response_ids_for_test( $result ) );
+	}
+
 	// ── Tool-response pairing tests ──────────────────────────────────────
 
 	/**
@@ -646,6 +710,34 @@ class ConversationTrimmerTest extends WP_UnitTestCase {
 					$ids[] = (string) $fr->getId();
 				}
 			}
+		}
+		return $ids;
+	}
+
+	/**
+	 * Extract every FunctionCall ID from history.
+	 *
+	 * @param object[] $history Conversation history.
+	 * @return string[]
+	 */
+	private function extract_all_call_ids_for_test( array $history ): array {
+		$ids = [];
+		foreach ( $history as $message ) {
+			$ids = array_merge( $ids, $this->extract_call_ids_for_test( $message ) );
+		}
+		return $ids;
+	}
+
+	/**
+	 * Extract every FunctionResponse ID from history.
+	 *
+	 * @param object[] $history Conversation history.
+	 * @return string[]
+	 */
+	private function extract_all_response_ids_for_test( array $history ): array {
+		$ids = [];
+		foreach ( $history as $message ) {
+			$ids = array_merge( $ids, $this->extract_response_ids_for_test( $message ) );
 		}
 		return $ids;
 	}

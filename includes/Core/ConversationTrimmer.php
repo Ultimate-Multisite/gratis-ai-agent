@@ -25,6 +25,21 @@ class ConversationTrimmer {
 	 */
 	const DEFAULT_MAX_TURNS = 20;
 
+	/** Default maximum serialized provider request body size (512 KiB). */
+	const DEFAULT_MAX_REQUEST_BYTES = 524288;
+
+	/** Default maximum estimated input tokens retained in conversation history. */
+	const DEFAULT_MAX_REQUEST_TOKENS = 100000;
+
+	/** Maximum history size copied into a deterministically compacted session. */
+	const COMPACT_MAX_BYTES = 65536;
+
+	/** Maximum estimated tokens copied into a deterministically compacted session. */
+	const COMPACT_MAX_TOKENS = 16000;
+
+	/** Marker inserted when older turns are removed by a request-size budget. */
+	private const BUDGET_MARKER_TEXT = '[Earlier conversation turns were compacted to stay within the request safety budget.]';
+
 	/**
 	 * Trim conversation history if it exceeds the configured max turns.
 	 *
@@ -96,6 +111,149 @@ class ConversationTrimmer {
 		// Even with correct boundary detection, edge cases (serialization
 		// round-trips, history corruption) could leave orphaned tool calls.
 		return self::validate_tool_pairs( $merged );
+	}
+
+	/**
+	 * Trim history to byte and token budgets while keeping a contiguous turn suffix.
+	 *
+	 * Unlike the turn-count guard, this path does not permanently retain the first
+	 * turn. Complete recent turns are kept newest-first until adding the next older
+	 * turn would exceed either budget. Tool-call/result cycles remain inside their
+	 * user-turn boundary and are validated again before returning.
+	 *
+	 * If the newest turn alone exceeds a budget, it is returned unchanged. Callers
+	 * can then reject it locally with actionable guidance rather than silently drop
+	 * the user's current request or dispatch the same oversized payload upstream.
+	 *
+	 * @param Message[] $history    Conversation history.
+	 * @param int       $max_bytes  Maximum serialized history bytes. 0 = unlimited.
+	 * @param int       $max_tokens Maximum estimated history tokens. 0 = unlimited.
+	 * @return Message[] Budgeted history with valid tool pairs.
+	 */
+	public static function trim_to_budget( array $history, int $max_bytes, int $max_tokens = 0 ): array {
+		$history = self::validate_tool_pairs( $history );
+
+		if ( empty( $history ) || self::fits_budget( $history, $max_bytes, $max_tokens ) ) {
+			return $history;
+		}
+
+		$turn_starts = self::find_turn_boundaries( $history );
+		if ( empty( $turn_starts ) ) {
+			return $history;
+		}
+
+		$turns      = array();
+		$turn_count = count( $turn_starts );
+		for ( $i = 0; $i < $turn_count; ++$i ) {
+			$start   = $turn_starts[ $i ];
+			$end     = $turn_starts[ $i + 1 ] ?? count( $history );
+			$turns[] = array_slice( $history, $start, $end - $start );
+		}
+
+		$marker = new UserMessage(
+			array(
+				new MessagePart( self::BUDGET_MARKER_TEXT ),
+			)
+		);
+
+		$last_index = count( $turns ) - 1;
+		$kept       = $turns[ $last_index ];
+
+		// The current turn is never discarded. An over-budget newest turn must be
+		// rejected by the caller rather than converted into an unrelated marker.
+		if ( ! self::fits_budget( $kept, $max_bytes, $max_tokens ) ) {
+			return self::validate_tool_pairs( $kept );
+		}
+
+		for ( $i = $last_index - 1; $i >= 0; --$i ) {
+			$candidate = array_merge( array( $marker ), $turns[ $i ], $kept );
+			if ( ! self::fits_budget( $candidate, $max_bytes, $max_tokens ) ) {
+				break;
+			}
+
+			$kept = array_merge( $turns[ $i ], $kept );
+		}
+
+		if ( count( $kept ) < count( $history ) ) {
+			$marked = array_merge( array( $marker ), $kept );
+			if ( self::fits_budget( $marked, $max_bytes, $max_tokens ) ) {
+				$kept = $marked;
+			}
+		}
+
+		return self::validate_tool_pairs( $kept );
+	}
+
+	/**
+	 * Whether history fits all enabled size budgets.
+	 *
+	 * @param Message[] $history    Conversation history.
+	 * @param int       $max_bytes  Maximum bytes. 0 = unlimited.
+	 * @param int       $max_tokens Maximum estimated tokens. 0 = unlimited.
+	 * @return bool True when all enabled budgets are satisfied.
+	 */
+	public static function fits_budget( array $history, int $max_bytes, int $max_tokens = 0 ): bool {
+		if ( $max_bytes > 0 && self::estimate_total_bytes( $history ) > $max_bytes ) {
+			return false;
+		}
+
+		if ( $max_tokens > 0 && self::estimate_total_tokens( $history ) > $max_tokens ) {
+			return false;
+		}
+
+		return true;
+	}
+
+	/**
+	 * Resolve the configured provider request byte budget.
+	 *
+	 * @param string $provider_id Runtime-selected provider ID.
+	 * @param string $model_id    Runtime-selected model ID.
+	 * @return int Effective request byte budget.
+	 */
+	public static function get_request_byte_budget( string $provider_id = '', string $model_id = '' ): int {
+		// @phpstan-ignore-next-line
+		$configured = (int) Settings::instance()->get( 'provider_request_max_bytes' );
+		if ( $configured <= 0 ) {
+			$configured = self::DEFAULT_MAX_REQUEST_BYTES;
+		}
+
+		/**
+		 * Filter the local provider request body safety budget.
+		 *
+		 * @param int    $configured Configured byte budget.
+		 * @param string $provider_id Runtime-selected provider ID.
+		 * @param string $model_id Runtime-selected model ID.
+		 */
+		$filtered = (int) apply_filters( 'sd_ai_agent_provider_request_max_bytes', $configured, $provider_id, $model_id );
+
+		return max( 1024, $filtered );
+	}
+
+	/**
+	 * Resolve the configured conversation input token budget.
+	 *
+	 * @param string $provider_id Runtime-selected provider ID.
+	 * @param string $model_id    Runtime-selected model ID.
+	 * @return int Effective estimated-token budget.
+	 */
+	public static function get_request_token_budget( string $provider_id = '', string $model_id = '' ): int {
+		// @phpstan-ignore-next-line
+		$configured = (int) Settings::instance()->get( 'provider_request_max_tokens' );
+		if ( $configured <= 0 ) {
+			$configured = self::DEFAULT_MAX_REQUEST_TOKENS;
+		}
+
+		/**
+		 * Filter the local conversation input token safety budget.
+		 *
+		 * @param int    $configured Configured estimated-token budget.
+		 * @param string $provider_id Runtime-selected provider ID.
+		 * @param string $model_id Runtime-selected model ID.
+		 */
+		$filtered = (int) apply_filters( 'sd_ai_agent_provider_request_max_tokens', $configured, $provider_id, $model_id );
+
+		return max( 256, $filtered );
 	}
 
 	/**
@@ -409,6 +567,40 @@ class ConversationTrimmer {
 
 		// Rough estimate: 1 token ~= 4 characters.
 		return (int) ceil( strlen( $text ) / 4 );
+	}
+
+	/**
+	 * Estimate serialized bytes for one message, including attachment/tool data.
+	 *
+	 * @param Message $message Conversation message.
+	 * @return int Estimated serialized bytes.
+	 */
+	public static function estimate_bytes( Message $message ): int {
+		try {
+			$encoded = wp_json_encode( $message->toArray() );
+			if ( is_string( $encoded ) ) {
+				return strlen( $encoded );
+			}
+		} catch ( \Throwable $e ) {
+			// Fall through to the conservative token-derived estimate.
+		}
+
+		return self::estimate_tokens( $message ) * 4;
+	}
+
+	/**
+	 * Estimate total serialized bytes in a history array.
+	 *
+	 * @param Message[] $history Conversation history.
+	 * @return int Estimated serialized bytes.
+	 */
+	public static function estimate_total_bytes( array $history ): int {
+		$total = 0;
+		foreach ( $history as $message ) {
+			$total += self::estimate_bytes( $message );
+		}
+
+		return $total;
 	}
 
 	/**
