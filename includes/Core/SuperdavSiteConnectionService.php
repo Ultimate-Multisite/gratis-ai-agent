@@ -10,6 +10,7 @@ declare(strict_types=1);
 
 namespace SdAiAgent\Core;
 
+use SdAiAgent\Abilities\OptionsAbilities;
 use SdAiAgent\Infrastructure\AiClient\Superdav\SuperdavAiProvider;
 use WP_Error;
 
@@ -124,7 +125,18 @@ final class SuperdavSiteConnectionService {
 			return new WP_Error( 'sd_ai_agent_cloud_account_invalid', __( 'Superdav AI account response was invalid.', 'superdav-ai-agent' ), array( 'status' => 502 ) );
 		}
 
-		$metadata = array_merge( $this->get_metadata(), $this->sanitize_remote_metadata( $body ) );
+		$metadata = $this->get_metadata();
+		unset(
+			$metadata['tier'],
+			$metadata['verified'],
+			$metadata['connect_required'],
+			$metadata['request_id'],
+			$metadata['account_portal_url'],
+			$metadata['usage'],
+			$metadata['verification'],
+			$metadata['wallet']
+		);
+		$metadata = array_merge( $metadata, $this->sanitize_remote_metadata( $body ) );
 		update_option( self::TOKEN_METADATA_OPTION, $metadata, false );
 
 		return $this->get_status();
@@ -276,7 +288,9 @@ final class SuperdavSiteConnectionService {
 		$default_url = is_string( $default_url ) ? $default_url : '';
 		$url         = apply_filters( 'sd_ai_agent_cloud_account_connect_url', $default_url, $this->get_installation_id(), $this->get_verified_site_url() );
 
-		return is_string( $url ) ? esc_url_raw( $url ) : '';
+		$url = is_string( $url ) ? esc_url_raw( $url ) : '';
+
+		return $this->account_portal_url_has_secret_query_key( $url ) ? '' : $url;
 	}
 
 	/**
@@ -475,6 +489,15 @@ final class SuperdavSiteConnectionService {
 			}
 		}
 
+		if ( isset( $safe['account_portal_url'] ) ) {
+			$url = is_string( $safe['account_portal_url'] ) ? esc_url_raw( $safe['account_portal_url'] ) : '';
+			if ( '' === $url || $this->account_portal_url_has_secret_query_key( $url ) ) {
+				unset( $safe['account_portal_url'] );
+			} else {
+				$safe['account_portal_url'] = $url;
+			}
+		}
+
 		if ( isset( $metadata['usage'] ) && is_array( $metadata['usage'] ) ) {
 			$safe['usage'] = array_filter(
 				$metadata['usage'],
@@ -494,6 +517,39 @@ final class SuperdavSiteConnectionService {
 		}
 
 		return $safe;
+	}
+
+	/**
+	 * Determine whether an account portal URL contains a blocked secret query key.
+	 */
+	private function account_portal_url_has_secret_query_key( string $url ): bool {
+		$query = wp_parse_url( $url, PHP_URL_QUERY );
+		if ( ! is_string( $query ) || '' === $query ) {
+			return false;
+		}
+
+		$parameters = array();
+		parse_str( $query, $parameters );
+
+		$pending = array( $parameters );
+		while ( array() !== $pending ) {
+			$current = array_pop( $pending );
+			if ( ! is_array( $current ) ) {
+				continue;
+			}
+
+			foreach ( $current as $key => $value ) {
+				if ( is_string( $key ) && OptionsAbilities::is_secret_option_name( $key ) ) {
+					return true;
+				}
+
+				if ( is_array( $value ) ) {
+					$pending[] = $value;
+				}
+			}
+		}
+
+		return false;
 	}
 
 	/**
