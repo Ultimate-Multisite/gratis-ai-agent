@@ -867,6 +867,26 @@ class AgentLoopTest extends WP_UnitTestCase {
 		$this->assertSame( 1, $call_count );
 	}
 
+	/**
+	 * A provider 413 must explain how to reduce the request instead of exposing
+	 * the SDK transport error, which offers no recovery action to the user.
+	 */
+	public function test_run_returns_actionable_error_on_payload_too_large(): void {
+		$loop   = new AgentLoop( 'Hello' );
+		$method = new \ReflectionMethod( AgentLoop::class, 'provider_error_to_wp_error' );
+		$method->setAccessible( true );
+		$result = $method->invoke(
+			$loop,
+			new \WP_Error( 'http_request_failed', 'Client error (413): Payload Too Large' ),
+			413
+		);
+
+		$this->assertInstanceOf( \WP_Error::class, $result );
+		$this->assertSame( 'sd_ai_agent_provider_payload_too_large', $result->get_error_code() );
+		$this->assertStringContainsString( 'Start a new chat', $result->get_error_message() );
+		$this->assertSame( 413, $result->get_error_data()['status_code'] );
+	}
+
 	// -------------------------------------------------------------------------
 	// Tool call / confirmation flow
 	// -------------------------------------------------------------------------
