@@ -184,6 +184,11 @@ Both: `max-width: 85%`, `font-size: 13px`, `line-height: 1.55`, `padding: 9px 13
 
 Action buttons appear below the bubble on row hover, aligned to match the bubble side.
 
+System notices:
+- Reserve the red error surface for true failures that require troubleshooting.
+- Account-action notices (billing, connection, setup) should use `Surface Active` with `Border Accent`, `role="status"`, friendly action-oriented copy, and a single primary button-style link CTA when an action URL is available.
+- Avoid framing customer account actions as errors; do not surface provider phrases such as “rejected” or “insufficient” in the chat UI when a clearer next step is available.
+
 ### Cards (suggestion / template)
 
 - `background: #fff`, `border: 1px solid #dcdcde`, `border-radius: 8px`

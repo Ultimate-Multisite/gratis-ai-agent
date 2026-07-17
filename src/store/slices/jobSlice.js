@@ -695,14 +695,18 @@ export const actions = {
 					}
 
 					if ( result.status === 'error' ) {
+						const rawErrorMessage =
+							result.message ||
+							__( 'Unknown error', 'superdav-ai-agent' );
+						const isCreditNotice =
+							/superdav.*credit|credit.*superdav/i.test(
+								rawErrorMessage
+							);
 						let errorText = `${ __(
 							'Error:',
 							'superdav-ai-agent'
-						) } ${
-							result.message ||
-							__( 'Unknown error', 'superdav-ai-agent' )
-						}`;
-						if ( result.error_context ) {
+						) } ${ rawErrorMessage }`;
+						if ( ! isCreditNotice && result.error_context ) {
 							const ctx = result.error_context;
 							errorText += `\n\n**${ __(
 								'Location:',
@@ -726,7 +730,9 @@ export const actions = {
 								role: 'system',
 								parts: [ { text: errorText } ],
 							} );
-							dispatch.setStreamError( true, sessionId );
+							if ( ! isCreditNotice ) {
+								dispatch.setStreamError( true, sessionId );
+							}
 							// WP_Error max_iterations — show feedback banner (t183).
 							const errMsg = result.message || '';
 							if ( /max.?iteration/i.test( errMsg ) ) {
@@ -734,8 +740,10 @@ export const actions = {
 									exitReason: 'max_iterations',
 								} );
 							}
-							// Play error sound for the active session.
-							playDong();
+							// Play error sound for true failures; payment setup is an account action.
+							if ( ! isCreditNotice ) {
+								playDong();
+							}
 						}
 					}
 

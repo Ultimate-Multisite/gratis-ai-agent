@@ -206,7 +206,9 @@ export default function WidgetMessageList() {
 							return (
 								<SystemMessage
 									key={ index }
-									text={ extractText( msg ) }
+									text={
+										msg.notice?.[ 0 ] || extractText( msg )
+									}
 								/>
 							);
 						}
