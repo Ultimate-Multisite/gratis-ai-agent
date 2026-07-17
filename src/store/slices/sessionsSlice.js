@@ -1137,13 +1137,19 @@ export const actions = {
 					data: body,
 				} );
 			} catch ( err ) {
+				const errorMessage =
+					err.message ||
+					__( 'Failed to start agent', 'superdav-ai-agent' );
 				dispatch.appendMessage( {
 					role: 'system',
 					parts: [
 						{
-							text: `${ __( 'Error:', 'sd-ai-agent' ) } ${
-								err.message ||
-								__( 'Failed to start agent', 'sd-ai-agent' )
+							text: `${ __( 'Error:', 'superdav-ai-agent' ) } ${
+								errorMessage ||
+								__(
+									'Failed to start agent',
+									'superdav-ai-agent'
+								)
 							}`,
 						},
 					],

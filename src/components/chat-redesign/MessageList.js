@@ -22,6 +22,11 @@ import STORE_NAME from '../../store';
 import FeedbackConsentModal from '../feedback-consent-modal';
 import useTextToSpeech from '../use-text-to-speech';
 import { extractText, getRunningToolName } from './message-helpers';
+import AccountActionSystemMessage from './account-action-system-message';
+import {
+	buildSuperdavCreditNoticeMessage,
+	isSuperdavCreditBalanceNotice,
+} from '../../utils/superdav-credit-notice';
 import {
 	AssistantMessage,
 	RunningMessage,
@@ -48,6 +53,7 @@ export default function MessageList() {
 		ttsRate,
 		ttsPitch,
 		hasStreamError,
+		providers,
 	} = useSelect( ( sel ) => {
 		const store = sel( STORE_NAME );
 		return {
@@ -67,6 +73,7 @@ export default function MessageList() {
 			ttsRate: store.getTtsRate(),
 			ttsPitch: store.getTtsPitch(),
 			hasStreamError: store.hasStreamError(),
+			providers: store.getProviders(),
 		};
 	}, [] );
 
@@ -277,11 +284,30 @@ export default function MessageList() {
 							);
 						}
 						if ( msg.role === 'system' ) {
+							if ( msg.notice ) {
+								return (
+									<AccountActionSystemMessage
+										key={ index }
+										notice={ msg.notice }
+									/>
+								);
+							}
+							const text = extractText( msg );
+							if ( isSuperdavCreditBalanceNotice( text ) ) {
+								return (
+									<AccountActionSystemMessage
+										key={ index }
+										notice={
+											buildSuperdavCreditNoticeMessage(
+												providers
+											).notice
+										}
+									/>
+								);
+							}
+
 							return (
-								<SystemMessage
-									key={ index }
-									text={ extractText( msg ) }
-								/>
+								<SystemMessage key={ index } text={ text } />
 							);
 						}
 						return null;

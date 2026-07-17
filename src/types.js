@@ -33,7 +33,8 @@
  *
  * @typedef {Object} Message
  * @property {'user'|'model'|'system'|'function'} role        - Message role.
- * @property {MessagePart[]}                      parts       - Message content parts.
+ * @property {MessagePart[]}                      [parts]     - Message content parts.
+ * @property {Array}                              [notice]    - Optional UI notice metadata for system messages.
  * @property {ToolCall[]}                         [toolCalls] - Tool calls attached to this message.
  * @property {MessageDebug}                       [debug]     - Debug metadata (debug mode only).
  */

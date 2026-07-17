@@ -885,6 +885,34 @@ input[type="text"].sdaa-cr-search-input {
 	font-size: 13px;
 }
 
+.sdaa-cr-msg-system--account-action {
+	background: var(--sdaa-surface-active);
+	border-color: var(--sdaa-primary);
+	color: var(--sdaa-text-primary);
+}
+
+.sdaa-cr-msg-system-action {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	margin-top: 10px;
+	padding: 6px 12px;
+	border-radius: var(--sdaa-radius-pill);
+	background: var(--sdaa-primary);
+	color: #fff;
+	font-weight: 600;
+	line-height: 1.3;
+	text-decoration: none;
+	transition: background var(--sdaa-duration) ease;
+}
+
+.sdaa-cr-msg-system-action:hover,
+.sdaa-cr-msg-system-action:focus {
+	background: var(--sdaa-primary-dark);
+	color: #fff;
+	text-decoration: none;
+}
+
 /* Tool card */
 .sdaa-cr-tool-card {
 	margin: 0 0 10px;
