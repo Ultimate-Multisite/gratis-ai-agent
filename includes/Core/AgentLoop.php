@@ -1801,6 +1801,16 @@ class AgentLoop {
 	 * @param int                      $status_code HTTP status code, or 0 when unknown.
 	 */
 	private function provider_error_to_wp_error( $error, int $status_code ): WP_Error {
+		if ( 413 === $status_code ) {
+			return new WP_Error(
+				'sd_ai_agent_provider_payload_too_large',
+				__( 'The AI provider rejected this request because it exceeds its payload limit. Start a new chat and send a smaller request. If you attached files, remove or reduce them before retrying.', 'superdav-ai-agent' ),
+				array(
+					'status_code' => $status_code,
+				)
+			);
+		}
+
 		if ( $error instanceof WP_Error ) {
 			return $error;
 		}
