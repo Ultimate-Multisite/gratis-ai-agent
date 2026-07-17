@@ -199,6 +199,59 @@ final class SettingsControllerTest extends WP_UnitTestCase {
 		$this->assertSame( 1, $registration_hits );
 	}
 
+	/** Superdav account refresh returns safe wallet metadata without a bearer token. */
+	public function test_handle_refresh_superdav_account_returns_safe_wallet_metadata(): void {
+		$base_url    = 'https://service.example/v1';
+		$account_url = $base_url . '/site/account';
+		$token       = 'sdaist_account_refresh_token';
+
+		add_filter( 'sd_ai_agent_cloud_base_url', static fn(): string => $base_url );
+		add_filter(
+			'pre_http_request',
+			static function ( mixed $preempt, array $parsed_args, string $url ) use ( $account_url, $token ): mixed {
+				if ( $account_url !== $url ) {
+					return $preempt;
+				}
+
+				self::assertSame( 'Bearer ' . $token, self::authorization_header_from_args( $parsed_args ) );
+
+				return array(
+					'response' => array(
+						'code'    => 200,
+						'message' => 'OK',
+					),
+					'body'     => wp_json_encode(
+						array(
+							'tier'               => 'pro',
+							'account_portal_url' => 'https://account.example/billing',
+							'wallet'             => array(
+								'currency'         => 'USD',
+								'promo_usd_micros' => 2500000,
+								'cash_usd_micros'  => 12500000,
+								'total_usd_micros' => 15000000,
+								'payment_token'    => 'must-not-be-exposed',
+							),
+							'access_token'       => 'must-not-be-exposed',
+						)
+					),
+				);
+			},
+			10,
+			3
+		);
+
+		update_option( SuperdavAiProvider::CREDENTIAL_OPTION, $token, false );
+		$response = ( new SettingsController( new Settings(), new Database() ) )->handle_refresh_superdav_account();
+
+		$this->assertInstanceOf( \WP_REST_Response::class, $response );
+		$this->assertSame( 200, $response->get_status() );
+		$data = $response->get_data();
+		$this->assertSame( 15000000, $data['wallet']['total_usd_micros'] );
+		$this->assertSame( 'https://account.example/billing', $data['account_portal_url'] );
+		$this->assertStringNotContainsString( $token, wp_json_encode( $data ) ?: '' );
+		$this->assertStringNotContainsString( 'must-not-be-exposed', wp_json_encode( $data ) ?: '' );
+	}
+
 	/**
 	 * /providers refreshes a stale managed Superdav token when model listing returns 401.
 	 */

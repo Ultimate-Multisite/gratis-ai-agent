@@ -43,6 +43,7 @@ import AgentBuilder from './agent-builder';
 import BrandingManager from './branding-manager';
 import AbilitiesManager from './abilities-manager';
 import ProviderTraceViewer from './provider-trace-viewer';
+import SuperdavAccountManager from './superdav-account-manager';
 
 /**
  * Resolve the default model to select for a provider row.
@@ -132,7 +133,7 @@ export default function SettingsApp() {
 	// Tabs that manage their own save actions — hide the global Save Settings button.
 	// Note: 'access-branding' was removed from this list because BrandingManager
 	// does not have its own save button — it uses the global Save Settings button.
-	const selfSavingTabs = [ 'provider-trace' ];
+	const selfSavingTabs = [ 'superdav-account', 'provider-trace' ];
 
 	// Google Analytics integration state.
 	const [ gaPropertyId, setGaPropertyId ] = useState( '' );
@@ -541,6 +542,11 @@ export default function SettingsApp() {
 	// features it hosts (access_control, branding) is enabled.
 	const allTabs = [
 		{
+			name: 'superdav-account',
+			title: __( 'Superdav AI', 'superdav-ai-agent' ),
+			className: 'sdaa-settings-tab',
+		},
+		{
 			name: 'general',
 			title: __( 'General', 'sd-ai-agent' ),
 			className: 'sdaa-settings-tab',
@@ -633,6 +639,20 @@ export default function SettingsApp() {
 				<TabPanel tabs={ tabs } onSelect={ setActiveTab }>
 					{ ( tab ) => {
 						switch ( tab.name ) {
+							case 'superdav-account':
+								return (
+									<div className="sdaa-settings-section">
+										<ErrorBoundary
+											label={ __(
+												'Superdav AI account manager',
+												'superdav-ai-agent'
+											) }
+										>
+											<SuperdavAccountManager />
+										</ErrorBoundary>
+									</div>
+								);
+
 							case 'general':
 								return (
 									<div className="sdaa-settings-section">
