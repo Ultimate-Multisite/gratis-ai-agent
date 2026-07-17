@@ -76,6 +76,15 @@ class AgentEventLog {
 		'status_code',
 		'reason',
 		'duration_ms',
+		'request_bytes',
+		'request_bytes_estimate',
+		'request_tokens_estimate',
+		'request_budget_bytes',
+		'request_size_class',
+		'request_size_source',
+		'local_rejection',
+		'fallback_attempted',
+		'payload_reduced',
 	);
 
 	/**

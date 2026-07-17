@@ -32,11 +32,66 @@ namespace SdAiAgent\Tests\Core;
 
 use SdAiAgent\Core\AgentLoop;
 use SdAiAgent\Core\ConversationSerializer;
+use SdAiAgent\Core\ConversationTrimmer;
 use SdAiAgent\Core\ProviderCredentialLoader;
 use SdAiAgent\Core\Settings;
 use SdAiAgent\Core\SystemInstructionBuilder;
 use SdAiAgent\Core\ToolPermissionResolver;
+use WordPress\AiClient\Messages\DTO\Message;
+use WordPress\AiClient\Messages\DTO\MessagePart;
+use WordPress\AiClient\Messages\DTO\ModelMessage;
+use WordPress\AiClient\Providers\DTO\ProviderMetadata;
+use WordPress\AiClient\Providers\Enums\ProviderTypeEnum;
+use WordPress\AiClient\Providers\Http\Enums\RequestAuthenticationMethod;
+use WordPress\AiClient\Providers\Models\DTO\ModelMetadata;
+use WordPress\AiClient\Providers\Models\Enums\CapabilityEnum;
+use WordPress\AiClient\Results\DTO\Candidate;
+use WordPress\AiClient\Results\DTO\GenerativeAiResult;
+use WordPress\AiClient\Results\DTO\TokenUsage;
+use WordPress\AiClient\Results\Enums\FinishReasonEnum;
+use WP_Error;
 use WP_UnitTestCase;
+
+/** Deterministic provider boundary used to exercise recovery without credentials. */
+final class ScriptedAgentLoop extends AgentLoop {
+
+	/** @var list<GenerativeAiResult|WP_Error> */
+	private array $scriptedResults;
+
+	/** @var list<int> */
+	// phpcs:ignore WordPress.NamingConventions.ValidVariableName.PropertyNotSnakeCase -- Project property naming guidance requires camelCase.
+	public array $requestSizes = array();
+
+	/**
+	 * @param string                                  $user_message User prompt.
+	 * @param string[]                                $abilities    Enabled abilities.
+	 * @param Message[]                               $history      Prior history.
+	 * @param array<string, mixed>                    $options      Agent options.
+	 * @param list<GenerativeAiResult|WP_Error>       $results      Scripted provider results.
+	 */
+	public function __construct( string $user_message, array $abilities, array $history, array $options, array $results ) {
+		$this->scriptedResults = $results;
+		parent::__construct( $user_message, $abilities, $history, $options );
+	}
+
+	/** Return the next scripted result while recording the outgoing history size. */
+	protected function send_prompt( string $provider_id, string $model_id ): GenerativeAiResult|WP_Error {
+		$history_property = new \ReflectionProperty( AgentLoop::class, 'history' );
+		$history_property->setAccessible( true );
+		$history = $history_property->getValue( $this );
+		if ( is_array( $history ) ) {
+			/** @var Message[] $history */
+			$this->requestSizes[] = ConversationTrimmer::estimate_total_bytes( $history );
+		}
+
+		$result = array_shift( $this->scriptedResults );
+		if ( $result instanceof GenerativeAiResult || $result instanceof WP_Error ) {
+			return $result;
+		}
+
+		return new WP_Error( 'sd_ai_agent_test_script_exhausted', 'Scripted provider results exhausted.' );
+	}
+}
 
 /**
  * Integration tests for AgentLoop.
@@ -491,6 +546,35 @@ class AgentLoopTest extends WP_UnitTestCase {
 		);
 	}
 
+	/** Build a deterministic SDK result for scripted provider recovery tests. */
+	private function create_scripted_result( string $reply ): GenerativeAiResult {
+		$provider_metadata = new ProviderMetadata(
+			'scripted-provider',
+			'Scripted Provider',
+			ProviderTypeEnum::cloud(),
+			null,
+			RequestAuthenticationMethod::apiKey()
+		);
+		$model_metadata    = new ModelMetadata(
+			'scripted-model',
+			'Scripted Model',
+			array( CapabilityEnum::textGeneration() ),
+			array()
+		);
+		$candidate         = new Candidate(
+			new ModelMessage( array( new MessagePart( $reply ) ) ),
+			FinishReasonEnum::stop()
+		);
+
+		return new GenerativeAiResult(
+			'scripted-result',
+			array( $candidate ),
+			new TokenUsage( 10, 5, 15 ),
+			$provider_metadata,
+			$model_metadata
+		);
+	}
+
 	// -------------------------------------------------------------------------
 	// Constructor / configuration tests
 	// -------------------------------------------------------------------------
@@ -885,6 +969,132 @@ class AgentLoopTest extends WP_UnitTestCase {
 		$this->assertSame( 'sd_ai_agent_provider_payload_too_large', $result->get_error_code() );
 		$this->assertStringContainsString( 'Start a new chat', $result->get_error_message() );
 		$this->assertSame( 413, $result->get_error_data()['status_code'] );
+	}
+
+	/**
+	 * Each distinct provider invocation may make one demonstrably smaller 413 retry.
+	 */
+	public function test_provider_413_recovery_is_scoped_to_each_provider_invocation(): void {
+		$history = array(
+			new \WordPress\AiClient\Messages\DTO\UserMessage(
+				array( new \WordPress\AiClient\Messages\DTO\MessagePart( str_repeat( 'Old provider context. ', 1200 ) ) )
+			),
+			new \WordPress\AiClient\Messages\DTO\ModelMessage(
+				array( new \WordPress\AiClient\Messages\DTO\MessagePart( 'Old response.' ) )
+			),
+			new \WordPress\AiClient\Messages\DTO\UserMessage(
+				array( new \WordPress\AiClient\Messages\DTO\MessagePart( str_repeat( 'More recent context. ', 300 ) ) )
+			),
+			new \WordPress\AiClient\Messages\DTO\ModelMessage(
+				array( new \WordPress\AiClient\Messages\DTO\MessagePart( 'More recent response.' ) )
+			),
+		);
+
+		$options = array(
+			'provider_id' => 'scripted-provider',
+			'model_id'    => 'scripted-model',
+		);
+		$loop    = new ScriptedAgentLoop(
+			'Current request.',
+			array(),
+			$history,
+			$options,
+			array(
+				new WP_Error( 'sd_ai_agent_provider_payload_too_large', 'Payload too large.', array( 'status_code' => 413 ) ),
+				$this->create_scripted_result( '' ),
+				new WP_Error( 'sd_ai_agent_provider_payload_too_large', 'Payload too large.', array( 'status_code' => 413 ) ),
+				$this->create_scripted_result( 'Recovered after the follow-up retry.' ),
+			)
+		);
+		$result = $loop->run();
+
+		$this->assertIsArray( $result );
+		$this->assertSame( 'Recovered after the follow-up retry.', $result['reply'] );
+		$this->assertCount( 4, $loop->requestSizes );
+		$this->assertLessThan( $loop->requestSizes[0], $loop->requestSizes[1] );
+		$this->assertLessThan( $loop->requestSizes[2], $loop->requestSizes[3] );
+
+		$recoveries = array_filter(
+			$result['messages'],
+			static fn( array $entry ): bool => 'provider_payload_recovery' === ( $entry['type'] ?? '' )
+		);
+		$this->assertCount( 2, $recoveries );
+	}
+
+	/**
+	 * A repeated 413 from the auxiliary follow-up is returned with resumable data.
+	 */
+	public function test_followup_propagates_repeated_payload_error_with_recovery_data(): void {
+		$history = array(
+			new \WordPress\AiClient\Messages\DTO\UserMessage(
+				array( new \WordPress\AiClient\Messages\DTO\MessagePart( str_repeat( 'Earlier context. ', 1200 ) ) )
+			),
+			new \WordPress\AiClient\Messages\DTO\ModelMessage(
+				array( new \WordPress\AiClient\Messages\DTO\MessagePart( 'Earlier response.' ) )
+			),
+		);
+
+		$options = array(
+			'provider_id' => 'scripted-provider',
+			'model_id'    => 'scripted-model',
+		);
+		$loop    = new ScriptedAgentLoop(
+			'Current request.',
+			array(),
+			$history,
+			$options,
+			array(
+				$this->create_scripted_result( '' ),
+				new WP_Error( 'sd_ai_agent_provider_payload_too_large', 'Payload too large.', array( 'status_code' => 413 ) ),
+				new WP_Error( 'sd_ai_agent_provider_payload_too_large', 'Payload too large.', array( 'status_code' => 413 ) ),
+			)
+		);
+		$result = $loop->run();
+
+		$this->assertInstanceOf( \WP_Error::class, $result );
+		$this->assertSame( 'sd_ai_agent_provider_payload_too_large', $result->get_error_code() );
+		$this->assertCount( 3, $loop->requestSizes );
+		$data = $result->get_error_data();
+		$this->assertIsArray( $data );
+		$this->assertTrue( $data['fallback_attempted'] );
+		$this->assertTrue( $data['payload_reduced'] );
+		$this->assertTrue( $data['recoverable'] );
+		$this->assertNotEmpty( $data['history'] );
+	}
+
+	/**
+	 * An irreducible newest turn is rejected locally before any provider call.
+	 */
+	public function test_oversized_current_turn_is_rejected_locally_with_recoverable_history(): void {
+		Settings::instance()->update(
+			array(
+				'provider_request_max_bytes'  => 1024,
+				'provider_request_max_tokens' => 256,
+			)
+		);
+
+		$current = str_repeat( 'Oversized current request. ', 400 );
+		$loop    = new ScriptedAgentLoop(
+			$current,
+			array(),
+			array(),
+			array(
+				'provider_id' => 'scripted-provider',
+				'model_id'    => 'scripted-model',
+			),
+			array( $this->create_scripted_result( 'Should not be sent.' ) )
+		);
+		$result  = $loop->run();
+
+		$this->assertInstanceOf( \WP_Error::class, $result );
+		$this->assertSame( 'sd_ai_agent_provider_payload_budget_exceeded', $result->get_error_code() );
+		$this->assertCount( 0, $loop->requestSizes );
+		$data = $result->get_error_data();
+		$this->assertIsArray( $data );
+		$this->assertTrue( $data['local_rejection'] );
+		$this->assertFalse( $data['fallback_attempted'] );
+		$this->assertTrue( $data['recoverable'] );
+		$this->assertStringContainsString( $current, (string) wp_json_encode( $data['history'] ) );
 	}
 
 	// -------------------------------------------------------------------------
@@ -1509,19 +1719,24 @@ class AgentLoopTest extends WP_UnitTestCase {
 			3
 		);
 
-		// Use max_iterations = 2 to keep the test fast.
-		$loop   = new AgentLoop( 'Loop forever', [], [], [ 'max_iterations' => 2 ] );
+		// Use max_iterations = 2 and one no-sleep provider attempt to keep the test fast.
+		$options                   = $this->no_sleep_retry_options( 1 );
+		$options['max_iterations'] = 2;
+		$loop                      = new AgentLoop( 'Loop forever', [], [], $options );
 		$result = $loop->run();
 
-		// Fallback failed → falls through to the WP_Error path.
+		// The auxiliary fallback must propagate its provider failure rather than
+		// replacing it with an unrelated max-iterations error.
 		$this->assertInstanceOf( \WP_Error::class, $result );
-		$this->assertSame( 'sd_ai_agent_max_iterations', $result->get_error_code() );
+		$this->assertSame( 'sd_ai_agent_provider_retry_failed', $result->get_error_code() );
 
-		// Error data should include tool_calls and iterations_used.
+		// Error data should keep resumable history and loop metadata.
 		$data = $result->get_error_data();
 		$this->assertIsArray( $data );
 		$this->assertArrayHasKey( 'tool_calls', $data );
 		$this->assertArrayHasKey( 'iterations_used', $data );
+		$this->assertTrue( $data['recoverable'] );
+		$this->assertNotEmpty( $data['history'] );
 		// 2 loop iterations + 1 fallback attempt = 3.
 		$this->assertSame( 3, $data['iterations_used'] );
 	}

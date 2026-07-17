@@ -21,6 +21,7 @@ declare(strict_types=1);
 
 namespace SdAiAgent\Tests\REST;
 
+use SdAiAgent\Core\ConversationTrimmer;
 use SdAiAgent\Core\Database;
 use SdAiAgent\Core\Settings;
 use SdAiAgent\Automations\HumanApprovalGate;
@@ -156,6 +157,7 @@ class RestControllerTest extends WP_UnitTestCase {
 			'/sd-ai-agent/v1/skills/(?P<id>\d+)',
 			'/sd-ai-agent/v1/sessions',
 			'/sd-ai-agent/v1/sessions/(?P<id>\d+)',
+			'/sd-ai-agent/v1/sessions/(?P<id>\d+)/compact',
 			'/sd-ai-agent/v1/sessions/folders',
 			'/sd-ai-agent/v1/sessions/bulk',
 			'/sd-ai-agent/v1/sessions/trash',
@@ -628,6 +630,86 @@ class RestControllerTest extends WP_UnitTestCase {
 		$this->assertSame( 'Get Session Test', $data['title'] );
 		$this->assertArrayHasKey( 'messages', $data );
 		$this->assertArrayHasKey( 'tool_calls', $data );
+	}
+
+	/**
+	 * Test POST /sessions/{id}/compact creates a bounded server-side continuation.
+	 */
+	public function test_compact_session_creates_bounded_server_side_session(): void {
+		wp_set_current_user( $this->admin_id );
+
+		$session_id = Database::create_session(
+			[
+				'user_id'     => $this->admin_id,
+				'title'       => 'Long Session',
+				'provider_id' => 'anthropic',
+				'model_id'    => 'claude-test',
+			]
+		);
+
+		$messages = [
+			[
+				'role'  => 'user',
+				'parts' => [ [ 'text' => str_repeat( 'large old context ', 2000 ) ] ],
+			],
+			[
+				'role'  => 'model',
+				'parts' => [
+					[
+						'functionCall' => [
+							'name' => 'sd-ai-agent/site-info',
+							'args' => [ 'secret' => 'DO_NOT_COPY_ARGS' ],
+						],
+					],
+				],
+			],
+			[
+				'role'  => 'user',
+				'parts' => [
+					[
+						'functionResponse' => [
+							'name'     => 'sd-ai-agent/site-info',
+							'response' => 'DO_NOT_COPY_TOOL_RESULT',
+						],
+					],
+				],
+			],
+			[
+				'role'  => 'user',
+				'parts' => [ [ 'text' => 'Latest continuation detail.' ] ],
+			],
+		];
+		Database::append_to_session( (int) $session_id, $messages );
+
+		$response = $this->dispatch(
+			'POST',
+			"/sd-ai-agent/v1/sessions/{$session_id}/compact",
+			[
+				'provider_id' => 'openai',
+				'model_id'    => 'gpt-test',
+			]
+		);
+
+		$this->assertStatus( 201, $response );
+		$data = $response->get_data();
+		$this->assertIsArray( $data );
+		$this->assertNotSame( (int) $session_id, (int) $data['id'] );
+		$this->assertSame( (int) $session_id, $data['compacted_from'] );
+		$this->assertSame( 'openai', $data['provider_id'] );
+		$this->assertSame( 'gpt-test', $data['model_id'] );
+		$this->assertCount( 1, $data['messages'] );
+
+		$encoded_messages = (string) wp_json_encode( $data['messages'] );
+		$this->assertLessThanOrEqual( ConversationTrimmer::COMPACT_MAX_BYTES, strlen( $encoded_messages ) );
+		$this->assertStringContainsString( 'Latest continuation detail.', $encoded_messages );
+		$this->assertStringNotContainsString( 'DO_NOT_COPY_ARGS', $encoded_messages );
+		$this->assertStringNotContainsString( 'DO_NOT_COPY_TOOL_RESULT', $encoded_messages );
+
+		$new_session = Database::get_session( (int) $data['id'] );
+		$this->assertNotNull( $new_session );
+		$stored_messages = json_decode( (string) $new_session->messages, true );
+		$this->assertIsArray( $stored_messages );
+		$this->assertCount( 1, $stored_messages );
 	}
 
 	/**

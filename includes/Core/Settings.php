@@ -401,6 +401,11 @@ class Settings {
 			'knowledge_enabled'               => true,
 			'knowledge_auto_index'            => true,
 			'max_history_turns'               => 20,
+			// Local input guards. The byte limit is enforced against the final
+			// serialized HTTP body; the token limit bounds retained conversation
+			// history before the provider builder runs.
+			'provider_request_max_bytes'      => ConversationTrimmer::DEFAULT_MAX_REQUEST_BYTES,
+			'provider_request_max_tokens'     => ConversationTrimmer::DEFAULT_MAX_REQUEST_TOKENS,
 			'suggestion_count'                => 3,
 			'yolo_mode'                       => false,
 			'show_on_frontend'                => true,

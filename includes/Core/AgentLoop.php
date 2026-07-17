@@ -42,6 +42,7 @@ use WordPress\AiClient\Messages\DTO\MessagePart;
 use WordPress\AiClient\Messages\DTO\ModelMessage;
 use WordPress\AiClient\Messages\DTO\UserMessage;
 use WordPress\AiClient\Messages\Enums\MessageRoleEnum;
+use WordPress\AiClient\Results\DTO\GenerativeAiResult;
 use WordPress\AiClient\Tools\DTO\FunctionCall;
 use WordPress\AiClient\Tools\DTO\FunctionResponse;
 
@@ -998,7 +999,7 @@ class AgentLoop {
 			$this->save_active_job_checkpoint( self::CHECKPOINT_BEFORE_PROVIDER_CALL, $iterations + 1 );
 
 			$this->last_loop_phase = 'provider_call';
-			$result                = $this->send_prompt();
+			$result                = $this->send_prompt_with_payload_recovery();
 			$this->last_loop_phase = 'provider_response_received';
 
 			if ( is_wp_error( $result ) ) {
@@ -1124,19 +1125,21 @@ class AgentLoop {
 
 					++$this->iterations_used;
 					$this->last_loop_phase = 'provider_followup_call';
-					$followup_result       = $this->send_prompt();
+					$followup_result       = $this->send_prompt_with_payload_recovery();
 					$this->last_loop_phase = 'provider_followup_response_received';
 
-					if ( ! is_wp_error( $followup_result ) ) {
-						$followup_message = $followup_result->toMessage();
-						$this->append_assistant_message_to_history( $followup_message );
-						$this->accumulate_tokens( $followup_result );
+					if ( is_wp_error( $followup_result ) ) {
+						return $this->with_error_recovery_data( $followup_result );
+					}
 
-						try {
-							$reply = $followup_result->toText();
-						} catch ( \RuntimeException $e ) {
-							$reply = '';
-						}
+					$followup_message = $followup_result->toMessage();
+					$this->append_assistant_message_to_history( $followup_message );
+					$this->accumulate_tokens( $followup_result );
+
+					try {
+						$reply = $followup_result->toText();
+					} catch ( \RuntimeException $e ) {
+						$reply = '';
 					}
 				}
 
@@ -1374,37 +1377,39 @@ class AgentLoop {
 
 			++$this->iterations_used;
 			$this->last_loop_phase = 'provider_fallback_call';
-			$fallback_result       = $this->send_prompt();
+			$fallback_result       = $this->send_prompt_with_payload_recovery();
 			$this->last_loop_phase = 'provider_fallback_response_received';
 
-			if ( ! is_wp_error( $fallback_result ) ) {
-				$fallback_message = $fallback_result->toMessage();
-				$this->append_assistant_message_to_history( $fallback_message );
-				$this->accumulate_tokens( $fallback_result );
-
-				$reply = '';
-				try {
-					$reply = $fallback_result->toText();
-				} catch ( \RuntimeException $e ) {
-					$reply = '';
-				}
-
-				// Post-process the reply to inject real permalinks from create-post responses.
-				$reply = $this->inject_real_permalinks( $reply );
-
-				return $this->inject_inability_data(
-					$this->with_result_logs(
-						array(
-							'reply'           => $reply,
-							'history'         => $this->serialize_history(),
-							'tool_calls'      => $this->tool_call_log,
-							'token_usage'     => $this->token_usage,
-							'iterations_used' => $this->iterations_used,
-							'model_id'        => $this->model_id,
-						)
-					)
-				);
+			if ( is_wp_error( $fallback_result ) ) {
+				return $this->with_error_recovery_data( $fallback_result );
 			}
+
+			$fallback_message = $fallback_result->toMessage();
+			$this->append_assistant_message_to_history( $fallback_message );
+			$this->accumulate_tokens( $fallback_result );
+
+			$reply = '';
+			try {
+				$reply = $fallback_result->toText();
+			} catch ( \RuntimeException $e ) {
+				$reply = '';
+			}
+
+			// Post-process the reply to inject real permalinks from create-post responses.
+			$reply = $this->inject_real_permalinks( $reply );
+
+			return $this->inject_inability_data(
+				$this->with_result_logs(
+					array(
+						'reply'           => $reply,
+						'history'         => $this->serialize_history(),
+						'tool_calls'      => $this->tool_call_log,
+						'token_usage'     => $this->token_usage,
+						'iterations_used' => $this->iterations_used,
+						'model_id'        => $this->model_id,
+					)
+				)
+			);
 		}
 
 		// Exhausted iterations — return what we have so callers can inspect the log.
@@ -1440,6 +1445,154 @@ class AgentLoop {
 	}
 
 	/**
+	 * Apply local input budgets and make at most one reduced 413 fallback.
+	 *
+	 * @return \WordPress\AiClient\Results\DTO\GenerativeAiResult|WP_Error
+	 */
+	private function send_prompt_with_payload_recovery(): GenerativeAiResult|WP_Error {
+		$provider_id  = $this->resolve_provider_id();
+		$model_id     = $this->resolve_effective_model_id( $provider_id );
+		$byte_budget  = ConversationTrimmer::get_request_byte_budget( $provider_id, $model_id );
+		$token_budget = ConversationTrimmer::get_request_token_budget( $provider_id, $model_id );
+
+		$this->history = ConversationTrimmer::trim_to_budget( $this->history, $byte_budget, $token_budget );
+		$before_bytes  = ConversationTrimmer::estimate_total_bytes( $this->history );
+		$before_tokens = ConversationTrimmer::estimate_total_tokens( $this->history );
+
+		if ( ! ConversationTrimmer::fits_budget( $this->history, $byte_budget, $token_budget ) ) {
+			ProviderTraceLogger::record_payload_limit(
+				$provider_id,
+				$model_id,
+				413,
+				$before_bytes,
+				$before_tokens,
+				$byte_budget,
+				true,
+				false,
+				true
+			);
+
+			return new WP_Error(
+				'sd_ai_agent_provider_payload_budget_exceeded',
+				__( 'This request is too large to send safely. Compact the conversation or shorten the latest message and remove large attachments before retrying.', 'superdav-ai-agent' ),
+				array(
+					'status_code'             => 413,
+					'provider_id'             => $provider_id,
+					'model_id'                => $model_id,
+					'request_bytes_estimate'  => $before_bytes,
+					'request_tokens_estimate' => $before_tokens,
+					'request_budget_bytes'    => $byte_budget,
+					'local_rejection'         => true,
+					'fallback_attempted'      => false,
+				)
+			);
+		}
+
+		$result = $this->send_prompt( $provider_id, $model_id );
+		if ( ! is_wp_error( $result ) || ! $this->is_payload_limit_error( $result ) ) {
+			return $result;
+		}
+
+		if ( ! $this->is_local_payload_limit_error( $result ) ) {
+			ProviderTraceLogger::record_payload_limit(
+				$provider_id,
+				$model_id,
+				413,
+				$before_bytes,
+				$before_tokens,
+				$byte_budget,
+				false,
+				false,
+				true
+			);
+		}
+
+		$target_bytes  = max( 1, (int) floor( $before_bytes * 0.6 ) );
+		$target_tokens = max( 1, (int) floor( $before_tokens * 0.6 ) );
+		$reduced       = ConversationTrimmer::trim_to_budget( $this->history, $target_bytes, $target_tokens );
+		$after_bytes   = ConversationTrimmer::estimate_total_bytes( $reduced );
+		$after_tokens  = ConversationTrimmer::estimate_total_tokens( $reduced );
+
+		if ( $after_bytes >= $before_bytes ) {
+			return $this->with_payload_recovery_metadata( $result, $before_bytes, $before_tokens, false, false );
+		}
+
+		$this->history       = $reduced;
+		$this->message_log[] = array(
+			'type'               => 'provider_payload_recovery',
+			'message'            => __( 'The provider rejected the request size. Retrying once with reduced conversation history.', 'superdav-ai-agent' ),
+			'status_code'        => 413,
+			'request_size_class' => ProviderTraceLogger::classify_request_size( $before_bytes ),
+			'fallback_attempted' => true,
+			'payload_reduced'    => true,
+			'sequence'           => $this->next_activity_sequence(),
+		);
+		$this->fire_progress();
+
+		$retry_result = $this->send_prompt( $provider_id, $model_id );
+		if ( is_wp_error( $retry_result ) ) {
+			if ( $this->is_payload_limit_error( $retry_result ) && ! $this->is_local_payload_limit_error( $retry_result ) ) {
+				ProviderTraceLogger::record_payload_limit(
+					$provider_id,
+					$model_id,
+					413,
+					$after_bytes,
+					$after_tokens,
+					$byte_budget,
+					false,
+					true,
+					true
+				);
+			}
+
+			return $this->with_payload_recovery_metadata( $retry_result, $after_bytes, $after_tokens, true, true );
+		}
+
+		return $retry_result;
+	}
+
+	/** Whether an error represents a local or upstream HTTP 413. */
+	private function is_payload_limit_error( WP_Error $error ): bool {
+		if ( in_array( $error->get_error_code(), array( 'sd_ai_agent_provider_payload_too_large', 'sd_ai_agent_provider_payload_budget_exceeded' ), true ) ) {
+			return true;
+		}
+
+		$data = $error->get_error_data();
+		return is_array( $data ) && 413 === (int) ( $data['status_code'] ?? 0 );
+	}
+
+	/** Whether a payload-limit error was produced by the local request guard. */
+	private function is_local_payload_limit_error( WP_Error $error ): bool {
+		if ( 'sd_ai_agent_provider_payload_budget_exceeded' === $error->get_error_code() ) {
+			return true;
+		}
+
+		$data = $error->get_error_data();
+		return is_array( $data ) && ! empty( $data['local_rejection'] );
+	}
+
+	/**
+	 * Attach safe fallback diagnostics without replacing recoverable history data.
+	 *
+	 * @param WP_Error $error             Payload error.
+	 * @param int      $request_bytes     Estimated history bytes sent most recently.
+	 * @param int      $request_tokens    Estimated history tokens sent most recently.
+	 * @param bool     $reduced           Whether the outgoing history was reduced.
+	 * @param bool     $fallback_attempted Whether a reduced fallback was attempted.
+	 */
+	private function with_payload_recovery_metadata( WP_Error $error, int $request_bytes, int $request_tokens, bool $reduced, bool $fallback_attempted ): WP_Error {
+		$error_data                      = $error->get_error_data();
+		$data                            = is_array( $error_data ) ? $error_data : array();
+		$data['request_bytes_estimate']  = $request_bytes;
+		$data['request_tokens_estimate'] = $request_tokens;
+		$data['fallback_attempted']      = $fallback_attempted;
+		$data['payload_reduced']         = $reduced;
+		$error->add_data( $data );
+
+		return $error;
+	}
+
+	/**
 	 * Build and send a single prompt with the current history.
 	 *
 	 * Always routes through the WordPress AI Client SDK. Per-vendor direct
@@ -1449,9 +1602,7 @@ class AgentLoop {
 	 *
 	 * @return \WordPress\AiClient\Results\DTO\GenerativeAiResult|WP_Error
 	 */
-	private function send_prompt() {
-		$provider_id = $this->resolve_provider_id();
-
+	protected function send_prompt( string $provider_id, string $model_id ): GenerativeAiResult|WP_Error {
 		if ( '' === $provider_id ) {
 			return new WP_Error(
 				'sd_ai_agent_no_provider',
@@ -1503,7 +1654,7 @@ class AgentLoop {
 			$this->system_instruction = $this->instruction_builder->build( $this->settings_for_prompt, $ability_names );
 		}
 		$builder->using_system_instruction( $this->system_instruction );
-		$this->configure_model( $builder );
+		$this->configure_model( $builder, $provider_id, $model_id );
 
 		// NOTE: weak-model temperature/parallel-tool overrides are disabled
 		// alongside the weak-model iteration cap (see constructor comment).
@@ -1532,14 +1683,9 @@ class AgentLoop {
 		// Skip the setter for those model IDs so the request body omits the field
 		// entirely. `max_tokens` is still safe to send.
 		//
-		// Resolve the effective model ID (including connector defaults)
-		// before checking if it rejects temperature, since configure_model()
-		// may have resolved a default model from the connector.
-		$resolved_model_id = $this->model_id;
-		if ( empty( $resolved_model_id ) && function_exists( 'OpenAiCompatibleConnector\\get_default_model' ) ) {
-			$resolved_model_id = (string) \OpenAiCompatibleConnector\get_default_model();
-		}
-		if ( ! self::model_omits_temperature( $resolved_model_id ) ) {
+		// Use the same validated effective model for configuration, request
+		// budgets, temperature handling, and safe trace attribution.
+		if ( ! self::model_omits_temperature( $model_id ) ) {
 			$builder->using_temperature( (float) $this->temperature );
 		}
 		$builder->using_max_tokens( $this->get_effective_max_output_tokens() );
@@ -1558,6 +1704,7 @@ class AgentLoop {
 		$last_error = null;
 
 		for ( $attempt = 1; $attempt <= $this->provider_retry_max_attempts; ++$attempt ) {
+			ProviderTraceLogger::set_runtime_context( $provider_id, $model_id );
 			try {
 				$result = $builder->generate_text_result();
 				if ( is_wp_error( $result ) ) {
@@ -1568,6 +1715,8 @@ class AgentLoop {
 				}
 			} catch ( \Throwable $e ) {
 				$last_error = $e;
+			} finally {
+				ProviderTraceLogger::clear_runtime_context();
 			}
 
 			$status_code = $this->extract_provider_error_status( $last_error );
@@ -1802,12 +1951,37 @@ class AgentLoop {
 	 */
 	private function provider_error_to_wp_error( $error, int $status_code ): WP_Error {
 		if ( 413 === $status_code ) {
+			$data     = array( 'status_code' => $status_code );
+			$is_local = false;
+			if ( $error instanceof WP_Error ) {
+				$source_data = $error->get_error_data();
+				$is_local    = 'sd_ai_agent_provider_payload_budget_exceeded' === $error->get_error_code()
+					|| ( is_array( $source_data ) && ! empty( $source_data['local_rejection'] ) );
+
+				if ( is_array( $source_data ) ) {
+					$safe_keys = array(
+						'provider_id',
+						'model_id',
+						'request_bytes',
+						'request_tokens_estimate',
+						'request_budget_bytes',
+						'request_size_class',
+						'local_rejection',
+					);
+					foreach ( $safe_keys as $safe_key ) {
+						if ( isset( $source_data[ $safe_key ] ) && is_scalar( $source_data[ $safe_key ] ) ) {
+							$data[ $safe_key ] = $source_data[ $safe_key ];
+						}
+					}
+				}
+			}
+
 			return new WP_Error(
-				'sd_ai_agent_provider_payload_too_large',
-				__( 'The AI provider rejected this request because it exceeds its payload limit. Start a new chat and send a smaller request. If you attached files, remove or reduce them before retrying.', 'superdav-ai-agent' ),
-				array(
-					'status_code' => $status_code,
-				)
+				$is_local ? 'sd_ai_agent_provider_payload_budget_exceeded' : 'sd_ai_agent_provider_payload_too_large',
+				$is_local
+					? __( 'This request is too large to send safely. Compact the conversation or shorten the latest message and remove large attachments before retrying.', 'superdav-ai-agent' )
+					: __( 'The selected AI provider or intermediary rejected this request because it exceeds its payload limit. Start a new chat and send a smaller request. If you attached files, remove or reduce them before retrying.', 'superdav-ai-agent' ),
+				$data
 			);
 		}
 
@@ -1900,33 +2074,19 @@ class AgentLoop {
 	 * through ProviderRegistry::getProviderModel(). This avoids creating
 	 * model instances outside the registry which can miss auth binding.
 	 *
-	 * The provider ID is resolved by {@see resolve_provider_id()} before
-	 * this method is called — send_prompt() validates that a provider
-	 * exists and returns a WP_Error early if none is configured.
+	 * The provider and effective model are resolved once by
+	 * {@see send_prompt_with_payload_recovery()} so model-specific budgets and
+	 * trace attribution cannot diverge from the model configured on the builder.
 	 *
-	 * @param \WP_AI_Client_Prompt_Builder $builder The prompt builder.
+	 * @param \WP_AI_Client_Prompt_Builder $builder     The prompt builder.
+	 * @param string                       $provider_id Runtime-selected provider ID.
+	 * @param string                       $model_id    Validated effective model ID.
 	 */
-	private function configure_model( $builder ): void {
-		$provider_id = $this->resolve_provider_id();
-		$model_id    = $this->model_id;
-
+	private function configure_model( $builder, string $provider_id, string $model_id ): void {
 		if ( empty( $provider_id ) ) {
 			// No provider available — send_prompt() will have already
 			// returned a WP_Error, so this is a defensive no-op.
 			return;
-		}
-
-		// Resolve model — fall back to the connector's configured default
-		// when the agent loop was started without one. The connector default
-		// (`ultimate_ai_connector_default_model`) is what produced the
-		// production `gemma4:e4b` regression (GH#1494): it stored a model
-		// the endpoint did not actually serve and the SDK rejected every
-		// chat with a top-level error banner. Validate before adopting.
-		if ( empty( $model_id ) && function_exists( 'OpenAiCompatibleConnector\\get_default_model' ) ) {
-			$candidate = (string) \OpenAiCompatibleConnector\get_default_model();
-			if ( '' !== $candidate && Settings::is_model_advertised( $provider_id, $candidate ) ) {
-				$model_id = $candidate;
-			}
 		}
 
 		try {
@@ -1953,6 +2113,32 @@ class AgentLoop {
 				// Both approaches failed — builder will use default.
 			}
 		}
+	}
+
+	/**
+	 * Resolve one validated effective model ID for a provider invocation.
+	 *
+	 * The connector default is accepted only when it is currently advertised,
+	 * matching the existing stale-default protection in model configuration.
+	 *
+	 * @param string $provider_id Runtime-selected provider ID.
+	 */
+	private function resolve_effective_model_id( string $provider_id ): string {
+		$model_id = trim( (string) $this->model_id );
+		if ( '' !== $model_id ) {
+			return $model_id;
+		}
+
+		if ( ! function_exists( 'OpenAiCompatibleConnector\\get_default_model' ) ) {
+			return '';
+		}
+
+		$candidate = trim( (string) \OpenAiCompatibleConnector\get_default_model() );
+		if ( '' === $candidate || ! Settings::is_model_advertised( $provider_id, $candidate ) ) {
+			return '';
+		}
+
+		return $candidate;
 	}
 
 	/**

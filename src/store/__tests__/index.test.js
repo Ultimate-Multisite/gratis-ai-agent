@@ -55,6 +55,7 @@ require( '../index' );
 
 const { reducer, actions, selectors } = capturedConfig;
 const { resolveProviderSelection } = require( '../slices/providersSlice' );
+const apiFetch = require( '@wordpress/api-fetch' );
 
 // ─── Default state ────────────────────────────────────────────────────────────
 
@@ -307,6 +308,61 @@ describe( 'actions', () => {
 
 	test( 'sendMessage returns a thunk function', () => {
 		expect( typeof actions.sendMessage( 'hello' ) ).toBe( 'function' );
+	} );
+
+	test( 'compactConversation uses the server compact endpoint without resending transcript', async () => {
+		apiFetch.mockReset();
+		const compactedMessages = [
+			{
+				role: 'user',
+				parts: [ { text: 'Server compacted context' } ],
+			},
+		];
+		apiFetch.mockResolvedValue( {
+			id: '77',
+			messages: compactedMessages,
+			tool_calls: [],
+		} );
+
+		const dispatch = {
+			setCurrentSession: jest.fn(),
+			setTokenUsage: jest.fn(),
+			resetSessionTokens: jest.fn(),
+			fetchSessions: jest.fn(),
+			sendMessage: jest.fn(),
+		};
+		const select = {
+			getCurrentSessionId: jest.fn( () => 12 ),
+			getSelectedProviderId: jest.fn( () => 'openai' ),
+			getSelectedModelId: jest.fn( () => 'gpt-test' ),
+			getCurrentSessionMessages: jest.fn( () => [
+				{ role: 'user', parts: [ { text: 'Do not resubmit me' } ] },
+			] ),
+		};
+
+		await actions.compactConversation()( { dispatch, select } );
+
+		expect( apiFetch ).toHaveBeenCalledWith( {
+			path: '/sd-ai-agent/v1/sessions/12/compact',
+			method: 'POST',
+			data: {
+				provider_id: 'openai',
+				model_id: 'gpt-test',
+			},
+		} );
+		expect( select.getCurrentSessionMessages ).not.toHaveBeenCalled();
+		expect( dispatch.setCurrentSession ).toHaveBeenCalledWith(
+			77,
+			compactedMessages,
+			[]
+		);
+		expect( dispatch.setTokenUsage ).toHaveBeenCalledWith( {
+			prompt: 0,
+			completion: 0,
+		} );
+		expect( dispatch.resetSessionTokens ).toHaveBeenCalled();
+		expect( dispatch.fetchSessions ).toHaveBeenCalled();
+		expect( dispatch.sendMessage ).not.toHaveBeenCalled();
 	} );
 
 	test( 'retryLastMessage rewinds to the last user message and resends it', async () => {
