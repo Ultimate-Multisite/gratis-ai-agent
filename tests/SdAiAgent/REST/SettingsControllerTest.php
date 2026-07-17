@@ -45,6 +45,7 @@ final class SettingsControllerTest extends WP_UnitTestCase {
 		delete_option( SuperdavSiteConnectionService::INSTALLATION_ID_OPTION );
 		delete_option( SuperdavSiteConnectionService::TOKEN_METADATA_OPTION );
 		remove_all_filters( 'sd_ai_agent_cloud_base_url' );
+		remove_all_filters( 'sd_ai_agent_options_read_blocklist' );
 		remove_all_filters( 'pre_http_request' );
 		parent::tear_down();
 	}
@@ -241,6 +242,15 @@ final class SettingsControllerTest extends WP_UnitTestCase {
 		);
 
 		update_option( SuperdavAiProvider::CREDENTIAL_OPTION, $token, false );
+		update_option(
+			SuperdavSiteConnectionService::TOKEN_METADATA_OPTION,
+			array(
+				'connected_at' => '2026-07-16T00:00:00+00:00',
+				'usage'        => array( 'requests' => 99 ),
+				'verification' => array( 'status' => 'stale' ),
+			),
+			false
+		);
 		$response = ( new SettingsController( new Settings(), new Database() ) )->handle_refresh_superdav_account();
 
 		$this->assertInstanceOf( \WP_REST_Response::class, $response );
@@ -248,8 +258,62 @@ final class SettingsControllerTest extends WP_UnitTestCase {
 		$data = $response->get_data();
 		$this->assertSame( 15000000, $data['wallet']['total_usd_micros'] );
 		$this->assertSame( 'https://account.example/billing', $data['account_portal_url'] );
+		$this->assertSame( '2026-07-16T00:00:00+00:00', $data['connected_at'] );
+		$this->assertArrayNotHasKey( 'usage', $data );
+		$this->assertArrayNotHasKey( 'verification', $data );
 		$this->assertStringNotContainsString( $token, wp_json_encode( $data ) ?: '' );
 		$this->assertStringNotContainsString( 'must-not-be-exposed', wp_json_encode( $data ) ?: '' );
+	}
+
+	/** Account portal URLs containing centrally blocked query keys are not exposed. */
+	public function test_handle_refresh_superdav_account_rejects_secret_portal_query(): void {
+		$base_url    = 'https://service.example/v1';
+		$account_url = $base_url . '/site/account';
+
+		add_filter( 'sd_ai_agent_cloud_base_url', static fn(): string => $base_url );
+		add_filter(
+			'sd_ai_agent_options_read_blocklist',
+			static function ( array $blocklist ): array {
+				$blocklist[] = 'access_token';
+
+				return $blocklist;
+			}
+		);
+		add_filter(
+			'pre_http_request',
+			static function ( mixed $preempt, array $parsed_args, string $url ) use ( $account_url ): mixed {
+				if ( $account_url !== $url ) {
+					return $preempt;
+				}
+
+				return array(
+					'response' => array(
+						'code'    => 200,
+						'message' => 'OK',
+					),
+					'body'     => wp_json_encode(
+						array(
+							'account_portal_url' => 'https://account.example/billing?access_token=must-not-be-exposed',
+						)
+					),
+				);
+			},
+			10,
+			3
+		);
+
+		update_option( SuperdavAiProvider::CREDENTIAL_OPTION, 'sdaist_portal_test_token', false );
+		$response = ( new SettingsController( new Settings(), new Database() ) )->handle_refresh_superdav_account();
+
+		$this->assertInstanceOf( \WP_REST_Response::class, $response );
+		$this->assertSame( 200, $response->get_status() );
+		$data = $response->get_data();
+		$this->assertSame( '', $data['account_portal_url'] );
+		$this->assertStringNotContainsString( 'must-not-be-exposed', wp_json_encode( $data ) ?: '' );
+		$this->assertStringNotContainsString(
+			'must-not-be-exposed',
+			wp_json_encode( get_option( SuperdavSiteConnectionService::TOKEN_METADATA_OPTION, array() ) ) ?: ''
+		);
 	}
 
 	/**

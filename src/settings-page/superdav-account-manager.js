@@ -7,10 +7,14 @@ import { __, sprintf } from '@wordpress/i18n';
 import apiFetch from '@wordpress/api-fetch';
 
 /**
- * @param {number|string} micros Amount in millionths of a US dollar.
+ * @param {number|string|null|undefined} micros Amount in millionths of a US dollar.
  * @return {string} Localized amount, or an em dash when unknown.
  */
-function formatWalletAmount( micros ) {
+export function formatWalletAmount( micros ) {
+	if ( micros === null || micros === undefined || micros === '' ) {
+		return '—';
+	}
+
 	const amount = Number( micros );
 	if ( ! Number.isFinite( amount ) ) {
 		return '—';
@@ -35,6 +39,7 @@ export default function SuperdavAccountManager() {
 	const [ loading, setLoading ] = useState( true );
 	const [ refreshing, setRefreshing ] = useState( false );
 	const [ error, setError ] = useState( '' );
+	const [ hasLoadedAccount, setHasLoadedAccount ] = useState( false );
 
 	const loadAccount = useCallback( async ( refresh = false ) => {
 		if ( refresh ) {
@@ -50,6 +55,7 @@ export default function SuperdavAccountManager() {
 				method: refresh ? 'POST' : 'GET',
 			} );
 			setAccount( result );
+			setHasLoadedAccount( true );
 		} catch ( err ) {
 			setError(
 				err?.message ||
@@ -70,7 +76,7 @@ export default function SuperdavAccountManager() {
 
 	if ( loading ) {
 		return (
-			<div className="sdaa-superdav-account-loading">
+			<div className="sd-ai-agent-superdav-account-loading">
 				<Spinner />
 			</div>
 		);
@@ -82,8 +88,8 @@ export default function SuperdavAccountManager() {
 	const tier = account?.tier || '';
 
 	return (
-		<div className="sdaa-superdav-account">
-			<div className="sdaa-superdav-account-header">
+		<div className="sd-ai-agent-superdav-account">
+			<div className="sd-ai-agent-superdav-account-header">
 				<div>
 					<h3>
 						{ __( 'Superdav AI account', 'superdav-ai-agent' ) }
@@ -111,103 +117,111 @@ export default function SuperdavAccountManager() {
 				</Notice>
 			) }
 
-			{ ! configured ? (
-				<Notice status="warning" isDismissible={ false }>
-					{ __(
-						'Superdav AI is not connected for this site yet. Connect a provider before managing account credits.',
-						'superdav-ai-agent'
-					) }
-				</Notice>
-			) : (
-				<>
-					<div className="sdaa-superdav-account-balance">
-						<div className="sdaa-superdav-account-balance-label">
-							{ __( 'Available balance', 'superdav-ai-agent' ) }
-						</div>
-						<div className="sdaa-superdav-account-balance-value">
-							{ formatWalletAmount( wallet.total_usd_micros ) }
-						</div>
-						{ tier && (
-							<div className="sdaa-superdav-account-tier">
-								{ sprintf(
-									/* translators: %s: Superdav AI service tier. */
-									__( 'Plan: %s', 'superdav-ai-agent' ),
-									tier
+			{ hasLoadedAccount &&
+				( ! configured ? (
+					<Notice status="warning" isDismissible={ false }>
+						{ __(
+							'Superdav AI is not connected for this site yet. Connect a provider before managing account credits.',
+							'superdav-ai-agent'
+						) }
+					</Notice>
+				) : (
+					<>
+						<div className="sd-ai-agent-superdav-account-balance">
+							<div className="sd-ai-agent-superdav-account-balance-label">
+								{ __(
+									'Available balance',
+									'superdav-ai-agent'
 								) }
 							</div>
-						) }
-					</div>
-
-					<div className="sdaa-superdav-account-breakdown">
-						<div>
-							<span>
-								{ __(
-									'Purchased credits',
-									'superdav-ai-agent'
-								) }
-							</span>
-							<strong>
-								{ formatWalletAmount( wallet.cash_usd_micros ) }
-							</strong>
-						</div>
-						<div>
-							<span>
-								{ __(
-									'Promotional credits',
-									'superdav-ai-agent'
-								) }
-							</span>
-							<strong>
+							<div className="sd-ai-agent-superdav-account-balance-value">
 								{ formatWalletAmount(
-									wallet.promo_usd_micros
+									wallet.total_usd_micros
 								) }
-							</strong>
-						</div>
-					</div>
-
-					{ accountUrl ? (
-						<div className="sdaa-superdav-account-actions">
-							<Button
-								variant="primary"
-								href={ accountUrl }
-								target="_blank"
-								rel="noopener noreferrer"
-							>
-								{ __( 'Add credits', 'superdav-ai-agent' ) }
-							</Button>
-							<Button
-								variant="secondary"
-								href={ accountUrl }
-								target="_blank"
-								rel="noopener noreferrer"
-							>
-								{ __(
-									'Manage payment methods',
-									'superdav-ai-agent'
-								) }
-							</Button>
-							<Button
-								variant="tertiary"
-								href={ accountUrl }
-								target="_blank"
-								rel="noopener noreferrer"
-							>
-								{ __(
-									'Open account portal',
-									'superdav-ai-agent'
-								) }
-							</Button>
-						</div>
-					) : (
-						<Notice status="info" isDismissible={ false }>
-							{ __(
-								'Account billing is managed by your Superdav AI service administrator.',
-								'superdav-ai-agent'
+							</div>
+							{ tier && (
+								<div className="sd-ai-agent-superdav-account-tier">
+									{ sprintf(
+										/* translators: %s: Superdav AI service tier. */
+										__( 'Plan: %s', 'superdav-ai-agent' ),
+										tier
+									) }
+								</div>
 							) }
-						</Notice>
-					) }
-				</>
-			) }
+						</div>
+
+						<div className="sd-ai-agent-superdav-account-breakdown">
+							<div>
+								<span>
+									{ __(
+										'Purchased credits',
+										'superdav-ai-agent'
+									) }
+								</span>
+								<strong>
+									{ formatWalletAmount(
+										wallet.cash_usd_micros
+									) }
+								</strong>
+							</div>
+							<div>
+								<span>
+									{ __(
+										'Promotional credits',
+										'superdav-ai-agent'
+									) }
+								</span>
+								<strong>
+									{ formatWalletAmount(
+										wallet.promo_usd_micros
+									) }
+								</strong>
+							</div>
+						</div>
+
+						{ accountUrl ? (
+							<div className="sd-ai-agent-superdav-account-actions">
+								<Button
+									variant="primary"
+									href={ accountUrl }
+									target="_blank"
+									rel="noopener noreferrer"
+								>
+									{ __( 'Add credits', 'superdav-ai-agent' ) }
+								</Button>
+								<Button
+									variant="secondary"
+									href={ accountUrl }
+									target="_blank"
+									rel="noopener noreferrer"
+								>
+									{ __(
+										'Manage payment methods',
+										'superdav-ai-agent'
+									) }
+								</Button>
+								<Button
+									variant="tertiary"
+									href={ accountUrl }
+									target="_blank"
+									rel="noopener noreferrer"
+								>
+									{ __(
+										'Open account portal',
+										'superdav-ai-agent'
+									) }
+								</Button>
+							</div>
+						) : (
+							<Notice status="info" isDismissible={ false }>
+								{ __(
+									'Account billing is managed by your Superdav AI service administrator.',
+									'superdav-ai-agent'
+								) }
+							</Notice>
+						) }
+					</>
+				) ) }
 		</div>
 	);
 }
