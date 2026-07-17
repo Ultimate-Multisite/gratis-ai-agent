@@ -53,7 +53,7 @@ class SchemaExampleBuilder {
 		}
 
 		$properties = isset( $schema['properties'] ) && is_array( $schema['properties'] ) ? $schema['properties'] : array();
-		$required   = isset( $schema['required'] ) && is_array( $schema['required'] ) ? $schema['required'] : array();
+		$required   = self::get_required_fields( $schema );
 
 		if ( empty( $required ) ) {
 			return array();
@@ -69,6 +69,34 @@ class SchemaExampleBuilder {
 		}
 
 		return $example;
+	}
+
+	/**
+	 * Return the fields required by an input schema.
+	 *
+	 * @param mixed $schema The ability input_schema (assoc array).
+	 * @return string[]
+	 */
+	public static function get_required_fields( $schema ): array {
+		if ( ! is_array( $schema ) ) {
+			return array();
+		}
+
+		return self::filter_required_fields( $schema['required'] ?? array() );
+	}
+
+	/**
+	 * Keep only usable required field names from a schema value.
+	 *
+	 * @param mixed $fields Schema required value.
+	 * @return string[]
+	 */
+	private static function filter_required_fields( $fields ): array {
+		if ( ! is_array( $fields ) ) {
+			return array();
+		}
+
+		return array_values( array_filter( $fields, static fn( $field ): bool => is_string( $field ) && '' !== $field ) );
 	}
 
 	/**

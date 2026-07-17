@@ -127,6 +127,22 @@ class AbilityFunctionResolver extends \WP_AI_Client_Ability_Function_Resolver {
 			$args = KnowledgeAbilities::hydrate_public_search_args( $args );
 		}
 
+		if ( empty( $args ) ) {
+			// @phpstan-ignore-next-line — get_input_schema() exists at runtime in WP 7.0.
+			$input_schema    = $ability->get_input_schema();
+			$required_fields = SchemaExampleBuilder::get_required_fields( $input_schema );
+			if ( ! empty( $required_fields ) ) {
+				return self::build_empty_arguments_response(
+					$function_id,
+					$function_name,
+					$ability_name,
+					$ability,
+					$input_schema,
+					$required_fields
+				);
+			}
+		}
+
 		// Meta-tool argument coercion for `sd-ai-agent/ability-call`:
 		// Claude (and other LLMs) sometimes emits the nested `arguments`
 		// field as a JSON-encoded STRING instead of an object — e.g.
@@ -297,6 +313,53 @@ class AbilityFunctionResolver extends \WP_AI_Client_Ability_Function_Resolver {
 			}
 		}
 		return $args;
+	}
+
+	/**
+	 * Build a validation response without dispatching an empty required-input call.
+	 *
+	 * The provider can emit null, an empty string, or `{}` for function-call
+	 * arguments. Those shapes cannot satisfy an ability with required inputs, so
+	 * avoid spending an execution attempt solely to receive the validator's error.
+	 *
+	 * @param string      $function_id Provider function-call id.
+	 * @param string      $function_name Provider function name.
+	 * @param string      $ability_name Registered ability id.
+	 * @param \WP_Ability $ability Registered ability.
+	 * @param mixed       $input_schema Ability input schema.
+	 * @param string[]    $required_fields Required input field names.
+	 * @return FunctionResponse
+	 */
+	private static function build_empty_arguments_response( string $function_id, string $function_name, string $ability_name, \WP_Ability $ability, $input_schema, array $required_fields ): FunctionResponse {
+		$error_message = sprintf(
+			/* translators: 1: ability name, 2: required input field name. */
+			__( 'Ability "%1$s" has invalid input. Reason: %2$s is a required property of input.', 'superdav-ai-agent' ),
+			$ability_name,
+			$required_fields[0]
+		);
+		$response_data = array(
+			'error'                   => $error_message,
+			'code'                    => 'ability_invalid_input',
+			'input_schema'            => $input_schema,
+			'missing_required_fields' => $required_fields,
+			'example_arguments'       => SchemaExampleBuilder::build_example( $input_schema ),
+			'hint'                    => 'Copy `example_arguments`, replace each `<placeholder>` with a real value, then retry the ability with those arguments. Do not retry with empty arguments.',
+		);
+
+		AgentEventLog::log(
+			'ability_failed',
+			AgentEventLog::SEVERITY_ERROR,
+			array(
+				'ability' => $ability_name,
+				'code'    => 'ability_invalid_input',
+				'message' => $error_message,
+			)
+		);
+		ModelHealthTracker::record_validation_error();
+
+		$response_data = self::enrich_identical_failure_response( $response_data, $ability_name, array(), 'ability_invalid_input', $ability );
+
+		return new FunctionResponse( $function_id, $function_name, $response_data );
 	}
 
 	/**
