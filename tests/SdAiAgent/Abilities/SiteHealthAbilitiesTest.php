@@ -452,7 +452,7 @@ class SiteHealthAbilitiesTest extends WP_UnitTestCase {
 	}
 
 	/**
-	 * A normal frontend response without a tenant lock must remain healthy.
+	 * A normal frontend response must remain healthy without tenant inference.
 	 */
 	public function test_availability_reports_healthy_frontend() {
 		add_filter(
@@ -475,15 +475,17 @@ class SiteHealthAbilitiesTest extends WP_UnitTestCase {
 			$this->assertFalse( $result['frontend']['wp_die_page'] );
 			$this->assertArrayNotHasKey( 'transport_error', $result['frontend'] );
 			$this->assertArrayNotHasKey( 'effective_url', $result['frontend'] );
+			$this->assertArrayNotHasKey( 'tenant', $result );
+			$this->assertSame( 'multisite-ultimate/site-availability-diagnose', $result['delegated_diagnostics']['expected_ability'] );
 		} finally {
 			remove_all_filters( 'pre_http_request' );
 		}
 	}
 
 	/**
-	 * Ultimate Multisite visit overages must expose the frontend lock reason.
+	 * Tenant locks must be delegated to Ultimate Multisite diagnostics.
 	 */
-	public function test_availability_reports_tenant_visit_limit_lock() {
+	public function test_availability_delegates_tenant_lock_diagnosis() {
 		add_filter(
 			'pre_http_request',
 			static function () {
@@ -496,23 +498,16 @@ class SiteHealthAbilitiesTest extends WP_UnitTestCase {
 				];
 			}
 		);
-		add_filter(
-			'sd_ai_agent_site_availability_tenant_context',
-			static fn() => [
-				'visits_enabled'      => true,
-				'visit_limit'         => 2,
-				'current_month_visits' => 3,
-			]
-		);
 
 		try {
 			$result = SiteHealthAbilities::diagnose_site_availability();
-			$this->assertSame( 'critical', $result['status'] );
-			$this->assertTrue( $result['tenant']['would_lock_frontend'] );
-			$this->assertSame( 'visits_exceeded', $result['tenant']['lock_reason'] );
+			$this->assertSame( 'healthy', $result['status'] );
+			$this->assertArrayNotHasKey( 'tenant', $result );
+			$this->assertTrue( $result['delegated_diagnostics']['ultimate_multisite_authoritative'] );
+			$this->assertSame( 'multisite-ultimate/site-availability-diagnose', $result['delegated_diagnostics']['expected_ability'] );
+			$this->assertStringContainsString( 'authoritative tenant lock diagnostics are unavailable', $result['delegated_diagnostics']['fallback_guidance'] );
 		} finally {
 			remove_all_filters( 'pre_http_request' );
-			remove_all_filters( 'sd_ai_agent_site_availability_tenant_context' );
 		}
 	}
 
