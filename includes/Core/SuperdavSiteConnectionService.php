@@ -259,6 +259,8 @@ final class SuperdavSiteConnectionService {
 
 	/**
 	 * Return the account portal URL when the service exposes one.
+	 *
+	 * @param array<string, mixed> $metadata Safe connection metadata.
 	 */
 	private function get_account_portal_url( array $metadata ): string {
 		/**
