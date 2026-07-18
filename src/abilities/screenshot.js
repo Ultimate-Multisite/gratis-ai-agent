@@ -119,7 +119,9 @@ export function validateSameOrigin( url ) {
 			)
 				? window.sdAiAgentData.screenshotOrigins
 				: [];
-			const isKnownWordPressSite = allowedOrigins.includes( resolved.origin );
+			const isKnownWordPressSite = allowedOrigins.includes(
+				resolved.origin
+			);
 
 			return {
 				valid: false,

@@ -35,12 +35,20 @@ describe( 'screenshot-url validation', () => {
 	} );
 
 	test( 'returns actionable guidance for recognised multisite subsite origins', () => {
-		const result = validateSameOrigin( 'https://template.myshopmaker.ng/shop/' );
+		const result = validateSameOrigin(
+			'https://template.myshopmaker.ng/shop/'
+		);
 
 		expect( result.valid ).toBe( false );
-		expect( result.resolved ).toBe( 'https://template.myshopmaker.ng/shop/' );
-		expect( result.error ).toContain( 'another site in this WordPress network' );
-		expect( result.error ).toContain( 'Open the AI Agent chat or floating widget' );
+		expect( result.resolved ).toBe(
+			'https://template.myshopmaker.ng/shop/'
+		);
+		expect( result.error ).toContain(
+			'another site in this WordPress network'
+		);
+		expect( result.error ).toContain(
+			'Open the AI Agent chat or floating widget'
+		);
 		expect( result.error ).toContain( 'retry with a relative path' );
 	} );
 

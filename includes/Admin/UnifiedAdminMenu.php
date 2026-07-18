@@ -337,7 +337,7 @@ class UnifiedAdminMenu {
 				'wpThemeRoot'          => get_theme_root(),
 				'pluginEditorUrl'      => admin_url( 'plugin-editor.php' ),
 				'themeEditorUrl'       => admin_url( 'theme-editor.php' ),
-				'screenshotOrigins'   => SiteOrigins::screenshot_allowed_origins(),
+				'screenshotOrigins'    => SiteOrigins::screenshot_allowed_origins(),
 				'fileModAllowed'       => array(
 					'plugin' => wp_is_file_mod_allowed( 'plugin_files' ),
 					'theme'  => wp_is_file_mod_allowed( 'theme_files' ),
