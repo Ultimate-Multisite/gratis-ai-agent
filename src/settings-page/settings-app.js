@@ -1855,6 +1855,39 @@ export default function SettingsApp() {
 							case 'advanced':
 								return (
 									<div className="sdaa-settings-section">
+										<div className="sdaa-advanced-companion-card">
+											<div>
+												<p className="sdaa-advanced-companion-card__eyebrow">
+													{ __(
+														'Extend your toolkit',
+														'superdav-ai-agent'
+													) }
+												</p>
+												<h3>
+													{ __(
+														'Superdav AI Agent Advanced',
+														'superdav-ai-agent'
+													) }
+												</h3>
+												<p>
+													{ __(
+														'Add self-hosted administrator and developer tools, including advanced plugin and file-management capabilities.',
+														'superdav-ai-agent'
+													) }
+												</p>
+											</div>
+											<a
+												className="button button-primary"
+												href="https://sdaiagent.com/advanced/"
+												rel="noopener noreferrer"
+												target="_blank"
+											>
+												{ __(
+													'Get Advanced',
+													'superdav-ai-agent'
+												) }
+											</a>
+										</div>
 										<h3 className="sdaa-settings-section-title">
 											{ __(
 												'Model Parameters',
