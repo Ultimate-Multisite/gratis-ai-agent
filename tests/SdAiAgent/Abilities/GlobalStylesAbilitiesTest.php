@@ -1,4 +1,6 @@
 <?php
+
+declare(strict_types=1);
 /**
  * Test case for GlobalStylesAbilities class.
  *
@@ -16,6 +18,24 @@ use WP_UnitTestCase;
  * Test GlobalStylesAbilities handler methods.
  */
 class GlobalStylesAbilitiesTest extends WP_UnitTestCase {
+
+	/**
+	 * Isolate the active-theme resolver and run mutations with theme permissions.
+	 */
+	public function set_up(): void {
+		parent::set_up();
+		wp_set_current_user( self::factory()->user->create( [ 'role' => 'administrator' ] ) );
+		wp_clean_theme_json_cache();
+	}
+
+	/**
+	 * Clear resolver state after every ability call.
+	 */
+	public function tear_down(): void {
+		wp_clean_theme_json_cache();
+		wp_set_current_user( 0 );
+		parent::tear_down();
+	}
 
 	/**
 	 * Test update-global-styles schema nudges agents toward non-empty styles.
@@ -52,6 +72,27 @@ class GlobalStylesAbilitiesTest extends WP_UnitTestCase {
 		$this->assertSame( 'global_styles', $result['affected']['kind'] );
 		$this->assertNotEmpty( $result['affected']['url'] );
 		$this->assertContains( 'styles', $result['affected']['fields'] );
+		$this->assertContains( 'settings', $result['affected']['fields'] );
+	}
+
+	/**
+	 * Get-global-styles returns WordPress's resolved view of the saved user styles.
+	 */
+	public function test_handle_get_global_styles_returns_resolved_user_styles(): void {
+		$update = GlobalStylesAbilities::handle_update_global_styles(
+			[
+				'styles' => [
+					'color' => [ 'text' => '#334455' ],
+				],
+			]
+		);
+		$this->assertIsArray( $update );
+
+		$result = GlobalStylesAbilities::handle_get_global_styles( [ 'section' => 'color' ] );
+
+		$this->assertIsArray( $result );
+		$this->assertSame( 'color', $result['section'] );
+		$this->assertSame( '#334455', $result['styles']['color']['text'] );
 	}
 
 	/**

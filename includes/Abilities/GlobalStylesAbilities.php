@@ -14,6 +14,8 @@ declare(strict_types=1);
 
 namespace SdAiAgent\Abilities;
 
+use SdAiAgent\Services\GlobalStylesService;
+
 if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
@@ -274,23 +276,23 @@ class GlobalStylesAbilities {
 			return $switched;
 		}
 
-		$styles = self::get_merged_global_styles();
+		try {
+			$styles = ( new GlobalStylesService() )->get_resolved_styles();
 
-		if ( $switched ) {
-			restore_current_blog();
-		}
+			if ( $section !== 'all' && isset( $styles[ $section ] ) ) {
+				return [
+					'styles'  => [ $section => $styles[ $section ] ],
+					'section' => $section,
+				];
+			}
 
-		if ( $section !== 'all' && isset( $styles[ $section ] ) ) {
 			return [
-				'styles'  => [ $section => $styles[ $section ] ],
-				'section' => $section,
+				'styles'  => $styles,
+				'section' => 'all',
 			];
+		} finally {
+			self::restore_switched_blog( $switched );
 		}
-
-		return [
-			'styles'  => $styles,
-			'section' => 'all',
-		];
 	}
 
 	/**
@@ -313,66 +315,29 @@ class GlobalStylesAbilities {
 			return $switched;
 		}
 
-		$post_id = self::get_or_create_global_styles_post();
-
-		if ( is_wp_error( $post_id ) ) {
-			if ( $switched ) {
-				restore_current_blog();
+		try {
+			$partial = [];
+			if ( ! empty( $new_styles ) && is_array( $new_styles ) ) {
+				$partial['styles'] = $new_styles;
 			}
-			return $post_id;
-		}
-
-		$post = get_post( $post_id );
-		if ( ! $post ) {
-			if ( $switched ) {
-				restore_current_blog();
+			if ( ! empty( $new_settings ) && is_array( $new_settings ) ) {
+				$partial['settings'] = $new_settings;
 			}
-			return new \WP_Error( 'post_not_found', 'Could not retrieve global styles post.' );
-		}
 
-		$existing = json_decode( $post->post_content, true );
-		if ( ! is_array( $existing ) ) {
-			$existing = [ 'version' => 2 ];
-		}
-
-		// Merge styles.
-		if ( ! empty( $new_styles ) && is_array( $new_styles ) ) {
-			if ( ! isset( $existing['styles'] ) || ! is_array( $existing['styles'] ) ) {
-				$existing['styles'] = [];
+			$result = ( new GlobalStylesService() )->merge_user_document( $partial );
+			if ( is_wp_error( $result ) ) {
+				return $result;
 			}
-			$existing['styles'] = self::deep_merge( (array) $existing['styles'], $new_styles );
+
+			return [
+				'success'  => true,
+				'post_id'  => $result['post_id'],
+				'message'  => __( 'Global styles updated successfully.', 'superdav-ai-agent' ),
+				'affected' => self::build_affected_payload( [ 'styles', 'settings' ] ),
+			];
+		} finally {
+			self::restore_switched_blog( $switched );
 		}
-
-		// Merge settings.
-		if ( ! empty( $new_settings ) && is_array( $new_settings ) ) {
-			if ( ! isset( $existing['settings'] ) || ! is_array( $existing['settings'] ) ) {
-				$existing['settings'] = [];
-			}
-			$existing['settings'] = self::deep_merge( (array) $existing['settings'], $new_settings );
-		}
-
-		$updated = wp_update_post(
-			[
-				'ID'           => $post_id,
-				'post_content' => wp_json_encode( $existing ),
-			],
-			true
-		);
-
-		if ( $switched ) {
-			restore_current_blog();
-		}
-
-		if ( is_wp_error( $updated ) ) {
-			return $updated;
-		}
-
-		return [
-			'success'  => true,
-			'post_id'  => $post_id,
-			'message'  => __( 'Global styles updated successfully.', 'superdav-ai-agent' ),
-			'affected' => self::build_affected_payload( [ 'styles', 'settings' ] ),
-		];
 	}
 
 	/**
@@ -438,33 +403,27 @@ class GlobalStylesAbilities {
 			return $switched;
 		}
 
-		$post_id = self::find_global_styles_post();
-
-		if ( ! $post_id ) {
-			if ( $switched ) {
-				restore_current_blog();
+		try {
+			$deleted = ( new GlobalStylesService() )->delete_user_document();
+			if ( is_wp_error( $deleted ) ) {
+				return new \WP_Error( 'delete_failed', 'Failed to delete global styles post.' );
 			}
+
+			if ( ! $deleted ) {
+				return [
+					'success' => true,
+					'message' => __( 'No global style customizations found — already at theme defaults.', 'superdav-ai-agent' ),
+				];
+			}
+
 			return [
-				'success' => true,
-				'message' => __( 'No global style customizations found — already at theme defaults.', 'superdav-ai-agent' ),
+				'success'  => true,
+				'message'  => __( 'Global styles reset to theme defaults.', 'superdav-ai-agent' ),
+				'affected' => self::build_affected_payload( [ 'reset' ] ),
 			];
+		} finally {
+			self::restore_switched_blog( $switched );
 		}
-
-		$deleted = wp_delete_post( $post_id, true );
-
-		if ( $switched ) {
-			restore_current_blog();
-		}
-
-		if ( ! $deleted ) {
-			return new \WP_Error( 'delete_failed', 'Failed to delete global styles post.' );
-		}
-
-		return [
-			'success'  => true,
-			'message'  => __( 'Global styles reset to theme defaults.', 'superdav-ai-agent' ),
-			'affected' => self::build_affected_payload( [ 'reset' ] ),
-		];
 	}
 
 	/**
@@ -507,99 +466,6 @@ class GlobalStylesAbilities {
 	// ─── Private helpers ──────────────────────────────────────────
 
 	/**
-	 * Get the merged global styles (theme defaults + user customizations).
-	 *
-	 * @return array<string,mixed> Merged styles object.
-	 */
-	private static function get_merged_global_styles(): array {
-		$post_id = self::find_global_styles_post();
-
-		if ( ! $post_id ) {
-			return [];
-		}
-
-		$post = get_post( $post_id );
-		if ( ! $post ) {
-			return [];
-		}
-
-		$data = json_decode( $post->post_content, true );
-		if ( ! is_array( $data ) ) {
-			return [];
-		}
-
-		return $data['styles'] ?? [];
-	}
-
-	/**
-	 * Find the wp_global_styles post for the current theme.
-	 *
-	 * @return int|null Post ID or null if not found.
-	 */
-	private static function find_global_styles_post(): ?int {
-		$stylesheet = get_stylesheet();
-
-		$posts = get_posts(
-			[
-				'post_type'      => 'wp_global_styles',
-				'post_status'    => 'publish',
-				'posts_per_page' => 1,
-				'meta_query'     => [ // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_query
-					[
-						'key'   => 'link',
-						'value' => 'wp-global-styles-' . $stylesheet,
-					],
-				],
-				'no_found_rows'  => true,
-			]
-		);
-
-		if ( empty( $posts ) ) {
-			return null;
-		}
-
-		return (int) $posts[0]->ID;
-	}
-
-	/**
-	 * Get or create the wp_global_styles post for the current theme.
-	 *
-	 * @return int|\WP_Error Post ID or WP_Error on failure.
-	 */
-	private static function get_or_create_global_styles_post() {
-		$existing = self::find_global_styles_post();
-		if ( $existing ) {
-			return $existing;
-		}
-
-		$stylesheet = get_stylesheet();
-
-		$initial_content = wp_json_encode( [ 'version' => 2 ] );
-		if ( $initial_content === false ) {
-			$initial_content = '{"version":2}';
-		}
-
-		$post_id = wp_insert_post(
-			[
-				'post_title'   => 'Custom Styles',
-				'post_name'    => 'wp-global-styles-' . $stylesheet,
-				'post_type'    => 'wp_global_styles',
-				'post_status'  => 'publish',
-				'post_content' => $initial_content,
-			],
-			true
-		);
-
-		if ( is_wp_error( $post_id ) ) {
-			return $post_id;
-		}
-
-		update_post_meta( $post_id, 'link', 'wp-global-styles-' . $stylesheet );
-
-		return $post_id;
-	}
-
-	/**
 	 * Switch to a subsite by URL if multisite is active.
 	 *
 	 * @param string $site_url Subsite URL to switch to.
@@ -631,20 +497,16 @@ class GlobalStylesAbilities {
 	}
 
 	/**
-	 * Deep merge two arrays, with values from $override taking precedence.
+	 * Restore the original blog and clear resolver state after a multisite call.
 	 *
-	 * @param array<string,mixed> $base     Base array.
-	 * @param array<string,mixed> $override Override array.
-	 * @return array<string,mixed> Merged result.
+	 * @param bool $switched Whether the handler switched blogs.
 	 */
-	private static function deep_merge( array $base, array $override ): array {
-		foreach ( $override as $key => $value ) {
-			if ( is_array( $value ) && isset( $base[ $key ] ) && is_array( $base[ $key ] ) ) {
-				$base[ $key ] = self::deep_merge( $base[ $key ], $value );
-			} else {
-				$base[ $key ] = $value;
-			}
+	private static function restore_switched_blog( bool $switched ): void {
+		if ( ! $switched ) {
+			return;
 		}
-		return $base;
+
+		restore_current_blog();
+		wp_clean_theme_json_cache();
 	}
 }
