@@ -2,6 +2,9 @@
  * Unit tests for screenshot URL validation.
  */
 
+/**
+ *
+ */
 function loadScreenshotModule() {
 	let mod;
 	jest.isolateModules( () => {
@@ -12,37 +15,30 @@ function loadScreenshotModule() {
 }
 
 describe( 'screenshot-url validation', () => {
-	const originalLocation = window.location;
-
-	function setLocation( href ) {
-		delete window.location;
-		window.location = new URL( href );
-	}
-
 	beforeEach( () => {
-		setLocation( 'https://myshopmaker.ng/wp-admin/admin.php?page=sd-ai-agent' );
 		window.sdAiAgentData = {
 			screenshotOrigins: [
-				'https://myshopmaker.ng',
+				window.location.origin,
 				'https://template.myshopmaker.ng',
 			],
 		};
 	} );
 
 	afterEach( () => {
-		window.location = originalLocation;
 		delete window.sdAiAgentData;
 	} );
 
 	test( 'accepts same-origin URLs from the authorized WordPress origins list', () => {
 		const { validateScreenshotUrl } = loadScreenshotModule();
 
-		expect( validateScreenshotUrl( '/product/t-shirt-ne/' ) ).toMatchObject( {
-			valid: true,
-			authorized: true,
-			resolved: 'https://myshopmaker.ng/product/t-shirt-ne/',
-			error: '',
-		} );
+		expect( validateScreenshotUrl( '/product/t-shirt-ne/' ) ).toMatchObject(
+			{
+				valid: true,
+				authorized: true,
+				resolved: `${ window.location.origin }/product/t-shirt-ne/`,
+				error: '',
+			}
+		);
 	} );
 
 	test( 'recognizes an authorized multisite subdomain and returns capture guidance', () => {
