@@ -13,6 +13,7 @@ declare(strict_types=1);
 
 namespace SdAiAgent\Abilities;
 
+use SdAiAgent\Services\GlobalStylesService;
 use WP_Error;
 
 if ( ! defined( 'ABSPATH' ) ) {
@@ -418,17 +419,18 @@ class DesignSystemAbilities {
 	 * @return array<string,mixed>|\WP_Error
 	 */
 	public static function handle_theme_json_presets( array $input ) {
-		$action = $input['action'] ?? '';
+		$action  = $input['action'] ?? '';
+		$service = new GlobalStylesService();
 
 		switch ( $action ) {
 			case 'get':
-				return self::get_global_styles();
+				return self::get_global_styles( $service );
 
 			case 'update':
-				return self::update_global_styles( $input );
+				return self::update_global_styles( $input, $service );
 
 			case 'reset':
-				return self::reset_global_styles();
+				return self::reset_global_styles( $service );
 
 			default:
 				return new WP_Error( 'invalid_action', 'action must be one of: get, update, reset.' );
@@ -625,10 +627,11 @@ class DesignSystemAbilities {
 	 *
 	 * @return array<string,mixed>
 	 */
-	private static function get_global_styles(): array {
-		$post = self::get_global_styles_post();
+	private static function get_global_styles( GlobalStylesService $service ): array {
+		$document = $service->get_user_document();
+		$post_id  = $service->get_user_post_id() ?? 0;
 
-		if ( ! $post ) {
+		if ( 0 === $post_id ) {
 			return [
 				'success'       => true,
 				'action'        => 'get',
@@ -638,16 +641,11 @@ class DesignSystemAbilities {
 			];
 		}
 
-		$decoded = json_decode( $post->post_content, true );
-		if ( ! is_array( $decoded ) ) {
-			$decoded = [];
-		}
-
 		return [
 			'success'       => true,
 			'action'        => 'get',
-			'global_styles' => $decoded,
-			'post_id'       => $post->ID,
+			'global_styles' => $document,
+			'post_id'       => $post_id,
 			'message'       => __( 'Global styles retrieved.', 'superdav-ai-agent' ),
 		];
 	}
@@ -655,54 +653,18 @@ class DesignSystemAbilities {
 	/**
 	 * Update the user-level global styles by merging provided styles.
 	 *
-	 * @param array<string,mixed> $input Input args with 'styles'.
+	 * @param array<string,mixed> $input   Input args with 'styles'.
+	 * @param GlobalStylesService $service Canonical persistence service.
 	 * @return array<string,mixed>|\WP_Error
 	 */
-	private static function update_global_styles( array $input ) {
+	private static function update_global_styles( array $input, GlobalStylesService $service ) {
 		$new_styles = $input['styles'] ?? null;
 
 		if ( empty( $new_styles ) || ! is_array( $new_styles ) ) {
 			return new WP_Error( 'missing_styles', 'styles object is required for action "update".' );
 		}
 
-		$post    = self::get_global_styles_post();
-		$current = [];
-
-		if ( $post ) {
-			$decoded = json_decode( $post->post_content, true );
-			if ( is_array( $decoded ) ) {
-				$current = $decoded;
-			}
-		}
-
-		// Deep merge: new_styles takes precedence.
-		$merged = self::deep_merge( $current, $new_styles );
-
-		$json = wp_json_encode( $merged, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE );
-		if ( false === $json ) {
-			return new WP_Error( 'json_encode_failed', 'Failed to encode styles as JSON.' );
-		}
-
-		if ( $post ) {
-			$result = wp_update_post(
-				[
-					'ID'           => $post->ID,
-					'post_content' => $json,
-				],
-				true
-			);
-		} else {
-			$result = wp_insert_post(
-				[
-					'post_title'   => 'Custom Styles',
-					'post_content' => $json,
-					'post_status'  => 'publish',
-					'post_type'    => 'wp_global_styles',
-				],
-				true
-			);
-		}
-
+		$result = $service->merge_user_document( $new_styles );
 		if ( is_wp_error( $result ) ) {
 			return $result;
 		}
@@ -710,8 +672,8 @@ class DesignSystemAbilities {
 		return [
 			'success'       => true,
 			'action'        => 'update',
-			'global_styles' => $merged,
-			'post_id'       => is_int( $result ) ? $result : ( $post ? $post->ID : 0 ),
+			'global_styles' => $result['document'],
+			'post_id'       => $result['post_id'],
 			'message'       => __( 'Global styles updated successfully.', 'superdav-ai-agent' ),
 		];
 	}
@@ -719,12 +681,16 @@ class DesignSystemAbilities {
 	/**
 	 * Reset the user-level global styles override.
 	 *
+	 * @param GlobalStylesService $service Canonical persistence service.
 	 * @return array<string,mixed>|\WP_Error
 	 */
-	private static function reset_global_styles() {
-		$post = self::get_global_styles_post();
+	private static function reset_global_styles( GlobalStylesService $service ) {
+		$deleted = $service->delete_user_document();
+		if ( is_wp_error( $deleted ) ) {
+			return new WP_Error( 'reset_failed', 'Failed to delete the global styles override.' );
+		}
 
-		if ( ! $post ) {
+		if ( ! $deleted ) {
 			return [
 				'success'       => true,
 				'action'        => 'reset',
@@ -734,12 +700,6 @@ class DesignSystemAbilities {
 			];
 		}
 
-		$deleted = wp_delete_post( $post->ID, true );
-
-		if ( ! $deleted ) {
-			return new WP_Error( 'reset_failed', 'Failed to delete the global styles override.' );
-		}
-
 		return [
 			'success'       => true,
 			'action'        => 'reset',
@@ -747,68 +707,5 @@ class DesignSystemAbilities {
 			'post_id'       => 0,
 			'message'       => __( 'Global styles reset to theme defaults.', 'superdav-ai-agent' ),
 		];
-	}
-
-	/**
-	 * Retrieve the user-level wp_global_styles CPT post.
-	 *
-	 * WordPress stores user customisations in a wp_global_styles post with
-	 * post_name = 'wp-global-styles-{stylesheet}'. We look for the most recent
-	 * published post of this type.
-	 *
-	 * @return \WP_Post|null
-	 */
-	private static function get_global_styles_post(): ?\WP_Post {
-		$stylesheet = get_stylesheet();
-		$post_name  = 'wp-global-styles-' . $stylesheet;
-
-		$posts = get_posts(
-			[
-				'post_type'      => 'wp_global_styles',
-				'post_status'    => 'publish',
-				'name'           => $post_name,
-				'posts_per_page' => 1,
-				'orderby'        => 'date',
-				'order'          => 'DESC',
-			]
-		);
-
-		if ( ! empty( $posts ) ) {
-			return $posts[0];
-		}
-
-		// Fallback: any published wp_global_styles post (theme-agnostic).
-		$posts = get_posts(
-			[
-				'post_type'      => 'wp_global_styles',
-				'post_status'    => 'publish',
-				'posts_per_page' => 1,
-				'orderby'        => 'date',
-				'order'          => 'DESC',
-			]
-		);
-
-		return ! empty( $posts ) ? $posts[0] : null;
-	}
-
-	/**
-	 * Recursively merge two arrays, with $override taking precedence.
-	 *
-	 * Unlike array_merge_recursive(), this replaces scalar values rather than
-	 * creating arrays of values.
-	 *
-	 * @param array<string,mixed> $base     Base array.
-	 * @param array<string,mixed> $override Override array.
-	 * @return array<string,mixed> Merged result.
-	 */
-	private static function deep_merge( array $base, array $override ): array {
-		foreach ( $override as $key => $value ) {
-			if ( is_array( $value ) && isset( $base[ $key ] ) && is_array( $base[ $key ] ) ) {
-				$base[ $key ] = self::deep_merge( $base[ $key ], $value );
-			} else {
-				$base[ $key ] = $value;
-			}
-		}
-		return $base;
 	}
 }
