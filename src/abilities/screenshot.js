@@ -145,8 +145,9 @@ export function validateScreenshotUrl( url ) {
 				valid: false,
 				resolved: resolved.href,
 				error:
-					`URL must be on an authorized WordPress site (${ authorizedOrigins.join( ', ' ) }). ` +
-					`Got: ${ resolved.origin }`,
+					`URL must be on an authorized WordPress site (${ authorizedOrigins.join(
+						', '
+					) }). ` + `Got: ${ resolved.origin }`,
 				authorized: false,
 			};
 		}
@@ -329,7 +330,11 @@ async function executeScreenshotUrl( args ) {
 	const fullPage = args?.fullPage ?? false;
 
 	// Validate authorized WordPress origin and same-origin capture feasibility.
-	const { valid, resolved, error: urlError } = validateScreenshotUrl( rawUrl );
+	const {
+		valid,
+		resolved,
+		error: urlError,
+	} = validateScreenshotUrl( rawUrl );
 	if ( ! valid ) {
 		return {
 			success: false,
