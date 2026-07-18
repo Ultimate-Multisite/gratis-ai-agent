@@ -15,8 +15,10 @@
  * `image` is a base64-encoded JPEG data URL suitable for sending to a
  * vision-capable model.
  *
- * Security: screenshot-url restricts targets to the current WordPress site
- * origin via explicit URL validation in `validateSameOrigin()`. The browser's
+ * Security: screenshot-url restricts targets to the current browser origin
+ * via explicit URL validation in `validateSameOrigin()`. Network subsite
+ * origins are recognised only to return actionable same-origin guidance; the
+ * browser's
  * same-origin policy enforces this at runtime: cross-origin redirects will
  * cause `iframe.contentDocument` access to throw, and the error path returns
  * a structured failure result. The iframe is intentionally NOT `sandbox`'d,
@@ -102,7 +104,7 @@ function canvasToJpeg( canvas ) {
  * @param {string} url Absolute or relative URL.
  * @return {{ valid: boolean, resolved: string, error: string }} Validation result.
  */
-function validateSameOrigin( url ) {
+export function validateSameOrigin( url ) {
 	if ( ! url ) {
 		return { valid: false, resolved: '', error: 'URL is required.' };
 	}
@@ -112,10 +114,19 @@ function validateSameOrigin( url ) {
 		const resolved = new URL( url, window.location.origin );
 
 		if ( resolved.origin !== window.location.origin ) {
+			const allowedOrigins = Array.isArray(
+				window.sdAiAgentData?.screenshotOrigins
+			)
+				? window.sdAiAgentData.screenshotOrigins
+				: [];
+			const isKnownWordPressSite = allowedOrigins.includes( resolved.origin );
+
 			return {
 				valid: false,
 				resolved: resolved.href,
-				error: `URL must be on the same site (${ window.location.origin }). Got: ${ resolved.origin }`,
+				error: isKnownWordPressSite
+					? `URL is on another site in this WordPress network (${ resolved.origin }), but screenshots must run from the same browser origin as the target (${ window.location.origin }). Open the AI Agent chat or floating widget on ${ resolved.origin } and retry with a relative path, or ask the user to navigate there first.`
+					: `URL must be on the same browser origin (${ window.location.origin }). Got: ${ resolved.origin }`,
 			};
 		}
 
@@ -505,14 +516,14 @@ export async function registerScreenshotUrlAbility() {
 		description:
 			'Load any page on this WordPress site in a hidden iframe and capture a screenshot. ' +
 			'Use this to visually review frontend pages without navigating the user away from wp-admin. ' +
-			'The URL must be on the same site. Returns a base64 JPEG image for visual review by the AI.',
+			'The URL must be on the same browser origin. For multisite subsites on another subdomain, run the chat/widget from that subsite and retry with a relative path. Returns a base64 JPEG image for visual review by the AI.',
 		inputSchema: {
 			type: 'object',
 			properties: {
 				url: {
 					type: 'string',
 					description:
-						'URL to screenshot. Can be a full URL on this site or a relative path (e.g. "/about/", "/contact/", "/").',
+						'URL to screenshot. Use a full URL on the current browser origin or a relative path (e.g. "/about/", "/contact/", "/"). For multisite subsites on another subdomain, open the agent on that subsite first.',
 				},
 				width: {
 					type: 'integer',

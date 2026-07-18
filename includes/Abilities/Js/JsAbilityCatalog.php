@@ -166,14 +166,14 @@ class JsAbilityCatalog {
 			array(
 				'name'          => 'sd-ai-agent-js/screenshot-url',
 				'label'         => 'Screenshot URL',
-				'description'   => 'Load any page on this WordPress site in a hidden iframe and capture a screenshot. Use this to visually review frontend pages without navigating the user away from wp-admin. The URL must be on the same site. Returns a base64 JPEG image for visual review by the AI.',
+				'description'   => 'Load any page on this WordPress site in a hidden iframe and capture a screenshot. Use this to visually review frontend pages without navigating the user away from wp-admin. The URL must be on the same browser origin. For multisite subsites on another subdomain, run the chat/widget from that subsite and retry with a relative path. Returns a base64 JPEG image for visual review by the AI.',
 				'category'      => 'sd-ai-agent-js',
 				'input_schema'  => array(
 					'type'       => 'object',
 					'properties' => array(
 						'url'      => array(
 							'type'        => 'string',
-							'description' => 'URL to screenshot. Can be a full URL on this site or a relative path (e.g. "/about/", "/contact/", "/").',
+							'description' => 'URL to screenshot. Use a full URL on the current browser origin or a relative path (e.g. "/about/", "/contact/", "/"). For multisite subsites on another subdomain, open the agent on that subsite first.',
 						),
 						'width'    => array(
 							'type'        => 'integer',

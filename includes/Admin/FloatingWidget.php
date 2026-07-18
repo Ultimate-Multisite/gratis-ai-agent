@@ -17,6 +17,7 @@ use SdAiAgent\Core\Features;
 use SdAiAgent\Core\OnboardingManager;
 use SdAiAgent\Core\RolePermissions;
 use SdAiAgent\Core\Settings;
+use SdAiAgent\Core\SiteOrigins;
 
 if ( ! defined( 'ABSPATH' ) ) {
 	exit;
@@ -201,6 +202,7 @@ class FloatingWidget {
 				'viewedPostId'        => $viewed_post_id,
 				'viewedPostType'      => $viewed_post_type,
 				'viewedTitle'         => $viewed_title,
+				'screenshotOrigins'   => SiteOrigins::screenshot_allowed_origins(),
 			]
 		);
 	}
