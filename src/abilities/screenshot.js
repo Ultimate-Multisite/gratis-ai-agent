@@ -144,10 +144,9 @@ export function validateScreenshotUrl( url ) {
 			return {
 				valid: false,
 				resolved: resolved.href,
-				error:
-					`URL must be on an authorized WordPress site (${ authorizedOrigins.join(
-						', '
-					) }). ` + `Got: ${ resolved.origin }`,
+				error: `Not an authorized WordPress site (${ authorizedOrigins.join(
+					', '
+				) }); got ${ resolved.origin }`,
 				authorized: false,
 			};
 		}
@@ -156,9 +155,7 @@ export function validateScreenshotUrl( url ) {
 			return {
 				valid: false,
 				resolved: resolved.href,
-				error:
-					`URL is an authorized WordPress site (${ resolved.origin }), but browser screenshot capture must run from the same origin as the target. ` +
-					`Open the AI agent on ${ resolved.origin } or navigate the browser there, then retry screenshot-url.`,
+				error: `URL is an authorized WordPress site; retry from the same origin (${ resolved.origin }).`,
 				authorized: true,
 			};
 		}
@@ -557,10 +554,8 @@ export async function registerScreenshotUrlAbility() {
 		name: 'sd-ai-agent-js/screenshot-url',
 		label: 'Screenshot URL',
 		description:
-			'Load any same-origin WordPress page in a hidden iframe and capture a screenshot. ' +
-			'Use this to visually review frontend pages without navigating the user away from wp-admin. ' +
-			'Multisite subdomain URLs must be opened from that subsite origin before capture. ' +
-			'Returns a base64 JPEG image for visual review by the AI.',
+			'Capture a same-origin WordPress URL for visual review. ' +
+			'Open multisite subdomains from that origin first.',
 		inputSchema: {
 			type: 'object',
 			properties: {

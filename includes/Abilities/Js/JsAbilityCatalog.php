@@ -166,7 +166,7 @@ class JsAbilityCatalog {
 			array(
 				'name'          => 'sd-ai-agent-js/screenshot-url',
 				'label'         => 'Screenshot URL',
-				'description'   => 'Load any same-origin WordPress page in a hidden iframe and capture a screenshot. Use this to visually review frontend pages without navigating the user away from wp-admin. Multisite subdomain URLs must be opened from that subsite origin before capture. Returns a base64 JPEG image for visual review by the AI.',
+				'description'   => 'Capture a same-origin WordPress URL for visual review. Open multisite subdomains from that origin first.',
 				'category'      => 'sd-ai-agent-js',
 				'input_schema'  => array(
 					'type'       => 'object',

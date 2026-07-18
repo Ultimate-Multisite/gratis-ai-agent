@@ -54,7 +54,7 @@ describe( 'screenshot-url validation', () => {
 			resolved: 'https://template.myshopmaker.ng/product/t-shirt-ne/',
 		} );
 		expect( result.error ).toContain( 'authorized WordPress site' );
-		expect( result.error ).toContain( 'must run from the same origin' );
+		expect( result.error ).toContain( 'same origin' );
 	} );
 
 	test( 'rejects unrelated external domains even when multisite origins are configured', () => {
