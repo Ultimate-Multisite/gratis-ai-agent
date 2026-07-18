@@ -316,6 +316,7 @@ class UnifiedAdminMenu {
 				'menuItems'            => self::getMenuItems(),
 				'connectorsUrl'        => self::getConnectorsUrl(),
 				'connectorsAvailable'  => self::hasNativeConnectorsPage() || self::hasGutenbergConnectorsPage() ? '1' : '',
+				'screenshotOrigins'    => self::getScreenshotAllowedOrigins(),
 				'onboarding_complete'  => \SdAiAgent\Core\OnboardingManager::is_complete(),
 				// Provider trace is a debug-only feature. The JS settings page reads
 				// this flag to show or hide the Provider Trace tab.
@@ -342,6 +343,74 @@ class UnifiedAdminMenu {
 				),
 			)
 		);
+	}
+
+	/**
+	 * Return origins that screenshot-url may treat as WordPress-owned targets.
+	 *
+	 * Browser DOM access is still restricted to the current origin, but exposing
+	 * the authorized WordPress origins lets the client distinguish a multisite
+	 * subdomain from an unrelated external host and return the right guidance.
+	 *
+	 * @return list<string>
+	 */
+	public static function getScreenshotAllowedOrigins(): array {
+		$urls = array(
+			home_url( '/' ),
+			site_url( '/' ),
+		);
+
+		if ( is_multisite() ) {
+			$urls[] = network_home_url( '/' );
+			$urls[] = network_site_url( '/' );
+
+			$site_ids = get_sites(
+				array(
+					'fields'   => 'ids',
+					'number'   => (int) apply_filters( 'sd_ai_agent_screenshot_origin_site_limit', 500 ),
+					'public'   => 1,
+					'archived' => 0,
+					'deleted'  => 0,
+					'spam'     => 0,
+				)
+			);
+
+			foreach ( $site_ids as $site_id ) {
+				$blog_id = (int) $site_id;
+				$urls[]  = get_home_url( $blog_id, '/' );
+				$urls[]  = get_site_url( $blog_id, '/' );
+			}
+		}
+
+		$origins = array();
+		foreach ( $urls as $url ) {
+			$origin = self::originFromUrl( (string) $url );
+			if ( '' !== $origin ) {
+				$origins[] = $origin;
+			}
+		}
+
+		return array_values( array_unique( $origins ) );
+	}
+
+	/**
+	 * Extract a normalized origin from a URL.
+	 *
+	 * @param string $url URL to parse.
+	 * @return string Origin, or empty string when parsing fails.
+	 */
+	private static function originFromUrl( string $url ): string {
+		$parts = wp_parse_url( $url );
+		if ( ! is_array( $parts ) || empty( $parts['scheme'] ) || empty( $parts['host'] ) ) {
+			return '';
+		}
+
+		$origin = strtolower( (string) $parts['scheme'] ) . '://' . strtolower( (string) $parts['host'] );
+		if ( isset( $parts['port'] ) ) {
+			$origin .= ':' . (int) $parts['port'];
+		}
+
+		return $origin;
 	}
 
 	/**
