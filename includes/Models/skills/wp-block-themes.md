@@ -185,18 +185,18 @@ the user did not ask to change:
 
 ### Settings
 
-Recommended palette: 5–7 entries (`primary`, `secondary`, `accent`, `background`, `surface`, plus `light`/`dark` if needed). Set `defaultPalette: false` and `defaultGradients: false` to keep the editor focused on the brand colours. Spacing: 6-step scale slugs `20`–`70` from `0.5rem` to `4rem`. Always set `appearanceTools: true` and `fluid: true` on typography.
-
+Every palette must define the five semantic roles `foreground`, `background`, `surface`, `accent`, and `on-accent`. Use `foreground` on `background` for body text and headings, `accent` on `background` for links, and `on-accent` on `accent` for controls. `primary` and `secondary` may be added as optional aesthetic groupings, but never substitute them for a semantic role. Set `defaultPalette: false` and `defaultGradients: false` to keep the editor focused on the brand colours. Spacing: 6-step scale slugs `20`–`70` from `0.5rem` to `4rem`. Always set `appearanceTools: true` and `fluid: true` on typography.
 ```json
 {
   "settings": {
     "appearanceTools": true,
     "color": {
       "palette": [
-        { "slug": "primary",    "color": "#1a1a1a", "name": "Primary" },
-        { "slug": "accent",     "color": "#e63946", "name": "Accent" },
+        { "slug": "foreground", "color": "#1a1a1a", "name": "Foreground" },
         { "slug": "background", "color": "#ffffff", "name": "Background" },
-        { "slug": "surface",    "color": "#f5f5f5", "name": "Surface" }
+        { "slug": "surface",    "color": "#f5f5f5", "name": "Surface" },
+        { "slug": "accent",     "color": "#b21f2d", "name": "Accent" },
+        { "slug": "on-accent",  "color": "#ffffff", "name": "On Accent" }
       ],
       "defaultPalette": false,
       "defaultGradients": false
@@ -226,7 +226,7 @@ When calling `sd-ai-agent/update-global-styles`, pass only the inner `styles` an
     "elements": {
       "heading": { "typography": { "fontFamily": "var(--wp--preset--font-family--heading)", "lineHeight": "1.2" } },
       "link":    { "color": { "text": "var(--wp--preset--color--accent)" } },
-      "button":  { "color": { "background": "var(--wp--preset--color--accent)", "text": "var(--wp--preset--color--light)" }, "border": { "radius": "0.5rem" } }
+      "button":  { "color": { "background": "var(--wp--preset--color--accent)", "text": "var(--wp--preset--color--on-accent)" }, "border": { "radius": "0.5rem" } }
     }
   }
 }
@@ -275,7 +275,7 @@ The corresponding `templates/blank.html` and `templates/landing.html` files must
  * Categories: featured
  */
 ?>
-<!-- wp:group {"backgroundColor":"primary","textColor":"light","layout":{"type":"constrained"}} -->
+<!-- wp:group {"backgroundColor":"accent","textColor":"on-accent","layout":{"type":"constrained"}} -->
 ...
 <!-- /wp:group -->
 ```
@@ -300,7 +300,7 @@ Alternate visual treatments to avoid monotony:
 | Alternating backgrounds | Alternate `backgroundColor` between `background` and `surface` (or `primary`/`secondary` for bold sections) |
 | Full-bleed imagery | Cover blocks with `"align":"full"` and `overlayColor` from the brand palette |
 | Edge-to-edge media-text | `wp:media-text` with `"align":"full"` for alternating image/content sides |
-| Bold CTA bands | Full-width group with `primary` or `accent` background, centered text |
+| Bold CTA bands | Full-width group with `accent` background and `on-accent` text, centered |
 | Spacer breaks | `wp:spacer` between sections for breathing room |
 
 If two adjacent sections share the same background and layout, the page feels monotonous — change the background, flip the image side, switch from grid to single-column, or insert a cover block break.

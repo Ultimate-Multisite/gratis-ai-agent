@@ -50,7 +50,9 @@ class BlockThemesSkillTest extends WP_UnitTestCase {
 
 		$required_patterns = [
 			'Always declare `$schema` and `version: 3`',
-			'5–7 entries (`primary`, `secondary`, `accent`, `background`, `surface`',
+			'five semantic roles `foreground`, `background`, `surface`, `accent`, and `on-accent`',
+			'`primary` and `secondary` may be added as optional aesthetic groupings',
+			'`on-accent` on `accent` for controls',
 			'6-step scale slugs `20`–`70`',
 			'`parts/header.html` — Site header',
 			'`parts/footer.html` — Site footer',
