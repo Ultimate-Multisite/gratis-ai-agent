@@ -322,15 +322,15 @@ class AbilityFunctionResolver extends \WP_AI_Client_Ability_Function_Resolver {
 	 * arguments. Those shapes cannot satisfy an ability with required inputs, so
 	 * avoid spending an execution attempt solely to receive the validator's error.
 	 *
-	 * @param string      $function_id Provider function-call id.
-	 * @param string      $function_name Provider function name.
-	 * @param string      $ability_name Registered ability id.
-	 * @param \WP_Ability $ability Registered ability.
-	 * @param mixed       $input_schema Ability input schema.
-	 * @param string[]    $required_fields Required input field names.
+	 * @param string               $function_id Provider function-call id.
+	 * @param string               $function_name Provider function name.
+	 * @param string               $ability_name Registered ability id.
+	 * @param \WP_Ability          $ability Registered ability.
+	 * @param array<string, mixed> $input_schema Ability input schema.
+	 * @param string[]             $required_fields Required input field names.
 	 * @return FunctionResponse
 	 */
-	private static function build_empty_arguments_response( string $function_id, string $function_name, string $ability_name, \WP_Ability $ability, $input_schema, array $required_fields ): FunctionResponse {
+	private static function build_empty_arguments_response( string $function_id, string $function_name, string $ability_name, \WP_Ability $ability, array $input_schema, array $required_fields ): FunctionResponse {
 		$error_message = sprintf(
 			/* translators: 1: ability name, 2: required input field name. */
 			__( 'Ability "%1$s" has invalid input. Reason: %2$s is a required property of input.', 'superdav-ai-agent' ),
