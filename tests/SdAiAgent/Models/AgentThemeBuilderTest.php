@@ -164,6 +164,13 @@ class AgentThemeBuilderTest extends WP_UnitTestCase {
 			'sd-ai-agent/generate-menu-page',
 			'sd-ai-agent/validate-palette-contrast',
 			'sd-ai-agent/compile-design-tokens',
+			'sd-ai-agent/list-style-variations',
+			'sd-ai-agent/create-style-variation',
+			'sd-ai-agent/update-style-variation',
+			'sd-ai-agent/validate-style-variation',
+			'sd-ai-agent/preview-style-variation',
+			'sd-ai-agent/select-style-variation',
+			'sd-ai-agent/reset-style-variation',
 			'sd-ai-agent/site-scrape',
 			'sd-ai-agent/stock-image',
 			'sd-ai-agent/generate-image',
@@ -240,6 +247,27 @@ class AgentThemeBuilderTest extends WP_UnitTestCase {
 		$this->assertNotFalse( $scaffold_position );
 		$this->assertLessThan( $scaffold_position, $validation_position );
 		$this->assertStringContainsString( '`passed` field is exactly `true`', $agent->system_prompt );
+	}
+
+	/**
+	 * The Setup Assistant routes variation changes through the explicit lifecycle.
+	 */
+	public function test_setup_assistant_uses_style_variation_lifecycle(): void {
+		Agent::reset_defaults();
+
+		$agent = Agent::get_by_slug( Agent::ONBOARDING_AGENT_SLUG );
+		$this->assertNotNull( $agent );
+
+		foreach ( [
+			'sd-ai-agent/list-style-variations',
+			'sd-ai-agent/validate-style-variation',
+			'sd-ai-agent/preview-style-variation',
+			'sd-ai-agent/select-style-variation',
+			'sd-ai-agent/reset-style-variation',
+			'Never use generic file writes or wholesale Global Styles reset',
+		] as $required ) {
+			$this->assertStringContainsString( $required, $agent->system_prompt );
+		}
 	}
 
 	/**

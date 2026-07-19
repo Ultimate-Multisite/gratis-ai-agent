@@ -134,6 +134,13 @@ class ToolCapabilities {
 		'sd-ai-agent/render-design-previews'     => 'edit_theme_options',
 		'sd-ai-agent/validate-palette-contrast'  => 'edit_theme_options',
 		'sd-ai-agent/compile-design-tokens'      => 'edit_theme_options',
+		'sd-ai-agent/list-style-variations'      => 'edit_theme_options',
+		'sd-ai-agent/create-style-variation'     => 'edit_theme_options',
+		'sd-ai-agent/update-style-variation'     => 'edit_theme_options',
+		'sd-ai-agent/validate-style-variation'   => 'edit_theme_options',
+		'sd-ai-agent/preview-style-variation'    => 'edit_theme_options',
+		'sd-ai-agent/select-style-variation'     => 'edit_theme_options',
+		'sd-ai-agent/reset-style-variation'      => 'edit_theme_options',
 		'sd-ai-agent/generate-logo-svg'          => 'upload_files',
 
 		// ─── Menus ──────────────────────────────────────────────────────────
