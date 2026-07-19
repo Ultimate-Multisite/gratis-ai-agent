@@ -163,6 +163,7 @@ class AgentThemeBuilderTest extends WP_UnitTestCase {
 			'sd-ai-agent/render-design-previews',
 			'sd-ai-agent/generate-menu-page',
 			'sd-ai-agent/validate-palette-contrast',
+			'sd-ai-agent/compile-design-tokens',
 			'sd-ai-agent/site-scrape',
 			'sd-ai-agent/stock-image',
 			'sd-ai-agent/generate-image',
@@ -239,6 +240,19 @@ class AgentThemeBuilderTest extends WP_UnitTestCase {
 		$this->assertNotFalse( $scaffold_position );
 		$this->assertLessThan( $scaffold_position, $validation_position );
 		$this->assertStringContainsString( '`passed` field is exactly `true`', $agent->system_prompt );
+	}
+
+	/**
+	 * Follow-up design changes remain contract-driven instead of drifting raw artifacts.
+	 */
+	public function test_setup_assistant_recompiles_follow_up_design_changes(): void {
+		Agent::reset_defaults();
+
+		$agent = Agent::get_by_slug( Agent::ONBOARDING_AGENT_SLUG );
+		$this->assertNotNull( $agent );
+		$this->assertStringContainsString( 'update the saved design-token contract', $agent->system_prompt );
+		$this->assertGreaterThanOrEqual( 3, substr_count( $agent->system_prompt, 'sd-ai-agent/compile-design-tokens' ) );
+		$this->assertStringNotContainsString( 'adjust `theme.json` + re-apply global styles', $agent->system_prompt );
 	}
 
 	/**

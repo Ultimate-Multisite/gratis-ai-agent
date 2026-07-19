@@ -442,6 +442,7 @@ class AgentTest extends WP_UnitTestCase {
 		$this->assertContains( 'sd-ai-agent/update-post', $tools );
 		$this->assertContains( 'sd-ai-agent/list-posts', $tools );
 		$this->assertContains( 'sd-ai-agent/update-global-styles', $tools );
+		$this->assertContains( 'sd-ai-agent/compile-design-tokens', $tools );
 	}
 
 	/**
