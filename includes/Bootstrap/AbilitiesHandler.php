@@ -38,6 +38,7 @@ use SdAiAgent\Abilities\CustomPostTypeAbilities;
 use SdAiAgent\Abilities\CustomTaxonomyAbilities;
 use SdAiAgent\Abilities\TaxonomyAbilities;
 use SdAiAgent\Abilities\DesignSystemAbilities;
+use SdAiAgent\Abilities\DesignSystemArtifactAbilities;
 use SdAiAgent\Abilities\EditorialAbilities;
 use SdAiAgent\Abilities\FeedbackAbilities;
 use SdAiAgent\Abilities\FileAbilities;
@@ -166,6 +167,7 @@ final class AbilitiesHandler {
 		EditorialAbilities::register_abilities();
 		ImageAbilities::register_abilities();
 		DesignSystemAbilities::register_abilities();
+		DesignSystemArtifactAbilities::register_abilities();
 	}
 
 	/**
