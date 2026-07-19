@@ -78,6 +78,24 @@ class ValidatePaletteContrastAbilityTest extends WP_UnitTestCase {
 		$this->assertSame( 'sd_ai_agent_palette_required', $result->get_error_code() );
 	}
 
+	public function test_run_returns_wp_error_for_empty_pair_override(): void {
+		$result = $this->ability()->run(
+			[
+				'palette' => [
+					[ 'slug' => 'foreground', 'color' => '#1a1a1a' ],
+					[ 'slug' => 'background', 'color' => '#ffffff' ],
+					[ 'slug' => 'surface', 'color' => '#f5f5f5' ],
+					[ 'slug' => 'accent', 'color' => '#005fcc' ],
+					[ 'slug' => 'on-accent', 'color' => '#ffffff' ],
+				],
+				'pairs'   => [],
+			]
+		);
+
+		$this->assertInstanceOf( WP_Error::class, $result );
+		$this->assertSame( 'sd_ai_agent_palette_pairs_required', $result->get_error_code() );
+	}
+
 	public function test_run_respects_custom_pair_overrides(): void {
 		$result = $this->ability()->run(
 			[
