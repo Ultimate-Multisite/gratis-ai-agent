@@ -792,7 +792,7 @@ final class ArtifactReleaseManager {
 					return $this->error( 'invalid_record_target', __( 'Artifact tried to write an unsupported WordPress record.', 'superdav-ai-agent' ) );
 				}
 
-				$key = $artifact_id . ':' . $record_id;
+				$key = $stylesheet . ':' . $artifact_id . ':' . $record_id;
 				if ( isset( $records[ $key ] ) ) {
 					return $this->error( 'duplicate_record_target', __( 'Two selected artifacts target the same generated WordPress record.', 'superdav-ai-agent' ) );
 				}

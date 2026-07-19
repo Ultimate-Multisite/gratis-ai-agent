@@ -321,6 +321,51 @@ class ArtifactReleaseManagerTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * Identical artifact records remain independently owned by each target theme.
+	 */
+	public function test_scopes_record_ownership_keys_to_the_target_theme(): void {
+		$other_theme_dir = $this->themeDir . '-other';
+		wp_mkdir_p( $other_theme_dir );
+
+		try {
+			$first_context          = $this->context();
+			$first_context['theme'] = 'sd-ai-artifact-first';
+			$first                  = ( new ArtifactReleaseManager() )->apply(
+				$this->themeDir,
+				$this->manifest( [ $this->token_artifact( '1.0.0', '#112233' ) ], 'sd-ai-artifact-first' ),
+				$first_context
+			);
+			$this->assertNotWPError( $first );
+
+			$second_context          = $this->context();
+			$second_context['theme'] = 'sd-ai-artifact-second';
+			$second                  = ( new ArtifactReleaseManager() )->apply(
+				$other_theme_dir,
+				$this->manifest( [ $this->token_artifact( '1.0.0', '#112233' ) ], 'sd-ai-artifact-second' ),
+				$second_context
+			);
+			$this->assertNotWPError( $second );
+
+			$records = $this->managed_records( 'wp_global_styles' );
+			$this->assertCount( 2, $records );
+			$keys = array_map(
+				static fn( \WP_Post $post ): string => (string) get_post_meta( $post->ID, '_sd_ai_agent_design_artifact_record', true ),
+				$records
+			);
+			sort( $keys, SORT_STRING );
+			$this->assertSame(
+				[
+					'sd-ai-artifact-first:sd-ai-agent/token_set/brand:brand-settings',
+					'sd-ai-artifact-second:sd-ai-agent/token_set/brand:brand-settings',
+				],
+				$keys
+			);
+		} finally {
+			self::rrmdir( $other_theme_dir );
+		}
+	}
+
+	/**
 	 * Applying through a target-theme context rejects a manifest for another theme.
 	 */
 	public function test_rejects_manifest_theme_that_does_not_match_target_context(): void {
@@ -387,7 +432,7 @@ class ArtifactReleaseManagerTest extends WP_UnitTestCase {
 
 		$manager = new ArtifactReleaseManager(
 			null,
-			static fn( string $step, string $target ): bool => 'after_record_delete' === $step && 'sd-ai-agent/pattern/hero:synced-hero' === $target
+			static fn( string $step, string $target ): bool => 'after_record_delete' === $step && 'sd-ai-artifact-test:sd-ai-agent/pattern/hero:synced-hero' === $target
 		);
 		$result  = $manager->apply(
 			$this->themeDir,
