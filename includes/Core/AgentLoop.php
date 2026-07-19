@@ -1231,14 +1231,16 @@ class AgentLoop {
 					// Persist loop state so the resume endpoint can reconstruct it.
 					if ( $this->session_id > 0 ) {
 						$paused_state = array(
-							'history'              => $this->serialize_history(),
-							'tool_call_log'        => $this->tool_call_log,
-							'message_log'          => $this->message_log,
-							'token_usage'          => $this->token_usage,
-							'iterations_remaining' => $iterations,
-							'model_id'             => $this->model_id,
-							'provider_id'          => $this->provider_id,
-							'client_abilities'     => $this->client_abilities,
+							'history'                   => $this->serialize_history(),
+							'tool_call_log'             => $this->tool_call_log,
+							'message_log'               => $this->message_log,
+							'token_usage'               => $this->token_usage,
+							'iterations_remaining'      => $iterations,
+							'model_id'                  => $this->model_id,
+							'provider_id'               => $this->provider_id,
+							'client_abilities'          => $this->client_abilities,
+							// Bind the browser's resume payload to this exact paused batch.
+							'pending_client_tool_calls' => $partition['client'],
 						);
 						Database::save_paused_state( $this->session_id, $paused_state );
 					}

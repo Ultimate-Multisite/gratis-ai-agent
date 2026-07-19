@@ -1957,6 +1957,52 @@ class RestControllerTest extends WP_UnitTestCase {
 	// ─── /chat/tool-result regression: 409 loop fix (sd-ai-9ip) ──────────────
 
 	/**
+	 * Invalid browser batches are rejected before resume and preserve the paused
+	 * state so the exact pending calls can still be submitted.
+	 */
+	public function test_tool_result_rejects_invalid_batches_and_restores_paused_state(): void {
+		wp_set_current_user( $this->admin_id );
+		$session_id = Database::create_session( [
+			'user_id' => $this->admin_id,
+			'title'   => 'Client result integrity session',
+		] );
+		$paused_state = [
+			'history'                   => [],
+			'iterations_remaining'      => 3,
+			'pending_client_tool_calls' => [
+				[ 'id' => 'call-one', 'name' => 'sd-ai-agent-js/navigate-to', 'args' => [] ],
+				[ 'id' => 'call-two', 'name' => 'sd-ai-agent-js/refresh-page', 'args' => [] ],
+			],
+		];
+		Database::save_paused_state( $session_id, $paused_state );
+
+		$valid = [
+			[ 'id' => 'call-one', 'name' => 'sd-ai-agent-js/navigate-to', 'result' => [] ],
+			[ 'id' => 'call-two', 'name' => 'sd-ai-agent-js/refresh-page', 'result' => [] ],
+		];
+		$invalid_batches = [
+			[ [ 'id' => 'call-one', 'name' => 'sd-ai-agent-js/refresh-page', 'result' => [] ], [ 'id' => 'call-two', 'name' => 'sd-ai-agent-js/navigate-to', 'result' => [] ] ],
+			[ [ 'id' => 'unknown', 'name' => 'sd-ai-agent-js/navigate-to', 'result' => [] ], $valid[1] ],
+			[ $valid[0], $valid[0] ],
+			[ $valid[0] ],
+		];
+
+		foreach ( $invalid_batches as $tool_results ) {
+			$request = new WP_REST_Request( 'POST', '/sd-ai-agent/v1/chat/tool-result' );
+			$request->set_body( wp_json_encode( [
+				'session_id'   => $session_id,
+				'tool_results' => $tool_results,
+			] ) );
+			$request->set_header( 'Content-Type', 'application/json' );
+			$this->assertStatus( 400, $this->server->dispatch( $request ) );
+
+			$session_after = Database::get_session( $session_id );
+			$this->assertNotNull( $session_after );
+			$this->assertNotEmpty( $session_after->paused_state );
+		}
+	}
+
+	/**
 	 * Test POST /chat/tool-result cannot consume another user's paused state.
 	 *
 	 * The permission callback must verify access to the supplied session_id before
