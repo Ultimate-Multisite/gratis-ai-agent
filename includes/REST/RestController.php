@@ -29,6 +29,7 @@ declare(strict_types=1);
 namespace SdAiAgent\REST;
 
 use SdAiAgent\Core\AgentLoop;
+use SdAiAgent\Core\ClientAbilityRouter;
 use SdAiAgent\Core\ConversationSerializer;
 use SdAiAgent\Core\ConversationTrimmer;
 use SdAiAgent\Core\CostCalculator;
@@ -483,6 +484,31 @@ Assistant: %s',
 			);
 		}
 
+		$pending_client_tool_calls = $paused_state['pending_client_tool_calls'] ?? array();
+		if ( ! is_array( $pending_client_tool_calls ) ) {
+			// load_and_clear_paused_state() protects against a replay race. Restore
+			// this state when validation fails so the real browser batch can still
+			// complete; never resume an unverified payload.
+			Database::save_paused_state( $session_id, $paused_state );
+
+			return new WP_Error(
+				'sd_ai_agent_invalid_client_tool_results',
+				__( 'tool_results must exactly match the pending client tool calls.', 'superdav-ai-agent' ),
+				array( 'status' => 400 )
+			);
+		}
+		$pending_client_tool_calls = array_values( $pending_client_tool_calls );
+		$tool_results              = array_values( $tool_results );
+		if ( ! ClientAbilityRouter::matches_pending_results( $pending_client_tool_calls, $tool_results ) ) {
+			Database::save_paused_state( $session_id, $paused_state );
+
+			return new WP_Error(
+				'sd_ai_agent_invalid_client_tool_results',
+				__( 'tool_results must exactly match the pending client tool calls.', 'superdav-ai-agent' ),
+				array( 'status' => 400 )
+			);
+		}
+
 		// Reconstruct history from the paused state.
 		//
 		// We intentionally do NOT run ConversationTrimmer::validate_tool_pairs()
@@ -539,7 +565,7 @@ Assistant: %s',
 		// Use an empty user message — the loop resumes from history.
 		$loop = new AgentLoop( '', array(), $history, $options );
 		/** @var list<array{id: string, name: string, result?: mixed, error?: string}> $tool_results_typed */
-		$tool_results_typed = array_values( $tool_results );
+		$tool_results_typed = $tool_results;
 		$result             = $loop->resume_after_client_tools( $tool_results_typed, $iterations_remaining );
 
 		if ( is_wp_error( $result ) ) {

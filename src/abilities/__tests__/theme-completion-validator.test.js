@@ -231,6 +231,54 @@ describe( 'generated theme completion validator', () => {
 		);
 	} );
 
+	test( 'reports requested and final URLs with homepage semantics', async () => {
+		loadSameOriginIframe.mockImplementation( async ( { url } ) => ( {
+			success: true,
+			url: url === urls[ 1 ].replace( /\/$/, '' ) ? urls[ 0 ] : url,
+			error: '',
+			document,
+			window,
+			cleanup: jest.fn(),
+		} ) );
+
+		const report = await validateThemeCompletion( {
+			stylesheet,
+			fingerprint,
+			urls,
+		} );
+		const redirectedInterior = report.reports.find(
+			( row ) =>
+				row.role === 'interior' && row.viewport.label === 'mobile'
+		);
+
+		expect( redirectedInterior ).toMatchObject( {
+			requested_url: urls[ 1 ].replace( /\/$/, '' ),
+			final_url: urls[ 0 ].replace( /\/$/, '' ),
+			role: 'interior',
+			is_homepage: true,
+		} );
+	} );
+
+	test( 'keeps browser execution unavailability distinct from fatal rendering', async () => {
+		loadSameOriginIframe.mockImplementation( async ( { url } ) => ( {
+			success: false,
+			url,
+			error: 'Browser execution unavailable.',
+			document: null,
+			window: null,
+			cleanup: jest.fn(),
+		} ) );
+
+		const report = await validateThemeCompletion( {
+			stylesheet,
+			fingerprint,
+			urls,
+		} );
+
+		expect( report.browser_execution_unavailable ).toBe( true );
+		expect( report.fatal_render_failure ).toBe( false );
+	} );
+
 	test( 'passes only after all real URLs and required viewports render cleanly', async () => {
 		const report = await validateThemeCompletion( {
 			stylesheet,
@@ -248,6 +296,21 @@ describe( 'generated theme completion validator', () => {
 			fingerprint,
 		} );
 		expect( report.reports ).toHaveLength( 6 );
+		expect( report.reports ).toEqual(
+			expect.arrayContaining( [
+				expect.objectContaining( {
+					requested_url: urls[ 0 ].replace( /\/$/, '' ),
+					final_url: urls[ 0 ].replace( /\/$/, '' ),
+					role: 'homepage',
+					is_homepage: true,
+				} ),
+				expect.objectContaining( {
+					requested_url: urls[ 1 ].replace( /\/$/, '' ),
+					role: 'interior',
+					is_homepage: false,
+				} ),
+			] )
+		);
 		expect( report.violations ).toEqual( [] );
 	} );
 } );

@@ -209,6 +209,57 @@ final class ClientAbilityRouter {
 	}
 
 	/**
+	 * Return whether browser results exactly match one paused client-tool batch.
+	 *
+	 * Browser payloads are untrusted at the REST boundary. Matching both the
+	 * opaque call ID and the ability name prevents a result for one pending call
+	 * from being substituted for another call in the same paused loop.
+	 *
+	 * @param array<mixed,mixed> $expected_calls Persisted pending calls.
+	 * @param array<mixed,mixed> $tool_results   Browser-submitted results.
+	 */
+	public static function matches_pending_results( array $expected_calls, array $tool_results ): bool {
+		if ( empty( $expected_calls ) || count( $expected_calls ) !== count( $tool_results ) ) {
+			return false;
+		}
+
+		$expected_by_id = array();
+		foreach ( $expected_calls as $call ) {
+			$id   = (string) ( $call['id'] ?? '' );
+			$name = (string) ( $call['name'] ?? '' );
+			if ( '' === $id || '' === $name || isset( $expected_by_id[ $id ] ) ) {
+				return false;
+			}
+			$expected_by_id[ $id ] = $name;
+		}
+
+		$seen_ids = array();
+		foreach ( $tool_results as $result ) {
+			if ( ! is_array( $result ) ) {
+				return false;
+			}
+
+			$id         = (string) ( $result['id'] ?? '' );
+			$name       = (string) ( $result['name'] ?? '' );
+			$has_result = array_key_exists( 'result', $result );
+			$has_error  = array_key_exists( 'error', $result );
+			if (
+				'' === $id
+				|| ! isset( $expected_by_id[ $id ] )
+				|| $expected_by_id[ $id ] !== $name
+				|| isset( $seen_ids[ $id ] )
+				|| $has_result === $has_error
+			) {
+				return false;
+			}
+
+			$seen_ids[ $id ] = true;
+		}
+
+		return count( $seen_ids ) === count( $expected_by_id );
+	}
+
+	/**
 	 * Build a new Message containing only the given MessagePart objects.
 	 *
 	 * Used to construct a PHP-only sub-message when a mixed assistant message

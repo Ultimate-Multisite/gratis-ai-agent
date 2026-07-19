@@ -481,6 +481,11 @@ final class GeneratedThemeCompletionGate {
 			return;
 		}
 
+		if ( true === ( $response['browser_execution_unavailable'] ?? false ) ) {
+			$this->last_failure = 'Browser execution was unavailable, so frontend completion evidence could not be collected. Restore browser capability and rerun the full validator; do not treat this as a fatal theme activation failure.';
+			return;
+		}
+
 		if ( ! $this->report_covers_required_surface( $call_args, $response ) ) {
 			$this->last_failure = 'The browser report was partial, failed a required render, or contained deterministic quality violations.';
 			return;
@@ -622,15 +627,17 @@ final class GeneratedThemeCompletionGate {
 			return false;
 		}
 
-		foreach ( $required_urls as $url ) {
+		foreach ( $required_urls as $index => $url ) {
+			$role        = 0 === $index ? 'homepage' : 'interior';
+			$is_homepage = 0 === $index;
 			foreach ( self::REQUIRED_VIEWPORTS as $viewport ) {
-				if ( ! $this->has_passing_viewport_report( $reports, $url, $viewport ) ) {
+				if ( ! $this->has_passing_viewport_report( $reports, $url, $role, $is_homepage, $viewport ) ) {
 					return false;
 				}
 			}
 		}
 
-		return true;
+		return $this->roles_have_distinct_final_urls( $reports );
 	}
 
 	/**
@@ -638,12 +645,20 @@ final class GeneratedThemeCompletionGate {
 	 *
 	 * @param array<int,mixed>                         $reports  Browser report rows.
 	 * @param string                                   $url      Required normalized URL.
+	 * @param string                                   $role     Expected semantic page role.
+	 * @param bool                                     $is_homepage Whether the document must be the homepage.
 	 * @param array{label:string,width:int,height:int} $viewport Required viewport.
 	 */
-	private function has_passing_viewport_report( array $reports, string $url, array $viewport ): bool {
+	private function has_passing_viewport_report( array $reports, string $url, string $role, bool $is_homepage, array $viewport ): bool {
 		$matches = 0;
 		foreach ( $reports as $report ) {
-			if ( ! is_array( $report ) || self::normalize_url( (string) ( $report['url'] ?? '' ) ) !== $url ) {
+			if (
+				! is_array( $report )
+				|| self::normalize_url( (string) ( $report['requested_url'] ?? '' ) ) !== $url
+				|| $role !== (string) ( $report['role'] ?? '' )
+				|| $is_homepage !== ( $report['is_homepage'] ?? null )
+				|| ! self::same_origin_url( $url, (string) ( $report['final_url'] ?? '' ) )
+			) {
 				continue;
 			}
 
@@ -670,12 +685,56 @@ final class GeneratedThemeCompletionGate {
 	}
 
 	/**
+	 * Reject a redirect that maps homepage and interior evidence to one document.
+	 *
+	 * @param array<int,mixed> $reports Browser report rows.
+	 */
+	private function roles_have_distinct_final_urls( array $reports ): bool {
+		$final_urls = array(
+			'homepage' => array(),
+			'interior' => array(),
+		);
+		foreach ( $reports as $report ) {
+			if ( ! is_array( $report ) ) {
+				continue;
+			}
+			$role      = (string) ( $report['role'] ?? '' );
+			$final_url = self::normalize_url( (string) ( $report['final_url'] ?? '' ) );
+			if ( isset( $final_urls[ $role ] ) && '' !== $final_url ) {
+				$final_urls[ $role ][ $final_url ] = true;
+			}
+		}
+
+		return ! empty( $final_urls['homepage'] )
+			&& ! empty( $final_urls['interior'] )
+			&& empty( array_intersect_key( $final_urls['homepage'], $final_urls['interior'] ) );
+	}
+
+	/**
+	 * Return whether a redirected final document remains on the requested origin.
+	 */
+	private static function same_origin_url( string $requested_url, string $final_url ): bool {
+		$requested = wp_parse_url( $requested_url );
+		$final     = wp_parse_url( $final_url );
+		if ( ! is_array( $requested ) || ! is_array( $final ) || empty( $final_url ) ) {
+			return false;
+		}
+
+		return ( $requested['scheme'] ?? '' ) === ( $final['scheme'] ?? '' )
+			&& ( $requested['host'] ?? '' ) === ( $final['host'] ?? '' )
+			&& ( $requested['port'] ?? null ) === ( $final['port'] ?? null );
+	}
+
+	/**
 	 * Detect whether an all-unrenderable browser result requires rollback.
 	 *
 	 * @param array<string,mixed> $response Normalized browser report.
 	 */
 	private static function is_fatal_render_report( array $response ): bool {
-		if ( true !== ( $response['fatal_render_failure'] ?? false ) ) {
+		if (
+			true !== ( $response['fatal_render_failure'] ?? false )
+			|| true === ( $response['browser_execution_unavailable'] ?? false )
+		) {
 			return false;
 		}
 

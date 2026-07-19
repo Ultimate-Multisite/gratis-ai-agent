@@ -121,7 +121,9 @@ export async function loadSameOriginIframe( args ) {
 
 		return {
 			success: true,
-			url: resolved,
+			// contentWindow.location is the final same-origin document after a
+			// canonical redirect; callers retain their requested URL separately.
+			url: iframeWindow.location.href || resolved,
 			error: '',
 			iframe,
 			document: iframeDocument,
