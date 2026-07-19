@@ -22,8 +22,10 @@ if ( ! defined( 'ABSPATH' ) ) {
  * Stages generated payloads outside WordPress discovery paths before activation.
  *
  * @phpstan-type ArtifactFileTarget array{content:string,hash:string,artifact_id:string}
- * @phpstan-type ArtifactRecordTarget array{id:string,post_type:string,post_title:string,post_excerpt:string,post_name:string,post_status:string,post_content:string,artifact_id:string,record_key:string}
+ * @phpstan-type ArtifactRecordTarget array{id:string,post_type:string,post_title:string,post_excerpt:string,post_name:string,post_status:string,post_content:string,artifact_id:string,record_key:string,theme:string}
+ * @phpstan-type BaselineFileTarget array{path:string,content:string,hash:string}
  * @phpstan-type MaterializationTargets array{files:array<string,ArtifactFileTarget>,records:array<string,ArtifactRecordTarget>}
+ * @phpstan-type CompletedOperation array{type:'file'|'record',key:string,post_id:int|null,post_type:string|null}
  */
 final class ArtifactReleaseManager {
 
@@ -63,6 +65,11 @@ final class ArtifactReleaseManager {
 	private const ARTIFACT_META_KEY = '_sd_ai_agent_design_artifact_id';
 
 	/**
+	 * Reserved descriptor for scaffold files adopted by a governed release.
+	 */
+	private const BASELINE_ARTIFACT_ID = 'sd-ai-agent/scaffold-baseline';
+
+	/**
 	 * Pure resolver used before any mutation begins.
 	 *
 	 * @var ArtifactSelector
@@ -91,16 +98,22 @@ final class ArtifactReleaseManager {
 	 * Existing valid registries are retained. An invalid pre-existing registry is
 	 * not overwritten because it may contain recovery evidence for a prior release.
 	 *
+	 * @param string               $theme_dir      Theme directory.
+	 * @param string               $stylesheet     Theme stylesheet slug.
+	 * @param array<string,string> $baseline_files Known scaffold paths and exact content.
 	 * @return array<string,mixed>|WP_Error Empty or existing validated manifest.
 	 */
-	public function seed_empty_manifest( string $theme_dir, string $stylesheet ): array|WP_Error {
+	public function seed_empty_manifest( string $theme_dir, string $stylesheet, array $baseline_files = [] ): array|WP_Error {
 		$storage = $this->ensure_storage( $theme_dir );
 		if ( is_wp_error( $storage ) ) {
 			return $storage;
 		}
 
-		$path = $this->manifest_path( $theme_dir );
-		$raw  = $this->read_optional_json( $path );
+		$manifest_path = $this->safe_storage_path( $theme_dir, self::MANIFEST_FILE );
+		if ( is_wp_error( $manifest_path ) ) {
+			return $manifest_path;
+		}
+		$raw = $this->read_optional_json( $manifest_path );
 		if ( is_wp_error( $raw ) ) {
 			return $raw;
 		}
@@ -110,7 +123,40 @@ final class ArtifactReleaseManager {
 		}
 
 		$manifest = ArtifactManifest::empty_manifest( $stylesheet );
-		$written  = $this->write_json_atomic( $path, $manifest );
+		if ( [] !== $baseline_files ) {
+			$files = [];
+			foreach ( $baseline_files as $baseline_path => $content ) {
+				if ( ! is_string( $baseline_path ) || ! is_string( $content ) ) {
+					return $this->error( 'invalid_baseline_file', __( 'Generated theme baseline files are invalid.', 'superdav-ai-agent' ) );
+				}
+				$files[] = [
+					'path'         => $baseline_path,
+					'content'      => $content,
+					'content_hash' => hash( 'sha256', $content ),
+				];
+			}
+			$baseline = ArtifactManifest::normalize_baseline_files( $files );
+			if ( is_wp_error( $baseline ) ) {
+				return $baseline;
+			}
+			foreach ( $baseline as $file ) {
+				$absolute = $this->absolute_path( $theme_dir, $file['path'] );
+				if ( is_wp_error( $absolute ) ) {
+					return $absolute;
+				}
+				// phpcs:ignore WordPress.WP.AlternativeFunctions.file_get_contents_file_get_contents -- Verifying the just-created scaffold file before recording manager ownership.
+				$current = file_get_contents( $absolute );
+				if ( false === $current || ! hash_equals( $file['content_hash'], hash( 'sha256', $current ) ) ) {
+					return $this->error( 'baseline_file_modified', __( 'Generated theme baseline changed before its ownership could be recorded.', 'superdav-ai-agent' ) );
+				}
+			}
+			$manifest['baseline_files'] = $baseline;
+		}
+		$manifest = ArtifactManifest::normalize( $manifest );
+		if ( is_wp_error( $manifest ) ) {
+			return $manifest;
+		}
+		$written = $this->write_json_atomic( $manifest_path, $manifest );
 
 		return is_wp_error( $written ) ? $written : $manifest;
 	}
@@ -126,13 +172,20 @@ final class ArtifactReleaseManager {
 			return $manifest;
 		}
 
-		$active = $this->read_optional_json( $this->active_path( $theme_dir ) );
+		$active_path = $this->safe_storage_path( $theme_dir, self::ACTIVE_FILE );
+		if ( is_wp_error( $active_path ) ) {
+			return $active_path;
+		}
+		$active = $this->read_optional_json( $active_path );
 		if ( is_wp_error( $active ) ) {
 			return $active;
 		}
 
-		$release_directory = $this->storage_path( $theme_dir, self::RELEASES_DIRECTORY );
-		$releases          = [];
+		$release_directory = $this->safe_storage_path( $theme_dir, self::RELEASES_DIRECTORY );
+		if ( is_wp_error( $release_directory ) ) {
+			return $release_directory;
+		}
+		$releases = [];
 		if ( is_dir( $release_directory ) ) {
 			// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_scandir -- Listing a hidden local release registry that is not exposed publicly.
 			$entries = scandir( $release_directory );
@@ -196,7 +249,11 @@ final class ArtifactReleaseManager {
 			return $manifest;
 		}
 
-		$active = $this->read_optional_json( $this->active_path( $theme_dir ) );
+		$active_path = $this->safe_storage_path( $theme_dir, self::ACTIVE_FILE );
+		if ( is_wp_error( $active_path ) ) {
+			return $active_path;
+		}
+		$active = $this->read_optional_json( $active_path );
 		if ( is_wp_error( $active ) ) {
 			return $active;
 		}
@@ -221,13 +278,49 @@ final class ArtifactReleaseManager {
 		if ( is_wp_error( $normalized ) ) {
 			return $normalized;
 		}
+		if ( array_key_exists( 'theme', $context ) ) {
+			$target_theme   = $context['theme'];
+			$manifest_theme = $normalized['theme']['stylesheet'] ?? null;
+			if ( ! is_string( $target_theme ) || ! is_string( $manifest_theme ) || ! hash_equals( $target_theme, $manifest_theme ) ) {
+				return $this->error( 'manifest_theme_mismatch', __( 'Generated-artifact manifest theme does not match the requested target theme.', 'superdav-ai-agent' ) );
+			}
+		}
 
 		$storage = $this->ensure_storage( $theme_dir );
 		if ( is_wp_error( $storage ) ) {
 			return $storage;
 		}
+		$manifest_path = $this->safe_storage_path( $theme_dir, self::MANIFEST_FILE );
+		if ( is_wp_error( $manifest_path ) ) {
+			return $manifest_path;
+		}
+		$stored_manifest = $this->read_optional_json( $manifest_path );
+		if ( is_wp_error( $stored_manifest ) ) {
+			return $stored_manifest;
+		}
+		$baseline_files = [];
+		if ( is_array( $stored_manifest ) ) {
+			$stored_manifest = ArtifactManifest::normalize( $stored_manifest );
+			if ( is_wp_error( $stored_manifest ) ) {
+				return $stored_manifest;
+			}
+			$baseline_files = ArtifactManifest::normalize_baseline_files( $stored_manifest['baseline_files'] ?? [] );
+			if ( is_wp_error( $baseline_files ) ) {
+				return $baseline_files;
+			}
+		}
 
-		$active = $this->read_optional_json( $this->active_path( $theme_dir ) );
+		if ( [] !== $baseline_files ) {
+			$normalized['baseline_files'] = $baseline_files;
+		} else {
+			unset( $normalized['baseline_files'] );
+		}
+
+		$active_path = $this->safe_storage_path( $theme_dir, self::ACTIVE_FILE );
+		if ( is_wp_error( $active_path ) ) {
+			return $active_path;
+		}
+		$active = $this->read_optional_json( $active_path );
 		if ( is_wp_error( $active ) ) {
 			return $active;
 		}
@@ -244,11 +337,15 @@ final class ArtifactReleaseManager {
 		if ( is_wp_error( $selected ) ) {
 			return $selected;
 		}
+		$active_selection = $this->ensure_active_selection_retained( $active, $selected );
+		if ( is_wp_error( $active_selection ) ) {
+			return $active_selection;
+		}
 		$theme = $normalized['theme'] ?? [];
 		if ( ! is_array( $theme ) ) {
 			return $this->error( 'invalid_manifest_theme', __( 'Generated-artifact manifest theme metadata is invalid.', 'superdav-ai-agent' ) );
 		}
-		$release = $this->build_release( $selected, $theme );
+		$release = $this->build_release( $selected, $theme, $baseline_files );
 		if ( is_wp_error( $release ) ) {
 			return $release;
 		}
@@ -266,7 +363,11 @@ final class ArtifactReleaseManager {
 			return $this->error( 'invalid_release_id', __( 'Release ID is invalid.', 'superdav-ai-agent' ) );
 		}
 
-		$release = $this->read_optional_json( $this->release_path( $theme_dir, $release_id ) );
+		$release_path = $this->safe_storage_path( $theme_dir, self::RELEASES_DIRECTORY . '/' . $release_id . '/release.json' );
+		if ( is_wp_error( $release_path ) ) {
+			return $release_path;
+		}
+		$release = $this->read_optional_json( $release_path );
 		if ( is_wp_error( $release ) ) {
 			return $release;
 		}
@@ -284,7 +385,11 @@ final class ArtifactReleaseManager {
 			return $storage;
 		}
 
-		$active = $this->read_optional_json( $this->active_path( $theme_dir ) );
+		$active_path = $this->safe_storage_path( $theme_dir, self::ACTIVE_FILE );
+		if ( is_wp_error( $active_path ) ) {
+			return $active_path;
+		}
+		$active = $this->read_optional_json( $active_path );
 		if ( is_wp_error( $active ) ) {
 			return $active;
 		}
@@ -326,6 +431,15 @@ final class ArtifactReleaseManager {
 		if ( is_wp_error( $artifacts ) ) {
 			return $artifacts;
 		}
+		$baseline_files = $this->baseline_file_targets( $release['baseline_files'] ?? [] );
+		if ( is_wp_error( $baseline_files ) ) {
+			return $baseline_files;
+		}
+		$theme      = $release['theme'] ?? null;
+		$stylesheet = is_array( $theme ) ? ( $theme['stylesheet'] ?? null ) : null;
+		if ( ! is_string( $stylesheet ) || '' === $stylesheet ) {
+			return $this->error( 'invalid_retained_release', __( 'Generated-artifact release theme metadata is invalid.', 'superdav-ai-agent' ) );
+		}
 
 		$lock = $this->acquire_lock( $theme_dir );
 		if ( is_wp_error( $lock ) ) {
@@ -333,12 +447,20 @@ final class ArtifactReleaseManager {
 		}
 
 		try {
-			$current_active = $this->read_optional_json( $this->active_path( $theme_dir ) );
+			$active_path = $this->safe_storage_path( $theme_dir, self::ACTIVE_FILE );
+			if ( is_wp_error( $active_path ) ) {
+				return $active_path;
+			}
+			$current_active = $this->read_optional_json( $active_path );
 			if ( is_wp_error( $current_active ) ) {
 				return $current_active;
 			}
 			if ( is_array( $current_active ) ) {
 				$active = $current_active;
+			}
+			$ownership = $this->verify_active_ownership( $theme_dir, $active );
+			if ( is_wp_error( $ownership ) ) {
+				return $ownership;
 			}
 
 			if ( is_array( $active ) && ( $active['release_id'] ?? null ) === $release_id ) {
@@ -350,16 +472,12 @@ final class ArtifactReleaseManager {
 				];
 			}
 
-			$targets = $this->materialization_targets( $artifacts );
+			$targets = $this->materialization_targets( $artifacts, $baseline_files, $stylesheet );
 			if ( is_wp_error( $targets ) ) {
 				return $targets;
 			}
 
-			$ownership = $this->verify_active_ownership( $theme_dir, $active );
-			if ( is_wp_error( $ownership ) ) {
-				return $ownership;
-			}
-			$target_ownership = $this->verify_target_ownership( $theme_dir, $targets, $active );
+			$target_ownership = $this->verify_target_ownership( $theme_dir, $targets, $active, $baseline_files );
 			if ( is_wp_error( $target_ownership ) ) {
 				return $target_ownership;
 			}
@@ -384,7 +502,7 @@ final class ArtifactReleaseManager {
 			$pointer['release_id']     = $release_id;
 			$pointer['selected']       = $this->selection_map( $artifacts );
 
-			$activated = $this->write_json_atomic( $this->active_path( $theme_dir ), $pointer );
+			$activated = $this->write_json_atomic( $active_path, $pointer );
 			if ( is_wp_error( $activated ) ) {
 				return $this->compensate( $theme_dir, $activated, $snapshot, $active, $completed );
 			}
@@ -404,12 +522,14 @@ final class ArtifactReleaseManager {
 	/**
 	 * Build a content-addressed release source whose ID is idempotent for identical content.
 	 *
-	 * @param list<array<string,mixed>> $artifacts Selected artifacts.
-	 * @param array<string,mixed>       $theme     Theme descriptor.
+	 * @param list<array<string,mixed>>                                   $artifacts      Selected artifacts.
+	 * @param array<mixed,mixed>                                          $theme          Theme descriptor.
+	 * @param list<array{path:string,content:string,content_hash:string}> $baseline_files Known scaffold baseline files.
 	 * @return array<string,mixed> Immutable release source.
 	 */
-	private function build_release( array $artifacts, array $theme ): array|WP_Error {
+	private function build_release( array $artifacts, array $theme, array $baseline_files = [] ): array|WP_Error {
 		$identity = [];
+		$seen_ids = [];
 		foreach ( $artifacts as $artifact ) {
 			$id        = $artifact['id'] ?? null;
 			$version   = $artifact['version'] ?? null;
@@ -418,17 +538,39 @@ final class ArtifactReleaseManager {
 			if ( ! is_string( $id ) || ! is_string( $version ) || ! is_string( $hash ) ) {
 				return $this->error( 'invalid_artifact', __( 'Generated-artifact release entries are invalid.', 'superdav-ai-agent' ) );
 			}
-			$identity[] = [
+			if ( isset( $seen_ids[ $id ] ) ) {
+				return $this->error( 'duplicate_release_artifact', __( 'A generated-artifact release cannot select more than one version of an artifact.', 'superdav-ai-agent' ) );
+			}
+			$seen_ids[ $id ] = true;
+			$identity[]      = [
 				'id'      => $id,
 				'version' => $version,
 				'hash'    => $hash,
 			];
 		}
+		$baseline_targets = $this->baseline_file_targets( $baseline_files );
+		if ( is_wp_error( $baseline_targets ) ) {
+			return $baseline_targets;
+		}
+		$baseline_identity = [];
+		$baseline_source   = [];
+		foreach ( $baseline_targets as $file ) {
+			$baseline_identity[] = [
+				'path' => $file['path'],
+				'hash' => $file['hash'],
+			];
+			$baseline_source[]   = [
+				'path'         => $file['path'],
+				'content'      => $file['content'],
+				'content_hash' => $file['hash'],
+			];
+		}
 
 		$hash = ArtifactManifest::hash_payload(
 			[
-				'theme'     => $theme,
-				'artifacts' => $identity,
+				'theme'          => $theme,
+				'artifacts'      => $identity,
+				'baseline_files' => $baseline_identity,
 			]
 		);
 		if ( is_wp_error( $hash ) ) {
@@ -442,6 +584,7 @@ final class ArtifactReleaseManager {
 			'theme'           => $theme,
 			'artifacts'       => $artifacts,
 			'artifact_hashes' => array_column( $identity, 'hash', 'id' ),
+			'baseline_files'  => $baseline_source,
 		];
 	}
 
@@ -452,7 +595,7 @@ final class ArtifactReleaseManager {
 	 * @return array<string,mixed>|WP_Error Validated release or error.
 	 */
 	private function validate_retained_release( array $release ): array|WP_Error {
-		if ( ! isset( $release['release_id'], $release['artifacts'] ) || ! is_string( $release['release_id'] ) || ! is_array( $release['artifacts'] ) || ! array_is_list( $release['artifacts'] ) ) {
+		if ( ArtifactManifest::SCHEMA_VERSION !== ( $release['schema_version'] ?? null ) || ! isset( $release['release_id'], $release['artifacts'] ) || ! is_string( $release['release_id'] ) || ! $this->is_safe_release_id( $release['release_id'] ) || ! is_array( $release['artifacts'] ) || ! array_is_list( $release['artifacts'] ) ) {
 			return $this->error( 'invalid_retained_release', __( 'Retained release metadata is invalid.', 'superdav-ai-agent' ) );
 		}
 
@@ -461,33 +604,37 @@ final class ArtifactReleaseManager {
 				'schema_version' => ArtifactManifest::SCHEMA_VERSION,
 				'theme'          => is_array( $release['theme'] ?? null ) ? $release['theme'] : [],
 				'artifacts'      => $release['artifacts'],
+				'baseline_files' => $release['baseline_files'] ?? [],
 			]
 		);
 		if ( is_wp_error( $manifest ) ) {
 			return $manifest;
 		}
 
-		$expected_hashes = $release['artifact_hashes'] ?? [];
-		if ( ! is_array( $expected_hashes ) ) {
-			return $this->error( 'invalid_retained_hashes', __( 'Retained release hashes are invalid.', 'superdav-ai-agent' ) );
-		}
 		$artifacts = $this->artifact_list( $manifest['artifacts'] ?? null );
 		if ( is_wp_error( $artifacts ) ) {
 			return $artifacts;
 		}
-		foreach ( $artifacts as $artifact ) {
-			$id        = $artifact['id'] ?? null;
-			$integrity = $artifact['integrity'] ?? null;
-			$hash      = is_array( $integrity ) ? ( $integrity['content_hash'] ?? null ) : null;
-			if ( ! is_string( $id ) || ! is_string( $hash ) || ! isset( $expected_hashes[ $id ] ) || ! is_string( $expected_hashes[ $id ] ) || ! hash_equals( $hash, $expected_hashes[ $id ] ) ) {
-				return $this->error( 'retained_hash_mismatch', __( 'Retained release content no longer matches its recorded hash.', 'superdav-ai-agent' ) );
-			}
+		$theme = $manifest['theme'] ?? null;
+		if ( ! is_array( $theme ) ) {
+			return $this->error( 'invalid_retained_release', __( 'Retained release theme metadata is invalid.', 'superdav-ai-agent' ) );
+		}
+		$baseline_files = ArtifactManifest::normalize_baseline_files( $manifest['baseline_files'] ?? [] );
+		if ( is_wp_error( $baseline_files ) ) {
+			return $baseline_files;
+		}
+		$expected = $this->build_release( $artifacts, $theme, $baseline_files );
+		if ( is_wp_error( $expected ) ) {
+			return $expected;
+		}
+		$recorded_hashes = $release['artifact_hashes'] ?? null;
+		$expected_json   = ArtifactManifest::canonical_json( $expected['artifact_hashes'] );
+		$recorded_json   = ArtifactManifest::canonical_json( $recorded_hashes );
+		if ( ! is_string( $expected_json ) || ! is_string( $recorded_json ) || ! hash_equals( $expected['release_id'], $release['release_id'] ) || ! hash_equals( $expected_json, $recorded_json ) ) {
+			return $this->error( 'retained_release_integrity_mismatch', __( 'Retained release content no longer matches its release ID.', 'superdav-ai-agent' ) );
 		}
 
-		$release['artifacts'] = $artifacts;
-		$release['theme']     = $manifest['theme'];
-
-		return $release;
+		return $expected;
 	}
 
 	/**
@@ -520,12 +667,80 @@ final class ArtifactReleaseManager {
 	}
 
 	/**
+	 * Refuse an implicit removal when policy rejects an active artifact's successor.
+	 *
+	 * The selector can omit an active artifact because its only supplied successor
+	 * is incompatible, unapproved, or a forbidden major jump. Applying that empty
+	 * slot must not delete the still-active release output.
+	 *
+	 * @param array<string,mixed>|null  $active   Existing active pointer.
+	 * @param list<array<string,mixed>> $selected Selected artifacts.
+	 * @return true|WP_Error True or an active-selection error.
+	 */
+	private function ensure_active_selection_retained( ?array $active, array $selected ): true|WP_Error {
+		if ( ! is_array( $active ) || ! isset( $active['selected'] ) ) {
+			return true;
+		}
+		if ( ! is_array( $active['selected'] ) ) {
+			return $this->error( 'invalid_active_pointer', __( 'Active generated-artifact pointer is invalid.', 'superdav-ai-agent' ) );
+		}
+
+		$next = [];
+		foreach ( $selected as $artifact ) {
+			$id = $artifact['id'] ?? null;
+			if ( is_string( $id ) ) {
+				$next[ $id ] = true;
+			}
+		}
+		foreach ( $active['selected'] as $id => $descriptor ) {
+			if ( ! is_string( $id ) || ! is_array( $descriptor ) || ! is_string( $descriptor['version'] ?? null ) ) {
+				return $this->error( 'invalid_active_pointer', __( 'Active generated-artifact pointer is invalid.', 'superdav-ai-agent' ) );
+			}
+			if ( ! isset( $next[ $id ] ) ) {
+				return $this->error( 'active_selection_unresolved', __( 'A generated artifact remains active until an eligible replacement or exact rollback is selected.', 'superdav-ai-agent' ) );
+			}
+		}
+
+		return true;
+	}
+
+	/**
+	 * Convert verified scaffold baseline entries into path-keyed targets.
+	 *
+	 * @param mixed $baseline_files Persisted baseline file list.
+	 * @return array<string,BaselineFileTarget>|WP_Error Targets or an error.
+	 */
+	private function baseline_file_targets( mixed $baseline_files ): array|WP_Error {
+		$normalized = ArtifactManifest::normalize_baseline_files( $baseline_files );
+		if ( is_wp_error( $normalized ) ) {
+			return $normalized;
+		}
+
+		$targets = [];
+		foreach ( $normalized as $file ) {
+			$targets[ $file['path'] ] = [
+				'path'    => $file['path'],
+				'content' => $file['content'],
+				'hash'    => $file['content_hash'],
+			];
+		}
+		ksort( $targets, SORT_STRING );
+
+		return $targets;
+	}
+
+	/**
 	 * Convert selected payloads to allowed WordPress file and record write targets.
 	 *
-	 * @param list<array<string,mixed>> $artifacts Selected artifacts.
+	 * @param list<array<string,mixed>>        $artifacts      Selected artifacts.
+	 * @param array<string,BaselineFileTarget> $baseline_files Verified scaffold baseline files.
+	 * @param string                           $stylesheet     Target theme stylesheet.
 	 * @return MaterializationTargets|WP_Error Targets or error.
 	 */
-	private function materialization_targets( array $artifacts ): array|WP_Error {
+	private function materialization_targets( array $artifacts, array $baseline_files = [], string $stylesheet = '' ): array|WP_Error {
+		if ( '' === $stylesheet ) {
+			return $this->error( 'invalid_manifest_theme', __( 'Generated-artifact manifest theme metadata is invalid.', 'superdav-ai-agent' ) );
+		}
 		$files   = [];
 		$records = [];
 		foreach ( $artifacts as $artifact ) {
@@ -592,8 +807,19 @@ final class ArtifactReleaseManager {
 					'post_content' => $post_content,
 					'artifact_id'  => $artifact_id,
 					'record_key'   => $key,
+					'theme'        => $stylesheet,
 				];
 			}
+		}
+		foreach ( $baseline_files as $path => $file ) {
+			if ( isset( $files[ $path ] ) ) {
+				continue;
+			}
+			$files[ $path ] = [
+				'content'     => $file['content'],
+				'hash'        => $file['hash'],
+				'artifact_id' => self::BASELINE_ARTIFACT_ID,
+			];
 		}
 		ksort( $files, SORT_STRING );
 		ksort( $records, SORT_STRING );
@@ -626,7 +852,7 @@ final class ArtifactReleaseManager {
 				if ( is_wp_error( $absolute ) ) {
 					return $absolute;
 				}
-				if ( ! is_file( $absolute ) ) {
+				if ( is_link( $absolute ) || ! is_file( $absolute ) ) {
 					return $this->error( 'managed_file_missing', __( 'A managed generated file was removed outside its release transaction.', 'superdav-ai-agent' ) );
 				}
 				// phpcs:ignore WordPress.WP.AlternativeFunctions.file_get_contents_file_get_contents -- Comparing an owned local release target before a guarded mutation.
@@ -663,15 +889,16 @@ final class ArtifactReleaseManager {
 	 * have created a pattern, style variation, or theme.json manually before the
 	 * generated-artifact lifecycle was enabled.
 	 *
-	 * @param string                   $theme_dir Theme directory.
-	 * @param array                    $targets   Next materialization targets.
+	 * @param string                           $theme_dir      Theme directory.
+	 * @param array                            $targets        Next materialization targets.
 	 * @phpstan-param MaterializationTargets $targets
-	 * @param array<string,mixed>|null $active Active pointer.
+	 * @param array<string,mixed>|null         $active         Active pointer.
+	 * @param array<string,BaselineFileTarget> $baseline_files Verified scaffold baseline files.
 	 * @return true|WP_Error True or an unmanaged-target error.
 	 */
-	private function verify_target_ownership( string $theme_dir, array $targets, ?array $active ): true|WP_Error {
+	private function verify_target_ownership( string $theme_dir, array $targets, ?array $active, array $baseline_files = [] ): true|WP_Error {
 		$active_files = is_array( $active['files'] ?? null ) ? $active['files'] : [];
-		foreach ( array_keys( $targets['files'] ) as $path ) {
+		foreach ( $targets['files'] as $path => $target ) {
 			if ( isset( $active_files[ $path ] ) ) {
 				continue;
 			}
@@ -679,7 +906,18 @@ final class ArtifactReleaseManager {
 			if ( is_wp_error( $absolute ) ) {
 				return $absolute;
 			}
-			if ( file_exists( $absolute ) || is_link( $absolute ) ) {
+			if ( is_link( $absolute ) ) {
+				return $this->error( 'unmanaged_file_conflict', __( 'A generated artifact cannot overwrite an unmanaged theme file.', 'superdav-ai-agent' ) );
+			}
+			if ( file_exists( $absolute ) ) {
+				$baseline = $baseline_files[ $path ] ?? null;
+				if ( is_array( $baseline ) && is_string( $target['hash'] ?? null ) ) {
+					// phpcs:ignore WordPress.WP.AlternativeFunctions.file_get_contents_file_get_contents -- Verifying an exact scaffold baseline before first governed replacement.
+					$content = file_get_contents( $absolute );
+					if ( false !== $content && hash_equals( $baseline['hash'], hash( 'sha256', $content ) ) ) {
+						continue;
+					}
+				}
 				return $this->error( 'unmanaged_file_conflict', __( 'A generated artifact cannot overwrite an unmanaged theme file.', 'superdav-ai-agent' ) );
 			}
 		}
@@ -766,8 +1004,11 @@ final class ArtifactReleaseManager {
 		if ( ! is_string( $release_id ) || ! $this->is_safe_release_id( $release_id ) ) {
 			return $this->error( 'invalid_retained_release', __( 'Generated-artifact release metadata is invalid.', 'superdav-ai-agent' ) );
 		}
-		$release_path = $this->release_path( $theme_dir, $release_id );
-		$existing     = $this->read_optional_json( $release_path );
+		$release_path = $this->safe_storage_path( $theme_dir, self::RELEASES_DIRECTORY . '/' . $release_id . '/release.json' );
+		if ( is_wp_error( $release_path ) ) {
+			return $release_path;
+		}
+		$existing = $this->read_optional_json( $release_path );
 		if ( is_wp_error( $existing ) ) {
 			return $existing;
 		}
@@ -785,27 +1026,34 @@ final class ArtifactReleaseManager {
 		}
 
 		if ( is_array( $manifest ) ) {
-			$written = $this->write_json_atomic( $this->manifest_path( $theme_dir ), $manifest );
+			$manifest_path = $this->safe_storage_path( $theme_dir, self::MANIFEST_FILE );
+			if ( is_wp_error( $manifest_path ) ) {
+				return $manifest_path;
+			}
+			$written = $this->write_json_atomic( $manifest_path, $manifest );
 			if ( is_wp_error( $written ) ) {
 				return $written;
 			}
 		}
 
-		$transaction_id = 'transaction-' . substr( hash( 'sha256', $release_id . microtime( true ) ), 0, 20 );
-		return $this->write_json_atomic(
-			$this->storage_path( $theme_dir, self::TRANSACTIONS_DIRECTORY . '/' . $transaction_id . '/snapshot.json' ),
-			$snapshot
-		);
+		$transaction_id   = 'transaction-' . substr( hash( 'sha256', $release_id . microtime( true ) ), 0, 20 );
+		$transaction_path = $this->safe_storage_path( $theme_dir, self::TRANSACTIONS_DIRECTORY . '/' . $transaction_id . '/snapshot.json' );
+		if ( is_wp_error( $transaction_path ) ) {
+			return $transaction_path;
+		}
+
+		return $this->write_json_atomic( $transaction_path, $snapshot );
 	}
 
 	/**
 	 * Materialize targets and remove superseded owned targets, recording reverse actions.
 	 *
-	 * @param string                              $theme_dir Theme directory.
-	 * @param array                               $targets   Targets to materialize.
+	 * @param string                   $theme_dir Theme directory.
+	 * @param array                    $targets   Targets to materialize.
 	 * @phpstan-param MaterializationTargets $targets
-	 * @param array<string,mixed>|null            $active    Active pointer.
-	 * @param list<array{type:string,key:string}> $completed Completed reversible operations.
+	 * @param array<string,mixed>|null $active    Active pointer.
+	 * @param array                    $completed Completed reversible operations.
+	 * @phpstan-param list<CompletedOperation> $completed
 	 * @return array<string,mixed>|WP_Error New pointer payload or a mutation error.
 	 */
 	private function materialize( string $theme_dir, array $targets, ?array $active, array &$completed ): array|WP_Error {
@@ -824,8 +1072,10 @@ final class ArtifactReleaseManager {
 				return $written;
 			}
 			$completed[]               = [
-				'type' => 'file',
-				'key'  => $path,
+				'type'      => 'file',
+				'key'       => $path,
+				'post_id'   => null,
+				'post_type' => null,
 			];
 			$pointer['files'][ $path ] = [
 				'hash'        => $file['hash'],
@@ -838,14 +1088,28 @@ final class ArtifactReleaseManager {
 		}
 
 		foreach ( $targets['records'] as $key => $record ) {
-			$saved = $this->write_record( $record );
+			// Record the reverse action before wp_insert_post()/wp_update_post():
+			// later ownership-meta or taxonomy persistence can fail after that write.
+			$operation_index = count( $completed );
+			$completed[]     = [
+				'type'      => 'record',
+				'key'       => $key,
+				'post_id'   => null,
+				'post_type' => $record['post_type'],
+			];
+			$written_post_id = null;
+			$saved           = $this->write_record( $record, $written_post_id );
+			if ( is_int( $written_post_id ) ) {
+				$completed[ $operation_index ] = [
+					'type'      => 'record',
+					'key'       => $key,
+					'post_id'   => $written_post_id,
+					'post_type' => $record['post_type'],
+				];
+			}
 			if ( is_wp_error( $saved ) ) {
 				return $saved;
 			}
-			$completed[]                = [
-				'type' => 'record',
-				'key'  => $key,
-			];
 			$pointer['records'][ $key ] = $saved;
 			$failure                    = $this->inject_failure( 'after_record_write', $key );
 			if ( is_wp_error( $failure ) ) {
@@ -867,8 +1131,10 @@ final class ArtifactReleaseManager {
 				return $this->error( 'remove_file_failed', __( 'Could not remove a superseded generated artifact file.', 'superdav-ai-agent' ) );
 			}
 			$completed[] = [
-				'type' => 'file',
-				'key'  => (string) $path,
+				'type'      => 'file',
+				'key'       => (string) $path,
+				'post_id'   => null,
+				'post_type' => null,
 			];
 		}
 
@@ -882,8 +1148,10 @@ final class ArtifactReleaseManager {
 				return $deleted;
 			}
 			$completed[] = [
-				'type' => 'record',
-				'key'  => (string) $key,
+				'type'      => 'record',
+				'key'       => (string) $key,
+				'post_id'   => null,
+				'post_type' => null,
 			];
 			$failure     = $this->inject_failure( 'after_record_delete', (string) $key );
 			if ( is_wp_error( $failure ) ) {
@@ -897,11 +1165,12 @@ final class ArtifactReleaseManager {
 	/**
 	 * Restore completed mutations in reverse order and leave the old active pointer intact.
 	 *
-	 * @param string                              $theme_dir Theme directory.
-	 * @param WP_Error                            $error     Original mutation error.
-	 * @param array<string,mixed>                 $snapshot  Prior state.
-	 * @param array<string,mixed>|null            $active    Prior pointer.
-	 * @param list<array{type:string,key:string}> $completed Completed operations.
+	 * @param string                   $theme_dir Theme directory.
+	 * @param WP_Error                 $error     Original mutation error.
+	 * @param array<string,mixed>      $snapshot  Prior state.
+	 * @param array<string,mixed>|null $active    Prior pointer.
+	 * @param array                    $completed Completed operations.
+	 * @phpstan-param list<CompletedOperation> $completed
 	 * @return WP_Error Original operation error, augmented when compensation fails.
 	 */
 	private function compensate( string $theme_dir, WP_Error $error, array $snapshot, ?array $active, array $completed ): WP_Error {
@@ -911,20 +1180,25 @@ final class ArtifactReleaseManager {
 			if ( isset( $restored[ $key ] ) ) {
 				continue;
 			}
-			$restored[ $key ] = true;
-			$file_snapshot    = is_array( $snapshot['files'] ?? null ) ? ( $snapshot['files'][ $operation['key'] ] ?? null ) : null;
-			$record_snapshot  = is_array( $snapshot['records'] ?? null ) ? ( $snapshot['records'][ $operation['key'] ] ?? null ) : null;
-			$result           = 'file' === $operation['type']
+			$restored[ $key ]  = true;
+			$file_snapshot     = is_array( $snapshot['files'] ?? null ) ? ( $snapshot['files'][ $operation['key'] ] ?? null ) : null;
+			$record_snapshot   = is_array( $snapshot['records'] ?? null ) ? ( $snapshot['records'][ $operation['key'] ] ?? null ) : null;
+			$partial_post_id   = $operation['post_id'];
+			$partial_post_type = $operation['post_type'];
+			$result            = 'file' === $operation['type']
 				? $this->restore_file( $theme_dir, $operation['key'], is_array( $file_snapshot ) ? $file_snapshot : null )
-				: $this->restore_record( $operation['key'], is_array( $record_snapshot ) ? $record_snapshot : null );
+				: $this->restore_record( $operation['key'], is_array( $record_snapshot ) ? $record_snapshot : null, $partial_post_id, $partial_post_type );
 			if ( is_wp_error( $result ) ) {
 				$error->add_data( [ 'compensation_error' => $result->get_error_message() ] );
 			}
 		}
 
-		$pointer_result = is_array( $active )
-			? $this->write_json_atomic( $this->active_path( $theme_dir ), $active )
-			: $this->remove_file( $this->active_path( $theme_dir ) );
+		$active_path    = $this->safe_storage_path( $theme_dir, self::ACTIVE_FILE );
+		$pointer_result = is_wp_error( $active_path )
+			? $active_path
+			: ( is_array( $active )
+				? $this->write_json_atomic( $active_path, $active )
+				: $this->remove_file( $active_path ) );
 		if ( is_wp_error( $pointer_result ) ) {
 			$error->add_data( [ 'pointer_restore_error' => $pointer_result->get_error_message() ] );
 		}
@@ -935,12 +1209,14 @@ final class ArtifactReleaseManager {
 	/**
 	 * Create or update exactly one manager-owned record.
 	 *
-	 * @param array $record Normalized record target.
+	 * @param array    $record Normalized record target.
 	 * @phpstan-param ArtifactRecordTarget $record
+	 * @param int|null $written_post_id Post ID persisted before follow-up metadata writes.
 	 * @return array<string,mixed>|WP_Error Pointer descriptor or an error.
 	 */
-	private function write_record( array $record ): array|WP_Error {
-		$existing = $this->find_record( $record['record_key'] );
+	private function write_record( array $record, ?int &$written_post_id = null ): array|WP_Error {
+		$written_post_id = null;
+		$existing        = $this->find_record( $record['record_key'] );
 		if ( is_wp_error( $existing ) ) {
 			return $existing;
 		}
@@ -966,15 +1242,19 @@ final class ArtifactReleaseManager {
 			return $result;
 		}
 
-		$post_id = (int) $result;
-		$meta    = update_post_meta( $post_id, self::RECORD_META_KEY, $record['record_key'] );
+		$post_id         = (int) $result;
+		$written_post_id = $post_id;
+		$meta            = update_post_meta( $post_id, self::RECORD_META_KEY, $record['record_key'] );
 		if ( false === $meta && $record['record_key'] !== get_post_meta( $post_id, self::RECORD_META_KEY, true ) ) {
 			return $this->error( 'record_meta_failed', __( 'Could not mark a generated artifact record as manager-owned.', 'superdav-ai-agent' ) );
 		}
-		update_post_meta( $post_id, self::ARTIFACT_META_KEY, $record['artifact_id'] );
+		$artifact_meta = update_post_meta( $post_id, self::ARTIFACT_META_KEY, $record['artifact_id'] );
+		if ( false === $artifact_meta && $record['artifact_id'] !== get_post_meta( $post_id, self::ARTIFACT_META_KEY, true ) ) {
+			return $this->error( 'record_meta_failed', __( 'Could not mark a generated artifact record with its source artifact.', 'superdav-ai-agent' ) );
+		}
 
-		if ( 'wp_global_styles' === $record['post_type'] && taxonomy_exists( 'wp_theme' ) && function_exists( 'get_stylesheet' ) ) {
-			$assigned = wp_set_object_terms( $post_id, get_stylesheet(), 'wp_theme' );
+		if ( 'wp_global_styles' === $record['post_type'] && taxonomy_exists( 'wp_theme' ) ) {
+			$assigned = wp_set_object_terms( $post_id, $record['theme'], 'wp_theme' );
 			if ( is_wp_error( $assigned ) ) {
 				return $assigned;
 			}
@@ -1099,17 +1379,32 @@ final class ArtifactReleaseManager {
 	/**
 	 * Restore a record's exact snapshot state without touching user-owned records.
 	 *
-	 * @param string                  $key      Ownership key.
-	 * @param array<mixed,mixed>|null $snapshot Snapshot entry.
+	 * @param string                  $key               Ownership key.
+	 * @param array<mixed,mixed>|null $snapshot          Snapshot entry.
+	 * @param int|null                $partial_post_id   Unmarked post ID created before a failed ownership write.
+	 * @param string|null             $partial_post_type Expected type of the partial post.
 	 * @return true|WP_Error Restoration result.
 	 */
-	private function restore_record( string $key, ?array $snapshot ): true|WP_Error {
+	private function restore_record( string $key, ?array $snapshot, ?int $partial_post_id = null, ?string $partial_post_type = null ): true|WP_Error {
 		$current = $this->find_record( $key );
 		if ( is_wp_error( $current ) ) {
 			return $current;
 		}
 
 		if ( ! is_array( $snapshot ) || empty( $snapshot['exists'] ) ) {
+			if ( ! $current instanceof WP_Post && null !== $partial_post_id && $partial_post_id > 0 ) {
+				$partial = get_post( $partial_post_id );
+				if ( $partial instanceof WP_Post ) {
+					if ( null !== $partial_post_type && $partial->post_type !== $partial_post_type ) {
+						return $this->error( 'record_restore_conflict', __( 'A partially created generated artifact record no longer matches its recovery snapshot.', 'superdav-ai-agent' ) );
+					}
+					$deleted = wp_delete_post( $partial_post_id, true );
+					if ( ! $deleted instanceof WP_Post ) {
+						return $this->error( 'record_delete_failed', __( 'Could not remove a partially created generated artifact record.', 'superdav-ai-agent' ) );
+					}
+				}
+			}
+
 			return $this->delete_record( $key );
 		}
 		$post = $snapshot['post'] ?? null;
@@ -1215,7 +1510,11 @@ final class ArtifactReleaseManager {
 	 * @return array<string,mixed>|WP_Error Manifest or an error.
 	 */
 	private function load_manifest( string $theme_dir, string $stylesheet ): array|WP_Error {
-		$raw = $this->read_optional_json( $this->manifest_path( $theme_dir ) );
+		$manifest_path = $this->safe_storage_path( $theme_dir, self::MANIFEST_FILE );
+		if ( is_wp_error( $manifest_path ) ) {
+			return $manifest_path;
+		}
+		$raw = $this->read_optional_json( $manifest_path );
 		if ( is_wp_error( $raw ) ) {
 			return $raw;
 		}
@@ -1236,7 +1535,10 @@ final class ArtifactReleaseManager {
 		if ( is_wp_error( $storage ) ) {
 			return $storage;
 		}
-		$path = $this->storage_path( $theme_dir, 'release.lock' );
+		$path = $this->safe_storage_path( $theme_dir, 'release.lock' );
+		if ( is_wp_error( $path ) ) {
+			return $path;
+		}
 		// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_fopen -- Local advisory lock serializes one theme's activation transaction.
 		$lock = fopen( $path, 'c' );
 		if ( false === $lock ) {
@@ -1271,7 +1573,10 @@ final class ArtifactReleaseManager {
 		if ( ! is_dir( $theme_dir ) ) {
 			return $this->error( 'theme_directory_missing', __( 'Generated-artifact storage requires an existing theme directory.', 'superdav-ai-agent' ) );
 		}
-		$storage = $this->storage_path( $theme_dir );
+		$storage = $this->safe_storage_path( $theme_dir );
+		if ( is_wp_error( $storage ) ) {
+			return $storage;
+		}
 		if ( ! is_dir( $storage ) && ! wp_mkdir_p( $storage ) ) {
 			return $this->error( 'storage_create_failed', __( 'Could not create hidden generated-artifact storage.', 'superdav-ai-agent' ) );
 		}
@@ -1402,8 +1707,19 @@ final class ArtifactReleaseManager {
 		if ( is_wp_error( $relative ) ) {
 			return $relative;
 		}
+		if ( ! is_dir( $theme_dir ) ) {
+			return $this->error( 'theme_directory_missing', __( 'Generated-artifact storage requires an existing theme directory.', 'superdav-ai-agent' ) );
+		}
 
-		return rtrim( $theme_dir, '/\\' ) . '/' . $relative;
+		$absolute = rtrim( $theme_dir, '/\\' );
+		foreach ( explode( '/', $relative ) as $segment ) {
+			$absolute .= '/' . $segment;
+			if ( is_link( $absolute ) ) {
+				return $this->error( 'unsafe_path', __( 'Generated artifact paths cannot traverse symbolic links.', 'superdav-ai-agent' ) );
+			}
+		}
+
+		return $absolute;
 	}
 
 	/**
@@ -1472,32 +1788,17 @@ final class ArtifactReleaseManager {
 	}
 
 	/**
-	 * Return a path inside hidden design-artifact storage.
+	 * Resolve a hidden storage path while rejecting symbolic-link traversal.
+	 *
+	 * @return string|WP_Error Absolute storage path or an error.
 	 */
-	private function storage_path( string $theme_dir, string $suffix = '' ): string {
-		$base = rtrim( $theme_dir, '/\\' ) . '/' . self::STORAGE_DIRECTORY;
-		return '' === $suffix ? $base : $base . '/' . ltrim( $suffix, '/' );
-	}
+	private function safe_storage_path( string $theme_dir, string $suffix = '' ): string|WP_Error {
+		$relative = self::STORAGE_DIRECTORY;
+		if ( '' !== $suffix ) {
+			$relative .= '/' . ltrim( $suffix, '/' );
+		}
 
-	/**
-	 * Return the hidden registry file path.
-	 */
-	private function manifest_path( string $theme_dir ): string {
-		return $this->storage_path( $theme_dir, self::MANIFEST_FILE );
-	}
-
-	/**
-	 * Return the hidden active pointer file path.
-	 */
-	private function active_path( string $theme_dir ): string {
-		return $this->storage_path( $theme_dir, self::ACTIVE_FILE );
-	}
-
-	/**
-	 * Return an immutable retained release source file path.
-	 */
-	private function release_path( string $theme_dir, string $release_id ): string {
-		return $this->storage_path( $theme_dir, self::RELEASES_DIRECTORY . '/' . $release_id . '/release.json' );
+		return $this->absolute_path( $theme_dir, $relative );
 	}
 
 	/**

@@ -260,7 +260,11 @@ class ScaffoldBlockThemeAbility extends AbstractAbility {
 			$written[] = $relative;
 		}
 
-		$manifest = ( new ArtifactReleaseManager() )->seed_empty_manifest( $theme_dir, $slug );
+		$manifest = ( new ArtifactReleaseManager() )->seed_empty_manifest(
+			$theme_dir,
+			$slug,
+			[ 'theme.json' => $encoded_theme_json ]
+		);
 		if ( is_wp_error( $manifest ) ) {
 			return $manifest;
 		}

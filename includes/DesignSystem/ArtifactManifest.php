@@ -169,6 +169,55 @@ final class ArtifactManifest {
 			return $normalized['theme'];
 		}
 
+		$baseline_files = self::normalize_baseline_files( $manifest['baseline_files'] ?? [] );
+		if ( is_wp_error( $baseline_files ) ) {
+			return $baseline_files;
+		}
+		if ( [] !== $baseline_files || array_key_exists( 'baseline_files', $manifest ) ) {
+			$normalized['baseline_files'] = $baseline_files;
+		}
+
+		return $normalized;
+	}
+
+	/**
+	 * Normalize known scaffold files that may be safely adopted by the first release.
+	 *
+	 * These entries are created only by the block-theme scaffold. They are not
+	 * producer artifacts and cannot be used to claim arbitrary user-authored
+	 * theme files.
+	 *
+	 * @param mixed $files Raw baseline file list.
+	 * @return list<array{path:string,content:string,content_hash:string}>|WP_Error Normalized files or an error.
+	 */
+	public static function normalize_baseline_files( mixed $files ): array|WP_Error {
+		if ( null === $files || [] === $files ) {
+			return [];
+		}
+		if ( ! is_array( $files ) || ! array_is_list( $files ) ) {
+			return self::error( 'invalid_baseline_files', __( 'Generated theme baseline files must be a list.', 'superdav-ai-agent' ) );
+		}
+
+		$normalized = [];
+		$seen       = [];
+		foreach ( $files as $file ) {
+			$path         = is_array( $file ) ? ( $file['path'] ?? null ) : null;
+			$content      = is_array( $file ) ? ( $file['content'] ?? null ) : null;
+			$content_hash = is_array( $file ) ? ( $file['content_hash'] ?? null ) : null;
+			if ( 'theme.json' !== $path || ! is_string( $content ) || ! is_string( $content_hash ) || ! self::is_sha256( $content_hash ) || ! hash_equals( hash( 'sha256', $content ), strtolower( $content_hash ) ) ) {
+				return self::error( 'invalid_baseline_file', __( 'Generated theme baseline files must be verified theme.json content.', 'superdav-ai-agent' ) );
+			}
+			if ( isset( $seen[ $path ] ) ) {
+				return self::error( 'duplicate_baseline_file', __( 'Generated theme baseline files must not repeat a path.', 'superdav-ai-agent' ) );
+			}
+			$seen[ $path ] = true;
+			$normalized[]  = [
+				'path'         => $path,
+				'content'      => $content,
+				'content_hash' => strtolower( $content_hash ),
+			];
+		}
+
 		return $normalized;
 	}
 

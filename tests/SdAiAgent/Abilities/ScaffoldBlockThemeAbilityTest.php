@@ -492,6 +492,10 @@ class ScaffoldBlockThemeAbilityTest extends WP_UnitTestCase {
 		$this->assertSame( 1, $manifest['schema_version'] );
 		$this->assertSame( $slug, $manifest['theme']['stylesheet'] );
 		$this->assertSame( [], $manifest['artifacts'] );
+		$this->assertArrayHasKey( 'baseline_files', $manifest );
+		$this->assertSame( 'theme.json', $manifest['baseline_files'][0]['path'] );
+		$this->assertSame( (string) file_get_contents( trailingslashit( get_theme_root() ) . $slug . '/theme.json' ), $manifest['baseline_files'][0]['content'] );
+		$this->assertSame( hash( 'sha256', $manifest['baseline_files'][0]['content'] ), $manifest['baseline_files'][0]['content_hash'] );
 	}
 
 	// ── Helpers ───────────────────────────────────────────────────────────

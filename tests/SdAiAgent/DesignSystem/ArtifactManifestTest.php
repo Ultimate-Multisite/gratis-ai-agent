@@ -47,6 +47,30 @@ class ArtifactManifestTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * A scaffold baseline is accepted only when its recorded content hash matches.
+	 */
+	public function test_normalize_validates_known_scaffold_baseline_content(): void {
+		$content  = '{"version":3,"settings":{"appearanceTools":true}}';
+		$manifest = [
+			'schema_version' => ArtifactManifest::SCHEMA_VERSION,
+			'artifacts'      => [],
+			'baseline_files' => [
+				[
+					'path'         => 'theme.json',
+					'content'      => $content,
+					'content_hash' => hash( 'sha256', $content ),
+				],
+			],
+		];
+
+		$normalized = ArtifactManifest::normalize( $manifest );
+		$this->assertNotWPError( $normalized );
+		$this->assertSame( $manifest['baseline_files'], $normalized['baseline_files'] );
+		$manifest['baseline_files'][0]['content_hash'] = str_repeat( '0', 64 );
+		$this->assertWPError( ArtifactManifest::normalize( $manifest ) );
+	}
+
+	/**
 	 * Strict parsing rejects invalid versioning, lifecycle, and integrity records.
 	 */
 	public function test_normalize_rejects_invalid_lifecycle_records(): void {

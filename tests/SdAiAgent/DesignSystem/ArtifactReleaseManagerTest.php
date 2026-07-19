@@ -133,6 +133,212 @@ class ArtifactReleaseManagerTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * Artifact paths cannot use a symbolic-link parent to escape the selected theme.
+	 */
+	public function test_apply_refuses_symbolic_linked_artifact_parent(): void {
+		if ( ! function_exists( 'symlink' ) ) {
+			$this->markTestSkipped( 'Symbolic links are unavailable in this PHP runtime.' );
+		}
+		$outside_directory = $this->themeDir . '-outside';
+		$patterns_link     = $this->themeDir . '/patterns';
+		wp_mkdir_p( $outside_directory );
+
+		try {
+			$this->assertTrue( symlink( $outside_directory, $patterns_link ) );
+			$result = ( new ArtifactReleaseManager() )->apply(
+				$this->themeDir,
+				$this->manifest( [ $this->pattern_artifact( '1.0.0', 'Symlink escape' ) ] ),
+				$this->context()
+			);
+
+			$this->assertWPError( $result );
+			$this->assertSame( 'sd_ai_agent_design_artifact_unsafe_path', $result->get_error_code() );
+			$this->assertFileDoesNotExist( $outside_directory . '/hero.php' );
+		} finally {
+			if ( is_link( $patterns_link ) ) {
+				unlink( $patterns_link );
+			}
+			self::rrmdir( $outside_directory );
+		}
+	}
+
+	/**
+	 * A known scaffold baseline can be adopted and restored by an exact release rollback.
+	 */
+	public function test_adopts_scaffold_baseline_and_restores_it_on_rollback(): void {
+		$baseline = '{"version":3,"settings":{"appearanceTools":true}}';
+		// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_file_put_contents -- Fixture represents the just-scaffolded managed baseline.
+		file_put_contents( $this->themeDir . '/theme.json', $baseline );
+		$manager = new ArtifactReleaseManager();
+		$seed    = $manager->seed_empty_manifest(
+			$this->themeDir,
+			'sd-ai-artifact-test',
+			[ 'theme.json' => $baseline ]
+		);
+		$this->assertNotWPError( $seed );
+
+		$first = $manager->apply(
+			$this->themeDir,
+			$this->manifest( [ $this->pattern_artifact( '1.0.0', 'Baseline pattern' ) ] ),
+			$this->context()
+		);
+		$this->assertNotWPError( $first );
+		$this->assertSame( $baseline, file_get_contents( $this->themeDir . '/theme.json' ) );
+
+		$second = $manager->apply(
+			$this->themeDir,
+			$this->manifest( [ $this->pattern_artifact( '1.0.0', 'Baseline pattern' ), $this->token_artifact( '1.0.0', '#112233' ) ] ),
+			$this->context()
+		);
+		$this->assertNotWPError( $second );
+		$this->assertStringContainsString( '#112233', (string) file_get_contents( $this->themeDir . '/theme.json' ) );
+
+		$rollback = $manager->rollback( $this->themeDir, $first['release_id'] );
+		$this->assertNotWPError( $rollback );
+		$this->assertSame( $baseline, file_get_contents( $this->themeDir . '/theme.json' ) );
+	}
+
+	/**
+	 * A user edit after scaffolding must stop baseline adoption before mutation.
+	 */
+	public function test_rejects_modified_scaffold_baseline(): void {
+		$baseline = '{"version":3,"settings":{"appearanceTools":true}}';
+		$path     = $this->themeDir . '/theme.json';
+		// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_file_put_contents -- Fixture represents the just-scaffolded managed baseline.
+		file_put_contents( $path, $baseline );
+		$seed = ( new ArtifactReleaseManager() )->seed_empty_manifest(
+			$this->themeDir,
+			'sd-ai-artifact-test',
+			[ 'theme.json' => $baseline ]
+		);
+		$this->assertNotWPError( $seed );
+		// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_file_put_contents -- Fixture represents a user edit after scaffolding.
+		file_put_contents( $path, '{"version":3,"settings":{"custom":{"userOwned":true}}}' );
+
+		$result = ( new ArtifactReleaseManager() )->apply(
+			$this->themeDir,
+			$this->manifest( [ $this->token_artifact( '1.0.0', '#112233' ) ] ),
+			$this->context()
+		);
+
+		$this->assertWPError( $result );
+		$this->assertSame( 'sd_ai_agent_design_artifact_unmanaged_file_conflict', $result->get_error_code() );
+		$this->assertSame( '{"version":3,"settings":{"custom":{"userOwned":true}}}', file_get_contents( $path ) );
+	}
+
+	/**
+	 * A same-content apply still detects an out-of-band managed file edit.
+	 */
+	public function test_rechecks_manager_owned_files_before_an_idempotent_apply(): void {
+		$manifest = $this->manifest( [ $this->pattern_artifact( '1.0.0', 'Original managed release' ) ] );
+		$initial  = ( new ArtifactReleaseManager() )->apply( $this->themeDir, $manifest, $this->context() );
+		$this->assertNotWPError( $initial );
+		// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_file_put_contents -- Fixture represents an out-of-band user edit to an owned file.
+		file_put_contents( $this->themeDir . '/patterns/hero.php', 'user change' );
+
+		$result = ( new ArtifactReleaseManager() )->apply( $this->themeDir, $manifest, $this->context() );
+
+		$this->assertWPError( $result );
+		$this->assertSame( 'sd_ai_agent_design_artifact_managed_file_modified', $result->get_error_code() );
+		$this->assertSame( 'user change', file_get_contents( $this->themeDir . '/patterns/hero.php' ) );
+	}
+
+	/**
+	 * A forbidden automatic major upgrade cannot implicitly remove the active release.
+	 */
+	public function test_rejects_implicit_removal_when_only_major_successor_is_available(): void {
+		$initial = ( new ArtifactReleaseManager() )->apply(
+			$this->themeDir,
+			$this->manifest( [ $this->pattern_artifact( '1.0.0', 'Major-one release' ) ] ),
+			$this->context()
+		);
+		$this->assertNotWPError( $initial );
+
+		$result = ( new ArtifactReleaseManager() )->apply(
+			$this->themeDir,
+			$this->manifest( [ $this->pattern_artifact( '2.0.0', 'Major-two release' ) ] ),
+			$this->context()
+		);
+
+		$this->assertWPError( $result );
+		$this->assertSame( 'sd_ai_agent_design_artifact_active_selection_unresolved', $result->get_error_code() );
+		$this->assertStringContainsString( 'Major-one release', (string) file_get_contents( $this->themeDir . '/patterns/hero.php' ) );
+	}
+
+	/**
+	 * A post-meta failure after wp_insert_post() compensates the partial record write.
+	 */
+	public function test_compensates_record_persistence_failure_after_partial_write(): void {
+		$filter = static function ( $check, $object_id, $meta_key ) {
+			return '_sd_ai_agent_design_artifact_record' === $meta_key ? false : $check;
+		};
+		add_filter( 'update_post_metadata', $filter, 10, 3 );
+		$result = ( new ArtifactReleaseManager() )->apply(
+			$this->themeDir,
+			$this->manifest( [ $this->pattern_artifact( '1.0.0', 'Partial record write' ) ] ),
+			$this->context()
+		);
+		remove_filter( 'update_post_metadata', $filter, 10 );
+
+		$this->assertWPError( $result );
+		$this->assertFileDoesNotExist( $this->themeDir . '/patterns/hero.php' );
+		$this->assertSame( [], $this->managed_records( 'wp_block' ) );
+		$this->assertSame(
+			[],
+			get_posts(
+				[
+					'post_type'      => 'wp_block',
+					'post_status'    => 'any',
+					'posts_per_page' => -1,
+					's'              => 'Partial record write',
+					'no_found_rows'  => true,
+				]
+			)
+		);
+		$this->assertFileDoesNotExist( $this->themeDir . '/.sd-ai-agent/design-artifacts/active.json' );
+	}
+
+	/**
+	 * Global-style records are bound to the requested theme, not the active stylesheet.
+	 */
+	public function test_assigns_global_styles_to_the_manifest_target_theme(): void {
+		$stylesheet       = 'sd-ai-artifact-inactive';
+		$context          = $this->context();
+		$context['theme'] = $stylesheet;
+		$result           = ( new ArtifactReleaseManager() )->apply(
+			$this->themeDir,
+			$this->manifest( [ $this->token_artifact( '1.0.0', '#112233' ) ], $stylesheet ),
+			$context
+		);
+
+		$this->assertNotWPError( $result );
+		$this->assertNotSame( get_stylesheet(), $stylesheet );
+		$records = $this->managed_records( 'wp_global_styles' );
+		$this->assertCount( 1, $records );
+		$themes = wp_get_object_terms( $records[0]->ID, 'wp_theme', [ 'fields' => 'names' ] );
+		$this->assertNotWPError( $themes );
+		$this->assertSame( [ $stylesheet ], $themes );
+	}
+
+	/**
+	 * Applying through a target-theme context rejects a manifest for another theme.
+	 */
+	public function test_rejects_manifest_theme_that_does_not_match_target_context(): void {
+		$context          = $this->context();
+		$context['theme'] = 'sd-ai-artifact-other-theme';
+		$result           = ( new ArtifactReleaseManager() )->apply(
+			$this->themeDir,
+			$this->manifest( [ $this->pattern_artifact( '1.0.0', 'Wrong target theme' ) ] ),
+			$context
+		);
+
+		$this->assertWPError( $result );
+		$this->assertSame( 'sd_ai_agent_design_artifact_manifest_theme_mismatch', $result->get_error_code() );
+		$this->assertDirectoryDoesNotExist( $this->themeDir . '/.sd-ai-agent' );
+		$this->assertFileDoesNotExist( $this->themeDir . '/.sd-ai-agent/design-artifacts/active.json' );
+	}
+
+	/**
 	 * Failures after wp_block and wp_global_styles writes compensate every prior mutation.
 	 */
 	public function test_injected_record_failures_restore_wp_block_and_global_styles_state(): void {
@@ -220,6 +426,42 @@ class ArtifactReleaseManagerTest extends WP_UnitTestCase {
 		$this->assertNotWPError( $rollback );
 		$this->assertSame( $first['release_id'], $rollback['release_id'] );
 		$this->assertStringContainsString( 'First retained release', (string) file_get_contents( $this->themeDir . '/patterns/hero.php' ) );
+	}
+
+	/**
+	 * A retained source must match the release ID derived from its immutable content.
+	 */
+	public function test_refuses_tampered_retained_release_even_when_inner_hashes_match(): void {
+		$manager = new ArtifactReleaseManager();
+		$first   = $manager->apply(
+			$this->themeDir,
+			$this->manifest( [ $this->pattern_artifact( '1.0.0', 'Original retained release' ) ] ),
+			$this->context()
+		);
+		$this->assertNotWPError( $first );
+		$second = $manager->apply(
+			$this->themeDir,
+			$this->manifest( [ $this->pattern_artifact( '1.1.0', 'Current retained release' ) ] ),
+			$this->context()
+		);
+		$this->assertNotWPError( $second );
+
+		$path    = $this->themeDir . '/.sd-ai-agent/design-artifacts/releases/' . $first['release_id'] . '/release.json';
+		$release = json_decode( (string) file_get_contents( $path ), true );
+		$this->assertIsArray( $release );
+		$release['artifacts'][0]['payload']['files'][0]['content'] = "<?php\n/** Tampered retained release */\n";
+		$hash = ArtifactManifest::hash_payload( $release['artifacts'][0]['payload'] );
+		$this->assertIsString( $hash );
+		$release['artifacts'][0]['integrity']['content_hash']          = $hash;
+		$release['artifact_hashes']['sd-ai-agent/pattern/hero'] = $hash;
+		// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_file_put_contents -- Fixture simulates retained metadata tampering after a release has been staged.
+		file_put_contents( $path, wp_json_encode( $release ) );
+
+		$result = $manager->rollback( $this->themeDir, $first['release_id'] );
+
+		$this->assertWPError( $result );
+		$this->assertSame( 'sd_ai_agent_design_artifact_retained_release_integrity_mismatch', $result->get_error_code() );
+		$this->assertStringContainsString( 'Current retained release', (string) file_get_contents( $this->themeDir . '/patterns/hero.php' ) );
 	}
 
 	/**
@@ -334,10 +576,10 @@ class ArtifactReleaseManagerTest extends WP_UnitTestCase {
 	 * @param list<array<string,mixed>> $artifacts Artifacts.
 	 * @return array<string,mixed> Manifest.
 	 */
-	private function manifest( array $artifacts ): array {
+	private function manifest( array $artifacts, string $stylesheet = 'sd-ai-artifact-test' ): array {
 		return [
 			'schema_version' => ArtifactManifest::SCHEMA_VERSION,
-			'theme'          => [ 'stylesheet' => 'sd-ai-artifact-test' ],
+			'theme'          => [ 'stylesheet' => $stylesheet ],
 			'artifacts'      => $artifacts,
 		];
 	}

@@ -47,17 +47,24 @@ final class ArtifactSelector {
 
 		foreach ( $groups as $id => $candidates ) {
 			$current_version = $current[ $id ] ?? null;
-			$preserved       = $this->preserved_deprecated( $candidates, $current_version, $context );
+			$pin             = $pins[ $id ] ?? null;
+			$preserved       = null === $pin ? $this->preserved_deprecated( $candidates, $current_version, $context ) : null;
 			if ( null !== $preserved ) {
-				$selected[] = $preserved;
-				$trace[]    = $this->trace( $preserved, 'selected', 'preserved_selected_deprecated' );
-				continue;
+				$compatibility = $this->is_compatible( $preserved, $context );
+				if ( true === $compatibility ) {
+					$selected[] = $preserved;
+					$trace[]    = $this->trace( $preserved, 'selected', 'preserved_selected_deprecated' );
+					continue;
+				}
+				$trace[] = $this->trace( $preserved, 'rejected', (string) $compatibility );
 			}
 
-			$pin       = $pins[ $id ] ?? null;
 			$eligible  = [];
 			$pin_found = false;
 			foreach ( $candidates as $candidate ) {
+				if ( null !== $preserved && $candidate['version'] === $preserved['version'] ) {
+					continue;
+				}
 				$compatibility = $this->is_compatible( $candidate, $context );
 				if ( true !== $compatibility ) {
 					$trace[] = $this->trace( $candidate, 'rejected', (string) $compatibility );

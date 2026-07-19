@@ -116,6 +116,46 @@ class ArtifactSelectorTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * An exact compatible pin is an explicit replacement choice for a selected deprecated version.
+	 */
+	public function test_exact_pin_replaces_selected_deprecated_artifact(): void {
+		$id     = 'sd-ai-agent/pattern/hero';
+		$result = $this->selector()->resolve(
+			$this->manifest( [ $this->artifact( '1.0.0', 'deprecated' ), $this->artifact( '1.1.0' ) ] ),
+			$this->context(
+				[
+					'current_selection' => [ $id => '1.0.0' ],
+					'user_pins'         => [ $id => '1.1.0' ],
+				]
+			)
+		);
+
+		$this->assertNotWPError( $result );
+		$this->assertSame( '1.1.0', $result['selected'][0]['version'] );
+		$this->assertSame( 'exact_compatible_pin', $result['trace'][1]['reason'] );
+	}
+
+	/**
+	 * Deprecation preservation never bypasses compatibility rejection.
+	 */
+	public function test_rejects_an_incompatible_selected_deprecated_artifact_before_preserving_it(): void {
+		$id         = 'sd-ai-agent/pattern/hero';
+		$deprecated = $this->artifact( '1.0.0', 'deprecated' );
+		$deprecated['compatibility']['required_blocks'] = [ 'core/missing-block' ];
+		$deprecated = ArtifactManifest::create_artifact( $deprecated );
+		$this->assertNotWPError( $deprecated );
+
+		$result = $this->selector()->resolve(
+			$this->manifest( [ $deprecated, $this->artifact( '1.1.0' ) ] ),
+			$this->context( [ 'current_selection' => [ $id => '1.0.0' ] ] )
+		);
+
+		$this->assertNotWPError( $result );
+		$this->assertSame( '1.1.0', $result['selected'][0]['version'] );
+		$this->assertSame( 'missing_required_block:core/missing-block', $result['trace'][0]['reason'] );
+	}
+
+	/**
 	 * Compatibility rejection happens before a candidate can be selected and is traceable.
 	 */
 	public function test_rejects_incompatible_artifacts_before_selection_and_orders_groups(): void {
