@@ -22,6 +22,7 @@ declare(strict_types=1);
 namespace SdAiAgent\Abilities;
 
 use SdAiAgent\DesignSystem\ArtifactReleaseManager;
+use SdAiAgent\Services\BlockThemeProjectValidator;
 use WP_Error;
 
 if ( ! defined( 'ABSPATH' ) ) {
@@ -224,6 +225,7 @@ class ScaffoldBlockThemeAbility extends AbstractAbility {
 			'style.css'     => self::build_style_css( $slug, $name, $description, $author ),
 			'functions.php' => self::build_functions_php( $slug ),
 		];
+		$files[ BlockThemeProjectValidator::MARKER_PATH ] = BlockThemeProjectValidator::marker_contents();
 
 		// Lay down minimum template files so the theme is valid on activation:
 		// a block theme requires at least templates/index.html. We provide a

@@ -423,6 +423,7 @@ class ToolCapabilitiesTest extends WP_UnitTestCase {
 			'sd-ai-agent/file-write',
 			'sd-ai-agent/navigate',
 			'sd-ai-agent/compile-design-tokens',
+			'sd-ai-agent/validate-block-theme-project',
 		];
 
 		foreach ( $expected as $id ) {
@@ -437,6 +438,16 @@ class ToolCapabilitiesTest extends WP_UnitTestCase {
 		$this->assertSame(
 			[ 'edit_theme_options' ],
 			ToolCapabilities::resolve_core_caps( 'sd-ai-agent/compile-design-tokens' )
+		);
+	}
+
+	/**
+	 * Project validation remains behind the standard theme-options core gate.
+	 */
+	public function test_validate_block_theme_project_requires_edit_theme_options(): void {
+		$this->assertSame(
+			[ 'edit_theme_options' ],
+			ToolCapabilities::resolve_core_caps( 'sd-ai-agent/validate-block-theme-project' )
 		);
 	}
 }

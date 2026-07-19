@@ -46,8 +46,9 @@ their own committed source files instead of being folded into this skill.
 5. Prefer filesystem-owned patterns under `patterns/*.php` when the theme should ship reusable layouts.
 6. Put style variations in `styles/*.json`; remember that once a user selects a style variation, that selection is stored in the database.
 7. Validate generated block markup before writing templates, parts, or patterns.
-8. Perform an explicit final quality review before declaring a generated theme complete. Prefer a browser, screenshot, or front-end render check when available; when visual QA is unavailable, perform the structural review in the verification checklist and report that limitation.
-9. For contributor-insight or maintenance changes to this skill, verify future
+8. Before activating a generated theme, run `sd-ai-agent/validate-block-theme-project` for its stylesheet. Repair every error and re-run it until `valid` is exactly `true`; this project-wide gate checks declarations, references, patterns, variations, local assets, placeholders, and block markup without executing pattern PHP.
+9. Perform an explicit final quality review before declaring a generated theme complete. Prefer a browser, screenshot, or front-end render check when available; when visual QA is unavailable, perform the structural review in the verification checklist and report that limitation.
+10. For contributor-insight or maintenance changes to this skill, verify future
    workers will load the guidance with `rg -n "wp-block-themes|Full Site Editing|theme.json|validate-block-content" AGENTS.md includes/Models/skills/wp-block-themes.md`.
 
 ## Absolute Rules
@@ -221,6 +222,10 @@ When calling `sd-ai-agent/update-global-styles`, pass only the inner `styles` an
 
 ### Compile a design-token contract first
 Compilation is pure. Call `sd-ai-agent/compile-design-tokens` and follow its complete schema-v1 contract exactly (governance identity, bounded primitives, semantic roles, and a style-variation remap); repair any `WP_Error` and never reconstruct raw artifacts independently. Pass `theme_json` to `sd-ai-agent/scaffold-block-theme`, pass `global_styles.settings` and `global_styles.styles` only to `sd-ai-agent/update-global-styles`, validate `palette` with `sd-ai-agent/validate-palette-contrast`, and preserve the file-only `style_variation` plus `artifact_manifest` for `sd-ai-agent/apply-design-artifact-release`; the manifest must never own a second `wp_global_styles` record.
+
+### Validate the complete generated project before activation
+
+Per-file block validation is necessary but not sufficient. After all templates, parts, patterns, variations, fonts, and local assets are written, call `sd-ai-agent/validate-block-theme-project` with the generated stylesheet. Treat its ordered diagnostics as a repair queue: resolve every error and rerun until `valid: true` before `sd-ai-agent/activate-theme`. The validator is read-only, never executes pattern PHP or fetches URLs, and reports only theme-relative paths. Generated projects carry a versioned marker and fail closed for unknown marker versions; unmarked third-party themes retain WordPress's normal activation path.
 
 ### Generated design artifact governance
 
