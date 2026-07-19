@@ -19,6 +19,9 @@ if ( ! defined( 'ABSPATH' ) ) {
 
 /**
  * Compiles one normalized design direction without reading or mutating WordPress state.
+ *
+ * @phpstan-import-type Governance from DesignTokenContract
+ * @phpstan-import-type NormalizedContract from DesignTokenContract
  */
 final class DesignTokenCompiler {
 
@@ -86,7 +89,7 @@ final class DesignTokenCompiler {
 			'styles'   => $styles,
 		];
 
-		$artifact_manifest = self::build_artifact_manifest( $contract['governance'], $theme_json, $global_styles, $style_variation );
+		$artifact_manifest = self::build_artifact_manifest( $contract['governance'], $theme_json, $style_variation );
 		if ( is_wp_error( $artifact_manifest ) ) {
 			return $artifact_manifest;
 		}
@@ -105,6 +108,7 @@ final class DesignTokenCompiler {
 	 *
 	 * @param array<string,mixed> $contract Normalized contract.
 	 * @return array<string,mixed> Theme settings.
+	 * @phpstan-param NormalizedContract $contract
 	 */
 	private static function build_settings( array $contract ): array {
 		$primitives = $contract['primitives'];
@@ -238,6 +242,7 @@ final class DesignTokenCompiler {
 	 *
 	 * @param array<string,mixed> $contract Normalized contract.
 	 * @return array<string,mixed> Custom settings tree.
+	 * @phpstan-param NormalizedContract $contract
 	 */
 	private static function semantic_custom_values( array $contract ): array {
 		$semantics  = $contract['semantics'];
@@ -324,22 +329,14 @@ final class DesignTokenCompiler {
 	 *
 	 * @param array<string,mixed> $governance      Normalized governance metadata.
 	 * @param array<string,mixed> $theme_json      Complete theme.json output.
-	 * @param array<string,mixed> $global_styles   Global Styles partial output.
 	 * @param array<string,mixed> $style_variation Style variation partial output.
 	 * @return array<string,mixed>|WP_Error Valid manifest fragment or an error.
+	 * @phpstan-param Governance $governance
 	 */
-	private static function build_artifact_manifest( array $governance, array $theme_json, array $global_styles, array $style_variation ): array|WP_Error {
+	private static function build_artifact_manifest( array $governance, array $theme_json, array $style_variation ): array|WP_Error {
 		$theme_content     = ArtifactManifest::canonical_json( $theme_json );
-		$global_content    = ArtifactManifest::canonical_json(
-			[
-				'version'                     => 3,
-				'isGlobalStylesUserThemeJSON' => true,
-				'settings'                    => $global_styles['settings'],
-				'styles'                      => $global_styles['styles'],
-			]
-		);
 		$variation_content = ArtifactManifest::canonical_json( $style_variation );
-		if ( is_wp_error( $theme_content ) || is_wp_error( $global_content ) || is_wp_error( $variation_content ) ) {
+		if ( is_wp_error( $theme_content ) || is_wp_error( $variation_content ) ) {
 			return new WP_Error(
 				'sd_ai_agent_design_token_artifact_encoding_failed',
 				__( 'The compiled design-token artifacts could not be canonically encoded.', 'superdav-ai-agent' ),
@@ -358,17 +355,9 @@ final class DesignTokenCompiler {
 						'content' => $theme_content,
 					],
 				],
-				'records' => [
-					[
-						'id'           => 'global-styles',
-						'post_type'    => 'wp_global_styles',
-						'post_title'   => 'Generated Design Tokens',
-						'post_excerpt' => '',
-						'post_name'    => 'sd-ai-agent-design-tokens',
-						'post_status'  => 'publish',
-						'post_content' => $global_content,
-					],
-				],
+				// Global Styles remain owned by GlobalStylesService (#2247). Keeping
+				// this payload file-only prevents a second wp_global_styles record.
+				'records' => [],
 			]
 		);
 		if ( is_wp_error( $token_set ) ) {
@@ -421,6 +410,7 @@ final class DesignTokenCompiler {
 	 * @param string              $id         Artifact identifier.
 	 * @param array<string,mixed> $payload    Artifact payload.
 	 * @return array<string,mixed>|WP_Error Valid artifact or an error.
+	 * @phpstan-param Governance $governance
 	 */
 	private static function create_artifact( array $governance, string $kind, string $id, array $payload ): array|WP_Error {
 		$artifact = ArtifactManifest::create_artifact(
@@ -468,6 +458,7 @@ final class DesignTokenCompiler {
 	 * Return a stable custom semantic CSS variable reference.
 	 *
 	 * @param array $segments Semantic variable path.
+	 * @phpstan-param list<string> $segments
 	 */
 	private static function custom_var( array $segments ): string {
 		return 'var(--wp--custom--sd-ai-agent--semantic--' . implode( '--', $segments ) . ')';

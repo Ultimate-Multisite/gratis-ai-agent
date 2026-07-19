@@ -82,6 +82,143 @@ class DesignTokenContractTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * Object-shaped contract fields cannot retain non-string keys after normalization.
+	 */
+	public function test_normalize_rejects_non_string_object_keys(): void {
+		$contract = $this->valid_contract();
+		$contract['semantics']['colors'][2] = 'colors.canvas';
+
+		$result = DesignTokenContract::normalize( $contract );
+
+		$this->assertWPError( $result );
+		$this->assertSame( 'sd_ai_agent_design_token_invalid_value', $result->get_error_code() );
+		$this->assertSame( 'semantics.colors', $result->get_error_data()['path'] );
+	}
+
+	/**
+	 * Unknown fields fail closed instead of being silently discarded.
+	 */
+	public function test_normalize_rejects_unknown_fields_with_exact_paths(): void {
+		$contract                  = $this->valid_contract();
+		$contract['raw_css']       = 'body { display: none; }';
+		$result                    = DesignTokenContract::normalize( $contract );
+
+		$this->assertWPError( $result );
+		$this->assertSame( 'sd_ai_agent_design_token_unexpected_value', $result->get_error_code() );
+		$this->assertSame( 'raw_css', $result->get_error_data()['path'] );
+
+		$contract                                      = $this->valid_contract();
+		$contract['primitives']['colors'][0]['selector'] = ':root';
+		$result                                        = DesignTokenContract::normalize( $contract );
+
+		$this->assertWPError( $result );
+		$this->assertSame( 'sd_ai_agent_design_token_unexpected_value', $result->get_error_code() );
+		$this->assertSame( 'primitives.colors.0.selector', $result->get_error_data()['path'] );
+
+		$contract                                                    = $this->valid_contract();
+		$contract['semantics']['typography']['body']['font_weight'] = '700';
+		$result                                                      = DesignTokenContract::normalize( $contract );
+
+		$this->assertWPError( $result );
+		$this->assertSame( 'semantics.typography.body.font_weight', $result->get_error_data()['path'] );
+
+		$contract                                           = $this->valid_contract();
+		$contract['governance']['provenance']['input_hash'] = str_repeat( 'a', 64 );
+		$result                                             = DesignTokenContract::normalize( $contract );
+
+		$this->assertWPError( $result );
+		$this->assertSame( 'governance.provenance.input_hash', $result->get_error_data()['path'] );
+	}
+
+	/**
+	 * REST-visible compilation has deterministic collection and graph bounds.
+	 */
+	public function test_normalize_rejects_oversized_collections_and_alias_graphs(): void {
+		$contract = $this->valid_contract();
+		while ( count( $contract['primitives']['colors'] ) <= DesignTokenContract::MAX_PRIMITIVES_PER_COLLECTION ) {
+			$index = count( $contract['primitives']['colors'] );
+			$contract['primitives']['colors'][] = [
+				'slug'  => 'extra-' . $index,
+				'color' => '#123456',
+				'name'  => 'Extra ' . $index,
+			];
+		}
+
+		$result = DesignTokenContract::normalize( $contract );
+		$this->assertWPError( $result );
+		$this->assertSame( 'sd_ai_agent_design_token_too_many_primitives', $result->get_error_code() );
+		$this->assertSame( 'primitives.colors', $result->get_error_data()['path'] );
+
+		$contract = $this->valid_contract();
+		while ( count( $contract['semantics']['colors'] ) <= DesignTokenContract::MAX_SEMANTIC_ROLES ) {
+			$index = count( $contract['semantics']['colors'] );
+			$contract['semantics']['colors'][ 'extra-role-' . $index ] = 'colors.canvas';
+		}
+
+		$result = DesignTokenContract::normalize( $contract );
+		$this->assertWPError( $result );
+		$this->assertSame( 'sd_ai_agent_design_token_too_many_roles', $result->get_error_code() );
+		$this->assertSame( 'semantics.colors', $result->get_error_data()['path'] );
+
+		$contract = $this->valid_contract();
+		for ( $index = 0; $index <= DesignTokenContract::MAX_REFERENCE_DEPTH; ++$index ) {
+			$contract['semantics']['colors'][ 'alias-' . $index ] = $index === DesignTokenContract::MAX_REFERENCE_DEPTH
+				? 'colors.canvas'
+				: 'semantics.colors.alias-' . ( $index + 1 );
+		}
+		$contract['semantics']['colors']['primary'] = 'semantics.colors.alias-0';
+
+		$result = DesignTokenContract::normalize( $contract );
+		$this->assertWPError( $result );
+		$this->assertSame( 'sd_ai_agent_design_token_reference_depth_exceeded', $result->get_error_code() );
+		$this->assertStringStartsWith( 'semantics.colors.', $result->get_error_data()['path'] );
+	}
+
+	/**
+	 * Malformed font, size, and shadow primitives never reach theme.json output.
+	 */
+	public function test_normalize_rejects_malformed_css_primitive_grammars(): void {
+		$cases = [
+			[ 'font_families', 0, 'fontFamily', 'system-ui, sans-serif)' ],
+			[ 'font_sizes', 0, 'size', 'calc(1rem))' ],
+			[ 'font_sizes', 0, 'size', 'calc(1rem 2rem)' ],
+			[ 'font_sizes', 0, 'size', 'clamp(1rem)' ],
+			[ 'radii', 0, 'size', '-0.5rem' ],
+			[ 'shadows', 0, 'shadow', '0 2px 8px rgb(0 0 0 / 0.12))' ],
+			[ 'shadows', 0, 'shadow', '0 2px 8px rgb(foo)' ],
+			[ 'shadows', 0, 'shadow', '0 2px 8px rgb(999 999 999)' ],
+			[ 'shadows', 0, 'shadow', '0 2px 8px rgb(0 / 0 / 0)' ],
+			[ 'shadows', 0, 'shadow', '0 2px 8px hsl(20 30 40)' ],
+			[ 'shadows', 0, 'shadow', '0 2px 8px rgba(0 0 0 / 2)' ],
+		];
+
+		foreach ( $cases as [ $collection, $index, $key, $value ] ) {
+			$contract                                              = $this->valid_contract();
+			$contract['primitives'][ $collection ][ $index ][ $key ] = $value;
+			$result                                                = DesignTokenContract::normalize( $contract );
+
+			$this->assertWPError( $result );
+			$this->assertSame( 'sd_ai_agent_design_token_invalid_value', $result->get_error_code() );
+			$this->assertSame( 'primitives.' . $collection . '.' . $index . '.' . $key, $result->get_error_data()['path'] );
+		}
+	}
+
+	/**
+	 * Supported responsive sizes and multiple shadows remain available.
+	 */
+	public function test_normalize_accepts_well_formed_css_primitive_grammars(): void {
+		$contract                                              = $this->valid_contract();
+		$contract['primitives']['font_sizes'][1]['size']       = 'clamp(2rem, 4vw, 3.5rem)';
+		$contract['primitives']['shadows'][0]['shadow']        = '0 2px 8px rgb(0 0 0 / 0.12), inset 0 0 1px hsl(20 30% 40% / 50%)';
+
+		$result = DesignTokenContract::normalize( $contract );
+
+		$this->assertNotWPError( $result );
+		$this->assertSame( 'clamp(2rem, 4vw, 3.5rem)', $result['primitives']['font_sizes']['heading']['size'] );
+		$this->assertSame( '0 2px 8px rgb(0 0 0 / 0.12), inset 0 0 1px hsl(20 30% 40% / 50%)', $result['primitives']['shadows']['control']['shadow'] );
+	}
+
+	/**
 	 * Shadows are optional primitive and semantic aliases rather than a hidden requirement.
 	 */
 	public function test_normalize_accepts_contracts_without_shadow_tokens(): void {

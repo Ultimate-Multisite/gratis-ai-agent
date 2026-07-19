@@ -42,6 +42,9 @@ class DesignTokenCompilerTest extends WP_UnitTestCase {
 		$this->assertSame( $compiled['theme_json']['styles'], $compiled['global_styles']['styles'] );
 		$this->assertSame( 'night', $compiled['style_variation']['slug'] );
 		$this->assertNotWPError( ArtifactManifest::normalize( $compiled['artifact_manifest'] ) );
+		foreach ( $compiled['artifact_manifest']['artifacts'] as $artifact ) {
+			$this->assertSame( [], $artifact['payload']['records'], 'Compiled artifacts must not create a second wp_global_styles record.' );
+		}
 
 		$theme_json = new WP_Theme_JSON( $compiled['theme_json'], 'theme' );
 		$stylesheet = $theme_json->get_stylesheet();

@@ -35,6 +35,24 @@ class CompileDesignTokensAbilityTest extends WP_UnitTestCase {
 		$this->assertSame( [ 'contract' ], $ability->get_input_schema()['required'] );
 	}
 
+	public function test_input_schema_documents_the_complete_bounded_contract(): void {
+		$schema   = $this->ability()->get_input_schema();
+		$contract = $schema['properties']['contract'];
+
+		$this->assertFalse( $schema['additionalProperties'] );
+		$this->assertFalse( $contract['additionalProperties'] );
+		$this->assertSame( [ 'version', 'governance', 'primitives', 'semantics', 'style_variation' ], $contract['required'] );
+		$this->assertSame( [ 1 ], $contract['properties']['version']['enum'] );
+		$this->assertSame( 64, $contract['properties']['primitives']['properties']['colors']['maxItems'] );
+		$this->assertFalse( $contract['properties']['primitives']['properties']['colors']['items']['additionalProperties'] );
+		$this->assertSame(
+			[ 'background', 'foreground', 'surface', 'primary', 'on-primary', 'accent', 'on-accent', 'border' ],
+			$contract['properties']['semantics']['properties']['colors']['required']
+		);
+		$this->assertSame( 64, $contract['properties']['semantics']['properties']['colors']['maxProperties'] );
+		$this->assertFalse( $contract['properties']['style_variation']['additionalProperties'] );
+	}
+
 	public function test_run_compiles_a_complete_contract_without_creating_global_styles_posts(): void {
 		$before_global_styles = get_posts(
 			[

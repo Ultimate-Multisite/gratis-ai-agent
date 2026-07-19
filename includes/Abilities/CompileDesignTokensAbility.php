@@ -11,6 +11,7 @@ declare(strict_types=1);
 namespace SdAiAgent\Abilities;
 
 use SdAiAgent\Services\DesignTokenCompiler;
+use SdAiAgent\Services\DesignTokenContract;
 use WP_Error;
 
 if ( ! defined( 'ABSPATH' ) ) {
@@ -35,14 +36,12 @@ class CompileDesignTokensAbility extends AbstractAbility {
 
 	protected function input_schema(): array {
 		return [
-			'type'       => 'object',
-			'properties' => [
-				'contract' => [
-					'type'        => 'object',
-					'description' => 'Complete version-1 design-token contract with governance, primitives, semantic aliases, and a style-variation colour remap. The contract is strict and rejects raw CSS, selectors, paths, or partial token sets.',
-				],
+			'type'                 => 'object',
+			'properties'           => [
+				'contract' => DesignTokenContract::schema(),
 			],
-			'required'   => [ 'contract' ],
+			'required'             => [ 'contract' ],
+			'additionalProperties' => false,
 		];
 	}
 
