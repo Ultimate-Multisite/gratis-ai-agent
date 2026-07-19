@@ -13,12 +13,12 @@ import { registerThemeCompletionValidatorAbility } from './theme-completion-vali
 export const THEME_COMPLETION_REGISTRATION_KEY =
 	'__sdAiAgentThemeCompletionValidatorRegistering';
 
-/** Shared registration key awaited by the chat send-message thunk. */
-const ABILITIES_REGISTRATION_KEY = '__sdAiAgentAbilitiesRegistering';
-
 /**
  * Register the generated-theme completion validator after the shared client
- * ability category and base abilities have completed registration.
+ * ability category and base abilities have completed registration. This
+ * intentionally does not extend the shared registration promise: the local
+ * descriptor and callback are published synchronously before the WordPress
+ * registry request settles, so a slow core registration cannot block chat.
  *
  * @return {Promise<void>} Registration promise.
  */
@@ -31,7 +31,6 @@ export function ensureThemeCompletionValidatorRegistered() {
 		registerThemeCompletionValidatorAbility()
 	);
 	window[ THEME_COMPLETION_REGISTRATION_KEY ] = registrationPromise;
-	window[ ABILITIES_REGISTRATION_KEY ] = registrationPromise;
 
 	return registrationPromise;
 }
