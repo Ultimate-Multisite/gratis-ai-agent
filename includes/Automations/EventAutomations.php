@@ -10,6 +10,8 @@ declare(strict_types=1);
 
 namespace SdAiAgent\Automations;
 
+use SdAiAgent\Core\Database;
+
 class EventAutomations {
 
 	/**
@@ -31,11 +33,11 @@ class EventAutomations {
 		global $wpdb;
 		/** @var \wpdb $wpdb */
 
-		$table = self::table_name();
-		if ( ! self::table_exists( $table ) ) {
+		if ( ! self::database_is_installed() ) {
 			return [];
 		}
 
+		$table = self::table_name();
 		$where = $enabled_only ? 'WHERE enabled = 1' : '';
 
 		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.InterpolatedNotPrepared, PluginCheck.Security.DirectDB.UnescapedDBParameter -- Custom table query; table/column names from internal methods, not user input.
@@ -45,24 +47,15 @@ class EventAutomations {
 	}
 
 	/**
-	 * Check whether the event automations table exists for the current site.
+	 * Check whether the AI Agent database has been installed for the current site.
 	 *
-	 * Network-activated multisite installs can reach subsites before this custom
-	 * table has been created for the current blog. Guarding the read prevents a
-	 * failed SELECT from running on every request while event hooks attach.
-	 *
-	 * @param string $table Event automations table name.
+	 * Database::install() persists its version in an autoloaded option only after
+	 * it creates the plugin tables. Network-activated multisite installs can reach
+	 * a subsite before that happens, so this avoids both failed SELECT queries and
+	 * per-request schema discovery while event hooks attach.
 	 */
-	private static function table_exists( string $table ): bool {
-		global $wpdb;
-		/** @var \wpdb $wpdb */
-
-		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Schema existence check for custom table before querying it.
-		$found = $wpdb->get_var(
-			$wpdb->prepare( 'SHOW TABLES LIKE %s', $wpdb->esc_like( $table ) )
-		);
-
-		return $found === $table;
+	private static function database_is_installed(): bool {
+		return false !== get_option( Database::DB_VERSION_OPTION, false );
 	}
 
 	/**

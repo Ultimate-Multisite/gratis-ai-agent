@@ -769,7 +769,7 @@ class Database {
 		// Seed built-in agents (onboarding, general, content-creator, seo, ecommerce).
 		Agent::seed_defaults();
 
-		update_option( self::DB_VERSION_OPTION, self::DB_VERSION );
+		update_option( self::DB_VERSION_OPTION, self::DB_VERSION, true );
 	}
 
 	/**
