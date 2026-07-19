@@ -423,6 +423,13 @@ class ToolCapabilitiesTest extends WP_UnitTestCase {
 			'sd-ai-agent/file-write',
 			'sd-ai-agent/navigate',
 			'sd-ai-agent/compile-design-tokens',
+			'sd-ai-agent/list-style-variations',
+			'sd-ai-agent/create-style-variation',
+			'sd-ai-agent/update-style-variation',
+			'sd-ai-agent/validate-style-variation',
+			'sd-ai-agent/preview-style-variation',
+			'sd-ai-agent/select-style-variation',
+			'sd-ai-agent/reset-style-variation',
 		];
 
 		foreach ( $expected as $id ) {
@@ -438,5 +445,26 @@ class ToolCapabilitiesTest extends WP_UnitTestCase {
 			[ 'edit_theme_options' ],
 			ToolCapabilities::resolve_core_caps( 'sd-ai-agent/compile-design-tokens' )
 		);
+	}
+
+	/**
+	 * Style-variation lifecycle abilities stay behind the standard theme gate.
+	 */
+	public function test_style_variation_lifecycle_requires_edit_theme_options(): void {
+		foreach ( [
+			'sd-ai-agent/list-style-variations',
+			'sd-ai-agent/create-style-variation',
+			'sd-ai-agent/update-style-variation',
+			'sd-ai-agent/validate-style-variation',
+			'sd-ai-agent/preview-style-variation',
+			'sd-ai-agent/select-style-variation',
+			'sd-ai-agent/reset-style-variation',
+		] as $ability ) {
+			$this->assertSame(
+				[ 'edit_theme_options' ],
+				ToolCapabilities::resolve_core_caps( $ability ),
+				$ability
+			);
+		}
 	}
 }
