@@ -232,6 +232,36 @@ When calling `sd-ai-agent/update-global-styles`, pass only the inner `styles` an
 }
 ```
 
+### Generated design artifact governance
+
+Generated token sets, block patterns, and style variations are versioned release
+artifacts, not ordinary theme edits. Before producing any of those assets:
+
+1. Use one schema-v1 manifest entry with a stable `sd-ai-agent/token_set/...`,
+   `sd-ai-agent/pattern/...`, or `sd-ai-agent/style_variation/...` ID and a
+   numeric Semantic Versioning `version`.
+2. Include `maturity` (`stable`, `candidate`, `experimental`, or `deprecated`),
+   provenance, compatibility, deprecation metadata when applicable, and a
+   canonical integrity/content hash. Do not invent parallel lifecycle fields.
+3. Declare WordPress and `theme.json` compatibility ranges plus required blocks,
+   features, and theme constraints. Incompatible artifacts are rejected before
+   any pin or maturity rule is considered.
+4. Use `sd-ai-agent/resolve-design-artifacts` to inspect the deterministic
+   decision trace. Stable is the default; candidate needs explicit opt-in,
+   experimental needs per-artifact opt-in, deprecated is never a new default,
+   and automatic selection never crosses a Semantic Versioning major version.
+5. Use `sd-ai-agent/apply-design-artifact-release` for generated writes and
+   `sd-ai-agent/rollback-design-artifact-release` only with an exact retained
+   release ID. The release manager stages and validates first, moves the active
+   pointer last, restores the previous complete release after failure, and
+   refuses to claim or overwrite an existing unmanaged target.
+
+Never use `sd-ai-agent/curated-block-patterns`, direct writes to `patterns/` or
+`styles/`, or ordinary global-style editing to bypass governed generated output.
+Those ordinary user-created patterns and customizations remain outside the
+generated-artifact registry and must not be silently imported, rewritten, or
+deleted.
+
 ### Typography presets — choose distinctive fonts
 
 Avoid generic fonts (Arial, Inter when used as a default). Pair a **distinctive display font** with a **refined body font**. A workable 6-step size scale:

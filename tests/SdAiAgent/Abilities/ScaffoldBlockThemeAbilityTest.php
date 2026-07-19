@@ -473,6 +473,27 @@ class ScaffoldBlockThemeAbilityTest extends WP_UnitTestCase {
 		$this->assertContains( 'footer', $part_names, 'templateParts must include a footer entry.' );
 	}
 
+	/**
+	 * Every generated theme starts with an empty valid design-artifact registry.
+	 */
+	public function test_scaffold_seeds_empty_design_artifact_manifest(): void {
+		$slug    = $this->unique_slug( 'artifact-manifest' );
+		$ability = new ScaffoldBlockThemeAbility( 'sd-ai-agent/scaffold-block-theme' );
+
+		$result = $ability->run( [ 'slug' => $slug, 'name' => 'Artifact Manifest Theme' ] );
+
+		$this->assertIsArray( $result, is_wp_error( $result ) ? $result->get_error_message() : '' );
+		$this->assertContains( '.sd-ai-agent/design-artifacts/manifest.json', $result['files'] );
+
+		$path     = trailingslashit( get_theme_root() ) . $slug . '/.sd-ai-agent/design-artifacts/manifest.json';
+		$manifest = json_decode( (string) file_get_contents( $path ), true );
+
+		$this->assertIsArray( $manifest );
+		$this->assertSame( 1, $manifest['schema_version'] );
+		$this->assertSame( $slug, $manifest['theme']['stylesheet'] );
+		$this->assertSame( [], $manifest['artifacts'] );
+	}
+
 	// ── Helpers ───────────────────────────────────────────────────────────
 
 	/**

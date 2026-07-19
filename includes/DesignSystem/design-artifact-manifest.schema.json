@@ -1,0 +1,140 @@
+{
+	"$schema": "https://json-schema.org/draft/2020-12/schema",
+	"$id": "https://superdav.ai/schemas/design-artifact-manifest-v1.json",
+	"title": "Superdav AI Agent design artifact manifest",
+	"description": "Schema-v1 registry for generated token sets, block patterns, and style variations.",
+	"type": "object",
+	"required": [ "schema_version", "artifacts" ],
+	"properties": {
+		"schema_version": { "const": 1 },
+		"theme": {
+			"type": "object",
+			"properties": {
+				"stylesheet": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]*$" }
+			},
+			"required": [ "stylesheet" ],
+			"additionalProperties": true
+		},
+		"artifacts": {
+			"type": "array",
+			"items": { "$ref": "#/$defs/artifact" }
+		}
+	},
+	"additionalProperties": true,
+	"$defs": {
+		"semver": {
+			"type": "string",
+			"pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(?:-(?:0|[1-9][0-9]*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*)(?:\\.(?:0|[1-9][0-9]*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*))*)?(?:\\+[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?$"
+		},
+		"artifact": {
+			"type": "object",
+			"required": [ "id", "kind", "version", "maturity", "provenance", "compatibility", "payload", "integrity" ],
+			"properties": {
+				"id": {
+					"type": "string",
+					"pattern": "^sd-ai-agent/(?:token_set|pattern|style_variation)/[a-z0-9][a-z0-9._-]*$"
+				},
+				"kind": { "enum": [ "token_set", "pattern", "style_variation" ] },
+				"version": { "$ref": "#/$defs/semver" },
+				"maturity": { "enum": [ "stable", "candidate", "experimental", "deprecated" ] },
+				"provenance": {
+					"type": "object",
+					"required": [ "generator_version", "source_type", "source_reference", "generated_at", "input_hash" ],
+					"properties": {
+						"generator_version": { "$ref": "#/$defs/semver" },
+						"source_type": { "type": "string", "minLength": 1 },
+						"source_reference": { "type": "string", "minLength": 1 },
+						"generated_at": { "type": "string", "format": "date-time" },
+						"input_hash": { "type": "string", "pattern": "^[a-fA-F0-9]{64}$" }
+					},
+					"additionalProperties": true
+				},
+				"compatibility": {
+					"type": "object",
+					"required": [ "wordpress", "theme_json", "required_blocks", "required_features", "theme_constraints" ],
+					"properties": {
+						"wordpress": {
+							"type": "object",
+							"required": [ "min" ],
+							"properties": {
+								"min": { "type": "string", "pattern": "^\\d+(?:\\.\\d+){1,2}(?:-[0-9A-Za-z.-]+)?$" },
+								"max": { "type": [ "string", "null" ], "pattern": "^\\d+(?:\\.\\d+){1,2}(?:-[0-9A-Za-z.-]+)?$" }
+							},
+							"additionalProperties": true
+						},
+						"theme_json": {
+							"type": "object",
+							"required": [ "min" ],
+							"properties": {
+								"min": { "type": "integer", "minimum": 1 },
+								"max": { "type": [ "integer", "null" ], "minimum": 1 }
+							},
+							"additionalProperties": true
+						},
+						"required_blocks": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+						"required_features": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+						"theme_constraints": { "type": "array", "items": { "type": "string", "minLength": 1 } }
+					},
+					"additionalProperties": true
+				},
+				"deprecation": {
+					"type": "object",
+					"required": [ "reason", "replacement", "removal_target" ],
+					"properties": {
+						"reason": { "type": "string", "minLength": 1 },
+						"replacement": { "type": "string", "minLength": 1 },
+						"removal_target": { "type": "string", "minLength": 1 }
+					},
+					"additionalProperties": true
+				},
+				"payload": {
+					"type": "object",
+					"required": [ "files", "records" ],
+					"properties": {
+						"files": {
+							"type": "array",
+							"items": {
+								"type": "object",
+								"required": [ "path", "content" ],
+								"properties": {
+									"path": { "type": "string", "minLength": 1 },
+									"content": { "type": "string" }
+								},
+								"additionalProperties": true
+							}
+						},
+						"records": {
+							"type": "array",
+							"items": {
+								"type": "object",
+								"required": [ "id", "post_type", "post_content" ],
+								"properties": {
+									"id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9_-]*$" },
+									"post_type": { "enum": [ "wp_block", "wp_global_styles" ] },
+									"post_content": { "type": "string" }
+								},
+								"additionalProperties": true
+							}
+						}
+					},
+					"additionalProperties": true
+				},
+				"integrity": {
+					"type": "object",
+					"required": [ "content_hash" ],
+					"properties": {
+						"content_hash": { "type": "string", "pattern": "^[a-fA-F0-9]{64}$" }
+					},
+					"additionalProperties": true
+				}
+			},
+			"allOf": [
+				{
+					"if": { "properties": { "maturity": { "const": "deprecated" } }, "required": [ "maturity" ] },
+					"then": { "required": [ "deprecation" ] }
+				}
+			],
+			"additionalProperties": true
+		}
+	}
+}

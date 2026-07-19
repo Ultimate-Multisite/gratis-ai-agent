@@ -21,6 +21,7 @@ declare(strict_types=1);
 
 namespace SdAiAgent\Abilities;
 
+use SdAiAgent\DesignSystem\ArtifactReleaseManager;
 use WP_Error;
 
 if ( ! defined( 'ABSPATH' ) ) {
@@ -258,6 +259,12 @@ class ScaffoldBlockThemeAbility extends AbstractAbility {
 
 			$written[] = $relative;
 		}
+
+		$manifest = ( new ArtifactReleaseManager() )->seed_empty_manifest( $theme_dir, $slug );
+		if ( is_wp_error( $manifest ) ) {
+			return $manifest;
+		}
+		$written[] = '.sd-ai-agent/design-artifacts/manifest.json';
 
 		if ( $existed && $overwrite ) {
 			$overwritten = true;
