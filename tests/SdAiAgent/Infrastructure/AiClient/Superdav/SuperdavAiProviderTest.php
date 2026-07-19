@@ -117,10 +117,10 @@ final class SuperdavAiProviderTest extends WP_UnitTestCase {
 	}
 
 	/**
-	 * The bundled provider defaults clean installs to the pro managed alias.
+	 * The bundled provider defaults clean installs to the standard managed alias.
 	 */
-	public function test_default_model_is_managed_pro_alias(): void {
-		$this->assertSame( 'superdav-chat-pro', SuperdavAiProvider::default_model_id() );
+	public function test_default_model_is_managed_standard_alias(): void {
+		$this->assertSame( 'gpt-5.6-terra', SuperdavAiProvider::default_model_id() );
 	}
 
 	/**
@@ -210,8 +210,9 @@ final class SuperdavAiProviderTest extends WP_UnitTestCase {
 	 */
 	public function managed_model_effort_provider(): array {
 		return array(
-			'fast' => array( SuperdavAiProvider::FAST_MODEL_ID, 'medium' ),
-			'pro'  => array( SuperdavAiProvider::DEFAULT_MODEL_ID, 'high' ),
+			'fast'     => array( SuperdavAiProvider::FAST_MODEL_ID, 'low' ),
+			'standard' => array( SuperdavAiProvider::DEFAULT_MODEL_ID, 'medium' ),
+			'strong'   => array( SuperdavAiProvider::STRONG_MODEL_ID, 'high' ),
 		);
 	}
 
@@ -387,7 +388,7 @@ final class SuperdavAiProviderTest extends WP_UnitTestCase {
 			'gpt-5.5-pro'   => array( 'gpt-5.5-pro', true ),
 			'gpt-6'         => array( 'gpt-6', true ),
 			'gpt-4o'        => array( 'gpt-4o', false ),
-			'managed alias' => array( SuperdavAiProvider::DEFAULT_MODEL_ID, false ),
+			'managed alias' => array( SuperdavAiProvider::DEFAULT_MODEL_ID, true ),
 		);
 	}
 
