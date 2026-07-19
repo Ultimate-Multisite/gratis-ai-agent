@@ -182,6 +182,7 @@ class DesignTokenContractTest extends WP_UnitTestCase {
 			[ 'font_families', 0, 'fontFamily', 'system-ui, sans-serif)' ],
 			[ 'font_sizes', 0, 'size', 'calc(1rem))' ],
 			[ 'font_sizes', 0, 'size', 'calc(1rem 2rem)' ],
+			[ 'font_sizes', 0, 'size', 'calc(100%-2rem)' ],
 			[ 'font_sizes', 0, 'size', 'clamp(1rem)' ],
 			[ 'radii', 0, 'size', '-0.5rem' ],
 			[ 'shadows', 0, 'shadow', '0 2px 8px rgb(0 0 0 / 0.12))' ],
@@ -209,12 +210,14 @@ class DesignTokenContractTest extends WP_UnitTestCase {
 	public function test_normalize_accepts_well_formed_css_primitive_grammars(): void {
 		$contract                                              = $this->valid_contract();
 		$contract['primitives']['font_sizes'][1]['size']       = 'clamp(2rem, 4vw, 3.5rem)';
+		$contract['primitives']['radii'][0]['size']             = 'calc(1rem - 2px)';
 		$contract['primitives']['shadows'][0]['shadow']        = '0 2px 8px rgb(0 0 0 / 0.12), inset 0 0 1px hsl(20 30% 40% / 50%)';
 
 		$result = DesignTokenContract::normalize( $contract );
 
 		$this->assertNotWPError( $result );
 		$this->assertSame( 'clamp(2rem, 4vw, 3.5rem)', $result['primitives']['font_sizes']['heading']['size'] );
+		$this->assertSame( 'calc(1rem - 2px)', $result['primitives']['radii']['control']['size'] );
 		$this->assertSame( '0 2px 8px rgb(0 0 0 / 0.12), inset 0 0 1px hsl(20 30% 40% / 50%)', $result['primitives']['shadows']['control']['shadow'] );
 	}
 
