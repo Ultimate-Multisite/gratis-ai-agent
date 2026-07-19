@@ -120,7 +120,13 @@ final class SuperdavAiModelMetadataDirectory extends AbstractOpenAiCompatibleMod
 	 */
 	private static function image_supported_options(): array {
 		return array(
-			new SupportedOption( OptionEnum::inputModalities(), array( array( ModalityEnum::text() ) ) ),
+			new SupportedOption(
+				OptionEnum::inputModalities(),
+				array(
+					array( ModalityEnum::text() ),
+					array( ModalityEnum::text(), ModalityEnum::image() ),
+				)
+			),
 			new SupportedOption( OptionEnum::outputModalities(), array( array( ModalityEnum::image() ) ) ),
 			new SupportedOption( OptionEnum::candidateCount() ),
 			new SupportedOption( OptionEnum::outputMimeType(), array( 'image/png', 'image/jpeg', 'image/webp' ) ),

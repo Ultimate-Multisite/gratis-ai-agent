@@ -20,10 +20,15 @@ use SdAiAgent\Infrastructure\AiClient\Superdav\SuperdavAiResponsesToolSearchText
 use SdAiAgent\Infrastructure\AiClient\Superdav\SuperdavAiTextGenerationModel;
 use WP_UnitTestCase;
 use WordPress\AiClient\AiClient;
+use WordPress\AiClient\Files\DTO\File;
 use WordPress\AiClient\Messages\DTO\MessagePart;
 use WordPress\AiClient\Messages\DTO\ModelMessage;
 use WordPress\AiClient\Messages\DTO\UserMessage;
 use WordPress\AiClient\Messages\Enums\MessagePartChannelEnum;
+use WordPress\AiClient\Messages\Enums\ModalityEnum;
+use WordPress\AiClient\Providers\Http\Contracts\HttpTransporterInterface;
+use WordPress\AiClient\Providers\Http\Contracts\RequestAuthenticationInterface;
+use WordPress\AiClient\Providers\Http\DTO\Request;
 use WordPress\AiClient\Providers\Http\DTO\RequestOptions;
 use WordPress\AiClient\Providers\Http\DTO\Response;
 use WordPress\AiClient\Providers\Http\Enums\HttpMethodEnum;
@@ -281,6 +286,15 @@ final class SuperdavAiProviderTest extends WP_UnitTestCase {
 		$this->assertContains( 'outputMimeType', $option_names );
 		$this->assertContains( 'outputFileType', $option_names );
 		$this->assertContains( 'outputMediaOrientation', $option_names );
+
+		$input_modalities = array_values(
+			array_filter(
+				$model->getSupportedOptions(),
+				static fn( SupportedOption $option ): bool => 'inputModalities' === $option->getName()->value
+			)
+		);
+		$this->assertCount( 1, $input_modalities );
+		$this->assertTrue( $input_modalities[0]->isSupportedValue( array( ModalityEnum::text(), ModalityEnum::image() ) ) );
 	}
 
 	/**
@@ -303,6 +317,67 @@ final class SuperdavAiProviderTest extends WP_UnitTestCase {
 		);
 
 		$this->assertInstanceOf( SuperdavAiImageGenerationModel::class, $model );
+	}
+
+	/**
+	 * Image prompts use the OpenAI-compatible edit endpoint with a multipart upload.
+	 */
+	public function test_image_edit_request_uses_multipart_edits_endpoint(): void {
+		$this->skip_if_sdk_unavailable();
+
+		$model = new SuperdavAiImageGenerationModel(
+			new ModelMetadata(
+				SuperdavAiProvider::IMAGE_MODEL_ID,
+				'Superdav Image',
+				array( CapabilityEnum::imageGeneration() ),
+				array()
+			),
+			SuperdavAiProvider::metadata()
+		);
+		$transporter = new class() implements HttpTransporterInterface {
+			public ?Request $request = null;
+
+			public function send( Request $request, ?RequestOptions $options = null ): Response {
+				$this->request = $request;
+
+				return new Response(
+					200,
+					array( 'content-type' => 'application/json' ),
+					'{"created":123,"data":[{"b64_json":"AQ=="}]}'
+				);
+			}
+		};
+		$authentication = new class() implements RequestAuthenticationInterface {
+			public function authenticateRequest( Request $request ): Request {
+				return $request;
+			}
+
+			public static function getJsonSchema(): array {
+				return array();
+			}
+		};
+
+		$model->setHttpTransporter( $transporter );
+		$model->setRequestAuthentication( $authentication );
+		$result = $model->generateImageResult(
+			array(
+				new UserMessage(
+					array(
+						new MessagePart( 'Replace the background with a beach.' ),
+						new MessagePart( new File( 'data:image/png;base64,AQ==' ) ),
+					)
+				),
+			)
+		);
+
+		$this->assertSame( 'img-123', $result->getId() );
+		$this->assertInstanceOf( Request::class, $transporter->request );
+		$this->assertSame( 'https://api.sdaiagent.com/v1/images/edits', $transporter->request->getUri() );
+		$this->assertStringStartsWith( 'multipart/form-data; boundary=', (string) $transporter->request->getHeaderAsString( 'Content-Type' ) );
+		$this->assertStringContainsString( 'name="model"', (string) $transporter->request->getBody() );
+		$this->assertStringContainsString( 'name="prompt"', (string) $transporter->request->getBody() );
+		$this->assertStringContainsString( 'name="image"; filename="image.png"', (string) $transporter->request->getBody() );
+		$this->assertStringContainsString( "\r\n\x01\r\n", (string) $transporter->request->getBody() );
 	}
 
 	/**
