@@ -162,4 +162,26 @@ class BlockThemesSkillTest extends WP_UnitTestCase {
 			$this->assertStringContainsString( $pattern, $content );
 		}
 	}
+
+	/**
+	 * Homepage composition uses a selected structural family without fabricating content.
+	 */
+	public function test_block_themes_skill_documents_landing_page_pattern_selection(): void {
+		$content = Skill::get_builtin_definitions()['wp-block-themes']['content'];
+
+		$required_patterns = [
+			'### Select a pattern family before composition',
+			'sd-ai-agent/list-landing-page-pattern-families',
+			'sd-ai-agent/select-landing-page-pattern-family',
+			'requires_clarification',
+			'`core/*`',
+			'allowlist',
+			'Keep visual direction and design-token selection separate',
+			'never provide copy,',
+		];
+
+		foreach ( $required_patterns as $pattern ) {
+			$this->assertStringContainsString( $pattern, $content );
+		}
+	}
 }

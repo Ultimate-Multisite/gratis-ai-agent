@@ -49,6 +49,7 @@ use SdAiAgent\Abilities\GscAbilities;
 use SdAiAgent\Abilities\ImageAbilities;
 use SdAiAgent\Abilities\InternetSearchAbilities;
 use SdAiAgent\Abilities\KnowledgeAbilities;
+use SdAiAgent\Abilities\LandingPagePatternAbilities;
 use SdAiAgent\Abilities\ListAllowedRootsAbility;
 use SdAiAgent\Abilities\SiteScrapeAbility;
 use SdAiAgent\Abilities\MarketingAbilities;
@@ -168,6 +169,7 @@ final class AbilitiesHandler {
 		ImageAbilities::register_abilities();
 		DesignSystemAbilities::register_abilities();
 		DesignSystemArtifactAbilities::register_abilities();
+		LandingPagePatternAbilities::register_abilities();
 	}
 
 	/**
