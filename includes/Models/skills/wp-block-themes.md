@@ -190,25 +190,12 @@ Every palette must define the five semantic roles `foreground`, `background`, `s
 {
   "settings": {
     "appearanceTools": true,
-    "color": {
-      "palette": [
-        { "slug": "foreground", "color": "#1a1a1a", "name": "Foreground" },
-        { "slug": "background", "color": "#ffffff", "name": "Background" },
-        { "slug": "surface",    "color": "#f5f5f5", "name": "Surface" },
-        { "slug": "accent",     "color": "#b21f2d", "name": "Accent" },
-        { "slug": "on-accent",  "color": "#ffffff", "name": "On Accent" }
-      ],
-      "defaultPalette": false,
-      "defaultGradients": false
-    },
+    "color": { "palette": [
+      { "slug": "foreground", "color": "#1a1a1a", "name": "Foreground" }, { "slug": "background", "color": "#ffffff", "name": "Background" },
+      { "slug": "surface", "color": "#f5f5f5", "name": "Surface" }, { "slug": "accent", "color": "#b21f2d", "name": "Accent" }, { "slug": "on-accent", "color": "#ffffff", "name": "On Accent" }
+    ], "defaultPalette": false, "defaultGradients": false },
     "typography": { "fluid": true, "fontFamilies": [], "fontSizes": [] },
-    "spacing": {
-      "units": ["px", "em", "rem", "%", "vw", "vh"],
-      "spacingSizes": [
-        { "slug": "40", "size": "1rem",   "name": "Regular" },
-        { "slug": "60", "size": "2.5rem", "name": "Looser" }
-      ]
-    },
+    "spacing": { "units": ["px", "em", "rem", "%", "vw", "vh"], "spacingSizes": [ { "slug": "40", "size": "1rem", "name": "Regular" }, { "slug": "60", "size": "2.5rem", "name": "Looser" } ] },
     "layout": { "contentSize": "720px", "wideSize": "1200px" }
   }
 }
@@ -234,33 +221,13 @@ When calling `sd-ai-agent/update-global-styles`, pass only the inner `styles` an
 
 ### Generated design artifact governance
 
-Generated token sets, block patterns, and style variations are versioned release
-artifacts, not ordinary theme edits. Before producing any of those assets:
+Generated token sets, block patterns, and style variations are versioned releases, not ordinary edits.
 
-1. Use one schema-v1 manifest entry with a stable `sd-ai-agent/token_set/...`,
-   `sd-ai-agent/pattern/...`, or `sd-ai-agent/style_variation/...` ID and a
-   numeric Semantic Versioning `version`.
-2. Include `maturity` (`stable`, `candidate`, `experimental`, or `deprecated`),
-   provenance, compatibility, deprecation metadata when applicable, and a
-   canonical integrity/content hash. Do not invent parallel lifecycle fields.
-3. Declare WordPress and `theme.json` compatibility ranges plus required blocks,
-   features, and theme constraints. Incompatible artifacts are rejected before
-   any pin or maturity rule is considered.
-4. Use `sd-ai-agent/resolve-design-artifacts` to inspect the deterministic
-   decision trace. Stable is the default; candidate needs explicit opt-in,
-   experimental needs per-artifact opt-in, deprecated is never a new default,
-   and automatic selection never crosses a Semantic Versioning major version.
-5. Use `sd-ai-agent/apply-design-artifact-release` for generated writes and
-   `sd-ai-agent/rollback-design-artifact-release` only with an exact retained
-   release ID. The release manager stages and validates first, moves the active
-   pointer last, restores the previous complete release after failure, and
-   refuses to claim or overwrite an existing unmanaged target.
+1. Use one schema-v1 entry with a stable `sd-ai-agent/token_set/...`, `sd-ai-agent/pattern/...`, or `sd-ai-agent/style_variation/...` ID; numeric Semantic Versioning `version`; `maturity` (`stable`, `candidate`, `experimental`, or `deprecated`); provenance; compatibility; applicable deprecation metadata; and a canonical content hash. Do not invent parallel lifecycle fields.
+2. Declare WordPress/`theme.json` ranges, required blocks/features, and theme constraints. Incompatible artifacts are rejected first; inspect the deterministic trace with `sd-ai-agent/resolve-design-artifacts`. Stable is default; candidate and experimental require explicit opt-in, deprecated is never a new default, and automatic selection never crosses a major version.
+3. Use `sd-ai-agent/apply-design-artifact-release` for generated writes and `sd-ai-agent/rollback-design-artifact-release` only with an exact retained release ID. The manager stages and validates before moving the active pointer, restores complete prior state after failure, and refuses unmanaged targets.
 
-Never use `sd-ai-agent/curated-block-patterns`, direct writes to `patterns/` or
-`styles/`, or ordinary global-style editing to bypass governed generated output.
-Those ordinary user-created patterns and customizations remain outside the
-generated-artifact registry and must not be silently imported, rewritten, or
-deleted.
+Never use `sd-ai-agent/curated-block-patterns`, direct `patterns/`/`styles/` writes, or ordinary global-style editing to bypass this contract. Ordinary user-created patterns and customizations remain outside the registry and must not be silently imported, rewritten, or deleted.
 
 ### Typography presets — choose distinctive fonts
 
