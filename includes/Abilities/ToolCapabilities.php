@@ -134,6 +134,8 @@ class ToolCapabilities {
 		'sd-ai-agent/render-design-previews'     => 'edit_theme_options',
 		'sd-ai-agent/validate-palette-contrast'  => 'edit_theme_options',
 		'sd-ai-agent/compile-design-tokens'      => 'edit_theme_options',
+		'sd-ai-agent/list-landing-page-pattern-families' => 'edit_theme_options',
+		'sd-ai-agent/select-landing-page-pattern-family' => 'edit_theme_options',
 		'sd-ai-agent/generate-logo-svg'          => 'upload_files',
 
 		// ─── Menus ──────────────────────────────────────────────────────────
