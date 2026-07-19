@@ -127,7 +127,7 @@
 }
 
 /* Advanced companion */
-.sdaa-advanced-companion-card {
+.sd-ai-agent-advanced-companion-card {
 	align-items: center;
 	background: linear-gradient(135deg, #f0f6fc, #fff);
 	border: 1px solid #72aee6;
@@ -138,21 +138,21 @@
 	padding: 20px;
 }
 
-.sdaa-advanced-companion-card h3,
-.sdaa-advanced-companion-card p {
+.sd-ai-agent-advanced-companion-card h3,
+.sd-ai-agent-advanced-companion-card p {
 	margin: 0;
 }
 
-.sdaa-advanced-companion-card h3 {
+.sd-ai-agent-advanced-companion-card h3 {
 	font-size: 16px;
 	margin-bottom: 4px;
 }
 
-.sdaa-advanced-companion-card p:not(.sdaa-advanced-companion-card__eyebrow) {
+.sd-ai-agent-advanced-companion-card p:not(.sd-ai-agent-advanced-companion-card__eyebrow) {
 	max-width: 620px;
 }
 
-.sdaa-advanced-companion-card__eyebrow {
+.sd-ai-agent-advanced-companion-card__eyebrow {
 	color: #135e96;
 	font-size: 12px;
 	font-weight: 600;
@@ -161,12 +161,12 @@
 	text-transform: uppercase;
 }
 
-.sdaa-advanced-companion-card .button {
+.sd-ai-agent-advanced-companion-card .button {
 	flex: 0 0 auto;
 }
 
 @media screen and (max-width: 600px) {
-	.sdaa-advanced-companion-card {
+	.sd-ai-agent-advanced-companion-card {
 		align-items: flex-start;
 		flex-direction: column;
 		gap: 16px;

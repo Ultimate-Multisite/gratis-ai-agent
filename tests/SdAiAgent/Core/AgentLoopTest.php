@@ -1809,11 +1809,15 @@ class AgentLoopTest extends WP_UnitTestCase {
 	 * Test the Advanced companion guidance gives administrators a manual path.
 	 */
 	public function test_advanced_companion_guidance_links_to_manual_download(): void {
-		$guidance = SystemInstructionBuilder::build_advanced_companion_section();
+		$builder     = new SystemInstructionBuilder();
+		$guidance    = SystemInstructionBuilder::build_advanced_companion_section();
+		$instruction = $builder->build( array() );
 
 		$this->assertStringContainsString( 'sd_ai_agent_advanced_plugin_required', $guidance );
 		$this->assertStringContainsString( 'https://sdaiagent.com/advanced/', $guidance );
 		$this->assertStringContainsString( 'Do not attempt to download, install, activate, or update', $guidance );
+		$this->assertStringContainsString( 'sd_ai_agent_advanced_plugin_required', $instruction );
+		$this->assertStringContainsString( 'https://sdaiagent.com/advanced/', $instruction );
 	}
 
 	/**

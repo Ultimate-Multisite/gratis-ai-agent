@@ -1855,9 +1855,9 @@ export default function SettingsApp() {
 							case 'advanced':
 								return (
 									<div className="sdaa-settings-section">
-										<div className="sdaa-advanced-companion-card">
+										<div className="sd-ai-agent-advanced-companion-card">
 											<div>
-												<p className="sdaa-advanced-companion-card__eyebrow">
+												<p className="sd-ai-agent-advanced-companion-card__eyebrow">
 													{ __(
 														'Extend your toolkit',
 														'superdav-ai-agent'
