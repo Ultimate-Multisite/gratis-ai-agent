@@ -62,7 +62,7 @@ final class GlobalStylesService {
 	 */
 	public function get_user_document(): array {
 		$post = $this->get_user_post();
-		if ( ! $post ) {
+		if ( ! $post instanceof WP_Post ) {
 			return [];
 		}
 
@@ -77,7 +77,7 @@ final class GlobalStylesService {
 	public function get_user_post_id(): ?int {
 		$post = $this->get_user_post();
 
-		return $post ? (int) $post->ID : null;
+		return $post instanceof WP_Post ? (int) $post->ID : null;
 	}
 
 	/**
@@ -90,7 +90,11 @@ final class GlobalStylesService {
 		$post     = $this->get_user_post();
 		$document = [];
 
-		if ( $post ) {
+		if ( is_wp_error( $post ) ) {
+			return $post;
+		}
+
+		if ( $post instanceof WP_Post ) {
 			$decoded = json_decode( $post->post_content, true );
 			if ( is_array( $decoded ) ) {
 				$document = $decoded;
@@ -113,7 +117,7 @@ final class GlobalStylesService {
 		}
 
 		$created = false;
-		if ( ! $post ) {
+		if ( ! $post instanceof WP_Post ) {
 			$post = $this->create_user_post();
 			if ( is_wp_error( $post ) ) {
 				return $post;
@@ -155,7 +159,11 @@ final class GlobalStylesService {
 	 */
 	public function delete_user_document(): bool|WP_Error {
 		$post = $this->get_user_post();
-		if ( ! $post ) {
+		if ( is_wp_error( $post ) ) {
+			return $post;
+		}
+
+		if ( ! $post instanceof WP_Post ) {
 			return false;
 		}
 
@@ -176,40 +184,89 @@ final class GlobalStylesService {
 
 	/**
 	 * Resolve the active stylesheet's canonical post without creating one.
+	 *
+	 * @return WP_Post|WP_Error|null Canonical post, adoption error, or no post.
 	 */
-	private function get_user_post(): ?WP_Post {
+	private function get_user_post(): WP_Post|WP_Error|null {
 		if ( $this->userPostLoaded ) {
 			return $this->userPost;
 		}
 
 		$this->userPostLoaded = true;
 
+		$post = $this->get_canonical_user_post();
+		if ( $post instanceof WP_Post ) {
+			$this->userPost = $post;
+
+			return $this->userPost;
+		}
+
+		$legacy_post = $this->adopt_safe_legacy_post();
+		if ( is_wp_error( $legacy_post ) ) {
+			// Keep a transient adoption failure retryable on this service instance.
+			$this->userPostLoaded = false;
+
+			return $legacy_post;
+		}
+
+		$this->userPost = $legacy_post;
+
+		return $this->userPost;
+	}
+
+	/**
+	 * Resolve the active stylesheet's canonical post directly from WordPress.
+	 */
+	private function get_canonical_user_post(): ?WP_Post {
 		$user_data = WP_Theme_JSON_Resolver::get_user_data_from_wp_global_styles( wp_get_theme() );
 		$post_id   = isset( $user_data['ID'] ) ? (int) $user_data['ID'] : 0;
 
 		if ( $post_id > 0 ) {
 			$post = get_post( $post_id );
 			if ( $post instanceof WP_Post && 'wp_global_styles' === $post->post_type ) {
-				$this->userPost = $post;
-				return $this->userPost;
+				return $post;
 			}
 		}
 
-		$this->userPost = $this->adopt_safe_legacy_post();
-
-		return $this->userPost;
+		return null;
 	}
 
 	/**
-	 * Create a post through WordPress's active-theme Global Styles resolver.
+	 * Create a post with WordPress's canonical Global Styles fields.
 	 *
 	 * @return WP_Post|WP_Error Created canonical post or an error.
 	 */
 	private function create_user_post(): WP_Post|WP_Error {
-		$user_data = WP_Theme_JSON_Resolver::get_user_data_from_wp_global_styles( wp_get_theme(), true );
-		$post_id   = isset( $user_data['ID'] ) ? (int) $user_data['ID'] : 0;
-		$post      = $post_id > 0 ? get_post( $post_id ) : null;
+		$existing = $this->get_canonical_user_post();
+		if ( $existing instanceof WP_Post ) {
+			$this->userPost       = $existing;
+			$this->userPostLoaded = true;
 
+			return $existing;
+		}
+
+		$stylesheet = get_stylesheet();
+		$post_id    = wp_insert_post(
+			[
+				'post_content' => '{"version": ' . WP_Theme_JSON::LATEST_SCHEMA . ', "isGlobalStylesUserThemeJSON": true }',
+				'post_status'  => 'publish',
+				// Do not make string translatable, see https://core.trac.wordpress.org/ticket/54518.
+				'post_title'   => 'Custom Styles',
+				'post_type'    => 'wp_global_styles',
+				// phpcs:ignore WordPress.PHP.DiscouragedPHPFunctions.urlencode_urlencode -- Mirrors WordPress core's canonical Global Styles post name.
+				'post_name'    => sprintf( 'wp-global-styles-%s', urlencode( $stylesheet ) ),
+				'tax_input'    => [
+					'wp_theme' => [ $stylesheet ],
+				],
+			],
+			true
+		);
+
+		if ( is_wp_error( $post_id ) ) {
+			return $post_id;
+		}
+
+		$post = get_post( $post_id );
 		if ( ! $post instanceof WP_Post || 'wp_global_styles' !== $post->post_type ) {
 			return new WP_Error(
 				'global_styles_create_failed',
@@ -220,7 +277,17 @@ final class GlobalStylesService {
 		$assigned = $this->ensure_active_theme_assignment( $post );
 		if ( is_wp_error( $assigned ) ) {
 			wp_delete_post( $post->ID, true );
+
 			return $assigned;
+		}
+
+		$canonical = $this->get_canonical_user_post();
+		if ( $canonical instanceof WP_Post && $canonical->ID !== $post->ID ) {
+			wp_delete_post( $post->ID, true );
+			$this->userPost       = $canonical;
+			$this->userPostLoaded = true;
+
+			return $canonical;
 		}
 
 		$this->userPost       = $post;
@@ -238,7 +305,7 @@ final class GlobalStylesService {
 	 * post fallback. Ambiguous records and records assigned to another theme are
 	 * left untouched.
 	 */
-	private function adopt_safe_legacy_post(): ?WP_Post {
+	private function adopt_safe_legacy_post(): WP_Post|WP_Error|null {
 		$stylesheet = get_stylesheet();
 		$identity   = 'wp-global-styles-' . $stylesheet;
 		$candidates = [];
@@ -290,13 +357,21 @@ final class GlobalStylesService {
 			return null;
 		}
 
-		$document = json_decode( $post->post_content, true );
+		$original_content = $post->post_content;
+		$document         = json_decode( $original_content, true );
 		if ( ! is_array( $document ) ) {
-			return null;
+			return new WP_Error(
+				'global_styles_legacy_document_invalid',
+				__( 'The legacy global styles override contains invalid JSON.', 'superdav-ai-agent' )
+			);
 		}
 
 		$terms = wp_get_object_terms( $post->ID, 'wp_theme', [ 'fields' => 'names' ] );
-		if ( is_wp_error( $terms ) || ( ! empty( $terms ) && ! in_array( $stylesheet, $terms, true ) ) ) {
+		if ( is_wp_error( $terms ) ) {
+			return $terms;
+		}
+
+		if ( ! empty( $terms ) && ! in_array( $stylesheet, $terms, true ) ) {
 			return null;
 		}
 
@@ -308,9 +383,13 @@ final class GlobalStylesService {
 		);
 
 		if ( false === $json ) {
-			return null;
+			return new WP_Error(
+				'global_styles_adoption_encode_failed',
+				__( 'Failed to encode the legacy global styles override.', 'superdav-ai-agent' )
+			);
 		}
 
+		$content_updated = false;
 		if ( $json !== $post->post_content ) {
 			$updated = wp_update_post(
 				[
@@ -320,19 +399,76 @@ final class GlobalStylesService {
 				true
 			);
 			if ( is_wp_error( $updated ) ) {
-				return null;
+				return $updated;
 			}
-			$post->post_content = $json;
+			$content_updated = true;
 		}
 
 		$assigned = $this->ensure_active_theme_assignment( $post );
 		if ( is_wp_error( $assigned ) ) {
-			return null;
+			$rollback_error = $this->rollback_legacy_adoption(
+				$post,
+				$original_content,
+				$terms,
+				$content_updated
+			);
+
+			if ( is_wp_error( $rollback_error ) ) {
+				return new WP_Error(
+					'global_styles_adoption_rollback_failed',
+					__( 'Failed to restore the legacy global styles override after adoption failed.', 'superdav-ai-agent' ),
+					[
+						'adoption_error' => $assigned->get_error_code(),
+						'rollback_error' => $rollback_error->get_error_code(),
+					]
+				);
+			}
+
+			return $assigned;
 		}
 
+		$post->post_content = $json;
 		wp_clean_theme_json_cache();
 
 		return $post;
+	}
+
+	/**
+	 * Restore a legacy post after the second half of adoption fails.
+	 *
+	 * @param WP_Post           $post             Legacy post being restored.
+	 * @param string            $original_content Content before normalization.
+	 * @param array<int,string> $original_terms   Theme terms before assignment.
+	 * @param bool              $restore_content  Whether normalization was persisted.
+	 * @return WP_Error|null Rollback error, when restoration cannot complete.
+	 */
+	private function rollback_legacy_adoption(
+		WP_Post $post,
+		string $original_content,
+		array $original_terms,
+		bool $restore_content
+	): ?WP_Error {
+		$rollback_error = null;
+
+		if ( $restore_content ) {
+			$restored = wp_update_post(
+				[
+					'ID'           => $post->ID,
+					'post_content' => $original_content,
+				],
+				true
+			);
+			if ( is_wp_error( $restored ) ) {
+				$rollback_error = $restored;
+			}
+		}
+
+		$restored_terms = wp_set_object_terms( $post->ID, $original_terms, 'wp_theme' );
+		if ( is_wp_error( $restored_terms ) && ! is_wp_error( $rollback_error ) ) {
+			$rollback_error = $restored_terms;
+		}
+
+		return $rollback_error;
 	}
 
 	/**

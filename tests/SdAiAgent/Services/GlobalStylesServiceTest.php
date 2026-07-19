@@ -11,6 +11,7 @@ declare(strict_types=1);
 namespace SdAiAgent\Tests\Services;
 
 use SdAiAgent\Services\GlobalStylesService;
+use WP_Error;
 use WP_Theme_JSON;
 use WP_UnitTestCase;
 
@@ -136,6 +137,226 @@ class GlobalStylesServiceTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * Canonical insertion preserves the actionable WordPress error code.
+	 */
+	public function test_merge_user_document_preserves_canonical_insertion_error(): void {
+		$filter = static function ( bool $maybe_empty, array $postarr ): bool {
+			if ( 'wp_global_styles' === ( $postarr['post_type'] ?? '' ) && empty( $postarr['ID'] ) ) {
+				return true;
+			}
+
+			return $maybe_empty;
+		};
+
+		add_filter( 'wp_insert_post_empty_content', $filter, 10, 2 );
+		try {
+			$result = ( new GlobalStylesService() )->merge_user_document(
+				[
+					'styles' => [
+						'color' => [ 'text' => '#345678' ],
+					],
+				]
+			);
+		} finally {
+			remove_filter( 'wp_insert_post_empty_content', $filter, 10 );
+		}
+
+		$this->assertWPError( $result );
+		$this->assertSame( 'empty_content', $result->get_error_code() );
+		$this->assertSame( [], $this->get_global_styles_post_ids() );
+	}
+
+	/**
+	 * A failed legacy content update leaves the original record untouched.
+	 */
+	public function test_legacy_content_update_failure_preserves_original_record_and_does_not_create_duplicate(): void {
+		$legacy_id        = $this->create_legacy_active_theme_document(
+			[
+				'version' => 2,
+				'styles'  => [
+					'color' => [ 'text' => '#778899' ],
+				],
+			]
+		);
+		$original_content = get_post( $legacy_id )->post_content;
+		$filter           = static function ( bool $maybe_empty, array $postarr ) use ( $legacy_id ): bool {
+			if ( $legacy_id === (int) ( $postarr['ID'] ?? 0 ) ) {
+				return true;
+			}
+
+			return $maybe_empty;
+		};
+
+		add_filter( 'wp_insert_post_empty_content', $filter, 10, 2 );
+		try {
+			$result = ( new GlobalStylesService() )->merge_user_document(
+				[
+					'styles' => [
+						'color' => [ 'background' => '#112233' ],
+					],
+				]
+			);
+		} finally {
+			remove_filter( 'wp_insert_post_empty_content', $filter, 10 );
+		}
+
+		$this->assertWPError( $result );
+		$this->assertSame( 'empty_content', $result->get_error_code() );
+		$this->assertSame( $original_content, get_post( $legacy_id )->post_content );
+		$this->assertSame( [], wp_get_object_terms( $legacy_id, 'wp_theme', [ 'fields' => 'names' ] ) );
+		$this->assertSame( [ $legacy_id ], $this->get_global_styles_post_ids() );
+	}
+
+	/**
+	 * A failed legacy theme assignment restores both content and terms.
+	 */
+	public function test_legacy_theme_assignment_failure_rolls_back_without_creating_duplicate(): void {
+		$legacy_id        = $this->create_legacy_active_theme_document(
+			[
+				'version' => 2,
+				'styles'  => [
+					'color' => [ 'text' => '#778899' ],
+				],
+			]
+		);
+		$original_content = get_post( $legacy_id )->post_content;
+		$stylesheet       = get_stylesheet();
+		$this->delete_active_theme_term();
+		$filter = static function ( string|WP_Error $term, string $taxonomy ) use ( $stylesheet ): string|WP_Error {
+			if ( 'wp_theme' === $taxonomy && $stylesheet === $term ) {
+				return new WP_Error( 'theme_assignment_failed', 'Theme assignment failed.' );
+			}
+
+			return $term;
+		};
+
+		add_filter( 'pre_insert_term', $filter, 10, 2 );
+		try {
+			$result = ( new GlobalStylesService() )->merge_user_document(
+				[
+					'styles' => [
+						'color' => [ 'background' => '#112233' ],
+					],
+				]
+			);
+		} finally {
+			remove_filter( 'pre_insert_term', $filter, 10 );
+		}
+
+		$this->assertWPError( $result );
+		$this->assertSame( 'theme_assignment_failed', $result->get_error_code() );
+		$this->assertSame( $original_content, get_post( $legacy_id )->post_content );
+		$this->assertSame( [], wp_get_object_terms( $legacy_id, 'wp_theme', [ 'fields' => 'names' ] ) );
+		$this->assertSame( [ $legacy_id ], $this->get_global_styles_post_ids() );
+	}
+
+	/**
+	 * A rollback failure remains distinguishable from the original adoption error.
+	 */
+	public function test_legacy_adoption_reports_rollback_failure(): void {
+		$legacy_id        = $this->create_legacy_active_theme_document(
+			[
+				'version' => 2,
+				'styles'  => [
+					'color' => [ 'text' => '#778899' ],
+				],
+			]
+		);
+		$original_content = get_post( $legacy_id )->post_content;
+		$stylesheet       = get_stylesheet();
+		$this->delete_active_theme_term();
+		$term_filter = static function ( string|WP_Error $term, string $taxonomy ) use ( $stylesheet ): string|WP_Error {
+			if ( 'wp_theme' === $taxonomy && $stylesheet === $term ) {
+				return new WP_Error( 'theme_assignment_failed', 'Theme assignment failed.' );
+			}
+
+			return $term;
+		};
+		$update_filter = static function ( bool $maybe_empty, array $postarr ) use ( $legacy_id, $original_content ): bool {
+			if ( $legacy_id === (int) ( $postarr['ID'] ?? 0 ) && $original_content === ( $postarr['post_content'] ?? '' ) ) {
+				return true;
+			}
+
+			return $maybe_empty;
+		};
+
+		add_filter( 'pre_insert_term', $term_filter, 10, 2 );
+		add_filter( 'wp_insert_post_empty_content', $update_filter, 10, 2 );
+		try {
+			$result = ( new GlobalStylesService() )->merge_user_document(
+				[
+					'styles' => [
+						'color' => [ 'background' => '#112233' ],
+					],
+				]
+			);
+		} finally {
+			remove_filter( 'pre_insert_term', $term_filter, 10 );
+			remove_filter( 'wp_insert_post_empty_content', $update_filter, 10 );
+		}
+
+		$this->assertWPError( $result );
+		$this->assertSame( 'global_styles_adoption_rollback_failed', $result->get_error_code() );
+		$this->assertSame( 'theme_assignment_failed', $result->get_error_data()['adoption_error'] );
+		$this->assertSame( 'empty_content', $result->get_error_data()['rollback_error'] );
+		$this->assertNotSame( $original_content, get_post( $legacy_id )->post_content );
+		$this->assertSame( [], wp_get_object_terms( $legacy_id, 'wp_theme', [ 'fields' => 'names' ] ) );
+		$this->assertSame( [ $legacy_id ], $this->get_global_styles_post_ids() );
+	}
+
+	/**
+	 * A retry after transient legacy adoption failure reuses one canonical post.
+	 */
+	public function test_legacy_adoption_retry_reuses_one_canonical_post(): void {
+		$legacy_id  = $this->create_legacy_active_theme_document(
+			[
+				'version' => 2,
+				'styles'  => [
+					'color' => [ 'text' => '#778899' ],
+				],
+			]
+		);
+		$stylesheet = get_stylesheet();
+		$this->delete_active_theme_term();
+		$filter = static function ( string|WP_Error $term, string $taxonomy ) use ( $stylesheet ): string|WP_Error {
+			if ( 'wp_theme' === $taxonomy && $stylesheet === $term ) {
+				return new WP_Error( 'theme_assignment_failed', 'Theme assignment failed.' );
+			}
+
+			return $term;
+		};
+		$service = new GlobalStylesService();
+
+		add_filter( 'pre_insert_term', $filter, 10, 2 );
+		try {
+			$failed = $service->merge_user_document(
+				[
+					'styles' => [
+						'color' => [ 'background' => '#112233' ],
+					],
+				]
+			);
+		} finally {
+			remove_filter( 'pre_insert_term', $filter, 10 );
+		}
+
+		$this->assertWPError( $failed );
+
+		$retried = $service->merge_user_document(
+			[
+				'styles' => [
+					'color' => [ 'background' => '#112233' ],
+				],
+			]
+		);
+
+		$this->assertIsArray( $retried );
+		$this->assertSame( $legacy_id, $retried['post_id'] );
+		$this->assertSame( [ $stylesheet ], wp_get_object_terms( $legacy_id, 'wp_theme', [ 'fields' => 'names' ] ) );
+		$this->assertSame( [ $legacy_id ], $this->get_global_styles_post_ids() );
+	}
+
+	/**
 	 * A record assigned to another stylesheet is never returned, changed, or deleted.
 	 */
 	public function test_competing_theme_record_is_isolated_from_active_theme_operations(): void {
@@ -237,5 +458,62 @@ class GlobalStylesServiceTest extends WP_UnitTestCase {
 		$this->assertNotWPError( $terms );
 
 		return $post_id;
+	}
+
+	/**
+	 * Create a legacy active-theme document without a wp_theme taxonomy term.
+	 *
+	 * @param array<string,mixed> $document User-level theme.json document.
+	 * @return int Post ID.
+	 */
+	private function create_legacy_active_theme_document( array $document ): int {
+		$stylesheet = get_stylesheet();
+		$post_id    = wp_insert_post(
+			[
+				'post_content' => wp_json_encode( $document ),
+				'post_status'  => 'publish',
+				'post_title'   => 'Custom Styles',
+				'post_type'    => 'wp_global_styles',
+				'post_name'    => 'wp-global-styles-' . $stylesheet,
+			],
+			true
+		);
+		$this->assertNotWPError( $post_id );
+		update_post_meta( $post_id, 'link', 'wp-global-styles-' . $stylesheet );
+
+		return $post_id;
+	}
+
+	/**
+	 * Return all persisted Global Styles post IDs in a predictable order.
+	 *
+	 * @return list<int>
+	 */
+	private function get_global_styles_post_ids(): array {
+		$post_ids = get_posts(
+			[
+				'post_type'      => 'wp_global_styles',
+				'post_status'    => 'publish',
+				'posts_per_page' => -1,
+				'fields'         => 'ids',
+				'orderby'        => 'ID',
+				'order'          => 'ASC',
+			]
+		);
+
+		return array_map( 'intval', $post_ids );
+	}
+
+	/**
+	 * Remove the active stylesheet term so the next assignment reaches wp_insert_term().
+	 */
+	private function delete_active_theme_term(): void {
+		$term = term_exists( get_stylesheet(), 'wp_theme' );
+		if ( ! $term ) {
+			return;
+		}
+
+		$term_id = is_array( $term ) ? (int) $term['term_id'] : (int) $term;
+		wp_delete_term( $term_id, 'wp_theme' );
 	}
 }
