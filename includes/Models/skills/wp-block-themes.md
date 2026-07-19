@@ -39,7 +39,7 @@ In mixed reports #2034, #2050, #2060, #2066, #2074, and #2081, this is only the 
 4. Put templates in `templates/*.html`; put template parts directly in `parts/*.html` (not nested subdirectories).
 5. Prefer filesystem-owned patterns under `patterns/*.php` when the theme should ship reusable layouts.
 6. Put style variations in `styles/*.json`; use the explicit `sd-ai-agent/*-style-variation` lifecycle rather than generic file mutation. Once a user selects a style variation, its selection is stored in the database.
-7. Validate generated block markup before writing templates, parts, or patterns.
+7. Validate generated block markup before writing templates, parts, or patterns; before activation, run `sd-ai-agent/validate-block-theme-project` for its stylesheet and repair every error until `valid: true`. This project-wide, read-only gate checks declarations, references, patterns, variations, local assets, placeholders, and block markup without executing pattern PHP or fetching URLs.
 8. Perform an explicit final quality review before declaring a generated theme complete. Prefer a browser, screenshot, or front-end render check when available; when visual QA is unavailable, perform the structural review in the verification checklist and report that limitation.
 9. For contributor-insight or maintenance changes to this skill, verify future workers load the guidance with `rg -n "wp-block-themes|Full Site Editing|theme.json|validate-block-content" AGENTS.md includes/Models/skills/wp-block-themes.md`.
 

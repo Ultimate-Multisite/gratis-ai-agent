@@ -626,6 +626,7 @@ class Agent {
 						'sd-ai-agent/get-themes',
 						// Theme + page build suite (from legacy Theme Builder).
 						'sd-ai-agent/scaffold-block-theme',
+						'sd-ai-agent/validate-block-theme-project',
 						'sd-ai-agent/activate-theme',
 						'sd-ai-agent/file-write',
 						'sd-ai-agent/validate-block-content',
@@ -700,9 +701,10 @@ class Agent {
 			. "11. Create the CTA target page as a published page (e.g. /contact/ for services, /shop/ for retail, /menu/ for hospitality — but hospitality CTAs stay as a Phase 3 \"Add menu\" prompt if no menu data exists yet, in which case use /about/ as the temporary CTA target).\n"
 			. "12. Update `templates/front-page.html` to replace `href=\"#\"` and \"Call to action\" with the real CTA URL and text. Re-validate.\n"
 			. "13. Set the published homepage as the front page: `sd-ai-agent/update-option show_on_front=page` and `page_on_front={homepage_id}` (via the options ability path).\n"
-			. "14. Activate the new theme via `sd-ai-agent/activate-theme`.\n"
-			. "15. Save the final site brief and chosen design direction with `sd-ai-agent/memory-save` (category: site_brief).\n"
-			. "16. Reply with a short success message including the live homepage URL and 4–6 Phase 3 follow-up suggestions tailored to the vertical.\n\n";
+			. "14. Call `sd-ai-agent/validate-block-theme-project` for the generated stylesheet. Repair every returned error (including token, asset, placeholder, part, pattern, variation, and block-markup diagnostics) and retry until `valid` is exactly `true`. Do not activate a generated theme with any validation error.\n"
+			. "15. Activate the new theme via `sd-ai-agent/activate-theme`.\n"
+			. "16. Save the final site brief and chosen design direction with `sd-ai-agent/memory-save` (category: site_brief).\n"
+			. "17. Reply with a short success message including the live homepage URL and 4–6 Phase 3 follow-up suggestions tailored to the vertical.\n\n";
 
 		$phase_3 = "## Phase 3: Follow-up loop (both branches)\n\n"
 			. "After the homepage is live (empty-install branch) or after the discover summary (established branch), let the user drive via suggestion chips. Each chip is a discrete, fast action — one ability call or one page at a time. Common chips:\n\n"

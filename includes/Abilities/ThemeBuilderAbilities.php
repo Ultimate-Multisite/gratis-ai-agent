@@ -9,6 +9,7 @@ declare(strict_types=1);
  *
  *   - sd-ai-agent/compile-design-tokens
  *   - sd-ai-agent/scaffold-block-theme
+ *   - sd-ai-agent/validate-block-theme-project
  *   - sd-ai-agent/activate-theme
  *
  * These abilities also stand alone outside onboarding — any agent flow that
@@ -54,6 +55,18 @@ class ThemeBuilderAbilities {
 					'superdav-ai-agent'
 				),
 				'ability_class' => ActivateThemeAbility::class,
+			]
+		);
+
+		wp_register_ability(
+			'sd-ai-agent/validate-block-theme-project',
+			[
+				'label'         => __( 'Validate Block Theme Project', 'superdav-ai-agent' ),
+				'description'   => __(
+					'Read and validate a complete block-theme project before activation. Returns deterministic diagnostics for theme.json, templates, parts, patterns, style variations, assets, placeholders, and block markup without writing files or executing project PHP.',
+					'superdav-ai-agent'
+				),
+				'ability_class' => ValidateBlockThemeProjectAbility::class,
 			]
 		);
 
