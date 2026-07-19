@@ -55,7 +55,7 @@ final class ClientAbilityRouter {
 	/**
 	 * Return the set of client ability names validated for this run.
 	 *
-	 * @return string[]
+	 * @return list<string>
 	 */
 	public function get_names(): array {
 		return array_map(

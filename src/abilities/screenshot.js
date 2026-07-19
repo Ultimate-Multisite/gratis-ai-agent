@@ -177,6 +177,137 @@ export function validateScreenshotUrl( url ) {
 }
 
 /**
+ * Load a same-origin frontend URL in an off-screen iframe and expose its DOM.
+ *
+ * This deliberately centralizes the bounded navigation, same-origin guard,
+ * render settle delay, and WordPress admin-bar cleanup shared by screenshot
+ * capture and deterministic frontend validation. Callers must always invoke
+ * the returned cleanup function after inspecting the document.
+ *
+ * @param {Object} args              Iframe arguments.
+ * @param {string} args.url          Absolute or site-relative frontend URL.
+ * @param {number} [args.width=1280] Iframe viewport width.
+ * @param {number} [args.height=800] Iframe viewport height.
+ * @return {Promise<{success: boolean, url: string, error: string, iframe: HTMLIFrameElement|null, document: Document|null, window: Window|null, cleanup: () => void}>} Loaded iframe state.
+ */
+export async function loadSameOriginIframe( args ) {
+	const rawUrl = args?.url || '';
+	const viewportWidth = args?.width || 1280;
+	const viewportHeight = args?.height || 800;
+	const {
+		valid,
+		resolved,
+		error: urlError,
+	} = validateScreenshotUrl( rawUrl );
+	let iframe = null;
+
+	const cleanup = () => {
+		if ( iframe && iframe.parentNode ) {
+			iframe.parentNode.removeChild( iframe );
+		}
+	};
+
+	if ( ! valid ) {
+		return {
+			success: false,
+			url: rawUrl,
+			error: urlError,
+			iframe: null,
+			document: null,
+			window: null,
+			cleanup,
+		};
+	}
+
+	try {
+		iframe = document.createElement( 'iframe' );
+		iframe.style.cssText = [
+			'position: fixed',
+			'top: -20000px',
+			'left: -20000px',
+			`width: ${ viewportWidth }px`,
+			`height: ${ viewportHeight }px`,
+			'border: none',
+			'opacity: 0',
+			'pointer-events: none',
+			'z-index: -9999',
+		].join( '; ' );
+		iframe.setAttribute( 'aria-hidden', 'true' );
+		iframe.setAttribute( 'tabindex', '-1' );
+
+		const loadPromise = new Promise( ( resolveLoad, rejectLoad ) => {
+			const timer = setTimeout( () => {
+				rejectLoad( new Error( 'Iframe load timed out.' ) );
+			}, IFRAME_LOAD_TIMEOUT );
+
+			iframe.addEventListener( 'load', () => {
+				clearTimeout( timer );
+				resolveLoad();
+			} );
+
+			iframe.addEventListener( 'error', () => {
+				clearTimeout( timer );
+				rejectLoad( new Error( 'Iframe failed to load.' ) );
+			} );
+		} );
+
+		iframe.src = resolved;
+		document.body.appendChild( iframe );
+		await loadPromise;
+		await new Promise( ( resolve ) =>
+			setTimeout( resolve, IFRAME_SETTLE_DELAY )
+		);
+
+		const iframeDocument =
+			iframe.contentDocument || iframe.contentWindow?.document;
+		const iframeWindow = iframe.contentWindow;
+		if ( ! iframeDocument || ! iframeDocument.body || ! iframeWindow ) {
+			cleanup();
+			return {
+				success: false,
+				url: resolved,
+				error: 'Cannot access iframe content. The page may block framing.',
+				iframe: null,
+				document: null,
+				window: null,
+				cleanup,
+			};
+		}
+
+		const adminBarStyle = iframeDocument.createElement( 'style' );
+		adminBarStyle.textContent = [
+			'#wpadminbar { display: none !important; }',
+			'html { margin-top: 0 !important; }',
+			'* html body { margin-top: 0 !important; }',
+		].join( ' ' );
+		( iframeDocument.head || iframeDocument.documentElement ).appendChild(
+			adminBarStyle
+		);
+
+		return {
+			success: true,
+			url: resolved,
+			error: '',
+			iframe,
+			document: iframeDocument,
+			window: iframeWindow,
+			cleanup,
+		};
+	} catch ( err ) {
+		cleanup();
+		return {
+			success: false,
+			url: resolved || rawUrl,
+			error: err.message,
+			iframe: null,
+			document: null,
+			window: null,
+			cleanup,
+		};
+	}
+}
+
+/**
  * Scroll a window/document top-to-bottom in steps to trigger lazy-loaded
  * images and IntersectionObserver callbacks.
  *
@@ -325,103 +456,33 @@ async function executeScreenshotUrl( args ) {
 	const viewportWidth = args?.width || 1280;
 	const viewportHeight = args?.height || 800;
 	const fullPage = args?.fullPage ?? false;
+	const loaded = await loadSameOriginIframe( {
+		url: rawUrl,
+		width: viewportWidth,
+		height: viewportHeight,
+	} );
 
-	// Validate authorized WordPress origin and same-origin capture feasibility.
-	const {
-		valid,
-		resolved,
-		error: urlError,
-	} = validateScreenshotUrl( rawUrl );
-	if ( ! valid ) {
+	if (
+		! loaded.success ||
+		! loaded.iframe ||
+		! loaded.document ||
+		! loaded.window
+	) {
 		return {
 			success: false,
 			image: '',
 			width: 0,
 			height: 0,
-			url: rawUrl,
-			error: urlError,
+			url: loaded.url,
+			error: `Screenshot failed: ${ loaded.error }`,
 		};
 	}
 
-	// Load the published URL as-is — no query params appended.
-	// WordPress's `?preview=true` triggers is_preview() which renders
-	// draft/unsaved post content, not the published page. It also does NOT
-	// hide the admin bar. Instead, after the iframe loads we inject CSS to
-	// hide #wpadminbar and remove the 32px body offset WordPress adds for
-	// logged-in users. This gives us a clean capture of the published
-	// frontend without admin chrome.
-	const targetUrl = new URL( resolved );
-
-	let iframe = null;
+	const iframe = loaded.iframe;
+	const iframeDoc = loaded.document;
+	const iframeWindow = loaded.window;
 
 	try {
-		// Create hidden iframe.
-		iframe = document.createElement( 'iframe' );
-		iframe.style.cssText = [
-			'position: fixed',
-			'top: -20000px',
-			'left: -20000px',
-			`width: ${ viewportWidth }px`,
-			`height: ${ viewportHeight }px`,
-			'border: none',
-			'opacity: 0',
-			'pointer-events: none',
-			'z-index: -9999',
-		].join( '; ' );
-		iframe.setAttribute( 'aria-hidden', 'true' );
-		iframe.setAttribute( 'tabindex', '-1' );
-
-		// Wait for load.
-		const loadPromise = new Promise( ( resolveLoad, rejectLoad ) => {
-			const timer = setTimeout( () => {
-				rejectLoad( new Error( 'Iframe load timed out.' ) );
-			}, IFRAME_LOAD_TIMEOUT );
-
-			iframe.addEventListener( 'load', () => {
-				clearTimeout( timer );
-				resolveLoad();
-			} );
-
-			iframe.addEventListener( 'error', () => {
-				clearTimeout( timer );
-				rejectLoad( new Error( 'Iframe failed to load.' ) );
-			} );
-		} );
-
-		iframe.src = targetUrl.href;
-		document.body.appendChild( iframe );
-		await loadPromise;
-
-		// Allow async rendering (lazy images, web fonts, JS-rendered content)
-		// to settle before capturing.
-		await new Promise( ( r ) => setTimeout( r, IFRAME_SETTLE_DELAY ) );
-
-		// Access iframe document (same-origin guaranteed by validation above).
-		const iframeDoc =
-			iframe.contentDocument || iframe.contentWindow?.document;
-		if ( ! iframeDoc || ! iframeDoc.body ) {
-			return {
-				success: false,
-				image: '',
-				width: 0,
-				height: 0,
-				url: resolved,
-				error: 'Cannot access iframe content. The page may block framing.',
-			};
-		}
-
-		// Hide the WordPress admin bar and remove its 32px body/html offset
-		// so the screenshot shows the published frontend without admin chrome.
-		// WordPress adds margin-top: 32px to <html> and a fixed #wpadminbar
-		// for logged-in users; both must be neutralised for a clean capture.
-		const adminBarStyle = iframeDoc.createElement( 'style' );
-		adminBarStyle.textContent = [
-			'#wpadminbar { display: none !important; }',
-			'html { margin-top: 0 !important; }',
-			'* html body { margin-top: 0 !important; }',
-		].join( ' ' );
-		iframeDoc.head.appendChild( adminBarStyle );
-
 		// For fullPage captures: clamp height to avoid OOM, resize the iframe
 		// to the capture height so the full content is laid out, then scroll
 		// through to trigger lazy-loaded images before capturing.
@@ -440,7 +501,7 @@ async function executeScreenshotUrl( args ) {
 			// Scroll through the iframe content in steps to trigger native
 			// loading="lazy" images and JS-based lazy loaders.
 			await scrollToRevealLazyContent(
-				iframe.contentWindow,
+				iframeWindow,
 				iframeDoc,
 				captureH
 			);
@@ -466,7 +527,7 @@ async function executeScreenshotUrl( args ) {
 			image: dataUrl,
 			width,
 			height,
-			url: resolved,
+			url: loaded.url,
 			truncated,
 			error: '',
 		};
@@ -476,14 +537,11 @@ async function executeScreenshotUrl( args ) {
 			image: '',
 			width: 0,
 			height: 0,
-			url: resolved || rawUrl,
+			url: loaded.url || rawUrl,
 			error: `Screenshot failed: ${ err.message }`,
 		};
 	} finally {
-		// Always clean up the iframe.
-		if ( iframe && iframe.parentNode ) {
-			iframe.parentNode.removeChild( iframe );
-		}
+		loaded.cleanup();
 	}
 }
 

@@ -190,6 +190,29 @@ class AgentThemeBuilderTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * Generated themes require current activated-site QA before the assistant can reply with success.
+	 */
+	public function test_setup_assistant_requires_current_activated_theme_completion_report(): void {
+		Agent::reset_defaults();
+
+		$agent = Agent::get_by_slug( Agent::ONBOARDING_AGENT_SLUG );
+		$this->assertNotNull( $agent );
+
+		$prompt = $agent->system_prompt;
+		foreach ( [
+			'sd-ai-agent-js/validate-theme-completion',
+			'375×812',
+			'768×1024',
+			'1280×800',
+			'current `fingerprint`',
+			'Only a report with `passed: true`',
+			'restore `previous_stylesheet`',
+		] as $required ) {
+			$this->assertStringContainsString( $required, $prompt );
+		}
+	}
+
+	/**
 	 * Homepage composition selects a structural family before page generation.
 	 */
 	public function test_setup_assistant_selects_a_landing_page_pattern_before_composition(): void {

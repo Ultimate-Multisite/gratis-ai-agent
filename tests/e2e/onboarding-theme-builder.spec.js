@@ -9,7 +9,8 @@
  *     directly (no wizard, no mode-picker, no Theme Builder route).
  *  2. The Setup Assistant opens with at least one chat message visible
  *     (the auto-sent kickoff).
- *  3. A deterministic build instruction receives a "DONE" reply.
+ *  3. A deterministic overflow report withholds completion until a replacement
+ *     activated-site report passes, after which the flow receives "DONE".
  *  4. Theme files exist on disk and the theme is the active stylesheet.
  *
  * Uses test.describe.serial because all steps share browser state (the chat
@@ -442,9 +443,9 @@ test.describe.serial( 'Setup Assistant theme-build onboarding flow (Onboarding v
 		).toBe( true );
 	} );
 
-	// ── Test 4: build instruction → DONE reply → theme on disk ────────────
+	// ── Test 4: completion gate → repair → DONE reply → theme on disk ─────
 
-	test( 'sending the build instruction results in DONE reply and an active theme on disk', async () => {
+	test( 'generated-theme completion withholds DONE for overflow until the report is repaired', async () => {
 		// Pre-scaffold the theme via WP-CLI so file-system assertions are
 		// deterministic in CI regardless of AI model availability.  The
 		// /run and /job polling endpoints are mocked via Playwright route
@@ -463,7 +464,15 @@ test.describe.serial( 'Setup Assistant theme-build onboarding flow (Onboarding v
 
 		// Route matchers and handlers — saved as named constants so
 		// page.unroute() can remove them precisely in the finally block.
-		const runJobId = 'e2e-scaffold-job-0001';
+		let runRequestCount = 0;
+		const runJobPrefix = 'e2e-scaffold-job-';
+		const baseUrl = process.env.WP_BASE_URL || 'http://localhost:8890';
+		const completionUrls = [ `${ baseUrl }/`, `${ baseUrl }/contact/` ];
+		const completionViewports = [
+			{ label: 'mobile', width: 375, height: 812 },
+			{ label: 'tablet', width: 768, height: 1024 },
+			{ label: 'desktop', width: 1280, height: 800 },
+		];
 
 		const isRunEndpoint = ( url ) => {
 			const decoded = decodeURIComponent( url.toString() );
@@ -474,16 +483,17 @@ test.describe.serial( 'Setup Assistant theme-build onboarding flow (Onboarding v
 		};
 		const isJobEndpoint = ( url ) =>
 			decodeURIComponent( url.toString() ).includes(
-				`sd-ai-agent/v1/job/${ runJobId }`
+				`sd-ai-agent/v1/job/${ runJobPrefix }`
 			);
 
 		const handleRun = async ( route ) => {
 			if ( route.request().method() === 'POST' ) {
+				runRequestCount++;
 				await route.fulfill( {
 					status: 202,
 					contentType: 'application/json',
 					body: JSON.stringify( {
-						job_id: runJobId,
+						job_id: `${ runJobPrefix }${ runRequestCount }`,
 						status: 'processing',
 					} ),
 				} );
@@ -492,12 +502,60 @@ test.describe.serial( 'Setup Assistant theme-build onboarding flow (Onboarding v
 			}
 		};
 		const handleJob = async ( route ) => {
+			const repaired = decodeURIComponent( route.request().url() ).includes(
+				`${ runJobPrefix }2`
+			);
+			const overflowViolation = {
+				code: 'document_horizontal_overflow',
+				url: completionUrls[ 0 ],
+				viewport: completionViewports[ 0 ],
+				selector: 'html',
+				severity: 'error',
+				evidence: 'scrollWidth 420 exceeds clientWidth 375.',
+				remediation:
+					'Constrain the overflowing element and rerun completion QA.',
+			};
+			const completionReports = completionUrls.flatMap( ( url ) =>
+				completionViewports.map( ( viewport ) => {
+					const hasOverflow =
+						! repaired &&
+						url === completionUrls[ 0 ] &&
+						viewport.width === completionViewports[ 0 ].width;
+					return {
+						url,
+						viewport,
+						success: true,
+						active_stylesheet: 'e2e-test-theme',
+						violations: hasOverflow ? [ overflowViolation ] : [],
+					};
+				} )
+			);
+			const completionReport = {
+				success: true,
+				complete: true,
+				passed: repaired,
+				fatal_render_failure: false,
+				stylesheet: 'e2e-test-theme',
+				fingerprint: 'e2e-current-fingerprint',
+				reports: completionReports,
+				violations: repaired ? [] : [ overflowViolation ],
+			};
 			await route.fulfill( {
 				status: 200,
 				contentType: 'application/json',
 				body: JSON.stringify( {
 					status: 'complete',
-					reply: 'DONE',
+					reply: repaired
+						? 'DONE'
+						: 'Generated-theme completion remains incomplete. Repair the reported horizontal overflow and rerun the current frontend report.',
+					generated_theme_completion: {
+						required: true,
+						passed: repaired,
+						stylesheet: 'e2e-test-theme',
+						fingerprint: 'e2e-current-fingerprint',
+						required_urls: completionUrls,
+						report: completionReport,
+					},
 					history: [],
 					tool_calls: [
 						{
@@ -541,6 +599,22 @@ test.describe.serial( 'Setup Assistant theme-build onboarding flow (Onboarding v
 								stylesheet: 'e2e-test-theme',
 							},
 						},
+						{
+							type: 'call',
+							id: 'tc-completion-1',
+							name: 'sd-ai-agent-js/validate-theme-completion',
+							args: {
+								stylesheet: 'e2e-test-theme',
+								fingerprint: 'e2e-current-fingerprint',
+								urls: completionUrls,
+							},
+						},
+						{
+							type: 'response',
+							id: 'tc-completion-1',
+							name: 'sd-ai-agent-js/validate-theme-completion',
+							response: completionReport,
+						},
 					],
 					session_id: null,
 					token_usage: { prompt: 0, completion: 0 },
@@ -554,22 +628,35 @@ test.describe.serial( 'Setup Assistant theme-build onboarding flow (Onboarding v
 		await page.route( isJobEndpoint, handleJob );
 
 		try {
-			// Send the single-call deterministic build instruction.
+			// The first deterministic response injects a real report-shaped mobile
+			// overflow violation. The UI must surface the incomplete outcome rather
+			// than accepting the model's requested success marker.
 			// overwrite=true handles any leftover directory from a prior run
 			// that the beforeAll cleanup could not remove.
 			const input = getMessageInput( page );
 			await input.fill(
 				'Use sd-ai-agent/scaffold-block-theme with slug=e2e-test-theme, ' +
 					'name="E2E Test Theme", and overwrite=true, then call ' +
-					'sd-ai-agent/activate-theme with stylesheet=e2e-test-theme. ' +
-					'Reply only with: DONE.'
+					'sd-ai-agent/activate-theme with stylesheet=e2e-test-theme.'
 			);
 			await getSendButton( page ).click();
 
-			// Wait for the agent reply containing "DONE".
-			// The mocked job endpoint returns a complete response immediately;
-			// 15 s is generous for the polling loop to pick it up.
+			// The first report fails, so the terminal response explicitly withholds
+			// completion instead of showing the requested success marker.
 			const messageList = page.locator( '.sdaa-cr .sdaa-cr-messages' );
+			await expect( messageList ).toContainText(
+				'Generated-theme completion remains incomplete',
+				{
+					timeout: 15_000,
+				}
+			);
+
+			// The replacement response models the repaired overflow plus a current
+			// passing report. Only then may the flow emit DONE.
+			await input.fill(
+				'Repair the horizontal overflow and rerun the current generated-theme completion report.'
+			);
+			await getSendButton( page ).click();
 			await expect( messageList ).toContainText( 'DONE', {
 				timeout: 15_000,
 			} );
