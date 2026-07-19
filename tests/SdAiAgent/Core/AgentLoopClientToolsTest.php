@@ -21,6 +21,7 @@ namespace SdAiAgent\Tests\Core;
 
 use SdAiAgent\Abilities\Js\JsAbilityCatalog;
 use SdAiAgent\Core\AgentLoop;
+use SdAiAgent\Core\ClientAbilityRouter;
 use SdAiAgent\Core\Settings;
 use WordPress\AiClient\Messages\DTO\MessagePart;
 use WordPress\AiClient\Messages\DTO\UserMessage;
@@ -249,6 +250,26 @@ class AgentLoopClientToolsTest extends WP_UnitTestCase {
 
 		$this->assertCount( 1, $result['php'] );
 		$this->assertCount( 0, $result['client'] );
+	}
+
+	/**
+	 * Browser results must preserve the complete pending ID/name batch exactly.
+	 */
+	public function test_client_result_matcher_rejects_substituted_or_incomplete_batches(): void {
+		$expected = array(
+			array( 'id' => 'call-one', 'name' => 'sd-ai-agent-js/navigate-to' ),
+			array( 'id' => 'call-two', 'name' => 'sd-ai-agent-js/refresh-page' ),
+		);
+		$valid = array(
+			array( 'id' => 'call-one', 'name' => 'sd-ai-agent-js/navigate-to', 'result' => array() ),
+			array( 'id' => 'call-two', 'name' => 'sd-ai-agent-js/refresh-page', 'error' => 'Denied.' ),
+		);
+
+		$this->assertTrue( ClientAbilityRouter::matches_pending_results( $expected, $valid ) );
+		$this->assertFalse( ClientAbilityRouter::matches_pending_results( $expected, array( array( 'id' => 'call-one', 'name' => 'sd-ai-agent-js/refresh-page', 'result' => array() ), array( 'id' => 'call-two', 'name' => 'sd-ai-agent-js/navigate-to', 'error' => 'Denied.' ) ) ) );
+		$this->assertFalse( ClientAbilityRouter::matches_pending_results( $expected, array( array( 'id' => 'unknown', 'name' => 'sd-ai-agent-js/navigate-to', 'result' => array() ), $valid[1] ) ) );
+		$this->assertFalse( ClientAbilityRouter::matches_pending_results( $expected, array( $valid[0], $valid[0] ) ) );
+		$this->assertFalse( ClientAbilityRouter::matches_pending_results( $expected, array( $valid[0] ) ) );
 	}
 
 	/**

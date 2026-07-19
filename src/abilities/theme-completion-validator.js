@@ -44,6 +44,41 @@ function normalizeUrl( url ) {
 }
 
 /**
+ * Return whether a loaded document is semantically the site homepage.
+ *
+ * The WordPress body classes carry page semantics through canonical redirects;
+ * URL equality remains a safe fallback for sites that omit those classes.
+ *
+ * @param {Document} doc         Loaded frontend document.
+ * @param {string}   finalUrl    Final document URL.
+ * @param {string}   homepageUrl Requested homepage URL.
+ * @return {boolean} Whether the document is the homepage.
+ */
+function isHomepageDocument( doc, finalUrl, homepageUrl ) {
+	const classes = doc?.body?.classList;
+	if ( classes?.contains( 'home' ) || classes?.contains( 'front-page' ) ) {
+		return true;
+	}
+
+	return normalizeUrl( finalUrl ) === normalizeUrl( homepageUrl );
+}
+
+/**
+ * Return a classification for an iframe failure without mistaking a missing
+ * browser execution environment for a fatal activated-theme render failure.
+ *
+ * @param {string} error Failure evidence.
+ * @return {string} Stable failure classification.
+ */
+function classifyRenderFailure( error ) {
+	return /browser (?:execution|environment).*unavailable|cannot access iframe content|block framing/i.test(
+		String( error || '' )
+	)
+		? 'browser_execution_unavailable'
+		: 'frontend_unrenderable';
+}
+
+/**
  * Escape a CSS identifier even in browser/test environments without CSS.escape.
  *
  * @param {string} value Identifier value.
@@ -816,6 +851,7 @@ export async function validateThemeCompletion( args ) {
 	);
 	const violations = [];
 	const reports = [];
+	const homepageUrl = urls[ 0 ] || '';
 
 	if ( ! /^[a-z0-9-]+$/.test( stylesheet ) ) {
 		addViolation(
@@ -882,6 +918,10 @@ export async function validateThemeCompletion( args ) {
 	}
 
 	for ( const url of urls ) {
+		const role =
+			normalizeUrl( url ) === normalizeUrl( homepageUrl )
+				? 'homepage'
+				: 'interior';
 		for ( const viewport of THEME_COMPLETION_VIEWPORTS ) {
 			// eslint-disable-next-line no-await-in-loop -- Six bounded iframe renders must not race shared browser resources.
 			const loaded = await loadSameOriginIframe( {
@@ -892,6 +932,7 @@ export async function validateThemeCompletion( args ) {
 
 			if ( ! loaded.success || ! loaded.document || ! loaded.window ) {
 				const failedUrl = normalizeUrl( loaded.url || url );
+				const failureKind = classifyRenderFailure( loaded.error );
 				const failedRender = renderFailureViolation(
 					failedUrl,
 					viewport,
@@ -900,6 +941,11 @@ export async function validateThemeCompletion( args ) {
 				addViolation( violations, failedRender );
 				reports.push( {
 					url: failedUrl,
+					requested_url: normalizeUrl( url ),
+					final_url: failedUrl,
+					role,
+					is_homepage: false,
+					failure_kind: failureKind,
 					viewport,
 					success: false,
 					active_stylesheet: '',
@@ -919,6 +965,14 @@ export async function validateThemeCompletion( args ) {
 				} );
 				reports.push( {
 					url: normalizeUrl( loaded.url ),
+					requested_url: normalizeUrl( url ),
+					final_url: normalizeUrl( loaded.url ),
+					role,
+					is_homepage: isHomepageDocument(
+						loaded.document,
+						loaded.url,
+						homepageUrl
+					),
 					viewport,
 					...inspected,
 				} );
@@ -935,6 +989,11 @@ export async function validateThemeCompletion( args ) {
 				addViolation( violations, failedRender );
 				reports.push( {
 					url: failedUrl,
+					requested_url: normalizeUrl( url ),
+					final_url: failedUrl,
+					role,
+					is_homepage: false,
+					failure_kind: 'frontend_unrenderable',
 					viewport,
 					success: false,
 					active_stylesheet: '',
@@ -953,6 +1012,14 @@ export async function validateThemeCompletion( args ) {
 		reports.every( ( report ) => report.success );
 	const complete = allRendered;
 	const passed = complete && violations.length === 0;
+	const allFailuresAreBrowserUnavailable =
+		reports.length === expectedReports &&
+		reports.length > 0 &&
+		reports.every(
+			( report ) =>
+				! report.success &&
+				report.failure_kind === 'browser_execution_unavailable'
+		);
 
 	return {
 		success: allRendered,
@@ -961,7 +1028,12 @@ export async function validateThemeCompletion( args ) {
 		fatal_render_failure:
 			reports.length === expectedReports &&
 			reports.length > 0 &&
-			reports.every( ( report ) => ! report.success ),
+			reports.every(
+				( report ) =>
+					! report.success &&
+					report.failure_kind === 'frontend_unrenderable'
+			),
+		browser_execution_unavailable: allFailuresAreBrowserUnavailable,
 		stylesheet,
 		fingerprint,
 		urls,

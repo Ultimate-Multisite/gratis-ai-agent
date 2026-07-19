@@ -144,6 +144,42 @@ class GeneratedThemeCompletionGateTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * An interior request which renders the homepage cannot satisfy completion.
+	 */
+	public function test_interior_report_rendering_homepage_is_rejected(): void {
+		$gate   = $this->prepare_activated_gate();
+		$inputs = $gate->get_expected_report_inputs();
+		$report = $this->passing_report( $inputs );
+		$report['reports'][3]['is_homepage'] = true;
+
+		$gate->record_tool_call( GeneratedThemeCompletionGate::CLIENT_ABILITY, $inputs );
+		$gate->record_tool_response( GeneratedThemeCompletionGate::CLIENT_ABILITY, $report );
+
+		$this->assertFalse( $gate->has_current_passing_report() );
+	}
+
+	/**
+	 * A canonical homepage redirect remains valid when it is semantically home
+	 * and remains distinct from the requested interior document.
+	 */
+	public function test_canonical_homepage_redirect_with_distinct_interior_passes(): void {
+		$gate   = $this->prepare_activated_gate();
+		$inputs = $gate->get_expected_report_inputs();
+		$report = $this->passing_report( $inputs );
+		foreach ( $report['reports'] as &$row ) {
+			if ( 'homepage' === $row['role'] ) {
+				$row['final_url'] = 'https://example.test/home';
+			}
+		}
+		unset( $row );
+
+		$gate->record_tool_call( GeneratedThemeCompletionGate::CLIENT_ABILITY, $inputs );
+		$gate->record_tool_response( GeneratedThemeCompletionGate::CLIENT_ABILITY, $report );
+
+		$this->assertTrue( $gate->has_current_passing_report() );
+	}
+
+	/**
 	 * Missing browser capability remains incomplete instead of falling back to review prose.
 	 */
 	public function test_browser_unavailability_never_passes(): void {
@@ -191,6 +227,26 @@ class GeneratedThemeCompletionGateTest extends WP_UnitTestCase {
 
 		$this->assertFalse( $gate->requires_repair() );
 		$this->assertStringContainsString( 'previous stylesheet was restored', $gate->get_terminal_notice() );
+	}
+
+	/**
+	 * An unavailable browser client needs recovery, not a theme rollback.
+	 */
+	public function test_browser_execution_unavailable_does_not_require_restoration(): void {
+		$gate   = $this->prepare_activated_gate();
+		$inputs = $gate->get_expected_report_inputs();
+		$report = $this->passing_report( $inputs );
+		$report['success']                       = false;
+		$report['complete']                      = false;
+		$report['passed']                        = false;
+		$report['fatal_render_failure']          = true;
+		$report['browser_execution_unavailable'] = true;
+
+		$gate->record_tool_call( GeneratedThemeCompletionGate::CLIENT_ABILITY, $inputs );
+		$gate->record_tool_response( GeneratedThemeCompletionGate::CLIENT_ABILITY, $report );
+
+		$this->assertFalse( $gate->requires_restore() );
+		$this->assertStringContainsString( 'Browser execution was unavailable', $gate->get_terminal_notice() );
 	}
 
 	/**
@@ -252,10 +308,14 @@ class GeneratedThemeCompletionGateTest extends WP_UnitTestCase {
 	 */
 	private function passing_report( array $inputs ): array {
 		$reports = array();
-		foreach ( $inputs['urls'] as $url ) {
+		foreach ( $inputs['urls'] as $index => $url ) {
 			foreach ( GeneratedThemeCompletionGate::REQUIRED_VIEWPORTS as $viewport ) {
 				$reports[] = array(
 					'url'              => $url,
+					'requested_url'    => $url,
+					'final_url'        => $url,
+					'role'             => 0 === $index ? 'homepage' : 'interior',
+					'is_homepage'      => 0 === $index,
 					'viewport'         => $viewport,
 					'success'          => true,
 					'active_stylesheet' => self::STYLESHEET,
