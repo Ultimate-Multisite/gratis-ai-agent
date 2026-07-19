@@ -1321,7 +1321,7 @@ class RestControllerTest extends WP_UnitTestCase {
 				'tool_calls'       => [ [ 'type' => 'call', 'id' => 'call_1', 'name' => 'wpab__sd-ai-agent__site-info' ] ],
 				'messages'         => [ [ 'type' => 'provider_error', 'message' => 'Provider rejected history.' ] ],
 				'token_usage'      => [ 'prompt' => 12, 'completion' => 0 ],
-				'model_id'         => 'superdav-chat-pro',
+				'model_id'         => 'gpt-5.6-terra',
 				'provider_id'      => 'sd-ai-agent-cloud',
 				'client_abilities' => [],
 			]
@@ -1332,7 +1332,7 @@ class RestControllerTest extends WP_UnitTestCase {
 		$method->setAccessible( true );
 
 		$params     = [ 'message' => 'Please continue after the error.', 'session_id' => $session_id ];
-		$options    = [ 'provider_id' => 'sd-ai-agent-cloud', 'model_id' => 'superdav-chat-pro' ];
+		$options    = [ 'provider_id' => 'sd-ai-agent-cloud', 'model_id' => 'gpt-5.6-terra' ];
 		$job        = [ 'status' => 'error', 'error' => $error->get_error_message(), 'params' => $params ];
 		$error_data = $error->get_error_data();
 		$this->assertIsArray( $error_data );
