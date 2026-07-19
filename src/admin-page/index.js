@@ -20,6 +20,9 @@ import STORE_NAME from '../store';
 // Register sd-ai-agent-js/* client-side abilities into core/abilities
 // before the chat mounts (t165 — closes the wiring gap in #815).
 import '../abilities';
+// The generated-theme completion validator is needed by the Setup Assistant,
+// but not by the customer-facing floating widget.
+import '../abilities/theme-completion-registration';
 import ChatRedesign from '../components/chat-redesign';
 import BootError from '../components/boot-error';
 import { useKeyboardShortcuts } from '../utils/keyboard-shortcuts';

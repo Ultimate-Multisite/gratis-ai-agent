@@ -124,6 +124,25 @@ class BlockThemesSkillTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * Generated themes cannot substitute a structural review for activated-site QA.
+	 */
+	public function test_block_themes_skill_requires_activated_site_completion_qa(): void {
+		$content = Skill::get_builtin_definitions()['wp-block-themes']['content'];
+
+		foreach ( [
+			'sd-ai-agent-js/validate-theme-completion',
+			'375×812',
+			'768×1024',
+			'1280×800',
+			'structural-only review never passes',
+			'Any theme, page, Global Styles, or style-variation mutation invalidates the report',
+			'restore the previous stylesheet',
+		] as $required ) {
+			$this->assertStringContainsString( $required, $content );
+		}
+	}
+
+	/**
 	 * Generated token, pattern, and variation producers share one durable release contract.
 	 */
 	public function test_block_themes_skill_documents_generated_artifact_governance(): void {
