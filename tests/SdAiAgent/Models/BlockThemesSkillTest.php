@@ -39,7 +39,7 @@ class BlockThemesSkillTest extends WP_UnitTestCase {
 		$line_count = substr_count( $content, "\n" ) + 1;
 
 		$this->assertGreaterThanOrEqual( 350, $line_count );
-		$this->assertLessThanOrEqual( 540, $line_count );
+		$this->assertLessThanOrEqual( 580, $line_count );
 	}
 
 	/**
@@ -97,5 +97,26 @@ class BlockThemesSkillTest extends WP_UnitTestCase {
 		$this->assertStringContainsString( '**No stock image URLs.**', $content );
 		$this->assertStringContainsString( '**Validate before write.**', $content );
 		$this->assertStringContainsString( 'sd-ai-agent/validate-block-content', $content );
+	}
+
+	/**
+	 * Generated token, pattern, and variation producers share one durable release contract.
+	 */
+	public function test_block_themes_skill_documents_generated_artifact_governance(): void {
+		$content = Skill::get_builtin_definitions()['wp-block-themes']['content'];
+
+		$required_patterns = [
+			'### Generated design artifact governance',
+			'sd-ai-agent/token_set/...',
+			'`maturity` (`stable`, `candidate`, `experimental`, or `deprecated`)',
+			'`sd-ai-agent/resolve-design-artifacts`',
+			'`sd-ai-agent/apply-design-artifact-release`',
+			'`sd-ai-agent/rollback-design-artifact-release`',
+			'must not be silently imported, rewritten, or',
+		];
+
+		foreach ( $required_patterns as $pattern ) {
+			$this->assertStringContainsString( $pattern, $content );
+		}
 	}
 }

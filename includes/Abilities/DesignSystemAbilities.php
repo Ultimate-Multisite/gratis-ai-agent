@@ -86,7 +86,7 @@ class DesignSystemAbilities {
 			'sd-ai-agent/curated-block-patterns',
 			[
 				'label'               => __( 'Curated Block Patterns', 'superdav-ai-agent' ),
-				'description'         => __( 'Register a curated block pattern for the site. Patterns are stored as custom post types (wp_block) and appear in the block inserter. Provide a title, description, category, and the serialised block content.', 'superdav-ai-agent' ),
+				'description'         => __( 'Register a curated block pattern for the site. Patterns are stored as custom post types (wp_block) and appear in the block inserter. This ability manages ordinary user-curated patterns only; generated versioned artifacts must use the governed design-artifact release abilities. Provide a title, description, category, and the serialised block content.', 'superdav-ai-agent' ),
 				'category'            => 'sd-ai-agent',
 				'input_schema'        => [
 					'type'       => 'object',
@@ -202,7 +202,7 @@ class DesignSystemAbilities {
 			'sd-ai-agent/theme-json-presets',
 			[
 				'label'               => __( 'Theme JSON Presets', 'superdav-ai-agent' ),
-				'description'         => __( 'Read or update theme.json global styles presets (colour palette, font sizes, spacing scale, border radius). Changes are written to the user-level theme.json override (wp_global_styles CPT) so they survive theme updates. Use "get" to inspect current values before modifying.', 'superdav-ai-agent' ),
+				'description'         => __( 'Read or update ordinary user theme.json global styles presets (colour palette, font sizes, spacing scale, border radius). Changes are written to the user-level theme.json override (wp_global_styles CPT) so they survive theme updates. Generated versioned design artifacts use the separate governed release abilities and never rewrite this ordinary customization path. Use "get" to inspect current values before modifying.', 'superdav-ai-agent' ),
 				'category'            => 'sd-ai-agent',
 				'input_schema'        => [
 					'type'       => 'object',
