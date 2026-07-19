@@ -642,12 +642,14 @@ test.describe.serial( 'Setup Assistant theme-build onboarding flow (Onboarding v
 			await getSendButton( page ).click();
 
 			// The first report fails, so the terminal response explicitly withholds
-			// completion instead of showing the requested success marker.
+			// completion instead of showing the requested success marker. Allow for
+			// the client-ability registry's bounded 30-second API discovery fallback
+			// on WordPress trunk before the mocked /run request is sent.
 			const messageList = page.locator( '.sdaa-cr .sdaa-cr-messages' );
 			await expect( messageList ).toContainText(
 				'Generated-theme completion remains incomplete',
 				{
-					timeout: 15_000,
+					timeout: 45_000,
 				}
 			);
 
