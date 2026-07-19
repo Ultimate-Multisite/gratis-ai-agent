@@ -119,6 +119,8 @@ class BlockThemesSkillTest extends WP_UnitTestCase {
 		$this->assertStringContainsString( '**No stock image URLs.**', $content );
 		$this->assertStringContainsString( '**Validate before write.**', $content );
 		$this->assertStringContainsString( 'sd-ai-agent/validate-block-content', $content );
+		$this->assertStringContainsString( 'sd-ai-agent/validate-block-theme-project', $content );
+		$this->assertStringContainsString( 'valid: true', $content );
 	}
 
 	/**

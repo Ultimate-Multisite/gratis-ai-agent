@@ -18,6 +18,7 @@ namespace SdAiAgent\Tests\Abilities;
 
 use SdAiAgent\Abilities\ActivateThemeAbility;
 use SdAiAgent\Abilities\ScaffoldBlockThemeAbility;
+use SdAiAgent\Services\BlockThemeProjectValidator;
 use WP_UnitTestCase;
 
 /**
@@ -401,6 +402,7 @@ class ThemeBuilderAbilitiesTest extends WP_UnitTestCase {
 			]
 		);
 		$this->assertIsArray( $built );
+		$this->complete_scaffolded_project( $built['theme_dir'] );
 
 		// wp_get_theme caches WP_Theme objects on the themes directory listing;
 		// force a refresh so the just-created theme is visible.
@@ -413,6 +415,47 @@ class ThemeBuilderAbilitiesTest extends WP_UnitTestCase {
 		$this->assertSame( $previous, $result['previous_stylesheet'] );
 		$this->assertSame( $slug, $result['stylesheet'] );
 		$this->assertSame( $slug, get_stylesheet() );
+	}
+
+	/**
+	 * A generated project with a marker must fail validation before it can
+	 * alter the active stylesheet or template options.
+	 */
+	public function test_activate_rejects_invalid_marked_project_before_switching_theme(): void {
+		$slug = $this->unique_slug( 'marked-invalid' );
+		$this->stage_minimal_theme( $slug, '', '' );
+		$theme_dir = trailingslashit( get_theme_root() ) . $slug;
+		wp_mkdir_p( $theme_dir . '/.sd-ai-agent' );
+		// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_file_put_contents -- Test fixture marks an intentionally incomplete generated project.
+		file_put_contents( $theme_dir . '/' . BlockThemeProjectValidator::MARKER_PATH, BlockThemeProjectValidator::marker_contents() );
+		wp_clean_themes_cache();
+
+		$ability             = new ActivateThemeAbility( 'sd-ai-agent/activate-theme' );
+		$previous_stylesheet = (string) get_stylesheet();
+		$previous_template   = (string) get_template();
+		$result              = $ability->run( [ 'stylesheet' => $slug ] );
+
+		$this->assertWPError( $result );
+		$this->assertSame( 'sd_ai_agent_block_theme_project_invalid', $result->get_error_code() );
+		$this->assertIsArray( $result->get_error_data()['diagnostics'] );
+		$this->assertContains( 'missing_required_file', array_column( $result->get_error_data()['diagnostics'], 'code' ) );
+		$this->assertSame( $previous_stylesheet, (string) get_stylesheet() );
+		$this->assertSame( $previous_template, (string) get_template() );
+	}
+
+	/**
+	 * Unmarked themes retain WordPress's normal activation path even when they
+	 * do not satisfy generated-project-only completeness requirements.
+	 */
+	public function test_activate_does_not_gate_unmarked_theme_projects(): void {
+		$slug = $this->unique_slug( 'unmarked-sparse' );
+		$this->stage_minimal_theme( $slug, '', '' );
+		wp_clean_themes_cache();
+
+		$result = ( new ActivateThemeAbility( 'sd-ai-agent/activate-theme' ) )->run( [ 'stylesheet' => $slug ] );
+
+		$this->assertIsArray( $result, is_wp_error( $result ) ? $result->get_error_message() : '' );
+		$this->assertSame( $slug, $result['stylesheet'] );
 	}
 
 	// ── Helpers ───────────────────────────────────────────────────────────
@@ -464,6 +507,19 @@ class ThemeBuilderAbilitiesTest extends WP_UnitTestCase {
 		// valid by WP_Theme::errors(). Without it the ability returns
 		// sd_ai_agent_theme_invalid before reaching validate_theme_requirements().
 		file_put_contents( $theme_dir . '/templates/index.html', '<!-- wp:paragraph --><p></p><!-- /wp:paragraph -->' );
+	}
+
+	/**
+	 * Replace the scaffold's intentionally incomplete placeholders before the
+	 * happy-path activation test invokes the generated-project gate.
+	 *
+	 * @param string $theme_dir Absolute scaffolded theme directory.
+	 */
+	private function complete_scaffolded_project( string $theme_dir ): void {
+		wp_mkdir_p( $theme_dir . '/parts' );
+		file_put_contents( $theme_dir . '/parts/header.html', '<!-- wp:paragraph --><p class="wp-block-paragraph">Header.</p><!-- /wp:paragraph -->' );
+		file_put_contents( $theme_dir . '/parts/footer.html', '<!-- wp:paragraph --><p class="wp-block-paragraph">Footer.</p><!-- /wp:paragraph -->' );
+		file_put_contents( $theme_dir . '/templates/front-page.html', '<!-- wp:paragraph --><p class="wp-block-paragraph">Welcome.</p><!-- /wp:paragraph -->' );
 	}
 
 	/**
