@@ -27,12 +27,22 @@ export function ensureThemeCompletionValidatorRegistered() {
 		return window[ THEME_COMPLETION_REGISTRATION_KEY ];
 	}
 
-	const registrationPromise = ensureRegistered().then( () =>
-		registerThemeCompletionValidatorAbility()
-	);
+	const registrationPromise = ensureRegistered()
+		.then( () => registerThemeCompletionValidatorAbility() )
+		.catch( ( error ) => {
+			if (
+				window[ THEME_COMPLETION_REGISTRATION_KEY ] ===
+				registrationPromise
+			) {
+				window[ THEME_COMPLETION_REGISTRATION_KEY ] = null;
+			}
+			throw error;
+		} );
 	window[ THEME_COMPLETION_REGISTRATION_KEY ] = registrationPromise;
 
 	return registrationPromise;
 }
 
-ensureThemeCompletionValidatorRegistered();
+ensureThemeCompletionValidatorRegistered().catch( () => {
+	// A later call can retry after the rejected cache entry is cleared.
+} );
