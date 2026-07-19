@@ -119,4 +119,23 @@ class BlockThemesSkillTest extends WP_UnitTestCase {
 			$this->assertStringContainsString( $pattern, $content );
 		}
 	}
+
+	/**
+	 * Generated themes compile one strict token contract before any persistence.
+	 */
+	public function test_block_themes_skill_documents_token_compiler_workflow(): void {
+		$content = Skill::get_builtin_definitions()['wp-block-themes']['content'];
+
+		$required_patterns = [
+			'sd-ai-agent/compile-design-tokens',
+			'### Compile a design-token contract first',
+			'Pass `theme_json` to `sd-ai-agent/scaffold-block-theme`',
+			'`global_styles.settings` and `global_styles.styles`',
+			'Compilation is pure',
+		];
+
+		foreach ( $required_patterns as $pattern ) {
+			$this->assertStringContainsString( $pattern, $content );
+		}
+	}
 }

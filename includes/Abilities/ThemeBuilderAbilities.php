@@ -2,15 +2,16 @@
 
 declare(strict_types=1);
 /**
- * Theme Builder abilities — block-theme scaffolding and activation.
+ * Theme Builder abilities — token compilation, block-theme scaffolding, and activation.
  *
- * Registers two abilities via the WordPress 7.0+ Abilities API that the
+ * Registers Theme Builder abilities via the WordPress 7.0+ Abilities API that the
  * theme-builder onboarding branch (Phase 3 of t226) relies on:
  *
+ *   - sd-ai-agent/compile-design-tokens
  *   - sd-ai-agent/scaffold-block-theme
  *   - sd-ai-agent/activate-theme
  *
- * Both abilities also stand alone outside onboarding — any agent flow that
+ * These abilities also stand alone outside onboarding — any agent flow that
  * needs to generate or switch a theme can call them.
  *
  * @package SdAiAgent\Abilities
@@ -24,7 +25,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 /**
- * ThemeBuilderAbilities — static registry for the two theme-builder abilities.
+ * ThemeBuilderAbilities — static registry for Theme Builder abilities.
  *
  * @since 1.6.0
  */
@@ -77,6 +78,18 @@ class ThemeBuilderAbilities {
 					'superdav-ai-agent'
 				),
 				'ability_class' => GenerateMenuPageAbility::class,
+			]
+		);
+
+		wp_register_ability(
+			'sd-ai-agent/compile-design-tokens',
+			[
+				'label'         => __( 'Compile Design Tokens', 'superdav-ai-agent' ),
+				'description'   => __(
+					'Validate and compile a complete design-token contract into deterministic theme.json v3, Global Styles, semantic palette, style variation, and governed artifact manifest outputs. This read-only ability does not write files, options, posts, or Global Styles.',
+					'superdav-ai-agent'
+				),
+				'ability_class' => CompileDesignTokensAbility::class,
 			]
 		);
 

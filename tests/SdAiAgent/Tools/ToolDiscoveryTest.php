@@ -321,6 +321,24 @@ class ToolDiscoveryTest extends WP_UnitTestCase {
 		$this->assertContains( 'sd-ai-agent/get-global-styles', $ids );
 	}
 
+	public function test_ability_search_maps_design_token_compilation_to_the_compiler(): void {
+		$result = ToolDiscovery::handle_ability_search(
+			[
+				'query'       => 'compile design tokens',
+				'max_results' => 5,
+			]
+		);
+
+		$ids = array_map(
+			static function ( $result ) {
+				return $result['id'];
+			},
+			$result['results']
+		);
+
+		$this->assertContains( 'sd-ai-agent/compile-design-tokens', $ids );
+	}
+
 	public function test_ability_search_maps_edit_page_to_update_post(): void {
 		$result = ToolDiscovery::handle_ability_search(
 			[

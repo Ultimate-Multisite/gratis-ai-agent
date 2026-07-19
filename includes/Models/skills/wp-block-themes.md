@@ -219,6 +219,9 @@ When calling `sd-ai-agent/update-global-styles`, pass only the inner `styles` an
 }
 ```
 
+### Compile a design-token contract first
+Compilation is pure. Call `sd-ai-agent/compile-design-tokens` and follow its complete schema-v1 contract exactly (governance identity, bounded primitives, semantic roles, and a style-variation remap); repair any `WP_Error` and never reconstruct raw artifacts independently. Pass `theme_json` to `sd-ai-agent/scaffold-block-theme`, pass `global_styles.settings` and `global_styles.styles` only to `sd-ai-agent/update-global-styles`, validate `palette` with `sd-ai-agent/validate-palette-contrast`, and preserve the file-only `style_variation` plus `artifact_manifest` for `sd-ai-agent/apply-design-artifact-release`; the manifest must never own a second `wp_global_styles` record.
+
 ### Generated design artifact governance
 
 Generated token sets, block patterns, and style variations are versioned releases, not ordinary edits.

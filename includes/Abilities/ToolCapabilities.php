@@ -133,6 +133,7 @@ class ToolCapabilities {
 		'sd-ai-agent/scaffold-block-theme'       => 'edit_themes',
 		'sd-ai-agent/render-design-previews'     => 'edit_theme_options',
 		'sd-ai-agent/validate-palette-contrast'  => 'edit_theme_options',
+		'sd-ai-agent/compile-design-tokens'      => 'edit_theme_options',
 		'sd-ai-agent/generate-logo-svg'          => 'upload_files',
 
 		// ─── Menus ──────────────────────────────────────────────────────────
