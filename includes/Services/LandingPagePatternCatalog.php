@@ -160,9 +160,42 @@ final class LandingPagePatternCatalog {
 			return self::clarification_result( $goal_candidates[0], $candidates );
 		}
 
-		$eligible = [] !== $eligible_goal_candidates
-			? $eligible_goal_candidates
-			: array_values(
+		$site_candidates          = [] === $goal_candidates
+			? array_values(
+				array_filter(
+					$candidates,
+					static function ( array $candidate ): bool {
+						return $candidate['score_breakdown']['site_type']['score'] > 0;
+					}
+				)
+			)
+			: [];
+		$eligible_site_candidates = array_values(
+			array_filter(
+				$site_candidates,
+				static function ( array $candidate ): bool {
+					return $candidate['eligible'];
+				}
+			)
+		);
+
+		/*
+		 * When no explicit goal matches, a compatible site type is the next
+		 * strongest signal. Missing content must not let an unrelated but complete
+		 * family overtake it.
+		 */
+		if ( [] !== $site_candidates && [] === $eligible_site_candidates ) {
+			self::sort_candidates( $site_candidates );
+
+			return self::clarification_result( $site_candidates[0], $candidates );
+		}
+
+		if ( [] !== $eligible_goal_candidates ) {
+			$eligible = $eligible_goal_candidates;
+		} elseif ( [] !== $eligible_site_candidates ) {
+			$eligible = $eligible_site_candidates;
+		} else {
+			$eligible = array_values(
 				array_filter(
 					$candidates,
 					static function ( array $candidate ): bool {
@@ -170,6 +203,7 @@ final class LandingPagePatternCatalog {
 					}
 				)
 			);
+		}
 
 		if ( [] === $eligible ) {
 			self::sort_candidates( $candidates );
@@ -882,7 +916,7 @@ final class LandingPagePatternCatalog {
 	 */
 	private static function normalize_selection_context( array $input ): array|WP_Error {
 		$brief = $input['site_brief'] ?? $input['siteBrief'] ?? [];
-		if ( ! is_array( $brief ) || array_is_list( $brief ) ) {
+		if ( ! is_array( $brief ) || ( [] !== $brief && array_is_list( $brief ) ) ) {
 			return self::error( 'invalid_site_brief', __( 'site_brief must be an object when supplied.', 'superdav-ai-agent' ) );
 		}
 
@@ -928,7 +962,7 @@ final class LandingPagePatternCatalog {
 			}
 		}
 		$layout_matches  = self::matching_terms_in_list( $context['layout_notes'], $family['layout_keywords'] );
-		$section_matches = self::matching_terms_in_list( $context['section_requests'], self::section_role_names( $family['section_roles'] ) );
+		$section_matches = self::matching_terms_in_list( $context['section_requests'], self::get_family_section_terms( $family ) );
 		$required_count  = count( $family['required_content'] );
 		$content_score   = $required_count - count( $missing_content );
 
@@ -1287,6 +1321,22 @@ final class LandingPagePatternCatalog {
 		}
 
 		return $names;
+	}
+
+	/**
+	 * Return every family and variant term that may satisfy a section request.
+	 *
+	 * @param array<string,mixed> $family Family definition.
+	 * @return list<string>
+	 * @phpstan-param PatternFamily $family
+	 */
+	private static function get_family_section_terms( array $family ): array {
+		$terms = self::section_role_names( $family['section_roles'] );
+		foreach ( $family['variants'] as $variant ) {
+			$terms = array_merge( $terms, self::section_role_names( $variant['section_roles'] ), $variant['selection_keywords'] );
+		}
+
+		return array_values( array_unique( $terms ) );
 	}
 
 	/**

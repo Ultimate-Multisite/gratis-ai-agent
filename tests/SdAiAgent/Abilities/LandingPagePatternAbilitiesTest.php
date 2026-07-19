@@ -148,6 +148,59 @@ class LandingPagePatternAbilitiesTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * A compatible site type outranks an unrelated family with complete content.
+	 */
+	public function test_selector_requests_content_for_matching_site_type_before_unrelated_family(): void {
+		$result = LandingPagePatternAbilities::handle_select(
+			[
+				'site_brief'        => [
+					'siteName' => 'Northstar',
+					'siteType' => 'SaaS',
+				],
+				'available_content' => [ 'location_or_contact' ],
+			]
+		);
+
+		$this->assertIsArray( $result, is_wp_error( $result ) ? $result->get_error_message() : '' );
+		$this->assertTrue( $result['requires_clarification'] );
+		$this->assertNull( $result['selected_family'] );
+		$this->assertSame( 'lead-generation', $result['fallback']['slug'] );
+		$this->assertContains( 'offer', $result['missing_content'] );
+		$this->assertContains( 'cta_destination', $result['missing_content'] );
+	}
+
+	/**
+	 * Explicit section requests consider structural cues owned by variants.
+	 */
+	public function test_selector_uses_variant_cues_for_family_section_request_scoring(): void {
+		$result = LandingPagePatternAbilities::handle_select(
+			[
+				'available_content' => [
+					'site_name',
+					'offer',
+					'cta_destination',
+					'product',
+					'booking_method',
+					'location_or_contact',
+					'portfolio_items',
+					'inquiry_method',
+					'mission',
+					'donation_or_volunteer_path',
+					'publication_or_topic',
+					'subscription_method',
+				],
+				'section_requests'  => [ 'comparison' ],
+			]
+		);
+
+		$this->assertIsArray( $result, is_wp_error( $result ) ? $result->get_error_message() : '' );
+		$this->assertFalse( $result['requires_clarification'] );
+		$this->assertSame( 'focused-product-conversion', $result['selected_family']['slug'] );
+		$this->assertSame( 'comparison-led', $result['selected_variant']['slug'] );
+		$this->assertSame( [ 'comparison' ], $result['score_breakdown']['section_requests']['matched_terms'] );
+	}
+
+	/**
 	 * Catalog handlers leave WordPress posts, options, and memory untouched.
 	 */
 	public function test_handlers_do_not_fire_mutation_actions(): void {
