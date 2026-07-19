@@ -290,6 +290,20 @@ class ToolCapabilities {
 	];
 
 	/**
+	 * Generated-artifact abilities have a dedicated map so their long IDs do
+	 * not create alignment churn in the general capability map.
+	 *
+	 * @var array<string, string>
+	 */
+	private const DESIGN_ARTIFACT_CORE_CAP_MAP = [
+		'sd-ai-agent/list-design-artifacts'            => 'edit_theme_options',
+		'sd-ai-agent/inspect-design-artifact'          => 'edit_theme_options',
+		'sd-ai-agent/resolve-design-artifacts'         => 'edit_theme_options',
+		'sd-ai-agent/apply-design-artifact-release'    => 'edit_themes',
+		'sd-ai-agent/rollback-design-artifact-release' => 'edit_themes',
+	];
+
+	/**
 	 * Ability IDs that intentionally opt out of the core-cap layer.
 	 *
 	 * These abilities are gated only by the per-tool layer; the dual-gate
@@ -348,6 +362,9 @@ class ToolCapabilities {
 	public static function resolve_core_caps( string $ability_id ): array {
 		if ( in_array( $ability_id, self::CORE_CAP_OPTOUT, true ) ) {
 			$caps = [];
+		} elseif ( isset( self::DESIGN_ARTIFACT_CORE_CAP_MAP[ $ability_id ] ) ) {
+			$raw  = self::DESIGN_ARTIFACT_CORE_CAP_MAP[ $ability_id ];
+			$caps = [ $raw ];
 		} elseif ( isset( self::GOOGLE_CALENDAR_CORE_CAP_MAP[ $ability_id ] ) ) {
 			$raw  = self::GOOGLE_CALENDAR_CORE_CAP_MAP[ $ability_id ];
 			$caps = [ $raw ];
@@ -609,6 +626,7 @@ class ToolCapabilities {
 	public static function all_ability_ids(): array {
 		$ids = array_merge(
 			array_keys( self::CORE_CAP_MAP ),
+			array_keys( self::DESIGN_ARTIFACT_CORE_CAP_MAP ),
 			array_keys( self::GOOGLE_CALENDAR_CORE_CAP_MAP ),
 			self::CORE_CAP_OPTOUT
 		);
