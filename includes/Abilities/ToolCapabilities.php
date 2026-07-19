@@ -63,6 +63,8 @@ class ToolCapabilities {
 	 */
 	public const FALLBACK_CAP = 'manage_options';
 
+	private const VALIDATE_THEME_PROJECT_ABILITY = 'sd-ai-agent/validate-block-theme-project';
+
 	/**
 	 * Map of ability ID → required WordPress core capability (or list of
 	 * capabilities — all must be held).
@@ -141,6 +143,7 @@ class ToolCapabilities {
 		'sd-ai-agent/preview-style-variation'    => 'edit_theme_options',
 		'sd-ai-agent/select-style-variation'     => 'edit_theme_options',
 		'sd-ai-agent/reset-style-variation'      => 'edit_theme_options',
+		self::VALIDATE_THEME_PROJECT_ABILITY     => 'edit_theme_options',
 		'sd-ai-agent/generate-logo-svg'          => 'upload_files',
 
 		// ─── Menus ──────────────────────────────────────────────────────────

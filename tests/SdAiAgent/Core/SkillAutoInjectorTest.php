@@ -320,6 +320,7 @@ class SkillAutoInjectorTest extends WP_UnitTestCase {
 		$this->assertSame( 'wp-block-themes', SkillAutoInjector::skill_for_ability( 'sd-ai-agent/get-theme-json' ) );
 		$this->assertSame( 'wp-block-themes', SkillAutoInjector::skill_for_ability( 'sd-ai-agent/update-global-styles' ) );
 		$this->assertSame( 'wp-block-themes', SkillAutoInjector::skill_for_ability( 'sd-ai-agent/compile-design-tokens' ) );
+		$this->assertSame( 'wp-block-themes', SkillAutoInjector::skill_for_ability( 'sd-ai-agent/validate-block-theme-project' ) );
 		$this->assertNotNull( Skill::get_by_slug( 'wp-block-themes' ) );
 		$this->assertNull( Skill::get_by_slug( 'block-themes' ) );
 		$this->assertNull( Skill::get_by_slug( 'full-site-editing' ) );

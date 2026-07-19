@@ -155,6 +155,7 @@ class AgentThemeBuilderTest extends WP_UnitTestCase {
 
 		$required = [
 			'sd-ai-agent/scaffold-block-theme',
+			'sd-ai-agent/validate-block-theme-project',
 			'sd-ai-agent/activate-theme',
 			'sd-ai-agent/file-write',
 			'sd-ai-agent/validate-block-content',

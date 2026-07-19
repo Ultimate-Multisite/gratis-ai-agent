@@ -339,6 +339,24 @@ class ToolDiscoveryTest extends WP_UnitTestCase {
 		$this->assertContains( 'sd-ai-agent/compile-design-tokens', $ids );
 	}
 
+	public function test_ability_search_maps_generated_theme_validation_to_the_project_validator(): void {
+		$result = ToolDiscovery::handle_ability_search(
+			[
+				'query'       => 'validate generated block theme project',
+				'max_results' => 5,
+			]
+		);
+
+		$ids = array_map(
+			static function ( $result ) {
+				return $result['id'];
+			},
+			$result['results']
+		);
+
+		$this->assertContains( 'sd-ai-agent/validate-block-theme-project', $ids );
+	}
+
 	public function test_ability_search_maps_edit_page_to_update_post(): void {
 		$result = ToolDiscovery::handle_ability_search(
 			[
