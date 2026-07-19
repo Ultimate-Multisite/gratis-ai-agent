@@ -838,13 +838,14 @@ class ToolDiscovery {
 	 */
 	private static function ability_search_aliases( string $ability_id ): string {
 		$aliases = array(
-			'sd-ai-agent/update-post'          => 'edit post edit page modify post modify page change content update page update existing page update existing post',
-			'sd-ai-agent/create-post'          => 'add post add page new post new page publish page publish post create page create content',
-			'sd-ai-agent/list-posts'           => 'find post find page search post search page get page id get post id existing pages existing posts',
-			'sd-ai-agent/get-global-styles'    => 'manage global styles read global styles inspect global styles current theme styles style settings theme design settings',
-			'sd-ai-agent/update-global-styles' => 'manage global styles edit global styles change global styles set global styles apply design system update theme styles change colors change colours change fonts theme json customizations',
-			'sd-ai-agent/reset-global-styles'  => 'manage global styles clear global styles restore theme styles remove style overrides reset theme styles',
-			'sd-ai-agent/get-theme-json'       => 'theme json theme settings theme style configuration global styles configuration',
+			'sd-ai-agent/update-post'           => 'edit post edit page modify post modify page change content update page update existing page update existing post',
+			'sd-ai-agent/create-post'           => 'add post add page new post new page publish page publish post create page create content',
+			'sd-ai-agent/list-posts'            => 'find post find page search post search page get page id get post id existing pages existing posts',
+			'sd-ai-agent/get-global-styles'     => 'manage global styles read global styles inspect global styles current theme styles style settings theme design settings',
+			'sd-ai-agent/update-global-styles'  => 'manage global styles edit global styles change global styles set global styles apply design system update theme styles change colors change colours change fonts theme json customizations',
+			'sd-ai-agent/reset-global-styles'   => 'manage global styles clear global styles restore theme styles remove style overrides reset theme styles',
+			'sd-ai-agent/get-theme-json'        => 'theme json theme settings theme style configuration global styles configuration',
+			'sd-ai-agent/compile-design-tokens' => 'compile design tokens design token contract generate theme json deterministic theme styles semantic aliases style variation',
 		);
 
 		return $aliases[ $ability_id ] ?? '';

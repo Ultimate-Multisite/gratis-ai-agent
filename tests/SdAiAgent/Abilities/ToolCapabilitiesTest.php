@@ -422,10 +422,21 @@ class ToolCapabilitiesTest extends WP_UnitTestCase {
 			'sd-ai-agent/file-outline',
 			'sd-ai-agent/file-write',
 			'sd-ai-agent/navigate',
+			'sd-ai-agent/compile-design-tokens',
 		];
 
 		foreach ( $expected as $id ) {
 			$this->assertContains( $id, $ids, "Expected ability ID '{$id}' not found in all_ability_ids()" );
 		}
+	}
+
+	/**
+	 * Token compilation remains behind the standard theme-options core gate.
+	 */
+	public function test_compile_design_tokens_requires_edit_theme_options(): void {
+		$this->assertSame(
+			[ 'edit_theme_options' ],
+			ToolCapabilities::resolve_core_caps( 'sd-ai-agent/compile-design-tokens' )
+		);
 	}
 }

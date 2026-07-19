@@ -149,6 +149,7 @@ For non-landing templates, create a reusable page-title part or pattern that use
 - `sd-ai-agent/list-block-patterns` — Browse patterns for page creation and templates
 - `sd-ai-agent/parse-block-content` — Inspect template structure
 - `sd-ai-agent/create-block-content` / `sd-ai-agent/validate-block-content` — Build/check block markup before saving
+- `sd-ai-agent/compile-design-tokens` — Validate one complete schema-v1 token contract and emit deterministic `theme_json`, `global_styles`, a semantic palette, a style variation, and a governed artifact manifest. It is read-only and does not persist any output.
 - `sd-ai-agent/update-global-styles` — Apply the selected design direction with a non-empty theme.json `styles` partial. Never call it with `styles: []`, `settings: []`, `{}`, or unchanged empty arguments; include concrete colors, typography, spacing, or element styles.
 
 ### Safe existing-template edits
@@ -218,6 +219,30 @@ When calling `sd-ai-agent/update-global-styles`, pass only the inner `styles` an
   }
 }
 ```
+
+### Compile a design-token contract first
+
+For generated design systems, define one complete schema-v1 token contract before
+building a theme. It must contain governance identity, bounded primitive values,
+semantic roles, and a style-variation color remap. Call
+`sd-ai-agent/compile-design-tokens` for the selected direction. If it returns a
+`WP_Error`, repair the contract and retry compilation; never reconstruct raw
+`theme.json`, palette, or Global Styles payloads independently.
+
+Use the compiler output as-is:
+
+1. Pass `theme_json` to `sd-ai-agent/scaffold-block-theme`.
+2. Pass non-empty `global_styles.settings` and `global_styles.styles` to
+   `sd-ai-agent/update-global-styles`.
+3. Validate the returned `palette` with `sd-ai-agent/validate-palette-contrast`
+   before scaffolding.
+4. Preserve `style_variation` and `artifact_manifest` for
+   `sd-ai-agent/apply-design-artifact-release`; do not write `styles/*.json` or
+   generated manifests directly.
+
+Compilation is pure: it performs no file, option, post, or Global Styles writes.
+The compiler uses the shared palette validator, so do not duplicate contrast
+calculations in generated instructions or custom CSS.
 
 ### Generated design artifact governance
 

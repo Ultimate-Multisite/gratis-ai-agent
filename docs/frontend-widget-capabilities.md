@@ -89,6 +89,7 @@ Evidence sources:
 | `sd-ai-agent/scaffold-block-theme` | `edit_themes` | admin-only | `ToolCapabilities.php:126` |
 | `sd-ai-agent/render-design-previews` | `edit_theme_options` | admin-only | `ToolCapabilities.php:127` |
 | `sd-ai-agent/validate-palette-contrast` | `edit_theme_options` | admin-only | `ToolCapabilities.php:128` |
+| `sd-ai-agent/compile-design-tokens` | `edit_theme_options` | admin-only | `ToolCapabilities.php:136` |
 | `sd-ai-agent/generate-logo-svg` | `upload_files` | frontend-safe | `ToolCapabilities.php:129` |
 | `sd-ai-agent/list-menus` | `edit_theme_options` | admin-only | `ToolCapabilities.php:132` |
 | `sd-ai-agent/get-menu` | `edit_theme_options` | admin-only | `ToolCapabilities.php:133` |

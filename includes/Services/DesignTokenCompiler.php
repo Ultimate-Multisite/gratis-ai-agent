@@ -81,7 +81,7 @@ final class DesignTokenCompiler {
 			],
 			'styles'   => $styles,
 		];
-		$global_styles = [
+		$global_styles                                      = [
 			'settings' => $settings,
 			'styles'   => $styles,
 		];
@@ -92,10 +92,10 @@ final class DesignTokenCompiler {
 		}
 
 		return [
-			'theme_json'       => $theme_json,
-			'global_styles'    => $global_styles,
-			'palette'          => $palette,
-			'style_variation'  => $style_variation,
+			'theme_json'        => $theme_json,
+			'global_styles'     => $global_styles,
+			'palette'           => $palette,
+			'style_variation'   => $style_variation,
 			'artifact_manifest' => $artifact_manifest,
 		];
 	}
@@ -148,8 +148,8 @@ final class DesignTokenCompiler {
 		return [
 			'appearanceTools' => true,
 			'color'           => [
-				'palette'         => $palette,
-				'defaultPalette'  => false,
+				'palette'          => $palette,
+				'defaultPalette'   => false,
 				'defaultGradients' => false,
 			],
 			'typography'      => [
@@ -171,9 +171,9 @@ final class DesignTokenCompiler {
 	 * @return array<string,mixed> Theme styles.
 	 */
 	private static function build_styles(): array {
-		$color = static fn( string $role ): string => self::custom_var( [ 'color', $role ] );
-		$type  = static fn( string $role, string $property ): string => self::custom_var( [ 'typography', $role, $property ] );
-		$space = static fn( string $role ): string => self::custom_var( [ 'spacing', $role ] );
+		$color  = static fn( string $role ): string => self::custom_var( [ 'color', $role ] );
+		$type   = static fn( string $role, string $property ): string => self::custom_var( [ 'typography', $role, $property ] );
+		$space  = static fn( string $role ): string => self::custom_var( [ 'spacing', $role ] );
 		$radius = self::custom_var( [ 'radius', 'control' ] );
 		$shadow = self::custom_var( [ 'shadow', 'control' ] );
 
@@ -329,8 +329,8 @@ final class DesignTokenCompiler {
 	 * @return array<string,mixed>|WP_Error Valid manifest fragment or an error.
 	 */
 	private static function build_artifact_manifest( array $governance, array $theme_json, array $global_styles, array $style_variation ): array|WP_Error {
-		$theme_content = ArtifactManifest::canonical_json( $theme_json );
-		$global_content = ArtifactManifest::canonical_json(
+		$theme_content     = ArtifactManifest::canonical_json( $theme_json );
+		$global_content    = ArtifactManifest::canonical_json(
 			[
 				'version'                     => 3,
 				'isGlobalStylesUserThemeJSON' => true,
@@ -467,7 +467,7 @@ final class DesignTokenCompiler {
 	/**
 	 * Return a stable custom semantic CSS variable reference.
 	 *
-	 * @param list<string> $segments Semantic variable path.
+	 * @param array $segments Semantic variable path.
 	 */
 	private static function custom_var( array $segments ): string {
 		return 'var(--wp--custom--sd-ai-agent--semantic--' . implode( '--', $segments ) . ')';

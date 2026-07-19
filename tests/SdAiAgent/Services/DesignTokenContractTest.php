@@ -82,6 +82,20 @@ class DesignTokenContractTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * Shadows are optional primitive and semantic aliases rather than a hidden requirement.
+	 */
+	public function test_normalize_accepts_contracts_without_shadow_tokens(): void {
+		$contract = $this->valid_contract();
+		unset( $contract['primitives']['shadows'], $contract['semantics']['shadows'] );
+
+		$result = DesignTokenContract::normalize( $contract );
+
+		$this->assertNotWPError( $result );
+		$this->assertSame( [], $result['primitives']['shadows'] );
+		$this->assertSame( [], $result['semantics']['shadows'] );
+	}
+
+	/**
 	 * Semantic aliases fail closed rather than emitting a cyclic custom-property graph.
 	 */
 	public function test_normalize_rejects_circular_semantic_references_with_a_path(): void {

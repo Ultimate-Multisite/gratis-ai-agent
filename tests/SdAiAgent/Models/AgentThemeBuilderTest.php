@@ -163,6 +163,7 @@ class AgentThemeBuilderTest extends WP_UnitTestCase {
 			'sd-ai-agent/render-design-previews',
 			'sd-ai-agent/generate-menu-page',
 			'sd-ai-agent/validate-palette-contrast',
+			'sd-ai-agent/compile-design-tokens',
 			'sd-ai-agent/site-scrape',
 			'sd-ai-agent/stock-image',
 			'sd-ai-agent/generate-image',

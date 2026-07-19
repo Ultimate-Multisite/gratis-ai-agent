@@ -136,12 +136,36 @@ final class DesignTokenContract {
 		}
 
 		$definitions = [
-			'colors'        => [ 'key' => 'color', 'required' => true, 'kind' => 'color' ],
-			'font_families' => [ 'key' => 'fontFamily', 'required' => true, 'kind' => 'css' ],
-			'font_sizes'    => [ 'key' => 'size', 'required' => true, 'kind' => 'size' ],
-			'spacing'       => [ 'key' => 'size', 'required' => true, 'kind' => 'size' ],
-			'radii'         => [ 'key' => 'size', 'required' => true, 'kind' => 'size' ],
-			'shadows'       => [ 'key' => 'shadow', 'required' => false, 'kind' => 'css' ],
+			'colors'        => [
+				'key'      => 'color',
+				'required' => true,
+				'kind'     => 'color',
+			],
+			'font_families' => [
+				'key'      => 'fontFamily',
+				'required' => true,
+				'kind'     => 'css',
+			],
+			'font_sizes'    => [
+				'key'      => 'size',
+				'required' => true,
+				'kind'     => 'size',
+			],
+			'spacing'       => [
+				'key'      => 'size',
+				'required' => true,
+				'kind'     => 'size',
+			],
+			'radii'         => [
+				'key'      => 'size',
+				'required' => true,
+				'kind'     => 'size',
+			],
+			'shadows'       => [
+				'key'      => 'shadow',
+				'required' => false,
+				'kind'     => 'css',
+			],
 		];
 
 		$normalized = [];
@@ -214,9 +238,9 @@ final class DesignTokenContract {
 				}
 
 				$entries[ $slug ] = [
-					'slug'       => $slug,
-					$value_key    => $token,
-					'name'       => $name,
+					'slug'     => $slug,
+					$value_key => $token,
+					'name'     => $name,
 				];
 			}
 
@@ -310,15 +334,19 @@ final class DesignTokenContract {
 			return $radius;
 		}
 
-		$shadows = self::normalize_simple_semantics(
-			$raw['shadows'] ?? [],
-			'semantics.shadows',
-			[],
-			'shadows',
-			$primitives
-		);
-		if ( is_wp_error( $shadows ) ) {
-			return $shadows;
+		$raw_shadows = $raw['shadows'] ?? [];
+		$shadows     = [];
+		if ( [] !== $raw_shadows ) {
+			$shadows = self::normalize_simple_semantics(
+				$raw_shadows,
+				'semantics.shadows',
+				[],
+				'shadows',
+				$primitives
+			);
+			if ( is_wp_error( $shadows ) ) {
+				return $shadows;
+			}
 		}
 
 		return [
@@ -389,11 +417,11 @@ final class DesignTokenContract {
 	/**
 	 * Normalize a semantic role map whose values directly reference one primitive collection.
 	 *
-	 * @param mixed                                            $raw        Raw role map.
-	 * @param string                                           $path       Contract path.
-	 * @param list<string>                                     $required   Required role names.
-	 * @param string                                           $collection Primitive collection name.
-	 * @param array<string,array<string,array<string,string>>> $primitives Normalized primitive maps.
+	 * @param mixed  $raw        Raw role map.
+	 * @param string $path       Contract path.
+	 * @param array  $required   Required role names.
+	 * @param string $collection Primitive collection name.
+	 * @param array  $primitives Normalized primitive maps.
 	 * @return array<string,string>|WP_Error Normalized role-to-slug map or an error.
 	 */
 	private static function normalize_simple_semantics( mixed $raw, string $path, array $required, string $collection, array $primitives ): array|WP_Error {
@@ -435,9 +463,9 @@ final class DesignTokenContract {
 	/**
 	 * Normalize the required semantic-colour variation remap.
 	 *
-	 * @param mixed                            $raw         Raw variation block.
-	 * @param array<string,array<string,array<string,string>>> $primitives  Normalized primitive maps.
-	 * @param array<string,string>             $base_colors Resolved base semantic colours.
+	 * @param mixed $raw         Raw variation block.
+	 * @param array $primitives  Normalized primitive maps.
+	 * @param array $base_colors Resolved base semantic colours.
 	 * @return array<string,mixed>|WP_Error Normalized variation or an error.
 	 */
 	private static function normalize_variation( mixed $raw, array $primitives, array $base_colors ): array|WP_Error {
@@ -509,13 +537,13 @@ final class DesignTokenContract {
 	/**
 	 * Resolve a colour primitive or semantic alias while detecting cycles.
 	 *
-	 * @param string               $role            Semantic role currently resolving.
-	 * @param array<string,mixed>  $raw_roles       Raw role-to-reference map.
-	 * @param array<string,array<string,string>> $colors Normalized colour primitive map.
-	 * @param array<string,string> $resolved        Resolved role-to-primitive map.
-	 * @param array<string,bool>   $visiting        Current resolution stack.
-	 * @param string               $path            Base contract path.
-	 * @param array<string,string> $base_colors     Optional base role map for variations.
+	 * @param string $role        Semantic role currently resolving.
+	 * @param array  $raw_roles   Raw role-to-reference map.
+	 * @param array  $colors      Normalized colour primitive map.
+	 * @param array  $resolved    Resolved role-to-primitive map.
+	 * @param array  $visiting    Current resolution stack.
+	 * @param string $path        Base contract path.
+	 * @param array  $base_colors Optional base role map for variations.
 	 * @return string|WP_Error Primitive colour slug or an error.
 	 */
 	private static function resolve_color_reference( string $role, array $raw_roles, array $colors, array &$resolved, array &$visiting, string $path, array $base_colors = [] ): string|WP_Error {
@@ -678,12 +706,14 @@ final class DesignTokenContract {
 		$provenance['input_hash'] = $input_hash;
 
 		$artifact = $raw;
+
 		$artifact['kind']       = 'token_set';
 		$artifact['provenance'] = $provenance;
 		$artifact['payload']    = [
 			'files'   => [],
 			'records' => [],
 		];
+
 		$artifact = ArtifactManifest::create_artifact( $artifact );
 		if ( is_wp_error( $artifact ) ) {
 			return self::error(
@@ -785,7 +815,7 @@ final class DesignTokenContract {
 	 * Order required roles first and optional roles deterministically afterwards.
 	 *
 	 * @param array<string,mixed> $roles    Raw roles.
-	 * @param list<string>        $required Required role order.
+	 * @param array               $required Required role order.
 	 * @return list<string> Ordered role names.
 	 */
 	private static function ordered_roles( array $roles, array $required ): array {
