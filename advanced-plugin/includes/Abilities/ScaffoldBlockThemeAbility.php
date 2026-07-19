@@ -21,6 +21,8 @@ declare(strict_types=1);
 
 namespace SdAiAgent\Abilities;
 
+use SdAiAgent\DesignSystem\ArtifactReleaseManager;
+use SdAiAgent\Services\BlockThemeProjectValidator;
 use WP_Error;
 
 if ( ! defined( 'ABSPATH' ) ) {
@@ -223,6 +225,7 @@ class ScaffoldBlockThemeAbility extends AbstractAbility {
 			'style.css'     => self::build_style_css( $slug, $name, $description, $author ),
 			'functions.php' => self::build_functions_php( $slug ),
 		];
+		$files[ BlockThemeProjectValidator::MARKER_PATH ] = BlockThemeProjectValidator::marker_contents();
 
 		// Lay down minimum template files so the theme is valid on activation:
 		// a block theme requires at least templates/index.html. We provide a
@@ -258,6 +261,16 @@ class ScaffoldBlockThemeAbility extends AbstractAbility {
 
 			$written[] = $relative;
 		}
+
+		$manifest = ( new ArtifactReleaseManager() )->seed_empty_manifest(
+			$theme_dir,
+			$slug,
+			[ 'theme.json' => $encoded_theme_json ]
+		);
+		if ( is_wp_error( $manifest ) ) {
+			return $manifest;
+		}
+		$written[] = '.sd-ai-agent/design-artifacts/manifest.json';
 
 		if ( $existed && $overwrite ) {
 			$overwritten = true;

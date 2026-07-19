@@ -166,7 +166,7 @@ class JsAbilityCatalog {
 			array(
 				'name'          => 'sd-ai-agent-js/screenshot-url',
 				'label'         => 'Screenshot URL',
-				'description'   => 'Load any page on this WordPress site in a hidden iframe and capture a screenshot. Use this to visually review frontend pages without navigating the user away from wp-admin. The URL must be on the same site. Returns a base64 JPEG image for visual review by the AI.',
+				'description'   => 'Capture a same-origin WordPress URL for visual review. Open multisite subdomains from that origin first.',
 				'category'      => 'sd-ai-agent-js',
 				'input_schema'  => array(
 					'type'       => 'object',
@@ -206,6 +206,56 @@ class JsAbilityCatalog {
 							'description' => 'True if fullPage capture was clamped to the maximum height.',
 						),
 						'error'     => array( 'type' => 'string' ),
+					),
+				),
+				'annotations'   => array(
+					'readonly' => true,
+				),
+				'screens'       => array( 'all' ),
+			),
+			array(
+				'name'          => 'sd-ai-agent-js/validate-theme-completion',
+				'label'         => 'Validate Generated Theme Completion',
+				'description'   => 'Validate the active generated WordPress theme on the real homepage and one interior page at mobile, tablet, and desktop viewports. Returns deterministic render, accessibility, responsive, content, and remediation evidence; previews and screenshots do not satisfy this check.',
+				'category'      => 'sd-ai-agent-js',
+				'input_schema'  => array(
+					'type'       => 'object',
+					'properties' => array(
+						'stylesheet'  => array(
+							'type'        => 'string',
+							'description' => 'Expected active generated theme stylesheet from the current project validation.',
+						),
+						'fingerprint' => array(
+							'type'        => 'string',
+							'description' => 'Current fingerprint returned by validate-block-theme-project.',
+						),
+						'urls'        => array(
+							'type'        => 'array',
+							'minItems'    => 2,
+							'maxItems'    => 2,
+							'items'       => array( 'type' => 'string' ),
+							'description' => 'Exactly the active homepage URL and one published interior page URL.',
+						),
+					),
+					'required'   => array( 'stylesheet', 'fingerprint', 'urls' ),
+				),
+				'output_schema' => array(
+					'type'       => 'object',
+					'properties' => array(
+						'success'              => array( 'type' => 'boolean' ),
+						'complete'             => array( 'type' => 'boolean' ),
+						'passed'               => array( 'type' => 'boolean' ),
+						'fatal_render_failure' => array( 'type' => 'boolean' ),
+						'stylesheet'           => array( 'type' => 'string' ),
+						'fingerprint'          => array( 'type' => 'string' ),
+						'reports'              => array(
+							'type'  => 'array',
+							'items' => array( 'type' => 'object' ),
+						),
+						'violations'           => array(
+							'type'  => 'array',
+							'items' => array( 'type' => 'object' ),
+						),
 					),
 				),
 				'annotations'   => array(

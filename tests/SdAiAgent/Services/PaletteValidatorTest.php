@@ -12,7 +12,7 @@ declare(strict_types=1);
  *  - check() against a known-passing palette returns passed=true, no failures.
  *  - check() against a known-failing palette (low-contrast accent) returns
  *    the failure with correct fg/bg slugs and ratio.
- *  - check() skips pairs whose slugs are missing from the palette.
+ *  - check() fails closed and reports roles missing from the palette.
  *  - Suggestions returned for a failing pair have a higher contrast ratio
  *    than the original AND pass the required threshold.
  *  - Custom pair overrides are accepted by the constructor.
@@ -130,7 +130,9 @@ class PaletteValidatorTest extends WP_UnitTestCase {
 			[
 				[ 'slug' => 'foreground', 'color' => '#1a1a1a' ],
 				[ 'slug' => 'background', 'color' => '#ffffff' ],
+				[ 'slug' => 'surface', 'color' => '#f5f5f5' ],
 				[ 'slug' => 'accent', 'color' => '#005fcc' ],
+				[ 'slug' => 'on-accent', 'color' => '#ffffff' ],
 			]
 		);
 
@@ -139,7 +141,9 @@ class PaletteValidatorTest extends WP_UnitTestCase {
 		$this->assertTrue( $result['passed'], 'High-contrast palette must pass all default pairs.' );
 		$this->assertSame( [], $result['failures'], 'No failures expected.' );
 		$this->assertSame( [], $result['suggestions'], 'No suggestions expected when palette passes.' );
-		$this->assertGreaterThan( 0, $result['pairs_checked'], 'pairs_checked must report > 0 for a populated palette.' );
+		$this->assertSame( [], $result['missing_roles'] );
+		$this->assertSame( 4, $result['pairs_checked'] );
+		$this->assertSame( 4, $result['pairs_expected'] );
 	}
 
 	// ── check() with failing palette ──────────────────────────────────────
@@ -151,7 +155,9 @@ class PaletteValidatorTest extends WP_UnitTestCase {
 			[
 				[ 'slug' => 'foreground', 'color' => '#2a2a2a' ],
 				[ 'slug' => 'background', 'color' => '#f4ecd8' ],
+				[ 'slug' => 'surface', 'color' => '#ffffff' ],
 				[ 'slug' => 'accent', 'color' => '#7a8a6b' ],
+				[ 'slug' => 'on-accent', 'color' => '#ffffff' ],
 			]
 		);
 
@@ -175,9 +181,7 @@ class PaletteValidatorTest extends WP_UnitTestCase {
 		$this->assertSame( PaletteValidator::RATIO_AA_NORMAL, $failure['required'] );
 	}
 
-	public function test_check_skips_pairs_with_missing_slugs(): void {
-		// Only foreground + background — accent missing means link &
-		// button-text pairs should be silently skipped.
+	public function test_check_reports_missing_roles_and_does_not_count_unevaluated_pairs(): void {
 		$validator = new PaletteValidator(
 			[
 				[ 'slug' => 'foreground', 'color' => '#000000' ],
@@ -187,8 +191,19 @@ class PaletteValidatorTest extends WP_UnitTestCase {
 
 		$result = $validator->check();
 
-		$this->assertTrue( $result['passed'] );
+		$this->assertFalse( $result['passed'] );
 		$this->assertSame( [], $result['failures'] );
+		$this->assertSame(
+			[
+				[ 'slug' => 'surface', 'pair_ids' => [] ],
+				[ 'slug' => 'accent', 'pair_ids' => [ 'link-on-background', 'button-text-on-accent' ] ],
+				[ 'slug' => 'on-accent', 'pair_ids' => [ 'button-text-on-accent' ] ],
+			],
+			$result['missing_roles']
+		);
+		$this->assertSame( 2, $result['pairs_checked'] );
+		$this->assertSame( 4, $result['pairs_expected'] );
+		$this->assertSame( [], $result['suggestions'], 'Absent colours must not produce fabricated suggestions.' );
 	}
 
 	public function test_check_uses_short_hex_after_normalisation(): void {
@@ -196,7 +211,9 @@ class PaletteValidatorTest extends WP_UnitTestCase {
 			[
 				[ 'slug' => 'foreground', 'color' => '#000' ],
 				[ 'slug' => 'background', 'color' => 'FFF' ],
+				[ 'slug' => 'surface', 'color' => '#eee' ],
 				[ 'slug' => 'accent', 'color' => '#00f' ],
+				[ 'slug' => 'on-accent', 'color' => '#fff' ],
 			]
 		);
 
@@ -212,7 +229,9 @@ class PaletteValidatorTest extends WP_UnitTestCase {
 			[
 				[ 'slug' => 'foreground', 'color' => '#2a2a2a' ],
 				[ 'slug' => 'background', 'color' => '#f4ecd8' ],
+				[ 'slug' => 'surface', 'color' => '#ffffff' ],
 				[ 'slug' => 'accent', 'color' => '#7a8a6b' ],
+				[ 'slug' => 'on-accent', 'color' => '#ffffff' ],
 			]
 		);
 
@@ -249,7 +268,9 @@ class PaletteValidatorTest extends WP_UnitTestCase {
 			[
 				[ 'slug' => 'foreground', 'color' => '#cccccc' ],
 				[ 'slug' => 'background', 'color' => '#ffffff' ],
+				[ 'slug' => 'surface', 'color' => '#f5f5f5' ],
 				[ 'slug' => 'accent', 'color' => '#cccccc' ],
+				[ 'slug' => 'on-accent', 'color' => '#ffffff' ],
 			]
 		);
 
@@ -285,6 +306,9 @@ class PaletteValidatorTest extends WP_UnitTestCase {
 		$this->assertContains( 'heading-on-background', $ids );
 		$this->assertContains( 'link-on-background', $ids );
 		$this->assertContains( 'button-text-on-accent', $ids );
+		$button_pair = array_values( array_filter( $validator->get_pairs(), static fn( array $pair ): bool => 'button-text-on-accent' === $pair['id'] ) )[0];
+		$this->assertSame( 'on-accent', $button_pair['fg_slug'] );
+		$this->assertSame( 'accent', $button_pair['bg_slug'] );
 	}
 
 	// ── custom pair overrides ─────────────────────────────────────────────
@@ -294,6 +318,9 @@ class PaletteValidatorTest extends WP_UnitTestCase {
 			[
 				[ 'slug' => 'foreground', 'color' => '#000' ],
 				[ 'slug' => 'background', 'color' => '#fff' ],
+				[ 'slug' => 'surface', 'color' => '#eee' ],
+				[ 'slug' => 'accent', 'color' => '#005fcc' ],
+				[ 'slug' => 'on-accent', 'color' => '#fff' ],
 				[ 'slug' => 'kicker', 'color' => '#888' ],
 			],
 			[
@@ -315,6 +342,33 @@ class PaletteValidatorTest extends WP_UnitTestCase {
 		$this->assertFalse( $result['passed'], '#888 on #fff fails 4.5:1.' );
 		$this->assertCount( 1, $result['failures'] );
 		$this->assertSame( 'kicker-on-background', $result['failures'][0]['pair_id'] );
+		$this->assertSame( [], $result['missing_roles'] );
+	}
+
+	public function test_custom_pair_missing_role_is_reported_with_affected_pair(): void {
+		$validator = new PaletteValidator(
+			[
+				[ 'slug' => 'foreground', 'color' => '#000' ],
+				[ 'slug' => 'background', 'color' => '#fff' ],
+				[ 'slug' => 'surface', 'color' => '#eee' ],
+				[ 'slug' => 'accent', 'color' => '#005fcc' ],
+				[ 'slug' => 'on-accent', 'color' => '#fff' ],
+			],
+			[
+				[
+					'id'      => 'kicker-on-background',
+					'fg_slug' => 'kicker',
+					'bg_slug' => 'background',
+				],
+			]
+		);
+
+		$result = $validator->check();
+
+		$this->assertFalse( $result['passed'] );
+		$this->assertSame( [ [ 'slug' => 'kicker', 'pair_ids' => [ 'kicker-on-background' ] ] ], $result['missing_roles'] );
+		$this->assertSame( 0, $result['pairs_checked'] );
+		$this->assertSame( 1, $result['pairs_expected'] );
 	}
 
 	public function test_custom_pair_override_drops_malformed_entries(): void {
@@ -336,6 +390,24 @@ class PaletteValidatorTest extends WP_UnitTestCase {
 		$pairs = $validator->get_pairs();
 		$this->assertCount( 1, $pairs, 'Malformed pair entries must be silently dropped.' );
 		$this->assertSame( 'good', $pairs[0]['id'] );
+	}
+
+	public function test_empty_or_fully_malformed_pair_override_fails_closed(): void {
+		$palette = [
+			[ 'slug' => 'foreground', 'color' => '#000' ],
+			[ 'slug' => 'background', 'color' => '#fff' ],
+			[ 'slug' => 'surface', 'color' => '#eee' ],
+			[ 'slug' => 'accent', 'color' => '#005fcc' ],
+			[ 'slug' => 'on-accent', 'color' => '#fff' ],
+		];
+
+		foreach ( [ [], [ [ 'id' => 'no-slugs' ] ] ] as $override ) {
+			$result = ( new PaletteValidator( $palette, $override ) )->check();
+
+			$this->assertFalse( $result['passed'] );
+			$this->assertSame( 0, $result['pairs_checked'] );
+			$this->assertSame( 0, $result['pairs_expected'] );
+		}
 	}
 
 	// ── input robustness ─────────────────────────────────────────────────

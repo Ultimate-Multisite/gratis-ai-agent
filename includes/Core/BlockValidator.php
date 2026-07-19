@@ -219,14 +219,15 @@ class BlockValidator {
 	 * on every recognised block (see {@see CORE_BLOCK_RULES}), then applies
 	 * the content policy (BlockContentPolicy) to every core/html block result.
 	 *
-	 * When the {@see BlockValidatorBridge} cache contains live JS-validator
-	 * results for the same content (keyed by SHA-256), those override the
-	 * server-side report so third-party blocks get true `wp.blocks.validateBlock()`
-	 * coverage.
+	 * When $use_browser_cache is true and the {@see BlockValidatorBridge} cache
+	 * contains live JS-validator results for the same content (keyed by SHA-256),
+	 * those override the server-side report so third-party blocks get true
+	 * `wp.blocks.validateBlock()` coverage.
 	 *
 	 * @since 1.11.0
 	 *
-	 * @param string $content Raw Gutenberg block markup.
+	 * @param string $content           Raw Gutenberg block markup.
+	 * @param bool   $use_browser_cache Whether browser validation cache entries may override the PHP report.
 	 * @return array{
 	 *   totalBlocks: int,
 	 *   validBlocks: int,
@@ -235,27 +236,29 @@ class BlockValidator {
 	 *   source: string,
 	 * } Studio-shaped validation report. `source` is one of: `php`, `js-cached`.
 	 */
-	public function validate( string $content ): array {
-		// Prefer browser-validated cached result when available.
-		$cached = BlockValidatorBridge::get_cached( $content );
-		if ( null !== $cached ) {
-			// Still apply BlockContentPolicy on top of cached JS results so
-			// the core/html policy stays consistent between the two engines.
-			$cached_results = [];
-			foreach ( (array) ( $cached['results'] ?? [] ) as $result ) {
-				/** @var array<string, mixed> $result */
-				$cached_results[] = BlockContentPolicy::apply( $result );
+	public function validate( string $content, bool $use_browser_cache = true ): array {
+		if ( $use_browser_cache ) {
+			// Prefer browser-validated cached result when available.
+			$cached = BlockValidatorBridge::get_cached( $content );
+			if ( null !== $cached ) {
+				// Still apply BlockContentPolicy on top of cached JS results so
+				// the core/html policy stays consistent between the two engines.
+				$cached_results = [];
+				foreach ( (array) ( $cached['results'] ?? [] ) as $result ) {
+					/** @var array<string, mixed> $result */
+					$cached_results[] = BlockContentPolicy::apply( $result );
+				}
+
+				$total                   = count( $cached_results );
+				$invalid                 = count( array_filter( $cached_results, static fn( $r ) => empty( $r['isValid'] ) ) );
+				$cached['results']       = $cached_results;
+				$cached['totalBlocks']   = $total;
+				$cached['validBlocks']   = $total - $invalid;
+				$cached['invalidBlocks'] = $invalid;
+				$cached['source']        = 'js-cached';
+
+				return $cached;
 			}
-
-			$total                   = count( $cached_results );
-			$invalid                 = count( array_filter( $cached_results, static fn( $r ) => empty( $r['isValid'] ) ) );
-			$cached['results']       = $cached_results;
-			$cached['totalBlocks']   = $total;
-			$cached['validBlocks']   = $total - $invalid;
-			$cached['invalidBlocks'] = $invalid;
-			$cached['source']        = 'js-cached';
-
-			return $cached;
 		}
 
 		$parsed  = parse_blocks( $content );
@@ -283,6 +286,25 @@ class BlockValidator {
 			'results'       => $policied,
 			'source'        => 'php',
 		];
+	}
+
+	/**
+	 * Validate content from deterministic server-side parsing only.
+	 *
+	 * Generated project checks must not depend on browser-posted transient
+	 * results because the same files must always produce the same diagnostics.
+	 *
+	 * @param string $content Raw Gutenberg block markup.
+	 * @return array{
+	 *   totalBlocks: int,
+	 *   validBlocks: int,
+	 *   invalidBlocks: int,
+	 *   results: list<array<string, mixed>>,
+	 *   source: string,
+	 * } Studio-shaped validation report with source `php`.
+	 */
+	public function validate_server_side( string $content ): array {
+		return $this->validate( $content, false );
 	}
 
 	/**

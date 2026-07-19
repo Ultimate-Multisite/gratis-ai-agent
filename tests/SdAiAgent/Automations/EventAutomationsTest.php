@@ -10,6 +10,7 @@
 namespace SdAiAgent\Tests\Automations;
 
 use SdAiAgent\Automations\EventAutomations;
+use SdAiAgent\Core\Database;
 use WP_UnitTestCase;
 
 /**
@@ -37,6 +38,13 @@ class EventAutomationsTest extends WP_UnitTestCase {
 			],
 			$overrides
 		);
+	}
+
+	/**
+	 * Test the database version is available through WordPress's alloptions cache.
+	 */
+	public function test_database_version_option_is_autoloaded(): void {
+		$this->assertArrayHasKey( Database::DB_VERSION_OPTION, wp_load_alloptions() );
 	}
 
 	// -------------------------------------------------------------------------
@@ -246,21 +254,25 @@ class EventAutomationsTest extends WP_UnitTestCase {
 	}
 
 	/**
-	 * Test list returns empty without querying a missing subsite table.
+	 * Test list returns empty when the current site has not installed the database.
 	 */
-	public function test_list_returns_empty_when_current_site_table_is_missing(): void {
+	public function test_list_returns_empty_when_database_is_not_installed(): void {
 		global $wpdb;
 		/** @var \wpdb $wpdb */
 
-		$original_prefix = $wpdb->prefix;
-		$wpdb->prefix    = $original_prefix . 'missing_';
+		$installed_version = get_option( Database::DB_VERSION_OPTION, false );
+		delete_option( Database::DB_VERSION_OPTION );
 		$wpdb->last_error = '';
 
 		try {
 			$this->assertSame( [], EventAutomations::list( true ) );
 			$this->assertSame( '', $wpdb->last_error );
 		} finally {
-			$wpdb->prefix = $original_prefix;
+			if ( false === $installed_version ) {
+				delete_option( Database::DB_VERSION_OPTION );
+			} else {
+				update_option( Database::DB_VERSION_OPTION, $installed_version );
+			}
 		}
 	}
 

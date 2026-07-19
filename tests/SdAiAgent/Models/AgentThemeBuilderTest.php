@@ -155,6 +155,7 @@ class AgentThemeBuilderTest extends WP_UnitTestCase {
 
 		$required = [
 			'sd-ai-agent/scaffold-block-theme',
+			'sd-ai-agent/validate-block-theme-project',
 			'sd-ai-agent/activate-theme',
 			'sd-ai-agent/file-write',
 			'sd-ai-agent/validate-block-content',
@@ -163,6 +164,16 @@ class AgentThemeBuilderTest extends WP_UnitTestCase {
 			'sd-ai-agent/render-design-previews',
 			'sd-ai-agent/generate-menu-page',
 			'sd-ai-agent/validate-palette-contrast',
+			'sd-ai-agent/compile-design-tokens',
+			'sd-ai-agent/list-style-variations',
+			'sd-ai-agent/create-style-variation',
+			'sd-ai-agent/update-style-variation',
+			'sd-ai-agent/validate-style-variation',
+			'sd-ai-agent/preview-style-variation',
+			'sd-ai-agent/select-style-variation',
+			'sd-ai-agent/reset-style-variation',
+			'sd-ai-agent/list-landing-page-pattern-families',
+			'sd-ai-agent/select-landing-page-pattern-family',
 			'sd-ai-agent/site-scrape',
 			'sd-ai-agent/stock-image',
 			'sd-ai-agent/generate-image',
@@ -176,6 +187,48 @@ class AgentThemeBuilderTest extends WP_UnitTestCase {
 				sprintf( 'Setup Assistant tier_1_tools must contain %s', $ability )
 			);
 		}
+	}
+
+	/**
+	 * Generated themes require current activated-site QA before the assistant can reply with success.
+	 */
+	public function test_setup_assistant_requires_current_activated_theme_completion_report(): void {
+		Agent::reset_defaults();
+
+		$agent = Agent::get_by_slug( Agent::ONBOARDING_AGENT_SLUG );
+		$this->assertNotNull( $agent );
+
+		$prompt = $agent->system_prompt;
+		foreach ( [
+			'sd-ai-agent-js/validate-theme-completion',
+			'375×812',
+			'768×1024',
+			'1280×800',
+			'current `fingerprint`',
+			'Only a report with `passed: true`',
+			'restore `previous_stylesheet`',
+		] as $required ) {
+			$this->assertStringContainsString( $required, $prompt );
+		}
+	}
+
+	/**
+	 * Homepage composition selects a structural family before page generation.
+	 */
+	public function test_setup_assistant_selects_a_landing_page_pattern_before_composition(): void {
+		Agent::reset_defaults();
+
+		$agent = Agent::get_by_slug( Agent::ONBOARDING_AGENT_SLUG );
+		$this->assertNotNull( $agent );
+
+		$selection_position   = strpos( $agent->system_prompt, 'select-landing-page-pattern-family' );
+		$composition_position = strpos( $agent->system_prompt, 'Compose the selected family and variant' );
+
+		$this->assertNotFalse( $selection_position );
+		$this->assertNotFalse( $composition_position );
+		$this->assertLessThan( $composition_position, $selection_position );
+		$this->assertStringContainsString( 'requires_clarification', $agent->system_prompt );
+		$this->assertStringContainsString( 'visual direction remains a separate decision', $agent->system_prompt );
 	}
 
 	/**
@@ -221,6 +274,58 @@ class AgentThemeBuilderTest extends WP_UnitTestCase {
 			$this->assertStringContainsString( $vertical, $prompt_lower );
 		}
 		$this->assertStringContainsString( 'vertical-aware', $prompt_lower );
+	}
+
+	/**
+	 * The Setup Assistant must revalidate palette repairs before scaffolding.
+	 */
+	public function test_setup_assistant_revalidates_palette_before_scaffolding(): void {
+		Agent::reset_defaults();
+
+		$agent = Agent::get_by_slug( Agent::ONBOARDING_AGENT_SLUG );
+		$this->assertNotNull( $agent );
+
+		$validation_position = strpos( $agent->system_prompt, 'validate-palette-contrast` again' );
+		$scaffold_position   = strpos( $agent->system_prompt, 'scaffold-block-theme` only after' );
+
+		$this->assertNotFalse( $validation_position );
+		$this->assertNotFalse( $scaffold_position );
+		$this->assertLessThan( $scaffold_position, $validation_position );
+		$this->assertStringContainsString( '`passed` field is exactly `true`', $agent->system_prompt );
+	}
+
+	/**
+	 * The Setup Assistant routes variation changes through the explicit lifecycle.
+	 */
+	public function test_setup_assistant_uses_style_variation_lifecycle(): void {
+		Agent::reset_defaults();
+
+		$agent = Agent::get_by_slug( Agent::ONBOARDING_AGENT_SLUG );
+		$this->assertNotNull( $agent );
+
+		foreach ( [
+			'sd-ai-agent/list-style-variations',
+			'sd-ai-agent/validate-style-variation',
+			'sd-ai-agent/preview-style-variation',
+			'sd-ai-agent/select-style-variation',
+			'sd-ai-agent/reset-style-variation',
+			'Never use generic file writes or wholesale Global Styles reset',
+		] as $required ) {
+			$this->assertStringContainsString( $required, $agent->system_prompt );
+		}
+	}
+
+	/**
+	 * Follow-up design changes remain contract-driven instead of drifting raw artifacts.
+	 */
+	public function test_setup_assistant_recompiles_follow_up_design_changes(): void {
+		Agent::reset_defaults();
+
+		$agent = Agent::get_by_slug( Agent::ONBOARDING_AGENT_SLUG );
+		$this->assertNotNull( $agent );
+		$this->assertStringContainsString( 'update the saved design-token contract', $agent->system_prompt );
+		$this->assertGreaterThanOrEqual( 3, substr_count( $agent->system_prompt, 'sd-ai-agent/compile-design-tokens' ) );
+		$this->assertStringNotContainsString( 'adjust `theme.json` + re-apply global styles', $agent->system_prompt );
 	}
 
 	/**

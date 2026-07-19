@@ -21,6 +21,7 @@ namespace SdAiAgent\Tests\Core;
 
 use SdAiAgent\Abilities\Js\JsAbilityCatalog;
 use SdAiAgent\Core\AgentLoop;
+use SdAiAgent\Core\ClientAbilityRouter;
 use SdAiAgent\Core\Settings;
 use WordPress\AiClient\Messages\DTO\MessagePart;
 use WordPress\AiClient\Messages\DTO\UserMessage;
@@ -64,6 +65,7 @@ class AgentLoopClientToolsTest extends WP_UnitTestCase {
 		$this->assertContains( 'sd-ai-agent-js/navigate-to', $names );
 		$this->assertContains( 'sd-ai-agent-js/refresh-page', $names );
 		$this->assertContains( 'sd-ai-agent-js/insert-block', $names );
+		$this->assertContains( 'sd-ai-agent-js/validate-theme-completion', $names );
 	}
 
 	/**
@@ -73,6 +75,7 @@ class AgentLoopClientToolsTest extends WP_UnitTestCase {
 		$this->assertTrue( JsAbilityCatalog::has( 'sd-ai-agent-js/navigate-to' ) );
 		$this->assertTrue( JsAbilityCatalog::has( 'sd-ai-agent-js/refresh-page' ) );
 		$this->assertTrue( JsAbilityCatalog::has( 'sd-ai-agent-js/insert-block' ) );
+		$this->assertTrue( JsAbilityCatalog::has( 'sd-ai-agent-js/validate-theme-completion' ) );
 		$this->assertFalse( JsAbilityCatalog::has( 'sd-ai-agent-js/unknown-ability' ) );
 		$this->assertFalse( JsAbilityCatalog::has( 'sd-ai-agent/memory-save' ) );
 	}
@@ -87,6 +90,7 @@ class AgentLoopClientToolsTest extends WP_UnitTestCase {
 		$this->assertArrayHasKey( 'sd-ai-agent-js/navigate-to', $map );
 		$this->assertArrayHasKey( 'sd-ai-agent-js/refresh-page', $map );
 		$this->assertArrayHasKey( 'sd-ai-agent-js/insert-block', $map );
+		$this->assertArrayHasKey( 'sd-ai-agent-js/validate-theme-completion', $map );
 
 		$refresh = $map['sd-ai-agent-js/refresh-page'];
 		$this->assertTrue( $refresh['annotations']['readonly'] );
@@ -246,6 +250,26 @@ class AgentLoopClientToolsTest extends WP_UnitTestCase {
 
 		$this->assertCount( 1, $result['php'] );
 		$this->assertCount( 0, $result['client'] );
+	}
+
+	/**
+	 * Browser results must preserve the complete pending ID/name batch exactly.
+	 */
+	public function test_client_result_matcher_rejects_substituted_or_incomplete_batches(): void {
+		$expected = array(
+			array( 'id' => 'call-one', 'name' => 'sd-ai-agent-js/navigate-to' ),
+			array( 'id' => 'call-two', 'name' => 'sd-ai-agent-js/refresh-page' ),
+		);
+		$valid = array(
+			array( 'id' => 'call-one', 'name' => 'sd-ai-agent-js/navigate-to', 'result' => array() ),
+			array( 'id' => 'call-two', 'name' => 'sd-ai-agent-js/refresh-page', 'error' => 'Denied.' ),
+		);
+
+		$this->assertTrue( ClientAbilityRouter::matches_pending_results( $expected, $valid ) );
+		$this->assertFalse( ClientAbilityRouter::matches_pending_results( $expected, array( array( 'id' => 'call-one', 'name' => 'sd-ai-agent-js/refresh-page', 'result' => array() ), array( 'id' => 'call-two', 'name' => 'sd-ai-agent-js/navigate-to', 'error' => 'Denied.' ) ) ) );
+		$this->assertFalse( ClientAbilityRouter::matches_pending_results( $expected, array( array( 'id' => 'unknown', 'name' => 'sd-ai-agent-js/navigate-to', 'result' => array() ), $valid[1] ) ) );
+		$this->assertFalse( ClientAbilityRouter::matches_pending_results( $expected, array( $valid[0], $valid[0] ) ) );
+		$this->assertFalse( ClientAbilityRouter::matches_pending_results( $expected, array( $valid[0] ) ) );
 	}
 
 	/**
@@ -456,6 +480,34 @@ class AgentLoopClientToolsTest extends WP_UnitTestCase {
 		$this->assertCount( 1, $messages );
 		$this->assertStringContainsString( 'sd-ai-agent/update-post', $messages[0]->getParts()[0]->getText() );
 		$this->assertStringContainsString( 'post_id 42', $messages[0]->getParts()[0]->getText() );
+	}
+
+	/**
+	 * An incomplete generated-theme run must replace, not append to, a model success claim.
+	 */
+	public function test_incomplete_generated_theme_notice_replaces_model_success_reply(): void {
+		$loop       = new AgentLoop( 'test', array(), array(), array() );
+		$reflection = new \ReflectionClass( $loop );
+		$gate       = $reflection->getProperty( 'generated_theme_completion_gate' );
+		$gate->setAccessible( true );
+
+		$completion_gate = $gate->getValue( $loop );
+		$completion_gate->record_tool_call(
+			'sd-ai-agent/scaffold-block-theme',
+			array( 'slug' => 'incomplete-theme' )
+		);
+		$completion_gate->record_tool_response(
+			'sd-ai-agent/scaffold-block-theme',
+			array( 'stylesheet' => 'incomplete-theme' )
+		);
+
+		$method = $reflection->getMethod( 'append_generated_theme_completion_notice' );
+		$method->setAccessible( true );
+		$reply = (string) $method->invoke( $loop, 'DONE: The generated theme is complete.' );
+
+		$this->assertSame( $completion_gate->get_terminal_notice(), $reply );
+		$this->assertStringNotContainsString( 'DONE', $reply );
+		$this->assertStringContainsString( 'remains incomplete', $reply );
 	}
 
 	// ── Helper methods ────────────────────────────────────────────────────

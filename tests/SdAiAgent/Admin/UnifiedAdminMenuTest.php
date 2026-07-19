@@ -267,6 +267,17 @@ class UnifiedAdminMenuTest extends WP_UnitTestCase {
 		$this->assertSame( 'chat', $route );
 	}
 
+	/**
+	 * Test getScreenshotAllowedOrigins() includes the current WordPress origin.
+	 */
+	public function test_get_screenshot_allowed_origins_includes_current_site(): void {
+		$origins = UnifiedAdminMenu::getScreenshotAllowedOrigins();
+		$home    = wp_parse_url( home_url( '/' ) );
+		$origin  = strtolower( (string) $home['scheme'] ) . '://' . strtolower( (string) $home['host'] );
+
+		$this->assertContains( $origin, $origins );
+	}
+
 	// ─── Hook Registration ────────────────────────────────────────────────────
 
 	/**

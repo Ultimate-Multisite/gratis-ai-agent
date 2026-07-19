@@ -39,7 +39,7 @@ class ValidatePaletteContrastAbility extends AbstractAbility {
 
 	protected function description(): string {
 		return __(
-			'Check a theme.json colour palette against WCAG AA contrast minimums (4.5:1 body, 3:1 large text). Call after the user picks a direction and BEFORE sd-ai-agent/scaffold-block-theme. Returns failing pairs and suggested hex adjustments so the agent can present options or auto-correct.',
+			'Check a theme.json colour palette against WCAG AA contrast minimums (4.5:1 body, 3:1 large text). Requires the semantic roles foreground, background, surface, accent, and on-accent; primary and secondary are optional. Call after the user picks a direction and BEFORE sd-ai-agent/scaffold-block-theme. Returns missing roles, failing pairs, and suggested hex adjustments so the agent can present options or auto-correct.',
 			'superdav-ai-agent'
 		);
 	}
@@ -54,7 +54,7 @@ class ValidatePaletteContrastAbility extends AbstractAbility {
 			'properties' => [
 				'palette' => [
 					'type'        => 'array',
-					'description' => 'Theme.json-shaped colour palette: array of { slug, color } entries. Hex values may be #rgb, #rrggbb, or unprefixed.',
+					'description' => 'Theme.json-shaped colour palette: array of { slug, color } entries. Required semantic slugs: foreground, background, surface, accent, on-accent. Primary and secondary are optional aesthetic groupings, not aliases. Hex values may be #rgb, #rrggbb, or unprefixed.',
 					'items'       => [
 						'type'       => 'object',
 						'properties' => [
@@ -67,6 +67,7 @@ class ValidatePaletteContrastAbility extends AbstractAbility {
 				],
 				'pairs'   => [
 					'type'        => 'array',
+					'minItems'    => 1,
 					'description' => 'Optional override of the default pair definitions. Each entry: { id, fg_slug, bg_slug, required, label }. When omitted, the default Theme Builder pairs are used (body, heading, link, button).',
 					'items'       => [
 						'type'       => 'object',
@@ -89,9 +90,23 @@ class ValidatePaletteContrastAbility extends AbstractAbility {
 		return [
 			'type'       => 'object',
 			'properties' => [
-				'passed'        => [ 'type' => 'boolean' ],
-				'pairs_checked' => [ 'type' => 'integer' ],
-				'failures'      => [
+				'passed'         => [ 'type' => 'boolean' ],
+				'pairs_checked'  => [ 'type' => 'integer' ],
+				'pairs_expected' => [ 'type' => 'integer' ],
+				'missing_roles'  => [
+					'type'  => 'array',
+					'items' => [
+						'type'       => 'object',
+						'properties' => [
+							'slug'     => [ 'type' => 'string' ],
+							'pair_ids' => [
+								'type'  => 'array',
+								'items' => [ 'type' => 'string' ],
+							],
+						],
+					],
+				],
+				'failures'       => [
 					'type'  => 'array',
 					'items' => [
 						'type'       => 'object',
@@ -107,7 +122,7 @@ class ValidatePaletteContrastAbility extends AbstractAbility {
 						],
 					],
 				],
-				'suggestions'   => [
+				'suggestions'    => [
 					'type'  => 'array',
 					'items' => [
 						'type'       => 'object',
@@ -138,6 +153,12 @@ class ValidatePaletteContrastAbility extends AbstractAbility {
 		}
 
 		$pairs = isset( $input['pairs'] ) && is_array( $input['pairs'] ) ? $input['pairs'] : null;
+		if ( [] === $pairs ) {
+			return new WP_Error(
+				'sd_ai_agent_palette_pairs_required',
+				__( 'A supplied pair override must contain at least one valid pair.', 'superdav-ai-agent' )
+			);
+		}
 
 		$validator = new PaletteValidator( $palette, $pairs );
 		return $validator->check();

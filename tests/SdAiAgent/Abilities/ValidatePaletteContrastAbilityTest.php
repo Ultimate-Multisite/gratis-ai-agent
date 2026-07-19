@@ -36,7 +36,9 @@ class ValidatePaletteContrastAbilityTest extends WP_UnitTestCase {
 				'palette' => [
 					[ 'slug' => 'foreground', 'color' => '#1a1a1a' ],
 					[ 'slug' => 'background', 'color' => '#ffffff' ],
+					[ 'slug' => 'surface', 'color' => '#f5f5f5' ],
 					[ 'slug' => 'accent', 'color' => '#005fcc' ],
+					[ 'slug' => 'on-accent', 'color' => '#ffffff' ],
 				],
 			]
 		);
@@ -45,6 +47,9 @@ class ValidatePaletteContrastAbilityTest extends WP_UnitTestCase {
 		$this->assertTrue( $result['passed'] );
 		$this->assertSame( [], $result['failures'] );
 		$this->assertSame( [], $result['suggestions'] );
+		$this->assertSame( [], $result['missing_roles'] );
+		$this->assertSame( 4, $result['pairs_checked'] );
+		$this->assertSame( 4, $result['pairs_expected'] );
 	}
 
 	public function test_run_returns_failures_and_suggestions_for_low_contrast_palette(): void {
@@ -53,7 +58,9 @@ class ValidatePaletteContrastAbilityTest extends WP_UnitTestCase {
 				'palette' => [
 					[ 'slug' => 'foreground', 'color' => '#2a2a2a' ],
 					[ 'slug' => 'background', 'color' => '#f4ecd8' ],
+					[ 'slug' => 'surface', 'color' => '#ffffff' ],
 					[ 'slug' => 'accent', 'color' => '#7a8a6b' ],
+					[ 'slug' => 'on-accent', 'color' => '#ffffff' ],
 				],
 			]
 		);
@@ -71,12 +78,34 @@ class ValidatePaletteContrastAbilityTest extends WP_UnitTestCase {
 		$this->assertSame( 'sd_ai_agent_palette_required', $result->get_error_code() );
 	}
 
+	public function test_run_returns_wp_error_for_empty_pair_override(): void {
+		$result = $this->ability()->run(
+			[
+				'palette' => [
+					[ 'slug' => 'foreground', 'color' => '#1a1a1a' ],
+					[ 'slug' => 'background', 'color' => '#ffffff' ],
+					[ 'slug' => 'surface', 'color' => '#f5f5f5' ],
+					[ 'slug' => 'accent', 'color' => '#005fcc' ],
+					[ 'slug' => 'on-accent', 'color' => '#ffffff' ],
+				],
+				'pairs'   => [],
+			]
+		);
+
+		$this->assertInstanceOf( WP_Error::class, $result );
+		$this->assertSame( 'sd_ai_agent_palette_pairs_required', $result->get_error_code() );
+	}
+
 	public function test_run_respects_custom_pair_overrides(): void {
 		$result = $this->ability()->run(
 			[
 				'palette' => [
 					[ 'slug' => 'kicker', 'color' => '#888888' ],
+					[ 'slug' => 'foreground', 'color' => '#000000' ],
 					[ 'slug' => 'background', 'color' => '#ffffff' ],
+					[ 'slug' => 'surface', 'color' => '#f5f5f5' ],
+					[ 'slug' => 'accent', 'color' => '#005fcc' ],
+					[ 'slug' => 'on-accent', 'color' => '#ffffff' ],
 				],
 				'pairs'   => [
 					[
@@ -95,5 +124,6 @@ class ValidatePaletteContrastAbilityTest extends WP_UnitTestCase {
 		$this->assertSame( 1, $result['pairs_checked'] );
 		$this->assertCount( 1, $result['failures'] );
 		$this->assertSame( 'kicker-on-background', $result['failures'][0]['pair_id'] );
+		$this->assertSame( [], $result['missing_roles'] );
 	}
 }

@@ -38,6 +38,7 @@ use SdAiAgent\Abilities\CustomPostTypeAbilities;
 use SdAiAgent\Abilities\CustomTaxonomyAbilities;
 use SdAiAgent\Abilities\TaxonomyAbilities;
 use SdAiAgent\Abilities\DesignSystemAbilities;
+use SdAiAgent\Abilities\DesignSystemArtifactAbilities;
 use SdAiAgent\Abilities\EditorialAbilities;
 use SdAiAgent\Abilities\FeedbackAbilities;
 use SdAiAgent\Abilities\FileAbilities;
@@ -48,6 +49,7 @@ use SdAiAgent\Abilities\GscAbilities;
 use SdAiAgent\Abilities\ImageAbilities;
 use SdAiAgent\Abilities\InternetSearchAbilities;
 use SdAiAgent\Abilities\KnowledgeAbilities;
+use SdAiAgent\Abilities\LandingPagePatternAbilities;
 use SdAiAgent\Abilities\ListAllowedRootsAbility;
 use SdAiAgent\Abilities\SiteScrapeAbility;
 use SdAiAgent\Abilities\MarketingAbilities;
@@ -166,6 +168,8 @@ final class AbilitiesHandler {
 		EditorialAbilities::register_abilities();
 		ImageAbilities::register_abilities();
 		DesignSystemAbilities::register_abilities();
+		DesignSystemArtifactAbilities::register_abilities();
+		LandingPagePatternAbilities::register_abilities();
 	}
 
 	/**

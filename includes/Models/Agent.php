@@ -516,6 +516,7 @@ class Agent {
 			'sd-ai-agent/update-post',
 			'sd-ai-agent/list-posts',
 			'sd-ai-agent/update-global-styles',
+			'sd-ai-agent/compile-design-tokens',
 		];
 	}
 
@@ -625,6 +626,7 @@ class Agent {
 						'sd-ai-agent/get-themes',
 						// Theme + page build suite (from legacy Theme Builder).
 						'sd-ai-agent/scaffold-block-theme',
+						'sd-ai-agent/validate-block-theme-project',
 						'sd-ai-agent/activate-theme',
 						'sd-ai-agent/file-write',
 						'sd-ai-agent/validate-block-content',
@@ -632,6 +634,16 @@ class Agent {
 						'sd-ai-agent/render-design-previews',
 						'sd-ai-agent/generate-menu-page',
 						'sd-ai-agent/validate-palette-contrast',
+						'sd-ai-agent/compile-design-tokens',
+						'sd-ai-agent/list-style-variations',
+						'sd-ai-agent/create-style-variation',
+						'sd-ai-agent/update-style-variation',
+						'sd-ai-agent/validate-style-variation',
+						'sd-ai-agent/preview-style-variation',
+						'sd-ai-agent/select-style-variation',
+						'sd-ai-agent/reset-style-variation',
+						'sd-ai-agent/list-landing-page-pattern-families',
+						'sd-ai-agent/select-landing-page-pattern-family',
 						'sd-ai-agent/site-scrape',
 						'sd-ai-agent/stock-image',
 						'sd-ai-agent/generate-image',
@@ -677,22 +689,27 @@ class Agent {
 			. "Run this silently — no per-step narration. Post one brief status message (\"Building your homepage…\") and then the finished result with the homepage URL. Do NOT pause for user input between steps.\n\n"
 			. "1. Load the `site-specification` and `wp-block-themes` skills via `sd-ai-agent/skill-load`.\n"
 			. "2. If the user gave a URL, call `sd-ai-agent/site-scrape` to pre-fill brand facts.\n"
-			. "3. If the user did NOT supply a logo, call `sd-ai-agent/generate-logo-svg` with `action: generate`. Auto-pick the first candidate and promote it via `action: select_candidate`. Treat `logo_set` as confirmation that the WordPress custom-logo setting changed, not proof that the logo is visible. If `logo_visible` is false, add a `core/site-logo` block to the active header before reporting success; if it is null, verify the returned `refresh_url` first. The user can swap it later via a Phase 3 chip. If `existing_logo_url` was supplied, pass it to skip generation.\n"
-			. "4. Load the `design-system-aesthetics` skill. Pick ONE design direction grounded in the inferred vertical — do NOT render the 3-up gallery on first pass. (\"Try a different look\" in Phase 3 triggers the 3-up gallery later.)\n"
-			. "5. Call `sd-ai-agent/validate-palette-contrast` on the chosen palette and auto-apply the suggested adjustments so the scaffold ships WCAG-AA compliant.\n"
-			. "6. Call `sd-ai-agent/scaffold-block-theme` with the inferred metadata and a `theme.json` using schema **version 3** (never v2) with `\"\$schema\": \"https://schemas.wp.org/trunk/theme.json\"` and `\"version\": 3`.\n"
-			. "7. Write `parts/header.html`, `parts/footer.html`, `templates/index.html`, `templates/page.html`, and `templates/front-page.html` via `sd-ai-agent/file-write`. Validate each one with `sd-ai-agent/validate-block-content`.\n"
-			. "8. Apply the chosen design system (colors, typography, spacing) via `sd-ai-agent/update-global-styles` with a real, non-empty theme.json partial. The call must include `styles` (for example `styles.color.background`, `styles.color.text`, `styles.typography`, and `styles.elements.button`) and may also include `settings`; never pass empty arrays/objects.\n"
-			. "9. Publish the homepage as a real page via `sd-ai-agent/create-post` (post_type: page, status: publish). Compose hero + about + primary CTA using:\n"
+			. "3. After the site brief is inferred, call `sd-ai-agent/select-landing-page-pattern-family` with the site brief, known `available_content`, layout notes, and explicit section requests. Mark only real business facts as available. If `requires_clarification` is `true`, ask exactly ONE targeted question for the reported missing content and rerun selection before composing; never treat its fallback as selected. Otherwise use the selected family and variant's ordered section roles, core-block allowlist, responsive behavior, and accessibility requirements as a structural plan only. Do not use it to generate copy, media, testimonials, or statistics — visual direction remains a separate decision.\n"
+			. "4. If the user did NOT supply a logo, call `sd-ai-agent/generate-logo-svg` with `action: generate`. Auto-pick the first candidate and promote it via `action: select_candidate`. Treat `logo_set` as confirmation that the WordPress custom-logo setting changed, not proof that the logo is visible. If `logo_visible` is false, add a `core/site-logo` block to the active header before reporting success; if it is null, verify the returned `refresh_url` first. The user can swap it later via a Phase 3 chip. If `existing_logo_url` was supplied, pass it to skip generation.\n"
+			. "5. Load the `design-system-aesthetics` skill. Pick ONE design direction grounded in the inferred vertical — do NOT render the 3-up gallery on first pass. (\"Try a different look\" in Phase 3 triggers the 3-up gallery later.)\n"
+			. "6. Build one complete schema-v1 design-token contract for the chosen direction and call `sd-ai-agent/compile-design-tokens`. If it returns an error (including contrast failures), repair the contract and retry compilation before continuing. Do not independently reconstruct theme.json or Global Styles payloads.\n"
+			. "7. Call `sd-ai-agent/validate-palette-contrast` on the compiler's returned `palette`. If it reports missing roles or failures, repair the contract, recompile it, and call `sd-ai-agent/validate-palette-contrast` again. Call `sd-ai-agent/scaffold-block-theme` only after a validation result whose `passed` field is exactly `true`; a failed, missing, or unevaluated result must never proceed to scaffolding.\n"
+			. "8. Call `sd-ai-agent/scaffold-block-theme` with the inferred metadata and the compiler's `theme_json` output. It must use schema **version 3** (never v2) with `\"\$schema\": \"https://schemas.wp.org/trunk/theme.json\"` and `\"version\": 3`.\n"
+			. "9. Write `parts/header.html`, `parts/footer.html`, `templates/index.html`, `templates/page.html`, and `templates/front-page.html` via `sd-ai-agent/file-write`. Validate each one with `sd-ai-agent/validate-block-content`.\n"
+			. "10. Persist the compiler's non-empty `global_styles.settings` and `global_styles.styles` through `sd-ai-agent/update-global-styles`. Never reconstruct raw color, typography, spacing, or element-style payloads independently and never pass empty arrays/objects.\n"
+			. "11. Publish the homepage as a real page via `sd-ai-agent/create-post` (post_type: page, status: publish). Compose the selected family and variant's structural section roles using:\n"
 			. "   - real user-supplied facts (name, location, vertical, photos) FIRST\n"
 			. "   - safe inferred copy where the user gave nothing (e.g. \"Welcome to {name}\", a 2-sentence about paragraph derived from vertical + name, a vertical-appropriate CTA label).\n"
 			. "   For hospitality verticals, only call `sd-ai-agent/generate-menu-page` if the user supplied menu data in the capture turn; otherwise the menu page is a Phase 3 follow-up.\n"
-			. "10. Create the CTA target page as a published page (e.g. /contact/ for services, /shop/ for retail, /menu/ for hospitality — but hospitality CTAs stay as a Phase 3 \"Add menu\" prompt if no menu data exists yet, in which case use /about/ as the temporary CTA target).\n"
-			. "11. Update `templates/front-page.html` to replace `href=\"#\"` and \"Call to action\" with the real CTA URL and text. Re-validate.\n"
-			. "12. Set the published homepage as the front page: `sd-ai-agent/update-option show_on_front=page` and `page_on_front={homepage_id}` (via the options ability path).\n"
-			. "13. Activate the new theme via `sd-ai-agent/activate-theme`.\n"
-			. "14. Save the final site brief and chosen design direction with `sd-ai-agent/memory-save` (category: site_brief).\n"
-			. "15. Reply with a short success message including the live homepage URL and 4–6 Phase 3 follow-up suggestions tailored to the vertical.\n\n";
+			. "12. Create the CTA target page as a published page (e.g. /contact/ for services, /shop/ for retail, /menu/ for hospitality — but hospitality CTAs stay as a Phase 3 \"Add menu\" prompt if no menu data exists yet, in which case use /about/ as the temporary CTA target).\n"
+			. "13. Update `templates/front-page.html` to replace `href=\"#\"` and \"Call to action\" with the real CTA URL and text. Re-validate.\n"
+			. "14. Set the published homepage as the front page: `sd-ai-agent/update-option show_on_front=page` and `page_on_front={homepage_id}` (via the options ability path).\n"
+			. "15. Call `sd-ai-agent/validate-block-theme-project` for the generated stylesheet. Repair every returned error (including token, asset, placeholder, part, pattern, variation, and block-markup diagnostics) and retry until `valid` is exactly `true`. Do not activate a generated theme with any validation error.\n"
+			. "16. Activate the new theme via `sd-ai-agent/activate-theme`.\n"
+			. "17. Call `sd-ai-agent-js/validate-theme-completion` after activation with the generated stylesheet, the exact current `fingerprint` returned by Step 15, and exactly two real same-origin frontend URLs: the active homepage and one published interior page (the CTA target is normally suitable). It must render both pages at 375×812, 768×1024, and 1280×800. Treat every reported responsive, accessibility, content, activation, or render-health violation as a repair task. A standalone preview, uploaded HTML, cached PNG, screenshot, or subjective approval is never completion evidence. If the browser validator is unavailable, timed out, or only partially executed, do NOT report success.\n"
+			. "18. After any relevant theme, page, Global Styles, or style-variation mutation, rerun `sd-ai-agent/validate-block-theme-project`, activate the current stylesheet when needed, and rerun `sd-ai-agent-js/validate-theme-completion`. Only a report with `passed: true` for the current stylesheet and fingerprint may satisfy completion. If the activated theme is unrenderable at every required viewport, restore `previous_stylesheet` instead of calling the generated theme complete.\n"
+			. "19. Save the final site brief and chosen design direction with `sd-ai-agent/memory-save` (category: site_brief) only after the current completion report passes.\n"
+			. "20. Reply with a short success message including the live homepage URL and 4–6 Phase 3 follow-up suggestions tailored to the vertical only after the generated-theme completion gate passes.\n\n";
 
 		$phase_3 = "## Phase 3: Follow-up loop (both branches)\n\n"
 			. "After the homepage is live (empty-install branch) or after the discover summary (established branch), let the user drive via suggestion chips. Each chip is a discrete, fast action — one ability call or one page at a time. Common chips:\n\n"
@@ -701,10 +718,11 @@ class Agent {
 			. "- **Add events page** → ask for event list (name, date, description), then `sd-ai-agent/create-post` (page).\n"
 			. "- **Add a shop** → if WooCommerce is not active, install via `wp-cli/execute`; collect a representative product list; create product entries.\n"
 			. "- **Add contact details** → ask for phone / email / address / form preference; update the contact page.\n"
-			. "- **Try a different look** → load `design-system-aesthetics`, render three alternative directions via `sd-ai-agent/render-design-previews`, let the user pick, re-apply via `sd-ai-agent/update-global-styles`.\n"
+			. "- **Try a different look** → load `design-system-aesthetics`, render three alternative directions via `sd-ai-agent/render-design-previews`, let the user pick, update the saved design-token contract, rerun `sd-ai-agent/compile-design-tokens`, revalidate its palette, then apply its file-only manifest and Global Styles outputs through their dedicated abilities.\n"
+			. "- **Use a saved style variation** → call `sd-ai-agent/list-style-variations`, then validate and preview the selected hash with `sd-ai-agent/validate-style-variation` and `sd-ai-agent/preview-style-variation`. Select only through `sd-ai-agent/select-style-variation` with that exact hash; use `sd-ai-agent/reset-style-variation` only when undoing the plugin-managed selection. Never use generic file writes or wholesale Global Styles reset for this lifecycle.\n"
 			. "- **Try a different logo** → re-run `sd-ai-agent/generate-logo-svg` with adjusted `direction`/`style_cues`, let the user pick.\n"
 			. "- **Use my photos for the hero** → review uploaded attachments, swap hero imagery in `templates/front-page.html` and re-validate.\n"
-			. "- **Tweak colours / fonts** → adjust `theme.json` + re-apply global styles.\n"
+			. "- **Tweak colours / fonts** → update the saved design-token contract, rerun `sd-ai-agent/compile-design-tokens`, revalidate its palette, then apply only the newly compiled manifest and Global Styles outputs.\n"
 			. "- **Audit my content** (established) → review existing posts/pages, surface gaps and improvements.\n"
 			. "- **Suggest blog topics** (established) → use site_brief + the `competitive-analysis` skill.\n"
 			. "- **Improve SEO** → load the `seo-optimization` skill, audit titles/meta/structure.\n\n"

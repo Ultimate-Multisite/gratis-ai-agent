@@ -1321,7 +1321,7 @@ class RestControllerTest extends WP_UnitTestCase {
 				'tool_calls'       => [ [ 'type' => 'call', 'id' => 'call_1', 'name' => 'wpab__sd-ai-agent__site-info' ] ],
 				'messages'         => [ [ 'type' => 'provider_error', 'message' => 'Provider rejected history.' ] ],
 				'token_usage'      => [ 'prompt' => 12, 'completion' => 0 ],
-				'model_id'         => 'superdav-chat-pro',
+				'model_id'         => 'gpt-5.6-terra',
 				'provider_id'      => 'sd-ai-agent-cloud',
 				'client_abilities' => [],
 			]
@@ -1332,7 +1332,7 @@ class RestControllerTest extends WP_UnitTestCase {
 		$method->setAccessible( true );
 
 		$params     = [ 'message' => 'Please continue after the error.', 'session_id' => $session_id ];
-		$options    = [ 'provider_id' => 'sd-ai-agent-cloud', 'model_id' => 'superdav-chat-pro' ];
+		$options    = [ 'provider_id' => 'sd-ai-agent-cloud', 'model_id' => 'gpt-5.6-terra' ];
 		$job        = [ 'status' => 'error', 'error' => $error->get_error_message(), 'params' => $params ];
 		$error_data = $error->get_error_data();
 		$this->assertIsArray( $error_data );
@@ -1955,6 +1955,52 @@ class RestControllerTest extends WP_UnitTestCase {
 	}
 
 	// ─── /chat/tool-result regression: 409 loop fix (sd-ai-9ip) ──────────────
+
+	/**
+	 * Invalid browser batches are rejected before resume and preserve the paused
+	 * state so the exact pending calls can still be submitted.
+	 */
+	public function test_tool_result_rejects_invalid_batches_and_restores_paused_state(): void {
+		wp_set_current_user( $this->admin_id );
+		$session_id = Database::create_session( [
+			'user_id' => $this->admin_id,
+			'title'   => 'Client result integrity session',
+		] );
+		$paused_state = [
+			'history'                   => [],
+			'iterations_remaining'      => 3,
+			'pending_client_tool_calls' => [
+				[ 'id' => 'call-one', 'name' => 'sd-ai-agent-js/navigate-to', 'args' => [] ],
+				[ 'id' => 'call-two', 'name' => 'sd-ai-agent-js/refresh-page', 'args' => [] ],
+			],
+		];
+		Database::save_paused_state( $session_id, $paused_state );
+
+		$valid = [
+			[ 'id' => 'call-one', 'name' => 'sd-ai-agent-js/navigate-to', 'result' => [] ],
+			[ 'id' => 'call-two', 'name' => 'sd-ai-agent-js/refresh-page', 'result' => [] ],
+		];
+		$invalid_batches = [
+			[ [ 'id' => 'call-one', 'name' => 'sd-ai-agent-js/refresh-page', 'result' => [] ], [ 'id' => 'call-two', 'name' => 'sd-ai-agent-js/navigate-to', 'result' => [] ] ],
+			[ [ 'id' => 'unknown', 'name' => 'sd-ai-agent-js/navigate-to', 'result' => [] ], $valid[1] ],
+			[ $valid[0], $valid[0] ],
+			[ $valid[0] ],
+		];
+
+		foreach ( $invalid_batches as $tool_results ) {
+			$request = new WP_REST_Request( 'POST', '/sd-ai-agent/v1/chat/tool-result' );
+			$request->set_body( wp_json_encode( [
+				'session_id'   => $session_id,
+				'tool_results' => $tool_results,
+			] ) );
+			$request->set_header( 'Content-Type', 'application/json' );
+			$this->assertStatus( 400, $this->server->dispatch( $request ) );
+
+			$session_after = Database::get_session( $session_id );
+			$this->assertNotNull( $session_after );
+			$this->assertNotEmpty( $session_after->paused_state );
+		}
+	}
 
 	/**
 	 * Test POST /chat/tool-result cannot consume another user's paused state.

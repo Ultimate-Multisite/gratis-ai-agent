@@ -37,6 +37,8 @@ class SkillAutoInjector {
 	 */
 	private const MAX_INJECTED_SKILLS = 1;
 
+	private const VALIDATE_THEME_PROJECT_ABILITY = 'sd-ai-agent/validate-block-theme-project';
+
 	/**
 	 * Keyword-to-skill trigger map.
 	 *
@@ -220,6 +222,8 @@ class SkillAutoInjector {
 		'sd-ai-agent/list-block-patterns'    => 'gutenberg-blocks',
 		'sd-ai-agent/get-block-type'         => 'gutenberg-blocks',
 		'sd-ai-agent/get-theme-json'         => 'wp-block-themes',
+		'sd-ai-agent/compile-design-tokens'  => 'wp-block-themes',
+		self::VALIDATE_THEME_PROJECT_ABILITY => 'wp-block-themes',
 		'sd-ai-agent/get-global-styles'      => 'wp-block-themes',
 		'sd-ai-agent/update-global-styles'   => 'wp-block-themes',
 		'sd-ai-agent/reset-global-styles'    => 'wp-block-themes',

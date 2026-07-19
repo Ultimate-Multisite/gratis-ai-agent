@@ -34,21 +34,37 @@ require_once SD_AI_AGENT_ADVANCED_DIR . '/includes/Autoloader.php';
 
 \SdAiAgentAdvanced\Autoloader::register( SD_AI_AGENT_ADVANCED_DIR );
 
-if ( ! defined( 'SD_AI_AGENT_VERSION' ) ) {
-	add_action(
-		'admin_notices',
-		static function (): void {
-			printf(
-				'<div class="notice notice-error"><p>%s</p></div>',
-				esc_html__(
-					'Superdav AI Agent Advanced requires the core Superdav AI Agent plugin to be installed and active.',
-					'superdav-ai-agent'
-				)
-			);
+// When both plugins are network active, WordPress can load the advanced plugin
+// before the core plugin. Defer the dependency notice until all normal plugins
+// have had a chance to define SD_AI_AGENT_VERSION, but register the container
+// extension filter immediately so the core plugin can still discover the
+// advanced module when it boots later in the same request.
+add_action(
+	'plugins_loaded',
+	static function (): void {
+		if ( defined( 'SD_AI_AGENT_VERSION' ) ) {
+			return;
 		}
-	);
-	return;
-}
+
+		$notice_hook = function_exists( 'is_network_admin' ) && is_network_admin()
+			? 'network_admin_notices'
+			: 'admin_notices';
+
+		add_action(
+			$notice_hook,
+			static function (): void {
+				printf(
+					'<div class="notice notice-error"><p>%s</p></div>',
+					esc_html__(
+						'Superdav AI Agent Advanced requires the core Superdav AI Agent plugin to be installed and active.',
+						'superdav-ai-agent'
+					)
+				);
+			}
+		);
+	},
+	PHP_INT_MAX
+);
 
 add_filter(
 	'xwp_extend_import_sd-ai-agent',

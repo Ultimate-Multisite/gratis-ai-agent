@@ -266,6 +266,9 @@ class AgentLoop {
 	/** @var ClientAbilityRouter Partitions tool calls to PHP or JS handlers. */
 	private ClientAbilityRouter $client_router;
 
+	/** @var GeneratedThemeCompletionGate Tracks hard completion evidence for generated block themes. */
+	private GeneratedThemeCompletionGate $generated_theme_completion_gate;
+
 	/**
 	 * @param string               $user_message     The user's prompt.
 	 * @param string[]             $abilities         Ability names to enable (empty = all).
@@ -441,6 +444,11 @@ class AgentLoop {
 			$this->client_router    = new ClientAbilityRouter();
 			$this->client_abilities = array();
 		}
+
+		$this->generated_theme_completion_gate = new GeneratedThemeCompletionGate(
+			$this->client_router->get_names()
+		);
+		$this->generated_theme_completion_gate->replay_tool_call_log( $this->tool_call_log );
 
 		// Build or lock the initial system instruction.
 		if ( isset( $options['system_instruction'] ) ) {
@@ -820,6 +828,11 @@ class AgentLoop {
 					'source'   => 'client',
 					'sequence' => $this->next_activity_sequence(),
 				);
+
+				$this->generated_theme_completion_gate->record_tool_response(
+					$name,
+					$result['result'] ?? array( 'error' => $result['error'] ?? '' )
+				);
 			}
 
 			// Fire progress so the UI reflects the client tool responses
@@ -842,6 +855,9 @@ class AgentLoop {
 	 */
 	private function with_result_logs( array $payload ): array {
 		$payload['messages'] = $this->message_log;
+		if ( $this->generated_theme_completion_gate->is_required() ) {
+			$payload['generated_theme_completion'] = $this->generated_theme_completion_gate->get_status();
+		}
 		return $payload;
 	}
 
@@ -854,6 +870,9 @@ class AgentLoop {
 	private function with_paused_logs( array $payload ): array {
 		$payload['message_log'] = $this->message_log;
 		$payload['messages']    = $this->message_log;
+		if ( $this->generated_theme_completion_gate->is_required() ) {
+			$payload['generated_theme_completion'] = $this->generated_theme_completion_gate->get_status();
+		}
 		return $payload;
 	}
 
@@ -1105,6 +1124,14 @@ class AgentLoop {
 					$reply = $this->append_unresolved_block_validation_warning( $reply );
 				}
 
+				// A generated theme starts a hard completion lifecycle at scaffold
+				// time. A model cannot substitute previews, screenshots, or prose
+				// for the current activated-site browser report required by the gate.
+				if ( $this->generated_theme_completion_gate->requires_repair() && $iterations > 0 ) {
+					$this->inject_generated_theme_completion_guidance();
+					continue;
+				}
+
 				// If the response is empty or whitespace-only after tool results,
 				// inject a follow-up user message asking the AI to summarize.
 				// This handles models that silently return an empty text turn
@@ -1145,6 +1172,7 @@ class AgentLoop {
 
 				// Post-process the reply to inject real permalinks from create-post responses.
 				$reply = $this->inject_real_permalinks( $reply );
+				$reply = $this->append_generated_theme_completion_notice( $reply );
 
 				return $this->inject_inability_data(
 					$this->with_result_logs(
@@ -1203,14 +1231,16 @@ class AgentLoop {
 					// Persist loop state so the resume endpoint can reconstruct it.
 					if ( $this->session_id > 0 ) {
 						$paused_state = array(
-							'history'              => $this->serialize_history(),
-							'tool_call_log'        => $this->tool_call_log,
-							'message_log'          => $this->message_log,
-							'token_usage'          => $this->token_usage,
-							'iterations_remaining' => $iterations,
-							'model_id'             => $this->model_id,
-							'provider_id'          => $this->provider_id,
-							'client_abilities'     => $this->client_abilities,
+							'history'                   => $this->serialize_history(),
+							'tool_call_log'             => $this->tool_call_log,
+							'message_log'               => $this->message_log,
+							'token_usage'               => $this->token_usage,
+							'iterations_remaining'      => $iterations,
+							'model_id'                  => $this->model_id,
+							'provider_id'               => $this->provider_id,
+							'client_abilities'          => $this->client_abilities,
+							// Bind the browser's resume payload to this exact paused batch.
+							'pending_client_tool_calls' => $partition['client'],
 						);
 						Database::save_paused_state( $this->session_id, $paused_state );
 					}
@@ -1397,6 +1427,7 @@ class AgentLoop {
 
 			// Post-process the reply to inject real permalinks from create-post responses.
 			$reply = $this->inject_real_permalinks( $reply );
+			$reply = $this->append_generated_theme_completion_notice( $reply );
 
 			return $this->inject_inability_data(
 				$this->with_result_logs(
@@ -3295,6 +3326,11 @@ class AgentLoop {
 					'args'     => $call->getArgs(),
 					'sequence' => $this->next_activity_sequence(),
 				);
+
+				$this->generated_theme_completion_gate->record_tool_call(
+					$name,
+					self::normalize_function_call_args( $call->getArgs() )
+				);
 			}
 		}
 
@@ -3591,6 +3627,7 @@ class AgentLoop {
 				}
 
 				$this->track_block_validation_response( $name, $response->getResponse() );
+				$this->generated_theme_completion_gate->record_tool_response( $name, $response->getResponse() );
 
 				$this->tool_call_log[] = array(
 					'type'     => 'response',
@@ -3704,6 +3741,41 @@ class AgentLoop {
 		}
 
 		return rtrim( $reply ) . "\n\n" . implode( "\n", $lines );
+	}
+
+	/**
+	 * Inject the exact missing generated-theme evidence as a repair turn.
+	 */
+	private function inject_generated_theme_completion_guidance(): void {
+		$guidance = $this->generated_theme_completion_gate->get_repair_guidance();
+		if ( '' === $guidance ) {
+			return;
+		}
+
+		$this->history[]     = new UserMessage( array( new MessagePart( $guidance ) ) );
+		$this->message_log[] = array(
+			'type'       => 'guardrail',
+			'reason'     => 'generated_theme_completion_required',
+			'completion' => $this->generated_theme_completion_gate->get_status(),
+			'sequence'   => $this->next_activity_sequence(),
+		);
+
+		$this->last_loop_phase = 'generated_theme_completion_repair_required';
+		$this->fire_progress();
+	}
+
+	/**
+	 * Prevent a terminal reply from representing incomplete theme evidence as success.
+	 *
+	 * @param string $reply Current assistant reply.
+	 */
+	private function append_generated_theme_completion_notice( string $reply ): string {
+		$notice = $this->generated_theme_completion_gate->get_terminal_notice();
+		if ( '' === $notice ) {
+			return $reply;
+		}
+
+		return $notice;
 	}
 
 	/**

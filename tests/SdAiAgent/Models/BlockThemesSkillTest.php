@@ -39,7 +39,7 @@ class BlockThemesSkillTest extends WP_UnitTestCase {
 		$line_count = substr_count( $content, "\n" ) + 1;
 
 		$this->assertGreaterThanOrEqual( 350, $line_count );
-		$this->assertLessThanOrEqual( 540, $line_count );
+		$this->assertLessThanOrEqual( 580, $line_count );
 	}
 
 	/**
@@ -50,7 +50,9 @@ class BlockThemesSkillTest extends WP_UnitTestCase {
 
 		$required_patterns = [
 			'Always declare `$schema` and `version: 3`',
-			'5–7 entries (`primary`, `secondary`, `accent`, `background`, `surface`',
+			'five semantic roles `foreground`, `background`, `surface`, `accent`, and `on-accent`',
+			'`primary` and `secondary` may be added as optional aesthetic groupings',
+			'`on-accent` on `accent` for controls',
 			'6-step scale slugs `20`–`70`',
 			'`parts/header.html` — Site header',
 			'`parts/footer.html` — Site footer',
@@ -60,6 +62,28 @@ class BlockThemesSkillTest extends WP_UnitTestCase {
 
 		foreach ( $required_patterns as $pattern ) {
 			$this->assertStringContainsString( $pattern, $content );
+		}
+	}
+
+	/**
+	 * Dedicated variation lifecycle guidance protects files and Global Styles.
+	 */
+	public function test_block_themes_skill_documents_style_variation_lifecycle(): void {
+		$content = Skill::get_builtin_definitions()['wp-block-themes']['content'];
+
+		foreach ( [
+			'### Style-variation lifecycle',
+			'sd-ai-agent/list-style-variations',
+			'sd-ai-agent/create-style-variation',
+			'sd-ai-agent/update-style-variation',
+			'sd-ai-agent/validate-style-variation',
+			'sd-ai-agent/preview-style-variation',
+			'sd-ai-agent/select-style-variation',
+			'sd-ai-agent/reset-style-variation',
+			'original baseline',
+			'intervening Site Editor changes',
+		] as $required ) {
+			$this->assertStringContainsString( $required, $content );
 		}
 	}
 
@@ -95,5 +119,88 @@ class BlockThemesSkillTest extends WP_UnitTestCase {
 		$this->assertStringContainsString( '**No stock image URLs.**', $content );
 		$this->assertStringContainsString( '**Validate before write.**', $content );
 		$this->assertStringContainsString( 'sd-ai-agent/validate-block-content', $content );
+		$this->assertStringContainsString( 'sd-ai-agent/validate-block-theme-project', $content );
+		$this->assertStringContainsString( 'valid: true', $content );
+	}
+
+	/**
+	 * Generated themes cannot substitute a structural review for activated-site QA.
+	 */
+	public function test_block_themes_skill_requires_activated_site_completion_qa(): void {
+		$content = Skill::get_builtin_definitions()['wp-block-themes']['content'];
+
+		foreach ( [
+			'sd-ai-agent-js/validate-theme-completion',
+			'375×812',
+			'768×1024',
+			'1280×800',
+			'structural-only review never passes',
+			'Any theme, page, Global Styles, or style-variation mutation invalidates the report',
+			'restore the previous stylesheet',
+		] as $required ) {
+			$this->assertStringContainsString( $required, $content );
+		}
+	}
+
+	/**
+	 * Generated token, pattern, and variation producers share one durable release contract.
+	 */
+	public function test_block_themes_skill_documents_generated_artifact_governance(): void {
+		$content = Skill::get_builtin_definitions()['wp-block-themes']['content'];
+
+		$required_patterns = [
+			'### Generated design artifact governance',
+			'sd-ai-agent/token_set/...',
+			'`maturity` (`stable`, `candidate`, `experimental`, or `deprecated`)',
+			'`sd-ai-agent/resolve-design-artifacts`',
+			'`sd-ai-agent/apply-design-artifact-release`',
+			'`sd-ai-agent/rollback-design-artifact-release`',
+			'must not be silently imported, rewritten, or',
+		];
+
+		foreach ( $required_patterns as $pattern ) {
+			$this->assertStringContainsString( $pattern, $content );
+		}
+	}
+
+	/**
+	 * Generated themes compile one strict token contract before any persistence.
+	 */
+	public function test_block_themes_skill_documents_token_compiler_workflow(): void {
+		$content = Skill::get_builtin_definitions()['wp-block-themes']['content'];
+
+		$required_patterns = [
+			'sd-ai-agent/compile-design-tokens',
+			'### Compile a design-token contract first',
+			'Pass `theme_json` to `sd-ai-agent/scaffold-block-theme`',
+			'`global_styles.settings` and `global_styles.styles`',
+			'Compilation is pure',
+		];
+
+		foreach ( $required_patterns as $pattern ) {
+			$this->assertStringContainsString( $pattern, $content );
+		}
+	}
+
+	/**
+	 * Homepage composition uses a selected structural family without fabricating content.
+	 */
+	public function test_block_themes_skill_documents_landing_page_pattern_selection(): void {
+		$content = Skill::get_builtin_definitions()['wp-block-themes']['content'];
+
+		$required_patterns = [
+			'### Select a pattern family before composition',
+			'sd-ai-agent/list-landing-page-pattern-families',
+			'sd-ai-agent/select-landing-page-pattern-family',
+			'requires_clarification',
+			'`core/*`',
+			'allowlist',
+			'Keep visual direction and design-token selection separate',
+			'never provide copy,',
+		];
+
+		foreach ( $required_patterns as $pattern ) {
+			$this->assertStringContainsString( $pattern, $content );
+		}
 	}
 }

@@ -14,6 +14,7 @@ use SdAiAgent\Abilities\GitAbilities;
 use SdAiAgent\Abilities\PluginBuilderAbilities;
 use SdAiAgent\Abilities\PluginDownloadAbilities;
 use SdAiAgent\Abilities\ScaffoldBlockThemeAbility;
+use SdAiAgent\Abilities\StyleVariationAbilities;
 use SdAiAgent\Abilities\UserManagementAbilities;
 use SdAiAgent\Abilities\WordPressAdvancedAbilities;
 use SdAiAgent\Abilities\WpCliAbilities;
@@ -44,6 +45,7 @@ final class AbilitiesHandler {
 		WordPressAdvancedAbilities::register_abilities();
 		UserManagementAbilities::register_abilities();
 		$this->register_scaffold_block_theme();
+		StyleVariationAbilities::register_abilities();
 		WpCliAbilities::register_ability();
 		WpRestAbilities::register_abilities();
 	}

@@ -104,6 +104,29 @@ class AbilityFunctionResolverTest extends WP_UnitTestCase {
 		$this->assertStringContainsString( 'Retry only with arguments', $payload['nudge'] );
 	}
 
+	public function test_empty_arguments_return_schema_guidance_without_dispatching(): void {
+		$this->skip_if_resolver_unavailable();
+
+		$ability = $this->register_schema_thrower_ability();
+		$this->assertNotNull( $ability );
+
+		$resolver = new AbilityFunctionResolver( $ability );
+		$response = $resolver->execute_ability(
+			new FunctionCall(
+				'call_empty_arguments',
+				\WP_AI_Client_Ability_Function_Resolver::ability_name_to_function_name( 'test-plugin/schema-thrower' ),
+				null
+			)
+		);
+
+		$payload = $this->normalise_response_payload( $response->getResponse() );
+
+		$this->assertSame( 'ability_invalid_input', $payload['code'] );
+		$this->assertSame( array( 'query' ), $payload['missing_required_fields'] );
+		$this->assertSame( array( 'query' => '<string — Search keywords. Required.>' ), $payload['example_arguments'] );
+		$this->assertStringContainsString( 'Do not retry with empty arguments', $payload['hint'] );
+	}
+
 	public function test_public_knowledge_search_hydrates_empty_args_from_customer_query(): void {
 		$this->skip_if_resolver_unavailable();
 		$this->ensure_knowledge_search_registered();

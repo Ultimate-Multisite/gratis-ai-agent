@@ -20,15 +20,9 @@ Use this skill for block theme work such as:
 
 If the active theme is classic and the task is to modify that active theme, use `classic-themes` instead. If the task is to generate, convert to, or scaffold a block theme, use this skill even when the currently active theme is classic.
 
-When a contributor-insight issue contains a pasted local-path excerpt headed
-`Block Themes`, `Full Site Editing`, `theme.json`, templates, parts, patterns, or
-style variations, treat that excerpt as a source-mapping clue only. Update this
-committed skill file (and the root `AGENTS.md` summary when repo-wide guidance is
-needed); do not copy private local paths or duplicate the full excerpt into
-issues, PRs, templates, or generated theme files. In mixed reports like issues
-#2034, #2050, #2060, #2066, #2074, and #2081, this file is only the block-theme target; REST,
-Google Search Console, and WordPress.org review-response notes must be mapped to
-their own committed source files instead of being folded into this skill.
+When a contributor-insight issue contains a pasted local-path excerpt headed `Block Themes`, `Full Site Editing`, `theme.json`, templates, parts, patterns, or style variations, treat it only as a source-mapping clue.
+Update this committed skill (and root `AGENTS.md` when guidance is repo-wide); never copy private paths or duplicate the full excerpt in issues, PRs, templates, or generated theme files.
+In mixed reports #2034, #2050, #2060, #2066, #2074, and #2081, this is only the block-theme target; map REST, Google Search Console, and WordPress.org review-response notes to their own committed sources.
 
 ## Inputs required
 
@@ -44,11 +38,11 @@ their own committed source files instead of being folded into this skill.
 3. Decide whether a `theme.json` change belongs under `settings` (what the editor allows) or `styles` (default visual output).
 4. Put templates in `templates/*.html`; put template parts directly in `parts/*.html` (not nested subdirectories).
 5. Prefer filesystem-owned patterns under `patterns/*.php` when the theme should ship reusable layouts.
-6. Put style variations in `styles/*.json`; remember that once a user selects a style variation, that selection is stored in the database.
-7. Validate generated block markup before writing templates, parts, or patterns.
-8. Perform an explicit final quality review before declaring a generated theme complete. Prefer a browser, screenshot, or front-end render check when available; when visual QA is unavailable, perform the structural review in the verification checklist and report that limitation.
-9. For contributor-insight or maintenance changes to this skill, verify future
-   workers will load the guidance with `rg -n "wp-block-themes|Full Site Editing|theme.json|validate-block-content" AGENTS.md includes/Models/skills/wp-block-themes.md`.
+6. Put style variations in `styles/*.json`; use the explicit `sd-ai-agent/*-style-variation` lifecycle rather than generic file mutation. Once a user selects a style variation, its selection is stored in the database.
+7. Validate generated block markup before writing templates, parts, or patterns; before activation, run `sd-ai-agent/validate-block-theme-project` for its stylesheet and repair every error until `valid: true`. This project-wide, read-only gate checks declarations, references, patterns, variations, local assets, placeholders, and block markup without executing pattern PHP or fetching URLs.
+8. After activation, run `sd-ai-agent-js/validate-theme-completion` with the active generated stylesheet, the current `validate-block-theme-project` fingerprint, the real homepage URL, and one published interior-page URL. It must finish all six page/viewport renders at **375×812**, **768×1024**, and **1280×800**. This is a hard completion gate, not advisory review: browser unavailability, timeout, partial execution, standalone preview HTML, cached screenshots, subjective approval, or structural-only review never passes.
+9. Repair every report violation (active stylesheet, render health, overflow, landmarks/headings/language/duplicate IDs, image alt treatment, accessible names/focus, contrast, placeholders/CTA/remote images/broken assets, and reduced-motion visibility). Any theme, page, Global Styles, or style-variation mutation invalidates the report: rerun project validation, activate the current stylesheet where needed, and rerun the browser validator. If every frontend render is unrenderable after activation, restore the previous stylesheet rather than declaring completion.
+10. For contributor-insight or maintenance changes to this skill, verify future workers load the guidance with `rg -n "wp-block-themes|Full Site Editing|theme.json|validate-block-content" AGENTS.md includes/Models/skills/wp-block-themes.md`.
 
 ## Absolute Rules
 
@@ -153,19 +147,12 @@ For non-landing templates, create a reusable page-title part or pattern that use
 
 ### Safe existing-template edits
 
-When modifying an existing template such as `front-page`, preserve every block that
-the user did not ask to change:
+When modifying an existing template such as `front-page`, preserve every block that the user did not ask to change:
 
-1. Inspect the current template first. Use `sd-ai-agent/list-block-templates` to
-   find the template, then fetch its current post/template content before writing.
-2. If a REST template response includes a `wp_id`, use `sd-ai-agent/get-page-blocks`
-   on that post ID and address the hero/section by `ref`, `path`, or `flat_index`.
-3. Use `sd-ai-agent/update-blocks` or `sd-ai-agent/edit-block-tree` for the target
-   hero background/image attributes only. Do not rebuild or replace the full
-   template unless the user explicitly requested a complete redesign.
-4. Validate the full resulting block markup with `sd-ai-agent/validate-block-content`
-   before saving. If validation fails, repair the proposed change and retry; do
-   not save a partial template body.
+1. Inspect the current template first. Use `sd-ai-agent/list-block-templates` to find the template, then fetch its current post/template content before writing.
+2. If a REST template response includes a `wp_id`, use `sd-ai-agent/get-page-blocks` on that post ID and address the hero/section by `ref`, `path`, or `flat_index`.
+3. Use `sd-ai-agent/update-blocks` or `sd-ai-agent/edit-block-tree` for the target hero background/image attributes only. Do not rebuild or replace the full template unless the user explicitly requested a complete redesign.
+4. Validate the full resulting block markup with `sd-ai-agent/validate-block-content` before saving. If validation fails, repair the proposed change and retry; do not save a partial template body.
 5. Do not POST partial `content` payloads to `/wp/v2/templates/...` through
    `wp-rest/execute`. That endpoint replaces the template body and can delete
    sibling sections when the payload only contains the edited hero block.
@@ -185,30 +172,17 @@ the user did not ask to change:
 
 ### Settings
 
-Recommended palette: 5–7 entries (`primary`, `secondary`, `accent`, `background`, `surface`, plus `light`/`dark` if needed). Set `defaultPalette: false` and `defaultGradients: false` to keep the editor focused on the brand colours. Spacing: 6-step scale slugs `20`–`70` from `0.5rem` to `4rem`. Always set `appearanceTools: true` and `fluid: true` on typography.
-
+Every palette must define the five semantic roles `foreground`, `background`, `surface`, `accent`, and `on-accent`. Use `foreground` on `background` for body text and headings, `accent` on `background` for links, and `on-accent` on `accent` for controls. `primary` and `secondary` may be added as optional aesthetic groupings, but never substitute them for a semantic role. Set `defaultPalette: false` and `defaultGradients: false` to keep the editor focused on the brand colours. Spacing: 6-step scale slugs `20`–`70` from `0.5rem` to `4rem`. Always set `appearanceTools: true` and `fluid: true` on typography.
 ```json
 {
   "settings": {
     "appearanceTools": true,
-    "color": {
-      "palette": [
-        { "slug": "primary",    "color": "#1a1a1a", "name": "Primary" },
-        { "slug": "accent",     "color": "#e63946", "name": "Accent" },
-        { "slug": "background", "color": "#ffffff", "name": "Background" },
-        { "slug": "surface",    "color": "#f5f5f5", "name": "Surface" }
-      ],
-      "defaultPalette": false,
-      "defaultGradients": false
-    },
+    "color": { "palette": [
+      { "slug": "foreground", "color": "#1a1a1a", "name": "Foreground" }, { "slug": "background", "color": "#ffffff", "name": "Background" },
+      { "slug": "surface", "color": "#f5f5f5", "name": "Surface" }, { "slug": "accent", "color": "#b21f2d", "name": "Accent" }, { "slug": "on-accent", "color": "#ffffff", "name": "On Accent" }
+    ], "defaultPalette": false, "defaultGradients": false },
     "typography": { "fluid": true, "fontFamilies": [], "fontSizes": [] },
-    "spacing": {
-      "units": ["px", "em", "rem", "%", "vw", "vh"],
-      "spacingSizes": [
-        { "slug": "40", "size": "1rem",   "name": "Regular" },
-        { "slug": "60", "size": "2.5rem", "name": "Looser" }
-      ]
-    },
+    "spacing": { "units": ["px", "em", "rem", "%", "vw", "vh"], "spacingSizes": [ { "slug": "40", "size": "1rem", "name": "Regular" }, { "slug": "60", "size": "2.5rem", "name": "Looser" } ] },
     "layout": { "contentSize": "720px", "wideSize": "1200px" }
   }
 }
@@ -226,11 +200,31 @@ When calling `sd-ai-agent/update-global-styles`, pass only the inner `styles` an
     "elements": {
       "heading": { "typography": { "fontFamily": "var(--wp--preset--font-family--heading)", "lineHeight": "1.2" } },
       "link":    { "color": { "text": "var(--wp--preset--color--accent)" } },
-      "button":  { "color": { "background": "var(--wp--preset--color--accent)", "text": "var(--wp--preset--color--light)" }, "border": { "radius": "0.5rem" } }
+      "button":  { "color": { "background": "var(--wp--preset--color--accent)", "text": "var(--wp--preset--color--on-accent)" }, "border": { "radius": "0.5rem" } }
     }
   }
 }
 ```
+
+### Compile a design-token contract first
+Compilation is pure. Call `sd-ai-agent/compile-design-tokens` and follow its complete schema-v1 contract exactly (governance identity, bounded primitives, semantic roles, and a style-variation remap); repair any `WP_Error` and never reconstruct raw artifacts independently. Pass `theme_json` to `sd-ai-agent/scaffold-block-theme`, pass `global_styles.settings` and `global_styles.styles` only to `sd-ai-agent/update-global-styles`, validate `palette` with `sd-ai-agent/validate-palette-contrast`, and preserve the file-only `style_variation` plus `artifact_manifest` for `sd-ai-agent/apply-design-artifact-release`; the manifest must never own a second `wp_global_styles` record.
+
+### Style-variation lifecycle
+For a user-requested active-theme variation:
+1. Call `sd-ai-agent/list-style-variations`; parent entries are read-only and child entries win filename collisions. Call `sd-ai-agent/validate-style-variation` and `sd-ai-agent/preview-style-variation` before create, update, or select; preview is in memory only and returns CSS plus changed paths, never a screenshot claim.
+2. Create a complete `styles/{slug}.json` only through `sd-ai-agent/create-style-variation`; replace it only through `sd-ai-agent/update-style-variation` with the hash returned by list or validate.
+3. Select only through `sd-ai-agent/select-style-variation` using the exact source hash. It records the original active-theme Global Styles document and always switches from that original baseline instead of accumulating changes.
+4. Call `sd-ai-agent/reset-style-variation` only to undo a plugin-managed selection. It refuses to overwrite intervening Site Editor changes and restores the exact baseline rather than deleting all user Global Styles.
+Use `sd-ai-agent/apply-design-artifact-release` for a governed generated artifact manifest; use this explicit lifecycle for one active-theme variation. Never use generic file write/edit or `reset-global-styles` to bypass either safety contract.
+### Generated design artifact governance
+
+Generated token sets, block patterns, and style variations are versioned releases, not ordinary edits.
+
+1. Use one schema-v1 entry with a stable `sd-ai-agent/token_set/...`, `sd-ai-agent/pattern/...`, or `sd-ai-agent/style_variation/...` ID; numeric Semantic Versioning `version`; `maturity` (`stable`, `candidate`, `experimental`, or `deprecated`); provenance; compatibility; applicable deprecation metadata; and a canonical content hash. Do not invent parallel lifecycle fields.
+2. Declare WordPress/`theme.json` ranges, required blocks/features, and theme constraints. Incompatible artifacts are rejected first; inspect the deterministic trace with `sd-ai-agent/resolve-design-artifacts`. Stable is default; candidate and experimental require explicit opt-in, deprecated is never a new default, and automatic selection never crosses a major version.
+3. Use `sd-ai-agent/apply-design-artifact-release` for generated writes and `sd-ai-agent/rollback-design-artifact-release` only with an exact retained release ID. The manager stages and validates before moving the active pointer, restores complete prior state after failure, and refuses unmanaged targets.
+
+Never use `sd-ai-agent/curated-block-patterns`, direct generic `patterns/`/`styles/` writes, or ordinary global-style editing to bypass this contract. The dedicated style-variation lifecycle above is the only exception for one validated active-theme variation. Ordinary user-created patterns and customizations remain outside the registry and must not be silently imported, rewritten, or deleted.
 
 ### Typography presets — choose distinctive fonts
 
@@ -275,7 +269,7 @@ The corresponding `templates/blank.html` and `templates/landing.html` files must
  * Categories: featured
  */
 ?>
-<!-- wp:group {"backgroundColor":"primary","textColor":"light","layout":{"type":"constrained"}} -->
+<!-- wp:group {"backgroundColor":"accent","textColor":"on-accent","layout":{"type":"constrained"}} -->
 ...
 <!-- /wp:group -->
 ```
@@ -283,6 +277,13 @@ The corresponding `templates/blank.html` and `templates/landing.html` files must
 ## Landing Page Composition
 
 When generating a homepage, think like a landing page designer, not a template assembler. Every section is a visually distinct, full-width band that creates rhythm and visual impact as the user scrolls.
+
+### Select a pattern family before composition
+
+Call `sd-ai-agent/list-landing-page-pattern-families` to inspect the governed catalog, then `sd-ai-agent/select-landing-page-pattern-family` after the site brief is confirmed or safely inferred; pass only known business facts in `available_content`, layout notes, and explicit section requests. It ranks primary goal, compatible site type, required content, layout notes, and user requests before deterministic fallback.
+If `requires_clarification` is `true`, do not compose from the fallback: ask for listed missing business content and rerun selection; never fabricate offers, products, booking/contact details, portfolios, missions, or subscriptions.
+When selected, use only ordered section roles, the `core/*` block allowlist, responsive behavior, and accessibility requirements as a structural plan. Keep visual direction and design-token selection separate.
+Variants describe layout order and cues only. They never provide copy, testimonials, statistics, stock media URLs, or ready-to-save block markup.
 
 ### Section Architecture
 
@@ -300,7 +301,7 @@ Alternate visual treatments to avoid monotony:
 | Alternating backgrounds | Alternate `backgroundColor` between `background` and `surface` (or `primary`/`secondary` for bold sections) |
 | Full-bleed imagery | Cover blocks with `"align":"full"` and `overlayColor` from the brand palette |
 | Edge-to-edge media-text | `wp:media-text` with `"align":"full"` for alternating image/content sides |
-| Bold CTA bands | Full-width group with `primary` or `accent` background, centered text |
+| Bold CTA bands | Full-width group with `accent` background and `on-accent` text, centered |
 | Spacer breaks | `wp:spacer` between sections for breathing room |
 
 If two adjacent sections share the same background and layout, the page feels monotonous — change the background, flip the image side, switch from grid to single-column, or insert a cover block break.
@@ -532,8 +533,7 @@ After editing templates or `theme.json`:
 4. For child theme overrides, confirm the active stylesheet is the child (`wp option get stylesheet`).
 5. Open the block editor on any page that uses entrance-animation classes — every animated section should render visibly, not as an empty box. If a section is invisible, an `.editor-styles-wrapper` override is missing.
 6. Toggle the OS-level "Reduce motion" preference and reload the front-end — animations should collapse to near-zero duration without leaving content stuck at `opacity: 0`.
-7. For generated themes or site scaffolds, perform and report a final quality review before saying the theme is complete: prefer browser/screenshot/front-end review of homepage plus an interior template; if unavailable, structurally review `theme.json`, header/footer, templates, hierarchy, spacing, typography, color contrast, navigation/footer, responsive risks, stock-image avoidance, and state that visual QA was limited.
-
+7. For generated themes or site scaffolds, completion requires a passing `sd-ai-agent-js/validate-theme-completion` report for the active stylesheet and current project fingerprint. Validate the real homepage plus one published interior page at 375×812, 768×1024, and 1280×800; retain its URL, viewport, selector/evidence, severity, and remediation data. Do not replace this with preview HTML, screenshots, a structural checklist, or an unavailable-browser disclaimer.
 ## See also
 
 - `gutenberg-blocks` → **Block-theme layout cascade** — the three structural patterns (full-bleed/constrained, full-bleed/full-bleed, plain constrained) that cause ~80% of "looks broken" outputs. Required reading before generating any landing-page section.

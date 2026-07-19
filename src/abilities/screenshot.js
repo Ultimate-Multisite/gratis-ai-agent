@@ -15,11 +15,11 @@
  * `image` is a base64-encoded JPEG data URL suitable for sending to a
  * vision-capable model.
  *
- * Security: screenshot-url restricts targets to the current WordPress site
- * origin via explicit URL validation in `validateSameOrigin()`. The browser's
- * same-origin policy enforces this at runtime: cross-origin redirects will
- * cause `iframe.contentDocument` access to throw, and the error path returns
- * a structured failure result. The iframe is intentionally NOT `sandbox`'d,
+ * Security: screenshot-url restricts targets to WordPress-owned origins exposed
+ * by the server. The actual capture remains same-origin because html2canvas
+ * needs DOM access to the iframe. Authorized multisite subdomains that are not
+ * the current browser origin return explicit guidance instead of being reported
+ * as unrelated off-site URLs. The iframe is intentionally NOT `sandbox`'d,
  * because a sandboxed iframe gets an opaque origin that would block the
  * same-origin DOM access html2canvas needs.
  */
@@ -97,34 +97,81 @@ function canvasToJpeg( canvas ) {
 }
 
 /**
- * Validate that a URL is within the current WordPress site origin.
+ * Return origins the server identified as WordPress-owned screenshot targets.
+ *
+ * @return {string[]} Allowed origins.
+ */
+export function getAuthorizedScreenshotOrigins() {
+	const origins = window.sdAiAgentData?.screenshotOrigins;
+	if ( ! Array.isArray( origins ) ) {
+		return [ window.location.origin ];
+	}
+
+	return Array.from(
+		new Set(
+			origins
+				.filter( ( origin ) => typeof origin === 'string' )
+				.map( ( origin ) => origin.trim() )
+				.filter( Boolean )
+		)
+	);
+}
+
+/**
+ * Validate that a URL is within an authorized WordPress origin and can be
+ * captured from the current browser page.
  *
  * @param {string} url Absolute or relative URL.
- * @return {{ valid: boolean, resolved: string, error: string }} Validation result.
+ * @return {{ valid: boolean, resolved: string, error: string, authorized: boolean }} Validation result.
  */
-function validateSameOrigin( url ) {
+export function validateScreenshotUrl( url ) {
 	if ( ! url ) {
-		return { valid: false, resolved: '', error: 'URL is required.' };
+		return {
+			valid: false,
+			resolved: '',
+			error: 'URL is required.',
+			authorized: false,
+		};
 	}
 
 	try {
 		// Resolve relative URLs against current origin.
 		const resolved = new URL( url, window.location.origin );
+		const authorizedOrigins = getAuthorizedScreenshotOrigins();
+		const isAuthorized = authorizedOrigins.includes( resolved.origin );
+
+		if ( ! isAuthorized ) {
+			return {
+				valid: false,
+				resolved: resolved.href,
+				error: `Not an authorized WordPress site (${ authorizedOrigins.join(
+					', '
+				) }); got ${ resolved.origin }`,
+				authorized: false,
+			};
+		}
 
 		if ( resolved.origin !== window.location.origin ) {
 			return {
 				valid: false,
 				resolved: resolved.href,
-				error: `URL must be on the same site (${ window.location.origin }). Got: ${ resolved.origin }`,
+				error: `URL is an authorized WordPress site; retry from the same origin (${ resolved.origin }).`,
+				authorized: true,
 			};
 		}
 
-		return { valid: true, resolved: resolved.href, error: '' };
+		return {
+			valid: true,
+			resolved: resolved.href,
+			error: '',
+			authorized: true,
+		};
 	} catch ( err ) {
 		return {
 			valid: false,
 			resolved: '',
 			error: `Invalid URL: ${ err.message }`,
+			authorized: false,
 		};
 	}
 }
@@ -279,8 +326,12 @@ async function executeScreenshotUrl( args ) {
 	const viewportHeight = args?.height || 800;
 	const fullPage = args?.fullPage ?? false;
 
-	// Validate same-origin.
-	const { valid, resolved, error: urlError } = validateSameOrigin( rawUrl );
+	// Validate authorized WordPress origin and same-origin capture feasibility.
+	const {
+		valid,
+		resolved,
+		error: urlError,
+	} = validateScreenshotUrl( rawUrl );
 	if ( ! valid ) {
 		return {
 			success: false,
@@ -503,9 +554,8 @@ export async function registerScreenshotUrlAbility() {
 		name: 'sd-ai-agent-js/screenshot-url',
 		label: 'Screenshot URL',
 		description:
-			'Load any page on this WordPress site in a hidden iframe and capture a screenshot. ' +
-			'Use this to visually review frontend pages without navigating the user away from wp-admin. ' +
-			'The URL must be on the same site. Returns a base64 JPEG image for visual review by the AI.',
+			'Capture a same-origin WordPress URL for visual review. ' +
+			'Open multisite subdomains from that origin first.',
 		inputSchema: {
 			type: 'object',
 			properties: {

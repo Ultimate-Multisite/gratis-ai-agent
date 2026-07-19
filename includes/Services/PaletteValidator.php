@@ -30,24 +30,38 @@ if ( ! defined( 'ABSPATH' ) ) {
  *
  * Input: a theme.json-shaped palette — an array of entries each containing
  * at minimum `slug` and `color` (hex). Output: a structured `check()` result
- * with `failures` (pairs that miss the WCAG threshold) and `suggestions`
- * (nudged hex values that pass while staying close to the user's choice).
+ * with `failures` (pairs that miss the WCAG threshold), `missing_roles`
+ * (required semantic colours that are absent), and `suggestions` (nudged hex
+ * values that pass while staying close to the user's choice).
  *
  * Usage:
  *
  *     $validator = new PaletteValidator( [
  *         [ 'slug' => 'foreground', 'color' => '#1a1a1a' ],
  *         [ 'slug' => 'background', 'color' => '#ffffff' ],
+ *         [ 'slug' => 'surface',    'color' => '#f5f5f5' ],
  *         [ 'slug' => 'accent',     'color' => '#3858e9' ],
+ *         [ 'slug' => 'on-accent',  'color' => '#ffffff' ],
  *     ] );
  *     $result = $validator->check();
- *     // $result['failures']    : list of failing pairs
- *     // $result['suggestions'] : list of suggested hex adjustments
- *     // $result['passed']      : true when every pair meets WCAG AA
+ *     // $result['failures']      : list of failing pairs
+ *     // $result['missing_roles'] : absent required semantic roles
+ *     // $result['suggestions']   : list of suggested hex adjustments
+ *     // $result['passed']        : true when roles exist and pairs pass
  *
  * @since 1.16.0
  */
 final class PaletteValidator {
+
+	/**
+	 * Semantic roles every generated block-theme palette must define.
+	 *
+	 * Primary and secondary remain optional aesthetic groupings and are not
+	 * aliases for these roles.
+	 *
+	 * @var array<int, string>
+	 */
+	private const REQUIRED_ROLES = [ 'foreground', 'background', 'surface', 'accent', 'on-accent' ];
 
 	/**
 	 * WCAG AA contrast ratio for normal-size body text.
@@ -176,22 +190,42 @@ final class PaletteValidator {
 	/**
 	 * Validate the palette against the configured pair set.
 	 *
-	 * @return array{passed:bool, failures:array<int, array<string, mixed>>, suggestions:array<int, array<string, mixed>>, pairs_checked:int}
+	 * `pairs_checked` counts only pairs whose colours were available and
+	 * evaluated. `pairs_expected` counts all configured pairs.
+	 *
+	 * @return array{passed:bool, failures:array<int, array<string, mixed>>, missing_roles:array<int, array{slug:string, pair_ids:array<int, string>}>, suggestions:array<int, array<string, mixed>>, pairs_checked:int, pairs_expected:int}
 	 */
 	public function check(): array {
-		$failures    = [];
-		$suggestions = [];
+		$failures      = [];
+		$suggestions   = [];
+		$pairs_checked = 0;
+		$role_pairs    = array_fill_keys( self::REQUIRED_ROLES, [] );
+
+		foreach ( $this->pairs as $pair ) {
+			$role_pairs[ $pair['fg_slug'] ][] = $pair['id'];
+			$role_pairs[ $pair['bg_slug'] ][] = $pair['id'];
+		}
+
+		$missing_roles = [];
+		foreach ( $role_pairs as $slug => $pair_ids ) {
+			if ( ! isset( $this->palette[ $slug ] ) ) {
+				$missing_roles[] = [
+					'slug'     => $slug,
+					'pair_ids' => array_values( array_unique( $pair_ids ) ),
+				];
+			}
+		}
 
 		foreach ( $this->pairs as $pair ) {
 			$fg_hex = $this->palette[ $pair['fg_slug'] ] ?? null;
 			$bg_hex = $this->palette[ $pair['bg_slug'] ] ?? null;
 
 			if ( null === $fg_hex || null === $bg_hex ) {
-				// Skip pairs that reference palette slugs we don't have.
-				// (Themes commonly omit optional slugs like "tertiary".)
+				// Missing colours are reported above and are not evaluated.
 				continue;
 			}
 
+			++$pairs_checked;
 			$ratio = self::contrast_ratio( $fg_hex, $bg_hex );
 			if ( self::passes( $ratio, $pair['required'] ) ) {
 				continue;
@@ -211,10 +245,12 @@ final class PaletteValidator {
 		}
 
 		return [
-			'passed'        => 0 === count( $failures ),
-			'failures'      => $failures,
-			'suggestions'   => $suggestions,
-			'pairs_checked' => count( $this->pairs ),
+			'passed'         => 0 < count( $this->pairs ) && [] === $failures && [] === $missing_roles,
+			'failures'       => $failures,
+			'missing_roles'  => $missing_roles,
+			'suggestions'    => $suggestions,
+			'pairs_checked'  => $pairs_checked,
+			'pairs_expected' => count( $this->pairs ),
 		];
 	}
 
@@ -301,7 +337,7 @@ final class PaletteValidator {
 				],
 				[
 					'id'       => 'button-text-on-accent',
-					'fg_slug'  => 'background',
+					'fg_slug'  => 'on-accent',
 					'bg_slug'  => 'accent',
 					'required' => self::RATIO_AA_NORMAL,
 					'label'    => 'Button text on accent button background',
