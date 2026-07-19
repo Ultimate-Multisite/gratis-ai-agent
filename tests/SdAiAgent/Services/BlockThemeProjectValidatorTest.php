@@ -120,6 +120,41 @@ class BlockThemeProjectValidatorTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * A malformed marker without a schema version reports a diagnostic without
+	 * producing a PHP undefined-array-key warning.
+	 */
+	public function test_missing_marker_schema_version_uses_zero_project_version(): void {
+		$this->stage_valid_project();
+		$this->write_fixture_file(
+			BlockThemeProjectValidator::MARKER_PATH,
+			"{\n\t\"generator\": \"sd-ai-agent\",\n\t\"generator_version\": \"1.0.0\",\n\t\"validation_version\": 1\n}\n"
+		);
+
+		$report = ( new BlockThemeProjectValidator() )->validate( $this->theme_dir );
+
+		$this->assertFalse( $report['valid'] );
+		$this->assertSame( 0, $report['project_version'] );
+		$this->assertContains( 'unknown_marker_version', array_column( $report['errors'], 'code' ) );
+	}
+
+	/**
+	 * Internal generated-project metadata is not theme source and must not
+	 * produce asset diagnostics from preserved release metadata.
+	 */
+	public function test_ignores_internal_project_metadata_during_text_source_validation(): void {
+		$this->stage_valid_project();
+		$this->write_fixture_file(
+			'.sd-ai-agent/design-artifacts/manifest.json',
+			'{"url":"https://cdn.invalid/release.json","src":"https://cdn.invalid/release.css"}'
+		);
+
+		$report = ( new BlockThemeProjectValidator() )->validate( $this->theme_dir );
+
+		$this->assertTrue( $report['valid'], (string) wp_json_encode( $report['errors'] ) );
+		$this->assertNotContains( 'remote_asset_url', array_column( $report['errors'], 'code' ) );
+	}
+
+	/**
 	 * Filesystem pattern PHP is inspected as text and never evaluated.
 	 */
 	public function test_never_executes_pattern_php_while_reporting_executable_content(): void {

@@ -150,7 +150,7 @@ final class BlockThemeProjectValidator {
 		$before       = $this->project_fingerprint( $files );
 		$marker       = $this->validate_marker( $files, $errors );
 		$is_marked    = self::is_marked_project( $root );
-		$project_ver  = is_array( $marker ) ? (int) $marker['schema_version'] : 0;
+		$project_ver  = is_array( $marker ) ? (int) ( $marker['schema_version'] ?? 0 ) : 0;
 		$theme_json   = $this->validate_required_project_files( $files, $errors );
 		$token_values = self::empty_token_map();
 
@@ -1341,7 +1341,7 @@ final class BlockThemeProjectValidator {
 	 */
 	private function validate_text_file_sources( array $files, array $tokens, array &$errors ): void {
 		foreach ( array_keys( $files ) as $relative ) {
-			if ( in_array( $relative, [ 'theme.json' ], true ) || str_starts_with( $relative, 'templates/' ) || str_starts_with( $relative, 'parts/' ) || str_starts_with( $relative, 'patterns/' ) || str_starts_with( $relative, 'styles/' ) || ! $this->is_text_project_file( $relative ) ) {
+			if ( in_array( $relative, [ 'theme.json' ], true ) || str_starts_with( $relative, '.sd-ai-agent/' ) || str_starts_with( $relative, 'templates/' ) || str_starts_with( $relative, 'parts/' ) || str_starts_with( $relative, 'patterns/' ) || str_starts_with( $relative, 'styles/' ) || ! $this->is_text_project_file( $relative ) ) {
 				continue;
 			}
 
