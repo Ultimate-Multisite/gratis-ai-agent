@@ -634,6 +634,13 @@ class Agent {
 						'sd-ai-agent/generate-menu-page',
 						'sd-ai-agent/validate-palette-contrast',
 						'sd-ai-agent/compile-design-tokens',
+						'sd-ai-agent/list-style-variations',
+						'sd-ai-agent/create-style-variation',
+						'sd-ai-agent/update-style-variation',
+						'sd-ai-agent/validate-style-variation',
+						'sd-ai-agent/preview-style-variation',
+						'sd-ai-agent/select-style-variation',
+						'sd-ai-agent/reset-style-variation',
 						'sd-ai-agent/site-scrape',
 						'sd-ai-agent/stock-image',
 						'sd-ai-agent/generate-image',
@@ -705,6 +712,7 @@ class Agent {
 			. "- **Add a shop** → if WooCommerce is not active, install via `wp-cli/execute`; collect a representative product list; create product entries.\n"
 			. "- **Add contact details** → ask for phone / email / address / form preference; update the contact page.\n"
 			. "- **Try a different look** → load `design-system-aesthetics`, render three alternative directions via `sd-ai-agent/render-design-previews`, let the user pick, update the saved design-token contract, rerun `sd-ai-agent/compile-design-tokens`, revalidate its palette, then apply its file-only manifest and Global Styles outputs through their dedicated abilities.\n"
+			. "- **Use a saved style variation** → call `sd-ai-agent/list-style-variations`, then validate and preview the selected hash with `sd-ai-agent/validate-style-variation` and `sd-ai-agent/preview-style-variation`. Select only through `sd-ai-agent/select-style-variation` with that exact hash; use `sd-ai-agent/reset-style-variation` only when undoing the plugin-managed selection. Never use generic file writes or wholesale Global Styles reset for this lifecycle.\n"
 			. "- **Try a different logo** → re-run `sd-ai-agent/generate-logo-svg` with adjusted `direction`/`style_cues`, let the user pick.\n"
 			. "- **Use my photos for the hero** → review uploaded attachments, swap hero imagery in `templates/front-page.html` and re-validate.\n"
 			. "- **Tweak colours / fonts** → update the saved design-token contract, rerun `sd-ai-agent/compile-design-tokens`, revalidate its palette, then apply only the newly compiled manifest and Global Styles outputs.\n"

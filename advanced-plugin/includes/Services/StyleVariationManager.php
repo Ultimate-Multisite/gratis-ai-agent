@@ -11,7 +11,6 @@ declare(strict_types=1);
 namespace SdAiAgent\Services;
 
 use SdAiAgent\Core\ChangeLogger;
-use SdAiAgent\Core\Database;
 use SdAiAgent\Core\Filesystem\FileModGate;
 use SdAiAgent\DesignSystem\ArtifactManifest;
 use SdAiAgent\Models\ChangesLog;
@@ -27,6 +26,12 @@ if ( ! defined( 'ABSPATH' ) ) {
 
 /**
  * Owns safe style-variation file writes and exact Global Styles rollback state.
+ *
+ * @phpstan-type ValidatedDocument array{slug:string,title:string,hash:string,document:array<string,mixed>}
+ * @phpstan-type VariationSource array{slug:string,origin:string,relative_path:string,absolute_path:string,read_only:bool}
+ * @phpstan-type ResolvedVariation array{slug:string,title:string,hash:string,document:array<string,mixed>,origin:string,relative_path:string,read_only:bool}
+ * @phpstan-type GlobalStylesRecord array{exists:bool,post_id:int|null,content:string|null,content_hash:string|null,document:array<string,mixed>,service:GlobalStylesService}
+ * @phpstan-type GlobalStylesWrite array{post_id:int,content:string,content_hash:string,created:bool}
  */
 final class StyleVariationManager {
 
@@ -34,6 +39,16 @@ final class StyleVariationManager {
 	 * Site-scoped option holding per-stylesheet managed selection provenance.
 	 */
 	public const STATE_OPTION = 'sd_ai_agent_style_variation_state';
+
+	/**
+	 * Site-scoped option used to serialize lifecycle mutations.
+	 */
+	private const LOCK_OPTION = 'sd_ai_agent_style_variation_lock';
+
+	/**
+	 * Upper bound for a lock left behind by an interrupted request.
+	 */
+	private const LOCK_TTL_SECONDS = 30;
 
 	/**
 	 * Stored selection-state format version.
@@ -93,17 +108,19 @@ final class StyleVariationManager {
 				continue;
 			}
 
-			$decoded    = json_decode( $content, true );
-			$validated  = is_array( $decoded ) ? $this->validate_document( $decoded ) : new WP_Error(
+			$decoded     = json_decode( $content, true );
+			$validated   = is_array( $decoded ) ? $this->validate_document( $decoded ) : new WP_Error(
 				'sd_ai_agent_style_variation_invalid_json',
 				__( 'The style variation does not contain a JSON object.', 'superdav-ai-agent' )
 			);
-			$raw_hash   = hash( 'sha256', $content );
-			$is_valid   = ! is_wp_error( $validated );
-			$hash       = $is_valid ? $validated['hash'] : $raw_hash;
-			$title      = $is_valid ? $validated['title'] : $source['slug'];
+			$raw_hash    = hash( 'sha256', $content );
+			$is_valid    = ! is_wp_error( $validated );
+			$hash        = $is_valid ? $validated['hash'] : $raw_hash;
+			$title       = $is_valid ? $validated['title'] : $source['slug'];
 			$is_selected = is_array( $state )
 				&& $source['slug'] === $state['selected']['slug']
+				&& $source['origin'] === $state['selected']['origin']
+				&& $source['relative_path'] === $state['selected']['relative_path']
 				&& hash_equals( $state['selected']['source_hash'], $hash );
 
 			$variation = [
@@ -135,6 +152,25 @@ final class StyleVariationManager {
 	 * @return array<string,mixed>|WP_Error Write result or an error.
 	 */
 	public function create( array $document ): array|WP_Error {
+		$lock = $this->acquire_lifecycle_lock();
+		if ( is_wp_error( $lock ) ) {
+			return $lock;
+		}
+
+		try {
+			return $this->create_locked( $document );
+		} finally {
+			$this->release_lifecycle_lock( $lock );
+		}
+	}
+
+	/**
+	 * Perform a create after the lifecycle lock has been acquired.
+	 *
+	 * @param array<string,mixed> $document Complete theme.json v3 variation.
+	 * @return array<string,mixed>|WP_Error Write result or an error.
+	 */
+	private function create_locked( array $document ): array|WP_Error {
 		$validated = $this->validate_document( $document );
 		if ( is_wp_error( $validated ) ) {
 			return $validated;
@@ -165,6 +201,27 @@ final class StyleVariationManager {
 	 * @return array<string,mixed>|WP_Error Write result or an error.
 	 */
 	public function update( string $slug, array $document, string $expected_hash ): array|WP_Error {
+		$lock = $this->acquire_lifecycle_lock();
+		if ( is_wp_error( $lock ) ) {
+			return $lock;
+		}
+
+		try {
+			return $this->update_locked( $slug, $document, $expected_hash );
+		} finally {
+			$this->release_lifecycle_lock( $lock );
+		}
+	}
+
+	/**
+	 * Perform an update after the lifecycle lock has been acquired.
+	 *
+	 * @param string              $slug          Variation slug.
+	 * @param array<string,mixed> $document      Complete replacement document.
+	 * @param string              $expected_hash Canonical hash returned by list or validate.
+	 * @return array<string,mixed>|WP_Error Write result or an error.
+	 */
+	private function update_locked( string $slug, array $document, string $expected_hash ): array|WP_Error {
 		$slug_error = $this->validate_slug( $slug );
 		if ( is_wp_error( $slug_error ) ) {
 			return $slug_error;
@@ -217,7 +274,7 @@ final class StyleVariationManager {
 			);
 		}
 
-		return $this->write_active_document( $theme, $validated, 'update' );
+		return $this->write_active_document( $theme, $validated, 'update', $expected_hash );
 	}
 
 	/**
@@ -227,7 +284,7 @@ final class StyleVariationManager {
 	 * can safely use the same concurrency token across lifecycle operations.
 	 *
 	 * @param array<string,mixed> $document Complete theme.json v3 variation.
-	 * @return array<string,mixed>|WP_Error Validation details or an error.
+	 * @return ValidatedDocument|WP_Error Validation details or an error.
 	 */
 	public function validate_document( array $document ): array|WP_Error {
 		if ( array_is_list( $document ) ) {
@@ -249,7 +306,7 @@ final class StyleVariationManager {
 			);
 		}
 
-		$slug = isset( $document['slug'] ) ? (string) $document['slug'] : '';
+		$slug       = isset( $document['slug'] ) ? (string) $document['slug'] : '';
 		$slug_error = $this->validate_slug( $slug );
 		if ( is_wp_error( $slug_error ) ) {
 			return $slug_error;
@@ -314,7 +371,7 @@ final class StyleVariationManager {
 	 * Validate one on-disk variation resolved with child-over-parent precedence.
 	 *
 	 * @param string $slug Variation slug.
-	 * @return array<string,mixed>|WP_Error Validation details or an error.
+	 * @return ResolvedVariation|WP_Error Validation details or an error.
 	 */
 	public function validate_existing( string $slug ): array|WP_Error {
 		$slug_error = $this->validate_slug( $slug );
@@ -387,6 +444,26 @@ final class StyleVariationManager {
 	 * @return array<string,mixed>|WP_Error Selection result or an error.
 	 */
 	public function select( string $slug, string $expected_hash ): array|WP_Error {
+		$lock = $this->acquire_lifecycle_lock();
+		if ( is_wp_error( $lock ) ) {
+			return $lock;
+		}
+
+		try {
+			return $this->select_locked( $slug, $expected_hash );
+		} finally {
+			$this->release_lifecycle_lock( $lock );
+		}
+	}
+
+	/**
+	 * Perform a selection after the lifecycle lock has been acquired.
+	 *
+	 * @param string $slug          Variation slug.
+	 * @param string $expected_hash Canonical source hash returned by list or validate.
+	 * @return array<string,mixed>|WP_Error Selection result or an error.
+	 */
+	private function select_locked( string $slug, string $expected_hash ): array|WP_Error {
 		$expected_error = $this->validate_hash( $expected_hash, 'sd_ai_agent_style_variation_expected_hash_required' );
 		if ( is_wp_error( $expected_error ) ) {
 			return $expected_error;
@@ -427,6 +504,8 @@ final class StyleVariationManager {
 			}
 			if (
 				$variation['slug'] === $existing_state['selected']['slug']
+				&& $variation['origin'] === $existing_state['selected']['origin']
+				&& $variation['relative_path'] === $existing_state['selected']['relative_path']
 				&& hash_equals( $variation['hash'], $existing_state['selected']['source_hash'] )
 			) {
 				return [
@@ -436,27 +515,47 @@ final class StyleVariationManager {
 					'hash'      => $variation['hash'],
 				];
 			}
-			$baseline = $existing_state['baseline'];
+			$baseline = $this->normalise_associative_array(
+				$existing_state['baseline'] ?? null,
+				'sd_ai_agent_style_variation_state_invalid',
+				__( 'The saved style variation baseline is invalid and was left unchanged.', 'superdav-ai-agent' )
+			);
+			if ( is_wp_error( $baseline ) ) {
+				return $baseline;
+			}
 		} else {
 			$baseline = [
-				'post_exists' => $current['exists'],
-				'post_id'     => $current['post_id'],
-				'content'     => $current['content'],
-				'content_hash'=> $current['content_hash'],
-				'document'    => $current['document'],
+				'post_exists'  => $current['exists'],
+				'post_id'      => $current['post_id'],
+				'content'      => $current['content'],
+				'content_hash' => $current['content_hash'],
+				'document'     => $current['document'],
 			];
 		}
 
-		$desired_document = self::apply_variation_to_baseline( $baseline['document'], $variation['document'] );
-		$written          = $this->write_global_styles_document( $current, $desired_document );
+		$baseline_document = $this->normalise_associative_array(
+			$baseline['document'] ?? null,
+			'sd_ai_agent_style_variation_state_invalid',
+			__( 'The saved style variation baseline is invalid and was left unchanged.', 'superdav-ai-agent' )
+		);
+		if ( is_wp_error( $baseline_document ) ) {
+			return $baseline_document;
+		}
+		$desired_document = self::apply_variation_to_baseline( $baseline_document, $variation['document'] );
+		do_action( 'sd_ai_agent_before_style_variation_select', $variation['slug'], $variation['relative_path'] );
+		$revalidated = $this->revalidate_selection_source( $variation );
+		if ( is_wp_error( $revalidated ) ) {
+			return $revalidated;
+		}
+		$written = $this->write_global_styles_document( $current, $desired_document );
 		if ( is_wp_error( $written ) ) {
 			return $written;
 		}
 
 		$state_map[ $theme->get_stylesheet() ] = [
-			'version'    => self::STATE_VERSION,
-			'baseline'   => $baseline,
-			'selected'   => [
+			'version'  => self::STATE_VERSION,
+			'baseline' => $baseline,
+			'selected' => [
 				'slug'          => $variation['slug'],
 				'origin'        => $variation['origin'],
 				'relative_path' => $variation['relative_path'],
@@ -467,6 +566,7 @@ final class StyleVariationManager {
 				'selected_at'   => gmdate( 'c' ),
 			],
 		];
+
 		$state_written = $this->write_state_map( $state_map );
 		if ( is_wp_error( $state_written ) ) {
 			$recovered = $this->restore_current_global_styles( $current, $written );
@@ -492,6 +592,24 @@ final class StyleVariationManager {
 	 * @return array<string,mixed>|WP_Error Reset result or an error.
 	 */
 	public function reset(): array|WP_Error {
+		$lock = $this->acquire_lifecycle_lock();
+		if ( is_wp_error( $lock ) ) {
+			return $lock;
+		}
+
+		try {
+			return $this->reset_locked();
+		} finally {
+			$this->release_lifecycle_lock( $lock );
+		}
+	}
+
+	/**
+	 * Perform a reset after the lifecycle lock has been acquired.
+	 *
+	 * @return array<string,mixed>|WP_Error Reset result or an error.
+	 */
+	private function reset_locked(): array|WP_Error {
 		$theme = $this->active_theme();
 		if ( is_wp_error( $theme ) ) {
 			return $theme;
@@ -526,9 +644,18 @@ final class StyleVariationManager {
 			return $state_removed;
 		}
 
-		$restored = $this->restore_baseline( $state['baseline'], $current );
+		$baseline = $this->normalise_associative_array(
+			$state['baseline'] ?? null,
+			'sd_ai_agent_style_variation_state_invalid',
+			__( 'The saved style variation baseline is invalid and was left unchanged.', 'superdav-ai-agent' )
+		);
+		if ( is_wp_error( $baseline ) ) {
+			return $baseline;
+		}
+		$restored = $this->restore_baseline( $baseline, $current );
 		if ( is_wp_error( $restored ) ) {
 			$state_map[ $theme->get_stylesheet() ] = $state;
+
 			$recovered = $this->write_state_map( $state_map );
 			if ( is_wp_error( $recovered ) ) {
 				return $this->recovery_error( 'reset', $restored, $recovered );
@@ -542,6 +669,92 @@ final class StyleVariationManager {
 			'slug'          => $state['selected']['slug'],
 			'restored_post' => $state['baseline']['post_exists'],
 		];
+	}
+
+	/**
+	 * Acquire a short-lived, site-scoped lock for one lifecycle mutation.
+	 *
+	 * The add_option() call is an atomic insert, so concurrent requests cannot both own
+	 * this lock. An exact-value delete lets a later request recover from a
+	 * lock left by an interrupted request without deleting a newly acquired one.
+	 *
+	 * @return array{token:string,expires_at:int}|WP_Error Lock details or a busy error.
+	 */
+	private function acquire_lifecycle_lock(): array|WP_Error {
+		$lock = [
+			'token'      => wp_generate_uuid4(),
+			'expires_at' => time() + self::LOCK_TTL_SECONDS,
+		];
+		if ( $this->insert_lifecycle_lock( $lock ) ) {
+			return $lock;
+		}
+
+		$existing = get_option( self::LOCK_OPTION, false );
+		if ( ! is_array( $existing ) || ! isset( $existing['expires_at'] ) || ! is_int( $existing['expires_at'] ) || $existing['expires_at'] >= time() ) {
+			return $this->lifecycle_lock_busy_error();
+		}
+
+		global $wpdb;
+		/** @var \wpdb $wpdb */
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Deletes only the exact expired lock before retrying WordPress's atomic option insert.
+		$deleted = $wpdb->delete(
+			$wpdb->options,
+			[
+				'option_name'  => self::LOCK_OPTION,
+				'option_value' => maybe_serialize( $existing ),
+			],
+			[ '%s', '%s' ]
+		);
+		if ( 1 === $deleted ) {
+			wp_cache_delete( self::LOCK_OPTION, 'options' );
+			if ( $this->insert_lifecycle_lock( $lock ) ) {
+				return $lock;
+			}
+		}
+
+		return $this->lifecycle_lock_busy_error();
+	}
+
+	/**
+	 * Attempt one atomic option insert for the lifecycle lock.
+	 *
+	 * @param array{token:string,expires_at:int} $lock Lock details to persist.
+	 * @phpstan-impure
+	 */
+	private function insert_lifecycle_lock( array $lock ): bool {
+		return add_option( self::LOCK_OPTION, $lock, '', false );
+	}
+
+	/**
+	 * Release only the exact lock record owned by this request.
+	 *
+	 * @param array{token:string,expires_at:int} $lock Lock details returned by acquisition.
+	 */
+	private function release_lifecycle_lock( array $lock ): void {
+		global $wpdb;
+		/** @var \wpdb $wpdb */
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Exact token/value comparison prevents a delayed request from releasing another request's replacement lock.
+		$deleted = $wpdb->delete(
+			$wpdb->options,
+			[
+				'option_name'  => self::LOCK_OPTION,
+				'option_value' => maybe_serialize( $lock ),
+			],
+			[ '%s', '%s' ]
+		);
+		if ( 1 === $deleted ) {
+			wp_cache_delete( self::LOCK_OPTION, 'options' );
+		}
+	}
+
+	/**
+	 * Return the standard retryable lock-contention error.
+	 */
+	private function lifecycle_lock_busy_error(): WP_Error {
+		return new WP_Error(
+			'sd_ai_agent_style_variation_busy',
+			__( 'Another style variation lifecycle operation is in progress. Please retry shortly.', 'superdav-ai-agent' )
+		);
 	}
 
 	/**
@@ -633,7 +846,7 @@ final class StyleVariationManager {
 	 *
 	 * @param WP_Theme $theme Active stylesheet theme.
 	 * @param string   $slug  Variation slug.
-	 * @return array<string,mixed>|WP_Error Source details or an error.
+	 * @return VariationSource|WP_Error Source details or an error.
 	 */
 	private function find_variation( WP_Theme $theme, string $slug ): array|WP_Error {
 		foreach ( $this->variation_sources( $theme ) as $source ) {
@@ -659,7 +872,7 @@ final class StyleVariationManager {
 	 * Read and validate one variation file without leaking its absolute path.
 	 *
 	 * @param string $path Absolute internal file path.
-	 * @return array<string,mixed>|WP_Error Validated document or a safe error.
+	 * @return ValidatedDocument|WP_Error Validated document or a safe error.
 	 */
 	private function read_document_file( string $path ): array|WP_Error {
 		// phpcs:ignore WordPress.WP.AlternativeFunctions.file_get_contents_file_get_contents -- Reading one selected local variation document.
@@ -682,15 +895,47 @@ final class StyleVariationManager {
 	}
 
 	/**
+	 * Confirm that a source has not changed while selection prepared its write.
+	 *
+	 * @param array $variation Originally validated source record.
+	 * @phpstan-param ResolvedVariation $variation
+	 * @return ResolvedVariation|WP_Error Current source or a stale-source error.
+	 */
+	private function revalidate_selection_source( array $variation ): array|WP_Error {
+		$current = $this->validate_existing( $variation['slug'] );
+		if ( is_wp_error( $current ) ) {
+			return new WP_Error(
+				'sd_ai_agent_style_variation_stale_hash',
+				__( 'The style variation changed since it was read. Fetch it again before selecting.', 'superdav-ai-agent' )
+			);
+		}
+		if (
+			$current['origin'] !== $variation['origin']
+			|| $current['relative_path'] !== $variation['relative_path']
+			|| ! hash_equals( $variation['hash'], $current['hash'] )
+		) {
+			return new WP_Error(
+				'sd_ai_agent_style_variation_stale_hash',
+				__( 'The style variation changed since it was read. Fetch it again before selecting.', 'superdav-ai-agent' ),
+				[ 'current_hash' => $current['hash'] ]
+			);
+		}
+
+		return $current;
+	}
+
+	/**
 	 * Atomically write one active stylesheet variation with the generic file
 	 * modification gate and existing Git/change tracking hooks intact.
 	 *
-	 * @param WP_Theme           $theme     Active stylesheet theme.
-	 * @param array<string,mixed> $validated Validated document payload.
-	 * @param string             $operation create or update.
+	 * @param WP_Theme    $theme         Active stylesheet theme.
+	 * @param array       $validated     Validated document payload.
+	 * @phpstan-param ValidatedDocument $validated
+	 * @param string      $operation     Create or update.
+	 * @param string|null $expected_hash Current source hash for an update.
 	 * @return array<string,mixed>|WP_Error Write result or an error.
 	 */
-	private function write_active_document( WP_Theme $theme, array $validated, string $operation ): array|WP_Error {
+	private function write_active_document( WP_Theme $theme, array $validated, string $operation, ?string $expected_hash = null ): array|WP_Error {
 		$relative_path = 'styles/' . $validated['slug'] . '.json';
 		$target        = $this->active_variation_path( $theme, $validated['slug'] );
 		$directory     = dirname( $target );
@@ -712,6 +957,7 @@ final class StyleVariationManager {
 				__( 'The active stylesheet styles directory could not be created.', 'superdav-ai-agent' )
 			);
 		}
+		// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_is_writable -- Pre-flight check before same-directory atomic staging.
 		if ( ! is_writable( $directory ) ) {
 			return new WP_Error(
 				'sd_ai_agent_style_variation_directory_unwritable',
@@ -754,22 +1000,64 @@ final class StyleVariationManager {
 					__( 'The style variation could not be staged for writing.', 'superdav-ai-agent' )
 				);
 			}
+			$file_mode = defined( 'FS_CHMOD_FILE' ) ? (int) FS_CHMOD_FILE : 0644;
+			// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_chmod -- The final hard-linked variation must remain readable with WordPress's normal file mode.
+			if ( ! chmod( $tmp_path, $file_mode ) ) {
+				return new WP_Error(
+					'sd_ai_agent_style_variation_write_failed',
+					__( 'The staged style variation permissions could not be set.', 'superdav-ai-agent' )
+				);
+			}
 
 			$before_hook = 'create' === $operation ? 'sd_ai_agent_before_file_write' : 'sd_ai_agent_before_file_edit';
 			$after_hook  = 'create' === $operation ? 'sd_ai_agent_after_file_write' : 'sd_ai_agent_after_file_edit';
 			do_action( $before_hook, $target );
-			// phpcs:ignore WordPress.WP.AlternativeFunctions.rename_rename -- Same-directory replacement preserves atomicity for concurrent readers.
-			if ( ! rename( $tmp_path, $target ) ) {
-				return new WP_Error(
-					'sd_ai_agent_style_variation_write_failed',
-					__( 'The style variation could not be atomically written.', 'superdav-ai-agent' )
-				);
+			if ( 'create' === $operation ) {
+				// A same-directory hard link succeeds only when the target does not
+				// exist. Unlike rename(), it cannot overwrite a file created after
+				// the initial existence check.
+				// phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged, WordPress.WP.AlternativeFunctions.link_link -- Target-exists contention is an expected safe failure from the atomic no-overwrite create.
+				$linked = function_exists( 'link' ) && @link( $tmp_path, $target );
+				if ( ! $linked ) {
+					clearstatcache( true, $target );
+					if ( file_exists( $target ) ) {
+						return new WP_Error(
+							'sd_ai_agent_style_variation_exists',
+							__( 'A style variation with this slug already exists in the active stylesheet.', 'superdav-ai-agent' )
+						);
+					}
+
+					return new WP_Error(
+						'sd_ai_agent_style_variation_write_failed',
+						__( 'The style variation could not be atomically created.', 'superdav-ai-agent' )
+					);
+				}
+				// phpcs:ignore WordPress.WP.AlternativeFunctions.unlink_unlink -- Removing the manager-owned staging link after an atomic create.
+				unlink( $tmp_path );
+				$tmp_path = '';
+			} else {
+				$current = $this->read_document_file( $target );
+				if ( is_wp_error( $current ) ) {
+					return $current;
+				}
+				if ( null === $expected_hash || ! hash_equals( $expected_hash, $current['hash'] ) ) {
+					return new WP_Error(
+						'sd_ai_agent_style_variation_stale_hash',
+						__( 'The style variation changed since it was read. Fetch it again before updating.', 'superdav-ai-agent' ),
+						[ 'current_hash' => $current['hash'] ]
+					);
+				}
+				// phpcs:ignore WordPress.WP.AlternativeFunctions.rename_rename -- Same-directory replacement preserves atomicity for concurrent readers after a final hash check.
+				if ( ! rename( $tmp_path, $target ) ) {
+					return new WP_Error(
+						'sd_ai_agent_style_variation_write_failed',
+						__( 'The style variation could not be atomically written.', 'superdav-ai-agent' )
+					);
+				}
+				$tmp_path = '';
 			}
-			$tmp_path = '';
 
 			do_action( $after_hook, $target );
-			$tracking_path = 'themes/' . $theme->get_stylesheet() . '/' . $relative_path;
-			Database::record_modified_file( $tracking_path, 'create' === $operation ? 'write' : 'edit', 0, (int) get_current_user_id() );
 			if ( ChangeLogger::is_active() ) {
 				ChangesLog::record(
 					[
@@ -839,7 +1127,7 @@ final class StyleVariationManager {
 	/**
 	 * Read the active theme's exact persisted Global Styles record.
 	 *
-	 * @return array<string,mixed>|WP_Error Current record details or an error.
+	 * @return GlobalStylesRecord|WP_Error Current record details or an error.
 	 */
 	private function current_global_styles(): array|WP_Error {
 		$service = new GlobalStylesService();
@@ -861,12 +1149,13 @@ final class StyleVariationManager {
 				__( 'The active theme Global Styles record is unavailable.', 'superdav-ai-agent' )
 			);
 		}
-		$document = json_decode( $post->post_content, true );
-		if ( ! is_array( $document ) || array_is_list( $document ) ) {
-			return new WP_Error(
-				'sd_ai_agent_style_variation_global_styles_invalid',
-				__( 'The active theme Global Styles record is not valid JSON.', 'superdav-ai-agent' )
-			);
+		$document = $this->normalise_associative_array(
+			json_decode( $post->post_content, true ),
+			'sd_ai_agent_style_variation_global_styles_invalid',
+			__( 'The active theme Global Styles record is not valid JSON.', 'superdav-ai-agent' )
+		);
+		if ( is_wp_error( $document ) ) {
+			return $document;
 		}
 
 		return [
@@ -887,11 +1176,11 @@ final class StyleVariationManager {
 	 * @return array<string,mixed> New complete user Global Styles document.
 	 */
 	private static function apply_variation_to_baseline( array $baseline, array $variation ): array {
-		$partial = [
+		$partial                                 = [
 			'settings' => $variation['settings'],
 			'styles'   => $variation['styles'],
 		];
-		$document = self::deep_merge( $baseline, $partial );
+		$document                                = self::deep_merge( $baseline, $partial );
 		$document['version']                     = WP_Theme_JSON::LATEST_SCHEMA;
 		$document['isGlobalStylesUserThemeJSON'] = true;
 
@@ -901,9 +1190,10 @@ final class StyleVariationManager {
 	/**
 	 * Persist a complete user Global Styles document and return its exact bytes.
 	 *
-	 * @param array<string,mixed> $current Current record details.
+	 * @param array               $current  Current record details.
+	 * @phpstan-param GlobalStylesRecord $current
 	 * @param array<string,mixed> $document New complete document.
-	 * @return array<string,mixed>|WP_Error Write details or an error.
+	 * @return GlobalStylesWrite|WP_Error Write details or an error.
 	 */
 	private function write_global_styles_document( array $current, array $document ): array|WP_Error {
 		$content = wp_json_encode( $document, JSON_UNESCAPED_SLASHES | JSON_HEX_TAG | JSON_HEX_AMP );
@@ -967,8 +1257,10 @@ final class StyleVariationManager {
 	/**
 	 * Undo a failed selection's Global Styles write before returning an error.
 	 *
-	 * @param array<string,mixed> $current Original record details.
-	 * @param array<string,mixed> $written New record details.
+	 * @param array $current Original record details.
+	 * @phpstan-param GlobalStylesRecord $current
+	 * @param array $written New record details.
+	 * @phpstan-param GlobalStylesWrite $written
 	 * @return true|WP_Error True after recovery or a recovery error.
 	 */
 	private function restore_current_global_styles( array $current, array $written ): true|WP_Error {
@@ -1003,14 +1295,22 @@ final class StyleVariationManager {
 	 * Restore an exact saved baseline after the state record was safely removed.
 	 *
 	 * @param array<string,mixed> $baseline Original baseline.
-	 * @param array<string,mixed> $current  Current managed selection record.
+	 * @param array               $current  Current managed selection record.
+	 * @phpstan-param GlobalStylesRecord $current
 	 * @return true|WP_Error True when restored or an error.
 	 */
 	private function restore_baseline( array $baseline, array $current ): true|WP_Error {
+		$post_id = $current['post_id'];
+		if ( ! is_int( $post_id ) ) {
+			return new WP_Error(
+				'sd_ai_agent_style_variation_global_styles_missing',
+				__( 'The active theme Global Styles record is unavailable.', 'superdav-ai-agent' )
+			);
+		}
 		if ( $baseline['post_exists'] ) {
 			$updated = wp_update_post(
 				[
-					'ID'           => $current['post_id'],
+					'ID'           => $post_id,
 					'post_content' => $baseline['content'],
 				],
 				true
@@ -1019,7 +1319,7 @@ final class StyleVariationManager {
 				return $updated;
 			}
 		} else {
-			$deleted = wp_delete_post( $current['post_id'], true );
+			$deleted = wp_delete_post( $post_id, true );
 			if ( ! $deleted instanceof WP_Post ) {
 				return new WP_Error(
 					'sd_ai_agent_style_variation_reset_failed',
@@ -1057,6 +1357,30 @@ final class StyleVariationManager {
 	}
 
 	/**
+	 * Return a string-keyed associative array or an explicit safe error.
+	 *
+	 * @param mixed  $value      Value to validate.
+	 * @param string $error_code Stable error code for malformed state.
+	 * @param string $message    Safe error message.
+	 * @return array<string,mixed>|WP_Error Normalised value or an error.
+	 */
+	private function normalise_associative_array( mixed $value, string $error_code, string $message ): array|WP_Error {
+		if ( ! is_array( $value ) || ( [] !== $value && array_is_list( $value ) ) ) {
+			return new WP_Error( $error_code, $message );
+		}
+
+		$normalised = [];
+		foreach ( $value as $key => $item ) {
+			if ( ! is_string( $key ) ) {
+				return new WP_Error( $error_code, $message );
+			}
+			$normalised[ $key ] = $item;
+		}
+
+		return $normalised;
+	}
+
+	/**
 	 * Read the site-scoped state map without silently accepting malformed data.
 	 *
 	 * @return array<string,mixed>|WP_Error State map or an error.
@@ -1066,14 +1390,12 @@ final class StyleVariationManager {
 		if ( false === $state || [] === $state || null === $state ) {
 			return [];
 		}
-		if ( ! is_array( $state ) || array_is_list( $state ) ) {
-			return new WP_Error(
-				'sd_ai_agent_style_variation_state_invalid',
-				__( 'The saved style variation selection state is invalid and was left unchanged.', 'superdav-ai-agent' )
-			);
-		}
 
-		return $state;
+		return $this->normalise_associative_array(
+			$state,
+			'sd_ai_agent_style_variation_state_invalid',
+			__( 'The saved style variation selection state is invalid and was left unchanged.', 'superdav-ai-agent' )
+		);
 	}
 
 	/**
@@ -1087,10 +1409,16 @@ final class StyleVariationManager {
 		if ( ! isset( $state_map[ $stylesheet ] ) ) {
 			return null;
 		}
-		$state = $state_map[ $stylesheet ];
+		$state = $this->normalise_associative_array(
+			$state_map[ $stylesheet ],
+			'sd_ai_agent_style_variation_state_invalid',
+			__( 'The saved style variation selection state is invalid and was left unchanged.', 'superdav-ai-agent' )
+		);
+		if ( is_wp_error( $state ) ) {
+			return $state;
+		}
 		if (
-			! is_array( $state )
-			|| self::STATE_VERSION !== ( $state['version'] ?? null )
+			self::STATE_VERSION !== ( $state['version'] ?? null )
 			|| ! isset( $state['baseline'], $state['selected'] )
 			|| ! is_array( $state['baseline'] )
 			|| ! is_array( $state['selected'] )
@@ -1103,10 +1431,12 @@ final class StyleVariationManager {
 		$baseline = $state['baseline'];
 		$selected = $state['selected'];
 		if (
-			! isset( $baseline['post_exists'], $baseline['document'], $selected['slug'], $selected['source_hash'], $selected['post_id'], $selected['content_hash'] )
+			! isset( $baseline['post_exists'], $baseline['document'], $selected['slug'], $selected['origin'], $selected['relative_path'], $selected['source_hash'], $selected['post_id'], $selected['content_hash'] )
 			|| ! is_bool( $baseline['post_exists'] )
 			|| ! is_array( $baseline['document'] )
 			|| ! is_string( $selected['slug'] )
+			|| ! is_string( $selected['origin'] )
+			|| ! is_string( $selected['relative_path'] )
 			|| ! is_int( $selected['post_id'] )
 			|| ! is_string( $selected['source_hash'] )
 			|| ! is_string( $selected['content_hash'] )

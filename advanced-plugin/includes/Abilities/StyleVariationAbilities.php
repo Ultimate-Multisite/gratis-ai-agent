@@ -228,11 +228,11 @@ final class StyleVariationAbilities {
 	 * @param string              $description    Ability description.
 	 * @param array<string,mixed> $input_schema   Input schema.
 	 * @param string              $callback       Static callback.
-	 * @param bool                $readonly       Whether no state changes occur.
+	 * @param bool                $is_readonly    Whether no state changes occur.
 	 * @param bool                $destructive    Whether state/files are changed.
 	 * @param bool                $idempotent     Whether identical safe input is a no-op.
 	 */
-	private static function register_ability( string $id, string $label, string $description, array $input_schema, string $callback, bool $readonly, bool $destructive, bool $idempotent ): void {
+	private static function register_ability( string $id, string $label, string $description, array $input_schema, string $callback, bool $is_readonly, bool $destructive, bool $idempotent ): void {
 		wp_register_ability(
 			$id,
 			[
@@ -251,7 +251,7 @@ final class StyleVariationAbilities {
 				'meta'                => [
 					'mcp'          => [ 'public' => true ],
 					'annotations'  => [
-						'readonly'    => $readonly,
+						'readonly'    => $is_readonly,
 						'destructive' => $destructive,
 						'idempotent'  => $idempotent,
 					],
@@ -265,7 +265,7 @@ final class StyleVariationAbilities {
 	 * Resolve a supplied document first, otherwise one existing slug.
 	 *
 	 * @param array<string,mixed> $input Ability input.
-	 * @return array<string,mixed>|WP_Error Validated document or an error.
+	 * @return array{slug:string,title:string,hash:string,document:array<string,mixed>,origin?:string,relative_path?:string,read_only?:bool}|WP_Error Validated document or an error.
 	 */
 	private static function resolve_document( array $input ): array|WP_Error {
 		$manager = new StyleVariationManager();
