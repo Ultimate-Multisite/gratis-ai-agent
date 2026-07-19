@@ -153,19 +153,12 @@ For non-landing templates, create a reusable page-title part or pattern that use
 
 ### Safe existing-template edits
 
-When modifying an existing template such as `front-page`, preserve every block that
-the user did not ask to change:
+When modifying an existing template such as `front-page`, preserve every block that the user did not ask to change:
 
-1. Inspect the current template first. Use `sd-ai-agent/list-block-templates` to
-   find the template, then fetch its current post/template content before writing.
-2. If a REST template response includes a `wp_id`, use `sd-ai-agent/get-page-blocks`
-   on that post ID and address the hero/section by `ref`, `path`, or `flat_index`.
-3. Use `sd-ai-agent/update-blocks` or `sd-ai-agent/edit-block-tree` for the target
-   hero background/image attributes only. Do not rebuild or replace the full
-   template unless the user explicitly requested a complete redesign.
-4. Validate the full resulting block markup with `sd-ai-agent/validate-block-content`
-   before saving. If validation fails, repair the proposed change and retry; do
-   not save a partial template body.
+1. Inspect the current template first. Use `sd-ai-agent/list-block-templates` to find the template, then fetch its current post/template content before writing.
+2. If a REST template response includes a `wp_id`, use `sd-ai-agent/get-page-blocks` on that post ID and address the hero/section by `ref`, `path`, or `flat_index`.
+3. Use `sd-ai-agent/update-blocks` or `sd-ai-agent/edit-block-tree` for the target hero background/image attributes only. Do not rebuild or replace the full template unless the user explicitly requested a complete redesign.
+4. Validate the full resulting block markup with `sd-ai-agent/validate-block-content` before saving. If validation fails, repair the proposed change and retry; do not save a partial template body.
 5. Do not POST partial `content` payloads to `/wp/v2/templates/...` through
    `wp-rest/execute`. That endpoint replaces the template body and can delete
    sibling sections when the payload only contains the edited hero block.
@@ -283,6 +276,13 @@ The corresponding `templates/blank.html` and `templates/landing.html` files must
 ## Landing Page Composition
 
 When generating a homepage, think like a landing page designer, not a template assembler. Every section is a visually distinct, full-width band that creates rhythm and visual impact as the user scrolls.
+
+### Select a pattern family before composition
+
+Call `sd-ai-agent/list-landing-page-pattern-families` to inspect the governed catalog, then `sd-ai-agent/select-landing-page-pattern-family` after the site brief is confirmed or safely inferred; pass only known business facts in `available_content`, layout notes, and explicit section requests. It ranks primary goal, compatible site type, required content, layout notes, and user requests before deterministic fallback.
+If `requires_clarification` is `true`, do not compose from the fallback: ask for listed missing business content and rerun selection; never fabricate offers, products, booking/contact details, portfolios, missions, or subscriptions.
+When selected, use only ordered section roles, the `core/*` block allowlist, responsive behavior, and accessibility requirements as a structural plan. Keep visual direction and design-token selection separate.
+Variants describe layout order and cues only. They never provide copy, testimonials, statistics, stock media URLs, or ready-to-save block markup.
 
 ### Section Architecture
 

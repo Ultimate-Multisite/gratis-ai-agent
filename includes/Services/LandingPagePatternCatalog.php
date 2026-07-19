@@ -22,6 +22,19 @@ if ( ! defined( 'ABSPATH' ) ) {
  *
  * The catalog deliberately describes structure only. It never supplies copy,
  * testimonials, statistics, media URLs, or persisted page state.
+ *
+ * @phpstan-type PatternSection array{role:string,required:bool}
+ * @phpstan-type RawPatternVariant array{slug:string,title:string,section_roles:list<PatternSection>,layout_cues:list<string>,selection_keywords:list<string>}
+ * @phpstan-type PatternVariant array{slug:string,title:string,required_content:list<string>,optional_content:list<string>,section_roles:list<PatternSection>,core_block_allowlist:list<string>,responsive_behavior:array<string,array<string,string>>,accessibility_requirements:array<string,string>,layout_cues:list<string>,selection_keywords:list<string>,governance?:array<string,mixed>}
+ * @phpstan-type PatternFamily array{slug:string,title:string,visitor_goal:string,goal_aliases:list<string>,compatible_site_types:list<string>,required_content:list<string>,optional_content:list<string>,section_roles:list<PatternSection>,core_block_allowlist:list<string>,responsive_behavior:array<string,array<string,string>>,accessibility_requirements:array<string,string>,variants:list<PatternVariant>,contraindications:list<string>,layout_keywords:list<string>,governance?:array<string,mixed>}
+ * @phpstan-type SelectionContext array{primary_goal:string,site_type:string,layout_notes:list<string>,section_requests:list<string>,available_content:array<string,true>}
+ * @phpstan-type MatchScore array{score:int,matched_terms:list<string>}
+ * @phpstan-type RequiredContentScore array{score:int,required:int,missing:list<string>}
+ * @phpstan-type FamilyScoreBreakdown array{primary_goal:MatchScore,site_type:MatchScore,required_content:RequiredContentScore,layout_notes:MatchScore,section_requests:MatchScore,fallback_order:int}
+ * @phpstan-type FamilyCandidate array{family:PatternFamily,eligible:bool,missing_content:list<string>,reasons:list<string>,score_breakdown:FamilyScoreBreakdown}
+ * @phpstan-type VariantScoreBreakdown array{layout_notes:MatchScore,section_requests:MatchScore,fallback_order:int}
+ * @phpstan-type VariantCandidate array{variant:PatternVariant,layout_matches:list<string>,section_matches:list<string>,order:int}
+ * @phpstan-type VariantSelection array{variant:PatternVariant,score_breakdown:VariantScoreBreakdown,reasons:list<string>}
  */
 final class LandingPagePatternCatalog {
 
@@ -56,8 +69,9 @@ final class LandingPagePatternCatalog {
 
 	/**
 	 * @var array<string,mixed>|null
+	 * @phpstan-var list<PatternFamily>|null
 	 */
-	private static ?array $validatedCatalog = null;
+	private static ?array $validated_catalog = null;
 
 	/**
 	 * Return the stable catalog schema version.
@@ -70,10 +84,11 @@ final class LandingPagePatternCatalog {
 	 * Return the complete immutable catalog after validating every definition.
 	 *
 	 * @return list<array<string,mixed>>|WP_Error
+	 * @phpstan-return list<PatternFamily>|WP_Error
 	 */
 	public static function get_families(): array|WP_Error {
-		if ( null !== self::$validatedCatalog ) {
-			return self::$validatedCatalog;
+		if ( null !== self::$validated_catalog ) {
+			return self::$validated_catalog;
 		}
 
 		$catalog = self::build_catalog();
@@ -86,9 +101,9 @@ final class LandingPagePatternCatalog {
 			return $catalog;
 		}
 
-		self::$validatedCatalog = $catalog;
+		self::$validated_catalog = $catalog;
 
-		return self::$validatedCatalog;
+		return self::$validated_catalog;
 	}
 
 	/**
@@ -117,7 +132,7 @@ final class LandingPagePatternCatalog {
 			$candidates[] = self::score_family( $family, $context, $fallback_order );
 		}
 
-		$goal_candidates = array_values(
+		$goal_candidates          = array_values(
 			array_filter(
 				$candidates,
 				static function ( array $candidate ): bool {
@@ -163,20 +178,20 @@ final class LandingPagePatternCatalog {
 		}
 
 		self::sort_candidates( $eligible );
-		$selected         = $eligible[0];
+		$selected          = $eligible[0];
 		$variant_selection = self::select_variant( $selected['family'], $context );
 
 		return [
-			'catalog_version'      => self::CATALOG_VERSION,
-			'selected_family'      => $selected['family'],
-			'selected_variant'     => $variant_selection['variant'],
-			'score_breakdown'      => array_merge(
+			'catalog_version'        => self::CATALOG_VERSION,
+			'selected_family'        => $selected['family'],
+			'selected_variant'       => $variant_selection['variant'],
+			'score_breakdown'        => array_merge(
 				$selected['score_breakdown'],
 				[ 'variant' => $variant_selection['score_breakdown'] ]
 			),
-			'reasons'              => array_merge( $selected['reasons'], $variant_selection['reasons'] ),
-			'missing_content'      => [],
-			'rejected_alternatives' => self::rejected_alternatives( $candidates, $selected['family']['slug'] ),
+			'reasons'                => array_merge( $selected['reasons'], $variant_selection['reasons'] ),
+			'missing_content'        => [],
+			'rejected_alternatives'  => self::rejected_alternatives( $candidates, $selected['family']['slug'] ),
 			'requires_clarification' => false,
 		];
 	}
@@ -186,6 +201,8 @@ final class LandingPagePatternCatalog {
 	 *
 	 * @param list<array<string,mixed>> $families Catalog definitions.
 	 * @return list<array<string,mixed>>|WP_Error
+	 * @phpstan-param list<PatternFamily> $families
+	 * @phpstan-return list<PatternFamily>|WP_Error
 	 */
 	public static function validate_catalog( array $families ): array|WP_Error {
 		if ( [] === $families || ! array_is_list( $families ) ) {
@@ -220,10 +237,11 @@ final class LandingPagePatternCatalog {
 	 * Build the bounded initial catalog without user or WordPress state.
 	 *
 	 * @return list<array<string,mixed>>|WP_Error
+	 * @phpstan-return list<PatternFamily>|WP_Error
 	 */
 	private static function build_catalog(): array|WP_Error {
 		$families = [
-			self::family(
+			self::build_family(
 				'lead-generation',
 				'Lead Generation',
 				'Convert qualified visitors into inquiries, consultations, quotes, or demos.',
@@ -251,7 +269,7 @@ final class LandingPagePatternCatalog {
 				[ 'Use focused product conversion when the primary action is an immediate product purchase.' ],
 				[ 'services', 'expertise', 'consultation', 'demo', 'quote' ]
 			),
-			self::family(
+			self::build_family(
 				'focused-product-conversion',
 				'Focused Product Conversion',
 				'Move a visitor from one clearly defined product offer to a purchase or checkout action.',
@@ -279,7 +297,7 @@ final class LandingPagePatternCatalog {
 				[ 'Use lead generation when the visitor should request a consultation before receiving an offer.' ],
 				[ 'product', 'purchase', 'checkout', 'benefits', 'pricing' ]
 			),
-			self::family(
+			self::build_family(
 				'booking-reservation',
 				'Booking and Reservation',
 				'Help visitors reserve a table, appointment, stay, service slot, or event attendance.',
@@ -307,7 +325,7 @@ final class LandingPagePatternCatalog {
 				[ 'Use local visit/contact when the primary action is directions or a conversation rather than a reservable slot.' ],
 				[ 'reservation', 'booking', 'appointment', 'menu', 'hours' ]
 			),
-			self::family(
+			self::build_family(
 				'local-visit-contact',
 				'Local Visit and Contact',
 				'Guide nearby visitors to a location, contact channel, or practical next step.',
@@ -335,7 +353,7 @@ final class LandingPagePatternCatalog {
 				[ 'Use booking/reservation when the main conversion requires selecting an available date or time.' ],
 				[ 'location', 'address', 'contact', 'hours', 'directions' ]
 			),
-			self::family(
+			self::build_family(
 				'portfolio-inquiry',
 				'Portfolio Inquiry',
 				'Show verified work samples and invite a prospective client to start an inquiry.',
@@ -363,7 +381,7 @@ final class LandingPagePatternCatalog {
 				[ 'Use lead generation when no verified portfolio items are available to show.' ],
 				[ 'portfolio', 'projects', 'work', 'case studies', 'gallery' ]
 			),
-			self::family(
+			self::build_family(
 				'donation-volunteering',
 				'Donation and Volunteering',
 				'Connect supporters to a verified donation or volunteering path without fabricating impact evidence.',
@@ -391,7 +409,7 @@ final class LandingPagePatternCatalog {
 				[ 'Use content subscription when the primary relationship is receiving ongoing editorial content rather than supporting a mission.' ],
 				[ 'mission', 'donate', 'volunteer', 'programs', 'impact' ]
 			),
-			self::family(
+			self::build_family(
 				'content-subscription',
 				'Content Subscription',
 				'Help readers subscribe to a known publication, newsletter, or recurring content offer.',
@@ -427,67 +445,96 @@ final class LandingPagePatternCatalog {
 	/**
 	 * Create one complete family definition with shared safety metadata.
 	 *
-	 * @param list<string>              $goal_aliases Goal aliases.
-	 * @param list<string>              $site_types Compatible site types.
-	 * @param list<string>              $required_content Required known-content keys.
-	 * @param list<string>              $optional_content Optional known-content keys.
+	 * @param string                    $slug Family slug.
+	 * @param string                    $title Family title.
+	 * @param string                    $visitor_goal Visitor goal.
+	 * @param array<string>             $goal_aliases Goal aliases.
+	 * @param array<string>             $site_types Compatible site types.
+	 * @param array<string>             $required_content Required known-content keys.
+	 * @param array<string>             $optional_content Optional known-content keys.
 	 * @param list<array<string,mixed>> $section_roles Ordered section roles.
 	 * @param list<array<string,mixed>> $variants Structural variants.
-	 * @param list<string>              $contraindications Contraindications.
-	 * @param list<string>              $layout_keywords Layout matching terms.
+	 * @param array<string>             $contraindications Contraindications.
+	 * @param array<string>             $layout_keywords Layout matching terms.
 	 * @return array<string,mixed>
+	 * @phpstan-param list<string> $goal_aliases
+	 * @phpstan-param list<string> $site_types
+	 * @phpstan-param list<string> $required_content
+	 * @phpstan-param list<string> $optional_content
+	 * @phpstan-param list<PatternSection> $section_roles
+	 * @phpstan-param list<RawPatternVariant> $variants
+	 * @phpstan-param list<string> $contraindications
+	 * @phpstan-param list<string> $layout_keywords
+	 * @phpstan-return PatternFamily
 	 */
-	private static function family( string $slug, string $title, string $visitor_goal, array $goal_aliases, array $site_types, array $required_content, array $optional_content, array $section_roles, array $variants, array $contraindications, array $layout_keywords ): array {
-		foreach ( $variants as $index => $variant ) {
-			$variants[ $index ]['required_content']           = $required_content;
-			$variants[ $index ]['optional_content']           = $optional_content;
-			$variants[ $index ]['core_block_allowlist']       = self::CORE_BLOCK_ALLOWLIST;
-			$variants[ $index ]['responsive_behavior']        = self::responsive_behavior();
-			$variants[ $index ]['accessibility_requirements'] = self::accessibility_requirements();
+	private static function build_family( string $slug, string $title, string $visitor_goal, array $goal_aliases, array $site_types, array $required_content, array $optional_content, array $section_roles, array $variants, array $contraindications, array $layout_keywords ): array {
+		$complete_variants = [];
+		foreach ( $variants as $variant ) {
+			$complete_variants[] = [
+				'slug'                       => $variant['slug'],
+				'title'                      => $variant['title'],
+				'required_content'           => array_values( $required_content ),
+				'optional_content'           => array_values( $optional_content ),
+				'section_roles'              => array_values( $variant['section_roles'] ),
+				'core_block_allowlist'       => self::CORE_BLOCK_ALLOWLIST,
+				'responsive_behavior'        => self::responsive_behavior(),
+				'accessibility_requirements' => self::accessibility_requirements(),
+				'layout_cues'                => array_values( $variant['layout_cues'] ),
+				'selection_keywords'         => array_values( $variant['selection_keywords'] ),
+			];
 		}
 
 		return [
 			'slug'                       => $slug,
 			'title'                      => $title,
 			'visitor_goal'               => $visitor_goal,
-			'goal_aliases'               => $goal_aliases,
-			'compatible_site_types'      => $site_types,
-			'required_content'           => $required_content,
-			'optional_content'           => $optional_content,
-			'section_roles'              => $section_roles,
+			'goal_aliases'               => array_values( $goal_aliases ),
+			'compatible_site_types'      => array_values( $site_types ),
+			'required_content'           => array_values( $required_content ),
+			'optional_content'           => array_values( $optional_content ),
+			'section_roles'              => array_values( $section_roles ),
 			'core_block_allowlist'       => self::CORE_BLOCK_ALLOWLIST,
 			'responsive_behavior'        => self::responsive_behavior(),
 			'accessibility_requirements' => self::accessibility_requirements(),
-			'variants'                   => $variants,
-			'contraindications'          => $contraindications,
-			'layout_keywords'            => $layout_keywords,
+			'variants'                   => $complete_variants,
+			'contraindications'          => array_values( $contraindications ),
+			'layout_keywords'            => array_values( $layout_keywords ),
 		];
 	}
 
 	/**
 	 * Create one structural variant without user-facing page content.
 	 *
+	 * @param string                    $slug Variant slug.
+	 * @param string                    $title Variant title.
 	 * @param list<array<string,mixed>> $section_roles Ordered section roles.
-	 * @param list<string>              $layout_cues Layout instructions.
-	 * @param list<string>              $selection_keywords Selector hints.
+	 * @param array<string>             $layout_cues Layout instructions.
+	 * @param array<string>             $selection_keywords Selector hints.
 	 * @return array<string,mixed>
+	 * @phpstan-param list<PatternSection> $section_roles
+	 * @phpstan-param list<string> $layout_cues
+	 * @phpstan-param list<string> $selection_keywords
+	 * @phpstan-return RawPatternVariant
 	 */
 	private static function variant( string $slug, string $title, array $section_roles, array $layout_cues, array $selection_keywords ): array {
 		return [
 			'slug'               => $slug,
 			'title'              => $title,
-			'section_roles'      => $section_roles,
-			'layout_cues'        => $layout_cues,
-			'selection_keywords' => $selection_keywords,
+			'section_roles'      => array_values( $section_roles ),
+			'layout_cues'        => array_values( $layout_cues ),
+			'selection_keywords' => array_values( $selection_keywords ),
 		];
 	}
 
 	/**
 	 * Return ordered role metadata for structural composition.
 	 *
-	 * @param list<string> $roles Required and optional roles in display order.
-	 * @param list<string> $optional_roles Roles that may be omitted when no facts exist.
+	 * @param array $roles Required and optional roles in display order.
+	 * @param array $optional_roles Roles that may be omitted when no facts exist.
 	 * @return list<array{role:string,required:bool}>
+	 * @phpstan-param list<string> $roles
+	 * @phpstan-param list<string> $optional_roles
+	 * @phpstan-return list<PatternSection>
 	 */
 	private static function section_roles( array $roles, array $optional_roles = [] ): array {
 		$sections = [];
@@ -530,13 +577,13 @@ final class LandingPagePatternCatalog {
 	 */
 	private static function accessibility_requirements(): array {
 		return [
-			'heading_hierarchy' => 'Use exactly one H1, then a logical heading hierarchy without skipped levels.',
-			'landmarks'         => 'Use semantic header, main, navigation, and footer landmarks through core blocks and template parts.',
-			'descriptive_ctas'  => 'Use descriptive CTA labels that identify the destination or action without relying on surrounding context.',
-			'focus_behavior'    => 'Keep visible keyboard focus, logical tab order, and no keyboard trap in interactive controls.',
+			'heading_hierarchy'  => 'Use exactly one H1, then a logical heading hierarchy without skipped levels.',
+			'landmarks'          => 'Use semantic header, main, navigation, and footer landmarks through core blocks and template parts.',
+			'descriptive_ctas'   => 'Use descriptive CTA labels that identify the destination or action without relying on surrounding context.',
+			'focus_behavior'     => 'Keep visible keyboard focus, logical tab order, and no keyboard trap in interactive controls.',
 			'media_alternatives' => 'Provide supplied alt text or captions for meaningful media and hide decorative media from assistive technology.',
-			'contrast'          => 'Meet WCAG AA contrast for text, controls, and focus indicators using the validated design-token palette.',
-			'reduced_motion'    => 'Honor prefers-reduced-motion and never make motion necessary to understand or operate the page.',
+			'contrast'           => 'Meet WCAG AA contrast for text, controls, and focus indicators using the validated design-token palette.',
+			'reduced_motion'     => 'Honor prefers-reduced-motion and never make motion necessary to understand or operate the page.',
 		];
 	}
 
@@ -545,17 +592,20 @@ final class LandingPagePatternCatalog {
 	 *
 	 * @param list<array<string,mixed>> $families Raw family definitions.
 	 * @return list<array<string,mixed>>|WP_Error
+	 * @phpstan-param list<PatternFamily> $families
+	 * @phpstan-return list<PatternFamily>|WP_Error
 	 */
 	private static function add_governance( array $families ): array|WP_Error {
-		foreach ( $families as $family_index => $family ) {
+		$governed_families = [];
+		foreach ( $families as $family ) {
 			$family_governance = self::governance_for( 'landing-page-' . $family['slug'], $family );
 			if ( is_wp_error( $family_governance ) ) {
 				return $family_governance;
 			}
-			$families[ $family_index ]['governance'] = $family_governance;
 
-			foreach ( $family['variants'] as $variant_index => $variant ) {
-				$source = [
+			$governed_variants = [];
+			foreach ( $family['variants'] as $variant ) {
+				$source     = [
 					'family_slug'  => $family['slug'],
 					'family_title' => $family['title'],
 					'variant'      => $variant,
@@ -564,16 +614,25 @@ final class LandingPagePatternCatalog {
 				if ( is_wp_error( $governance ) ) {
 					return $governance;
 				}
-				$families[ $family_index ]['variants'][ $variant_index ]['governance'] = $governance;
+				$governed_variants[] = array_merge( $variant, [ 'governance' => $governance ] );
 			}
+
+			$governed_families[] = array_merge(
+				$family,
+				[
+					'variants'   => $governed_variants,
+					'governance' => $family_governance,
+				]
+			);
 		}
 
-		return $families;
+		return $governed_families;
 	}
 
 	/**
 	 * Return #2248-compatible metadata for static code-owned catalog content.
 	 *
+	 * @param string              $slug Stable pattern identifier suffix.
 	 * @param array<string,mixed> $source Hash source with no governance field.
 	 * @return array<string,mixed>|WP_Error
 	 */
@@ -583,7 +642,10 @@ final class LandingPagePatternCatalog {
 			return self::error(
 				'governance_hash_failed',
 				__( 'Landing-page pattern metadata could not be canonically hashed.', 'superdav-ai-agent' ),
-				[ 'slug' => $slug, 'cause' => $hash->get_error_code() ]
+				[
+					'slug'  => $slug,
+					'cause' => $hash->get_error_code(),
+				]
 			);
 		}
 
@@ -599,8 +661,14 @@ final class LandingPagePatternCatalog {
 				'input_hash'        => $hash,
 			],
 			'compatibility' => [
-				'wordpress'         => [ 'min' => '7.0', 'max' => null ],
-				'theme_json'        => [ 'min' => 3, 'max' => 3 ],
+				'wordpress'         => [
+					'min' => '7.0',
+					'max' => null,
+				],
+				'theme_json'        => [
+					'min' => 3,
+					'max' => 3,
+				],
 				'required_blocks'   => self::CORE_BLOCK_ALLOWLIST,
 				'required_features' => [ 'block-themes' ],
 				'theme_constraints' => [ 'block-theme' ],
@@ -650,7 +718,14 @@ final class LandingPagePatternCatalog {
 
 		foreach ( [ 'goal_aliases', 'compatible_site_types', 'required_content', 'optional_content', 'contraindications', 'layout_keywords' ] as $field ) {
 			if ( ! self::is_non_empty_string_list( $family[ $field ] ) ) {
-				return self::error( 'invalid_family_list', __( 'Landing-page pattern family metadata must use non-empty string lists.', 'superdav-ai-agent' ), [ 'family' => $family['slug'], 'field' => $field ] );
+				return self::error(
+					'invalid_family_list',
+					__( 'Landing-page pattern family metadata must use non-empty string lists.', 'superdav-ai-agent' ),
+					[
+						'family' => $family['slug'],
+						'field'  => $field,
+					]
+					);
 			}
 		}
 
@@ -667,13 +742,6 @@ final class LandingPagePatternCatalog {
 			return self::error( 'invalid_accessibility_requirements', __( 'Landing-page patterns must include complete accessibility requirements.', 'superdav-ai-agent' ), [ 'family' => $family['slug'] ] );
 		}
 
-		$family_source = $family;
-		unset( $family_source['governance'] );
-		$governance = self::validate_governance( $family['governance'], $family_source, $family['slug'] );
-		if ( is_wp_error( $governance ) ) {
-			return $governance;
-		}
-
 		if ( ! is_array( $family['variants'] ) || ! array_is_list( $family['variants'] ) || [] === $family['variants'] ) {
 			return self::error( 'missing_variants', __( 'Every landing-page pattern family must include at least one structural variant.', 'superdav-ai-agent' ), [ 'family' => $family['slug'] ] );
 		}
@@ -688,9 +756,28 @@ final class LandingPagePatternCatalog {
 				return $variant_validation;
 			}
 			if ( isset( $variant_slugs[ $variant['slug'] ] ) ) {
-				return self::error( 'duplicate_variant_slug', __( 'Landing-page pattern variant slugs must be unique within a family.', 'superdav-ai-agent' ), [ 'family' => $family['slug'], 'slug' => $variant['slug'] ] );
+				return self::error(
+					'duplicate_variant_slug',
+					__( 'Landing-page pattern variant slugs must be unique within a family.', 'superdav-ai-agent' ),
+					[
+						'family' => $family['slug'],
+						'slug'   => $variant['slug'],
+					]
+					);
 			}
 			$variant_slugs[ $variant['slug'] ] = true;
+		}
+
+		$family_source = $family;
+		unset( $family_source['governance'] );
+		foreach ( $family_source['variants'] as $variant_index => $variant_source ) {
+			if ( is_array( $variant_source ) ) {
+				unset( $family_source['variants'][ $variant_index ]['governance'] );
+			}
+		}
+		$governance = self::validate_governance( $family['governance'], $family_source, $family['slug'] );
+		if ( is_wp_error( $governance ) ) {
+			return $governance;
 		}
 
 		return true;
@@ -707,7 +794,14 @@ final class LandingPagePatternCatalog {
 		$required_fields = [ 'slug', 'title', 'required_content', 'optional_content', 'section_roles', 'core_block_allowlist', 'responsive_behavior', 'accessibility_requirements', 'layout_cues', 'selection_keywords', 'governance' ];
 		foreach ( $required_fields as $field ) {
 			if ( ! array_key_exists( $field, $variant ) ) {
-				return self::error( 'incomplete_variant', __( 'Every landing-page pattern variant must include complete governed metadata.', 'superdav-ai-agent' ), [ 'family' => $family['slug'], 'field' => $field ] );
+				return self::error(
+					'incomplete_variant',
+					__( 'Every landing-page pattern variant must include complete governed metadata.', 'superdav-ai-agent' ),
+					[
+						'family' => $family['slug'],
+						'field'  => $field,
+					]
+					);
 			}
 		}
 		if ( ! is_string( $variant['slug'] ) || ! self::is_slug( $variant['slug'] ) || ! is_string( $variant['title'] ) || '' === trim( $variant['title'] ) ) {
@@ -715,11 +809,26 @@ final class LandingPagePatternCatalog {
 		}
 		foreach ( [ 'required_content', 'optional_content', 'layout_cues', 'selection_keywords' ] as $field ) {
 			if ( ! self::is_non_empty_string_list( $variant[ $field ] ) ) {
-				return self::error( 'invalid_variant_list', __( 'Landing-page pattern variant metadata must use non-empty string lists.', 'superdav-ai-agent' ), [ 'family' => $family['slug'], 'variant' => $variant['slug'], 'field' => $field ] );
+				return self::error(
+					'invalid_variant_list',
+					__( 'Landing-page pattern variant metadata must use non-empty string lists.', 'superdav-ai-agent' ),
+					[
+						'family'  => $family['slug'],
+						'variant' => $variant['slug'],
+						'field'   => $field,
+					]
+					);
 			}
 		}
 		if ( ! self::is_section_role_list( $variant['section_roles'] ) || ! self::is_core_block_list( $variant['core_block_allowlist'] ) || ! self::is_responsive_behavior( $variant['responsive_behavior'] ) || ! self::is_accessibility_requirements( $variant['accessibility_requirements'] ) ) {
-			return self::error( 'invalid_variant_structure', __( 'Landing-page pattern variants must include complete structural, responsive, accessibility, and core-block metadata.', 'superdav-ai-agent' ), [ 'family' => $family['slug'], 'variant' => $variant['slug'] ] );
+			return self::error(
+				'invalid_variant_structure',
+				__( 'Landing-page pattern variants must include complete structural, responsive, accessibility, and core-block metadata.', 'superdav-ai-agent' ),
+				[
+					'family'  => $family['slug'],
+					'variant' => $variant['slug'],
+				]
+				);
 		}
 
 		$source = [
@@ -769,6 +878,7 @@ final class LandingPagePatternCatalog {
 	 *
 	 * @param array<string,mixed> $input Raw selection input.
 	 * @return array<string,mixed>|WP_Error
+	 * @phpstan-return SelectionContext|WP_Error
 	 */
 	private static function normalize_selection_context( array $input ): array|WP_Error {
 		$brief = $input['site_brief'] ?? $input['siteBrief'] ?? [];
@@ -790,10 +900,10 @@ final class LandingPagePatternCatalog {
 		}
 
 		return [
-			'primary_goal'     => self::normalize_text( self::first_string( $brief, [ 'primaryGoal', 'primary_goal', 'goal' ] ) ),
-			'site_type'        => self::normalize_text( self::first_string( $brief, [ 'siteType', 'site_type', 'type' ] ) ),
-			'layout_notes'     => $layout_notes,
-			'section_requests' => $section_requests,
+			'primary_goal'      => self::normalize_text( self::first_string( $brief, [ 'primaryGoal', 'primary_goal', 'goal' ] ) ),
+			'site_type'         => self::normalize_text( self::first_string( $brief, [ 'siteType', 'site_type', 'type' ] ) ),
+			'layout_notes'      => $layout_notes,
+			'section_requests'  => $section_requests,
 			'available_content' => $content,
 		];
 	}
@@ -804,6 +914,9 @@ final class LandingPagePatternCatalog {
 	 * @param array<string,mixed> $family Family definition.
 	 * @param array<string,mixed> $context Normalized selector input.
 	 * @return array<string,mixed>
+	 * @phpstan-param PatternFamily $family
+	 * @phpstan-param SelectionContext $context
+	 * @phpstan-return FamilyCandidate
 	 */
 	private static function score_family( array $family, array $context, int $fallback_order ): array {
 		$goal_matches    = self::matching_terms( $context['primary_goal'], $family['goal_aliases'] );
@@ -821,15 +934,19 @@ final class LandingPagePatternCatalog {
 
 		$reasons = [];
 		if ( [] !== $goal_matches ) {
+			/* translators: %s: comma-separated matched primary-goal terms. */
 			$reasons[] = sprintf( __( 'Matches the explicit primary goal through: %s.', 'superdav-ai-agent' ), implode( ', ', $goal_matches ) );
 		}
 		if ( [] !== $site_matches ) {
+			/* translators: %s: comma-separated matched site-type terms. */
 			$reasons[] = sprintf( __( 'Matches the site type through: %s.', 'superdav-ai-agent' ), implode( ', ', $site_matches ) );
 		}
 		if ( [] !== $layout_matches ) {
+			/* translators: %s: comma-separated matched layout-note terms. */
 			$reasons[] = sprintf( __( 'Honors layout notes referencing: %s.', 'superdav-ai-agent' ), implode( ', ', $layout_matches ) );
 		}
 		if ( [] !== $section_matches ) {
+			/* translators: %s: comma-separated matched section-role terms. */
 			$reasons[] = sprintf( __( 'Includes requested section roles: %s.', 'superdav-ai-agent' ), implode( ', ', $section_matches ) );
 		}
 		if ( [] === $reasons ) {
@@ -842,11 +959,27 @@ final class LandingPagePatternCatalog {
 			'missing_content' => $missing_content,
 			'reasons'         => $reasons,
 			'score_breakdown' => [
-				'primary_goal'     => [ 'score' => [] === $goal_matches ? 0 : 1, 'matched_terms' => $goal_matches ],
-				'site_type'        => [ 'score' => [] === $site_matches ? 0 : 1, 'matched_terms' => $site_matches ],
-				'required_content' => [ 'score' => $content_score, 'required' => $required_count, 'missing' => $missing_content ],
-				'layout_notes'     => [ 'score' => count( $layout_matches ), 'matched_terms' => $layout_matches ],
-				'section_requests' => [ 'score' => count( $section_matches ), 'matched_terms' => $section_matches ],
+				'primary_goal'     => [
+					'score'         => [] === $goal_matches ? 0 : 1,
+					'matched_terms' => $goal_matches,
+				],
+				'site_type'        => [
+					'score'         => [] === $site_matches ? 0 : 1,
+					'matched_terms' => $site_matches,
+				],
+				'required_content' => [
+					'score'    => $content_score,
+					'required' => $required_count,
+					'missing'  => $missing_content,
+				],
+				'layout_notes'     => [
+					'score'         => count( $layout_matches ),
+					'matched_terms' => $layout_matches,
+				],
+				'section_requests' => [
+					'score'         => count( $section_matches ),
+					'matched_terms' => $section_matches,
+				],
 				'fallback_order'   => $fallback_order,
 			],
 		];
@@ -858,13 +991,16 @@ final class LandingPagePatternCatalog {
 	 * @param array<string,mixed> $family Family definition.
 	 * @param array<string,mixed> $context Normalized selector input.
 	 * @return array{variant:array<string,mixed>,score_breakdown:array<string,mixed>,reasons:list<string>}
+	 * @phpstan-param PatternFamily $family
+	 * @phpstan-param SelectionContext $context
+	 * @phpstan-return VariantSelection
 	 */
 	private static function select_variant( array $family, array $context ): array {
 		$candidates = [];
 		foreach ( $family['variants'] as $order => $variant ) {
 			$layout_matches  = self::matching_terms_in_list( $context['layout_notes'], $variant['selection_keywords'] );
 			$section_matches = self::matching_terms_in_list( $context['section_requests'], $variant['selection_keywords'] );
-			$candidates[]     = [
+			$candidates[]    = [
 				'variant'         => $variant,
 				'layout_matches'  => $layout_matches,
 				'section_matches' => $section_matches,
@@ -873,6 +1009,10 @@ final class LandingPagePatternCatalog {
 		}
 		usort(
 			$candidates,
+			/**
+			 * @param VariantCandidate $left Left candidate.
+			 * @param VariantCandidate $right Right candidate.
+			 */
 			static function ( array $left, array $right ): int {
 				$left_score  = [ count( $left['layout_matches'] ), count( $left['section_matches'] ), -$left['order'] ];
 				$right_score = [ count( $right['layout_matches'] ), count( $right['section_matches'] ), -$right['order'] ];
@@ -882,9 +1022,11 @@ final class LandingPagePatternCatalog {
 		$selected = $candidates[0];
 		$reasons  = [];
 		if ( [] !== $selected['layout_matches'] ) {
+			/* translators: %s: comma-separated matched layout-note terms. */
 			$reasons[] = sprintf( __( 'Selects the variant for layout notes referencing: %s.', 'superdav-ai-agent' ), implode( ', ', $selected['layout_matches'] ) );
 		}
 		if ( [] !== $selected['section_matches'] ) {
+			/* translators: %s: comma-separated matched section-request terms. */
 			$reasons[] = sprintf( __( 'Selects the variant for requested structural cues: %s.', 'superdav-ai-agent' ), implode( ', ', $selected['section_matches'] ) );
 		}
 		if ( [] === $reasons ) {
@@ -894,8 +1036,14 @@ final class LandingPagePatternCatalog {
 		return [
 			'variant'         => $selected['variant'],
 			'score_breakdown' => [
-				'layout_notes'     => [ 'score' => count( $selected['layout_matches'] ), 'matched_terms' => $selected['layout_matches'] ],
-				'section_requests' => [ 'score' => count( $selected['section_matches'] ), 'matched_terms' => $selected['section_matches'] ],
+				'layout_notes'     => [
+					'score'         => count( $selected['layout_matches'] ),
+					'matched_terms' => $selected['layout_matches'],
+				],
+				'section_requests' => [
+					'score'         => count( $selected['section_matches'] ),
+					'matched_terms' => $selected['section_matches'],
+				],
 				'fallback_order'   => $selected['order'],
 			],
 			'reasons'         => $reasons,
@@ -908,24 +1056,26 @@ final class LandingPagePatternCatalog {
 	 * @param array<string,mixed>       $best_candidate Highest-priority candidate.
 	 * @param list<array<string,mixed>> $candidates All candidates.
 	 * @return array<string,mixed>
+	 * @phpstan-param FamilyCandidate $best_candidate
+	 * @phpstan-param list<FamilyCandidate> $candidates
 	 */
 	private static function clarification_result( array $best_candidate, array $candidates ): array {
 		return [
-			'catalog_version'       => self::CATALOG_VERSION,
-			'selected_family'       => null,
-			'selected_variant'      => null,
-			'score_breakdown'       => $best_candidate['score_breakdown'],
-			'reasons'               => array_merge(
+			'catalog_version'        => self::CATALOG_VERSION,
+			'selected_family'        => null,
+			'selected_variant'       => null,
+			'score_breakdown'        => $best_candidate['score_breakdown'],
+			'reasons'                => array_merge(
 				$best_candidate['reasons'],
 				[ __( 'No family is selected until the missing business content is confirmed; the selector will not fabricate it.', 'superdav-ai-agent' ) ]
 			),
-			'missing_content'       => $best_candidate['missing_content'],
-			'fallback'              => [
+			'missing_content'        => $best_candidate['missing_content'],
+			'fallback'               => [
 				'slug'   => $best_candidate['family']['slug'],
 				'title'  => $best_candidate['family']['title'],
 				'reason' => __( 'Deterministic clarification fallback only; it is not safe to compose without the listed content.', 'superdav-ai-agent' ),
 			],
-			'rejected_alternatives' => self::rejected_alternatives( $candidates, null ),
+			'rejected_alternatives'  => self::rejected_alternatives( $candidates, null ),
 			'requires_clarification' => true,
 		];
 	}
@@ -935,6 +1085,7 @@ final class LandingPagePatternCatalog {
 	 *
 	 * @param list<array<string,mixed>> $candidates Candidate decisions.
 	 * @return list<array<string,mixed>>
+	 * @phpstan-param list<FamilyCandidate> $candidates
 	 */
 	private static function rejected_alternatives( array $candidates, ?string $selected_slug ): array {
 		self::sort_candidates( $candidates );
@@ -945,6 +1096,7 @@ final class LandingPagePatternCatalog {
 			}
 			$reasons = $candidate['reasons'];
 			if ( [] !== $candidate['missing_content'] ) {
+				/* translators: %s: comma-separated missing content keys. */
 				$reasons[] = sprintf( __( 'Rejected because required content is missing: %s.', 'superdav-ai-agent' ), implode( ', ', $candidate['missing_content'] ) );
 			}
 			$rejected[] = [
@@ -964,14 +1116,19 @@ final class LandingPagePatternCatalog {
 	 * Sort candidates in the documented deterministic order.
 	 *
 	 * @param list<array<string,mixed>> $candidates Candidate decisions.
+	 * @phpstan-param list<FamilyCandidate> $candidates
 	 */
 	private static function sort_candidates( array &$candidates ): void {
 		usort(
 			$candidates,
+			/**
+			 * @param FamilyCandidate $left Left candidate.
+			 * @param FamilyCandidate $right Right candidate.
+			 */
 			static function ( array $left, array $right ): int {
-				$left_score  = $left['score_breakdown'];
-				$right_score = $right['score_breakdown'];
-				$left_vector = [
+				$left_score   = $left['score_breakdown'];
+				$right_score  = $right['score_breakdown'];
+				$left_vector  = [
 					$left['eligible'] ? 1 : 0,
 					$left_score['primary_goal']['score'],
 					$left_score['site_type']['score'],
@@ -1025,7 +1182,7 @@ final class LandingPagePatternCatalog {
 			}
 		}
 
-		$source = array_merge( $input, $brief );
+		$source       = array_merge( $input, $brief );
 		$evidence_map = [
 			'site_name'                  => [ 'siteName', 'site_name', 'name' ],
 			'offer'                      => [ 'description', 'tagline', 'offer', 'offers', 'service', 'services', 'product', 'products' ],
@@ -1079,7 +1236,8 @@ final class LandingPagePatternCatalog {
 	/**
 	 * Return matched terms from a normalized input string.
 	 *
-	 * @param list<string> $terms Candidate terms.
+	 * @param string        $value Normalized input string.
+	 * @param array<string> $terms Candidate terms.
 	 * @return list<string>
 	 */
 	private static function matching_terms( string $value, array $terms ): array {
@@ -1100,8 +1258,8 @@ final class LandingPagePatternCatalog {
 	/**
 	 * Return terms matched by any supplied layout note or section request.
 	 *
-	 * @param list<string> $values Input strings.
-	 * @param list<string> $terms Candidate terms.
+	 * @param array<string> $values Input strings.
+	 * @param array<string> $terms Candidate terms.
 	 * @return list<string>
 	 */
 	private static function matching_terms_in_list( array $values, array $terms ): array {
@@ -1120,6 +1278,7 @@ final class LandingPagePatternCatalog {
 	 *
 	 * @param list<array<string,mixed>> $roles Ordered role metadata.
 	 * @return list<string>
+	 * @phpstan-param list<PatternSection> $roles
 	 */
 	private static function section_role_names( array $roles ): array {
 		$names = [];
@@ -1134,7 +1293,7 @@ final class LandingPagePatternCatalog {
 	 * Return the first string from a known set of site-brief keys.
 	 *
 	 * @param array<string,mixed> $source Source data.
-	 * @param list<string>        $keys Candidate keys.
+	 * @param array<string>       $keys Candidate keys.
 	 */
 	private static function first_string( array $source, array $keys ): string {
 		foreach ( $keys as $key ) {
@@ -1280,6 +1439,8 @@ final class LandingPagePatternCatalog {
 	/**
 	 * Return a consistently namespaced catalog validation error.
 	 *
+	 * @param string              $code Error-code suffix.
+	 * @param string              $message Human-readable error message.
 	 * @param array<string,mixed> $data Error metadata.
 	 */
 	private static function error( string $code, string $message, array $data = [] ): WP_Error {

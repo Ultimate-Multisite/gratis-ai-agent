@@ -164,6 +164,8 @@ class AgentThemeBuilderTest extends WP_UnitTestCase {
 			'sd-ai-agent/generate-menu-page',
 			'sd-ai-agent/validate-palette-contrast',
 			'sd-ai-agent/compile-design-tokens',
+			'sd-ai-agent/list-landing-page-pattern-families',
+			'sd-ai-agent/select-landing-page-pattern-family',
 			'sd-ai-agent/site-scrape',
 			'sd-ai-agent/stock-image',
 			'sd-ai-agent/generate-image',
@@ -177,6 +179,25 @@ class AgentThemeBuilderTest extends WP_UnitTestCase {
 				sprintf( 'Setup Assistant tier_1_tools must contain %s', $ability )
 			);
 		}
+	}
+
+	/**
+	 * Homepage composition selects a structural family before page generation.
+	 */
+	public function test_setup_assistant_selects_a_landing_page_pattern_before_composition(): void {
+		Agent::reset_defaults();
+
+		$agent = Agent::get_by_slug( Agent::ONBOARDING_AGENT_SLUG );
+		$this->assertNotNull( $agent );
+
+		$selection_position   = strpos( $agent->system_prompt, 'select-landing-page-pattern-family' );
+		$composition_position = strpos( $agent->system_prompt, 'Compose the selected family and variant' );
+
+		$this->assertNotFalse( $selection_position );
+		$this->assertNotFalse( $composition_position );
+		$this->assertLessThan( $composition_position, $selection_position );
+		$this->assertStringContainsString( 'requires_clarification', $agent->system_prompt );
+		$this->assertStringContainsString( 'visual direction remains a separate decision', $agent->system_prompt );
 	}
 
 	/**

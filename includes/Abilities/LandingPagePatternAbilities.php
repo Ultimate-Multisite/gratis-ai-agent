@@ -133,21 +133,27 @@ final class LandingPagePatternAbilities {
 					'additionalProperties' => true,
 				],
 				'available_content' => [
-					'description' => 'Known business content only, as an object whose non-empty values or a list whose values use catalog keys such as site_name, offer, cta_destination, product, booking_method, location_or_contact, portfolio_items, inquiry_method, mission, donation_or_volunteer_path, publication_or_topic, and subscription_method. Do not mark inferred or fabricated content as available.',
-					'oneOf'       => [
-						[ 'type' => 'object', 'additionalProperties' => true ],
-						[ 'type' => 'array', 'items' => [ 'type' => 'string' ], 'maxItems' => 24 ],
-					],
+					'type'                 => [ 'object', 'array' ],
+					'description'          => 'Known business content only, as an object whose non-empty values or a list whose values use catalog keys such as site_name, offer, cta_destination, product, booking_method, location_or_contact, portfolio_items, inquiry_method, mission, donation_or_volunteer_path, publication_or_topic, and subscription_method. Do not mark inferred or fabricated content as available.',
+					'additionalProperties' => true,
+					'items'                => [ 'type' => 'string' ],
+					'maxItems'             => 24,
 				],
 				'layout_notes'      => [
 					'type'        => 'array',
-					'items'       => [ 'type' => 'string', 'maxLength' => 500 ],
+					'items'       => [
+						'type'      => 'string',
+						'maxLength' => 500,
+					],
 					'maxItems'    => 24,
 					'description' => 'Known layout notes from the site brief. These break ties after goal, site type, and required content.',
 				],
 				'section_requests'  => [
 					'type'        => 'array',
-					'items'       => [ 'type' => 'string', 'maxLength' => 500 ],
+					'items'       => [
+						'type'      => 'string',
+						'maxLength' => 500,
+					],
 					'maxItems'    => 24,
 					'description' => 'Explicit user section requests. These only choose between compatible structural variants and never create content.',
 				],
