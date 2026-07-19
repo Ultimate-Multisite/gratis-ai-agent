@@ -62,6 +62,7 @@ function buildSelectors( {
 		getTtsRate: () => 1,
 		getTtsPitch: () => 1,
 		hasStreamError: () => hasStreamError,
+		getProviders: () => [],
 	};
 }
 
