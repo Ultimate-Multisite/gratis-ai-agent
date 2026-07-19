@@ -14,6 +14,7 @@ declare(strict_types=1);
 
 namespace SdAiAgent\Abilities;
 
+use SdAiAgent\Services\BlockThemeProjectValidator;
 use WP_Error;
 use WP_Theme;
 
@@ -125,6 +126,24 @@ class ActivateThemeAbility extends AbstractAbility {
 				'sd_ai_agent_theme_requirements_unmet',
 				$requirements_check->get_error_message()
 			);
+		}
+
+		// Generated projects opt in to a strict, read-only integrity gate. Keep
+		// unmarked third-party themes on WordPress's existing activation path.
+		$theme_root = $theme->get_stylesheet_directory();
+		if ( BlockThemeProjectValidator::is_marked_project( $theme_root ) ) {
+			$report = ( new BlockThemeProjectValidator() )->validate( $theme_root );
+			if ( ! $report['valid'] ) {
+				return new WP_Error(
+					'sd_ai_agent_block_theme_project_invalid',
+					__( 'The generated block-theme project has validation errors and cannot be activated.', 'superdav-ai-agent' ),
+					[
+						'diagnostics'     => $report['errors'],
+						'warnings'        => $report['warnings'],
+						'project_version' => $report['project_version'],
+					]
+				);
+			}
 		}
 
 		$previous_stylesheet = (string) get_stylesheet();

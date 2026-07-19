@@ -626,6 +626,7 @@ class Agent {
 						'sd-ai-agent/get-themes',
 						// Theme + page build suite (from legacy Theme Builder).
 						'sd-ai-agent/scaffold-block-theme',
+						'sd-ai-agent/validate-block-theme-project',
 						'sd-ai-agent/activate-theme',
 						'sd-ai-agent/file-write',
 						'sd-ai-agent/validate-block-content',
@@ -634,6 +635,13 @@ class Agent {
 						'sd-ai-agent/generate-menu-page',
 						'sd-ai-agent/validate-palette-contrast',
 						'sd-ai-agent/compile-design-tokens',
+						'sd-ai-agent/list-style-variations',
+						'sd-ai-agent/create-style-variation',
+						'sd-ai-agent/update-style-variation',
+						'sd-ai-agent/validate-style-variation',
+						'sd-ai-agent/preview-style-variation',
+						'sd-ai-agent/select-style-variation',
+						'sd-ai-agent/reset-style-variation',
 						'sd-ai-agent/list-landing-page-pattern-families',
 						'sd-ai-agent/select-landing-page-pattern-family',
 						'sd-ai-agent/site-scrape',
@@ -696,9 +704,10 @@ class Agent {
 			. "12. Create the CTA target page as a published page (e.g. /contact/ for services, /shop/ for retail, /menu/ for hospitality — but hospitality CTAs stay as a Phase 3 \"Add menu\" prompt if no menu data exists yet, in which case use /about/ as the temporary CTA target).\n"
 			. "13. Update `templates/front-page.html` to replace `href=\"#\"` and \"Call to action\" with the real CTA URL and text. Re-validate.\n"
 			. "14. Set the published homepage as the front page: `sd-ai-agent/update-option show_on_front=page` and `page_on_front={homepage_id}` (via the options ability path).\n"
-			. "15. Activate the new theme via `sd-ai-agent/activate-theme`.\n"
-			. "16. Save the final site brief and chosen design direction with `sd-ai-agent/memory-save` (category: site_brief).\n"
-			. "17. Reply with a short success message including the live homepage URL and 4–6 Phase 3 follow-up suggestions tailored to the vertical.\n\n";
+			. "15. Call `sd-ai-agent/validate-block-theme-project` for the generated stylesheet. Repair every returned error (including token, asset, placeholder, part, pattern, variation, and block-markup diagnostics) and retry until `valid` is exactly `true`. Do not activate a generated theme with any validation error.\n"
+			. "16. Activate the new theme via `sd-ai-agent/activate-theme`.\n"
+			. "17. Save the final site brief and chosen design direction with `sd-ai-agent/memory-save` (category: site_brief).\n"
+			. "18. Reply with a short success message including the live homepage URL and 4–6 Phase 3 follow-up suggestions tailored to the vertical.\n\n";
 
 		$phase_3 = "## Phase 3: Follow-up loop (both branches)\n\n"
 			. "After the homepage is live (empty-install branch) or after the discover summary (established branch), let the user drive via suggestion chips. Each chip is a discrete, fast action — one ability call or one page at a time. Common chips:\n\n"
@@ -708,6 +717,7 @@ class Agent {
 			. "- **Add a shop** → if WooCommerce is not active, install via `wp-cli/execute`; collect a representative product list; create product entries.\n"
 			. "- **Add contact details** → ask for phone / email / address / form preference; update the contact page.\n"
 			. "- **Try a different look** → load `design-system-aesthetics`, render three alternative directions via `sd-ai-agent/render-design-previews`, let the user pick, update the saved design-token contract, rerun `sd-ai-agent/compile-design-tokens`, revalidate its palette, then apply its file-only manifest and Global Styles outputs through their dedicated abilities.\n"
+			. "- **Use a saved style variation** → call `sd-ai-agent/list-style-variations`, then validate and preview the selected hash with `sd-ai-agent/validate-style-variation` and `sd-ai-agent/preview-style-variation`. Select only through `sd-ai-agent/select-style-variation` with that exact hash; use `sd-ai-agent/reset-style-variation` only when undoing the plugin-managed selection. Never use generic file writes or wholesale Global Styles reset for this lifecycle.\n"
 			. "- **Try a different logo** → re-run `sd-ai-agent/generate-logo-svg` with adjusted `direction`/`style_cues`, let the user pick.\n"
 			. "- **Use my photos for the hero** → review uploaded attachments, swap hero imagery in `templates/front-page.html` and re-validate.\n"
 			. "- **Tweak colours / fonts** → update the saved design-token contract, rerun `sd-ai-agent/compile-design-tokens`, revalidate its palette, then apply only the newly compiled manifest and Global Styles outputs.\n"

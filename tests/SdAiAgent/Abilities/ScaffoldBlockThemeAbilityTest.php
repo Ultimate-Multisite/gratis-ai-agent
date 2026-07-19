@@ -17,6 +17,7 @@ declare(strict_types=1);
 namespace SdAiAgent\Tests\Abilities;
 
 use SdAiAgent\Abilities\ScaffoldBlockThemeAbility;
+use SdAiAgent\Services\BlockThemeProjectValidator;
 use WP_UnitTestCase;
 
 /**
@@ -190,6 +191,27 @@ class ScaffoldBlockThemeAbilityTest extends WP_UnitTestCase {
 		$this->assertIsArray( $theme_json );
 		$this->assertSame( 3, $theme_json['version'], 'Default scaffold must write version 3.' );
 		$this->assertFalse( $result['version_coerced'], 'version_coerced must be false when theme_json was omitted (default path).' );
+	}
+
+	/**
+	 * Every scaffolded theme has the versioned marker required for strict
+	 * generated-project validation before activation.
+	 */
+	public function test_scaffold_writes_the_generated_project_marker(): void {
+		$slug    = $this->unique_slug( 'project-marker' );
+		$ability = new ScaffoldBlockThemeAbility( 'sd-ai-agent/scaffold-block-theme' );
+
+		$result = $ability->run( [ 'slug' => $slug, 'name' => 'Project Marker Theme' ] );
+
+		$this->assertIsArray( $result, is_wp_error( $result ) ? $result->get_error_message() : '' );
+		$this->assertContains( BlockThemeProjectValidator::MARKER_PATH, $result['files'] );
+
+		$path   = trailingslashit( get_theme_root() ) . $slug . '/' . BlockThemeProjectValidator::MARKER_PATH;
+		$marker = json_decode( (string) file_get_contents( $path ), true );
+
+		$this->assertFileExists( $path );
+		$this->assertIsArray( $marker );
+		$this->assertSame( BlockThemeProjectValidator::marker_payload(), $marker );
 	}
 
 	// ── front-page CTA ───────────────────────────────────────────────────

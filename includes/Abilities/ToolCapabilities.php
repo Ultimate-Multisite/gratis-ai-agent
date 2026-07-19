@@ -63,6 +63,8 @@ class ToolCapabilities {
 	 */
 	public const FALLBACK_CAP = 'manage_options';
 
+	private const VALIDATE_THEME_PROJECT_ABILITY = 'sd-ai-agent/validate-block-theme-project';
+
 	/**
 	 * Map of ability ID → required WordPress core capability (or list of
 	 * capabilities — all must be held).
@@ -134,6 +136,14 @@ class ToolCapabilities {
 		'sd-ai-agent/render-design-previews'             => 'edit_theme_options',
 		'sd-ai-agent/validate-palette-contrast'          => 'edit_theme_options',
 		'sd-ai-agent/compile-design-tokens'              => 'edit_theme_options',
+		'sd-ai-agent/list-style-variations'              => 'edit_theme_options',
+		'sd-ai-agent/create-style-variation'             => 'edit_theme_options',
+		'sd-ai-agent/update-style-variation'             => 'edit_theme_options',
+		'sd-ai-agent/validate-style-variation'           => 'edit_theme_options',
+		'sd-ai-agent/preview-style-variation'            => 'edit_theme_options',
+		'sd-ai-agent/select-style-variation'             => 'edit_theme_options',
+		'sd-ai-agent/reset-style-variation'              => 'edit_theme_options',
+		self::VALIDATE_THEME_PROJECT_ABILITY             => 'edit_theme_options',
 
 		// ─── Landing page patterns ───────────────────────────────────────────
 		'sd-ai-agent/list-landing-page-pattern-families' => 'edit_theme_options',

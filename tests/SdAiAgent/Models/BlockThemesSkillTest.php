@@ -66,6 +66,28 @@ class BlockThemesSkillTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * Dedicated variation lifecycle guidance protects files and Global Styles.
+	 */
+	public function test_block_themes_skill_documents_style_variation_lifecycle(): void {
+		$content = Skill::get_builtin_definitions()['wp-block-themes']['content'];
+
+		foreach ( [
+			'### Style-variation lifecycle',
+			'sd-ai-agent/list-style-variations',
+			'sd-ai-agent/create-style-variation',
+			'sd-ai-agent/update-style-variation',
+			'sd-ai-agent/validate-style-variation',
+			'sd-ai-agent/preview-style-variation',
+			'sd-ai-agent/select-style-variation',
+			'sd-ai-agent/reset-style-variation',
+			'original baseline',
+			'intervening Site Editor changes',
+		] as $required ) {
+			$this->assertStringContainsString( $required, $content );
+		}
+	}
+
+	/**
 	 * The skill includes the animation, reduced-motion, and editor-visibility safeguards.
 	 */
 	public function test_block_themes_skill_includes_motion_and_editor_visibility_safeguards(): void {
@@ -97,6 +119,8 @@ class BlockThemesSkillTest extends WP_UnitTestCase {
 		$this->assertStringContainsString( '**No stock image URLs.**', $content );
 		$this->assertStringContainsString( '**Validate before write.**', $content );
 		$this->assertStringContainsString( 'sd-ai-agent/validate-block-content', $content );
+		$this->assertStringContainsString( 'sd-ai-agent/validate-block-theme-project', $content );
+		$this->assertStringContainsString( 'valid: true', $content );
 	}
 
 	/**

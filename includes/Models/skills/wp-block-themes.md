@@ -20,15 +20,9 @@ Use this skill for block theme work such as:
 
 If the active theme is classic and the task is to modify that active theme, use `classic-themes` instead. If the task is to generate, convert to, or scaffold a block theme, use this skill even when the currently active theme is classic.
 
-When a contributor-insight issue contains a pasted local-path excerpt headed
-`Block Themes`, `Full Site Editing`, `theme.json`, templates, parts, patterns, or
-style variations, treat that excerpt as a source-mapping clue only. Update this
-committed skill file (and the root `AGENTS.md` summary when repo-wide guidance is
-needed); do not copy private local paths or duplicate the full excerpt into
-issues, PRs, templates, or generated theme files. In mixed reports like issues
-#2034, #2050, #2060, #2066, #2074, and #2081, this file is only the block-theme target; REST,
-Google Search Console, and WordPress.org review-response notes must be mapped to
-their own committed source files instead of being folded into this skill.
+When a contributor-insight issue contains a pasted local-path excerpt headed `Block Themes`, `Full Site Editing`, `theme.json`, templates, parts, patterns, or style variations, treat it only as a source-mapping clue.
+Update this committed skill (and root `AGENTS.md` when guidance is repo-wide); never copy private paths or duplicate the full excerpt in issues, PRs, templates, or generated theme files.
+In mixed reports #2034, #2050, #2060, #2066, #2074, and #2081, this is only the block-theme target; map REST, Google Search Console, and WordPress.org review-response notes to their own committed sources.
 
 ## Inputs required
 
@@ -44,11 +38,10 @@ their own committed source files instead of being folded into this skill.
 3. Decide whether a `theme.json` change belongs under `settings` (what the editor allows) or `styles` (default visual output).
 4. Put templates in `templates/*.html`; put template parts directly in `parts/*.html` (not nested subdirectories).
 5. Prefer filesystem-owned patterns under `patterns/*.php` when the theme should ship reusable layouts.
-6. Put style variations in `styles/*.json`; remember that once a user selects a style variation, that selection is stored in the database.
-7. Validate generated block markup before writing templates, parts, or patterns.
+6. Put style variations in `styles/*.json`; use the explicit `sd-ai-agent/*-style-variation` lifecycle rather than generic file mutation. Once a user selects a style variation, its selection is stored in the database.
+7. Validate generated block markup before writing templates, parts, or patterns; before activation, run `sd-ai-agent/validate-block-theme-project` for its stylesheet and repair every error until `valid: true`. This project-wide, read-only gate checks declarations, references, patterns, variations, local assets, placeholders, and block markup without executing pattern PHP or fetching URLs.
 8. Perform an explicit final quality review before declaring a generated theme complete. Prefer a browser, screenshot, or front-end render check when available; when visual QA is unavailable, perform the structural review in the verification checklist and report that limitation.
-9. For contributor-insight or maintenance changes to this skill, verify future
-   workers will load the guidance with `rg -n "wp-block-themes|Full Site Editing|theme.json|validate-block-content" AGENTS.md includes/Models/skills/wp-block-themes.md`.
+9. For contributor-insight or maintenance changes to this skill, verify future workers load the guidance with `rg -n "wp-block-themes|Full Site Editing|theme.json|validate-block-content" AGENTS.md includes/Models/skills/wp-block-themes.md`.
 
 ## Absolute Rules
 
@@ -215,6 +208,13 @@ When calling `sd-ai-agent/update-global-styles`, pass only the inner `styles` an
 ### Compile a design-token contract first
 Compilation is pure. Call `sd-ai-agent/compile-design-tokens` and follow its complete schema-v1 contract exactly (governance identity, bounded primitives, semantic roles, and a style-variation remap); repair any `WP_Error` and never reconstruct raw artifacts independently. Pass `theme_json` to `sd-ai-agent/scaffold-block-theme`, pass `global_styles.settings` and `global_styles.styles` only to `sd-ai-agent/update-global-styles`, validate `palette` with `sd-ai-agent/validate-palette-contrast`, and preserve the file-only `style_variation` plus `artifact_manifest` for `sd-ai-agent/apply-design-artifact-release`; the manifest must never own a second `wp_global_styles` record.
 
+### Style-variation lifecycle
+For a user-requested active-theme variation:
+1. Call `sd-ai-agent/list-style-variations`; parent entries are read-only and child entries win filename collisions. Call `sd-ai-agent/validate-style-variation` and `sd-ai-agent/preview-style-variation` before create, update, or select; preview is in memory only and returns CSS plus changed paths, never a screenshot claim.
+2. Create a complete `styles/{slug}.json` only through `sd-ai-agent/create-style-variation`; replace it only through `sd-ai-agent/update-style-variation` with the hash returned by list or validate.
+3. Select only through `sd-ai-agent/select-style-variation` using the exact source hash. It records the original active-theme Global Styles document and always switches from that original baseline instead of accumulating changes.
+4. Call `sd-ai-agent/reset-style-variation` only to undo a plugin-managed selection. It refuses to overwrite intervening Site Editor changes and restores the exact baseline rather than deleting all user Global Styles.
+Use `sd-ai-agent/apply-design-artifact-release` for a governed generated artifact manifest; use this explicit lifecycle for one active-theme variation. Never use generic file write/edit or `reset-global-styles` to bypass either safety contract.
 ### Generated design artifact governance
 
 Generated token sets, block patterns, and style variations are versioned releases, not ordinary edits.
@@ -223,7 +223,7 @@ Generated token sets, block patterns, and style variations are versioned release
 2. Declare WordPress/`theme.json` ranges, required blocks/features, and theme constraints. Incompatible artifacts are rejected first; inspect the deterministic trace with `sd-ai-agent/resolve-design-artifacts`. Stable is default; candidate and experimental require explicit opt-in, deprecated is never a new default, and automatic selection never crosses a major version.
 3. Use `sd-ai-agent/apply-design-artifact-release` for generated writes and `sd-ai-agent/rollback-design-artifact-release` only with an exact retained release ID. The manager stages and validates before moving the active pointer, restores complete prior state after failure, and refuses unmanaged targets.
 
-Never use `sd-ai-agent/curated-block-patterns`, direct `patterns/`/`styles/` writes, or ordinary global-style editing to bypass this contract. Ordinary user-created patterns and customizations remain outside the registry and must not be silently imported, rewritten, or deleted.
+Never use `sd-ai-agent/curated-block-patterns`, direct generic `patterns/`/`styles/` writes, or ordinary global-style editing to bypass this contract. The dedicated style-variation lifecycle above is the only exception for one validated active-theme variation. Ordinary user-created patterns and customizations remain outside the registry and must not be silently imported, rewritten, or deleted.
 
 ### Typography presets — choose distinctive fonts
 
