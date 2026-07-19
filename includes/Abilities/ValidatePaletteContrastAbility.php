@@ -67,6 +67,7 @@ class ValidatePaletteContrastAbility extends AbstractAbility {
 				],
 				'pairs'   => [
 					'type'        => 'array',
+					'minItems'    => 1,
 					'description' => 'Optional override of the default pair definitions. Each entry: { id, fg_slug, bg_slug, required, label }. When omitted, the default Theme Builder pairs are used (body, heading, link, button).',
 					'items'       => [
 						'type'       => 'object',
@@ -152,6 +153,12 @@ class ValidatePaletteContrastAbility extends AbstractAbility {
 		}
 
 		$pairs = isset( $input['pairs'] ) && is_array( $input['pairs'] ) ? $input['pairs'] : null;
+		if ( [] === $pairs ) {
+			return new WP_Error(
+				'sd_ai_agent_palette_pairs_required',
+				__( 'A supplied pair override must contain at least one valid pair.', 'superdav-ai-agent' )
+			);
+		}
 
 		$validator = new PaletteValidator( $palette, $pairs );
 		return $validator->check();

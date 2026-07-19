@@ -224,6 +224,24 @@ class AgentThemeBuilderTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * The Setup Assistant must revalidate palette repairs before scaffolding.
+	 */
+	public function test_setup_assistant_revalidates_palette_before_scaffolding(): void {
+		Agent::reset_defaults();
+
+		$agent = Agent::get_by_slug( Agent::ONBOARDING_AGENT_SLUG );
+		$this->assertNotNull( $agent );
+
+		$validation_position = strpos( $agent->system_prompt, 'validate-palette-contrast` again' );
+		$scaffold_position   = strpos( $agent->system_prompt, 'scaffold-block-theme` only after' );
+
+		$this->assertNotFalse( $validation_position );
+		$this->assertNotFalse( $scaffold_position );
+		$this->assertLessThan( $scaffold_position, $validation_position );
+		$this->assertStringContainsString( '`passed` field is exactly `true`', $agent->system_prompt );
+	}
+
+	/**
 	 * Delete theme-builder rows regardless of built-in status for test setup.
 	 */
 	private function delete_theme_builder_rows(): void {

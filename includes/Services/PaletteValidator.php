@@ -245,7 +245,7 @@ final class PaletteValidator {
 		}
 
 		return [
-			'passed'         => [] === $failures && [] === $missing_roles,
+			'passed'         => 0 < count( $this->pairs ) && [] === $failures && [] === $missing_roles,
 			'failures'       => $failures,
 			'missing_roles'  => $missing_roles,
 			'suggestions'    => $suggestions,

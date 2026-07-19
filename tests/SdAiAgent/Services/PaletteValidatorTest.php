@@ -392,6 +392,24 @@ class PaletteValidatorTest extends WP_UnitTestCase {
 		$this->assertSame( 'good', $pairs[0]['id'] );
 	}
 
+	public function test_empty_or_fully_malformed_pair_override_fails_closed(): void {
+		$palette = [
+			[ 'slug' => 'foreground', 'color' => '#000' ],
+			[ 'slug' => 'background', 'color' => '#fff' ],
+			[ 'slug' => 'surface', 'color' => '#eee' ],
+			[ 'slug' => 'accent', 'color' => '#005fcc' ],
+			[ 'slug' => 'on-accent', 'color' => '#fff' ],
+		];
+
+		foreach ( [ [], [ [ 'id' => 'no-slugs' ] ] ] as $override ) {
+			$result = ( new PaletteValidator( $palette, $override ) )->check();
+
+			$this->assertFalse( $result['passed'] );
+			$this->assertSame( 0, $result['pairs_checked'] );
+			$this->assertSame( 0, $result['pairs_expected'] );
+		}
+	}
+
 	// ── input robustness ─────────────────────────────────────────────────
 
 	public function test_palette_with_invalid_hex_entries_is_silently_skipped(): void {
