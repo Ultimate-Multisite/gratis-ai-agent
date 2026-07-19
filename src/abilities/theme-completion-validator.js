@@ -8,7 +8,7 @@
  */
 
 import { registerClientAbility } from './registry';
-import { loadSameOriginIframe } from './screenshot';
+import { loadSameOriginIframe } from './theme-completion-iframe';
 
 /** Required browser viewport matrix for every generated theme. */
 export const THEME_COMPLETION_VIEWPORTS = Object.freeze( [

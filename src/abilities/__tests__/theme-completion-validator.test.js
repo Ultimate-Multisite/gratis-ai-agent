@@ -2,11 +2,11 @@
  * Focused browser-side tests for generated-theme completion validation.
  */
 
-jest.mock( '../screenshot', () => ( {
+jest.mock( '../theme-completion-iframe', () => ( {
 	loadSameOriginIframe: jest.fn(),
 } ) );
 
-const { loadSameOriginIframe } = require( '../screenshot' );
+const { loadSameOriginIframe } = require( '../theme-completion-iframe' );
 const {
 	THEME_COMPLETION_VIEWPORTS,
 	inspectThemeDocument,

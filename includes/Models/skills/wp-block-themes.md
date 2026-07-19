@@ -534,7 +534,6 @@ After editing templates or `theme.json`:
 5. Open the block editor on any page that uses entrance-animation classes — every animated section should render visibly, not as an empty box. If a section is invisible, an `.editor-styles-wrapper` override is missing.
 6. Toggle the OS-level "Reduce motion" preference and reload the front-end — animations should collapse to near-zero duration without leaving content stuck at `opacity: 0`.
 7. For generated themes or site scaffolds, completion requires a passing `sd-ai-agent-js/validate-theme-completion` report for the active stylesheet and current project fingerprint. Validate the real homepage plus one published interior page at 375×812, 768×1024, and 1280×800; retain its URL, viewport, selector/evidence, severity, and remediation data. Do not replace this with preview HTML, screenshots, a structural checklist, or an unavailable-browser disclaimer.
-
 ## See also
 
 - `gutenberg-blocks` → **Block-theme layout cascade** — the three structural patterns (full-bleed/constrained, full-bleed/full-bleed, plain constrained) that cause ~80% of "looks broken" outputs. Required reading before generating any landing-page section.

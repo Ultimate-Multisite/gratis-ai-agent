@@ -41,7 +41,6 @@ import {
 	registerCaptureScreenshotAbility,
 	registerScreenshotUrlAbility,
 } from './screenshot';
-import { registerThemeCompletionValidatorAbility } from './theme-completion-validator';
 
 /**
  * Window-global key used to share the registration Promise across all
@@ -111,7 +110,6 @@ export function ensureRegistered() {
 		await registerEditorAbility();
 		await registerCaptureScreenshotAbility();
 		await registerScreenshotUrlAbility();
-		await registerThemeCompletionValidatorAbility();
 
 		// If the abilities API was not available (e.g. script module not
 		// yet loaded), the registration calls above silently no-oped.
