@@ -221,23 +221,24 @@ class JsAbilityCatalog {
 				'input_schema'  => array(
 					'type'       => 'object',
 					'properties' => array(
-						'stylesheet'  => array(
+						'stylesheet'   => array(
 							'type'        => 'string',
 							'description' => 'Expected active generated theme stylesheet from the current project validation.',
 						),
-						'fingerprint' => array(
+						'fingerprint'  => array(
 							'type'        => 'string',
 							'description' => 'Current fingerprint returned by validate-block-theme-project.',
 						),
-						'urls'        => array(
-							'type'        => 'array',
-							'minItems'    => 2,
-							'maxItems'    => 2,
-							'items'       => array( 'type' => 'string' ),
-							'description' => 'Exactly the active homepage URL and one published interior page URL.',
+						'homepage_url' => array(
+							'type'        => 'string',
+							'description' => 'Active homepage URL.',
+						),
+						'interior_url' => array(
+							'type'        => 'string',
+							'description' => 'Published interior page URL, distinct from homepage_url.',
 						),
 					),
-					'required'   => array( 'stylesheet', 'fingerprint', 'urls' ),
+					'required'   => array( 'stylesheet', 'fingerprint', 'homepage_url', 'interior_url' ),
 				),
 				'output_schema' => array(
 					'type'       => 'object',
