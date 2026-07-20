@@ -14,6 +14,7 @@ import STORE_NAME from '../../store';
 import ChatBanners from '../chat-banners';
 import ErrorBoundary from '../error-boundary';
 import ToolConfirmationDialog from '../tool-confirmation-dialog';
+import ActionCard from '../action-card';
 import { getChatUiMode, isCustomerSimpleMode } from '../../utils/chat-ui-mode';
 import Sidebar from './Sidebar';
 import ConvoHeader from './ConvoHeader';
@@ -59,18 +60,29 @@ export default function ChatRedesign( { uiMode = getChatUiMode() } = {} ) {
 	const [ showChanges, setShowChanges ] = useState( false );
 	const [ changesCount, setChangesCount ] = useState( 0 );
 
-	const { currentSessionId, pendingConfirmation, yoloMode, sending } =
-		useSelect(
-			( sel ) => ( {
-				currentSessionId: sel( STORE_NAME ).getCurrentSessionId(),
-				pendingConfirmation: sel( STORE_NAME ).getPendingConfirmation(),
-				yoloMode: sel( STORE_NAME ).isYoloMode(),
-				sending: sel( STORE_NAME ).isSending(),
-			} ),
-			[]
-		);
+	const {
+		currentSessionId,
+		pendingConfirmation,
+		pendingActionCard,
+		yoloMode,
+		sending,
+	} = useSelect(
+		( sel ) => ( {
+			currentSessionId: sel( STORE_NAME ).getCurrentSessionId(),
+			pendingConfirmation: sel( STORE_NAME ).getPendingConfirmation(),
+			pendingActionCard: sel( STORE_NAME ).getPendingActionCard(),
+			yoloMode: sel( STORE_NAME ).isYoloMode(),
+			sending: sel( STORE_NAME ).isSending(),
+		} ),
+		[]
+	);
 
-	const { confirmToolCall, rejectToolCall } = useDispatch( STORE_NAME );
+	const {
+		confirmToolCall,
+		rejectToolCall,
+		retryClientToolSubmission,
+		setPendingActionCard,
+	} = useDispatch( STORE_NAME );
 
 	// Auto-confirm pending tool calls when YOLO is on.
 	useEffect( () => {
@@ -173,6 +185,24 @@ export default function ChatRedesign( { uiMode = getChatUiMode() } = {} ) {
 					>
 						<MessageList />
 					</ErrorBoundary>
+
+					{ pendingActionCard?.type === 'retry_client_tools' &&
+						! isSimpleMode && (
+							<ErrorBoundary
+								label={ __(
+									'Retry tool submission',
+									'superdav-ai-agent'
+								) }
+							>
+								<ActionCard
+									card={ pendingActionCard }
+									onConfirm={ retryClientToolSubmission }
+									onCancel={ () =>
+										setPendingActionCard( null )
+									}
+								/>
+							</ErrorBoundary>
+						) }
 
 					<ErrorBoundary
 						label={ __( 'Message input', 'superdav-ai-agent' ) }

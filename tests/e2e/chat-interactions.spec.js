@@ -194,6 +194,204 @@ async function interceptStream( page, options = {} ) {
 	);
 }
 
+/**
+ * Exercise one paused server-tool confirmation followed by a browser-side
+ * completion check and terminal continuation. The client ability intentionally
+ * receives duplicate URLs so its real validator returns a fast, deterministic
+ * invalid-arguments report instead of loading six frontend iframes.
+ *
+ * @param {import('@playwright/test').Page} page Playwright page.
+ * @return {Promise<Object>} Route state and cleanup helpers.
+ */
+async function interceptConfirmationClientToolContinuation( page ) {
+	const jobId = 'e2e-confirmation-client-tool-job';
+	const clientToolCallId = 'e2e-theme-completion-call';
+	const terminalReply =
+		'Confirmation and client-tool continuation completed without another user message.';
+	let capturedSessionId = null;
+	let confirmationRequestCount = 0;
+	let runRequestCount = 0;
+	const toolResultPayloads = [];
+
+	const isRunEndpoint = ( url ) => {
+		const decoded = decodeURIComponent( url.toString() );
+		return (
+			decoded.includes( 'sd-ai-agent/v1/run' ) &&
+			! decoded.includes( '/run/' )
+		);
+	};
+	const isJobEndpoint = ( url ) => {
+		const decoded = decodeURIComponent( url.toString() );
+		return (
+			decoded.includes( `sd-ai-agent/v1/job/${ jobId }` ) &&
+			! decoded.includes( `/job/${ jobId }/confirm` )
+		);
+	};
+	const isConfirmationEndpoint = ( url ) =>
+		decodeURIComponent( url.toString() ).includes(
+			`sd-ai-agent/v1/job/${ jobId }/confirm`
+		);
+	const isToolResultEndpoint = ( url ) =>
+		decodeURIComponent( url.toString() ).includes(
+			'sd-ai-agent/v1/chat/tool-result'
+		);
+	const isSessionEndpoint = ( url ) => {
+		const decoded = decodeURIComponent( url.toString() );
+		return (
+			capturedSessionId !== null &&
+			decoded.includes(
+				`sd-ai-agent/v1/sessions/${ capturedSessionId }`
+			) &&
+			! decoded.includes(
+				`/sessions/${ capturedSessionId }/active-job`
+			)
+		);
+	};
+
+	const handleRun = async ( route ) => {
+		if ( route.request().method() !== 'POST' ) {
+			await route.continue();
+			return;
+		}
+
+		runRequestCount++;
+		try {
+			const body = route.request().postDataJSON();
+			capturedSessionId = body?.session_id || null;
+		} catch {
+			// The test assertions below report a missing session ID clearly.
+		}
+		await route.fulfill( {
+			status: 202,
+			contentType: 'application/json',
+			body: JSON.stringify( { job_id: jobId, status: 'processing' } ),
+		} );
+	};
+
+	const handleConfirmation = async ( route ) => {
+		confirmationRequestCount++;
+		await route.fulfill( {
+			status: 200,
+			contentType: 'application/json',
+			body: JSON.stringify( { status: 'processing' } ),
+		} );
+	};
+
+	const handleToolResult = async ( route ) => {
+		try {
+			toolResultPayloads.push( route.request().postDataJSON() );
+		} catch {
+			toolResultPayloads.push( null );
+		}
+		await route.fulfill( {
+			status: 200,
+			contentType: 'application/json',
+			body: JSON.stringify( { status: 'processing' } ),
+		} );
+	};
+
+	const handleSession = async ( route ) => {
+		if (
+			route.request().method() !== 'GET' ||
+			toolResultPayloads.length === 0
+		) {
+			await route.continue();
+			return;
+		}
+
+		await route.fulfill( {
+			status: 200,
+			contentType: 'application/json',
+			body: JSON.stringify( {
+				id: capturedSessionId,
+				title: 'E2E continuation',
+				status: 'active',
+				user_id: 1,
+				messages: [
+					{
+						role: 'user',
+						parts: [ { text: 'Build and validate the E2E theme.' } ],
+					},
+					{
+						role: 'model',
+						parts: [ { text: terminalReply } ],
+					},
+				],
+				tool_calls: [],
+			} ),
+		} );
+	};
+
+	const handleJob = async ( route ) => {
+		let body;
+		if ( confirmationRequestCount === 0 ) {
+			body = {
+				status: 'awaiting_confirmation',
+				pending_tools: [
+					{
+						id: 'e2e-activate-theme-call',
+						name: 'sd-ai-agent/activate-theme',
+						label: 'Activate E2E theme',
+						description: 'Activate the generated E2E theme.',
+						args: { stylesheet: 'e2e-theme' },
+					},
+				],
+			};
+		} else if ( toolResultPayloads.length === 0 ) {
+			body = {
+				status: 'awaiting_client_tools',
+				pending_client_tool_calls: [
+					{
+						id: clientToolCallId,
+						name: 'sd-ai-agent-js/validate-theme-completion',
+						annotations: { readonly: true },
+						args: {
+							stylesheet: 'e2e-theme',
+							fingerprint: 'e2e-fingerprint',
+							homepage_url: '/',
+							interior_url: '/',
+						},
+					},
+				],
+			};
+		} else {
+			body = {
+				status: 'complete',
+				session_id: capturedSessionId,
+				reply: terminalReply,
+			};
+		}
+
+		await route.fulfill( {
+			status: 200,
+			contentType: 'application/json',
+			body: JSON.stringify( body ),
+		} );
+	};
+
+	await page.route( isRunEndpoint, handleRun );
+	await page.route( isJobEndpoint, handleJob );
+	await page.route( isConfirmationEndpoint, handleConfirmation );
+	await page.route( isToolResultEndpoint, handleToolResult );
+	await page.route( isSessionEndpoint, handleSession );
+
+	return {
+		jobId,
+		clientToolCallId,
+		getCapturedSessionId: () => capturedSessionId,
+		getConfirmationRequestCount: () => confirmationRequestCount,
+		getRunRequestCount: () => runRequestCount,
+		getToolResultPayloads: () => toolResultPayloads,
+		cleanup: async () => {
+			await page.unroute( isRunEndpoint, handleRun );
+			await page.unroute( isJobEndpoint, handleJob );
+			await page.unroute( isConfirmationEndpoint, handleConfirmation );
+			await page.unroute( isToolResultEndpoint, handleToolResult );
+			await page.unroute( isSessionEndpoint, handleSession );
+		},
+	};
+}
+
 test.describe( 'Chat Input Interactions', () => {
 	test.beforeEach( async ( { page } ) => {
 		await loginToWordPress( page );
@@ -260,6 +458,110 @@ test.describe( 'Chat Input Interactions', () => {
 		// Stop button should appear while the request is in flight.
 		const stopButton = getStopButton( page );
 		await expect( stopButton ).toBeVisible( { timeout: 5_000 } );
+	} );
+} );
+
+test.describe( 'Confirmation and client-tool continuation', () => {
+	test.beforeEach( async ( { page } ) => {
+		// Keep client-ability registration deterministic. The fake registry still
+		// stores the actual callbacks registered by the admin bundle, so the test
+		// exercises validate-theme-completion rather than hand-crafting a result.
+		await page.addInitScript( () => {
+			if ( typeof window.wp === 'undefined' ) {
+				window.wp = {};
+			}
+			const registeredAbilities = [];
+			const abilitiesStub = {
+				registerAbilityCategory: async () => {},
+				registerAbility: async ( ability ) => {
+					registeredAbilities.push( ability );
+				},
+				getAbilities: () => registeredAbilities,
+				getAbilityCategory: async () => null,
+				executeAbility: async ( name, args ) => {
+					const ability = registeredAbilities.find(
+						( item ) => item.name === name
+					);
+					return ability?.callback( args );
+				},
+			};
+			Object.defineProperty( window.wp, 'abilities', {
+				value: abilitiesStub,
+				writable: false,
+				configurable: true,
+				enumerable: true,
+			} );
+		} );
+
+		await loginToWordPress( page );
+		await goToAgentPage( page );
+		await page
+			.locator( '.sdaa-cr' )
+			.waitFor( { state: 'visible', timeout: 30_000 } );
+		await page.waitForFunction(
+			() =>
+				window.wp?.abilities
+					?.getAbilities()
+					?.some(
+						( ability ) =>
+							ability.name ===
+							'sd-ai-agent-js/validate-theme-completion'
+					),
+			null,
+			{ timeout: 10_000 }
+		);
+	} );
+
+	test( 'continues an approved turn through validate-theme-completion without a new user message', async ( {
+		page,
+	} ) => {
+		const flow = await interceptConfirmationClientToolContinuation( page );
+
+		try {
+			const input = getMessageInput( page );
+			await input.fill( 'Build and validate the E2E theme.' );
+			await getSendButton( page ).click();
+
+			const confirmation = page.locator( '.sdaa-tool-confirm-dialog' );
+			await expect( confirmation ).toBeVisible( { timeout: 10_000 } );
+			await confirmation.getByRole( 'button', { name: 'Allow' } ).click();
+
+			const messageList = page.locator( '.sdaa-cr .sdaa-cr-messages' );
+			await expect( messageList ).toContainText(
+				'Confirmation and client-tool continuation completed without another user message.',
+				{ timeout: 15_000 }
+			);
+
+			await expect
+				.poll( () => flow.getToolResultPayloads().length, {
+					timeout: 5_000,
+				} )
+				.toBe( 1 );
+			expect( flow.getCapturedSessionId() ).not.toBeNull();
+			expect( flow.getRunRequestCount() ).toBe( 1 );
+			expect( flow.getConfirmationRequestCount() ).toBe( 1 );
+			expect( flow.getToolResultPayloads()[ 0 ] ).toMatchObject( {
+				session_id: flow.getCapturedSessionId(),
+				job_id: flow.jobId,
+				tool_results: [
+					{
+						id: flow.clientToolCallId,
+						name: 'sd-ai-agent-js/validate-theme-completion',
+						result: expect.objectContaining( {
+							complete: false,
+							passed: false,
+							violations: expect.arrayContaining( [
+								expect.objectContaining( {
+									code: 'invalid_completion_urls',
+								} ),
+							] ),
+						} ),
+					},
+				],
+			} );
+		} finally {
+			await flow.cleanup();
+		}
 	} );
 } );
 

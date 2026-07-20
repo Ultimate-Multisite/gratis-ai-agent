@@ -261,6 +261,14 @@ describe( 'actions', () => {
 		} );
 	} );
 
+	test( 'setPendingToolResultRetry returns correct action', () => {
+		const retry = { sessionId: 7, jobId: 'job-1', toolResults: [] };
+		expect( actions.setPendingToolResultRetry( retry ) ).toEqual( {
+			type: 'SET_PENDING_TOOL_RESULT_RETRY',
+			data: retry,
+		} );
+	} );
+
 	test( 'truncateMessagesTo returns correct action', () => {
 		expect( actions.truncateMessagesTo( 3 ) ).toEqual( {
 			type: 'TRUNCATE_MESSAGES_TO',
@@ -308,6 +316,10 @@ describe( 'actions', () => {
 
 	test( 'sendMessage returns a thunk function', () => {
 		expect( typeof actions.sendMessage( 'hello' ) ).toBe( 'function' );
+	} );
+
+	test( 'retryClientToolSubmission returns a thunk function', () => {
+		expect( typeof actions.retryClientToolSubmission() ).toBe( 'function' );
 	} );
 
 	test( 'compactConversation uses the server compact endpoint without resending transcript', async () => {
@@ -411,6 +423,161 @@ describe( 'actions', () => {
 		expect( dispatch.truncateMessagesTo ).not.toHaveBeenCalled();
 		expect( dispatch.setStreamError ).not.toHaveBeenCalled();
 		expect( dispatch.streamMessage ).not.toHaveBeenCalled();
+	} );
+
+	test( 'retryClientToolSubmission resubmits preserved results and resumes the same job once', async () => {
+		apiFetch.mockReset();
+		apiFetch.mockResolvedValue( {} );
+		const retry = {
+			sessionId: 17,
+			jobId: 'client-tool-job',
+			toolResults: [
+				{
+					id: 'call-completion',
+					name: 'sd-ai-agent-js/validate-theme-completion',
+					result: { passed: true },
+				},
+			],
+			toolNames: [ 'sd-ai-agent-js/validate-theme-completion' ],
+		};
+		let pendingRetry = retry;
+		const dispatch = {
+			setPendingToolResultRetry: jest.fn( ( data ) => {
+				pendingRetry = data;
+			} ),
+			setPendingActionCard: jest.fn(),
+			setSending: jest.fn(),
+			setCurrentJobId: jest.fn(),
+			setSessionJob: jest.fn(),
+			pollJob: jest.fn(),
+		};
+		const select = {
+			getPendingToolResultRetry: jest.fn( () => pendingRetry ),
+		};
+
+		await actions.retryClientToolSubmission()( { dispatch, select } );
+		await actions.retryClientToolSubmission()( { dispatch, select } );
+
+		expect( apiFetch ).toHaveBeenCalledTimes( 1 );
+		expect( apiFetch ).toHaveBeenCalledWith( {
+			path: '/sd-ai-agent/v1/chat/tool-result',
+			method: 'POST',
+			data: {
+				session_id: 17,
+				job_id: 'client-tool-job',
+				tool_results: retry.toolResults,
+			},
+		} );
+		expect( dispatch.setPendingToolResultRetry ).toHaveBeenCalledWith(
+			null
+		);
+		expect( dispatch.setCurrentJobId ).toHaveBeenCalledWith(
+			'client-tool-job'
+		);
+		expect( dispatch.setSessionJob ).toHaveBeenCalledWith( 17, {
+			jobId: 'client-tool-job',
+			toolCalls: [],
+			status: 'processing',
+		} );
+		expect( dispatch.pollJob ).toHaveBeenCalledWith(
+			'client-tool-job',
+			17
+		);
+	} );
+
+	test( 'retryClientToolSubmission treats a duplicate 409 response as resumed', async () => {
+		apiFetch.mockReset();
+		apiFetch.mockRejectedValue( {
+			data: { status: 409 },
+		} );
+		const retry = {
+			sessionId: 17,
+			jobId: 'client-tool-job',
+			toolResults: [
+				{
+					id: 'call-completion',
+					name: 'sd-ai-agent-js/validate-theme-completion',
+					result: { passed: true },
+				},
+			],
+			toolNames: [ 'sd-ai-agent-js/validate-theme-completion' ],
+		};
+		const dispatch = {
+			setPendingToolResultRetry: jest.fn(),
+			setPendingActionCard: jest.fn(),
+			setSending: jest.fn(),
+			setCurrentJobId: jest.fn(),
+			setSessionJob: jest.fn(),
+			pollJob: jest.fn(),
+		};
+		const select = {
+			getPendingToolResultRetry: jest.fn( () => retry ),
+		};
+
+		await actions.retryClientToolSubmission()( { dispatch, select } );
+
+		expect( apiFetch ).toHaveBeenCalledTimes( 1 );
+		expect( dispatch.setPendingToolResultRetry ).toHaveBeenCalledWith(
+			null
+		);
+		expect( dispatch.setPendingActionCard ).toHaveBeenCalledWith( null );
+		expect( dispatch.pollJob ).toHaveBeenCalledWith(
+			'client-tool-job',
+			17
+		);
+	} );
+
+	test( 'retryClientToolSubmission preserves results after terminal POST failures', async () => {
+		apiFetch.mockReset();
+		apiFetch.mockRejectedValue( new Error( 'Network unavailable' ) );
+		const retry = {
+			sessionId: 17,
+			jobId: 'client-tool-job',
+			toolResults: [
+				{
+					id: 'call-completion',
+					name: 'sd-ai-agent-js/validate-theme-completion',
+					result: { passed: true },
+				},
+			],
+			toolNames: [ 'sd-ai-agent-js/validate-theme-completion' ],
+		};
+		const dispatch = {
+			setPendingToolResultRetry: jest.fn(),
+			setPendingActionCard: jest.fn(),
+			setSending: jest.fn(),
+			appendMessage: jest.fn(),
+		};
+		const select = {
+			getPendingToolResultRetry: jest.fn( () => retry ),
+		};
+		const setTimeoutSpy = jest
+			.spyOn( global, 'setTimeout' )
+			.mockImplementation( ( callback ) => {
+				callback();
+				return 0;
+			} );
+
+		try {
+			await actions.retryClientToolSubmission()( { dispatch, select } );
+		} finally {
+			setTimeoutSpy.mockRestore();
+		}
+
+		expect( apiFetch ).toHaveBeenCalledTimes( 3 );
+		expect( dispatch.setPendingToolResultRetry ).toHaveBeenLastCalledWith(
+			retry
+		);
+		expect( dispatch.setPendingActionCard ).toHaveBeenLastCalledWith( {
+			type: 'retry_client_tools',
+			toolNames: retry.toolNames,
+		} );
+		expect( dispatch.appendMessage ).toHaveBeenCalledWith(
+			expect.objectContaining( {
+				role: 'system',
+			} )
+		);
+		expect( dispatch.setSending ).toHaveBeenLastCalledWith( false );
 	} );
 } );
 
