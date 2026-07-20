@@ -334,6 +334,20 @@ final class StyleVariationManager {
 				__( 'Style variations must change settings or styles.', 'superdav-ai-agent' )
 			);
 		}
+		$malformed_references = BlockThemeProjectValidator::find_malformed_css_variable_references( $document );
+		if ( [] !== $malformed_references ) {
+			$reference = $malformed_references[0];
+
+			return new WP_Error(
+				'sd_ai_agent_style_variation_css_variable_invalid',
+				__( 'Style variations must use valid CSS var() references.', 'superdav-ai-agent' ),
+				[
+					'path'   => $reference['path'],
+					'reason' => $reference['reason'],
+					'value'  => $reference['value'],
+				]
+			);
+		}
 
 		$semantic_error = $this->validate_compiled_semantics( $document );
 		if ( is_wp_error( $semantic_error ) ) {
