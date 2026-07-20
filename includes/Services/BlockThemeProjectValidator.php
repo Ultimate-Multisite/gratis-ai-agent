@@ -28,6 +28,7 @@ if ( ! defined( 'ABSPATH' ) ) {
  * @phpstan-type ProjectFile array{path:string,size:int}
  * @phpstan-type ProjectFiles array<string,ProjectFile>
  * @phpstan-type TokenMap array<string,true>
+ * @phpstan-type MalformedCssVariableReference array{value:string,path:string,offset:int,reason:string}
  */
 final class BlockThemeProjectValidator {
 
@@ -79,6 +80,87 @@ final class BlockThemeProjectValidator {
 		$encoded = wp_json_encode( self::marker_payload(), JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES );
 
 		return ( is_string( $encoded ) ? $encoded : '{}' ) . "\n";
+	}
+
+	/**
+	 * Find malformed CSS var() functions in a value tree without parsing CSS.
+	 *
+	 * This deliberately checks only the small CSS-function contract that WordPress
+	 * theme documents emit. It leaves fallback values untouched, including nested
+	 * functions, while rejecting missing delimiters and invalid variable names.
+	 *
+	 * @param mixed  $value     Value tree or text source to inspect.
+	 * @param string $json_path JSON path for value-tree results.
+	 * @return list<MalformedCssVariableReference>
+	 */
+	public static function find_malformed_css_variable_references( mixed $value, string $json_path = '' ): array {
+		$references = [];
+		if ( is_array( $value ) ) {
+			foreach ( $value as $key => $child ) {
+				$next_path = '' === $json_path ? (string) $key : $json_path . '.' . $key;
+				foreach ( self::find_malformed_css_variable_references( $child, $next_path ) as $reference ) {
+					$references[] = $reference;
+				}
+			}
+
+			return $references;
+		}
+
+		if ( ! is_string( $value ) ) {
+			return $references;
+		}
+
+		$offset = 0;
+		$start  = stripos( $value, 'var(', $offset );
+		while ( false !== $start ) {
+			$depth       = 1;
+			$end         = null;
+			$length      = strlen( $value );
+			$open_offset = $start + 3;
+			for ( $index = $open_offset + 1; $index < $length; ++$index ) {
+				if ( '(' === $value[ $index ] ) {
+					++$depth;
+				} elseif ( ')' === $value[ $index ] && 0 === --$depth ) {
+					$end = $index;
+					break;
+				}
+			}
+
+			if ( ! is_int( $end ) ) {
+				$references[] = [
+					'value'  => substr( $value, $start ),
+					'path'   => $json_path,
+					'offset' => $start,
+					'reason' => 'missing_closing_parenthesis',
+				];
+				break;
+			}
+
+			$arguments = trim( substr( $value, $open_offset + 1, $end - $open_offset - 1 ) );
+			$name      = trim( explode( ',', $arguments, 2 )[0] );
+			$reason    = '';
+			if ( '' === $name ) {
+				$reason = 'empty_variable_name';
+			} elseif ( ! preg_match( '/^--[A-Za-z_][A-Za-z0-9_-]*$/', $name ) ) {
+				$reason = 'invalid_variable_name';
+			} elseif ( str_starts_with( strtolower( $name ), '--wp--' ) && ! preg_match( '/^--wp--(?:preset|custom)--[a-z0-9]+(?:-+[a-z0-9]+)*$/', $name ) ) {
+				$reason = 'invalid_wordpress_token_name';
+			}
+
+			if ( '' !== $reason ) {
+				$references[] = [
+					'value'  => substr( $value, $start, $end - $start + 1 ),
+					'path'   => $json_path,
+					'offset' => $start,
+					'reason' => $reason,
+				];
+			}
+
+			$offset = $start + 4;
+			$start  = stripos( $value, 'var(', $offset );
+		}
+
+		return $references;
 	}
 
 	/**
@@ -785,7 +867,12 @@ final class BlockThemeProjectValidator {
 			return;
 		}
 
-		if ( ! is_string( $value ) || ! preg_match_all( '/var\(\s*(--wp--(?:preset|custom)--[a-z0-9-]+)\s*(?:,[^)]*)?\)/i', $value, $matches ) ) {
+		if ( ! is_string( $value ) ) {
+			return;
+		}
+
+		$this->add_malformed_css_variable_diagnostics( self::find_malformed_css_variable_references( $value, $json_path ), $relative, $errors );
+		if ( ! preg_match_all( '/var\(\s*(--wp--(?:preset|custom)--[a-z0-9-]+)\s*(?:,[^)]*)?\)/i', $value, $matches ) ) {
 			return;
 		}
 
@@ -1406,6 +1493,20 @@ final class BlockThemeProjectValidator {
 	 * @phpstan-param Diagnostics $errors
 	 */
 	private function validate_markup_token_references( string $contents, string $relative, array $tokens, array &$errors ): void {
+		foreach ( self::find_malformed_css_variable_references( $contents ) as $malformed ) {
+			$this->add_diagnostic(
+				$errors,
+				'malformed_css_variable_reference',
+				$relative,
+				__( 'A CSS var() reference is malformed.', 'superdav-ai-agent' ),
+				[
+					'line'   => $this->line_for_offset( $contents, $malformed['offset'] ),
+					'reason' => $malformed['reason'],
+					'value'  => $malformed['value'],
+				]
+			);
+		}
+
 		if ( ! preg_match_all( '/var\(\s*(--wp--(?:preset|custom)--[a-z0-9-]+)\s*(?:,[^)]*)?\)/i', $contents, $matches, PREG_OFFSET_CAPTURE ) ) {
 			return;
 		}
@@ -1423,6 +1524,31 @@ final class BlockThemeProjectValidator {
 				[
 					'line'      => $this->line_for_offset( $contents, $match[1] ),
 					'reference' => $reference,
+				]
+			);
+		}
+	}
+
+	/**
+	 * Add path-specific malformed CSS variable diagnostics for decoded JSON.
+	 *
+	 * @param array  $references Malformed references.
+	 * @param string $relative Theme-relative source path.
+	 * @param array  $errors Diagnostics collected during validation.
+	 * @phpstan-param list<MalformedCssVariableReference> $references
+	 * @phpstan-param Diagnostics $errors
+	 */
+	private function add_malformed_css_variable_diagnostics( array $references, string $relative, array &$errors ): void {
+		foreach ( $references as $reference ) {
+			$this->add_diagnostic(
+				$errors,
+				'malformed_css_variable_reference',
+				$relative,
+				__( 'A CSS var() reference is malformed.', 'superdav-ai-agent' ),
+				[
+					'json_path' => $reference['path'],
+					'reason'    => $reference['reason'],
+					'value'     => $reference['value'],
 				]
 			);
 		}

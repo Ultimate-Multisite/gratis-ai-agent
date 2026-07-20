@@ -508,6 +508,24 @@ class StyleVariationAbilitiesTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * Lifecycle validation shares the generated-project CSS var() syntax guard
+	 * before create or update can persist an invalid style variation.
+	 */
+	public function test_validate_rejects_malformed_css_variable_references(): void {
+		$document = $this->variation_document( 'invalid-variable', '#1d4ed8' );
+		$document['styles']['typography'] = [
+			'fontFamily' => 'var(--wp--custom--font-family',
+		];
+
+		$result = ( new StyleVariationManager() )->validate_document( $document );
+
+		$this->assertWPError( $result );
+		$this->assertSame( 'sd_ai_agent_style_variation_css_variable_invalid', $result->get_error_code() );
+		$this->assertSame( 'styles.typography.fontFamily', $result->get_error_data()['path'] );
+		$this->assertSame( 'missing_closing_parenthesis', $result->get_error_data()['reason'] );
+	}
+
+	/**
 	 * Stage one minimal block theme that WordPress can activate and resolve.
 	 */
 	private function stage_theme( string $directory, string $slug, string $name, ?string $parent_slug ): void {

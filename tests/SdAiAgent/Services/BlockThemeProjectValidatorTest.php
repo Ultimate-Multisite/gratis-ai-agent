@@ -172,6 +172,49 @@ class BlockThemeProjectValidatorTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * Malformed CSS var() syntax is rejected consistently in root documents,
+	 * style variations, and text sources while valid fallbacks remain accepted.
+	 */
+	public function test_reports_malformed_css_variable_references_in_governed_theme_sources(): void {
+		$this->stage_valid_project();
+		$this->write_fixture_file(
+			'theme.json',
+			"{\n\t\"\$schema\": \"https://schemas.wp.org/trunk/theme.json\",\n\t\"version\": 3,\n\t\"settings\": {\n\t\t\"custom\": { \"brand\": \"#123456\" }\n\t},\n\t\"styles\": { \"color\": { \"text\": \"var(--wp--custom--brand\" } }\n}\n"
+		);
+		$this->write_fixture_file(
+			'styles/malformed.json',
+			"{\n\t\"\$schema\": \"https://schemas.wp.org/trunk/theme.json\",\n\t\"version\": 3,\n\t\"slug\": \"malformed\",\n\t\"title\": \"Malformed\",\n\t\"settings\": {},\n\t\"styles\": { \"color\": { \"text\": \"var()\" } }\n}\n"
+		);
+		$this->write_fixture_file( 'templates/index.html', '<!-- wp:paragraph --><p style="color:var(--wp--custom--)">Welcome.</p><!-- /wp:paragraph -->' );
+		$this->write_fixture_file( 'assets/theme.css', '.example { color: var(--wp--custom--brand, #123456); }' );
+
+		$report      = ( new BlockThemeProjectValidator() )->validate( $this->theme_dir );
+		$diagnostics = array_values(
+			array_filter(
+				$report['errors'],
+				static fn( array $diagnostic ): bool => 'malformed_css_variable_reference' === $diagnostic['code']
+			)
+		);
+		$diagnostics_by_path = array_column( $diagnostics, null, 'path' );
+		ksort( $diagnostics_by_path );
+		$diagnostic_reasons = [];
+		foreach ( $diagnostics_by_path as $path => $diagnostic ) {
+			$diagnostic_reasons[ $path ] = $diagnostic['location']['reason'];
+		}
+
+		$this->assertFalse( $report['valid'] );
+		$this->assertSame(
+			[
+				'styles/malformed.json' => 'empty_variable_name',
+				'templates/index.html'  => 'invalid_wordpress_token_name',
+				'theme.json'            => 'missing_closing_parenthesis',
+			],
+			$diagnostic_reasons
+		);
+		$this->assertNotContains( 'assets/theme.css', array_column( $diagnostics, 'path' ) );
+	}
+
+	/**
 	 * Stage the smallest complete generated block-theme project.
 	 */
 	private function stage_valid_project(): void {
