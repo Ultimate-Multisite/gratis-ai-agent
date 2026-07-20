@@ -836,8 +836,8 @@ export function inspectThemeDocument( {
  * @param {Object}   args             Validator arguments.
  * @param {string}   args.stylesheet  Expected active theme stylesheet.
  * @param {string}   args.fingerprint Current project validation fingerprint.
- * @param {string}   args.homepage_url Homepage URL.
- * @param {string}   args.interior_url Representative interior URL.
+ * @param {string}   args.homepage_url  Homepage URL.
+ * @param {string}   args.interior_url  Representative interior URL.
  * @return {Promise<Object>} Completion report.
  */
 export async function validateThemeCompletion( args ) {
@@ -1065,8 +1065,7 @@ export async function registerThemeCompletionValidatorAbility() {
 				},
 				homepage_url: {
 					type: 'string',
-					description:
-						'Active homepage URL.',
+					description: 'Active homepage URL.',
 				},
 				interior_url: {
 					type: 'string',
