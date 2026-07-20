@@ -26,9 +26,9 @@ final class SuperdavAiProvider extends AbstractApiProvider {
 	public const PROVIDER_ID       = 'sd-ai-agent-cloud';
 	public const CREDENTIAL_OPTION = 'connectors_ai_sd_ai_agent_cloud_api_key';
 	public const DEFAULT_BASE_URL  = 'https://api.sdaiagent.com/v1';
-	public const FAST_MODEL_ID     = 'gpt-5.6-luna';
-	public const DEFAULT_MODEL_ID  = 'gpt-5.6-terra';
-	public const STRONG_MODEL_ID   = 'gpt-5.6-sol';
+	public const FAST_MODEL_ID     = 'superdav-chat-fast';
+	public const DEFAULT_MODEL_ID  = 'superdav-chat-pro';
+	public const STRONG_MODEL_ID   = 'superdav-chat-strong';
 	public const IMAGE_MODEL_ID    = 'superdav-image';
 
 	/**

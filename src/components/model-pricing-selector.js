@@ -23,9 +23,9 @@ import { __ } from '@wordpress/i18n';
  */
 const PRICING = {
 	// Superdav managed models.
-	'gpt-5.6-luna': [ 0.25, 1.0 ],
-	'gpt-5.6-terra': [ 1.5, 6.0 ],
-	'gpt-5.6-sol': [ 1.5, 6.0 ],
+	'superdav-chat-fast': [ 1.75, 14.0 ],
+	'superdav-chat-pro': [ 5.0, 30.0 ],
+	'superdav-chat-strong': [ 5.0, 30.0 ],
 	// Claude models.
 	'claude-haiku-4': [ 0.8, 4.0 ],
 	'claude-sonnet-4': [ 3.0, 15.0 ],
@@ -87,21 +87,21 @@ const TIERS = [
 const MODEL_CATALOG = [
 	// Superdav
 	{
-		id: 'gpt-5.6-luna',
+		id: 'superdav-chat-fast',
 		provider: 'sd-ai-agent-cloud',
-		name: 'GPT-5.6 Luna',
+		name: 'Superdav Chat Fast',
 		note: __( 'fast', 'superdav-ai-agent' ),
 	},
 	{
-		id: 'gpt-5.6-terra',
+		id: 'superdav-chat-pro',
 		provider: 'sd-ai-agent-cloud',
-		name: 'GPT-5.6 Terra',
+		name: 'Superdav Chat Pro',
 		note: __( 'standard', 'superdav-ai-agent' ),
 	},
 	{
-		id: 'gpt-5.6-sol',
+		id: 'superdav-chat-strong',
 		provider: 'sd-ai-agent-cloud',
-		name: 'GPT-5.6 Sol',
+		name: 'Superdav Chat Strong',
 		note: __( 'strong', 'superdav-ai-agent' ),
 	},
 	// Anthropic

@@ -82,9 +82,9 @@ class Settings {
 	 */
 	const MODEL_CONTEXT_WINDOWS = array(
 		// Superdav managed models.
-		'gpt-5.6-luna'                  => 128000,
-		'gpt-5.6-terra'                 => 200000,
-		'gpt-5.6-sol'                   => 200000,
+		'superdav-chat-fast'            => 128000,
+		'superdav-chat-pro'             => 200000,
+		'superdav-chat-strong'          => 200000,
 		'superdav-image'                => 32000,
 		// Anthropic.
 		'claude-opus-4-6'               => 200000,
@@ -185,9 +185,9 @@ class Settings {
 	 */
 	const MODEL_MAX_OUTPUT_TOKENS = array(
 		// ── Superdav managed models ───────────────────────────────────────
-		'gpt-5.6-luna'                => 8192,
-		'gpt-5.6-terra'               => 16384,
-		'gpt-5.6-sol'                 => 16384,
+		'superdav-chat-fast'          => 8192,
+		'superdav-chat-pro'           => 16384,
+		'superdav-chat-strong'        => 16384,
 		'superdav-image'              => 1,
 		// ── Anthropic ──────────────────────────────────────────────────
 		// Opus 4.6 / 4.7 document 128K; Opus 4.5 documents 64K; Opus 4.1

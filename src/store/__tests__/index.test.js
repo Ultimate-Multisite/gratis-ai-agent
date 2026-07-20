@@ -420,11 +420,11 @@ describe( 'resolveProviderSelection', () => {
 			[
 				{
 					id: 'sd-ai-agent-cloud',
-					default_model: 'gpt-5.6-terra',
+					default_model: 'superdav-chat-pro',
 					models: [
-						{ id: 'gpt-5.6-luna' },
-						{ id: 'gpt-5.6-terra' },
-						{ id: 'gpt-5.6-sol' },
+						{ id: 'superdav-chat-fast' },
+						{ id: 'superdav-chat-pro' },
+						{ id: 'superdav-chat-strong' },
 					],
 				},
 			],
@@ -434,7 +434,7 @@ describe( 'resolveProviderSelection', () => {
 
 		expect( selection ).toEqual( {
 			providerId: 'sd-ai-agent-cloud',
-			modelId: 'gpt-5.6-terra',
+			modelId: 'superdav-chat-pro',
 		} );
 	} );
 
@@ -443,21 +443,21 @@ describe( 'resolveProviderSelection', () => {
 			[
 				{
 					id: 'sd-ai-agent-cloud',
-					default_model: 'gpt-5.6-terra',
+					default_model: 'superdav-chat-pro',
 					models: [
-						{ id: 'gpt-5.6-luna' },
-						{ id: 'gpt-5.6-terra' },
-						{ id: 'gpt-5.6-sol' },
+						{ id: 'superdav-chat-fast' },
+						{ id: 'superdav-chat-pro' },
+						{ id: 'superdav-chat-strong' },
 					],
 				},
 			],
 			'sd-ai-agent-cloud',
-			'gpt-5.6-luna'
+			'superdav-chat-fast'
 		);
 
 		expect( selection ).toEqual( {
 			providerId: 'sd-ai-agent-cloud',
-			modelId: 'gpt-5.6-luna',
+			modelId: 'superdav-chat-fast',
 		} );
 	} );
 
@@ -470,11 +470,11 @@ describe( 'resolveProviderSelection', () => {
 				},
 				{
 					id: 'sd-ai-agent-cloud',
-					default_model: 'gpt-5.6-terra',
+					default_model: 'superdav-chat-pro',
 					models: [
-						{ id: 'gpt-5.6-luna' },
-						{ id: 'gpt-5.6-terra' },
-						{ id: 'gpt-5.6-sol' },
+						{ id: 'superdav-chat-fast' },
+						{ id: 'superdav-chat-pro' },
+						{ id: 'superdav-chat-strong' },
 					],
 				},
 			],
@@ -484,7 +484,7 @@ describe( 'resolveProviderSelection', () => {
 
 		expect( selection ).toEqual( {
 			providerId: 'sd-ai-agent-cloud',
-			modelId: 'gpt-5.6-terra',
+			modelId: 'superdav-chat-pro',
 		} );
 	} );
 } );
