@@ -321,6 +321,55 @@ final class SuperdavAiProviderTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * Text-only image prompts retain the JSON image generation endpoint.
+	 */
+	public function test_text_only_image_request_uses_generations_endpoint(): void {
+		$this->skip_if_sdk_unavailable();
+
+		$model = new SuperdavAiImageGenerationModel(
+			new ModelMetadata(
+				SuperdavAiProvider::IMAGE_MODEL_ID,
+				'Superdav Image',
+				array( CapabilityEnum::imageGeneration() ),
+				array()
+			),
+			SuperdavAiProvider::metadata()
+		);
+		$transporter = new class() implements HttpTransporterInterface {
+			public ?Request $request = null;
+
+			public function send( Request $request, ?RequestOptions $options = null ): Response {
+				$this->request = $request;
+
+				return new Response(
+					200,
+					array( 'content-type' => 'application/json' ),
+					'{"created":123,"data":[{"b64_json":"AQ=="}]}'
+				);
+			}
+		};
+		$authentication = new class() implements RequestAuthenticationInterface {
+			public function authenticateRequest( Request $request ): Request {
+				return $request;
+			}
+
+			public static function getJsonSchema(): array {
+				return array();
+			}
+		};
+
+		$model->setHttpTransporter( $transporter );
+		$model->setRequestAuthentication( $authentication );
+		$model->generateImageResult(
+			array( new UserMessage( array( new MessagePart( 'Create a beach scene.' ) ) ) )
+		);
+
+		$this->assertInstanceOf( Request::class, $transporter->request );
+		$this->assertSame( 'https://api.sdaiagent.com/v1/images/generations', $transporter->request->getUri() );
+		$this->assertSame( 'application/json', $transporter->request->getHeaderAsString( 'Content-Type' ) );
+	}
+
+	/**
 	 * Image prompts use the OpenAI-compatible edit endpoint with a multipart upload.
 	 */
 	public function test_image_edit_request_uses_multipart_edits_endpoint(): void {
