@@ -35,7 +35,7 @@ class ModelHealthTrackerTest extends WP_UnitTestCase {
 		$this->assertTrue( ModelHealthTracker::matches_weak_name( 'phi-3-mini' ) );
 		$this->assertTrue( ModelHealthTracker::matches_weak_name( 'tinyllama' ) );
 		$this->assertTrue( ModelHealthTracker::matches_weak_name( 'mistral-7b-q4_k_m.gguf' ) );
-		$this->assertTrue( ModelHealthTracker::matches_weak_name( 'gpt-5.6-luna' ) );
+		$this->assertTrue( ModelHealthTracker::matches_weak_name( 'superdav-chat-fast' ) );
 	}
 
 	public function test_name_heuristic_does_not_flag_strong_models(): void {

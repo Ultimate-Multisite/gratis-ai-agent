@@ -83,7 +83,7 @@ class PublicChatSetupAbilitiesTest extends WP_UnitTestCase {
 				'origins'            => array( 'HTTPS://Docs.Example.com/path' ),
 				'collection_slugs'   => array( $this->collection_slug ),
 				'provider_id'        => 'sd-ai-agent-cloud',
-				'model_id'           => 'gpt-5.6-terra',
+				'model_id'           => 'superdav-chat-pro',
 				'embed_id'           => 'docs',
 				'rate_limit_per_min' => 99,
 				'message_max_length' => 9000,
@@ -124,7 +124,7 @@ class PublicChatSetupAbilitiesTest extends WP_UnitTestCase {
 				'action'           => 'configure',
 				'collection_slugs' => array( $this->collection_slug ),
 				'provider_id'      => 'sd-ai-agent-cloud',
-				'model_id'         => 'gpt-5.6-terra',
+				'model_id'         => 'superdav-chat-pro',
 			)
 		);
 
@@ -148,7 +148,7 @@ class PublicChatSetupAbilitiesTest extends WP_UnitTestCase {
 				'enabled'          => true,
 				'collection_slugs' => array( $this->collection_slug ),
 				'provider_id'      => 'sd-ai-agent-cloud',
-				'model_id'         => 'gpt-5.6-terra',
+				'model_id'         => 'superdav-chat-pro',
 			)
 		);
 

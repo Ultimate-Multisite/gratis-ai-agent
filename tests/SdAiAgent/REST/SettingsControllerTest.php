@@ -160,8 +160,8 @@ final class SettingsControllerTest extends WP_UnitTestCase {
 							array(
 								'data' => array(
 									array(
-										'id'                => 'gpt-5.6-luna',
-										'name'              => 'GPT-5.6 Luna',
+									'id'                => 'superdav-chat-fast',
+									'name'              => 'Superdav Chat Fast',
 										'context_length'    => 128000,
 										'max_output_length' => 8192,
 									),
@@ -192,7 +192,7 @@ final class SettingsControllerTest extends WP_UnitTestCase {
 		$this->assertSame( SuperdavAiProvider::DEFAULT_MODEL_ID, $superdav['default_model'] ?? '' );
 		$this->assertTrue( $superdav['status']['connection_notice_pending'] );
 		$this->assertSame( 10000000, $superdav['status']['wallet']['promo_usd_micros'] );
-		$this->assertSame( 'gpt-5.6-luna', $superdav['models'][0]['id'] ?? '' );
+		$this->assertSame( 'superdav-chat-fast', $superdav['models'][0]['id'] ?? '' );
 		$this->assertStringNotContainsString( 'sdaist_auto_provisioned_token', wp_json_encode( $superdav ) ?: '' );
 
 		$second_response = $controller->handle_providers();
@@ -384,14 +384,14 @@ final class SettingsControllerTest extends WP_UnitTestCase {
 							array(
 								'data' => array(
 									array(
-										'id'                => 'gpt-5.6-luna',
-										'name'              => 'GPT-5.6 Luna',
+									'id'                => 'superdav-chat-fast',
+									'name'              => 'Superdav Chat Fast',
 										'context_length'    => 128000,
 										'max_output_length' => 8192,
 									),
 									array(
-										'id'                => 'gpt-5.6-terra',
-										'name'              => 'GPT-5.6 Terra',
+									'id'                => 'superdav-chat-pro',
+									'name'              => 'Superdav Chat Pro',
 										'context_length'    => 200000,
 										'max_output_length' => 16384,
 									),
@@ -421,7 +421,7 @@ final class SettingsControllerTest extends WP_UnitTestCase {
 		$this->assertSame( 'sdaist_refreshed_token', get_option( SuperdavAiProvider::CREDENTIAL_OPTION, '' ) );
 		$this->assertNotNull( $superdav );
 		$this->assertSame( SuperdavAiProvider::DEFAULT_MODEL_ID, $superdav['default_model'] ?? '' );
-		$this->assertSame( array( 'gpt-5.6-luna', 'gpt-5.6-terra' ), wp_list_pluck( $superdav['models'] ?? array(), 'id' ) );
+		$this->assertSame( array( 'superdav-chat-fast', 'superdav-chat-pro' ), wp_list_pluck( $superdav['models'] ?? array(), 'id' ) );
 	}
 
 	/**

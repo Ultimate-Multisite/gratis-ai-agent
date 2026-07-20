@@ -59,9 +59,9 @@ class CostCalculatorTest extends WP_UnitTestCase {
 	 * Test calculate_cost with the managed Superdav pro model.
 	 */
 	public function test_calculate_cost_superdav_pro() {
-		// 1M input tokens at $1.50 + 1M output tokens at $6.00 = $7.50
+		// 1M input tokens at $5.00 + 1M output tokens at $30.00 = $35.00
 		$cost = CostCalculator::calculate_cost( SuperdavAiProvider::DEFAULT_MODEL_ID, 1_000_000, 1_000_000 );
-		$this->assertSame( 7.5, $cost );
+		$this->assertSame( 35.0, $cost );
 	}
 
 	/**

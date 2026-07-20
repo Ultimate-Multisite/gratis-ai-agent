@@ -73,7 +73,7 @@ class ModelHealthTracker {
 	private const WEAK_NAME_HINTS = array(
 		// Managed cloud fast route: bootstrap with stricter schema-following
 		// guidance after field reports of empty required-argument tool calls.
-		'gpt-5.6-luna',
+		'superdav-chat-fast',
 		// Small parameter counts.
 		'-1b',
 		'-2b',

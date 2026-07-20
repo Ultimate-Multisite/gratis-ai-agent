@@ -17,9 +17,9 @@ class CostCalculator {
 	 */
 	private const PRICING = [
 		// Superdav managed models.
-		'gpt-5.6-luna'                         => [ 0.25, 1.00 ],
-		'gpt-5.6-terra'                        => [ 1.50, 6.00 ],
-		'gpt-5.6-sol'                          => [ 1.50, 6.00 ],
+		'superdav-chat-fast'                   => [ 1.75, 14.00 ],
+		'superdav-chat-pro'                    => [ 5.00, 30.00 ],
+		'superdav-chat-strong'                 => [ 5.00, 30.00 ],
 		// Claude models.
 		'claude-sonnet-4-6'                    => [ 3.00, 15.00 ],
 		'claude-opus-4-6'                      => [ 15.00, 75.00 ],
