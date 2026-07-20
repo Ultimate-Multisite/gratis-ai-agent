@@ -221,11 +221,11 @@ class JsAbilityCatalog {
 				'input_schema'  => array(
 					'type'       => 'object',
 					'properties' => array(
-						'stylesheet'  => array(
+						'stylesheet'   => array(
 							'type'        => 'string',
 							'description' => 'Expected active generated theme stylesheet from the current project validation.',
 						),
-						'fingerprint' => array(
+						'fingerprint'  => array(
 							'type'        => 'string',
 							'description' => 'Current fingerprint returned by validate-block-theme-project.',
 						),

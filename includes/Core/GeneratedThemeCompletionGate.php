@@ -633,8 +633,16 @@ final class GeneratedThemeCompletionGate {
 
 		foreach (
 			array(
-				array( 'url' => $homepage_url, 'role' => 'homepage', 'is_homepage' => true ),
-				array( 'url' => $interior_url, 'role' => 'interior', 'is_homepage' => false ),
+				array(
+					'url'         => $homepage_url,
+					'role'        => 'homepage',
+					'is_homepage' => true,
+				),
+				array(
+					'url'         => $interior_url,
+					'role'        => 'interior',
+					'is_homepage' => false,
+				),
 			) as $required_surface
 		) {
 			$url         = $required_surface['url'];

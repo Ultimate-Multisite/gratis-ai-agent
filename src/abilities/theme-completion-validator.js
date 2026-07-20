@@ -833,11 +833,11 @@ export function inspectThemeDocument( {
 /**
  * Validate all required active-site URLs and viewports.
  *
- * @param {Object}   args             Validator arguments.
- * @param {string}   args.stylesheet  Expected active theme stylesheet.
- * @param {string}   args.fingerprint Current project validation fingerprint.
- * @param {string}   args.homepage_url  Homepage URL.
- * @param {string}   args.interior_url  Representative interior URL.
+ * @param {Object} args              Validator arguments.
+ * @param {string} args.stylesheet   Expected active theme stylesheet.
+ * @param {string} args.fingerprint  Current project validation fingerprint.
+ * @param {string} args.homepage_url Homepage URL.
+ * @param {string} args.interior_url Representative interior URL.
  * @return {Promise<Object>} Completion report.
  */
 export async function validateThemeCompletion( args ) {
