@@ -21,6 +21,14 @@
 
 // phpcs:disable
 
+namespace WordPress\AiClient\Common\Exception {
+
+	/**
+	 * Invalid AI Client argument (stub).
+	 */
+	class InvalidArgumentException extends \InvalidArgumentException {}
+}
+
 namespace WordPress\AiClient\Messages\Enums {
 
 	/**
@@ -170,6 +178,7 @@ namespace WordPress\AiClient\Messages\Enums {
 
 namespace WordPress\AiClient\Messages\DTO {
 
+	use WordPress\AiClient\Files\DTO\File;
 	use WordPress\AiClient\Messages\Enums\MessageRoleEnum;
 	use WordPress\AiClient\Messages\Enums\MessagePartChannelEnum;
 	use WordPress\AiClient\Tools\DTO\FunctionCall;
@@ -212,13 +221,16 @@ namespace WordPress\AiClient\Messages\DTO {
 		/**
 		 * Constructor.
 		 *
-		 * @param string|FunctionCall|\WordPress\AiClient\Tools\DTO\FunctionResponse $content Text, function call, or function response.
+		 * @param string|File|FunctionCall|\WordPress\AiClient\Tools\DTO\FunctionResponse $content Text, file, function call, or function response.
 		 * @param MessagePartChannelEnum|null $channel Optional channel (e.g., "thought").
 		 */
-		public function __construct( string|FunctionCall|\WordPress\AiClient\Tools\DTO\FunctionResponse $content = '', ?MessagePartChannelEnum $channel = null ) {}
+		public function __construct( string|File|FunctionCall|\WordPress\AiClient\Tools\DTO\FunctionResponse $content = '', ?MessagePartChannelEnum $channel = null ) {}
 
-		/** @return string */
-		public function getText(): string { return ''; }
+		/** @return string|null */
+		public function getText(): ?string { return ''; }
+
+		/** @return File|null */
+		public function getFile(): ?File { return null; }
 
 		/** @return MessagePartType */
 		public function getType(): MessagePartType { return new MessagePartType(); }
@@ -940,11 +952,23 @@ namespace WordPress\AiClient\Providers\OpenAiCompatibleImplementation {
 			};
 		}
 
+		/** @param list<\WordPress\AiClient\Messages\DTO\Message> $prompt Prompt messages. */
+		public function generateImageResult( array $prompt ): \WordPress\AiClient\Results\DTO\GenerativeAiResult { return new \WordPress\AiClient\Results\DTO\GenerativeAiResult(); }
+
 		/**
 		 * @param array<int, mixed> $prompt Prompt.
 		 * @return array<string, mixed>
 		 */
 		protected function prepareGenerateImageParams( array $prompt ): array { return array(); }
+
+		/** @param \WordPress\AiClient\Providers\Http\DTO\Response $response Response. */
+		protected function throwIfNotSuccessful( \WordPress\AiClient\Providers\Http\DTO\Response $response ): void {}
+
+		/**
+		 * @param \WordPress\AiClient\Providers\Http\DTO\Response $response Response.
+		 * @param string $expectedMimeType Expected image MIME type.
+		 */
+		protected function parseResponseToGenerativeAiResult( \WordPress\AiClient\Providers\Http\DTO\Response $response, string $expectedMimeType = 'image/png' ): \WordPress\AiClient\Results\DTO\GenerativeAiResult { return new \WordPress\AiClient\Results\DTO\GenerativeAiResult(); }
 	}
 }
 

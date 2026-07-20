@@ -95,7 +95,12 @@ final class SuperdavAiTextGenerationModel extends AbstractOpenAiCompatibleTextGe
 				continue;
 			}
 
-			$text = trim( $part->getText() );
+			$text_value = $part->getText();
+			if ( ! is_string( $text_value ) ) {
+				continue;
+			}
+
+			$text = trim( $text_value );
 			if ( '' !== $text ) {
 				$reasoning_parts[] = $text;
 			}
