@@ -16,6 +16,12 @@ const {
 const stylesheet = 'generated-demo-theme';
 const fingerprint = 'current-project-fingerprint';
 const urls = [ 'https://example.test/', 'https://example.test/contact/' ];
+const completionArgs = {
+	stylesheet,
+	fingerprint,
+	homepage_url: urls[ 0 ],
+	interior_url: urls[ 1 ],
+};
 
 /**
  * Prepare a minimal valid activated frontend document and browser metrics.
@@ -97,7 +103,7 @@ describe( 'generated theme completion validator', () => {
 		const report = await validateThemeCompletion( {
 			stylesheet,
 			fingerprint,
-			urls: [ urls[ 0 ] ],
+			homepage_url: urls[ 0 ],
 		} );
 
 		expect( report ).toMatchObject( {
@@ -206,9 +212,7 @@ describe( 'generated theme completion validator', () => {
 		} ) );
 
 		const report = await validateThemeCompletion( {
-			stylesheet,
-			fingerprint,
-			urls,
+			...completionArgs,
 		} );
 
 		expect( report ).toMatchObject( {
@@ -242,9 +246,7 @@ describe( 'generated theme completion validator', () => {
 		} ) );
 
 		const report = await validateThemeCompletion( {
-			stylesheet,
-			fingerprint,
-			urls,
+			...completionArgs,
 		} );
 		const redirectedInterior = report.reports.find(
 			( row ) =>
@@ -270,9 +272,7 @@ describe( 'generated theme completion validator', () => {
 		} ) );
 
 		const report = await validateThemeCompletion( {
-			stylesheet,
-			fingerprint,
-			urls,
+			...completionArgs,
 		} );
 
 		expect( report.browser_execution_unavailable ).toBe( true );
@@ -281,9 +281,7 @@ describe( 'generated theme completion validator', () => {
 
 	test( 'passes only after all real URLs and required viewports render cleanly', async () => {
 		const report = await validateThemeCompletion( {
-			stylesheet,
-			fingerprint,
-			urls,
+			...completionArgs,
 		} );
 
 		expect( loadSameOriginIframe ).toHaveBeenCalledTimes( 6 );

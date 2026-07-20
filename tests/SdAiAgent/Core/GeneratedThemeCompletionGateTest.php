@@ -159,6 +159,23 @@ class GeneratedThemeCompletionGateTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * Explicit page-role arguments must not permit an inverted URL assignment.
+	 */
+	public function test_swapped_explicit_page_role_arguments_are_rejected(): void {
+		$gate    = $this->prepare_activated_gate();
+		$inputs  = $gate->get_expected_report_inputs();
+		$swapped = $inputs;
+		$swapped['homepage_url'] = $inputs['interior_url'];
+		$swapped['interior_url'] = $inputs['homepage_url'];
+		$report = $this->passing_report( $swapped );
+
+		$gate->record_tool_call( GeneratedThemeCompletionGate::CLIENT_ABILITY, $swapped );
+		$gate->record_tool_response( GeneratedThemeCompletionGate::CLIENT_ABILITY, $report );
+
+		$this->assertFalse( $gate->has_current_passing_report() );
+	}
+
+	/**
 	 * A canonical homepage redirect remains valid when it is semantically home
 	 * and remains distinct from the requested interior document.
 	 */
@@ -303,19 +320,24 @@ class GeneratedThemeCompletionGateTest extends WP_UnitTestCase {
 	/**
 	 * Return a passing deterministic client report for current inputs.
 	 *
-	 * @param array{stylesheet:string,fingerprint:string,urls:list<string>,viewports:list<array{label:string,width:int,height:int}>} $inputs Expected inputs.
+	 * @param array{stylesheet:string,fingerprint:string,homepage_url:string,interior_url:string,viewports:list<array{label:string,width:int,height:int}>} $inputs Expected inputs.
 	 * @return array<string,mixed> Passing browser report.
 	 */
 	private function passing_report( array $inputs ): array {
 		$reports = array();
-		foreach ( $inputs['urls'] as $index => $url ) {
+		foreach (
+			array(
+				array( 'url' => $inputs['homepage_url'], 'role' => 'homepage', 'is_homepage' => true ),
+				array( 'url' => $inputs['interior_url'], 'role' => 'interior', 'is_homepage' => false ),
+			) as $surface
+		) {
 			foreach ( GeneratedThemeCompletionGate::REQUIRED_VIEWPORTS as $viewport ) {
 				$reports[] = array(
-					'url'              => $url,
-					'requested_url'    => $url,
-					'final_url'        => $url,
-					'role'             => 0 === $index ? 'homepage' : 'interior',
-					'is_homepage'      => 0 === $index,
+					'url'              => $surface['url'],
+					'requested_url'    => $surface['url'],
+					'final_url'        => $surface['url'],
+					'role'             => $surface['role'],
+					'is_homepage'      => $surface['is_homepage'],
 					'viewport'         => $viewport,
 					'success'          => true,
 					'active_stylesheet' => self::STYLESHEET,
@@ -339,12 +361,12 @@ class GeneratedThemeCompletionGateTest extends WP_UnitTestCase {
 	/**
 	 * Return an all-unrenderable report matrix for the fatal rollback path.
 	 *
-	 * @param array{stylesheet:string,fingerprint:string,urls:list<string>,viewports:list<array{label:string,width:int,height:int}>} $inputs Expected inputs.
+	 * @param array{stylesheet:string,fingerprint:string,homepage_url:string,interior_url:string,viewports:list<array{label:string,width:int,height:int}>} $inputs Expected inputs.
 	 * @return list<array<string,mixed>> Failed render rows.
 	 */
 	private function failing_render_reports( array $inputs ): array {
 		$reports = array();
-		foreach ( $inputs['urls'] as $url ) {
+		foreach ( array( $inputs['homepage_url'], $inputs['interior_url'] ) as $url ) {
 			foreach ( GeneratedThemeCompletionGate::REQUIRED_VIEWPORTS as $viewport ) {
 				$reports[] = array(
 					'url'              => $url,
