@@ -111,7 +111,8 @@ final class BlockThemeProjectValidator {
 		}
 
 		$offset = 0;
-		while ( false !== ( $start = stripos( $value, 'var(', $offset ) ) ) {
+		$start  = stripos( $value, 'var(', $offset );
+		while ( false !== $start ) {
 			$depth       = 1;
 			$end         = null;
 			$length      = strlen( $value );
@@ -156,6 +157,7 @@ final class BlockThemeProjectValidator {
 			}
 
 			$offset = $start + 4;
+			$start  = stripos( $value, 'var(', $offset );
 		}
 
 		return $references;
@@ -1530,9 +1532,10 @@ final class BlockThemeProjectValidator {
 	/**
 	 * Add path-specific malformed CSS variable diagnostics for decoded JSON.
 	 *
-	 * @param list<MalformedCssVariableReference> $references Malformed references.
-	 * @param string                              $relative   Theme-relative source path.
-	 * @param array                               $errors     Diagnostics collected during validation.
+	 * @param array  $references Malformed references.
+	 * @param string $relative Theme-relative source path.
+	 * @param array  $errors Diagnostics collected during validation.
+	 * @phpstan-param list<MalformedCssVariableReference> $references
 	 * @phpstan-param Diagnostics $errors
 	 */
 	private function add_malformed_css_variable_diagnostics( array $references, string $relative, array &$errors ): void {
