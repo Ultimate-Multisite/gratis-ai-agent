@@ -30,6 +30,7 @@ declare(strict_types=1);
 
 namespace SdAiAgent\Tests\Core;
 
+use SdAiAgent\Abilities\Js\JsAbilityCatalog;
 use SdAiAgent\Core\AgentLoop;
 use SdAiAgent\Core\ConversationSerializer;
 use SdAiAgent\Core\ConversationTrimmer;
@@ -40,6 +41,7 @@ use SdAiAgent\Core\ToolPermissionResolver;
 use WordPress\AiClient\Messages\DTO\Message;
 use WordPress\AiClient\Messages\DTO\MessagePart;
 use WordPress\AiClient\Messages\DTO\ModelMessage;
+use WordPress\AiClient\Messages\DTO\UserMessage;
 use WordPress\AiClient\Providers\DTO\ProviderMetadata;
 use WordPress\AiClient\Providers\Enums\ProviderTypeEnum;
 use WordPress\AiClient\Providers\Http\Enums\RequestAuthenticationMethod;
@@ -49,6 +51,8 @@ use WordPress\AiClient\Results\DTO\Candidate;
 use WordPress\AiClient\Results\DTO\GenerativeAiResult;
 use WordPress\AiClient\Results\DTO\TokenUsage;
 use WordPress\AiClient\Results\Enums\FinishReasonEnum;
+use WordPress\AiClient\Tools\DTO\FunctionCall;
+use WordPress\AiClient\Tools\DTO\FunctionResponse;
 use WP_Error;
 use WP_UnitTestCase;
 
@@ -1965,6 +1969,248 @@ class AgentLoopTest extends WP_UnitTestCase {
 		$this->assertIsArray( $result );
 		$this->assertSame( 'Saved after approval.', $result['reply'] );
 		$this->assertStringNotContainsString( 'ability_not_allowed', wp_json_encode( $result ) ?: '' );
+	}
+
+	/**
+	 * A valid browser-result continuation after a confirmed server ability must
+	 * continue the same turn rather than treating the paused model tool call as
+	 * a malformed assistant-ended history.
+	 */
+	public function test_confirmation_then_client_tool_continuation_completes_without_new_user_turn(): void {
+		$this->skip_if_sdk_unavailable();
+		if ( ! class_exists( 'WP_AI_Client_Ability_Function_Resolver' ) ) {
+			$this->markTestSkipped( 'WP_AI_Client_Ability_Function_Resolver not available.' );
+		}
+
+		Settings::instance()->update(
+			array(
+				'tool_permissions' => array(
+					'sd-ai-agent/memory-save' => 'confirm',
+				),
+			)
+		);
+
+		$confirmation_body = wp_json_encode(
+			array(
+				'id'      => 'chatcmpl-confirm-client-tool',
+				'object'  => 'chat.completion',
+				'choices' => array(
+					array(
+						'index'         => 0,
+						'message'       => array(
+							'role'       => 'assistant',
+							'content'    => null,
+							'tool_calls' => array(
+								array(
+									'id'       => 'call_confirm_then_client',
+									'type'     => 'function',
+									'function' => array(
+										'name'      => 'wpab__sd-ai-agent__memory-save',
+										'arguments' => wp_json_encode(
+											array(
+												'category' => 'general',
+												'content'  => 'Confirmed before browser validation.',
+											)
+										),
+									),
+								),
+							),
+						),
+						'finish_reason' => 'tool_calls',
+					),
+				),
+				'usage'   => array( 'prompt_tokens' => 10, 'completion_tokens' => 5, 'total_tokens' => 15 ),
+			)
+		);
+		$client_tool_body  = wp_json_encode(
+			array(
+				'id'      => 'chatcmpl-client-tool',
+				'object'  => 'chat.completion',
+				'choices' => array(
+					array(
+						'index'         => 0,
+						'message'       => array(
+							'role'       => 'assistant',
+							'content'    => null,
+							'tool_calls' => array(
+								array(
+									'id'       => 'call_theme_completion',
+									'type'     => 'function',
+									'function' => array(
+										'name'      => 'wpab__sd-ai-agent-js__validate-theme-completion',
+										'arguments' => wp_json_encode(
+											array(
+												'stylesheet' => 'test-theme',
+											)
+										),
+									),
+								),
+							),
+						),
+						'finish_reason' => 'tool_calls',
+					),
+				),
+				'usage'   => array( 'prompt_tokens' => 12, 'completion_tokens' => 5, 'total_tokens' => 17 ),
+			)
+		);
+		$completed_body    = wp_json_encode(
+			array(
+				'id'      => 'chatcmpl-client-tool-complete',
+				'object'  => 'chat.completion',
+				'choices' => array(
+					array(
+						'index'         => 0,
+						'message'       => array(
+							'role'    => 'assistant',
+							'content' => 'Theme completion validated after approval.',
+						),
+						'finish_reason' => 'stop',
+					),
+				),
+				'usage'   => array( 'prompt_tokens' => 16, 'completion_tokens' => 6, 'total_tokens' => 22 ),
+			)
+		);
+		$call_count        = 0;
+		$this->mock_ai_response_sequence(
+			array(
+				array( 'body' => $confirmation_body ),
+				array( 'body' => $client_tool_body ),
+				array( 'body' => $completed_body ),
+			),
+			$call_count
+		);
+
+		$catalog            = JsAbilityCatalog::get_descriptors_by_name();
+		$client_abilities   = array( $catalog['sd-ai-agent-js/validate-theme-completion'] );
+		$initial_loop       = new AgentLoop(
+			'Save the completion record, then validate the generated theme.',
+			array(),
+			array(),
+			array( 'client_abilities' => $client_abilities )
+		);
+		$confirmation_pause = $initial_loop->run();
+
+		$this->assertIsArray( $confirmation_pause );
+		$this->assertTrue( $confirmation_pause['awaiting_confirmation'] ?? false );
+
+		$confirmed_loop = new AgentLoop(
+			'',
+			array(),
+			ConversationSerializer::deserialize( $confirmation_pause['history'] ),
+			array(
+				'approved_once_abilities' => $confirmation_pause['approved_once_abilities'],
+				'client_abilities'        => $client_abilities,
+			)
+		);
+		$client_pause   = $confirmed_loop->resume_after_confirmation(
+			true,
+			(int) $confirmation_pause['iterations_remaining']
+		);
+
+		$this->assertIsArray( $client_pause );
+		$this->assertArrayHasKey( 'pending_client_tool_calls', $client_pause );
+		$this->assertSame(
+			'sd-ai-agent-js/validate-theme-completion',
+			$client_pause['pending_client_tool_calls'][0]['name']
+		);
+
+		$continuation_loop = new AgentLoop(
+			'',
+			array(),
+			ConversationSerializer::deserialize( $client_pause['history'] ),
+			array( 'client_abilities' => $client_abilities )
+		);
+		$result            = $continuation_loop->resume_after_client_tools(
+			array(
+				array(
+					'id'     => 'call_theme_completion',
+					'name'   => 'sd-ai-agent-js/validate-theme-completion',
+					'result' => array( 'passed' => true ),
+				),
+			),
+			(int) $client_pause['iterations_remaining']
+		);
+
+		$this->assertIsArray( $result );
+		$this->assertSame( 'Theme completion validated after approval.', $result['reply'] );
+		$this->assertSame( 3, $call_count );
+	}
+
+	/**
+	 * A confirmed server response followed by a client response survives the
+	 * serialized paused-state round trip and reaches the provider boundary.
+	 *
+	 * This uses ScriptedAgentLoop rather than a real provider resolver so the
+	 * history boundary is covered when the full ability resolver is unavailable
+	 * in the local WordPress test environment.
+	 */
+	public function test_serialized_confirmation_then_client_result_continues_same_turn(): void {
+		if ( ! function_exists( 'wp_ai_client_prompt' ) ) {
+			$this->markTestSkipped( 'wp_ai_client_prompt() is not available — requires WordPress 7.0+.' );
+		}
+
+		$history = array(
+			new UserMessage( array( new MessagePart( 'Activate the generated theme, then validate it in the browser.' ) ) ),
+			new ModelMessage(
+				array(
+					new MessagePart(
+						new FunctionCall(
+							'call_activate_theme',
+							'wpab__sd-ai-agent__activate-theme',
+							array( 'stylesheet' => 'test-theme' )
+						)
+					)
+				)
+			),
+			new UserMessage(
+				array(
+					new MessagePart(
+						new FunctionResponse(
+							'call_activate_theme',
+							'wpab__sd-ai-agent__activate-theme',
+							wp_json_encode( array( 'stylesheet' => 'test-theme', 'activated' => true ) ) ?: '{}'
+						)
+					)
+				)
+			),
+			new ModelMessage(
+				array(
+					new MessagePart(
+						new FunctionCall(
+							'call_theme_completion',
+							'wpab__sd-ai-agent-js__validate-theme-completion',
+							array( 'stylesheet' => 'test-theme' )
+						)
+					)
+				)
+			),
+		);
+
+		$loop = new ScriptedAgentLoop(
+			'',
+			array(),
+			ConversationSerializer::deserialize( ConversationSerializer::serialize( $history ) ),
+			array(
+				'provider_id' => 'scripted-provider',
+				'model_id'    => 'scripted-model',
+			),
+			array( $this->create_scripted_result( 'Theme completion validated after approval.' ) )
+		);
+
+		$result = $loop->resume_after_client_tools(
+			array(
+				array(
+					'id'     => 'call_theme_completion',
+					'name'   => 'sd-ai-agent-js/validate-theme-completion',
+					'result' => array( 'passed' => true ),
+				)
+			),
+			4
+		);
+
+		$this->assertIsArray( $result );
+		$this->assertSame( 'Theme completion validated after approval.', $result['reply'] );
+		$this->assertCount( 1, $loop->requestSizes );
 	}
 
 	/**
