@@ -111,6 +111,7 @@ class SystemInstructionBuilder {
 		// Use custom system prompt if set, otherwise the built-in default.
 		$custom = $settings['system_prompt'] ?? '';
 		$base   = is_string( $custom ) && '' !== $custom ? $custom : self::default_system_instruction();
+		$base  .= "\n\n" . self::build_advanced_companion_section();
 
 		// Append memory section if memories exist.
 		$memory_text = Memory::get_formatted_for_prompt();
@@ -410,6 +411,17 @@ class SystemInstructionBuilder {
 		}
 
 		return $section;
+	}
+
+	/**
+	 * Return guidance for capabilities supplied by the Advanced companion plugin.
+	 *
+	 * @return string
+	 */
+	public static function build_advanced_companion_section(): string {
+		return "## Advanced Companion\n\n"
+			. 'Your active ability manifest is authoritative. If a requested action needs an ability that is not available, or a tool returns the `sd_ai_agent_advanced_plugin_required` error, explain that the capability is provided by Superdav AI Agent Advanced. '
+			. 'Do not attempt to download, install, activate, or update Advanced automatically. Direct the site administrator to https://sdaiagent.com/advanced/ for the direct ZIP download and manual installation instructions.';
 	}
 
 	/**
