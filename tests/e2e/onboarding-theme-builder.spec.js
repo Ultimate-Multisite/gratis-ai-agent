@@ -606,7 +606,8 @@ test.describe.serial( 'Setup Assistant theme-build onboarding flow (Onboarding v
 							args: {
 								stylesheet: 'e2e-test-theme',
 								fingerprint: 'e2e-current-fingerprint',
-								urls: completionUrls,
+								homepage_url: completionUrls[ 0 ],
+								interior_url: completionUrls[ 1 ],
 							},
 						},
 						{
