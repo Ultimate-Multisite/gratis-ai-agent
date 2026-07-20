@@ -229,15 +229,16 @@ class JsAbilityCatalog {
 							'type'        => 'string',
 							'description' => 'Current fingerprint returned by validate-block-theme-project.',
 						),
-						'urls'        => array(
-							'type'        => 'array',
-							'minItems'    => 2,
-							'maxItems'    => 2,
-							'items'       => array( 'type' => 'string' ),
-							'description' => 'Exactly the active homepage URL and one published interior page URL.',
+						'homepage_url' => array(
+							'type'        => 'string',
+							'description' => 'Active homepage URL.',
+						),
+						'interior_url' => array(
+							'type'        => 'string',
+							'description' => 'Published interior page URL, distinct from homepage_url.',
 						),
 					),
-					'required'   => array( 'stylesheet', 'fingerprint', 'urls' ),
+					'required'   => array( 'stylesheet', 'fingerprint', 'homepage_url', 'interior_url' ),
 				),
 				'output_schema' => array(
 					'type'       => 'object',

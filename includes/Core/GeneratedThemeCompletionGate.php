@@ -237,14 +237,17 @@ final class GeneratedThemeCompletionGate {
 	/**
 	 * Return the expected current report inputs.
 	 *
-	 * @return array{stylesheet:string,fingerprint:string,urls:list<string>,viewports:list<array{label:string,width:int,height:int}>}
+	 * @return array{stylesheet:string,fingerprint:string,homepage_url:string,interior_url:string,viewports:list<array{label:string,width:int,height:int}>}
 	 */
 	public function get_expected_report_inputs(): array {
+		$urls = $this->get_required_urls();
+
 		return array(
-			'stylesheet'  => $this->expected_stylesheet,
-			'fingerprint' => $this->validated_fingerprint,
-			'urls'        => $this->get_required_urls(),
-			'viewports'   => self::REQUIRED_VIEWPORTS,
+			'stylesheet'   => $this->expected_stylesheet,
+			'fingerprint'  => $this->validated_fingerprint,
+			'homepage_url' => $urls[0] ?? '',
+			'interior_url' => $urls[1] ?? '',
+			'viewports'    => self::REQUIRED_VIEWPORTS,
 		);
 	}
 
@@ -605,15 +608,16 @@ final class GeneratedThemeCompletionGate {
 			return false;
 		}
 
-		$argument_urls = $call_args['urls'] ?? array();
-		if ( ! is_array( $argument_urls ) || count( $argument_urls ) !== count( $required_urls ) ) {
+		$homepage_url = self::normalize_url( (string) ( $call_args['homepage_url'] ?? '' ) );
+		$interior_url = self::normalize_url( (string) ( $call_args['interior_url'] ?? '' ) );
+		if (
+			$homepage_url !== $required_urls[0]
+			|| $interior_url !== $required_urls[1]
+			|| $homepage_url === $interior_url
+			|| self::is_upload_preview_url( $homepage_url )
+			|| self::is_upload_preview_url( $interior_url )
+		) {
 			return false;
-		}
-
-		foreach ( $argument_urls as $url ) {
-			if ( ! is_string( $url ) || ! in_array( self::normalize_url( $url ), $required_urls, true ) || self::is_upload_preview_url( $url ) ) {
-				return false;
-			}
 		}
 
 		$reports = $response['reports'] ?? array();
@@ -627,9 +631,15 @@ final class GeneratedThemeCompletionGate {
 			return false;
 		}
 
-		foreach ( $required_urls as $index => $url ) {
-			$role        = 0 === $index ? 'homepage' : 'interior';
-			$is_homepage = 0 === $index;
+		foreach (
+			array(
+				array( 'url' => $homepage_url, 'role' => 'homepage', 'is_homepage' => true ),
+				array( 'url' => $interior_url, 'role' => 'interior', 'is_homepage' => false ),
+			) as $required_surface
+		) {
+			$url         = $required_surface['url'];
+			$role        = $required_surface['role'];
+			$is_homepage = $required_surface['is_homepage'];
 			foreach ( self::REQUIRED_VIEWPORTS as $viewport ) {
 				if ( ! $this->has_passing_viewport_report( $reports, $url, $role, $is_homepage, $viewport ) ) {
 					return false;

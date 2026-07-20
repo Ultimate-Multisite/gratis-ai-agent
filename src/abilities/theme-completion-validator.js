@@ -836,22 +836,18 @@ export function inspectThemeDocument( {
  * @param {Object}   args             Validator arguments.
  * @param {string}   args.stylesheet  Expected active theme stylesheet.
  * @param {string}   args.fingerprint Current project validation fingerprint.
- * @param {string[]} args.urls        Homepage plus representative interior URL.
+ * @param {string}   args.homepage_url Homepage URL.
+ * @param {string}   args.interior_url Representative interior URL.
  * @return {Promise<Object>} Completion report.
  */
 export async function validateThemeCompletion( args ) {
 	const stylesheet = String( args?.stylesheet || '' ).trim();
 	const fingerprint = String( args?.fingerprint || '' ).trim();
-	const urls = Array.from(
-		new Set(
-			( Array.isArray( args?.urls ) ? args.urls : [] )
-				.map( normalizeUrl )
-				.filter( Boolean )
-		)
-	);
+	const homepageUrl = normalizeUrl( args?.homepage_url );
+	const interiorUrl = normalizeUrl( args?.interior_url );
+	const urls = [ homepageUrl, interiorUrl ].filter( Boolean );
 	const violations = [];
 	const reports = [];
-	const homepageUrl = urls[ 0 ] || '';
 
 	if ( ! /^[a-z0-9-]+$/.test( stylesheet ) ) {
 		addViolation(
@@ -885,6 +881,7 @@ export async function validateThemeCompletion( args ) {
 	}
 	if (
 		urls.length !== 2 ||
+		new Set( urls ).size !== 2 ||
 		urls.some( ( url ) => url.includes( '/wp-content/uploads/' ) )
 	) {
 		addViolation(
@@ -917,11 +914,10 @@ export async function validateThemeCompletion( args ) {
 		};
 	}
 
-	for ( const url of urls ) {
-		const role =
-			normalizeUrl( url ) === normalizeUrl( homepageUrl )
-				? 'homepage'
-				: 'interior';
+	for ( const { url, role } of [
+		{ url: homepageUrl, role: 'homepage' },
+		{ url: interiorUrl, role: 'interior' },
+	] ) {
 		for ( const viewport of THEME_COMPLETION_VIEWPORTS ) {
 			// eslint-disable-next-line no-await-in-loop -- Six bounded iframe renders must not race shared browser resources.
 			const loaded = await loadSameOriginIframe( {
@@ -1067,16 +1063,23 @@ export async function registerThemeCompletionValidatorAbility() {
 					description:
 						'Current fingerprint returned by validate-block-theme-project.',
 				},
-				urls: {
-					type: 'array',
-					minItems: 2,
-					maxItems: 2,
-					items: { type: 'string' },
+				homepage_url: {
+					type: 'string',
 					description:
-						'Exactly the active homepage URL and one published interior page URL.',
+						'Active homepage URL.',
+				},
+				interior_url: {
+					type: 'string',
+					description:
+						'Published interior page URL, distinct from homepage_url.',
 				},
 			},
-			required: [ 'stylesheet', 'fingerprint', 'urls' ],
+			required: [
+				'stylesheet',
+				'fingerprint',
+				'homepage_url',
+				'interior_url',
+			],
 		},
 		outputSchema: {
 			type: 'object',
