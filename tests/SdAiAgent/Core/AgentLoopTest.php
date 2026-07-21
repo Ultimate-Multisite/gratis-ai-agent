@@ -859,7 +859,7 @@ class AgentLoopTest extends WP_UnitTestCase {
 				[
 					'status'  => 503,
 					'message' => 'Service Unavailable',
-					'body'    => wp_json_encode( [ 'error' => [ 'message' => 'Service unavailable' ] ] ),
+					'body'    => wp_json_encode( [ 'error' => [ 'message' => 'Sub2API is unavailable.' ] ] ),
 				],
 			],
 			$call_count
@@ -875,7 +875,8 @@ class AgentLoopTest extends WP_UnitTestCase {
 
 		$this->assertInstanceOf( \WP_Error::class, $result );
 		$this->assertSame( 'sd_ai_agent_provider_retry_failed', $result->get_error_code() );
-		$this->assertStringContainsString( 'Provider retry failed after 3 attempts', $result->get_error_message() );
+		$this->assertStringContainsString( 'The AI service is temporarily unavailable after 3 attempts', $result->get_error_message() );
+		$this->assertStringNotContainsString( 'Sub2API', $result->get_error_message() );
 		$this->assertSame( 3, $call_count );
 		$data = $result->get_error_data();
 		$this->assertIsArray( $data );

@@ -2042,11 +2042,10 @@ class AgentLoop {
 	 */
 	private function build_provider_retry_failed_error( $error, int $elapsed_seconds ): WP_Error {
 		$message = sprintf(
-			/* translators: 1: attempts, 2: elapsed seconds, 3: provider error message */
-			__( 'Provider retry failed after %1$d attempts over %2$ds — try resending your last message. Last error: %3$s', 'superdav-ai-agent' ),
+			/* translators: 1: attempts, 2: elapsed seconds */
+			__( 'The AI service is temporarily unavailable after %1$d attempts over %2$ds. Please try again shortly.', 'superdav-ai-agent' ),
 			$this->provider_retry_max_attempts,
-			$elapsed_seconds,
-			$this->get_provider_error_message( $error )
+			$elapsed_seconds
 		);
 
 		$hint = $this->get_provider_retry_failure_hint();
