@@ -155,7 +155,7 @@ export function validateScreenshotUrl( url ) {
 			return {
 				valid: false,
 				resolved: resolved.href,
-				error: `URL is an authorized WordPress site; retry from the same origin (${ resolved.origin }).`,
+				error: `Authorized WordPress site; screenshot capture requires its wp-admin origin (${ resolved.origin }).`,
 				authorized: true,
 			};
 		}
@@ -555,7 +555,7 @@ export async function registerScreenshotUrlAbility() {
 		label: 'Screenshot URL',
 		description:
 			'Capture a same-origin WordPress URL for visual review. ' +
-			'Open multisite subdomains from that origin first.',
+			'Open each multisite site in its own browser tab first.',
 		inputSchema: {
 			type: 'object',
 			properties: {

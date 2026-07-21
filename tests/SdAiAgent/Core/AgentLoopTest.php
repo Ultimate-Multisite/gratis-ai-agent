@@ -1746,6 +1746,49 @@ class AgentLoopTest extends WP_UnitTestCase {
 		$this->assertSame( 3, $data['iterations_used'] );
 	}
 
+	/**
+	 * Empty calls to different abilities must not bypass the validation storm guard.
+	 */
+	public function test_empty_required_input_failures_stop_after_bounded_attempts(): void {
+		if ( ! class_exists( 'WordPress\\AiClient\\Messages\\DTO\\ModelMessage' ) ) {
+			$this->markTestSkipped( 'WP AI Client message classes are not available.' );
+		}
+
+		$loop   = new AgentLoop( 'Update a template screenshot' );
+		$method = new \ReflectionMethod( AgentLoop::class, 'record_empty_required_input_failures' );
+		$method->setAccessible( true );
+
+		for ( $attempt = 1; $attempt <= AgentLoop::MAX_CONSECUTIVE_EMPTY_TOOL_CALL_FAILURES; ++$attempt ) {
+			$call_id = 'call_empty_' . $attempt;
+			$calls   = new \WordPress\AiClient\Messages\DTO\ModelMessage(
+				array(
+					new \WordPress\AiClient\Messages\DTO\MessagePart(
+						new FunctionCall( $call_id, 'wpab__sd-ai-agent__ability-search', array() )
+					)
+				)
+			);
+			$responses = new \WordPress\AiClient\Messages\DTO\UserMessage(
+				array(
+					new \WordPress\AiClient\Messages\DTO\MessagePart(
+						new FunctionResponse(
+							$call_id,
+							'wpab__sd-ai-agent__ability-search',
+							array(
+								'code'                    => 'ability_invalid_input',
+								'missing_required_fields' => array( 'query' ),
+							)
+						)
+					)
+				)
+			);
+
+			$this->assertSame(
+				AgentLoop::MAX_CONSECUTIVE_EMPTY_TOOL_CALL_FAILURES === $attempt,
+				$method->invoke( $loop, $calls, $responses )
+			);
+		}
+	}
+
 	// -------------------------------------------------------------------------
 	// History serialisation / deserialisation
 	// -------------------------------------------------------------------------

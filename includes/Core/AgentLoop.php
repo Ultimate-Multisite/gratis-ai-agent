@@ -66,6 +66,15 @@ class AgentLoop {
 	const MAX_IDLE_ROUNDS = 3;
 
 	/**
+	 * Maximum empty required-input calls before stopping the run.
+	 *
+	 * A model that changes ability names while sending `{}` can evade the
+	 * ordinary same-call spin detector. Three failures leave it enough room to
+	 * correct the first mistake without allowing a validation-error storm.
+	 */
+	const MAX_CONSECUTIVE_EMPTY_TOOL_CALL_FAILURES = 3;
+
+	/**
 	 * Maximum token-estimated size (in characters) for a single tool result
 	 * fed back into the loop. Results exceeding this are truncated.
 	 * ~40K chars ≈ 10K tokens — generous but bounded.
@@ -219,6 +228,9 @@ class AgentLoop {
 
 	/** @var int Consecutive preamble-only truncations observed this run. */
 	private int $preamble_truncation_retries = 0;
+
+	/** @var int Empty calls rejected for missing required input in this run. */
+	private int $consecutive_empty_tool_call_failures = 0;
 
 	/**
 	 * Client-side ability descriptors validated against JsAbilityCatalog.
@@ -1333,6 +1345,10 @@ class AgentLoop {
 			$this->log_tool_responses( $truncated_message );
 			$this->last_loop_phase = 'tool_response_recorded';
 			$this->save_active_job_checkpoint( self::CHECKPOINT_TOOL_RESPONSE_RECORDED, $iterations );
+
+			if ( $this->record_empty_required_input_failures( $assistant_message, $truncated_message ) ) {
+				return $this->abort_on_empty_tool_call_storm();
+			}
 
 			$scaffold_permission_denial = $this->extract_scaffold_block_theme_permission_denial( $truncated_message );
 			if ( null !== $scaffold_permission_denial ) {
@@ -3192,6 +3208,123 @@ class AgentLoop {
 		}
 
 		return null;
+	}
+
+	/**
+	 * Track consecutive empty calls that were rejected for missing required input.
+	 *
+	 * Models sometimes rotate through unrelated abilities with empty argument
+	 * objects. That bypasses the ordinary spin detector, which intentionally
+	 * compares call names as well as arguments. Count only calls that were empty
+	 * and whose matching response confirms a missing required property, then
+	 * reset on any productive or different failure response.
+	 *
+	 * @param Message $call_message     Assistant message containing function calls.
+	 * @param Message $response_message Matching function-response message.
+	 * @return bool True when the terminal threshold has been reached.
+	 */
+	private function record_empty_required_input_failures( Message $call_message, Message $response_message ): bool {
+		$empty_call_ids = array();
+		foreach ( $call_message->getParts() as $part ) {
+			$call = $part->getFunctionCall();
+			if ( ! $call || ! empty( self::normalize_function_call_args( $call->getArgs() ) ) ) {
+				continue;
+			}
+
+			$call_id = (string) $call->getId();
+			if ( '' !== $call_id ) {
+				$empty_call_ids[ $call_id ] = true;
+			}
+		}
+
+		if ( empty( $empty_call_ids ) ) {
+			$this->consecutive_empty_tool_call_failures = 0;
+			return false;
+		}
+
+		$empty_validation_failures = 0;
+		$response_count            = 0;
+		foreach ( $response_message->getParts() as $part ) {
+			$response = $part->getFunctionResponse();
+			if ( ! $response ) {
+				continue;
+			}
+
+			++$response_count;
+			$response_id = (string) $response->getId();
+			if (
+				isset( $empty_call_ids[ $response_id ] )
+				&& self::is_empty_required_input_response( $response->getResponse() )
+			) {
+				++$empty_validation_failures;
+			}
+		}
+
+		if ( 0 === $empty_validation_failures || $empty_validation_failures !== $response_count ) {
+			$this->consecutive_empty_tool_call_failures = 0;
+			return false;
+		}
+
+		$this->consecutive_empty_tool_call_failures += $empty_validation_failures;
+		return $this->consecutive_empty_tool_call_failures >= self::MAX_CONSECUTIVE_EMPTY_TOOL_CALL_FAILURES;
+	}
+
+	/**
+	 * Whether a tool response represents an empty required-input validation error.
+	 *
+	 * @param mixed $response Tool response payload.
+	 * @return bool True for an ability_invalid_input response with missing fields.
+	 */
+	private static function is_empty_required_input_response( $response ): bool {
+		if ( is_string( $response ) ) {
+			$decoded  = json_decode( $response, true );
+			$response = is_array( $decoded ) ? $decoded : array();
+		}
+
+		return is_array( $response )
+			&& 'ability_invalid_input' === ( $response['code'] ?? '' )
+			&& ! empty( $response['missing_required_fields'] );
+	}
+
+	/**
+	 * End a run that is cycling through empty required-input calls.
+	 *
+	 * @return array<string, mixed> Terminal result payload for the chat client.
+	 */
+	private function abort_on_empty_tool_call_storm(): array {
+		$this->last_loop_phase = 'empty_tool_call_storm_aborted';
+		$this->message_log[]   = array(
+			'type'     => 'guardrail',
+			'reason'   => 'empty_tool_call_storm',
+			'count'    => $this->consecutive_empty_tool_call_failures,
+			'sequence' => $this->next_activity_sequence(),
+		);
+
+		AgentEventLog::log(
+			'agent_loop_aborted',
+			AgentEventLog::SEVERITY_WARNING,
+			array(
+				'session_id'      => $this->session_id,
+				'reason'          => 'empty_tool_call_storm',
+				'failures'        => $this->consecutive_empty_tool_call_failures,
+				'iterations_used' => $this->iterations_used,
+				'iterations_max'  => (int) $this->max_iterations,
+				'model_id'        => (string) $this->model_id,
+				'provider_id'     => (string) $this->provider_id,
+			)
+		);
+
+		return $this->with_result_logs(
+			array(
+				'reply'           => __( 'I stopped because repeated tool calls were missing required information, so I could not safely complete the requested change. Please provide the missing target or details and try again.', 'superdav-ai-agent' ),
+				'history'         => $this->serialize_history(),
+				'tool_calls'      => $this->tool_call_log,
+				'token_usage'     => $this->token_usage,
+				'iterations_used' => $this->iterations_used,
+				'model_id'        => $this->model_id,
+				'exit_reason'     => 'empty_tool_call_storm',
+			)
+		);
 	}
 
 	/**
