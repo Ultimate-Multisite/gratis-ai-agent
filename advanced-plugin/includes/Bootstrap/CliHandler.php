@@ -23,11 +23,11 @@ use XWP\DI\Decorators\Handler;
 final class CliHandler {
 
 	/**
-	 * Primary and alias root namespaces under which advanced subcommands are exposed.
+	 * Canonical root namespace under which advanced subcommands are exposed.
 	 *
 	 * @var list<string>
 	 */
-	private const NAMESPACES = array( 'ai-agent', 'superdav-ai-agent', 'sd-ai-agent' );
+	private const NAMESPACES = array( 'sd-ai-agent' );
 
 	/**
 	 * Register advanced WP-CLI commands.
@@ -35,7 +35,13 @@ final class CliHandler {
 	#[Action( tag: 'cli_init', priority: 20 )]
 	public function register_commands(): void {
 		foreach ( self::NAMESPACES as $namespace ) {
-			WP_CLI::add_command( "{$namespace} benchmark", 'SdAiAgent\\CLI\\BenchmarkCommand' );
+			WP_CLI::add_command(
+				"{$namespace} benchmark",
+				'SdAiAgent\\CLI\\BenchmarkCommand',
+				array(
+					'shortdesc' => 'Run live AI agent benchmark suites, list benchmark questions, and write structured benchmark logs.',
+				)
+			);
 		}
 	}
 }

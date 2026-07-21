@@ -51,4 +51,32 @@ class CanonicalNamingTest extends WP_UnitTestCase {
 		$this->assertStringNotContainsString( 'Text Domain: sd-ai-agent', $contents );
 		$this->assertStringNotContainsString( 'Text Domain: gratis-ai-agent', $contents );
 	}
+
+	/**
+	 * WP-CLI commands must expose only the canonical internal command namespace.
+	 */
+	public function test_wp_cli_registration_uses_only_sd_ai_agent_namespace(): void {
+		$core_contents     = (string) file_get_contents( $this->root_dir() . '/includes/Bootstrap/CliHandler.php' );
+		$advanced_contents = (string) file_get_contents( $this->root_dir() . '/advanced-plugin/includes/Bootstrap/CliHandler.php' );
+
+		$this->assertStringContainsString( "private const NAMESPACES = array( 'sd-ai-agent' );", $core_contents );
+		$this->assertStringContainsString( "private const NAMESPACES = array( 'sd-ai-agent' );", $advanced_contents );
+		$this->assertStringNotContainsString( "array( 'ai-agent', 'superdav-ai-agent', 'sd-ai-agent' )", $core_contents );
+		$this->assertStringNotContainsString( "array( 'ai-agent', 'superdav-ai-agent', 'sd-ai-agent' )", $advanced_contents );
+	}
+
+	/**
+	 * WP-CLI registrations should describe what each subcommand can do.
+	 */
+	public function test_wp_cli_registration_includes_subcommand_descriptions(): void {
+		$core_contents     = (string) file_get_contents( $this->root_dir() . '/includes/Bootstrap/CliHandler.php' );
+		$advanced_contents = (string) file_get_contents( $this->root_dir() . '/advanced-plugin/includes/Bootstrap/CliHandler.php' );
+
+		$this->assertStringContainsString( "'shortdesc' => 'Send a prompt to the configured WordPress AI agent", $core_contents );
+		$this->assertStringContainsString( "'shortdesc' => 'Import and maintain AI knowledge-base sources", $core_contents );
+		$this->assertStringContainsString( "'shortdesc' => 'List configured AI providers", $core_contents );
+		$this->assertStringContainsString( "'shortdesc' => 'Discover, inspect, and manage AI agent skills", $core_contents );
+		$this->assertStringContainsString( "'shortdesc' => 'Inspect debug traces for AI provider requests", $core_contents );
+		$this->assertStringContainsString( "'shortdesc' => 'Run live AI agent benchmark suites", $advanced_contents );
+	}
 }
