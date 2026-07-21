@@ -25,12 +25,13 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 /**
- * Registers the plugin's WP-CLI subcommands under both the canonical
- * `ai-agent` namespace and the legacy `sd-ai-agent` alias.
+ * Registers the plugin's WP-CLI subcommands under the canonical
+ * `sd-ai-agent` namespace.
  *
  * Uses the `#[Handler(context: CTX_CLI)]` guard so the container skips
  * loading this class outside of WP-CLI requests. Each subcommand class
- * (`CliCommand`, `TraceCommand`, `BenchmarkCommand`) remains a plain
+ * (`CliCommand`, `KnowledgeCommand`, `ModelsCommand`, `SkillsCommand`,
+ * `TraceCommand`) remains a plain
  * `WP_CLI_Command` subclass — we are not yet migrating them to the
  * `#[CLI_Handler]` / `#[CLI_Command]` decorators, which would require
  * deeper restructuring of their docblock-driven subcommand APIs.
@@ -39,9 +40,9 @@ if ( ! defined( 'ABSPATH' ) ) {
  * into attribute-driven handlers; this PR simply moves the registration
  * wiring out of the plugin root file.
  *
-	 * Advanced-only CLI commands such as the benchmark runner are registered by
-	 * the Superdav AI Agent Advanced companion plugin, not by the core CLI
-	 * handler that ships to WordPress.org.
+ * Advanced-only CLI commands such as the benchmark runner are registered by
+ * the Superdav AI Agent Advanced companion plugin, not by the core CLI
+ * handler that ships to WordPress.org.
  */
 #[Handler(
 	container: 'sd-ai-agent',
@@ -53,30 +54,45 @@ final class CliHandler {
 	/**
 	 * Commands always registered regardless of WP_DEBUG.
 	 *
-	 * @var array<string,class-string>
+	 * @var array<string,array{class:class-string,shortdesc:string}>
 	 */
 	private const COMMANDS = array(
-		'prompt'    => CliCommand::class,
-		'knowledge' => KnowledgeCommand::class,
-		'models'    => ModelsCommand::class,
-		'skills'    => SkillsCommand::class,
+		'prompt'    => array(
+			'class'     => CliCommand::class,
+			'shortdesc' => 'Send a prompt to the configured WordPress AI agent and optionally let it use registered abilities/tools.',
+		),
+		'knowledge' => array(
+			'class'     => KnowledgeCommand::class,
+			'shortdesc' => 'Import and maintain AI knowledge-base sources used for retrieval and documentation grounding.',
+		),
+		'models'    => array(
+			'class'     => ModelsCommand::class,
+			'shortdesc' => 'List configured AI providers and their available models in table, JSON, CSV, YAML, or IDs format.',
+		),
+		'skills'    => array(
+			'class'     => SkillsCommand::class,
+			'shortdesc' => 'Discover, inspect, and manage AI agent skills available to the plugin.',
+		),
 	);
 
 	/**
 	 * Commands only registered when WP_DEBUG is active.
 	 *
-	 * @var array<string,class-string>
+	 * @var array<string,array{class:class-string,shortdesc:string}>
 	 */
 	private const DEBUG_COMMANDS = array(
-		'trace' => TraceCommand::class,
+		'trace' => array(
+			'class'     => TraceCommand::class,
+			'shortdesc' => 'Inspect debug traces for AI provider requests, responses, tokens, costs, and related session activity.',
+		),
 	);
 
 	/**
-	 * Primary and alias root namespaces under which every subcommand is exposed.
+	 * Canonical root namespace under which every subcommand is exposed.
 	 *
 	 * @var list<string>
 	 */
-	private const NAMESPACES = array( 'ai-agent', 'superdav-ai-agent', 'sd-ai-agent' );
+	private const NAMESPACES = array( 'sd-ai-agent' );
 
 	/**
 	 * Register every subcommand with WP-CLI.
@@ -97,8 +113,12 @@ final class CliHandler {
 		}
 
 		foreach ( self::NAMESPACES as $ns ) {
-			foreach ( $commands as $sub => $class ) {
-				WP_CLI::add_command( "{$ns} {$sub}", $class );
+			foreach ( $commands as $sub => $command ) {
+				WP_CLI::add_command(
+					"{$ns} {$sub}",
+					$command['class'],
+					array( 'shortdesc' => $command['shortdesc'] )
+				);
 			}
 		}
 	}
