@@ -1759,11 +1759,14 @@ class AgentLoopTest extends WP_UnitTestCase {
 		$method->setAccessible( true );
 
 		for ( $attempt = 1; $attempt <= AgentLoop::MAX_CONSECUTIVE_EMPTY_TOOL_CALL_FAILURES; ++$attempt ) {
-			$call_id = 'call_empty_' . $attempt;
+			$call_id      = 'call_empty_' . $attempt;
+			$ability_name = 1 === $attempt % 2
+				? 'wpab__sd-ai-agent__ability-search'
+				: 'wpab__sd-ai-agent__memory-list';
 			$calls   = new \WordPress\AiClient\Messages\DTO\ModelMessage(
 				array(
 					new \WordPress\AiClient\Messages\DTO\MessagePart(
-						new FunctionCall( $call_id, 'wpab__sd-ai-agent__ability-search', array() )
+						new FunctionCall( $call_id, $ability_name, array() )
 					)
 				)
 			);
@@ -1772,7 +1775,7 @@ class AgentLoopTest extends WP_UnitTestCase {
 					new \WordPress\AiClient\Messages\DTO\MessagePart(
 						new FunctionResponse(
 							$call_id,
-							'wpab__sd-ai-agent__ability-search',
+							$ability_name,
 							array(
 								'code'                    => 'ability_invalid_input',
 								'missing_required_fields' => array( 'query' ),
