@@ -53,8 +53,9 @@ describe( 'screenshot-url validation', () => {
 			authorized: true,
 			resolved: 'https://template.myshopmaker.ng/product/t-shirt-ne/',
 		} );
-		expect( result.error ).toContain( 'authorized WordPress site' );
-		expect( result.error ).toContain( 'same origin' );
+		expect( result.error ).toContain( 'Authorized WordPress site' );
+		expect( result.error ).toContain( 'screenshot capture requires' );
+		expect( result.error ).toContain( 'wp-admin origin' );
 	} );
 
 	test( 'rejects unrelated external domains even when multisite origins are configured', () => {
