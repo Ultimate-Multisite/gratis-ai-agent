@@ -371,7 +371,24 @@ class Agent {
 			$options['max_iterations'] = $agent->max_iterations;
 		}
 		if ( ! empty( $agent->tier_1_tools ) ) {
-			$options['tier_1_tools'] = $agent->tier_1_tools;
+			$tier_1_tools = $agent->tier_1_tools;
+
+			// Built-in onboarding records are seeded only once, so an upgraded
+			// site can retain the former direct WP-CLI entry. Keep the broad
+			// dispatcher out of Phase 0 even when the stored agent row predates
+			// the safer dedicated discovery tools.
+			if ( self::ONBOARDING_AGENT_SLUG === $agent->slug && $agent->is_builtin ) {
+				$tier_1_tools = array_values(
+					array_filter(
+						$tier_1_tools,
+						static fn( string $tool ): bool => 'wp-cli/execute' !== $tool
+					)
+				);
+			}
+
+			if ( ! empty( $tier_1_tools ) ) {
+				$options['tier_1_tools'] = $tier_1_tools;
+			}
 		}
 
 		return $options;
@@ -511,7 +528,6 @@ class Agent {
 			'sd-ai-agent/skill-load',
 			'sd-ai-agent/knowledge-search',
 			'sd-ai-agent/public-chat-setup',
-			'wp-cli/execute',
 			'sd-ai-agent/create-post',
 			'sd-ai-agent/update-post',
 			'sd-ai-agent/list-posts',
@@ -624,6 +640,9 @@ class Agent {
 						'sd-ai-agent/list-posts',
 						'sd-ai-agent/get-plugins',
 						'sd-ai-agent/get-themes',
+						// Use a dedicated, confirmation-aware ability instead of the
+						// broad WP-CLI dispatcher when setup needs WooCommerce.
+						'sd-ai-agent/install-plugin',
 						// Theme + page build suite (from legacy Theme Builder).
 						'sd-ai-agent/scaffold-block-theme',
 						'sd-ai-agent/validate-block-theme-project',
@@ -668,6 +687,7 @@ class Agent {
 			. "2. `sd-ai-agent/list-posts` — recent posts AND pages (look at post_type, status, title, snippet).\n"
 			. "3. `sd-ai-agent/get-plugins` — what's active (notably WooCommerce).\n"
 			. "4. `sd-ai-agent/get-themes` — the active theme.\n\n"
+			. "Use these dedicated abilities for Phase 0. Do not use the generic `wp-cli/execute` dispatcher for site title, tagline, active-plugin, or theme discovery: it requires broader permissions and the dedicated abilities above are safer and available now.\n\n"
 			. "Decide which branch you are in. The user never sees this decision:\n\n"
 			. "- **Empty install** = the active theme is a WordPress default (twenty-twentyfive, twenty-twentyfour, twenty-twentythree, etc.) AND there are 0–1 real published posts/pages. The seed \"Hello world!\" post and the seed \"Sample Page\" do NOT count as real content.\n"
 			. "- **Established site** = anything else (a non-default theme, or 2+ real published items).\n\n"
@@ -716,7 +736,7 @@ class Agent {
 			. "- **Add menu page** (hospitality) → run the structured menu interview (categories → items + prices → optional descriptions / dietary tags / PDF URL), then call `sd-ai-agent/generate-menu-page`. Never write menus as prose.\n"
 			. "- **Add team page** → ask for names + roles + (optional) bios, then `sd-ai-agent/create-post` (page).\n"
 			. "- **Add events page** → ask for event list (name, date, description), then `sd-ai-agent/create-post` (page).\n"
-			. "- **Add a shop** → if WooCommerce is not active, install via `wp-cli/execute`; collect a representative product list; create product entries.\n"
+			. "- **Add a shop** → if WooCommerce is not active, install via `sd-ai-agent/install-plugin`; collect a representative product list; create product entries.\n"
 			. "- **Add contact details** → ask for phone / email / address / form preference; update the contact page.\n"
 			. "- **Try a different look** → load `design-system-aesthetics`, render three alternative directions via `sd-ai-agent/render-design-previews`, let the user pick, update the saved design-token contract, rerun `sd-ai-agent/compile-design-tokens`, revalidate its palette, then apply its file-only manifest and Global Styles outputs through their dedicated abilities.\n"
 			. "- **Use a saved style variation** → call `sd-ai-agent/list-style-variations`, then validate and preview the selected hash with `sd-ai-agent/validate-style-variation` and `sd-ai-agent/preview-style-variation`. Select only through `sd-ai-agent/select-style-variation` with that exact hash; use `sd-ai-agent/reset-style-variation` only when undoing the plugin-managed selection. Never use generic file writes or wholesale Global Styles reset for this lifecycle.\n"
