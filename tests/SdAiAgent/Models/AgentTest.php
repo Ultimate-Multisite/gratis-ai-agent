@@ -475,7 +475,7 @@ class AgentTest extends WP_UnitTestCase {
 	 * upgrades, so the runtime must also exclude the retired direct dispatcher.
 	 */
 	public function test_onboarding_loop_options_exclude_wp_cli_from_existing_builtin(): void {
-		Agent::reset_defaults();
+		Agent::seed_defaults();
 		$agent = Agent::get_by_slug( 'onboarding' );
 		$this->assertNotNull( $agent );
 
