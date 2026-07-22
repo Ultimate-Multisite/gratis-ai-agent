@@ -21,8 +21,13 @@ export default function AccountActionSystemMessage( { notice } ) {
 			>
 				{ notice[ 0 ] }
 				{ actionUrl && (
-					<a className="sdaa-cr-msg-system-action" href={ actionUrl }>
-						{ __( 'Add payment information', 'superdav-ai-agent' ) }
+					<a
+						className="sdaa-cr-msg-system-action"
+						href={ actionUrl }
+						target="_blank"
+						rel="noopener noreferrer"
+					>
+						{ __( 'Purchase credits', 'superdav-ai-agent' ) }
 					</a>
 				) }
 			</div>

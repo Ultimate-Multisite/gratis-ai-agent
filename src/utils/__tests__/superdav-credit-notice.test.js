@@ -71,7 +71,7 @@ describe( 'buildSuperdavCreditNoticeMessage', () => {
 			'https://account.example.test/login'
 		);
 		expect( message.notice[ 0 ] ).toContain(
-			'Add payment information to your Superdav account'
+			'Purchase more credits in your account settings'
 		);
 		expect( message.notice[ 0 ] ).not.toMatch(
 			/\b(error|rejected|insufficient)\b/i
