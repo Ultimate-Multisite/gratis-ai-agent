@@ -446,6 +446,51 @@ class AgentTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * Setup discovery must prefer dedicated read-only abilities instead of the
+	 * broad, permission-gated WP-CLI dispatcher.
+	 *
+	 * Regression test for #2289: fresh onboarding attempted option and plugin
+	 * inspection through wp-cli/execute, which failed for customer admins before
+	 * they could see an actionable permission prompt.
+	 */
+	public function test_onboarding_uses_dedicated_discovery_abilities_instead_of_wp_cli(): void {
+		$reflection = new \ReflectionClass( Agent::class );
+		$method     = $reflection->getMethod( 'get_onboarding_definition' );
+		$method->setAccessible( true );
+
+		$definition = $method->invoke( null, Agent::get_general_tier_1_tools() );
+		$tools      = $definition['tier_1_tools'];
+		$prompt     = $definition['system_prompt'];
+
+		$this->assertContains( 'sd-ai-agent/list-options', $tools );
+		$this->assertContains( 'sd-ai-agent/get-plugins', $tools );
+		$this->assertContains( 'sd-ai-agent/get-themes', $tools );
+		$this->assertContains( 'sd-ai-agent/install-plugin', $tools );
+		$this->assertNotContains( 'wp-cli/execute', $tools );
+		$this->assertStringContainsString( 'Do not use the generic `wp-cli/execute` dispatcher for site title, tagline, active-plugin, or theme discovery', $prompt );
+	}
+
+	/**
+	 * Existing built-in onboarding rows retain their original tool list across
+	 * upgrades, so the runtime must also exclude the retired direct dispatcher.
+	 */
+	public function test_onboarding_loop_options_exclude_wp_cli_from_existing_builtin(): void {
+		Agent::reset_defaults();
+		$agent = Agent::get_by_slug( 'onboarding' );
+		$this->assertNotNull( $agent );
+
+		$original_tools = $agent->tier_1_tools;
+		Agent::update( $agent->id, [ 'tier_1_tools' => [ 'sd-ai-agent/get-option', 'wp-cli/execute' ] ] );
+
+		try {
+			$options = Agent::get_loop_options( $agent->id );
+			$this->assertSame( [ 'sd-ai-agent/get-option' ], $options['tier_1_tools'] );
+		} finally {
+			Agent::update( $agent->id, [ 'tier_1_tools' => $original_tools ] );
+		}
+	}
+
+	/**
 	 * Every ability mentioned in a built-in agent's system prompt must be
 	 * present in that agent's tier_1_tools (or in the meta-tools that the
 	 * resolver always exposes). Catches drift between prompt and tool surface

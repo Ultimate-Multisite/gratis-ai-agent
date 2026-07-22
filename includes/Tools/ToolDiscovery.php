@@ -115,9 +115,6 @@ class ToolDiscovery {
 		'sd-ai-agent/get-page-blocks',
 		'sd-ai-agent/update-blocks',
 		'sd-ai-agent/validate-block-content',
-		// WP-CLI is the proper tool for admin commands like `wp site list`,
-		// `wp plugin list`, etc. Registered by the cli-abilities-bridge plugin.
-		'wp-cli/execute',
 		// `create-post` is the single most common WordPress operation the
 		// agent is ever asked for. Keeping it in cold-start so smaller
 		// local models don't fall back to `run-php` + positional-arg
