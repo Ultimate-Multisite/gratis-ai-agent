@@ -99,14 +99,19 @@ class CliCommand extends \WP_CLI_Command {
 		$verbose    = \WP_CLI\Utils\get_flag_value( $assoc_args, 'verbose', false );
 
 		// Ensure a user is set so ability permission checks pass.
-		// WP-CLI doesn't set a current user unless --user is passed.
+		// WP-CLI doesn't set a current user unless --user is passed. Some
+		// multisite installs retain stale super-admin logins, so try each
+		// configured login until one resolves to a real user instead of assuming
+		// the first entry is still valid.
 		if ( ! get_current_user_id() ) {
-			$admins = get_super_admins();
-			if ( ! empty( $admins ) ) {
-				$admin = get_user_by( 'login', $admins[0] );
-				if ( $admin ) {
-					wp_set_current_user( $admin->ID );
+			foreach ( get_super_admins() as $admin_login ) {
+				$admin = get_user_by( 'login', $admin_login );
+				if ( ! $admin ) {
+					continue;
 				}
+
+				wp_set_current_user( $admin->ID );
+				break;
 			}
 		}
 
