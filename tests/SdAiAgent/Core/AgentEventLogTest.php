@@ -340,4 +340,22 @@ class AgentEventLogTest extends WP_UnitTestCase {
 		$this->assertStringNotContainsString( 'request_body', $contents );
 		$this->assertStringNotContainsString( 'authorization', $contents );
 	}
+
+	public function test_payload_preview_redacts_sensitive_values(): void {
+		$preview = AgentEventLog::payload_preview(
+			array(
+				'query'       => 'SELECT post_title FROM wp_posts WHERE post_type = %s',
+				'params'      => array( 'page' ),
+				'api_key'     => 'sk-secret-value',
+				'nested'      => array(
+					'access_token' => 'secret-token-value',
+				),
+			)
+		);
+
+		$this->assertStringContainsString( 'SELECT post_title', $preview );
+		$this->assertStringContainsString( AgentEventLog::REDACTED_VALUE, $preview );
+		$this->assertStringNotContainsString( 'sk-secret-value', $preview );
+		$this->assertStringNotContainsString( 'secret-token-value', $preview );
+	}
 }

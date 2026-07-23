@@ -29,6 +29,7 @@ declare(strict_types=1);
 namespace SdAiAgent\REST;
 
 use SdAiAgent\Core\AgentLoop;
+use SdAiAgent\Core\AgentEventLog;
 use SdAiAgent\Core\ClientAbilityRouter;
 use SdAiAgent\Core\ConversationSerializer;
 use SdAiAgent\Core\ConversationTrimmer;
@@ -477,6 +478,21 @@ Assistant: %s',
 			// helper updates the DB row only.
 			self::clear_pending_client_tool_calls( $job_id );
 
+			AgentEventLog::log(
+				'client_tools_resume_failed',
+				AgentEventLog::SEVERITY_ERROR,
+				array(
+					'session_id'          => $session_id,
+					'job_id'              => $job_id,
+					'phase'               => 'tool_result_resume',
+					'code'                => 'sd_ai_agent_no_paused_state',
+					'reason'              => 'paused_state_missing',
+					'pending_state_found' => false,
+					'client_tool_count'   => count( $tool_results ),
+					'message'             => __( 'No paused agent state found for this session. The session may have already been resumed or expired.', 'superdav-ai-agent' ),
+				)
+			);
+
 			return new WP_Error(
 				'sd_ai_agent_no_paused_state',
 				__( 'No paused agent state found for this session. The session may have already been resumed or expired.', 'superdav-ai-agent' ),
@@ -491,6 +507,21 @@ Assistant: %s',
 			// complete; never resume an unverified payload.
 			Database::save_paused_state( $session_id, $paused_state );
 
+			AgentEventLog::log(
+				'client_tools_resume_failed',
+				AgentEventLog::SEVERITY_ERROR,
+				array(
+					'session_id'          => $session_id,
+					'job_id'              => $job_id,
+					'phase'               => 'tool_result_validation',
+					'code'                => 'sd_ai_agent_invalid_client_tool_results',
+					'reason'              => 'pending_calls_not_array',
+					'pending_state_found' => true,
+					'client_tool_count'   => count( $tool_results ),
+					'message'             => __( 'tool_results must exactly match the pending client tool calls.', 'superdav-ai-agent' ),
+				)
+			);
+
 			return new WP_Error(
 				'sd_ai_agent_invalid_client_tool_results',
 				__( 'tool_results must exactly match the pending client tool calls.', 'superdav-ai-agent' ),
@@ -501,6 +532,22 @@ Assistant: %s',
 		$tool_results              = array_values( $tool_results );
 		if ( ! ClientAbilityRouter::matches_pending_results( $pending_client_tool_calls, $tool_results ) ) {
 			Database::save_paused_state( $session_id, $paused_state );
+
+			AgentEventLog::log(
+				'client_tools_resume_failed',
+				AgentEventLog::SEVERITY_ERROR,
+				array(
+					'session_id'          => $session_id,
+					'job_id'              => $job_id,
+					'phase'               => 'tool_result_validation',
+					'code'                => 'sd_ai_agent_invalid_client_tool_results',
+					'reason'              => 'result_mismatch',
+					'pending_state_found' => true,
+					'client_tool_count'   => count( $tool_results ),
+					'tool_count'          => count( $pending_client_tool_calls ),
+					'message'             => __( 'tool_results must exactly match the pending client tool calls.', 'superdav-ai-agent' ),
+				)
+			);
 
 			return new WP_Error(
 				'sd_ai_agent_invalid_client_tool_results',
