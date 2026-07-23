@@ -29,5 +29,10 @@ module.exports = {
 			'src/block-validator',
 			'index.js'
 		),
+		'superdav-connector-card': path.resolve(
+			process.cwd(),
+			'src/superdav-connector-card',
+			'index.js'
+		),
 	},
 };
