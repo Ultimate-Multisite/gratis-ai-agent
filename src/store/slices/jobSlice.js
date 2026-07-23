@@ -60,6 +60,33 @@ function mergeActivityForDisplay( toolCalls, messages ) {
 		} );
 }
 
+/**
+ * Build a visible assistant message that preserves live job activity after a
+ * terminal error. Without this snapshot the UI clears liveToolCalls at the end
+ * of polling, making the tool cards/thinking that led to the error disappear.
+ *
+ * @param {Array} activity Combined live activity entries.
+ * @return {Object|null} Message with attached toolCalls, or null when empty.
+ */
+export function buildFailedJobActivityMessage( activity ) {
+	if ( ! Array.isArray( activity ) || activity.length === 0 ) {
+		return null;
+	}
+
+	return {
+		role: 'model',
+		parts: [
+			{
+				text: __(
+					'The agent stopped before it could finish. Work completed before the error is preserved below.',
+					'superdav-ai-agent'
+				),
+			},
+		],
+		toolCalls: activity,
+	};
+}
+
 export const initialState = {
 	// Active polling job ID (most-recently-started job for the current session).
 	currentJobId: null,
@@ -329,6 +356,7 @@ export const actions = {
 			// Tracks whether the last poll returned status 'complete'.
 			// Used outside the try block to decide whether to play the ding.
 			let lastStatusComplete = false;
+			let lastLiveActivity = [];
 
 			const poll = async () => {
 				lastStatusComplete = false;
@@ -364,6 +392,9 @@ export const actions = {
 						resultToolCalls,
 						result.messages
 					);
+					if ( liveActivity.length ) {
+						lastLiveActivity = liveActivity;
+					}
 
 					if ( result.status === 'processing' ) {
 						// Update per-session job state for ALL sessions.
@@ -726,6 +757,40 @@ export const actions = {
 						}
 
 						if ( select.getCurrentSessionId() === sessionId ) {
+							let sessionReloaded = false;
+							if ( result.session_id ) {
+								try {
+									const session = await apiFetch( {
+										path: `/sd-ai-agent/v1/sessions/${ result.session_id }`,
+									} );
+									if (
+										select.getCurrentSessionId() ===
+										sessionId
+									) {
+										dispatch.setCurrentSession(
+											session.id,
+											session.messages || [],
+											session.tool_calls || []
+										);
+										sessionReloaded = true;
+									}
+								} catch {
+									// Fall back to the live polling snapshot below.
+								}
+							}
+
+							if ( ! sessionReloaded ) {
+								const activityMessage =
+									buildFailedJobActivityMessage(
+										liveActivity.length
+											? liveActivity
+											: lastLiveActivity
+									);
+								if ( activityMessage ) {
+									dispatch.appendMessage( activityMessage );
+								}
+							}
+
 							dispatch.appendMessage( {
 								role: 'system',
 								parts: [ { text: errorText } ],
@@ -974,6 +1039,35 @@ export const actions = {
 						unsubscribeVisibility();
 						clearActiveJob( sessionId );
 						if ( select.getCurrentSessionId() === sessionId ) {
+							let sessionReloaded = false;
+							try {
+								const session = await apiFetch( {
+									path: `/sd-ai-agent/v1/sessions/${ sessionId }`,
+								} );
+								if (
+									select.getCurrentSessionId() === sessionId
+								) {
+									dispatch.setCurrentSession(
+										session.id,
+										session.messages || [],
+										session.tool_calls || []
+									);
+									sessionReloaded = true;
+								}
+							} catch {
+								// Preserve the live polling snapshot below.
+							}
+
+							if ( ! sessionReloaded ) {
+								const activityMessage =
+									buildFailedJobActivityMessage(
+										lastLiveActivity
+									);
+								if ( activityMessage ) {
+									dispatch.appendMessage( activityMessage );
+								}
+							}
+
 							dispatch.appendMessage( {
 								role: 'system',
 								parts: [

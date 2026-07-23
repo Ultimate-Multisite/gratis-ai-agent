@@ -58,6 +58,7 @@ const {
 	resolveProviderSelection,
 	preserveRecoverableProviderModels,
 } = require( '../slices/providersSlice' );
+const { buildFailedJobActivityMessage } = require( '../slices/jobSlice' );
 const apiFetch = require( '@wordpress/api-fetch' );
 
 // ─── Default state ────────────────────────────────────────────────────────────
@@ -581,6 +582,34 @@ describe( 'actions', () => {
 			} )
 		);
 		expect( dispatch.setSending ).toHaveBeenLastCalledWith( false );
+	} );
+
+	test( 'buildFailedJobActivityMessage preserves live tool calls after errors', () => {
+		const activity = [
+			{
+				type: 'call',
+				id: 'call-1',
+				name: 'wpab__sd-ai-agent__update-blocks',
+				args: { post_id: 8 },
+			},
+			{
+				type: 'response',
+				id: 'call-1',
+				name: 'wpab__sd-ai-agent__update-blocks',
+				response: { error: 'batch_validation_failed' },
+			},
+		];
+
+		const message = buildFailedJobActivityMessage( activity );
+
+		expect( message ).toMatchObject( {
+			role: 'model',
+			toolCalls: activity,
+		} );
+		expect( message.parts[ 0 ].text ).toContain(
+			'Work completed before the error is preserved below'
+		);
+		expect( buildFailedJobActivityMessage( [] ) ).toBeNull();
 	} );
 } );
 
