@@ -12,6 +12,7 @@ declare(strict_types=1);
 namespace SdAiAgent\Tests\Core;
 
 use SdAiAgent\Core\AgentEventLog;
+use SdAiAgent\Core\ProviderTraceLogger;
 use WP_UnitTestCase;
 
 /**
@@ -75,6 +76,7 @@ class AgentEventLogTest extends WP_UnitTestCase {
 		}
 		AgentEventLog::clear_session();
 		remove_all_actions( 'sd_ai_agent_event_logged' );
+		remove_all_filters( 'sd_ai_agent_provider_trace_enabled' );
 		parent::tear_down();
 	}
 
@@ -161,6 +163,30 @@ class AgentEventLogTest extends WP_UnitTestCase {
 		$this->assertStringContainsString( 'event=provider_http_error', $contents );
 		$this->assertStringContainsString( 'status_code=529', $contents );
 		$this->assertStringContainsString( 'provider_id=anthropic', $contents );
+	}
+
+	/** Model-discovery diagnostics are available without optional HTTP tracing. */
+	public function test_emits_scrubbed_model_discovery_failure_when_tracing_is_disabled(): void {
+		add_filter( 'sd_ai_agent_provider_trace_enabled', '__return_false' );
+
+		ProviderTraceLogger::record_model_discovery_failure(
+			'sd-ai-agent-cloud',
+			'upstream',
+			503,
+			2,
+			125
+		);
+
+		$contents = $this->read_log();
+
+		$this->assertStringContainsString( 'event=provider_model_discovery_failed', $contents );
+		$this->assertStringContainsString( 'provider_id=sd-ai-agent-cloud', $contents );
+		$this->assertStringContainsString( 'code=upstream', $contents );
+		$this->assertStringContainsString( 'status_code=503', $contents );
+		$this->assertStringContainsString( 'attempts=2', $contents );
+		$this->assertStringContainsString( 'duration_ms=125', $contents );
+		$this->assertStringNotContainsString( 'authorization', $contents );
+		$this->assertStringNotContainsString( 'request_body', $contents );
 	}
 
 	// ── agent_loop_aborted ─────────────────────────────────────────────────

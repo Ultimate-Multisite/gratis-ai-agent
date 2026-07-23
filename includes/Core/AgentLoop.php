@@ -84,9 +84,6 @@ class AgentLoop {
 	/** Maximum provider-call attempts for retryable transient failures. */
 	private const PROVIDER_RETRY_MAX_ATTEMPTS = 4;
 
-	/** Retryable upstream/network statuses. */
-	private const PROVIDER_RETRYABLE_STATUS_CODES = array( 408, 429, 500, 502, 503, 504 );
-
 	/** Default exponential backoff schedule in seconds. */
 	private const PROVIDER_RETRY_DELAYS = array( 1, 2, 4 );
 
@@ -1794,20 +1791,7 @@ class AgentLoop {
 	 * @param int                      $status_code HTTP status code, or 0 when unknown.
 	 */
 	private function is_retryable_provider_error( $error, int $status_code ): bool {
-		if ( in_array( $status_code, self::PROVIDER_RETRYABLE_STATUS_CODES, true ) ) {
-			return true;
-		}
-
-		if ( $status_code >= 400 ) {
-			return false;
-		}
-
-		$message = $this->get_provider_error_message( $error );
-		if ( '' === $message ) {
-			return false;
-		}
-
-		return (bool) preg_match( '/\b(timeout|timed out|connection reset|connection refused|network|cURL error|internal server error|bad gateway|service unavailable|gateway timeout|too many requests|rate limit)\b/i', $message );
+		return ProviderErrorClassifier::is_retryable( $error, $status_code );
 	}
 
 	/**
@@ -1816,39 +1800,7 @@ class AgentLoop {
 	 * @param WP_Error|\Throwable|null $error Last provider error.
 	 */
 	private function extract_provider_error_status( $error ): int {
-		if ( $error instanceof WP_Error ) {
-			$code = $error->get_error_code();
-			if ( is_numeric( $code ) ) {
-				return (int) $code;
-			}
-
-			$data = $error->get_error_data();
-			if ( is_array( $data ) ) {
-				foreach ( [ 'status', 'status_code', 'code' ] as $key ) {
-					if ( isset( $data[ $key ] ) && is_numeric( $data[ $key ] ) ) {
-						return (int) $data[ $key ];
-					}
-				}
-			}
-		}
-
-		if ( $error instanceof \Throwable ) {
-			$code = $error->getCode();
-			if ( $code >= 400 && $code <= 599 ) {
-				return (int) $code;
-			}
-		}
-
-		$message = $this->get_provider_error_message( $error );
-		if ( preg_match( '/\((\d{3})\)|\bHTTP\s+(\d{3})\b|\bstatus\s*(?:code)?\s*[:=]?\s*(\d{3})\b/i', $message, $matches ) ) {
-			foreach ( array_slice( $matches, 1 ) as $match ) {
-				if ( '' !== $match ) {
-					return (int) $match;
-				}
-			}
-		}
-
-		return 0;
+		return ProviderErrorClassifier::extract_status_code( $error );
 	}
 
 	/**

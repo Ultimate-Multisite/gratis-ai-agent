@@ -475,6 +475,145 @@ final class SettingsControllerTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * /providers retries one retryable managed Superdav model discovery failure.
+	 */
+	public function test_handle_providers_retries_retryable_managed_model_discovery_failure(): void {
+		if ( ! class_exists( AiClient::class ) ) {
+			$this->markTestSkipped( 'WordPress AI Client SDK is unavailable.' );
+		}
+
+		$base_url   = 'https://service.example/v1';
+		$models_url = $base_url . '/models';
+		$model_hits = 0;
+
+		add_filter( 'sd_ai_agent_cloud_base_url', static fn(): string => $base_url );
+		add_filter(
+			'pre_http_request',
+			static function ( mixed $preempt, array $parsed_args, string $url ) use ( $models_url, &$model_hits ): mixed {
+				if ( $models_url !== $url ) {
+					return $preempt;
+				}
+
+				++$model_hits;
+				if ( 1 === $model_hits ) {
+					return array(
+						'response' => array(
+							'code'    => 503,
+							'message' => 'Service Unavailable',
+						),
+						'body'     => wp_json_encode( array( 'error' => array( 'message' => 'Temporary upstream outage.' ) ) ),
+					);
+				}
+
+				return array(
+					'response' => array(
+						'code'    => 200,
+						'message' => 'OK',
+					),
+					'body'     => wp_json_encode(
+						array(
+							'data' => array(
+								array(
+									'id'           => 'superdav-chat-fast',
+									'capabilities' => array( 'text_generation' ),
+								),
+								array(
+									'id'           => 'superdav-chat-pro',
+									'capabilities' => array( 'text_generation' ),
+								),
+								array(
+									'id'           => 'superdav-chat-strong',
+									'capabilities' => array( 'text_generation' ),
+								),
+								array(
+									'id'           => 'superdav-image',
+									'capabilities' => array( 'image_generation' ),
+								),
+							),
+						)
+					),
+				);
+			},
+			10,
+			3
+		);
+
+		$token = 'sdaist_retryable_discovery_token';
+		update_option( SuperdavAiProvider::CREDENTIAL_OPTION, $token, false );
+		( new SuperdavAiProviderHandler() )->register_provider();
+
+		$response  = ( new SettingsController( new Settings(), new Database() ) )->handle_providers();
+		$providers = $response->get_data();
+		$superdav  = $this->find_provider( is_array( $providers ) ? $providers : array(), SuperdavAiProvider::PROVIDER_ID );
+
+		$this->assertSame( 200, $response->get_status() );
+		$this->assertSame( 2, $model_hits );
+		$this->assertSame( $token, get_option( SuperdavAiProvider::CREDENTIAL_OPTION, '' ) );
+		$this->assertNotNull( $superdav );
+		$this->assertSame( array( 'superdav-chat-fast', 'superdav-chat-pro', 'superdav-chat-strong' ), wp_list_pluck( $superdav['models'] ?? array(), 'id' ) );
+		$this->assertArrayNotHasKey( 'model_discovery', $superdav );
+	}
+
+	/**
+	 * /providers exposes scrubbed discovery metadata without rotating credentials for a client failure.
+	 */
+	public function test_handle_providers_reports_scrubbed_nonretryable_managed_model_discovery_failure(): void {
+		if ( ! class_exists( AiClient::class ) ) {
+			$this->markTestSkipped( 'WordPress AI Client SDK is unavailable.' );
+		}
+
+		$base_url   = 'https://service.example/v1';
+		$models_url = $base_url . '/models';
+		$model_hits = 0;
+		$token      = 'sdaist_nonretryable_discovery_token';
+
+		add_filter( 'sd_ai_agent_cloud_base_url', static fn(): string => $base_url );
+		add_filter(
+			'pre_http_request',
+			static function ( mixed $preempt, array $parsed_args, string $url ) use ( $models_url, &$model_hits, $token ): mixed {
+				if ( $models_url !== $url ) {
+					return $preempt;
+				}
+
+				++$model_hits;
+				return array(
+					'response' => array(
+						'code'    => 400,
+						'message' => 'Bad Request',
+					),
+					'body'     => wp_json_encode(
+						array( 'error' => array( 'message' => "Invalid request with {$token}." ) )
+					),
+				);
+			},
+			10,
+			3
+		);
+
+		update_option( SuperdavAiProvider::CREDENTIAL_OPTION, $token, false );
+		( new SuperdavAiProviderHandler() )->register_provider();
+
+		$response  = ( new SettingsController( new Settings(), new Database() ) )->handle_providers();
+		$providers = $response->get_data();
+		$superdav  = $this->find_provider( is_array( $providers ) ? $providers : array(), SuperdavAiProvider::PROVIDER_ID );
+		$encoded   = wp_json_encode( $superdav );
+
+		$this->assertSame( 200, $response->get_status() );
+		$this->assertSame( 1, $model_hits );
+		$this->assertSame( $token, get_option( SuperdavAiProvider::CREDENTIAL_OPTION, '' ) );
+		$this->assertNotNull( $superdav );
+		$this->assertSame( array(), $superdav['models'] ?? null );
+		$this->assertSame( 'unavailable', $superdav['model_discovery']['state'] ?? '' );
+		$this->assertSame( 'model_discovery_client', $superdav['model_discovery']['code'] ?? '' );
+		$this->assertFalse( $superdav['model_discovery']['retryable'] ?? true );
+		$this->assertSame( 400, $superdav['model_discovery']['status'] ?? 0 );
+		$this->assertSame( 1, $superdav['model_discovery']['attempts'] ?? 0 );
+		$this->assertIsString( $encoded );
+		$this->assertStringNotContainsString( $token, $encoded );
+		$this->assertStringNotContainsString( 'Invalid request with', $encoded );
+	}
+
+	/**
 	 * SMS provider settings can be saved and read without exposing the API key.
 	 */
 	public function test_handle_sms_provider_save_and_get_returns_safe_metadata(): void {

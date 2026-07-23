@@ -54,7 +54,10 @@ jest.mock( '@wordpress/data', () => ( {
 require( '../index' );
 
 const { reducer, actions, selectors } = capturedConfig;
-const { resolveProviderSelection } = require( '../slices/providersSlice' );
+const {
+	resolveProviderSelection,
+	preserveRecoverableProviderModels,
+} = require( '../slices/providersSlice' );
 const apiFetch = require( '@wordpress/api-fetch' );
 
 // ─── Default state ────────────────────────────────────────────────────────────
@@ -653,6 +656,70 @@ describe( 'resolveProviderSelection', () => {
 			providerId: 'sd-ai-agent-cloud',
 			modelId: 'superdav-chat-pro',
 		} );
+	} );
+
+	test( 'preserves a saved model during a retryable discovery outage', () => {
+		const selection = resolveProviderSelection(
+			[
+				{
+					id: 'sd-ai-agent-cloud',
+					models: [],
+					model_discovery: {
+						state: 'retryable_unavailable',
+						retryable: true,
+					},
+				},
+				{
+					id: 'openai',
+					models: [ { id: 'gpt-4o' } ],
+				},
+			],
+			'sd-ai-agent-cloud',
+			'superdav-chat-pro'
+		);
+
+		expect( selection ).toEqual( {
+			providerId: 'sd-ai-agent-cloud',
+			modelId: 'superdav-chat-pro',
+		} );
+	} );
+
+	test( 'retains last-known models only for retryable discovery failures', () => {
+		const providers = preserveRecoverableProviderModels(
+			[
+				{
+					id: 'sd-ai-agent-cloud',
+					models: [ { id: 'superdav-chat-fast' } ],
+				},
+				{
+					id: 'openai',
+					models: [ { id: 'gpt-4o' } ],
+				},
+			],
+			[
+				{
+					id: 'sd-ai-agent-cloud',
+					models: [],
+					model_discovery: {
+						state: 'retryable_unavailable',
+						retryable: true,
+					},
+				},
+				{
+					id: 'openai',
+					models: [],
+					model_discovery: {
+						state: 'unavailable',
+						retryable: false,
+					},
+				},
+			]
+		);
+
+		expect( providers[ 0 ].models ).toEqual( [
+			{ id: 'superdav-chat-fast' },
+		] );
+		expect( providers[ 1 ].models ).toEqual( [] );
 	} );
 } );
 

@@ -22,37 +22,36 @@ export function resolveProviderSelection(
 	savedProviderId,
 	savedModelId
 ) {
-	const providerHasModels = ( candidate ) =>
-		Array.isArray( candidate?.models ) && candidate.models.length > 0;
 	const savedProvider = providers.find(
 		( candidate ) => candidate.id === savedProviderId
 	);
-	const firstProviderWithModels = providers.find( providerHasModels );
 	const provider =
-		( savedProvider && providerHasModels( savedProvider )
+		savedProvider?.models?.length ||
+		isRetryableModelDiscoveryFailure( savedProvider )
 			? savedProvider
-			: null ) ||
-		firstProviderWithModels ||
-		savedProvider ||
-		providers[ 0 ];
+			: providers.find( ( candidate ) => candidate?.models?.length ) ||
+			  savedProvider ||
+			  providers[ 0 ];
 
 	if ( ! provider ) {
 		return { providerId: '', modelId: '' };
 	}
 
-	const models = Array.isArray( provider.models ) ? provider.models : [];
-	const hasSavedModel = models.some( ( model ) => model.id === savedModelId );
-	const defaultModelId = provider.default_model || '';
-	const hasProviderDefaultModel = models.some(
-		( model ) => model.id === defaultModelId
-	);
-	let modelId = models[ 0 ]?.id || '';
+	const models = provider.models || [];
+	let modelId =
+		(
+			models.find(
+				( model ) =>
+					model.id === savedModelId ||
+					model.id === provider.default_model
+			) || models[ 0 ]
+		)?.id || '';
 
-	if ( hasProviderDefaultModel ) {
-		modelId = defaultModelId;
-	}
-
-	if ( hasSavedModel ) {
+	if (
+		! models.length &&
+		isRetryableModelDiscoveryFailure( provider ) &&
+		savedModelId
+	) {
 		modelId = savedModelId;
 	}
 
@@ -60,6 +59,38 @@ export function resolveProviderSelection(
 		providerId: provider.id,
 		modelId,
 	};
+}
+
+/**
+ * Determine whether a provider's model list is temporarily unavailable.
+ *
+ * @param {Provider} provider Provider response from the REST API.
+ * @return {boolean} Whether a stale model list is safe to retain.
+ */
+const isRetryableModelDiscoveryFailure = ( provider ) =>
+	!! provider?.model_discovery?.retryable;
+
+/**
+ * Retain last-known selectable models only for an explicitly retryable failure.
+ *
+ * @param {Provider[]} previousProviders Last successful provider response.
+ * @param {Provider[]} nextProviders     Newly fetched provider response.
+ * @return {Provider[]} Provider response safe for selection.
+ */
+export function preserveRecoverableProviderModels(
+	previousProviders,
+	nextProviders
+) {
+	return nextProviders.map( ( provider ) => {
+		return (
+			( isRetryableModelDiscoveryFailure( provider ) &&
+				previousProviders.find(
+					( candidate ) =>
+						candidate.id === provider.id && candidate.models?.length
+				) ) ||
+			provider
+		);
+	} );
 }
 
 export const initialState = {
@@ -130,14 +161,18 @@ export const actions = {
 				const providers = await apiFetch( {
 					path: '/sd-ai-agent/v1/providers',
 				} );
-				dispatch.setProviders( providers );
+				const recoveredProviders = preserveRecoverableProviderModels(
+					select.getProviders(),
+					providers
+				);
+				dispatch.setProviders( recoveredProviders );
 
 				const savedProviderId =
 					localStorage.getItem( 'sdAiAgentProvider' ) || '';
 				const savedModelId =
 					localStorage.getItem( 'sdAiAgentModel' ) || '';
 				const selection = resolveProviderSelection(
-					providers,
+					recoveredProviders,
 					savedProviderId,
 					savedModelId
 				);
@@ -150,7 +185,6 @@ export const actions = {
 					dispatch.setSelectedModel( selection.modelId );
 				}
 			} catch ( err ) {
-				dispatch.setProviders( [] );
 				const status = err?.data?.status ?? err?.code;
 				if ( status === 403 || status === 401 ) {
 					dispatch.setBootError( {
@@ -234,10 +268,7 @@ export const selectors = {
 	 */
 	getModelContextWindow( state, modelId ) {
 		for ( const provider of state.providers ) {
-			if ( ! Array.isArray( provider.models ) ) {
-				continue;
-			}
-			const model = provider.models.find( ( m ) => m.id === modelId );
+			const model = provider.models?.find( ( m ) => m.id === modelId );
 			if ( model?.context_window ) {
 				return model.context_window;
 			}

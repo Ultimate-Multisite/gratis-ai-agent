@@ -15,6 +15,7 @@ declare(strict_types=1);
 namespace SdAiAgent\CLI;
 
 use SdAiAgent\Core\ProviderCredentialLoader;
+use SdAiAgent\Core\ProviderModelDiscovery;
 use SdAiAgent\Core\Settings;
 use WP_CLI;
 use WP_CLI_Command;
@@ -92,15 +93,16 @@ class ModelsCommand extends WP_CLI_Command {
 	private function show_providers( array $providers, string $format ): void {
 		$rows = array_map(
 			fn( $p ) => array(
-				'id'     => $p['id'],
-				'name'   => $p['name'],
-				'type'   => $p['type'] ?? 'cloud',
-				'models' => count( $p['models'] ?? array() ),
+				'id'        => $p['id'],
+				'name'      => $p['name'],
+				'type'      => $p['type'] ?? 'cloud',
+				'models'    => count( $p['models'] ?? array() ),
+				'discovery' => is_array( $p['model_discovery'] ?? null ) ? (string) ( $p['model_discovery']['code'] ?? 'unavailable' ) : 'available',
 			),
 			$providers
 		);
 
-		WP_CLI\Utils\format_items( $format, $rows, array( 'id', 'name', 'type', 'models' ) );
+		WP_CLI\Utils\format_items( $format, $rows, array( 'id', 'name', 'type', 'models', 'discovery' ) );
 	}
 
 	/**
@@ -128,6 +130,12 @@ class ModelsCommand extends WP_CLI_Command {
 		$models = $match['models'] ?? array();
 
 		if ( empty( $models ) ) {
+			if ( is_array( $match['model_discovery'] ?? null ) ) {
+				$code = sanitize_key( (string) ( $match['model_discovery']['code'] ?? 'unavailable' ) );
+				WP_CLI::warning( "Provider '{$provider_id}' model discovery is unavailable ({$code}). Retry the command after the provider recovers." );
+				return;
+			}
+
 			WP_CLI::warning( "Provider '{$provider_id}' has no models listed (SDK will use its default)." );
 			return;
 		}
@@ -177,9 +185,10 @@ class ModelsCommand extends WP_CLI_Command {
 					continue;
 				}
 
-				$class    = $registry->getProviderClassName( $provider_id );
-				$metadata = $class::metadata();
-				$models   = array();
+				$class           = $registry->getProviderClassName( $provider_id );
+				$metadata        = $class::metadata();
+				$models          = array();
+				$model_discovery = null;
 
 				// OpenAI-compatible connectors expose a model list endpoint.
 				// Pass the SDK provider_id so the connector can resolve the
@@ -202,28 +211,34 @@ class ModelsCommand extends WP_CLI_Command {
 						}
 					}
 				} else {
-					try {
-						$directory = $class::modelMetadataDirectory();
-						foreach ( $directory->listModelMetadata() as $model_meta ) {
-							$model_id = $model_meta->getId();
-							$models[] = array(
-								'id'             => $model_id,
-								'name'           => $model_meta->getName(),
-								'context_window' => Settings::MODEL_CONTEXT_WINDOWS[ $model_id ] ?? 128000,
-							);
+					$discovery       = ProviderModelDiscovery::discover( $provider_id, $class );
+					$model_discovery = $discovery['failure'];
+					foreach ( $discovery['metadata'] as $model_meta ) {
+						if ( ! method_exists( $model_meta, 'getId' ) || ! method_exists( $model_meta, 'getName' ) ) {
+							continue;
 						}
-					} catch ( \Throwable $e ) {
-						// Model listing failed — include provider without models.
+
+						$model_id = (string) $model_meta->getId();
+						$models[] = array(
+							'id'             => $model_id,
+							'name'           => $model_meta->getName(),
+							'context_window' => Settings::MODEL_CONTEXT_WINDOWS[ $model_id ] ?? 128000,
+						);
 					}
 				}
 
-				$providers[] = array(
+				$provider_response = array(
 					'id'         => $provider_id,
 					'name'       => $metadata->getName(),
 					'type'       => (string) $metadata->getType(),
 					'configured' => true,
 					'models'     => $models,
 				);
+				if ( is_array( $model_discovery ) ) {
+					$provider_response['model_discovery'] = $model_discovery;
+				}
+
+				$providers[] = $provider_response;
 			} catch ( \Throwable $e ) {
 				continue;
 			}

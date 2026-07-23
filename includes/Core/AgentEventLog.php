@@ -75,6 +75,7 @@ class AgentEventLog {
 		'code',
 		'status_code',
 		'reason',
+		'attempts',
 		'duration_ms',
 		'request_bytes',
 		'request_bytes_estimate',
