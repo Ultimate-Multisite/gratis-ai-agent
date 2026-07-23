@@ -199,10 +199,18 @@ class AbilityFunctionResolver extends \WP_AI_Client_Ability_Function_Resolver {
 			AgentEventLog::log(
 				'ability_failed',
 				AgentEventLog::SEVERITY_ERROR,
-				array(
-					'ability' => $ability_name,
-					'code'    => $error_code,
-					'message' => $e->getMessage(),
+				self::build_trace_context(
+					array(
+						'ability' => $ability_name,
+						'code'    => $error_code,
+						'message' => $e->getMessage(),
+					),
+					$args,
+					$function_id,
+					array(
+						'exception_file' => $e->getFile(),
+						'exception_line' => $e->getLine(),
+					)
 				)
 			);
 
@@ -242,10 +250,15 @@ class AbilityFunctionResolver extends \WP_AI_Client_Ability_Function_Resolver {
 			AgentEventLog::log(
 				'ability_failed',
 				AgentEventLog::SEVERITY_ERROR,
-				array(
-					'ability' => $ability_name,
-					'code'    => $error_code,
-					'message' => (string) $result->get_error_message(),
+				self::build_trace_context(
+					array(
+						'ability' => $ability_name,
+						'code'    => $error_code,
+						'message' => (string) $result->get_error_message(),
+					),
+					$args,
+					$function_id,
+					$result->get_error_data()
 				)
 			);
 
@@ -349,10 +362,14 @@ class AbilityFunctionResolver extends \WP_AI_Client_Ability_Function_Resolver {
 		AgentEventLog::log(
 			'ability_failed',
 			AgentEventLog::SEVERITY_ERROR,
-			array(
-				'ability' => $ability_name,
-				'code'    => 'ability_invalid_input',
-				'message' => $error_message,
+			self::build_trace_context(
+				array(
+					'ability' => $ability_name,
+					'code'    => 'ability_invalid_input',
+					'message' => $error_message,
+				),
+				array(),
+				$function_id
 			)
 		);
 		ModelHealthTracker::record_validation_error();
@@ -360,6 +377,32 @@ class AbilityFunctionResolver extends \WP_AI_Client_Ability_Function_Resolver {
 		$response_data = self::enrich_identical_failure_response( $response_data, $ability_name, array(), 'ability_invalid_input', $ability );
 
 		return new FunctionResponse( $function_id, $function_name, $response_data );
+	}
+
+	/**
+	 * Build safe trace context for an ability failure event.
+	 *
+	 * @param array<string, mixed> $base        Base event context.
+	 * @param array<string, mixed> $args        Normalised ability arguments.
+	 * @param string               $function_id Provider tool-call ID.
+	 * @param mixed                $result_payload Optional result/error data to preview.
+	 * @return array<string, mixed>
+	 */
+	private static function build_trace_context( array $base, array $args, string $function_id, $result_payload = null ): array {
+		$keys = array_map( 'strval', array_keys( $args ) );
+		sort( $keys );
+
+		$base['tool_call_id'] = $function_id;
+		$base['args_hash']    = AgentEventLog::payload_hash( $args );
+		$base['args_keys']    = implode( ',', $keys );
+		$base['args_preview'] = AgentEventLog::payload_preview( $args );
+
+		if ( null !== $result_payload ) {
+			$base['result_hash']    = AgentEventLog::payload_hash( $result_payload );
+			$base['result_preview'] = AgentEventLog::payload_preview( $result_payload );
+		}
+
+		return $base;
 	}
 
 	/**

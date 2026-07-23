@@ -56,6 +56,16 @@ class AgentEventLog {
 	const MAX_MESSAGE_LENGTH = 200;
 
 	/**
+	 * Maximum length of a redacted argument preview stored in event context.
+	 */
+	const MAX_PREVIEW_LENGTH = 2000;
+
+	/**
+	 * Replacement used when a known-sensitive field is redacted.
+	 */
+	const REDACTED_VALUE = '[redacted]';
+
+	/**
 	 * Whitelisted scalar context keys that are safe to inline into the log line.
 	 *
 	 * Anything not listed here is dropped. This is the single defence against
@@ -66,17 +76,34 @@ class AgentEventLog {
 	private const SAFE_CONTEXT_KEYS = array(
 		'session_id',
 		'agent_id',
+		'job_id',
+		'trace_id',
+		'phase',
 		'iterations',
 		'iterations_used',
 		'iterations_max',
 		'provider_id',
 		'model_id',
 		'ability',
+		'tool_call_id',
+		'tool_name',
+		'tool_count',
+		'tool_call_count',
+		'client_tool_count',
+		'php_tool_count',
+		'history_count',
 		'code',
 		'status_code',
 		'reason',
 		'attempts',
 		'duration_ms',
+		'args_hash',
+		'args_keys',
+		'args_preview',
+		'result_hash',
+		'result_preview',
+		'pending_state_found',
+		'paused_state_saved',
 		'request_bytes',
 		'request_bytes_estimate',
 		'request_tokens_estimate',
@@ -217,6 +244,85 @@ class AgentEventLog {
 		 * @param array<string, mixed> $context  Original (un-redacted) context as passed to log().
 		 */
 		do_action( 'sd_ai_agent_event_logged', $event, $severity, $context );
+	}
+
+	/**
+	 * Build a deterministic short hash for a trace payload.
+	 *
+	 * The hash lets operators correlate identical failed tool arguments without
+	 * persisting raw request bodies in the single-line PHP log.
+	 *
+	 * @param mixed $payload Payload to hash.
+	 * @return string Twelve-character SHA-256 prefix, or empty string on encode failure.
+	 */
+	public static function payload_hash( $payload ): string {
+		$encoded = wp_json_encode( $payload );
+		if ( ! is_string( $encoded ) ) {
+			return '';
+		}
+
+		return substr( hash( 'sha256', $encoded ), 0, 12 );
+	}
+
+	/**
+	 * Return a redacted, bounded JSON preview for safe trace context.
+	 *
+	 * This is intentionally conservative: values under secret-looking keys are
+	 * replaced, objects are converted to arrays, and the final JSON is capped.
+	 * The network log sink stores this in `context` so an operator can understand
+	 * what kind of tool input failed without exposing credentials.
+	 *
+	 * @param mixed $payload Payload to preview.
+	 * @return string Redacted JSON preview, or empty string on encode failure.
+	 */
+	public static function payload_preview( $payload ): string {
+		$redacted = self::redact_payload( $payload );
+		$encoded  = wp_json_encode( $redacted );
+		if ( ! is_string( $encoded ) ) {
+			return '';
+		}
+
+		$encoded = self::truncate_and_flatten( $encoded, self::MAX_PREVIEW_LENGTH );
+		return $encoded;
+	}
+
+	/**
+	 * Redact recursively before persisting trace previews.
+	 *
+	 * @param mixed $payload Raw payload.
+	 * @return mixed Redacted payload.
+	 */
+	private static function redact_payload( $payload ) {
+		if ( $payload instanceof \stdClass ) {
+			$payload = (array) $payload;
+		}
+
+		if ( is_array( $payload ) ) {
+			$out = array();
+			foreach ( $payload as $key => $value ) {
+				$key_string = is_int( $key ) ? (string) $key : (string) $key;
+				if ( self::is_sensitive_key( $key_string ) ) {
+					$out[ $key ] = self::REDACTED_VALUE;
+					continue;
+				}
+
+				$out[ $key ] = self::redact_payload( $value );
+			}
+			return $out;
+		}
+
+		if ( is_resource( $payload ) ) {
+			return '[resource]';
+		}
+
+		return $payload;
+	}
+
+	/**
+	 * Whether an array key is likely to contain credentials or secrets.
+	 */
+	private static function is_sensitive_key( string $key ): bool {
+		return 1 === preg_match( '/(api[_-]?key|authorization|bearer|client[_-]?secret|credential|nonce|password|private[_-]?key|secret|token)/i', $key );
 	}
 
 	/**

@@ -821,6 +821,17 @@ class AgentLoop {
 			$response_message = new UserMessage( $parts );
 			$this->append_tool_response_to_history( $response_message );
 
+			AgentEventLog::log(
+				'client_tools_result_received',
+				AgentEventLog::SEVERITY_INFO,
+				$this->build_loop_event_context(
+					array(
+						'client_tool_count' => count( $results ),
+						'reason'            => 'browser_result_posted',
+					)
+				)
+			);
+
 			// Log the client tool responses for transparency.
 			foreach ( $results as $result ) {
 				$id   = (string) ( $result['id'] ?? '' );
@@ -868,6 +879,29 @@ class AgentLoop {
 			$payload['generated_theme_completion'] = $this->generated_theme_completion_gate->get_status();
 		}
 		return $payload;
+	}
+
+	/**
+	 * Add common loop state to an operator-facing event context.
+	 *
+	 * @param array<string, mixed> $context Specific event context.
+	 * @return array<string, mixed>
+	 */
+	private function build_loop_event_context( array $context = array() ): array {
+		return array_merge(
+			array(
+				'session_id'      => $this->session_id,
+				'job_id'          => $this->active_job_id,
+				'phase'           => $this->last_loop_phase,
+				'iterations_used' => $this->iterations_used,
+				'iterations_max'  => (int) $this->max_iterations,
+				'model_id'        => (string) $this->model_id,
+				'provider_id'     => (string) $this->provider_id,
+				'tool_call_count' => count( $this->tool_call_log ),
+				'history_count'   => count( $this->history ),
+			),
+			$context
+		);
 	}
 
 	/**
@@ -1036,14 +1070,11 @@ class AgentLoop {
 				AgentEventLog::log(
 					'agent_loop_aborted',
 					AgentEventLog::SEVERITY_ERROR,
-					array(
-						'session_id'      => $this->session_id,
-						'reason'          => (string) $result->get_error_code(),
-						'iterations_used' => $this->iterations_used,
-						'iterations_max'  => (int) $this->max_iterations,
-						'model_id'        => (string) $this->model_id,
-						'provider_id'     => (string) $this->provider_id,
-						'message'         => (string) $result->get_error_message(),
+					$this->build_loop_event_context(
+						array(
+							'reason'  => (string) $result->get_error_code(),
+							'message' => (string) $result->get_error_message(),
+						)
 					)
 				);
 				return $result;
@@ -1253,6 +1284,19 @@ class AgentLoop {
 						);
 						Database::save_paused_state( $this->session_id, $paused_state );
 					}
+
+					AgentEventLog::log(
+						'client_tools_pending',
+						AgentEventLog::SEVERITY_INFO,
+						$this->build_loop_event_context(
+							array(
+								'client_tool_count'  => count( $partition['client'] ),
+								'php_tool_count'     => count( $partition['php'] ),
+								'paused_state_saved' => $this->session_id > 0,
+								'reason'             => 'browser_tool_required',
+							)
+						)
+					);
 
 					// Return pending client tool calls to the browser.
 					return $this->with_paused_logs(
