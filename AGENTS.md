@@ -1,4 +1,4 @@
-# Superdav AI Agent - WordPress Plugin Development Guide
+# SD AI Agent - WordPress Plugin Development Guide
 
 **Requires:** WordPress 7.0+, PHP 8.2+
 
@@ -10,7 +10,7 @@ between the user-facing plugin slug and the code-level prefixes/namespaces.
 
 | Purpose | Canonical Value | Notes |
 | --- | --- | --- |
-| Display name | `Superdav AI Agent` | Human-readable |
+| Display name | `SD AI Agent` | Human-readable public brand |
 | WordPress.org plugin slug / text domain | `superdav-ai-agent` | Used ONLY for: `Text Domain:` header, `__( '...', 'superdav-ai-agent' )`, plugin folder name, `superdav-ai-agent.php` main file |
 | Plugin DI container ID | `sd-ai-agent` | `xwp_load_app(['id' => 'sd-ai-agent', ...])` — DO NOT change to `superdav-ai-agent` |
 | DI compile class | `CompiledContainerSdAiAgent` | Pairs with the `sd-ai-agent` ID |
@@ -30,22 +30,26 @@ between the user-facing plugin slug and the code-level prefixes/namespaces.
    the WP.org plugin slug + i18n text domain.
 2. **Never** rename `superdav-ai-agent` (the text domain) to `sd-ai-agent` either.
    Both are correct in their own contexts.
-3. **No legacy-name migrations.** Do not write code to rewrite, canonicalise,
+3. The public display name is **SD AI Agent**. It may appear in user-facing
+   copy, plugin headers, listing assets, and translated labels, but must never
+   change the `superdav-ai-agent` slug/text domain or any `sd-ai-agent` internal
+   identifier.
+4. **No legacy-name migrations.** Do not write code to rewrite, canonicalise,
    or migrate `ai-agent/`, `gratis-ai-agent`, or any other historical prefix.
    Old names are not supported and we are not maintaining backward compatibility
    for them.
-4. **No "WordPress.org compatibility" refactors** that rename `sd-ai-agent` →
+5. **No "WordPress.org compatibility" refactors** that rename `sd-ai-agent` →
    `superdav-ai-agent` in code. The WP.org plugin-check tool only inspects the
    text domain and slug; the internal `'id'` and namespaces are private.
-5. If a PR proposes any of the above renames, it should be **closed and reverted**.
+6. If a PR proposes any of the above internal identifier renames, it should be **closed and reverted**.
    Examples of past mistakes (do NOT repeat):
    - PR #1289 (changed `'id' => 'sd-ai-agent'` to `'superdav-ai-agent'`) — reverted
    - PR #1290 (renamed `gratis-ai-agent` → `superdav-ai-agent` in `AbstractAbility`) — closed unmerged
    - PR #1291 (changed docblock examples `sd-ai-agent/` → `superdav-ai-agent/`) — reverted
    - PR #1283 (auto-migration of legacy `ai-agent/` keys) — reverted
-6. Headless agents that propose these renames are operating outside scope. File
+7. Headless agents that propose these internal identifier renames are operating outside scope. File
    an issue describing the rogue behaviour rather than merging the PR.
-7. **Do not canonicalise the deliberate dispatcher namespaces** `wp-rest/*` and
+8. **Do not canonicalise the deliberate dispatcher namespaces** `wp-rest/*` and
    `wp-cli/*` to `sd-ai-agent/*`. These are the only ability namespaces
    intentionally outside `sd-ai-agent/`: they mirror the underlying WordPress
    REST API and `wp` CLI systems, act as generic dispatchers rather than

@@ -373,7 +373,7 @@ test.describe( 'White-Label Branding - Live Preview', () => {
 		);
 	} );
 
-	test( 'clearing the agent name restores the default "AI Agent" label in the preview', async ( {
+	test( 'clearing the agent name restores the default "SD AI Agent" label in the preview', async ( {
 		page,
 	} ) => {
 		const manager = getBrandingManager( page );
@@ -383,9 +383,9 @@ test.describe( 'White-Label Branding - Live Preview', () => {
 		await nameField.fill( 'Custom Name' );
 		await expect( getPreviewTitleBar( page ) ).toContainText( 'Custom Name' );
 
-		// Clear the field — preview should fall back to the default "AI Agent".
+		// Clear the field — preview should fall back to the default "SD AI Agent".
 		await nameField.fill( '' );
-		await expect( getPreviewTitleBar( page ) ).toContainText( 'AI Agent' );
+		await expect( getPreviewTitleBar( page ) ).toContainText( 'SD AI Agent' );
 	} );
 } );
 

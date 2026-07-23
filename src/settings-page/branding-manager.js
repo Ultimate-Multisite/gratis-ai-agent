@@ -40,7 +40,7 @@ function BrandingPreview( {
 } ) {
 	const fabBg = primaryColor || 'var(--wp-admin-theme-color, #2271b1)';
 	const fabColor = textColor || '#ffffff';
-	const displayName = agentName || __( 'AI Agent', 'sd-ai-agent' );
+	const displayName = agentName || __( 'SD AI Agent', 'sd-ai-agent' );
 	const greeting =
 		greetingMessage ||
 		__( 'Send a message to start a conversation.', 'sd-ai-agent' );
@@ -123,9 +123,9 @@ export default function BrandingManager( { local, updateField } ) {
 				label={ __( 'Agent Display Name', 'sd-ai-agent' ) }
 				value={ local.agent_name || '' }
 				onChange={ ( v ) => updateField( 'agent_name', v ) }
-				placeholder={ __( 'AI Agent', 'sd-ai-agent' ) }
+				placeholder={ __( 'SD AI Agent', 'sd-ai-agent' ) }
 				help={ __(
-					'Name shown in the chat title bar and floating button tooltip. Defaults to "AI Agent".',
+					'Name shown in the chat title bar and floating button tooltip. Defaults to "SD AI Agent".',
 					'sd-ai-agent'
 				) }
 				__nextHasNoMarginBottom

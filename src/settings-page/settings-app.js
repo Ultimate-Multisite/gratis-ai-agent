@@ -1865,7 +1865,7 @@ export default function SettingsApp() {
 												</p>
 												<h3>
 													{ __(
-														'Superdav AI Agent Advanced',
+														'SD AI Agent Advanced',
 														'superdav-ai-agent'
 													) }
 												</h3>

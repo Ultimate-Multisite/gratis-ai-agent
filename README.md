@@ -11,7 +11,7 @@
 
 [Documentation](https://github.com/Ultimate-Multisite/sd-ai-agent/wiki)
 
-A universal AI agent for WordPress. It connects to every plugin on your site through WordPress's Abilities API, giving a single AI assistant the power to manage content, products, users, SEO, analytics, media, and more — across any plugin that registers abilities. Bring your own API key, choose any AI provider, and pay only what your provider charges.
+SD AI Agent is your AI teammate for the WordPress site you already run. Ask one assistant to improve content, prepare products, review SEO and site information, and automate repeatable work — while keeping your existing theme, plugins, and AI provider. The technical foundation below lets compatible plugins add tools the assistant can use as your site grows.
 
 ## How it works
 

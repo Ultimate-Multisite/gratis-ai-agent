@@ -245,8 +245,8 @@ class ToolDiscovery {
 		wp_register_ability_category(
 			'sd-ai-agent-js',
 			array(
-				'label'       => __( 'Superdav AI Agent (Client)', 'superdav-ai-agent' ),
-				'description' => __( 'Client-side abilities provided by the Superdav AI Agent plugin. Execute in the browser without a server round-trip.', 'superdav-ai-agent' ),
+				'label'       => __( 'SD AI Agent (Client)', 'superdav-ai-agent' ),
+				'description' => __( 'Client-side abilities provided by the SD AI Agent plugin. Execute in the browser without a server round-trip.', 'superdav-ai-agent' ),
 			)
 		);
 	}

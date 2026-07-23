@@ -1,4 +1,4 @@
-=== Superdav AI Agent ===
+=== SD AI Agent ===
 Contributors: superdav42
 Tags: ai, chatbot, assistant, automation, tools
 Requires at least: 7.0
@@ -8,37 +8,66 @@ Stable tag: 1.19.0
 License: GPL-2.0-or-later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
-An AI assistant in your dashboard. Chat with it, teach it about your site, and let it manage tasks — using your own API key.
+Your AI teammate for WordPress. Fix, publish, optimise, and run your existing site from one assistant — using the AI provider you choose.
 
 == Description ==
 
-Superdav AI Agent adds a powerful AI assistant directly inside your WordPress admin. Ask it questions, give it tasks, and it will use your site's tools to get the job done — creating posts, reviewing site data, checking site health, calling external APIs, and more.
+SD AI Agent helps you get practical work done on the WordPress site you already have. Ask it to improve a page, prepare a product, review site health, create content, find information, or run a repeatable workflow. It works from one workspace inside WordPress admin, rather than sending you between editors, settings screens, content libraries, and documentation.
 
-**You bring your own API key.** Superdav AI Agent connects directly to your chosen AI provider (OpenAI, Anthropic, or any OpenAI-compatible service). There is no middleman, no markup on API costs, and no data routed through third-party servers. You pay only what your provider charges, and you can see every cent in their dashboard.
+**Choose how you connect.** Use the included Superdav AI managed service, or connect a compatible WordPress AI provider with your own credentials. With a direct provider connector, AI requests go from your WordPress site to the provider you configure; SD AI Agent does not add a relay or usage markup. See **External Services** below for the data each service receives and when it is contacted.
+
+= Start with a useful job =
+
+Choose a focused task that produces a result you can review:
+
+* **Improve a page** — review existing content, identify SEO opportunities, and prepare targeted updates. If you connect Google Search Console, the agent can use its performance data as part of the review.
+* **Publish faster** — draft or improve a post or page, organise it, add media, and prepare it for your editorial review.
+* **Review my site** — inspect site health and available site information, then use the findings to decide what to address next.
+* **Run recurring work** — create scheduled or event-driven workflows for routine reporting, moderation, and follow-up tasks.
+
+= Review consequential changes before they happen =
+
+The default experience keeps you in control. Use read-only or scoped tool profiles, disable tools that are not appropriate for your site, and require confirmation before consequential actions run. Conversation history and tool activity help you review what the agent did.
+
+= What you can do =
+
+* **Work with content faster** — draft posts and pages, improve existing copy, organise categories and tags, and work with media from a single conversation.
+* **Get answers with your site context** — store useful preferences and site facts as memory, or index content and documents into a searchable knowledge base.
+* **Make repeatable work easier** — create reusable skills, custom HTTP or WordPress action tools, scheduled tasks, and event-driven workflows.
+* **Keep control of actions** — choose a tool profile, disable tools you do not want available, and configure actions to run automatically or require confirmation.
+* **See how work was done** — keep conversation history, review tool activity, export conversations, and check token usage and estimated provider costs.
+
+= Works with your existing WordPress site =
+
+Keep your existing theme, builder, plugins, and provider choice. Start with the full chat workspace at **Tools > SD AI Agent**, or open the compact widget from another admin screen. When compatible WordPress plugins register abilities, SD AI Agent can discover those additional tools for use on your site.
+
+= Before you start =
+
+You need WordPress 7.0 or later and PHP 8.2 or later. Use the included Superdav AI managed service, or install an AI provider connector registered with the WordPress Connectors API. Third-party providers may charge for model usage; review their pricing and privacy terms before sending content or attachments.
 
 = Built on WordPress Core =
 
-Superdav AI Agent is built on official WordPress APIs available in supported WordPress versions:
+SD AI Agent is built on official WordPress APIs available in supported WordPress versions:
 
-* **AI Client SDK** — One interface for all AI providers. Install a connector plugin for OpenAI, Anthropic, Ollama, or any compatible service and Superdav AI Agent works immediately.
+* **AI Client SDK** — One interface for all AI providers. Install a connector plugin for OpenAI, Anthropic, Ollama, or any compatible service and SD AI Agent works immediately.
 * **Abilities API** — The WordPress-native tool registry. Every tool registered by any plugin on your site is automatically available to the agent. As your site grows, so does the agent's capabilities.
 
 This means no fragile custom API wrappers, no vendor lock-in, and automatic improvements as WordPress core evolves.
 
-= Two Ways to Chat =
+= Work where you are =
 
-* **Full-page chat** at Tools > Superdav AI Agent — A complete workspace with session history, folder organization, search, and export.
+* **Full-page chat** at Tools > SD AI Agent — A complete workspace with session history, folder organization, search, and export.
 * **Floating widget** — A small button on every admin page that expands into a chat panel. Always available, never in the way.
 
-= It Remembers =
+= Bring context to each conversation =
 
 The agent has persistent memory across sessions. It learns your preferences, site details, and workflows over time. You can also teach it manually or let it save knowledge automatically.
 
-= It Knows Your Content =
+= Search your site knowledge =
 
 Index your posts, pages, and uploaded documents into a searchable knowledge base. The agent searches this knowledge automatically when it needs context to answer your questions.
 
-= Custom Tools Without Code =
+= Extend the work you can automate =
 
 Create tools the agent can use — no plugin development needed:
 
@@ -48,7 +77,7 @@ Create tools the agent can use — no plugin development needed:
 
 Five example tools are included to get you started.
 
-= Scheduled Automations =
+= Schedule repeatable tasks =
 
 Set up AI tasks that run automatically on a schedule:
 
@@ -60,7 +89,7 @@ Set up AI tasks that run automatically on a schedule:
 
 Pick a schedule, write a prompt, and the agent handles the rest. View logs for every run.
 
-= Event-Driven Automations =
+= Respond to site events =
 
 The agent can react to things happening on your site in real time:
 
@@ -71,28 +100,28 @@ The agent can react to things happening on your site in real time:
 
 20+ WordPress and WooCommerce triggers are included, with placeholder templates for dynamic data.
 
-= Tool Profiles =
+= Set the scope for agent actions =
 
 Control what the agent can access. Six built-in profiles (Read Only, Full Management, Content, Users, Maintenance, Developer) let you quickly scope permissions. Create your own custom profiles for specific use cases.
 
-= Smart and Efficient =
+= Keep usage visible =
 
 * **Tool discovery** — On sites with many tools, the agent discovers what it needs instead of loading everything upfront. Saves tokens and money.
 * **Conversation trimming** — Long conversations are automatically trimmed at safe boundaries to prevent context overflow.
 * **Suggestion chips** — Clickable follow-up suggestions after each response keep the conversation flowing.
 * **Usage tracking** — See exactly how many tokens each session uses and what it costs.
 
-= Skills =
+= Reuse your team workflows =
 
 Create reusable instruction guides for the agent. Write a "content publishing checklist" or "image optimization workflow" once, and the agent follows it whenever the task comes up.
 
-= Export and Import =
+= Keep a portable record =
 
 Export any conversation to JSON (for backup and reimport) or Markdown (for sharing and documentation). Import conversations from JSON backups.
 
 = Extending with Ability Plugins =
 
-The Superdav AI Agent discovers abilities at runtime from any plugin that registers them via `wp_register_ability()`. The more abilities installed, the more capable the agent.
+SD AI Agent discovers abilities at runtime from any plugin that registers them via `wp_register_ability()`. The more abilities installed, the more capable the agent.
 
 **Recommended ability plugins:**
 
@@ -102,22 +131,26 @@ The Superdav AI Agent discovers abilities at runtime from any plugin that regist
 
 == Installation ==
 
-1. Upload the `superdav-ai-agent` folder to `/wp-content/plugins/` or install through the WordPress plugin screen.
-2. Activate the plugin.
-3. Go to **Settings > AI Credentials** and configure a connector for your AI provider (OpenAI, Anthropic, etc.). You will need an API key from your provider.
-4. Visit **Tools > Superdav AI Agent Settings** to choose your default provider and model.
-5. Open **Tools > Superdav AI Agent** and start chatting.
+1. Install and activate SD AI Agent from the WordPress Plugins screen.
+2. Go to **Settings > AI Credentials**. Use the included Superdav AI managed service, or configure a connector for your preferred AI provider with its required credentials.
+3. Visit **Tools > SD AI Agent Settings** to choose your provider and model.
+4. Review the available abilities and choose a tool profile that fits the access you want to grant.
+5. Open **Tools > SD AI Agent** and start with a focused task, such as improving a draft or finding information from your site.
 
 = Requirements =
 
 * WordPress 7.0 or higher
 * PHP 8.2 or higher
-* An AI provider connector plugin registered through the WordPress Connectors API
-* An AI key from your chosen AI provider (OpenAI, Anthropic, etc.)
+* The included Superdav AI managed service, or an AI provider connector plugin registered through the WordPress Connectors API
+* Provider credentials when required by your selected service
 
 == External Services ==
 
-This plugin connects to several third-party services to provide AI, search, analytics, stock-image, plugin-management, and user-configured integration capabilities. Each service below is **optional** and is only contacted when you (a) configure the relevant API key, URL, or feature, (b) ask the agent to perform an action that requires it, or (c) enable a scheduled feature such as skill-manifest auto-updates. No data is sent to any of these services on plugin activation or ordinary admin page load.
+This plugin connects to several third-party services to provide AI, search, analytics, stock-image, plugin-management, and user-configured integration capabilities. The included Superdav AI managed service registers a site installation during activation. Other services are contacted only when you (a) configure the relevant API key, URL, or feature, (b) ask the agent to perform an action that requires it, or (c) enable a scheduled feature such as skill-manifest auto-updates.
+
+= Superdav AI managed service =
+
+The included Superdav AI provider registers a site installation during plugin activation and can provide AI responses when selected. Registration sends a durable installation ID, your site URL, plugin version, and WordPress version to Superdav AI. When you use this provider for AI responses, it receives the conversation messages, system prompt, attached files (if any), and tool definitions needed to generate a reply.
 
 = AI providers (chat completions) =
 
@@ -129,7 +162,7 @@ These are contacted only when you configure the corresponding connector in **Set
 
 * **Google AI / Gemini** (generativelanguage.googleapis.com) — Provides AI chat completions when using Gemini models. Sends the conversation context and your user queries. Terms: https://policies.google.com/terms Privacy: https://policies.google.com/privacy
 
-**Other OpenAI-compatible providers (via third-party connector plugins).** If you install a separate WordPress connector plugin for any other AI provider (for example an OpenAI-compatible local or hosted endpoint), Superdav AI Agent will use that connector to send the conversation context to whichever endpoint the connector is configured for. Superdav AI Agent itself does not ship a list of those provider hostnames and does not initiate requests to any provider that does not have a connector installed and configured on your site. Some connector plugins may also route model requests through regional or cloud-hosted endpoints such as Google Vertex AI (`*.aiplatform.googleapis.com`). Please consult the connector plugin's own documentation and privacy policy for the data-handling terms of that provider. Google APIs Terms: https://developers.google.com/terms Google Privacy: https://policies.google.com/privacy
+**Other OpenAI-compatible providers (via third-party connector plugins).** If you install a separate WordPress connector plugin for any other AI provider (for example an OpenAI-compatible local or hosted endpoint), SD AI Agent will use that connector to send the conversation context to whichever endpoint the connector is configured for. SD AI Agent itself does not ship a list of those provider hostnames and does not initiate requests to any provider that does not have a connector installed and configured on your site. Some connector plugins may also route model requests through regional or cloud-hosted endpoints such as Google Vertex AI (`*.aiplatform.googleapis.com`). Please consult the connector plugin's own documentation and privacy policy for the data-handling terms of that provider. Google APIs Terms: https://developers.google.com/terms Google Privacy: https://policies.google.com/privacy
 
 = Internet search providers =
 
@@ -167,7 +200,7 @@ These are contacted only when you (or the agent) request a stock image via the i
 
 * **Custom HTTP tools and webhooks** — Site administrators can create HTTP tools that call any external API URL they configure. The disabled example tools include an editable placeholder weather-style URL and a Zapier webhook URL (`hooks.zapier.com`); they are not contacted unless an administrator enables the tool and the agent runs it. When an HTTP tool runs, the plugin sends the configured URL path, method, headers, placeholder-substituted input values, and request body configured for that tool. Terms and privacy depend on the service configured by the administrator. Zapier Terms: https://zapier.com/tos Zapier Privacy: https://zapier.com/privacy
 
-* **User-requested URL fetch, site scrape, and media import URLs** — Tools such as URL metadata fetches, SEO URL audits, existing-site scrape, upload-media-from-url, and generated-image URL import contact the exact URL you provide or approve. These requests are made only after a user/administrator asks the agent to fetch, scrape, download, or import from that URL. Depending on the tool, the target site may receive the requested URL path, query string, normal HTTP request metadata, and a plugin/WordPress user-agent string; media import tools download the remote file into WordPress. The plugin does not send unrelated WordPress site data, user records, conversation history, API keys, or plugin settings to arbitrary URLs. Because these destinations are chosen by the user or administrator, review the terms and privacy policy of the target site before running the tool. The separate Superdav AI Agent Advanced companion plugin adds additional administrator-only URL and low-level dispatcher tools, including arbitrary plugin ZIP installs and whitelisted `wp_remote_get` / `wp_remote_post` function calls.
+* **User-requested URL fetch, site scrape, and media import URLs** — Tools such as URL metadata fetches, SEO URL audits, existing-site scrape, upload-media-from-url, and generated-image URL import contact the exact URL you provide or approve. These requests are made only after a user/administrator asks the agent to fetch, scrape, download, or import from that URL. Depending on the tool, the target site may receive the requested URL path, query string, normal HTTP request metadata, and a plugin/WordPress user-agent string; media import tools download the remote file into WordPress. The plugin does not send unrelated WordPress site data, user records, conversation history, API keys, or plugin settings to arbitrary URLs. Because these destinations are chosen by the user or administrator, review the terms and privacy policy of the target site before running the tool. The separate SD AI Agent Advanced companion plugin adds additional administrator-only URL and low-level dispatcher tools, including arbitrary plugin ZIP installs and whitelisted `wp_remote_get` / `wp_remote_post` function calls.
 
 = Notifications (optional) =
 
@@ -177,7 +210,7 @@ These are contacted only when you (or the agent) request a stock image via the i
 
 = Feedback and issue reporting (optional, opt-in) =
 
-* **Superdav AI Agent feedback service** (ultimateagentwp.ai) — Optional service that receives user-submitted feedback and issue reports about the plugin so the maintainers can diagnose problems and improve the product. Nothing is sent automatically. A report is transmitted only when you explicitly click the thumbs-down button on an AI response or run the `/report-issue` command **and** accept the feedback-consent modal that previews the exact payload. Each report contains the sanitized conversation excerpt and metadata you reviewed in the consent modal (with secrets and PII redacted before display). No background telemetry, analytics, or automatic error reporting is ever sent. Terms: https://ultimateagentwp.ai/terms/ Privacy: https://ultimateagentwp.ai/privacy/
+* **SD AI Agent feedback service** (ultimateagentwp.ai) — Optional service that receives user-submitted feedback and issue reports about the plugin so the maintainers can diagnose problems and improve the product. Nothing is sent automatically. A report is transmitted only when you explicitly click the thumbs-down button on an AI response or run the `/report-issue` command **and** accept the feedback-consent modal that previews the exact payload. Each report contains the sanitized conversation excerpt and metadata you reviewed in the consent modal (with secrets and PII redacted before display). No background telemetry, analytics, or automatic error reporting is ever sent. Terms: https://ultimateagentwp.ai/terms/ Privacy: https://ultimateagentwp.ai/privacy/
 
 == Frequently Asked Questions ==
 
@@ -187,7 +220,7 @@ Any provider that has a connector plugin for the WordPress AI Client SDK. This c
 
 = How much does it cost to use? =
 
-The plugin itself is free. You pay only for the API usage from your chosen provider at their published rates. There is no markup, subscription, or usage fee from Superdav AI Agent. The Usage tab in settings tracks your token consumption and estimated costs.
+The plugin itself is free. You pay only for the API usage from your chosen provider at their published rates. There is no markup, subscription, or usage fee from SD AI Agent. The Usage tab in settings tracks your token consumption and estimated costs.
 
 = Is my data sent to a third party? =
 
@@ -195,11 +228,11 @@ Your conversations go directly from your WordPress site to your configured AI pr
 
 = Can I use a local AI model? =
 
-Yes. If you run a local model through Ollama or any OpenAI-compatible server, configure it as a provider through the WordPress Connectors API and Superdav AI Agent will use it. All inference happens on your hardware with zero API costs.
+Yes. If you run a local model through Ollama or any OpenAI-compatible server, configure it as a provider through the WordPress Connectors API and SD AI Agent will use it. All inference happens on your hardware with zero API costs.
 
 = What can the agent actually do? =
 
-The agent can use any tool (ability) registered on your WordPress site. Out of the box this includes managing posts, pages, comments, media, site options, and more. With custom tools you can extend it to call external APIs or trigger WordPress hooks. The separate Superdav AI Agent Advanced companion plugin adds trusted developer tools such as WP-CLI dispatchers, filesystem mutation, raw database diagnostics, and low-level WordPress function calls. Any plugin that registers abilities through the WordPress Abilities API automatically makes those tools available to the agent.
+The agent can use any tool (ability) registered on your WordPress site. Out of the box this includes managing posts, pages, comments, media, site options, and more. With custom tools you can extend it to call external APIs or trigger WordPress hooks. The separate SD AI Agent Advanced companion plugin adds trusted developer tools such as WP-CLI dispatchers, filesystem mutation, raw database diagnostics, and low-level WordPress function calls. Any plugin that registers abilities through the WordPress Abilities API automatically makes those tools available to the agent.
 
 = Is it safe? Will the AI break my site? =
 
@@ -211,18 +244,13 @@ Yes, the plugin works on both single-site and multisite WordPress installations.
 
 = Why does the plugin require WordPress 7.0? =
 
-Superdav AI Agent uses the native WordPress AI Client SDK and Abilities API. These APIs are available in WordPress 7.0 and later, so the plugin no longer bundles compatibility shims for older WordPress versions.
+SD AI Agent uses the native WordPress AI Client SDK and Abilities API. These APIs are available in WordPress 7.0 and later, so the plugin no longer bundles compatibility shims for older WordPress versions.
 
 == Screenshots ==
 
-1. Full-page chat interface with session sidebar and folder organization
-2. Floating widget available on every admin page
-3. Custom Tools tab — create HTTP and ACTION tools without code
-4. Tool Profiles — restrict what the agent can access
-5. Scheduled Automations with quick-start templates
-6. Event-Driven Automations with WordPress and WooCommerce triggers
-7. Knowledge Base management for RAG
-8. Settings page with 12 configuration tabs
+1. Full-page workspace for conversations, session history, folders, search, and exports.
+2. Tools settings for configuring custom tools and controlling agent access.
+3. Provider and safety settings, including confirmation controls for consequential actions.
 
 == Changelog ==
 

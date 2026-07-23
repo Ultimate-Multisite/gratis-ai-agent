@@ -278,11 +278,11 @@ export default function Sidebar( { collapsed, onToggleCollapse } ) {
 			<div className="sdaa-cr-sidebar-brand">
 				<div className="sdaa-cr-sidebar-brand-text">
 					<div className="sdaa-cr-sidebar-brand-title">
-						{ __( 'AI Agent', 'sd-ai-agent' ) }
+						{ __( 'SD AI Agent', 'sd-ai-agent' ) }
 					</div>
 					<div className="sdaa-cr-sidebar-brand-subtitle">
 						{ __(
-							'Universal agent for every plugin on your site',
+							'Your AI teammate for WordPress',
 							'sd-ai-agent'
 						) }
 					</div>

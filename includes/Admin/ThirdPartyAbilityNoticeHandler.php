@@ -132,7 +132,7 @@ final class ThirdPartyAbilityNoticeHandler {
 		?>
 		<div class="notice notice-warning is-dismissible" id="sd-ai-agent-third-party-notice">
 			<p>
-				<strong><?php esc_html_e( 'Superdav AI Agent', 'superdav-ai-agent' ); ?></strong>
+				<strong><?php esc_html_e( 'SD AI Agent', 'superdav-ai-agent' ); ?></strong>
 				<?php
 				printf(
 					esc_html(

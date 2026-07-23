@@ -138,7 +138,7 @@ class UnifiedAdminMenu {
 		$icon_uri = 'data:image/svg+xml;base64,' . base64_encode( $icon_svg ); // phpcs:ignore WordPress.PHP.DiscouragedPHPFunctions.obfuscation_base64_encode
 
 		add_menu_page(
-			__( 'Superdav AI Agent', 'superdav-ai-agent' ),
+			__( 'SD AI Agent', 'superdav-ai-agent' ),
 			__( 'AI Agent', 'superdav-ai-agent' ),
 			self::CAPABILITY,
 			self::SLUG,
@@ -209,7 +209,7 @@ class UnifiedAdminMenu {
 				'admin_notices',
 				function () {
 					echo '<div class="notice notice-error"><p>';
-					echo esc_html__( 'Superdav AI Agent build files are missing. Please run npm run build.', 'superdav-ai-agent' );
+					echo esc_html__( 'SD AI Agent build files are missing. Please run npm run build.', 'superdav-ai-agent' );
 					echo '</p></div>';
 				}
 			);
