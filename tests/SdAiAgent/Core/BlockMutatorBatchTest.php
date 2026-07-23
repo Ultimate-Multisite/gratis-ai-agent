@@ -228,6 +228,47 @@ class BlockMutatorBatchTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * Multiple insert-child operations may target the same parent in one batch.
+	 */
+	public function test_multiple_insert_child_updates_can_target_same_parent(): void {
+		$parent_ref = 'blk_parent_inserts';
+		$blocks     = [
+			$this->make_block(
+				'core/group',
+				[ 'metadata' => [ BlockReferences::REF_KEY => $parent_ref ] ],
+				[
+					$this->make_block( 'core/paragraph', [], [], '<p>Existing</p>' ),
+				],
+				''
+			),
+		];
+
+		$result = BlockMutator::apply_batch(
+			$blocks,
+			[
+				[
+					'op'        => 'insert-child',
+					'ref'       => $parent_ref,
+					'position'  => 1,
+					'block_def' => $this->make_block( 'core/paragraph', [], [], '<p>First inserted</p>' ),
+				],
+				[
+					'op'          => 'insert-child',
+					'ref'         => $parent_ref,
+					'destination' => [ 'index' => 2 ],
+					'block_def'   => $this->make_block( 'core/paragraph', [], [], '<p>Second inserted</p>' ),
+				],
+			]
+		);
+
+		$this->assertIsArray( $result );
+		$this->assertCount( 3, $result[0]['innerBlocks'] );
+		$this->assertSame( '<p>Existing</p>', $result[0]['innerBlocks'][0]['innerHTML'] );
+		$this->assertSame( '<p>First inserted</p>', $result[0]['innerBlocks'][1]['innerHTML'] );
+		$this->assertSame( '<p>Second inserted</p>', $result[0]['innerBlocks'][2]['innerHTML'] );
+	}
+
+	/**
 	 * AC2: A batch where item 3 has an invalid ref rejects the entire
 	 * batch with per-item errors, and no modifications to the tree.
 	 */

@@ -258,6 +258,7 @@ class BlockMutator {
 		// ── Phase 1: pre-flight — resolve addresses, detect duplicates ──
 		$errors         = [];
 		$resolved_paths = [];
+		$resolved_ops   = [];
 
 		foreach ( $updates as $idx => $update ) {
 			if ( ! is_array( $update ) ) {
@@ -299,6 +300,11 @@ class BlockMutator {
 			// Duplicate target detection: two ops on the same resolved path.
 			$path_key = implode( ',', $path );
 			if ( isset( $resolved_paths[ $path_key ] ) ) {
+				$previous_op = $resolved_ops[ $path_key ] ?? '';
+				if ( 'insert-child' === $previous_op && 'insert-child' === $op ) {
+					continue;
+				}
+
 				$errors[] = [
 					'index'   => $idx,
 					'code'    => 'duplicate_target',
@@ -312,6 +318,7 @@ class BlockMutator {
 			}
 
 			$resolved_paths[ $path_key ] = $idx;
+			$resolved_ops[ $path_key ]   = $op;
 		}
 
 		if ( ! empty( $errors ) ) {
@@ -1493,7 +1500,12 @@ class BlockMutator {
 
 		$new_child = self::sanitize_block_tree( $new_child );
 
-		$position = isset( $args['position'] ) ? (int) $args['position'] : null;
+		$position = null;
+		if ( isset( $args['position'] ) ) {
+			$position = (int) $args['position'];
+		} elseif ( isset( $args['destination'] ) && is_array( $args['destination'] ) && isset( $args['destination']['index'] ) ) {
+			$position = (int) $args['destination']['index'];
+		}
 
 		$result = self::mutate_at_path(
 			$blocks,

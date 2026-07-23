@@ -827,6 +827,18 @@ class BlockAbilities {
 										'type'        => 'boolean',
 										'description' => 'Override the Block Bindings write-lock for this update. Default: false.',
 									],
+									'block_def'          => [
+										'type'        => 'object',
+										'description' => 'For insert-child and replace-block: full parsed block definition with blockName, attrs, innerHTML, and optional innerBlocks.',
+									],
+									'position'           => [
+										'type'        => 'integer',
+										'description' => 'For insert-child: 0-based child index to insert at. Omit to append.',
+									],
+									'destination'        => [
+										'type'        => 'object',
+										'description' => 'For insert-child: optional alias for position, e.g. {"index": 0}. For move: target address and placement.',
+									],
 								],
 								'required'   => [ 'op' ],
 							],
