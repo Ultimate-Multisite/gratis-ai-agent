@@ -197,23 +197,33 @@ echo "    Sync complete."
 
 # ── Sync plugin-directory listing assets ─────────────────────────────────────
 # WordPress.org serves banners, icons, and screenshots from SVN assets/ rather
-# than from the plugin ZIP. Keep their PNG sources versioned separately so a
+# than from the plugin ZIP. Keep their image sources versioned separately so a
 # release cannot update the readme captions without also publishing the images.
 WPORG_ASSET_SOURCE="${PLUGIN_DIR}/.wordpress-org/assets"
 SVN_ASSETS="${SVN_DIR}/assets"
 
-if [ -d "$WPORG_ASSET_SOURCE" ]; then
-	echo "==> Syncing WordPress.org listing assets..."
-	mkdir -p "$SVN_ASSETS"
-	rsync -a --prune-empty-dirs \
-		--include='banner-*.png' \
-		--include='icon-*.gif' \
-		--include='icon-*.png' \
-		--include='screenshot-*.png' \
-		--exclude='*' \
-		"${WPORG_ASSET_SOURCE}/" "${SVN_ASSETS}/"
-	echo "    Listing assets synced."
+if [ ! -d "$WPORG_ASSET_SOURCE" ]; then
+	echo "ERROR: WordPress.org listing asset source not found: ${WPORG_ASSET_SOURCE}" >&2
+	exit 1
 fi
+
+echo "==> Syncing WordPress.org listing assets..."
+mkdir -p "$SVN_ASSETS"
+# Delete only listing files managed by this script so rsync cannot leave stale
+# banners, icons, or screenshots behind when a source asset is removed.
+rm -f \
+	"${SVN_ASSETS}"/banner-*.png \
+	"${SVN_ASSETS}"/icon-*.gif \
+	"${SVN_ASSETS}"/icon-*.png \
+	"${SVN_ASSETS}"/screenshot-*.png
+rsync -a --prune-empty-dirs \
+	--include='banner-*.png' \
+	--include='icon-*.gif' \
+	--include='icon-*.png' \
+	--include='screenshot-*.png' \
+	--exclude='*' \
+	"${WPORG_ASSET_SOURCE}/" "${SVN_ASSETS}/"
+echo "    Listing assets synced."
 
 # ── Stage new and deleted files ───────────────────────────────────────────────
 echo "==> Staging SVN changes..."
