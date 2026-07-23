@@ -1256,6 +1256,8 @@ final class SettingsController {
 					$models = $this->list_model_metadata_for_provider( $provider_id, $class );
 				}
 
+				$models = self::filter_text_generation_models( $models );
+
 				$provider_response = array(
 					'id'         => $provider_id,
 					'name'       => $metadata->getName(),
@@ -1363,6 +1365,68 @@ final class SettingsController {
 		}
 
 		return $models;
+	}
+
+	/**
+	 * Keep only models that advertise the SDK text-generation capability.
+	 *
+	 * The agent can use text models with additional capabilities, such as image
+	 * input, but must not offer image, video, speech, music, embedding, or
+	 * unknown models as chat selections. Both SDK-formatted rows and the raw
+	 * OpenAI-compatible connector response carry this metadata under one of the
+	 * fields inspected here.
+	 *
+	 * @param array<mixed> $models Provider model rows.
+	 * @return list<array<mixed>> Agent-selectable model rows.
+	 */
+	private static function filter_text_generation_models( array $models ): array {
+		$selectable_models = array();
+
+		foreach ( $models as $model ) {
+			if ( ! is_array( $model ) || ! self::model_supports_text_generation( $model ) ) {
+				continue;
+			}
+
+			$selectable_models[] = $model;
+		}
+
+		return $selectable_models;
+	}
+
+	/**
+	 * Determine whether a provider model row explicitly supports text generation.
+	 *
+	 * @param array<string, mixed> $model Provider model row.
+	 * @return bool Whether the model is safe to present to the agent.
+	 */
+	private static function model_supports_text_generation( array $model ): bool {
+		foreach ( array( 'capabilities', 'supported_capabilities' ) as $key ) {
+			if ( ! isset( $model[ $key ] ) || ! is_array( $model[ $key ] ) ) {
+				continue;
+			}
+
+			foreach ( $model[ $key ] as $capability_key => $capability_value ) {
+				if ( is_string( $capability_key ) && true === $capability_value && self::is_text_generation_capability( $capability_key ) ) {
+					return true;
+				}
+
+				if ( is_string( $capability_value ) && self::is_text_generation_capability( $capability_value ) ) {
+					return true;
+				}
+			}
+		}
+
+		return isset( $model['supports_text_generation'] ) && true === $model['supports_text_generation'];
+	}
+
+	/**
+	 * Check a provider capability value against the SDK text-generation value.
+	 *
+	 * @param string $capability Provider capability value.
+	 * @return bool Whether the value denotes text generation.
+	 */
+	private static function is_text_generation_capability( string $capability ): bool {
+		return 'text_generation' === str_replace( '-', '_', strtolower( $capability ) );
 	}
 
 	/**

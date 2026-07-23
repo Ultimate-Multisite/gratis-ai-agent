@@ -160,10 +160,31 @@ final class SettingsControllerTest extends WP_UnitTestCase {
 							array(
 								'data' => array(
 									array(
-									'id'                => 'superdav-chat-fast',
-									'name'              => 'Superdav Chat Fast',
+										'id'                => 'superdav-chat-fast',
+										'name'              => 'Superdav Chat Fast',
 										'context_length'    => 128000,
 										'max_output_length' => 8192,
+										'capabilities'      => array( 'text_generation' ),
+									),
+									array(
+										'id'           => 'superdav-image',
+										'name'         => 'Superdav Image',
+										'capabilities' => array( 'image_generation' ),
+									),
+									array(
+										'id'           => 'superdav-video',
+										'name'         => 'Superdav Video',
+										'capabilities' => array( 'video_generation' ),
+									),
+									array(
+										'id'           => 'superdav-tts',
+										'name'         => 'Superdav TTS',
+										'capabilities' => array( 'text_to_speech_conversion' ),
+									),
+									array(
+										'id'           => 'superdav-embedding',
+										'name'         => 'Superdav Embeddings',
+										'capabilities' => array( 'embedding_generation' ),
 									),
 								),
 							)
@@ -193,11 +214,38 @@ final class SettingsControllerTest extends WP_UnitTestCase {
 		$this->assertTrue( $superdav['status']['connection_notice_pending'] );
 		$this->assertSame( 10000000, $superdav['status']['wallet']['promo_usd_micros'] );
 		$this->assertSame( 'superdav-chat-fast', $superdav['models'][0]['id'] ?? '' );
+		$this->assertSame( array( 'superdav-chat-fast' ), wp_list_pluck( $superdav['models'], 'id' ) );
 		$this->assertStringNotContainsString( 'sdaist_auto_provisioned_token', wp_json_encode( $superdav ) ?: '' );
 
 		$second_response = $controller->handle_providers();
 		$this->assertSame( 200, $second_response->get_status() );
 		$this->assertSame( 1, $registration_hits );
+	}
+
+	/**
+	 * Agent model lists use declared capabilities rather than model identifiers.
+	 */
+	public function test_text_generation_model_filter_uses_provider_metadata(): void {
+		$method = new \ReflectionMethod( SettingsController::class, 'filter_text_generation_models' );
+		$method->setAccessible( true );
+
+		$models = $method->invoke(
+			null,
+			array(
+				array( 'id' => 'text-list', 'capabilities' => array( 'text_generation' ) ),
+				array( 'id' => 'text-map', 'capabilities' => array( 'text_generation' => true ) ),
+				array( 'id' => 'text-supported', 'supported_capabilities' => array( 'text-generation' ) ),
+				array( 'id' => 'text-flag', 'supports_text_generation' => true ),
+				array( 'id' => 'image', 'capabilities' => array( 'image_generation' ) ),
+				array( 'id' => 'video', 'capabilities' => array( 'video_generation' ) ),
+				array( 'id' => 'tts', 'capabilities' => array( 'text_to_speech_conversion' ) ),
+				array( 'id' => 'speech', 'capabilities' => array( 'speech_generation' ) ),
+				array( 'id' => 'embedding', 'capabilities' => array( 'embedding_generation' ) ),
+				array( 'id' => 'unknown' ),
+			)
+		);
+
+		$this->assertSame( array( 'text-list', 'text-map', 'text-supported', 'text-flag' ), wp_list_pluck( $models, 'id' ) );
 	}
 
 	/** Superdav account refresh returns safe wallet metadata without a bearer token. */
