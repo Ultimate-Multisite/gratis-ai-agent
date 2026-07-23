@@ -16,13 +16,13 @@ export default function AccountActionSystemMessage( { notice } ) {
 	return (
 		<div className="sdaa-cr-msg-row">
 			<div
-				className="sdaa-cr-msg-system sdaa-cr-msg-system--account-action"
+				className="sd-ai-agent-cr-msg-system sd-ai-agent-cr-msg-system--account-action"
 				role="status"
 			>
 				{ notice[ 0 ] }
 				{ actionUrl && (
 					<a
-						className="sdaa-cr-msg-system-action"
+						className="sd-ai-agent-cr-msg-system-action"
 						href={ actionUrl }
 						target="_blank"
 						rel="noopener noreferrer"

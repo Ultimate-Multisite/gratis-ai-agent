@@ -876,7 +876,7 @@ input[type="text"].sdaa-cr-search-input {
 }
 
 /* System notices */
-.sdaa-cr-msg-system {
+.sd-ai-agent-cr-msg-system {
 	background: var(--sdaa-error-surface);
 	border: 1px solid var(--sdaa-error);
 	color: var(--sdaa-error);
@@ -888,13 +888,13 @@ input[type="text"].sdaa-cr-search-input {
 	overflow-wrap: anywhere;
 }
 
-.sdaa-cr-msg-system--account-action {
+.sd-ai-agent-cr-msg-system--account-action {
 	background: var(--sdaa-surface-active);
 	border-color: var(--sdaa-primary);
 	color: var(--sdaa-text-primary);
 }
 
-.sdaa-cr-msg-system-action {
+.sd-ai-agent-cr-msg-system-action {
 	display: flex;
 	width: fit-content;
 	align-items: center;
@@ -910,8 +910,8 @@ input[type="text"].sdaa-cr-search-input {
 	transition: background var(--sdaa-duration) ease;
 }
 
-.sdaa-cr-msg-system-action:hover,
-.sdaa-cr-msg-system-action:focus {
+.sd-ai-agent-cr-msg-system-action:hover,
+.sd-ai-agent-cr-msg-system-action:focus {
 	background: var(--sdaa-primary-dark);
 	color: #fff;
 	text-decoration: none;
