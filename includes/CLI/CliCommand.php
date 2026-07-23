@@ -104,6 +104,7 @@ class CliCommand extends \WP_CLI_Command {
 		// configured login until one resolves to a real user instead of assuming
 		// the first entry is still valid.
 		if ( ! get_current_user_id() ) {
+			$resolved_admin = false;
 			foreach ( get_super_admins() as $admin_login ) {
 				$admin = get_user_by( 'login', $admin_login );
 				if ( ! $admin ) {
@@ -111,7 +112,13 @@ class CliCommand extends \WP_CLI_Command {
 				}
 
 				wp_set_current_user( $admin->ID );
+				$resolved_admin = true;
 				break;
+			}
+
+			if ( ! $resolved_admin ) {
+				WP_CLI::error( 'No configured super-admin login resolves to an existing WordPress user.' );
+				return;
 			}
 		}
 
