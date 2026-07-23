@@ -8,13 +8,29 @@ Stable tag: 1.19.0
 License: GPL-2.0-or-later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
-An AI assistant in your dashboard. Chat with it, teach it about your site, and let it manage tasks — using your own API key.
+Turn everyday WordPress work into guided conversations. Superdav AI Agent helps administrators create and improve content, find site information, and run repeatable workflows using the AI provider they choose.
 
 == Description ==
 
-Superdav AI Agent adds a powerful AI assistant directly inside your WordPress admin. Ask it questions, give it tasks, and it will use your site's tools to get the job done — creating posts, reviewing site data, checking site health, calling external APIs, and more.
+Superdav AI Agent puts an AI workspace inside WordPress admin. Instead of moving between your editor, settings screens, content library, and documentation, you can ask for help in one place. The agent can use the tools available on your site to draft and improve content, search site knowledge, review site information, and help run repeatable workflows.
 
-**You bring your own API key.** Superdav AI Agent connects directly to your chosen AI provider (OpenAI, Anthropic, or any OpenAI-compatible service). There is no middleman, no markup on API costs, and no data routed through third-party servers. You pay only what your provider charges, and you can see every cent in their dashboard.
+**Choose your provider and stay in control.** Connect a compatible WordPress AI provider, select a model, and use your own credentials. AI requests go from your WordPress site to the provider you configure; the plugin does not add a relay or usage markup. See **External Services** below for the data each optional integration receives and when it is contacted.
+
+= What you can do =
+
+* **Work with content faster** — draft posts and pages, improve existing copy, organise categories and tags, and work with media from a single conversation.
+* **Get answers with your site context** — store useful preferences and site facts as memory, or index content and documents into a searchable knowledge base.
+* **Make repeatable work easier** — create reusable skills, custom HTTP or WordPress action tools, scheduled tasks, and event-driven workflows.
+* **Keep control of actions** — choose a tool profile, disable tools you do not want available, and configure actions to run automatically or require confirmation.
+* **See how work was done** — keep conversation history, review tool activity, export conversations, and check token usage and estimated provider costs.
+
+= Designed for WordPress administrators =
+
+Start with the full chat workspace at **Tools > Superdav AI Agent**, or open the compact widget from another admin screen. The plugin is useful on its own and can discover additional abilities registered by compatible WordPress plugins, so its available tools can grow with your site.
+
+= Before you start =
+
+You need WordPress 7.0 or later, PHP 8.2 or later, and an AI provider connector registered with the WordPress Connectors API. Your provider may charge for model usage. Review its pricing and privacy terms before sending content or attachments.
 
 = Built on WordPress Core =
 
@@ -25,20 +41,20 @@ Superdav AI Agent is built on official WordPress APIs available in supported Wor
 
 This means no fragile custom API wrappers, no vendor lock-in, and automatic improvements as WordPress core evolves.
 
-= Two Ways to Chat =
+= Work where you are =
 
 * **Full-page chat** at Tools > Superdav AI Agent — A complete workspace with session history, folder organization, search, and export.
 * **Floating widget** — A small button on every admin page that expands into a chat panel. Always available, never in the way.
 
-= It Remembers =
+= Bring context to each conversation =
 
 The agent has persistent memory across sessions. It learns your preferences, site details, and workflows over time. You can also teach it manually or let it save knowledge automatically.
 
-= It Knows Your Content =
+= Search your site knowledge =
 
 Index your posts, pages, and uploaded documents into a searchable knowledge base. The agent searches this knowledge automatically when it needs context to answer your questions.
 
-= Custom Tools Without Code =
+= Extend the work you can automate =
 
 Create tools the agent can use — no plugin development needed:
 
@@ -48,7 +64,7 @@ Create tools the agent can use — no plugin development needed:
 
 Five example tools are included to get you started.
 
-= Scheduled Automations =
+= Schedule repeatable tasks =
 
 Set up AI tasks that run automatically on a schedule:
 
@@ -60,7 +76,7 @@ Set up AI tasks that run automatically on a schedule:
 
 Pick a schedule, write a prompt, and the agent handles the rest. View logs for every run.
 
-= Event-Driven Automations =
+= Respond to site events =
 
 The agent can react to things happening on your site in real time:
 
@@ -71,22 +87,22 @@ The agent can react to things happening on your site in real time:
 
 20+ WordPress and WooCommerce triggers are included, with placeholder templates for dynamic data.
 
-= Tool Profiles =
+= Set the scope for agent actions =
 
 Control what the agent can access. Six built-in profiles (Read Only, Full Management, Content, Users, Maintenance, Developer) let you quickly scope permissions. Create your own custom profiles for specific use cases.
 
-= Smart and Efficient =
+= Keep usage visible =
 
 * **Tool discovery** — On sites with many tools, the agent discovers what it needs instead of loading everything upfront. Saves tokens and money.
 * **Conversation trimming** — Long conversations are automatically trimmed at safe boundaries to prevent context overflow.
 * **Suggestion chips** — Clickable follow-up suggestions after each response keep the conversation flowing.
 * **Usage tracking** — See exactly how many tokens each session uses and what it costs.
 
-= Skills =
+= Reuse your team workflows =
 
 Create reusable instruction guides for the agent. Write a "content publishing checklist" or "image optimization workflow" once, and the agent follows it whenever the task comes up.
 
-= Export and Import =
+= Keep a portable record =
 
 Export any conversation to JSON (for backup and reimport) or Markdown (for sharing and documentation). Import conversations from JSON backups.
 
@@ -102,11 +118,11 @@ The Superdav AI Agent discovers abilities at runtime from any plugin that regist
 
 == Installation ==
 
-1. Upload the `superdav-ai-agent` folder to `/wp-content/plugins/` or install through the WordPress plugin screen.
-2. Activate the plugin.
-3. Go to **Settings > AI Credentials** and configure a connector for your AI provider (OpenAI, Anthropic, etc.). You will need an API key from your provider.
-4. Visit **Tools > Superdav AI Agent Settings** to choose your default provider and model.
-5. Open **Tools > Superdav AI Agent** and start chatting.
+1. Install and activate Superdav AI Agent from the WordPress Plugins screen.
+2. Go to **Settings > AI Credentials** and configure a connector for your AI provider. You will need credentials from that provider.
+3. Visit **Tools > Superdav AI Agent Settings** to choose your default provider and model.
+4. Review the available abilities and choose a tool profile that fits the access you want to grant.
+5. Open **Tools > Superdav AI Agent** and start with a focused task, such as improving a draft or finding information from your site.
 
 = Requirements =
 
@@ -215,14 +231,9 @@ Superdav AI Agent uses the native WordPress AI Client SDK and Abilities API. The
 
 == Screenshots ==
 
-1. Full-page chat interface with session sidebar and folder organization
-2. Floating widget available on every admin page
-3. Custom Tools tab — create HTTP and ACTION tools without code
-4. Tool Profiles — restrict what the agent can access
-5. Scheduled Automations with quick-start templates
-6. Event-Driven Automations with WordPress and WooCommerce triggers
-7. Knowledge Base management for RAG
-8. Settings page with 12 configuration tabs
+1. Full-page workspace for conversations, session history, folders, search, and exports.
+2. Tools settings for configuring custom tools and controlling agent access.
+3. Settings for providers, models, access, skills, usage, and advanced controls.
 
 == Changelog ==
 

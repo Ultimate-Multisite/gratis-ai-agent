@@ -337,18 +337,22 @@ plugin ZIP. They are served directly from SVN by the WP.org CDN.
 | `assets/screenshot-2.png` | Any | Screenshot 2 |
 | … | … | … |
 
-Our assets are already prepared in `assets/` in the Git repo. Copy them to SVN:
+The source-controlled listing assets live in `.wordpress-org/assets/`. The
+release deployer syncs banner, icon, and `screenshot-N.png` files to the SVN
+`assets/` directory; use the manual commands below only when a one-off asset
+update is needed.
 
 ```bash
 cd ~/svn/superdav-ai-agent
 
 # Copy assets from Git repo
-cp /path/to/superdav-ai-agent-repo/assets/banner-772x250.png  assets/
-cp /path/to/superdav-ai-agent-repo/assets/icon-128x128.png    assets/
-cp /path/to/superdav-ai-agent-repo/assets/icon-256x256.png    assets/
+cp /path/to/superdav-ai-agent-repo/.wordpress-org/assets/banner-772x250.png  assets/
+cp /path/to/superdav-ai-agent-repo/.wordpress-org/assets/banner-1544x500.png assets/
+cp /path/to/superdav-ai-agent-repo/.wordpress-org/assets/icon-128x128.png    assets/
+cp /path/to/superdav-ai-agent-repo/.wordpress-org/assets/icon-256x256.png    assets/
 
 # Copy screenshots (rename to screenshot-N.png matching readme.txt order)
-cp /path/to/superdav-ai-agent-repo/assets/screenshots/screenshot-1.png assets/screenshot-1.png
+cp /path/to/superdav-ai-agent-repo/.wordpress-org/assets/screenshot-1.png assets/screenshot-1.png
 # … repeat for each screenshot
 
 svn add assets/*
@@ -356,8 +360,22 @@ svn commit -m "Add plugin assets (banner, icon, screenshots)" \
     --username YOUR_WP_USERNAME
 ```
 
-Screenshot filenames in SVN must be `screenshot-1.png`, `screenshot-2.png`, etc. —
-not the descriptive names used in the Git repo.
+Screenshot filenames in SVN must be `screenshot-1.png`, `screenshot-2.png`, etc.
+They must match the ordered captions in `readme.txt`. Capture real product UI
+from a configured test site; do not use mockups, login pages, or images that
+claim unshipped functionality. Use legible text, avoid personal or customer
+data, and review the final image at directory-card size before committing it.
+
+For the three current listing views, capture fresh scrubbed images with:
+
+```bash
+WP_BASE_URL=https://your-local-test-site node scripts/capture-wporg-screenshots.js
+```
+
+Set `WP_ADMIN_USER` and `WP_ADMIN_PASSWORD` through your local environment when
+the test-site credentials differ from the E2E defaults. Never commit credentials
+or screenshots containing customer data, API keys, email addresses, or live
+conversation content.
 
 ---
 
