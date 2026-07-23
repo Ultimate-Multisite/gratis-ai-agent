@@ -133,7 +133,7 @@ export default function WidgetHeader( {
 
 	const session = sessions.find( ( s ) => s.id === currentSessionId ) || null;
 	const branding = getBranding();
-	const agentName = branding.agentName || __( 'AI Agent', 'sd-ai-agent' );
+	const agentName = branding.agentName || __( 'SD AI Agent', 'sd-ai-agent' );
 	const title = isSimpleMode ? agentName : session?.title || agentName;
 	const runningJob = currentSessionId
 		? sessionJobs[ currentSessionId ]

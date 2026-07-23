@@ -240,7 +240,7 @@ test.describe( 'client-abilities — category registration', () => {
 
 		expect( category ).not.toBeNull();
 		expect( category ).toMatchObject( {
-			label: expect.stringContaining( 'Superdav AI Agent' ),
+			label: expect.stringContaining( 'SD AI Agent' ),
 			description: expect.stringContaining( 'client' ),
 		} );
 	} );

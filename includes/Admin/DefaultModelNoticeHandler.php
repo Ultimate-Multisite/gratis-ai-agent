@@ -121,7 +121,7 @@ final class DefaultModelNoticeHandler {
 		?>
 		<div class="notice notice-warning is-dismissible" id="sd-ai-agent-default-model-notice">
 			<p>
-				<strong><?php esc_html_e( 'Superdav AI Agent', 'superdav-ai-agent' ); ?></strong>
+				<strong><?php esc_html_e( 'SD AI Agent', 'superdav-ai-agent' ); ?></strong>
 				<?php
 				if ( '' !== $replacement_model ) {
 					printf(

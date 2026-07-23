@@ -207,6 +207,7 @@ if [ -d "$WPORG_ASSET_SOURCE" ]; then
 	mkdir -p "$SVN_ASSETS"
 	rsync -a --prune-empty-dirs \
 		--include='banner-*.png' \
+		--include='icon-*.gif' \
 		--include='icon-*.png' \
 		--include='screenshot-*.png' \
 		--exclude='*' \

@@ -11,7 +11,7 @@
 
 [Documentation](https://github.com/Ultimate-Multisite/sd-ai-agent/wiki)
 
-Your AI teammate for the WordPress site you already run. Ask one assistant to improve content, prepare products, review SEO and site information, and automate repeatable work — while keeping your existing theme, plugins, and AI provider. The technical foundation below lets compatible plugins add tools the assistant can use as your site grows.
+SD AI Agent is your AI teammate for the WordPress site you already run. Ask one assistant to improve content, prepare products, review SEO and site information, and automate repeatable work — while keeping your existing theme, plugins, and AI provider. The technical foundation below lets compatible plugins add tools the assistant can use as your site grows.
 
 ## How it works
 

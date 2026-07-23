@@ -66,7 +66,7 @@ function UnifiedAdminApp() {
 			( item ) => item.slug === baseRoute
 		);
 		if ( currentItem ) {
-			document.title = `${ currentItem.label } - AI Agent`;
+			document.title = `${ currentItem.label } - SD AI Agent`;
 		}
 
 		// Sync WordPress admin submenu highlight with the current hash route.

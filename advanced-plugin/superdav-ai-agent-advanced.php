@@ -1,8 +1,8 @@
 <?php
 /**
- * Plugin Name: Superdav AI Agent Advanced
+ * Plugin Name: SD AI Agent Advanced
  * Plugin URI:  https://github.com/Ultimate-Multisite/superdav-ai-agent
- * Description: Advanced companion plugin for Superdav AI Agent with self-hosted code, filesystem, database, WP-CLI, REST dispatcher, and plugin-builder tools.
+ * Description: Advanced companion plugin for SD AI Agent with self-hosted code, filesystem, database, WP-CLI, REST dispatcher, and plugin-builder tools.
  * Version:     1.19.0
  * Author:      superdav42
  * Author URI:  https://github.com/superdav42
@@ -56,7 +56,7 @@ add_action(
 				printf(
 					'<div class="notice notice-error"><p>%s</p></div>',
 					esc_html__(
-						'Superdav AI Agent Advanced requires the core Superdav AI Agent plugin to be installed and active.',
+						'SD AI Agent Advanced requires the core SD AI Agent plugin to be installed and active.',
 						'superdav-ai-agent'
 					)
 				);

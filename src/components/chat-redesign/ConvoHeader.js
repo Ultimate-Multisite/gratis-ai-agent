@@ -58,7 +58,7 @@ export default function ConvoHeader( {
 
 	const branding = getBranding();
 	const title = isSimpleMode
-		? branding.agentName || __( 'AI Agent', 'sd-ai-agent' )
+		? branding.agentName || __( 'SD AI Agent', 'sd-ai-agent' )
 		: session?.title || __( 'New conversation', 'sd-ai-agent' );
 
 	const startRename = useCallback( () => {

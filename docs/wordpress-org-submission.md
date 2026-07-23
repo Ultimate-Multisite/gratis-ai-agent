@@ -1,6 +1,6 @@
 # WordPress.org Plugin Directory Submission
 
-This document covers the complete process for submitting Superdav AI Agent to the
+This document covers the complete process for submitting SD AI Agent to the
 WordPress.org plugin directory and managing subsequent releases via SVN.
 
 **Current status:** Approved for the WordPress.org plugin directory. The core
@@ -122,7 +122,7 @@ justification in the submission notes.
 1. Log in to your WordPress.org account at `https://login.wordpress.org/`
 2. Navigate to: **`https://wordpress.org/plugins/developers/add/`**
 3. Fill in the form:
-   - **Plugin name**: Superdav AI Agent
+   - **Plugin name**: SD AI Agent
    - **Plugin description**: (paste the short description from `readme.txt`)
    - **Plugin ZIP**: Upload the ZIP built by `bin/build.sh` (see below)
 4. Submit the form
@@ -147,7 +147,7 @@ automatically.
 The review team reads these. Be specific:
 
 ```
-Superdav AI Agent is an agentic AI assistant for WordPress built on the official
+SD AI Agent is an agentic AI assistant for WordPress built on the official
 WordPress 7.0 AI Client SDK and Abilities API. It requires a connector plugin
 (e.g., the OpenAI connector) to function — it does not bundle any AI provider
 credentials or make API calls without explicit user configuration.
@@ -375,7 +375,9 @@ WP_BASE_URL=https://your-local-test-site node scripts/capture-wporg-screenshots.
 Set `WP_ADMIN_USER` and `WP_ADMIN_PASSWORD` through your local environment when
 the test-site credentials differ from the E2E defaults. Never commit credentials
 or screenshots containing customer data, API keys, email addresses, or live
-conversation content.
+conversation content. The capture script sends a safe site-health review prompt
+to the configured provider so the chat screenshot shows real tool activity; use
+a dedicated test site and review the prompt output before committing it.
 
 ---
 

@@ -18,7 +18,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 /**
- * Registers the top-level "Superdav AI Agent" ability category with the core
+ * Registers the top-level "SD AI Agent" ability category with the core
  * Abilities API so our memory / knowledge / skill abilities group together
  * in the UI and in ability enumeration results.
  *
@@ -45,8 +45,8 @@ final class AbilityCategoryRegistrar {
 		wp_register_ability_category(
 			'sd-ai-agent',
 			array(
-				'label'       => __( 'Superdav AI Agent', 'superdav-ai-agent' ),
-				'description' => __( 'Superdav AI Agent memory and skill abilities.', 'superdav-ai-agent' ),
+				'label'       => __( 'SD AI Agent', 'superdav-ai-agent' ),
+				'description' => __( 'SD AI Agent memory and skill abilities.', 'superdav-ai-agent' ),
 			)
 		);
 	}

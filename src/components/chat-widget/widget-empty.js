@@ -83,7 +83,7 @@ export default function WidgetEmpty() {
 	const agentName =
 		selectedAgent?.name ||
 		branding.agentName ||
-		__( 'AI Agent', 'sd-ai-agent' );
+		__( 'SD AI Agent', 'sd-ai-agent' );
 
 	return (
 		<div className="sdaa-w-empty">
