@@ -1,6 +1,6 @@
 === SD AI Agent ===
 Contributors: superdav42
-Tags: ai, chatbot, assistant, automation, tools
+Tags: ai, chatbot, assistant, automation, connector
 Requires at least: 7.0
 Tested up to: 7.0
 Requires PHP: 8.2
