@@ -505,7 +505,9 @@ export function RunningMessage( { step, liveToolCalls } ) {
 export function SystemMessage( { text } ) {
 	return (
 		<div className="sdaa-cr-msg-row">
-			<div className="sdaa-cr-msg-system">{ linkifyText( text ) }</div>
+			<div className="sd-ai-agent-cr-msg-system">
+				{ linkifyText( text ) }
+			</div>
 		</div>
 	);
 }

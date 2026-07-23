@@ -67,7 +67,9 @@ describe( 'AccountActionSystemMessage', () => {
 		} );
 
 		expect(
-			container.querySelector( '.sdaa-cr-msg-system--account-action' )
+			container.querySelector(
+				'.sd-ai-agent-cr-msg-system--account-action'
+			)
 		).not.toBeNull();
 		expect( container.textContent ).toContain(
 			'Purchase more credits in your account settings'
@@ -76,7 +78,9 @@ describe( 'AccountActionSystemMessage', () => {
 			/\b(error|rejected|insufficient)\b/i
 		);
 
-		const action = container.querySelector( '.sdaa-cr-msg-system-action' );
+		const action = container.querySelector(
+			'.sd-ai-agent-cr-msg-system-action'
+		);
 		expect( action ).not.toBeNull();
 		expect( action.getAttribute( 'href' ) ).toBe(
 			'https://account.example.test/login'

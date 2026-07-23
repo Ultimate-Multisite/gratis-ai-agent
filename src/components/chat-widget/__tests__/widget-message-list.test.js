@@ -2,9 +2,8 @@
  * Unit tests for the floating widget message list.
  */
 
-import { createElement } from '@wordpress/element';
+import { createElement, createRoot } from '@wordpress/element';
 import { useDispatch, useSelect } from '@wordpress/data';
-import { createRoot } from 'react-dom/client';
 import { act } from 'react';
 
 import WidgetMessageList from '../widget-message-list';
@@ -36,7 +35,7 @@ jest.mock( '../../chat-redesign/message-helpers', () => ( {
 /**
  * Render the floating widget message list with a credit-exhaustion notice.
  *
- * @return {Promise<{container: HTMLElement, root: import('react-dom/client').Root}>}
+ * @return {Promise<{container: HTMLElement, root: import('@wordpress/element').Root}>}
  *   Rendered container and root.
  */
 async function renderCreditExhaustionMessage() {
@@ -86,7 +85,7 @@ describe( 'WidgetMessageList credit exhaustion notice', () => {
 	test( 'replaces the provider error with an account-settings credit CTA', async () => {
 		const { container, root } = await renderCreditExhaustionMessage();
 		const notice = container.querySelector(
-			'.sdaa-cr-msg-system--account-action'
+			'.sd-ai-agent-cr-msg-system--account-action'
 		);
 
 		expect( notice ).not.toBeNull();
@@ -95,7 +94,9 @@ describe( 'WidgetMessageList credit exhaustion notice', () => {
 		);
 		expect( notice.textContent ).not.toMatch( /\b(error|insufficient)\b/i );
 
-		const action = notice.querySelector( '.sdaa-cr-msg-system-action' );
+		const action = notice.querySelector(
+			'.sd-ai-agent-cr-msg-system-action'
+		);
 		expect( action.textContent ).toBe( 'Purchase credits' );
 		expect( action.getAttribute( 'href' ) ).toBe(
 			'https://account.example.test/login'
