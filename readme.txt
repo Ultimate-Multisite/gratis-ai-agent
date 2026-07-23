@@ -14,7 +14,7 @@ Your AI teammate for WordPress. Fix, publish, optimise, and run your existing si
 
 SD AI Agent helps you get practical work done on the WordPress site you already have. Ask it to improve a page, prepare a product, review site health, create content, find information, or run a repeatable workflow. It works from one workspace inside WordPress admin, rather than sending you between editors, settings screens, content libraries, and documentation.
 
-**Your provider, your key, your data.** Connect a compatible WordPress AI provider, select a model, and use your own credentials. AI requests go from your WordPress site to the provider you configure; the plugin does not add a relay or usage markup. See **External Services** below for the data each optional integration receives and when it is contacted.
+**Choose how you connect.** Use the included Superdav AI managed service, or connect a compatible WordPress AI provider with your own credentials. With a direct provider connector, AI requests go from your WordPress site to the provider you configure; SD AI Agent does not add a relay or usage markup. See **External Services** below for the data each service receives and when it is contacted.
 
 = Start with a useful job =
 
@@ -43,7 +43,7 @@ Keep your existing theme, builder, plugins, and provider choice. Start with the 
 
 = Before you start =
 
-You need WordPress 7.0 or later, PHP 8.2 or later, and an AI provider connector registered with the WordPress Connectors API. Your provider may charge for model usage. Review its pricing and privacy terms before sending content or attachments.
+You need WordPress 7.0 or later and PHP 8.2 or later. Use the included Superdav AI managed service, or install an AI provider connector registered with the WordPress Connectors API. Third-party providers may charge for model usage; review their pricing and privacy terms before sending content or attachments.
 
 = Built on WordPress Core =
 
@@ -132,8 +132,8 @@ SD AI Agent discovers abilities at runtime from any plugin that registers them v
 == Installation ==
 
 1. Install and activate SD AI Agent from the WordPress Plugins screen.
-2. Go to **Settings > AI Credentials** and configure a connector for your AI provider. You will need credentials from that provider.
-3. Visit **Tools > SD AI Agent Settings** to choose your default provider and model.
+2. Go to **Settings > AI Credentials**. Use the included Superdav AI managed service, or configure a connector for your preferred AI provider with its required credentials.
+3. Visit **Tools > SD AI Agent Settings** to choose your provider and model.
 4. Review the available abilities and choose a tool profile that fits the access you want to grant.
 5. Open **Tools > SD AI Agent** and start with a focused task, such as improving a draft or finding information from your site.
 
@@ -141,12 +141,16 @@ SD AI Agent discovers abilities at runtime from any plugin that registers them v
 
 * WordPress 7.0 or higher
 * PHP 8.2 or higher
-* An AI provider connector plugin registered through the WordPress Connectors API
-* An AI key from your chosen AI provider (OpenAI, Anthropic, etc.)
+* The included Superdav AI managed service, or an AI provider connector plugin registered through the WordPress Connectors API
+* Provider credentials when required by your selected service
 
 == External Services ==
 
-This plugin connects to several third-party services to provide AI, search, analytics, stock-image, plugin-management, and user-configured integration capabilities. Each service below is **optional** and is only contacted when you (a) configure the relevant API key, URL, or feature, (b) ask the agent to perform an action that requires it, or (c) enable a scheduled feature such as skill-manifest auto-updates. No data is sent to any of these services on plugin activation or ordinary admin page load.
+This plugin connects to several third-party services to provide AI, search, analytics, stock-image, plugin-management, and user-configured integration capabilities. The included Superdav AI managed service registers a site installation during activation. Other services are contacted only when you (a) configure the relevant API key, URL, or feature, (b) ask the agent to perform an action that requires it, or (c) enable a scheduled feature such as skill-manifest auto-updates.
+
+= Superdav AI managed service =
+
+The included Superdav AI provider registers a site installation during plugin activation and can provide AI responses when selected. Registration sends a durable installation ID, your site URL, plugin version, and WordPress version to Superdav AI. When you use this provider for AI responses, it receives the conversation messages, system prompt, attached files (if any), and tool definitions needed to generate a reply.
 
 = AI providers (chat completions) =
 
