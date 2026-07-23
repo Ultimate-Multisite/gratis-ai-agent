@@ -53,7 +53,7 @@ export function buildSuperdavCreditNoticeMessage( providers ) {
 		role: 'system',
 		notice: [
 			__(
-				"You're almost ready to continue. Add payment information to your Superdav account to keep using Superdav Chat Pro.",
+				"You've used all of your available Superdav credits. Purchase more credits in your account settings to continue using Superdav Chat Pro.",
 				'superdav-ai-agent'
 			),
 			getSuperdavAccountConnectUrl( providers ),

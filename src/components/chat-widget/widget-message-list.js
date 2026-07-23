@@ -30,6 +30,11 @@ import {
 	SystemMessage,
 	UserMessage,
 } from '../chat-redesign/message-items';
+import AccountActionSystemMessage from '../chat-redesign/account-action-system-message';
+import {
+	buildSuperdavCreditNoticeMessage,
+	isSuperdavCreditBalanceNotice,
+} from '../../utils/superdav-credit-notice';
 
 /** Distance (px) from the scroll bottom that is treated as "at the bottom". */
 const SCROLL_THRESHOLD = 100;
@@ -38,17 +43,24 @@ const SCROLL_THRESHOLD = 100;
  *
  */
 export default function WidgetMessageList() {
-	const { messages, sending, currentSessionId, liveToolCalls, sessionJobs } =
-		useSelect( ( sel ) => {
-			const store = sel( STORE_NAME );
-			return {
-				messages: store.getCurrentSessionMessages(),
-				sending: store.isSending(),
-				currentSessionId: store.getCurrentSessionId(),
-				liveToolCalls: store.getLiveToolCalls(),
-				sessionJobs: store.getSessionJobs(),
-			};
-		}, [] );
+	const {
+		messages,
+		sending,
+		currentSessionId,
+		liveToolCalls,
+		sessionJobs,
+		providers,
+	} = useSelect( ( sel ) => {
+		const store = sel( STORE_NAME );
+		return {
+			messages: store.getCurrentSessionMessages(),
+			sending: store.isSending(),
+			currentSessionId: store.getCurrentSessionId(),
+			liveToolCalls: store.getLiveToolCalls(),
+			sessionJobs: store.getSessionJobs(),
+			providers: store.getProviders(),
+		};
+	}, [] );
 
 	const { sendMessage } = useDispatch( STORE_NAME );
 	const ref = useRef( null );
@@ -203,13 +215,29 @@ export default function WidgetMessageList() {
 							);
 						}
 						if ( msg.role === 'system' ) {
+							if ( msg.notice ) {
+								return (
+									<AccountActionSystemMessage
+										key={ index }
+										notice={ msg.notice }
+									/>
+								);
+							}
+							const text = extractText( msg );
+							if ( isSuperdavCreditBalanceNotice( text ) ) {
+								return (
+									<AccountActionSystemMessage
+										key={ index }
+										notice={
+											buildSuperdavCreditNoticeMessage(
+												providers
+											).notice
+										}
+									/>
+								);
+							}
 							return (
-								<SystemMessage
-									key={ index }
-									text={
-										msg.notice?.[ 0 ] || extractText( msg )
-									}
-								/>
+								<SystemMessage key={ index } text={ text } />
 							);
 						}
 						return null;

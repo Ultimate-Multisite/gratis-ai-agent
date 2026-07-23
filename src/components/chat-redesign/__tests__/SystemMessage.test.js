@@ -61,7 +61,7 @@ describe( 'AccountActionSystemMessage', () => {
 	test( 'renders Superdav credit notices as account actions', async () => {
 		const { container, root } = await renderAccountActionSystemMessage( {
 			notice: [
-				"You're almost ready to continue. Add payment information to your Superdav account to keep using Superdav Chat Pro.",
+				"You've used all of your available Superdav credits. Purchase more credits in your account settings to continue using Superdav Chat Pro.",
 				'https://account.example.test/login',
 			],
 		} );
@@ -70,7 +70,7 @@ describe( 'AccountActionSystemMessage', () => {
 			container.querySelector( '.sdaa-cr-msg-system--account-action' )
 		).not.toBeNull();
 		expect( container.textContent ).toContain(
-			"You're almost ready to continue"
+			'Purchase more credits in your account settings'
 		);
 		expect( container.textContent ).not.toMatch(
 			/\b(error|rejected|insufficient)\b/i
@@ -81,7 +81,9 @@ describe( 'AccountActionSystemMessage', () => {
 		expect( action.getAttribute( 'href' ) ).toBe(
 			'https://account.example.test/login'
 		);
-		expect( action.textContent ).toBe( 'Add payment information' );
+		expect( action.getAttribute( 'target' ) ).toBe( '_blank' );
+		expect( action.getAttribute( 'rel' ) ).toBe( 'noopener noreferrer' );
+		expect( action.textContent ).toBe( 'Purchase credits' );
 
 		await act( async () => {
 			root.unmount();

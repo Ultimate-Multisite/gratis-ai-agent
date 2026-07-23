@@ -883,6 +883,9 @@ input[type="text"].sdaa-cr-search-input {
 	padding: 10px 14px;
 	border-radius: var(--sdaa-radius-md);
 	font-size: 13px;
+	line-height: 1.55;
+	white-space: pre-wrap;
+	overflow-wrap: anywhere;
 }
 
 .sdaa-cr-msg-system--account-action {
@@ -892,7 +895,8 @@ input[type="text"].sdaa-cr-search-input {
 }
 
 .sdaa-cr-msg-system-action {
-	display: inline-flex;
+	display: flex;
+	width: fit-content;
 	align-items: center;
 	justify-content: center;
 	margin-top: 10px;
