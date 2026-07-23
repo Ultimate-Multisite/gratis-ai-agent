@@ -148,14 +148,19 @@ The review team reads these. Be specific:
 
 ```
 SD AI Agent is an agentic AI assistant for WordPress built on the official
-WordPress 7.0 AI Client SDK and Abilities API. It requires a connector plugin
-(e.g., the OpenAI connector) to function — it does not bundle any AI provider
-credentials or make API calls without explicit user configuration.
+WordPress 7.0 AI Client SDK and Abilities API. It includes the Superdav AI
+managed service and also supports separately configured connector plugins (for
+example, an OpenAI connector). The plugin does not bundle AI provider
+credentials.
 
-External API calls: The plugin calls the user's configured AI provider endpoint
-(OpenAI, Anthropic, or any OpenAI-compatible URL). The endpoint URL and API key
-are entered by the site administrator in Settings > AI Credentials. No data is
-sent to any third-party server controlled by the plugin author.
+External API calls: During activation, the included Superdav AI managed service
+registers the site installation and sends a durable installation ID, site URL,
+plugin version, and WordPress version to Superdav AI. When an administrator
+selects that service for AI responses, it receives the conversation messages,
+system prompt, attached files (if any), and tool definitions needed to generate
+a reply. Separately configured provider connectors send AI requests to the
+provider endpoint selected by the administrator; their endpoint URL and API key
+are configured by the site administrator in Settings > AI Credentials.
 
 This zip is built with `bin/build.sh --target=wporg` (alias of
 `--target=core`). Advanced features that are not permitted in the WordPress.org
@@ -355,7 +360,7 @@ cp /path/to/superdav-ai-agent-repo/.wordpress-org/assets/icon-256x256.png    ass
 cp /path/to/superdav-ai-agent-repo/.wordpress-org/assets/screenshot-1.png assets/screenshot-1.png
 # … repeat for each screenshot
 
-svn add assets/*
+svn add --force assets
 svn commit -m "Add plugin assets (banner, icon, screenshots)" \
     --username YOUR_WP_USERNAME
 ```

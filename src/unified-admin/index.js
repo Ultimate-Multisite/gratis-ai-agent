@@ -3,6 +3,7 @@
  */
 import { createRoot, useState, useEffect, Suspense } from '@wordpress/element';
 import { Notice, Spinner } from '@wordpress/components';
+import { __ } from '@wordpress/i18n';
 
 /**
  * Internal dependencies
@@ -66,7 +67,10 @@ function UnifiedAdminApp() {
 			( item ) => item.slug === baseRoute
 		);
 		if ( currentItem ) {
-			document.title = `${ currentItem.label } - SD AI Agent`;
+			document.title = `${ currentItem.label } - ${ __(
+				'SD AI Agent',
+				'superdav-ai-agent'
+			) }`;
 		}
 
 		// Sync WordPress admin submenu highlight with the current hash route.
