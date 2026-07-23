@@ -20,6 +20,8 @@ use SdAiAgent\Admin\ThirdPartyAbilityNoticeHandler;
 use SdAiAgent\Admin\UnifiedAdminMenu;
 use SdAiAgent\Core\ActiveJobsCleanupService;
 use SdAiAgent\Core\Database;
+use SdAiAgent\Core\SuperdavSiteConnectionService;
+use SdAiAgent\Infrastructure\AiClient\Superdav\SuperdavAiProvider;
 use XWP\DI\Decorators\Action;
 use XWP\DI\Decorators\Filter;
 use XWP\DI\Decorators\Handler;
@@ -64,6 +66,7 @@ final class AdminHandler {
 		UnifiedAdminMenu::handleLegacyRedirects();
 		ThirdPartyAbilityNoticeHandler::handle_dismiss();
 		DefaultModelNoticeHandler::handle_dismiss();
+		$this->enqueue_superdav_connector_card();
 	}
 
 	/**
@@ -92,6 +95,70 @@ final class AdminHandler {
 	#[Action( tag: 'admin_enqueue_scripts', priority: 10 )]
 	public function enqueue_admin_assets( string $hook_suffix ): void {
 		FloatingWidget::enqueue_assets_admin( $hook_suffix );
+	}
+
+	/**
+	 * Enqueue the custom card only on the WordPress Connectors screen.
+	 */
+	public function enqueue_superdav_connector_card(): void {
+		if ( ! $this->is_connectors_screen() || ! function_exists( 'wp_register_script_module' ) ) {
+			return;
+		}
+
+		$asset_path = SD_AI_AGENT_DIR . '/build/superdav-connector-card.js';
+		if ( ! file_exists( $asset_path ) ) {
+			return;
+		}
+
+		wp_register_script_module(
+			'@sd-ai-agent/superdav-connector-card',
+			SD_AI_AGENT_URL . 'build/superdav-connector-card.js',
+			array(
+				array(
+					'id'     => '@wordpress/connectors',
+					'import' => 'static',
+				),
+			),
+			(string) filemtime( $asset_path )
+		);
+		wp_enqueue_script_module( '@sd-ai-agent/superdav-connector-card' );
+		add_filter( 'script_module_data_@sd-ai-agent/superdav-connector-card', array( $this, 'get_superdav_connector_card_data' ) );
+	}
+
+	/**
+	 * Return safe initial card data.
+	 *
+	 * @param array<string, mixed> $data Existing script-module data.
+	 * @return array<string, mixed>
+	 */
+	public function get_superdav_connector_card_data( array $data ): array {
+		return array_merge(
+			$data,
+			array(
+				'providerId'      => SuperdavAiProvider::PROVIDER_ID,
+				'name'            => __( 'Superdav AI', 'superdav-ai-agent' ),
+				'description'     => __( 'Managed AI models and account credits for Superdav AI Agent.', 'superdav-ai-agent' ),
+				'account'         => ( new SuperdavSiteConnectionService() )->get_status(),
+				'accountEndpoint' => rest_url( 'sd-ai-agent/v1/superdav-account' ),
+				'nonce'           => wp_create_nonce( 'wp_rest' ),
+				'settingsUrl'     => admin_url( 'admin.php?page=sd-ai-agent#/settings' ),
+			)
+		);
+	}
+
+	/**
+	 * Check core and Gutenberg Connectors screen IDs.
+	 */
+	private function is_connectors_screen(): bool {
+		global $pagenow;
+
+		if ( 'options-connectors.php' === $pagenow ) {
+			return true;
+		}
+
+		$screen = get_current_screen();
+
+		return $screen && in_array( $screen->id, array( 'options-connectors', 'settings_page_options-connectors-wp-admin' ), true );
 	}
 
 	/**
