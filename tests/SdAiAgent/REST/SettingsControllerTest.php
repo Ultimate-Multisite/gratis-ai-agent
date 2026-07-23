@@ -432,16 +432,18 @@ final class SettingsControllerTest extends WP_UnitTestCase {
 							array(
 								'data' => array(
 									array(
-									'id'                => 'superdav-chat-fast',
-									'name'              => 'Superdav Chat Fast',
+										'id'                => 'superdav-chat-fast',
+										'name'              => 'Superdav Chat Fast',
 										'context_length'    => 128000,
 										'max_output_length' => 8192,
+										'capabilities'      => array( 'text_generation' ),
 									),
 									array(
-									'id'                => 'superdav-chat-pro',
-									'name'              => 'Superdav Chat Pro',
+										'id'                => 'superdav-chat-pro',
+										'name'              => 'Superdav Chat Pro',
 										'context_length'    => 200000,
 										'max_output_length' => 16384,
+										'capabilities'      => array( 'text_generation' ),
 									),
 								),
 							)
