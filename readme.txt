@@ -8,13 +8,26 @@ Stable tag: 1.19.0
 License: GPL-2.0-or-later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
-Turn everyday WordPress work into guided conversations. Superdav AI Agent helps administrators create and improve content, find site information, and run repeatable workflows using the AI provider they choose.
+Your AI teammate for WordPress. Fix, publish, optimise, and run your existing site from one assistant — using the AI provider you choose.
 
 == Description ==
 
-Superdav AI Agent puts an AI workspace inside WordPress admin. Instead of moving between your editor, settings screens, content library, and documentation, you can ask for help in one place. The agent can use the tools available on your site to draft and improve content, search site knowledge, review site information, and help run repeatable workflows.
+Superdav AI Agent helps you get practical work done on the WordPress site you already have. Ask it to improve a page, prepare a product, review site health, create content, find information, or run a repeatable workflow. It works from one workspace inside WordPress admin, rather than sending you between editors, settings screens, content libraries, and documentation.
 
-**Choose your provider and stay in control.** Connect a compatible WordPress AI provider, select a model, and use your own credentials. AI requests go from your WordPress site to the provider you configure; the plugin does not add a relay or usage markup. See **External Services** below for the data each optional integration receives and when it is contacted.
+**Your provider, your key, your data.** Connect a compatible WordPress AI provider, select a model, and use your own credentials. AI requests go from your WordPress site to the provider you configure; the plugin does not add a relay or usage markup. See **External Services** below for the data each optional integration receives and when it is contacted.
+
+= Start with a useful job =
+
+Choose a focused task that produces a result you can review:
+
+* **Improve a page** — review existing content, identify SEO opportunities, and prepare targeted updates. If you connect Google Search Console, the agent can use its performance data as part of the review.
+* **Publish faster** — draft or improve a post or page, organise it, add media, and prepare it for your editorial review.
+* **Review my site** — inspect site health and available site information, then use the findings to decide what to address next.
+* **Run recurring work** — create scheduled or event-driven workflows for routine reporting, moderation, and follow-up tasks.
+
+= Review consequential changes before they happen =
+
+The default experience keeps you in control. Use read-only or scoped tool profiles, disable tools that are not appropriate for your site, and require confirmation before consequential actions run. Conversation history and tool activity help you review what the agent did.
 
 = What you can do =
 
@@ -24,9 +37,9 @@ Superdav AI Agent puts an AI workspace inside WordPress admin. Instead of moving
 * **Keep control of actions** — choose a tool profile, disable tools you do not want available, and configure actions to run automatically or require confirmation.
 * **See how work was done** — keep conversation history, review tool activity, export conversations, and check token usage and estimated provider costs.
 
-= Designed for WordPress administrators =
+= Works with your existing WordPress site =
 
-Start with the full chat workspace at **Tools > Superdav AI Agent**, or open the compact widget from another admin screen. The plugin is useful on its own and can discover additional abilities registered by compatible WordPress plugins, so its available tools can grow with your site.
+Keep your existing theme, builder, plugins, and provider choice. Start with the full chat workspace at **Tools > Superdav AI Agent**, or open the compact widget from another admin screen. When compatible WordPress plugins register abilities, Superdav AI Agent can discover those additional tools for use on your site.
 
 = Before you start =
 
@@ -233,7 +246,7 @@ Superdav AI Agent uses the native WordPress AI Client SDK and Abilities API. The
 
 1. Full-page workspace for conversations, session history, folders, search, and exports.
 2. Tools settings for configuring custom tools and controlling agent access.
-3. Settings for providers, models, access, skills, usage, and advanced controls.
+3. Provider and safety settings, including confirmation controls for consequential actions.
 
 == Changelog ==
 
