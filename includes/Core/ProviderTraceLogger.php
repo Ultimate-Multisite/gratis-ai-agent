@@ -444,6 +444,35 @@ class ProviderTraceLogger {
 		AgentEventLog::log( 'provider_payload_limit', AgentEventLog::SEVERITY_ERROR, $context );
 	}
 
+	/**
+	 * Emit prompt-free model discovery diagnostics even when HTTP tracing is disabled.
+	 *
+	 * @param string $provider_id Provider ID.
+	 * @param string $category    Normalized failure category.
+	 * @param int    $status_code HTTP status code, or 0 when unavailable.
+	 * @param int    $attempts    Number of model listing attempts.
+	 * @param int    $duration_ms Discovery duration in milliseconds.
+	 */
+	public static function record_model_discovery_failure( string $provider_id, string $category, int $status_code, int $attempts, int $duration_ms ): void {
+		$allowed_categories = array( 'client', 'transport', 'unauthorized', 'unknown', 'upstream', 'wp_error' );
+		$category           = sanitize_key( $category );
+		if ( ! in_array( $category, $allowed_categories, true ) ) {
+			$category = 'unknown';
+		}
+
+		$context = array(
+			'provider_id' => sanitize_key( $provider_id ),
+			'code'        => $category,
+			'attempts'    => max( 1, $attempts ),
+			'duration_ms' => max( 0, $duration_ms ),
+		);
+		if ( $status_code > 0 ) {
+			$context['status_code'] = $status_code;
+		}
+
+		AgentEventLog::log( 'provider_model_discovery_failed', AgentEventLog::SEVERITY_ERROR, $context );
+	}
+
 	/** Classify request size without retaining request content. */
 	public static function classify_request_size( int $request_bytes ): string {
 		if ( $request_bytes < 65536 ) {

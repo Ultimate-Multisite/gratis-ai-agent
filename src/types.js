@@ -59,14 +59,26 @@
  */
 
 /**
+ * A scrubbed model-discovery failure state.
+ *
+ * @typedef {Object} ModelDiscoveryFailure
+ * @property {'retryable_unavailable'|'unavailable'} state     Current discovery state.
+ * @property {string}                                code      Normalized failure code.
+ * @property {boolean}                               retryable Whether refresh may recover.
+ * @property {number}                                attempts  Model listing attempts.
+ * @property {number}                                [status]  Safe HTTP status when available.
+ */
+
+/**
  * An AI provider configuration.
  *
  * @typedef {Object} Provider
- * @property {string}          id              - Provider identifier.
- * @property {string}          name            - Human-readable provider name.
- * @property {string}          [default_model] - Provider-preferred default model ID.
- * @property {ProviderModel[]} [models]        - Available models for this provider.
- * @property {Object}          [status]        - Provider-specific safe status metadata.
+ * @property {string}                id                - Provider identifier.
+ * @property {string}                name              - Human-readable provider name.
+ * @property {string}                [default_model]   - Provider-preferred default model ID.
+ * @property {ProviderModel[]}       [models]          - Available models for this provider.
+ * @property {Object}                [status]          - Provider-specific safe status metadata.
+ * @property {ModelDiscoveryFailure} [model_discovery] - Safe discovery failure metadata.
  */
 
 /**

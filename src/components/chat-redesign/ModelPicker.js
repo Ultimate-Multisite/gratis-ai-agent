@@ -36,7 +36,8 @@ export default function ModelPicker() {
 		},
 		[]
 	);
-	const { setSelectedProvider, setSelectedModel } = useDispatch( STORE_NAME );
+	const { setSelectedProvider, setSelectedModel, fetchProviders } =
+		useDispatch( STORE_NAME );
 	const [ open, setOpen ] = useState( false );
 	const [ pos, setPos ] = useState( {
 		left: 0,
@@ -153,6 +154,10 @@ export default function ModelPicker() {
 		return null;
 	}
 
+	const unavailableLabel = __(
+		'(models unavailable; retry)',
+		'superdav-ai-agent'
+	);
 	const pick = ( providerId, modelId ) => {
 		if ( providerId !== selectedProviderId ) {
 			setSelectedProvider( providerId );
@@ -224,7 +229,12 @@ export default function ModelPicker() {
 				ref={ chipRef }
 				type="button"
 				className="sdaa-cr-model-chip"
-				onClick={ () => setOpen( ( v ) => ! v ) }
+				onClick={ () =>
+					! activeProvider.models?.length &&
+					activeProvider.model_discovery
+						? fetchProviders()
+						: setOpen( ( v ) => ! v )
+				}
 				aria-haspopup="menu"
 				aria-expanded={ open }
 				title={ __( 'Change model', 'sd-ai-agent' ) }
@@ -235,7 +245,9 @@ export default function ModelPicker() {
 				<span className="sdaa-cr-model-chip-model">
 					{ activeModel?.name ||
 						activeModel?.id ||
-						__( '(default)', 'sd-ai-agent' ) }
+						( activeProvider.model_discovery
+							? unavailableLabel
+							: __( '(default)', 'sd-ai-agent' ) ) }
 				</span>
 				<Icon icon={ chevronDown } size={ 14 } />
 			</button>
