@@ -267,6 +267,9 @@ class AbilityFunctionResolver extends \WP_AI_Client_Ability_Function_Resolver {
 			// Extract it here so the model can report the error location
 			// to the user instead of a bare message.
 			$error_data = $result->get_error_data();
+			if ( 'sd-ai-agent/update-blocks' === $ability_name && is_array( $error_data ) ) {
+				$response_data['details'] = self::update_blocks_error_details( $error_data );
+			}
 			if ( is_array( $error_data ) && isset( $error_data['exception_file'] ) ) {
 				$response_data['error_context'] = sprintf(
 					'%s:%d',
@@ -448,6 +451,26 @@ class AbilityFunctionResolver extends \WP_AI_Client_Ability_Function_Resolver {
 		ModelHealthTracker::record_validation_error();
 
 		return $response_data;
+	}
+
+	/**
+	 * Keep safe update-blocks error details in the model-visible tool response.
+	 *
+	 * Generic WP_Error data may contain implementation-specific context, so this
+	 * deliberately serializes only the batch fields required for self-repair.
+	 *
+	 * @param array<string,mixed> $error_data Update-blocks WP_Error data.
+	 * @return array<string,mixed>
+	 */
+	private static function update_blocks_error_details( array $error_data ): array {
+		$details = [];
+		foreach ( [ 'status', 'errors', 'recovery_hints', 'current_revision_id', 'expected_revision' ] as $key ) {
+			if ( array_key_exists( $key, $error_data ) ) {
+				$details[ $key ] = $error_data[ $key ];
+			}
+		}
+
+		return $details;
 	}
 
 	/**

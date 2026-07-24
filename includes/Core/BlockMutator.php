@@ -262,11 +262,7 @@ class BlockMutator {
 
 		foreach ( $updates as $idx => $update ) {
 			if ( ! is_array( $update ) ) {
-				$errors[] = [
-					'index'   => $idx,
-					'code'    => 'invalid_update',
-					'message' => 'Each update must be an object/array.',
-				];
+				$errors[] = self::batch_error( $idx, 'invalid_update', 'Each update must be an object/array.' );
 				continue;
 			}
 
@@ -274,26 +270,23 @@ class BlockMutator {
 
 			// Validate op name.
 			if ( ! in_array( $op, self::VALID_OPS, true ) ) {
-				$errors[] = [
-					'index'   => $idx,
-					'code'    => 'invalid_op',
-					'message' => sprintf(
+				$errors[] = self::batch_error(
+					$idx,
+					'invalid_op',
+					sprintf(
 						"Unknown operation '%s'. Valid ops: %s.",
 						$op,
 						implode( ', ', self::VALID_OPS )
 					),
-				];
+					$update
+				);
 				continue;
 			}
 
 			// Resolve target address against the ORIGINAL tree.
 			$path = BlockTreeAddress::resolve( $blocks, $update );
 			if ( is_wp_error( $path ) ) {
-				$errors[] = [
-					'index'   => $idx,
-					'code'    => $path->get_error_code(),
-					'message' => $path->get_error_message(),
-				];
+				$errors[] = self::batch_error( $idx, (string) $path->get_error_code(), $path->get_error_message(), $update );
 				continue;
 			}
 
@@ -305,15 +298,16 @@ class BlockMutator {
 					continue;
 				}
 
-				$errors[] = [
-					'index'   => $idx,
-					'code'    => 'duplicate_target',
-					'message' => sprintf(
+				$errors[] = self::batch_error(
+					$idx,
+					'duplicate_target',
+					sprintf(
 						'Block at path [%s] is already targeted by update %d. Last-write-wins is rejected; split into separate calls.',
 						$path_key,
 						$resolved_paths[ $path_key ]
 					),
-				];
+					$update
+				);
 				continue;
 			}
 
@@ -366,11 +360,7 @@ class BlockMutator {
 			$result = self::apply( $working_tree, $op, $args );
 
 			if ( is_wp_error( $result ) ) {
-				$errors[] = [
-					'index'   => $idx,
-					'code'    => $result->get_error_code(),
-					'message' => $result->get_error_message(),
-				];
+				$errors[] = self::batch_error( $idx, (string) $result->get_error_code(), $result->get_error_message(), $update_arr );
 			} else {
 				// Carry forward mutations: subsequent ops see this op's result.
 				$working_tree = array_values( $result );
@@ -389,6 +379,44 @@ class BlockMutator {
 		}
 
 		return $working_tree;
+	}
+
+	/**
+	 * Build a safe, itemized error record for a failed batch update.
+	 *
+	 * The model needs the original operation and addressing context to repair a
+	 * rejected batch. Only the address selectors are copied; operation payloads
+	 * such as HTML and attributes remain out of the error response.
+	 *
+	 * @param int|string          $index   Update index in the submitted batch.
+	 * @param string              $code    Stable failure code.
+	 * @param string              $message Human-readable failure description.
+	 * @param array<string,mixed> $update  Submitted update, when available.
+	 * @return array<string,mixed>
+	 */
+	private static function batch_error( int|string $index, string $code, string $message, array $update = [] ): array {
+		$error = [
+			'index'   => $index,
+			'code'    => $code,
+			'message' => $message,
+		];
+
+		if ( isset( $update['op'] ) && is_string( $update['op'] ) ) {
+			$error['op'] = $update['op'];
+		}
+
+		if ( isset( $update['ref'] ) && is_string( $update['ref'] ) ) {
+			$error['ref'] = $update['ref'];
+		} elseif ( isset( $update['path'] ) && is_array( $update['path'] ) ) {
+			$path = array_values( $update['path'] );
+			if ( $path === array_filter( $path, 'is_int' ) ) {
+				$error['path'] = $path;
+			}
+		} elseif ( isset( $update['flat_index'] ) && is_int( $update['flat_index'] ) ) {
+			$error['flat_index'] = $update['flat_index'];
+		}
+
+		return $error;
 	}
 
 	// ── Rewrite (full-page replace) ──────────────────────────────────────

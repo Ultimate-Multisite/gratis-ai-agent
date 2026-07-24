@@ -322,6 +322,8 @@ class BlockMutatorBatchTest extends WP_UnitTestCase {
 		// The error should reference index 2 (the failing item).
 		$failing_indices = array_column( $errors, 'index' );
 		$this->assertContains( 2, $failing_indices );
+		$this->assertSame( 'update-attrs', $errors[0]['op'] );
+		$this->assertSame( 'blk_DOES_NOT_EXIST', $errors[0]['ref'] );
 	}
 
 	/**
@@ -562,6 +564,10 @@ class BlockMutatorBatchTest extends WP_UnitTestCase {
 
 		$this->assertInstanceOf( \WP_Error::class, $result );
 		$this->assertSame( 'batch_validation_failed', $result->get_error_code() );
+		$this->assertContains(
+			'Re-run sd-ai-agent/get-page-blocks with persist_refs:true, then retry using a current ref or path.',
+			$result->get_error_data()['recovery_hints']
+		);
 
 		// Zero revisions.
 		$revisions_after = count( wp_get_post_revisions( $post_id ) );
@@ -570,6 +576,68 @@ class BlockMutatorBatchTest extends WP_UnitTestCase {
 		// Zero changes to post_content.
 		$content_after = get_post( $post_id )->post_content;
 		$this->assertSame( $content_before, $content_after );
+	}
+
+	/**
+	 * A stale expected revision explains how to fetch a current retry token.
+	 */
+	public function test_handler_stale_revision_includes_recovery_hint(): void {
+		$post_id = $this->create_post_with_blocks( [
+			$this->make_ref_block( 'core/paragraph', 'blk_revision_hint', [], '<p>Original</p>' ),
+		] );
+
+		$result = BlockAbilities::handle_update_blocks( [
+			'post_id'           => $post_id,
+			'expected_revision' => 999999,
+			'updates'           => [
+				[
+					'op'        => 'update-html',
+					'ref'       => 'blk_revision_hint',
+					'innerHTML' => '<p>Changed</p>',
+				],
+			],
+		] );
+
+		$this->assertInstanceOf( \WP_Error::class, $result );
+		$this->assertSame( 'stale_revision', $result->get_error_code() );
+		$this->assertContains(
+			'Re-run sd-ai-agent/get-page-blocks for this post, then retry with its revision_id as expected_revision.',
+			$result->get_error_data()['recovery_hints']
+		);
+	}
+
+	/**
+	 * Preflight tier policy failures keep item context for model repair.
+	 */
+	public function test_handler_preflight_tier_policy_failure_is_itemized(): void {
+		$post_id = $this->create_post_with_blocks( [
+			$this->make_ref_block( 'core/group', 'blk_policy_parent', [], '' ),
+		] );
+
+		$result = BlockAbilities::handle_update_blocks( [
+			'post_id' => $post_id,
+			'updates' => [
+				[
+					'op'        => 'insert-child',
+					'ref'       => 'blk_policy_parent',
+					'block_def' => [
+						'blockName' => 'core/freeform',
+						'attrs'     => [],
+						'innerHTML' => 'legacy block',
+					],
+				],
+			],
+		] );
+
+		$this->assertInstanceOf( \WP_Error::class, $result );
+		$this->assertSame( 'batch_validation_failed', $result->get_error_code() );
+
+		$data = $result->get_error_data();
+		$this->assertArrayHasKey( 'errors', $data );
+		$this->assertSame( 0, $data['errors'][0]['index'] );
+		$this->assertSame( 'legacy_block', $data['errors'][0]['code'] );
+		$this->assertSame( 'insert-child', $data['errors'][0]['op'] );
+		$this->assertSame( 'blk_policy_parent', $data['errors'][0]['ref'] );
 	}
 
 	/**

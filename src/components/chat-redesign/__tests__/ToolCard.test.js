@@ -49,4 +49,70 @@ describe( 'ToolCard', () => {
 		expect( html ).toContain( 'block_counts' );
 		expect( html ).toContain( 'core/paragraph' );
 	} );
+
+	test( 'renders itemized validation errors and recovery hints', () => {
+		const html = renderToStaticMarkup(
+			createElement( ToolCard, {
+				call: {
+					id: 'tool-2',
+					name: 'sd-ai-agent/update-blocks',
+					args: {},
+				},
+				response: {
+					id: 'tool-2',
+					response: {
+						error: 'One or more updates failed pre-flight validation.',
+						details: {
+							errors: [
+								{
+									index: 2,
+									code: 'block_not_found',
+									message: 'No block matched ref blk_stale.',
+								},
+							],
+							recovery_hints: [
+								'Re-run get-page-blocks before retrying.',
+							],
+						},
+					},
+				},
+				defaultOpen: true,
+			} )
+		);
+
+		expect( html ).toContain( 'Validation errors' );
+		expect( html ).toContain( '#2 block_not_found:' );
+		expect( html ).toContain( 'No block matched ref blk_stale.' );
+		expect( html ).toContain( 'Re-run get-page-blocks before retrying.' );
+	} );
+
+	test( 'renders recovery hints without itemized validation errors', () => {
+		const html = renderToStaticMarkup(
+			createElement( ToolCard, {
+				call: {
+					id: 'tool-3',
+					name: 'sd-ai-agent/update-blocks',
+					args: {},
+				},
+				response: {
+					id: 'tool-3',
+					response: {
+						error: 'The post has changed since it was read.',
+						details: {
+							recovery_hints: [
+								'Re-run get-page-blocks with the current revision.',
+							],
+						},
+					},
+				},
+				defaultOpen: true,
+			} )
+		);
+
+		expect( html ).toContain( 'Recovery hints' );
+		expect( html ).toContain(
+			'Re-run get-page-blocks with the current revision.'
+		);
+		expect( html ).not.toContain( 'Validation errors' );
+	} );
 } );
