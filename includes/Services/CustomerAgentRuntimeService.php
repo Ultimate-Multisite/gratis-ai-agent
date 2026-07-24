@@ -511,7 +511,7 @@ class CustomerAgentRuntimeService implements CustomerAgentRuntimeInterface {
 
 	/** @return array{conversation_id:string,status:string,recovered:bool,expires_at:string}|WP_Error */
 	private function create_or_recover_conversation_locked( string $integration_key, string $external_session_id ): array|WP_Error {
-		$profile = $this->resolve_integration( $integration_key );
+		$profile = $this->resolve_integration( $integration_key, true );
 		if ( is_wp_error( $profile ) ) {
 			return $profile;
 		}
@@ -570,7 +570,7 @@ class CustomerAgentRuntimeService implements CustomerAgentRuntimeInterface {
 	 * @return array{conversation_id:string,job_id:string,status:string,created:bool,expires_at:string}|WP_Error
 	 */
 	private function enqueue_turn_locked( string $integration_key, string $external_session_id, string $external_message_id, string $message, array $request_context ): array|WP_Error {
-		$profile = $this->resolve_integration( $integration_key );
+		$profile = $this->resolve_integration( $integration_key, true );
 		if ( is_wp_error( $profile ) ) {
 			return $profile;
 		}
@@ -863,26 +863,9 @@ class CustomerAgentRuntimeService implements CustomerAgentRuntimeInterface {
 		if ( null === $job ) {
 			return;
 		}
-		$profile_snapshot = $this->decode_object( (string) $job['profile_snapshot'] );
-		$integration_key  = isset( $profile_snapshot['integration_key'] ) && is_string( $profile_snapshot['integration_key'] )
-			? $profile_snapshot['integration_key']
-			: '';
-		if ( '' === $integration_key ) {
-			$this->process_job_locked( $job_id );
-			return;
-		}
-
-		$lock_name = $this->acquire_integration_lock( $integration_key );
-		if ( is_wp_error( $lock_name ) ) {
-			$this->reschedule_locked_job( $job_id );
-			return;
-		}
-
-		try {
-			$this->process_job_locked( $job_id );
-		} finally {
-			$this->release_integration_lock( $lock_name );
-		}
+		// Claiming the queued row is the concurrency guard for normal execution.
+		// Lifecycle mutations retain their separate integration lock.
+		$this->process_job_locked( $job_id );
 	}
 
 	/** Run one customer job while its integration lifecycle lock is held. */
@@ -1027,7 +1010,7 @@ class CustomerAgentRuntimeService implements CustomerAgentRuntimeInterface {
 	 *
 	 * @return RuntimeProfile|WP_Error
 	 */
-	private function resolve_integration( string $integration_key ): array|WP_Error {
+	private function resolve_integration( string $integration_key, bool $require_ready = false ): array|WP_Error {
 		$integration_key = $this->normalize_integration_key( $integration_key );
 		if ( is_wp_error( $integration_key ) ) {
 			return $integration_key;
@@ -1046,19 +1029,22 @@ class CustomerAgentRuntimeService implements CustomerAgentRuntimeInterface {
 				);
 			}
 
-			$status = $this->profile_status( $integration_key );
-			if ( is_wp_error( $status ) ) {
-				return $status;
+			$metadata    = $agent->managed_profile_metadata;
+			$collections = array_values(
+				array_intersect(
+					$this->sanitize_string_list( $metadata['managed_collections'] ?? array(), true ),
+					$this->sanitize_string_list( $metadata['approved_collections'] ?? array(), true )
+				)
+			);
+			if ( $require_ready ) {
+				$status = $this->profile_status( $integration_key );
+				if ( is_wp_error( $status ) ) {
+					return $status;
+				}
+				if ( empty( $status['ready'] ) ) {
+					return $this->profile_readiness_error( $status );
+				}
 			}
-			if ( empty( $status['ready'] ) ) {
-				return $this->profile_readiness_error( $status );
-			}
-
-			$metadata     = $agent->managed_profile_metadata;
-			$capabilities = isset( $status['capabilities'] ) && is_array( $status['capabilities'] ) ? $status['capabilities'] : array();
-			$collections  = isset( $capabilities['collections'] ) && is_array( $capabilities['collections'] )
-				? $this->sanitize_string_list( $capabilities['collections'], true )
-				: array();
 
 			return array(
 				'profile_id'           => 'managed:' . $integration_key,
@@ -1316,7 +1302,6 @@ class CustomerAgentRuntimeService implements CustomerAgentRuntimeInterface {
 	 * @param array  $spec                 Managed profile specification.
 	 * @param array  $approved_collections Current operator-approved collection slugs.
 	 * @phpstan-param ManagedProfileSpec $spec
-	 * @phpstan-param list<string> $approved_collections
 	 * @phpstan-param list<string> $approved_collections
 	 * @return array<string,mixed>
 	 */
@@ -1731,6 +1716,9 @@ class CustomerAgentRuntimeService implements CustomerAgentRuntimeInterface {
 			if ( null === $handoff ) {
 				$handoff = $this->normalise_handoff( $decoded['handoff'] ?? null );
 			}
+		} elseif ( is_array( $decoded ) ) {
+			$handoff = $handoff ?? $this->normalise_handoff( $decoded['handoff'] ?? null );
+			$reply   = __( 'Sorry, that response could not be prepared. Please try again or ask for human support.', 'superdav-ai-agent' );
 		}
 
 		return array(

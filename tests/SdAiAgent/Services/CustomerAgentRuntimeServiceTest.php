@@ -11,6 +11,7 @@ declare(strict_types=1);
 namespace SdAiAgent\Tests\Services;
 
 use SdAiAgent\Core\Database;
+use SdAiAgent\Knowledge\KnowledgeDatabase;
 use SdAiAgent\Models\Agent;
 use SdAiAgent\Models\CustomerAgentRuntimeRepository;
 use SdAiAgent\Services\CustomerAgentRuntimeService;
@@ -34,6 +35,13 @@ class CustomerAgentRuntimeServiceTest extends WP_UnitTestCase {
 		delete_option( Database::DB_VERSION_OPTION );
 		Database::install();
 		$this->delete_runtime_rows();
+		KnowledgeDatabase::create_collection(
+			array(
+				'name'        => 'Support Docs',
+				'slug'        => 'support-docs',
+				'description' => 'Customer-agent runtime test knowledge collection.',
+			)
+		);
 		$this->executor_runs = 0;
 		$this->service       = new CustomerAgentRuntimeService(
 			function (): array {
@@ -303,6 +311,27 @@ class CustomerAgentRuntimeServiceTest extends WP_UnitTestCase {
 		$this->assertSame( 12, $one['token_usage']['prompt'] );
 	}
 
+	/** Existing jobs remain readable and cancellable after a managed profile becomes unready. */
+	public function test_existing_job_remains_accessible_after_profile_is_disabled(): void {
+		$this->managed_profile_keys[] = self::INTEGRATION;
+		$profile                      = $this->service->ensure_profile( self::INTEGRATION, $this->managed_profile_spec() );
+		$this->assertNotInstanceOf( WP_Error::class, $profile );
+		$this->assertTrue( $profile['ready'] );
+
+		$job = $this->service->enqueue_turn( self::INTEGRATION, 'customer-session-disabled', 'message-disabled', 'Please help.' );
+		$this->assertNotInstanceOf( WP_Error::class, $job );
+		$disabled = $this->service->disable_profile( self::INTEGRATION );
+		$this->assertNotInstanceOf( WP_Error::class, $disabled );
+
+		$status = $this->service->inspect_job( self::INTEGRATION, 'customer-session-disabled', $job['job_id'] );
+		$this->assertNotInstanceOf( WP_Error::class, $status );
+		$this->assertSame( 'queued', $status['status'] );
+
+		$cancelled = $this->service->cancel_job( self::INTEGRATION, 'customer-session-disabled', $job['job_id'] );
+		$this->assertNotInstanceOf( WP_Error::class, $cancelled );
+		$this->assertSame( 'cancelled', $cancelled['status'] );
+	}
+
 	/** Different integration/session keys cannot inspect another job. */
 	public function test_job_isolated_by_integration_and_external_session(): void {
 		$job = $this->service->enqueue_turn( self::INTEGRATION, 'customer-session-3', 'message-1', 'Please help.' );
@@ -477,6 +506,27 @@ class CustomerAgentRuntimeServiceTest extends WP_UnitTestCase {
 			),
 			$status['handoff']
 		);
+	}
+
+	/** Unusable structured model output must not be exposed as raw JSON. */
+	public function test_malformed_structured_reply_uses_a_customer_safe_fallback(): void {
+		$service = new CustomerAgentRuntimeService(
+			static function (): array {
+				return array(
+					'reply'       => '{"unexpected_text":"not customer-safe"}',
+					'history'     => array(),
+					'token_usage' => array(),
+				);
+			}
+		);
+
+		$job = $service->enqueue_turn( self::INTEGRATION, 'customer-session-malformed', 'message-malformed', 'Please help.' );
+		$this->assertNotInstanceOf( WP_Error::class, $job );
+		$service->process_job( $job['job_id'] );
+
+		$status = $service->inspect_job( self::INTEGRATION, 'customer-session-malformed', $job['job_id'] );
+		$this->assertNotInstanceOf( WP_Error::class, $status );
+		$this->assertSame( 'Sorry, that response could not be prepared. Please try again or ask for human support.', $status['reply'] );
 	}
 
 	/** Close purges the runtime record and makes follow-up reads impossible. */
