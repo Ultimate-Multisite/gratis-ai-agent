@@ -4,7 +4,7 @@ Tags: ai, chatbot, assistant, automation, connector
 Requires at least: 7.0
 Tested up to: 7.0
 Requires PHP: 8.2
-Stable tag: 1.19.0
+Stable tag: 1.20.0
 License: GPL-2.0-or-later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -253,6 +253,12 @@ SD AI Agent uses the native WordPress AI Client SDK and Abilities API. These API
 3. Provider and safety settings, including confirmation controls for consequential actions.
 
 == Changelog ==
+
+= 1.20.0 - Released on 2026-07-23 =
+* New: Added recoverable chat-job resume, managed Superdav connector account status, safer theme-builder pattern, design-token, and artifact workflows, and Advanced style-variation tools.
+* New: Added support for GPT-5.6 chat aliases, Superdav image edits, and OpenAI Responses tool search.
+* Improved: Improved model discovery, event tracing, tool reliability, and generated-theme safeguards.
+* Fix: Fixed chat retries and timeouts, block updates, model filtering, permissions, and account and credit notices.
 
 = 1.19.0 - Released on 2026-07-09 =
 * New: Added static documentation knowledge imports so the agent can build a searchable knowledge base from documentation sites.
