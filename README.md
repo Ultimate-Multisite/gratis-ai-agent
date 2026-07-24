@@ -285,6 +285,67 @@ The agent uses an **async job + polling** pattern to handle long-running inferen
 
 This avoids HTTP timeout issues with multi-step agentic loops that can take 30+ seconds.
 
+### Customer-agent runtime PHP contract
+
+Trusted plugins on the same WordPress install can use the versioned, server-side
+customer-agent runtime without calling `/public-chat/*`, creating browser tokens,
+or depending on `SessionController` job arrays. There is intentionally no new
+unauthenticated REST endpoint.
+
+Register a constrained profile from the consuming plugin, then discover the
+contract before use. V1 accepts only server-owned system instructions, the
+`sd-ai-agent/knowledge-search` ability, and declared knowledge collections.
+Client tools, browser tools, mutations, attachments, and caller-supplied prompts
+are unavailable.
+
+```php
+add_filter(
+	'sd_ai_agent_customer_agent_integrations',
+	static function( array $integrations ): array {
+		$integrations['ultimate-multisite-support-tickets'] = array(
+			'enabled'             => true,
+			'profile'             => 'support-customer',
+			'system_instruction'  => 'Answer customers only from the approved support knowledge base.',
+			'abilities'           => array( 'sd-ai-agent/knowledge-search' ),
+			'collections'         => array( 'support-docs' ),
+			'provider_id'         => '', // Uses the server default when empty.
+			'model_id'            => '',
+			'max_message_length'  => 4000,
+			'max_history_turns'   => 8,
+			'max_iterations'      => 6,
+			'max_runtime_seconds' => 120,
+		);
+		return $integrations;
+	}
+);
+
+$runtime = sd_ai_agent_customer_agent_runtime();
+$caps    = $runtime->discover_capabilities();
+
+if ( version_compare( $caps['contract_version'], '1.0.0', '<' ) ) {
+	return;
+}
+
+$conversation = $runtime->create_or_recover_conversation(
+	'ultimate-multisite-support-tickets',
+	$external_session_id
+);
+$job = $runtime->enqueue_turn(
+	'ultimate-multisite-support-tickets',
+	$external_session_id,
+	$external_message_id,
+	$customer_message
+);
+```
+
+`enqueue_turn()` is idempotent for the integration key, external session ID,
+and external message ID. `inspect_job()` is non-consuming: complete, failed,
+and cancelled jobs remain readable for at least seven days. `cancel_job()`
+prevents a late result from becoming deliverable, although an in-flight provider
+request may already be physically running. `close_conversation()` cancels and
+purges the constrained runtime history; the consumer remains responsible for its
+own customer transcript and routing state.
+
 ### Extending
 
 **Register custom abilities** that the agent can use:

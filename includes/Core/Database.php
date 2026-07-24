@@ -36,7 +36,7 @@ use SdAiAgent\Tools\CustomTools;
 class Database {
 
 	const DB_VERSION_OPTION = 'sd_ai_agent_db_version';
-	const DB_VERSION        = '19.5.6';
+	const DB_VERSION        = '19.6.0';
 
 	// ─── Table Name Registry ──────────────────────────────────────────────────
 
@@ -235,6 +235,24 @@ class Database {
 	}
 
 	/**
+	 * Get the durable customer-agent runtime conversations table name.
+	 */
+	public static function customer_agent_conversations_table_name(): string {
+		global $wpdb;
+		/** @var \wpdb $wpdb */
+		return $wpdb->prefix . 'sd_ai_agent_customer_agent_conversations';
+	}
+
+	/**
+	 * Get the durable customer-agent runtime jobs table name.
+	 */
+	public static function customer_agent_jobs_table_name(): string {
+		global $wpdb;
+		/** @var \wpdb $wpdb */
+		return $wpdb->prefix . 'sd_ai_agent_customer_agent_jobs';
+	}
+
+	/**
 	 * Get the skill usage table name.
 	 *
 	 * Tracks which skills are loaded per session/model and records
@@ -273,30 +291,32 @@ class Database {
 			return;
 		}
 
-		$table                        = self::table_name();
-		$usage_table                  = self::usage_table_name();
-		$memories_table               = self::memories_table_name();
-		$skills_table                 = self::skills_table_name();
-		$custom_tools_table           = self::custom_tools_table_name();
-		$automations_table            = self::automations_table_name();
-		$automation_logs_table        = self::automation_logs_table_name();
-		$approval_requests_table      = self::approval_requests_table_name();
-		$calendar_reminders_table     = self::calendar_reminders_table_name();
-		$event_automations_table      = self::event_automations_table_name();
-		$conversation_templates_table = self::conversation_templates_table_name();
-		$git_tracked_files_table      = self::git_tracked_files_table_name();
-		$changes_log_table            = self::changes_log_table_name();
-		$modified_files_table         = self::modified_files_table_name();
-		$agents_table                 = self::agents_table_name();
-		$shared_sessions_table        = self::shared_sessions_table_name();
-		$benchmark_runs_table         = self::benchmark_runs_table_name();
-		$benchmark_results_table      = self::benchmark_results_table_name();
-		$provider_trace_table         = self::provider_trace_table_name();
-		$generated_plugins_table      = self::generated_plugins_table_name();
-		$active_jobs_table            = self::active_jobs_table_name();
-		$skill_usage_table            = self::skill_usage_table_name();
-		$contact_mappings_table       = self::contact_mappings_table_name();
-		$charset                      = $wpdb->get_charset_collate();
+		$table                              = self::table_name();
+		$usage_table                        = self::usage_table_name();
+		$memories_table                     = self::memories_table_name();
+		$skills_table                       = self::skills_table_name();
+		$custom_tools_table                 = self::custom_tools_table_name();
+		$automations_table                  = self::automations_table_name();
+		$automation_logs_table              = self::automation_logs_table_name();
+		$approval_requests_table            = self::approval_requests_table_name();
+		$calendar_reminders_table           = self::calendar_reminders_table_name();
+		$event_automations_table            = self::event_automations_table_name();
+		$conversation_templates_table       = self::conversation_templates_table_name();
+		$git_tracked_files_table            = self::git_tracked_files_table_name();
+		$changes_log_table                  = self::changes_log_table_name();
+		$modified_files_table               = self::modified_files_table_name();
+		$agents_table                       = self::agents_table_name();
+		$shared_sessions_table              = self::shared_sessions_table_name();
+		$benchmark_runs_table               = self::benchmark_runs_table_name();
+		$benchmark_results_table            = self::benchmark_results_table_name();
+		$provider_trace_table               = self::provider_trace_table_name();
+		$generated_plugins_table            = self::generated_plugins_table_name();
+		$active_jobs_table                  = self::active_jobs_table_name();
+		$customer_agent_conversations_table = self::customer_agent_conversations_table_name();
+		$customer_agent_jobs_table          = self::customer_agent_jobs_table_name();
+		$skill_usage_table                  = self::skill_usage_table_name();
+		$contact_mappings_table             = self::contact_mappings_table_name();
+		$charset                            = $wpdb->get_charset_collate();
 
 		// Knowledge tables.
 		$sql = KnowledgeDatabase::get_schema( $charset );
@@ -708,6 +728,55 @@ class Database {
 			KEY session_id (session_id),
 			KEY user_id_status (user_id, status),
 			KEY status_updated_at (status, updated_at)
+		) {$charset};
+
+		CREATE TABLE {$customer_agent_conversations_table} (
+			id bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+			conversation_id varchar(36) NOT NULL,
+			integration_hash binary(64) NOT NULL,
+			external_session_hash binary(64) NOT NULL,
+			profile_id varchar(100) NOT NULL,
+			runtime_history longtext NOT NULL,
+			expires_at datetime NOT NULL,
+			created_at datetime NOT NULL,
+			updated_at datetime NOT NULL,
+			PRIMARY KEY  (id),
+			UNIQUE KEY conversation_id (conversation_id),
+			UNIQUE KEY integration_session (integration_hash, external_session_hash),
+			KEY expires_at (expires_at)
+		) {$charset};
+
+		CREATE TABLE {$customer_agent_jobs_table} (
+			id bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+			job_id varchar(36) NOT NULL,
+			conversation_id varchar(36) NOT NULL,
+			integration_hash binary(64) NOT NULL,
+			external_session_hash binary(64) NOT NULL,
+			external_message_hash binary(64) NOT NULL,
+			status varchar(20) NOT NULL DEFAULT 'queued',
+			request_payload longtext NOT NULL,
+			profile_snapshot longtext NOT NULL,
+			result_payload longtext NOT NULL,
+			error_code varchar(100) NOT NULL DEFAULT '',
+			error_message text NOT NULL DEFAULT '',
+			provider_id varchar(100) NOT NULL DEFAULT '',
+			model_id varchar(100) NOT NULL DEFAULT '',
+			iterations_used int(10) unsigned NOT NULL DEFAULT 0,
+			prompt_tokens bigint(20) unsigned NOT NULL DEFAULT 0,
+			completion_tokens bigint(20) unsigned NOT NULL DEFAULT 0,
+			started_at datetime NULL,
+			completed_at datetime NULL,
+			cancelled_at datetime NULL,
+			deadline_at datetime NOT NULL,
+			expires_at datetime NOT NULL,
+			created_at datetime NOT NULL,
+			updated_at datetime NOT NULL,
+			PRIMARY KEY  (id),
+			UNIQUE KEY job_id (job_id),
+			UNIQUE KEY integration_session_message (integration_hash, external_session_hash, external_message_hash),
+			KEY conversation_id (conversation_id),
+			KEY status_deadline (status, deadline_at),
+			KEY expires_at (expires_at)
 		) {$charset};
 
 		CREATE TABLE {$skill_usage_table} (

@@ -34,6 +34,7 @@ use SdAiAgent\Bootstrap\AiClientEventTraceHandler;
 use SdAiAgent\Bootstrap\AutomationsHandler;
 use SdAiAgent\Bootstrap\ChangeLoggingHandler;
 use SdAiAgent\Bootstrap\CliHandler;
+use SdAiAgent\Bootstrap\CustomerAgentRuntimeHandler;
 use SdAiAgent\Bootstrap\FrontendAssetsHandler;
 use SdAiAgent\Bootstrap\HealthEndpointHandler;
 use SdAiAgent\Bootstrap\HttpTraceHandler;
@@ -114,6 +115,7 @@ use XWP\DI\Decorators\Module;
 		HealthEndpointHandler::class,
 		AutomationsHandler::class,
 		OnboardingHandler::class,
+		CustomerAgentRuntimeHandler::class,
 		CachePolicy::class,
 		FrontendAssetsHandler::class,
 		MemoryController::class,

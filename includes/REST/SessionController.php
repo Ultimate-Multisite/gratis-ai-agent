@@ -11,7 +11,6 @@ declare(strict_types=1);
 
 namespace SdAiAgent\REST;
 
-use SdAiAgent\Abilities\OptionsAbilities;
 use SdAiAgent\Core\AgentLoop;
 use SdAiAgent\Core\ConversationDisplaySanitizer;
 use SdAiAgent\Core\ConversationSerializer;
@@ -19,6 +18,7 @@ use SdAiAgent\Core\ConversationTrimmer;
 use SdAiAgent\Core\CostCalculator;
 use SdAiAgent\Core\Database;
 use SdAiAgent\Core\Export;
+use SdAiAgent\Core\JobErrorSanitizer;
 use SdAiAgent\Core\Settings;
 use SdAiAgent\Core\ToolPermissionResolver;
 use SdAiAgent\Models\ActiveJobRepository;
@@ -1538,36 +1538,7 @@ final class SessionController {
 	 * @return string Bounded, client-safe summary, or empty string when fully redacted.
 	 */
 	private function sanitize_job_error_detail( string $detail ): string {
-		$detail = trim( wp_strip_all_tags( $detail ) );
-		if ( '' === $detail ) {
-			return '';
-		}
-
-		foreach ( OptionsAbilities::get_secret_read_blocklist() as $secret_option ) {
-			if ( preg_match( '/\b' . preg_quote( $secret_option, '/' ) . '\b/i', $detail ) ) {
-				return '';
-			}
-		}
-
-		$detail = preg_replace( '/#[0-9]+\s+[^;]+/', '[stack_trace]', $detail ) ?? $detail;
-		$detail = preg_replace( '#\b(?:/[^\s;:]+){2,}(?::[0-9]+)?#', '[path]', $detail ) ?? $detail;
-		$detail = preg_replace( '#\b[A-Za-z]:\\\\[^\s;]+#', '[path]', $detail ) ?? $detail;
-		$detail = preg_replace( '/\b(?:api[_-]?key|token|secret|password|credential|authorization)\s*[:=]\s*[^\s;]+/i', '[redacted_credential]', $detail ) ?? $detail;
-		$detail = preg_replace( '/\bsk-[A-Za-z0-9_-]{8,}\b/', '[redacted_token]', $detail ) ?? $detail;
-		$detail = preg_replace( '/\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b/', '[redacted_email]', $detail ) ?? $detail;
-		$detail = sanitize_text_field( $detail );
-		$detail = preg_replace( '/\s+/', ' ', $detail ) ?? $detail;
-		$detail = trim( $detail );
-
-		if ( '' === $detail || preg_match( '/^\[(?:path|stack_trace|redacted_credential|redacted_token|redacted_email)\]$/', $detail ) ) {
-			return '';
-		}
-
-		if ( strlen( $detail ) > self::JOB_ERROR_DETAIL_MAX_LENGTH ) {
-			$detail = substr( $detail, 0, self::JOB_ERROR_DETAIL_MAX_LENGTH - 3 ) . '...';
-		}
-
-		return $detail;
+		return JobErrorSanitizer::sanitize( $detail, self::JOB_ERROR_DETAIL_MAX_LENGTH );
 	}
 
 	/**

@@ -62,6 +62,8 @@ class DatabaseSchemaTest extends WP_UnitTestCase {
 		'sd_ai_agent_provider_trace',
 		'sd_ai_agent_generated_plugins',
 		'sd_ai_agent_active_jobs',
+		'sd_ai_agent_customer_agent_conversations',
+		'sd_ai_agent_customer_agent_jobs',
 		'sd_ai_agent_skill_usage',
 		'sd_ai_agent_contact_mappings',
 	];
@@ -414,6 +416,24 @@ class DatabaseSchemaTest extends WP_UnitTestCase {
 				$columns,
 				"active_jobs table missing column '{$col}' — see GH#2026."
 			);
+		}
+	}
+
+	/**
+	 * Customer-agent runtime tables persist opaque ownership and terminal result
+	 * state independently from transient-backed browser jobs.
+	 */
+	public function test_customer_agent_runtime_tables_have_durable_columns(): void {
+		Database::install();
+
+		$conversation_columns = $this->get_column_names( Database::customer_agent_conversations_table_name() );
+		foreach ( [ 'conversation_id', 'integration_hash', 'external_session_hash', 'profile_id', 'runtime_history', 'expires_at' ] as $column ) {
+			$this->assertContains( $column, $conversation_columns, "Customer-agent conversation table missing column '{$column}'." );
+		}
+
+		$job_columns = $this->get_column_names( Database::customer_agent_jobs_table_name() );
+		foreach ( [ 'job_id', 'conversation_id', 'external_message_hash', 'status', 'request_payload', 'result_payload', 'error_code', 'deadline_at', 'expires_at' ] as $column ) {
+			$this->assertContains( $column, $job_columns, "Customer-agent job table missing column '{$column}'." );
 		}
 	}
 
