@@ -744,6 +744,58 @@ describe( 'actions', () => {
 		expect( dispatch.pollJob ).toHaveBeenCalledWith( 'resumed-job', 17 );
 	} );
 
+	test( 'pollJob preserves live activity when an error session reload fails', async () => {
+		jest.useFakeTimers();
+		apiFetch.mockReset();
+		apiFetch
+			.mockResolvedValueOnce( {
+				status: 'error',
+				message: 'The provider interrupted this step.',
+				session_id: 17,
+				tool_calls: [
+					{
+						type: 'call',
+						id: 'call-1',
+						name: 'sd-ai-agent-js/capture-screenshot',
+						args: { fullPage: false },
+					},
+				],
+			} )
+			.mockRejectedValueOnce( new Error( 'Session unavailable' ) );
+		const dispatch = {
+			appendMessage: jest.fn(),
+			setStreamError: jest.fn(),
+			setSending: jest.fn(),
+			setLiveToolCalls: jest.fn(),
+			drainMessageQueue: jest.fn(),
+			setCurrentJobId: jest.fn(),
+			setSessionJob: jest.fn(),
+		};
+		const select = {
+			getCurrentSessionId: jest.fn( () => 17 ),
+			getCurrentJobId: jest.fn( () => 'failed-job' ),
+		};
+
+		try {
+			actions.pollJob( 'failed-job', 17 )( { dispatch, select } );
+			await jest.advanceTimersByTimeAsync( 2000 );
+		} finally {
+			jest.useRealTimers();
+		}
+
+		expect( dispatch.appendMessage ).toHaveBeenNthCalledWith(
+			1,
+			expect.objectContaining( {
+				role: 'model',
+				toolCalls: [ expect.objectContaining( { id: 'call-1' } ) ],
+			} )
+		);
+		expect( dispatch.appendMessage ).toHaveBeenNthCalledWith(
+			2,
+			expect.objectContaining( { role: 'system' } )
+		);
+	} );
+
 	test( 'pollJob preserves a recoverable error as a resume action card', async () => {
 		jest.useFakeTimers();
 		apiFetch.mockReset();
