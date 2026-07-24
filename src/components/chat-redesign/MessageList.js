@@ -19,6 +19,7 @@ import { useRef, useEffect, useState, useCallback } from '@wordpress/element';
 import { __ } from '@wordpress/i18n';
 
 import STORE_NAME from '../../store';
+import RecoverableJobActionCard from '../recoverable-job-action-card';
 import FeedbackConsentModal from '../feedback-consent-modal';
 import useTextToSpeech from '../use-text-to-speech';
 import { extractText, getRunningToolName } from './message-helpers';
@@ -53,6 +54,7 @@ export default function MessageList() {
 		ttsRate,
 		ttsPitch,
 		hasStreamError,
+		pendingActionCard,
 		providers,
 	} = useSelect( ( sel ) => {
 		const store = sel( STORE_NAME );
@@ -73,11 +75,17 @@ export default function MessageList() {
 			ttsRate: store.getTtsRate(),
 			ttsPitch: store.getTtsPitch(),
 			hasStreamError: store.hasStreamError(),
+			pendingActionCard: store.getPendingActionCard(),
 			providers: store.getProviders(),
 		};
 	}, [] );
 
-	const { sendMessage, retryLastMessage } = useDispatch( STORE_NAME );
+	const {
+		sendMessage,
+		retryLastMessage,
+		resumeRecoverableJob,
+		setPendingActionCard,
+	} = useDispatch( STORE_NAME );
 	const ref = useRef( null );
 
 	/** True when the scroll container is within SCROLL_THRESHOLD px of the bottom. */
@@ -337,6 +345,15 @@ export default function MessageList() {
 							</button>
 						</div>
 					) }
+
+					{ pendingActionCard?.type === 'resume_recoverable_job' &&
+						pendingActionCard.sessionId === currentSessionId &&
+						! sending && (
+							<RecoverableJobActionCard
+								onConfirm={ resumeRecoverableJob }
+								onCancel={ () => setPendingActionCard( null ) }
+							/>
+						) }
 				</div>
 			</div>
 

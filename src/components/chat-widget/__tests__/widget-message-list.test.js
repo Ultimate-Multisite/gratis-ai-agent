@@ -54,6 +54,7 @@ async function renderCreditExhaustionMessage() {
 		getCurrentSessionId: () => 123,
 		getLiveToolCalls: () => [],
 		getSessionJobs: () => ( {} ),
+		hasStreamError: () => false,
 		getProviders: () => [
 			{
 				id: 'sd-ai-agent-cloud',
@@ -64,7 +65,10 @@ async function renderCreditExhaustionMessage() {
 		],
 	};
 	useSelect.mockImplementation( ( fn ) => fn( () => selectors ) );
-	useDispatch.mockReturnValue( { sendMessage: jest.fn() } );
+	useDispatch.mockReturnValue( {
+		sendMessage: jest.fn(),
+		retryLastMessage: jest.fn(),
+	} );
 
 	const container = document.createElement( 'div' );
 	document.body.appendChild( container );
@@ -101,6 +105,53 @@ describe( 'WidgetMessageList credit exhaustion notice', () => {
 		expect( action.getAttribute( 'href' ) ).toBe(
 			'https://account.example.test/login'
 		);
+
+		await act( async () => {
+			root.unmount();
+		} );
+	} );
+} );
+
+describe( 'WidgetMessageList recoverable-job action card', () => {
+	afterEach( () => {
+		document.body.innerHTML = '';
+		jest.clearAllMocks();
+	} );
+
+	test( 'renders and dispatches the retry action for the active session', async () => {
+		const retryLastMessage = jest.fn();
+		const selectors = {
+			getCurrentSessionMessages: () => [],
+			isSending: () => false,
+			getCurrentSessionId: () => 123,
+			getLiveToolCalls: () => [],
+			getSessionJobs: () => ( {} ),
+			hasStreamError: () => true,
+			getProviders: () => [],
+		};
+		useSelect.mockImplementation( ( fn ) => fn( () => selectors ) );
+		useDispatch.mockReturnValue( {
+			sendMessage: jest.fn(),
+			retryLastMessage,
+		} );
+
+		const container = document.createElement( 'div' );
+		document.body.appendChild( container );
+		const root = createRoot( container );
+		await act( async () => {
+			root.render( createElement( WidgetMessageList ) );
+		} );
+
+		const retryButton = container.querySelector(
+			'.sdaa-w-retry-failed-step'
+		);
+		expect( retryButton.textContent ).toBe( 'Retry failed step' );
+		await act( async () => {
+			retryButton.dispatchEvent(
+				new MouseEvent( 'click', { bubbles: true } )
+			);
+		} );
+		expect( retryLastMessage ).toHaveBeenCalledTimes( 1 );
 
 		await act( async () => {
 			root.unmount();

@@ -39,16 +39,18 @@ jest.mock( '../message-items', () => ( {
 /**
  * Build the selector map needed by MessageList.
  *
- * @param {Object}  root0                 Options.
- * @param {boolean} root0.hasStreamError  Whether the active session has a send error.
- * @param {boolean} [root0.sending=false] Whether a send is currently in progress.
- * @param {number}  [root0.sessionId=123] Current session ID.
+ * @param {Object}      root0                          Options.
+ * @param {boolean}     root0.hasStreamError           Whether the active session has a send error.
+ * @param {boolean}     [root0.sending=false]          Whether a send is currently in progress.
+ * @param {number}      [root0.sessionId=123]          Current session ID.
+ * @param {Object|null} [root0.pendingActionCard=null] Pending card.
  * @return {Object} Selector map.
  */
 function buildSelectors( {
 	hasStreamError,
 	sending = false,
 	sessionId = 123,
+	pendingActionCard = null,
 } ) {
 	return {
 		getCurrentSessionMessages: () => [],
@@ -62,6 +64,7 @@ function buildSelectors( {
 		getTtsRate: () => 1,
 		getTtsPitch: () => 1,
 		hasStreamError: () => hasStreamError,
+		getPendingActionCard: () => pendingActionCard,
 		getProviders: () => [],
 	};
 }
@@ -154,5 +157,39 @@ describe( 'MessageList stream error banner', () => {
 		} ) );
 
 		expect( container.querySelector( '.sdaa-cr-error-banner' ) ).toBeNull();
+	} );
+
+	test( 'shows a recoverable-job action card for the active session', async () => {
+		const resumeRecoverableJob = jest.fn();
+		const setPendingActionCard = jest.fn();
+		( { container, root } = await renderMessageList( {
+			selectors: buildSelectors( {
+				hasStreamError: false,
+				pendingActionCard: {
+					type: 'resume_recoverable_job',
+					sessionId: 123,
+				},
+			} ),
+			dispatchMap: {
+				sendMessage: jest.fn(),
+				retryLastMessage,
+				resumeRecoverableJob,
+				setPendingActionCard,
+			},
+		} ) );
+
+		const retryButton = container.querySelector(
+			'.sdaa-action-card-btn-confirm'
+		);
+		expect( retryButton ).not.toBeNull();
+		expect( retryButton.textContent ).toBe( 'Retry failed step' );
+
+		await act( async () => {
+			retryButton.dispatchEvent(
+				new MouseEvent( 'click', { bubbles: true } )
+			);
+		} );
+
+		expect( resumeRecoverableJob ).toHaveBeenCalledTimes( 1 );
 	} );
 } );
