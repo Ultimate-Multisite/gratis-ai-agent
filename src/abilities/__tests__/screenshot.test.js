@@ -2,9 +2,6 @@
  * Unit tests for screenshot URL validation.
  */
 
-/**
- *
- */
 function loadScreenshotModule() {
 	let mod;
 	jest.isolateModules( () => {
@@ -12,6 +9,23 @@ function loadScreenshotModule() {
 		mod = require( '../screenshot' );
 	} );
 	return mod;
+}
+
+/**
+ * Load the screenshot ability and its matching registry module instance.
+ *
+ * @return {{ screenshot: Object, registry: Object }} Isolated modules.
+ */
+function loadScreenshotAndRegistry() {
+	let screenshot;
+	let registry;
+	jest.isolateModules( () => {
+		// eslint-disable-next-line global-require
+		screenshot = require( '../screenshot' );
+		// eslint-disable-next-line global-require
+		registry = require( '../registry' );
+	} );
+	return { screenshot, registry };
 }
 
 describe( 'screenshot-url validation', () => {
@@ -70,5 +84,39 @@ describe( 'screenshot-url validation', () => {
 		} );
 		expect( result.error ).toContain( 'authorized WordPress site' );
 		expect( result.error ).toContain( 'https://example.com' );
+	} );
+} );
+
+describe( 'full-page screenshot safety', () => {
+	test( 'rejects unsafe full-page canvas dimensions before capture', () => {
+		const { isFullPageCaptureSafe } = loadScreenshotModule();
+
+		expect( isFullPageCaptureSafe( 1280, 10000 ) ).toBe( true );
+		expect( isFullPageCaptureSafe( 2560, 10000 ) ).toBe( false );
+	} );
+
+	test( 'publishes bounded-capture guidance in direct client metadata', async () => {
+		delete global.wp;
+		const { screenshot, registry } = loadScreenshotAndRegistry();
+
+		await screenshot.registerCaptureScreenshotAbility();
+		await screenshot.registerScreenshotUrlAbility();
+		const descriptors = await registry.snapshotDescriptors();
+
+		for ( const name of [
+			'sd-ai-agent-js/capture-screenshot',
+			'sd-ai-agent-js/screenshot-url',
+		] ) {
+			const descriptor = descriptors.find(
+				( candidate ) => candidate.name === name
+			);
+			expect( descriptor.description ).toContain( 'routine review' );
+			expect(
+				descriptor.inputSchema.properties.fullPage.description
+			).toContain( 'Default: false' );
+			expect( descriptor.outputSchema.properties ).toHaveProperty(
+				'truncated'
+			);
+		}
 	} );
 } );

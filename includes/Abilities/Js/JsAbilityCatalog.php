@@ -124,18 +124,18 @@ class JsAbilityCatalog {
 			array(
 				'name'          => 'sd-ai-agent-js/capture-screenshot',
 				'label'         => 'Capture Screenshot',
-				'description'   => 'Capture a screenshot of the current page the user is viewing. Optionally target a specific element with a CSS selector. Returns a base64 JPEG image for visual review by the AI.',
+				'description'   => 'Capture a screenshot of the current page the user is viewing. For routine review, prefer a viewport capture or a specific CSS selector. Full-page capture is opt-in and should only be used when the user explicitly requests the whole page or a viewport/selector capture is insufficient. Returns a base64 JPEG image for visual review by the AI.',
 				'category'      => 'sd-ai-agent-js',
 				'input_schema'  => array(
 					'type'       => 'object',
 					'properties' => array(
 						'selector' => array(
 							'type'        => 'string',
-							'description' => 'CSS selector to capture a specific element (e.g. "#main-content", ".entry-content"). Leave empty to capture the full page body.',
+							'description' => 'CSS selector to capture a specific element (e.g. "#main-content", ".entry-content"). Prefer this for section-level review. Leave empty to capture the viewport of the page body.',
 						),
 						'fullPage' => array(
 							'type'        => 'boolean',
-							'description' => 'If true, captures the full scrollable page height instead of just the viewport. Default: false.',
+							'description' => 'If true, captures the full scrollable page height instead of just the viewport. Default: false. Use only when the user explicitly requests a whole-page screenshot or a viewport/selector capture is insufficient.',
 						),
 					),
 					'required'   => array(),
@@ -166,7 +166,7 @@ class JsAbilityCatalog {
 			array(
 				'name'          => 'sd-ai-agent-js/screenshot-url',
 				'label'         => 'Screenshot URL',
-				'description'   => 'Capture a same-origin WordPress URL for visual review. Open multisite subdomains from that origin first.',
+				'description'   => 'Capture a same-origin WordPress URL for visual review. For routine review, use the default viewport capture; full-page capture is only for an explicit whole-page request or when a viewport capture is insufficient. Open multisite subdomains from that origin first.',
 				'category'      => 'sd-ai-agent-js',
 				'input_schema'  => array(
 					'type'       => 'object',
@@ -185,7 +185,7 @@ class JsAbilityCatalog {
 						),
 						'fullPage' => array(
 							'type'        => 'boolean',
-							'description' => 'If true, captures the full scrollable page height instead of just the viewport. Default: false.',
+							'description' => 'If true, captures the full scrollable page height instead of just the viewport. Default: false. Use only when the user explicitly requests a whole-page screenshot or a viewport capture is insufficient.',
 						),
 					),
 					'required'   => array( 'url' ),
