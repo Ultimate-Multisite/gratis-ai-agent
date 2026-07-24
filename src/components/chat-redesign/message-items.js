@@ -388,6 +388,9 @@ export function AssistantMessage( {
 						key={ item.key }
 						call={ item.call }
 						response={ item.response }
+						defaultOpen={ Boolean(
+							item.response?.response?.error
+						) }
 					/>
 				) ) }
 				{ cleanText && <MarkdownMessage content={ cleanText } /> }
