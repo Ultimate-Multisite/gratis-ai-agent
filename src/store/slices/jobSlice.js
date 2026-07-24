@@ -530,11 +530,21 @@ export const actions = {
 								}
 
 								try {
-									const abilityResult =
-										await executeClientAbility(
+									const abilityResult = await Promise.race( [
+										executeClientAbility(
 											call.name,
 											call.args || {}
-										);
+										),
+										new Promise( ( _resolve, reject ) =>
+											setTimeout(
+												reject,
+												30000,
+												new Error(
+													'Client tool timed out after 30 seconds.'
+												)
+											)
+										),
+									] );
 									return {
 										id: call.id,
 										name: call.name,
