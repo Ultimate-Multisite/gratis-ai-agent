@@ -52,6 +52,20 @@ const IFRAME_SETTLE_DELAY = 1500;
 const MAX_CAPTURE_HEIGHT = 10000;
 
 /**
+ * Maximum canvas area for a full-page capture before returning a safe error.
+ *
+ * html2canvas rasterizes at the source dimensions before `canvasToJpeg()`
+ * downscales it. A height clamp alone cannot protect a very wide layout, so
+ * reject a capture that would still allocate an unsafe canvas.
+ */
+const MAX_FULL_PAGE_CAPTURE_PIXELS = 24_000_000;
+
+const FULL_PAGE_CAPTURE_GUIDANCE =
+	'Default: false. Use only for an explicit whole-page request.';
+const FULL_PAGE_CAPTURE_TOO_LARGE =
+	'Full-page screenshot is too large. Use a viewport or selector screenshot.';
+
+/**
  * Step size (px) for the scroll pass that triggers lazy-loaded content.
  * Smaller values catch more IntersectionObserver thresholds but take longer.
  * One viewport-height per step is the sweet spot — each step brings a full
@@ -94,6 +108,17 @@ function canvasToJpeg( canvas ) {
 		width: target.width,
 		height: target.height,
 	};
+}
+
+/**
+ * Check whether a full-page canvas is safe to render.
+ *
+ * @param {number} width  Capture width in pixels.
+ * @param {number} height Capture height in pixels.
+ * @return {boolean}      Whether the capture is within the canvas limit.
+ */
+export function isFullPageCaptureSafe( width, height ) {
+	return width * height <= MAX_FULL_PAGE_CAPTURE_PIXELS;
 }
 
 /**
@@ -256,6 +281,22 @@ async function executeCaptureScreenshot( args ) {
 			const rawHeight = document.documentElement.scrollHeight;
 			captureHeight = Math.min( rawHeight, MAX_CAPTURE_HEIGHT );
 			truncated = rawHeight > MAX_CAPTURE_HEIGHT;
+			if (
+				! isFullPageCaptureSafe(
+					document.documentElement.scrollWidth,
+					captureHeight
+				)
+			) {
+				return {
+					success: false,
+					image: '',
+					width: 0,
+					height: 0,
+					url: window.location.href,
+					truncated,
+					error: FULL_PAGE_CAPTURE_TOO_LARGE,
+				};
+			}
 
 			const originalScrollX = window.scrollX;
 			const originalScrollY = window.scrollY;
@@ -432,6 +473,17 @@ async function executeScreenshotUrl( args ) {
 			const rawHeight = iframeDoc.documentElement.scrollHeight;
 			captureH = Math.min( rawHeight, MAX_CAPTURE_HEIGHT );
 			truncated = rawHeight > MAX_CAPTURE_HEIGHT;
+			if ( ! isFullPageCaptureSafe( viewportWidth, captureH ) ) {
+				return {
+					success: false,
+					image: '',
+					width: 0,
+					height: 0,
+					url: resolved,
+					truncated,
+					error: FULL_PAGE_CAPTURE_TOO_LARGE,
+				};
+			}
 
 			// Resize the iframe to the capture height so the browser lays
 			// out all content within view and IntersectionObservers see it.
@@ -499,22 +551,18 @@ export async function registerCaptureScreenshotAbility() {
 		name: 'sd-ai-agent-js/capture-screenshot',
 		label: 'Capture Screenshot',
 		description:
-			'Capture a screenshot of the current page the user is viewing. ' +
-			'Optionally target a specific element with a CSS selector. ' +
-			'Returns a base64 JPEG image for visual review by the AI.',
+			'For routine review, use a viewport or CSS selector. Full-page capture is opt-in.',
 		inputSchema: {
 			type: 'object',
 			properties: {
 				selector: {
 					type: 'string',
 					description:
-						'CSS selector to capture a specific element (e.g. "#main-content", ".entry-content"). ' +
-						'Leave empty to capture the full page body.',
+						'CSS selector for a target section. Prefer this for section-level review.',
 				},
 				fullPage: {
 					type: 'boolean',
-					description:
-						'If true, captures the full scrollable page height instead of just the viewport. Default: false.',
+					description: FULL_PAGE_CAPTURE_GUIDANCE,
 				},
 			},
 			required: [],
@@ -554,8 +602,7 @@ export async function registerScreenshotUrlAbility() {
 		name: 'sd-ai-agent-js/screenshot-url',
 		label: 'Screenshot URL',
 		description:
-			'Capture a same-origin WordPress URL for visual review. ' +
-			'Open each multisite site in its own browser tab first.',
+			'For routine review, use a viewport capture. Full-page capture is opt-in.',
 		inputSchema: {
 			type: 'object',
 			properties: {
@@ -576,8 +623,7 @@ export async function registerScreenshotUrlAbility() {
 				},
 				fullPage: {
 					type: 'boolean',
-					description:
-						'If true, captures the full scrollable page height instead of just the viewport. Default: false.',
+					description: FULL_PAGE_CAPTURE_GUIDANCE,
 				},
 			},
 			required: [ 'url' ],
