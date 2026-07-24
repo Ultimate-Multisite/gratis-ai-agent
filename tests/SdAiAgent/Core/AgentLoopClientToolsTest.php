@@ -101,6 +101,22 @@ class AgentLoopClientToolsTest extends WP_UnitTestCase {
 		$this->assertTrue( $navigate['annotations']['readonly'] );
 	}
 
+	/**
+	 * Screenshot metadata defaults to bounded review captures and exposes
+	 * structured guidance when a full-page request is constrained.
+	 */
+	public function test_screenshot_catalog_guides_models_away_from_full_page_by_default(): void {
+		$catalog = JsAbilityCatalog::get_descriptors_by_name();
+
+		foreach ( array( 'sd-ai-agent-js/capture-screenshot', 'sd-ai-agent-js/screenshot-url' ) as $name ) {
+			$descriptor = $catalog[ $name ];
+			$this->assertStringContainsString( 'routine review', $descriptor['description'] );
+			$this->assertStringContainsString( 'Default: false', $descriptor['input_schema']['properties']['fullPage']['description'] );
+			$this->assertStringContainsString( 'explicitly requests', $descriptor['input_schema']['properties']['fullPage']['description'] );
+			$this->assertArrayHasKey( 'truncated', $descriptor['output_schema']['properties'] );
+		}
+	}
+
 	// ── AgentLoop client_abilities validation tests ───────────────────────
 
 	/**
