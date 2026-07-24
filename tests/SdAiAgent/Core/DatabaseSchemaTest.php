@@ -22,6 +22,7 @@ use SdAiAgent\Bootstrap\CustomerAgentRuntimeHandler;
 use SdAiAgent\Core\Database;
 use SdAiAgent\Knowledge\KnowledgeDatabase;
 use WP_UnitTestCase;
+use XWP\DI\Decorators\Action;
 
 /**
  * Integration tests for Database schema and migrations.
@@ -575,6 +576,20 @@ class DatabaseSchemaTest extends WP_UnitTestCase {
 			// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Test-only introspection query.
 			$this->assertSame( $table, $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $table ) ) );
 		}
+	}
+
+	/**
+	 * The schema guard runs early in every WordPress request context.
+	 */
+	public function test_runtime_schema_guard_is_registered_on_init(): void {
+		$method     = new \ReflectionMethod( CustomerAgentRuntimeHandler::class, 'ensure_database_schema' );
+		$attributes = $method->getAttributes( Action::class );
+
+		$this->assertCount( 1, $attributes );
+
+		$action = $attributes[0]->newInstance();
+		$this->assertSame( 'init', $action->tag );
+		$this->assertSame( 1, $action->prio );
 	}
 
 	/**
