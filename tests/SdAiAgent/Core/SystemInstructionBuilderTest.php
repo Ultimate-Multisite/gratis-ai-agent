@@ -147,6 +147,16 @@ class SystemInstructionBuilderTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * Routine review should favour bounded screenshots over expensive captures.
+	 */
+	public function test_default_instruction_prefers_bounded_screenshots_for_routine_review(): void {
+		$instruction = SystemInstructionBuilder::default_system_instruction();
+
+		$this->assertStringContainsString( 'prefer a viewport or target-section screenshot', $instruction );
+		$this->assertStringContainsString( 'explicitly asks for the whole page', $instruction );
+	}
+
+	/**
 	 * The diagnostics policy is also exposed as a focused builder section.
 	 */
 	public function test_read_only_diagnostics_section_blocks_remediation_tools(): void {
