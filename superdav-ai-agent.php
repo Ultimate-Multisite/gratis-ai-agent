@@ -97,8 +97,22 @@ if ( ! $sd_ai_agent_autoload_available ) {
 }
 
 use SdAiAgent\Bootstrap\LifecycleHandler;
+use SdAiAgent\Contracts\CustomerAgentRuntimeInterface;
 use SdAiAgent\Core\ActiveJobsCleanupService;
 use SdAiAgent\Plugin;
+use SdAiAgent\Services\CustomerAgentRuntimeService;
+
+/**
+ * Return the stable PHP API for trusted same-install customer-agent consumers.
+ *
+ * The API intentionally has no unauthenticated REST equivalent. Consumers must
+ * register a constrained profile through the documented server-side filter.
+ */
+if ( ! function_exists( 'sd_ai_agent_customer_agent_runtime' ) ) {
+	function sd_ai_agent_customer_agent_runtime(): CustomerAgentRuntimeInterface {
+		return CustomerAgentRuntimeService::instance();
+	}
+}
 
 // In repository checkouts, load the sibling advanced companion plugin before
 // bootstrapping the DI container so local development gets both plugins with
