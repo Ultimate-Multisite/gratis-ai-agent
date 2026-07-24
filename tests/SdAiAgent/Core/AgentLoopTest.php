@@ -31,6 +31,7 @@ declare(strict_types=1);
 namespace SdAiAgent\Tests\Core;
 
 use SdAiAgent\Abilities\Js\JsAbilityCatalog;
+use SdAiAgent\Abilities\KnowledgeAbilities;
 use SdAiAgent\Core\AgentLoop;
 use SdAiAgent\Core\ConversationSerializer;
 use SdAiAgent\Core\ConversationTrimmer;
@@ -38,6 +39,7 @@ use SdAiAgent\Core\ProviderCredentialLoader;
 use SdAiAgent\Core\Settings;
 use SdAiAgent\Core\SystemInstructionBuilder;
 use SdAiAgent\Core\ToolPermissionResolver;
+use SdAiAgent\Tools\ToolDiscovery;
 use WordPress\AiClient\Messages\DTO\Message;
 use WordPress\AiClient\Messages\DTO\MessagePart;
 use WordPress\AiClient\Messages\DTO\ModelMessage;
@@ -66,6 +68,9 @@ final class ScriptedAgentLoop extends AgentLoop {
 	// phpcs:ignore WordPress.NamingConventions.ValidVariableName.PropertyNotSnakeCase -- Project property naming guidance requires camelCase.
 	public array $requestSizes = array();
 
+	/** @var list<array{ability_mode:bool,collection_mode:bool,knowledge_allowed:bool}> */
+	public array $policySnapshots = array();
+
 	/**
 	 * @param string                                  $user_message User prompt.
 	 * @param string[]                                $abilities    Enabled abilities.
@@ -78,8 +83,19 @@ final class ScriptedAgentLoop extends AgentLoop {
 		parent::__construct( $user_message, $abilities, $history, $options );
 	}
 
+	/** Scripted loops provide their own provider boundary and do not need the SDK function. */
+	protected function is_ai_client_available(): bool {
+		return true;
+	}
+
 	/** Return the next scripted result while recording the outgoing history size. */
 	protected function send_prompt( string $provider_id, string $model_id ): GenerativeAiResult|WP_Error {
+		$this->policySnapshots[] = array(
+			'ability_mode'     => ToolDiscovery::is_anonymous_ability_mode(),
+			'collection_mode'  => KnowledgeAbilities::is_public_collection_mode(),
+			'knowledge_allowed' => ToolDiscovery::anonymous_mode_allows( 'sd-ai-agent/knowledge-search' ),
+		);
+
 		$history_property = new \ReflectionProperty( AgentLoop::class, 'history' );
 		$history_property->setAccessible( true );
 		$history = $history_property->getValue( $this );
@@ -134,6 +150,8 @@ class AgentLoopTest extends WP_UnitTestCase {
 
 		// Remove any lingering pre_http_request filters added by tests.
 		remove_all_filters( 'pre_http_request' );
+		ToolDiscovery::clear_anonymous_allowed_abilities();
+		KnowledgeAbilities::clear_public_collection_allowlist();
 	}
 
 	/**
@@ -929,6 +947,102 @@ class AgentLoopTest extends WP_UnitTestCase {
 		$this->assertTrue( $data['recoverable'] );
 		$this->assertCount( 2, $data['history'] );
 		$this->assertSame( 'model', $data['history'][1]['role'] );
+	}
+
+	/** Constrained ability and collection policy is scoped around every server resume. */
+	public function test_resume_paths_reapply_and_clear_anonymous_policy_context(): void {
+		$options = array(
+			'anonymous_allowed_abilities'   => array( 'sd-ai-agent/knowledge-search' ),
+			'anonymous_allowed_collections' => array( 'support-docs' ),
+			'anonymous_policy_active'       => true,
+		);
+
+		$checkpoint_loop = new ScriptedAgentLoop(
+			'',
+			array(),
+			array( new UserMessage( array( new MessagePart( 'Continue safely.' ) ) ) ),
+			$options,
+			array( $this->create_scripted_result( 'Checkpoint resumed safely.' ) )
+		);
+		$checkpoint_result = $checkpoint_loop->resume_from_checkpoint( 1 );
+		$this->assertIsArray( $checkpoint_result );
+		$this->assertSame(
+			array(
+				'ability_mode'      => true,
+				'collection_mode'   => true,
+				'knowledge_allowed' => true,
+			),
+			$checkpoint_loop->policySnapshots[0]
+		);
+		$this->assertFalse( ToolDiscovery::is_anonymous_ability_mode() );
+		$this->assertFalse( KnowledgeAbilities::is_public_collection_mode() );
+
+		$confirmation_loop = new ScriptedAgentLoop(
+			'',
+			array(),
+			array(
+				new UserMessage( array( new MessagePart( 'Use a safe tool.' ) ) ),
+				new ModelMessage(
+					array(
+						new MessagePart(
+							new FunctionCall( 'call_resume_policy', 'wpab__sd-ai-agent__knowledge-search', array() )
+						),
+					)
+				),
+			),
+			$options,
+			array( $this->create_scripted_result( 'Confirmation resumed safely.' ) )
+		);
+		$confirmation_result = $confirmation_loop->resume_after_confirmation( false, 1 );
+		$this->assertIsArray( $confirmation_result );
+		$this->assertSame(
+			array(
+				'ability_mode'      => true,
+				'collection_mode'   => true,
+				'knowledge_allowed' => true,
+			),
+			$confirmation_loop->policySnapshots[0]
+		);
+		$this->assertFalse( ToolDiscovery::is_anonymous_ability_mode() );
+		$this->assertFalse( KnowledgeAbilities::is_public_collection_mode() );
+
+		$client_tool_loop = new ScriptedAgentLoop(
+			'',
+			array(),
+			array(
+				new UserMessage( array( new MessagePart( 'Continue after the browser tool.' ) ) ),
+				new ModelMessage(
+					array(
+						new MessagePart(
+							new FunctionCall( 'call_client_resume_policy', 'browser-safe-tool', array() )
+						),
+					)
+				),
+			),
+			$options,
+			array( $this->create_scripted_result( 'Client tool resumed safely.' ) )
+		);
+		$client_tool_result = $client_tool_loop->resume_after_client_tools(
+			array(
+				array(
+					'id'     => 'call_client_resume_policy',
+					'name'   => 'browser-safe-tool',
+					'result' => array( 'ok' => true ),
+				),
+			),
+			1
+		);
+		$this->assertIsArray( $client_tool_result );
+		$this->assertSame(
+			array(
+				'ability_mode'      => true,
+				'collection_mode'   => true,
+				'knowledge_allowed' => true,
+			),
+			$client_tool_loop->policySnapshots[0]
+		);
+		$this->assertFalse( ToolDiscovery::is_anonymous_ability_mode() );
+		$this->assertFalse( KnowledgeAbilities::is_public_collection_mode() );
 	}
 
 	/**

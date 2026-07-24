@@ -237,9 +237,9 @@ class Agent {
 	 *
 	 * @param int                  $id   Agent ID.
 	 * @param array<string, mixed> $data Fields to update.
-	 * @return bool
+	 * @return bool|\WP_Error
 	 */
-	public static function update( int $id, array $data ): bool {
+	public static function update( int $id, array $data ): bool|\WP_Error {
 		global $wpdb;
 		/** @var \wpdb $wpdb */
 
@@ -267,7 +267,7 @@ class Agent {
 			// The regular agent editor owns presentation and bounded inference
 			// settings only. It must not widen a customer profile's prompt, tools,
 			// collections, version, or customer-mode boundary.
-			$allowed = array(
+			$allowed    = array(
 				'name',
 				'description',
 				'provider_id',
@@ -278,6 +278,14 @@ class Agent {
 				'avatar_icon',
 				'enabled',
 			);
+			$disallowed = array_diff( array_keys( $data ), $allowed );
+			if ( ! empty( $disallowed ) ) {
+				return new \WP_Error(
+					'sd_ai_agent_managed_profile_fields_forbidden',
+					__( 'Managed customer profile safety fields cannot be changed in the agent editor.', 'superdav-ai-agent' ),
+					array( 'status' => 403 )
+				);
+			}
 		}
 		$data = array_intersect_key( $data, array_flip( $allowed ) );
 		if ( empty( $data ) ) {
@@ -362,7 +370,7 @@ class Agent {
 			[ '%d' ]
 		);
 
-		return is_int( $result ) && $result > 0;
+		return is_int( $result ) && $result >= 0;
 	}
 
 	/**
@@ -387,20 +395,28 @@ class Agent {
 		if ( array_key_exists( 'system_prompt', $data ) ) {
 			$update['system_prompt'] = sanitize_textarea_field( (string) $data['system_prompt'] );
 		}
-		if ( array_key_exists( 'tier_1_tools', $data ) && is_array( $data['tier_1_tools'] ) ) {
-			$encoded = wp_json_encode( array_values( $data['tier_1_tools'] ) );
-			if ( is_string( $encoded ) ) {
-				$update['tier_1_tools'] = $encoded;
+		if ( array_key_exists( 'tier_1_tools', $data ) ) {
+			if ( ! is_array( $data['tier_1_tools'] ) ) {
+				return false;
 			}
+			$encoded = wp_json_encode( array_values( $data['tier_1_tools'] ) );
+			if ( ! is_string( $encoded ) ) {
+				return false;
+			}
+			$update['tier_1_tools'] = $encoded;
 		}
 		if ( array_key_exists( 'managed_profile_version', $data ) ) {
 			$update['managed_profile_version'] = sanitize_text_field( (string) $data['managed_profile_version'] );
 		}
-		if ( array_key_exists( 'managed_profile_metadata', $data ) && is_array( $data['managed_profile_metadata'] ) ) {
-			$encoded = wp_json_encode( $data['managed_profile_metadata'] );
-			if ( is_string( $encoded ) ) {
-				$update['managed_profile_metadata'] = $encoded;
+		if ( array_key_exists( 'managed_profile_metadata', $data ) ) {
+			if ( ! is_array( $data['managed_profile_metadata'] ) ) {
+				return false;
 			}
+			$encoded = wp_json_encode( $data['managed_profile_metadata'] );
+			if ( ! is_string( $encoded ) ) {
+				return false;
+			}
+			$update['managed_profile_metadata'] = $encoded;
 		}
 		if ( empty( $update ) ) {
 			return false;

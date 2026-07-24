@@ -1471,19 +1471,22 @@ final class SessionController {
 			'checkpoint_resume' => true,
 			'checkpoint_state'  => $checkpoint,
 			'params'            => array(
-				'message'            => '',
-				'history'            => array(),
-				'abilities'          => array(),
-				'system_instruction' => '',
-				'bootstrap_prompt'   => '',
-				'max_iterations'     => $checkpoint['iterations_remaining'] ?? null,
-				'session_id'         => $row->session_id,
-				'provider_id'        => $checkpoint['provider_id'] ?? '',
-				'model_id'           => $checkpoint['model_id'] ?? '',
-				'page_context'       => $checkpoint['page_context'] ?? array(),
-				'agent_id'           => 0,
-				'attachments'        => array(),
-				'client_abilities'   => $checkpoint['client_abilities'] ?? array(),
+				'message'                       => '',
+				'history'                       => array(),
+				'abilities'                     => array(),
+				'system_instruction'            => '',
+				'bootstrap_prompt'              => '',
+				'max_iterations'                => $checkpoint['iterations_remaining'] ?? null,
+				'session_id'                    => $row->session_id,
+				'provider_id'                   => $checkpoint['provider_id'] ?? '',
+				'model_id'                      => $checkpoint['model_id'] ?? '',
+				'page_context'                  => $checkpoint['page_context'] ?? array(),
+				'agent_id'                      => 0,
+				'attachments'                   => array(),
+				'client_abilities'              => $checkpoint['client_abilities'] ?? array(),
+				'anonymous_allowed_abilities'   => $checkpoint['anonymous_allowed_abilities'] ?? array(),
+				'anonymous_allowed_collections' => $checkpoint['anonymous_allowed_collections'] ?? array(),
+				'anonymous_policy_active'       => ! empty( $checkpoint['anonymous_policy_active'] ),
 			),
 		);
 
@@ -2040,20 +2043,23 @@ final class SessionController {
 		$paused_saved = $this->database->save_paused_state(
 			$session_id,
 			array(
-				'history'          => array_values( $history ),
-				'tool_call_log'    => array_values( $tool_calls ),
-				'message_log'      => array_values( $message_log ),
-				'token_usage'      => $token_usage,
-				'model_id'         => (string) ( $error_data['model_id']
+				'history'                       => array_values( $history ),
+				'tool_call_log'                 => array_values( $tool_calls ),
+				'message_log'                   => array_values( $message_log ),
+				'token_usage'                   => $token_usage,
+				'model_id'                      => (string) ( $error_data['model_id']
 					?? $options['model_id']
 					?? $params['model_id']
 					?? '' ),
-				'provider_id'      => (string) ( $error_data['provider_id']
+				'provider_id'                   => (string) ( $error_data['provider_id']
 					?? $options['provider_id']
 					?? $params['provider_id']
 					?? '' ),
-				'client_abilities' => $client_abilities,
-				'exit_reason'      => (string) $error->get_error_code(),
+				'client_abilities'              => $client_abilities,
+				'anonymous_allowed_abilities'   => $options['anonymous_allowed_abilities'] ?? array(),
+				'anonymous_allowed_collections' => $options['anonymous_allowed_collections'] ?? array(),
+				'anonymous_policy_active'       => ! empty( $options['anonymous_policy_active'] ),
+				'exit_reason'                   => (string) $error->get_error_code(),
 			)
 		);
 
@@ -2341,19 +2347,22 @@ final class SessionController {
 			'recovery_resume' => true,
 			'recovery_state'  => $paused_state,
 			'params'          => array(
-				'message'            => '',
-				'history'            => array(),
-				'abilities'          => array(),
-				'system_instruction' => '',
-				'bootstrap_prompt'   => '',
-				'max_iterations'     => $paused_state['iterations_remaining'] ?? null,
-				'session_id'         => $session_id,
-				'provider_id'        => $paused_state['provider_id'] ?? '',
-				'model_id'           => $paused_state['model_id'] ?? '',
-				'page_context'       => $paused_state['page_context'] ?? array(),
-				'agent_id'           => 0,
-				'attachments'        => array(),
-				'client_abilities'   => $paused_state['client_abilities'] ?? array(),
+				'message'                       => '',
+				'history'                       => array(),
+				'abilities'                     => array(),
+				'system_instruction'            => '',
+				'bootstrap_prompt'              => '',
+				'max_iterations'                => $paused_state['iterations_remaining'] ?? null,
+				'session_id'                    => $session_id,
+				'provider_id'                   => $paused_state['provider_id'] ?? '',
+				'model_id'                      => $paused_state['model_id'] ?? '',
+				'page_context'                  => $paused_state['page_context'] ?? array(),
+				'agent_id'                      => 0,
+				'attachments'                   => array(),
+				'client_abilities'              => $paused_state['client_abilities'] ?? array(),
+				'anonymous_allowed_abilities'   => $paused_state['anonymous_allowed_abilities'] ?? array(),
+				'anonymous_allowed_collections' => $paused_state['anonymous_allowed_collections'] ?? array(),
+				'anonymous_policy_active'       => ! empty( $paused_state['anonymous_policy_active'] ),
 			),
 		);
 
@@ -2631,6 +2640,20 @@ final class SessionController {
 				// @phpstan-ignore-next-line
 				$options['session_id'] = (int) $params['session_id'];
 			}
+		}
+
+		$anonymous_allowed_abilities = $params['anonymous_allowed_abilities'] ?? null;
+		if ( is_array( $anonymous_allowed_abilities ) ) {
+			$options['anonymous_allowed_abilities'] = array_values( $anonymous_allowed_abilities );
+		}
+		$anonymous_allowed_collections = $params['anonymous_allowed_collections'] ?? null;
+		if ( is_array( $anonymous_allowed_collections ) ) {
+			$options['anonymous_allowed_collections'] = array_values( $anonymous_allowed_collections );
+		}
+		if ( ! empty( $params['anonymous_policy_active'] ) ) {
+			$options['anonymous_policy_active'] = true;
+			$options['client_abilities']        = array();
+			$options['yolo_mode']               = false;
 		}
 
 		if ( ! empty( $job['public_chat'] ) ) {

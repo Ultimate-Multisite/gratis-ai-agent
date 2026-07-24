@@ -503,6 +503,37 @@ class CustomerAgentRuntimeServiceTest extends WP_UnitTestCase {
 		);
 	}
 
+	/** A redacted reason must not erase an otherwise valid structured handoff. */
+	public function test_structured_handoff_uses_safe_reason_when_original_reason_is_fully_redacted(): void {
+		$service = new CustomerAgentRuntimeService(
+			static function (): array {
+				return array(
+					'reply' => wp_json_encode(
+						array(
+							'display_text' => 'I need a support specialist to continue.',
+							'handoff'      => array(
+								'intent' => 'private_data_required',
+								'reason' => '/var/www/private/config.php',
+							),
+						)
+					),
+					'history'     => array(),
+					'token_usage' => array(),
+				);
+			}
+		);
+
+		$job = $service->enqueue_turn( self::INTEGRATION, 'customer-session-redacted-handoff', 'message-redacted-handoff', 'Please inspect my account.' );
+		$this->assertNotInstanceOf( WP_Error::class, $job );
+		$service->process_job( $job['job_id'] );
+
+		$status = $service->inspect_job( self::INTEGRATION, 'customer-session-redacted-handoff', $job['job_id'] );
+		$this->assertNotInstanceOf( WP_Error::class, $status );
+		$this->assertSame( 'private_data_required', $status['handoff']['intent'] );
+		$this->assertNotEmpty( $status['handoff']['reason'] );
+		$this->assertStringNotContainsString( '/var/www', $status['handoff']['reason'] );
+	}
+
 	/** Unusable structured model output must not be exposed as raw JSON. */
 	public function test_malformed_structured_reply_uses_a_customer_safe_fallback(): void {
 		$service = new CustomerAgentRuntimeService(

@@ -370,6 +370,15 @@ class CustomerAgentRuntimeRepository {
 				$integration_hash
 			)
 		);
+		if ( '' !== $wpdb->last_error ) {
+			// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Reverts a purge whose job ownership read failed.
+			$wpdb->query( 'ROLLBACK' );
+			return array(
+				'purged'        => false,
+				'conversations' => 0,
+				'job_ids'       => array(),
+			);
+		}
 		$job_ids = array();
 		foreach ( $raw_ids as $raw_id ) {
 			if ( is_string( $raw_id ) && '' !== $raw_id ) {
@@ -384,6 +393,15 @@ class CustomerAgentRuntimeRepository {
 				$integration_hash
 			)
 		);
+		if ( null === $conversation_count ) {
+			// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Reverts a purge whose conversation ownership read failed.
+			$wpdb->query( 'ROLLBACK' );
+			return array(
+				'purged'        => false,
+				'conversations' => 0,
+				'job_ids'       => array(),
+			);
+		}
 		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Purges only an explicitly managed integration's private runtime jobs.
 		$jobs_deleted = $wpdb->delete( self::jobs_table_name(), array( 'integration_hash' => $integration_hash ), array( '%s' ) );
 		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Purges only an explicitly managed integration's private runtime conversations.

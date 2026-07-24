@@ -1731,7 +1731,7 @@ class CustomerAgentRuntimeService implements CustomerAgentRuntimeInterface {
 			? JobErrorSanitizer::sanitize( (string) $candidate['reason'], 500 )
 			: '';
 		if ( '' === $reason ) {
-			return null;
+			$reason = __( 'A human support specialist is needed to continue safely.', 'superdav-ai-agent' );
 		}
 
 		return array(

@@ -489,7 +489,7 @@ class AgentLoop {
 	 * @return array<string, mixed>|WP_Error
 	 */
 	public function run() {
-		if ( ! function_exists( 'wp_ai_client_prompt' ) ) {
+		if ( ! $this->is_ai_client_available() ) {
 			return new WP_Error(
 				'sd_ai_agent_missing_client',
 				__( 'The AI Client SDK is not available. WordPress 7.0+ is required.', 'superdav-ai-agent' )
@@ -544,6 +544,11 @@ class AgentLoop {
 			$this->clear_anonymous_mode_context();
 			AgentEventLog::clear_session();
 		}
+	}
+
+	/** Whether the WordPress AI Client SDK entry point is available. */
+	protected function is_ai_client_available(): bool {
+		return function_exists( 'wp_ai_client_prompt' );
 	}
 
 	/** Apply request-scoped anonymous public-chat gating to tool helpers. */
@@ -693,18 +698,19 @@ class AgentLoop {
 	 * @return array<string, mixed>|WP_Error
 	 */
 	public function resume_after_confirmation( bool $confirmed, int $remaining_iterations ) {
-		if ( ! function_exists( 'wp_ai_client_prompt' ) ) {
+		if ( ! $this->is_ai_client_available() ) {
 			return new WP_Error(
 				'sd_ai_agent_missing_client',
 				__( 'wp_ai_client_prompt() is not available.', 'superdav-ai-agent' )
 			);
 		}
 
-		ProviderCredentialLoader::load();
-
+		$this->apply_anonymous_mode_context();
 		AgentEventLog::set_session( $this->session_id );
 
 		try {
+			ProviderCredentialLoader::load();
+
 			if ( $confirmed ) {
 				// The last message in history is the model's tool call message.
 				$assistant_message     = end( $this->history );
@@ -737,6 +743,7 @@ class AgentLoop {
 
 			return $this->run_loop( $remaining_iterations );
 		} finally {
+			$this->clear_anonymous_mode_context();
 			AgentEventLog::clear_session();
 		}
 	}
@@ -752,7 +759,7 @@ class AgentLoop {
 	 * @return array<string, mixed>|WP_Error
 	 */
 	public function resume_from_checkpoint( int $remaining_iterations ) {
-		if ( ! function_exists( 'wp_ai_client_prompt' ) ) {
+		if ( ! $this->is_ai_client_available() ) {
 			return new WP_Error(
 				'sd_ai_agent_missing_client',
 				__( 'wp_ai_client_prompt() is not available.', 'superdav-ai-agent' )
@@ -766,20 +773,23 @@ class AgentLoop {
 
 		IdenticalFailureTracker::reset();
 		ModelHealthTracker::set_current_model( $this->model_id );
-		ProviderCredentialLoader::load();
+		$this->apply_anonymous_mode_context();
 		AgentEventLog::set_session( $this->session_id );
 
-		if ( '' !== $this->active_job_id ) {
-			$this->active_job_started_at = microtime( true );
-			register_shutdown_function( array( $this, 'handle_active_job_shutdown' ) );
-		}
-
 		try {
+			ProviderCredentialLoader::load();
+
+			if ( '' !== $this->active_job_id ) {
+				$this->active_job_started_at = microtime( true );
+				register_shutdown_function( array( $this, 'handle_active_job_shutdown' ) );
+			}
+
 			$result = $this->run_loop( max( 1, $remaining_iterations ) );
 			$this->evaluate_skill_outcomes( $result );
 			return $result;
 		} finally {
 			$this->last_loop_phase = 'agent_loop_exiting';
+			$this->clear_anonymous_mode_context();
 			AgentEventLog::clear_session();
 		}
 	}
@@ -796,7 +806,7 @@ class AgentLoop {
 	 * @return array<string, mixed>|WP_Error
 	 */
 	public function resume_after_client_tools( array $results, int $remaining_iterations ) {
-		if ( ! function_exists( 'wp_ai_client_prompt' ) ) {
+		if ( ! $this->is_ai_client_available() ) {
 			return new WP_Error(
 				'sd_ai_agent_missing_client',
 				__( 'wp_ai_client_prompt() is not available.', 'superdav-ai-agent' )
@@ -874,9 +884,11 @@ class AgentLoop {
 			$this->fire_progress();
 		}
 
+		$this->apply_anonymous_mode_context();
 		try {
 			return $this->run_loop( $remaining_iterations );
 		} finally {
+			$this->clear_anonymous_mode_context();
 			AgentEventLog::clear_session();
 		}
 	}
@@ -949,15 +961,18 @@ class AgentLoop {
 			$this->active_job_id,
 			$phase,
 			array(
-				'history'              => $this->serialize_history(),
-				'tool_call_log'        => $this->tool_call_log,
-				'message_log'          => $this->message_log,
-				'token_usage'          => $this->token_usage,
-				'iterations_remaining' => max( 1, $iterations_remaining ),
-				'model_id'             => $this->model_id,
-				'provider_id'          => $this->provider_id,
-				'client_abilities'     => $this->client_abilities,
-				'page_context'         => $this->page_context,
+				'history'                       => $this->serialize_history(),
+				'tool_call_log'                 => $this->tool_call_log,
+				'message_log'                   => $this->message_log,
+				'token_usage'                   => $this->token_usage,
+				'iterations_remaining'          => max( 1, $iterations_remaining ),
+				'model_id'                      => $this->model_id,
+				'provider_id'                   => $this->provider_id,
+				'client_abilities'              => $this->client_abilities,
+				'page_context'                  => $this->page_context,
+				'anonymous_allowed_abilities'   => $this->anonymous_allowed_abilities,
+				'anonymous_allowed_collections' => $this->anonymous_allowed_collections,
+				'anonymous_policy_active'       => $this->anonymous_policy_active,
 			)
 		);
 	}

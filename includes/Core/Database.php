@@ -820,9 +820,10 @@ class Database {
 		require_once ABSPATH . 'wp-admin/includes/upgrade.php';
 		dbDelta( $sql );
 
-		if ( ! self::ensure_managed_profile_key_unique_index( $agents_table ) ) {
-			return;
-		}
+		// This defence-in-depth index may be blocked by ambiguous historical
+		// duplicates. Fail soft so unrelated schema repairs, seeds, and the version
+		// write still complete; Agent::create() independently rejects duplicate keys.
+		self::ensure_managed_profile_key_unique_index( $agents_table );
 
 		self::ensure_calendar_reminder_dedupe_index( $calendar_reminders_table );
 
