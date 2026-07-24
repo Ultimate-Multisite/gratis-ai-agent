@@ -349,15 +349,15 @@ Do not use shell heredocs, process substitution, or command substitution to
 inline the body or signature. Those forms are rejected by the aidevops GitHub
 signature gate. Create the GitHub issue through the repo helper so the required
 aidevops signature footer is appended automatically and the fallback signature is
-used if the framework signature helper is unavailable. Apply `origin:worker` and
-`status:available` alongside `bug` so the issue is traceable as feedback-triage
-output and visible to claim routines:
+used if the framework signature helper is unavailable. Apply `origin:worker`,
+`status:available`, and `auto-dispatch` alongside `bug` so the issue is
+traceable as feedback-triage output and visible to claim routines:
 
 ```bash
 .agents/scripts/issue-sync-helper.sh --repo Ultimate-Multisite/superdav-ai-agent create-signed-issue \
   --title "<concise bug title>" \
   --body-file /tmp/opencode/r020-triage/issue-<id>-body.md \
-  --label "bug,origin:worker,status:available"
+  --label "bug,origin:worker,status:available,auto-dispatch"
 ```
 
 If any referenced screenshot, prompt, or generated artifact returns
@@ -384,13 +384,13 @@ status):
 #### 4f: Create GitHub issue (missing_ability)
 
 Use `enhancement` in place of `bug`; keep the rest of the label set
-(`enhancement,origin:worker,status:available`). Title format:
+(`enhancement,origin:worker,status:available,auto-dispatch`). Title format:
 `ability: <action> — <context>`.
 
 #### 4f.1: Create GitHub issue (contributor_insight)
 
 Use `contributor-insight` in place of `bug`; keep the rest of the label set
-(`contributor-insight,origin:worker,status:available`). Title format:
+(`contributor-insight,origin:worker,status:available,auto-dispatch`). Title format:
 `Contributor insight: <instruction/script gap>`.
 
 The issue body must include a `## Worker Guidance` section with:
