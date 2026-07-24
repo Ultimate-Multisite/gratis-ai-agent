@@ -3818,7 +3818,7 @@ class AgentLoop {
 				),
 			)
 		);
-		$this->message_log[] = array(
+		$this->message_log[]                              = array(
 			'type'     => 'guardrail',
 			'reason'   => 'prompt_model_unavailable',
 			'ability'  => $ability,
