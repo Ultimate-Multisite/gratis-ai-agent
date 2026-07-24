@@ -10,6 +10,7 @@ declare(strict_types=1);
 
 namespace SdAiAgent\Bootstrap;
 
+use SdAiAgent\Core\Database;
 use SdAiAgent\Services\CustomerAgentRuntimeService;
 use XWP\DI\Decorators\Action;
 use XWP\DI\Decorators\Handler;
@@ -25,6 +26,12 @@ if ( ! defined( 'ABSPATH' ) ) {
 	strategy: Handler::INIT_IMMEDIATELY,
 )]
 final class CustomerAgentRuntimeHandler {
+
+	/** Upgrade stale schemas before frontend, REST, CLI, or cron runtime use. */
+	#[Action( tag: 'init', priority: 1 )]
+	public function ensure_database_schema(): void {
+		Database::install();
+	}
 
 	/** Execute one opaque queued customer-agent job. */
 	#[Action( tag: CustomerAgentRuntimeService::PROCESS_HOOK, priority: 10 )]
