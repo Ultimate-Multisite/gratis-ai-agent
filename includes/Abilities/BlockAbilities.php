@@ -2910,12 +2910,63 @@ class BlockAbilities {
 			$policy_result = self::check_block_def_policy( $block_def, false );
 
 			if ( is_wp_error( $policy_result ) ) {
-				// Return the error immediately — all-or-nothing rejection.
-				return $policy_result;
+				$data   = $policy_result->get_error_data();
+				$data   = is_array( $data ) ? $data : [];
+				$status = isset( $data['status'] ) ? $data['status'] : 400;
+
+				return new \WP_Error(
+					'batch_validation_failed',
+					__( 'One or more updates failed pre-flight validation.', 'superdav-ai-agent' ),
+					[
+						'status' => $status,
+						'errors' => [
+							self::update_blocks_validation_error(
+								$idx,
+								$policy_result->get_error_code(),
+								$policy_result->get_error_message(),
+								$update
+							),
+						],
+					]
+				);
 			}
 		}
 
 		return null;
+	}
+
+	/**
+	 * Build a safe update-blocks validation error record.
+	 *
+	 * @param int|string          $index   Submitted update index.
+	 * @param string              $code    Validation error code.
+	 * @param string              $message Validation error message.
+	 * @param array<string,mixed> $update  Submitted update data.
+	 * @return array<string,mixed>
+	 */
+	private static function update_blocks_validation_error( int|string $index, string $code, string $message, array $update ): array {
+		$error = [
+			'index'   => $index,
+			'code'    => $code,
+			'message' => $message,
+		];
+
+		if ( isset( $update['op'] ) && is_string( $update['op'] ) ) {
+			$error['op'] = $update['op'];
+		}
+
+		if ( isset( $update['ref'] ) && is_string( $update['ref'] ) ) {
+			$error['ref'] = $update['ref'];
+		} elseif ( isset( $update['path'] ) && is_array( $update['path'] ) ) {
+			$path = array_values( $update['path'] );
+			if ( $path === array_filter( $path, 'is_int' ) ) {
+				$error['path'] = $path;
+			}
+		} elseif ( isset( $update['flat_index'] ) && is_int( $update['flat_index'] ) ) {
+			$error['flat_index'] = $update['flat_index'];
+		}
+
+		return $error;
 	}
 
 	/**

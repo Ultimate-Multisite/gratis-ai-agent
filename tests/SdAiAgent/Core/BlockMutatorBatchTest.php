@@ -607,6 +607,40 @@ class BlockMutatorBatchTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * Preflight tier policy failures keep item context for model repair.
+	 */
+	public function test_handler_preflight_tier_policy_failure_is_itemized(): void {
+		$post_id = $this->create_post_with_blocks( [
+			$this->make_ref_block( 'core/group', 'blk_policy_parent', [], '', [] ),
+		] );
+
+		$result = BlockAbilities::handle_update_blocks( [
+			'post_id' => $post_id,
+			'updates' => [
+				[
+					'op'        => 'insert-child',
+					'ref'       => 'blk_policy_parent',
+					'block_def' => [
+						'blockName' => 'core/freeform',
+						'attrs'     => [],
+						'innerHTML' => 'legacy block',
+					],
+				],
+			],
+		] );
+
+		$this->assertInstanceOf( \WP_Error::class, $result );
+		$this->assertSame( 'batch_validation_failed', $result->get_error_code() );
+
+		$data = $result->get_error_data();
+		$this->assertArrayHasKey( 'errors', $data );
+		$this->assertSame( 0, $data['errors'][0]['index'] );
+		$this->assertSame( 'legacy_block', $data['errors'][0]['code'] );
+		$this->assertSame( 'insert-child', $data['errors'][0]['op'] );
+		$this->assertSame( 'blk_policy_parent', $data['errors'][0]['ref'] );
+	}
+
+	/**
 	 * AC3: Handler returns empty_batch for empty updates array.
 	 */
 	public function test_handler_empty_batch(): void {

@@ -216,6 +216,9 @@ export default function ToolCard( {
 	const recoveryHints =
 		response?.response?.recovery_hints ||
 		response?.response?.details?.recovery_hints;
+	const hasRecoveryHints =
+		Array.isArray( recoveryHints ) && recoveryHints.length > 0;
+	const hasValidationFeedback = itemizedErrors.length > 0 || hasRecoveryHints;
 	const previewMessage = response?.response?.message
 		? formatValue( response.response.message )
 		: null;
@@ -265,40 +268,56 @@ export default function ToolCard( {
 
 			{ open && (
 				<div className="sdaa-cr-tool-card-body">
-					{ itemizedErrors.length > 0 && (
+					{ hasValidationFeedback && (
 						<div className="sdaa-cr-tool-validation-errors">
-							<div className="sdaa-cr-tool-detail-label">
-								{ __(
-									'Validation errors',
-									'superdav-ai-agent'
-								) }
-							</div>
-							<ul>
-								{ itemizedErrors.map( ( error, index ) => (
-									<li
-										key={ `${ error.index ?? index }-${
-											error.code ?? ''
-										}` }
-									>
-										<strong>{ `#${ error.index ?? index } ${
-											error.code || 'validation_error'
-										}:` }</strong>{ ' ' }
-										{ error.message ||
-											__(
-												'Validation failed.',
-												'superdav-ai-agent'
-											) }
-									</li>
-								) ) }
-							</ul>
-							{ Array.isArray( recoveryHints ) &&
-								recoveryHints.length > 0 && (
+							{ itemizedErrors.length > 0 && (
+								<>
+									<div className="sdaa-cr-tool-detail-label">
+										{ __(
+											'Validation errors',
+											'superdav-ai-agent'
+										) }
+									</div>
+									<ul>
+										{ itemizedErrors.map(
+											( error, index ) => (
+												<li
+													key={ `${
+														error.index ?? index
+													}-${ error.code ?? '' }` }
+												>
+													<strong>{ `#${
+														error.index ?? index
+													} ${
+														error.code ||
+														'validation_error'
+													}:` }</strong>{ ' ' }
+													{ error.message ||
+														__(
+															'Validation failed.',
+															'superdav-ai-agent'
+														) }
+												</li>
+											)
+										) }
+									</ul>
+								</>
+							) }
+							{ hasRecoveryHints && (
+								<>
+									<div className="sdaa-cr-tool-detail-label">
+										{ __(
+											'Recovery hints',
+											'superdav-ai-agent'
+										) }
+									</div>
 									<ul>
 										{ recoveryHints.map( ( hint ) => (
 											<li key={ hint }>{ hint }</li>
 										) ) }
 									</ul>
-								) }
+								</>
+							) }
 						</div>
 					) }
 					{ args && args !== '{}' && args !== 'null' && (
