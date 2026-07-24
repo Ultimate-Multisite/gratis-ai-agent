@@ -18,6 +18,7 @@ declare(strict_types=1);
 
 namespace SdAiAgent\Tests\Core;
 
+use SdAiAgent\Bootstrap\CustomerAgentRuntimeHandler;
 use SdAiAgent\Core\Database;
 use SdAiAgent\Knowledge\KnowledgeDatabase;
 use WP_UnitTestCase;
@@ -545,6 +546,35 @@ class DatabaseSchemaTest extends WP_UnitTestCase {
 			$stored,
 			'install() must update the stored version after running on an outdated schema.'
 		);
+	}
+
+	/**
+	 * The global runtime handler upgrades an existing install before runtime use.
+	 */
+	public function test_runtime_handler_upgrades_stale_schema(): void {
+		global $wpdb;
+
+		Database::install();
+
+		$runtime_tables = [
+			Database::customer_agent_conversations_table_name(),
+			Database::customer_agent_jobs_table_name(),
+		];
+
+		foreach ( $runtime_tables as $table ) {
+			// phpcs:ignore WordPress.DB.DirectDatabaseQuery.SchemaChange -- Test-only simulated pre-runtime schema.
+			$wpdb->query( $wpdb->prepare( 'DROP TABLE IF EXISTS %i', $table ) );
+		}
+		update_option( Database::DB_VERSION_OPTION, '19.5.6' );
+
+		$handler = new CustomerAgentRuntimeHandler();
+		$handler->ensure_database_schema();
+
+		$this->assertSame( Database::DB_VERSION, get_option( Database::DB_VERSION_OPTION ) );
+		foreach ( $runtime_tables as $table ) {
+			// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Test-only introspection query.
+			$this->assertSame( $table, $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $table ) ) );
+		}
 	}
 
 	/**
