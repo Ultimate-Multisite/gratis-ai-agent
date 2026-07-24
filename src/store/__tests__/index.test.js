@@ -32,6 +32,16 @@ Object.defineProperty( global, 'localStorage', {
 // Mock @wordpress/api-fetch.
 jest.mock( '@wordpress/api-fetch', () => jest.fn() );
 
+// Client ability execution is exercised through the job polling thunk below.
+jest.mock( '../../abilities/registry', () => ( {
+	executeClientAbility: jest.fn(),
+	snapshotDescriptors: jest.fn().mockResolvedValue( [] ),
+} ) );
+
+jest.mock( '../../abilities', () => ( {
+	ensureRegistered: jest.fn().mockResolvedValue( undefined ),
+} ) );
+
 // Import the store module — side-effects (register) are mocked above.
 // We extract the reducer, actions, and selectors from the module internals
 // by re-requiring the raw source via a helper approach.
@@ -59,6 +69,7 @@ const {
 	preserveRecoverableProviderModels,
 } = require( '../slices/providersSlice' );
 const apiFetch = require( '@wordpress/api-fetch' );
+const { executeClientAbility } = require( '../../abilities/registry' );
 
 // ─── Default state ────────────────────────────────────────────────────────────
 
@@ -581,6 +592,69 @@ describe( 'actions', () => {
 			} )
 		);
 		expect( dispatch.setSending ).toHaveBeenLastCalledWith( false );
+	} );
+
+	test( 'pollJob posts a timeout error when a client ability never resolves', async () => {
+		jest.useFakeTimers();
+		apiFetch.mockReset();
+		executeClientAbility.mockReset();
+		executeClientAbility.mockImplementation(
+			() => new Promise( () => {} )
+		);
+		apiFetch.mockImplementation( ( request ) => {
+			if ( request.path === '/sd-ai-agent/v1/job/client-tool-job' ) {
+				return Promise.resolve( {
+					status: 'awaiting_client_tools',
+					pending_client_tool_calls: [
+						{
+							id: 'call-screenshot',
+							name: 'sd-ai-agent-js/capture-screenshot',
+							annotations: { readonly: true },
+							args: { fullPage: true },
+						},
+					],
+				} );
+			}
+
+			return Promise.resolve( {} );
+		} );
+
+		const dispatch = {
+			setCurrentJobId: jest.fn(),
+			setSessionJob: jest.fn(),
+		};
+		const select = {
+			getCurrentSessionId: jest.fn( () => 17 ),
+			getCurrentJobId: jest.fn( () => 'client-tool-job' ),
+		};
+
+		try {
+			actions.pollJob( 'client-tool-job', 17 )( { dispatch, select } );
+			await jest.advanceTimersByTimeAsync( 32000 );
+
+			expect( executeClientAbility ).toHaveBeenCalledWith(
+				'sd-ai-agent-js/capture-screenshot',
+				{ fullPage: true }
+			);
+			expect( apiFetch ).toHaveBeenCalledWith( {
+				path: '/sd-ai-agent/v1/chat/tool-result',
+				method: 'POST',
+				data: {
+					session_id: 17,
+					job_id: 'client-tool-job',
+					tool_results: [
+						{
+							id: 'call-screenshot',
+							name: 'sd-ai-agent-js/capture-screenshot',
+							error: 'Client tool timed out after 30 seconds.',
+						},
+					],
+				},
+			} );
+		} finally {
+			jest.clearAllTimers();
+			jest.useRealTimers();
+		}
 	} );
 } );
 

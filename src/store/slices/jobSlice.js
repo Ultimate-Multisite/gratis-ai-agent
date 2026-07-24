@@ -14,6 +14,42 @@ import { playDing, playDong, playThinking } from '../../utils/sound-manager';
 import { executeClientAbility } from '../../abilities/registry';
 import { emitReflectionEvents } from '../reflection-emitter';
 
+/** Maximum time a browser-side ability may hold an agent job open. */
+const CLIENT_TOOL_TIMEOUT_MS = 30000;
+
+/**
+ * Execute a client ability with a deadline so an unresolved browser API cannot
+ * leave the server-side agent loop paused forever.
+ *
+ * @param {string} name Ability name.
+ * @param {Object} args Ability arguments.
+ * @return {Promise<Object>} Ability result.
+ */
+function executeClientAbilityWithTimeout( name, args ) {
+	return new Promise( ( resolve, reject ) => {
+		const timeout = setTimeout( () => {
+			reject(
+				new Error(
+					`Client tool timed out after ${
+						CLIENT_TOOL_TIMEOUT_MS / 1000
+					} seconds.`
+				)
+			);
+		}, CLIENT_TOOL_TIMEOUT_MS );
+
+		Promise.resolve( executeClientAbility( name, args ) ).then(
+			( result ) => {
+				clearTimeout( timeout );
+				resolve( result );
+			},
+			( error ) => {
+				clearTimeout( timeout );
+				reject( error );
+			}
+		);
+	} );
+}
+
 /**
  * Merge real tool calls with assistant channel messages for live rendering.
  *
@@ -531,7 +567,7 @@ export const actions = {
 
 								try {
 									const abilityResult =
-										await executeClientAbility(
+										await executeClientAbilityWithTimeout(
 											call.name,
 											call.args || {}
 										);
