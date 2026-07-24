@@ -4,6 +4,8 @@
 import { useEffect, useRef } from '@wordpress/element';
 import { __ } from '@wordpress/i18n';
 
+import RecoverableJobActionCard from './recoverable-job-action-card';
+
 /**
  * Render a human-readable label for a tool call.
  *
@@ -126,6 +128,15 @@ export default function ActionCard( { card, onConfirm, onCancel } ) {
 					</button>
 				</div>
 			</div>
+		);
+	}
+
+	if ( card?.type === 'resume_recoverable_job' ) {
+		return (
+			<RecoverableJobActionCard
+				onConfirm={ onConfirm }
+				onCancel={ onCancel }
+			/>
 		);
 	}
 

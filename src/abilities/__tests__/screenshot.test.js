@@ -2,6 +2,11 @@
  * Unit tests for screenshot URL validation.
  */
 
+/**
+ * Load an isolated screenshot module instance.
+ *
+ * @return {Object} Screenshot module exports.
+ */
 function loadScreenshotModule() {
 	let mod;
 	jest.isolateModules( () => {
@@ -112,9 +117,9 @@ describe( 'full-page screenshot safety', () => {
 			);
 			expect( descriptor.description ).toContain( 'routine review' );
 			expect(
-				descriptor.inputSchema.properties.fullPage.description
+				descriptor.input_schema.properties.fullPage.description
 			).toContain( 'Default: false' );
-			expect( descriptor.outputSchema.properties ).toHaveProperty(
+			expect( descriptor.output_schema.properties ).toHaveProperty(
 				'truncated'
 			);
 		}

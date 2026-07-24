@@ -607,6 +607,24 @@ final class SessionController {
 			)
 		);
 
+		// Resume a recoverable error from the durable session paused state.
+		register_rest_route(
+			RestController::NAMESPACE,
+			'/sessions/(?P<id>\d+)/resume',
+			array(
+				'methods'             => WP_REST_Server::CREATABLE,
+				'callback'            => array( $this, 'handle_resume_recoverable_job' ),
+				'permission_callback' => array( $this, 'check_session_permission' ),
+				'args'                => array(
+					'id' => array(
+						'required'          => true,
+						'type'              => 'integer',
+						'sanitize_callback' => 'absint',
+					),
+				),
+			)
+		);
+
 		// Active-job reconnection endpoints (t202).
 		register_rest_route(
 			RestController::NAMESPACE,
@@ -2322,6 +2340,82 @@ final class SessionController {
 	}
 
 	/**
+	 * Start a fresh background job from the paused state of a recoverable error.
+	 *
+	 * The state is atomically consumed before dispatch, preventing two browser
+	 * clicks from replaying the same tool history. The newly created job supplies
+	 * the usual polling lifecycle while preserving the original session context.
+	 *
+	 * @param WP_REST_Request $request The request object.
+	 * @return WP_REST_Response|WP_Error
+	 */
+	public function handle_resume_recoverable_job( WP_REST_Request $request ) {
+		$session_id   = self::get_int_param( $request, 'id' );
+		$paused_state = Database::load_and_clear_paused_state( $session_id );
+
+		if ( ! is_array( $paused_state ) || empty( $paused_state['history'] ) || ! is_array( $paused_state['history'] ) ) {
+			return new WP_Error(
+				'sd_ai_agent_no_recoverable_state',
+				__( 'There is no saved state available to resume for this session.', 'superdav-ai-agent' ),
+				array( 'status' => 409 )
+			);
+		}
+
+		$job_id = wp_generate_uuid4();
+		$token  = wp_generate_password( 40, false );
+		$job    = array(
+			'status'          => 'processing',
+			'token'           => $token,
+			'user_id'         => get_current_user_id(),
+			'tool_calls'      => $paused_state['tool_call_log'] ?? array(),
+			'messages'        => $paused_state['message_log'] ?? array(),
+			'recovery_resume' => true,
+			'recovery_state'  => $paused_state,
+			'params'          => array(
+				'message'            => '',
+				'history'            => array(),
+				'abilities'          => array(),
+				'system_instruction' => '',
+				'bootstrap_prompt'   => '',
+				'max_iterations'     => $paused_state['iterations_remaining'] ?? null,
+				'session_id'         => $session_id,
+				'provider_id'        => $paused_state['provider_id'] ?? '',
+				'model_id'           => $paused_state['model_id'] ?? '',
+				'page_context'       => $paused_state['page_context'] ?? array(),
+				'agent_id'           => 0,
+				'attachments'        => array(),
+				'client_abilities'   => $paused_state['client_abilities'] ?? array(),
+			),
+		);
+
+		set_transient( RestController::JOB_PREFIX . $job_id, $job, RestController::JOB_TTL );
+		ActiveJobRepository::create( $session_id, $job_id, get_current_user_id() );
+
+		wp_remote_post(
+			rest_url( RestController::NAMESPACE . '/process' ),
+			array(
+				'timeout'  => 0.01,
+				'blocking' => false,
+				'body'     => (string) wp_json_encode(
+					array(
+						'job_id' => $job_id,
+						'token'  => $token,
+					)
+				),
+				'headers'  => array( 'Content-Type' => 'application/json' ),
+			)
+		);
+
+		return new WP_REST_Response(
+			array(
+				'job_id' => $job_id,
+				'status' => 'processing',
+			),
+			202
+		);
+	}
+
+	/**
 	 * Resume a paused job after confirmation or rejection.
 	 *
 	 * @param string               $job_id Job identifier.
@@ -2631,14 +2725,17 @@ final class SessionController {
 		// Check if this is a resume from a tool confirmation/rejection or crash checkpoint.
 		$is_resume            = ! empty( $job['resume'] );
 		$is_checkpoint_resume = ! empty( $job['checkpoint_resume'] );
+		$is_recovery_resume   = ! empty( $job['recovery_resume'] );
 
 		// Wrap the entire loop execution in a try/catch so that uncaught
 		// exceptions (e.g. from ability schema validation) are captured
 		// and written to the job transient instead of silently killing
 		// the background worker.
 		try {
-			if ( $is_checkpoint_resume ) {
-				$state = $job['checkpoint_state'] ?? array();
+			if ( $is_checkpoint_resume || $is_recovery_resume ) {
+				$state = $is_recovery_resume
+					? ( $job['recovery_state'] ?? array() )
+					: ( $job['checkpoint_state'] ?? array() );
 
 				/** @var list<array<string, mixed>> $state_history */
 				$state_history  = is_array( $state ) ? ( $state['history'] ?? array() ) : array();

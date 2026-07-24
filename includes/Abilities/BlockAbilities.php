@@ -857,26 +857,34 @@ class BlockAbilities {
 				'output_schema'       => [
 					'type'       => 'object',
 					'properties' => [
-						'success'     => [
+						'success'        => [
 							'type'        => 'boolean',
 							'description' => 'True when all updates succeeded.',
 						],
-						'post_id'     => [ 'type' => 'integer' ],
-						'updates'     => [
+						'post_id'        => [ 'type' => 'integer' ],
+						'updates'        => [
 							'type'        => 'integer',
 							'description' => 'Number of updates applied.',
 						],
-						'revision_id' => [
+						'revision_id'    => [
 							'type'        => [ 'integer', 'null' ],
 							'description' => 'Post revision ID after the write (or current if dry_run). null when the post has no revisions yet.',
 						],
-						'block_tree'  => [
+						'block_tree'     => [
 							'type'        => 'array',
 							'description' => 'The resulting block tree after all updates.',
 						],
-						'affected'    => self::post_content_affected_output_schema(),
-						'dry_run'     => [ 'type' => 'boolean' ],
-						'error'       => [ 'type' => 'string' ],
+						'errors'         => [
+							'type'        => 'array',
+							'description' => 'Itemized validation failures. Each entry identifies the failed update by index, code, message, operation, and safe target selector.',
+						],
+						'recovery_hints' => [
+							'type'        => 'array',
+							'description' => 'Actionable next steps for repairing a rejected batch before retrying.',
+						],
+						'affected'       => self::post_content_affected_output_schema(),
+						'dry_run'        => [ 'type' => 'boolean' ],
+						'error'          => [ 'type' => 'string' ],
 					],
 				],
 				'execute_callback'    => [ __CLASS__, 'handle_update_blocks' ],
@@ -2902,12 +2910,63 @@ class BlockAbilities {
 			$policy_result = self::check_block_def_policy( $block_def, false );
 
 			if ( is_wp_error( $policy_result ) ) {
-				// Return the error immediately — all-or-nothing rejection.
-				return $policy_result;
+				$data   = $policy_result->get_error_data();
+				$data   = is_array( $data ) ? $data : [];
+				$status = isset( $data['status'] ) ? $data['status'] : 400;
+
+				return new \WP_Error(
+					'batch_validation_failed',
+					__( 'One or more updates failed pre-flight validation.', 'superdav-ai-agent' ),
+					[
+						'status' => $status,
+						'errors' => [
+							self::update_blocks_validation_error(
+								$idx,
+								(string) $policy_result->get_error_code(),
+								$policy_result->get_error_message(),
+								$update
+							),
+						],
+					]
+				);
 			}
 		}
 
 		return null;
+	}
+
+	/**
+	 * Build a safe update-blocks validation error record.
+	 *
+	 * @param int|string          $index   Submitted update index.
+	 * @param string              $code    Validation error code.
+	 * @param string              $message Validation error message.
+	 * @param array<string,mixed> $update  Submitted update data.
+	 * @return array<string,mixed>
+	 */
+	private static function update_blocks_validation_error( int|string $index, string $code, string $message, array $update ): array {
+		$error = [
+			'index'   => $index,
+			'code'    => $code,
+			'message' => $message,
+		];
+
+		if ( isset( $update['op'] ) && is_string( $update['op'] ) ) {
+			$error['op'] = $update['op'];
+		}
+
+		if ( isset( $update['ref'] ) && is_string( $update['ref'] ) ) {
+			$error['ref'] = $update['ref'];
+		} elseif ( isset( $update['path'] ) && is_array( $update['path'] ) ) {
+			$path = array_values( $update['path'] );
+			if ( $path === array_filter( $path, 'is_int' ) ) {
+				$error['path'] = $path;
+			}
+		} elseif ( isset( $update['flat_index'] ) && is_int( $update['flat_index'] ) ) {
+			$error['flat_index'] = $update['flat_index'];
+		}
+
+		return $error;
 	}
 
 	/**
@@ -3192,7 +3251,7 @@ class BlockAbilities {
 		$guard    = RevisionGuard::check( $post_id, RevisionGuard::parse_raw( $expected ) );
 
 		if ( is_wp_error( $guard ) ) {
-			return $guard;
+			return self::with_update_blocks_recovery_hints( $guard );
 		}
 
 		$content = $post->post_content;
@@ -3206,7 +3265,7 @@ class BlockAbilities {
 		// This ensures all-or-nothing rejection before any mutations.
 		$policy_errors = self::preflight_tier_policy( $updates );
 		if ( is_wp_error( $policy_errors ) ) {
-			return $policy_errors;
+			return self::with_update_blocks_recovery_hints( $policy_errors );
 		}
 
 		// All-or-nothing batch validation + mutation.
@@ -3214,7 +3273,7 @@ class BlockAbilities {
 		$result = BlockMutator::apply_batch( $blocks, $updates );
 
 		if ( is_wp_error( $result ) ) {
-			return $result;
+			return self::with_update_blocks_recovery_hints( $result );
 		}
 
 		$new_tree = $result;
@@ -3251,6 +3310,43 @@ class BlockAbilities {
 			$post_id,
 			$dry_run
 		);
+	}
+
+	/**
+	 * Add repair guidance to update-blocks failures without discarding data.
+	 *
+	 * @param \WP_Error $error Failed update-blocks validation result.
+	 * @return \WP_Error Error with its original code, message, and enriched data.
+	 */
+	private static function with_update_blocks_recovery_hints( \WP_Error $error ): \WP_Error {
+		$data  = $error->get_error_data();
+		$data  = is_array( $data ) ? $data : [];
+		$hints = [];
+
+		if ( 'stale_revision' === $error->get_error_code() ) {
+			$hints[] = 'Re-run sd-ai-agent/get-page-blocks for this post, then retry with its revision_id as expected_revision.';
+		}
+
+		$errors = isset( $data['errors'] ) && is_array( $data['errors'] ) ? $data['errors'] : [];
+		foreach ( $errors as $item ) {
+			if ( ! is_array( $item ) || ! isset( $item['code'] ) || ! is_string( $item['code'] ) ) {
+				continue;
+			}
+
+			if ( 'duplicate_target' === $item['code'] ) {
+				$hints[] = 'Split conflicting updates into separate calls, or use the supported insert-child batch pattern when adding multiple children to one parent.';
+			}
+
+			if ( 'block_not_found' === $item['code'] ) {
+				$hints[] = 'Re-run sd-ai-agent/get-page-blocks with persist_refs:true, then retry using a current ref or path.';
+			}
+		}
+
+		if ( ! empty( $hints ) ) {
+			$data['recovery_hints'] = array_values( array_unique( $hints ) );
+		}
+
+		return new \WP_Error( $error->get_error_code(), $error->get_error_message(), $data );
 	}
 
 	// ─── rewrite-post-blocks handler ──────────────────────────────

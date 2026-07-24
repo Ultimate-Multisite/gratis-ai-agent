@@ -32,6 +32,14 @@ Object.defineProperty( global, 'localStorage', {
 // Mock @wordpress/api-fetch.
 jest.mock( '@wordpress/api-fetch', () => jest.fn() );
 
+// Client ability execution is exercised through the job polling thunk below.
+jest.mock( '../../abilities/registry', () => ( {
+	executeClientAbility: jest.fn(),
+	registerCategory: jest.fn().mockResolvedValue(),
+	registerClientAbility: jest.fn().mockResolvedValue(),
+	snapshotDescriptors: jest.fn().mockResolvedValue( [] ),
+} ) );
+
 // Import the store module — side-effects (register) are mocked above.
 // We extract the reducer, actions, and selectors from the module internals
 // by re-requiring the raw source via a helper approach.
@@ -60,6 +68,7 @@ const {
 } = require( '../slices/providersSlice' );
 const { buildFailedJobActivityMessage } = require( '../slices/jobSlice' );
 const apiFetch = require( '@wordpress/api-fetch' );
+const { executeClientAbility } = require( '../../abilities/registry' );
 
 // ─── Default state ────────────────────────────────────────────────────────────
 
@@ -326,6 +335,10 @@ describe( 'actions', () => {
 		expect( typeof actions.retryClientToolSubmission() ).toBe( 'function' );
 	} );
 
+	test( 'resumeRecoverableJob returns a thunk function', () => {
+		expect( typeof actions.resumeRecoverableJob() ).toBe( 'function' );
+	} );
+
 	test( 'compactConversation uses the server compact endpoint without resending transcript', async () => {
 		apiFetch.mockReset();
 		const compactedMessages = [
@@ -427,6 +440,26 @@ describe( 'actions', () => {
 		expect( dispatch.truncateMessagesTo ).not.toHaveBeenCalled();
 		expect( dispatch.setStreamError ).not.toHaveBeenCalled();
 		expect( dispatch.streamMessage ).not.toHaveBeenCalled();
+	} );
+
+	test( 'retryLastMessage resumes a recoverable job without replaying the user turn', async () => {
+		const dispatch = {
+			resumeRecoverableJob: jest.fn(),
+			truncateMessagesTo: jest.fn(),
+		};
+		const select = {
+			getPendingActionCard: jest.fn( () => ( {
+				type: 'resume_recoverable_job',
+				sessionId: 17,
+			} ) ),
+			getCurrentSessionMessages: jest.fn(),
+		};
+
+		await actions.retryLastMessage()( { dispatch, select } );
+
+		expect( dispatch.resumeRecoverableJob ).toHaveBeenCalledTimes( 1 );
+		expect( select.getCurrentSessionMessages ).not.toHaveBeenCalled();
+		expect( dispatch.truncateMessagesTo ).not.toHaveBeenCalled();
 	} );
 
 	test( 'retryClientToolSubmission resubmits preserved results and resumes the same job once', async () => {
@@ -610,6 +643,144 @@ describe( 'actions', () => {
 			'Work completed before the error is preserved below'
 		);
 		expect( buildFailedJobActivityMessage( [] ) ).toBeNull();
+	} );
+
+	test( 'pollJob posts a timeout error when a client ability never resolves', async () => {
+		jest.useFakeTimers();
+		apiFetch.mockReset();
+		executeClientAbility.mockReset();
+		executeClientAbility.mockImplementation(
+			() => new Promise( () => {} )
+		);
+		apiFetch.mockImplementation( ( request ) => {
+			if ( request.path === '/sd-ai-agent/v1/job/client-tool-job' ) {
+				return Promise.resolve( {
+					status: 'awaiting_client_tools',
+					pending_client_tool_calls: [
+						{
+							id: 'call-screenshot',
+							name: 'sd-ai-agent-js/capture-screenshot',
+							annotations: { readonly: true },
+							args: { fullPage: true },
+						},
+					],
+				} );
+			}
+
+			return Promise.resolve( {} );
+		} );
+
+		const dispatch = {
+			setCurrentJobId: jest.fn(),
+			setSessionJob: jest.fn(),
+		};
+		const select = {
+			getCurrentSessionId: jest.fn( () => 17 ),
+			getCurrentJobId: jest.fn( () => 'client-tool-job' ),
+		};
+
+		try {
+			actions.pollJob( 'client-tool-job', 17 )( { dispatch, select } );
+			await jest.advanceTimersByTimeAsync( 32000 );
+
+			expect( executeClientAbility ).toHaveBeenCalledWith(
+				'sd-ai-agent-js/capture-screenshot',
+				{ fullPage: true }
+			);
+			expect( apiFetch ).toHaveBeenCalledWith( {
+				path: '/sd-ai-agent/v1/chat/tool-result',
+				method: 'POST',
+				data: {
+					session_id: 17,
+					job_id: 'client-tool-job',
+					tool_results: [
+						{
+							id: 'call-screenshot',
+							name: 'sd-ai-agent-js/capture-screenshot',
+							error: 'Client tool timed out after 30 seconds.',
+						},
+					],
+				},
+			} );
+		} finally {
+			jest.clearAllTimers();
+			jest.useRealTimers();
+		}
+	} );
+
+	test( 'resumeRecoverableJob starts and polls the replacement job', async () => {
+		apiFetch.mockReset();
+		apiFetch.mockResolvedValue( { job_id: 'resumed-job' } );
+		const dispatch = {
+			setSending: jest.fn(),
+			setPendingActionCard: jest.fn(),
+			setCurrentJobId: jest.fn(),
+			setSessionJob: jest.fn(),
+			pollJob: jest.fn(),
+			appendMessage: jest.fn(),
+		};
+		const select = {
+			getPendingActionCard: jest.fn( () => ( {
+				type: 'resume_recoverable_job',
+				sessionId: 17,
+			} ) ),
+		};
+
+		await actions.resumeRecoverableJob()( { dispatch, select } );
+
+		expect( apiFetch ).toHaveBeenCalledWith( {
+			path: '/sd-ai-agent/v1/sessions/17/resume',
+			method: 'POST',
+		} );
+		expect( dispatch.setPendingActionCard ).toHaveBeenCalledWith( null );
+		expect( dispatch.setCurrentJobId ).toHaveBeenCalledWith(
+			'resumed-job'
+		);
+		expect( dispatch.setSessionJob ).toHaveBeenCalledWith( 17, {
+			jobId: 'resumed-job',
+			toolCalls: [],
+			status: 'processing',
+		} );
+		expect( dispatch.pollJob ).toHaveBeenCalledWith( 'resumed-job', 17 );
+	} );
+
+	test( 'pollJob preserves a recoverable error as a resume action card', async () => {
+		jest.useFakeTimers();
+		apiFetch.mockReset();
+		apiFetch.mockResolvedValue( {
+			status: 'error',
+			message: 'The provider interrupted this step.',
+			recoverable: true,
+		} );
+		const dispatch = {
+			appendMessage: jest.fn(),
+			setPendingActionCard: jest.fn(),
+			setStreamError: jest.fn(),
+			setSending: jest.fn(),
+			setLiveToolCalls: jest.fn(),
+			drainMessageQueue: jest.fn(),
+			setCurrentJobId: jest.fn(),
+			setSessionJob: jest.fn(),
+		};
+		const select = {
+			getCurrentSessionId: jest.fn( () => 17 ),
+			getCurrentJobId: jest.fn( () => 'failed-job' ),
+		};
+
+		try {
+			actions.pollJob( 'failed-job', 17 )( { dispatch, select } );
+			await jest.advanceTimersByTimeAsync( 2000 );
+		} finally {
+			jest.useRealTimers();
+		}
+
+		expect( dispatch.appendMessage ).toHaveBeenCalledWith(
+			expect.objectContaining( { role: 'system' } )
+		);
+		expect( dispatch.setPendingActionCard ).toHaveBeenCalledWith( {
+			type: 'resume_recoverable_job',
+			sessionId: 17,
+		} );
 	} );
 } );
 

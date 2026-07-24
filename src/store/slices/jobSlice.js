@@ -196,6 +196,66 @@ export const actions = {
 	},
 
 	/**
+	 * Resume a failed job from the durable recovery state saved on its session.
+	 *
+	 * The server consumes the saved state atomically and creates a fresh job for
+	 * its continuation, so this never replays the user's already-persisted turn.
+	 *
+	 * @return {Function} Redux thunk.
+	 */
+	resumeRecoverableJob() {
+		return async ( { dispatch, select } ) => {
+			const card = select.getPendingActionCard();
+			const sessionId = card?.sessionId;
+			if ( card?.type !== 'resume_recoverable_job' || ! sessionId ) {
+				return;
+			}
+
+			dispatch.setSending( true );
+			try {
+				const result = await apiFetch( {
+					path: `/sd-ai-agent/v1/sessions/${ sessionId }/resume`,
+					method: 'POST',
+				} );
+				if ( ! result?.job_id ) {
+					throw new Error(
+						__(
+							'Unable to resume the failed step.',
+							'superdav-ai-agent'
+						)
+					);
+				}
+
+				dispatch.setPendingActionCard( null );
+				dispatch.setCurrentJobId( result.job_id );
+				dispatch.setSessionJob( sessionId, {
+					jobId: result.job_id,
+					toolCalls: [],
+					status: 'processing',
+				} );
+				dispatch.pollJob( result.job_id, sessionId );
+			} catch ( err ) {
+				dispatch.appendMessage( {
+					role: 'system',
+					parts: [
+						{
+							text: `${ __( 'Error:', 'superdav-ai-agent' ) } ${
+								err instanceof Error
+									? err.message
+									: __(
+											'Unable to resume the failed step.',
+											'superdav-ai-agent'
+									  )
+							}`,
+						},
+					],
+				} );
+				dispatch.setSending( false );
+			}
+		};
+	},
+
+	/**
 	 * Re-submit previously computed client tool results to the server.
 	 *
 	 * Called when the user clicks Retry on the retry action card.  Clears the
@@ -561,11 +621,21 @@ export const actions = {
 								}
 
 								try {
-									const abilityResult =
-										await executeClientAbility(
+									const abilityResult = await Promise.race( [
+										executeClientAbility(
 											call.name,
 											call.args || {}
-										);
+										),
+										new Promise( ( _resolve, reject ) =>
+											setTimeout(
+												reject,
+												30000,
+												new Error(
+													'Client tool timed out after 30 seconds.'
+												)
+											)
+										),
+									] );
 									return {
 										id: call.id,
 										name: call.name,
@@ -795,6 +865,12 @@ export const actions = {
 								role: 'system',
 								parts: [ { text: errorText } ],
 							} );
+							if ( result.recoverable ) {
+								dispatch.setPendingActionCard( {
+									type: 'resume_recoverable_job',
+									sessionId,
+								} );
+							}
 							if ( ! isCreditNotice ) {
 								dispatch.setStreamError( true, sessionId );
 							}
