@@ -21,13 +21,17 @@ class KnowledgeAbilities {
 	/**
 	 * Request-scoped public chat collection allowlist.
 	 *
-	 * Empty means normal authenticated behaviour. Non-empty means anonymous
-	 * public chat mode is active and knowledge searches must stay inside these
-	 * server-configured documentation collections.
+	 * The explicit mode flag distinguishes normal authenticated behaviour from
+	 * an active policy with no approved collections. While active, knowledge
+	 * searches must stay inside these server-configured documentation
+	 * collections.
 	 *
 	 * @var array<string, true>
 	 */
 	private static array $public_collection_allowlist = [];
+
+	/** @var bool Whether a constrained public/customer collection policy is active. */
+	private static bool $public_collection_mode_active = false;
 
 	/**
 	 * Request-scoped fallback query for public-chat knowledge calls.
@@ -43,8 +47,9 @@ class KnowledgeAbilities {
 	 */
 	// phpcs:ignore Squiz.Commenting.FunctionComment.IncorrectTypeHint -- list<string> is valid PHPStan but not a native PHP type.
 	public static function set_public_collection_allowlist( array $collections, string $default_query = '' ): void {
-		self::$public_collection_allowlist = [];
-		self::$public_default_query        = trim( $default_query );
+		self::$public_collection_mode_active = true;
+		self::$public_collection_allowlist   = [];
+		self::$public_default_query          = trim( $default_query );
 		foreach ( $collections as $collection ) {
 			$collection = sanitize_key( $collection );
 			if ( '' !== $collection ) {
@@ -55,13 +60,14 @@ class KnowledgeAbilities {
 
 	/** Clear request-scoped public collection gating. */
 	public static function clear_public_collection_allowlist(): void {
-		self::$public_collection_allowlist = [];
-		self::$public_default_query        = '';
+		self::$public_collection_mode_active = false;
+		self::$public_collection_allowlist   = [];
+		self::$public_default_query          = '';
 	}
 
 	/** Whether public collection gating is active for this request. */
 	public static function is_public_collection_mode(): bool {
-		return ! empty( self::$public_collection_allowlist );
+		return self::$public_collection_mode_active;
 	}
 
 	/**

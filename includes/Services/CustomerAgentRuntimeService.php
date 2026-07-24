@@ -14,8 +14,11 @@ use SdAiAgent\Contracts\CustomerAgentRuntimeInterface;
 use SdAiAgent\Core\AgentLoop;
 use SdAiAgent\Core\ConversationSerializer;
 use SdAiAgent\Core\ConversationTrimmer;
+use SdAiAgent\Core\CustomerAgentPromptComposer;
 use SdAiAgent\Core\JobErrorSanitizer;
+use SdAiAgent\Knowledge\KnowledgeDatabase;
 use SdAiAgent\Models\ActiveJobRepository;
+use SdAiAgent\Models\Agent;
 use SdAiAgent\Models\CustomerAgentRuntimeRepository;
 use WP_Error;
 use WordPress\AiClient\Messages\DTO\Message;
@@ -29,7 +32,9 @@ if ( ! defined( 'ABSPATH' ) ) {
  *
  * @phpstan-type RuntimeProfile array{
  *     profile_id: string,
- *     system_instruction: string,
+ *     profile_key: string,
+ *     profile_version: string,
+ *     support_instructions: string,
  *     abilities: list<string>,
  *     collections: list<string>,
  *     provider_id: string,
@@ -39,11 +44,28 @@ if ( ! defined( 'ABSPATH' ) ) {
  *     max_iterations: int,
  *     max_runtime_seconds: int
  * }
+ * @phpstan-type ManagedProfileSpec array{
+ *     profile_version: string,
+ *     support_instructions: string,
+ *     collections: list<string>,
+ *     name: string,
+ *     description: string,
+ *     provider_id: string,
+ *     model_id: string,
+ *     temperature: float|null,
+ *     max_iterations: int|null,
+ *     greeting: string,
+ *     avatar_icon: string,
+ *     max_message_length: int,
+ *     max_history_turns: int,
+ *     max_runtime_seconds: int,
+ *     reset_operator_fields: bool
+ * }
  */
 class CustomerAgentRuntimeService implements CustomerAgentRuntimeInterface {
 
 	/** Semantic version consumers use for fail-closed compatibility checks. */
-	public const CONTRACT_VERSION = '1.0.0';
+	public const CONTRACT_VERSION = '1.1.0';
 
 	/** WP-Cron hook used exclusively by the durable runtime queue. */
 	public const PROCESS_HOOK = 'sd_ai_agent_customer_agent_process_job';
@@ -62,7 +84,11 @@ class CustomerAgentRuntimeService implements CustomerAgentRuntimeInterface {
 	private const MAX_REPLY_LENGTH            = 12000;
 
 	/** @var list<string> V1 forbids meta-tools, mutations, browser, and client tools. */
-	private const SAFE_ABILITIES = array( 'sd-ai-agent/knowledge-search' );
+	private const SAFE_ABILITIES                   = array( 'sd-ai-agent/knowledge-search' );
+	private const REMOVED_PROFILE_OPTION_PREFIX    = 'sd_ai_agent_customer_agent_removed_profile_';
+	private const INTEGRATION_LOCK_PREFIX          = 'sd_ai_agent_customer_agent_';
+	private const INTEGRATION_LOCK_TIMEOUT_SECONDS = 10;
+	private const INTEGRATION_LOCK_RETRY_SECONDS   = 5;
 
 	private static ?self $instance = null;
 
@@ -89,9 +115,7 @@ class CustomerAgentRuntimeService implements CustomerAgentRuntimeInterface {
 		return self::$instance;
 	}
 
-	/**
-	 * {@inheritDoc}
-	 */
+	/** {@inheritDoc} */
 	public function discover_capabilities(): array {
 		return array(
 			'contract_version' => self::CONTRACT_VERSION,
@@ -104,6 +128,10 @@ class CustomerAgentRuntimeService implements CustomerAgentRuntimeInterface {
 				'client_tools_supported'   => false,
 				'attachments_supported'    => false,
 				'caller_prompts_supported' => false,
+				'managed_profiles'         => true,
+				'profile_health'           => true,
+				'structured_handoff'       => true,
+				'trusted_request_context'  => true,
 			),
 			'limits'           => array(
 				'max_message_length'  => self::MAX_MESSAGE_LENGTH,
@@ -118,7 +146,371 @@ class CustomerAgentRuntimeService implements CustomerAgentRuntimeInterface {
 	/**
 	 * {@inheritDoc}
 	 */
+	public function ensure_profile( string $integration_key, array $spec ): array|WP_Error {
+		$integration_key = $this->normalize_integration_key( $integration_key );
+		if ( is_wp_error( $integration_key ) ) {
+			return $integration_key;
+		}
+
+		$spec = $this->normalize_managed_profile_spec( $spec );
+		if ( is_wp_error( $spec ) ) {
+			return $spec;
+		}
+		$lock_name = $this->acquire_integration_lock( $integration_key );
+		if ( is_wp_error( $lock_name ) ) {
+			return $lock_name;
+		}
+
+		try {
+			return $this->ensure_profile_locked( $integration_key, $spec );
+		} finally {
+			$this->release_integration_lock( $lock_name );
+		}
+	}
+
+	/**
+	 * @param string $integration_key Stable integration profile key.
+	 * @param array  $spec            Normalized managed profile specification.
+	 * @phpstan-param ManagedProfileSpec $spec
+	 * @return array<string,mixed>|WP_Error
+	 */
+	private function ensure_profile_locked( string $integration_key, array $spec ): array|WP_Error {
+
+		$existing = Agent::get_by_managed_profile_key( $integration_key );
+		$created  = false;
+		$actions  = array();
+
+		if ( null === $existing ) {
+			$slug      = $this->managed_profile_slug( $integration_key );
+			$collision = Agent::get_by_slug( $slug );
+			if ( null !== $collision ) {
+				return new WP_Error(
+					'sd_ai_agent_customer_agent_profile_conflict',
+					__( 'A non-managed agent already uses this customer profile slug.', 'superdav-ai-agent' ),
+					array( 'status' => 409 )
+				);
+			}
+
+			$metadata = $this->build_managed_profile_metadata( $integration_key, $spec, $spec['collections'] );
+			$id       = Agent::create(
+				array(
+					'slug'                     => $slug,
+					'name'                     => $spec['name'],
+					'description'              => $spec['description'],
+					'system_prompt'            => $spec['support_instructions'],
+					'provider_id'              => $spec['provider_id'],
+					'model_id'                 => $spec['model_id'],
+					'temperature'              => $spec['temperature'],
+					'max_iterations'           => $spec['max_iterations'],
+					'greeting'                 => $spec['greeting'],
+					'avatar_icon'              => $spec['avatar_icon'],
+					'tier_1_tools'             => self::SAFE_ABILITIES,
+					'managed_profile_key'      => $integration_key,
+					'managed_profile_version'  => $spec['profile_version'],
+					'managed_profile_metadata' => $metadata,
+					'enabled'                  => true,
+				)
+			);
+			if ( false === $id ) {
+				// The stable slug is also the concurrency gate. If a concurrent
+				// provisioner won the insert, recover only its explicit metadata.
+				$existing = Agent::get_by_managed_profile_key( $integration_key );
+				if ( null === $existing ) {
+					return new WP_Error(
+						'sd_ai_agent_customer_agent_profile_storage_failed',
+						__( 'The managed customer profile could not be saved.', 'superdav-ai-agent' ),
+						array( 'status' => 500 )
+					);
+				}
+			} else {
+				$existing = Agent::get( $id );
+				$created  = true;
+				$actions  = array( 'created', 'set_customer_safety_envelope', 'set_knowledge_only_policy' );
+			}
+		}
+
+		if ( null === $existing || ! Agent::is_managed_customer_profile( $existing ) ) {
+			return new WP_Error(
+				'sd_ai_agent_customer_agent_profile_storage_failed',
+				__( 'The managed customer profile could not be loaded.', 'superdav-ai-agent' ),
+				array( 'status' => 500 )
+			);
+		}
+
+		if ( ! $created ) {
+			$current_metadata = $existing->managed_profile_metadata;
+			$reset_operator   = $spec['reset_operator_fields'];
+			$approved         = $reset_operator
+				? $spec['collections']
+				: (
+					array_key_exists( 'approved_collections', $current_metadata )
+						? $this->sanitize_string_list( $current_metadata['approved_collections'], true )
+						: $spec['collections']
+				);
+
+			$metadata        = $this->build_managed_profile_metadata( $integration_key, $spec, $approved );
+			$managed_updated = Agent::update_managed_customer_profile(
+				$existing->id,
+				array(
+					'system_prompt'            => $spec['support_instructions'],
+					'tier_1_tools'             => self::SAFE_ABILITIES,
+					'managed_profile_version'  => $spec['profile_version'],
+					'managed_profile_metadata' => $metadata,
+				)
+			);
+			if ( ! $managed_updated ) {
+				return new WP_Error(
+					'sd_ai_agent_customer_agent_profile_storage_failed',
+					__( 'The managed customer profile could not be reconciled.', 'superdav-ai-agent' ),
+					array( 'status' => 500 )
+				);
+			}
+			$actions = array( 'reconciled_managed_fields', 'preserved_operator_fields' );
+
+			if ( $reset_operator ) {
+				Agent::update(
+					$existing->id,
+					array(
+						'name'           => $spec['name'],
+						'description'    => $spec['description'],
+						'provider_id'    => $spec['provider_id'],
+						'model_id'       => $spec['model_id'],
+						'temperature'    => $spec['temperature'],
+						'max_iterations' => $spec['max_iterations'],
+						'greeting'       => $spec['greeting'],
+						'avatar_icon'    => $spec['avatar_icon'],
+					)
+				);
+				$actions[] = 'reset_operator_fields';
+			}
+		}
+
+		if ( ! $this->clear_removed_profile( $integration_key ) ) {
+			return new WP_Error(
+				'sd_ai_agent_customer_agent_profile_storage_failed',
+				__( 'The managed customer profile could not be activated.', 'superdav-ai-agent' ),
+				array( 'status' => 500 )
+			);
+		}
+
+		$status = $this->profile_status( $integration_key );
+		if ( is_wp_error( $status ) ) {
+			return $status;
+		}
+
+		$status['created'] = $created;
+		$status['actions'] = $actions;
+		return $status;
+	}
+
+	/**
+	 * {@inheritDoc}
+	 */
+	public function profile_status( string $integration_key ): array|WP_Error {
+		$integration_key = $this->normalize_integration_key( $integration_key );
+		if ( is_wp_error( $integration_key ) ) {
+			return $integration_key;
+		}
+		if ( $this->is_removed_profile( $integration_key ) ) {
+			return $this->removed_profile_error();
+		}
+
+		$agent = Agent::get_by_managed_profile_key( $integration_key );
+		if ( null === $agent ) {
+			return $this->legacy_profile_status( $integration_key );
+		}
+		if ( ! Agent::is_managed_customer_profile( $agent ) ) {
+			return new WP_Error(
+				'sd_ai_agent_customer_agent_invalid_profile',
+				__( 'Customer-agent profile is not safely configured.', 'superdav-ai-agent' ),
+				array( 'status' => 403 )
+			);
+		}
+
+		$metadata             = $agent->managed_profile_metadata;
+		$managed_collections  = $this->sanitize_string_list( $metadata['managed_collections'] ?? array(), true );
+		$approved_collections = $this->sanitize_string_list( $metadata['approved_collections'] ?? array(), true );
+		$collections          = array_values( array_intersect( $managed_collections, $approved_collections ) );
+		$reasons              = array();
+		$missing_collections  = array();
+
+		if ( ! $agent->enabled ) {
+			$reasons[] = 'profile_disabled';
+		}
+		if ( '' === trim( $agent->provider_id ) ) {
+			$reasons[] = 'provider_missing';
+		}
+		if ( '' === trim( $agent->model_id ) ) {
+			$reasons[] = 'model_missing';
+		}
+		if ( empty( $collections ) ) {
+			$reasons[] = 'customer_collections_not_approved';
+		}
+		foreach ( $collections as $collection ) {
+			$row = KnowledgeDatabase::get_collection_by_slug( $collection );
+			if ( ! is_object( $row ) || 'active' !== (string) ( $row->status ?? '' ) ) {
+				$missing_collections[] = $collection;
+			}
+		}
+		if ( ! empty( $missing_collections ) ) {
+			$reasons[] = 'collections_unavailable';
+		}
+
+		return array(
+			'profile_key'         => $integration_key,
+			'profile_version'     => $agent->managed_profile_version,
+			'enabled'             => $agent->enabled,
+			'ready'               => empty( $reasons ),
+			'reasons'             => array_values( array_unique( $reasons ) ),
+			'missing_collections' => $missing_collections,
+			'capabilities'        => array(
+				'abilities'     => self::SAFE_ABILITIES,
+				'collections'   => $collections,
+				'customer_mode' => true,
+			),
+			'drift'               => array(
+				'safety_envelope_version'    => (string) ( $metadata['safety_envelope_version'] ?? '' ),
+				'operator_resources_missing' => ! empty( $missing_collections ),
+			),
+		);
+	}
+
+	/**
+	 * {@inheritDoc}
+	 */
+	public function disable_profile( string $integration_key ): array|WP_Error {
+		$integration_key = $this->normalize_integration_key( $integration_key );
+		if ( is_wp_error( $integration_key ) ) {
+			return $integration_key;
+		}
+		$lock_name = $this->acquire_integration_lock( $integration_key );
+		if ( is_wp_error( $lock_name ) ) {
+			return $lock_name;
+		}
+
+		try {
+			return $this->disable_profile_locked( $integration_key );
+		} finally {
+			$this->release_integration_lock( $lock_name );
+		}
+	}
+
+	/** @return array<string,mixed>|WP_Error */
+	private function disable_profile_locked( string $integration_key ): array|WP_Error {
+
+		$agent = Agent::get_by_managed_profile_key( $integration_key );
+		if ( null === $agent || ! Agent::is_managed_customer_profile( $agent ) ) {
+			return new WP_Error(
+				'sd_ai_agent_customer_agent_unknown_integration',
+				__( 'Customer-agent integration is not registered.', 'superdav-ai-agent' ),
+				array( 'status' => 403 )
+			);
+		}
+
+		if ( $agent->enabled && ! Agent::update( $agent->id, array( 'enabled' => false ) ) ) {
+			return new WP_Error(
+				'sd_ai_agent_customer_agent_profile_storage_failed',
+				__( 'The managed customer profile could not be disabled.', 'superdav-ai-agent' ),
+				array( 'status' => 500 )
+			);
+		}
+
+		$status = $this->profile_status( $integration_key );
+		if ( is_wp_error( $status ) ) {
+			return $status;
+		}
+		$status['status'] = 'disabled';
+		return $status;
+	}
+
+	/**
+	 * {@inheritDoc}
+	 */
+	public function remove_profile( string $integration_key ): array|WP_Error {
+		$integration_key = $this->normalize_integration_key( $integration_key );
+		if ( is_wp_error( $integration_key ) ) {
+			return $integration_key;
+		}
+		$lock_name = $this->acquire_integration_lock( $integration_key );
+		if ( is_wp_error( $lock_name ) ) {
+			return $lock_name;
+		}
+
+		try {
+			return $this->remove_profile_locked( $integration_key );
+		} finally {
+			$this->release_integration_lock( $lock_name );
+		}
+	}
+
+	/** @return array<string,mixed>|WP_Error */
+	private function remove_profile_locked( string $integration_key ): array|WP_Error {
+		$agent = Agent::get_by_managed_profile_key( $integration_key );
+		if ( null === $agent || ! Agent::is_managed_customer_profile( $agent ) ) {
+			return new WP_Error(
+				'sd_ai_agent_customer_agent_unknown_integration',
+				__( 'Customer-agent integration is not registered.', 'superdav-ai-agent' ),
+				array( 'status' => 403 )
+			);
+		}
+
+		if ( ! $this->mark_profile_removed( $integration_key ) ) {
+			return new WP_Error(
+				'sd_ai_agent_customer_agent_profile_storage_failed',
+				__( 'The managed customer profile could not be removed.', 'superdav-ai-agent' ),
+				array( 'status' => 500 )
+			);
+		}
+
+		$purged = CustomerAgentRuntimeRepository::purge_integration( $this->hash_identifier( 'integration', $integration_key ) );
+		if ( ! $purged['purged'] ) {
+			return new WP_Error(
+				'sd_ai_agent_customer_agent_profile_storage_failed',
+				__( 'The managed customer profile could not be removed.', 'superdav-ai-agent' ),
+				array( 'status' => 500 )
+			);
+		}
+		foreach ( $purged['job_ids'] as $job_id ) {
+			ActiveJobRepository::delete( $job_id );
+		}
+		if ( ! Agent::delete_managed_customer_profile( $integration_key ) ) {
+			return new WP_Error(
+				'sd_ai_agent_customer_agent_profile_storage_failed',
+				__( 'The managed customer profile could not be removed.', 'superdav-ai-agent' ),
+				array( 'status' => 500 )
+			);
+		}
+
+		return array(
+			'profile_key'     => $integration_key,
+			'status'          => 'removed',
+			'purged_jobs'     => count( $purged['job_ids'] ),
+			'purged_sessions' => $purged['conversations'],
+		);
+	}
+
+	/**
+	 * {@inheritDoc}
+	 */
 	public function create_or_recover_conversation( string $integration_key, string $external_session_id ): array|WP_Error {
+		$integration_key = $this->normalize_integration_key( $integration_key );
+		if ( is_wp_error( $integration_key ) ) {
+			return $integration_key;
+		}
+		$lock_name = $this->acquire_integration_lock( $integration_key );
+		if ( is_wp_error( $lock_name ) ) {
+			return $lock_name;
+		}
+
+		try {
+			return $this->create_or_recover_conversation_locked( $integration_key, $external_session_id );
+		} finally {
+			$this->release_integration_lock( $lock_name );
+		}
+	}
+
+	/** @return array{conversation_id:string,status:string,recovered:bool,expires_at:string}|WP_Error */
+	private function create_or_recover_conversation_locked( string $integration_key, string $external_session_id ): array|WP_Error {
 		$profile = $this->resolve_integration( $integration_key );
 		if ( is_wp_error( $profile ) ) {
 			return $profile;
@@ -143,10 +535,46 @@ class CustomerAgentRuntimeService implements CustomerAgentRuntimeInterface {
 	}
 
 	/**
-	 * {@inheritDoc}
+	 * Queue one idempotent customer turn.
+	 *
+	 * @param string              $integration_key     Stable integration-owned profile key.
+	 * @param string              $external_session_id Consumer-owned opaque session identifier.
+	 * @param string              $external_message_id Consumer-owned idempotency identifier.
+	 * @param string              $message             Customer message content.
+	 * @param array<string,mixed> $request_context     Trusted integration context used only to narrow profile limits.
+	 * @return array{conversation_id:string,job_id:string,status:string,created:bool,expires_at:string}|WP_Error
 	 */
-	public function enqueue_turn( string $integration_key, string $external_session_id, string $external_message_id, string $message ): array|WP_Error {
+	public function enqueue_turn( string $integration_key, string $external_session_id, string $external_message_id, string $message, array $request_context = array() ): array|WP_Error {
+		$integration_key = $this->normalize_integration_key( $integration_key );
+		if ( is_wp_error( $integration_key ) ) {
+			return $integration_key;
+		}
+		$lock_name = $this->acquire_integration_lock( $integration_key );
+		if ( is_wp_error( $lock_name ) ) {
+			return $lock_name;
+		}
+
+		try {
+			return $this->enqueue_turn_locked( $integration_key, $external_session_id, $external_message_id, $message, $request_context );
+		} finally {
+			$this->release_integration_lock( $lock_name );
+		}
+	}
+
+	/**
+	 * @param string              $integration_key     Stable integration-owned profile key.
+	 * @param string              $external_session_id Consumer-owned opaque session identifier.
+	 * @param string              $external_message_id Consumer-owned idempotency identifier.
+	 * @param string              $message             Customer message content.
+	 * @param array<string,mixed> $request_context     Trusted integration context used only to narrow profile limits.
+	 * @return array{conversation_id:string,job_id:string,status:string,created:bool,expires_at:string}|WP_Error
+	 */
+	private function enqueue_turn_locked( string $integration_key, string $external_session_id, string $external_message_id, string $message, array $request_context ): array|WP_Error {
 		$profile = $this->resolve_integration( $integration_key );
+		if ( is_wp_error( $profile ) ) {
+			return $profile;
+		}
+		$profile = $this->apply_consumer_policy_narrowing( $profile, $request_context );
 		if ( is_wp_error( $profile ) ) {
 			return $profile;
 		}
@@ -200,7 +628,12 @@ class CustomerAgentRuntimeService implements CustomerAgentRuntimeInterface {
 		$job_id                      = wp_generate_uuid4();
 		$snapshot                    = $profile;
 		$snapshot['integration_key'] = sanitize_key( $integration_key );
-		$request_payload             = wp_json_encode( array( 'message' => $message ) );
+		$request_payload             = wp_json_encode(
+			array(
+				'message' => $message,
+				'context' => CustomerAgentPromptComposer::sanitize_request_context( $request_context ),
+			)
+		);
 		$profile_snapshot            = wp_json_encode( $snapshot );
 
 		if ( ! is_string( $request_payload ) || ! is_string( $profile_snapshot ) ) {
@@ -356,6 +789,24 @@ class CustomerAgentRuntimeService implements CustomerAgentRuntimeInterface {
 	 * {@inheritDoc}
 	 */
 	public function close_conversation( string $integration_key, string $external_session_id ): array|WP_Error {
+		$integration_key = $this->normalize_integration_key( $integration_key );
+		if ( is_wp_error( $integration_key ) ) {
+			return $integration_key;
+		}
+		$lock_name = $this->acquire_integration_lock( $integration_key );
+		if ( is_wp_error( $lock_name ) ) {
+			return $lock_name;
+		}
+
+		try {
+			return $this->close_conversation_locked( $integration_key, $external_session_id );
+		} finally {
+			$this->release_integration_lock( $lock_name );
+		}
+	}
+
+	/** @return array{conversation_id:string,status:string}|WP_Error */
+	private function close_conversation_locked( string $integration_key, string $external_session_id ): array|WP_Error {
 		$profile = $this->resolve_integration( $integration_key );
 		if ( is_wp_error( $profile ) ) {
 			return $profile;
@@ -412,6 +863,34 @@ class CustomerAgentRuntimeService implements CustomerAgentRuntimeInterface {
 		if ( null === $job ) {
 			return;
 		}
+		$profile_snapshot = $this->decode_object( (string) $job['profile_snapshot'] );
+		$integration_key  = isset( $profile_snapshot['integration_key'] ) && is_string( $profile_snapshot['integration_key'] )
+			? $profile_snapshot['integration_key']
+			: '';
+		if ( '' === $integration_key ) {
+			$this->process_job_locked( $job_id );
+			return;
+		}
+
+		$lock_name = $this->acquire_integration_lock( $integration_key );
+		if ( is_wp_error( $lock_name ) ) {
+			$this->reschedule_locked_job( $job_id );
+			return;
+		}
+
+		try {
+			$this->process_job_locked( $job_id );
+		} finally {
+			$this->release_integration_lock( $lock_name );
+		}
+	}
+
+	/** Run one customer job while its integration lifecycle lock is held. */
+	private function process_job_locked( string $job_id ): void {
+		$job = CustomerAgentRuntimeRepository::get_job( $job_id );
+		if ( null === $job ) {
+			return;
+		}
 		if ( $this->deadline_has_passed( $job ) ) {
 			$this->mark_job_timed_out( $job );
 			return;
@@ -453,6 +932,7 @@ class CustomerAgentRuntimeService implements CustomerAgentRuntimeInterface {
 			);
 			return;
 		}
+		$profile = $this->restrict_profile_to_snapshot( $profile, $profile_snapshot );
 
 		$conversation = CustomerAgentRuntimeRepository::get_conversation( (string) $job['conversation_id'] );
 		if ( null === $conversation ) {
@@ -483,21 +963,24 @@ class CustomerAgentRuntimeService implements CustomerAgentRuntimeInterface {
 			return;
 		}
 
-		$history = $this->bounded_serialized_history( $result['history'] ?? array(), $profile['max_history_turns'] );
-		$reply   = JobErrorSanitizer::sanitize( (string) ( $result['reply'] ?? '' ), self::MAX_REPLY_LENGTH );
-		$tokens  = isset( $result['token_usage'] ) && is_array( $result['token_usage'] ) ? $result['token_usage'] : array();
-		$payload = wp_json_encode(
-			array(
-				'reply'           => $reply,
-				'provider_id'     => $profile['provider_id'],
-				'model_id'        => (string) ( $result['model_id'] ?? $profile['model_id'] ),
-				'iterations_used' => (int) ( $result['iterations_used'] ?? 0 ),
-				'token_usage'     => array(
-					'prompt'     => (int) ( $tokens['prompt'] ?? 0 ),
-					'completion' => (int) ( $tokens['completion'] ?? 0 ),
-				),
-			)
+		$history      = $this->bounded_serialized_history( $result['history'] ?? array(), $profile['max_history_turns'] );
+		$response     = $this->normalise_customer_response( $result );
+		$reply        = $response['reply'];
+		$tokens       = isset( $result['token_usage'] ) && is_array( $result['token_usage'] ) ? $result['token_usage'] : array();
+		$payload_data = array(
+			'reply'           => $reply,
+			'provider_id'     => $profile['provider_id'],
+			'model_id'        => (string) ( $result['model_id'] ?? $profile['model_id'] ),
+			'iterations_used' => (int) ( $result['iterations_used'] ?? 0 ),
+			'token_usage'     => array(
+				'prompt'     => (int) ( $tokens['prompt'] ?? 0 ),
+				'completion' => (int) ( $tokens['completion'] ?? 0 ),
+			),
 		);
+		if ( null !== $response['handoff'] ) {
+			$payload_data['handoff'] = $response['handoff'];
+		}
+		$payload = wp_json_encode( $payload_data );
 		if ( ! is_string( $payload ) ) {
 			$this->fail_job(
 				$job,
@@ -539,20 +1022,69 @@ class CustomerAgentRuntimeService implements CustomerAgentRuntimeInterface {
 	}
 
 	/**
-	 * Resolve a trusted integration profile from server-side registration only.
+	 * Resolve a managed profile first, preserving the V1 filter registration path
+	 * for existing public integrations until they explicitly provision a profile.
 	 *
 	 * @return RuntimeProfile|WP_Error
 	 */
 	private function resolve_integration( string $integration_key ): array|WP_Error {
-		$integration_key = sanitize_key( $integration_key );
-		if ( '' === $integration_key ) {
-			return new WP_Error(
-				'sd_ai_agent_customer_agent_unknown_integration',
-				__( 'Customer-agent integration is not registered.', 'superdav-ai-agent' ),
-				array( 'status' => 403 )
+		$integration_key = $this->normalize_integration_key( $integration_key );
+		if ( is_wp_error( $integration_key ) ) {
+			return $integration_key;
+		}
+		if ( $this->is_removed_profile( $integration_key ) ) {
+			return $this->removed_profile_error();
+		}
+
+		$agent = Agent::get_by_managed_profile_key( $integration_key );
+		if ( null !== $agent ) {
+			if ( ! Agent::is_managed_customer_profile( $agent ) ) {
+				return new WP_Error(
+					'sd_ai_agent_customer_agent_invalid_profile',
+					__( 'Customer-agent profile is not safely configured.', 'superdav-ai-agent' ),
+					array( 'status' => 403 )
+				);
+			}
+
+			$status = $this->profile_status( $integration_key );
+			if ( is_wp_error( $status ) ) {
+				return $status;
+			}
+			if ( empty( $status['ready'] ) ) {
+				return $this->profile_readiness_error( $status );
+			}
+
+			$metadata     = $agent->managed_profile_metadata;
+			$capabilities = isset( $status['capabilities'] ) && is_array( $status['capabilities'] ) ? $status['capabilities'] : array();
+			$collections  = isset( $capabilities['collections'] ) && is_array( $capabilities['collections'] )
+				? $this->sanitize_string_list( $capabilities['collections'], true )
+				: array();
+
+			return array(
+				'profile_id'           => 'managed:' . $integration_key,
+				'profile_key'          => $integration_key,
+				'profile_version'      => $agent->managed_profile_version,
+				'support_instructions' => $agent->system_prompt,
+				'abilities'            => self::SAFE_ABILITIES,
+				'collections'          => $collections,
+				'provider_id'          => $agent->provider_id,
+				'model_id'             => $agent->model_id,
+				'max_message_length'   => $this->bounded_setting( $metadata['max_message_length'] ?? self::DEFAULT_MAX_MESSAGE_LENGTH, 256, self::MAX_MESSAGE_LENGTH ),
+				'max_history_turns'    => $this->bounded_setting( $metadata['max_history_turns'] ?? self::DEFAULT_MAX_HISTORY_TURNS, 1, self::MAX_HISTORY_TURNS ),
+				'max_iterations'       => $this->bounded_setting( $agent->max_iterations ?? ( $metadata['max_iterations'] ?? self::DEFAULT_MAX_ITERATIONS ), 1, self::MAX_ITERATIONS ),
+				'max_runtime_seconds'  => $this->bounded_setting( $metadata['max_runtime_seconds'] ?? self::DEFAULT_MAX_RUNTIME_SECONDS, 30, self::MAX_RUNTIME_SECONDS ),
 			);
 		}
 
+		return $this->resolve_legacy_integration( $integration_key );
+	}
+
+	/**
+	 * Resolve the version-1 filter configuration kept for public-chat compatibility.
+	 *
+	 * @return RuntimeProfile|WP_Error
+	 */
+	private function resolve_legacy_integration( string $integration_key ): array|WP_Error {
 		/**
 		 * Registers trusted same-install customer-agent profiles.
 		 *
@@ -577,11 +1109,11 @@ class CustomerAgentRuntimeService implements CustomerAgentRuntimeInterface {
 			);
 		}
 
-		$profile_id         = sanitize_key( (string) ( $config['profile'] ?? '' ) );
-		$system_instruction = trim( (string) ( $config['system_instruction'] ?? '' ) );
-		$abilities          = $this->sanitize_string_list( $config['abilities'] ?? array(), false );
-		$collections        = $this->sanitize_string_list( $config['collections'] ?? array(), true );
-		if ( '' === $profile_id || '' === $system_instruction || empty( $abilities ) || empty( $collections ) || ! empty( array_diff( $abilities, self::SAFE_ABILITIES ) ) ) {
+		$profile_id           = sanitize_key( (string) ( $config['profile'] ?? '' ) );
+		$support_instructions = trim( (string) ( $config['system_instruction'] ?? '' ) );
+		$abilities            = $this->sanitize_string_list( $config['abilities'] ?? array(), false );
+		$collections          = $this->sanitize_string_list( $config['collections'] ?? array(), true );
+		if ( '' === $profile_id || '' === $support_instructions || empty( $abilities ) || empty( $collections ) || ! empty( array_diff( $abilities, self::SAFE_ABILITIES ) ) ) {
 			return new WP_Error(
 				'sd_ai_agent_customer_agent_invalid_profile',
 				__( 'Customer-agent profile is not safely configured.', 'superdav-ai-agent' ),
@@ -590,17 +1122,356 @@ class CustomerAgentRuntimeService implements CustomerAgentRuntimeInterface {
 		}
 
 		return array(
-			'profile_id'          => $profile_id,
-			'system_instruction'  => $system_instruction,
-			'abilities'           => $abilities,
-			'collections'         => $collections,
-			'provider_id'         => sanitize_text_field( (string) ( $config['provider_id'] ?? '' ) ),
-			'model_id'            => sanitize_text_field( (string) ( $config['model_id'] ?? '' ) ),
-			'max_message_length'  => $this->bounded_setting( $config['max_message_length'] ?? self::DEFAULT_MAX_MESSAGE_LENGTH, 256, self::MAX_MESSAGE_LENGTH ),
-			'max_history_turns'   => $this->bounded_setting( $config['max_history_turns'] ?? self::DEFAULT_MAX_HISTORY_TURNS, 1, self::MAX_HISTORY_TURNS ),
-			'max_iterations'      => $this->bounded_setting( $config['max_iterations'] ?? self::DEFAULT_MAX_ITERATIONS, 1, self::MAX_ITERATIONS ),
-			'max_runtime_seconds' => $this->bounded_setting( $config['max_runtime_seconds'] ?? self::DEFAULT_MAX_RUNTIME_SECONDS, 30, self::MAX_RUNTIME_SECONDS ),
+			'profile_id'           => $profile_id,
+			'profile_key'          => $integration_key,
+			'profile_version'      => 'legacy',
+			'support_instructions' => $support_instructions,
+			'abilities'            => $abilities,
+			'collections'          => $collections,
+			'provider_id'          => sanitize_text_field( (string) ( $config['provider_id'] ?? '' ) ),
+			'model_id'             => sanitize_text_field( (string) ( $config['model_id'] ?? '' ) ),
+			'max_message_length'   => $this->bounded_setting( $config['max_message_length'] ?? self::DEFAULT_MAX_MESSAGE_LENGTH, 256, self::MAX_MESSAGE_LENGTH ),
+			'max_history_turns'    => $this->bounded_setting( $config['max_history_turns'] ?? self::DEFAULT_MAX_HISTORY_TURNS, 1, self::MAX_HISTORY_TURNS ),
+			'max_iterations'       => $this->bounded_setting( $config['max_iterations'] ?? self::DEFAULT_MAX_ITERATIONS, 1, self::MAX_ITERATIONS ),
+			'max_runtime_seconds'  => $this->bounded_setting( $config['max_runtime_seconds'] ?? self::DEFAULT_MAX_RUNTIME_SECONDS, 30, self::MAX_RUNTIME_SECONDS ),
 		);
+	}
+
+	/**
+	 * Normalize an integration key before it is used as a profile identifier.
+	 *
+	 * @return string|WP_Error
+	 */
+	private function normalize_integration_key( string $integration_key ): string|WP_Error {
+		$integration_key = sanitize_key( $integration_key );
+		if ( '' === $integration_key || strlen( $integration_key ) > 100 ) {
+			return new WP_Error(
+				'sd_ai_agent_customer_agent_unknown_integration',
+				__( 'Customer-agent integration is not registered.', 'superdav-ai-agent' ),
+				array( 'status' => 403 )
+			);
+		}
+
+		return $integration_key;
+	}
+
+	/**
+	 * Acquire a cross-request mutex for every lifecycle mutation of one integration.
+	 *
+	 * @return string|WP_Error Opaque advisory-lock name or a fail-closed error.
+	 */
+	private function acquire_integration_lock( string $integration_key ): string|WP_Error {
+		global $wpdb;
+		/** @var \wpdb $wpdb */
+
+		$lock_name = self::INTEGRATION_LOCK_PREFIX . substr( $this->hash_identifier( 'integration-lock', $integration_key ), 0, 36 );
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- A database advisory lock serializes lifecycle operations across PHP requests and web heads.
+		$acquired = $wpdb->get_var(
+			$wpdb->prepare(
+				'SELECT GET_LOCK(%s, %d)',
+				$lock_name,
+				self::INTEGRATION_LOCK_TIMEOUT_SECONDS
+			)
+		);
+		if ( 1 !== (int) $acquired ) {
+			return new WP_Error(
+				'sd_ai_agent_customer_agent_lifecycle_busy',
+				__( 'The customer-agent profile is busy. Please retry shortly.', 'superdav-ai-agent' ),
+				array( 'status' => 503 )
+			);
+		}
+
+		return $lock_name;
+	}
+
+	/** Release a lock acquired by acquire_integration_lock(). */
+	private function release_integration_lock( string $lock_name ): void {
+		global $wpdb;
+		/** @var \wpdb $wpdb */
+
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Releases the request-scoped advisory lock acquired for this integration.
+		$wpdb->get_var( $wpdb->prepare( 'SELECT RELEASE_LOCK(%s)', $lock_name ) );
+	}
+
+	/** Queue a bounded retry if a worker loses the integration lifecycle lock race. */
+	private function reschedule_locked_job( string $job_id ): void {
+		if ( false !== wp_next_scheduled( self::PROCESS_HOOK, array( $job_id ) ) ) {
+			return;
+		}
+
+		wp_schedule_single_event(
+			time() + self::INTEGRATION_LOCK_RETRY_SECONDS,
+			self::PROCESS_HOOK,
+			array( $job_id ),
+			true
+		);
+	}
+
+
+	/** Return the independent opaque tombstone option name for one integration key. */
+	private function removed_profile_option_name( string $integration_key ): string {
+		return self::REMOVED_PROFILE_OPTION_PREFIX . $this->hash_identifier( 'integration', $integration_key );
+	}
+
+	/** Persist a fail-closed tombstone before purging and deleting a managed profile. */
+	private function mark_profile_removed( string $integration_key ): bool {
+		$option_name = $this->removed_profile_option_name( $integration_key );
+		if ( false !== get_option( $option_name, false ) ) {
+			return true;
+		}
+
+		return update_option( $option_name, '1', false );
+	}
+
+	/** Clear a profile tombstone only after successful explicit provisioning. */
+	private function clear_removed_profile( string $integration_key ): bool {
+		$option_name = $this->removed_profile_option_name( $integration_key );
+		if ( false === get_option( $option_name, false ) ) {
+			return true;
+		}
+
+		return delete_option( $option_name );
+	}
+
+	/** Whether a removed managed profile must not fall back to a legacy registration. */
+	private function is_removed_profile( string $integration_key ): bool {
+		return false !== get_option( $this->removed_profile_option_name( $integration_key ), false );
+	}
+
+	/** Return the generic fail-closed response for an explicitly removed profile. */
+	private function removed_profile_error(): WP_Error {
+		return new WP_Error(
+			'sd_ai_agent_customer_agent_profile_removed',
+			__( 'The customer-agent profile has been removed.', 'superdav-ai-agent' ),
+			array( 'status' => 410 )
+		);
+	}
+
+	/**
+	 * @param array<string,mixed> $spec Raw trusted-integration provisioning spec.
+	 * @return ManagedProfileSpec|WP_Error
+	 */
+	private function normalize_managed_profile_spec( array $spec ): array|WP_Error {
+		$profile_version = sanitize_text_field( (string) ( $spec['profile_version'] ?? '' ) );
+		$collections     = $this->sanitize_string_list( $spec['collections'] ?? array(), true );
+		if ( '' === $profile_version || strlen( $profile_version ) > 100 || empty( $collections ) ) {
+			return new WP_Error(
+				'sd_ai_agent_customer_agent_invalid_profile_spec',
+				__( 'A managed customer profile requires a version and at least one approved collection.', 'superdav-ai-agent' ),
+				array( 'status' => 400 )
+			);
+		}
+
+		if ( array_key_exists( 'abilities', $spec ) ) {
+			if ( ! is_array( $spec['abilities'] ) ) {
+				return new WP_Error(
+					'sd_ai_agent_customer_agent_forbidden_ability',
+					__( 'Customer-agent profiles may use knowledge-search only.', 'superdav-ai-agent' ),
+					array( 'status' => 403 )
+				);
+			}
+			$requested_abilities = $this->sanitize_string_list( $spec['abilities'], false );
+			if ( ! empty( array_diff( $requested_abilities, self::SAFE_ABILITIES ) ) ) {
+				return new WP_Error(
+					'sd_ai_agent_customer_agent_forbidden_ability',
+					__( 'Customer-agent profiles may use knowledge-search only.', 'superdav-ai-agent' ),
+					array( 'status' => 403 )
+				);
+			}
+		}
+
+		$support_instructions = trim( wp_strip_all_tags( wp_check_invalid_utf8( (string) ( $spec['support_instructions'] ?? '' ) ) ) );
+		if ( '' === $support_instructions ) {
+			$support_instructions = CustomerAgentPromptComposer::default_support_instructions();
+		}
+
+		$temperature = null;
+		if ( array_key_exists( 'temperature', $spec ) && null !== $spec['temperature'] ) {
+			$temperature = max( 0.0, min( 2.0, (float) $spec['temperature'] ) );
+		}
+
+		return array(
+			'profile_version'       => $profile_version,
+			'support_instructions'  => $support_instructions,
+			'collections'           => $collections,
+			'name'                  => sanitize_text_field( (string) ( $spec['name'] ?? __( 'Customer Support', 'superdav-ai-agent' ) ) ),
+			'description'           => sanitize_textarea_field( (string) ( $spec['description'] ?? __( 'Managed customer-support agent.', 'superdav-ai-agent' ) ) ),
+			'provider_id'           => sanitize_text_field( (string) ( $spec['provider_id'] ?? '' ) ),
+			'model_id'              => sanitize_text_field( (string) ( $spec['model_id'] ?? '' ) ),
+			'temperature'           => $temperature,
+			'max_iterations'        => array_key_exists( 'max_iterations', $spec ) && null !== $spec['max_iterations']
+				? $this->bounded_setting( $spec['max_iterations'], 1, self::MAX_ITERATIONS )
+				: null,
+			'greeting'              => sanitize_textarea_field( (string) ( $spec['greeting'] ?? '' ) ),
+			'avatar_icon'           => sanitize_text_field( (string) ( $spec['avatar_icon'] ?? '' ) ),
+			'max_message_length'    => $this->bounded_setting( $spec['max_message_length'] ?? self::DEFAULT_MAX_MESSAGE_LENGTH, 256, self::MAX_MESSAGE_LENGTH ),
+			'max_history_turns'     => $this->bounded_setting( $spec['max_history_turns'] ?? self::DEFAULT_MAX_HISTORY_TURNS, 1, self::MAX_HISTORY_TURNS ),
+			'max_runtime_seconds'   => $this->bounded_setting( $spec['max_runtime_seconds'] ?? self::DEFAULT_MAX_RUNTIME_SECONDS, 30, self::MAX_RUNTIME_SECONDS ),
+			'reset_operator_fields' => ! empty( $spec['reset_operator_fields'] ),
+		);
+	}
+
+	/**
+	 * @param string $integration_key      Stable integration profile key.
+	 * @param array  $spec                 Managed profile specification.
+	 * @param array  $approved_collections Current operator-approved collection slugs.
+	 * @phpstan-param ManagedProfileSpec $spec
+	 * @phpstan-param list<string> $approved_collections
+	 * @phpstan-param list<string> $approved_collections
+	 * @return array<string,mixed>
+	 */
+	private function build_managed_profile_metadata( string $integration_key, array $spec, array $approved_collections ): array {
+		return array(
+			'customer_mode'           => true,
+			'profile_key'             => $integration_key,
+			'safety_envelope_version' => CustomerAgentPromptComposer::SAFETY_ENVELOPE_VERSION,
+			'allowed_abilities'       => self::SAFE_ABILITIES,
+			'managed_collections'     => $spec['collections'],
+			'approved_collections'    => $approved_collections,
+			'max_message_length'      => $spec['max_message_length'],
+			'max_history_turns'       => $spec['max_history_turns'],
+			'max_iterations'          => $spec['max_iterations'] ?? self::DEFAULT_MAX_ITERATIONS,
+			'max_runtime_seconds'     => $spec['max_runtime_seconds'],
+		);
+	}
+
+	/** Create a stable, collision-resistant slug without assuming ownership of existing rows. */
+	private function managed_profile_slug( string $integration_key ): string {
+		$hash   = substr( hash( 'sha256', $integration_key ), 0, 16 );
+		$prefix = substr( sanitize_title( $integration_key ), 0, 66 );
+
+		return 'managed-customer-' . $prefix . '-' . $hash;
+	}
+
+	/**
+	 * Return a safe health view for the legacy filter registration path.
+	 *
+	 * @return array<string,mixed>|WP_Error
+	 */
+	private function legacy_profile_status( string $integration_key ): array|WP_Error {
+		$profile = $this->resolve_legacy_integration( $integration_key );
+		if ( is_wp_error( $profile ) ) {
+			return $profile;
+		}
+
+		$reasons = array();
+		if ( '' === $profile['provider_id'] ) {
+			$reasons[] = 'provider_missing';
+		}
+		if ( '' === $profile['model_id'] ) {
+			$reasons[] = 'model_missing';
+		}
+
+		return array(
+			'profile_key'         => $integration_key,
+			'profile_version'     => 'legacy',
+			'enabled'             => true,
+			'ready'               => empty( $reasons ),
+			'reasons'             => $reasons,
+			'missing_collections' => array(),
+			'capabilities'        => array(
+				'abilities'     => $profile['abilities'],
+				'collections'   => $profile['collections'],
+				'customer_mode' => true,
+			),
+			'drift'               => array( 'legacy_registration' => true ),
+		);
+	}
+
+	/**
+	 * @param array<string,mixed> $status Customer-safe profile status.
+	 */
+	private function profile_readiness_error( array $status ): WP_Error {
+		$reasons = isset( $status['reasons'] ) && is_array( $status['reasons'] ) ? $status['reasons'] : array();
+		if ( in_array( 'profile_disabled', $reasons, true ) ) {
+			return new WP_Error( 'sd_ai_agent_customer_agent_profile_disabled', __( 'Customer-agent profile is disabled.', 'superdav-ai-agent' ), array( 'status' => 403 ) );
+		}
+		if ( in_array( 'provider_missing', $reasons, true ) ) {
+			return new WP_Error( 'sd_ai_agent_customer_agent_provider_missing', __( 'Customer-agent profile needs an operator-selected provider.', 'superdav-ai-agent' ), array( 'status' => 409 ) );
+		}
+		if ( in_array( 'model_missing', $reasons, true ) ) {
+			return new WP_Error( 'sd_ai_agent_customer_agent_model_missing', __( 'Customer-agent profile needs an operator-selected model.', 'superdav-ai-agent' ), array( 'status' => 409 ) );
+		}
+		if ( in_array( 'collections_unavailable', $reasons, true ) ) {
+			return new WP_Error( 'sd_ai_agent_customer_agent_collections_unavailable', __( 'One or more approved customer knowledge collections are unavailable.', 'superdav-ai-agent' ), array( 'status' => 409 ) );
+		}
+
+		return new WP_Error( 'sd_ai_agent_customer_agent_profile_not_ready', __( 'Customer-agent profile is not ready for customer requests.', 'superdav-ai-agent' ), array( 'status' => 409 ) );
+	}
+
+	/**
+	 * Let a trusted consumer narrow policy for one turn, never widen it.
+	 *
+	 * @param array $profile         Runtime profile resolved from server-owned state.
+	 * @param array $request_context Consumer input.
+	 * @return array
+	 * @phpstan-param RuntimeProfile $profile
+	 * @phpstan-param array<string,mixed> $request_context
+	 * @phpstan-return RuntimeProfile|WP_Error
+	 */
+	private function apply_consumer_policy_narrowing( array $profile, array $request_context ): array|WP_Error {
+		foreach ( array( 'system_instruction', 'system_prompt', 'client_abilities', 'attachments', 'tool_calls' ) as $forbidden_key ) {
+			if ( array_key_exists( $forbidden_key, $request_context ) ) {
+				return new WP_Error(
+					'sd_ai_agent_customer_agent_forbidden_request_input',
+					__( 'Customer-agent request input cannot configure prompts, client tools, attachments, or tool calls.', 'superdav-ai-agent' ),
+					array( 'status' => 403 )
+				);
+			}
+		}
+
+		if ( array_key_exists( 'abilities', $request_context ) ) {
+			if ( ! is_array( $request_context['abilities'] ) ) {
+				return new WP_Error( 'sd_ai_agent_customer_agent_forbidden_ability', __( 'Customer-agent abilities may only be narrowed to approved capabilities.', 'superdav-ai-agent' ), array( 'status' => 403 ) );
+			}
+			$requested_abilities = $this->sanitize_string_list( $request_context['abilities'], false );
+			if ( ! empty( array_diff( $requested_abilities, $profile['abilities'] ) ) ) {
+				return new WP_Error( 'sd_ai_agent_customer_agent_forbidden_ability', __( 'Customer-agent abilities may only be narrowed to approved capabilities.', 'superdav-ai-agent' ), array( 'status' => 403 ) );
+			}
+			$profile['abilities'] = $requested_abilities;
+		}
+
+		$collection_key = array_key_exists( 'collection_slugs', $request_context ) ? 'collection_slugs' : 'collections';
+		if ( array_key_exists( $collection_key, $request_context ) ) {
+			if ( ! is_array( $request_context[ $collection_key ] ) ) {
+				return new WP_Error( 'sd_ai_agent_customer_agent_forbidden_collection', __( 'Customer-agent collections may only be narrowed to approved collections.', 'superdav-ai-agent' ), array( 'status' => 403 ) );
+			}
+			$requested_collections = $this->sanitize_string_list( $request_context[ $collection_key ], true );
+			if ( ! empty( array_diff( $requested_collections, $profile['collections'] ) ) ) {
+				return new WP_Error( 'sd_ai_agent_customer_agent_forbidden_collection', __( 'Customer-agent collections may only be narrowed to approved collections.', 'superdav-ai-agent' ), array( 'status' => 403 ) );
+			}
+			$profile['collections'] = $requested_collections;
+		}
+
+		return $profile;
+	}
+
+	/**
+	 * Keep a durable job at least as constrained as the policy it was queued with.
+	 *
+	 * @param array $profile  Current profile state.
+	 * @param array $snapshot Queued profile snapshot.
+	 * @return array|WP_Error
+	 * @phpstan-param RuntimeProfile $profile
+	 * @phpstan-param array<string,mixed> $snapshot
+	 * @phpstan-return RuntimeProfile
+	 */
+	private function restrict_profile_to_snapshot( array $profile, array $snapshot ): array {
+		if ( array_key_exists( 'abilities', $snapshot ) ) {
+			$snapshot_abilities   = $this->sanitize_string_list( $snapshot['abilities'], false );
+			$profile['abilities'] = array_values( array_intersect( $profile['abilities'], $snapshot_abilities ) );
+		}
+		if ( array_key_exists( 'collections', $snapshot ) ) {
+			$snapshot_collections   = $this->sanitize_string_list( $snapshot['collections'], true );
+			$profile['collections'] = array_values( array_intersect( $profile['collections'], $snapshot_collections ) );
+		}
+		foreach ( array( 'max_message_length', 'max_history_turns', 'max_iterations', 'max_runtime_seconds' ) as $key ) {
+			if ( isset( $snapshot[ $key ] ) ) {
+				$profile[ $key ] = min( (int) $profile[ $key ], max( 1, (int) $snapshot[ $key ] ) );
+			}
+		}
+
+		return $profile;
 	}
 
 	/**
@@ -755,9 +1626,14 @@ class CustomerAgentRuntimeService implements CustomerAgentRuntimeInterface {
 			);
 		}
 
-		$history = $this->deserialize_runtime_history( (string) $conversation['runtime_history'], $profile['max_history_turns'] );
-		$options = array(
-			'system_instruction'            => $profile['system_instruction'],
+		$request_context = isset( $request['context'] ) && is_array( $request['context'] )
+			? $this->normalise_associative_array( $request['context'] ) ?? array()
+			: array();
+		$history         = $this->deserialize_runtime_history( (string) $conversation['runtime_history'], $profile['max_history_turns'] );
+		$options         = array(
+			// This explicitly locked instruction is composed only from the
+			// customer-safe path; SystemInstructionBuilder is never invoked.
+			'system_instruction'            => CustomerAgentPromptComposer::compose( $profile['support_instructions'], $profile['collections'], $request_context ),
 			'max_iterations'                => $profile['max_iterations'],
 			'provider_id'                   => $profile['provider_id'],
 			'model_id'                      => $profile['model_id'],
@@ -767,6 +1643,7 @@ class CustomerAgentRuntimeService implements CustomerAgentRuntimeInterface {
 			),
 			'anonymous_allowed_abilities'   => $profile['abilities'],
 			'anonymous_allowed_collections' => $profile['collections'],
+			'customer_agent_mode'           => true,
 			'client_abilities'              => array(),
 			'yolo_mode'                     => false,
 			'active_job_id'                 => (string) $job['job_id'],
@@ -812,6 +1689,10 @@ class CustomerAgentRuntimeService implements CustomerAgentRuntimeInterface {
 
 		if ( 'complete' === $status ) {
 			$dto['reply'] = JobErrorSanitizer::sanitize( (string) ( $payload['reply'] ?? '' ), self::MAX_REPLY_LENGTH );
+			$handoff      = $this->normalise_handoff( $payload['handoff'] ?? null );
+			if ( null !== $handoff ) {
+				$dto['handoff'] = $handoff;
+			}
 			if ( isset( $payload['provider_id'] ) && is_string( $payload['provider_id'] ) ) {
 				$dto['provider_id'] = $payload['provider_id'];
 			}
@@ -828,6 +1709,63 @@ class CustomerAgentRuntimeService implements CustomerAgentRuntimeInterface {
 		}
 
 		return $dto;
+	}
+
+	/**
+	 * Separate a model's structured display response from its handoff decision.
+	 *
+	 * JSON decoding is intentionally structural: this never guesses intent by
+	 * phrase matching generated prose. Non-JSON model replies remain compatible
+	 * with existing consumers and simply have no handoff signal.
+	 *
+	 * @param array<string,mixed> $result AgentLoop or test-executor result.
+	 * @return array{reply:string,handoff:array{intent:string,reason:string}|null}
+	 */
+	private function normalise_customer_response( array $result ): array {
+		$reply   = (string) ( $result['reply'] ?? '' );
+		$handoff = $this->normalise_handoff( $result['handoff'] ?? null );
+		$decoded = json_decode( trim( $reply ), true );
+
+		if ( is_array( $decoded ) && isset( $decoded['display_text'] ) && is_string( $decoded['display_text'] ) ) {
+			$reply = $decoded['display_text'];
+			if ( null === $handoff ) {
+				$handoff = $this->normalise_handoff( $decoded['handoff'] ?? null );
+			}
+		}
+
+		return array(
+			'reply'   => JobErrorSanitizer::sanitize( $reply, self::MAX_REPLY_LENGTH ),
+			'handoff' => $handoff,
+		);
+	}
+
+	/**
+	 * Validate a model-provided handoff object without inspecting display prose.
+	 *
+	 * @param mixed $candidate Structured model output only.
+	 * @return array{intent:string,reason:string}|null
+	 */
+	private function normalise_handoff( mixed $candidate ): ?array {
+		if ( ! is_array( $candidate ) || ! isset( $candidate['intent'] ) || ! is_string( $candidate['intent'] ) ) {
+			return null;
+		}
+
+		$intent = sanitize_key( $candidate['intent'] );
+		if ( ! in_array( $intent, array( 'human_support', 'private_data_required', 'insufficient_evidence', 'unsafe_request' ), true ) ) {
+			return null;
+		}
+
+		$reason = isset( $candidate['reason'] ) && is_scalar( $candidate['reason'] )
+			? JobErrorSanitizer::sanitize( (string) $candidate['reason'], 500 )
+			: '';
+		if ( '' === $reason ) {
+			return null;
+		}
+
+		return array(
+			'intent' => $intent,
+			'reason' => $reason,
+		);
 	}
 
 	/**

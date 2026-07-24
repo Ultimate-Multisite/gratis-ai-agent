@@ -437,6 +437,27 @@ class DatabaseSchemaTest extends WP_UnitTestCase {
 		}
 	}
 
+	/** Managed customer-agent metadata is explicit and indexed for lifecycle lookup. */
+	public function test_agents_table_has_managed_customer_profile_columns(): void {
+		global $wpdb;
+
+		Database::install();
+
+		$table   = Database::agents_table_name();
+		$columns = $this->get_column_names( $table );
+		foreach ( [ 'managed_profile_key', 'managed_profile_version', 'managed_profile_metadata' ] as $column ) {
+			$this->assertContains( $column, $columns, "Agents table missing managed customer-profile column '{$column}'." );
+		}
+
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- Test-only schema index introspection.
+		$index_exists = $wpdb->get_var( "SHOW INDEX FROM {$table} WHERE Key_name = 'managed_profile_key' AND Non_unique = 0" );
+		$this->assertNotNull( $index_exists, 'Agents table must uniquely index managed_profile_key for lifecycle ownership.' );
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- Test-only schema column introspection.
+		$column = $wpdb->get_row( "SHOW COLUMNS FROM {$table} WHERE Field = 'managed_profile_key'" );
+		$this->assertInstanceOf( \stdClass::class, $column );
+		$this->assertSame( 'YES', $column->Null, 'Ordinary agents must retain a nullable managed profile key.' );
+	}
+
 	/**
 	 * Knowledge tables are created with correct structure.
 	 */

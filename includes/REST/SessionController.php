@@ -1550,9 +1550,6 @@ final class SessionController {
 		$settings = Settings::instance()->get();
 		$allowed  = $settings['public_chat_allowed_abilities'] ?? array( 'sd-ai-agent/knowledge-search' );
 		$allowed  = is_array( $allowed ) ? $this->sanitize_public_chat_string_list( $allowed, 'sanitize_text_field' ) : array();
-		if ( empty( $allowed ) ) {
-			$allowed = array( 'sd-ai-agent/knowledge-search' );
-		}
 
 		$collections = $settings['public_chat_collection_ids'] ?? array();
 		$collections = is_array( $collections ) ? $this->sanitize_public_chat_string_list( $collections, 'sanitize_key' ) : array();
@@ -1834,6 +1831,7 @@ final class SessionController {
 				'client_abilities'              => array(),
 				'anonymous_allowed_abilities'   => $config['abilities'],
 				'anonymous_allowed_collections' => $config['collections'],
+				'anonymous_policy_active'       => true,
 			),
 		);
 
@@ -2640,6 +2638,7 @@ final class SessionController {
 			$allowed_collections                      = $params['anonymous_allowed_collections'] ?? array();
 			$options['anonymous_allowed_abilities']   = is_array( $allowed_abilities ) ? array_values( $allowed_abilities ) : array( 'sd-ai-agent/knowledge-search' );
 			$options['anonymous_allowed_collections'] = is_array( $allowed_collections ) ? array_values( $allowed_collections ) : array();
+			$options['anonymous_policy_active']       = true;
 			$options['client_abilities']              = array();
 			$options['yolo_mode']                     = false;
 		}
