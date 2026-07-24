@@ -66,6 +66,7 @@ const {
 	resolveProviderSelection,
 	preserveRecoverableProviderModels,
 } = require( '../slices/providersSlice' );
+const { buildFailedJobActivityMessage } = require( '../slices/jobSlice' );
 const apiFetch = require( '@wordpress/api-fetch' );
 const { executeClientAbility } = require( '../../abilities/registry' );
 
@@ -616,6 +617,34 @@ describe( 'actions', () => {
 		expect( dispatch.setSending ).toHaveBeenLastCalledWith( false );
 	} );
 
+	test( 'buildFailedJobActivityMessage preserves live tool calls after errors', () => {
+		const activity = [
+			{
+				type: 'call',
+				id: 'call-1',
+				name: 'wpab__sd-ai-agent__update-blocks',
+				args: { post_id: 8 },
+			},
+			{
+				type: 'response',
+				id: 'call-1',
+				name: 'wpab__sd-ai-agent__update-blocks',
+				response: { error: 'batch_validation_failed' },
+			},
+		];
+
+		const message = buildFailedJobActivityMessage( activity );
+
+		expect( message ).toMatchObject( {
+			role: 'model',
+			toolCalls: activity,
+		} );
+		expect( message.parts[ 0 ].text ).toContain(
+			'Work completed before the error is preserved below'
+		);
+		expect( buildFailedJobActivityMessage( [] ) ).toBeNull();
+	} );
+
 	test( 'pollJob posts a timeout error when a client ability never resolves', async () => {
 		jest.useFakeTimers();
 		apiFetch.mockReset();
@@ -713,6 +742,58 @@ describe( 'actions', () => {
 			status: 'processing',
 		} );
 		expect( dispatch.pollJob ).toHaveBeenCalledWith( 'resumed-job', 17 );
+	} );
+
+	test( 'pollJob preserves live activity when an error session reload fails', async () => {
+		jest.useFakeTimers();
+		apiFetch.mockReset();
+		apiFetch
+			.mockResolvedValueOnce( {
+				status: 'error',
+				message: 'The provider interrupted this step.',
+				session_id: 17,
+				tool_calls: [
+					{
+						type: 'call',
+						id: 'call-1',
+						name: 'sd-ai-agent-js/capture-screenshot',
+						args: { fullPage: false },
+					},
+				],
+			} )
+			.mockRejectedValueOnce( new Error( 'Session unavailable' ) );
+		const dispatch = {
+			appendMessage: jest.fn(),
+			setStreamError: jest.fn(),
+			setSending: jest.fn(),
+			setLiveToolCalls: jest.fn(),
+			drainMessageQueue: jest.fn(),
+			setCurrentJobId: jest.fn(),
+			setSessionJob: jest.fn(),
+		};
+		const select = {
+			getCurrentSessionId: jest.fn( () => 17 ),
+			getCurrentJobId: jest.fn( () => 'failed-job' ),
+		};
+
+		try {
+			actions.pollJob( 'failed-job', 17 )( { dispatch, select } );
+			await jest.advanceTimersByTimeAsync( 2000 );
+		} finally {
+			jest.useRealTimers();
+		}
+
+		expect( dispatch.appendMessage ).toHaveBeenNthCalledWith(
+			1,
+			expect.objectContaining( {
+				role: 'model',
+				toolCalls: [ expect.objectContaining( { id: 'call-1' } ) ],
+			} )
+		);
+		expect( dispatch.appendMessage ).toHaveBeenNthCalledWith(
+			2,
+			expect.objectContaining( { role: 'system' } )
+		);
 	} );
 
 	test( 'pollJob preserves a recoverable error as a resume action card', async () => {
