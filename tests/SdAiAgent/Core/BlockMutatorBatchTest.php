@@ -611,7 +611,7 @@ class BlockMutatorBatchTest extends WP_UnitTestCase {
 	 */
 	public function test_handler_preflight_tier_policy_failure_is_itemized(): void {
 		$post_id = $this->create_post_with_blocks( [
-			$this->make_ref_block( 'core/group', 'blk_policy_parent', [], '', [] ),
+			$this->make_ref_block( 'core/group', 'blk_policy_parent', [], '' ),
 		] );
 
 		$result = BlockAbilities::handle_update_blocks( [

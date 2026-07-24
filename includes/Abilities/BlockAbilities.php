@@ -2922,7 +2922,7 @@ class BlockAbilities {
 						'errors' => [
 							self::update_blocks_validation_error(
 								$idx,
-								$policy_result->get_error_code(),
+								(string) $policy_result->get_error_code(),
 								$policy_result->get_error_message(),
 								$update
 							),
