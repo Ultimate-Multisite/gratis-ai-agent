@@ -158,6 +158,7 @@ class RestControllerTest extends WP_UnitTestCase {
 			'/sd-ai-agent/v1/sessions',
 			'/sd-ai-agent/v1/sessions/(?P<id>\d+)',
 			'/sd-ai-agent/v1/sessions/(?P<id>\d+)/compact',
+			'/sd-ai-agent/v1/sessions/(?P<id>\d+)/resume',
 			'/sd-ai-agent/v1/sessions/folders',
 			'/sd-ai-agent/v1/sessions/bulk',
 			'/sd-ai-agent/v1/sessions/trash',
@@ -1208,6 +1209,56 @@ class RestControllerTest extends WP_UnitTestCase {
 		$this->assertSame( $error_text, $data['message'] );
 		$this->assertTrue( $data['recoverable'] );
 		$this->assertNull( ActiveJobRepository::get_by_job_id( $job_id ) );
+	}
+
+	/**
+	 * Test a recoverable job can be resumed through a new pollable background job.
+	 */
+	public function test_resume_recoverable_job_consumes_saved_state_and_creates_job(): void {
+		wp_set_current_user( $this->admin_id );
+
+		$session_id = Database::create_session( [
+			'user_id' => $this->admin_id,
+			'title'   => 'Resume recoverable job',
+		] );
+		Database::save_paused_state(
+			$session_id,
+			[
+				'history'       => [ [ 'role' => 'user', 'parts' => [ [ 'text' => 'Continue this step.' ] ] ] ],
+				'tool_call_log' => [],
+				'message_log'   => [],
+				'token_usage'   => [ 'prompt' => 0, 'completion' => 0 ],
+				'provider_id'   => 'test-provider',
+				'model_id'      => 'test-model',
+			]
+		);
+
+		$response = $this->dispatch( 'POST', "/sd-ai-agent/v1/sessions/{$session_id}/resume" );
+
+		$this->assertStatus( 202, $response );
+		$data = $response->get_data();
+		$this->assertSame( 'processing', $data['status'] );
+		$this->assertNotEmpty( $data['job_id'] );
+		$job = get_transient( RestController::JOB_PREFIX . $data['job_id'] );
+		$this->assertIsArray( $job );
+		$this->assertTrue( $job['recovery_resume'] );
+		$this->assertSame( $session_id, $job['params']['session_id'] );
+		$this->assertNull( Database::load_and_clear_paused_state( $session_id ) );
+	}
+
+	/**
+	 * Test a resume action cannot start without durable recoverable state.
+	 */
+	public function test_resume_recoverable_job_rejects_missing_saved_state(): void {
+		wp_set_current_user( $this->admin_id );
+		$session_id = Database::create_session( [
+			'user_id' => $this->admin_id,
+			'title'   => 'No recovery state',
+		] );
+
+		$response = $this->dispatch( 'POST', "/sd-ai-agent/v1/sessions/{$session_id}/resume" );
+
+		$this->assertStatus( 409, $response );
 	}
 
 	/**

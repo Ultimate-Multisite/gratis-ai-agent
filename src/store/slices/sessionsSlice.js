@@ -899,6 +899,12 @@ export const actions = {
 	 */
 	retryLastMessage() {
 		return async ( { dispatch, select } ) => {
+			const pendingActionCard = select.getPendingActionCard?.();
+			if ( pendingActionCard?.type === 'resume_recoverable_job' ) {
+				dispatch.resumeRecoverableJob();
+				return;
+			}
+
 			const messages = select.getCurrentSessionMessages() || [];
 			let userIndex = -1;
 			for ( let i = messages.length - 1; i >= 0; i-- ) {
@@ -996,6 +1002,7 @@ export const actions = {
 		return async ( { dispatch, select } ) => {
 			dispatch.setSending( true );
 			dispatch.setStreamError( false );
+			dispatch.setPendingActionCard( null );
 			dispatch.setInabilityReported( null );
 			dispatch.setFeedbackBanner( null );
 			dispatch.setLastUserMessage( message );

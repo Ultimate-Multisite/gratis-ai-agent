@@ -15,7 +15,14 @@
  */
 
 import { useSelect, useDispatch } from '@wordpress/data';
-import { useRef, useEffect, useState, useCallback } from '@wordpress/element';
+import {
+	lazy,
+	Suspense,
+	useRef,
+	useEffect,
+	useState,
+	useCallback,
+} from '@wordpress/element';
 import { __ } from '@wordpress/i18n';
 
 import STORE_NAME from '../../store';
@@ -30,7 +37,6 @@ import {
 	SystemMessage,
 	UserMessage,
 } from '../chat-redesign/message-items';
-import AccountActionSystemMessage from '../chat-redesign/account-action-system-message';
 import {
 	buildSuperdavCreditNoticeMessage,
 	isSuperdavCreditBalanceNotice,
@@ -38,6 +44,10 @@ import {
 
 /** Distance (px) from the scroll bottom that is treated as "at the bottom". */
 const SCROLL_THRESHOLD = 100;
+
+const AccountActionSystemMessage = lazy( () =>
+	import( '../chat-redesign/account-action-system-message' )
+);
 
 /**
  *
@@ -49,6 +59,7 @@ export default function WidgetMessageList() {
 		currentSessionId,
 		liveToolCalls,
 		sessionJobs,
+		hasStreamError,
 		providers,
 	} = useSelect( ( sel ) => {
 		const store = sel( STORE_NAME );
@@ -58,11 +69,12 @@ export default function WidgetMessageList() {
 			currentSessionId: store.getCurrentSessionId(),
 			liveToolCalls: store.getLiveToolCalls(),
 			sessionJobs: store.getSessionJobs(),
+			hasStreamError: store.hasStreamError(),
 			providers: store.getProviders(),
 		};
 	}, [] );
 
-	const { sendMessage } = useDispatch( STORE_NAME );
+	const { sendMessage, retryLastMessage } = useDispatch( STORE_NAME );
 	const ref = useRef( null );
 
 	/** True when the scroll container is within SCROLL_THRESHOLD px of the bottom. */
@@ -217,23 +229,25 @@ export default function WidgetMessageList() {
 						if ( msg.role === 'system' ) {
 							if ( msg.notice ) {
 								return (
-									<AccountActionSystemMessage
-										key={ index }
-										notice={ msg.notice }
-									/>
+									<Suspense key={ index } fallback={ null }>
+										<AccountActionSystemMessage
+											notice={ msg.notice }
+										/>
+									</Suspense>
 								);
 							}
 							const text = extractText( msg );
 							if ( isSuperdavCreditBalanceNotice( text ) ) {
 								return (
-									<AccountActionSystemMessage
-										key={ index }
-										notice={
-											buildSuperdavCreditNoticeMessage(
-												providers
-											).notice
-										}
-									/>
+									<Suspense key={ index } fallback={ null }>
+										<AccountActionSystemMessage
+											notice={
+												buildSuperdavCreditNoticeMessage(
+													providers
+												).notice
+											}
+										/>
+									</Suspense>
 								);
 							}
 							return (
@@ -248,6 +262,16 @@ export default function WidgetMessageList() {
 							step={ runningStep }
 							liveToolCalls={ runningToolCalls }
 						/>
+					) }
+
+					{ hasStreamError && currentSessionId && ! sending && (
+						<button
+							type="button"
+							className="button button-primary sdaa-w-retry-failed-step"
+							onClick={ retryLastMessage }
+						>
+							{ __( 'Retry failed step', 'superdav-ai-agent' ) }
+						</button>
 					) }
 				</div>
 			</div>
