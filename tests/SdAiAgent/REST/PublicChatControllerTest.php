@@ -170,6 +170,34 @@ class PublicChatControllerTest extends WP_UnitTestCase {
 		delete_transient( RestController::JOB_PREFIX . $data['job_id'] );
 	}
 
+	/** An operator may disable all public tools without silently restoring knowledge search. */
+	public function test_public_chat_preserves_an_explicit_empty_ability_allowlist(): void {
+		$this->enable_public_chat();
+		Settings::instance()->update( array( 'public_chat_allowed_abilities' => array() ) );
+		$session_response = $this->dispatch( 'POST', '/sd-ai-agent/v1/public-chat/session' );
+		$this->assertSame( 201, $session_response->get_status() );
+		$session_token = $session_response->get_data()['token'];
+
+		$response = $this->dispatch(
+			'POST',
+			'/sd-ai-agent/v1/public-chat/run',
+			array(
+				'message' => 'Can you help?',
+				'token'   => $session_token,
+			)
+		);
+		$this->assertSame( 202, $response->get_status() );
+		$job_id = $response->get_data()['job_id'];
+		$job    = get_transient( RestController::JOB_PREFIX . $job_id );
+		$this->assertIsArray( $job );
+		$this->assertSame( array(), $job['params']['abilities'] );
+		$this->assertSame( array(), $job['params']['anonymous_allowed_abilities'] );
+		$this->assertTrue( $job['params']['anonymous_policy_active'] );
+
+		ActiveJobRepository::delete( $job_id );
+		delete_transient( RestController::JOB_PREFIX . $job_id );
+	}
+
 	/**
 	 * Public job polling requires the browser polling token.
 	 */

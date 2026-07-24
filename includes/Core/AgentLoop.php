@@ -223,6 +223,12 @@ class AgentLoop {
 	/** @var list<string> Anonymous public-chat knowledge collection allowlist for this run. */
 	private array $anonymous_allowed_collections = array();
 
+	/** @var bool Whether an explicitly constrained customer-agent run is active, even with empty lists. */
+	private bool $customer_agent_mode = false;
+
+	/** @var bool Whether a request-scoped anonymous tool policy is active, even with an empty list. */
+	private bool $anonymous_policy_active = false;
+
 	/** @var int Consecutive preamble-only truncations observed this run. */
 	private int $preamble_truncation_retries = 0;
 
@@ -384,6 +390,14 @@ class AgentLoop {
 		$this->anonymous_allowed_abilities = $this->normalize_ability_names( $options['anonymous_allowed_abilities'] ?? array() );
 		// @phpstan-ignore-next-line -- Public-chat options are scalar string lists.
 		$this->anonymous_allowed_collections = $this->normalize_ability_names( $options['anonymous_allowed_collections'] ?? array() );
+		// Customer-agent mode keeps request-scoped gates active even when a
+		// trusted consumer narrows a list to zero capabilities/collections.
+		// @phpstan-ignore-next-line -- Options bag carries a scalar boolean flag.
+		$this->customer_agent_mode = ! empty( $options['customer_agent_mode'] );
+		// Public chat uses the same request-scoped tool gates as managed customer
+		// agents, but does not otherwise become a managed customer profile.
+		// @phpstan-ignore-next-line -- Options bag carries a scalar boolean flag.
+		$this->anonymous_policy_active = $this->customer_agent_mode || ! empty( $options['anonymous_policy_active'] );
 		// @phpstan-ignore-next-line
 		$this->session_id = (int) ( $options['session_id'] ?? 0 );
 		// Active job UUID for heartbeat and shutdown-handler updates.
@@ -445,7 +459,7 @@ class AgentLoop {
 
 		// ClientAbilityRouter validates and routes client-side ability calls.
 		// @phpstan-ignore-next-line
-		$raw_client_abilities = $options['client_abilities'] ?? array();
+		$raw_client_abilities = $this->customer_agent_mode ? array() : ( $options['client_abilities'] ?? array() );
 		if ( is_array( $raw_client_abilities ) ) {
 			$this->client_router    = ClientAbilityRouter::from_raw( $raw_client_abilities );
 			$this->client_abilities = $this->client_router->get_descriptors();
@@ -534,7 +548,7 @@ class AgentLoop {
 
 	/** Apply request-scoped anonymous public-chat gating to tool helpers. */
 	private function apply_anonymous_mode_context(): void {
-		if ( empty( $this->anonymous_allowed_abilities ) ) {
+		if ( ! $this->anonymous_policy_active && empty( $this->anonymous_allowed_abilities ) ) {
 			return;
 		}
 
@@ -544,7 +558,7 @@ class AgentLoop {
 
 	/** Clear request-scoped anonymous public-chat gating from tool helpers. */
 	private function clear_anonymous_mode_context(): void {
-		if ( empty( $this->anonymous_allowed_abilities ) ) {
+		if ( ! $this->anonymous_policy_active && empty( $this->anonymous_allowed_abilities ) ) {
 			return;
 		}
 

@@ -36,7 +36,7 @@ use SdAiAgent\Tools\CustomTools;
 class Database {
 
 	const DB_VERSION_OPTION = 'sd_ai_agent_db_version';
-	const DB_VERSION        = '19.6.0';
+	const DB_VERSION        = '19.8.0';
 
 	// ─── Table Name Registry ──────────────────────────────────────────────────
 
@@ -604,12 +604,16 @@ class Database {
 			avatar_icon varchar(100) NOT NULL DEFAULT '',
 			tier_1_tools longtext NOT NULL DEFAULT '',
 			suggestions longtext NOT NULL DEFAULT '',
+			managed_profile_key varchar(100) DEFAULT NULL,
+			managed_profile_version varchar(100) NOT NULL DEFAULT '',
+			managed_profile_metadata longtext NOT NULL DEFAULT '',
 			is_builtin tinyint(1) NOT NULL DEFAULT 0,
 			enabled tinyint(1) NOT NULL DEFAULT 1,
 			created_at datetime NOT NULL,
 			updated_at datetime NOT NULL,
 			PRIMARY KEY  (id),
 			UNIQUE KEY slug (slug),
+			UNIQUE KEY managed_profile_key (managed_profile_key),
 			KEY enabled (enabled)
 		) {$charset};
 
@@ -816,6 +820,10 @@ class Database {
 		require_once ABSPATH . 'wp-admin/includes/upgrade.php';
 		dbDelta( $sql );
 
+		if ( ! self::ensure_managed_profile_key_unique_index( $agents_table ) ) {
+			return;
+		}
+
 		self::ensure_calendar_reminder_dedupe_index( $calendar_reminders_table );
 
 		// Add FULLTEXT index on memories table if not present.
@@ -860,6 +868,50 @@ class Database {
 
 		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.SchemaChange, WordPress.DB.PreparedSQL.InterpolatedNotPrepared, PluginCheck.Security.DirectDB.UnescapedDBParameter -- Required schema repair for the calendar reminder dedupe index.
 		$wpdb->query( "ALTER TABLE {$table} ADD UNIQUE KEY reminder_dedupe (calendar_id, event_id, attendee_email, reminder_date)" );
+	}
+
+	/**
+	 * Make managed-profile ownership unique without making ordinary agents unique
+	 * on their empty profile-key value.
+	 *
+	 * @param string $table Agents table name.
+	 */
+	private static function ensure_managed_profile_key_unique_index( string $table ): bool {
+		global $wpdb;
+		/** @var \wpdb $wpdb */
+
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.DirectDatabaseQuery.SchemaChange, WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- Converts an internal lifecycle key to nullable so normal agents can coexist under its unique index.
+		if ( false === $wpdb->query( "ALTER TABLE {$table} MODIFY managed_profile_key varchar(100) DEFAULT NULL" ) ) {
+			return false;
+		}
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- Converts existing ordinary-agent empty keys to NULL before enforcing managed ownership uniqueness.
+		if ( false === $wpdb->query( "UPDATE {$table} SET managed_profile_key = NULL WHERE managed_profile_key = ''" ) ) {
+			return false;
+		}
+
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- Checks the internal schema before repairing its lifecycle index.
+		$unique_index = $wpdb->get_var( "SHOW INDEX FROM {$table} WHERE Key_name = 'managed_profile_key' AND Non_unique = 0" );
+		if ( null !== $unique_index ) {
+			return true;
+		}
+
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- Fails the upgrade safely before replacing the legacy lookup index when historical ownership is ambiguous.
+		$duplicate_key = $wpdb->get_var( "SELECT managed_profile_key FROM {$table} WHERE managed_profile_key IS NOT NULL GROUP BY managed_profile_key HAVING COUNT(*) > 1 LIMIT 1" );
+		if ( null !== $duplicate_key ) {
+			return false;
+		}
+
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- Checks whether the previous non-unique lifecycle index must be replaced.
+		$existing_index = $wpdb->get_var( "SHOW INDEX FROM {$table} WHERE Key_name = 'managed_profile_key'" );
+		if ( null !== $existing_index ) {
+			// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.DirectDatabaseQuery.SchemaChange, WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- Replaces the previous internal lifecycle lookup index with a uniqueness constraint.
+			if ( false === $wpdb->query( "ALTER TABLE {$table} DROP INDEX managed_profile_key" ) ) {
+				return false;
+			}
+		}
+
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.DirectDatabaseQuery.SchemaChange, WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- Enforces one explicit managed owner per integration key.
+		return false !== $wpdb->query( "ALTER TABLE {$table} ADD UNIQUE KEY managed_profile_key (managed_profile_key)" );
 	}
 
 	// ─── Session Delegates ────────────────────────────────────────────────────

@@ -51,6 +51,8 @@ class ToolDiscoveryTest extends WP_UnitTestCase {
 	}
 
 	public function tear_down(): void {
+		ToolDiscovery::clear_anonymous_allowed_abilities();
+
 		// Clean up any abilities registered during the test BEFORE the parent
 		// teardown removes the user / filter context they depend on.
 		if ( function_exists( 'wp_unregister_ability' ) ) {
@@ -258,6 +260,19 @@ class ToolDiscoveryTest extends WP_UnitTestCase {
 
 		// Cap is MAX_TIER_1 plus the two meta-tools always added on top.
 		$this->assertLessThanOrEqual( ToolDiscovery::MAX_TIER_1 + 2, count( $tier_1 ) );
+	}
+
+	/** Empty customer/public allowlists must deny all tools instead of restoring defaults. */
+	public function test_empty_anonymous_allowlist_remains_an_active_deny_all_policy(): void {
+		ToolDiscovery::set_anonymous_allowed_abilities( [] );
+
+		$this->assertTrue( ToolDiscovery::is_anonymous_ability_mode() );
+		$this->assertSame( [], ToolDiscovery::tier_1_for_run() );
+		$this->assertFalse( ToolDiscovery::anonymous_mode_allows( 'sd-ai-agent/knowledge-search' ) );
+
+		ToolDiscovery::clear_anonymous_allowed_abilities();
+		$this->assertFalse( ToolDiscovery::is_anonymous_ability_mode() );
+		$this->assertTrue( ToolDiscovery::anonymous_mode_allows( 'sd-ai-agent/knowledge-search' ) );
 	}
 
 	// ── ability-search ────────────────────────────────────────────────
