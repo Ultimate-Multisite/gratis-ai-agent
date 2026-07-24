@@ -131,6 +131,24 @@ class SystemInstructionBuilderTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * Existing page block-editing sessions should avoid unrelated prompt-model fallbacks.
+	 */
+	public function test_build_includes_block_editing_guidance_when_block_tools_are_active(): void {
+		$builder = new SystemInstructionBuilder();
+
+		$instruction = $builder->build(
+			array(),
+			array( 'sd-ai-agent/get-page-blocks', 'sd-ai-agent/update-blocks' )
+		);
+
+		$this->assertStringContainsString( '## Existing page block edits', $instruction );
+		$this->assertStringContainsString( 'persist_refs:true', $instruction );
+		$this->assertStringContainsString( 'dry_run:true', $instruction );
+		$this->assertStringContainsString( 'do not call a nested prompt/model ability as a translation fallback', $instruction );
+		$this->assertStringContainsString( 'Do not retry an unchanged batch', $instruction );
+	}
+
+	/**
 	 * Diagnostic summary prompts must remain read-only unless remediation is explicit.
 	 *
 	 * Regression: issue #2083 — a site health summary request installed and

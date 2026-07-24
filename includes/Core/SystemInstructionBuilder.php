@@ -44,6 +44,17 @@ class SystemInstructionBuilder {
 	);
 
 	/**
+	 * Ability names that trigger focused block-editing guidance.
+	 *
+	 * @var string[]
+	 */
+	public const BLOCK_EDITING_ABILITY_NAMES = array(
+		'sd-ai-agent/get-page-blocks',
+		'sd-ai-agent/update-blocks',
+		'sd-ai-agent/rewrite-post-blocks',
+	);
+
+	/**
 	 * @param string                   $model_id     Current AI model ID (for weak-model nudges).
 	 * @param string                   $user_message User's message (for knowledge context RAG).
 	 * @param array<int|string, mixed> $page_context Page context from the widget.
@@ -95,6 +106,20 @@ class SystemInstructionBuilder {
 			. "If the result includes `affected.kind: post`, a matching `post_id`/URL, and `fields` containing `post_content`, the widget's live-preview reflector will attempt to update the visible page automatically; tell the user the page should update live. "
 			. 'If a mutating tool result does not include an `affected` descriptor for the visible page, the browser cannot know what changed and the user must refresh to see it. In that case, call `sd-ai-agent-js/refresh-page` after your server-side write completes; it refreshes the current page while preserving the open widget and current session. '
 			. 'Do not call the refresh tool after a dry run or after read-only inspection. If you are unsure whether live reflection succeeded, use a screenshot/inspection tool or explain that a refresh may be required.';
+	}
+
+	/**
+	 * Return safe operating rules for editing existing Gutenberg content.
+	 *
+	 * @return string
+	 */
+	public static function build_block_editing_section(): string {
+		return "## Existing page block edits\n\n"
+			. 'For translation, localization, and other text-only changes to an existing page, work directly from that page\'s block tree. '
+			. 'First call `sd-ai-agent/get-page-blocks` with `persist_refs:true`, retain its `revision_id`, then update only the requested page with `sd-ai-agent/update-blocks`. '
+			. 'Use the current language context to write the translated text; do not call a nested prompt/model ability as a translation fallback. '
+			. 'For a multi-update batch, validate it with `dry_run:true` before the final write and pass the fetched `revision_id` as `expected_revision`. '
+			. 'If validation fails, use the returned itemized errors and recovery_hints to correct only the failing update. Do not retry an unchanged batch, and do not inspect unrelated posts or media until the requested page update and verification are complete.';
 	}
 
 	/**
@@ -249,6 +274,11 @@ class SystemInstructionBuilder {
 			$base .= "\n\n" . self::build_build_vs_install_section( $ability_names );
 		}
 
+		if ( self::has_block_editing_ability( $ability_names ) ) {
+			// @phpstan-ignore-next-line
+			$base .= "\n\n" . self::build_block_editing_section();
+		}
+
 		// Suggestion chips: instruct the AI to append follow-up suggestions.
 		// @phpstan-ignore-next-line
 		$suggestion_count = (int) ( $settings['suggestion_count'] ?? 3 );
@@ -285,6 +315,21 @@ class SystemInstructionBuilder {
 				return true;
 			}
 		}
+		return false;
+	}
+
+	/**
+	 * Return true when direct tools can inspect or mutate Gutenberg blocks.
+	 *
+	 * @param string[] $ability_names Names of active Tier-1 abilities for this turn.
+	 */
+	public static function has_block_editing_ability( array $ability_names ): bool {
+		foreach ( $ability_names as $name ) {
+			if ( in_array( $name, self::BLOCK_EDITING_ABILITY_NAMES, true ) ) {
+				return true;
+			}
+		}
+
 		return false;
 	}
 

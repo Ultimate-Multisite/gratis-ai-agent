@@ -229,6 +229,9 @@ class AgentLoop {
 	/** @var int Empty calls rejected for missing required input in this run. */
 	private int $consecutive_empty_tool_call_failures = 0;
 
+	/** @var bool Whether an unavailable nested prompt model has already been explained this run. */
+	private bool $prompt_model_unavailable_guidance_injected = false;
+
 	/**
 	 * Client-side ability descriptors validated against JsAbilityCatalog.
 	 * These are abilities the browser can execute; the loop pauses and returns
@@ -3755,6 +3758,7 @@ class AgentLoop {
 				}
 
 				$this->track_block_validation_response( $name, $response->getResponse() );
+				$this->track_prompt_model_unavailable_response( $name, $response->getResponse() );
 				$this->generated_theme_completion_gate->record_tool_response( $name, $response->getResponse() );
 
 				$this->tool_call_log[] = array(
@@ -3768,6 +3772,58 @@ class AgentLoop {
 		}
 
 		$this->fire_progress();
+	}
+
+	/**
+	 * Prevent an unavailable nested prompt ability from consuming the remaining run.
+	 *
+	 * The agent loop itself already has a configured text-generation model. A
+	 * nested `sd-ai-agent/prompt` call can still use the SDK's independent model
+	 * selection and report that no text model is available. That does not make a
+	 * page-editing request impossible, so steer the next turn back to the active
+	 * page-editing tools rather than allowing repeated fallback attempts.
+	 *
+	 * @param string $tool_name Function-response tool name.
+	 * @param mixed  $response  Function-response payload.
+	 */
+	private function track_prompt_model_unavailable_response( string $tool_name, $response ): void {
+		if ( $this->prompt_model_unavailable_guidance_injected || ! is_array( $response ) ) {
+			return;
+		}
+
+		if ( 'sd-ai-agent/ability-call' !== self::normalize_logged_tool_name( $tool_name ) ) {
+			return;
+		}
+
+		$ability = isset( $response['ability'] ) && is_string( $response['ability'] ) ? $response['ability'] : '';
+		$code    = isset( $response['code'] ) && is_string( $response['code'] ) ? $response['code'] : '';
+		$error   = isset( $response['error'] ) && is_string( $response['error'] ) ? $response['error'] : '';
+
+		if (
+			'sd-ai-agent/prompt' !== $ability
+			|| 'prompt_invalid_argument' !== $code
+			|| ! str_contains( strtolower( $error ), 'no models found that support text_generation' )
+		) {
+			return;
+		}
+
+		$this->prompt_model_unavailable_guidance_injected = true;
+		$this->history[]                                  = new UserMessage(
+			array(
+				new MessagePart(
+					'The nested sd-ai-agent/prompt ability has no selectable text-generation model in this environment. '
+					. 'This is not recoverable by retrying it. Do not call that ability again in this run. '
+					. 'Continue the requested work with the current agent and the page/block tools already available. '
+					. 'For translation, compose the text directly, update the requested page, and verify that page before exploring unrelated content.'
+				),
+			)
+		);
+		$this->message_log[] = array(
+			'type'     => 'guardrail',
+			'reason'   => 'prompt_model_unavailable',
+			'ability'  => $ability,
+			'sequence' => $this->next_activity_sequence(),
+		);
 	}
 
 	/**

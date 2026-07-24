@@ -1792,6 +1792,43 @@ class AgentLoopTest extends WP_UnitTestCase {
 		}
 	}
 
+	/**
+	 * A nested prompt with no text model gets one hard recovery instruction.
+	 */
+	public function test_unavailable_nested_prompt_model_injects_non_retry_guidance(): void {
+		if ( ! class_exists( 'WordPress\\AiClient\\Messages\\DTO\\UserMessage' ) ) {
+			$this->markTestSkipped( 'WP AI Client message classes are not available.' );
+		}
+
+		$loop    = new AgentLoop( 'Make the home page bilingual' );
+		$method  = new \ReflectionMethod( AgentLoop::class, 'track_prompt_model_unavailable_response' );
+		$history = new \ReflectionProperty( AgentLoop::class, 'history' );
+		$logs    = new \ReflectionProperty( AgentLoop::class, 'message_log' );
+		$method->setAccessible( true );
+		$history->setAccessible( true );
+		$logs->setAccessible( true );
+
+		$payload = array(
+			'success' => false,
+			'ability' => 'sd-ai-agent/prompt',
+			'code'    => 'prompt_invalid_argument',
+			'error'   => 'No models found that support text_generation for this prompt.',
+		);
+
+		$method->invoke( $loop, 'wpab__sd-ai-agent__ability-call', $payload );
+		$method->invoke( $loop, 'wpab__sd-ai-agent__ability-call', $payload );
+
+		$history_value = $history->getValue( $loop );
+		$log_value     = $logs->getValue( $loop );
+		$this->assertCount( 1, $history_value );
+		$this->assertCount( 1, $log_value );
+		$this->assertSame( 'prompt_model_unavailable', $log_value[0]['reason'] );
+		$this->assertStringContainsString(
+			'Do not call that ability again in this run.',
+			$history_value[0]->getParts()[0]->getText()
+		);
+	}
+
 	// -------------------------------------------------------------------------
 	// History serialisation / deserialisation
 	// -------------------------------------------------------------------------
