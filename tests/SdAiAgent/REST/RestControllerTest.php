@@ -1174,6 +1174,77 @@ class RestControllerTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * A DB-only confirmation must not re-open a dialog that cannot be resumed.
+	 */
+	public function test_job_status_discards_expired_confirmation_instead_of_returning_it(): void {
+		wp_set_current_user( $this->admin_id );
+
+		$session_id = Database::create_session( [
+			'user_id' => $this->admin_id,
+			'title'   => 'Expired confirmation',
+		] );
+		$job_id     = '55555555-6666-7777-8888-999999999999';
+
+		ActiveJobRepository::create( $session_id, $job_id, $this->admin_id, 'awaiting_confirmation' );
+		ActiveJobRepository::update_status(
+			$job_id,
+			'awaiting_confirmation',
+			[ 'pending_tools' => wp_json_encode( [ [ 'name' => 'wpab__sd-ai-agent__ability-call' ] ] ) ]
+		);
+		delete_transient( RestController::JOB_PREFIX . $job_id );
+
+		$response = $this->dispatch( 'GET', "/sd-ai-agent/v1/job/{$job_id}" );
+
+		$this->assertStatus( 200, $response );
+		$this->assertSame( 'expired', $response->get_data()['status'] );
+		$this->assertArrayNotHasKey( 'pending_tools', $response->get_data() );
+		$this->assertNull( ActiveJobRepository::get_by_job_id( $job_id ) );
+	}
+
+	/**
+	 * Page-load active-job discovery must not restore expired confirmations.
+	 */
+	public function test_active_jobs_omits_expired_confirmation(): void {
+		wp_set_current_user( $this->admin_id );
+
+		$session_id = Database::create_session( [
+			'user_id' => $this->admin_id,
+			'title'   => 'Stale confirmation discovery',
+		] );
+		$job_id     = '66666666-7777-8888-9999-000000000000';
+
+		ActiveJobRepository::create( $session_id, $job_id, $this->admin_id, 'awaiting_confirmation' );
+		delete_transient( RestController::JOB_PREFIX . $job_id );
+
+		$response = $this->dispatch( 'GET', '/sd-ai-agent/v1/sessions/active-jobs' );
+
+		$this->assertStatus( 200, $response );
+		$this->assertNotContains( $job_id, wp_list_pluck( $response->get_data(), 'job_id' ) );
+		$this->assertNull( ActiveJobRepository::get_by_job_id( $job_id ) );
+	}
+
+	/**
+	 * Opening a session must not revive an expired confirmation either.
+	 */
+	public function test_session_active_job_discards_expired_confirmation(): void {
+		wp_set_current_user( $this->admin_id );
+
+		$session_id = Database::create_session( [
+			'user_id' => $this->admin_id,
+			'title'   => 'Stale confirmation session',
+		] );
+		$job_id     = '77777777-8888-9999-0000-111111111111';
+
+		ActiveJobRepository::create( $session_id, $job_id, $this->admin_id, 'awaiting_confirmation' );
+		delete_transient( RestController::JOB_PREFIX . $job_id );
+
+		$response = $this->dispatch( 'GET', "/sd-ai-agent/v1/sessions/{$session_id}/active-job" );
+
+		$this->assertStatus( 404, $response );
+		$this->assertNull( ActiveJobRepository::get_by_job_id( $job_id ) );
+	}
+
+	/**
 	 * Test terminal DB error rows keep recoverable metadata when paused state exists.
 	 */
 	public function test_job_status_from_db_error_row_includes_recoverable_when_paused_state_exists(): void {
