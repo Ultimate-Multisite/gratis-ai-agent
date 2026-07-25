@@ -12,122 +12,34 @@ Your AI teammate for WordPress. Fix, publish, optimise, and run your existing si
 
 == Description ==
 
-SD AI Agent helps you get practical work done on the WordPress site you already have. Ask it to improve a page, prepare a product, review site health, create content, find information, or run a repeatable workflow. It works from one workspace inside WordPress admin, rather than sending you between editors, settings screens, content libraries, and documentation.
+SD AI Agent is an AI teammate for the WordPress site you already run. Ask it to improve a page, draft content, review SEO opportunities, prepare media, answer questions with site context, or run routine admin work from one workspace inside WordPress.
 
-**Choose how you connect.** Use the included Superdav AI managed service, or connect a compatible WordPress AI provider with your own credentials. With a direct provider connector, AI requests go from your WordPress site to the provider you configure; SD AI Agent does not add a relay or usage markup. See **External Services** below for the data each service receives and when it is contacted.
+You stay in control: choose the included Superdav AI managed service or your own compatible WordPress AI provider, decide which tools the agent can use, and require confirmation before consequential actions run.
 
-= Start with a useful job =
+= What it helps you do =
 
-Choose a focused task that produces a result you can review:
+* **Improve content faster** — review pages and posts, find SEO opportunities, draft updates, organise categories and tags, and prepare changes for your approval.
+* **Use your site context** — save preferences and site facts as memory, then search posts, pages, documents, and other indexed knowledge during a conversation.
+* **Publish with fewer handoffs** — work with copy, media, products, comments, settings, and supported plugin tools without jumping between admin screens.
+* **Automate routine work** — schedule prompts or respond to WordPress and WooCommerce events for reports, moderation, reminders, follow-up, and maintenance checks.
+* **Review work before it changes your site** — use read-only or scoped tool profiles, disable tools you do not want available, and approve sensitive actions before they run.
+* **Understand usage** — review conversation history, tool activity, exports, token usage, and estimated provider costs.
 
-* **Improve a page** — review existing content, identify SEO opportunities, and prepare targeted updates. If you connect Google Search Console, the agent can use its performance data as part of the review.
-* **Publish faster** — draft or improve a post or page, organise it, add media, and prepare it for your editorial review.
-* **Review my site** — inspect site health and available site information, then use the findings to decide what to address next.
-* **Run recurring work** — create scheduled or event-driven workflows for routine reporting, moderation, and follow-up tasks.
+= Work where you already work =
 
-= Review consequential changes before they happen =
+Open the full workspace at **Tools > SD AI Agent** for longer jobs with folders, search, history, and exports. Use the compact admin widget when you want quick help while editing another WordPress screen.
 
-The default experience keeps you in control. Use read-only or scoped tool profiles, disable tools that are not appropriate for your site, and require confirmation before consequential actions run. Conversation history and tool activity help you review what the agent did.
+= Bring context to every conversation =
 
-= What you can do =
+SD AI Agent can remember site preferences, reuse team instructions, and search a local knowledge base built from your WordPress content and uploaded documents. That context helps the assistant produce answers and drafts that fit your site instead of starting from a blank prompt each time.
 
-* **Work with content faster** — draft posts and pages, improve existing copy, organise categories and tags, and work with media from a single conversation.
-* **Get answers with your site context** — store useful preferences and site facts as memory, or index content and documents into a searchable knowledge base.
-* **Make repeatable work easier** — create reusable skills, custom HTTP or WordPress action tools, scheduled tasks, and event-driven workflows.
-* **Keep control of actions** — choose a tool profile, disable tools you do not want available, and configure actions to run automatically or require confirmation.
-* **See how work was done** — keep conversation history, review tool activity, export conversations, and check token usage and estimated provider costs.
+= Automate without giving up control =
 
-= Works with your existing WordPress site =
-
-Keep your existing theme, builder, plugins, and provider choice. Start with the full chat workspace at **Tools > SD AI Agent**, or open the compact widget from another admin screen. When compatible WordPress plugins register abilities, SD AI Agent can discover those additional tools for use on your site.
+Create reusable skills, custom HTTP tools, WordPress action tools, scheduled tasks, and event-driven workflows. Start with focused jobs such as a daily site-health report, a weekly content review, a new-post summary, a WooCommerce order follow-up, or a moderation check. Logs and confirmations keep the work reviewable.
 
 = Before you start =
 
-You need WordPress 7.0 or later and PHP 8.2 or later. Use the included Superdav AI managed service, or install an AI provider connector registered with the WordPress Connectors API. Third-party providers may charge for model usage; review their pricing and privacy terms before sending content or attachments.
-
-= Built on WordPress Core =
-
-SD AI Agent is built on official WordPress APIs available in supported WordPress versions:
-
-* **AI Client SDK** — One interface for all AI providers. Install a connector plugin for OpenAI, Anthropic, Ollama, or any compatible service and SD AI Agent works immediately.
-* **Abilities API** — The WordPress-native tool registry. Every tool registered by any plugin on your site is automatically available to the agent. As your site grows, so does the agent's capabilities.
-
-This means no fragile custom API wrappers, no vendor lock-in, and automatic improvements as WordPress core evolves.
-
-= Work where you are =
-
-* **Full-page chat** at Tools > SD AI Agent — A complete workspace with session history, folder organization, search, and export.
-* **Floating widget** — A small button on every admin page that expands into a chat panel. Always available, never in the way.
-
-= Bring context to each conversation =
-
-The agent has persistent memory across sessions. It learns your preferences, site details, and workflows over time. You can also teach it manually or let it save knowledge automatically.
-
-= Search your site knowledge =
-
-Index your posts, pages, and uploaded documents into a searchable knowledge base. The agent searches this knowledge automatically when it needs context to answer your questions.
-
-= Extend the work you can automate =
-
-Create tools the agent can use — no plugin development needed:
-
-* **HTTP tools** — Connect to any external API (weather services, Zapier, Slack, CRMs)
-* **WordPress action tools** — Trigger any WordPress hook
-* **Advanced companion plugin** — Adds WP-CLI custom tools for trusted developer workflows
-
-Five example tools are included to get you started.
-
-= Schedule repeatable tasks =
-
-Set up AI tasks that run automatically on a schedule:
-
-* Daily site health reports
-* Weekly plugin update checks
-* Content moderation
-* Broken link scanning
-* Database cleanup
-
-Pick a schedule, write a prompt, and the agent handles the rest. View logs for every run.
-
-= Respond to site events =
-
-The agent can react to things happening on your site in real time:
-
-* A new post is published — auto-generate tags and a social media summary
-* A user registers — send a personalized welcome sequence
-* A WooCommerce order is placed — check inventory and notify your team
-* A plugin is activated — run a compatibility check
-
-20+ WordPress and WooCommerce triggers are included, with placeholder templates for dynamic data.
-
-= Set the scope for agent actions =
-
-Control what the agent can access. Six built-in profiles (Read Only, Full Management, Content, Users, Maintenance, Developer) let you quickly scope permissions. Create your own custom profiles for specific use cases.
-
-= Keep usage visible =
-
-* **Tool discovery** — On sites with many tools, the agent discovers what it needs instead of loading everything upfront. Saves tokens and money.
-* **Conversation trimming** — Long conversations are automatically trimmed at safe boundaries to prevent context overflow.
-* **Suggestion chips** — Clickable follow-up suggestions after each response keep the conversation flowing.
-* **Usage tracking** — See exactly how many tokens each session uses and what it costs.
-
-= Reuse your team workflows =
-
-Create reusable instruction guides for the agent. Write a "content publishing checklist" or "image optimization workflow" once, and the agent follows it whenever the task comes up.
-
-= Keep a portable record =
-
-Export any conversation to JSON (for backup and reimport) or Markdown (for sharing and documentation). Import conversations from JSON backups.
-
-= Extending with Ability Plugins =
-
-SD AI Agent discovers abilities at runtime from any plugin that registers them via `wp_register_ability()`. The more abilities installed, the more capable the agent.
-
-**Recommended ability plugins:**
-
-* **WP-CLI Abilities Bridge** — Exposes all WP-CLI commands as abilities. Gives the agent 500+ tools covering posts, users, plugins, themes, WooCommerce, and more.
-* **Ultimate Multisite Core** — Registers abilities for multisite management: customers, memberships, sites, payments, products, domains, and email accounts.
-* **Any plugin using the Abilities API** — Tools registered by any plugin are automatically available. No configuration needed.
+You need WordPress 7.0 or later and PHP 8.2 or later. Use the included Superdav AI managed service, or install a compatible WordPress AI provider connector. Third-party providers may charge for model usage; review their pricing and privacy terms before sending content or attachments.
 
 == Installation ==
 
@@ -146,71 +58,71 @@ SD AI Agent discovers abilities at runtime from any plugin that registers them v
 
 == External Services ==
 
-This plugin connects to several third-party services to provide AI, search, analytics, stock-image, plugin-management, and user-configured integration capabilities. The included Superdav AI managed service registers a site installation during activation. Other services are contacted only when you (a) configure the relevant API key, URL, or feature, (b) ask the agent to perform an action that requires it, or (c) enable a scheduled feature such as skill-manifest auto-updates.
+This plugin contacts outside services only when they are needed for a feature you use, except that the included Superdav AI managed service registers the site installation during activation. Other services are contacted when you configure the relevant key, URL, or feature; ask the agent to run an action that uses that service; or enable scheduled maintenance such as skill-manifest updates.
 
 = Superdav AI managed service =
 
-The included Superdav AI provider registers a site installation during plugin activation and can provide AI responses when selected. Registration sends a durable installation ID, your site URL, plugin version, and WordPress version to Superdav AI. When you use this provider for AI responses, it receives the conversation messages, system prompt, attached files (if any), and tool definitions needed to generate a reply.
+The included Superdav AI provider can register the site and provide AI responses when selected. Activation registration sends a durable installation ID, site URL, plugin version, and WordPress version. AI requests send the conversation messages, system prompt, attached files if any, and tool definitions needed to generate the reply.
 
 = AI providers (chat completions) =
 
-These are contacted only when you configure the corresponding connector in **Settings > AI Credentials** and the agent generates a response. Each request sends the conversation messages, system prompt, attached files (if any), and tool definitions to the chosen provider so it can produce a reply.
+These are contacted only when configured in **Settings > AI Credentials** and selected for a response. Requests send the conversation messages, system prompt, attached files if any, and tool definitions to the chosen provider.
 
-* **OpenAI** (api.openai.com) — Provides AI chat completions when using OpenAI models. Sends the conversation context and your user queries. Terms: https://openai.com/policies/terms-of-use/ Privacy: https://openai.com/policies/privacy-policy/
+* **OpenAI** (api.openai.com) — Provides AI chat completions for OpenAI models. Terms: https://openai.com/policies/terms-of-use/ Privacy: https://openai.com/policies/privacy-policy/
 
-* **Anthropic** (api.anthropic.com) — Provides AI chat completions when using Claude models. Sends the conversation context and your user queries. Terms: https://www.anthropic.com/legal/consumer-terms Privacy: https://www.anthropic.com/legal/privacy
+* **Anthropic** (api.anthropic.com) — Provides AI chat completions for Claude models. Terms: https://www.anthropic.com/legal/consumer-terms Privacy: https://www.anthropic.com/legal/privacy
 
-* **Google AI / Gemini** (generativelanguage.googleapis.com) — Provides AI chat completions when using Gemini models. Sends the conversation context and your user queries. Terms: https://policies.google.com/terms Privacy: https://policies.google.com/privacy
+* **Google AI / Gemini** (generativelanguage.googleapis.com) — Provides AI chat completions for Gemini models. Terms: https://policies.google.com/terms Privacy: https://policies.google.com/privacy
 
-**Other OpenAI-compatible providers (via third-party connector plugins).** If you install a separate WordPress connector plugin for any other AI provider (for example an OpenAI-compatible local or hosted endpoint), SD AI Agent will use that connector to send the conversation context to whichever endpoint the connector is configured for. SD AI Agent itself does not ship a list of those provider hostnames and does not initiate requests to any provider that does not have a connector installed and configured on your site. Some connector plugins may also route model requests through regional or cloud-hosted endpoints such as Google Vertex AI (`*.aiplatform.googleapis.com`). Please consult the connector plugin's own documentation and privacy policy for the data-handling terms of that provider. Google APIs Terms: https://developers.google.com/terms Google Privacy: https://policies.google.com/privacy
+**Other compatible providers.** If you install a separate connector, SD AI Agent uses that connector's configured endpoint and data handling. Some connectors may route requests through regional or cloud services such as Google Vertex AI (`*.aiplatform.googleapis.com`). Review the connector's own terms and privacy policy. Google APIs Terms: https://developers.google.com/terms Google Privacy: https://policies.google.com/privacy
 
 = Internet search providers =
 
-The internet-search ability is used when you (or the agent on your behalf) explicitly run a web search. The first configured provider wins. Only your search query is sent — no WordPress site data, user data, or conversation history is transmitted.
+Internet search runs only when you or the agent explicitly request it. The first configured provider is used. Only the search query is sent.
 
-* **Tavily Search API** (api.tavily.com) — Web search results for the agent. Used only when a Tavily API key is configured in **Settings > Internet Search**. Sends the search query only. Terms: https://tavily.com/terms Privacy: https://tavily.com/privacy
+* **Tavily Search API** (api.tavily.com) — Web search results when a Tavily key is configured. Terms: https://tavily.com/terms Privacy: https://tavily.com/privacy
 
-* **Brave Search API** (api.search.brave.com) — Web search results for the agent. Used only when a Brave Search API key is configured in **Settings > Internet Search**. Sends the search query only. Terms: https://brave.com/terms-of-use/ Privacy: https://brave.com/privacy/browser/
+* **Brave Search API** (api.search.brave.com) — Web search results when a Brave key is configured. Terms: https://brave.com/terms-of-use/ Privacy: https://brave.com/privacy/browser/
 
-* **DuckDuckGo Instant Answer API** (api.duckduckgo.com) — Free fallback web search used when no Tavily or Brave key is configured. Sends the search query only; no API key is required. Terms: https://duckduckgo.com/terms Privacy: https://duckduckgo.com/privacy
+* **DuckDuckGo Instant Answer API** (api.duckduckgo.com) — Free fallback search when no Tavily or Brave key is configured. Terms: https://duckduckgo.com/terms Privacy: https://duckduckgo.com/privacy
 
 = Plugin and skill maintenance =
 
-* **GitHub** (github.com, api.github.com, and raw.githubusercontent.com) — Provides public ZIP downloads for optional GitHub-hosted ability plugin recommendations and the public WordPress/agent-skills skill files used by the optional WP-CLI maintenance command `wp sd-ai-agent skills sync-wp-agent-skills`. GitHub is contacted only when a site administrator manually runs the WP-CLI skills sync command or asks the agent/admin UI to install a GitHub-hosted recommended plugin. These requests send the public repository path, release asset path, or skill file name being requested, plus normal HTTP request metadata such as the requesting server IP address and the plugin's user-agent string. They do not send WordPress site content, user records, conversation history, API keys, or plugin settings. The plugin may also display the public WP-CLI Phar URL from `raw.githubusercontent.com` as an administrator download instruction when WP-CLI is missing; it does not download that Phar automatically. Terms: https://docs.github.com/en/site-policy/github-terms/github-terms-of-service Privacy: https://docs.github.com/en/site-policy/privacy-policies/github-general-privacy-statement
+* **GitHub** (github.com, api.github.com, raw.githubusercontent.com) — Provides optional public plugin ZIPs, public skill files, and WP-CLI download instructions. Contacted only when an administrator runs the skills sync command or installs a GitHub-hosted recommendation. Sends the requested public path plus normal HTTP metadata, not site content, conversation history, API keys, or settings. Terms: https://docs.github.com/en/site-policy/github-terms/github-terms-of-service Privacy: https://docs.github.com/en/site-policy/privacy-policies/github-general-privacy-statement
 
-* **WordPress.org Plugin Directory** (api.wordpress.org and downloads.wordpress.org) — Provides plugin search, plugin metadata, and plugin ZIP downloads when you ask the agent to search for or install a WordPress.org-hosted plugin by slug. The request sends the search keyword or plugin slug, requested result count, and normal HTTP request metadata. If installation is confirmed, WordPress downloads the plugin ZIP from WordPress.org. It does not send conversation history, API keys, or plugin settings. Terms / directory guidelines: https://developer.wordpress.org/plugins/wordpress-org/detailed-plugin-guidelines/ Privacy: https://wordpress.org/about/privacy/
+* **WordPress.org Plugin Directory** (api.wordpress.org and downloads.wordpress.org) — Provides plugin search, metadata, and ZIP downloads when you request a WordPress.org plugin. Sends the search keyword or slug, result count, and normal HTTP metadata. Terms / directory guidelines: https://developer.wordpress.org/plugins/wordpress-org/detailed-plugin-guidelines/ Privacy: https://wordpress.org/about/privacy/
 
-* **Admin-supplied skill manifest URLs** — If you configure `skill_manifest_url`, the plugin can fetch that HTTPS JSON manifest when you manually check for skill updates, when a skill lookup needs a remote manifest entry, or by WP-Cron when skill auto-update is enabled. The request sends the manifest URL path, an `Accept: application/json` header, conditional cache headers such as `If-None-Match` / `If-Modified-Since` when available, and normal HTTP request metadata. The host is chosen by the site administrator, so the applicable terms and privacy policy are those of the configured manifest provider.
+* **Admin-supplied skill manifest URLs** — If you configure `skill_manifest_url`, the plugin can fetch that HTTPS JSON manifest for manual checks, lookups, or enabled auto-updates. The request sends the manifest path, JSON/cache headers, and normal HTTP metadata. Terms and privacy depend on the host you configure.
 
 = Stock-image services =
 
-These are contacted only when you (or the agent) request a stock image via the image-generation ability. Each request sends image dimensions and the search keyword you supply — no site data, user data, or conversation history is transmitted.
+Stock-image services run only when requested. They receive the search keyword and requested image dimensions, not site content or conversation history.
 
-* **Openverse** (api.openverse.org) — CC0 / openly-licensed image search hosted by the WordPress Foundation. Used only when an image-search request is made. Sends the search keyword and requested dimensions. No API key required. Terms: https://docs.openverse.org/terms_of_service.html Privacy: https://wordpress.org/about/privacy/
+* **Openverse** (api.openverse.org) — Openly licensed image search hosted by the WordPress Foundation. No API key required. Terms: https://docs.openverse.org/terms_of_service.html Privacy: https://wordpress.org/about/privacy/
 
-* **Pixabay** (pixabay.com) — Free stock-image service. Used only when a Pixabay API key is configured and an image-search request is made. Sends the search keyword, requested dimensions, and your API key. Terms: https://pixabay.com/service/terms/ Privacy: https://pixabay.com/service/privacy/
+* **Pixabay** (pixabay.com) — Stock-image search when a Pixabay API key is configured. Sends the keyword, dimensions, and API key. Terms: https://pixabay.com/service/terms/ Privacy: https://pixabay.com/service/privacy/
 
 = Analytics =
 
-* **Google Analytics Data API** (analyticsdata.googleapis.com and oauth2.googleapis.com) — Reads traffic, top-page, and realtime statistics from your own Google Analytics 4 property when you ask the agent for analytics insights. Used only when you upload a Google service-account JSON key in **Settings > Analytics** and explicitly request a report. Sends an OAuth token request containing the service-account JWT, then sends the GA4 property ID and the date range / metrics you requested, authenticated with your service-account credentials. The plugin reads from your own GA property; it does not send any WordPress site data to Google. Google APIs Terms: https://developers.google.com/terms Privacy: https://policies.google.com/privacy Google Analytics terms: https://marketingplatform.google.com/about/analytics/terms/us/
+* **Google Analytics Data API** (analyticsdata.googleapis.com and oauth2.googleapis.com) — Reads your GA4 traffic, top-page, and realtime statistics when you upload a service-account key and request a report. Sends the service-account token request plus the property ID, date range, and metrics requested. Google APIs Terms: https://developers.google.com/terms Privacy: https://policies.google.com/privacy Google Analytics terms: https://marketingplatform.google.com/about/analytics/terms/us/
 
-* **Google Search Console API** (searchconsole.googleapis.com and oauth2.googleapis.com) — Reads query, page, country, device, click, impression, CTR, and average-position data from your own Google Search Console property when you ask the agent for Search Console / SEO insights. Used only when you configure Google Search Console credentials and explicitly request a GSC report. Sends an OAuth token request containing the service-account JWT or uses your stored OAuth access token, then sends the Search Console property URL, date range, dimensions, filters, and row limit you requested. The plugin reads from your own Search Console property; it does not send WordPress user records, conversation history, API keys, or plugin settings to Google. Google APIs Terms: https://developers.google.com/terms Privacy: https://policies.google.com/privacy
+* **Google Search Console API** (searchconsole.googleapis.com and oauth2.googleapis.com) — Reads your Search Console query and page performance when credentials are configured and you request a report. Sends the token request or stored OAuth token plus the property URL, date range, dimensions, filters, and row limit. Google APIs Terms: https://developers.google.com/terms Privacy: https://policies.google.com/privacy
 
 = User-configured and user-requested external URLs =
 
-* **Custom HTTP tools and webhooks** — Site administrators can create HTTP tools that call any external API URL they configure. The disabled example tools include an editable placeholder weather-style URL and a Zapier webhook URL (`hooks.zapier.com`); they are not contacted unless an administrator enables the tool and the agent runs it. When an HTTP tool runs, the plugin sends the configured URL path, method, headers, placeholder-substituted input values, and request body configured for that tool. Terms and privacy depend on the service configured by the administrator. Zapier Terms: https://zapier.com/tos Zapier Privacy: https://zapier.com/privacy
+* **Custom HTTP tools and webhooks** — Administrators can create tools that call configured external URLs, including disabled examples for weather-style APIs and Zapier (`hooks.zapier.com`). Nothing is contacted unless the tool is enabled and run. Requests send the configured URL, method, headers, substituted inputs, and body. Terms and privacy depend on the configured service. Zapier Terms: https://zapier.com/tos Zapier Privacy: https://zapier.com/privacy
 
-* **User-requested URL fetch, site scrape, and media import URLs** — Tools such as URL metadata fetches, SEO URL audits, existing-site scrape, upload-media-from-url, and generated-image URL import contact the exact URL you provide or approve. These requests are made only after a user/administrator asks the agent to fetch, scrape, download, or import from that URL. Depending on the tool, the target site may receive the requested URL path, query string, normal HTTP request metadata, and a plugin/WordPress user-agent string; media import tools download the remote file into WordPress. The plugin does not send unrelated WordPress site data, user records, conversation history, API keys, or plugin settings to arbitrary URLs. Because these destinations are chosen by the user or administrator, review the terms and privacy policy of the target site before running the tool. The separate SD AI Agent Advanced companion plugin adds additional administrator-only URL and low-level dispatcher tools, including arbitrary plugin ZIP installs and whitelisted `wp_remote_get` / `wp_remote_post` function calls.
+* **User-requested URL fetch, site scrape, and media import URLs** — URL metadata, SEO audit, scrape, upload-from-URL, and generated-image import tools contact only the URL you provide or approve. The target may receive the requested path, query string, normal HTTP metadata, and a WordPress user-agent; media import tools download the remote file into WordPress. Review the target site's terms and privacy policy before running the tool.
 
 = Notifications (optional) =
 
-* **Discord** (discord.com) — Optional webhook notifications for automation results. Used only when you configure a Discord webhook URL on a specific automation. Sends the automation summary text you configured to the webhook URL. No data is sent unless you create a webhook entry. Terms: https://discord.com/terms Privacy: https://discord.com/privacy
+* **Discord** (discord.com) — Optional automation-result webhooks. Sends the configured automation summary to the webhook URL only after you add one. Terms: https://discord.com/terms Privacy: https://discord.com/privacy
 
-* **Slack** (slack.com / hooks.slack.com) — Optional webhook notifications for automation results. Used only when you configure a Slack incoming-webhook URL on a specific automation. Sends the automation summary text you configured to the webhook URL. No data is sent unless you create a webhook entry. Terms: https://slack.com/terms-of-service Privacy: https://slack.com/privacy-policy
+* **Slack** (slack.com / hooks.slack.com) — Optional automation-result webhooks. Sends the configured automation summary to the webhook URL only after you add one. Terms: https://slack.com/terms-of-service Privacy: https://slack.com/privacy-policy
 
 = Feedback and issue reporting (optional, opt-in) =
 
-* **SD AI Agent feedback service** (ultimateagentwp.ai) — Optional service that receives user-submitted feedback and issue reports about the plugin so the maintainers can diagnose problems and improve the product. Nothing is sent automatically. A report is transmitted only when you explicitly click the thumbs-down button on an AI response or run the `/report-issue` command **and** accept the feedback-consent modal that previews the exact payload. Each report contains the sanitized conversation excerpt and metadata you reviewed in the consent modal (with secrets and PII redacted before display). No background telemetry, analytics, or automatic error reporting is ever sent. Terms: https://ultimateagentwp.ai/terms/ Privacy: https://ultimateagentwp.ai/privacy/
+* **SD AI Agent feedback service** (ultimateagentwp.ai) — Optional user-submitted feedback and issue reports. Nothing is sent automatically; reports are sent only after you use thumbs-down or `/report-issue` and accept the consent preview. The payload is the sanitized conversation excerpt and metadata shown in the modal. Terms: https://ultimateagentwp.ai/terms/ Privacy: https://ultimateagentwp.ai/privacy/
 
 == Frequently Asked Questions ==
 
@@ -255,445 +167,111 @@ SD AI Agent uses the native WordPress AI Client SDK and Abilities API. These API
 == Changelog ==
 
 = 1.20.0 - Released on 2026-07-23 =
-* New: Added recoverable chat-job resume, managed Superdav connector account status, safer theme-builder pattern, design-token, and artifact workflows, and Advanced style-variation tools.
-* New: Added support for GPT-5.6 chat aliases, Superdav image edits, and OpenAI Responses tool search.
-* Improved: Improved model discovery, event tracing, tool reliability, and generated-theme safeguards.
-* Fix: Fixed chat retries and timeouts, block updates, model filtering, permissions, and account and credit notices.
+* Improved chat recovery so interrupted jobs, retries, and timeouts resume more reliably.
+* Added clearer Superdav account and credit status plus expanded model and image options, including GPT-5.6 aliases, Superdav image edits, and OpenAI Responses tool search.
+* Improved theme-building and design workflows with safer patterns, design-token handling, artifact review, style-variation support, and stronger block update safeguards.
 
 = 1.19.0 - Released on 2026-07-09 =
-* New: Added static documentation knowledge imports so the agent can build a searchable knowledge base from documentation sites.
-* New: Added anonymous public chat, embeddable docs chat widgets, customer simple chat mode, and a customer chat setup tool for customer-facing assistant experiences.
-* New: Added calendar SMS reminder setup and orchestration so configured calendars can drive text-message reminder workflows.
-* Improved: Improved public docs chat behavior, packaging validation, and bundled DI cache packaging for more reliable releases.
-* Fix: Fixed chat retry and recovery states, embedded assistant markdown rendering, provider/model handling, knowledge count queries, calendar SMS mappings, and tool permission defaults.
+* Added searchable documentation imports so the agent can answer from public docs and knowledge resources.
+* Added public and embeddable chat options for customer-facing assistant experiences.
+* Added calendar-driven SMS reminder workflows, with fixes for chat recovery, markdown rendering, knowledge counts, provider selection, and tool permissions.
 
 = 1.18.0 - Released on 2026-06-29 =
-* New: Added Google Calendar tools so the agent can read calendars and events when configured.
-* New: Added contact mapping and attendee helpers so automations can match calendar participants to site users and contacts.
-* New: Added human approval gates and reminder records so automations can pause for review and avoid duplicate notifications.
-* New: Added TextBee SMS provider support for sending configured text-message notifications.
-* New: Added the Advanced companion package for trusted developer workflows, with filesystem, database, WP-CLI, REST dispatcher, plugin builder, git snapshot, user-management, and benchmark tools distributed separately from the WordPress.org build.
-* Improved: Added managed Superdav service endpoints and automatic connection provisioning so supported sites can use the hosted provider with less setup.
-* Improved: Updated release packaging to build separate core and Advanced ZIPs, publish both on GitHub, and send only the core package to WordPress.org.
-* Fix: Fixed model selection, request timeouts, default setup model, reasoning-text handling, and clearer retry guidance when tool calls are invalid.
-* Fix: Fixed Google Calendar token and reminder-deduplication hardening, frontend onboarding launches, confirmed ability resumes, and WordPress.org packaging review issues.
+* Added Google Calendar tools, attendee matching, and TextBee SMS support for reminder automations.
+* Added approval gates and reminder records so scheduled messages can pause for review and avoid duplicates.
+* Made Superdav setup easier and improved model selection, request timeouts, onboarding, and retry guidance.
 
 = 1.17.0 - Released on 2026-06-11 =
-* New: Added safer page and post editing tools so the agent can inspect block layouts, find the right section, make targeted updates, and preserve existing content.
-* New: Added stronger safeguards for block editing, including content checks before saving, protection for locked or reusable content, and easier recovery from revisions.
-* New: Added instant previews for changes to posts, site styles, navigation menus, and homepage content so updates are easier to review without manual refreshes.
-* New: Added an in-progress change panel with a side-by-side preview and Apply/Reject controls for file edits.
-* New: Added safer file-editing support with approved folders, editor links, automatic checks, and automatic rollback when a file change breaks the site.
-* New: Added a command palette shortcut so administrators can open Superdav AI Agent faster from the dashboard.
-* New: Added a managed Superdav AI provider option and improved model discovery so sites can connect to supported models with less setup.
-* New: Added crash-resume checkpoints so longer agent tasks can recover more safely after interruptions.
-* New: Added better media and content helpers, including improved stock image imports, safer image uploads, category and tag lookup, web address lookup, and saved pattern insertion.
-* Improved: Combined Setup Assistant and Theme Builder into one faster onboarding experience, and enabled the frontend chat widget by default.
-* Improved: Made the agent better at finding the right tools on busy sites, reading large files in smaller sections, and giving useful next steps when a tool is unavailable.
-* Improved: Strengthened privacy and permission protections around site settings, user management, uploads, WooCommerce order data, and internal plugin actions.
-* Improved: Expanded the External Services section so administrators can more easily understand which optional services may be contacted and when.
-* Fix: Fixed several chat and task-flow issues, including interrupted jobs, duplicate sends, tool-result refreshes, and raw text tool calls.
-* Fix: Fixed onboarding and Theme Builder issues that could affect shared admin sessions, existing homepage content, generated themes, global styles, and hero sections.
-* Fix: Fixed file and plugin-management issues that could leave generated files in the wrong location, miss failed changes, or keep stale plugin data after a reset.
-* Fix: Fixed model and provider handling for Superdav AI, DeepSeek, Claude Opus, and other compatible AI connectors.
-* Fix: Fixed WordPress.org packaging and review issues so the distributed plugin contains the intended files and privacy disclosures.
+* Added safer page, post, block, and file editing with previews, Apply/Reject controls, revision recovery, and rollback protection.
+* Improved onboarding, Theme Builder, media helpers, stock-image imports, saved pattern insertion, and dashboard access.
+* Strengthened privacy and permission protections for settings, users, uploads, WooCommerce data, internal actions, and provider handling.
 
 = 1.16.2 - Released on 2026-05-29 =
-* Docs: Expanded the External Services section after a codebase-wide outbound connection audit to document WordPress.org plugin API/downloads, Google Search Console, Google OAuth token exchanges, admin-supplied skill manifests, custom HTTP tools/webhooks, and user-requested fetch/scrape/media/plugin-download URLs
-* Cleanup: Replaced the disabled custom-tool weather example's fixed wttr.in URL with an administrator-editable placeholder URL so new installs do not ship a concrete third-party weather endpoint in example configuration
-* Docs: Removed stale Lorem Flickr and Picsum Photos external-service entries because no executable plugin code references those services
-* Docs: External Services section now discloses the optional WP-CLI skills sync requests to GitHub (`api.github.com` and `raw.githubusercontent.com`), including what is sent, when the command runs, and GitHub Terms and Privacy links
-* Docs: External Services section clarifies that third-party OpenAI-compatible providers reached via a separate WordPress connector plugin are governed by that connector's own documentation and privacy policy, and that Superdav AI Agent does not initiate requests to any provider without an installed and configured connector
-* Cleanup: Remove hardcoded third-party AI provider hostnames from `CacheStrategyResolver`, `ModelCapabilityHandler`, `NoopCacheStrategy`, and `Settings`. The plugin never contacted those endpoints directly — requests to them are made by third-party connector plugins. Static reviewers no longer flag them as undisclosed external services
-* New: `sd_ai_agent_models_endpoint_hosts` filter lets connector plugins extend the `/models` ingestion allow-list at runtime, replacing the previous hardcoded list with a runtime-extensible defaults set scoped to the three providers this plugin's readme discloses directly
-* New: `sd_ai_agent_resolve_cache_strategy` filter (existing, now documented) is the supported extension point for third-party connectors that want to inject a prompt-cache strategy for a custom endpoint
+* Clarified External Services disclosures for plugin downloads, Search Console, OAuth token exchanges, skill manifests, custom HTTP tools, webhooks, and user-requested URLs.
+* Removed stale or misleading example service references so administrators can see which outside services may actually be contacted.
 
 = 1.16.1 - Released on 2026-05-20 =
-* Fix: Theme Builder onboarding chat is scrollable again on sites with existing content. The wrapper that mounts ChatRedesign now participates in the WordPress admin flex chain, so the message list scrolls internally instead of pushing the chat off the viewport (#1578, reverts #1577)
-* Change: Removed the dedicated Theme Builder photo-upload tile, the `/sd-ai-agent/v1/onboarding/interview-uploads` REST endpoint, and the `sd-ai-agent/list-interview-uploads` ability. The chat input area already supports drag-and-drop, paste, and the paperclip button for the same image types (plus PDFs, CSV, and TXT), so the Theme Builder agent now asks the user to attach photos directly in the conversation instead of through a separate panel
+* Fixed Theme Builder chat scrolling on sites with existing content.
+* Simplified Theme Builder uploads by using the normal chat attachment controls for images and documents.
 
 = 1.16.0 - Released on 2026-05-20 =
-* New: Theme Builder can generate and embed a logo SVG with namespace-safe sanitisation (generate-logo-svg ability)
-* New: Theme Builder discovery interview now includes a photo upload step for richer design context
-* New: validate-palette-contrast ability checks colour pairs for WCAG compliance before applying to a theme
-* New: Theme Builder generates structured hospitality menu pages for food and beverage sites
-* New: Desktop and mobile preview rendering during Theme Builder design-direction selection
-* New: Create Menu ability supports a distinct navigation_label separate from the page title
-* Improved: sd-ai-agent/site-scrape is now a Tier 1 tool, making it available to Theme Builder pre-fill by default
-* Fix: AI Client cache is now backed by transients for cross-request persistence, preventing data loss on long-running agent tasks
-* Fix: Plugin row action links corrected and renamed for clarity
+* Added logo generation, photo-based design context, colour-contrast checks, mobile and desktop previews, and hospitality menu-page support to Theme Builder.
+* Improved site prefill and long-running task reliability.
 
 = 1.15.0 - Released on 2026-05-19 =
-* New: sd-ai-agent/site-scrape ability scrapes a live URL and returns structured content for Theme Builder pre-fill
-* New: Theme Builder stock-image search and import — agents can search for and import stock images directly from within the Theme Builder flow
-* New: generate-image ability adds Theme Builder-specific options, image variation generation, and provenance metadata for generated assets
+* Added site scraping, stock-image search, image import, generated-image variations, and provenance details for Theme Builder workflows.
 
 = 1.14.0 - Released on 2026-05-19 =
-* New: Settings → Advanced panel now includes a "Restart Setup Assistant" button so users can re-run onboarding at any time
-* Improved: Onboarding v2 cleanup — wizard removed, new installs route directly to the Setup Assistant agent
-* Fix: Theme Builder now always generates theme.json with schema version 3; server-side guardrail coerces any version < 3 supplied by the model to 3
-* Fix: Activate Theme ability validates WordPress and PHP version requirements before switching, preventing incompatible theme activation
-* Fix: Zombie active-job rows are cleared when an AgentLoop request terminates abnormally, unblocking subsequent agent runs
-* Fix: Default model validated against registered providers on save, preventing a fatal during model selection after a provider is removed
-* Fix: Edit & Resend always dispatches on Send click; second-click-ignored regression is resolved
-* Fix: HTTP trace cache round-trip preserves tool_use.input as a JSON object (no double-encoding)
-* Fix: Feedback-triage routine (r020) SOP and API schema aligned; systemd launcher wired
-* Fix: Reasoning-model capability check uses resolved model ID, fixing false negatives for aliased models
-* Fix: Trace LIFO stack maintained correctly across concurrent requests
+* Added a Restart Setup Assistant option and simplified first-run onboarding.
+* Improved Theme Builder safety, theme activation checks, model validation, stuck-job cleanup, and Edit & Resend reliability.
 
 = 1.13.0 - Released on 2026-05-16 =
-* New: Per-model output token limits are now read directly from the provider's /models endpoint, keeping limits accurate without manual updates
-* New: Provider-supplied usage instructions (meta.ai.usage_instructions) are wired into Tier-1 and Tier-2 model context for more guideline-compliant responses
-* New: Model preamble text streams live alongside tool calls so you see real-time feedback as the agent works through multi-step tasks
-* New: Structured trace channel uses WordPress AI Client SDK before/after generate events for reliable, SDK-aligned LLM request tracing
-* Improved: Provider list is now single-sourced from the WP AI Client SDK registry, removing a redundant internal list
-* Fix: Trace logger correctly reflects the SDK DTO API, resolving broken trace output
-* Fix: Agent loop now correctly detects preamble-only truncations; synthetic model capabilities prevent false truncation detection
-* Fix: Tracing now captures all active LLM providers, not just a hardcoded subset
-* Fix: WP_Ability polyfill now loads after WordPress core bootstrap, fixing activation errors on some environments
-* Fix: WP_Ability class declaration is guarded to prevent fatal errors when the class is already defined
-* Fix: Temperature parameter is no longer sent to OpenAI reasoning models (o-series), preventing API errors on those endpoints
-* Fix: .eslintignore is no longer included in the WordPress.org plugin zip
+* Added live progress text during multi-step work and more accurate per-model output limits.
+* Improved provider discovery and reliability for reasoning models and compatible provider connectors.
 
 = 1.12.0 - Released on 2026-05-15 =
-* New: Scaffold and activate block themes directly from the chat interface — agents can generate a complete block theme and switch it live
-* New: Theme Builder onboarding flow — a guided setup wizard builds a custom block theme through the Setup Assistant agent
-* New: Site Specification skill — captures site goals, audience, and brand brief in a structured site_brief memory category for consistent agent context across sessions
-* New: Design System Aesthetics skill — guides agents through typography, colour, spacing, and motion token decisions for a cohesive visual identity
-* New: Google Gemini prompt caching via the cachedContents API for explicit cache lifecycle management; prompt-cache telemetry extended to Azure OpenAI, OpenRouter, and Vertex Anthropic
-* New: Ability visibility controls — each ability now carries a visibility level governing which surfaces (REST, MCP, WooCommerce) expose it, with a partner allow-list for fine-grained access
-* New: Admin notice alerts administrators when unrecognised third-party abilities are installed so they can review and classify them
-* Improved: Third-party ability mode now defaults to auto, enabling native WP Abilities API integration on WordPress 7.0+ without manual configuration
-* Improved: Site Builder mode removed — first-run onboarding is consolidated into the Setup Assistant agent for a simpler experience
-* Improved: /providers endpoint always returns a fresh list — no more stale results when new provider plugins are activated or deactivated
-* Improved: Per-model output-token limits are now aligned with provider documentation for accurate cost and budget management
-* Improved: WooCommerce ability auto-enable is now aligned with the native Abilities API, reducing custom compatibility code
-* Fix: Agent loop unblocked for complex multi-tool conversations — four loop-termination bugs fixed alongside per-model max_tokens and stacked-context corrections
-* Fix: max_tokens and temperature values now reach the AI provider correctly instead of being silently dropped
-* Fix: max_iterations from the plugin Settings page is now respected; the REST API no longer overrides it with a default of 10
-* Fix: WP-CLI `wp sd-ai-agent prompt "text"` command now works correctly
-* Fix: OpenAI-compatible connector now receives provider_id when listing models, fixing discovery for custom-endpoint providers
-* Fix: Transient provider failures are retried automatically; truncated tool calls are handled gracefully
-* Fix: create-post ability now returns real permalinks from the WordPress response in the agent reply
-* Fix: Admin asset URLs resolve correctly when the plugin directory is a symlink
-* Fix: Client ability callbacks are registered locally even on sites where the native WP 7.0 Abilities API is absent
-* Fix: Empty JSON-Schema objects are preserved through the prompt-cache decoder instead of being stripped
-* Fix: cache_creation_tokens columns added to the provider_trace table via dbDelta migration
-* Fix: Permission callbacks tightened on block-discovery and client-stub abilities (security hardening)
-* Fix: Feedback session credentials are scrubbed before storage
-* Fix: Stock image downloads now retry across all configured free image sources
-* Fix: GeminiCacheManager uses exact prefix matching instead of a character mask, preventing unintended cache key collisions
-* Fix: Connectors admin page restored on WordPress 6.9 + Gutenberg installations
-* Fix: Plugin paths now use WP_PLUGIN_DIR and uploads basedir per WordPress.org guidelines
-* Fix: Provider list updates immediately when an API key is saved for the first time
-* Docs: Disclose the optional, opt-in feedback / issue-reporting service hosted at ultimateagentwp.ai in the External Services section (what is sent, when, and links to Terms and Privacy)
-* Docs: Replace the outdated Openverse Terms link (openverse.org/terms now redirects with a 4xx) with the current docs.openverse.org/terms_of_service.html URL
-* Cleanup: Remove `api.example.com` placeholder example text from a php-ai-client SDK docblock and the Custom Tools "URL" input placeholder so static reviewers no longer flag a non-existent external service
-* CLI: `wp sd-ai-agent benchmark run` now writes log files to `{uploads}/sd-ai-agent/benchmark-logs/` by default instead of inside the plugin folder, so logs survive plugin upgrades; `--log-dir=<abs-path>` still overrides
-* Deps: Update bundled libraries to current stable releases — automattic/jetpack-autoloader 5.0.16 → 5.0.17, psr/simple-cache 2.0.0 → 3.0.0, smalot/pdfparser 2.12.4 → 2.12.5, x-wp/di pulled to current fork HEAD (REST-context plain-permalink fix + rest() request-handling refinement, on top of upstream v1.10.0)
+* Added guided Theme Builder onboarding, block-theme generation, reusable site briefs, and design-system guidance.
+* Added ability visibility controls and clearer notices when new third-party tools are available.
+* Improved complex multi-tool conversations, provider refresh, connector setup, stock-image retries, cost limits, and sensitive-data handling.
 
 = 1.11.1 - Released on 2026-05-09 =
-* Docs: Fix invalid Google AI privacy URL in readme (trailing-slash 404) and remove non-existent Lorem Flickr terms link
-* Docs: Disclose all third-party / external services in the External Services section per WordPress.org plugin directory guidelines — Google Analytics, Tavily, Brave Search, DuckDuckGo, Openverse, Pixabay, and Slack now documented alongside the existing OpenAI, Anthropic, Google AI, Lorem Flickr, Picsum Photos, and Discord entries
+* Corrected External Services links and disclosures for search, image, analytics, notification, and AI services.
 
 = 1.11.0 - Released on 2026-05-09 =
-* New: Generic chat-banner and chat-error-message extension points for third-party UI integrations
-* New: AgentEventLog for network-wide review of agent failures
-* Fix: Break /chat/tool-result 409 loop on WP_Error and stale paused_state
-* Fix: Resolve AI provider dynamically instead of using cached references
-* Fix: Correct stale CSS prefix in disabled-card E2E assertions
-* Docs: Add canonical naming rules to prevent rogue renames
+* Improved chat status messages, network-wide failure review, provider switching, and recovery from stale paused chat states.
 
 = 1.10.0 - Released on 2026-05-05 =
-* New: Tavily internet search — add Tavily as a search provider for richer internet search results alongside Brave Search
-* New: Theme-aware built-in skills — Block Themes, Classic Themes, Kadence Blocks, and Kadence Theme skill guides now ship with the plugin
-* New: Site builder contact form ability — add a contact form to any page directly from the chat interface
-* Improved: WooCommerce integration refactored to use native WooCommerce APIs for better reliability and compatibility
-* Improved: Provider list refreshes automatically when any plugin is activated or deactivated
-* Fix: navigate-to ability caused an infinite reload loop on some admin pages
-* Fix: list-posts now correctly resolves category and tag names to slugs
-* Fix: WP-CLI commands (wp sd-ai-agent) were missing namespace aliases after a previous refactor
-* Fix: Event automation gracefully handles sites where automation tables are not yet created
-* Fix: memory-save ability now uses the correct namespace prefix in the system instruction builder
-* Fix: Scalar tool results are now correctly wrapped before being returned to the AI
-* Fix: Usage statistics now correctly handle the legacy ability key format on upgrade from older versions
+* Added Tavily search, theme-aware skills, and chat-based contact form creation.
+* Improved WooCommerce reliability, provider refresh, navigation, post filtering, event automation, and usage statistics.
 
 = 1.9.1 - Released on 2026-04-28 =
-* Fix: update-post now includes post_type in its schema and response, preventing agents from calling create-post when the intent is to update an existing post
-* Fix: Retry client-side tool result submission on transient POST failures; show a recovery card with Retry/Cancel options if all attempts fail
-* Fix: Stop 409 polling loop — job transient now updated after client tool results are processed, preventing browsers from re-executing tools and re-posting results
+* Improved post-update accuracy and added better recovery when a tool-result submission fails.
 
 = 1.9.0 - Released on 2026-04-28 =
-* New: Add create-contact-form ability
-* New: Add set-featured-image ability
-* New: Add batch-create-posts ability
-* New: Add page_template parameter to create-post and update-post abilities
-* New: Add client-side screenshot abilities for visual page review
-* New: Five built-in agents with per-agent tools, prompts, and suggestions
-* New: Feature flags for access control and branding settings
-* New: Restore last session on chat load and widget open
-* New: Add plugin action links on plugins.php admin page
-* Improved: Retry all free image sources on download failure before AI fallback
-* Improved: Always show model info panel
-* Improved: Stop auto-scroll when user reads; show scroll-to-bottom button
-* Improved: Agent picker with icons and form-table layout
-* Improved: Lazy-load JS chunks — cut initial bundle sizes 75-90%
-* Improved: Redesign chat widget with unified AI icon
-* Improved: Linkify URLs in system and error message bubbles
-* Fix: Fix ability discoverability — descriptions, system prompt, and namespace alignment
-* Fix: Make providers cache site-wide via version counter
-* Fix: Resolve ability_invalid_output across 12 ability handlers
-* Fix: Wire up pending_client_tool_calls pipeline end-to-end
-* Fix: Exclude non-revertable changes from history drawer; fix View full history link
-* Fix: Five bugs in the changes/revert system and wire into unified admin
-* Fix: Show snackbar toast after Save Settings click
-* Fix: Add Delete Permanently option to Trash context menu
-* Fix: Edit & resend enters only the clicked message's edit mode
-* Fix: Adapt chat layout height to plugin-injected content above page
+* Added contact-form creation, featured-image setting, bulk post creation, page templates, screenshot-based review, and five built-in agents.
+* Restored recent sessions automatically, improved the chat widget and model panel, reduced initial bundle size, and refined change/revert handling.
 
 = 1.8.2 - Released on 2026-04-23 =
-* Fix: Replace polyfill connectors page with official URL and one-click Gutenberg install
-* Fix: Add menu icon back
-* Fix: Use correct URL
+* Improved connector setup links and restored the admin menu icon.
 
 = 1.8.1 - Released on 2026-04-22 =
-* Fix: Connectors page showing WP 7.0 redirect on WP 6.9
-* Fix: Connectors page links for WP 6.9 compat
+* Fixed connector page links for earlier WordPress setups.
 
 = 1.8.0 - Released on 2026-04-22 =
-* New: Split image abilities — extract GenerateImageAbility, rename Stock/Unified abilities
-* New: WP 6.9 compatibility — bundle php-ai-client SDK, Connectors polyfill
-* New: Provider refresh on tab visibility change and manual refresh button
-* New: Connectors admin page with install/activate/API key UI
-* Improved: Bootstrap-start idempotency — persist session ID, dual-store completion
-* Improved: Provider-selector refresh button — always show icon, fix accessibility
-* Improved: Ability-call error handling — return WP_Error for malformed arguments
-* Fix: Load provider credentials in BenchmarkRunner before AI calls
-* Fix: Hide ChatTabBar in compact mode to remove duplicate tabs
-* Fix: Allow manual feedback form submissions regardless of setting
+* Added clearer AI connector setup, provider refresh controls, and improved image-tool handling.
+* Improved compact chat, feedback submission, and error handling.
 
 = 1.7.0 - Released on 2026-04-20 =
-* New: Adaptive skill system — usage tracking, model-aware injection, and remote skill registry
-* New: Onboarding v2 — connector gate and AI-driven discovery session
-* New: Skill manager UI — usage stats, update badges, and auto-update toggle
-* New: Skill versioning with remote update checker
-* New: Active jobs database table for resumable background jobs
-* New: Multi-session chat UI with tabbed interface
-* New: Session-scoped polling with exponential backoff and visibility throttling
-* New: Cross-page navigation survival via sessionStorage
-* New: In-session rollback bar for conversation undo
-* New: Browser notifications for permission prompts
-* New: Dynamic context windows from provider API response headers
-* New: Auto-enable WooCommerce abilities on activation
-* New: Bootstrap system prompt with auto-discovery session context
-* Improved: Skill usage outcome heuristics and update methods
-* Improved: Block editor content quality handling
-* Improved: Active job reconnection via REST endpoint
-* Improved: Active job lifecycle persisted to database alongside transients
-* Fix: Orphaned tool_use blocks stripped to prevent Anthropic 400 errors
-* Fix: REQUEST_URI normalization for plain-permalink REST detection
-* Fix: Various database repository return type consistency fixes
+* Added adaptive skills, improved onboarding, skill management, resumable jobs, multi-session chat, rollback, and browser notifications for approval prompts.
+* Improved WooCommerce setup, block-editor output quality, job reconnection, and cross-page navigation.
 
 = 1.6.0 - Released on 2026-04-17 =
-* New: Tool call details and skill activations displayed inline in chat messages
-* New: Always-on message input with message queue and agent interrupt support
-* Improved: Complete dependency injection migration — all wiring through x-wp/di container
-* Improved: Database god class split into focused domain repositories
-* Improved: AgentLoop refactored into focused, testable subclasses
-* Improved: Typed DTOs for database rows eliminate mixed-type casting
-* Improved: REST controller domain logic extracted into service classes
-* Improved: Interfaces added for key contracts (repositories, settings, budget)
-* Improved: Settings converted to injectable DI service
-* Improved: Plugin Builder abilities extracted into individual PSR-4 files
-* Fix: Ability error messages now preserve exception file, line, and trace details
-* Fix: Infinite API error loop replaced with friendly boot error and nonce refresh
-* Fix: stdClass handling in ability arguments and JSON schema empty-object serialization
-* Fix: Admin notice shown instead of fatal error when vendor directory is missing
-* Fix: Concurrent REST fetches for providers, settings, and abilities deduplicated
-* Fix: Tool confirmation dialog styles missing in screen-meta view
+* Added inline tool details, visible skill activation, always-on message input, queued messages, and agent interrupt support.
+* Improved provider/settings loading, friendly boot errors, tool confirmation styling, and chat reliability.
 
 = 1.5.0 - Released on 2026-04-15 =
-* New: Customer feedback & issue reporting system — thumbs-down button, feedback consent UI, auto-prompt banner on conversation end, /report-issue command, and AI-assisted triage
-* New: Report-inability ability — agent self-flags when it cannot complete a task
-* New: Plugin Builder & Sandbox System — AI-powered plugin generation with safe activation, structured codegen, and sandboxed live updates
-* New: Plugin installer with path validation, multi-file install, update, and delete by slug
-* New: HookScanner for automated plugin and theme hook analysis
-* New: 7 plugin management abilities and ecosystem registry
-* New: Async job architecture with live tool progress tracking
-* New: Internet search ability via Brave Search API
-* Improved: GitHub Actions upgraded from Node.js 20 to Node.js 24
-* Improved: AI Client SDK timeout raised to 120s for agentic workloads
-* Improved: HookScanner skips vendor and node_modules directories
-* Fix: E2E test selector mismatches for settings tabs
-* Fix: Vendor autoloader manifests regenerated without dev dependencies
-* Fix: Dialog styles included in floating-widget bundle
-* Fix: Brave Search API URL now a clickable link in settings
-* Fix: Transient TTL refresh prevents mid-execution expiry
-* Fix: wp-env port conflict resolved (ports 8890/8893)
-* Fix: Tool confirmation dialog portal fixes for compact and floating modes
-* Fix: HookScanner empty-slug guard and slug sanitization
-* Fix: Missing AgentLoop import in feedback handler
+* Added opt-in customer feedback and issue reporting, agent self-reporting when it cannot complete a task, plugin-building workflows, plugin management tools, live progress, and Brave Search.
+* Improved long-running tasks, settings links, floating-widget dialogs, and confirmation prompts.
 
 = 1.4.0 - Released on 2026-04-09 =
-* New: Agent Capabilities v1 benchmark suite for complex model evaluation
-* New: WP-CLI benchmark command for running benchmarks from the command line
-* New: Custom post type abilities — register, list, and delete custom post types with persistence
-* New: Custom taxonomy abilities — register, list, and delete custom taxonomies with persistence
-* New: Design system abilities — inject custom CSS, curated block patterns, set site logo, theme.json presets
-* New: Global styles abilities for theme.json management
-* New: Navigation menu management ability
-* New: Options management ability with safety blocklist
-* New: Installable abilities registry and recommend-plugin ability
-* New: Site builder orchestration v2 — plan generation, plugin discovery, progress tracking, error recovery
-* New: Restaurant website benchmark question and E2E tests
-* New: AI provider connector plugins added to WordPress Playground blueprints
-* Improved: README updated with AI provider connector documentation
-* Fix: 25 PHPUnit test failures on main resolved
-* Fix: GitHub releases URL format in blueprint.json
-* Fix: Task ID renumbering to avoid collisions with old IDs
+* Added site-building tools for custom post types, taxonomies, design settings, global styles, navigation menus, site options, plugin recommendations, and guided site plans.
 
 = 1.3.0 - Released on 2026-04-03 =
-* New: Unified admin menu — consolidates 4 separate admin_menu hooks into a single React SPA with hash-based routing
-* New: Model benchmark admin page with REST controller and benchmark engine for comparing AI provider performance
-* New: Gemini 2.5 Flash and Gemini 2.5 Flash Lite models added to the model selector
-* New: o3, o4-mini, claude-sonnet-4-6, and claude-opus-4-6 models added to the model selector
-* New: Claude 3.5 Haiku and Gemini 2.0 Flash models added to the model selector
-* New: JS bundle size budget enforced in CI to prevent regressions
-* New: PHPStan raised to level 10 (maximum) with all new errors resolved
-* New: Unit tests for 50+ classes across Core, REST, Abilities, Models, Admin, Knowledge, and Automations
-* New: Playwright E2E tests for shared conversations, agent builder, automations, Changes page, UnifiedAdminMenu, and benchmark page
-* Enhancement: WP.org SVN submission guide and deploy script
-* Enhancement: GPL-2.0-or-later license headers added to all PHP files
-* Enhancement: Security hardening, i18n compliance, and code safety improvements
-* Fix: tokens_used_this_month clamped to non-negative before database insert
-* Fix: get_option() result guarded before array offset access in SiteScanner
-* Fix: get-plugins truncator field mismatch (status/slug to active/file)
-* Fix: google/ OpenRouter prefix removed from Google direct provider model IDs
-* Fix: update-post benchmark schema aligned with implementation
-* Fix: Collapsed sections now force-open when filtering activates in abilities manager
-* Fix: package_type schema/runtime inconsistency in GitAbilities
-* Fix: ShellCheck violations resolved in tests/ and .husky/
-* Fix: 96 failing Playwright E2E tests after UnifiedAdminMenu merge
+* Added a unified admin experience, provider comparison tools, and more model choices.
+* Improved security, language support, token accounting, plugin listings, model IDs, and ability filtering.
 
 = 1.2.0 =
-* New: Support all three official AI providers — OpenAI, Anthropic, and Google Gemini
-* New: Image and file upload support in chat messages
-* New: Spending limits and budget caps to control AI costs
-* New: Live streaming token counter and cost display during responses
-* New: Tiered model pricing display in the Settings model selector
-* New: GPT-4.1 family models (GPT-4.1, GPT-4.1-mini, GPT-4.1-nano); GPT-4.1-nano is now the default OpenAI model
-* New: Graceful fallback when tool calls exhaust max iterations
-* New: Suggestion cards on chat empty state
-* New: Search, category grouping, and collapsible sections in the Abilities settings tab
-* New: Auto-title sessions from the first message using AI
-* New: Shared conversations — multiple admins can view and continue the same session
-* New: Text-to-speech for AI responses (optional)
-* New: White-label branding support — custom agent name, colors, and logo
-* New: Google Search Console SEO insights abilities
-* New: Google Analytics 4 traffic analysis ability
-* New: Resale API proxy endpoint with usage tracking
-* New: YOLO mode toggle to skip all confirmations
-* New: Abilities Explorer admin page
-* New: AI image generation ability (DALL-E 3)
-* New: Agent builder UI — create specialized agents with custom prompts, tools, and models
-* New: Role-based AI permissions — restrict abilities by WordPress user role
-* New: Floating widget shown on frontend for logged-in admins
-* New: Resizable floating widget panel with keyboard shortcut
-* New: WooCommerce abilities — product CRUD, order queries, and store stats
-* New: Slack and Discord notification forwarding for automation results
-* New: Sortable, filterable DataTable rendering for tabular chat responses
-* New: Chart.js chart rendering in chat responses
-* New: Per-tool WordPress capabilities (sd_ai_agent_tool_{name})
-* New: Site builder conversation flow — interview user then generate a full site
-* New: Site builder mode triggered on fresh WordPress installs
-* New: Changes Admin page — view diffs, revert changes, and export patches
-* New: CodeMirror 6 syntax highlighting in chat code blocks
-* New: Webhook API — trigger AI conversations from external systems
-* New: Push-to-talk speech-to-text via browser Web Speech API
-* New: MCP server — expose abilities as MCP tools for external AI clients
-* New: Mobile slide-out drawer replacing stacked sidebar layout
-* New: Visible scroll affordance for settings tabs on touch devices
-* Enhancement: PHPStan level raised from 6 to 7
-* Enhancement: Improved multi-step agentic workflows
-* Enhancement: Configurable default model (replaces hardcoded fallback)
-* Enhancement: Secrets and PII redacted in change log before/after values
-* Enhancement: Stream error handling, timeout, and retry
-* Enhancement: Object-level permission check in post editing
-* Fix: Double /wp-admin/ URL in screen meta context
-* Fix: Discovery mode confusion in ToolDiscovery
-* Fix: Site builder overlay restricted to main AI Agent page
-* Fix: Non-static permission callback on /stream route
-* Fix: WP_Error return from get_the_terms() in WooCommerceAbilities
-* Fix: ShellCheck violations across all shell scripts
-* Fix: npm audit vulnerabilities (26 issues: 12 moderate, 14 high)
+* Added OpenAI, Anthropic, and Google Gemini support, chat uploads, spending controls, live token and cost visibility, shared sessions, text-to-speech, white-label branding, Google Search Console, Google Analytics, image generation, agent builder, role-based permissions, WooCommerce tools, notifications, charts, webhooks, and mobile improvements.
+* Improved multi-step workflows, stream recovery, sensitive-data redaction, and post-edit permission checks.
 
 = 1.1.0 =
-* New: Gutenberg block content generation — markdown-to-blocks converter, block discovery, and structured block creation
-* New: 7 block abilities — markdown-to-blocks, list-block-types, get-block-type, list-block-patterns, list-block-templates, create-block-content, parse-block-content
-* New: Stock image import ability for keyword-based image imports into the media library
-* New: SEO abilities — URL auditing and content SEO analysis
-* New: Content analysis and performance reporting abilities
-* New: Marketing abilities — URL fetching and HTTP header analysis
-* New: WP-CLI command (`wp sd-ai-agent`) for running the agent from the command line
-* New: Block editor context provider — reports block theme status, registered blocks, and pattern counts
-* New: Content Creator tool profile — scoped set of block, media, and post management tools
-* New: Gutenberg Blocks built-in skill (enabled by default)
-* New: Full Site Editing built-in skill (opt-in)
-* New: Weekly SEO Health Report and Monthly Content Performance Report automation templates
-* Enhancement: Improved agent system prompt — action-oriented with common workflow guidance
-* Enhancement: Priority tool loading — key WP-CLI tools (post/create, site/create, media/import, etc.) load directly without discovery
-* Enhancement: Streamlined tool discovery prompt — less verbose, more actionable
-* Enhancement: Max iterations default increased from 10 to 25
-* Enhancement: Agent returns tool call log and token usage when max iterations is reached
-* Enhancement: Empty input schema properties serialize as JSON objects instead of arrays for OpenAI compatibility
+* Added block content creation, stock-image import, SEO audits, content reports, marketing URL checks, content-focused tool profiles, built-in editor skills, and recurring SEO/content report templates.
+* Improved agent guidance, tool loading, and usage visibility for longer tasks.
 
 = 1.0.0 =
-* Initial stable release
-* Agentic chat with autonomous tool-calling loop
-* Full-page admin panel and floating widget chat interfaces
-* Session management with folders, search, export/import
-* Persistent memory across sessions with auto-memory mode
-* Skills system for reusable instruction guides
-* Knowledge Base (RAG) with collections, document upload, and full-text search
-* Custom Tools — create HTTP, ACTION, and CLI tools without code
-* Tool Profiles — 6 built-in profiles to scope AI access
-* Scheduled Automations with cron integration and execution logging
-* Event-Driven Automations with 20+ WordPress and WooCommerce triggers
-* Tool Discovery meta-tools for sites with many abilities
-* Smart Conversation Trimming to prevent context overflow
-* Suggestion Chips for contextual follow-ups
-* Usage Dashboard with token counts and cost estimates
-* Context Providers for page-aware AI responses
-* WordPress 7.0 AI Client SDK integration (native core API)
+* Initial stable release with AI chat, site tools, memory, knowledge search, custom tools, scoped tool profiles, scheduled and event-driven automations, usage tracking, suggestion chips, conversation export, and WordPress admin workspaces.
 
 == Upgrade Notice ==
 
-= 1.16.2 =
-Documentation and cleanup release for WordPress.org review feedback. Clarifies third-party connector responsibility, removes hardcoded provider hostnames that were not direct integrations, and documents the models endpoint and cache-strategy filters.
-
-= 1.12.0 =
-Documentation and dependency-maintenance release addressing WordPress.org review feedback. Discloses the opt-in feedback service, fixes the Openverse Terms link, removes placeholder URLs, moves the WP-CLI benchmark log directory out of the plugin folder, and updates bundled libraries.
-
-= 1.11.1 =
-Documentation-only update: corrects two broken links in the External Services section and adds disclosures for all remaining third-party services (search providers, stock-image services, analytics, notifications) in line with WordPress.org plugin directory guidelines. No code or database changes.
-
-= 1.6.0 =
-Architecture release: dependency injection via x-wp/di, domain repositories, typed DTOs, service extraction, and new interfaces. Adds inline tool call details in chat, always-on message input with queue, and bug fixes.
-
-= 1.5.0 =
-Major feature release: adds customer feedback & issue reporting system (thumbs-down, consent UI, AI triage), Plugin Builder with sandbox activation, async job architecture, internet search ability, and 7 plugin management abilities. Database will upgrade automatically.
-
-= 1.4.0 =
-Major feature release: adds 8 new ability classes (custom post types, taxonomies, design system, global styles, navigation menus, options management, plugin recommendations), site builder orchestration v2, and Agent Capabilities benchmark suite. Database will upgrade automatically.
-
-= 1.3.0 =
-Quality and model update: PHPStan level 10, new models (o3, o4-mini, Claude Sonnet 4, Gemini 2.5 Flash), security hardening, and bug fixes. Database will upgrade automatically.
-
-= 1.2.0 =
-Major feature release: adds Google/Anthropic provider support, image uploads, spending limits, white-label branding, agent builder, role-based permissions, WooCommerce abilities, MCP server, and many more features. Database will upgrade automatically.
-
-= 1.1.0 =
-Adds Gutenberg block content generation, SEO/content/marketing abilities, WP-CLI command, and improved agent behavior. Database will upgrade automatically.
-
-= 1.0.0 =
-Initial release. Requires WordPress 7.0+ and an AI provider connector plugin.
+= 1.20.0 =
+Improves chat recovery, provider account visibility, generated-site safeguards, model options, and image workflows. Requires WordPress 7.0+ and PHP 8.2+.
