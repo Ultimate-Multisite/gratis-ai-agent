@@ -11,6 +11,7 @@ declare(strict_types=1);
 
 namespace SdAiAgent\Tests\Core;
 
+use SdAiAgent\Abilities\BlockAbilities;
 use SdAiAgent\Abilities\KnowledgeAbilities;
 use SdAiAgent\Core\AbilityRegistry;
 use SdAiAgent\Core\AbilityFunctionResolver;
@@ -152,6 +153,46 @@ class AbilityFunctionResolverTest extends WP_UnitTestCase {
 		$this->assertArrayNotHasKey( 'code', $payload );
 	}
 
+	/**
+	 * Failed batch block updates expose only safe, itemized repair context.
+	 */
+	public function test_update_blocks_validation_failure_includes_safe_recovery_details(): void {
+		$this->skip_if_resolver_unavailable();
+		$this->ensure_block_abilities_registered();
+		wp_set_current_user( self::factory()->user->create( array( 'role' => 'administrator' ) ) );
+
+		$post_id = self::factory()->post->create(
+			array( 'post_content' => '<!-- wp:paragraph --><p>Existing content.</p><!-- /wp:paragraph -->' )
+		);
+		$resolver = new AbilityFunctionResolver( 'sd-ai-agent/update-blocks' );
+		$response = $resolver->execute_ability(
+			new FunctionCall(
+				'call_update_blocks_validation_failure',
+				\WP_AI_Client_Ability_Function_Resolver::ability_name_to_function_name( 'sd-ai-agent/update-blocks' ),
+				array(
+					'post_id' => $post_id,
+					'updates' => array(
+						array(
+							'op'         => 'update-attrs',
+							'ref'        => 'blk_missing',
+							'attributes' => array( 'dropCap' => true ),
+						),
+					),
+				)
+			)
+		);
+
+		$payload = $this->normalise_response_payload( $response->getResponse() );
+
+		$this->assertSame( 'batch_validation_failed', $payload['code'] );
+		$this->assertSame( 400, $payload['details']['status'] );
+		$this->assertSame( 0, $payload['details']['errors'][0]['index'] );
+		$this->assertSame( 'block_not_found', $payload['details']['errors'][0]['code'] );
+		$this->assertSame( 'update-attrs', $payload['details']['errors'][0]['op'] );
+		$this->assertSame( 'blk_missing', $payload['details']['errors'][0]['ref'] );
+		$this->assertArrayNotHasKey( 'attributes', $payload['details']['errors'][0] );
+	}
+
 	private function skip_if_resolver_unavailable(): void {
 		if (
 			! class_exists( 'WP_AI_Client_Ability_Function_Resolver' )
@@ -212,6 +253,22 @@ class AbilityFunctionResolverTest extends WP_UnitTestCase {
 
 		try {
 			KnowledgeAbilities::register_abilities();
+		} finally {
+			array_pop( $wp_current_filter );
+		}
+	}
+
+	private function ensure_block_abilities_registered(): void {
+		if ( AbilityRegistry::get( 'sd-ai-agent/update-blocks' ) ) {
+			return;
+		}
+
+		// phpcs:ignore WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedVariableFound -- Standard WordPress hook stack global.
+		global $wp_current_filter;
+		$wp_current_filter[] = 'wp_abilities_api_init';
+
+		try {
+			BlockAbilities::register_abilities();
 		} finally {
 			array_pop( $wp_current_filter );
 		}
