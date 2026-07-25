@@ -504,6 +504,9 @@ class DatabaseSchemaTest extends WP_UnitTestCase {
 
 			$this->assertSame( Database::DB_VERSION, get_option( Database::DB_VERSION_OPTION ) );
 			$this->assertNotNull( Agent::get_by_slug( 'general' ), 'Built-in agent seeding must continue when the optional unique-index repair fails.' );
+			// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- Test-only assertion that the repair genuinely failed.
+			$unique_index_after_repair = $wpdb->get_var( "SHOW INDEX FROM {$table} WHERE Key_name = 'managed_profile_key' AND Non_unique = 0" );
+			$this->assertNull( $unique_index_after_repair, 'Unique index repair must remain skipped while historical duplicates exist.' );
 		} finally {
 			$wpdb->suppress_errors( $previous_suppress_errors );
 			// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery -- Test-only fixture cleanup.
