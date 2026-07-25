@@ -342,6 +342,88 @@ class CustomerAgentRuntimeRepository {
 	}
 
 	/**
+	 * Purge all runtime records owned by one hashed integration key.
+	 *
+	 * This deliberately selects and deletes only rows with the exact opaque
+	 * integration hash, so managed-profile removal cannot affect another
+	 * integration's customer conversations or jobs.
+	 *
+	 * @return array{purged:bool,conversations:int,job_ids:list<string>}
+	 */
+	public static function purge_integration( string $integration_hash ): array {
+		global $wpdb;
+		/** @var \wpdb $wpdb */
+
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- A managed-profile removal must atomically purge its private runtime rows.
+		if ( false === $wpdb->query( 'START TRANSACTION' ) ) {
+			return array(
+				'purged'        => false,
+				'conversations' => 0,
+				'job_ids'       => array(),
+			);
+		}
+
+		$raw_ids = $wpdb->get_col(
+			$wpdb->prepare(
+				'SELECT job_id FROM %i WHERE integration_hash = %s',
+				self::jobs_table_name(),
+				$integration_hash
+			)
+		);
+		if ( '' !== $wpdb->last_error ) {
+			// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Reverts a purge whose job ownership read failed.
+			$wpdb->query( 'ROLLBACK' );
+			return array(
+				'purged'        => false,
+				'conversations' => 0,
+				'job_ids'       => array(),
+			);
+		}
+		$job_ids = array();
+		foreach ( $raw_ids as $raw_id ) {
+			if ( is_string( $raw_id ) && '' !== $raw_id ) {
+				$job_ids[] = $raw_id;
+			}
+		}
+
+		$conversation_count = $wpdb->get_var(
+			$wpdb->prepare(
+				'SELECT COUNT(*) FROM %i WHERE integration_hash = %s',
+				self::conversations_table_name(),
+				$integration_hash
+			)
+		);
+		if ( null === $conversation_count ) {
+			// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Reverts a purge whose conversation ownership read failed.
+			$wpdb->query( 'ROLLBACK' );
+			return array(
+				'purged'        => false,
+				'conversations' => 0,
+				'job_ids'       => array(),
+			);
+		}
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Purges only an explicitly managed integration's private runtime jobs.
+		$jobs_deleted = $wpdb->delete( self::jobs_table_name(), array( 'integration_hash' => $integration_hash ), array( '%s' ) );
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Purges only an explicitly managed integration's private runtime conversations.
+		$conversations_deleted = $wpdb->delete( self::conversations_table_name(), array( 'integration_hash' => $integration_hash ), array( '%s' ) );
+		if ( false === $jobs_deleted || false === $conversations_deleted || false === $wpdb->query( 'COMMIT' ) ) {
+			// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Reverts a failed managed-profile runtime purge.
+			$wpdb->query( 'ROLLBACK' );
+			return array(
+				'purged'        => false,
+				'conversations' => 0,
+				'job_ids'       => array(),
+			);
+		}
+
+		return array(
+			'purged'        => true,
+			'conversations' => (int) $conversation_count,
+			'job_ids'       => $job_ids,
+		);
+	}
+
+	/**
 	 * Convert a WordPress database result into an associative storage map.
 	 *
 	 * @param mixed $row Raw database row.

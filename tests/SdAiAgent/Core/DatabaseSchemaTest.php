@@ -21,6 +21,7 @@ namespace SdAiAgent\Tests\Core;
 use SdAiAgent\Bootstrap\CustomerAgentRuntimeHandler;
 use SdAiAgent\Core\Database;
 use SdAiAgent\Knowledge\KnowledgeDatabase;
+use SdAiAgent\Models\Agent;
 use WP_UnitTestCase;
 use XWP\DI\Decorators\Action;
 
@@ -436,6 +437,85 @@ class DatabaseSchemaTest extends WP_UnitTestCase {
 		$job_columns = $this->get_column_names( Database::customer_agent_jobs_table_name() );
 		foreach ( [ 'job_id', 'conversation_id', 'external_message_hash', 'status', 'request_payload', 'result_payload', 'error_code', 'deadline_at', 'expires_at' ] as $column ) {
 			$this->assertContains( $column, $job_columns, "Customer-agent job table missing column '{$column}'." );
+		}
+	}
+
+	/** Managed customer-agent metadata is explicit and indexed for lifecycle lookup. */
+	public function test_agents_table_has_managed_customer_profile_columns(): void {
+		global $wpdb;
+
+		Database::install();
+
+		$table   = Database::agents_table_name();
+		$columns = $this->get_column_names( $table );
+		foreach ( [ 'managed_profile_key', 'managed_profile_version', 'managed_profile_metadata' ] as $column ) {
+			$this->assertContains( $column, $columns, "Agents table missing managed customer-profile column '{$column}'." );
+		}
+
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- Test-only schema index introspection.
+		$index_exists = $wpdb->get_var( "SHOW INDEX FROM {$table} WHERE Key_name = 'managed_profile_key' AND Non_unique = 0" );
+		$this->assertNotNull( $index_exists, 'Agents table must uniquely index managed_profile_key for lifecycle ownership.' );
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- Test-only schema column introspection.
+		$column = $wpdb->get_row( "SHOW COLUMNS FROM {$table} WHERE Field = 'managed_profile_key'" );
+		$this->assertInstanceOf( \stdClass::class, $column );
+		$this->assertSame( 'YES', $column->Null, 'Ordinary agents must retain a nullable managed profile key.' );
+	}
+
+	/** Historical duplicate profile keys must not block unrelated install work. */
+	public function test_managed_profile_index_repair_fails_soft_when_historical_duplicates_exist(): void {
+		global $wpdb;
+
+		Database::install();
+		$table         = Database::agents_table_name();
+		$duplicate_key = 'schema-test-duplicate-managed-profile';
+		$now           = current_time( 'mysql', true );
+		$previous_suppress_errors = false;
+
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.SchemaChange, WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- Test-only setup for a historical pre-constraint schema.
+		$this->assertNotFalse( $wpdb->query( "ALTER TABLE {$table} DROP INDEX managed_profile_key" ) );
+
+		try {
+			foreach ( array( 'one', 'two' ) as $suffix ) {
+				// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery -- Test-only fixture insertion deliberately bypasses Agent::create() uniqueness checks.
+				$this->assertNotFalse(
+					$wpdb->insert(
+						$table,
+						array(
+							'slug'                     => 'schema-duplicate-' . $suffix,
+							'name'                     => 'Schema Duplicate ' . $suffix,
+							'managed_profile_key'      => $duplicate_key,
+							'managed_profile_metadata' => '{"customer_mode":true}',
+							'created_at'               => $now,
+							'updated_at'               => $now,
+						),
+						array( '%s', '%s', '%s', '%s', '%s', '%s' )
+					)
+				);
+			}
+
+			// Remove one default so successful seeding is observable after repair fails.
+			// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery -- Test-only seed verification.
+			$wpdb->delete( $table, array( 'slug' => 'general' ), array( '%s' ) );
+			delete_option( Database::DB_VERSION_OPTION );
+
+			$previous_suppress_errors = $wpdb->suppress_errors( true );
+			Database::install();
+			$wpdb->suppress_errors( $previous_suppress_errors );
+
+			$this->assertSame( Database::DB_VERSION, get_option( Database::DB_VERSION_OPTION ) );
+			$this->assertNotNull( Agent::get_by_slug( 'general' ), 'Built-in agent seeding must continue when the optional unique-index repair fails.' );
+		} finally {
+			$wpdb->suppress_errors( $previous_suppress_errors );
+			// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery -- Test-only fixture cleanup.
+			$wpdb->delete( $table, array( 'managed_profile_key' => $duplicate_key ), array( '%s' ) );
+			// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- Test-only index cleanup.
+			$index_exists = $wpdb->get_var( "SHOW INDEX FROM {$table} WHERE Key_name = 'managed_profile_key'" );
+			if ( null !== $index_exists ) {
+				// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.SchemaChange, WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- Test-only index cleanup.
+				$wpdb->query( "ALTER TABLE {$table} DROP INDEX managed_profile_key" );
+			}
+			// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.SchemaChange, WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- Restore the production schema after the test fixture.
+			$wpdb->query( "ALTER TABLE {$table} ADD UNIQUE KEY managed_profile_key (managed_profile_key)" );
 		}
 	}
 

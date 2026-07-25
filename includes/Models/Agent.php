@@ -133,6 +133,36 @@ class Agent {
 	}
 
 	/**
+	 * Get an integration-managed customer profile by its stable integration key.
+	 *
+	 * A profile key is persisted as explicit ownership metadata rather than being
+	 * inferred from a display name, slug, or numeric row ID.
+	 *
+	 * @param string $profile_key Stable integration profile key.
+	 * @return AgentRow|null
+	 */
+	public static function get_by_managed_profile_key( string $profile_key ): ?AgentRow {
+		global $wpdb;
+		/** @var \wpdb $wpdb */
+
+		$profile_key = sanitize_key( $profile_key );
+		if ( '' === $profile_key ) {
+			return null;
+		}
+
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Custom table lookup for an explicitly managed profile key.
+		$row = $wpdb->get_row(
+			$wpdb->prepare(
+				'SELECT * FROM %i WHERE managed_profile_key = %s LIMIT 1',
+				self::table_name(),
+				$profile_key
+			)
+		);
+
+		return $row instanceof \stdClass ? AgentRow::from_row( $row ) : null;
+	}
+
+	/**
 	 * Create a new agent.
 	 *
 	 * @param array<string, mixed> $data Agent data.
@@ -144,47 +174,59 @@ class Agent {
 
 		$now = current_time( 'mysql', true );
 
-		$tier_1_tools = isset( $data['tier_1_tools'] ) && is_array( $data['tier_1_tools'] )
+		$tier_1_tools             = isset( $data['tier_1_tools'] ) && is_array( $data['tier_1_tools'] )
 			? wp_json_encode( array_values( $data['tier_1_tools'] ) )
 			: '';
-		$suggestions  = isset( $data['suggestions'] ) && is_array( $data['suggestions'] )
+		$suggestions              = isset( $data['suggestions'] ) && is_array( $data['suggestions'] )
 			? wp_json_encode( $data['suggestions'] )
 			: '';
+		$managed_profile_metadata = isset( $data['managed_profile_metadata'] ) && is_array( $data['managed_profile_metadata'] )
+			? wp_json_encode( $data['managed_profile_metadata'] )
+			: '';
+		$managed_profile_key      = sanitize_key( (string) ( $data['managed_profile_key'] ?? '' ) );
+		if ( '' === $managed_profile_key ) {
+			$managed_profile_key = null;
+		} elseif ( null !== self::get_by_managed_profile_key( $managed_profile_key ) ) {
+			return false;
+		}
 
 		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery -- Custom table query; caching not applicable.
 		$result = $wpdb->insert(
 			self::table_name(),
 			[
 				// @phpstan-ignore-next-line
-				'slug'           => sanitize_title( $data['slug'] ?? '' ),
+				'slug'                     => sanitize_title( $data['slug'] ?? '' ),
 				// @phpstan-ignore-next-line
-				'name'           => sanitize_text_field( $data['name'] ?? '' ),
+				'name'                     => sanitize_text_field( $data['name'] ?? '' ),
 				// @phpstan-ignore-next-line
-				'description'    => sanitize_textarea_field( $data['description'] ?? '' ),
+				'description'              => sanitize_textarea_field( $data['description'] ?? '' ),
 				// @phpstan-ignore-next-line
-				'system_prompt'  => sanitize_textarea_field( $data['system_prompt'] ?? '' ),
+				'system_prompt'            => sanitize_textarea_field( $data['system_prompt'] ?? '' ),
 				// @phpstan-ignore-next-line
-				'provider_id'    => sanitize_text_field( $data['provider_id'] ?? '' ),
+				'provider_id'              => sanitize_text_field( $data['provider_id'] ?? '' ),
 				// @phpstan-ignore-next-line
-				'model_id'       => sanitize_text_field( $data['model_id'] ?? '' ),
+				'model_id'                 => sanitize_text_field( $data['model_id'] ?? '' ),
 				// @phpstan-ignore-next-line
-				'tool_profile'   => sanitize_text_field( $data['tool_profile'] ?? '' ),
+				'tool_profile'             => sanitize_text_field( $data['tool_profile'] ?? '' ),
 				// @phpstan-ignore-next-line
-				'temperature'    => isset( $data['temperature'] ) ? (float) $data['temperature'] : null,
+				'temperature'              => isset( $data['temperature'] ) ? (float) $data['temperature'] : null,
 				// @phpstan-ignore-next-line
-				'max_iterations' => isset( $data['max_iterations'] ) ? (int) $data['max_iterations'] : null,
+				'max_iterations'           => isset( $data['max_iterations'] ) ? (int) $data['max_iterations'] : null,
 				// @phpstan-ignore-next-line
-				'greeting'       => sanitize_textarea_field( $data['greeting'] ?? '' ),
+				'greeting'                 => sanitize_textarea_field( $data['greeting'] ?? '' ),
 				// @phpstan-ignore-next-line
-				'avatar_icon'    => sanitize_text_field( $data['avatar_icon'] ?? '' ),
-				'tier_1_tools'   => $tier_1_tools ?: '',
-				'suggestions'    => $suggestions ?: '',
-				'is_builtin'     => isset( $data['is_builtin'] ) ? ( $data['is_builtin'] ? 1 : 0 ) : 0,
-				'enabled'        => isset( $data['enabled'] ) ? ( $data['enabled'] ? 1 : 0 ) : 1,
-				'created_at'     => $now,
-				'updated_at'     => $now,
+				'avatar_icon'              => sanitize_text_field( $data['avatar_icon'] ?? '' ),
+				'tier_1_tools'             => $tier_1_tools ?: '',
+				'suggestions'              => $suggestions ?: '',
+				'managed_profile_key'      => $managed_profile_key,
+				'managed_profile_version'  => sanitize_text_field( (string) ( $data['managed_profile_version'] ?? '' ) ),
+				'managed_profile_metadata' => $managed_profile_metadata ?: '',
+				'is_builtin'               => isset( $data['is_builtin'] ) ? ( $data['is_builtin'] ? 1 : 0 ) : 0,
+				'enabled'                  => isset( $data['enabled'] ) ? ( $data['enabled'] ? 1 : 0 ) : 1,
+				'created_at'               => $now,
+				'updated_at'               => $now,
 			],
-			[ '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%f', '%d', '%s', '%s', '%s', '%s', '%d', '%d', '%s', '%s' ]
+			[ '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%f', '%d', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%d', '%d', '%s', '%s' ]
 		);
 
 		return $result ? (int) $wpdb->insert_id : false;
@@ -195,9 +237,9 @@ class Agent {
 	 *
 	 * @param int                  $id   Agent ID.
 	 * @param array<string, mixed> $data Fields to update.
-	 * @return bool
+	 * @return bool|\WP_Error
 	 */
-	public static function update( int $id, array $data ): bool {
+	public static function update( int $id, array $data ): bool|\WP_Error {
 		global $wpdb;
 		/** @var \wpdb $wpdb */
 
@@ -216,7 +258,39 @@ class Agent {
 			'suggestions',
 			'enabled',
 		];
-		$data    = array_intersect_key( $data, array_flip( $allowed ) );
+		$agent   = self::get( $id );
+		if ( ! $agent ) {
+			return false;
+		}
+
+		if ( self::is_managed_customer_profile( $agent ) ) {
+			// The regular agent editor owns presentation and bounded inference
+			// settings only. It must not widen a customer profile's prompt, tools,
+			// collections, version, or customer-mode boundary.
+			$allowed    = array(
+				'name',
+				'description',
+				'provider_id',
+				'model_id',
+				'temperature',
+				'max_iterations',
+				'greeting',
+				'avatar_icon',
+				'enabled',
+			);
+			$disallowed = array_diff( array_keys( $data ), $allowed );
+			if ( ! empty( $disallowed ) ) {
+				return new \WP_Error(
+					'sd_ai_agent_managed_profile_fields_forbidden',
+					__( 'Managed customer profile safety fields cannot be changed in the agent editor.', 'superdav-ai-agent' ),
+					array( 'status' => 403 )
+				);
+			}
+		}
+		$data = array_intersect_key( $data, array_flip( $allowed ) );
+		if ( empty( $data ) ) {
+			return false;
+		}
 
 		if ( isset( $data['name'] ) ) {
 			// @phpstan-ignore-next-line
@@ -296,7 +370,71 @@ class Agent {
 			[ '%d' ]
 		);
 
-		return is_int( $result ) && $result > 0;
+		return is_int( $result ) && $result >= 0;
+	}
+
+	/**
+	 * Update fields owned exclusively by an integration-managed customer profile.
+	 *
+	 * This bypasses the normal editor allowlist deliberately, but only after the
+	 * target row is proven to carry explicit managed-profile metadata.
+	 *
+	 * @param int                 $id Agent ID.
+	 * @param array<string,mixed> $data Managed prompt, tool, and metadata fields.
+	 */
+	public static function update_managed_customer_profile( int $id, array $data ): bool {
+		global $wpdb;
+		/** @var \wpdb $wpdb */
+
+		$agent = self::get( $id );
+		if ( ! $agent || ! self::is_managed_customer_profile( $agent ) ) {
+			return false;
+		}
+
+		$update = array();
+		if ( array_key_exists( 'system_prompt', $data ) ) {
+			$update['system_prompt'] = sanitize_textarea_field( (string) $data['system_prompt'] );
+		}
+		if ( array_key_exists( 'tier_1_tools', $data ) ) {
+			if ( ! is_array( $data['tier_1_tools'] ) ) {
+				return false;
+			}
+			$encoded = wp_json_encode( array_values( $data['tier_1_tools'] ) );
+			if ( ! is_string( $encoded ) ) {
+				return false;
+			}
+			$update['tier_1_tools'] = $encoded;
+		}
+		if ( array_key_exists( 'managed_profile_version', $data ) ) {
+			$update['managed_profile_version'] = sanitize_text_field( (string) $data['managed_profile_version'] );
+		}
+		if ( array_key_exists( 'managed_profile_metadata', $data ) ) {
+			if ( ! is_array( $data['managed_profile_metadata'] ) ) {
+				return false;
+			}
+			$encoded = wp_json_encode( $data['managed_profile_metadata'] );
+			if ( ! is_string( $encoded ) ) {
+				return false;
+			}
+			$update['managed_profile_metadata'] = $encoded;
+		}
+		if ( empty( $update ) ) {
+			return false;
+		}
+
+		$update['updated_at'] = current_time( 'mysql', true );
+		$formats              = array_fill( 0, count( $update ), '%s' );
+
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Controlled managed-profile update for a custom table row.
+		$result = $wpdb->update(
+			self::table_name(),
+			$update,
+			array( 'id' => $id ),
+			$formats,
+			array( '%d' )
+		);
+
+		return is_int( $result ) && $result >= 0;
 	}
 
 	/**
@@ -323,6 +461,14 @@ class Agent {
 			);
 		}
 
+		if ( self::is_managed_customer_profile( $agent ) ) {
+			return new \WP_Error(
+				'sd_ai_agent_cannot_delete_managed_customer_profile',
+				__( 'This customer agent is managed by its integration and must be removed through the managed profile lifecycle.', 'superdav-ai-agent' ),
+				array( 'status' => 403 )
+			);
+		}
+
 		global $wpdb;
 		/** @var \wpdb $wpdb */
 
@@ -334,6 +480,32 @@ class Agent {
 		);
 
 		return is_int( $result ) && $result > 0;
+	}
+
+	/**
+	 * Delete one explicit integration-managed profile without touching any other agent.
+	 *
+	 * @param string $profile_key Stable managed profile key.
+	 */
+	public static function delete_managed_customer_profile( string $profile_key ): bool {
+		global $wpdb;
+		/** @var \wpdb $wpdb */
+
+		$agent = self::get_by_managed_profile_key( $profile_key );
+		if ( ! $agent || ! self::is_managed_customer_profile( $agent ) ) {
+			return false;
+		}
+
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Deletes only the row selected by explicit managed metadata.
+		$result = $wpdb->delete( self::table_name(), array( 'id' => $agent->id ), array( '%d' ) );
+
+		return is_int( $result ) && $result > 0;
+	}
+
+	/** Whether an agent has an explicitly owned customer-profile lifecycle. */
+	public static function is_managed_customer_profile( AgentRow $agent ): bool {
+		return '' !== $agent->managed_profile_key
+			&& ! empty( $agent->managed_profile_metadata['customer_mode'] );
 	}
 
 	/**
@@ -402,24 +574,26 @@ class Agent {
 	 */
 	public static function to_array( AgentRow $agent ): array {
 		return [
-			'id'             => $agent->id,
-			'slug'           => $agent->slug,
-			'name'           => $agent->name,
-			'description'    => $agent->description,
-			'system_prompt'  => $agent->system_prompt,
-			'provider_id'    => $agent->provider_id,
-			'model_id'       => $agent->model_id,
-			'tool_profile'   => $agent->tool_profile,
-			'temperature'    => $agent->temperature,
-			'max_iterations' => $agent->max_iterations,
-			'greeting'       => $agent->greeting,
-			'avatar_icon'    => $agent->avatar_icon,
-			'tier_1_tools'   => $agent->tier_1_tools,
-			'suggestions'    => $agent->suggestions,
-			'is_builtin'     => $agent->is_builtin,
-			'enabled'        => $agent->enabled,
-			'created_at'     => $agent->created_at,
-			'updated_at'     => $agent->updated_at,
+			'id'                       => $agent->id,
+			'slug'                     => $agent->slug,
+			'name'                     => $agent->name,
+			'description'              => $agent->description,
+			'system_prompt'            => $agent->system_prompt,
+			'provider_id'              => $agent->provider_id,
+			'model_id'                 => $agent->model_id,
+			'tool_profile'             => $agent->tool_profile,
+			'temperature'              => $agent->temperature,
+			'max_iterations'           => $agent->max_iterations,
+			'greeting'                 => $agent->greeting,
+			'avatar_icon'              => $agent->avatar_icon,
+			'tier_1_tools'             => $agent->tier_1_tools,
+			'suggestions'              => $agent->suggestions,
+			'managed_customer_profile' => self::is_managed_customer_profile( $agent ),
+			'managed_profile_version'  => $agent->managed_profile_version,
+			'is_builtin'               => $agent->is_builtin,
+			'enabled'                  => $agent->enabled,
+			'created_at'               => $agent->created_at,
+			'updated_at'               => $agent->updated_at,
 		];
 	}
 

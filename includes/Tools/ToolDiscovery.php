@@ -160,13 +160,24 @@ class ToolDiscovery {
 	/**
 	 * Request-scoped anonymous public-chat ability allowlist.
 	 *
-	 * Empty means normal authenticated behaviour. Non-empty constrains Tier 1,
-	 * manifest/search output, and ability-call targets to the server supplied
-	 * public-safe ability set.
+	 * The explicit mode flag distinguishes normal authenticated behaviour from
+	 * an active policy with an empty allowlist. While active, Tier 1,
+	 * manifest/search output, and ability-call targets stay inside the
+	 * server-supplied public-safe ability set.
 	 *
 	 * @var array<string, true>
 	 */
 	private static array $anonymous_allowed_abilities = array();
+
+	/**
+	 * Whether a constrained anonymous/customer ability policy is active.
+	 *
+	 * This stays distinct from the allowlist contents so a caller can safely
+	 * narrow capabilities to an empty set without falling back to all tools.
+	 *
+	 * @var bool
+	 */
+	private static bool $anonymous_ability_mode_active = false;
 
 	/**
 	 * Apply anonymous public-chat ability gating for the current request.
@@ -175,7 +186,8 @@ class ToolDiscovery {
 	 */
 	// phpcs:ignore Squiz.Commenting.FunctionComment.IncorrectTypeHint -- list<string> is valid PHPStan but not a native PHP type.
 	public static function set_anonymous_allowed_abilities( array $ability_names ): void {
-		self::$anonymous_allowed_abilities = array();
+		self::$anonymous_ability_mode_active = true;
+		self::$anonymous_allowed_abilities   = array();
 		foreach ( $ability_names as $ability_name ) {
 			$ability_name = trim( $ability_name );
 			if ( '' !== $ability_name ) {
@@ -186,12 +198,13 @@ class ToolDiscovery {
 
 	/** Clear anonymous public-chat ability gating for the current request. */
 	public static function clear_anonymous_allowed_abilities(): void {
-		self::$anonymous_allowed_abilities = array();
+		self::$anonymous_ability_mode_active = false;
+		self::$anonymous_allowed_abilities   = array();
 	}
 
 	/** Whether anonymous ability gating is active. */
 	public static function is_anonymous_ability_mode(): bool {
-		return ! empty( self::$anonymous_allowed_abilities );
+		return self::$anonymous_ability_mode_active;
 	}
 
 	/** Whether an ability is allowed by the anonymous public-chat allowlist. */

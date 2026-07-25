@@ -30,6 +30,9 @@ readonly class AgentRow {
 	 * @param string                                                          $avatar_icon    Dashicons slug or empty string.
 	 * @param list<string>                                                    $tier_1_tools   Curated Tier 1 ability names for this agent.
 	 * @param list<array{title: string, description: string, prompt: string}> $suggestions Agent-specific suggestion cards.
+	 * @param string                                                          $managed_profile_key Stable key for an integration-managed customer profile.
+	 * @param string                                                          $managed_profile_version Integration-managed profile specification version.
+	 * @param array<string,mixed>                                             $managed_profile_metadata Explicit customer-profile ownership metadata.
 	 * @param bool                                                            $is_builtin     Whether this is a system-provided default agent.
 	 * @param bool                                                            $enabled        Whether the agent is active.
 	 * @param string                                                          $created_at     MySQL datetime string (UTC).
@@ -50,6 +53,9 @@ readonly class AgentRow {
 		public string $avatar_icon,
 		public array $tier_1_tools,
 		public array $suggestions,
+		public string $managed_profile_key,
+		public string $managed_profile_version,
+		public array $managed_profile_metadata,
 		public bool $is_builtin,
 		public bool $enabled,
 		public string $created_at,
@@ -83,6 +89,12 @@ readonly class AgentRow {
 			$suggestions = [];
 		}
 
+		$managed_metadata_raw = (string) ( $row->managed_profile_metadata ?? '' );
+		$managed_metadata     = '' !== $managed_metadata_raw ? json_decode( $managed_metadata_raw, true ) : [];
+		if ( ! is_array( $managed_metadata ) ) {
+			$managed_metadata = [];
+		}
+
 		return new self(
 			id:             (int) $row->id,
 			slug:           (string) ( $row->slug ?? '' ),
@@ -98,6 +110,9 @@ readonly class AgentRow {
 			avatar_icon:    (string) ( $row->avatar_icon ?? '' ),
 			tier_1_tools:   array_values( array_map( 'strval', $tier_1 ) ), // @phpstan-ignore-line
 			suggestions:    $suggestions, // @phpstan-ignore-line
+			managed_profile_key:      (string) ( $row->managed_profile_key ?? '' ),
+			managed_profile_version:  (string) ( $row->managed_profile_version ?? '' ),
+			managed_profile_metadata: $managed_metadata, // @phpstan-ignore-line
 			is_builtin:     (bool) (int) ( $row->is_builtin ?? 0 ),
 			enabled:        (bool) (int) ( $row->enabled ?? 1 ),
 			created_at:     (string) ( $row->created_at ?? '' ),

@@ -494,6 +494,10 @@ final class AgentController {
 
 		$updated = Agent::update( $id, $data );
 
+		if ( is_wp_error( $updated ) ) {
+			return $updated;
+		}
+
 		if ( ! $updated ) {
 			return new WP_Error(
 				'sd_ai_agent_agent_update_failed',

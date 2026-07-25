@@ -149,6 +149,39 @@ class KnowledgeAbilitiesTest extends WP_UnitTestCase {
 		$this->assertContains( 'Site Creation Reference', wp_list_pluck( $result['results'], 'source' ) );
 	}
 
+	/** Empty customer/public collection allowlists must not fall back to all knowledge. */
+	public function test_empty_public_collection_allowlist_remains_an_active_deny_all_policy() {
+		$collection_id = KnowledgeDatabase::create_collection( [ 'name' => 'Private Docs', 'slug' => 'private-docs' ] );
+		$source_id     = KnowledgeDatabase::create_source(
+			[
+				'collection_id' => $collection_id,
+				'source_type'   => 'static_file',
+				'source_id'     => 20,
+				'title'         => 'Private Docs',
+			]
+		);
+		KnowledgeDatabase::insert_chunks(
+			$collection_id,
+			$source_id,
+			[
+				[ 'text' => 'This private-only document must not be returned.', 'index' => 0 ],
+			]
+		);
+
+		KnowledgeAbilities::set_public_collection_allowlist( [], 'Can you find private docs?' );
+
+		$this->assertTrue( KnowledgeAbilities::is_public_collection_mode() );
+		$this->assertSame(
+			'Can you find private docs?',
+			KnowledgeAbilities::hydrate_public_search_args( [] )['query']
+		);
+
+		$result = KnowledgeAbilities::handle_knowledge_search( [ 'query' => 'private document' ] );
+
+		$this->assertIsArray( $result );
+		$this->assertSame( 0, $result['count'] );
+	}
+
 	/**
 	 * Test public chat uses overview fallback for contextual/vague questions.
 	 */
