@@ -933,6 +933,36 @@ export default function SettingsApp() {
 														/>
 													</td>
 												</tr>
+												<tr>
+													<th scope="row">
+														{ __(
+															'Debug Details',
+															'superdav-ai-agent'
+														) }
+													</th>
+													<td>
+														<ToggleControl
+															label={ __(
+																'Show technical tool-call details',
+																'superdav-ai-agent'
+															) }
+															checked={
+																!! local.show_tool_call_details
+															}
+															onChange={ ( v ) =>
+																updateField(
+																	'show_tool_call_details',
+																	v
+																)
+															}
+															help={ __(
+																'Displays raw ability names, arguments, and results in chat. Leave off for a simpler progress summary.',
+																'superdav-ai-agent'
+															) }
+															__nextHasNoMarginBottom
+														/>
+													</td>
+												</tr>
 											</tbody>
 										</table>
 

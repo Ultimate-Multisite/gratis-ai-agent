@@ -410,6 +410,7 @@ class Settings {
 			'provider_request_max_tokens'     => ConversationTrimmer::DEFAULT_MAX_REQUEST_TOKENS,
 			'suggestion_count'                => 3,
 			'yolo_mode'                       => false,
+			'show_tool_call_details'          => false,
 			'show_on_frontend'                => true,
 			'public_chat_embed_id'            => 'docs',
 			'keyboard_shortcut'               => 'alt+a',

@@ -12,12 +12,19 @@
  * - extractText() concatenates only text parts.
  */
 
+jest.mock( '@wordpress/i18n', () => ( {
+	__: ( str ) => str,
+} ) );
+
 import {
 	buildRunningItems,
+	buildToolProgressSummary,
 	extractText,
+	getFriendlyToolLabel,
 	getRunningToolName,
 	pairToolCalls,
 	parseSuggestions,
+	sanitizeProgressText,
 } from '../message-helpers';
 
 describe( 'extractText', () => {
@@ -198,6 +205,74 @@ describe( 'getRunningToolName', () => {
 			{ type: 'response', id: 'a', response: { ok: true } },
 		];
 		expect( getRunningToolName( log ) ).toBeNull();
+	} );
+} );
+
+describe( 'friendly tool progress summaries', () => {
+	test( 'converts raw ability names to friendly labels', () => {
+		expect(
+			getFriendlyToolLabel( 'wpab__sd-ai-agent__compile-design-tokens' )
+		).toBe( 'Preparing design tokens' );
+		expect( getFriendlyToolLabel( 'sd-ai-agent/update-post' ) ).toBe(
+			'Updating content'
+		);
+	} );
+
+	test( 'sanitizes progress narration before default display', () => {
+		const text = sanitizeProgressText(
+			'Next I will call `sd-ai-agent/compile-design-tokens` and then `sd-ai-agent/validate-palette-contrast`.'
+		);
+
+		expect( text ).not.toContain( 'sd-ai-agent/' );
+		expect( text ).toContain( 'preparing design tokens' );
+		expect( text ).toContain( 'checking colour contrast' );
+	} );
+
+	test( 'summarizes completed, failed, and running steps', () => {
+		const summary = buildToolProgressSummary( [
+			{
+				type: 'preamble',
+				text: 'I will use sd-ai-agent/compile-design-tokens first.',
+			},
+			{
+				type: 'call',
+				id: 'compile',
+				name: 'wpab__sd-ai-agent__compile-design-tokens',
+			},
+			{
+				type: 'response',
+				id: 'compile',
+				response: { success: true },
+			},
+			{
+				type: 'call',
+				id: 'contrast',
+				name: 'sd-ai-agent/validate-palette-contrast',
+			},
+			{
+				type: 'response',
+				id: 'contrast',
+				response: { error: 'Contrast failed.' },
+			},
+			{
+				type: 'call',
+				id: 'image',
+				name: 'sd-ai-agent/generate-image',
+			},
+		] );
+
+		expect( summary.hasActivity ).toBe( true );
+		expect( summary.totalCount ).toBe( 3 );
+		expect( summary.completedCount ).toBe( 1 );
+		expect( summary.failedCount ).toBe( 1 );
+		expect( summary.runningCount ).toBe( 1 );
+		expect( summary.currentLabel ).toBe( 'Generating an image' );
+		expect( summary.latestThought ).not.toContain( 'sd-ai-agent/' );
+		expect( summary.recentSteps.map( ( step ) => step.label ) ).toEqual( [
+			'Preparing design tokens',
+			'Checking colour contrast',
+			'Generating an image',
+		] );
 	} );
 } );
 

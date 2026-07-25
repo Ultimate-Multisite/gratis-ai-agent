@@ -72,6 +72,7 @@ class SettingsTest extends WP_UnitTestCase {
 		$this->assertArrayHasKey( 'max_history_turns', $defaults );
 		$this->assertArrayHasKey( 'provider_request_max_bytes', $defaults );
 		$this->assertArrayHasKey( 'provider_request_max_tokens', $defaults );
+		$this->assertArrayHasKey( 'show_tool_call_details', $defaults );
 		$this->assertArrayHasKey( 'show_on_frontend', $defaults );
 	}
 
@@ -90,6 +91,7 @@ class SettingsTest extends WP_UnitTestCase {
 		$this->assertSame( 20, $defaults['max_history_turns'] );
 		$this->assertSame( ConversationTrimmer::DEFAULT_MAX_REQUEST_BYTES, $defaults['provider_request_max_bytes'] );
 		$this->assertSame( ConversationTrimmer::DEFAULT_MAX_REQUEST_TOKENS, $defaults['provider_request_max_tokens'] );
+		$this->assertFalse( $defaults['show_tool_call_details'] );
 		$this->assertTrue( $defaults['show_on_frontend'] );
 	}
 

@@ -29,6 +29,7 @@ import STORE_NAME from '../../store';
 import FeedbackConsentModal from '../feedback-consent-modal';
 import {
 	extractText,
+	getFriendlyToolLabel,
 	getRunningToolName,
 } from '../chat-redesign/message-helpers';
 import {
@@ -61,8 +62,10 @@ export default function WidgetMessageList() {
 		sessionJobs,
 		hasStreamError,
 		providers,
+		showToolCallDetails,
 	} = useSelect( ( sel ) => {
 		const store = sel( STORE_NAME );
+		const settings = store.getSettings();
 		return {
 			messages: store.getCurrentSessionMessages(),
 			sending: store.isSending(),
@@ -71,6 +74,7 @@ export default function WidgetMessageList() {
 			sessionJobs: store.getSessionJobs(),
 			hasStreamError: store.hasStreamError(),
 			providers: store.getProviders(),
+			showToolCallDetails: settings?.show_tool_call_details === true,
 		};
 	}, [] );
 
@@ -194,8 +198,8 @@ export default function WidgetMessageList() {
 
 	const runningToolName = getRunningToolName( runningToolCalls );
 	const runningStep = runningToolName
-		? `${ __( 'Running', 'sd-ai-agent' ) } ${ runningToolName }…`
-		: __( 'Composing reply…', 'sd-ai-agent' );
+		? `${ getFriendlyToolLabel( runningToolName ) }…`
+		: __( 'Composing reply…', 'superdav-ai-agent' );
 
 	// ── Render ────────────────────────────────────────────────────────────────
 
@@ -261,6 +265,7 @@ export default function WidgetMessageList() {
 						<RunningMessage
 							step={ runningStep }
 							liveToolCalls={ runningToolCalls }
+							showToolCallDetails={ showToolCallDetails }
 						/>
 					) }
 

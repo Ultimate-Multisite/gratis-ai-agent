@@ -133,6 +133,7 @@
  * @property {string}  [default_provider]       - Default provider ID.
  * @property {string}  [default_model]          - Default model ID.
  * @property {number}  [context_window_default] - Default context window size in tokens.
+ * @property {boolean} [show_tool_call_details] - Show raw technical tool-call details in chat.
  */
 
 /**

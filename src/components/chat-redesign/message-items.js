@@ -30,6 +30,7 @@ import { AiIcon } from './icons';
 import ToolCard from './ToolCard';
 import {
 	buildRunningItems,
+	buildToolProgressSummary,
 	extractText,
 	parseSuggestions,
 } from './message-helpers';
@@ -136,6 +137,147 @@ function AssistantMeta( { tokens } ) {
 		withSeps.push( p );
 	} );
 	return <span className="sdaa-cr-msg-meta-text">{ withSeps }</span>;
+}
+
+/**
+ * Build the headline for a friendly progress summary.
+ *
+ * @param {Object}  summary      Progress summary from buildToolProgressSummary().
+ * @param {boolean} isRunning    Whether the agent is still working.
+ * @param {string}  fallbackStep Fallback text when no step label is available.
+ * @return {string} Summary headline.
+ */
+function getProgressSummaryTitle( summary, isRunning, fallbackStep ) {
+	if ( isRunning ) {
+		return (
+			summary.currentLabel ||
+			fallbackStep ||
+			__( 'Working on it…', 'superdav-ai-agent' )
+		);
+	}
+
+	if ( summary.failedCount > 0 ) {
+		return __( 'Some steps need attention', 'superdav-ai-agent' );
+	}
+
+	return __( 'Work completed', 'superdav-ai-agent' );
+}
+
+/**
+ * Human-readable status text for a summarized tool step.
+ *
+ * @param {string} status Progress status from buildToolProgressSummary().
+ * @return {string} User-facing status label.
+ */
+function getProgressStepStatusLabel( status ) {
+	if ( status === 'running' ) {
+		return __( 'In progress', 'superdav-ai-agent' );
+	}
+	if ( status === 'error' ) {
+		return __( 'Needs attention', 'superdav-ai-agent' );
+	}
+	if ( status === 'warn' ) {
+		return __( 'Completed with a note', 'superdav-ai-agent' );
+	}
+	return __( 'Completed', 'superdav-ai-agent' );
+}
+
+/**
+ * Friendly progress card shown instead of raw tool-call cards by default.
+ *
+ * @param {Object} root0
+ * @param {Object} root0.summary      Progress summary.
+ * @param {string} root0.mode         Either 'running' or 'complete'.
+ * @param {string} root0.fallbackStep Fallback running text.
+ */
+function ToolProgressSummary( {
+	summary,
+	mode = 'running',
+	fallbackStep = '',
+} ) {
+	const isRunning = mode === 'running';
+	const title = getProgressSummaryTitle( summary, isRunning, fallbackStep );
+	let description = isRunning ? summary.latestThought : '';
+
+	if ( ! description ) {
+		description = isRunning
+			? __(
+					'I’m working through your request step by step.',
+					'superdav-ai-agent'
+			  )
+			: __(
+					'The agent used several steps and summarized the result below.',
+					'superdav-ai-agent'
+			  );
+	}
+
+	return (
+		<div
+			className={ `sdaa-cr-progress-summary${
+				isRunning ? ' is-running' : ' is-complete'
+			}` }
+		>
+			<div className="sdaa-cr-progress-main">
+				<div className="sdaa-cr-progress-title">
+					<span
+						className={ `sdaa-cr-progress-title-dot${
+							isRunning ? ' is-running' : ' is-complete'
+						}` }
+						aria-hidden="true"
+					/>
+					<span>{ title }</span>
+				</div>
+				<div className="sdaa-cr-progress-description">
+					{ description }
+				</div>
+			</div>
+
+			{ summary.totalCount > 0 && (
+				<div className="sdaa-cr-progress-stats">
+					{ summary.completedCount > 0 && (
+						<span className="sdaa-cr-progress-stat is-complete">
+							{ summary.completedCount }{ ' ' }
+							{ __( 'completed', 'superdav-ai-agent' ) }
+						</span>
+					) }
+					{ summary.runningCount > 0 && (
+						<span className="sdaa-cr-progress-stat is-running">
+							{ summary.runningCount }{ ' ' }
+							{ __( 'in progress', 'superdav-ai-agent' ) }
+						</span>
+					) }
+					{ summary.failedCount > 0 && (
+						<span className="sdaa-cr-progress-stat is-error">
+							{ summary.failedCount }{ ' ' }
+							{ __( 'need attention', 'superdav-ai-agent' ) }
+						</span>
+					) }
+				</div>
+			) }
+
+			{ summary.recentSteps.length > 0 && (
+				<ul className="sdaa-cr-progress-steps">
+					{ summary.recentSteps.map( ( step, index ) => (
+						<li
+							key={ `${ step.id || step.label }-${ index }` }
+							className={ `sdaa-cr-progress-step is-${ step.status }` }
+						>
+							<span
+								className="sdaa-cr-progress-step-dot"
+								aria-hidden="true"
+							/>
+							<span className="sdaa-cr-progress-step-label">
+								{ step.label }
+							</span>
+							<span className="sdaa-cr-progress-step-status">
+								{ getProgressStepStatusLabel( step.status ) }
+							</span>
+						</li>
+					) ) }
+				</ul>
+			) }
+		</div>
+	);
 }
 
 /**
@@ -347,10 +489,15 @@ export function AssistantMessage( {
 } ) {
 	const [ copied, setCopied ] = useState( false );
 
-	const { messageToken } = useSelect(
+	const { messageToken, showToolCallDetails } = useSelect(
 		( sel ) => {
-			const tokens = sel( STORE_NAME ).getMessageTokens() || [];
-			return { messageToken: tokens[ index ] };
+			const store = sel( STORE_NAME );
+			const tokens = store.getMessageTokens() || [];
+			return {
+				messageToken: tokens[ index ],
+				showToolCallDetails:
+					store.getSettings()?.show_tool_call_details === true,
+			};
 		},
 		[ index ]
 	);
@@ -366,6 +513,13 @@ export function AssistantMessage( {
 	const items = ( buildRunningItems( msg.toolCalls ) || [] ).filter(
 		( it ) => it.kind === 'pair'
 	);
+	const progressSummary = buildToolProgressSummary( msg.toolCalls );
+	const showProgressSummary =
+		progressSummary.hasActivity &&
+		! showToolCallDetails &&
+		( progressSummary.totalCount > 1 ||
+			progressSummary.failedCount > 0 ||
+			! cleanText );
 
 	const handleCopy = () => {
 		if ( ! cleanText ) {
@@ -383,16 +537,23 @@ export function AssistantMessage( {
 				<AiIcon />
 			</div>
 			<div className="sdaa-cr-msg-body">
-				{ items.map( ( item ) => (
-					<ToolCard
-						key={ item.key }
-						call={ item.call }
-						response={ item.response }
-						defaultOpen={ Boolean(
-							item.response?.response?.error
-						) }
+				{ showProgressSummary && (
+					<ToolProgressSummary
+						summary={ progressSummary }
+						mode="complete"
 					/>
-				) ) }
+				) }
+				{ showToolCallDetails &&
+					items.map( ( item ) => (
+						<ToolCard
+							key={ item.key }
+							call={ item.call }
+							response={ item.response }
+							defaultOpen={ Boolean(
+								item.response?.response?.error
+							) }
+						/>
+					) ) }
 				{ cleanText && <MarkdownMessage content={ cleanText } /> }
 				{ isLastModel && suggestions.length > 0 && (
 					<div className="sdaa-cr-suggestions">
@@ -455,46 +616,54 @@ export function AssistantMessage( {
 
 /**
  *
- * @param {Object} root0
- * @param {*}      root0.step
- * @param {*}      root0.liveToolCalls
+ * @param {Object}  root0
+ * @param {*}       root0.step
+ * @param {*}       root0.liveToolCalls
+ * @param {boolean} root0.showToolCallDetails
  */
-export function RunningMessage( { step, liveToolCalls } ) {
+export function RunningMessage( {
+	step,
+	liveToolCalls,
+	showToolCallDetails = false,
+} ) {
 	// Render preamble narration and tool-call cards in original emission
 	// order so the user sees context like "Looking that up first…" directly
 	// above the tool card it precedes. buildRunningItems returns a flat list
 	// of { kind: 'preamble' | 'pair', ... } items.
 	const items = buildRunningItems( liveToolCalls );
+	const progressSummary = buildToolProgressSummary( liveToolCalls );
 	return (
 		<div className="sdaa-cr-msg-row sdaa-cr-msg-assistant">
 			<div className="sdaa-cr-avatar" aria-hidden="true">
 				<AiIcon thinking={ true } />
 			</div>
 			<div className="sdaa-cr-msg-body">
-				{ items.map( ( item ) => {
-					if ( item.kind === 'preamble' ) {
+				<ToolProgressSummary
+					summary={ progressSummary }
+					mode="running"
+					fallbackStep={ step }
+				/>
+				{ showToolCallDetails &&
+					items.map( ( item ) => {
+						if ( item.kind === 'preamble' ) {
+							return (
+								<div
+									key={ item.key }
+									className="sdaa-cr-running-preamble"
+								>
+									<MarkdownMessage content={ item.text } />
+								</div>
+							);
+						}
 						return (
-							<div
+							<ToolCard
 								key={ item.key }
-								className="sdaa-cr-running-preamble"
-							>
-								<MarkdownMessage content={ item.text } />
-							</div>
+								call={ item.call }
+								response={ item.response }
+								defaultOpen={ ! item.response }
+							/>
 						);
-					}
-					return (
-						<ToolCard
-							key={ item.key }
-							call={ item.call }
-							response={ item.response }
-							defaultOpen={ ! item.response }
-						/>
-					);
-				} ) }
-				<div className="sdaa-cr-running-line">
-					<span className="sdaa-cr-running-dot" aria-hidden="true" />
-					<span>{ step }</span>
-				</div>
+					} ) }
 			</div>
 		</div>
 	);

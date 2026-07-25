@@ -4,7 +4,329 @@
  * in one place so the two UIs render the same store data identically.
  */
 
+import { __ } from '@wordpress/i18n';
+
 import { extractMessageText } from '../../utils/message-parts';
+
+const FRIENDLY_TOOL_LABELS = {
+	'ability-search': __( 'Finding the right capability', 'superdav-ai-agent' ),
+	'ability-call': __(
+		'Running the selected capability',
+		'superdav-ai-agent'
+	),
+	'skill-load': __( 'Loading specialist guidance', 'superdav-ai-agent' ),
+	'skill-list': __( 'Checking available skills', 'superdav-ai-agent' ),
+	'site-info': __( 'Checking site details', 'superdav-ai-agent' ),
+	'memory-list': __( 'Checking memory', 'superdav-ai-agent' ),
+	'memory-save': __( 'Saving a useful memory', 'superdav-ai-agent' ),
+	'knowledge-search': __( 'Searching knowledge', 'superdav-ai-agent' ),
+	'get-post': __( 'Reading content', 'superdav-ai-agent' ),
+	'get-page-blocks': __( 'Reading page content', 'superdav-ai-agent' ),
+	'create-post': __( 'Creating content', 'superdav-ai-agent' ),
+	'append-post-content': __( 'Adding content', 'superdav-ai-agent' ),
+	'update-post': __( 'Updating content', 'superdav-ai-agent' ),
+	'update-blocks': __( 'Updating page content', 'superdav-ai-agent' ),
+	'generate-image': __( 'Generating an image', 'superdav-ai-agent' ),
+	'stock-image-search': __( 'Finding images', 'superdav-ai-agent' ),
+	'render-design-previews': __(
+		'Rendering design previews',
+		'superdav-ai-agent'
+	),
+	'compile-design-tokens': __(
+		'Preparing design tokens',
+		'superdav-ai-agent'
+	),
+	'validate-palette-contrast': __(
+		'Checking colour contrast',
+		'superdav-ai-agent'
+	),
+	'get-theme-json': __( 'Reading theme settings', 'superdav-ai-agent' ),
+	'get-global-styles': __( 'Reading site styles', 'superdav-ai-agent' ),
+	'update-global-styles': __( 'Applying site styles', 'superdav-ai-agent' ),
+	'scaffold-block-theme': __( 'Preparing theme files', 'superdav-ai-agent' ),
+	'apply-design-artifact-release': __(
+		'Applying the design package',
+		'superdav-ai-agent'
+	),
+};
+
+const PROGRESS_TOOL_PATTERN =
+	/`?(?:wpab__)?(?:sd-ai-agent|sd-ai-agent-js)(?:__|\/)[a-z0-9][a-z0-9-]*`?/gi;
+
+/**
+ * Normalize provider/native ability bridge names into canonical ability IDs.
+ *
+ * @param {string} name Raw tool/function name.
+ * @return {string} Canonical display name.
+ */
+export function normalizeToolName( name ) {
+	let display = String( name || '' ).trim();
+	display = display.replace( /^[`"']+|[`"']+$/g, '' );
+	if ( display.startsWith( 'wpab__' ) ) {
+		display = display.substring( 6 );
+	}
+	return display.replace( /__/g, '/' );
+}
+
+/**
+ * Return the ability slug after the namespace.
+ *
+ * @param {string} name Raw or normalized tool/function name.
+ * @return {string} Ability slug.
+ */
+function getToolSlug( name ) {
+	const normalized = normalizeToolName( name );
+	const parts = normalized.split( '/' );
+	return parts[ parts.length - 1 ] || normalized;
+}
+
+/**
+ * Convert a slug into readable words while preserving common acronyms.
+ *
+ * @param {string} slug Hyphen/underscore-separated slug.
+ * @return {string} Human-readable words.
+ */
+function humanizeSlug( slug ) {
+	const acronymMap = {
+		ai: 'AI',
+		api: 'API',
+		css: 'CSS',
+		html: 'HTML',
+		id: 'ID',
+		json: 'JSON',
+		seo: 'SEO',
+		url: 'URL',
+		wp: 'WordPress',
+	};
+
+	return String( slug || '' )
+		.replace( /[_-]+/g, ' ' )
+		.trim()
+		.split( /\s+/ )
+		.filter( Boolean )
+		.map( ( word ) => acronymMap[ word.toLowerCase() ] || word )
+		.join( ' ' );
+}
+
+/**
+ * Produce a user-friendly action label for a tool without exposing ability IDs.
+ *
+ * @param {string} name Raw or normalized tool/function name.
+ * @return {string} Friendly action label.
+ */
+export function getFriendlyToolLabel( name ) {
+	const slug = getToolSlug( name ).toLowerCase();
+	if ( FRIENDLY_TOOL_LABELS[ slug ] ) {
+		return FRIENDLY_TOOL_LABELS[ slug ];
+	}
+
+	const verbGroups = [
+		{
+			verbs: [
+				'get',
+				'list',
+				'read',
+				'fetch',
+				'search',
+				'find',
+				'inspect',
+				'check',
+				'validate',
+				'verify',
+				'audit',
+				'analyze',
+				'analyse',
+			],
+			label: __( 'Checking', 'superdav-ai-agent' ),
+		},
+		{
+			verbs: [
+				'create',
+				'generate',
+				'render',
+				'compile',
+				'scaffold',
+				'build',
+			],
+			label: __( 'Creating', 'superdav-ai-agent' ),
+		},
+		{
+			verbs: [ 'execute', 'run' ],
+			label: __( 'Running', 'superdav-ai-agent' ),
+		},
+		{
+			verbs: [
+				'update',
+				'set',
+				'apply',
+				'append',
+				'save',
+				'write',
+				'publish',
+				'draft',
+				'move',
+				'install',
+				'activate',
+				'deactivate',
+				'delete',
+				'remove',
+				'clear',
+				'import',
+				'revert',
+			],
+			label: __( 'Updating', 'superdav-ai-agent' ),
+		},
+	];
+
+	for ( const group of verbGroups ) {
+		const verb = group.verbs.find( ( candidate ) =>
+			slug.startsWith( `${ candidate }-` )
+		);
+		if ( verb ) {
+			const target = humanizeSlug( slug.substring( verb.length + 1 ) );
+			return target ? `${ group.label } ${ target }` : group.label;
+		}
+	}
+
+	const fallback = humanizeSlug( slug );
+	return fallback
+		? fallback.charAt( 0 ).toUpperCase() + fallback.slice( 1 )
+		: __( 'Working on a site step', 'superdav-ai-agent' );
+}
+
+/**
+ * Remove raw ability IDs from progress narration before it is shown by default.
+ *
+ * @param {string} text Progress narration emitted by the model.
+ * @return {string} Sanitized, user-friendly narration.
+ */
+export function sanitizeProgressText( text ) {
+	return String( text || '' )
+		.replace( PROGRESS_TOOL_PATTERN, ( match ) =>
+			getFriendlyToolLabel( match ).toLowerCase()
+		)
+		.replace( /\s+/g, ' ' )
+		.trim();
+}
+
+/**
+ * Keep live progress narration compact in the chat timeline.
+ *
+ * @param {string} text Text to truncate.
+ * @return {string} Truncated text.
+ */
+function truncateProgressText( text ) {
+	const maxLength = 180;
+	if ( text.length <= maxLength ) {
+		return text;
+	}
+	return `${ text.substring( 0, maxLength - 1 ).trimEnd() }…`;
+}
+
+/**
+ * Derive a compact status from a paired tool response.
+ *
+ * @param {*} response Tool response entry.
+ * @return {'running'|'done'|'warn'|'error'} Progress status.
+ */
+function deriveProgressStatus( response ) {
+	if ( ! response ) {
+		return 'running';
+	}
+	const result = response.response;
+	if ( result && typeof result === 'object' ) {
+		if ( result.success === false || result.error ) {
+			return 'error';
+		}
+		if ( result.warning ) {
+			return 'warn';
+		}
+	}
+	return 'done';
+}
+
+/**
+ * Summarize a flat tool-call log into user-facing progress metadata.
+ *
+ * @param {Array} toolCalls Flat tool-call log entries.
+ * @return {Object} Progress summary for the chat UI.
+ */
+export function buildToolProgressSummary( toolCalls ) {
+	if ( ! toolCalls?.length ) {
+		return {
+			hasActivity: false,
+			totalCount: 0,
+			finishedCount: 0,
+			completedCount: 0,
+			failedCount: 0,
+			runningCount: 0,
+			currentLabel: '',
+			latestThought: '',
+			recentSteps: [],
+		};
+	}
+
+	const responses = {};
+	const calls = [];
+	const thoughts = [];
+	for ( const entry of toolCalls ) {
+		if (
+			( entry.type === 'response' || entry.type === 'result' ) &&
+			entry.id
+		) {
+			responses[ entry.id ] = entry;
+		}
+		if ( entry.type === 'call' ) {
+			calls.push( entry );
+		}
+		if ( entry.type === 'preamble' && typeof entry.text === 'string' ) {
+			const text = sanitizeProgressText( entry.text );
+			if ( text ) {
+				thoughts.push( text );
+			}
+		}
+	}
+
+	const steps = calls.map( ( call ) => {
+		const response = call.id ? responses[ call.id ] || null : null;
+		return {
+			id: call.id || call.name || '',
+			label: getFriendlyToolLabel( call.name ),
+			status: deriveProgressStatus( response ),
+		};
+	} );
+
+	const finishedCount = steps.filter(
+		( step ) => step.status !== 'running'
+	).length;
+	const failedCount = steps.filter(
+		( step ) => step.status === 'error'
+	).length;
+	const runningCount = steps.filter(
+		( step ) => step.status === 'running'
+	).length;
+	const completedCount = steps.filter(
+		( step ) => step.status === 'done' || step.status === 'warn'
+	).length;
+	const currentStep =
+		[ ...steps ].reverse().find( ( step ) => step.status === 'running' ) ||
+		steps[ steps.length - 1 ] ||
+		null;
+
+	return {
+		hasActivity: steps.length > 0 || thoughts.length > 0,
+		totalCount: steps.length,
+		finishedCount,
+		completedCount,
+		failedCount,
+		runningCount,
+		currentLabel: currentStep?.label || '',
+		latestThought: truncateProgressText(
+			thoughts[ thoughts.length - 1 ] || ''
+		),
+		recentSteps: steps.slice( -3 ),
+	};
+}
 
 /**
  *
