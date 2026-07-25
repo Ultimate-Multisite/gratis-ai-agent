@@ -6,6 +6,8 @@ import { createElement } from '@wordpress/element';
 import apiFetch from '@wordpress/api-fetch';
 
 import SuperdavAccountManager, {
+	formatCreditActivityDate,
+	formatCreditActivityType,
 	formatWalletAmount,
 } from '../superdav-account-manager';
 
@@ -47,6 +49,18 @@ describe( 'SuperdavAccountManager', () => {
 		expect( formatWalletAmount( 0 ) ).not.toBe( '—' );
 	} );
 
+	test( 'formats safe activity states and unavailable timestamps', () => {
+		expect( formatCreditActivityType( 'promotion' ) ).toBe(
+			'Promotional credit'
+		);
+		expect( formatCreditActivityType( 'unknown' ) ).toBe(
+			'Credit activity'
+		);
+		expect( formatCreditActivityDate( 'invalid', 'UTC' ) ).toBe(
+			'Unavailable'
+		);
+	} );
+
 	test( 'does not show a disconnected warning after a failed request', async () => {
 		apiFetch.mockRejectedValue( new Error( 'Account request failed.' ) );
 
@@ -79,5 +93,50 @@ describe( 'SuperdavAccountManager', () => {
 		expect(
 			container.querySelector( '.sd-ai-agent-superdav-account' )
 		).not.toBeNull();
+	} );
+
+	test( 'renders credit activity and labels missing promotional expiry as unavailable', async () => {
+		apiFetch.mockResolvedValue( {
+			configured: true,
+			site_timezone: 'UTC',
+			wallet: { total_usd_micros: 1000000 },
+			credit_activity: [
+				{
+					type: 'promotion',
+					amount_usd_micros: 1000000,
+					effective_at: '2026-07-16T00:00:00+00:00',
+					label: 'Welcome coupon',
+				},
+			],
+		} );
+
+		await act( async () => {
+			root.render( createElement( SuperdavAccountManager, {} ) );
+		} );
+		await act( async () => {
+			await Promise.resolve();
+		} );
+
+		expect( container.textContent ).toContain( 'Promotional credit' );
+		expect( container.textContent ).toContain( 'Welcome coupon' );
+		expect( container.textContent ).toContain( 'Expiry: Unavailable' );
+	} );
+
+	test( 'renders an explicit empty credit activity state', async () => {
+		apiFetch.mockResolvedValueOnce( {
+			configured: true,
+			credit_activity: [],
+		} );
+
+		await act( async () => {
+			root.render( createElement( SuperdavAccountManager, {} ) );
+		} );
+		await act( async () => {
+			await Promise.resolve();
+		} );
+
+		expect( container.textContent ).toContain(
+			'No recent credit activity is available.'
+		);
 	} );
 } );

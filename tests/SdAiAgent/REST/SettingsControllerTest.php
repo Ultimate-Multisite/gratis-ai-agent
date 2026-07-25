@@ -280,6 +280,33 @@ final class SettingsControllerTest extends WP_UnitTestCase {
 								'total_usd_micros' => 15000000,
 								'payment_token'    => 'must-not-be-exposed',
 							),
+							'credit_activity' => array(
+								array(
+									'type'              => 'purchase',
+									'amount_usd_micros' => 12500000,
+									'effective_at'      => '2026-07-15T00:00:00Z',
+									'label'             => 'Credit purchase',
+									'invoice_id'        => 'must-not-be-exposed',
+								),
+								array(
+									'type'              => 'promotion',
+									'amount_usd_micros' => 2500000,
+									'effective_at'      => '2026-07-16T00:00:00Z',
+									'expires_at'        => '2026-08-16T00:00:00Z',
+									'label'             => 'Welcome coupon',
+									'customer_id'       => 'must-not-be-exposed',
+								),
+								array(
+									'type'              => 'processor_event',
+									'amount_usd_micros' => 5000000,
+									'effective_at'      => '2026-07-17T00:00:00Z',
+								),
+								array(
+									'type'              => 'consumed',
+									'amount_usd_micros' => '-1000000',
+									'effective_at'      => 'invalid',
+								),
+							),
 							'access_token'       => 'must-not-be-exposed',
 						)
 					),
@@ -307,10 +334,26 @@ final class SettingsControllerTest extends WP_UnitTestCase {
 		$this->assertSame( 15000000, $data['wallet']['total_usd_micros'] );
 		$this->assertSame( 'https://account.example/billing', $data['account_portal_url'] );
 		$this->assertSame( '2026-07-16T00:00:00+00:00', $data['connected_at'] );
+		$this->assertSame( wp_timezone_string(), $data['site_timezone'] );
+		$this->assertCount( 2, $data['credit_activity'] );
+		$this->assertSame( 'promotion', $data['credit_activity'][0]['type'] );
+		$this->assertSame( 2500000, $data['credit_activity'][0]['amount_usd_micros'] );
+		$this->assertSame( '2026-08-16T00:00:00+00:00', $data['credit_activity'][0]['expires_at'] );
+		$this->assertArrayNotHasKey( 'customer_id', $data['credit_activity'][0] );
 		$this->assertArrayNotHasKey( 'usage', $data );
 		$this->assertArrayNotHasKey( 'verification', $data );
 		$this->assertStringNotContainsString( $token, wp_json_encode( $data ) ?: '' );
 		$this->assertStringNotContainsString( 'must-not-be-exposed', wp_json_encode( $data ) ?: '' );
+	}
+
+	/** Superdav account activity remains restricted to site administrators. */
+	public function test_superdav_account_permission_requires_manage_options(): void {
+		$administrator_id = self::factory()->user->create( array( 'role' => 'administrator' ) );
+		wp_set_current_user( $administrator_id );
+		$this->assertTrue( SettingsController::check_admin_permission() );
+
+		wp_set_current_user( 0 );
+		$this->assertFalse( SettingsController::check_admin_permission() );
 	}
 
 	/** Account portal URLs containing centrally blocked query keys are not exposed. */

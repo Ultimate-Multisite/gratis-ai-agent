@@ -31,6 +31,25 @@ final class SuperdavSiteConnectionService {
 	private const ACCOUNT_STATUS_ENDPOINT_PATH = 'site/account';
 
 	/**
+	 * Maximum number of newest-first credit activity rows retained for display.
+	 *
+	 * The account endpoint is intentionally a single bounded summary response:
+	 * it does not accept or expose cursors, and WordPress does not act as a
+	 * billing ledger. The managed service must return only its newest page.
+	 */
+	public const MAX_CREDIT_ACTIVITY_EVENTS = 25;
+
+	/** @var string[] Event types that are safe to render in the account UI. */
+	private const CREDIT_ACTIVITY_EVENT_TYPES = array(
+		'purchase',
+		'promotion',
+		'redeemed',
+		'consumed',
+		'pending',
+		'expired',
+	);
+
+	/**
 	 * Build safe connector status metadata.
 	 *
 	 * @return array<string, mixed>
@@ -72,6 +91,12 @@ final class SuperdavSiteConnectionService {
 			$status['wallet'] = $this->sanitize_wallet_metadata( $metadata['wallet'] );
 		}
 
+		if ( isset( $metadata['credit_activity'] ) && is_array( $metadata['credit_activity'] ) ) {
+			$status['credit_activity'] = $this->sanitize_credit_activity_metadata( $metadata['credit_activity'] );
+		}
+
+		$status['site_timezone'] = wp_timezone_string();
+
 		return $status;
 	}
 
@@ -104,8 +129,9 @@ final class SuperdavSiteConnectionService {
 				),
 				'body'    => wp_json_encode(
 					array(
-						'installation_id' => $this->get_installation_id(),
-						'site_url'        => $this->get_verified_site_url(),
+						'installation_id'       => $this->get_installation_id(),
+						'site_url'              => $this->get_verified_site_url(),
+						'credit_activity_limit' => self::MAX_CREDIT_ACTIVITY_EVENTS,
 					)
 				),
 			)
@@ -134,7 +160,8 @@ final class SuperdavSiteConnectionService {
 			$metadata['account_portal_url'],
 			$metadata['usage'],
 			$metadata['verification'],
-			$metadata['wallet']
+			$metadata['wallet'],
+			$metadata['credit_activity']
 		);
 		$metadata = array_merge( $metadata, $this->sanitize_remote_metadata( $body ) );
 		update_option( self::TOKEN_METADATA_OPTION, $metadata, false );
@@ -516,6 +543,10 @@ final class SuperdavSiteConnectionService {
 			$safe['wallet'] = $this->sanitize_wallet_metadata( $metadata['wallet'] );
 		}
 
+		if ( isset( $metadata['credit_activity'] ) && is_array( $metadata['credit_activity'] ) ) {
+			$safe['credit_activity'] = $this->sanitize_credit_activity_metadata( $metadata['credit_activity'] );
+		}
+
 		return $safe;
 	}
 
@@ -573,6 +604,80 @@ final class SuperdavSiteConnectionService {
 				)
 			)
 		);
+	}
+
+	/**
+	 * Keep the bounded, display-safe credit activity contract from the service.
+	 *
+	 * Each retained event contains only a recognized event type, a signed USD
+	 * micro amount, an effective timestamp, and optionally an expiry timestamp
+	 * and short safe label. Customer, invoice, payment, processor, token, and
+	 * arbitrary event payload fields are never stored or returned.
+	 *
+	 * @param array<int, mixed> $activity Remote credit activity rows.
+	 * @return array<int, array<string, int|string>>
+	 */
+	private function sanitize_credit_activity_metadata( array $activity ): array {
+		$safe_activity = array();
+
+		foreach ( array_slice( $activity, 0, self::MAX_CREDIT_ACTIVITY_EVENTS ) as $event ) {
+			if ( ! is_array( $event ) ) {
+				continue;
+			}
+
+			$type         = $event['type'] ?? '';
+			$amount       = $event['amount_usd_micros'] ?? null;
+			$effective_at = $this->sanitize_credit_activity_timestamp( $event['effective_at'] ?? null );
+
+			if ( ! is_string( $type ) || ! in_array( $type, self::CREDIT_ACTIVITY_EVENT_TYPES, true ) || ! is_int( $amount ) || null === $effective_at ) {
+				continue;
+			}
+
+			$safe_event = array(
+				'type'              => $type,
+				'amount_usd_micros' => $amount,
+				'effective_at'      => $effective_at,
+			);
+			$expires_at = $this->sanitize_credit_activity_timestamp( $event['expires_at'] ?? null );
+			if ( null !== $expires_at ) {
+				$safe_event['expires_at'] = $expires_at;
+			}
+
+			if ( isset( $event['label'] ) && is_string( $event['label'] ) ) {
+				$label = substr( sanitize_text_field( $event['label'] ), 0, 120 );
+				if ( '' !== $label ) {
+					$safe_event['label'] = $label;
+				}
+			}
+
+			$safe_activity[] = $safe_event;
+		}
+
+		usort(
+			$safe_activity,
+			static fn( array $left, array $right ): int => strcmp( $right['effective_at'], $left['effective_at'] )
+		);
+
+		return $safe_activity;
+	}
+
+	/**
+	 * Normalize a valid remote ISO-8601 timestamp to UTC for browser rendering.
+	 *
+	 * @param mixed $timestamp Remote timestamp value.
+	 * @return string|null Normalized timestamp, or null when invalid.
+	 */
+	private function sanitize_credit_activity_timestamp( mixed $timestamp ): ?string {
+		if ( ! is_string( $timestamp ) || '' === trim( $timestamp ) ) {
+			return null;
+		}
+
+		$unix_timestamp = rest_parse_date( $timestamp, true );
+		if ( false === $unix_timestamp ) {
+			return null;
+		}
+
+		return gmdate( 'c', $unix_timestamp );
 	}
 
 	/**
