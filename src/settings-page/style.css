@@ -591,9 +591,50 @@
 	gap: 8px;
 }
 
+.sd-ai-agent-superdav-credit-activity h4 {
+	margin: 0 0 8px;
+}
+
+.sd-ai-agent-superdav-credit-activity-list {
+	margin: 0;
+	border: 1px solid #dcdcde;
+	border-radius: 4px;
+	background: #fff;
+}
+
+.sd-ai-agent-superdav-credit-activity-list li {
+	display: flex;
+	align-items: flex-start;
+	justify-content: space-between;
+	gap: 16px;
+	padding: 12px 14px;
+	border-bottom: 1px solid #f0f0f1;
+}
+
+.sd-ai-agent-superdav-credit-activity-list li:last-child {
+	border-bottom: 0;
+}
+
+.sd-ai-agent-superdav-credit-activity-label,
+.sd-ai-agent-superdav-credit-activity-date,
+.sd-ai-agent-superdav-credit-activity-expiry {
+	display: block;
+	margin-top: 2px;
+	color: #50575e;
+	font-size: 12px;
+}
+
+.sd-ai-agent-superdav-credit-activity-amount {
+	white-space: nowrap;
+}
+
 @media screen and (max-width: 600px) {
 	.sd-ai-agent-superdav-account-header {
 		flex-direction: column;
+	}
+
+	.sd-ai-agent-superdav-credit-activity-list li {
+		gap: 8px;
 	}
 }
 
