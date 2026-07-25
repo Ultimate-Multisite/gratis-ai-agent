@@ -271,8 +271,10 @@ final class SettingsControllerTest extends WP_UnitTestCase {
 					),
 					'body'     => wp_json_encode(
 						array(
-							'tier'               => 'pro',
-							'account_portal_url' => 'https://account.example/billing',
+							'tier'                 => 'pro',
+							'account_portal_url'   => 'https://account.example/billing',
+							'purchase_credits_url' => 'https://account.example/credits/purchase',
+							'payment_methods_url'  => 'https://account.example/billing/payment-methods',
 							'wallet'             => array(
 								'currency'         => 'USD',
 								'promo_usd_micros' => 2500000,
@@ -306,6 +308,8 @@ final class SettingsControllerTest extends WP_UnitTestCase {
 		$data = $response->get_data();
 		$this->assertSame( 15000000, $data['wallet']['total_usd_micros'] );
 		$this->assertSame( 'https://account.example/billing', $data['account_portal_url'] );
+		$this->assertSame( 'https://account.example/credits/purchase', $data['purchase_credits_url'] );
+		$this->assertSame( 'https://account.example/billing/payment-methods', $data['payment_methods_url'] );
 		$this->assertSame( '2026-07-16T00:00:00+00:00', $data['connected_at'] );
 		$this->assertArrayNotHasKey( 'usage', $data );
 		$this->assertArrayNotHasKey( 'verification', $data );
@@ -313,8 +317,8 @@ final class SettingsControllerTest extends WP_UnitTestCase {
 		$this->assertStringNotContainsString( 'must-not-be-exposed', wp_json_encode( $data ) ?: '' );
 	}
 
-	/** Account portal URLs containing centrally blocked query keys are not exposed. */
-	public function test_handle_refresh_superdav_account_rejects_secret_portal_query(): void {
+	/** Account action URLs containing centrally blocked query keys are not exposed. */
+	public function test_handle_refresh_superdav_account_rejects_secret_action_queries(): void {
 		$base_url    = 'https://service.example/v1';
 		$account_url = $base_url . '/site/account';
 
@@ -342,6 +346,8 @@ final class SettingsControllerTest extends WP_UnitTestCase {
 					'body'     => wp_json_encode(
 						array(
 							'account_portal_url' => 'https://account.example/billing?access_token=must-not-be-exposed',
+							'purchase_credits_url' => 'https://account.example/credits?access_token=must-not-be-exposed',
+							'payment_methods_url' => 'https://account.example/payment-methods?access_token=must-not-be-exposed',
 						)
 					),
 				);
@@ -357,6 +363,8 @@ final class SettingsControllerTest extends WP_UnitTestCase {
 		$this->assertSame( 200, $response->get_status() );
 		$data = $response->get_data();
 		$this->assertSame( '', $data['account_portal_url'] );
+		$this->assertSame( '', $data['purchase_credits_url'] );
+		$this->assertSame( '', $data['payment_methods_url'] );
 		$this->assertStringNotContainsString( 'must-not-be-exposed', wp_json_encode( $data ) ?: '' );
 		$this->assertStringNotContainsString(
 			'must-not-be-exposed',
