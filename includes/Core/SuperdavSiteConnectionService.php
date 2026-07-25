@@ -58,7 +58,9 @@ final class SuperdavSiteConnectionService {
 		$token    = $this->get_stored_token();
 		$metadata = $this->get_metadata();
 
-		$account_portal_url = $this->get_account_portal_url( $metadata );
+		$account_portal_url   = $this->get_account_portal_url( $metadata );
+		$purchase_credits_url = $this->get_account_action_url( $metadata, 'purchase_credits_url' );
+		$payment_methods_url  = $this->get_account_action_url( $metadata, 'payment_methods_url' );
 
 		$status = array(
 			'configured'                => '' !== $token,
@@ -70,6 +72,8 @@ final class SuperdavSiteConnectionService {
 			'account_connect_available' => '' !== $account_portal_url,
 			'account_connect_url'       => $account_portal_url,
 			'account_portal_url'        => $account_portal_url,
+			'purchase_credits_url'      => $purchase_credits_url,
+			'payment_methods_url'       => $payment_methods_url,
 		);
 
 		foreach ( array( 'tier', 'verified', 'request_id', 'connection_notice_pending' ) as $key ) {
@@ -315,9 +319,18 @@ final class SuperdavSiteConnectionService {
 		$default_url = is_string( $default_url ) ? $default_url : '';
 		$url         = apply_filters( 'sd_ai_agent_cloud_account_connect_url', $default_url, $this->get_installation_id(), $this->get_verified_site_url() );
 
-		$url = is_string( $url ) ? esc_url_raw( $url ) : '';
+		return $this->sanitize_account_url( $url );
+	}
 
-		return $this->account_portal_url_has_secret_query_key( $url ) ? '' : $url;
+	/**
+	 * Return a dedicated, service-issued billing action URL when available.
+	 *
+	 * @param array<string, mixed> $metadata Safe connection metadata.
+	 * @param string               $key      Dedicated action metadata key.
+	 * @return string Service-issued action URL, or empty when unavailable.
+	 */
+	private function get_account_action_url( array $metadata, string $key ): string {
+		return $this->sanitize_account_url( $metadata[ $key ] ?? '' );
 	}
 
 	/**
@@ -507,6 +520,8 @@ final class SuperdavSiteConnectionService {
 			'connect_required',
 			'request_id',
 			'account_portal_url',
+			'purchase_credits_url',
+			'payment_methods_url',
 		);
 		$safe         = array();
 
@@ -516,12 +531,14 @@ final class SuperdavSiteConnectionService {
 			}
 		}
 
-		if ( isset( $safe['account_portal_url'] ) ) {
-			$url = is_string( $safe['account_portal_url'] ) ? esc_url_raw( $safe['account_portal_url'] ) : '';
-			if ( '' === $url || $this->account_portal_url_has_secret_query_key( $url ) ) {
-				unset( $safe['account_portal_url'] );
-			} else {
-				$safe['account_portal_url'] = $url;
+		foreach ( array( 'account_portal_url', 'purchase_credits_url', 'payment_methods_url' ) as $key ) {
+			if ( isset( $safe[ $key ] ) ) {
+				$url = $this->sanitize_account_url( $safe[ $key ] );
+				if ( '' === $url ) {
+					unset( $safe[ $key ] );
+				} else {
+					$safe[ $key ] = $url;
+				}
 			}
 		}
 
@@ -551,9 +568,30 @@ final class SuperdavSiteConnectionService {
 	}
 
 	/**
-	 * Determine whether an account portal URL contains a blocked secret query key.
+	 * Sanitize a service-issued account action URL.
+	 *
+	 * External billing actions must use a complete HTTPS URL and must not expose
+	 * credentials in their query string.
+	 *
+	 * @param mixed $url Potential account action URL.
+	 * @return string Safe account action URL, or empty when invalid.
 	 */
-	private function account_portal_url_has_secret_query_key( string $url ): bool {
+	private function sanitize_account_url( mixed $url ): string {
+		$url    = is_string( $url ) ? esc_url_raw( $url ) : '';
+		$scheme = wp_parse_url( $url, PHP_URL_SCHEME );
+		$host   = wp_parse_url( $url, PHP_URL_HOST );
+
+		if ( '' === $url || 'https' !== $scheme || ! is_string( $host ) || '' === $host ) {
+			return '';
+		}
+
+		return $this->account_url_has_secret_query_key( $url ) ? '' : $url;
+	}
+
+	/**
+	 * Determine whether an account action URL contains a blocked secret query key.
+	 */
+	private function account_url_has_secret_query_key( string $url ): bool {
 		$query = wp_parse_url( $url, PHP_URL_QUERY );
 		if ( ! is_string( $query ) || '' === $query ) {
 			return false;
@@ -570,7 +608,7 @@ final class SuperdavSiteConnectionService {
 			}
 
 			foreach ( $current as $key => $value ) {
-				if ( is_string( $key ) && OptionsAbilities::is_secret_option_name( $key ) ) {
+				if ( is_string( $key ) && $this->is_secret_account_url_query_key( $key ) ) {
 					return true;
 				}
 
@@ -581,6 +619,27 @@ final class SuperdavSiteConnectionService {
 		}
 
 		return false;
+	}
+
+	/**
+	 * Determine whether an account action query parameter could expose a secret.
+	 *
+	 * The option read blocklist remains the canonical protection for WordPress
+	 * secrets. Remote account URLs also need to reject conventional credential
+	 * parameter names, which are not WordPress option names.
+	 */
+	private function is_secret_account_url_query_key( string $key ): bool {
+		if ( OptionsAbilities::is_secret_option_name( $key ) ) {
+			return true;
+		}
+
+		$normalized_key = preg_replace( '/(?<!^)[A-Z]/', '_$0', $key ) ?? $key;
+		$normalized_key = strtolower( $normalized_key );
+
+		return 1 === preg_match(
+			'/(?:^|[_-])(?:access[_-]?token|api[_-]?key|auth[_-]?token|authorization|bearer|client[_-]?secret|credential(?:s)?|key|password|secret|token)(?:$|[_-])/',
+			$normalized_key
+		);
 	}
 
 	/**

@@ -127,6 +127,10 @@ export default function SuperdavAccountManager() {
 
 	const wallet = account?.wallet || {};
 	const accountUrl = account?.account_portal_url || '';
+	const purchaseCreditsUrl = account?.purchase_credits_url || '';
+	const paymentMethodsUrl = account?.payment_methods_url || '';
+	const hasAccountActions =
+		purchaseCreditsUrl || paymentMethodsUrl || accountUrl;
 	const configured = !! account?.configured;
 	const tier = account?.tier || '';
 	const creditActivity = Array.isArray( account?.credit_activity )
@@ -316,38 +320,47 @@ export default function SuperdavAccountManager() {
 							{ creditActivityContent }
 						</section>
 
-						{ accountUrl ? (
+						{ hasAccountActions ? (
 							<div className="sd-ai-agent-superdav-account-actions">
-								<Button
-									variant="primary"
-									href={ accountUrl }
-									target="_blank"
-									rel="noopener noreferrer"
-								>
-									{ __( 'Add credits', 'superdav-ai-agent' ) }
-								</Button>
-								<Button
-									variant="secondary"
-									href={ accountUrl }
-									target="_blank"
-									rel="noopener noreferrer"
-								>
-									{ __(
-										'Manage payment methods',
-										'superdav-ai-agent'
-									) }
-								</Button>
-								<Button
-									variant="tertiary"
-									href={ accountUrl }
-									target="_blank"
-									rel="noopener noreferrer"
-								>
-									{ __(
-										'Open account portal',
-										'superdav-ai-agent'
-									) }
-								</Button>
+								{ purchaseCreditsUrl && (
+									<Button
+										variant="primary"
+										href={ purchaseCreditsUrl }
+										target="_blank"
+										rel="noopener noreferrer"
+									>
+										{ __(
+											'Add credits',
+											'superdav-ai-agent'
+										) }
+									</Button>
+								) }
+								{ paymentMethodsUrl && (
+									<Button
+										variant="secondary"
+										href={ paymentMethodsUrl }
+										target="_blank"
+										rel="noopener noreferrer"
+									>
+										{ __(
+											'Manage payment methods',
+											'superdav-ai-agent'
+										) }
+									</Button>
+								) }
+								{ accountUrl && (
+									<Button
+										variant="tertiary"
+										href={ accountUrl }
+										target="_blank"
+										rel="noopener noreferrer"
+									>
+										{ __(
+											'Open account portal',
+											'superdav-ai-agent'
+										) }
+									</Button>
+								) }
 							</div>
 						) : (
 							<Notice status="info" isDismissible={ false }>
