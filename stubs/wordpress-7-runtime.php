@@ -527,6 +527,9 @@ namespace WordPress\AiClient\Providers\Models\DTO {
 
 		/** @return array<string, mixed> */
 		public function getCustomOptions(): array { return array(); }
+
+		/** @param array<string, mixed> $customOptions Custom provider options. */
+		public function setCustomOptions( array $customOptions ): void {}
 	}
 }
 
@@ -1380,12 +1383,20 @@ namespace {
 		public function using_candidate_count( int $count ): static { return $this; }
 
 		/**
-		 * Set a model preference by model ID string.
+		 * Set model preferences by model ID or provider/model tuple.
 		 *
-		 * @param string $model_id Model identifier.
+		 * @param mixed ...$preferredModels Model identifiers or provider/model tuples.
 		 * @return static
 		 */
-		public function using_model_preference( string $model_id ): static { return $this; }
+		public function using_model_preference( mixed ...$preferredModels ): static { return $this; }
+
+		/**
+		 * Merge model configuration into the prompt builder.
+		 *
+		 * @param \WordPress\AiClient\Providers\Models\DTO\ModelConfig $config Model config.
+		 * @return static
+		 */
+		public function using_model_config( \WordPress\AiClient\Providers\Models\DTO\ModelConfig $config ): static { return $this; }
 
 		/**
 		 * Set the model object (from ModelRegistry::getProviderModel()).

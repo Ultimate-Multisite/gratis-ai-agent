@@ -11,6 +11,10 @@ namespace SdAiAgent\Tests\Abilities;
 
 use SdAiAgent\Abilities\AiImageAbilities;
 use SdAiAgent\Abilities\ImageAbilities\GenerateImageAbility;
+use SdAiAgent\Core\Settings;
+use SdAiAgent\Core\ToolPermissionResolver;
+use SdAiAgent\Infrastructure\AiClient\Superdav\SuperdavAiProvider;
+use WordPress\AiClient\Providers\Models\DTO\ModelConfig;
 use WP_UnitTestCase;
 
 /**
@@ -139,6 +143,101 @@ class AiImageAbilitiesTest extends WP_UnitTestCase {
 		if ( is_wp_error( $result ) ) {
 			$this->assertNotSame( 'invalid_style', $result->get_error_code() );
 		}
+	}
+
+	/**
+	 * Generate-image creates media without destroying data, so default tool
+	 * policy should not pause for user confirmation.
+	 */
+	public function test_generate_image_is_non_destructive_for_default_tool_policy(): void {
+		$ability = new GenerateImageAbility( 'sd-ai-agent/generate-image' );
+		$meta    = $ability->get_meta();
+
+		$this->assertIsArray( $meta['annotations'] ?? null );
+		$this->assertFalse( $meta['annotations']['readonly'] );
+		$this->assertFalse( $meta['annotations']['destructive'] );
+		$this->assertSame( 'write', ToolPermissionResolver::classify_ability( $ability ) );
+		$this->assertFalse( ToolPermissionResolver::ability_needs_confirmation( 'sd-ai-agent/generate-image', $ability, [] ) );
+	}
+
+	/**
+	 * Superdav chat defaults should fall through to the bundled image model.
+	 */
+	public function test_generate_image_prefers_superdav_image_model_for_superdav_default_provider(): void {
+		$previous_settings = get_option( Settings::OPTION_NAME, null );
+
+		update_option(
+			Settings::OPTION_NAME,
+			[
+				'default_provider' => SuperdavAiProvider::PROVIDER_ID,
+				'default_model'    => '',
+			]
+		);
+
+		$filter = static function (): array {
+			return [
+				SuperdavAiProvider::PROVIDER_ID => [
+					SuperdavAiProvider::DEFAULT_MODEL_ID,
+					SuperdavAiProvider::IMAGE_MODEL_ID,
+				],
+			];
+		};
+		add_filter( 'sd_ai_agent_registered_models_for_validation', $filter );
+
+		try {
+			$ability    = new GenerateImageAbility( 'sd-ai-agent/generate-image' );
+			$reflection = new \ReflectionMethod( $ability, 'resolve_image_model_preferences' );
+			$reflection->setAccessible( true );
+
+			$preferences = $reflection->invoke( $ability );
+
+			$this->assertIsArray( $preferences );
+			$this->assertContains( SuperdavAiProvider::DEFAULT_MODEL_ID, $preferences );
+			$this->assertContainsEquals(
+				[ SuperdavAiProvider::PROVIDER_ID, SuperdavAiProvider::IMAGE_MODEL_ID ],
+				$preferences
+			);
+		} finally {
+			remove_filter( 'sd_ai_agent_registered_models_for_validation', $filter );
+			if ( null === $previous_settings ) {
+				delete_option( Settings::OPTION_NAME );
+			} else {
+				update_option( Settings::OPTION_NAME, $previous_settings );
+			}
+		}
+	}
+
+	/**
+	 * Size, style, and quality inputs are passed as OpenAI-compatible image options.
+	 */
+	public function test_generate_image_builds_model_config_from_image_options(): void {
+		if ( ! class_exists( ModelConfig::class ) ) {
+			$this->markTestSkipped( 'WordPress AI Client SDK is unavailable.' );
+		}
+
+		$ability    = new GenerateImageAbility( 'sd-ai-agent/generate-image' );
+		$reflection = new \ReflectionMethod( $ability, 'create_image_model_config' );
+		$reflection->setAccessible( true );
+
+		$config = $reflection->invoke(
+			$ability,
+			[
+				'size'    => '1024x1024',
+				'style'   => 'vivid',
+				'quality' => 'hd',
+				'ignored' => 'not-forwarded',
+			]
+		);
+
+		$this->assertInstanceOf( ModelConfig::class, $config );
+		$this->assertSame(
+			[
+				'size'    => '1024x1024',
+				'style'   => 'vivid',
+				'quality' => 'hd',
+			],
+			$config->getCustomOptions()
+		);
 	}
 
 	// ─── Success-path shape (partial mock) ────────────────────────
