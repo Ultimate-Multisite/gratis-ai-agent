@@ -1227,6 +1227,19 @@ final class SessionController {
 					array( 'status' => 404 )
 				);
 			}
+			if ( $this->discard_expired_paused_job( $db_row ) ) {
+				// A paused job needs the transient's serialized loop state to resume.
+				// Never resurrect its DB-only tool list as a confirmation dialog: the
+				// subsequent confirm/reject request cannot safely execute it.
+				return new WP_REST_Response(
+					array(
+						'status'     => 'expired',
+						'from_db'    => true,
+						'session_id' => $db_row->session_id,
+					),
+					200
+				);
+			}
 			return $this->job_status_from_db_row( $job_id, $db_row );
 		}
 
@@ -3114,7 +3127,7 @@ final class SessionController {
 		$session_id = (int) $request->get_param( 'id' );
 		$db_row     = ActiveJobRepository::get_by_session_id( $session_id );
 
-		if ( null === $db_row ) {
+		if ( null === $db_row || $this->discard_expired_paused_job( $db_row ) ) {
 			return new WP_Error(
 				'sd_ai_agent_no_active_job',
 				__( 'No active job for this session.', 'superdav-ai-agent' ),
@@ -3154,9 +3167,37 @@ final class SessionController {
 					'status'     => $row->status,
 				);
 			},
-			$rows
+			array_filter(
+				$rows,
+				fn( ActiveJobRow $row ): bool => ! $this->discard_expired_paused_job( $row )
+			)
 		);
 
 		return new WP_REST_Response( array_values( $data ), 200 );
+	}
+
+	/**
+	 * Remove a paused job whose transient has expired.
+	 *
+	 * The active-jobs table deliberately stores summary data for polling
+	 * recovery, but does not contain the serialized loop state required to
+	 * resume a confirmation or client-tool pause. Returning such a row after its
+	 * transient expires makes the UI show an approval it can never submit.
+	 *
+	 * @param ActiveJobRow $row Persistent active-job row.
+	 * @return bool Whether an expired paused row was discarded.
+	 */
+	private function discard_expired_paused_job( ActiveJobRow $row ): bool {
+		if ( ! in_array( $row->status, array( 'awaiting_confirmation', 'awaiting_client_tools' ), true ) ) {
+			return false;
+		}
+
+		$job = get_transient( RestController::JOB_PREFIX . $row->job_id );
+		if ( is_array( $job ) ) {
+			return false;
+		}
+
+		ActiveJobRepository::delete( $row->job_id );
+		return true;
 	}
 }
