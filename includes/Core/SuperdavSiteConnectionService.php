@@ -614,7 +614,7 @@ final class SuperdavSiteConnectionService {
 	 * and short safe label. Customer, invoice, payment, processor, token, and
 	 * arbitrary event payload fields are never stored or returned.
 	 *
-	 * @param array<int, mixed> $activity Remote credit activity rows.
+	 * @param array<mixed, mixed> $activity Remote credit activity rows.
 	 * @return array<int, array<string, int|string>>
 	 */
 	private function sanitize_credit_activity_metadata( array $activity ): array {

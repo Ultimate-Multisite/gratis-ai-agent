@@ -30,7 +30,7 @@ export function formatWalletAmount( micros ) {
  * Format a service timestamp in the WordPress site's configured timezone.
  *
  * @param {string|null|undefined} timestamp ISO-8601 timestamp.
- * @param {string|null|undefined} timeZone WordPress site timezone identifier.
+ * @param {string|null|undefined} timeZone  WordPress site timezone identifier.
  * @return {string} Localized timestamp, or an unavailable label.
  */
 export function formatCreditActivityDate( timestamp, timeZone ) {
@@ -133,6 +133,86 @@ export default function SuperdavAccountManager() {
 		? account.credit_activity
 		: null;
 	const siteTimezone = account?.site_timezone || '';
+	let creditActivityContent = (
+		<p className="description">
+			{ __(
+				'Recent credit activity is unavailable.',
+				'superdav-ai-agent'
+			) }
+		</p>
+	);
+
+	if ( creditActivity !== null && creditActivity.length === 0 ) {
+		creditActivityContent = (
+			<p className="description">
+				{ __(
+					'No recent credit activity is available.',
+					'superdav-ai-agent'
+				) }
+			</p>
+		);
+	}
+
+	if ( creditActivity !== null && creditActivity.length > 0 ) {
+		creditActivityContent = (
+			<ol className="sd-ai-agent-superdav-credit-activity-list">
+				{ creditActivity.map( ( event, index ) => {
+					const showsExpiry =
+						event.type === 'promotion' || event.expires_at;
+
+					return (
+						<li
+							key={ `${ event.type }-${ event.effective_at }-${ index }` }
+						>
+							<div>
+								<strong>
+									{ formatCreditActivityType( event.type ) }
+								</strong>
+								{ event.label && (
+									<span className="sd-ai-agent-superdav-credit-activity-label">
+										{ event.label }
+									</span>
+								) }
+								<span className="sd-ai-agent-superdav-credit-activity-date">
+									{ sprintf(
+										/* translators: %s: localized effective timestamp. */
+										__(
+											'Effective: %s',
+											'superdav-ai-agent'
+										),
+										formatCreditActivityDate(
+											event.effective_at,
+											siteTimezone
+										)
+									) }
+								</span>
+								{ showsExpiry && (
+									<span className="sd-ai-agent-superdav-credit-activity-expiry">
+										{ sprintf(
+											/* translators: %s: localized expiry timestamp or unavailable label. */
+											__(
+												'Expiry: %s',
+												'superdav-ai-agent'
+											),
+											formatCreditActivityDate(
+												event.expires_at,
+												siteTimezone
+											)
+										) }
+									</span>
+								) }
+							</div>
+							<strong className="sd-ai-agent-superdav-credit-activity-amount">
+								{ formatWalletAmount(
+									event.amount_usd_micros
+								) }
+							</strong>
+						</li>
+					);
+				} ) }
+			</ol>
+		);
+	}
 
 	return (
 		<div className="sd-ai-agent-superdav-account">
@@ -233,80 +313,7 @@ export default function SuperdavAccountManager() {
 							<h4 id="sd-ai-agent-superdav-credit-activity-heading">
 								{ __( 'Credit activity', 'superdav-ai-agent' ) }
 							</h4>
-							{ creditActivity === null ? (
-								<p className="description">
-									{ __(
-										'Recent credit activity is unavailable.',
-										'superdav-ai-agent'
-									) }
-								</p>
-							) : creditActivity.length === 0 ? (
-								<p className="description">
-									{ __(
-										'No recent credit activity is available.',
-										'superdav-ai-agent'
-									) }
-								</p>
-							) : (
-								<ol className="sd-ai-agent-superdav-credit-activity-list">
-									{ creditActivity.map( ( event, index ) => {
-										const showsExpiry =
-											event.type === 'promotion' || event.expires_at;
-
-										return (
-											<li
-												key={ `${ event.type }-${ event.effective_at }-${ index }` }
-											>
-												<div>
-													<strong>
-														{ formatCreditActivityType(
-															event.type
-														) }
-													</strong>
-													{ event.label && (
-														<span className="sd-ai-agent-superdav-credit-activity-label">
-															{ event.label }
-														</span>
-													) }
-													<span className="sd-ai-agent-superdav-credit-activity-date">
-														{ sprintf(
-															/* translators: %s: localized effective timestamp. */
-															__(
-																'Effective: %s',
-																'superdav-ai-agent'
-															),
-															formatCreditActivityDate(
-																event.effective_at,
-																siteTimezone
-															)
-														) }
-													</span>
-													{ showsExpiry && (
-														<span className="sd-ai-agent-superdav-credit-activity-expiry">
-															{ sprintf(
-																/* translators: %s: localized expiry timestamp or unavailable label. */
-																__(
-																	'Expiry: %s',
-																	'superdav-ai-agent'
-																),
-																formatCreditActivityDate(
-																	event.expires_at,
-																	siteTimezone
-																)
-															) }
-														</span>
-													) }
-												</div>
-												<strong className="sd-ai-agent-superdav-credit-activity-amount">
-													{ formatWalletAmount(
-														event.amount_usd_micros
-													) }
-												</strong>
-											</li>
-										);
-									} ) }
-								</ol>
-							) }
+							{ creditActivityContent }
 						</section>
 
 						{ accountUrl ? (
