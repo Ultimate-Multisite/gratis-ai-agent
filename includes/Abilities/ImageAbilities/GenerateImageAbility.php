@@ -36,6 +36,9 @@ if ( ! defined( 'ABSPATH' ) ) {
  */
 class GenerateImageAbility extends \SdAiAgent\Abilities\AbstractAbility {
 
+	/** Maximum seconds an image-provider request may occupy the background worker. */
+	private const IMAGE_REQUEST_TIMEOUT_SECONDS = 90;
+
 	/**
 	 * Register this ability.
 	 *
@@ -265,10 +268,11 @@ class GenerateImageAbility extends \SdAiAgent\Abilities\AbstractAbility {
 
 			if ( is_wp_error( $result ) ) {
 				$last_error = $result;
-				// No provider → stop immediately; retrying variations won't help.
-				if ( 'provider_unavailable' === $result->get_error_code() ) {
-					break;
-				}
+				// A failed provider request is not made more likely to succeed by
+				// repeating it for every requested variation. A slow upstream
+				// timeout multiplied by four variations can outlive the hosted
+				// background-worker request and leave chat stuck in "Running…".
+				break;
 			} else {
 				$attachments[] = [
 					'attachment_id' => $result['attachment_id'],
@@ -342,7 +346,25 @@ class GenerateImageAbility extends \SdAiAgent\Abilities\AbstractAbility {
 			);
 		}
 
-		$file = wp_ai_client_prompt( $prompt )->generate_image();
+		// Hosted WordPress installs commonly terminate loopback workers at about
+		// two minutes. Keep a slow image provider from consuming that entire
+		// window so the agent receives a normal tool error and can continue.
+		$timeout_filter = static function ( array $args, string $url ): array {
+			if ( str_contains( strtolower( $url ), '/images/' ) ) {
+				$current_timeout = isset( $args['timeout'] ) ? (float) $args['timeout'] : (float) self::IMAGE_REQUEST_TIMEOUT_SECONDS;
+				$args['timeout'] = min( $current_timeout, (float) self::IMAGE_REQUEST_TIMEOUT_SECONDS );
+			}
+
+			return $args;
+		};
+		add_filter( 'http_request_args', $timeout_filter, 20, 2 );
+		try {
+			$file = wp_ai_client_prompt( $prompt )->generate_image();
+		} catch ( \Throwable $e ) {
+			return new WP_Error( 'generation_failed', 'Image generation failed. The image provider did not respond within the allowed time.' );
+		} finally {
+			remove_filter( 'http_request_args', $timeout_filter, 20 );
+		}
 
 		if ( is_wp_error( $file ) ) {
 			return new WP_Error(

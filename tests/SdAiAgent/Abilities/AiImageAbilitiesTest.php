@@ -260,7 +260,8 @@ class AiImageAbilitiesTest extends WP_UnitTestCase {
 			->onlyMethods( [ 'generate_and_import' ] )
 			->getMock();
 
-		$ability->method( 'generate_and_import' )
+		$ability->expects( $this->once() )
+			->method( 'generate_and_import' )
 			->willReturn( new \WP_Error( 'generation_failed', 'Mock failure.' ) );
 
 		/** @var array<string,mixed>|\WP_Error $result */
