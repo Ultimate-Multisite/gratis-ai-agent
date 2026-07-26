@@ -42,6 +42,24 @@ describe( 'SuperdavAccountManager', () => {
 		apiFetch.mockReset();
 	} );
 
+	/**
+	 * Set a controlled input value through React's native event bridge.
+	 *
+	 * @param {HTMLInputElement} input Input element.
+	 * @param {string}           value Input value.
+	 */
+	async function setInputValue( input, value ) {
+		const setter = Object.getOwnPropertyDescriptor(
+			window.HTMLInputElement.prototype,
+			'value'
+		).set;
+
+		await act( async () => {
+			setter.call( input, value );
+			input.dispatchEvent( new Event( 'input', { bubbles: true } ) );
+		} );
+	}
+
 	test( 'treats absent wallet amounts as unknown', () => {
 		expect( formatWalletAmount( null ) ).toBe( '—' );
 		expect( formatWalletAmount( undefined ) ).toBe( '—' );
@@ -140,13 +158,19 @@ describe( 'SuperdavAccountManager', () => {
 		);
 	} );
 
-	test( 'uses dedicated service URLs for credit and payment actions', async () => {
-		apiFetch.mockResolvedValue( {
-			configured: true,
-			account_portal_url: 'https://account.example/portal',
-			purchase_credits_url: 'https://account.example/credits',
-			payment_methods_url: 'https://account.example/payment-methods',
-		} );
+	test( 'redeems a coupon, disables submission while pending, and updates the balance', async () => {
+		let resolveRedemption;
+		apiFetch
+			.mockResolvedValueOnce( {
+				configured: true,
+				wallet: { total_usd_micros: 1000000 },
+			} )
+			.mockImplementationOnce(
+				() =>
+					new Promise( ( resolve ) => {
+						resolveRedemption = resolve;
+					} )
+			);
 
 		await act( async () => {
 			root.render( createElement( SuperdavAccountManager, {} ) );
@@ -155,28 +179,48 @@ describe( 'SuperdavAccountManager', () => {
 			await Promise.resolve();
 		} );
 
+		const input = container.querySelector( 'input' );
+		await setInputValue( input, ' test-coupon-code ' );
+		await act( async () => {
+			container
+				.querySelector( '.sd-ai-agent-superdav-coupon-redemption' )
+				.dispatchEvent(
+					new Event( 'submit', { bubbles: true, cancelable: true } )
+				);
+		} );
+
+		expect( input.disabled ).toBe( true );
 		expect(
-			container.querySelector(
-				'a[href="https://account.example/credits"]'
-			).textContent
-		).toBe( 'Add credits' );
-		expect(
-			container.querySelector(
-				'a[href="https://account.example/payment-methods"]'
-			).textContent
-		).toBe( 'Manage payment methods' );
-		expect(
-			container.querySelector(
-				'a[href="https://account.example/portal"]'
-			).textContent
-		).toBe( 'Open account portal' );
+			container.querySelector( 'button[type="submit"]' ).disabled
+		).toBe( true );
+
+		await act( async () => {
+			resolveRedemption( {
+				configured: true,
+				wallet: { total_usd_micros: 6000000 },
+			} );
+			await Promise.resolve();
+		} );
+
+		expect( input.value ).toBe( '' );
+		expect( container.textContent ).toContain(
+			'Coupon redeemed. Your balance has been updated.'
+		);
+		expect( container.textContent ).toContain( '$6.00' );
+		expect( apiFetch ).toHaveBeenLastCalledWith( {
+			path: '/sd-ai-agent/v1/superdav-account/redeem-coupon',
+			method: 'POST',
+			data: { coupon_code: 'test-coupon-code' },
+		} );
 	} );
 
-	test( 'renders only the generic portal fallback when dedicated URLs are absent', async () => {
-		apiFetch.mockResolvedValue( {
-			configured: true,
-			account_portal_url: 'https://account.example/portal',
-		} );
+	test( 'clears a failed coupon and renders only its stable error message', async () => {
+		apiFetch
+			.mockResolvedValueOnce( { configured: true } )
+			.mockRejectedValueOnce( {
+				code: 'sd_ai_agent_coupon_expired',
+				message: 'test-coupon-code must not be rendered',
+			} );
 
 		await act( async () => {
 			root.render( createElement( SuperdavAccountManager, {} ) );
@@ -185,14 +229,21 @@ describe( 'SuperdavAccountManager', () => {
 			await Promise.resolve();
 		} );
 
-		expect( container.textContent ).not.toContain( 'Add credits' );
+		const input = container.querySelector( 'input' );
+		await setInputValue( input, 'test-coupon-code' );
+		await act( async () => {
+			container
+				.querySelector( '.sd-ai-agent-superdav-coupon-redemption' )
+				.dispatchEvent(
+					new Event( 'submit', { bubbles: true, cancelable: true } )
+				);
+			await Promise.resolve();
+		} );
+
+		expect( input.value ).toBe( '' );
+		expect( container.textContent ).toContain( 'The coupon has expired.' );
 		expect( container.textContent ).not.toContain(
-			'Manage payment methods'
+			'test-coupon-code must not be rendered'
 		);
-		expect(
-			container.querySelector(
-				'a[href="https://account.example/portal"]'
-			).textContent
-		).toBe( 'Open account portal' );
 	} );
 } );

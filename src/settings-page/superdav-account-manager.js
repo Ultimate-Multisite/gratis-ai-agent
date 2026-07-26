@@ -2,7 +2,7 @@
  * WordPress dependencies
  */
 import { useCallback, useEffect, useState } from '@wordpress/element';
-import { Button, Notice, Spinner } from '@wordpress/components';
+import { Button, Notice, Spinner, TextControl } from '@wordpress/components';
 import { __, sprintf } from '@wordpress/i18n';
 import apiFetch from '@wordpress/api-fetch';
 
@@ -81,6 +81,9 @@ export default function SuperdavAccountManager() {
 	const [ account, setAccount ] = useState( null );
 	const [ loading, setLoading ] = useState( true );
 	const [ refreshing, setRefreshing ] = useState( false );
+	const [ couponCode, setCouponCode ] = useState( '' );
+	const [ redeeming, setRedeeming ] = useState( false );
+	const [ redemptionNotice, setRedemptionNotice ] = useState( null );
 	const [ error, setError ] = useState( '' );
 	const [ hasLoadedAccount, setHasLoadedAccount ] = useState( false );
 
@@ -112,6 +115,67 @@ export default function SuperdavAccountManager() {
 			setRefreshing( false );
 		}
 	}, [] );
+
+	const redeemCoupon = useCallback(
+		async ( event ) => {
+			event.preventDefault();
+			const trimmedCode = couponCode.trim();
+			if ( ! trimmedCode || redeeming ) {
+				return;
+			}
+
+			setRedeeming( true );
+			setRedemptionNotice( null );
+
+			try {
+				const result = await apiFetch( {
+					path: '/sd-ai-agent/v1/superdav-account/redeem-coupon',
+					method: 'POST',
+					data: { coupon_code: trimmedCode },
+				} );
+				setAccount( result );
+				setRedemptionNotice( {
+					status: 'success',
+					message: __(
+						'Coupon redeemed. Your balance has been updated.',
+						'superdav-ai-agent'
+					),
+				} );
+			} catch ( err ) {
+				const messages = {
+					sd_ai_agent_coupon_invalid: __(
+						'The coupon is invalid.',
+						'superdav-ai-agent'
+					),
+					sd_ai_agent_coupon_expired: __(
+						'The coupon has expired.',
+						'superdav-ai-agent'
+					),
+					sd_ai_agent_coupon_revoked: __(
+						'The coupon is no longer available.',
+						'superdav-ai-agent'
+					),
+					sd_ai_agent_coupon_not_eligible: __(
+						'The coupon is not eligible for this site.',
+						'superdav-ai-agent'
+					),
+				};
+				setRedemptionNotice( {
+					status: 'error',
+					message:
+						messages[ err?.code ] ||
+						__(
+							'Coupon redemption is temporarily unavailable.',
+							'superdav-ai-agent'
+						),
+				} );
+			} finally {
+				setCouponCode( '' );
+				setRedeeming( false );
+			}
+		},
+		[ couponCode, redeeming ]
+	);
 
 	useEffect( () => {
 		loadAccount();
@@ -247,6 +311,14 @@ export default function SuperdavAccountManager() {
 					{ error }
 				</Notice>
 			) }
+			{ redemptionNotice && (
+				<Notice
+					status={ redemptionNotice.status }
+					isDismissible={ false }
+				>
+					{ redemptionNotice.message }
+				</Notice>
+			) }
 
 			{ hasLoadedAccount &&
 				( ! configured ? (
@@ -309,6 +381,32 @@ export default function SuperdavAccountManager() {
 								</strong>
 							</div>
 						</div>
+
+						<form
+							className="sd-ai-agent-superdav-coupon-redemption"
+							onSubmit={ redeemCoupon }
+						>
+							<TextControl
+								label={ __(
+									'Coupon code',
+									'superdav-ai-agent'
+								) }
+								value={ couponCode }
+								onChange={ setCouponCode }
+								autoComplete="off"
+								disabled={ redeeming }
+								__next40pxDefaultSize
+								__nextHasNoMarginBottom
+							/>
+							<Button
+								variant="secondary"
+								type="submit"
+								isBusy={ redeeming }
+								disabled={ redeeming || ! couponCode.trim() }
+							>
+								{ __( 'Redeem coupon', 'superdav-ai-agent' ) }
+							</Button>
+						</form>
 
 						<section
 							className="sd-ai-agent-superdav-credit-activity"
