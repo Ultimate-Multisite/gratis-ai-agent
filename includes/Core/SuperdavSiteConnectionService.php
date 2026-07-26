@@ -205,7 +205,8 @@ final class SuperdavSiteConnectionService {
 		if ( ! is_string( $body ) ) {
 			return new WP_Error( 'sd_ai_agent_coupon_redemption_unavailable', __( 'Coupon redemption is temporarily unavailable.', 'superdav-ai-agent' ), array( 'status' => 502 ) );
 		}
-		$signature = $this->get_account_coupon_redemption_signature( $body );
+		$path      = wp_parse_url( $endpoint, PHP_URL_PATH );
+		$signature = $this->get_account_coupon_redemption_signature( $body, is_string( $path ) && '' !== $path ? $path : self::ACCOUNT_COUPON_REDEMPTION_PATH );
 		if ( null === $signature ) {
 			return new WP_Error( 'sd_ai_agent_coupon_redemption_unavailable', __( 'Coupon redemption is temporarily unavailable.', 'superdav-ai-agent' ), array( 'status' => 503 ) );
 		}
@@ -451,9 +452,10 @@ final class SuperdavSiteConnectionService {
 	 * WordPress options, sent to the browser, or included in a REST response.
 	 *
 	 * @param string $body Exact JSON body that the service verifies.
+	 * @param string $path Request path resolved from the endpoint URL.
 	 * @return array{timestamp: string, value: string}|null Signature headers, or null when unconfigured.
 	 */
-	private function get_account_coupon_redemption_signature( string $body ): ?array {
+	private function get_account_coupon_redemption_signature( string $body, string $path ): ?array {
 		$secret = defined( 'SD_AI_AGENT_CLOUD_PORTAL_SIGNING_SECRET' ) && is_string( SD_AI_AGENT_CLOUD_PORTAL_SIGNING_SECRET )
 			? SD_AI_AGENT_CLOUD_PORTAL_SIGNING_SECRET
 			: '';
@@ -475,7 +477,7 @@ final class SuperdavSiteConnectionService {
 
 		return array(
 			'timestamp' => $timestamp,
-			'value'     => hash_hmac( 'sha256', $timestamp . '.POST.' . self::ACCOUNT_COUPON_REDEMPTION_PATH . '.' . $body, $secret ),
+			'value'     => hash_hmac( 'sha256', $timestamp . '.POST.' . $path . '.' . $body, $secret ),
 		);
 	}
 

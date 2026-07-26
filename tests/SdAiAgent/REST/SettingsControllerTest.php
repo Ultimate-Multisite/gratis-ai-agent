@@ -364,12 +364,13 @@ final class SettingsControllerTest extends WP_UnitTestCase {
 	/** Coupon redemption signs the documented request and returns only safe refreshed metadata. */
 	public function test_handle_redeem_superdav_coupon_returns_safe_refreshed_wallet(): void {
 		$base_url    = 'https://service.example/v1';
-		$redeem_url  = $base_url . '/portal/account/redeem-coupon';
+		$redeem_url  = 'https://service.example/custom/portal/redeem-coupon';
 		$token       = 'sdaist_coupon_redemption_token';
 		$coupon_code = 'test-coupon-code';
 		$secret      = 'test-portal-signing-secret';
 
 		add_filter( 'sd_ai_agent_cloud_base_url', static fn(): string => $base_url );
+		add_filter( 'sd_ai_agent_cloud_account_coupon_redemption_endpoint', static fn(): string => $redeem_url );
 		add_filter( 'sd_ai_agent_cloud_portal_signing_secret', static fn(): string => $secret );
 		add_filter(
 			'pre_http_request',
@@ -383,7 +384,7 @@ final class SettingsControllerTest extends WP_UnitTestCase {
 				self::assertSame( 'Bearer ' . $token, self::authorization_header_from_args( $parsed_args ) );
 				self::assertSame( $coupon_code, json_decode( $body, true )['coupon_code'] ?? '' );
 				self::assertSame(
-					hash_hmac( 'sha256', $timestamp . '.POST./v1/portal/account/redeem-coupon.' . $body, $secret ),
+					hash_hmac( 'sha256', $timestamp . '.POST./custom/portal/redeem-coupon.' . $body, $secret ),
 					$parsed_args['headers']['X-Superdav-Signature'] ?? ''
 				);
 

@@ -119,7 +119,8 @@ export default function SuperdavAccountManager() {
 	const redeemCoupon = useCallback(
 		async ( event ) => {
 			event.preventDefault();
-			if ( ! couponCode.trim() || redeeming ) {
+			const trimmedCode = couponCode.trim();
+			if ( ! trimmedCode || redeeming ) {
 				return;
 			}
 
@@ -130,7 +131,7 @@ export default function SuperdavAccountManager() {
 				const result = await apiFetch( {
 					path: '/sd-ai-agent/v1/superdav-account/redeem-coupon',
 					method: 'POST',
-					data: { coupon_code: couponCode },
+					data: { coupon_code: trimmedCode },
 				} );
 				setAccount( result );
 				setRedemptionNotice( {

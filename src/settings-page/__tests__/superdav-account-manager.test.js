@@ -180,7 +180,7 @@ describe( 'SuperdavAccountManager', () => {
 		} );
 
 		const input = container.querySelector( 'input' );
-		await setInputValue( input, 'test-coupon-code' );
+		await setInputValue( input, ' test-coupon-code ' );
 		await act( async () => {
 			container
 				.querySelector( '.sd-ai-agent-superdav-coupon-redemption' )
