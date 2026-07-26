@@ -45,6 +45,7 @@ final class SettingsControllerTest extends WP_UnitTestCase {
 		delete_option( SuperdavSiteConnectionService::INSTALLATION_ID_OPTION );
 		delete_option( SuperdavSiteConnectionService::TOKEN_METADATA_OPTION );
 		remove_all_filters( 'sd_ai_agent_cloud_base_url' );
+		remove_all_filters( 'sd_ai_agent_cloud_portal_signing_secret' );
 		remove_all_filters( 'sd_ai_agent_options_read_blocklist' );
 		remove_all_filters( 'pre_http_request' );
 		parent::tear_down();
@@ -358,6 +359,124 @@ final class SettingsControllerTest extends WP_UnitTestCase {
 
 		wp_set_current_user( 0 );
 		$this->assertFalse( SettingsController::check_admin_permission() );
+	}
+
+	/** Coupon redemption signs the documented request and returns only safe refreshed metadata. */
+	public function test_handle_redeem_superdav_coupon_returns_safe_refreshed_wallet(): void {
+		$base_url    = 'https://service.example/v1';
+		$redeem_url  = $base_url . '/portal/account/redeem-coupon';
+		$token       = 'sdaist_coupon_redemption_token';
+		$coupon_code = 'test-coupon-code';
+		$secret      = 'test-portal-signing-secret';
+
+		add_filter( 'sd_ai_agent_cloud_base_url', static fn(): string => $base_url );
+		add_filter( 'sd_ai_agent_cloud_portal_signing_secret', static fn(): string => $secret );
+		add_filter(
+			'pre_http_request',
+			static function ( mixed $preempt, array $parsed_args, string $url ) use ( $redeem_url, $token, $coupon_code, $secret ): mixed {
+				if ( $redeem_url !== $url ) {
+					return $preempt;
+				}
+
+				$body      = (string) ( $parsed_args['body'] ?? '' );
+				$timestamp = (string) ( $parsed_args['headers']['X-Superdav-Timestamp'] ?? '' );
+				self::assertSame( 'Bearer ' . $token, self::authorization_header_from_args( $parsed_args ) );
+				self::assertSame( $coupon_code, json_decode( $body, true )['coupon_code'] ?? '' );
+				self::assertSame(
+					hash_hmac( 'sha256', $timestamp . '.POST./v1/portal/account/redeem-coupon.' . $body, $secret ),
+					$parsed_args['headers']['X-Superdav-Signature'] ?? ''
+				);
+
+				return array(
+					'response' => array( 'code' => 200, 'message' => 'OK' ),
+					'body'     => wp_json_encode(
+						array(
+							'wallet' => array(
+								'currency'         => 'USD',
+								'promo_usd_micros' => 5000000,
+								'cash_usd_micros'  => 1000000,
+								'total_usd_micros' => 6000000,
+								'coupon_code'      => $coupon_code,
+							),
+							'refreshed_at' => '2026-07-26T00:00:00Z',
+							'request_id'   => 'safe-request-id',
+							'raw_payload'  => 'must-not-be-exposed',
+						)
+					),
+				);
+			},
+			10,
+			3
+		);
+
+		update_option( SuperdavAiProvider::CREDENTIAL_OPTION, $token, false );
+		$request = new WP_REST_Request( 'POST', '/sd-ai-agent/v1/superdav-account/redeem-coupon' );
+		$request->set_param( 'coupon_code', $coupon_code );
+		$response = ( new SettingsController( new Settings(), new Database() ) )->handle_redeem_superdav_coupon( $request );
+
+		$this->assertInstanceOf( \WP_REST_Response::class, $response );
+		$this->assertSame( 200, $response->get_status() );
+		$data = $response->get_data();
+		$this->assertSame( 6000000, $data['wallet']['total_usd_micros'] );
+		$this->assertSame( '2026-07-26T00:00:00+00:00', $data['refreshed_at'] );
+		$this->assertStringNotContainsString( $token, wp_json_encode( $data ) ?: '' );
+		$this->assertStringNotContainsString( $coupon_code, wp_json_encode( $data ) ?: '' );
+		$this->assertStringNotContainsString( 'must-not-be-exposed', wp_json_encode( $data ) ?: '' );
+		$this->assertStringNotContainsString( $coupon_code, wp_json_encode( get_option( SuperdavSiteConnectionService::TOKEN_METADATA_OPTION, array() ) ) ?: '' );
+	}
+
+	/** Redemption preserves documented coupon errors and safely collapses unknown failures. */
+	public function test_handle_redeem_superdav_coupon_handles_service_errors_without_disclosure(): void {
+		$base_url   = 'https://service.example/v1';
+		$redeem_url = $base_url . '/portal/account/redeem-coupon';
+		$responses  = array(
+			array( 'code' => 404, 'error' => 'coupon_invalid', 'expected' => 'sd_ai_agent_coupon_invalid' ),
+			array( 'code' => 410, 'error' => 'coupon_expired', 'expected' => 'sd_ai_agent_coupon_expired' ),
+			array( 'code' => 410, 'error' => 'coupon_revoked', 'expected' => 'sd_ai_agent_coupon_revoked' ),
+			array( 'code' => 403, 'error' => 'coupon_not_eligible', 'expected' => 'sd_ai_agent_coupon_not_eligible' ),
+			array( 'code' => 503, 'error' => 'upstream-internal-code', 'expected' => 'sd_ai_agent_coupon_redemption_unavailable' ),
+		);
+		$response_index = 0;
+
+		add_filter( 'sd_ai_agent_cloud_base_url', static fn(): string => $base_url );
+		add_filter( 'sd_ai_agent_cloud_portal_signing_secret', static fn(): string => 'test-portal-signing-secret' );
+		add_filter(
+			'pre_http_request',
+			static function ( mixed $preempt, array $parsed_args, string $url ) use ( $redeem_url, $responses, &$response_index ): mixed {
+				if ( $redeem_url !== $url ) {
+					return $preempt;
+				}
+
+				$current = $responses[ $response_index++ ];
+
+				return array(
+					'response' => array( 'code' => $current['code'], 'message' => 'Error' ),
+					'body'     => wp_json_encode( array( 'error' => array( 'code' => $current['error'], 'message' => 'must-not-be-exposed' ) ) ),
+				);
+			},
+			10,
+			3
+		);
+
+		update_option( SuperdavAiProvider::CREDENTIAL_OPTION, 'sdaist_coupon_error_token', false );
+		$controller = new SettingsController( new Settings(), new Database() );
+		foreach ( $responses as $expected ) {
+			$request = new WP_REST_Request( 'POST', '/sd-ai-agent/v1/superdav-account/redeem-coupon' );
+			$request->set_param( 'coupon_code', 'test-coupon-code' );
+			$response = $controller->handle_redeem_superdav_coupon( $request );
+
+			$this->assertInstanceOf( \WP_Error::class, $response );
+			$this->assertSame( $expected['expected'], $response->get_error_code() );
+			$this->assertStringNotContainsString( 'must-not-be-exposed', $response->get_error_message() );
+		}
+	}
+
+	/** Redemption rejects absent input locally without sending a service request. */
+	public function test_handle_redeem_superdav_coupon_requires_a_code(): void {
+		$response = ( new SettingsController( new Settings(), new Database() ) )->handle_redeem_superdav_coupon( new WP_REST_Request( 'POST', '/sd-ai-agent/v1/superdav-account/redeem-coupon' ) );
+
+		$this->assertInstanceOf( \WP_Error::class, $response );
+		$this->assertSame( 'sd_ai_agent_coupon_code_required', $response->get_error_code() );
 	}
 
 	/** Account action URLs containing centrally blocked query keys are not exposed. */

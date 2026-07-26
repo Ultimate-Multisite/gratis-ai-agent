@@ -147,6 +147,23 @@ final class SettingsController {
 			)
 		);
 
+		register_rest_route(
+			RestController::NAMESPACE,
+			'/superdav-account/redeem-coupon',
+			array(
+				'methods'             => WP_REST_Server::CREATABLE,
+				'callback'            => array( $this, 'handle_redeem_superdav_coupon' ),
+				'permission_callback' => array( __CLASS__, 'check_admin_permission' ),
+				'args'                => array(
+					'coupon_code' => array(
+						'required'          => true,
+						'type'              => 'string',
+						'validate_callback' => static fn( mixed $value ): bool => is_string( $value ) && '' !== trim( $value ),
+					),
+				),
+			)
+		);
+
 		// Role permissions endpoints — only registered when access control feature is enabled.
 		if ( Features::is_enabled( Features::ACCESS_CONTROL ) ) {
 			register_rest_route(
@@ -534,6 +551,23 @@ final class SettingsController {
 	 */
 	public function handle_refresh_superdav_account(): WP_REST_Response|WP_Error {
 		$status = ( new SuperdavSiteConnectionService() )->refresh_account_status();
+		if ( $status instanceof WP_Error ) {
+			return $status;
+		}
+
+		return new WP_REST_Response( $status, 200 );
+	}
+
+	/**
+	 * Redeem an opaque Superdav coupon and return the refreshed safe status.
+	 */
+	public function handle_redeem_superdav_coupon( WP_REST_Request $request ): WP_REST_Response|WP_Error {
+		$coupon_code = $request->get_param( 'coupon_code' );
+		if ( ! is_string( $coupon_code ) || '' === trim( $coupon_code ) ) {
+			return new WP_Error( 'sd_ai_agent_coupon_code_required', __( 'Enter a coupon code.', 'superdav-ai-agent' ), array( 'status' => 400 ) );
+		}
+
+		$status = ( new SuperdavSiteConnectionService() )->redeem_coupon( $coupon_code );
 		if ( $status instanceof WP_Error ) {
 			return $status;
 		}

@@ -26,9 +26,11 @@ final class SuperdavSiteConnectionService {
 	public const INSTALLATION_ID_OPTION = 'sd_ai_agent_site_installation_id';
 	public const TOKEN_METADATA_OPTION  = 'sd_ai_agent_cloud_connection_metadata';
 
-	private const REGISTRATION_ENDPOINT_PATH   = 'site/installations';
-	private const REVOCATION_ENDPOINT_PATH     = 'site/token/revoke';
-	private const ACCOUNT_STATUS_ENDPOINT_PATH = 'site/account';
+	private const REGISTRATION_ENDPOINT_PATH              = 'site/installations';
+	private const REVOCATION_ENDPOINT_PATH                = 'site/token/revoke';
+	private const ACCOUNT_STATUS_ENDPOINT_PATH            = 'site/account';
+	private const ACCOUNT_COUPON_REDEMPTION_ENDPOINT_PATH = 'portal/account/redeem-coupon';
+	private const ACCOUNT_COUPON_REDEMPTION_PATH          = '/v1/portal/account/redeem-coupon';
 
 	/**
 	 * Maximum number of newest-first credit activity rows retained for display.
@@ -76,7 +78,7 @@ final class SuperdavSiteConnectionService {
 			'payment_methods_url'       => $payment_methods_url,
 		);
 
-		foreach ( array( 'tier', 'verified', 'request_id', 'connection_notice_pending' ) as $key ) {
+		foreach ( array( 'tier', 'verified', 'request_id', 'refreshed_at', 'connection_notice_pending' ) as $key ) {
 			if ( array_key_exists( $key, $metadata ) && ( is_scalar( $metadata[ $key ] ) || null === $metadata[ $key ] ) ) {
 				$status[ $key ] = $metadata[ $key ];
 			}
@@ -167,6 +169,77 @@ final class SuperdavSiteConnectionService {
 			$metadata['wallet'],
 			$metadata['credit_activity']
 		);
+		$metadata = array_merge( $metadata, $this->sanitize_remote_metadata( $body ) );
+		update_option( self::TOKEN_METADATA_OPTION, $metadata, false );
+
+		return $this->get_status();
+	}
+
+	/**
+	 * Redeem an opaque coupon through the managed Superdav service.
+	 *
+	 * Coupon validation, retry semantics, and entitlement records remain
+	 * service-authoritative. WordPress sends the code only in this request body
+	 * and persists only the service's safe refreshed account metadata.
+	 *
+	 * @param string $coupon_code Opaque coupon supplied by an administrator.
+	 * @return array<string, mixed>|WP_Error Safe account status or redemption error.
+	 */
+	public function redeem_coupon( string $coupon_code ): array|WP_Error {
+		$token = $this->get_stored_token();
+		if ( '' === $token ) {
+			return new WP_Error( 'sd_ai_agent_cloud_account_unavailable', __( 'Connect Superdav AI before redeeming a coupon.', 'superdav-ai-agent' ), array( 'status' => 412 ) );
+		}
+
+		$endpoint = $this->get_account_coupon_redemption_endpoint();
+		if ( '' === $endpoint ) {
+			return new WP_Error( 'sd_ai_agent_coupon_redemption_unavailable', __( 'Coupon redemption is temporarily unavailable.', 'superdav-ai-agent' ), array( 'status' => 503 ) );
+		}
+
+		$body = wp_json_encode(
+			array(
+				'installation_id' => $this->get_installation_id(),
+				'coupon_code'     => $coupon_code,
+			)
+		);
+		if ( ! is_string( $body ) ) {
+			return new WP_Error( 'sd_ai_agent_coupon_redemption_unavailable', __( 'Coupon redemption is temporarily unavailable.', 'superdav-ai-agent' ), array( 'status' => 502 ) );
+		}
+		$signature = $this->get_account_coupon_redemption_signature( $body );
+		if ( null === $signature ) {
+			return new WP_Error( 'sd_ai_agent_coupon_redemption_unavailable', __( 'Coupon redemption is temporarily unavailable.', 'superdav-ai-agent' ), array( 'status' => 503 ) );
+		}
+
+		$response = wp_remote_post(
+			$endpoint,
+			array(
+				'timeout' => 15,
+				'headers' => array(
+					'Authorization'        => 'Bearer ' . $token,
+					'Content-Type'         => 'application/json',
+					'X-Superdav-Timestamp' => $signature['timestamp'],
+					'X-Superdav-Signature' => $signature['value'],
+				),
+				'body'    => $body,
+			)
+		);
+
+		if ( is_wp_error( $response ) ) {
+			return new WP_Error( 'sd_ai_agent_coupon_redemption_unavailable', __( 'Coupon redemption is temporarily unavailable.', 'superdav-ai-agent' ), array( 'status' => 502 ) );
+		}
+
+		$status_code = (int) wp_remote_retrieve_response_code( $response );
+		$body        = json_decode( wp_remote_retrieve_body( $response ), true );
+		if ( $status_code < 200 || $status_code >= 300 ) {
+			return $this->coupon_redemption_error( $body, $status_code );
+		}
+
+		if ( ! is_array( $body ) || ! isset( $body['wallet'] ) || ! is_array( $body['wallet'] ) ) {
+			return new WP_Error( 'sd_ai_agent_coupon_redemption_unavailable', __( 'Coupon redemption is temporarily unavailable.', 'superdav-ai-agent' ), array( 'status' => 502 ) );
+		}
+
+		$metadata = $this->get_metadata();
+		unset( $metadata['wallet'], $metadata['credit_activity'], $metadata['refreshed_at'], $metadata['request_id'] );
 		$metadata = array_merge( $metadata, $this->sanitize_remote_metadata( $body ) );
 		update_option( self::TOKEN_METADATA_OPTION, $metadata, false );
 
@@ -353,6 +426,60 @@ final class SuperdavSiteConnectionService {
 	}
 
 	/**
+	 * Resolve the documented managed-service coupon redemption endpoint.
+	 */
+	private function get_account_coupon_redemption_endpoint(): string {
+		$endpoint = $this->configured_endpoint( 'SD_AI_AGENT_CLOUD_ACCOUNT_COUPON_REDEMPTION_ENDPOINT', self::ACCOUNT_COUPON_REDEMPTION_ENDPOINT_PATH );
+
+		/**
+		 * Filters the server-to-server Superdav coupon redemption endpoint.
+		 *
+		 * The endpoint must not include credentials or expose the opaque coupon to
+		 * a browser. The managed service owns redemption idempotency.
+		 *
+		 * @param string $endpoint Coupon-redemption endpoint URL.
+		 */
+		$endpoint = apply_filters( 'sd_ai_agent_cloud_account_coupon_redemption_endpoint', $endpoint );
+
+		return is_string( $endpoint ) ? esc_url_raw( $endpoint ) : '';
+	}
+
+	/**
+	 * Create the HMAC headers required by the managed portal redemption contract.
+	 *
+	 * The shared secret is deployment configuration only; it is never stored in
+	 * WordPress options, sent to the browser, or included in a REST response.
+	 *
+	 * @param string $body Exact JSON body that the service verifies.
+	 * @return array{timestamp: string, value: string}|null Signature headers, or null when unconfigured.
+	 */
+	private function get_account_coupon_redemption_signature( string $body ): ?array {
+		$secret = defined( 'SD_AI_AGENT_CLOUD_PORTAL_SIGNING_SECRET' ) && is_string( SD_AI_AGENT_CLOUD_PORTAL_SIGNING_SECRET )
+			? SD_AI_AGENT_CLOUD_PORTAL_SIGNING_SECRET
+			: '';
+
+		/**
+		 * Filters the deployment-only secret used to sign coupon redemptions.
+		 *
+		 * The service verifies HMAC-SHA256 over timestamp, method, path, and the
+		 * exact JSON request body. Return an empty string to disable redemption.
+		 *
+		 * @param string $secret Portal signing secret.
+		 */
+		$secret = apply_filters( 'sd_ai_agent_cloud_portal_signing_secret', $secret );
+		if ( ! is_string( $secret ) || '' === $secret ) {
+			return null;
+		}
+
+		$timestamp = gmdate( 'c' );
+
+		return array(
+			'timestamp' => $timestamp,
+			'value'     => hash_hmac( 'sha256', $timestamp . '.POST.' . self::ACCOUNT_COUPON_REDEMPTION_PATH . '.' . $body, $secret ),
+		);
+	}
+
+	/**
 	 * Request a token from a configured cloud registration endpoint.
 	 *
 	 * @return array{token: string, metadata: array<string, mixed>}|string|WP_Error Token registration, empty string when no endpoint is configured, or error.
@@ -520,6 +647,7 @@ final class SuperdavSiteConnectionService {
 			'connect_required',
 			'request_id',
 			'account_portal_url',
+			'refreshed_at',
 			'purchase_credits_url',
 			'payment_methods_url',
 		);
@@ -539,6 +667,15 @@ final class SuperdavSiteConnectionService {
 				} else {
 					$safe[ $key ] = $url;
 				}
+			}
+		}
+
+		if ( isset( $safe['refreshed_at'] ) ) {
+			$refreshed_at = $this->sanitize_credit_activity_timestamp( $safe['refreshed_at'] );
+			if ( null === $refreshed_at ) {
+				unset( $safe['refreshed_at'] );
+			} else {
+				$safe['refreshed_at'] = $refreshed_at;
 			}
 		}
 
@@ -663,6 +800,31 @@ final class SuperdavSiteConnectionService {
 				)
 			)
 		);
+	}
+
+	/**
+	 * Convert only documented public coupon errors to actionable safe messages.
+	 *
+	 * @param mixed $body        Decoded service response.
+	 * @param int   $status_code Service response status.
+	 */
+	private function coupon_redemption_error( mixed $body, int $status_code ): WP_Error {
+		$code   = is_array( $body ) && isset( $body['error'] ) && is_array( $body['error'] ) && isset( $body['error']['code'] ) && is_string( $body['error']['code'] )
+			? $body['error']['code']
+			: '';
+		$errors = array(
+			'coupon_invalid'                => __( 'The coupon is invalid.', 'superdav-ai-agent' ),
+			'coupon_expired'                => __( 'The coupon has expired.', 'superdav-ai-agent' ),
+			'coupon_revoked'                => __( 'The coupon is no longer available.', 'superdav-ai-agent' ),
+			'coupon_not_eligible'           => __( 'The coupon is not eligible for this site.', 'superdav-ai-agent' ),
+			'coupon_redemption_unavailable' => __( 'Coupon redemption is temporarily unavailable.', 'superdav-ai-agent' ),
+		);
+
+		if ( isset( $errors[ $code ] ) ) {
+			return new WP_Error( 'sd_ai_agent_' . $code, $errors[ $code ], array( 'status' => $status_code ) );
+		}
+
+		return new WP_Error( 'sd_ai_agent_coupon_redemption_unavailable', __( 'Coupon redemption is temporarily unavailable.', 'superdav-ai-agent' ), array( 'status' => $status_code >= 500 ? 502 : 503 ) );
 	}
 
 	/**
