@@ -46,6 +46,27 @@ class Agent {
 	public const THEME_BUILDER_AGENT_SLUG = 'theme-builder';
 
 	/**
+	 * Setup Assistant tools that must stay directly callable for first-run flows.
+	 *
+	 * Built-in agent rows are seeded once and may keep an older stored tool list,
+	 * so the runtime also appends this set in get_loop_options(). These abilities
+	 * are common immediate follow-ups after the homepage is created: navigation
+	 * finishing plus read-only URL/loopback verification. Keeping them in Tier 1
+	 * avoids an `ability_not_allowed` recovery turn when a model calls a discovered
+	 * ability directly instead of routing through `sd-ai-agent/ability-call`.
+	 *
+	 * @var list<string>
+	 */
+	private const ONBOARDING_REQUIRED_TIER_1_TOOLS = array(
+		'sd-ai-agent/create-menu',
+		'sd-ai-agent/add-menu-item',
+		'sd-ai-agent/list-menus',
+		'sd-ai-agent/assign-menu-location',
+		'sd-ai-agent/site-loopback-check',
+		'sd-ai-agent/fetch-url',
+	);
+
+	/**
 	 * Get the agents table name.
 	 */
 	public static function table_name(): string {
@@ -551,9 +572,14 @@ class Agent {
 			// the safer dedicated discovery tools.
 			if ( self::ONBOARDING_AGENT_SLUG === $agent->slug && $agent->is_builtin ) {
 				$tier_1_tools = array_values(
-					array_filter(
-						$tier_1_tools,
-						static fn( string $tool ): bool => 'wp-cli/execute' !== $tool
+					array_unique(
+						array_merge(
+							array_filter(
+								$tier_1_tools,
+								static fn( string $tool ): bool => 'wp-cli/execute' !== $tool
+							),
+							self::ONBOARDING_REQUIRED_TIER_1_TOOLS
+						)
 					)
 				);
 			}
@@ -814,6 +840,9 @@ class Agent {
 						'sd-ai-agent/list-posts',
 						'sd-ai-agent/get-plugins',
 						'sd-ai-agent/get-themes',
+						// Navigation finishing and verification are common first-run
+						// follow-ups; keep them direct so setup can complete in one pass.
+						...self::ONBOARDING_REQUIRED_TIER_1_TOOLS,
 						// Use a dedicated, confirmation-aware ability instead of the
 						// broad WP-CLI dispatcher when setup needs WooCommerce.
 						'sd-ai-agent/install-plugin',
