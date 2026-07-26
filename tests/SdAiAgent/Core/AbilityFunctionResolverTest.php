@@ -188,6 +188,8 @@ class AbilityFunctionResolverTest extends WP_UnitTestCase {
 		$this->assertSame( 400, $payload['details']['status'] );
 		$this->assertSame( 0, $payload['details']['errors'][0]['index'] );
 		$this->assertSame( 'block_not_found', $payload['details']['errors'][0]['code'] );
+		$this->assertArrayHasKey( 'message', $payload['details']['errors'][0] );
+		$this->assertNotEmpty( $payload['details']['errors'][0]['message'] );
 		$this->assertSame( 'update-attrs', $payload['details']['errors'][0]['op'] );
 		$this->assertSame( 'blk_missing', $payload['details']['errors'][0]['ref'] );
 		$this->assertArrayNotHasKey( 'attributes', $payload['details']['errors'][0] );
