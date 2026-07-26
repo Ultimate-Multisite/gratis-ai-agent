@@ -764,6 +764,8 @@ describe( 'actions', () => {
 			.mockRejectedValueOnce( new Error( 'Session unavailable' ) );
 		const dispatch = {
 			appendMessage: jest.fn(),
+			setPendingConfirmation: jest.fn(),
+			setPendingActionCard: jest.fn(),
 			setStreamError: jest.fn(),
 			setSending: jest.fn(),
 			setLiveToolCalls: jest.fn(),
@@ -794,6 +796,8 @@ describe( 'actions', () => {
 			2,
 			expect.objectContaining( { role: 'system' } )
 		);
+		expect( dispatch.setPendingConfirmation ).toHaveBeenCalledWith( null );
+		expect( dispatch.setPendingActionCard ).toHaveBeenCalledWith( null );
 	} );
 
 	test( 'pollJob preserves a recoverable error as a resume action card', async () => {

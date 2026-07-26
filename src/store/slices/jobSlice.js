@@ -9,7 +9,10 @@ import apiFetch from '@wordpress/api-fetch';
 import { __ } from '@wordpress/i18n';
 import { onVisibilityChange } from '../../utils/visibility-manager';
 import { setActiveJob, clearActiveJob } from '../../utils/active-jobs-storage';
-import { notifyConfirmationNeeded } from '../../utils/notification-manager';
+import {
+	clearNotification,
+	notifyConfirmationNeeded,
+} from '../../utils/notification-manager';
 import { playDing, playDong, playThinking } from '../../utils/sound-manager';
 import { executeClientAbility } from '../../abilities/registry';
 import { emitReflectionEvents } from '../reflection-emitter';
@@ -796,6 +799,16 @@ export const actions = {
 					}
 
 					if ( result.status === 'error' ) {
+						// A job can fail while a confirmation card is still visible
+						// (for example when a provider credit limit is reached after a
+						// previous tool call). Clear the card before rendering the
+						// terminal error so the UI cannot submit a confirmation for a
+						// job that has already been closed.
+						if ( select.getCurrentSessionId() === sessionId ) {
+							dispatch.setPendingConfirmation?.( null );
+							dispatch.setPendingActionCard?.( null );
+							clearNotification( jobId );
+						}
 						const rawErrorMessage =
 							result.message ||
 							__( 'Unknown error', 'superdav-ai-agent' );
@@ -1085,6 +1098,9 @@ export const actions = {
 						unsubscribeVisibility();
 						clearActiveJob( sessionId );
 						if ( select.getCurrentSessionId() === sessionId ) {
+							dispatch.setPendingConfirmation?.( null );
+							dispatch.setPendingActionCard?.( null );
+							clearNotification( jobId );
 							if ( reloadFailed ) {
 								dispatch.appendMessage( {
 									role: 'system',
