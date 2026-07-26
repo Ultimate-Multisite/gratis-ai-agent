@@ -162,7 +162,8 @@ describe( 'SuperdavAccountManager', () => {
 		apiFetch.mockResolvedValueOnce( {
 			configured: true,
 			purchase_credits_url: 'https://account.example/credits/purchase',
-			payment_methods_url: 'https://account.example/billing/payment-methods',
+			payment_methods_url:
+				'https://account.example/billing/payment-methods',
 		} );
 
 		await act( async () => {
@@ -173,7 +174,9 @@ describe( 'SuperdavAccountManager', () => {
 		} );
 
 		expect(
-			container.querySelector( 'a[href="https://account.example/credits/purchase"]' )
+			container.querySelector(
+				'a[href="https://account.example/credits/purchase"]'
+			)
 		).not.toBeNull();
 		expect(
 			container.querySelector(

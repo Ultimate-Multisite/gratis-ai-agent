@@ -217,13 +217,13 @@ final class SuperdavSiteConnectionService {
 			array(
 				'timeout'     => 15,
 				'redirection' => 0,
-				'headers' => array(
+				'headers'     => array(
 					'Authorization'        => 'Bearer ' . $token,
 					'Content-Type'         => 'application/json',
 					'X-Superdav-Timestamp' => $signature['timestamp'],
 					'X-Superdav-Signature' => $signature['value'],
 				),
-				'body'    => $body,
+				'body'        => $body,
 			)
 		);
 
