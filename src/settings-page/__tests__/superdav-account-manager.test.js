@@ -139,4 +139,60 @@ describe( 'SuperdavAccountManager', () => {
 			'No recent credit activity is available.'
 		);
 	} );
+
+	test( 'uses dedicated service URLs for credit and payment actions', async () => {
+		apiFetch.mockResolvedValue( {
+			configured: true,
+			account_portal_url: 'https://account.example/portal',
+			purchase_credits_url: 'https://account.example/credits',
+			payment_methods_url: 'https://account.example/payment-methods',
+		} );
+
+		await act( async () => {
+			root.render( createElement( SuperdavAccountManager, {} ) );
+		} );
+		await act( async () => {
+			await Promise.resolve();
+		} );
+
+		expect(
+			container.querySelector(
+				'a[href="https://account.example/credits"]'
+			).textContent
+		).toBe( 'Add credits' );
+		expect(
+			container.querySelector(
+				'a[href="https://account.example/payment-methods"]'
+			).textContent
+		).toBe( 'Manage payment methods' );
+		expect(
+			container.querySelector(
+				'a[href="https://account.example/portal"]'
+			).textContent
+		).toBe( 'Open account portal' );
+	} );
+
+	test( 'renders only the generic portal fallback when dedicated URLs are absent', async () => {
+		apiFetch.mockResolvedValue( {
+			configured: true,
+			account_portal_url: 'https://account.example/portal',
+		} );
+
+		await act( async () => {
+			root.render( createElement( SuperdavAccountManager, {} ) );
+		} );
+		await act( async () => {
+			await Promise.resolve();
+		} );
+
+		expect( container.textContent ).not.toContain( 'Add credits' );
+		expect( container.textContent ).not.toContain(
+			'Manage payment methods'
+		);
+		expect(
+			container.querySelector(
+				'a[href="https://account.example/portal"]'
+			).textContent
+		).toBe( 'Open account portal' );
+	} );
 } );

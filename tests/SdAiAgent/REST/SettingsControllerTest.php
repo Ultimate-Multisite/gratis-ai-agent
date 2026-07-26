@@ -271,8 +271,10 @@ final class SettingsControllerTest extends WP_UnitTestCase {
 					),
 					'body'     => wp_json_encode(
 						array(
-							'tier'               => 'pro',
-							'account_portal_url' => 'https://account.example/billing',
+							'tier'                 => 'pro',
+							'account_portal_url'   => 'https://account.example/billing',
+							'purchase_credits_url' => 'https://account.example/credits/purchase',
+							'payment_methods_url'  => 'https://account.example/billing/payment-methods',
 							'wallet'             => array(
 								'currency'         => 'USD',
 								'promo_usd_micros' => 2500000,
@@ -333,6 +335,8 @@ final class SettingsControllerTest extends WP_UnitTestCase {
 		$data = $response->get_data();
 		$this->assertSame( 15000000, $data['wallet']['total_usd_micros'] );
 		$this->assertSame( 'https://account.example/billing', $data['account_portal_url'] );
+		$this->assertSame( 'https://account.example/credits/purchase', $data['purchase_credits_url'] );
+		$this->assertSame( 'https://account.example/billing/payment-methods', $data['payment_methods_url'] );
 		$this->assertSame( '2026-07-16T00:00:00+00:00', $data['connected_at'] );
 		$this->assertSame( wp_timezone_string(), $data['site_timezone'] );
 		$this->assertCount( 2, $data['credit_activity'] );
@@ -356,20 +360,12 @@ final class SettingsControllerTest extends WP_UnitTestCase {
 		$this->assertFalse( SettingsController::check_admin_permission() );
 	}
 
-	/** Account portal URLs containing centrally blocked query keys are not exposed. */
-	public function test_handle_refresh_superdav_account_rejects_secret_portal_query(): void {
+	/** Account action URLs containing centrally blocked query keys are not exposed. */
+	public function test_handle_refresh_superdav_account_rejects_secret_action_queries(): void {
 		$base_url    = 'https://service.example/v1';
 		$account_url = $base_url . '/site/account';
 
 		add_filter( 'sd_ai_agent_cloud_base_url', static fn(): string => $base_url );
-		add_filter(
-			'sd_ai_agent_options_read_blocklist',
-			static function ( array $blocklist ): array {
-				$blocklist[] = 'access_token';
-
-				return $blocklist;
-			}
-		);
 		add_filter(
 			'pre_http_request',
 			static function ( mixed $preempt, array $parsed_args, string $url ) use ( $account_url ): mixed {
@@ -384,7 +380,9 @@ final class SettingsControllerTest extends WP_UnitTestCase {
 					),
 					'body'     => wp_json_encode(
 						array(
-							'account_portal_url' => 'https://account.example/billing?access_token=must-not-be-exposed',
+							'account_portal_url'   => 'https://account.example/billing?access_token=must-not-be-exposed',
+							'purchase_credits_url' => 'https://account.example/credits?access_token=must-not-be-exposed',
+							'payment_methods_url'  => 'https://account.example/payment-methods?api_key=must-not-be-exposed',
 						)
 					),
 				);
@@ -400,6 +398,8 @@ final class SettingsControllerTest extends WP_UnitTestCase {
 		$this->assertSame( 200, $response->get_status() );
 		$data = $response->get_data();
 		$this->assertSame( '', $data['account_portal_url'] );
+		$this->assertSame( '', $data['purchase_credits_url'] );
+		$this->assertSame( '', $data['payment_methods_url'] );
 		$this->assertStringNotContainsString( 'must-not-be-exposed', wp_json_encode( $data ) ?: '' );
 		$this->assertStringNotContainsString(
 			'must-not-be-exposed',
