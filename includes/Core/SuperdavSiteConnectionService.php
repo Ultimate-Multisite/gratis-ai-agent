@@ -163,6 +163,7 @@ final class SuperdavSiteConnectionService {
 			$metadata['verified'],
 			$metadata['connect_required'],
 			$metadata['request_id'],
+			$metadata['refreshed_at'],
 			$metadata['account_portal_url'],
 			$metadata['usage'],
 			$metadata['verification'],
@@ -214,14 +215,15 @@ final class SuperdavSiteConnectionService {
 		$response = wp_remote_post(
 			$endpoint,
 			array(
-				'timeout' => 15,
-				'headers' => array(
+				'timeout'     => 15,
+				'redirection' => 0,
+				'headers'     => array(
 					'Authorization'        => 'Bearer ' . $token,
 					'Content-Type'         => 'application/json',
 					'X-Superdav-Timestamp' => $signature['timestamp'],
 					'X-Superdav-Signature' => $signature['value'],
 				),
-				'body'    => $body,
+				'body'        => $body,
 			)
 		);
 
@@ -231,6 +233,10 @@ final class SuperdavSiteConnectionService {
 
 		$status_code = (int) wp_remote_retrieve_response_code( $response );
 		$body        = json_decode( wp_remote_retrieve_body( $response ), true );
+		if ( $status_code >= 300 && $status_code < 400 ) {
+			return new WP_Error( 'sd_ai_agent_coupon_redemption_unavailable', __( 'Coupon redemption is temporarily unavailable.', 'superdav-ai-agent' ), array( 'status' => 503 ) );
+		}
+
 		if ( $status_code < 200 || $status_code >= 300 ) {
 			return $this->coupon_redemption_error( $body, $status_code );
 		}
@@ -243,6 +249,9 @@ final class SuperdavSiteConnectionService {
 		unset( $metadata['wallet'], $metadata['credit_activity'], $metadata['refreshed_at'], $metadata['request_id'] );
 		$metadata = array_merge( $metadata, $this->sanitize_remote_metadata( $body ) );
 		update_option( self::TOKEN_METADATA_OPTION, $metadata, false );
+		if ( $this->get_metadata() !== $metadata ) {
+			return new WP_Error( 'sd_ai_agent_coupon_redemption_persistence_failed', __( 'Coupon was redeemed, but your account balance could not be refreshed.', 'superdav-ai-agent' ), array( 'status' => 502 ) );
+		}
 
 		return $this->get_status();
 	}
@@ -442,7 +451,7 @@ final class SuperdavSiteConnectionService {
 		 */
 		$endpoint = apply_filters( 'sd_ai_agent_cloud_account_coupon_redemption_endpoint', $endpoint );
 
-		return is_string( $endpoint ) ? esc_url_raw( $endpoint ) : '';
+		return $this->sanitize_account_url( $endpoint );
 	}
 
 	/**
@@ -719,8 +728,10 @@ final class SuperdavSiteConnectionService {
 		$url    = is_string( $url ) ? esc_url_raw( $url ) : '';
 		$scheme = wp_parse_url( $url, PHP_URL_SCHEME );
 		$host   = wp_parse_url( $url, PHP_URL_HOST );
+		$user   = wp_parse_url( $url, PHP_URL_USER );
+		$pass   = wp_parse_url( $url, PHP_URL_PASS );
 
-		if ( '' === $url || 'https' !== $scheme || ! is_string( $host ) || '' === $host ) {
+		if ( '' === $url || 'https' !== $scheme || ! is_string( $host ) || '' === $host || ( is_string( $user ) && '' !== $user ) || ( is_string( $pass ) && '' !== $pass ) ) {
 			return '';
 		}
 

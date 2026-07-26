@@ -158,6 +158,33 @@ describe( 'SuperdavAccountManager', () => {
 		);
 	} );
 
+	test( 'renders dedicated billing actions with their service-issued URLs', async () => {
+		apiFetch.mockResolvedValueOnce( {
+			configured: true,
+			purchase_credits_url: 'https://account.example/credits/purchase',
+			payment_methods_url:
+				'https://account.example/billing/payment-methods',
+		} );
+
+		await act( async () => {
+			root.render( createElement( SuperdavAccountManager, {} ) );
+		} );
+		await act( async () => {
+			await Promise.resolve();
+		} );
+
+		expect(
+			container.querySelector(
+				'a[href="https://account.example/credits/purchase"]'
+			)
+		).not.toBeNull();
+		expect(
+			container.querySelector(
+				'a[href="https://account.example/billing/payment-methods"]'
+			)
+		).not.toBeNull();
+	} );
+
 	test( 'redeems a coupon, disables submission while pending, and updates the balance', async () => {
 		let resolveRedemption;
 		apiFetch
