@@ -22,7 +22,11 @@ import STORE_NAME from '../../store';
 import RecoverableJobActionCard from '../recoverable-job-action-card';
 import FeedbackConsentModal from '../feedback-consent-modal';
 import useTextToSpeech from '../use-text-to-speech';
-import { extractText, getRunningToolName } from './message-helpers';
+import {
+	extractText,
+	getFriendlyToolLabel,
+	getRunningToolName,
+} from './message-helpers';
 import AccountActionSystemMessage from './account-action-system-message';
 import {
 	buildSuperdavCreditNoticeMessage,
@@ -56,8 +60,10 @@ export default function MessageList() {
 		hasStreamError,
 		pendingActionCard,
 		providers,
+		showToolCallDetails,
 	} = useSelect( ( sel ) => {
 		const store = sel( STORE_NAME );
+		const settings = store.getSettings();
 		return {
 			messages: store.getCurrentSessionMessages(),
 			sending: store.isSending(),
@@ -65,7 +71,7 @@ export default function MessageList() {
 			liveToolCalls: store.getLiveToolCalls(),
 			sessionJobs: store.getSessionJobs(),
 			greeting:
-				store.getSettings()?.greeting_message ||
+				settings?.greeting_message ||
 				__(
 					'Ask the agent to make a change, write a post, or audit your site.',
 					'sd-ai-agent'
@@ -77,6 +83,7 @@ export default function MessageList() {
 			hasStreamError: store.hasStreamError(),
 			pendingActionCard: store.getPendingActionCard(),
 			providers: store.getProviders(),
+			showToolCallDetails: settings?.show_tool_call_details === true,
 		};
 	}, [] );
 
@@ -255,8 +262,8 @@ export default function MessageList() {
 
 	const runningToolName = getRunningToolName( runningToolCalls );
 	const runningStep = runningToolName
-		? `${ __( 'Running', 'sd-ai-agent' ) } ${ runningToolName }…`
-		: __( 'Composing reply…', 'sd-ai-agent' );
+		? `${ getFriendlyToolLabel( runningToolName ) }…`
+		: __( 'Composing reply…', 'superdav-ai-agent' );
 
 	// ── Render ────────────────────────────────────────────────────────────────
 
@@ -325,6 +332,7 @@ export default function MessageList() {
 						<RunningMessage
 							step={ runningStep }
 							liveToolCalls={ runningToolCalls }
+							showToolCallDetails={ showToolCallDetails }
 						/>
 					) }
 

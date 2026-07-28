@@ -29,6 +29,7 @@ jest.mock( '../../chat-redesign/message-items', () => ( {
 } ) );
 jest.mock( '../../chat-redesign/message-helpers', () => ( {
 	extractText: ( message ) => message.parts?.[ 0 ]?.text || '',
+	getFriendlyToolLabel: () => 'Working',
 	getRunningToolName: () => '',
 } ) );
 
@@ -54,6 +55,7 @@ async function renderCreditExhaustionMessage() {
 		getCurrentSessionId: () => 123,
 		getLiveToolCalls: () => [],
 		getSessionJobs: () => ( {} ),
+		getSettings: () => ( {} ),
 		hasStreamError: () => false,
 		getProviders: () => [
 			{
@@ -126,6 +128,7 @@ describe( 'WidgetMessageList recoverable-job action card', () => {
 			getCurrentSessionId: () => 123,
 			getLiveToolCalls: () => [],
 			getSessionJobs: () => ( {} ),
+			getSettings: () => ( {} ),
 			hasStreamError: () => true,
 			getProviders: () => [],
 		};

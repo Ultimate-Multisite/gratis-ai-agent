@@ -7,7 +7,7 @@
 
 import { createElement } from '@wordpress/element';
 import { renderToStaticMarkup } from 'react-dom/server.node';
-import ToolCard from '../ToolCard';
+import ToolCard, { ToolResultHighlights } from '../ToolCard';
 
 jest.mock( '@wordpress/i18n', () => ( {
 	__: ( str ) => str,
@@ -21,7 +21,10 @@ jest.mock( '@wordpress/icons', () => ( {
 	caution: 'caution',
 } ) );
 
-jest.mock( '../../design-preview-gallery', () => () => null );
+jest.mock(
+	'../../design-preview-gallery',
+	() => () => 'Design preview gallery'
+);
 
 describe( 'ToolCard', () => {
 	test( 'stringifies object-shaped response summaries before rendering', () => {
@@ -114,5 +117,30 @@ describe( 'ToolCard', () => {
 			'Re-run get-page-blocks with the current revision.'
 		);
 		expect( html ).not.toContain( 'Validation errors' );
+	} );
+
+	test( 'renders design previews as standalone result highlights', () => {
+		const html = renderToStaticMarkup(
+			createElement( ToolResultHighlights, {
+				call: {
+					id: 'tool-4',
+					name: 'sd-ai-agent/render-design-previews',
+					args: {},
+				},
+				response: {
+					id: 'tool-4',
+					response: {
+						design_previews: [
+							{
+								name: 'Design 1',
+								html_url: 'https://example.test/design-1.html',
+							},
+						],
+					},
+				},
+			} )
+		);
+
+		expect( html ).toContain( 'Design preview gallery' );
 	} );
 } );
