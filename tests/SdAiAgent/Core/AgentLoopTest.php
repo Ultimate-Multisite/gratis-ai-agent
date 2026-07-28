@@ -39,6 +39,7 @@ use SdAiAgent\Core\ProviderCredentialLoader;
 use SdAiAgent\Core\Settings;
 use SdAiAgent\Core\SystemInstructionBuilder;
 use SdAiAgent\Core\ToolPermissionResolver;
+use SdAiAgent\Models\ActiveJobRepository;
 use SdAiAgent\Tools\ToolDiscovery;
 use WordPress\AiClient\Messages\DTO\Message;
 use WordPress\AiClient\Messages\DTO\MessagePart;
@@ -1945,6 +1946,71 @@ class AgentLoopTest extends WP_UnitTestCase {
 		$result = ConversationSerializer::deserialize( [] );
 		$this->assertIsArray( $result );
 		$this->assertEmpty( $result );
+	}
+
+	/**
+	 * Durable checkpoints retain a compact request snapshot rather than growing
+	 * with page context, activity logs, or raw client-ability descriptors.
+	 */
+	public function test_checkpoint_save_bounds_resume_state(): void {
+		$job_id = 'test-bounded-checkpoint-1';
+		$this->assertNotFalse( ActiveJobRepository::create( 1, $job_id, 1 ) );
+
+		try {
+			$history = array();
+			for ( $i = 0; $i < 12; ++$i ) {
+				$history[] = new UserMessage( array( new MessagePart( str_repeat( 'checkpoint context ', 500 ) ) ) );
+			}
+
+			$catalog = JsAbilityCatalog::get_descriptors_by_name();
+			$loop    = new AgentLoop(
+				'',
+				array(),
+				$history,
+				array(
+					'active_job_id'    => $job_id,
+					'provider_id'      => 'openai_compat',
+					'model_id'         => 'test-model',
+					'page_context'     => array(
+						'summary' => str_repeat( 'too-large-context ', 300 ),
+						'url'     => 'https://example.test/wp-admin/',
+						'unknown' => str_repeat( 'not-needed ', 300 ),
+					),
+					'client_abilities' => array( $catalog['sd-ai-agent-js/navigate-to'] ),
+					'tool_call_log'    => array( array( 'details' => str_repeat( 'tool-log ', 300 ) ) ),
+					'message_log'      => array( array( 'text' => str_repeat( 'message-log ', 300 ) ) ),
+				)
+			);
+
+			$method = new \ReflectionMethod( AgentLoop::class, 'save_active_job_checkpoint' );
+			$method->setAccessible( true );
+			$method->invoke( $loop, AgentLoop::CHECKPOINT_BEFORE_PROVIDER_CALL, 3 );
+
+			$row = ActiveJobRepository::get_by_job_id( $job_id );
+			$this->assertNotNull( $row );
+			$checkpoint = json_decode( (string) $row->checkpoint, true );
+			$this->assertIsArray( $checkpoint );
+			$this->assertArrayHasKey( 'history', $checkpoint );
+			$this->assertArrayHasKey( 'checkpoint_resume_metadata', $checkpoint );
+			$this->assertArrayNotHasKey( 'tool_call_log', $checkpoint );
+			$this->assertArrayNotHasKey( 'message_log', $checkpoint );
+			$this->assertArrayNotHasKey( 'client_abilities', $checkpoint );
+			$this->assertSame( array( 'sd-ai-agent-js/navigate-to' ), $checkpoint['client_ability_names'] );
+			$this->assertSame( 'https://example.test/wp-admin/', $checkpoint['page_context']['url'] );
+			$this->assertArrayNotHasKey( 'summary', $checkpoint['page_context'] );
+
+			$request = AgentLoop::describe_checkpoint_request(
+				$checkpoint['history'],
+				AgentLoop::CHECKPOINT_BEFORE_PROVIDER_CALL,
+				$checkpoint['provider_id'],
+				$checkpoint['model_id']
+			);
+			$this->assertLessThanOrEqual( ConversationTrimmer::COMPACT_MAX_BYTES, $request['request_bytes'] );
+			$this->assertMatchesRegularExpression( '/^[a-f0-9]{64}$/', $checkpoint['checkpoint_resume_metadata']['next_request']['fingerprint'] );
+			$this->assertLessThan( ConversationTrimmer::COMPACT_MAX_BYTES + 20000, strlen( (string) $row->checkpoint ) );
+		} finally {
+			ActiveJobRepository::delete( $job_id );
+		}
 	}
 
 	// -------------------------------------------------------------------------

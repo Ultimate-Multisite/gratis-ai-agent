@@ -21,6 +21,7 @@ declare(strict_types=1);
 
 namespace SdAiAgent\Tests\REST;
 
+use SdAiAgent\Core\AgentLoop;
 use SdAiAgent\Core\ConversationTrimmer;
 use SdAiAgent\Core\Database;
 use SdAiAgent\Core\Settings;
@@ -130,6 +131,25 @@ class RestControllerTest extends WP_UnitTestCase {
 			$status = $response->get_status();
 		}
 		$this->assertSame( $expected, $status, "Expected HTTP {$expected}, got {$status}." );
+	}
+
+	/**
+	 * Create an interrupted database-only job with its durable checkpoint.
+	 *
+	 * @param array<string, mixed> $checkpoint Serializable checkpoint state.
+	 */
+	private function create_interrupted_checkpoint_job( string $job_id, string $phase, array $checkpoint ): int {
+		$session_id = Database::create_session( array(
+			'user_id' => $this->admin_id,
+			'title'   => 'Checkpoint resume test',
+		) );
+
+		ActiveJobRepository::create( $session_id, $job_id, $this->admin_id, 'processing' );
+		ActiveJobRepository::save_checkpoint( $job_id, $phase, $checkpoint );
+		ActiveJobRepository::mark_interrupted( $job_id, 'checkpoint resume test interruption' );
+		delete_transient( RestController::JOB_PREFIX . $job_id );
+
+		return $session_id;
 	}
 
 	// ─── Route Registration ───────────────────────────────────────────────────
@@ -1116,6 +1136,184 @@ class RestControllerTest extends WP_UnitTestCase {
 			ActiveJobRepository::get_by_job_id( $job_id ),
 			'Terminal interrupted row should be deleted after delivery.'
 		);
+	}
+
+	/**
+	 * An identical failed request is terminalized rather than retried forever,
+	 * and its REST metadata remains deliberately minimal.
+	 */
+	public function test_job_status_stops_unchanged_checkpoint_resume(): void {
+		wp_set_current_user( $this->admin_id );
+		$job_id  = 'a1111111-b222-c333-d444-e55555555555';
+		$history = array( array( 'role' => 'user', 'parts' => array( array( 'text' => 'Resume this safely.' ) ) ) );
+		$request = AgentLoop::describe_checkpoint_request( $history, AgentLoop::CHECKPOINT_BEFORE_PROVIDER_CALL, 'test-provider', 'test-model' );
+		$attempt = array(
+			'fingerprint'    => $request['fingerprint'],
+			'request_bytes'  => $request['request_bytes'],
+			'request_tokens' => $request['request_tokens'],
+			'size_class'     => $request['size_class'],
+			'phase'          => $request['phase'],
+		);
+
+		$this->create_interrupted_checkpoint_job(
+			$job_id,
+			AgentLoop::CHECKPOINT_BEFORE_PROVIDER_CALL,
+			array(
+				'history'                    => $history,
+				'provider_id'                => 'test-provider',
+				'model_id'                   => 'test-model',
+				'iterations_remaining'       => 3,
+				'checkpoint_resume_metadata' => array( 'version' => AgentLoop::CHECKPOINT_RESUME_METADATA_VERSION, 'last_attempt' => $attempt ),
+			)
+		);
+
+		$response = $this->dispatch( 'GET', "/sd-ai-agent/v1/job/{$job_id}" );
+
+		$this->assertStatus( 200, $response );
+		$data = $response->get_data();
+		$this->assertSame( 'error', $data['status'] );
+		$this->assertSame( 'no_progress', $data['checkpoint_resume']['reason'] );
+		$this->assertSame( array( 'phase', 'reason', 'size_class' ), array_keys( $data['checkpoint_resume'] ) );
+		$this->assertArrayNotHasKey( 'fingerprint', $data['checkpoint_resume'] );
+		$this->assertNull( ActiveJobRepository::get_by_job_id( $job_id ) );
+	}
+
+	/**
+	 * Legacy/mixed-version checkpoints are compacted once, atomically saved, and
+	 * resumed with a changed request fingerprint and catalog-backed client tools.
+	 */
+	public function test_job_status_compacts_legacy_checkpoint_before_resume_claim(): void {
+		wp_set_current_user( $this->admin_id );
+		$job_id  = 'a2222222-b333-c444-d555-e66666666666';
+		$history = array( array( 'role' => 'user', 'parts' => array( array( 'text' => str_repeat( 'legacy checkpoint context ', 4000 ) ) ) ) );
+		$before  = AgentLoop::describe_checkpoint_request( $history, AgentLoop::CHECKPOINT_BEFORE_PROVIDER_CALL, 'test-provider', 'test-model' );
+
+		$this->create_interrupted_checkpoint_job(
+			$job_id,
+			AgentLoop::CHECKPOINT_BEFORE_PROVIDER_CALL,
+			array(
+				'history'                    => $history,
+				'provider_id'                => 'test-provider',
+				'model_id'                   => 'test-model',
+				'iterations_remaining'       => 3,
+				'client_abilities'           => array(
+					array( 'name' => 'sd-ai-agent-js/navigate-to', 'description' => str_repeat( 'legacy descriptor ', 300 ) ),
+					array( 'name' => 'sd-ai-agent-js/unknown-ability' ),
+				),
+				'checkpoint_resume_metadata' => array(
+					'version'                 => 99,
+					'recovery_transformation' => str_repeat( 'unknown-transformation-', 100 ),
+					'compaction'              => array( 'unbounded' => str_repeat( 'legacy metadata ', 500 ) ),
+				),
+			)
+		);
+
+		$loopback = static function (): array {
+			return array(
+				'headers'  => array(),
+				'body'     => '',
+				'response' => array( 'code' => 200, 'message' => 'OK' ),
+				'cookies'  => array(),
+			);
+		};
+		add_filter( 'pre_http_request', $loopback, 10, 3 );
+		try {
+			$response = $this->dispatch( 'GET', "/sd-ai-agent/v1/job/{$job_id}" );
+		} finally {
+			remove_filter( 'pre_http_request', $loopback, 10 );
+		}
+
+		$this->assertStatus( 202, $response );
+		$data = $response->get_data();
+		$this->assertTrue( $data['auto_resumed'] );
+		$this->assertSame( array( 'phase', 'reason', 'size_class' ), array_keys( $data['checkpoint_resume'] ) );
+		$dispatched = get_transient( RestController::JOB_PREFIX . $job_id );
+		$this->assertIsArray( $dispatched );
+		$this->assertSame( array( 'sd-ai-agent-js/navigate-to' ), array_column( $dispatched['params']['client_abilities'], 'name' ) );
+		$this->assertSame( 'Navigate to Admin Page', $dispatched['params']['client_abilities'][0]['label'] );
+
+		$row = ActiveJobRepository::get_by_job_id( $job_id );
+		$this->assertNotNull( $row );
+		$this->assertSame( 'processing', $row->status );
+		$this->assertSame( 1, $row->resume_attempts );
+		$checkpoint = json_decode( (string) $row->checkpoint, true );
+		$this->assertIsArray( $checkpoint );
+		$this->assertSame( AgentLoop::CHECKPOINT_RESUME_METADATA_VERSION, $checkpoint['checkpoint_resume_metadata']['version'] );
+		$this->assertSame( 'compact_checkpoint_resume', $checkpoint['checkpoint_resume_metadata']['recovery_transformation'] );
+		$this->assertArrayNotHasKey( 'unbounded', $checkpoint['checkpoint_resume_metadata']['compaction'] );
+		$this->assertNotSame( $before['fingerprint'], $checkpoint['checkpoint_resume_metadata']['last_attempt']['fingerprint'] );
+		$this->assertSame(
+			$checkpoint['checkpoint_resume_metadata']['last_attempt']['fingerprint'],
+			AgentLoop::describe_checkpoint_request( $checkpoint['history'], AgentLoop::CHECKPOINT_BEFORE_PROVIDER_CALL, 'test-provider', 'test-model' )['fingerprint']
+		);
+
+		ActiveJobRepository::delete( $job_id );
+		delete_transient( RestController::JOB_PREFIX . $job_id );
+	}
+
+	/**
+	 * A checkpoint whose compact representation still exceeds the active budget
+	 * must stop instead of dispatching an unchanged rejected request.
+	 */
+	public function test_job_status_stops_noncompactable_checkpoint(): void {
+		wp_set_current_user( $this->admin_id );
+		$job_id  = 'a3333333-b444-c555-d666-e77777777777';
+		$history = array( array( 'role' => 'user', 'parts' => array( array( 'text' => str_repeat( 'strict provider budget ', 500 ) ) ) ) );
+		$this->create_interrupted_checkpoint_job(
+			$job_id,
+			AgentLoop::CHECKPOINT_BEFORE_PROVIDER_CALL,
+			array(
+				'history'              => $history,
+				'provider_id'          => 'test-provider',
+				'model_id'             => 'test-model',
+				'iterations_remaining' => 3,
+			)
+		);
+
+		$byte_budget  = static fn(): int => 128;
+		$token_budget = static fn(): int => 32;
+		add_filter( 'sd_ai_agent_provider_request_max_bytes', $byte_budget, 10, 3 );
+		add_filter( 'sd_ai_agent_provider_request_max_tokens', $token_budget, 10, 3 );
+		try {
+			$response = $this->dispatch( 'GET', "/sd-ai-agent/v1/job/{$job_id}" );
+		} finally {
+			remove_filter( 'sd_ai_agent_provider_request_max_bytes', $byte_budget, 10 );
+			remove_filter( 'sd_ai_agent_provider_request_max_tokens', $token_budget, 10 );
+		}
+
+		$this->assertStatus( 200, $response );
+		$data = $response->get_data();
+		$this->assertSame( 'not_compactable', $data['checkpoint_resume']['reason'] );
+		$this->assertFalse( get_transient( RestController::JOB_PREFIX . $job_id ) );
+		$this->assertNull( ActiveJobRepository::get_by_job_id( $job_id ) );
+	}
+
+	/**
+	 * A checkpoint saved immediately before tool execution remains terminal so
+	 * automatic recovery never repeats an ability call.
+	 */
+	public function test_job_status_rejects_tool_execution_checkpoint(): void {
+		wp_set_current_user( $this->admin_id );
+		$job_id  = 'a4444444-b555-c666-d777-e88888888888';
+		$history = array( array( 'role' => 'user', 'parts' => array( array( 'text' => 'Never repeat this tool.' ) ) ) );
+		$this->create_interrupted_checkpoint_job(
+			$job_id,
+			AgentLoop::CHECKPOINT_TOOL_EXECUTION_STARTED,
+			array(
+				'history'              => $history,
+				'provider_id'          => 'test-provider',
+				'model_id'             => 'test-model',
+				'iterations_remaining' => 3,
+			)
+		);
+
+		$response = $this->dispatch( 'GET', "/sd-ai-agent/v1/job/{$job_id}" );
+
+		$this->assertStatus( 200, $response );
+		$data = $response->get_data();
+		$this->assertSame( 'unsafe_phase', $data['checkpoint_resume']['reason'] );
+		$this->assertFalse( get_transient( RestController::JOB_PREFIX . $job_id ) );
+		$this->assertNull( ActiveJobRepository::get_by_job_id( $job_id ) );
 	}
 
 	/**

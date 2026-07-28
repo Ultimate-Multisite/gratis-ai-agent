@@ -228,15 +228,37 @@ class ActiveJobRepository {
 	/**
 	 * Claim one automatic resume attempt by returning the row to processing.
 	 *
-	 * @param string $job_id       The job UUID.
-	 * @param int    $max_attempts Maximum permitted attempts.
+	 * @param string               $job_id       The job UUID.
+	 * @param int                  $max_attempts Maximum permitted attempts.
+	 * @param array<string, mixed>|null $checkpoint Updated checkpoint to persist atomically with the claim.
 	 * @return bool True when an attempt was claimed.
 	 */
-	public static function claim_resume_attempt( string $job_id, int $max_attempts ): bool {
+	public static function claim_resume_attempt( string $job_id, int $max_attempts, ?array $checkpoint = null ): bool {
 		global $wpdb;
 		/** @var \wpdb $wpdb */
 
 		$now = current_time( 'mysql', true );
+		if ( null !== $checkpoint ) {
+			$encoded = wp_json_encode( $checkpoint );
+			if ( false === $encoded ) {
+				return false;
+			}
+
+			// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Custom table query; claim and checkpoint snapshot must be atomic.
+			$result = $wpdb->query(
+				$wpdb->prepare(
+					"UPDATE %i SET status = 'processing', error = NULL, interrupted_at = NULL, checkpoint = %s, resume_attempts = resume_attempts + 1, updated_at = %s WHERE job_id = %s AND status IN ('interrupted', 'abandoned') AND resume_attempts < %d",
+					self::table_name(),
+					$encoded,
+					$now,
+					$job_id,
+					$max_attempts
+				)
+			);
+
+			return $result !== false && $result > 0;
+		}
+
 		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Custom table query; caching not applicable.
 		$result = $wpdb->query(
 			$wpdb->prepare(
