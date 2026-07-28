@@ -563,30 +563,28 @@ class Agent {
 		if ( null !== $agent->max_iterations ) {
 			$options['max_iterations'] = $agent->max_iterations;
 		}
-		if ( ! empty( $agent->tier_1_tools ) ) {
-			$tier_1_tools = $agent->tier_1_tools;
+		$tier_1_tools = $agent->tier_1_tools;
 
-			// Built-in onboarding records are seeded only once, so an upgraded
-			// site can retain the former direct WP-CLI entry. Keep the broad
-			// dispatcher out of Phase 0 even when the stored agent row predates
-			// the safer dedicated discovery tools.
-			if ( self::ONBOARDING_AGENT_SLUG === $agent->slug && $agent->is_builtin ) {
-				$tier_1_tools = array_values(
-					array_unique(
-						array_merge(
-							array_filter(
-								$tier_1_tools,
-								static fn( string $tool ): bool => 'wp-cli/execute' !== $tool
-							),
-							self::ONBOARDING_REQUIRED_TIER_1_TOOLS
-						)
+		// Built-in onboarding records are seeded only once, so an upgraded
+		// site can retain the former direct WP-CLI entry or an empty stored list.
+		// Keep the broad dispatcher out of Phase 0 while always restoring the
+		// safer dedicated discovery tools for the built-in onboarding agent.
+		if ( self::ONBOARDING_AGENT_SLUG === $agent->slug && $agent->is_builtin ) {
+			$tier_1_tools = array_values(
+				array_unique(
+					array_merge(
+						array_filter(
+							$tier_1_tools,
+							static fn( string $tool ): bool => 'wp-cli/execute' !== $tool
+						),
+						self::ONBOARDING_REQUIRED_TIER_1_TOOLS
 					)
-				);
-			}
+				)
+			);
+		}
 
-			if ( ! empty( $tier_1_tools ) ) {
-				$options['tier_1_tools'] = $tier_1_tools;
-			}
+		if ( ! empty( $tier_1_tools ) ) {
+			$options['tier_1_tools'] = $tier_1_tools;
 		}
 
 		return $options;

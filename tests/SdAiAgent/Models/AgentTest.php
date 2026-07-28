@@ -639,6 +639,33 @@ class AgentTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * Empty stored onboarding tool lists should still receive the required direct
+	 * setup/verification tools at runtime.
+	 */
+	public function test_onboarding_loop_options_restore_required_tools_from_empty_existing_builtin(): void {
+		Agent::seed_defaults();
+		$agent = Agent::get_by_slug( 'onboarding' );
+		$this->assertNotNull( $agent );
+
+		$original_tools = $agent->tier_1_tools;
+		Agent::update( $agent->id, [ 'tier_1_tools' => [] ] );
+
+		try {
+			$options = Agent::get_loop_options( $agent->id );
+			$this->assertArrayHasKey( 'tier_1_tools', $options );
+			$this->assertContains( 'sd-ai-agent/create-menu', $options['tier_1_tools'] );
+			$this->assertContains( 'sd-ai-agent/add-menu-item', $options['tier_1_tools'] );
+			$this->assertContains( 'sd-ai-agent/list-menus', $options['tier_1_tools'] );
+			$this->assertContains( 'sd-ai-agent/assign-menu-location', $options['tier_1_tools'] );
+			$this->assertContains( 'sd-ai-agent/site-loopback-check', $options['tier_1_tools'] );
+			$this->assertContains( 'sd-ai-agent/fetch-url', $options['tier_1_tools'] );
+			$this->assertNotContains( 'wp-cli/execute', $options['tier_1_tools'] );
+		} finally {
+			Agent::update( $agent->id, [ 'tier_1_tools' => $original_tools ] );
+		}
+	}
+
+	/**
 	 * Every ability mentioned in a built-in agent's system prompt must be
 	 * present in that agent's tier_1_tools (or in the meta-tools that the
 	 * resolver always exposes). Catches drift between prompt and tool surface
