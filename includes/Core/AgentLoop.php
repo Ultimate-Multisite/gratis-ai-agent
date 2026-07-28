@@ -431,6 +431,7 @@ class AgentLoop {
 		// Empty string when the loop is not running under a background job.
 		// @phpstan-ignore-next-line
 		$this->active_job_id = (string) ( $options['active_job_id'] ?? '' );
+
 		$this->checkpoint_resume_metadata = self::checkpoint_resume_metadata_from_candidate( $options['checkpoint_resume_metadata'] ?? array() );
 		// @phpstan-ignore-next-line -- Test/job callers may lower attempts or delays; production defaults remain four attempts.
 		$this->provider_retry_max_attempts = max( 1, (int) ( $options['provider_retry_max_attempts'] ?? self::PROVIDER_RETRY_MAX_ATTEMPTS ) );

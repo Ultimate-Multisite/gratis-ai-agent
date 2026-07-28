@@ -1648,9 +1648,9 @@ final class SessionController {
 	/**
 	 * Replace an oversized persisted state with a smaller deterministic resume input.
 	 *
-	 * @param array<string, mixed> $checkpoint Decoded checkpoint payload.
+	 * @param array<string, mixed>       $checkpoint Decoded checkpoint payload.
 	 * @param list<array<string, mixed>> $history Validated serialized history.
-	 * @param array<string, mixed> $metadata Candidate request metadata.
+	 * @param array<string, mixed>       $metadata Candidate request metadata.
 	 * @phpstan-param CheckpointRequest $metadata
 	 * @return array{checkpoint:array<string,mixed>,metadata:CheckpointRequest}|null
 	 */
@@ -1870,7 +1870,8 @@ final class SessionController {
 	/**
 	 * @param string                $job_id The job UUID.
 	 * @param ActiveJobRow          $row The persisted active-job row.
-	 * @param array{phase:string,reason:string,size_class:string} $metadata Sanitized resume metadata.
+	 * @param array<string, string> $metadata Sanitized resume metadata.
+	 * @phpstan-param array{phase:string,reason:string,size_class:string} $metadata
 	 * @return WP_REST_Response Terminal job-status response.
 	 */
 	private function checkpoint_resume_terminal_response( string $job_id, ActiveJobRow $row, array $metadata ): WP_REST_Response {
