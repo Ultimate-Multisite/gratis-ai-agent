@@ -15,6 +15,36 @@ global.IS_REACT_ACT_ENVIRONMENT = true;
 
 jest.mock( '@wordpress/api-fetch', () => jest.fn() );
 
+jest.mock( '@wordpress/components', () => {
+	const React = require( 'react' );
+
+	return {
+		Button: ( { children, href, onClick, type = 'button', disabled } ) =>
+			href
+				? React.createElement( 'a', { href, onClick }, children )
+				: React.createElement(
+						'button',
+						{ type, disabled, onClick },
+						children
+				  ),
+		Notice: ( { children } ) =>
+			React.createElement( 'div', null, children ),
+		Spinner: () => React.createElement( 'div', { role: 'status' } ),
+		TextControl: ( { label, value, onChange, type = 'text', disabled } ) =>
+			React.createElement(
+				'label',
+				null,
+				label,
+				React.createElement( 'input', {
+					value,
+					type,
+					disabled,
+					onChange: ( event ) => onChange( event.target.value ),
+				} )
+			),
+	};
+} );
+
 describe( 'SuperdavAccountManager', () => {
 	let createRoot;
 	let act;
