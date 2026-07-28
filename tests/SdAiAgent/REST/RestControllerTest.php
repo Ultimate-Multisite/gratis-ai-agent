@@ -1252,10 +1252,10 @@ class RestControllerTest extends WP_UnitTestCase {
 	}
 
 	/**
-	 * A checkpoint whose compact representation still exceeds the active budget
-	 * must stop instead of dispatching an unchanged rejected request.
+	 * The supported minimum request budget allows a compactable checkpoint to
+	 * resume once after its persisted state is reduced to that budget.
 	 */
-	public function test_job_status_stops_noncompactable_checkpoint(): void {
+	public function test_job_status_compacts_checkpoint_at_minimum_effective_budget(): void {
 		wp_set_current_user( $this->admin_id );
 		$job_id  = 'a3333333-b444-c555-d666-e77777777777';
 		$history = array( array( 'role' => 'user', 'parts' => array( array( 'text' => str_repeat( 'strict provider budget ', 500 ) ) ) ) );
@@ -1270,8 +1270,8 @@ class RestControllerTest extends WP_UnitTestCase {
 			)
 		);
 
-		$byte_budget  = static fn(): int => 128;
-		$token_budget = static fn(): int => 32;
+		$byte_budget  = static fn(): int => 1024;
+		$token_budget = static fn(): int => 256;
 		add_filter( 'sd_ai_agent_provider_request_max_bytes', $byte_budget, 10, 3 );
 		add_filter( 'sd_ai_agent_provider_request_max_tokens', $token_budget, 10, 3 );
 		try {
@@ -1281,11 +1281,18 @@ class RestControllerTest extends WP_UnitTestCase {
 			remove_filter( 'sd_ai_agent_provider_request_max_tokens', $token_budget, 10 );
 		}
 
-		$this->assertStatus( 200, $response );
+		$this->assertStatus( 202, $response );
 		$data = $response->get_data();
-		$this->assertSame( 'not_compactable', $data['checkpoint_resume']['reason'] );
-		$this->assertFalse( get_transient( RestController::JOB_PREFIX . $job_id ) );
-		$this->assertNull( ActiveJobRepository::get_by_job_id( $job_id ) );
+		$this->assertTrue( $data['auto_resumed'] );
+		$this->assertSame( 'resumed', $data['checkpoint_resume']['reason'] );
+		$this->assertIsArray( get_transient( RestController::JOB_PREFIX . $job_id ) );
+		$row = ActiveJobRepository::get_by_job_id( $job_id );
+		$this->assertNotNull( $row );
+		$this->assertSame( 'processing', $row->status );
+		$this->assertSame( 1, $row->resume_attempts );
+
+		ActiveJobRepository::delete( $job_id );
+		delete_transient( RestController::JOB_PREFIX . $job_id );
 	}
 
 	/**

@@ -228,8 +228,8 @@ class ActiveJobRepository {
 	/**
 	 * Claim one automatic resume attempt by returning the row to processing.
 	 *
-	 * @param string               $job_id       The job UUID.
-	 * @param int                  $max_attempts Maximum permitted attempts.
+	 * @param string                    $job_id       The job UUID.
+	 * @param int                       $max_attempts Maximum permitted attempts.
 	 * @param array<string, mixed>|null $checkpoint Updated checkpoint to persist atomically with the claim.
 	 * @return bool True when an attempt was claimed.
 	 */

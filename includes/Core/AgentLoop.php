@@ -987,14 +987,14 @@ class AgentLoop {
 			return;
 		}
 
-		$history              = $this->serialize_history();
-		$original_history_len = count( $history );
-		$resolved_provider_id = $this->resolve_provider_id();
-		$resolved_model_id    = $this->resolve_effective_model_id( $resolved_provider_id );
-		$provider_id          = self::checkpoint_identifier( (string) $resolved_provider_id );
-		$model_id             = self::checkpoint_identifier( (string) $resolved_model_id );
-		$metadata             = self::describe_checkpoint_request( $history, $phase, $provider_id, $model_id );
-		$compaction           = array();
+		$history                 = $this->serialize_history();
+		$original_history_len    = count( $history );
+		$resolved_provider_id    = $this->resolve_provider_id();
+		$resolved_model_id       = $this->resolve_effective_model_id( $resolved_provider_id );
+		$provider_id             = self::checkpoint_identifier( (string) $resolved_provider_id );
+		$model_id                = self::checkpoint_identifier( (string) $resolved_model_id );
+		$metadata                = self::describe_checkpoint_request( $history, $phase, $provider_id, $model_id );
+		$compaction              = array();
 		$recovery_transformation = '';
 
 		// Checkpoints are a recovery boundary, not a second unbounded transcript.
@@ -1091,9 +1091,9 @@ class AgentLoop {
 	 * without metadata can be upgraded safely before their first resume claim.
 	 *
 	 * @param array<int, array<string, mixed>> $serialized_history Serializable provider history.
-	 * @param string                            $phase              Durable checkpoint phase.
-	 * @param string                            $provider_id        Provider selected for the request.
-	 * @param string                            $model_id           Model selected for the request.
+	 * @param string                           $phase              Durable checkpoint phase.
+	 * @param string                           $provider_id        Provider selected for the request.
+	 * @param string                           $model_id           Model selected for the request.
 	 * @return array{fingerprint:string,request_bytes:int,request_tokens:int,request_budget_bytes:int,request_budget_tokens:int,size_class:string,phase:string,locally_rejected:bool}
 	 */
 	public static function describe_checkpoint_request( array $serialized_history, string $phase, string $provider_id = '', string $model_id = '' ): array {
@@ -1126,14 +1126,14 @@ class AgentLoop {
 		);
 
 		return array(
-			'fingerprint'            => $fingerprint,
-			'request_bytes'          => max( 0, $request_bytes ),
-			'request_tokens'         => max( 0, $request_tokens ),
-			'request_budget_bytes'   => max( 0, $byte_budget ),
-			'request_budget_tokens'  => max( 0, $token_budget ),
-			'size_class'             => ProviderTraceLogger::classify_request_size( max( 0, $request_bytes ) ),
-			'phase'                  => $phase,
-			'locally_rejected'       => ! empty( $history ) && ! ConversationTrimmer::fits_budget( $history, $byte_budget, $token_budget ),
+			'fingerprint'           => $fingerprint,
+			'request_bytes'         => max( 0, $request_bytes ),
+			'request_tokens'        => max( 0, $request_tokens ),
+			'request_budget_bytes'  => max( 0, $byte_budget ),
+			'request_budget_tokens' => max( 0, $token_budget ),
+			'size_class'            => ProviderTraceLogger::classify_request_size( max( 0, $request_bytes ) ),
+			'phase'                 => $phase,
+			'locally_rejected'      => ! empty( $history ) && ! ConversationTrimmer::fits_budget( $history, $byte_budget, $token_budget ),
 		);
 	}
 
@@ -1146,7 +1146,10 @@ class AgentLoop {
 		return self::checkpoint_request_requires_compaction( $metadata );
 	}
 
-	/** @param array<string, mixed> $metadata Next-request metadata. */
+	/**
+	 * @param array<string, mixed> $metadata Next-request metadata.
+	 * @return bool True when the checkpoint needs compaction.
+	 */
 	private static function checkpoint_request_requires_compaction( array $metadata ): bool {
 		return (int) ( $metadata['request_bytes'] ?? 0 ) > self::CHECKPOINT_HISTORY_MAX_BYTES
 			|| (int) ( $metadata['request_tokens'] ?? 0 ) > self::CHECKPOINT_HISTORY_MAX_TOKENS
