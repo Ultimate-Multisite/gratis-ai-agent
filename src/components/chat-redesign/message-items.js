@@ -27,7 +27,7 @@ import {
 import STORE_NAME from '../../store';
 import MarkdownMessage from '../markdown-message';
 import { AiIcon } from './icons';
-import ToolCard from './ToolCard';
+import ToolCard, { ToolResultHighlights } from './ToolCard';
 import {
 	buildRunningItems,
 	buildToolProgressSummary,
@@ -142,18 +142,22 @@ function AssistantMeta( { tokens } ) {
 /**
  * Build the headline for a friendly progress summary.
  *
- * @param {Object}  summary      Progress summary from buildToolProgressSummary().
- * @param {boolean} isRunning    Whether the agent is still working.
- * @param {string}  fallbackStep Fallback text when no step label is available.
+ * @param {Object} summary      Progress summary from buildToolProgressSummary().
+ * @param {string} mode         Progress display mode.
+ * @param {string} fallbackStep Fallback text when no step label is available.
  * @return {string} Summary headline.
  */
-function getProgressSummaryTitle( summary, isRunning, fallbackStep ) {
-	if ( isRunning ) {
+function getProgressSummaryTitle( summary, mode, fallbackStep ) {
+	if ( mode === 'running' ) {
 		return (
 			summary.currentLabel ||
 			fallbackStep ||
 			__( 'Working on it…', 'superdav-ai-agent' )
 		);
+	}
+
+	if ( mode === 'error' ) {
+		return __( 'Work paused', 'superdav-ai-agent' );
 	}
 
 	if ( summary.failedCount > 0 ) {
@@ -187,7 +191,7 @@ function getProgressStepStatusLabel( status ) {
  *
  * @param {Object} root0
  * @param {Object} root0.summary      Progress summary.
- * @param {string} root0.mode         Either 'running' or 'complete'.
+ * @param {string} root0.mode         Either 'running', 'complete', or 'error'.
  * @param {string} root0.fallbackStep Fallback running text.
  */
 function ToolProgressSummary( {
@@ -196,33 +200,41 @@ function ToolProgressSummary( {
 	fallbackStep = '',
 } ) {
 	const isRunning = mode === 'running';
-	const title = getProgressSummaryTitle( summary, isRunning, fallbackStep );
+	const isError = mode === 'error';
+	let statusClass = 'is-complete';
+	if ( isRunning ) {
+		statusClass = 'is-running';
+	} else if ( isError ) {
+		statusClass = 'is-error';
+	}
+	const title = getProgressSummaryTitle( summary, mode, fallbackStep );
 	let description = isRunning ? summary.latestThought : '';
 
 	if ( ! description ) {
-		description = isRunning
-			? __(
-					'I’m working through your request step by step.',
-					'superdav-ai-agent'
-			  )
-			: __(
-					'The agent used several steps and summarized the result below.',
-					'superdav-ai-agent'
-			  );
+		if ( isRunning ) {
+			description = __(
+				'I’m working through your request step by step.',
+				'superdav-ai-agent'
+			);
+		} else if ( isError ) {
+			description = __(
+				'The agent completed several steps, then stopped before finishing the reply.',
+				'superdav-ai-agent'
+			);
+		} else {
+			description = __(
+				'The agent used several steps and summarized the result below.',
+				'superdav-ai-agent'
+			);
+		}
 	}
 
 	return (
-		<div
-			className={ `sdaa-cr-progress-summary${
-				isRunning ? ' is-running' : ' is-complete'
-			}` }
-		>
+		<div className={ `sdaa-cr-progress-summary ${ statusClass }` }>
 			<div className="sdaa-cr-progress-main">
 				<div className="sdaa-cr-progress-title">
 					<span
-						className={ `sdaa-cr-progress-title-dot${
-							isRunning ? ' is-running' : ' is-complete'
-						}` }
+						className={ `sdaa-cr-progress-title-dot ${ statusClass }` }
 						aria-hidden="true"
 					/>
 					<span>{ title }</span>
@@ -489,7 +501,7 @@ export function AssistantMessage( {
 } ) {
 	const [ copied, setCopied ] = useState( false );
 
-	const { messageToken, showToolCallDetails } = useSelect(
+	const { messageToken, showToolCallDetails, hasStreamError } = useSelect(
 		( sel ) => {
 			const store = sel( STORE_NAME );
 			const tokens = store.getMessageTokens() || [];
@@ -497,6 +509,7 @@ export function AssistantMessage( {
 				messageToken: tokens[ index ],
 				showToolCallDetails:
 					store.getSettings()?.show_tool_call_details === true,
+				hasStreamError: store.hasStreamError?.() === true,
 			};
 		},
 		[ index ]
@@ -514,11 +527,19 @@ export function AssistantMessage( {
 		( it ) => it.kind === 'pair'
 	);
 	const progressSummary = buildToolProgressSummary( msg.toolCalls );
+	const hasUnfinishedReply =
+		! cleanText &&
+		progressSummary.completedCount > 0 &&
+		progressSummary.failedCount === 0 &&
+		progressSummary.runningCount === 0;
+	const showInterruptedProgress =
+		isLastModel && ( hasStreamError || hasUnfinishedReply );
 	const showProgressSummary =
 		progressSummary.hasActivity &&
 		! showToolCallDetails &&
 		( progressSummary.totalCount > 1 ||
 			progressSummary.failedCount > 0 ||
+			showInterruptedProgress ||
 			! cleanText );
 
 	const handleCopy = () => {
@@ -540,7 +561,7 @@ export function AssistantMessage( {
 				{ showProgressSummary && (
 					<ToolProgressSummary
 						summary={ progressSummary }
-						mode="complete"
+						mode={ showInterruptedProgress ? 'error' : 'complete' }
 					/>
 				) }
 				{ showToolCallDetails &&
@@ -552,6 +573,14 @@ export function AssistantMessage( {
 							defaultOpen={ Boolean(
 								item.response?.response?.error
 							) }
+						/>
+					) ) }
+				{ ! showToolCallDetails &&
+					items.map( ( item ) => (
+						<ToolResultHighlights
+							key={ `${ item.key }-highlights` }
+							call={ item.call }
+							response={ item.response }
 						/>
 					) ) }
 				{ cleanText && <MarkdownMessage content={ cleanText } /> }
@@ -664,6 +693,16 @@ export function RunningMessage( {
 							/>
 						);
 					} ) }
+				{ ! showToolCallDetails &&
+					items
+						.filter( ( item ) => item.kind === 'pair' )
+						.map( ( item ) => (
+							<ToolResultHighlights
+								key={ `${ item.key }-highlights` }
+								call={ item.call }
+								response={ item.response }
+							/>
+						) ) }
 			</div>
 		</div>
 	);

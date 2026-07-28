@@ -1144,6 +1144,11 @@ input[type="text"].sdaa-cr-search-input {
 	background: var(--sdaa-surface);
 }
 
+.sdaa-cr-progress-summary.is-error {
+	border-color: #f1b0b7;
+	background: var(--sdaa-error-surface);
+}
+
 .sdaa-cr-progress-main {
 	display: grid;
 	gap: 4px;
@@ -1170,6 +1175,10 @@ input[type="text"].sdaa-cr-search-input {
 .sdaa-cr-progress-title-dot.is-running {
 	background: var(--sdaa-primary);
 	animation: sdaa-cr-pulse 1.2s ease-in-out infinite;
+}
+
+.sdaa-cr-progress-title-dot.is-error {
+	background: var(--sdaa-error);
 }
 
 .sdaa-cr-progress-description {

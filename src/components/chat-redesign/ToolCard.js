@@ -163,6 +163,32 @@ function extractDesignPreviews( call, response ) {
 }
 
 /**
+ * Render rich, user-facing tool results that should remain visible even when
+ * raw tool-call details are hidden.
+ *
+ * @param {Object} root0
+ * @param {*}      root0.call
+ * @param {*}      root0.response
+ */
+export function ToolResultHighlights( { call, response } ) {
+	const designPreviews = extractDesignPreviews( call, response );
+	const previewMessage = response?.response?.message
+		? formatValue( response.response.message )
+		: null;
+
+	if ( ! designPreviews ) {
+		return null;
+	}
+
+	return (
+		<DesignPreviewGallery
+			designPreviews={ designPreviews }
+			message={ previewMessage }
+		/>
+	);
+}
+
+/**
  * Return itemized update-blocks errors from a structured tool response.
  *
  * @param {*} response Tool response pair entry.
@@ -219,9 +245,6 @@ export default function ToolCard( {
 	const hasRecoveryHints =
 		Array.isArray( recoveryHints ) && recoveryHints.length > 0;
 	const hasValidationFeedback = itemizedErrors.length > 0 || hasRecoveryHints;
-	const previewMessage = response?.response?.message
-		? formatValue( response.response.message )
-		: null;
 
 	return (
 		<div
@@ -260,10 +283,7 @@ export default function ToolCard( {
 
 			{ /* Design preview gallery is always visible when previews exist */ }
 			{ designPreviews && (
-				<DesignPreviewGallery
-					designPreviews={ designPreviews }
-					message={ previewMessage }
-				/>
+				<ToolResultHighlights call={ call } response={ response } />
 			) }
 
 			{ open && (
