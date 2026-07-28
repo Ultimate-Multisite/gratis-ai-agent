@@ -132,6 +132,38 @@ class ChangeLogger {
 	}
 
 	/**
+	 * Record a newly created taxonomy term while AI change logging is active.
+	 *
+	 * WordPress exposes term-edit hooks but no symmetric before/after record for
+	 * a newly created term. Typed commerce plans use this marker so category
+	 * creation remains auditable without treating a term name as an option value.
+	 *
+	 * @param int    $term_id      Created term ID.
+	 * @param string $taxonomy     Taxonomy slug.
+	 * @param string $term_name    Created term name.
+	 * @param string $ability_name Ability slug when no active name is set.
+	 */
+	public static function record_term_created( int $term_id, string $taxonomy, string $term_name, string $ability_name = 'sd-ai-agent/create-term' ): void {
+		if ( ! self::$active ) {
+			return;
+		}
+
+		ChangesLog::record(
+			[
+				'session_id'   => self::$session_id,
+				'object_type'  => 'term',
+				'object_id'    => $term_id,
+				'object_title' => $term_name,
+				'ability_name' => self::$ability_name ?: $ability_name,
+				'field_name'   => $taxonomy,
+				'before_value' => '',
+				'after_value'  => $term_name,
+				'revertable'   => false,
+			]
+		);
+	}
+
+	/**
 	 * Cache of post meta before-values, keyed by "{object_id}:{meta_key}".
 	 *
 	 * Read via array-key access in on_updated_post_meta().
