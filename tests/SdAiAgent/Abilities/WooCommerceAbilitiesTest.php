@@ -23,10 +23,15 @@ class WooCommerceAbilitiesTestDouble {
 
 class WooCommerceAbilitiesTest extends WP_UnitTestCase {
 
+	private const WOOCOMMERCE_PLUGIN = 'woocommerce/woocommerce.php';
+
 	private int $admin_id;
 	private int $target_blog_id;
 	private int $other_blog_id;
 	private bool $registered_product_taxonomy = false;
+	/** @var array<string, mixed> */
+	private array $original_network_active_plugins = [];
+	private bool $network_active_plugins_changed = false;
 
 	public function set_up(): void {
 		parent::set_up();
@@ -38,6 +43,7 @@ class WooCommerceAbilitiesTest extends WP_UnitTestCase {
 		$this->admin_id = self::factory()->user->create( [ 'role' => 'administrator' ] );
 		grant_super_admin( $this->admin_id );
 		wp_set_current_user( $this->admin_id );
+		$this->original_network_active_plugins = (array) get_site_option( 'active_sitewide_plugins', [] );
 
 		if ( ! taxonomy_exists( 'product_cat' ) ) {
 			register_taxonomy( 'product_cat', [ 'post' ] );
@@ -52,6 +58,7 @@ class WooCommerceAbilitiesTest extends WP_UnitTestCase {
 		$this->other_blog_id  = self::factory()->blog->create();
 		add_user_to_blog( $this->target_blog_id, $this->admin_id, 'administrator' );
 		add_user_to_blog( $this->other_blog_id, $this->admin_id, 'administrator' );
+		$this->set_plugin_active_for_blog( $this->target_blog_id, self::WOOCOMMERCE_PLUGIN, true );
 		$this->install_changes_log_table_for_blog( $this->target_blog_id );
 
 		Database::install();
@@ -62,6 +69,9 @@ class WooCommerceAbilitiesTest extends WP_UnitTestCase {
 	public function tear_down(): void {
 		ChangeLogger::end();
 		HumanApprovalGate::clear_handlers();
+		if ( $this->network_active_plugins_changed ) {
+			update_site_option( 'active_sitewide_plugins', $this->original_network_active_plugins );
+		}
 
 		if ( $this->registered_product_taxonomy ) {
 			unregister_taxonomy( 'product_cat' );
@@ -154,6 +164,73 @@ class WooCommerceAbilitiesTest extends WP_UnitTestCase {
 		$this->assertSame( 'yes', $this->get_option_for_blog( $this->target_blog_id, 'woocommerce_enable_coupons' ) );
 	}
 
+	public function test_network_active_woocommerce_allows_target_site_plan_execution(): void {
+		$this->set_option_for_blog( $this->target_blog_id, 'woocommerce_enable_coupons', 'yes' );
+		$this->set_plugin_active_for_blog( $this->target_blog_id, self::WOOCOMMERCE_PLUGIN, false );
+		$this->set_network_plugin_active( self::WOOCOMMERCE_PLUGIN, true );
+
+		$plan = WooCommerceAbilities::handle_create_plan(
+			[
+				'target_blog_id' => $this->target_blog_id,
+				'operations'     => [
+					[
+						'operation'   => 'update_setting',
+						'setting_key' => 'woocommerce_enable_coupons',
+						'value'       => 'no',
+					],
+				],
+			]
+		);
+
+		$this->assertIsArray( $plan );
+		$this->assertSame( 'pending_approval', $plan['status'] );
+
+		$approved = HumanApprovalGate::approve( (int) $plan['approval_request_id'], $this->admin_id );
+
+		$this->assertIsArray( $approved );
+		$this->assertSame( HumanApprovalGate::STATUS_EXECUTED, $approved['status'] );
+		$this->assertSame( 'no', $this->get_option_for_blog( $this->target_blog_id, 'woocommerce_enable_coupons' ) );
+	}
+
+	public function test_approved_plan_fails_when_woocommerce_is_inactive_on_target_site(): void {
+		$initial_blog_id = get_current_blog_id();
+		$this->set_option_for_blog( $this->target_blog_id, 'woocommerce_enable_coupons', 'yes' );
+
+		$plan = WooCommerceAbilities::handle_create_plan(
+			[
+				'target_blog_id' => $this->target_blog_id,
+				'operations'     => [
+					[
+						'operation' => 'create_category',
+						'name'      => 'Inactive Target Category',
+						'slug'      => 'inactive-target-category',
+					],
+					[
+						'operation'   => 'update_setting',
+						'setting_key' => 'woocommerce_enable_coupons',
+						'value'       => 'no',
+					],
+				],
+			]
+		);
+
+		$this->assertIsArray( $plan );
+		$this->assertSame( 'pending_approval', $plan['status'] );
+		$this->assertTrue( class_exists( 'WooCommerce' ), 'WooCommerce remains globally loaded for this request.' );
+		$this->assertTrue( taxonomy_exists( 'product_cat' ), 'The WooCommerce taxonomy remains globally registered for this request.' );
+
+		$this->set_plugin_active_for_blog( $this->target_blog_id, self::WOOCOMMERCE_PLUGIN, false );
+		$this->set_network_plugin_active( self::WOOCOMMERCE_PLUGIN, false );
+		$approved = HumanApprovalGate::approve( (int) $plan['approval_request_id'], $this->admin_id );
+
+		$this->assertInstanceOf( WP_Error::class, $approved );
+		$this->assertSame( 'sd_ai_agent_commerce_prerequisite_changed', $approved->get_error_code() );
+		$this->assertSame( $initial_blog_id, get_current_blog_id(), 'Failed execution must restore the caller blog.' );
+		$this->assertFalse( $this->term_exists_for_blog( $this->target_blog_id, 'Inactive Target Category' ) );
+		$this->assertSame( 'yes', $this->get_option_for_blog( $this->target_blog_id, 'woocommerce_enable_coupons' ) );
+		$this->assertSame( 0, $this->change_log_count_for_blog( $this->target_blog_id ) );
+	}
+
 	public function test_approved_plan_changes_only_target_site_and_restores_blog_context(): void {
 		$initial_blog_id = get_current_blog_id();
 		$this->set_option_for_blog( $this->target_blog_id, 'woocommerce_enable_coupons', 'yes' );
@@ -232,6 +309,32 @@ class WooCommerceAbilitiesTest extends WP_UnitTestCase {
 		switch_to_blog( $blog_id );
 		update_option( $option, $value );
 		restore_current_blog();
+	}
+
+	private function set_plugin_active_for_blog( int $blog_id, string $plugin_file, bool $active ): void {
+		switch_to_blog( $blog_id );
+		$active_plugins = array_values(
+			array_filter(
+				(array) get_option( 'active_plugins', [] ),
+				static fn( mixed $active_plugin ): bool => $plugin_file !== $active_plugin
+			)
+		);
+		if ( $active ) {
+			$active_plugins[] = $plugin_file;
+		}
+		update_option( 'active_plugins', $active_plugins );
+		restore_current_blog();
+	}
+
+	private function set_network_plugin_active( string $plugin_file, bool $active ): void {
+		$active_plugins = (array) get_site_option( 'active_sitewide_plugins', [] );
+		if ( $active ) {
+			$active_plugins[ $plugin_file ] = time();
+		} else {
+			unset( $active_plugins[ $plugin_file ] );
+		}
+		update_site_option( 'active_sitewide_plugins', $active_plugins );
+		$this->network_active_plugins_changed = true;
 	}
 
 	private function get_option_for_blog( int $blog_id, string $option ): string {
