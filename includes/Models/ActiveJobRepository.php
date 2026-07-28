@@ -13,6 +13,7 @@ declare(strict_types=1);
 
 namespace SdAiAgent\Models;
 
+use SdAiAgent\Core\ActiveJobFailureDiagnostic;
 use SdAiAgent\Models\DTO\ActiveJobRow;
 
 class ActiveJobRepository {
@@ -174,6 +175,15 @@ class ActiveJobRepository {
 
 		$allowed = [ 'pending_tools', 'tool_calls', 'checkpoint', 'checkpoint_phase', 'resume_attempts', 'error' ];
 		$data    = array_intersect_key( $extra, array_flip( $allowed ) );
+		if ( array_key_exists( 'error', $data ) ) {
+			$data['error'] = ActiveJobFailureDiagnostic::encode(
+				$job_id,
+				ActiveJobFailureDiagnostic::from_stored(
+					$job_id,
+					is_string( $data['error'] ) ? $data['error'] : null
+				)
+			);
+		}
 
 		$data['status']     = $status;
 		$data['updated_at'] = current_time( 'mysql', true );
@@ -190,6 +200,33 @@ class ActiveJobRepository {
 		);
 
 		return $result !== false;
+	}
+
+	/**
+	 * Persist a normalized, prompt-free terminal failure and emit safe telemetry.
+	 *
+	 * @param string               $job_id  Active-job UUID.
+	 * @param string               $status  Terminal status (error, interrupted, or abandoned).
+	 * @param string               $reason  Normalized terminal reason.
+	 * @param array<string, mixed> $context Safe diagnostic metadata.
+	 * @param array<string, mixed> $extra   Additional persisted active-job fields.
+	 * @return array<string, bool|int|string> Persisted diagnostic envelope.
+	 */
+	public static function record_failure( string $job_id, string $status, string $reason, array $context = array(), array $extra = array() ): array {
+		$row            = self::get_by_job_id( $job_id );
+		$diagnostic     = self::build_failure_diagnostic( $job_id, $reason, $row, $context );
+		$session_id     = null !== $row ? $row->session_id : 0;
+		$extra['error'] = ActiveJobFailureDiagnostic::encode( $job_id, $diagnostic );
+
+		if ( ! in_array( $status, array( 'error', 'interrupted', 'abandoned' ), true ) ) {
+			$status = 'error';
+		}
+
+		if ( self::update_status( $job_id, $status, $extra ) ) {
+			ActiveJobFailureDiagnostic::log( $diagnostic, $session_id );
+		}
+
+		return $diagnostic;
 	}
 
 	/**
@@ -305,29 +342,43 @@ class ActiveJobRepository {
 	 * updates the row when the status is still 'processing' so a normally-
 	 * completed job that finished just before shutdown is not overwritten.
 	 *
-	 * @param string $job_id The job UUID.
-	 * @param string $reason Human-readable reason for the interruption.
+	 * @param string               $job_id  The job UUID.
+	 * @param string               $reason  Retained for call-site compatibility; never persisted as free text.
+	 * @param array<string, mixed> $context Safe diagnostic metadata.
 	 * @return bool True on success, false on failure.
 	 */
-	public static function mark_interrupted( string $job_id, string $reason ): bool {
+	public static function mark_interrupted( string $job_id, string $reason = '', array $context = array() ): bool {
 		global $wpdb;
 		/** @var \wpdb $wpdb */
 
-		$now = current_time( 'mysql', true );
+		$row        = self::get_by_job_id( $job_id );
+		$diagnostic = self::build_failure_diagnostic(
+			$job_id,
+			ActiveJobFailureDiagnostic::REASON_WORKER_TERMINATED,
+			$row,
+			$context
+		);
+		$session_id = null !== $row ? $row->session_id : 0;
+		$now        = current_time( 'mysql', true );
 
 		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Custom table query; caching not applicable.
 		$result = $wpdb->query(
 			$wpdb->prepare(
 				"UPDATE %i SET status = 'interrupted', error = %s, interrupted_at = %s, updated_at = %s WHERE job_id = %s AND status = 'processing'",
 				self::table_name(),
-				$reason,
+				ActiveJobFailureDiagnostic::encode( $job_id, $diagnostic ),
 				$now,
 				$now,
 				$job_id
 			)
 		);
 
-		return $result !== false && $result > 0;
+		$updated = $result !== false && $result > 0;
+		if ( $updated ) {
+			ActiveJobFailureDiagnostic::log( $diagnostic, $session_id );
+		}
+
+		return $updated;
 	}
 
 	/**
@@ -343,16 +394,108 @@ class ActiveJobRepository {
 		global $wpdb;
 		/** @var \wpdb $wpdb */
 
+		$table = self::table_name();
 		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Custom table query; caching not applicable.
-		$result = $wpdb->query(
+		$rows  = $wpdb->get_results(
 			$wpdb->prepare(
-				"UPDATE %i SET status = 'abandoned', updated_at = UTC_TIMESTAMP() WHERE status = 'processing' AND updated_at < DATE_SUB(UTC_TIMESTAMP(), INTERVAL %d MINUTE)",
-				self::table_name(),
+				"SELECT * FROM %i WHERE status = 'processing' AND updated_at < DATE_SUB(UTC_TIMESTAMP(), INTERVAL %d MINUTE)",
+				$table,
 				$threshold_minutes
 			)
 		);
+		$count = 0;
 
-		return (int) $result;
+		foreach ( $rows ?: array() as $raw_row ) {
+			$row        = ActiveJobRow::from_row( $raw_row );
+			$diagnostic = self::build_failure_diagnostic(
+				$row->job_id,
+				ActiveJobFailureDiagnostic::REASON_WORKER_TERMINATED,
+				$row
+			);
+			// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Conditional custom-table state transition.
+			$result = $wpdb->query(
+				$wpdb->prepare(
+					"UPDATE %i SET status = 'abandoned', error = %s, updated_at = UTC_TIMESTAMP() WHERE job_id = %s AND status = 'processing'",
+					$table,
+					ActiveJobFailureDiagnostic::encode( $row->job_id, $diagnostic ),
+					$row->job_id
+				)
+			);
+
+			if ( $result !== false && $result > 0 ) {
+				++$count;
+				ActiveJobFailureDiagnostic::log( $diagnostic, $row->session_id );
+			}
+		}
+
+		return $count;
+	}
+
+	/**
+	 * Replace exhausted auto-recovery state with a compact continuation hint.
+	 *
+	 * Clearing the checkpoint prevents stale prompt history from being retained
+	 * after it can no longer be resumed automatically.
+	 *
+	 * @param string $job_id Active-job UUID.
+	 */
+	public static function mark_resume_exhausted( string $job_id ): void {
+		$row = self::get_by_job_id( $job_id );
+		if ( null === $row ) {
+			return;
+		}
+
+		self::record_failure(
+			$job_id,
+			$row->status,
+			ActiveJobFailureDiagnostic::REASON_RESUME_EXHAUSTED,
+			array(
+				'last_safe_phase' => $row->checkpoint_phase,
+				'resume_count'    => $row->resume_attempts,
+			),
+			array( 'checkpoint' => '' )
+		);
+	}
+
+	/**
+	 * Delete terminal rows after the diagnostic retention window expires.
+	 *
+	 * @param int $retention_days Number of days to retain undelivered terminal diagnostics.
+	 * @return int Number of deleted rows.
+	 */
+	public static function cleanup_terminal_diagnostics( int $retention_days ): int {
+		global $wpdb;
+		/** @var \wpdb $wpdb */
+
+		$retention_days = max( 1, $retention_days );
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Custom-table data-retention cleanup.
+		$result = $wpdb->query(
+			$wpdb->prepare(
+				"DELETE FROM %i WHERE status IN ('complete', 'error', 'interrupted', 'abandoned') AND updated_at < DATE_SUB(UTC_TIMESTAMP(), INTERVAL %d DAY)",
+				self::table_name(),
+				$retention_days
+			)
+		);
+
+		return $result === false ? 0 : (int) $result;
+	}
+
+	/**
+	 * Build an allowlisted diagnostic using the row's durable metadata.
+	 *
+	 * @param string               $job_id  Active-job UUID.
+	 * @param string               $reason  Normalized failure reason.
+	 * @param ActiveJobRow|null    $row     Existing row, when available.
+	 * @param array<string, mixed> $context Caller-supplied safe metadata.
+	 * @return array<string, bool|int|string>
+	 */
+	private static function build_failure_diagnostic( string $job_id, string $reason, ?ActiveJobRow $row, array $context = array() ): array {
+		$defaults = array(
+			'last_safe_phase' => null !== $row ? $row->checkpoint_phase : '',
+			'resume_count'    => null !== $row ? $row->resume_attempts : 0,
+		);
+
+		return ActiveJobFailureDiagnostic::create( $job_id, $reason, array_merge( $defaults, $context ) );
 	}
 
 	/**

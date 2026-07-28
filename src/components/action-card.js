@@ -50,6 +50,56 @@ function describeToolCall( name, args ) {
 }
 
 /**
+ * Format the allowlisted checkpoint phase for a short user-facing label.
+ *
+ * @param {string} phase Checkpoint phase from the safe diagnostic DTO.
+ * @return {string} Human-readable phase label.
+ */
+function formatFailurePhase( phase ) {
+	if ( ! /^[a-z0-9_]{1,60}$/.test( phase ) ) {
+		return '';
+	}
+
+	return phase.replace( /_/g, ' ' );
+}
+
+/**
+ * Explain the specific recovery action without exposing implementation detail.
+ *
+ * @param {string} nextAction Normalized recovery action.
+ * @return {string} Customer-facing next-step guidance.
+ */
+function getFailureNextStep( nextAction ) {
+	switch ( nextAction ) {
+		case 'compact':
+			return __(
+				'Start a smaller continuation with a shorter recent message or fewer attachments.',
+				'superdav-ai-agent'
+			);
+		case 'retry':
+			return __(
+				'Retry the last message. Completed work in the conversation is preserved.',
+				'superdav-ai-agent'
+			);
+		case 'approve_review':
+			return __(
+				'Review the pending approval before continuing.',
+				'superdav-ai-agent'
+			);
+		case 'continuation':
+			return __(
+				'Start a continuation from the saved conversation.',
+				'superdav-ai-agent'
+			);
+		default:
+			return __(
+				'Contact support with the support ID below if the problem continues.',
+				'superdav-ai-agent'
+			);
+	}
+}
+
+/**
  * ActionCard — inline confirmation card rendered in the message list.
  *
  * Shown when the AI proposes a destructive or significant operation and
@@ -131,9 +181,96 @@ export default function ActionCard( { card, onConfirm, onCancel } ) {
 		);
 	}
 
+	if ( card?.type === 'active_job_failure' ) {
+		const diagnostic = card.diagnostic || {};
+		const nextAction =
+			typeof diagnostic.next_action === 'string'
+				? diagnostic.next_action
+				: 'contact_support';
+		const phase = formatFailurePhase( diagnostic.last_safe_phase || '' );
+		const correlationId =
+			typeof diagnostic.correlation_id === 'string' &&
+			/^job-(?:[a-f0-9]{12}|unknown)$/.test( diagnostic.correlation_id )
+				? diagnostic.correlation_id
+				: '';
+		const canRetry =
+			'retry' === nextAction && typeof onConfirm === 'function';
+
+		return (
+			<div
+				className="sdaa-action-card sdaa-action-card--failure"
+				role="region"
+				aria-label={ __(
+					'Background job recovery details',
+					'superdav-ai-agent'
+				) }
+			>
+				<div className="sdaa-action-card-header">
+					<span className="sdaa-action-card-heading">
+						{ __( 'Job needs attention', 'superdav-ai-agent' ) }
+					</span>
+				</div>
+				<div className="sdaa-action-card-body">
+					<p>
+						{ card.message ||
+							__(
+								'The background agent job could not finish.',
+								'superdav-ai-agent'
+							) }
+					</p>
+					<p className="sdaa-action-card-failure-next-step">
+						<strong>
+							{ __( 'Next step:', 'superdav-ai-agent' ) }
+						</strong>{ ' ' }
+						{ getFailureNextStep( nextAction ) }
+					</p>
+					{ phase && (
+						<p className="sdaa-action-card-failure-phase">
+							<strong>
+								{ __(
+									'Last completed step:',
+									'superdav-ai-agent'
+								) }
+							</strong>{ ' ' }
+							{ phase }
+						</p>
+					) }
+					{ correlationId && (
+						<p className="sdaa-action-card-failure-correlation">
+							<strong>
+								{ __( 'Support ID:', 'superdav-ai-agent' ) }
+							</strong>{ ' ' }
+							<code>{ correlationId }</code>
+						</p>
+					) }
+				</div>
+				<div className="sdaa-action-card-footer">
+					<button
+						type="button"
+						className="button sdaa-action-card-btn-cancel"
+						onClick={ onCancel }
+					>
+						{ __( 'Dismiss', 'superdav-ai-agent' ) }
+					</button>
+					{ canRetry && (
+						<button
+							type="button"
+							ref={ confirmRef }
+							className="button button-primary sdaa-action-card-btn-confirm"
+							onClick={ onConfirm }
+						>
+							{ __( 'Retry last message', 'superdav-ai-agent' ) }
+						</button>
+					) }
+				</div>
+			</div>
+		);
+	}
+
 	if ( card?.type === 'resume_recoverable_job' ) {
 		return (
 			<RecoverableJobActionCard
+				diagnostic={ card.diagnostic }
 				onConfirm={ onConfirm }
 				onCancel={ onCancel }
 			/>

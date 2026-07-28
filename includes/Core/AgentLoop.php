@@ -223,9 +223,6 @@ class AgentLoop {
 	 */
 	private string $active_job_id = '';
 
-	/** @var float Unix timestamp when this active-job run started. */
-	private float $active_job_started_at = 0.0;
-
 	/** @var array<string, mixed> Resume metadata carried forward from a claimed checkpoint. */
 	private array $checkpoint_resume_metadata = array();
 
@@ -554,7 +551,6 @@ class AgentLoop {
 		// The handler is a no-op when the row is no longer 'processing'
 		// (i.e. the loop finished normally and updated the status first).
 		if ( '' !== $this->active_job_id ) {
-			$this->active_job_started_at = microtime( true );
 			register_shutdown_function( array( $this, 'handle_active_job_shutdown' ) );
 		}
 
@@ -606,7 +602,8 @@ class AgentLoop {
 	 * The database update is guarded by status='processing', so this method is a
 	 * no-op after normal completion/error persistence. When PHP terminates during
 	 * a provider call or ability execution, the row now records the last loop
-	 * phase and any fatal shutdown error instead of a generic interruption note.
+	 * phase and a normalized fatal error code instead of a generic interruption
+	 * note. Raw fatal messages, paths, and traces are never retained.
 	 *
 	 * @return void
 	 */
@@ -615,38 +612,17 @@ class AgentLoop {
 			return;
 		}
 
-		$connection_status = connection_status();
-		if ( CONNECTION_ABORTED === $connection_status ) {
-			$reason = 'shutdown handler — client disconnected before loop completion';
-		} elseif ( CONNECTION_TIMEOUT === $connection_status ) {
-			$reason = 'shutdown handler — PHP request timed out before loop completion';
-		} else {
-			$reason = 'shutdown handler — request terminated without loop completion';
-		}
-
-		$elapsed               = $this->active_job_started_at > 0
-			? max( 0, (int) round( microtime( true ) - $this->active_job_started_at ) )
-			: 0;
 		$interrupted_phase     = $this->last_loop_phase;
 		$this->last_loop_phase = 'shutdown';
-
-		$details = array(
-			'phase=' . $interrupted_phase,
-			'iteration=' . $this->iterations_used . '/' . (int) $this->max_iterations,
-			'elapsed_s=' . $elapsed,
-			'connection_status=' . $this->format_connection_status( $connection_status ),
-			'memory_peak=' . (int) memory_get_peak_usage( true ),
+		$context               = array(
+			'last_safe_phase' => $interrupted_phase,
+			'provider_id'     => (string) $this->provider_id,
+			'model_id'        => (string) $this->model_id,
 		);
 
 		$last_error = error_get_last();
 		if ( is_array( $last_error ) && $this->is_fatal_shutdown_error( $last_error ) ) {
-			$message   = (string) $last_error['message'];
-			$file      = (string) $last_error['file'];
-			$line      = (int) $last_error['line'];
-			$type      = (int) $last_error['type'];
-			$details[] = 'fatal_type=' . $type;
-			$details[] = 'fatal=redacted';
-			$details[] = 'fatal_code=php_shutdown_' . $type;
+			$type = (int) $last_error['type'];
 
 			AgentEventLog::log(
 				'active_job_shutdown_fatal',
@@ -655,36 +631,12 @@ class AgentLoop {
 					'session_id' => $this->session_id,
 					'code'       => 'php_shutdown_' . $type,
 					'reason'     => 'fatal_shutdown',
-					'message'    => $this->shorten_shutdown_detail( $message . ( '' !== $file ? ' in ' . $file . ':' . $line : '' ) ),
+					'phase'      => $interrupted_phase,
 				)
 			);
-		} else {
-			$details[] = 'fatal=none';
 		}
 
-		ActiveJobRepository::mark_interrupted( $this->active_job_id, $reason . '; ' . implode( '; ', $details ) );
-	}
-
-	/**
-	 * Format a PHP connection status bitmask for shutdown diagnostics.
-	 *
-	 * @param int $status PHP connection_status() bitmask.
-	 * @return string Human-readable status label.
-	 */
-	private function format_connection_status( int $status ): string {
-		if ( CONNECTION_NORMAL === $status ) {
-			return 'normal';
-		}
-
-		$labels = array();
-		if ( ( $status & CONNECTION_ABORTED ) === CONNECTION_ABORTED ) {
-			$labels[] = 'aborted';
-		}
-		if ( ( $status & CONNECTION_TIMEOUT ) === CONNECTION_TIMEOUT ) {
-			$labels[] = 'timeout';
-		}
-
-		return empty( $labels ) ? (string) $status : implode( '+', $labels );
+		ActiveJobRepository::mark_interrupted( $this->active_job_id, '', $context );
 	}
 
 	/**
@@ -701,22 +653,6 @@ class AgentLoop {
 			array( E_ERROR, E_PARSE, E_CORE_ERROR, E_COMPILE_ERROR, E_USER_ERROR, E_RECOVERABLE_ERROR ),
 			true
 		);
-	}
-
-	/**
-	 * Keep shutdown details compact enough for active_jobs.error.
-	 *
-	 * @param string $detail Raw shutdown detail.
-	 * @return string Trimmed detail.
-	 */
-	private function shorten_shutdown_detail( string $detail ): string {
-		$detail = trim( preg_replace( '/\s+/', ' ', $detail ) ?? $detail );
-
-		if ( strlen( $detail ) <= 220 ) {
-			return $detail;
-		}
-
-		return substr( $detail, 0, 217 ) . '...';
 	}
 
 	/**
@@ -809,7 +745,6 @@ class AgentLoop {
 			ProviderCredentialLoader::load();
 
 			if ( '' !== $this->active_job_id ) {
-				$this->active_job_started_at = microtime( true );
 				register_shutdown_function( array( $this, 'handle_active_job_shutdown' ) );
 			}
 

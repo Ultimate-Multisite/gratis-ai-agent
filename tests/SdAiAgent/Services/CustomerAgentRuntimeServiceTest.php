@@ -10,8 +10,10 @@ declare(strict_types=1);
 
 namespace SdAiAgent\Tests\Services;
 
+use SdAiAgent\Core\ActiveJobFailureDiagnostic;
 use SdAiAgent\Core\Database;
 use SdAiAgent\Knowledge\KnowledgeDatabase;
+use SdAiAgent\Models\ActiveJobRepository;
 use SdAiAgent\Models\Agent;
 use SdAiAgent\Models\CustomerAgentRuntimeRepository;
 use SdAiAgent\Services\CustomerAgentRuntimeService;
@@ -371,6 +373,12 @@ class CustomerAgentRuntimeServiceTest extends WP_UnitTestCase {
 		$this->assertNotInstanceOf( WP_Error::class, $status );
 		$this->assertSame( 'cancelled', $status['status'] );
 		$this->assertArrayNotHasKey( 'reply', $status );
+		$active_job = ActiveJobRepository::get_by_job_id( $job['job_id'] );
+		$this->assertNotNull( $active_job );
+		$this->assertSame( 'error', $active_job->status );
+		$diagnostic = ActiveJobFailureDiagnostic::from_stored( $job['job_id'], $active_job->error );
+		$this->assertSame( ActiveJobFailureDiagnostic::REASON_UNKNOWN, $diagnostic['reason'] );
+		$this->assertSame( 'customer_agent_cancellation', $diagnostic['last_safe_phase'] );
 	}
 
 	/** Stuck jobs are converted to a stable timeout response during reconciliation. */
@@ -431,6 +439,43 @@ class CustomerAgentRuntimeServiceTest extends WP_UnitTestCase {
 		$stored = CustomerAgentRuntimeRepository::get_job( $job['job_id'] );
 		$this->assertNotNull( $stored );
 		$this->assertStringNotContainsString( 'test-only-secret-value', (string) $stored['error_message'] );
+		$active_job = ActiveJobRepository::get_by_job_id( $job['job_id'] );
+		$this->assertNotNull( $active_job );
+		$diagnostic = ActiveJobFailureDiagnostic::from_stored( $job['job_id'], $active_job->error );
+		$this->assertSame( ActiveJobFailureDiagnostic::REASON_UNKNOWN, $diagnostic['reason'] );
+		$this->assertSame( 'customer_agent_runtime', $diagnostic['last_safe_phase'] );
+		$this->assertStringNotContainsString( 'test-only-secret-value', $active_job->error );
+	}
+
+	/** Provider timeout failures retain only safe recovery metadata. */
+	public function test_classifies_timeout_executor_failures_for_active_job_recovery(): void {
+		$service = new CustomerAgentRuntimeService(
+			static function (): WP_Error {
+				return new WP_Error(
+					'timeout',
+					'Provider timeout: token=test-only-timeout-secret',
+					array(
+						'provider_id' => 'timeout-provider',
+						'model_id'    => 'timeout-model',
+					)
+				);
+			}
+		);
+		$job = $service->enqueue_turn( self::INTEGRATION, 'customer-session-timeout-diagnostic', 'message-1', 'Please help.' );
+		$this->assertNotInstanceOf( WP_Error::class, $job );
+
+		$service->process_job( $job['job_id'] );
+
+		$active_job = ActiveJobRepository::get_by_job_id( $job['job_id'] );
+		$this->assertNotNull( $active_job );
+		$diagnostic = ActiveJobFailureDiagnostic::from_stored( $job['job_id'], $active_job->error );
+		$this->assertSame( ActiveJobFailureDiagnostic::REASON_PROVIDER_TIMEOUT, $diagnostic['reason'] );
+		$this->assertSame( 'customer_agent_runtime', $diagnostic['last_safe_phase'] );
+		$this->assertTrue( $diagnostic['retryable'] );
+		$this->assertSame( 'retry', $diagnostic['next_action'] );
+		$this->assertSame( 'timeout-provider', $diagnostic['provider_id'] );
+		$this->assertSame( 'timeout-model', $diagnostic['model_id'] );
+		$this->assertStringNotContainsString( 'test-only-timeout-secret', $active_job->error );
 	}
 
 	/** Unknown or unsafe registrations fail before a conversation can be created. */

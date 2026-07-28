@@ -14,13 +14,13 @@ namespace SdAiAgent\REST;
 use SdAiAgent\Abilities\Js\JsAbilityCatalog;
 use SdAiAgent\Core\AgentLoop;
 use SdAiAgent\Core\AgentEventLog;
+use SdAiAgent\Core\ActiveJobFailureDiagnostic;
 use SdAiAgent\Core\ConversationDisplaySanitizer;
 use SdAiAgent\Core\ConversationSerializer;
 use SdAiAgent\Core\ConversationTrimmer;
 use SdAiAgent\Core\CostCalculator;
 use SdAiAgent\Core\Database;
 use SdAiAgent\Core\Export;
-use SdAiAgent\Core\JobErrorSanitizer;
 use SdAiAgent\Core\Settings;
 use SdAiAgent\Core\ToolPermissionResolver;
 use SdAiAgent\Models\ActiveJobRepository;
@@ -57,9 +57,6 @@ if ( ! defined( 'ABSPATH' ) ) {
 final class SessionController {
 
 	use PermissionTrait;
-
-	/** Maximum safe technical-detail length returned by job status polling. */
-	private const JOB_ERROR_DETAIL_MAX_LENGTH = 180;
 
 	/** Maximum automatic resume attempts for a crashed background job. */
 	private const JOB_AUTO_RESUME_MAX_ATTEMPTS = 2;
@@ -1235,17 +1232,10 @@ final class SessionController {
 				);
 			}
 			if ( $this->discard_expired_paused_job( $db_row ) ) {
-				// A paused job needs the transient's serialized loop state to resume.
-				// Never resurrect its DB-only tool list as a confirmation dialog: the
-				// subsequent confirm/reject request cannot safely execute it.
-				return new WP_REST_Response(
-					array(
-						'status'     => 'expired',
-						'from_db'    => true,
-						'session_id' => $db_row->session_id,
-					),
-					200
-				);
+				$expired_row = ActiveJobRepository::get_by_job_id( $job_id );
+				if ( null !== $expired_row ) {
+					return $this->job_status_from_db_row( $job_id, $expired_row );
+				}
 			}
 			return $this->job_status_from_db_row( $job_id, $db_row );
 		}
@@ -1327,13 +1317,9 @@ final class SessionController {
 			ActiveJobRepository::delete( $job_id );
 		}
 
-		if ( 'error' === $job['status'] && isset( $job['error'] ) ) {
+		if ( 'error' === $job['status'] ) {
 			$job_session_id = $this->get_job_session_id( $job );
-			$error_context  = array(
-				'job_id'        => $job_id,
-				'session_id'    => $job_session_id,
-				'error_context' => $job['error_context'] ?? null,
-			);
+			unset( $response['tool_calls'], $response['messages'] );
 
 			if ( $job_session_id > 0 ) {
 				$response['session_id'] = $job_session_id;
@@ -1341,34 +1327,7 @@ final class SessionController {
 			if ( ! empty( $job['recoverable'] ) ) {
 				$response['recoverable'] = true;
 			}
-
-			/**
-			 * Filter the error message returned to the chat client.
-			 *
-			 * Companion plugins that raise their own AI-related errors
-			 * (usage caps, billing, content-policy gates, etc.) can hook
-			 * here to rewrite the message into something more actionable
-			 * for the user — for example, by appending a Markdown link to
-			 * a checkout or settings page. The frontend renders the
-			 * returned string through its Markdown pipeline, so producers
-			 * may use Markdown syntax including links.
-			 *
-			 * @since 1.11.0
-			 *
-			 * @param string               $message       Raw error message from AgentLoop.
-			 * @param array<string, mixed> $error_context Context: job_id, session_id, error_context.
-			 */
-			$response['message'] = (string) apply_filters(
-				'sd_ai_agent_chat_error_message',
-				(string) $job['error'],
-				$error_context
-			);
-
-			// Forward backtrace context so the frontend can display
-			// actionable debugging details (file, line, abbreviated stack).
-			if ( ! empty( $job['error_context'] ) ) {
-				$response['error_context'] = $job['error_context'];
-			}
+			$this->add_transient_failure_response( $job_id, $job, $job_session_id, $response );
 
 			// Clean up.
 			delete_transient( RestController::JOB_PREFIX . $job_id );
@@ -1391,8 +1350,9 @@ final class SessionController {
 	 * @return WP_REST_Response
 	 */
 	private function job_status_from_db_row( string $job_id, ActiveJobRow $row ): WP_REST_Response {
-		$status   = $row->status;
-		$response = [
+		$original_status = $row->status;
+		$status          = $row->status;
+		$response        = [
 			'status'     => $status,
 			'from_db'    => true,
 			'session_id' => $row->session_id,
@@ -1419,6 +1379,14 @@ final class SessionController {
 			}
 		}
 
+		if ( in_array( $status, array( 'interrupted', 'abandoned' ), true ) ) {
+			$refreshed_row = ActiveJobRepository::get_by_job_id( $job_id );
+			if ( null !== $refreshed_row ) {
+				$row    = $refreshed_row;
+				$status = $row->status;
+			}
+		}
+
 		// Include tool-call progress when present.
 		$tool_calls = json_decode( $row->tool_calls, true );
 		if ( is_array( $tool_calls ) && ! empty( $tool_calls ) ) {
@@ -1440,28 +1408,19 @@ final class SessionController {
 			}
 		}
 
-		if ( 'error' === $status ) {
-			$error_detail        = $this->sanitize_job_error_detail( (string) $row->error );
-			$response['message'] = '' !== $error_detail
-				? $error_detail
-				: __( 'The background agent job failed before it could finish. Please retry the request.', 'superdav-ai-agent' );
+		if ( in_array( $status, array( 'error', 'interrupted', 'abandoned' ), true ) ) {
+			$diagnostic             = ActiveJobFailureDiagnostic::from_stored( $job_id, $row->error );
+			$response['diagnostic'] = ActiveJobFailureDiagnostic::to_rest( $diagnostic );
+			$response['message']    = $this->filter_failure_message( $diagnostic, $row->session_id );
 
 			if ( $this->session_has_recoverable_paused_state( $row->session_id ) ) {
 				$response['recoverable'] = true;
 			}
-		}
 
-		if ( in_array( $status, array( 'interrupted', 'abandoned' ), true ) ) {
-			$error_detail                = $this->sanitize_job_error_detail( (string) $row->error );
-			$response['status']          = 'error';
-			$response['original_status'] = $status;
-			$response['message']         = '' !== $error_detail
-				? sprintf(
-					/* translators: %s: technical interruption detail. */
-					__( 'The background agent job stopped before it could finish. Technical detail: %s', 'superdav-ai-agent' ),
-					$error_detail
-				)
-				: __( 'The background agent job stopped before it could finish. Please retry the request.', 'superdav-ai-agent' );
+			if ( 'error' !== $status ) {
+				$response['status']          = 'error';
+				$response['original_status'] = $original_status;
+			}
 		}
 
 		// Delete DB row on terminal-state delivery (mirrors the transient cleanup).
@@ -1848,9 +1807,17 @@ final class SessionController {
 	 */
 	private function terminal_checkpoint_resume( string $job_id, ActiveJobRow $row, string $reason, array $metadata, string $phase ): array {
 		$public_metadata = $this->checkpoint_resume_response_metadata( $metadata, $reason, $phase );
-		$detail          = sprintf( 'checkpoint_resume_%s; phase=%s; size_class=%s', $public_metadata['reason'], $public_metadata['phase'], $public_metadata['size_class'] );
 
-		ActiveJobRepository::update_status( $job_id, 'error', array( 'error' => $detail ) );
+		ActiveJobRepository::record_failure(
+			$job_id,
+			'error',
+			ActiveJobFailureDiagnostic::REASON_RESUME_EXHAUSTED,
+			array(
+				'last_safe_phase'    => $public_metadata['phase'],
+				'resume_count'       => $row->resume_attempts,
+				'request_size_class' => $public_metadata['size_class'],
+			)
+		);
 		AgentEventLog::log(
 			'checkpoint_resume_stopped',
 			AgentEventLog::SEVERITY_WARNING,
@@ -1875,6 +1842,18 @@ final class SessionController {
 	 * @return WP_REST_Response Terminal job-status response.
 	 */
 	private function checkpoint_resume_terminal_response( string $job_id, ActiveJobRow $row, array $metadata ): WP_REST_Response {
+		$stored_row = ActiveJobRepository::get_by_job_id( $job_id );
+		$diagnostic = null !== $stored_row
+			? ActiveJobFailureDiagnostic::from_stored( $job_id, $stored_row->error )
+			: ActiveJobFailureDiagnostic::create(
+				$job_id,
+				ActiveJobFailureDiagnostic::REASON_RESUME_EXHAUSTED,
+				array(
+					'last_safe_phase'    => $metadata['phase'],
+					'resume_count'       => $row->resume_attempts,
+					'request_size_class' => $metadata['size_class'],
+				)
+			);
 		ActiveJobRepository::delete( $job_id );
 
 		return new WP_REST_Response(
@@ -1883,7 +1862,8 @@ final class SessionController {
 				'from_db'           => true,
 				'session_id'        => $row->session_id,
 				'original_status'   => $row->status,
-				'message'           => __( 'The background job could not safely resume. Start a new request to continue.', 'superdav-ai-agent' ),
+				'message'           => $this->filter_failure_message( $diagnostic, $row->session_id ),
+				'diagnostic'        => ActiveJobFailureDiagnostic::to_rest( $diagnostic ),
 				'checkpoint_resume' => $metadata,
 			),
 			200
@@ -1908,17 +1888,74 @@ final class SessionController {
 	}
 
 	/**
-	 * Scrub active-job technical details before they are returned to REST clients.
+	 * Add a prompt-free diagnostic for a transient-backed failed job.
 	 *
-	 * Active-job rows may contain shutdown or provider details written from low-level
-	 * code paths. Keep the useful phase/status tokens but strip paths, stack traces,
-	 * credential-shaped fragments, and any known secret option names.
-	 *
-	 * @param string $detail Raw active_jobs.error value.
-	 * @return string Bounded, client-safe summary, or empty string when fully redacted.
+	 * @param string               $job_id     Active-job UUID.
+	 * @param array<string, mixed> $job        Job transient payload.
+	 * @param int                  $session_id Session identifier.
+	 * @param array<string, mixed> $response   REST response, updated by reference.
+	 * @return void
 	 */
-	private function sanitize_job_error_detail( string $detail ): string {
-		return JobErrorSanitizer::sanitize( $detail, self::JOB_ERROR_DETAIL_MAX_LENGTH );
+	private function add_transient_failure_response( string $job_id, array $job, int $session_id, array &$response ): void {
+		$stored_diagnostic = $job['diagnostic'] ?? array();
+		$stored_diagnostic = is_array( $stored_diagnostic ) ? $stored_diagnostic : array();
+		$diagnostic        = ActiveJobFailureDiagnostic::create(
+			$job_id,
+			(string) ( $stored_diagnostic['reason'] ?? ActiveJobFailureDiagnostic::REASON_UNKNOWN ),
+			$stored_diagnostic
+		);
+
+		$response['diagnostic'] = ActiveJobFailureDiagnostic::to_rest( $diagnostic );
+		$response['message']    = $this->filter_failure_message( $diagnostic, $session_id );
+	}
+
+	/**
+	 * Filter a fixed, prompt-free failure message with safe metadata only.
+	 *
+	 * @param array<string, bool|int|string> $diagnostic Safe diagnostic envelope.
+	 * @param int                            $session_id Session identifier.
+	 * @return string Customer-facing message.
+	 */
+	private function filter_failure_message( array $diagnostic, int $session_id ): string {
+		/**
+		 * Filter the prompt-free failure message returned to the chat client.
+		 *
+		 * @since 1.11.0
+		 *
+		 * @param string               $message    Fixed message for the normalized reason.
+		 * @param array<string, mixed> $context    Safe diagnostic and session context.
+		 */
+		$message = apply_filters(
+			'sd_ai_agent_chat_error_message',
+			ActiveJobFailureDiagnostic::message_for( (string) $diagnostic['reason'] ),
+			array(
+				'session_id' => $session_id,
+				'diagnostic' => ActiveJobFailureDiagnostic::to_rest( $diagnostic ),
+			)
+		);
+
+		return is_string( $message ) && '' !== $message
+			? $message
+			: ActiveJobFailureDiagnostic::message_for( (string) $diagnostic['reason'] );
+	}
+
+	/**
+	 * Persist a prompt-free terminal failure and replace transient error data.
+	 *
+	 * @param string               $job_id  Active-job UUID.
+	 * @param array<string, mixed> $job     Job transient payload, updated by reference.
+	 * @param string               $reason  Normalized diagnostic reason.
+	 * @param array<string, mixed> $context Allowlisted diagnostic metadata.
+	 * @return array<string, bool|int|string> Persisted diagnostic envelope.
+	 */
+	private function persist_active_job_failure( string $job_id, array &$job, string $reason, array $context = array() ): array {
+		$diagnostic        = ActiveJobRepository::record_failure( $job_id, 'error', $reason, $context );
+		$job['status']     = 'error';
+		$job['error']      = ActiveJobFailureDiagnostic::message_for( (string) $diagnostic['reason'] );
+		$job['diagnostic'] = ActiveJobFailureDiagnostic::to_rest( $diagnostic );
+		unset( $job['error_context'] );
+
+		return $diagnostic;
 	}
 
 	/**
@@ -2285,10 +2322,8 @@ final class SessionController {
 			delete_transient( RestController::JOB_PREFIX . $job_id );
 			ActiveJobRepository::delete( $job_id );
 		} elseif ( 'error' === ( $job['status'] ?? '' ) ) {
-			$response['message'] = $this->sanitize_job_error_detail( (string) ( $job['error'] ?? '' ) );
-			if ( '' === $response['message'] ) {
-				$response['message'] = __( 'The public chat request failed. Please try again later.', 'superdav-ai-agent' );
-			}
+			unset( $response['tool_calls'], $response['messages'] );
+			$this->add_transient_failure_response( $job_id, $job, 0, $response );
 			delete_transient( RestController::JOB_PREFIX . $job_id );
 			ActiveJobRepository::delete( $job_id );
 		}
@@ -2961,11 +2996,18 @@ final class SessionController {
 				// Same defensive strip for history passed directly in the request body.
 				$history = ConversationTrimmer::validate_tool_pairs( $history );
 			} catch ( \Exception $e ) {
-				$job['status'] = 'error';
-				$job['error']  = __( 'Invalid conversation history format.', 'superdav-ai-agent' );
+				$this->persist_active_job_failure(
+					$job_id,
+					$job,
+					ActiveJobFailureDiagnostic::REASON_LOOP_EXCEPTION,
+					array(
+						'last_safe_phase' => 'history_deserialization',
+						'provider_id'     => (string) ( $params['provider_id'] ?? '' ),
+						'model_id'        => (string) ( $params['model_id'] ?? '' ),
+					)
+				);
 				unset( $job['token'] );
 				set_transient( RestController::JOB_PREFIX . $job_id, $job, RestController::JOB_TTL );
-				ActiveJobRepository::update_status( $job_id, 'error', [ 'error' => $job['error'] ] );
 				return new WP_REST_Response( array( 'ok' => false ), 200 );
 			}
 		}
@@ -3166,34 +3208,21 @@ final class SessionController {
 				$result = $loop->run();
 			}
 		} catch ( \Throwable $e ) {
-			// Log the full exception so stdClass and similar runtime errors
-			// are visible in debug.log instead of silently swallowed.
-			// phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log
-			error_log( '[Superdav AI Agent] AgentLoop error: ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine() . "\n" . $e->getTraceAsString() );
-
-			$job['status'] = 'error';
-			$job['error']  = $e->getMessage();
-
-			// Include backtrace context so the frontend can display
-			// actionable debugging info instead of a bare message.
-			$trace_frames = array();
-			foreach ( array_slice( $e->getTrace(), 0, 10 ) as $frame ) {
-				$trace_frames[] = ( $frame['file'] ?? '?' )
-					. ':' . ( $frame['line'] ?? '?' )
-					. ' ' . ( $frame['class'] ?? '' )
-					. ( $frame['type'] ?? '' )
-					. ( $frame['function'] ?? '' ) . '()';
-			}
-			$job['error_context'] = array(
-				'file'  => $e->getFile(),
-				'line'  => $e->getLine(),
-				'trace' => $trace_frames,
+			$diagnostic = $this->persist_active_job_failure(
+				$job_id,
+				$job,
+				ActiveJobFailureDiagnostic::REASON_LOOP_EXCEPTION,
+				array(
+					'last_safe_phase' => 'process_exception',
+					'provider_id'     => (string) ( $options['provider_id'] ?? $params['provider_id'] ?? '' ),
+					'model_id'        => (string) ( $options['model_id'] ?? $params['model_id'] ?? '' ),
+				)
 			);
 
 			if ( $session_id ) {
 				$recovery_error = new WP_Error(
 					'sd_ai_agent_loop_exception',
-					$e->getMessage(),
+					ActiveJobFailureDiagnostic::message_for( (string) $diagnostic['reason'] ),
 					array(
 						'history'     => $this->build_exception_recovery_history( array_values( $history ), $params ),
 						'tool_calls'  => is_array( $job['tool_calls'] ?? null )
@@ -3218,32 +3247,41 @@ final class SessionController {
 				);
 			}
 
-			unset( $job['token'] );
+			unset( $job['token'], $job['tool_calls'], $job['messages'] );
 			set_transient( RestController::JOB_PREFIX . $job_id, $job, RestController::JOB_TTL );
-
-			// Persist exception details to DB so status survives transient expiry.
-			ActiveJobRepository::update_status( $job_id, 'error', [ 'error' => $job['error'] ] );
 
 			return new WP_REST_Response( array( 'ok' => false ), 200 );
 		}
 
 		if ( is_wp_error( $result ) ) {
-			$job['status'] = 'error';
-			$job['error']  = $result->get_error_message();
-			$error_data    = $result->get_error_data();
-			if ( is_array( $error_data ) ) {
-				$job['tool_calls'] = $error_data['tool_calls'] ?? ( $job['tool_calls'] ?? array() );
-				$job['messages']   = $error_data['messages'] ?? ( $job['messages'] ?? array() );
-				if ( $session_id ) {
-					$this->persist_error_recovery_to_session(
-						$session_id,
-						$result,
-						$error_data,
-						$params,
-						$options,
-						$job
-					);
-				}
+			$error_data   = $result->get_error_data();
+			$error_data   = is_array( $error_data ) ? $error_data : array();
+			$failure_data = ActiveJobFailureDiagnostic::context_from_error_data( $error_data );
+
+			$failure_data['last_safe_phase'] = 'agent_loop';
+			if ( '' === $failure_data['provider_id'] ) {
+				$failure_data['provider_id'] = (string) ( $options['provider_id'] ?? $params['provider_id'] ?? '' );
+			}
+			if ( '' === $failure_data['model_id'] ) {
+				$failure_data['model_id'] = (string) ( $options['model_id'] ?? $params['model_id'] ?? '' );
+			}
+			$diagnostic        = $this->persist_active_job_failure(
+				$job_id,
+				$job,
+				ActiveJobFailureDiagnostic::reason_from_error( $result ),
+				$failure_data
+			);
+			$job['tool_calls'] = $error_data['tool_calls'] ?? ( $job['tool_calls'] ?? array() );
+			$job['messages']   = $error_data['messages'] ?? ( $job['messages'] ?? array() );
+			if ( $session_id ) {
+				$this->persist_error_recovery_to_session(
+					$session_id,
+					$result,
+					$error_data,
+					$params,
+					$options,
+					$job
+				);
 			}
 
 			// Log webhook execution failure.
@@ -3258,9 +3296,11 @@ final class SessionController {
 					0,
 					0,
 					$duration_ms,
-					$result->get_error_message()
+					ActiveJobFailureDiagnostic::message_for( (string) $diagnostic['reason'] )
 				);
 			}
+
+			unset( $job['tool_calls'], $job['messages'] );
 		} elseif ( is_array( $result ) && ! empty( $result['awaiting_confirmation'] ) ) {
 			/** @var array<string, mixed> $result */
 			$job['status']             = 'awaiting_confirmation';
@@ -3461,12 +3501,13 @@ final class SessionController {
 		// frontend to reload the session when needed.
 		// @phpstan-ignore-next-line -- status is set above in all paths (error or complete).
 		$db_status = (string) $job['status'];
-		if ( 'error' === $db_status ) {
-			$error_extra = [ 'error' => (string) ( $job['error'] ?? '' ) ];
-			if ( ! empty( $job['tool_calls'] ) && is_array( $job['tool_calls'] ) ) {
-				$error_extra['tool_calls'] = wp_json_encode( $job['tool_calls'] );
-			}
-			ActiveJobRepository::update_status( $job_id, 'error', $error_extra );
+		if ( 'error' === $db_status && empty( $job['diagnostic'] ) ) {
+			$this->persist_active_job_failure(
+				$job_id,
+				$job,
+				ActiveJobFailureDiagnostic::REASON_UNKNOWN,
+				array( 'last_safe_phase' => 'agent_loop' )
+			);
 		} elseif ( 'complete' === $db_status ) {
 			/** @var array<string, mixed> $complete_result */
 			$complete_result = $job['result'] ?? array();
@@ -3545,7 +3586,7 @@ final class SessionController {
 	}
 
 	/**
-	 * Remove a paused job whose transient has expired.
+	 * Convert a paused job whose transient has expired into a safe terminal failure.
 	 *
 	 * The active-jobs table deliberately stores summary data for polling
 	 * recovery, but does not contain the serialized loop state required to
@@ -3553,7 +3594,7 @@ final class SessionController {
 	 * transient expires makes the UI show an approval it can never submit.
 	 *
 	 * @param ActiveJobRow $row Persistent active-job row.
-	 * @return bool Whether an expired paused row was discarded.
+	 * @return bool Whether an expired paused row was converted to a failure.
 	 */
 	private function discard_expired_paused_job( ActiveJobRow $row ): bool {
 		if ( ! in_array( $row->status, array( 'awaiting_confirmation', 'awaiting_client_tools' ), true ) ) {
@@ -3565,7 +3606,13 @@ final class SessionController {
 			return false;
 		}
 
-		ActiveJobRepository::delete( $row->job_id );
+		ActiveJobRepository::record_failure(
+			$row->job_id,
+			'error',
+			ActiveJobFailureDiagnostic::REASON_APPROVAL_EXPIRED,
+			array( 'last_safe_phase' => $row->status ),
+			array( 'pending_tools' => '[]' )
+		);
 		return true;
 	}
 }

@@ -812,32 +812,45 @@ export const actions = {
 						const rawErrorMessage =
 							result.message ||
 							__( 'Unknown error', 'superdav-ai-agent' );
+						const hasFailureDiagnostic = !! result.diagnostic;
+						let failureDiagnostic = null;
+						let failureHelpers = null;
+						let errorMessage = rawErrorMessage;
+
+						if ( hasFailureDiagnostic ) {
+							try {
+								// Failure copy and validation are only needed after a
+								// terminal error, so keep them out of the launch bundle.
+								failureHelpers = await import(
+									/* webpackChunkName: "active-job-failure-diagnostic" */
+									'./active-job-failure-diagnostic'
+								);
+								failureDiagnostic =
+									failureHelpers.getFailureDiagnostic(
+										result.diagnostic
+									);
+								errorMessage =
+									failureHelpers.getActiveJobFailureMessage(
+										failureDiagnostic
+									);
+							} catch {
+								// A failed optional chunk must not surface raw provider
+								// errors or leave the terminal job cleanup incomplete.
+								errorMessage = __(
+									'Recovery details unavailable.',
+									'superdav-ai-agent'
+								);
+							}
+						}
 						const isCreditNotice =
+							! hasFailureDiagnostic &&
 							/superdav.*credit|credit.*superdav/i.test(
 								rawErrorMessage
 							);
-						let errorText = `${ __(
+						const errorText = `${ __(
 							'Error:',
 							'superdav-ai-agent'
-						) } ${ rawErrorMessage }`;
-						if ( ! isCreditNotice && result.error_context ) {
-							const ctx = result.error_context;
-							errorText += `\n\n**${ __(
-								'Location:',
-								'superdav-ai-agent'
-							) }** \`${ ctx.file }:${ ctx.line }\``;
-							if (
-								Array.isArray( ctx.trace ) &&
-								ctx.trace.length > 0
-							) {
-								errorText +=
-									'\n\n**' +
-									__( 'Stack trace:', 'superdav-ai-agent' ) +
-									'**\n```\n' +
-									ctx.trace.join( '\n' ) +
-									'\n```';
-							}
-						}
+						) } ${ errorMessage }`;
 
 						if ( select.getCurrentSessionId() === sessionId ) {
 							let sessionReloaded = false;
@@ -882,13 +895,21 @@ export const actions = {
 								dispatch.setPendingActionCard( {
 									type: 'resume_recoverable_job',
 									sessionId,
+									diagnostic: failureDiagnostic,
 								} );
+							} else if ( failureDiagnostic ) {
+								dispatch.setPendingActionCard(
+									failureHelpers.buildActiveJobFailureCard(
+										sessionId,
+										failureDiagnostic
+									)
+								);
 							}
-							if ( ! isCreditNotice ) {
+							if ( ! isCreditNotice && ! failureDiagnostic ) {
 								dispatch.setStreamError( true, sessionId );
 							}
 							// WP_Error max_iterations — show feedback banner (t183).
-							const errMsg = result.message || '';
+							const errMsg = errorMessage;
 							if ( /max.?iteration/i.test( errMsg ) ) {
 								dispatch.setFeedbackBanner( {
 									exitReason: 'max_iterations',

@@ -113,6 +113,10 @@ class AgentEventLog {
 		'local_rejection',
 		'fallback_attempted',
 		'payload_reduced',
+		'correlation_id',
+		'resume_count',
+		'retryable',
+		'next_action',
 	);
 
 	/**

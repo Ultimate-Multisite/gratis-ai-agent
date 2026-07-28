@@ -55,6 +55,9 @@ class ActiveJobsCleanupService {
 	 */
 	const DEFAULT_THRESHOLD_MINUTES = 15;
 
+	/** Default bounded retention window for undelivered terminal diagnostics. */
+	const DEFAULT_DIAGNOSTIC_RETENTION_DAYS = 7;
+
 	// ── Registration ─────────────────────────────────────────────────────
 
 	/**
@@ -112,6 +115,14 @@ class ActiveJobsCleanupService {
 		$threshold = max( 1, $threshold );
 
 		$count = ActiveJobRepository::cleanup_stale( $threshold );
+		/**
+		 * Filter the number of days to retain undelivered terminal job diagnostics.
+		 *
+		 * @param int $days Retention period in days.
+		 */
+		$retention_days = (int) apply_filters( 'sd_ai_agent_job_diagnostic_retention_days', self::DEFAULT_DIAGNOSTIC_RETENTION_DAYS );
+		$retention_days = max( 1, $retention_days );
+		$pruned         = ActiveJobRepository::cleanup_terminal_diagnostics( $retention_days );
 
 		if ( $count > 0 ) {
 			/**
@@ -120,6 +131,15 @@ class ActiveJobsCleanupService {
 			 * @param int $count Number of rows reaped.
 			 */
 			do_action( 'sd_ai_agent_stale_jobs_reaped', $count );
+		}
+
+		if ( $pruned > 0 ) {
+			/**
+			 * Fired after expired terminal active-job diagnostics are pruned.
+			 *
+			 * @param int $pruned Number of terminal rows deleted.
+			 */
+			do_action( 'sd_ai_agent_terminal_job_diagnostics_pruned', $pruned );
 		}
 	}
 }

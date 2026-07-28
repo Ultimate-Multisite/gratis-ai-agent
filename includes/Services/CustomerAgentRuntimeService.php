@@ -11,6 +11,7 @@ declare(strict_types=1);
 namespace SdAiAgent\Services;
 
 use SdAiAgent\Contracts\CustomerAgentRuntimeInterface;
+use SdAiAgent\Core\ActiveJobFailureDiagnostic;
 use SdAiAgent\Core\AgentLoop;
 use SdAiAgent\Core\ConversationSerializer;
 use SdAiAgent\Core\ConversationTrimmer;
@@ -760,10 +761,11 @@ class CustomerAgentRuntimeService implements CustomerAgentRuntimeInterface {
 
 		$now = current_time( 'mysql', true );
 		if ( CustomerAgentRuntimeRepository::mark_cancelled( $job_id, $now ) ) {
-			ActiveJobRepository::update_status(
+			ActiveJobRepository::record_failure(
 				$job_id,
 				'error',
-				array( 'error' => 'Customer-agent runtime cancelled before result delivery.' )
+				ActiveJobFailureDiagnostic::REASON_UNKNOWN,
+				array( 'last_safe_phase' => 'customer_agent_cancellation' )
 			);
 			$cancelled = CustomerAgentRuntimeRepository::get_job( $job_id );
 			if ( null !== $cancelled ) {
@@ -928,7 +930,17 @@ class CustomerAgentRuntimeService implements CustomerAgentRuntimeInterface {
 
 		$result = $this->execute_turn( $job, $conversation, $profile );
 		if ( is_wp_error( $result ) ) {
-			$this->fail_job( $job, 'sd_ai_agent_customer_agent_execution_failed', $result->get_error_message() );
+			$error_data         = $result->get_error_data();
+			$diagnostic_context = is_array( $error_data )
+				? ActiveJobFailureDiagnostic::context_from_error_data( $error_data )
+				: array();
+			$this->fail_job(
+				$job,
+				'sd_ai_agent_customer_agent_execution_failed',
+				$result->get_error_message(),
+				ActiveJobFailureDiagnostic::reason_from_error( $result ),
+				$diagnostic_context
+			);
 			return;
 		}
 		if ( ! is_array( $result ) || ! empty( $result['awaiting_confirmation'] ) || ! empty( $result['pending_client_tool_calls'] ) ) {
@@ -1749,7 +1761,12 @@ class CustomerAgentRuntimeService implements CustomerAgentRuntimeInterface {
 		$job_id  = (string) $job['job_id'];
 		$message = __( 'The customer-agent request timed out before a reply was available.', 'superdav-ai-agent' );
 		if ( CustomerAgentRuntimeRepository::mark_timed_out( $job_id, current_time( 'mysql', true ), 'sd_ai_agent_customer_agent_timeout', $message ) ) {
-			ActiveJobRepository::update_status( $job_id, 'error', array( 'error' => $message ) );
+			ActiveJobRepository::record_failure(
+				$job_id,
+				'error',
+				ActiveJobFailureDiagnostic::REASON_PROVIDER_TIMEOUT,
+				array( 'last_safe_phase' => 'customer_agent_runtime' )
+			);
 			$timed_out = CustomerAgentRuntimeRepository::get_job( $job_id );
 			if ( null !== $timed_out ) {
 				$this->emit_lifecycle_event( 'failed', $timed_out );
@@ -1760,13 +1777,23 @@ class CustomerAgentRuntimeService implements CustomerAgentRuntimeInterface {
 	/**
 	 * Persist a sanitized failure only while cancellation has not already won.
 	 *
-	 * @param array<string,mixed> $job Durable job row.
+	 * @param array<string,mixed> $job                Durable job row.
+	 * @param string              $error_code         Customer-runtime error code.
+	 * @param string              $detail             Potentially unsafe failure detail.
+	 * @param string              $reason             Normalized terminal reason.
+	 * @param array<string,mixed> $diagnostic_context Allowlisted diagnostic metadata.
 	 */
-	private function fail_job( array $job, string $error_code, string $detail ): void {
-		$job_id  = (string) $job['job_id'];
-		$message = $this->customer_safe_error_message( $detail );
+	private function fail_job( array $job, string $error_code, string $detail, string $reason = ActiveJobFailureDiagnostic::REASON_UNKNOWN, array $diagnostic_context = array() ): void {
+		$job_id                                = (string) $job['job_id'];
+		$message                               = $this->customer_safe_error_message( $detail );
+		$diagnostic_context['last_safe_phase'] = 'customer_agent_runtime';
 		if ( CustomerAgentRuntimeRepository::mark_failed( $job_id, current_time( 'mysql', true ), $error_code, $message ) ) {
-			ActiveJobRepository::update_status( $job_id, 'error', array( 'error' => $message ) );
+			ActiveJobRepository::record_failure(
+				$job_id,
+				'error',
+				$reason,
+				$diagnostic_context
+			);
 			$failed = CustomerAgentRuntimeRepository::get_job( $job_id );
 			if ( null !== $failed ) {
 				$this->emit_lifecycle_event( 'failed', $failed );

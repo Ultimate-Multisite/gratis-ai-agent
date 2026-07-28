@@ -19,7 +19,7 @@ import { useRef, useEffect, useState, useCallback } from '@wordpress/element';
 import { __ } from '@wordpress/i18n';
 
 import STORE_NAME from '../../store';
-import RecoverableJobActionCard from '../recoverable-job-action-card';
+import ActionCard from '../action-card';
 import FeedbackConsentModal from '../feedback-consent-modal';
 import useTextToSpeech from '../use-text-to-speech';
 import {
@@ -250,6 +250,20 @@ export default function MessageList() {
 		setUnseenCount( 0 );
 	}, [] );
 
+	const confirmJobFailureAction = () => {
+		if ( pendingActionCard?.type === 'resume_recoverable_job' ) {
+			resumeRecoverableJob();
+			return;
+		}
+
+		if (
+			pendingActionCard?.type === 'active_job_failure' &&
+			pendingActionCard.diagnostic?.next_action === 'retry'
+		) {
+			retryLastMessage();
+		}
+	};
+
 	// ── Derived values ────────────────────────────────────────────────────────
 
 	const lastRunningJob = currentSessionId
@@ -354,11 +368,15 @@ export default function MessageList() {
 						</div>
 					) }
 
-					{ pendingActionCard?.type === 'resume_recoverable_job' &&
+					{ [
+						'resume_recoverable_job',
+						'active_job_failure',
+					].includes( pendingActionCard?.type ) &&
 						pendingActionCard.sessionId === currentSessionId &&
 						! sending && (
-							<RecoverableJobActionCard
-								onConfirm={ resumeRecoverableJob }
+							<ActionCard
+								card={ pendingActionCard }
+								onConfirm={ confirmJobFailureAction }
 								onCancel={ () => setPendingActionCard( null ) }
 							/>
 						) }

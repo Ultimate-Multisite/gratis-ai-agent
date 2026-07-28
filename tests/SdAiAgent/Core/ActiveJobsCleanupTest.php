@@ -21,6 +21,7 @@ declare(strict_types=1);
 namespace SdAiAgent\Tests\Core;
 
 use SdAiAgent\Core\ActiveJobsCleanupService;
+use SdAiAgent\Core\ActiveJobFailureDiagnostic;
 use SdAiAgent\Models\ActiveJobRepository;
 use WP_UnitTestCase;
 
@@ -43,7 +44,9 @@ class ActiveJobsCleanupTest extends WP_UnitTestCase {
 		$wpdb->query( 'DELETE FROM ' . ActiveJobRepository::table_name() . " WHERE job_id LIKE 'test-%'" );
 		ActiveJobsCleanupService::unschedule();
 		remove_all_actions( 'sd_ai_agent_stale_jobs_reaped' );
+		remove_all_actions( 'sd_ai_agent_terminal_job_diagnostics_pruned' );
 		remove_all_filters( 'sd_ai_agent_stale_job_threshold_minutes' );
+		remove_all_filters( 'sd_ai_agent_job_diagnostic_retention_days' );
 
 		parent::tear_down();
 	}
@@ -151,7 +154,10 @@ class ActiveJobsCleanupTest extends WP_UnitTestCase {
 		$this->assertTrue( $result, 'mark_interrupted() should return true when it updated a row' );
 		$this->assertNotNull( $row );
 		$this->assertSame( 'interrupted', $row->status );
-		$this->assertSame( $reason, $row->error );
+		$diagnostic = ActiveJobFailureDiagnostic::from_stored( 'test-interrupted-1', (string) $row->error );
+
+		$this->assertSame( ActiveJobFailureDiagnostic::REASON_WORKER_TERMINATED, $diagnostic['reason'] );
+		$this->assertStringNotContainsString( $reason, (string) $row->error );
 		$this->assertNotEmpty( $row->interrupted_at );
 	}
 
@@ -249,6 +255,8 @@ class ActiveJobsCleanupTest extends WP_UnitTestCase {
 		$this->assertGreaterThanOrEqual( 1, $count, 'cleanup_stale() should report at least one reaped row' );
 		$this->assertNotNull( $row );
 		$this->assertSame( 'abandoned', $row->status );
+		$diagnostic = ActiveJobFailureDiagnostic::from_stored( 'test-stale-1', $row->error );
+		$this->assertSame( ActiveJobFailureDiagnostic::REASON_WORKER_TERMINATED, $diagnostic['reason'] );
 	}
 
 	/**
@@ -285,6 +293,23 @@ class ActiveJobsCleanupTest extends WP_UnitTestCase {
 	public function test_cleanup_stale_returns_zero_when_no_stale_rows(): void {
 		$count = ActiveJobRepository::cleanup_stale( 15 );
 		$this->assertSame( 0, $count );
+	}
+
+	/**
+	 * Terminal job diagnostics are retained only for their bounded support window.
+	 */
+	public function test_cleanup_terminal_diagnostics_removes_only_expired_terminal_rows(): void {
+		$expired_time = gmdate( 'Y-m-d H:i:s', time() - ( 2 * DAY_IN_SECONDS ) );
+		$this->insert_job( 'test-terminal-expired', 'error', $expired_time );
+		$this->insert_job( 'test-terminal-fresh', 'error' );
+		$this->insert_job( 'test-terminal-processing', 'processing', $expired_time );
+
+		$deleted = ActiveJobRepository::cleanup_terminal_diagnostics( 1 );
+
+		$this->assertSame( 1, $deleted );
+		$this->assertNull( $this->fetch_row( 'test-terminal-expired' ) );
+		$this->assertNotNull( $this->fetch_row( 'test-terminal-fresh' ) );
+		$this->assertNotNull( $this->fetch_row( 'test-terminal-processing' ) );
 	}
 
 	// ── ActiveJobsCleanupService scheduling ──────────────────────────────
