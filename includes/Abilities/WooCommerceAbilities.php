@@ -24,12 +24,13 @@ if ( ! defined( 'ABSPATH' ) ) {
 
 final class WooCommerceAbilities {
 
-	private const INSPECT_ABILITY = 'sd-ai-agent/commerce-inspect';
-	private const PLAN_ABILITY    = 'sd-ai-agent/commerce-plan';
-	private const EXECUTE_ABILITY = 'sd-ai-agent/commerce-execute-approved-plan';
-	private const APPROVAL_ACTION = 'commerce-site-plan';
-	private const PLAN_VERSION    = 1;
-	private const TAXONOMY        = 'product_cat';
+	private const INSPECT_ABILITY    = 'sd-ai-agent/commerce-inspect';
+	private const PLAN_ABILITY       = 'sd-ai-agent/commerce-plan';
+	private const EXECUTE_ABILITY    = 'sd-ai-agent/commerce-execute-approved-plan';
+	private const APPROVAL_ACTION    = 'commerce-site-plan';
+	private const PLAN_VERSION       = 1;
+	private const TAXONOMY           = 'product_cat';
+	private const WOOCOMMERCE_PLUGIN = 'woocommerce/woocommerce.php';
 
 	/**
 	 * The only WooCommerce options that this ability family may change.
@@ -266,6 +267,13 @@ final class WooCommerceAbilities {
 					return self::target_permission_error( $target_blog_id );
 				}
 
+				if ( ! self::is_woocommerce_active_on_current_site() ) {
+					return [
+						'operations'    => [],
+						'prerequisites' => [ self::woocommerce_activation_prerequisite( $target_blog_id ) ],
+					];
+				}
+
 				if ( ! self::is_woocommerce_runtime_available() ) {
 					return [
 						'operations'    => [],
@@ -398,6 +406,10 @@ final class WooCommerceAbilities {
 						return self::target_permission_error( $target_blog_id );
 					}
 
+					if ( ! self::is_woocommerce_active_on_current_site() ) {
+						return new WP_Error( 'sd_ai_agent_commerce_prerequisite_changed', __( 'WooCommerce is no longer active for the approved target site.', 'superdav-ai-agent' ), [ 'status' => 409 ] );
+					}
+
 					if ( ! self::is_woocommerce_runtime_available() ) {
 						return new WP_Error( 'sd_ai_agent_commerce_prerequisite_changed', __( 'WooCommerce is no longer loaded for the approved target site.', 'superdav-ai-agent' ), [ 'status' => 409 ] );
 					}
@@ -450,7 +462,7 @@ final class WooCommerceAbilities {
 		return [
 			'blog_id'                => get_current_blog_id(),
 			'woocommerce'            => [
-				'plugin_active'     => self::is_plugin_active_on_current_site( 'woocommerce/woocommerce.php' ),
+				'plugin_active'     => self::is_woocommerce_active_on_current_site(),
 				'runtime_available' => self::is_woocommerce_runtime_available(),
 				'version'           => defined( 'WC_VERSION' ) ? (string) constant( 'WC_VERSION' ) : '',
 			],
@@ -777,6 +789,11 @@ final class WooCommerceAbilities {
 		return class_exists( 'WooCommerce' ) && taxonomy_exists( self::TAXONOMY );
 	}
 
+	/** Return whether WooCommerce is active for the current site or network-wide. */
+	private static function is_woocommerce_active_on_current_site(): bool {
+		return self::is_plugin_active_on_current_site( self::WOOCOMMERCE_PLUGIN );
+	}
+
 	/**
 	 * Return active status for a plugin in the current site context.
 	 */
@@ -876,6 +893,19 @@ final class WooCommerceAbilities {
 	}
 
 	/**
+	 * Build a prerequisite when WooCommerce is inactive on the target site.
+	 *
+	 * @return array<string,mixed>
+	 */
+	private static function woocommerce_activation_prerequisite( int $target_blog_id ): array {
+		return [
+			'code'           => 'woocommerce_plugin_inactive',
+			'target_blog_id' => $target_blog_id,
+			'message'        => __( 'WooCommerce must be activated for the requested site or network-activated before a commerce plan can be approved.', 'superdav-ai-agent' ),
+		];
+	}
+
+	/**
 	 * Build a prerequisite when WooCommerce is not loaded on the target site.
 	 *
 	 * @return array<string,mixed>
@@ -884,7 +914,7 @@ final class WooCommerceAbilities {
 		return [
 			'code'           => 'woocommerce_runtime_unavailable',
 			'target_blog_id' => $target_blog_id,
-			'message'        => __( 'WooCommerce must be active and loaded on the requested site before a commerce plan can be approved.', 'superdav-ai-agent' ),
+			'message'        => __( 'WooCommerce must be loaded for the requested site before a commerce plan can be approved.', 'superdav-ai-agent' ),
 		];
 	}
 
