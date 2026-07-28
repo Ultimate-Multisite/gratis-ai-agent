@@ -454,6 +454,36 @@ class ChangeLoggerTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * Newly created terms can be logged explicitly while an AI ability is active.
+	 */
+	public function test_record_term_created_records_an_auditable_marker(): void {
+		$term = self::factory()->term->create_and_get(
+			[
+				'taxonomy' => 'category',
+				'name'     => 'Created Category',
+			]
+		);
+
+		ChangeLogger::begin( 14, 'sd-ai-agent/commerce-execute-approved-plan' );
+		ChangeLogger::record_term_created( $term->term_id, 'category', $term->name );
+
+		global $wpdb;
+		$row = $wpdb->get_row(
+			$wpdb->prepare(
+				'SELECT * FROM %i WHERE object_type = %s AND object_id = %d',
+				$wpdb->prefix . 'sd_ai_agent_changes_log',
+				'term',
+				$term->term_id
+			)
+		);
+
+		$this->assertNotNull( $row );
+		$this->assertSame( '', $row->before_value );
+		$this->assertSame( 'Created Category', $row->after_value );
+		$this->assertSame( '0', (string) $row->revertable );
+	}
+
+	/**
 	 * on_edited_term() records a term change with correct before_value when
 	 * on_edit_terms() is called first to capture the old name.
 	 *

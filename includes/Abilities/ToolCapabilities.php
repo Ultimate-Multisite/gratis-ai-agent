@@ -244,6 +244,11 @@ class ToolCapabilities {
 		'sd-ai-agent/detect-fresh-install'               => 'manage_options',
 		'sd-ai-agent/site-loopback-check'                => 'manage_options',
 
+		// ─── Commerce ───────────────────────────────────────────────────────
+		'sd-ai-agent/commerce-inspect'                   => 'manage_woocommerce',
+		'sd-ai-agent/commerce-plan'                      => 'manage_woocommerce',
+		'sd-ai-agent/commerce-execute-approved-plan'     => 'manage_woocommerce',
+
 		// ─── SEO / Content marketing ────────────────────────────────────────
 		'sd-ai-agent/seo-audit-url'                      => 'edit_posts',
 		'sd-ai-agent/seo-analyze-content'                => 'edit_posts',

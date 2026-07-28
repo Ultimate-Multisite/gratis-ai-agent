@@ -69,6 +69,7 @@ use SdAiAgent\Abilities\ThemeBuilderAbilities;
 use SdAiAgent\Abilities\UrlResolverAbilities;
 use SdAiAgent\Abilities\UploadMediaAbility;
 use SdAiAgent\Abilities\UserAbilities;
+use SdAiAgent\Abilities\WooCommerceAbilities;
 use SdAiAgent\Abilities\WordPressAbilities;
 use XWP\DI\Decorators\Action;
 use XWP\DI\Decorators\Handler;
@@ -149,10 +150,10 @@ final class AbilitiesHandler {
 		// Superdav AI Agent Advanced plugin.
 		WordPressAbilities::register_abilities();
 		OptionsAbilities::register_abilities();
-		// WooCommerce abilities are now registered by WooCommerceIntegrationHandler
-		// via WooCommerce's own AbilitiesRestBridge, making WooCommerce's native
-		// woocommerce/products-* and woocommerce/orders-* abilities available to the
-		// WP AI Client SDK without maintaining a duplicate implementation here.
+		// WooCommerceIntegrationHandler exposes WooCommerce's native product/order
+		// abilities. These narrow first-party abilities add site-scoped planning for
+		// categories and vetted configuration without duplicating that REST bridge.
+		WooCommerceAbilities::register_abilities();
 		SiteHealthAbilities::register_abilities();
 		NavigationAbilities::register_abilities();
 		MenuAbilities::register_abilities();
