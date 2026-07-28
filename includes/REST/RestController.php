@@ -30,6 +30,7 @@ namespace SdAiAgent\REST;
 
 use SdAiAgent\Core\AgentLoop;
 use SdAiAgent\Core\AgentEventLog;
+use SdAiAgent\Core\ActiveJobFailureDiagnostic;
 use SdAiAgent\Core\ClientAbilityRouter;
 use SdAiAgent\Core\ConversationSerializer;
 use SdAiAgent\Core\ConversationTrimmer;
@@ -621,7 +622,15 @@ Assistant: %s',
 			// pending client tool call. Without this, the transient still
 			// says 'awaiting_client_tools' and the next poll cycle produces
 			// an infinite 409 loop on /chat/tool-result.
-			self::mark_job_error_after_resume( $job_id, $result->get_error_message() );
+			self::mark_job_error_after_resume(
+				$job_id,
+				$result,
+				array(
+					'last_safe_phase' => 'client_tool_resume',
+					'provider_id'     => $options['provider_id'],
+					'model_id'        => $options['model_id'],
+				)
+			);
 
 			return $result;
 		}
@@ -824,21 +833,32 @@ Assistant: %s',
 	 * (paused_state was already consumed before resume_after_client_tools
 	 * ran).
 	 *
-	 * @param string $job_id        Job UUID supplied by the browser. No-op when empty.
-	 * @param string $error_message Human-readable error from the WP_Error.
+	 * @param string               $job_id  Job UUID supplied by the browser. No-op when empty.
+	 * @param WP_Error             $error   Error returned by the resumed loop.
+	 * @param array<string, mixed> $context Allowlisted diagnostic metadata.
 	 */
-	private static function mark_job_error_after_resume( string $job_id, string $error_message ): void {
+	private static function mark_job_error_after_resume( string $job_id, WP_Error $error, array $context = array() ): void {
 		if ( '' === $job_id ) {
 			return;
 		}
 
 		$transient_key = self::JOB_PREFIX . $job_id;
 		$job           = get_transient( $transient_key );
+		$error_data    = $error->get_error_data();
+		$error_data    = is_array( $error_data ) ? $error_data : array();
+		$context       = array_merge( ActiveJobFailureDiagnostic::context_from_error_data( $error_data ), $context );
+		$diagnostic    = ActiveJobRepository::record_failure(
+			$job_id,
+			'error',
+			ActiveJobFailureDiagnostic::reason_from_error( $error ),
+			$context
+		);
 
 		if ( is_array( $job ) ) {
-			unset( $job['token'] );
-			$job['status'] = 'error';
-			$job['error']  = $error_message;
+			unset( $job['token'], $job['tool_calls'], $job['messages'] );
+			$job['status']     = 'error';
+			$job['error']      = ActiveJobFailureDiagnostic::message_for( (string) $diagnostic['reason'] );
+			$job['diagnostic'] = ActiveJobFailureDiagnostic::to_rest( $diagnostic );
 
 			// Drop stale pending-call hints so a transient-served poll cannot
 			// re-emit 'awaiting_client_tools' for the next browser poll.
@@ -846,10 +866,6 @@ Assistant: %s',
 
 			set_transient( $transient_key, $job, self::JOB_TTL );
 		}
-
-		// Update the DB row so the transient-expiry fallback also serves
-		// 'error' rather than the stale 'awaiting_client_tools'.
-		ActiveJobRepository::update_status( $job_id, 'error', [ 'error' => $error_message ] );
 	}
 
 	/**
@@ -888,15 +904,18 @@ Assistant: %s',
 			// on 'complete' or 'error' that a prior POST already produced.
 			if ( 'awaiting_client_tools' === $current_status ) {
 				unset( $job['token'], $job['pending_client_tool_calls'] );
-				$job['status'] = 'error';
-				$job['error']  = __(
-					'Client tool result arrived after the agent state had already been resumed or expired.',
-					'superdav-ai-agent'
+				$diagnostic = ActiveJobRepository::record_failure(
+					$job_id,
+					'error',
+					ActiveJobFailureDiagnostic::REASON_APPROVAL_EXPIRED,
+					array( 'last_safe_phase' => 'awaiting_client_tools' )
 				);
+				unset( $job['tool_calls'], $job['messages'] );
+				$job['status']     = 'error';
+				$job['error']      = ActiveJobFailureDiagnostic::message_for( (string) $diagnostic['reason'] );
+				$job['diagnostic'] = ActiveJobFailureDiagnostic::to_rest( $diagnostic );
 
 				set_transient( $transient_key, $job, self::JOB_TTL );
-
-				ActiveJobRepository::update_status( $job_id, 'error', [ 'error' => (string) $job['error'] ] );
 			}
 
 			return;
@@ -906,12 +925,11 @@ Assistant: %s',
 		// advertises the stale 'awaiting_client_tools' status.
 		$db_row = ActiveJobRepository::get_by_job_id( $job_id );
 		if ( null !== $db_row && 'awaiting_client_tools' === $db_row->status ) {
-			ActiveJobRepository::update_status(
+			ActiveJobRepository::record_failure(
 				$job_id,
 				'error',
-				[
-					'error' => __( 'Client tool result arrived after the agent state had already been resumed or expired.', 'superdav-ai-agent' ),
-				]
+				ActiveJobFailureDiagnostic::REASON_APPROVAL_EXPIRED,
+				array( 'last_safe_phase' => 'awaiting_client_tools' )
 			);
 		}
 	}

@@ -192,4 +192,46 @@ describe( 'MessageList stream error banner', () => {
 
 		expect( resumeRecoverableJob ).toHaveBeenCalledTimes( 1 );
 	} );
+
+	test( 'shows a safe retry card for a terminal job diagnostic', async () => {
+		const setPendingActionCard = jest.fn();
+		( { container, root } = await renderMessageList( {
+			selectors: buildSelectors( {
+				hasStreamError: false,
+				pendingActionCard: {
+					type: 'active_job_failure',
+					sessionId: 123,
+					message:
+						'The AI provider timed out before finishing. Retry the request shortly.',
+					diagnostic: {
+						last_safe_phase: 'before_provider_call',
+						next_action: 'retry',
+						correlation_id: 'job-1234abcd5678',
+					},
+				},
+			} ),
+			dispatchMap: {
+				sendMessage: jest.fn(),
+				retryLastMessage,
+				resumeRecoverableJob: jest.fn(),
+				setPendingActionCard,
+			},
+		} ) );
+
+		const retryButton = container.querySelector(
+			'.sdaa-action-card-btn-confirm'
+		);
+		expect( retryButton ).not.toBeNull();
+		expect( container.textContent ).toContain( 'Last completed step:' );
+		expect( container.textContent ).toContain( 'before provider call' );
+		expect( container.textContent ).toContain( 'job-1234abcd5678' );
+
+		await act( async () => {
+			retryButton.dispatchEvent(
+				new MouseEvent( 'click', { bubbles: true } )
+			);
+		} );
+
+		expect( retryLastMessage ).toHaveBeenCalledTimes( 1 );
+	} );
 } );

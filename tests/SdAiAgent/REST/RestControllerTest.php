@@ -23,6 +23,7 @@ namespace SdAiAgent\Tests\REST;
 
 use SdAiAgent\Core\AgentLoop;
 use SdAiAgent\Core\ConversationTrimmer;
+use SdAiAgent\Core\ActiveJobFailureDiagnostic;
 use SdAiAgent\Core\Database;
 use SdAiAgent\Core\Settings;
 use SdAiAgent\Automations\HumanApprovalGate;
@@ -1129,8 +1130,10 @@ class RestControllerTest extends WP_UnitTestCase {
 
 		$this->assertSame( 'error', $data['status'] );
 		$this->assertSame( 'interrupted', $data['original_status'] );
-		$this->assertStringContainsString( 'phase=provider_call', $data['message'] );
-		$this->assertStringNotContainsString( '/home/runner/work', $data['message'] );
+		$this->assertSame( ActiveJobFailureDiagnostic::REASON_WORKER_TERMINATED, $data['diagnostic']['reason'] );
+		$this->assertTrue( $data['diagnostic']['retryable'] );
+		$this->assertSame( 'retry', $data['diagnostic']['next_action'] );
+		$this->assertStringNotContainsString( '/home/runner/work', wp_json_encode( $data ) );
 		$this->assertStringNotContainsString( 'sk-test-secret-token', $data['message'] );
 		$this->assertNull(
 			ActiveJobRepository::get_by_job_id( $job_id ),
@@ -1373,7 +1376,8 @@ class RestControllerTest extends WP_UnitTestCase {
 
 		$this->assertSame( 'error', $data['status'] );
 		$this->assertTrue( $data['from_db'] );
-		$this->assertSame( $error_text, $data['message'] );
+		$this->assertSame( ActiveJobFailureDiagnostic::REASON_UNKNOWN, $data['diagnostic']['reason'] );
+		$this->assertSame( ActiveJobFailureDiagnostic::message_for( ActiveJobFailureDiagnostic::REASON_UNKNOWN ), $data['message'] );
 		$this->assertArrayNotHasKey( 'recoverable', $data );
 		$this->assertNull( ActiveJobRepository::get_by_job_id( $job_id ) );
 	}
@@ -1401,7 +1405,7 @@ class RestControllerTest extends WP_UnitTestCase {
 		$response = $this->dispatch( 'GET', "/sd-ai-agent/v1/job/{$job_id}" );
 
 		$this->assertStatus( 200, $response );
-		$this->assertSame( 'expired', $response->get_data()['status'] );
+		$this->assertSame( 'error', $response->get_data()['status'] );
 		$this->assertArrayNotHasKey( 'pending_tools', $response->get_data() );
 		$this->assertNull( ActiveJobRepository::get_by_job_id( $job_id ) );
 	}
@@ -1425,7 +1429,13 @@ class RestControllerTest extends WP_UnitTestCase {
 
 		$this->assertStatus( 200, $response );
 		$this->assertNotContains( $job_id, wp_list_pluck( $response->get_data(), 'job_id' ) );
-		$this->assertNull( ActiveJobRepository::get_by_job_id( $job_id ) );
+		$expired_job = ActiveJobRepository::get_by_job_id( $job_id );
+		$this->assertNotNull( $expired_job );
+		$this->assertSame( 'error', $expired_job->status );
+		$this->assertSame(
+			ActiveJobFailureDiagnostic::REASON_APPROVAL_EXPIRED,
+			ActiveJobFailureDiagnostic::from_stored( $job_id, $expired_job->error )['reason']
+		);
 	}
 
 	/**
@@ -1446,11 +1456,17 @@ class RestControllerTest extends WP_UnitTestCase {
 		$response = $this->dispatch( 'GET', "/sd-ai-agent/v1/sessions/{$session_id}/active-job" );
 
 		$this->assertStatus( 404, $response );
-		$this->assertNull( ActiveJobRepository::get_by_job_id( $job_id ) );
+		$expired_job = ActiveJobRepository::get_by_job_id( $job_id );
+		$this->assertNotNull( $expired_job );
+		$this->assertSame( 'error', $expired_job->status );
+		$this->assertSame(
+			ActiveJobFailureDiagnostic::REASON_APPROVAL_EXPIRED,
+			ActiveJobFailureDiagnostic::from_stored( $job_id, $expired_job->error )['reason']
+		);
 	}
 
 	/**
-	 * Test terminal DB error rows keep recoverable metadata when paused state exists.
+	 * Test terminal DB error rows keep recoverable metadata without returning legacy detail.
 	 */
 	public function test_job_status_from_db_error_row_includes_recoverable_when_paused_state_exists(): void {
 		wp_set_current_user( $this->admin_id );
@@ -1482,7 +1498,9 @@ class RestControllerTest extends WP_UnitTestCase {
 
 		$this->assertSame( 'error', $data['status'] );
 		$this->assertTrue( $data['from_db'] );
-		$this->assertSame( $error_text, $data['message'] );
+		$this->assertSame( ActiveJobFailureDiagnostic::REASON_UNKNOWN, $data['diagnostic']['reason'] );
+		$this->assertSame( ActiveJobFailureDiagnostic::message_for( ActiveJobFailureDiagnostic::REASON_UNKNOWN ), $data['message'] );
+		$this->assertStringNotContainsString( $error_text, wp_json_encode( $data ) );
 		$this->assertTrue( $data['recoverable'] );
 		$this->assertNull( ActiveJobRepository::get_by_job_id( $job_id ) );
 	}
@@ -1572,7 +1590,11 @@ class RestControllerTest extends WP_UnitTestCase {
 
 		$this->assertNotNull( $db_row );
 		$this->assertSame( 'error', $db_row->status );
-		$this->assertSame( 'Invalid conversation history format.', $db_row->error );
+		$this->assertSame(
+			ActiveJobFailureDiagnostic::REASON_LOOP_EXCEPTION,
+			ActiveJobFailureDiagnostic::from_stored( $job_id, $db_row->error )['reason']
+		);
+		$this->assertStringNotContainsString( 'Invalid conversation history format.', $db_row->error );
 	}
 
 	/**

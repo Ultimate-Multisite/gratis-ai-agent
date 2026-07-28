@@ -67,6 +67,10 @@ const {
 	preserveRecoverableProviderModels,
 } = require( '../slices/providersSlice' );
 const { buildFailedJobActivityMessage } = require( '../slices/jobSlice' );
+const {
+	buildActiveJobFailureCard,
+	normalizeActiveJobFailureDiagnostic,
+} = require( '../slices/active-job-failure-diagnostic' );
 const apiFetch = require( '@wordpress/api-fetch' );
 const { executeClientAbility } = require( '../../abilities/registry' );
 
@@ -645,6 +649,53 @@ describe( 'actions', () => {
 		expect( buildFailedJobActivityMessage( [] ) ).toBeNull();
 	} );
 
+	test( 'buildActiveJobFailureCard keeps only the safe diagnostic contract', () => {
+		const card = buildActiveJobFailureCard( 17, {
+			reason: 'provider_timeout',
+			last_safe_phase: 'before_provider_call',
+			retryable: true,
+			next_action: 'retry',
+			correlation_id: 'job-1234abcd5678',
+			message: 'PRIVATE_PROVIDER_MESSAGE',
+			prompt: 'PRIVATE_PROMPT_CONTENT',
+			error_context: { trace: [ '/private/path.php:99' ] },
+		} );
+
+		expect( card ).toMatchObject( {
+			type: 'active_job_failure',
+			sessionId: 17,
+			diagnostic: {
+				reason: 'provider_timeout',
+				last_safe_phase: 'before_provider_call',
+				retryable: true,
+				next_action: 'retry',
+				correlation_id: 'job-1234abcd5678',
+			},
+		} );
+		expect( JSON.stringify( card ) ).not.toContain(
+			'PRIVATE_PROVIDER_MESSAGE'
+		);
+		expect( JSON.stringify( card ) ).not.toContain(
+			'PRIVATE_PROMPT_CONTENT'
+		);
+		expect( JSON.stringify( card ) ).not.toContain( '/private/path.php' );
+
+		expect(
+			normalizeActiveJobFailureDiagnostic( {
+				reason: 'not-a-shipped-reason',
+				next_action: 'unsafe-action',
+				last_safe_phase: 'unsafe phase',
+				correlation_id: 'private-correlation',
+			} )
+		).toEqual( {
+			reason: 'unknown',
+			last_safe_phase: '',
+			retryable: false,
+			next_action: 'contact_support',
+			correlation_id: '',
+		} );
+	} );
+
 	test( 'pollJob posts a timeout error when a client ability never resolves', async () => {
 		jest.useFakeTimers();
 		apiFetch.mockReset();
@@ -836,7 +887,72 @@ describe( 'actions', () => {
 		expect( dispatch.setPendingActionCard ).toHaveBeenCalledWith( {
 			type: 'resume_recoverable_job',
 			sessionId: 17,
+			diagnostic: null,
 		} );
+	} );
+
+	test( 'pollJob uses a safe diagnostic card instead of a raw provider error', async () => {
+		jest.useFakeTimers();
+		apiFetch.mockReset();
+		apiFetch.mockResolvedValue( {
+			status: 'error',
+			message: 'PRIVATE_PROVIDER_MESSAGE',
+			diagnostic: {
+				reason: 'local_payload_guard',
+				last_safe_phase: 'before_provider_call',
+				retryable: false,
+				next_action: 'compact',
+				correlation_id: 'job-1234abcd5678',
+			},
+			error_context: {
+				trace: [ '/private/path.php:99' ],
+			},
+		} );
+		const dispatch = {
+			appendMessage: jest.fn(),
+			setPendingConfirmation: jest.fn(),
+			setPendingActionCard: jest.fn(),
+			setStreamError: jest.fn(),
+			setSending: jest.fn(),
+			setLiveToolCalls: jest.fn(),
+			drainMessageQueue: jest.fn(),
+			setCurrentJobId: jest.fn(),
+			setSessionJob: jest.fn(),
+		};
+		const select = {
+			getCurrentSessionId: jest.fn( () => 17 ),
+			getCurrentJobId: jest.fn( () => 'failed-job' ),
+		};
+
+		try {
+			actions.pollJob( 'failed-job', 17 )( { dispatch, select } );
+			await jest.advanceTimersByTimeAsync( 2000 );
+		} finally {
+			jest.useRealTimers();
+		}
+
+		const cardCalls = dispatch.setPendingActionCard.mock.calls;
+		const card = cardCalls[ cardCalls.length - 1 ][ 0 ];
+
+		expect( card ).toMatchObject( {
+			type: 'active_job_failure',
+			sessionId: 17,
+			diagnostic: {
+				reason: 'local_payload_guard',
+				next_action: 'compact',
+			},
+		} );
+		expect( dispatch.setStreamError ).not.toHaveBeenCalled();
+		expect( JSON.stringify( card ) ).not.toContain(
+			'PRIVATE_PROVIDER_MESSAGE'
+		);
+		expect( JSON.stringify( card ) ).not.toContain( '/private/path.php' );
+		expect(
+			dispatch.appendMessage.mock.calls[ 0 ][ 0 ].parts[ 0 ].text
+		).not.toContain( 'PRIVATE_PROVIDER_MESSAGE' );
+		expect(
+			dispatch.appendMessage.mock.calls[ 0 ][ 0 ].parts[ 0 ].text
+		).not.toContain( '/private/path.php' );
 	} );
 } );
 
