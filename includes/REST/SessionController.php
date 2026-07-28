@@ -43,6 +43,11 @@ if ( ! defined( 'ABSPATH' ) ) {
  *
  * Uses #[Handler] + #[Action] because this controller serves multiple
  * basenames (/sessions, /run, /process, /job).
+ *
+ * @phpstan-type SerializedHistory list<array<string, mixed>>
+ * @phpstan-type CheckpointRequest array{fingerprint:string,request_bytes:int,request_tokens:int,request_budget_bytes:int,request_budget_tokens:int,size_class:string,phase:string,locally_rejected:bool}
+ * @phpstan-type ResumeAttempt array{fingerprint:string,request_bytes:int,request_tokens:int,size_class:string,phase:string}
+ * @phpstan-type CheckpointResumeOutcome array{dispatched:bool,terminal:bool,metadata:array{phase:string,reason:string,size_class:string}}
  */
 #[Handler(
 	container: 'sd-ai-agent',
@@ -1475,10 +1480,15 @@ final class SessionController {
 	 * @return array{dispatched:bool,terminal:bool,metadata:array{phase:string,reason:string,size_class:string}}
 	 */
 	private function maybe_dispatch_checkpoint_resume( string $job_id, ActiveJobRow $row ): array {
-		$checkpoint = json_decode( (string) $row->checkpoint, true );
-		if ( ! is_array( $checkpoint ) || ! $this->checkpoint_has_resume_history( $checkpoint ) ) {
+		$checkpoint = $this->checkpoint_array( json_decode( (string) $row->checkpoint, true ) );
+		if ( null === $checkpoint ) {
 			// Legacy interrupted rows without a checkpoint retain the existing
 			// sanitized interruption response instead of pretending they resumed.
+			return $this->checkpoint_resume_outcome( false, false, 'unavailable', array(), $row->checkpoint_phase );
+		}
+
+		$history = $this->checkpoint_resume_history( $checkpoint );
+		if ( null === $history ) {
 			return $this->checkpoint_resume_outcome( false, false, 'unavailable', array(), $row->checkpoint_phase );
 		}
 
@@ -1492,14 +1502,14 @@ final class SessionController {
 		}
 
 		$metadata = AgentLoop::describe_checkpoint_request(
-			$checkpoint['history'],
+			$history,
 			$phase,
 			(string) ( $checkpoint['provider_id'] ?? '' ),
 			(string) ( $checkpoint['model_id'] ?? '' )
 		);
 
 		if ( $this->checkpoint_resume_requires_compaction( $metadata ) ) {
-			$compacted = $this->compact_checkpoint_resume_history( $checkpoint, $metadata, $phase );
+			$compacted = $this->compact_checkpoint_resume_history( $checkpoint, $history, $metadata, $phase );
 			if ( null === $compacted ) {
 				return $this->terminal_checkpoint_resume( $job_id, $row, 'not_compactable', $metadata, $phase );
 			}
@@ -1572,24 +1582,61 @@ final class SessionController {
 	}
 
 	/**
-	 * @param array<string, mixed> $checkpoint Decoded checkpoint payload.
-	 * @return bool True when the checkpoint contains resumable history.
+	 * Normalize one decoded JSON object to a string-keyed checkpoint array.
+	 *
+	 * @param mixed $candidate Decoded JSON value.
+	 * @return array<string, mixed>|null Normalized checkpoint array, if valid.
 	 */
-	private function checkpoint_has_resume_history( array $checkpoint ): bool {
-		if ( empty( $checkpoint['history'] ) || ! is_array( $checkpoint['history'] ) ) {
-			return false;
+	private function checkpoint_array( mixed $candidate ): ?array {
+		if ( ! is_array( $candidate ) ) {
+			return null;
+		}
+
+		$normalized = array();
+		foreach ( $candidate as $key => $value ) {
+			if ( ! is_string( $key ) ) {
+				return null;
+			}
+			$normalized[ $key ] = $value;
+		}
+
+		return $normalized;
+	}
+
+	/**
+	 * Decode and validate serialized checkpoint history before it can resume.
+	 *
+	 * @param array<string, mixed> $checkpoint Decoded checkpoint payload.
+	 * @return list<array<string, mixed>>|null Validated serialized history, if available.
+	 */
+	private function checkpoint_resume_history( array $checkpoint ): ?array {
+		$raw_history = $checkpoint['history'] ?? null;
+		if ( ! is_array( $raw_history ) || empty( $raw_history ) ) {
+			return null;
+		}
+
+		/** @var list<array<string, mixed>> $history */
+		$history = array();
+		foreach ( $raw_history as $message ) {
+			$serialized_message = $this->checkpoint_array( $message );
+			if ( null === $serialized_message ) {
+				return null;
+			}
+			$history[] = $serialized_message;
 		}
 
 		try {
-			ConversationSerializer::deserialize( array_values( $checkpoint['history'] ) );
-			return true;
+			ConversationSerializer::deserialize( $history );
 		} catch ( \Throwable $e ) {
-			return false;
+			return null;
 		}
+
+		return $history;
 	}
 
 	/**
 	 * @param array<string, mixed> $metadata Candidate request metadata.
+	 * @phpstan-param CheckpointRequest $metadata
 	 * @return bool True when the request requires compaction.
 	 */
 	private function checkpoint_resume_requires_compaction( array $metadata ): bool {
@@ -1602,15 +1649,17 @@ final class SessionController {
 	 * Replace an oversized persisted state with a smaller deterministic resume input.
 	 *
 	 * @param array<string, mixed> $checkpoint Decoded checkpoint payload.
+	 * @param list<array<string, mixed>> $history Validated serialized history.
 	 * @param array<string, mixed> $metadata Candidate request metadata.
-	 * @return array{checkpoint:array<string,mixed>,metadata:array<string,mixed>}|null
+	 * @phpstan-param CheckpointRequest $metadata
+	 * @return array{checkpoint:array<string,mixed>,metadata:CheckpointRequest}|null
 	 */
-	private function compact_checkpoint_resume_history( array $checkpoint, array $metadata, string $phase ): ?array {
+	private function compact_checkpoint_resume_history( array $checkpoint, array $history, array $metadata, string $phase ): ?array {
 		$byte_budget  = (int) ( $metadata['request_budget_bytes'] ?? 0 );
 		$token_budget = (int) ( $metadata['request_budget_tokens'] ?? 0 );
 		$byte_budget  = $byte_budget > 0 ? max( 1024, min( ConversationTrimmer::COMPACT_MAX_BYTES, $byte_budget ) ) : ConversationTrimmer::COMPACT_MAX_BYTES;
 		$token_budget = $token_budget > 0 ? max( 256, min( ConversationTrimmer::COMPACT_MAX_TOKENS, $token_budget ) ) : ConversationTrimmer::COMPACT_MAX_TOKENS;
-		$compacted    = ConversationTrimmer::compact_serialized_history( $checkpoint['history'], $byte_budget, $token_budget );
+		$compacted    = ConversationTrimmer::compact_serialized_history( $history, $byte_budget, $token_budget );
 		$next         = AgentLoop::describe_checkpoint_request(
 			$compacted['messages'],
 			$phase,
@@ -1640,13 +1689,15 @@ final class SessionController {
 
 	/**
 	 * @param array<string, mixed> $checkpoint Decoded checkpoint payload.
-	 * @return array<string, mixed> Last resume-attempt metadata.
+	 * @return ResumeAttempt Last resume-attempt metadata.
 	 */
 	private function checkpoint_resume_last_attempt( array $checkpoint ): array {
-		$resume_metadata = $checkpoint['checkpoint_resume_metadata'] ?? array();
-		return is_array( $resume_metadata ) && isset( $resume_metadata['last_attempt'] ) && is_array( $resume_metadata['last_attempt'] )
-			? $resume_metadata['last_attempt']
-			: array();
+		$resume_metadata = $this->checkpoint_array( $checkpoint['checkpoint_resume_metadata'] ?? null );
+		$last_attempt    = null === $resume_metadata
+			? null
+			: $this->checkpoint_array( $resume_metadata['last_attempt'] ?? null );
+
+		return $this->checkpoint_resume_attempt_metadata( $last_attempt ?? array() );
 	}
 
 	/**
@@ -1655,6 +1706,7 @@ final class SessionController {
 	 *
 	 * @param array<string, mixed> $checkpoint Decoded checkpoint payload.
 	 * @param array<string, mixed> $request_metadata Candidate request metadata.
+	 * @phpstan-param CheckpointRequest $request_metadata
 	 * @return array<string, mixed>
 	 */
 	private function checkpoint_resume_metadata( array $checkpoint, array $request_metadata ): array {
@@ -1720,6 +1772,8 @@ final class SessionController {
 	/**
 	 * @param array<string, mixed> $candidate Candidate request metadata.
 	 * @param array<string, mixed> $previous Previous attempted metadata.
+	 * @phpstan-param CheckpointRequest $candidate
+	 * @phpstan-param ResumeAttempt $previous
 	 * @return bool True when the candidate is unchanged.
 	 */
 	private function checkpoint_resume_is_unchanged( array $candidate, array $previous ): bool {
@@ -1737,7 +1791,7 @@ final class SessionController {
 
 	/**
 	 * @param array<string, mixed> $metadata Candidate request metadata.
-	 * @return array<string, mixed> Sanitized attempt metadata.
+	 * @return ResumeAttempt Sanitized attempt metadata.
 	 */
 	private function checkpoint_resume_attempt_metadata( array $metadata ): array {
 		return array(
@@ -1753,7 +1807,7 @@ final class SessionController {
 	 * @param array<string, mixed> $metadata Candidate request metadata.
 	 * @param string               $reason Recovery reason.
 	 * @param string               $phase Durable checkpoint phase.
-	 * @return array<string, string> Sanitized public response metadata.
+	 * @return array{phase:string,reason:string,size_class:string} Sanitized public response metadata.
 	 */
 	private function checkpoint_resume_response_metadata( array $metadata, string $reason, string $phase ): array {
 		$size_class = (string) ( $metadata['size_class'] ?? 'unknown' );
@@ -1774,7 +1828,7 @@ final class SessionController {
 	 * @param string               $reason The recovery reason.
 	 * @param array<string, mixed> $metadata Candidate request metadata.
 	 * @param string               $phase The durable checkpoint phase.
-	 * @return array<string, mixed> Resume outcome.
+	 * @return CheckpointResumeOutcome Resume outcome.
 	 */
 	private function checkpoint_resume_outcome( bool $dispatched, bool $terminal, string $reason, array $metadata, string $phase ): array {
 		return array(
@@ -1790,7 +1844,7 @@ final class SessionController {
 	 * @param string               $reason The terminal recovery reason.
 	 * @param array<string, mixed> $metadata Candidate request metadata.
 	 * @param string               $phase The durable checkpoint phase.
-	 * @return array<string, mixed> Terminal resume outcome.
+	 * @return CheckpointResumeOutcome Terminal resume outcome.
 	 */
 	private function terminal_checkpoint_resume( string $job_id, ActiveJobRow $row, string $reason, array $metadata, string $phase ): array {
 		$public_metadata = $this->checkpoint_resume_response_metadata( $metadata, $reason, $phase );
@@ -1816,7 +1870,7 @@ final class SessionController {
 	/**
 	 * @param string                $job_id The job UUID.
 	 * @param ActiveJobRow          $row The persisted active-job row.
-	 * @param array<string, string> $metadata Sanitized resume metadata.
+	 * @param array{phase:string,reason:string,size_class:string} $metadata Sanitized resume metadata.
 	 * @return WP_REST_Response Terminal job-status response.
 	 */
 	private function checkpoint_resume_terminal_response( string $job_id, ActiveJobRow $row, array $metadata ): WP_REST_Response {

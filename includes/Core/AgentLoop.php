@@ -431,9 +431,7 @@ class AgentLoop {
 		// Empty string when the loop is not running under a background job.
 		// @phpstan-ignore-next-line
 		$this->active_job_id = (string) ( $options['active_job_id'] ?? '' );
-		// @phpstan-ignore-next-line -- Resume metadata is an internal checkpoint payload.
-		$checkpoint_resume_metadata       = $options['checkpoint_resume_metadata'] ?? array();
-		$this->checkpoint_resume_metadata = is_array( $checkpoint_resume_metadata ) ? $checkpoint_resume_metadata : array();
+		$this->checkpoint_resume_metadata = self::checkpoint_resume_metadata_from_candidate( $options['checkpoint_resume_metadata'] ?? array() );
 		// @phpstan-ignore-next-line -- Test/job callers may lower attempts or delays; production defaults remain four attempts.
 		$this->provider_retry_max_attempts = max( 1, (int) ( $options['provider_retry_max_attempts'] ?? self::PROVIDER_RETRY_MAX_ATTEMPTS ) );
 		// @phpstan-ignore-next-line -- Values are normalised below to non-negative integer seconds.
@@ -1154,6 +1152,27 @@ class AgentLoop {
 		return (int) ( $metadata['request_bytes'] ?? 0 ) > self::CHECKPOINT_HISTORY_MAX_BYTES
 			|| (int) ( $metadata['request_tokens'] ?? 0 ) > self::CHECKPOINT_HISTORY_MAX_TOKENS
 			|| ! empty( $metadata['locally_rejected'] );
+	}
+
+	/**
+	 * Normalize checkpoint metadata from an untyped resume payload.
+	 *
+	 * @param mixed $candidate Candidate checkpoint metadata.
+	 * @return array<string, mixed> String-keyed checkpoint metadata.
+	 */
+	private static function checkpoint_resume_metadata_from_candidate( mixed $candidate ): array {
+		if ( ! is_array( $candidate ) ) {
+			return array();
+		}
+
+		$metadata = array();
+		foreach ( $candidate as $key => $value ) {
+			if ( is_string( $key ) ) {
+				$metadata[ $key ] = $value;
+			}
+		}
+
+		return $metadata;
 	}
 
 	/** Get a bounded byte budget for deterministic checkpoint compaction. */
