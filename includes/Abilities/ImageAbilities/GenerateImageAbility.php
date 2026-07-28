@@ -20,6 +20,9 @@ namespace SdAiAgent\Abilities\ImageAbilities;
 
 use SdAiAgent\Abilities\ToolCapabilities;
 use SdAiAgent\Core\Net\SafeHttpClient;
+use SdAiAgent\Core\Settings;
+use SdAiAgent\Infrastructure\AiClient\Superdav\SuperdavAiProvider;
+use WordPress\AiClient\Providers\Models\DTO\ModelConfig;
 use WP_Error;
 
 if ( ! defined( 'ABSPATH' ) ) {
@@ -157,6 +160,20 @@ class GenerateImageAbility extends \SdAiAgent\Abilities\AbstractAbility {
 				'tip'           => [ 'type' => 'string' ],
 			],
 		];
+	}
+
+	/**
+	 * {@inheritdoc}
+	 */
+	protected function meta(): array {
+		$meta                = parent::meta();
+		$meta['annotations'] = [
+			'readonly'    => false,
+			'destructive' => false,
+			'idempotent'  => false,
+		];
+
+		return $meta;
 	}
 
 	/**
@@ -342,7 +359,7 @@ class GenerateImageAbility extends \SdAiAgent\Abilities\AbstractAbility {
 			);
 		}
 
-		$file = wp_ai_client_prompt( $prompt )->generate_image();
+		$file = $this->create_image_prompt_builder( $prompt, $options )->generate_image();
 
 		if ( is_wp_error( $file ) ) {
 			return new WP_Error(
@@ -381,6 +398,152 @@ class GenerateImageAbility extends \SdAiAgent\Abilities\AbstractAbility {
 			'attachment_id' => $attachment_id,
 			'url'           => $result['url'],
 		];
+	}
+
+	/**
+	 * Create the AI Client prompt builder for image generation.
+	 *
+	 * @param string               $prompt  Image generation prompt.
+	 * @param array<string,string> $options Provider-specific options.
+	 * @return \WP_AI_Client_Prompt_Builder Configured prompt builder.
+	 */
+	protected function create_image_prompt_builder( string $prompt, array $options = [] ): \WP_AI_Client_Prompt_Builder {
+		$builder = wp_ai_client_prompt( $prompt );
+
+		$model_preferences = $this->resolve_image_model_preferences();
+		if ( ! empty( $model_preferences ) ) {
+			$builder = $builder->using_model_preference( ...$model_preferences );
+		}
+
+		$model_config = $this->create_image_model_config( $options );
+		if ( $model_config instanceof ModelConfig ) {
+			$builder = $builder->using_model_config( $model_config );
+		}
+
+		return $builder;
+	}
+
+	/**
+	 * Resolve preferred image models for the SDK prompt builder.
+	 *
+	 * The plugin-wide default model is normally a text model. When the bundled
+	 * Superdav provider is selected, append its image model alias so the SDK can
+	 * fall through from `superdav-chat-*` to `superdav-image` for image requests.
+	 *
+	 * @return list<string|array{0:string,1:string}> Model IDs or provider/model tuples.
+	 */
+	protected function resolve_image_model_preferences(): array {
+		$provider           = '';
+		$model              = $this->get_configured_model();
+		$has_explicit_model = '' !== $model;
+
+		if ( class_exists( Settings::class ) ) {
+			try {
+				$settings       = Settings::instance();
+				$saved_provider = $settings->get( 'default_provider' );
+				$provider       = is_string( $saved_provider ) ? $saved_provider : '';
+
+				$resolved_provider = $settings->get_default_provider();
+				if ( '' !== $resolved_provider ) {
+					$provider = $resolved_provider;
+				}
+
+				if ( ! $has_explicit_model ) {
+					$resolved_model = $settings->get_default_model();
+					if ( '' !== $resolved_model ) {
+						$model = $resolved_model;
+					}
+				}
+			} catch ( \Throwable $e ) {
+				// Fall back to the raw configured model when registry validation is unavailable.
+			}
+		}
+
+		$preferences = [];
+		if ( '' !== $model ) {
+			$preferences[] = $model;
+		}
+
+		if ( $this->should_prefer_superdav_image_model( $provider, $model ) ) {
+			$preferences[] = [ SuperdavAiProvider::PROVIDER_ID, SuperdavAiProvider::IMAGE_MODEL_ID ];
+		}
+
+		return $this->unique_image_model_preferences( $preferences );
+	}
+
+	/**
+	 * Build an SDK model config for OpenAI-compatible image options.
+	 *
+	 * @param array<string,string> $options Provider-specific options.
+	 * @return ModelConfig|null Model config, or null when no options are set.
+	 */
+	protected function create_image_model_config( array $options ): ?ModelConfig {
+		$custom_options = [];
+		foreach ( [ 'size', 'style', 'quality' ] as $key ) {
+			$value = isset( $options[ $key ] ) ? trim( (string) $options[ $key ] ) : '';
+			if ( '' !== $value ) {
+				$custom_options[ $key ] = $value;
+			}
+		}
+
+		if ( empty( $custom_options ) ) {
+			return null;
+		}
+
+		$config = new ModelConfig();
+		$config->setCustomOptions( $custom_options );
+
+		return $config;
+	}
+
+	/**
+	 * Whether Superdav image generation should be explicitly preferred.
+	 *
+	 * @param string $provider Configured provider ID.
+	 * @param string $model    Configured/resolved model ID.
+	 * @return bool True when the selected provider/model belongs to Superdav.
+	 */
+	private function should_prefer_superdav_image_model( string $provider, string $model ): bool {
+		if ( SuperdavAiProvider::PROVIDER_ID === $provider ) {
+			return true;
+		}
+
+		return in_array(
+			$model,
+			[
+				SuperdavAiProvider::FAST_MODEL_ID,
+				SuperdavAiProvider::DEFAULT_MODEL_ID,
+				SuperdavAiProvider::STRONG_MODEL_ID,
+				SuperdavAiProvider::IMAGE_MODEL_ID,
+			],
+			true
+		);
+	}
+
+	/**
+	 * Remove duplicate model preferences while preserving order.
+	 *
+	 * @param list<string|array{0:string,1:string}> $preferences Preferences.
+	 * @return list<string|array{0:string,1:string}> Unique preferences.
+	 */
+	private function unique_image_model_preferences( array $preferences ): array {
+		$seen   = [];
+		$unique = [];
+
+		foreach ( $preferences as $preference ) {
+			$key = is_array( $preference )
+				? 'provider:' . $preference[0] . ':model:' . $preference[1]
+				: 'model:' . $preference;
+
+			if ( isset( $seen[ $key ] ) ) {
+				continue;
+			}
+
+			$seen[ $key ] = true;
+			$unique[]     = $preference;
+		}
+
+		return $unique;
 	}
 
 	/**
