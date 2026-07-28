@@ -89,6 +89,8 @@ class RestControllerTest extends WP_UnitTestCase {
 		// phpcs:ignore WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedVariableFound -- Standard WordPress test global.
 		global $wp_rest_server;
 		$wp_rest_server = null;
+		remove_all_filters( 'sd_ai_agent_provider_request_max_bytes' );
+		remove_all_filters( 'sd_ai_agent_provider_request_safety_margin_bytes' );
 
 		parent::tear_down();
 	}
@@ -702,6 +704,9 @@ class RestControllerTest extends WP_UnitTestCase {
 			],
 		];
 		Database::append_to_session( (int) $session_id, $messages );
+		$source_messages_before = json_decode( (string) Database::get_session( (int) $session_id )->messages, true );
+		add_filter( 'sd_ai_agent_provider_request_max_bytes', static fn(): int => 4096 );
+		add_filter( 'sd_ai_agent_provider_request_safety_margin_bytes', static fn(): int => 512 );
 
 		$response = $this->dispatch(
 			'POST',
@@ -720,6 +725,7 @@ class RestControllerTest extends WP_UnitTestCase {
 		$this->assertSame( 'openai', $data['provider_id'] );
 		$this->assertSame( 'gpt-test', $data['model_id'] );
 		$this->assertCount( 1, $data['messages'] );
+		$this->assertSame( 1792, $data['compaction']['max_bytes'] );
 
 		$encoded_messages = (string) wp_json_encode( $data['messages'] );
 		$this->assertLessThanOrEqual( ConversationTrimmer::COMPACT_MAX_BYTES, strlen( $encoded_messages ) );
@@ -732,6 +738,8 @@ class RestControllerTest extends WP_UnitTestCase {
 		$stored_messages = json_decode( (string) $new_session->messages, true );
 		$this->assertIsArray( $stored_messages );
 		$this->assertCount( 1, $stored_messages );
+		$source_messages_after = json_decode( (string) Database::get_session( (int) $session_id )->messages, true );
+		$this->assertSame( $source_messages_before, $source_messages_after );
 	}
 
 	/**
@@ -1485,6 +1493,7 @@ class RestControllerTest extends WP_UnitTestCase {
 				'tool_call_log' => [],
 				'message_log'   => [],
 				'token_usage'   => [ 'prompt' => 0, 'completion' => 0 ],
+				'exit_reason'   => 'sd_ai_agent_provider_payload_budget_exceeded',
 			]
 		);
 		ActiveJobRepository::create( $session_id, $job_id, $this->admin_id, 'processing' );
@@ -1502,7 +1511,52 @@ class RestControllerTest extends WP_UnitTestCase {
 		$this->assertSame( ActiveJobFailureDiagnostic::message_for( ActiveJobFailureDiagnostic::REASON_UNKNOWN ), $data['message'] );
 		$this->assertStringNotContainsString( $error_text, wp_json_encode( $data ) );
 		$this->assertTrue( $data['recoverable'] );
+		$this->assertSame(
+			[
+				'action'            => 'compact_session',
+				'source_session_id' => $session_id,
+			],
+			$data['payload_recovery']
+		);
 		$this->assertNull( ActiveJobRepository::get_by_job_id( $job_id ) );
+	}
+
+	/** Error polling exposes only the validated continuation action metadata. */
+	public function test_job_status_exposes_safe_compact_continuation_recovery(): void {
+		wp_set_current_user( $this->admin_id );
+		$session_id = Database::create_session( [
+			'user_id' => $this->admin_id,
+			'title'   => 'Payload recovery status',
+		] );
+		$job_id     = '99999999-aaaa-bbbb-cccc-dddddddddddd';
+
+		set_transient(
+			RestController::JOB_PREFIX . $job_id,
+			[
+				'status'           => 'error',
+				'error'            => 'Request exceeded the local envelope budget.',
+				'params'           => [ 'session_id' => $session_id ],
+				'payload_recovery' => [
+					'action'            => 'compact_session',
+					'source_session_id' => $session_id,
+					'private_payload'   => 'MUST_NOT_ESCAPE',
+				],
+			],
+			RestController::JOB_TTL
+		);
+
+		$response = $this->dispatch( 'GET', "/sd-ai-agent/v1/job/{$job_id}" );
+
+		$this->assertStatus( 200, $response );
+		$data = $response->get_data();
+		$this->assertSame(
+			[
+				'action'            => 'compact_session',
+				'source_session_id' => $session_id,
+			],
+			$data['payload_recovery']
+		);
+		$this->assertStringNotContainsString( 'MUST_NOT_ESCAPE', (string) wp_json_encode( $data ) );
 	}
 
 	/**

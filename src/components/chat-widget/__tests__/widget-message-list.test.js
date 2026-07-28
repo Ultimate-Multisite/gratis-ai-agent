@@ -57,6 +57,7 @@ async function renderCreditExhaustionMessage() {
 		getSessionJobs: () => ( {} ),
 		getSettings: () => ( {} ),
 		hasStreamError: () => false,
+		getPendingActionCard: () => null,
 		getProviders: () => [
 			{
 				id: 'sd-ai-agent-cloud',
@@ -70,6 +71,8 @@ async function renderCreditExhaustionMessage() {
 	useDispatch.mockReturnValue( {
 		sendMessage: jest.fn(),
 		retryLastMessage: jest.fn(),
+		compactConversation: jest.fn(),
+		setPendingActionCard: jest.fn(),
 	} );
 
 	const container = document.createElement( 'div' );
@@ -130,6 +133,7 @@ describe( 'WidgetMessageList recoverable-job action card', () => {
 			getSessionJobs: () => ( {} ),
 			getSettings: () => ( {} ),
 			hasStreamError: () => true,
+			getPendingActionCard: () => null,
 			getProviders: () => [],
 		};
 		useSelect.mockImplementation( ( fn ) => fn( () => selectors ) );
@@ -155,6 +159,68 @@ describe( 'WidgetMessageList recoverable-job action card', () => {
 			);
 		} );
 		expect( retryLastMessage ).toHaveBeenCalledTimes( 1 );
+
+		await act( async () => {
+			root.unmount();
+		} );
+	} );
+} );
+
+describe( 'WidgetMessageList compact conversation action card', () => {
+	afterEach( () => {
+		document.body.innerHTML = '';
+		jest.clearAllMocks();
+	} );
+
+	test( 'offers and completes compact-and-continue for the active session', async () => {
+		const compactConversation = jest.fn().mockResolvedValue( true );
+		const setPendingActionCard = jest.fn();
+		const selectors = {
+			getCurrentSessionMessages: () => [],
+			isSending: () => false,
+			getCurrentSessionId: () => 123,
+			getLiveToolCalls: () => [],
+			getSessionJobs: () => ( {} ),
+			getSettings: () => ( {} ),
+			hasStreamError: () => true,
+			getPendingActionCard: () => ( {
+				type: 'compact_session',
+				sessionId: 123,
+			} ),
+			getProviders: () => [],
+		};
+		useSelect.mockImplementation( ( fn ) => fn( () => selectors ) );
+		useDispatch.mockReturnValue( {
+			sendMessage: jest.fn(),
+			retryLastMessage: jest.fn(),
+			compactConversation,
+			setPendingActionCard,
+		} );
+
+		const container = document.createElement( 'div' );
+		document.body.appendChild( container );
+		const root = createRoot( container );
+		await act( async () => {
+			root.render( createElement( WidgetMessageList ) );
+		} );
+
+		expect(
+			container.querySelector( '.sdaa-w-retry-failed-step' )
+		).toBeNull();
+		const compactButton = container.querySelector(
+			'.sdaa-action-card-btn-confirm'
+		);
+		expect( compactButton.textContent ).toBe( 'Compact and continue' );
+
+		await act( async () => {
+			compactButton.dispatchEvent(
+				new MouseEvent( 'click', { bubbles: true } )
+			);
+			await Promise.resolve();
+		} );
+
+		expect( compactConversation ).toHaveBeenCalledTimes( 1 );
+		expect( setPendingActionCard ).toHaveBeenCalledWith( null );
 
 		await act( async () => {
 			root.unmount();

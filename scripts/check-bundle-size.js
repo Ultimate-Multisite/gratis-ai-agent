@@ -10,7 +10,7 @@ const BUDGETS = [
 	{
 		name: 'floating-widget',
 		file: 'build/floating-widget.js',
-		minifiedBudgetKiB: 86,
+		minifiedBudgetKiB: 87,
 		gzipBudgetKiB: 28,
 	},
 	{

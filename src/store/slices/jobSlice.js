@@ -854,6 +854,14 @@ export const actions = {
 
 						if ( select.getCurrentSessionId() === sessionId ) {
 							let sessionReloaded = false;
+							const payloadRecovery = result.payload_recovery;
+							const sourceSessionId = Number(
+								payloadRecovery?.source_session_id
+							);
+							const canCompactConversation =
+								payloadRecovery?.action === 'compact_session' &&
+								Number.isInteger( sourceSessionId ) &&
+								sourceSessionId === Number( sessionId );
 							if ( result.session_id ) {
 								try {
 									const session = await apiFetch( {
@@ -891,7 +899,13 @@ export const actions = {
 								role: 'system',
 								parts: [ { text: errorText } ],
 							} );
-							if ( result.recoverable ) {
+							if ( canCompactConversation ) {
+								dispatch.setPendingActionCard( {
+									type: 'compact_session',
+									sessionId,
+									sourceSessionId,
+								} );
+							} else if ( result.recoverable ) {
 								dispatch.setPendingActionCard( {
 									type: 'resume_recoverable_job',
 									sessionId,

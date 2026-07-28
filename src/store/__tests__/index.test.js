@@ -373,8 +373,12 @@ describe( 'actions', () => {
 			] ),
 		};
 
-		await actions.compactConversation()( { dispatch, select } );
+		const compacted = await actions.compactConversation()( {
+			dispatch,
+			select,
+		} );
 
+		expect( compacted ).toBe( true );
 		expect( apiFetch ).toHaveBeenCalledWith( {
 			path: '/sd-ai-agent/v1/sessions/12/compact',
 			method: 'POST',
@@ -953,6 +957,96 @@ describe( 'actions', () => {
 		expect(
 			dispatch.appendMessage.mock.calls[ 0 ][ 0 ].parts[ 0 ].text
 		).not.toContain( '/private/path.php' );
+	} );
+
+	test( 'pollJob prioritizes a compact continuation after a local envelope rejection', async () => {
+		jest.useFakeTimers();
+		apiFetch.mockReset();
+		apiFetch.mockResolvedValue( {
+			status: 'error',
+			message: 'This request is too large to send safely.',
+			recoverable: true,
+			payload_recovery: {
+				action: 'compact_session',
+				source_session_id: 17,
+			},
+		} );
+		const dispatch = {
+			appendMessage: jest.fn(),
+			setPendingConfirmation: jest.fn(),
+			setPendingActionCard: jest.fn(),
+			setStreamError: jest.fn(),
+			setSending: jest.fn(),
+			setLiveToolCalls: jest.fn(),
+			drainMessageQueue: jest.fn(),
+			setCurrentJobId: jest.fn(),
+			setSessionJob: jest.fn(),
+		};
+		const select = {
+			getCurrentSessionId: jest.fn( () => 17 ),
+			getCurrentJobId: jest.fn( () => 'payload-job' ),
+		};
+
+		try {
+			actions.pollJob( 'payload-job', 17 )( { dispatch, select } );
+			await jest.advanceTimersByTimeAsync( 2000 );
+		} finally {
+			jest.useRealTimers();
+		}
+
+		expect( dispatch.setPendingActionCard ).toHaveBeenCalledWith( {
+			type: 'compact_session',
+			sessionId: 17,
+			sourceSessionId: 17,
+		} );
+	} );
+
+	test( 'pollJob rejects compact recovery metadata for another session', async () => {
+		jest.useFakeTimers();
+		apiFetch.mockReset();
+		apiFetch.mockResolvedValue( {
+			status: 'error',
+			message: 'This request is too large to send safely.',
+			recoverable: true,
+			payload_recovery: {
+				action: 'compact_session',
+				source_session_id: 99,
+			},
+		} );
+		const dispatch = {
+			appendMessage: jest.fn(),
+			setPendingConfirmation: jest.fn(),
+			setPendingActionCard: jest.fn(),
+			setStreamError: jest.fn(),
+			setSending: jest.fn(),
+			setLiveToolCalls: jest.fn(),
+			drainMessageQueue: jest.fn(),
+			setCurrentJobId: jest.fn(),
+			setSessionJob: jest.fn(),
+		};
+		const select = {
+			getCurrentSessionId: jest.fn( () => 17 ),
+			getCurrentJobId: jest.fn( () => 'mismatched-payload-job' ),
+		};
+
+		try {
+			actions.pollJob( 'mismatched-payload-job', 17 )( {
+				dispatch,
+				select,
+			} );
+			await jest.advanceTimersByTimeAsync( 2000 );
+		} finally {
+			jest.useRealTimers();
+		}
+
+		expect( dispatch.setPendingActionCard ).toHaveBeenCalledWith( {
+			type: 'resume_recoverable_job',
+			sessionId: 17,
+			diagnostic: null,
+		} );
+		expect( dispatch.setPendingActionCard ).not.toHaveBeenCalledWith(
+			expect.objectContaining( { type: 'compact_session' } )
+		);
 	} );
 } );
 

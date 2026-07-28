@@ -1120,9 +1120,9 @@ class AgentLoopTest extends WP_UnitTestCase {
 			$history,
 			$options,
 			array(
-				new WP_Error( 'sd_ai_agent_provider_payload_too_large', 'Payload too large.', array( 'status_code' => 413 ) ),
+				new WP_Error( 'sd_ai_agent_provider_payload_too_large', 'Payload too large.', array( 'status_code' => 413, 'request_bytes' => 131072, 'request_size_source' => 'complete_envelope' ) ),
 				$this->create_scripted_result( '' ),
-				new WP_Error( 'sd_ai_agent_provider_payload_too_large', 'Payload too large.', array( 'status_code' => 413 ) ),
+				new WP_Error( 'sd_ai_agent_provider_payload_too_large', 'Payload too large.', array( 'status_code' => 413, 'request_bytes' => 131072, 'request_size_source' => 'complete_envelope' ) ),
 				$this->create_scripted_result( 'Recovered after the follow-up retry.' ),
 			)
 		);
@@ -1165,8 +1165,8 @@ class AgentLoopTest extends WP_UnitTestCase {
 			$options,
 			array(
 				$this->create_scripted_result( '' ),
-				new WP_Error( 'sd_ai_agent_provider_payload_too_large', 'Payload too large.', array( 'status_code' => 413 ) ),
-				new WP_Error( 'sd_ai_agent_provider_payload_too_large', 'Payload too large.', array( 'status_code' => 413 ) ),
+				new WP_Error( 'sd_ai_agent_provider_payload_too_large', 'Payload too large.', array( 'status_code' => 413, 'request_bytes' => 131072, 'request_size_source' => 'complete_envelope' ) ),
+				new WP_Error( 'sd_ai_agent_provider_payload_too_large', 'Payload too large.', array( 'status_code' => 413, 'request_bytes' => 78643, 'request_size_source' => 'complete_envelope' ) ),
 			)
 		);
 		$result = $loop->run();
@@ -1201,6 +1201,7 @@ class AgentLoopTest extends WP_UnitTestCase {
 			array(
 				'provider_id' => 'scripted-provider',
 				'model_id'    => 'scripted-model',
+				'session_id'  => 47,
 			),
 			array( $this->create_scripted_result( 'Should not be sent.' ) )
 		);
@@ -1213,8 +1214,48 @@ class AgentLoopTest extends WP_UnitTestCase {
 		$this->assertIsArray( $data );
 		$this->assertTrue( $data['local_rejection'] );
 		$this->assertFalse( $data['fallback_attempted'] );
+		$this->assertSame( 'compact_session_available', $data['recovery_outcome'] );
 		$this->assertTrue( $data['recoverable'] );
+		$this->assertSame( 'compact_session', $data['recovery']['action'] );
+		$this->assertSame( 47, $data['recovery']['source_session_id'] );
 		$this->assertStringContainsString( $current, (string) wp_json_encode( $data['history'] ) );
+	}
+
+	/** A local transport preflight rejection must not consume the one upstream-413 retry. */
+	public function test_local_transport_payload_rejection_skips_reduced_retry_and_offers_compaction(): void {
+		$loop = new ScriptedAgentLoop(
+			'Current request.',
+			array(),
+			array(),
+			array(
+				'provider_id' => 'scripted-provider',
+				'model_id'    => 'scripted-model',
+				'session_id'  => 48,
+			),
+			array(
+				new WP_Error(
+					'sd_ai_agent_provider_payload_budget_exceeded',
+					'Complete request envelope exceeded the local budget.',
+					array(
+						'status_code'         => 413,
+						'local_rejection'     => true,
+						'request_bytes'       => 8192,
+						'request_size_source' => 'complete_envelope',
+					)
+				),
+			)
+		);
+
+		$result = $loop->run();
+
+		$this->assertInstanceOf( \WP_Error::class, $result );
+		$this->assertSame( 'sd_ai_agent_provider_payload_budget_exceeded', $result->get_error_code() );
+		$this->assertCount( 1, $loop->requestSizes );
+		$data = $result->get_error_data();
+		$this->assertIsArray( $data );
+		$this->assertFalse( $data['fallback_attempted'] );
+		$this->assertSame( 'compact_session', $data['recovery']['action'] );
+		$this->assertSame( 48, $data['recovery']['source_session_id'] );
 	}
 
 	// -------------------------------------------------------------------------

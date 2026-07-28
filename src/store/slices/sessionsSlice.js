@@ -1422,8 +1422,9 @@ export const actions = {
 				dispatch.setTokenUsage( { prompt: 0, completion: 0 } );
 				dispatch.resetSessionTokens();
 				dispatch.fetchSessions();
+				return true;
 			} catch {
-				// ignore
+				return false;
 			}
 		};
 	},

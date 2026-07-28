@@ -43,6 +43,14 @@ class ConversationTrimmerTest extends WP_UnitTestCase {
 		delete_option( 'sd_ai_agent_settings' );
 	}
 
+	/** Reset provider-budget filters registered by individual budget tests. */
+	public function tear_down(): void {
+		remove_all_filters( 'sd_ai_agent_provider_request_max_bytes' );
+		remove_all_filters( 'sd_ai_agent_provider_request_safety_margin_bytes' );
+		remove_all_filters( 'sd_ai_agent_provider_request_max_tokens' );
+		parent::tear_down();
+	}
+
 	/**
 	 * Create a mock user message.
 	 *
@@ -112,6 +120,16 @@ class ConversationTrimmerTest extends WP_UnitTestCase {
 	 */
 	public function test_default_max_turns_constant() {
 		$this->assertSame( 20, ConversationTrimmer::DEFAULT_MAX_TURNS );
+	}
+
+	/** The complete-envelope budget reserves a provider/model-configurable margin. */
+	public function test_request_envelope_budget_reserves_configurable_safety_margin(): void {
+		add_filter( 'sd_ai_agent_provider_request_max_bytes', static fn(): int => 8192 );
+		add_filter( 'sd_ai_agent_provider_request_safety_margin_bytes', static fn(): int => 2048 );
+
+		$this->assertSame( 8192, ConversationTrimmer::get_request_byte_budget( 'openai', 'gpt-test' ) );
+		$this->assertSame( 2048, ConversationTrimmer::get_request_safety_margin_bytes( 'openai', 'gpt-test' ) );
+		$this->assertSame( 6144, ConversationTrimmer::get_request_envelope_byte_budget( 'openai', 'gpt-test' ) );
 	}
 
 	/**

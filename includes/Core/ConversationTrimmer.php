@@ -28,6 +28,9 @@ class ConversationTrimmer {
 	/** Default maximum serialized provider request body size (512 KiB). */
 	const DEFAULT_MAX_REQUEST_BYTES = 524288;
 
+	/** Default reserve below a provider's request limit for envelope variance. */
+	const DEFAULT_REQUEST_SAFETY_MARGIN_BYTES = 32768;
+
 	/** Default maximum estimated input tokens retained in conversation history. */
 	const DEFAULT_MAX_REQUEST_TOKENS = 100000;
 
@@ -467,6 +470,73 @@ class ConversationTrimmer {
 		$filtered = (int) apply_filters( 'sd_ai_agent_provider_request_max_bytes', $configured, $provider_id, $model_id );
 
 		return max( 1024, $filtered );
+	}
+
+	/**
+	 * Resolve the byte reserve retained below the provider's request limit.
+	 *
+	 * The final provider body contains more than conversation history: system
+	 * instructions, tool schemas, attachments, model options, and transport
+	 * framing are serialized after the history trimmer runs. Keep a configurable
+	 * reserve for those components while retaining a minimum usable request size.
+	 *
+	 * @param string $provider_id Runtime-selected provider ID.
+	 * @param string $model_id    Runtime-selected model ID.
+	 * @return int Effective safety-margin bytes.
+	 */
+	public static function get_request_safety_margin_bytes( string $provider_id = '', string $model_id = '' ): int {
+		$request_limit = self::get_request_byte_budget( $provider_id, $model_id );
+
+		return self::resolve_request_safety_margin_bytes( $request_limit, $provider_id, $model_id );
+	}
+
+	/**
+	 * Resolve the effective full-envelope byte budget.
+	 *
+	 * This budget applies to both history trimming and the final serialized HTTP
+	 * body guard. The latter remains authoritative because it sees provider-
+	 * specific serialization that is unavailable to the trimmer.
+	 *
+	 * @param string $provider_id Runtime-selected provider ID.
+	 * @param string $model_id    Runtime-selected model ID.
+	 * @return int Effective full-envelope byte budget.
+	 */
+	public static function get_request_envelope_byte_budget( string $provider_id = '', string $model_id = '' ): int {
+		$request_limit = self::get_request_byte_budget( $provider_id, $model_id );
+		$safety_margin = self::resolve_request_safety_margin_bytes( $request_limit, $provider_id, $model_id );
+
+		return max( 1024, $request_limit - $safety_margin );
+	}
+
+	/**
+	 * Apply the configurable request safety margin without reducing a request
+	 * below the minimum size supported by the local guard.
+	 *
+	 * @param int    $request_limit Provider request limit before the reserve.
+	 * @param string $provider_id   Runtime-selected provider ID.
+	 * @param string $model_id      Runtime-selected model ID.
+	 * @return int Effective safety-margin bytes.
+	 */
+	private static function resolve_request_safety_margin_bytes( int $request_limit, string $provider_id, string $model_id ): int {
+		$configured = self::DEFAULT_REQUEST_SAFETY_MARGIN_BYTES;
+
+		/**
+		 * Filter the reserve retained below a provider's request-size limit.
+		 *
+		 * @param int    $configured    Configured margin bytes.
+		 * @param string $provider_id   Runtime-selected provider ID.
+		 * @param string $model_id      Runtime-selected model ID.
+		 * @param int    $request_limit Provider request limit before the reserve.
+		 */
+		$filtered = (int) apply_filters(
+			'sd_ai_agent_provider_request_safety_margin_bytes',
+			$configured,
+			$provider_id,
+			$model_id,
+			$request_limit
+		);
+
+		return min( max( 0, $filtered ), max( 0, $request_limit - 1024 ) );
 	}
 
 	/**

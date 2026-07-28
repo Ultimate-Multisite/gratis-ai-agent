@@ -37,12 +37,29 @@ class ProviderTraceLogger {
 	/**
 	 * Runtime-selected provider/model for the synchronous SDK request in flight.
 	 *
-	 * @var array{provider_id:string,model_id:string}
+	 * @var array{
+	 *     provider_id:string,
+	 *     model_id:string,
+	 *     session_id:int,
+	 *     retry_baseline_request_bytes:int,
+	 *     request_bytes:int,
+	 *     request_tokens_estimate:int,
+	 *     request_provider_limit_bytes:int,
+	 *     request_budget_bytes:int,
+	 *     request_safety_margin_bytes:int
+	 * }
 	 */
 	// phpcs:ignore WordPress.NamingConventions.ValidVariableName.PropertyNotSnakeCase -- Project property naming guidance requires camelCase.
 	private static array $runtimeContext = array(
-		'provider_id' => '',
-		'model_id'    => '',
+		'provider_id'                  => '',
+		'model_id'                     => '',
+		'session_id'                   => 0,
+		'retry_baseline_request_bytes' => 0,
+		'request_bytes'                => 0,
+		'request_tokens_estimate'      => 0,
+		'request_provider_limit_bytes' => 0,
+		'request_budget_bytes'         => 0,
+		'request_safety_margin_bytes'  => 0,
 	);
 
 	/**
@@ -104,21 +121,62 @@ class ProviderTraceLogger {
 	/**
 	 * Set safe runtime attribution for the next synchronous provider request.
 	 *
-	 * @param string $provider_id Runtime-selected provider ID.
-	 * @param string $model_id    Runtime-selected model ID.
+	 * @param string $provider_id                  Runtime-selected provider ID.
+	 * @param string $model_id                     Runtime-selected model ID.
+	 * @param int    $session_id                   Owning chat session, if any.
+	 * @param int    $retry_baseline_request_bytes Full-envelope bytes from an upstream 413 retry baseline.
 	 */
-	public static function set_runtime_context( string $provider_id, string $model_id ): void {
+	public static function set_runtime_context( string $provider_id, string $model_id, int $session_id = 0, int $retry_baseline_request_bytes = 0 ): void {
 		self::$runtimeContext = array(
-			'provider_id' => sanitize_key( $provider_id ),
-			'model_id'    => sanitize_text_field( $model_id ),
+			'provider_id'                  => sanitize_key( $provider_id ),
+			'model_id'                     => sanitize_text_field( $model_id ),
+			'session_id'                   => max( 0, $session_id ),
+			'retry_baseline_request_bytes' => max( 0, $retry_baseline_request_bytes ),
+			'request_bytes'                => 0,
+			'request_tokens_estimate'      => 0,
+			'request_provider_limit_bytes' => 0,
+			'request_budget_bytes'         => 0,
+			'request_safety_margin_bytes'  => 0,
 		);
 	}
 
 	/** Clear runtime provider attribution after a synchronous request. */
 	public static function clear_runtime_context(): void {
 		self::$runtimeContext = array(
-			'provider_id' => '',
-			'model_id'    => '',
+			'provider_id'                  => '',
+			'model_id'                     => '',
+			'session_id'                   => 0,
+			'retry_baseline_request_bytes' => 0,
+			'request_bytes'                => 0,
+			'request_tokens_estimate'      => 0,
+			'request_provider_limit_bytes' => 0,
+			'request_budget_bytes'         => 0,
+			'request_safety_margin_bytes'  => 0,
+		);
+	}
+
+	/**
+	 * Return only scalar measurements captured for the current full request envelope.
+	 *
+	 * The transport hook is the first provider-neutral point that sees the SDK's
+	 * complete serialized body. Never return the body, headers, URL, tool schema,
+	 * attachment, or prompt content from this method.
+	 *
+	 * @return array<string, int|string>
+	 */
+	public static function get_runtime_envelope_metrics(): array {
+		if ( self::$runtimeContext['request_bytes'] <= 0 ) {
+			return array();
+		}
+
+		return array(
+			'request_bytes'                => self::$runtimeContext['request_bytes'],
+			'request_tokens_estimate'      => self::$runtimeContext['request_tokens_estimate'],
+			'request_provider_limit_bytes' => self::$runtimeContext['request_provider_limit_bytes'],
+			'request_budget_bytes'         => self::$runtimeContext['request_budget_bytes'],
+			'request_safety_margin_bytes'  => self::$runtimeContext['request_safety_margin_bytes'],
+			'request_size_class'           => self::classify_request_size( self::$runtimeContext['request_bytes'] ),
+			'request_size_source'          => 'complete_envelope',
 		);
 	}
 
@@ -154,32 +212,88 @@ class ProviderTraceLogger {
 			$model_id = self::extract_model_id( $request_body );
 		}
 
-		$request_bytes = strlen( $request_body );
-		$byte_budget   = ConversationTrimmer::get_request_byte_budget( $provider_id, $model_id );
+		$request_bytes        = strlen( $request_body );
+		$request_tokens       = (int) ceil( $request_bytes / 4 );
+		$provider_limit_bytes = ConversationTrimmer::get_request_byte_budget( $provider_id, $model_id );
+		$byte_budget          = ConversationTrimmer::get_request_envelope_byte_budget( $provider_id, $model_id );
+		$safety_margin_bytes  = max( 0, $provider_limit_bytes - $byte_budget );
+
+		if ( $has_context ) {
+			self::$runtimeContext['request_bytes']                = $request_bytes;
+			self::$runtimeContext['request_tokens_estimate']      = $request_tokens;
+			self::$runtimeContext['request_provider_limit_bytes'] = $provider_limit_bytes;
+			self::$runtimeContext['request_budget_bytes']         = $byte_budget;
+			self::$runtimeContext['request_safety_margin_bytes']  = $safety_margin_bytes;
+		}
+
+		$fallback_attempted = $has_context && self::$runtimeContext['retry_baseline_request_bytes'] > 0;
+
 		if ( $has_context && $request_bytes > $byte_budget ) {
 			self::record_payload_limit(
 				$provider_id,
 				$model_id,
 				413,
 				$request_bytes,
-				(int) ceil( $request_bytes / 4 ),
+				$request_tokens,
 				$byte_budget,
 				true,
-				false
+				$fallback_attempted,
+				false,
+				self::local_payload_recovery_outcome()
 			);
 
 			return new \WP_Error(
 				'sd_ai_agent_provider_payload_budget_exceeded',
 				__( 'This request is too large to send safely. Compact the conversation or shorten the latest message and remove large attachments before retrying.', 'superdav-ai-agent' ),
 				array(
-					'status_code'             => 413,
-					'provider_id'             => $provider_id,
-					'model_id'                => $model_id,
-					'request_bytes'           => $request_bytes,
-					'request_tokens_estimate' => (int) ceil( $request_bytes / 4 ),
-					'request_budget_bytes'    => $byte_budget,
-					'request_size_class'      => self::classify_request_size( $request_bytes ),
-					'local_rejection'         => true,
+					'status_code'                  => 413,
+					'provider_id'                  => $provider_id,
+					'model_id'                     => $model_id,
+					'request_bytes'                => $request_bytes,
+					'request_tokens_estimate'      => $request_tokens,
+					'request_provider_limit_bytes' => $provider_limit_bytes,
+					'request_budget_bytes'         => $byte_budget,
+					'request_safety_margin_bytes'  => $safety_margin_bytes,
+					'request_size_class'           => self::classify_request_size( $request_bytes ),
+					'request_size_source'          => 'complete_envelope',
+					'local_rejection'              => true,
+					'fallback_attempted'           => $fallback_attempted,
+					'recovery_outcome'             => self::local_payload_recovery_outcome(),
+				)
+			);
+		}
+
+		$retry_baseline_bytes = self::$runtimeContext['retry_baseline_request_bytes'];
+		if ( $has_context && $retry_baseline_bytes > 0 && ! self::is_materially_smaller_envelope( $request_bytes, $retry_baseline_bytes ) ) {
+			self::record_payload_limit(
+				$provider_id,
+				$model_id,
+				413,
+				$request_bytes,
+				$request_tokens,
+				$byte_budget,
+				true,
+				true,
+				false,
+				'retry_not_materially_smaller'
+			);
+
+			return new \WP_Error(
+				'sd_ai_agent_provider_payload_budget_exceeded',
+				__( 'This request is too large to send safely. Compact the conversation or shorten the latest message and remove large attachments before retrying.', 'superdav-ai-agent' ),
+				array(
+					'status_code'                  => 413,
+					'provider_id'                  => $provider_id,
+					'model_id'                     => $model_id,
+					'request_bytes'                => $request_bytes,
+					'request_tokens_estimate'      => $request_tokens,
+					'request_provider_limit_bytes' => $provider_limit_bytes,
+					'request_budget_bytes'         => $byte_budget,
+					'request_safety_margin_bytes'  => $safety_margin_bytes,
+					'request_size_class'           => self::classify_request_size( $request_bytes ),
+					'request_size_source'          => 'complete_envelope',
+					'local_rejection'              => true,
+					'recovery_outcome'             => 'retry_not_materially_smaller',
 				)
 			);
 		}
@@ -249,7 +363,7 @@ class ProviderTraceLogger {
 					$model_id_for_log = self::extract_model_id( $request_body );
 				}
 				$request_bytes = strlen( $request_body );
-				$byte_budget   = ConversationTrimmer::get_request_byte_budget( $request_provider_id, $model_id_for_log );
+				$byte_budget   = ConversationTrimmer::get_request_envelope_byte_budget( $request_provider_id, $model_id_for_log );
 
 				if ( 413 === $status_code_for_log ) {
 					self::record_payload_limit(
@@ -260,7 +374,9 @@ class ProviderTraceLogger {
 						(int) ceil( $request_bytes / 4 ),
 						$byte_budget,
 						false,
-						false
+						false,
+						false,
+						'upstream_413'
 					);
 				} else {
 					AgentEventLog::log(
@@ -415,6 +531,7 @@ class ProviderTraceLogger {
 	 * @param bool   $local_rejection   Whether dispatch was blocked locally.
 	 * @param bool   $fallback_attempted Whether a reduced fallback was attempted.
 	 * @param bool   $bytes_estimated   Whether request_bytes is a history estimate.
+	 * @param string $recovery_outcome  Safe recovery outcome token.
 	 */
 	public static function record_payload_limit(
 		string $provider_id,
@@ -425,7 +542,8 @@ class ProviderTraceLogger {
 		int $request_budget,
 		bool $local_rejection,
 		bool $fallback_attempted,
-		bool $bytes_estimated = false
+		bool $bytes_estimated = false,
+		string $recovery_outcome = ''
 	): void {
 		$context               = array(
 			'provider_id'             => sanitize_key( $provider_id ),
@@ -434,14 +552,37 @@ class ProviderTraceLogger {
 			'request_tokens_estimate' => max( 0, $request_tokens ),
 			'request_budget_bytes'    => max( 0, $request_budget ),
 			'request_size_class'      => self::classify_request_size( $request_bytes ),
-			'request_size_source'     => $bytes_estimated ? 'history_estimate' : 'http_body',
+			'request_size_source'     => $bytes_estimated ? 'history_estimate' : 'complete_envelope',
 			'local_rejection'         => $local_rejection,
 			'fallback_attempted'      => $fallback_attempted,
 		);
 		$bytes_key             = $bytes_estimated ? 'request_bytes_estimate' : 'request_bytes';
 		$context[ $bytes_key ] = max( 0, $request_bytes );
+		if ( '' !== $recovery_outcome ) {
+			$context['recovery_outcome'] = sanitize_key( $recovery_outcome );
+		}
+		if ( ! $bytes_estimated && self::$runtimeContext['request_provider_limit_bytes'] > 0 ) {
+			$context['request_provider_limit_bytes'] = self::$runtimeContext['request_provider_limit_bytes'];
+			$context['request_safety_margin_bytes']  = self::$runtimeContext['request_safety_margin_bytes'];
+		}
 
 		AgentEventLog::log( 'provider_payload_limit', AgentEventLog::SEVERITY_ERROR, $context );
+	}
+
+	/** Whether a retried envelope is at least ten percent smaller than its upstream-413 baseline. */
+	private static function is_materially_smaller_envelope( int $request_bytes, int $baseline_bytes ): bool {
+		if ( $request_bytes >= $baseline_bytes || $baseline_bytes <= 0 ) {
+			return false;
+		}
+
+		return ( $baseline_bytes - $request_bytes ) >= (int) ceil( $baseline_bytes * 0.1 );
+	}
+
+	/** Return a safe local-rejection outcome without exposing request content. */
+	private static function local_payload_recovery_outcome(): string {
+		return self::$runtimeContext['session_id'] > 0
+			? 'compact_session_available'
+			: 'compact_session_unavailable';
 	}
 
 	/**

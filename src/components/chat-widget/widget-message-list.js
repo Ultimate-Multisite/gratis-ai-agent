@@ -26,6 +26,7 @@ import {
 import { __ } from '@wordpress/i18n';
 
 import STORE_NAME from '../../store';
+import CompactConversationActionCard from '../compact-conversation-action-card';
 import FeedbackConsentModal from '../feedback-consent-modal';
 import {
 	extractText,
@@ -61,6 +62,7 @@ export default function WidgetMessageList() {
 		liveToolCalls,
 		sessionJobs,
 		hasStreamError,
+		pendingActionCard,
 		providers,
 		showToolCallDetails,
 	} = useSelect( ( sel ) => {
@@ -73,12 +75,18 @@ export default function WidgetMessageList() {
 			liveToolCalls: store.getLiveToolCalls(),
 			sessionJobs: store.getSessionJobs(),
 			hasStreamError: store.hasStreamError(),
+			pendingActionCard: store.getPendingActionCard(),
 			providers: store.getProviders(),
 			showToolCallDetails: settings?.show_tool_call_details === true,
 		};
 	}, [] );
 
-	const { sendMessage, retryLastMessage } = useDispatch( STORE_NAME );
+	const {
+		sendMessage,
+		retryLastMessage,
+		compactConversation,
+		setPendingActionCard,
+	} = useDispatch( STORE_NAME );
 	const ref = useRef( null );
 
 	/** True when the scroll container is within SCROLL_THRESHOLD px of the bottom. */
@@ -186,6 +194,13 @@ export default function WidgetMessageList() {
 		setUnseenCount( 0 );
 	}, [] );
 
+	const compactAndContinue = useCallback( async () => {
+		const compacted = await compactConversation();
+		if ( compacted ) {
+			setPendingActionCard( null );
+		}
+	}, [ compactConversation, setPendingActionCard ] );
+
 	// ── Derived values ────────────────────────────────────────────────────────
 
 	const lastRunningJob = currentSessionId
@@ -269,15 +284,30 @@ export default function WidgetMessageList() {
 						/>
 					) }
 
-					{ hasStreamError && currentSessionId && ! sending && (
-						<button
-							type="button"
-							className="button button-primary sdaa-w-retry-failed-step"
-							onClick={ retryLastMessage }
-						>
-							{ __( 'Retry failed step', 'superdav-ai-agent' ) }
-						</button>
-					) }
+					{ hasStreamError &&
+						currentSessionId &&
+						! sending &&
+						pendingActionCard?.type !== 'compact_session' && (
+							<button
+								type="button"
+								className="button button-primary sdaa-w-retry-failed-step"
+								onClick={ retryLastMessage }
+							>
+								{ __(
+									'Retry failed step',
+									'superdav-ai-agent'
+								) }
+							</button>
+						) }
+
+					{ pendingActionCard?.type === 'compact_session' &&
+						pendingActionCard.sessionId === currentSessionId &&
+						! sending && (
+							<CompactConversationActionCard
+								onConfirm={ compactAndContinue }
+								onCancel={ () => setPendingActionCard( null ) }
+							/>
+						) }
 				</div>
 			</div>
 

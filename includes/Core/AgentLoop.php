@@ -226,6 +226,12 @@ class AgentLoop {
 	/** @var array<string, mixed> Resume metadata carried forward from a claimed checkpoint. */
 	private array $checkpoint_resume_metadata = array();
 
+	/** @var int Full-envelope bytes from an upstream 413 eligible for one reduced retry. */
+	private int $provider_retry_baseline_envelope_bytes = 0;
+
+	/** @var float Unix timestamp when this active-job run started. */
+	private float $active_job_started_at = 0.0;
+
 	/** @var string Last coarse loop phase for shutdown diagnostics. */
 	private string $last_loop_phase = 'initializing';
 
@@ -1866,7 +1872,7 @@ class AgentLoop {
 	private function send_prompt_with_payload_recovery(): GenerativeAiResult|WP_Error {
 		$provider_id  = $this->resolve_provider_id();
 		$model_id     = $this->resolve_effective_model_id( $provider_id );
-		$byte_budget  = ConversationTrimmer::get_request_byte_budget( $provider_id, $model_id );
+		$byte_budget  = ConversationTrimmer::get_request_envelope_byte_budget( $provider_id, $model_id );
 		$token_budget = ConversationTrimmer::get_request_token_budget( $provider_id, $model_id );
 
 		$this->history = ConversationTrimmer::trim_to_budget( $this->history, $byte_budget, $token_budget );
@@ -1874,6 +1880,9 @@ class AgentLoop {
 		$before_tokens = ConversationTrimmer::estimate_total_tokens( $this->history );
 
 		if ( ! ConversationTrimmer::fits_budget( $this->history, $byte_budget, $token_budget ) ) {
+			$recovery_outcome = $this->session_id > 0
+				? 'compact_session_available'
+				: 'compact_session_unavailable';
 			ProviderTraceLogger::record_payload_limit(
 				$provider_id,
 				$model_id,
@@ -1883,10 +1892,11 @@ class AgentLoop {
 				$byte_budget,
 				true,
 				false,
-				true
+				true,
+				$recovery_outcome
 			);
 
-			return new WP_Error(
+			$error = new WP_Error(
 				'sd_ai_agent_provider_payload_budget_exceeded',
 				__( 'This request is too large to send safely. Compact the conversation or shorten the latest message and remove large attachments before retrying.', 'superdav-ai-agent' ),
 				array(
@@ -1898,8 +1908,11 @@ class AgentLoop {
 					'request_budget_bytes'    => $byte_budget,
 					'local_rejection'         => true,
 					'fallback_attempted'      => false,
+					'recovery_outcome'        => $recovery_outcome,
 				)
 			);
+
+			return $this->with_payload_recovery_metadata( $error, $before_bytes, $before_tokens, false, false );
 		}
 
 		$result = $this->send_prompt( $provider_id, $model_id );
@@ -1907,18 +1920,34 @@ class AgentLoop {
 			return $result;
 		}
 
-		if ( ! $this->is_local_payload_limit_error( $result ) ) {
-			ProviderTraceLogger::record_payload_limit(
-				$provider_id,
-				$model_id,
-				413,
-				$before_bytes,
-				$before_tokens,
-				$byte_budget,
-				false,
-				false,
-				true
-			);
+		if ( $this->is_local_payload_limit_error( $result ) ) {
+			return $this->with_payload_recovery_metadata( $result, $before_bytes, $before_tokens, false, false );
+		}
+		$source_data              = $result->get_error_data();
+		$complete_envelope_bytes  = is_array( $source_data ) && 'complete_envelope' === ( $source_data['request_size_source'] ?? '' )
+			? max( 0, (int) ( $source_data['request_bytes'] ?? 0 ) )
+			: 0;
+		$complete_envelope_tokens = is_array( $source_data ) && 'complete_envelope' === ( $source_data['request_size_source'] ?? '' )
+			? max( 0, (int) ( $source_data['request_tokens_estimate'] ?? 0 ) )
+			: 0;
+		ProviderTraceLogger::record_payload_limit(
+			$provider_id,
+			$model_id,
+			413,
+			$complete_envelope_bytes > 0 ? $complete_envelope_bytes : $before_bytes,
+			$complete_envelope_tokens > 0 ? $complete_envelope_tokens : $before_tokens,
+			$byte_budget,
+			false,
+			false,
+			$complete_envelope_bytes <= 0,
+			'reduced_retry_attempted'
+		);
+
+		// Only a measured, complete request envelope can prove that the one
+		// reduced retry is materially smaller. Do not retry 413s from SDK layers
+		// that did not reach the HTTP preflight hook.
+		if ( $complete_envelope_bytes <= 0 ) {
+			return $this->with_payload_recovery_metadata( $result, $before_bytes, $before_tokens, false, false );
 		}
 
 		$target_bytes  = max( 1, (int) floor( $before_bytes * 0.6 ) );
@@ -1943,19 +1972,33 @@ class AgentLoop {
 		);
 		$this->fire_progress();
 
-		$retry_result = $this->send_prompt( $provider_id, $model_id );
+		$this->provider_retry_baseline_envelope_bytes = $complete_envelope_bytes;
+
+		try {
+			$retry_result = $this->send_prompt( $provider_id, $model_id );
+		} finally {
+			$this->provider_retry_baseline_envelope_bytes = 0;
+		}
 		if ( is_wp_error( $retry_result ) ) {
 			if ( $this->is_payload_limit_error( $retry_result ) && ! $this->is_local_payload_limit_error( $retry_result ) ) {
+				$retry_error_data      = $retry_result->get_error_data();
+				$retry_envelope_bytes  = is_array( $retry_error_data ) && 'complete_envelope' === ( $retry_error_data['request_size_source'] ?? '' )
+					? max( 0, (int) ( $retry_error_data['request_bytes'] ?? 0 ) )
+					: 0;
+				$retry_envelope_tokens = is_array( $retry_error_data ) && 'complete_envelope' === ( $retry_error_data['request_size_source'] ?? '' )
+					? max( 0, (int) ( $retry_error_data['request_tokens_estimate'] ?? 0 ) )
+					: 0;
 				ProviderTraceLogger::record_payload_limit(
 					$provider_id,
 					$model_id,
 					413,
-					$after_bytes,
-					$after_tokens,
+					$retry_envelope_bytes > 0 ? $retry_envelope_bytes : $after_bytes,
+					$retry_envelope_tokens > 0 ? $retry_envelope_tokens : $after_tokens,
 					$byte_budget,
 					false,
 					true,
-					true
+					$retry_envelope_bytes <= 0,
+					'reduced_retry_exhausted'
 				);
 			}
 
@@ -2001,6 +2044,12 @@ class AgentLoop {
 		$data['request_tokens_estimate'] = $request_tokens;
 		$data['fallback_attempted']      = $fallback_attempted;
 		$data['payload_reduced']         = $reduced;
+		if ( $this->is_local_payload_limit_error( $error ) && $this->session_id > 0 ) {
+			$data['recovery'] = array(
+				'action'            => 'compact_session',
+				'source_session_id' => $this->session_id,
+			);
+		}
 		$error->add_data( $data );
 
 		return $error;
@@ -2118,7 +2167,13 @@ class AgentLoop {
 		$last_error = null;
 
 		for ( $attempt = 1; $attempt <= $this->provider_retry_max_attempts; ++$attempt ) {
-			ProviderTraceLogger::set_runtime_context( $provider_id, $model_id );
+			$request_envelope = array();
+			ProviderTraceLogger::set_runtime_context(
+				$provider_id,
+				$model_id,
+				$this->session_id,
+				$this->provider_retry_baseline_envelope_bytes
+			);
 			try {
 				$result = $builder->generate_text_result();
 				if ( is_wp_error( $result ) ) {
@@ -2130,7 +2185,12 @@ class AgentLoop {
 			} catch ( \Throwable $e ) {
 				$last_error = $e;
 			} finally {
+				$request_envelope = ProviderTraceLogger::get_runtime_envelope_metrics();
 				ProviderTraceLogger::clear_runtime_context();
+			}
+
+			if ( $last_error instanceof WP_Error && ! empty( $request_envelope ) ) {
+				$last_error = $this->with_request_envelope_metadata( $last_error, $request_envelope );
 			}
 
 			$status_code = $this->extract_provider_error_status( $last_error );
@@ -2152,6 +2212,36 @@ class AgentLoop {
 
 		$elapsed_seconds = max( 0, (int) round( microtime( true ) - $started_at ) );
 		return $this->build_provider_retry_failed_error( $last_error, $elapsed_seconds );
+	}
+
+	/**
+	 * Copy full-envelope transport measurements onto a provider error.
+	 *
+	 * @param WP_Error                  $error   Provider error receiving the scalar measurements.
+	 * @param array<string, int|string> $metrics Prompt-free scalar measurements.
+	 */
+	private function with_request_envelope_metadata( WP_Error $error, array $metrics ): WP_Error {
+		$error_data = $error->get_error_data();
+		$data       = is_array( $error_data ) ? $error_data : array();
+
+		$safe_keys = array(
+			'request_bytes',
+			'request_tokens_estimate',
+			'request_provider_limit_bytes',
+			'request_budget_bytes',
+			'request_safety_margin_bytes',
+			'request_size_class',
+			'request_size_source',
+		);
+		foreach ( $safe_keys as $key ) {
+			if ( isset( $metrics[ $key ] ) && is_scalar( $metrics[ $key ] ) ) {
+				$data[ $key ] = $metrics[ $key ];
+			}
+		}
+
+		$error->add_data( $data );
+
+		return $error;
 	}
 
 	/**
@@ -2333,9 +2423,13 @@ class AgentLoop {
 						'model_id',
 						'request_bytes',
 						'request_tokens_estimate',
+						'request_provider_limit_bytes',
 						'request_budget_bytes',
+						'request_safety_margin_bytes',
 						'request_size_class',
+						'request_size_source',
 						'local_rejection',
+						'recovery_outcome',
 					);
 					foreach ( $safe_keys as $safe_key ) {
 						if ( isset( $source_data[ $safe_key ] ) && is_scalar( $source_data[ $safe_key ] ) ) {

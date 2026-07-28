@@ -20,6 +20,7 @@ import { __ } from '@wordpress/i18n';
 
 import STORE_NAME from '../../store';
 import ActionCard from '../action-card';
+import CompactConversationActionCard from '../compact-conversation-action-card';
 import FeedbackConsentModal from '../feedback-consent-modal';
 import useTextToSpeech from '../use-text-to-speech';
 import {
@@ -91,6 +92,7 @@ export default function MessageList() {
 		sendMessage,
 		retryLastMessage,
 		resumeRecoverableJob,
+		compactConversation,
 		setPendingActionCard,
 	} = useDispatch( STORE_NAME );
 	const ref = useRef( null );
@@ -264,6 +266,13 @@ export default function MessageList() {
 		}
 	};
 
+	const compactAndContinue = useCallback( async () => {
+		const compacted = await compactConversation();
+		if ( compacted ) {
+			setPendingActionCard( null );
+		}
+	}, [ compactConversation, setPendingActionCard ] );
+
 	// ── Derived values ────────────────────────────────────────────────────────
 
 	const lastRunningJob = currentSessionId
@@ -350,23 +359,26 @@ export default function MessageList() {
 						/>
 					) }
 
-					{ hasStreamError && currentSessionId && ! sending && (
-						<div className="sdaa-cr-error-banner" role="status">
-							<span className="sdaa-cr-error-banner__message">
-								{ __(
-									'Something went wrong while sending your message.',
-									'superdav-ai-agent'
-								) }
-							</span>
-							<button
-								type="button"
-								className="sdaa-cr-error-banner__retry"
-								onClick={ retryLastMessage }
-							>
-								{ __( 'Try again', 'superdav-ai-agent' ) }
-							</button>
-						</div>
-					) }
+					{ hasStreamError &&
+						currentSessionId &&
+						! sending &&
+						pendingActionCard?.type !== 'compact_session' && (
+							<div className="sdaa-cr-error-banner" role="status">
+								<span className="sdaa-cr-error-banner__message">
+									{ __(
+										'Something went wrong while sending your message.',
+										'superdav-ai-agent'
+									) }
+								</span>
+								<button
+									type="button"
+									className="sdaa-cr-error-banner__retry"
+									onClick={ retryLastMessage }
+								>
+									{ __( 'Try again', 'superdav-ai-agent' ) }
+								</button>
+							</div>
+						) }
 
 					{ [
 						'resume_recoverable_job',
@@ -377,6 +389,15 @@ export default function MessageList() {
 							<ActionCard
 								card={ pendingActionCard }
 								onConfirm={ confirmJobFailureAction }
+								onCancel={ () => setPendingActionCard( null ) }
+							/>
+						) }
+
+					{ pendingActionCard?.type === 'compact_session' &&
+						pendingActionCard.sessionId === currentSessionId &&
+						! sending && (
+							<CompactConversationActionCard
+								onConfirm={ compactAndContinue }
 								onCancel={ () => setPendingActionCard( null ) }
 							/>
 						) }
