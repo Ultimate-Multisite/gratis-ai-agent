@@ -11,6 +11,76 @@ global.IS_REACT_ACT_ENVIRONMENT = true;
 
 jest.mock( '@wordpress/api-fetch', () => jest.fn() );
 
+jest.mock( '@wordpress/components', () => {
+	const React = require( 'react' );
+
+	return {
+		Button: ( { children, href, onClick, type = 'button', disabled } ) =>
+			href
+				? React.createElement( 'a', { href, onClick }, children )
+				: React.createElement(
+						'button',
+						{ type, disabled, onClick },
+						children
+				  ),
+		Notice: ( { children } ) =>
+			React.createElement( 'div', null, children ),
+		SelectControl: ( { label, value, onChange, options = [] } ) =>
+			React.createElement(
+				'label',
+				null,
+				label,
+				React.createElement(
+					'select',
+					{
+						value,
+						onChange: ( event ) => onChange( event.target.value ),
+					},
+					options.map( ( option ) =>
+						React.createElement(
+							'option',
+							{ key: option.value, value: option.value },
+							option.label
+						)
+					)
+				)
+			),
+		Spinner: () => React.createElement( 'div', { role: 'status' } ),
+		TextareaControl: ( { label, value, onChange } ) =>
+			React.createElement(
+				'label',
+				null,
+				label,
+				React.createElement( 'textarea', {
+					value,
+					onChange: ( event ) => onChange( event.target.value ),
+				} )
+			),
+		TextControl: ( { label, value, onChange, type = 'text' } ) =>
+			React.createElement(
+				'label',
+				null,
+				label,
+				React.createElement( 'input', {
+					value,
+					type,
+					onChange: ( event ) => onChange( event.target.value ),
+				} )
+			),
+		ToggleControl: ( { label, checked, onChange } ) =>
+			React.createElement(
+				'label',
+				null,
+				label,
+				React.createElement( 'input', {
+					checked,
+					type: 'checkbox',
+					onChange: ( event ) => onChange( event.target.checked ),
+				} )
+			),
+	};
+} );
+
 const routeResponses = {
 	'/sd-ai-agent/v1/settings/google-calendar': {
 		has_credentials: true,
