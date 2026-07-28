@@ -12,9 +12,9 @@ Your AI teammate for WordPress. Fix, publish, optimise, and run your existing si
 
 == Description ==
 
-SD AI Agent is an AI teammate for the WordPress site you already run. Ask it to improve a page, draft content, review SEO opportunities, prepare media, answer questions with site context, or run routine admin work from one workspace inside WordPress.
+SD AI Agent is an AI teammate for the WordPress site you already run. Ask it to improve a page, draft content, review SEO opportunities, prepare media, answer questions with site context, or run routine admin work from inside WordPress using natural language.
 
-You stay in control: choose the included Superdav AI managed service or your own compatible WordPress AI provider, decide which tools the agent can use, and require confirmation before consequential actions run.
+You stay in control: choose the included SD AI managed service or your own compatible WordPress AI provider, decide which tools the agent can use, and require confirmation before consequential actions run.
 
 = What it helps you do =
 
@@ -39,12 +39,12 @@ Create reusable skills, custom HTTP tools, WordPress action tools, scheduled tas
 
 = Before you start =
 
-You need WordPress 7.0 or later and PHP 8.2 or later. Use the included Superdav AI managed service, or install a compatible WordPress AI provider connector. Third-party providers may charge for model usage; review their pricing and privacy terms before sending content or attachments.
+You need WordPress 7.0 or later and PHP 8.2 or later. Use the included SD AI managed service, or install a compatible WordPress AI provider connector. Third-party providers may charge for model usage; review their pricing and privacy terms before sending content or attachments.
 
 == Installation ==
 
 1. Install and activate SD AI Agent from the WordPress Plugins screen.
-2. Go to **Settings > AI Credentials**. Use the included Superdav AI managed service, or configure a connector for your preferred AI provider with its required credentials.
+2. Go to **Settings > AI Credentials**. Use the included SD AI managed service, or configure a connector for your preferred AI provider with its required credentials.
 3. Visit **Tools > SD AI Agent Settings** to choose your provider and model.
 4. Review the available abilities and choose a tool profile that fits the access you want to grant.
 5. Open **Tools > SD AI Agent** and start with a focused task, such as improving a draft or finding information from your site.
@@ -53,16 +53,16 @@ You need WordPress 7.0 or later and PHP 8.2 or later. Use the included Superdav 
 
 * WordPress 7.0 or higher
 * PHP 8.2 or higher
-* The included Superdav AI managed service, or an AI provider connector plugin registered through the WordPress Connectors API
+* The included SD AI managed service, or an AI provider connector plugin registered through the WordPress Connectors API
 * Provider credentials when required by your selected service
 
 == External Services ==
 
-This plugin contacts outside services only when they are needed for a feature you use, except that the included Superdav AI managed service registers the site installation during activation. Other services are contacted when you configure the relevant key, URL, or feature; ask the agent to run an action that uses that service; or enable scheduled maintenance such as skill-manifest updates.
+This plugin contacts outside services only when they are needed for a feature you use, except that the included SD AI managed service registers the site installation during activation. Other services are contacted when you configure the relevant key, URL, or feature; ask the agent to run an action that uses that service; or enable scheduled maintenance such as skill-manifest updates.
 
-= Superdav AI managed service =
+= SD AI managed service =
 
-The included Superdav AI provider can register the site and provide AI responses when selected. Activation registration sends a durable installation ID, site URL, plugin version, and WordPress version. AI requests send the conversation messages, system prompt, attached files if any, and tool definitions needed to generate the reply.
+The included SD AI provider can register the site and provide AI responses when selected. Activation registration sends a durable installation ID, site URL, plugin version, and WordPress version. AI requests send the conversation messages, system prompt, attached files if any, and tool definitions needed to generate the reply.
 
 = AI providers (chat completions) =
 
@@ -74,7 +74,7 @@ These are contacted only when configured in **Settings > AI Credentials** and se
 
 * **Google AI / Gemini** (generativelanguage.googleapis.com) — Provides AI chat completions for Gemini models. Terms: https://policies.google.com/terms Privacy: https://policies.google.com/privacy
 
-**Other compatible providers.** If you install a separate connector, SD AI Agent uses that connector's configured endpoint and data handling. Some connectors may route requests through regional or cloud services such as Google Vertex AI (`*.aiplatform.googleapis.com`). Review the connector's own terms and privacy policy. Google APIs Terms: https://developers.google.com/terms Google Privacy: https://policies.google.com/privacy
+**Other compatible providers.** If you install a separate connector, SD AI Agent uses that connector's configured endpoint and data handling. Some connectors may route requests through regional or cloud services such as Google Vertex AI (`*.aiplatform.googleapis.com`). Review the connector's own terms and privacy policy.
 
 = Internet search providers =
 
@@ -168,7 +168,7 @@ SD AI Agent uses the native WordPress AI Client SDK and Abilities API. These API
 
 = 1.20.0 - Released on 2026-07-23 =
 * Improved chat recovery so interrupted jobs, retries, and timeouts resume more reliably.
-* Added clearer Superdav account and credit status plus expanded model and image options, including GPT-5.6 aliases, Superdav image edits, and OpenAI Responses tool search.
+* Added clearer SD account and credit status plus expanded model and image options, including GPT-5.6 aliases, SD image edits, and OpenAI Responses tool search.
 * Improved theme-building and design workflows with safer patterns, design-token handling, artifact review, style-variation support, and stronger block update safeguards.
 
 = 1.19.0 - Released on 2026-07-09 =
@@ -179,7 +179,7 @@ SD AI Agent uses the native WordPress AI Client SDK and Abilities API. These API
 = 1.18.0 - Released on 2026-06-29 =
 * Added Google Calendar tools, attendee matching, and TextBee SMS support for reminder automations.
 * Added approval gates and reminder records so scheduled messages can pause for review and avoid duplicates.
-* Made Superdav setup easier and improved model selection, request timeouts, onboarding, and retry guidance.
+* Made SD setup easier and improved model selection, request timeouts, onboarding, and retry guidance.
 
 = 1.17.0 - Released on 2026-06-11 =
 * Added safer page, post, block, and file editing with previews, Apply/Reject controls, revision recovery, and rollback protection.
