@@ -208,6 +208,54 @@ class AiImageAbilitiesTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * Explicit saved image defaults should not be replaced by resolved fallbacks.
+	 */
+	public function test_generate_image_preserves_explicit_saved_model_preference(): void {
+		$previous_settings = get_option( Settings::OPTION_NAME, null );
+
+		update_option(
+			Settings::OPTION_NAME,
+			[
+				'default_provider' => SuperdavAiProvider::PROVIDER_ID,
+				'default_model'    => 'custom-image-model',
+			]
+		);
+
+		$filter = static function (): array {
+			return [
+				SuperdavAiProvider::PROVIDER_ID => [
+					SuperdavAiProvider::DEFAULT_MODEL_ID,
+					SuperdavAiProvider::IMAGE_MODEL_ID,
+				],
+			];
+		};
+		add_filter( 'sd_ai_agent_registered_models_for_validation', $filter );
+
+		try {
+			$ability    = new GenerateImageAbility( 'sd-ai-agent/generate-image' );
+			$reflection = new \ReflectionMethod( $ability, 'resolve_image_model_preferences' );
+			$reflection->setAccessible( true );
+
+			$preferences = $reflection->invoke( $ability );
+
+			$this->assertIsArray( $preferences );
+			$this->assertContains( 'custom-image-model', $preferences );
+			$this->assertNotContains( SuperdavAiProvider::DEFAULT_MODEL_ID, $preferences );
+			$this->assertContainsEquals(
+				[ SuperdavAiProvider::PROVIDER_ID, SuperdavAiProvider::IMAGE_MODEL_ID ],
+				$preferences
+			);
+		} finally {
+			remove_filter( 'sd_ai_agent_registered_models_for_validation', $filter );
+			if ( null === $previous_settings ) {
+				delete_option( Settings::OPTION_NAME );
+			} else {
+				update_option( Settings::OPTION_NAME, $previous_settings );
+			}
+		}
+	}
+
+	/**
 	 * Size, style, and quality inputs are passed as OpenAI-compatible image options.
 	 */
 	public function test_generate_image_builds_model_config_from_image_options(): void {

@@ -433,8 +433,9 @@ class GenerateImageAbility extends \SdAiAgent\Abilities\AbstractAbility {
 	 * @return list<string|array{0:string,1:string}> Model IDs or provider/model tuples.
 	 */
 	protected function resolve_image_model_preferences(): array {
-		$provider = '';
-		$model    = $this->get_configured_model();
+		$provider           = '';
+		$model              = $this->get_configured_model();
+		$has_explicit_model = '' !== $model;
 
 		if ( class_exists( Settings::class ) ) {
 			try {
@@ -447,9 +448,11 @@ class GenerateImageAbility extends \SdAiAgent\Abilities\AbstractAbility {
 					$provider = $resolved_provider;
 				}
 
-				$resolved_model = $settings->get_default_model();
-				if ( '' !== $resolved_model ) {
-					$model = $resolved_model;
+				if ( ! $has_explicit_model ) {
+					$resolved_model = $settings->get_default_model();
+					if ( '' !== $resolved_model ) {
+						$model = $resolved_model;
+					}
 				}
 			} catch ( \Throwable $e ) {
 				// Fall back to the raw configured model when registry validation is unavailable.
