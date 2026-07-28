@@ -99,6 +99,30 @@ class AgentLoop {
 	/** Durable checkpoint phase saved after tool responses are appended. */
 	public const CHECKPOINT_TOOL_RESPONSE_RECORDED = 'tool_response_recorded';
 
+	/** Maximum serialized history retained in one automatic-resume checkpoint. */
+	private const CHECKPOINT_HISTORY_MAX_BYTES = ConversationTrimmer::COMPACT_MAX_BYTES;
+
+	/** Maximum estimated tokens retained in one automatic-resume checkpoint. */
+	private const CHECKPOINT_HISTORY_MAX_TOKENS = ConversationTrimmer::COMPACT_MAX_TOKENS;
+
+	/** Maximum serialized page context retained in one automatic-resume checkpoint. */
+	private const CHECKPOINT_PAGE_CONTEXT_MAX_BYTES = 8192;
+
+	/** Maximum serialized scalar page-context value retained in one checkpoint. */
+	private const CHECKPOINT_PAGE_CONTEXT_VALUE_MAX_BYTES = 2048;
+
+	/** Maximum durable ability names retained for one automatic resume. */
+	private const CHECKPOINT_ABILITY_NAME_MAX_COUNT = 32;
+
+	/** Maximum serialized byte length of one durable ability name. */
+	private const CHECKPOINT_ABILITY_NAME_MAX_BYTES = 128;
+
+	/** Maximum serialized byte length of a provider or model identifier. */
+	private const CHECKPOINT_IDENTIFIER_MAX_BYTES = 191;
+
+	/** Format version for checkpoint resume metadata. */
+	public const CHECKPOINT_RESUME_METADATA_VERSION = 1;
+
 	/**
 	 * Maximum consecutive preamble-only truncations before we abort the loop.
 	 *
@@ -201,6 +225,9 @@ class AgentLoop {
 
 	/** @var float Unix timestamp when this active-job run started. */
 	private float $active_job_started_at = 0.0;
+
+	/** @var array<string, mixed> Resume metadata carried forward from a claimed checkpoint. */
+	private array $checkpoint_resume_metadata = array();
 
 	/** @var string Last coarse loop phase for shutdown diagnostics. */
 	private string $last_loop_phase = 'initializing';
@@ -404,6 +431,8 @@ class AgentLoop {
 		// Empty string when the loop is not running under a background job.
 		// @phpstan-ignore-next-line
 		$this->active_job_id = (string) ( $options['active_job_id'] ?? '' );
+
+		$this->checkpoint_resume_metadata = self::checkpoint_resume_metadata_from_candidate( $options['checkpoint_resume_metadata'] ?? array() );
 		// @phpstan-ignore-next-line -- Test/job callers may lower attempts or delays; production defaults remain four attempts.
 		$this->provider_retry_max_attempts = max( 1, (int) ( $options['provider_retry_max_attempts'] ?? self::PROVIDER_RETRY_MAX_ATTEMPTS ) );
 		// @phpstan-ignore-next-line -- Values are normalised below to non-negative integer seconds.
@@ -957,24 +986,357 @@ class AgentLoop {
 			return;
 		}
 
+		$history                 = $this->serialize_history();
+		$original_history_len    = count( $history );
+		$resolved_provider_id    = $this->resolve_provider_id();
+		$resolved_model_id       = $this->resolve_effective_model_id( $resolved_provider_id );
+		$provider_id             = self::checkpoint_identifier( (string) $resolved_provider_id );
+		$model_id                = self::checkpoint_identifier( (string) $resolved_model_id );
+		$metadata                = self::describe_checkpoint_request( $history, $phase, $provider_id, $model_id );
+		$compaction              = array();
+		$recovery_transformation = '';
+
+		// Checkpoints are a recovery boundary, not a second unbounded transcript.
+		// A session remains the durable source for the full conversation; this copy
+		// only needs to be sufficient for one safe provider continuation.
+		if ( $this->checkpoint_requires_compaction( $metadata ) ) {
+			$compacted_history = ConversationTrimmer::compact_serialized_history(
+				$history,
+				self::checkpoint_compaction_byte_budget( (int) $metadata['request_budget_bytes'] ),
+				self::checkpoint_compaction_token_budget( (int) $metadata['request_budget_tokens'] )
+			);
+			$compact_metadata  = self::describe_checkpoint_request(
+				$compacted_history['messages'],
+				$phase,
+				$provider_id,
+				$model_id
+			);
+
+			if (
+				(int) $compact_metadata['request_bytes'] < (int) $metadata['request_bytes']
+				&& ! self::checkpoint_request_requires_compaction( $compact_metadata )
+			) {
+				$history                 = $compacted_history['messages'];
+				$metadata                = $compact_metadata;
+				$compaction              = $compacted_history['meta'];
+				$recovery_transformation = 'compact_checkpoint_history';
+			} else {
+				// Do not leave an oversized request behind when a deterministic
+				// compact representation cannot safely fit. An empty history makes
+				// this checkpoint deliberately non-resumable rather than replaying
+				// the same rejected request on the next status poll.
+				$history                 = array();
+				$metadata                = self::describe_checkpoint_request( $history, $phase, $provider_id, $model_id );
+				$compaction              = array( 'source_message_count' => $original_history_len );
+				$recovery_transformation = 'discard_uncompactable_checkpoint_history';
+			}
+		}
+
+		$resume_metadata = array(
+			'version'      => self::CHECKPOINT_RESUME_METADATA_VERSION,
+			'next_request' => $metadata,
+		);
+
+		if ( isset( $this->checkpoint_resume_metadata['last_attempt'] ) && is_array( $this->checkpoint_resume_metadata['last_attempt'] ) ) {
+			$last_attempt = self::checkpoint_attempt_metadata( $this->checkpoint_resume_metadata['last_attempt'] );
+			if ( ! empty( $last_attempt ) ) {
+				$resume_metadata['last_attempt'] = $last_attempt;
+			}
+		}
+
+		if ( '' !== $recovery_transformation ) {
+			$resume_metadata['recovery_transformation'] = $recovery_transformation;
+			$resume_metadata['compaction']              = self::checkpoint_compaction_metadata( $compaction );
+		} elseif ( isset( $this->checkpoint_resume_metadata['recovery_transformation'] ) ) {
+			$existing_transformation = self::checkpoint_recovery_transformation( (string) $this->checkpoint_resume_metadata['recovery_transformation'] );
+			if ( '' !== $existing_transformation ) {
+				$resume_metadata['recovery_transformation'] = $existing_transformation;
+			}
+			if ( isset( $this->checkpoint_resume_metadata['compaction'] ) && is_array( $this->checkpoint_resume_metadata['compaction'] ) ) {
+				$existing_compaction = self::checkpoint_compaction_metadata( $this->checkpoint_resume_metadata['compaction'] );
+				if ( ! empty( $existing_compaction ) ) {
+					$resume_metadata['compaction'] = $existing_compaction;
+				}
+			}
+		}
+
 		ActiveJobRepository::save_checkpoint(
 			$this->active_job_id,
 			$phase,
 			array(
-				'history'                       => $this->serialize_history(),
-				'tool_call_log'                 => $this->tool_call_log,
-				'message_log'                   => $this->message_log,
-				'token_usage'                   => $this->token_usage,
+				'history'                       => $history,
+				'checkpoint_resume_metadata'    => $resume_metadata,
+				'activity'                      => array(
+					'tool_call_count' => count( $this->tool_call_log ),
+					'message_count'   => count( $this->message_log ),
+				),
+				'token_usage'                   => $this->checkpoint_token_usage(),
 				'iterations_remaining'          => max( 1, $iterations_remaining ),
-				'model_id'                      => $this->model_id,
-				'provider_id'                   => $this->provider_id,
-				'client_abilities'              => $this->client_abilities,
-				'page_context'                  => $this->page_context,
-				'anonymous_allowed_abilities'   => $this->anonymous_allowed_abilities,
-				'anonymous_allowed_collections' => $this->anonymous_allowed_collections,
+				'model_id'                      => $model_id,
+				'provider_id'                   => $provider_id,
+				'client_ability_names'          => self::checkpoint_ability_names( $this->client_router->get_names() ),
+				'page_context'                  => $this->checkpoint_page_context(),
+				'anonymous_allowed_abilities'   => self::checkpoint_ability_names( $this->anonymous_allowed_abilities ),
+				'anonymous_allowed_collections' => self::checkpoint_ability_names( $this->anonymous_allowed_collections ),
 				'anonymous_policy_active'       => $this->anonymous_policy_active,
 			)
 		);
+	}
+
+	/**
+	 * Describe the next provider request without retaining its source content.
+	 *
+	 * This public helper is shared with the checkpoint dispatcher so legacy rows
+	 * without metadata can be upgraded safely before their first resume claim.
+	 *
+	 * @param array<int, array<string, mixed>> $serialized_history Serializable provider history.
+	 * @param string                           $phase              Durable checkpoint phase.
+	 * @param string                           $provider_id        Provider selected for the request.
+	 * @param string                           $model_id           Model selected for the request.
+	 * @return array{fingerprint:string,request_bytes:int,request_tokens:int,request_budget_bytes:int,request_budget_tokens:int,size_class:string,phase:string,locally_rejected:bool}
+	 */
+	public static function describe_checkpoint_request( array $serialized_history, string $phase, string $provider_id = '', string $model_id = '' ): array {
+		$history = array();
+		try {
+			$history = ConversationSerializer::deserialize( array_values( $serialized_history ) );
+			$history = ConversationTrimmer::validate_tool_pairs( $history );
+		} catch ( \Throwable $e ) {
+			// The dispatcher will reject an unreadable checkpoint before it can run.
+			$history = array();
+		}
+
+		$request_bytes  = ! empty( $history )
+			? ConversationTrimmer::estimate_total_bytes( $history )
+			: strlen( (string) wp_json_encode( $serialized_history ) );
+		$request_tokens = ! empty( $history )
+			? ConversationTrimmer::estimate_total_tokens( $history )
+			: (int) ceil( $request_bytes / 4 );
+		$byte_budget    = ConversationTrimmer::get_request_byte_budget( $provider_id, $model_id );
+		$token_budget   = ConversationTrimmer::get_request_token_budget( $provider_id, $model_id );
+		$fingerprint    = hash(
+			'sha256',
+			(string) wp_json_encode(
+				array(
+					'history'     => $serialized_history,
+					'provider_id' => $provider_id,
+					'model_id'    => $model_id,
+				)
+			)
+		);
+
+		return array(
+			'fingerprint'           => $fingerprint,
+			'request_bytes'         => max( 0, $request_bytes ),
+			'request_tokens'        => max( 0, $request_tokens ),
+			'request_budget_bytes'  => max( 0, $byte_budget ),
+			'request_budget_tokens' => max( 0, $token_budget ),
+			'size_class'            => ProviderTraceLogger::classify_request_size( max( 0, $request_bytes ) ),
+			'phase'                 => $phase,
+			'locally_rejected'      => ! empty( $history ) && ! ConversationTrimmer::fits_budget( $history, $byte_budget, $token_budget ),
+		);
+	}
+
+	/**
+	 * Whether a checkpoint must use its bounded recovery representation.
+	 *
+	 * @param array<string, mixed> $metadata Next-request metadata.
+	 */
+	private function checkpoint_requires_compaction( array $metadata ): bool {
+		return self::checkpoint_request_requires_compaction( $metadata );
+	}
+
+	/**
+	 * @param array<string, mixed> $metadata Next-request metadata.
+	 * @return bool True when the checkpoint needs compaction.
+	 */
+	private static function checkpoint_request_requires_compaction( array $metadata ): bool {
+		return (int) ( $metadata['request_bytes'] ?? 0 ) > self::CHECKPOINT_HISTORY_MAX_BYTES
+			|| (int) ( $metadata['request_tokens'] ?? 0 ) > self::CHECKPOINT_HISTORY_MAX_TOKENS
+			|| ! empty( $metadata['locally_rejected'] );
+	}
+
+	/**
+	 * Normalize checkpoint metadata from an untyped resume payload.
+	 *
+	 * @param mixed $candidate Candidate checkpoint metadata.
+	 * @return array<string, mixed> String-keyed checkpoint metadata.
+	 */
+	private static function checkpoint_resume_metadata_from_candidate( mixed $candidate ): array {
+		if ( ! is_array( $candidate ) ) {
+			return array();
+		}
+
+		$metadata = array();
+		foreach ( $candidate as $key => $value ) {
+			if ( is_string( $key ) ) {
+				$metadata[ $key ] = $value;
+			}
+		}
+
+		return $metadata;
+	}
+
+	/** Get a bounded byte budget for deterministic checkpoint compaction. */
+	private static function checkpoint_compaction_byte_budget( int $request_budget ): int {
+		if ( $request_budget <= 0 ) {
+			return self::CHECKPOINT_HISTORY_MAX_BYTES;
+		}
+
+		return max( 1024, min( self::CHECKPOINT_HISTORY_MAX_BYTES, $request_budget ) );
+	}
+
+	/** Get a bounded token budget for deterministic checkpoint compaction. */
+	private static function checkpoint_compaction_token_budget( int $request_budget ): int {
+		if ( $request_budget <= 0 ) {
+			return self::CHECKPOINT_HISTORY_MAX_TOKENS;
+		}
+
+		return max( 256, min( self::CHECKPOINT_HISTORY_MAX_TOKENS, $request_budget ) );
+	}
+
+	/** Keep one identifier inside the fixed checkpoint storage budget. */
+	private static function checkpoint_identifier( string $value ): string {
+		return self::checkpoint_json_fits_budget( $value, self::CHECKPOINT_IDENTIFIER_MAX_BYTES ) ? $value : '';
+	}
+
+	/**
+	 * Keep only a bounded, canonical list of ability names in checkpoint state.
+	 *
+	 * @param array<int, mixed> $names Candidate ability names.
+	 * @return list<string>
+	 */
+	private static function checkpoint_ability_names( array $names ): array {
+		$bounded = array();
+		foreach ( $names as $name ) {
+			if ( ! is_string( $name ) ) {
+				continue;
+			}
+
+			$name = trim( $name );
+			if ( '' === $name || ! self::checkpoint_json_fits_budget( $name, self::CHECKPOINT_ABILITY_NAME_MAX_BYTES ) ) {
+				continue;
+			}
+
+			$bounded[ $name ] = true;
+			if ( count( $bounded ) >= self::CHECKPOINT_ABILITY_NAME_MAX_COUNT ) {
+				break;
+			}
+		}
+
+		return array_keys( $bounded );
+	}
+
+	/** @return array<string, int> */
+	private function checkpoint_token_usage(): array {
+		$usage = is_array( $this->token_usage ) ? $this->token_usage : array();
+
+		return array(
+			'prompt'     => max( 0, (int) ( $usage['prompt'] ?? 0 ) ),
+			'completion' => max( 0, (int) ( $usage['completion'] ?? 0 ) ),
+		);
+	}
+
+	/** @return array<string, mixed> */
+	private function checkpoint_page_context(): array {
+		$context = array();
+		foreach ( array( 'summary', 'url', 'surface', 'is_frontend', 'page_title', 'post_id', 'post_type', 'admin_page', 'screen_id', 'public_chat' ) as $key ) {
+			if ( ! array_key_exists( $key, $this->page_context ) || ! is_scalar( $this->page_context[ $key ] ) ) {
+				continue;
+			}
+
+			self::checkpoint_append_context_value( $context, $key, $this->page_context[ $key ] );
+		}
+
+		$live_preview = $this->page_context['live_preview'] ?? null;
+		if ( is_array( $live_preview ) ) {
+			$preview = array();
+			foreach ( array( 'affected_descriptor_supported', 'requires_refresh_when_missing_affected', 'refresh_tool' ) as $key ) {
+				if ( isset( $live_preview[ $key ] ) && is_scalar( $live_preview[ $key ] ) ) {
+					self::checkpoint_append_context_value( $preview, $key, $live_preview[ $key ] );
+				}
+			}
+			if ( ! empty( $preview ) ) {
+				self::checkpoint_append_context_value( $context, 'live_preview', $preview );
+			}
+		}
+
+		return $context;
+	}
+
+	/** @param array<string, mixed> $context */
+	private static function checkpoint_append_context_value( array &$context, string $key, mixed $value ): void {
+		if ( ! self::checkpoint_json_fits_budget( $value, self::CHECKPOINT_PAGE_CONTEXT_VALUE_MAX_BYTES ) ) {
+			return;
+		}
+
+		$candidate         = $context;
+		$candidate[ $key ] = $value;
+		if ( self::checkpoint_json_fits_budget( $candidate, self::CHECKPOINT_PAGE_CONTEXT_MAX_BYTES ) ) {
+			$context = $candidate;
+		}
+	}
+
+	/** @param mixed $value */
+	private static function checkpoint_json_fits_budget( $value, int $maximum_bytes ): bool {
+		$encoded = wp_json_encode( $value );
+		return is_string( $encoded ) && strlen( $encoded ) <= $maximum_bytes;
+	}
+
+	/**
+	 * Keep only the fields needed to compare a prior resume candidate.
+	 *
+	 * @param array<string, mixed> $metadata Candidate metadata.
+	 * @return array<string, int|string>
+	 */
+	private static function checkpoint_attempt_metadata( array $metadata ): array {
+		$fingerprint = (string) ( $metadata['fingerprint'] ?? '' );
+		if ( 1 !== preg_match( '/^[a-f0-9]{64}$/', $fingerprint ) ) {
+			return array();
+		}
+
+		$size_class = (string) ( $metadata['size_class'] ?? '' );
+		if ( ! in_array( $size_class, array( 'small', 'medium', 'large', 'very_large' ), true ) ) {
+			$size_class = 'unknown';
+		}
+
+		return array(
+			'fingerprint'    => $fingerprint,
+			'request_bytes'  => max( 0, (int) ( $metadata['request_bytes'] ?? 0 ) ),
+			'request_tokens' => max( 0, (int) ( $metadata['request_tokens'] ?? 0 ) ),
+			'size_class'     => $size_class,
+			'phase'          => sanitize_key( (string) ( $metadata['phase'] ?? '' ) ),
+		);
+	}
+
+	/** @return string Allowed checkpoint transformation name, or empty when unknown. */
+	private static function checkpoint_recovery_transformation( string $transformation ): string {
+		return in_array(
+			$transformation,
+			array( 'compact_checkpoint_history', 'compact_checkpoint_resume', 'discard_uncompactable_checkpoint_history' ),
+			true
+		) ? $transformation : '';
+	}
+
+	/**
+	 * Keep only numeric/boolean compaction diagnostics in persisted metadata.
+	 *
+	 * @param array<string, mixed> $metadata Compaction metadata.
+	 * @return array<string, int|bool>
+	 */
+	private static function checkpoint_compaction_metadata( array $metadata ): array {
+		$bounded = array();
+		foreach ( array( 'source_message_count', 'retained_excerpt_count', 'boundary_omitted_count', 'estimated_bytes', 'estimated_tokens', 'max_bytes', 'max_tokens' ) as $key ) {
+			if ( isset( $metadata[ $key ] ) && is_numeric( $metadata[ $key ] ) ) {
+				$bounded[ $key ] = max( 0, (int) $metadata[ $key ] );
+			}
+		}
+		foreach ( array( 'attachments_omitted', 'tool_payloads_omitted' ) as $key ) {
+			if ( isset( $metadata[ $key ] ) ) {
+				$bounded[ $key ] = (bool) $metadata[ $key ];
+			}
+		}
+
+		return $bounded;
 	}
 
 	/**

@@ -210,6 +210,28 @@ class ActiveJobsCleanupTest extends WP_UnitTestCase {
 		$this->assertFalse( ActiveJobRepository::claim_resume_attempt( 'test-resume-1', 1 ) );
 	}
 
+	/**
+	 * A claimed resume atomically stores its compact checkpoint metadata.
+	 */
+	public function test_claim_resume_attempt_persists_checkpoint_with_claim(): void {
+		$this->insert_job( 'test-resume-checkpoint-1', 'interrupted' );
+		$checkpoint = array(
+			'history'                    => array( array( 'role' => 'user', 'parts' => array( array( 'text' => 'Resume safely.' ) ) ) ),
+			'checkpoint_resume_metadata' => array(
+				'version'      => 1,
+				'next_request' => array( 'fingerprint' => str_repeat( 'a', 64 ) ),
+			),
+		);
+
+		$this->assertTrue( ActiveJobRepository::claim_resume_attempt( 'test-resume-checkpoint-1', 2, $checkpoint ) );
+		$row = $this->fetch_row( 'test-resume-checkpoint-1' );
+
+		$this->assertNotNull( $row );
+		$this->assertSame( 'processing', $row->status );
+		$this->assertSame( '1', (string) $row->resume_attempts );
+		$this->assertSame( $checkpoint, json_decode( (string) $row->checkpoint, true ) );
+	}
+
 	// ── cleanup_stale() ──────────────────────────────────────────────────
 
 	/**
