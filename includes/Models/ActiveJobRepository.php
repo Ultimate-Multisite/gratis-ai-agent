@@ -32,6 +32,9 @@ class ActiveJobRepository {
 	 */
 	const STATUSES = [ 'queued', 'processing', 'awaiting_confirmation', 'awaiting_client_tools', 'complete', 'error', 'interrupted', 'abandoned' ];
 
+	/** Maximum stale jobs claimed per candidate-query batch. */
+	private const STALE_REAP_BATCH_SIZE = 500;
+
 	/**
 	 * Get the active jobs table name.
 	 */
@@ -455,40 +458,46 @@ class ActiveJobRepository {
 		global $wpdb;
 		/** @var \wpdb $wpdb */
 
-		$table = self::table_name();
-		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Candidate discovery is followed by per-row conditional claims.
-		$rows   = $wpdb->get_results(
-			$wpdb->prepare(
-				"SELECT * FROM %i WHERE status IN ('queued', 'processing') AND updated_at < DATE_SUB(UTC_TIMESTAMP(), INTERVAL %d MINUTE)",
-				$table,
-				$threshold_minutes
-			)
-		);
-		$reaped = array();
+		$table     = self::table_name();
+		$reaped    = array();
+		$row_count = 0;
 
-		foreach ( $rows ?: array() as $raw_row ) {
-			$row        = ActiveJobRow::from_row( $raw_row );
-			$diagnostic = self::build_failure_diagnostic(
-				$row->job_id,
-				ActiveJobFailureDiagnostic::REASON_WORKER_TERMINATED,
-				$row
-			);
-			// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Conditional custom-table state transition prevents stale candidate races.
-			$result = $wpdb->query(
+		do {
+			// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Bounded custom-table candidate discovery is followed by per-row conditional claims.
+			$rows      = $wpdb->get_results(
 				$wpdb->prepare(
-					"UPDATE %i SET status = 'abandoned', error = %s, updated_at = UTC_TIMESTAMP() WHERE job_id = %s AND status IN ('queued', 'processing') AND updated_at < DATE_SUB(UTC_TIMESTAMP(), INTERVAL %d MINUTE)",
+					"SELECT id, session_id, job_id, user_id, checkpoint_phase, resume_attempts FROM %i WHERE status IN ('queued', 'processing') AND updated_at < DATE_SUB(UTC_TIMESTAMP(), INTERVAL %d MINUTE) LIMIT %d",
 					$table,
-					ActiveJobFailureDiagnostic::encode( $row->job_id, $diagnostic ),
-					$row->job_id,
-					$threshold_minutes
+					$threshold_minutes,
+					self::STALE_REAP_BATCH_SIZE
 				)
 			);
+			$row_count = count( $rows ?: array() );
 
-			if ( $result !== false && $result > 0 ) {
-				$reaped[] = $row->job_id;
-				ActiveJobFailureDiagnostic::log( $diagnostic, $row->session_id );
+			foreach ( $rows ?: array() as $raw_row ) {
+				$row        = ActiveJobRow::from_row( $raw_row );
+				$diagnostic = self::build_failure_diagnostic(
+					$row->job_id,
+					ActiveJobFailureDiagnostic::REASON_WORKER_TERMINATED,
+					$row
+				);
+				// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Conditional custom-table state transition prevents stale candidate races.
+				$result = $wpdb->query(
+					$wpdb->prepare(
+						"UPDATE %i SET status = 'abandoned', error = %s, updated_at = UTC_TIMESTAMP() WHERE job_id = %s AND status IN ('queued', 'processing') AND updated_at < DATE_SUB(UTC_TIMESTAMP(), INTERVAL %d MINUTE)",
+						$table,
+						ActiveJobFailureDiagnostic::encode( $row->job_id, $diagnostic ),
+						$row->job_id,
+						$threshold_minutes
+					)
+				);
+
+				if ( $result !== false && $result > 0 ) {
+					$reaped[] = $row->job_id;
+					ActiveJobFailureDiagnostic::log( $diagnostic, $row->session_id );
+				}
 			}
-		}
+		} while ( $row_count === self::STALE_REAP_BATCH_SIZE );
 
 		return $reaped;
 	}

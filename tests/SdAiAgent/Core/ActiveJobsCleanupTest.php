@@ -315,6 +315,25 @@ class ActiveJobsCleanupTest extends WP_UnitTestCase {
 		$this->assertSame( 'abandoned', $row->status );
 	}
 
+	/** cleanup_stale() continues through bounded candidate-query batches. */
+	public function test_cleanup_stale_reaps_more_than_one_candidate_batch(): void {
+		$stale_time = gmdate( 'Y-m-d H:i:s', time() - 1800 );
+
+		for ( $index = 1; $index <= 501; ++$index ) {
+			$this->insert_job( "test-stale-batch-{$index}", 'processing', $stale_time );
+		}
+
+		$count = ActiveJobRepository::cleanup_stale( 15 );
+		$first = $this->fetch_row( 'test-stale-batch-1' );
+		$last  = $this->fetch_row( 'test-stale-batch-501' );
+
+		$this->assertSame( 501, $count );
+		$this->assertNotNull( $first );
+		$this->assertNotNull( $last );
+		$this->assertSame( 'abandoned', $first->status );
+		$this->assertSame( 'abandoned', $last->status );
+	}
+
 	/**
 	 * cleanup_stale() does NOT touch rows whose updated_at is within the threshold.
 	 */
