@@ -946,7 +946,9 @@ export const actions = {
 								dispatch.setStreamError( true, sessionId );
 							}
 							// WP_Error max_iterations — show feedback banner (t183).
-							const errMsg = errorMessage;
+							const errMsg = `${ rawErrorMessage } ${
+								result.reason || ''
+							}`;
 							if ( /max.?iteration/i.test( errMsg ) ) {
 								dispatch.setFeedbackBanner( {
 									exitReason: 'max_iterations',

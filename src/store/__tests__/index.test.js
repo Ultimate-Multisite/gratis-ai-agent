@@ -1041,6 +1041,50 @@ describe( 'actions', () => {
 		).not.toContain( '/private/path.php' );
 	} );
 
+	test( 'pollJob shows max-iteration feedback from a raw diagnostic reason', async () => {
+		jest.useFakeTimers();
+		apiFetch.mockReset();
+		apiFetch.mockResolvedValue( {
+			status: 'error',
+			message: 'PRIVATE_PROVIDER_MESSAGE',
+			reason: 'max_iterations',
+			diagnostic: {
+				reason: 'provider_timeout',
+				last_safe_phase: 'before_provider_call',
+				retryable: false,
+				next_action: 'contact_support',
+				correlation_id: 'job-1234abcd5678',
+			},
+		} );
+		const dispatch = {
+			appendMessage: jest.fn(),
+			setFeedbackBanner: jest.fn(),
+			setPendingConfirmation: jest.fn(),
+			setPendingActionCard: jest.fn(),
+			setStreamError: jest.fn(),
+			setSending: jest.fn(),
+			setLiveToolCalls: jest.fn(),
+			drainMessageQueue: jest.fn(),
+			setCurrentJobId: jest.fn(),
+			setSessionJob: jest.fn(),
+		};
+		const select = {
+			getCurrentSessionId: jest.fn( () => 17 ),
+			getCurrentJobId: jest.fn( () => 'failed-job' ),
+		};
+
+		try {
+			actions.pollJob( 'failed-job', 17 )( { dispatch, select } );
+			await jest.advanceTimersByTimeAsync( 2000 );
+		} finally {
+			jest.useRealTimers();
+		}
+
+		expect( dispatch.setFeedbackBanner ).toHaveBeenCalledWith( {
+			exitReason: 'max_iterations',
+		} );
+	} );
+
 	test( 'pollJob prioritizes a compact continuation after a local envelope rejection', async () => {
 		jest.useFakeTimers();
 		apiFetch.mockReset();
