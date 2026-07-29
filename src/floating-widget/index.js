@@ -385,7 +385,7 @@ if ( window.self === window.top ) {
 
 	const root = createRoot( wrapper );
 	root.render(
-		<ErrorBoundary label={ __( 'AI Agent widget', 'sd-ai-agent' ) }>
+		<ErrorBoundary label={ __( 'AI Agent widget', 'superdav-ai-agent' ) }>
 			<FloatingWidget />
 		</ErrorBoundary>
 	);
