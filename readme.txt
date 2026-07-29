@@ -14,7 +14,7 @@ Your AI teammate for WordPress. Fix, publish, optimise, and run your existing si
 
 SD AI Agent is an AI teammate for the WordPress site you already run. Ask it to improve a page, draft content, review SEO opportunities, prepare media, answer questions with site context, or run routine admin work from inside WordPress using natural language.
 
-You stay in control: choose the included SD AI managed service or your own compatible WordPress AI provider, decide which tools the agent can use, and require confirmation before consequential actions run.
+You stay in control: choose the included SD AI-managed service or your own compatible WordPress AI provider, decide which tools the agent can use, and require confirmation before consequential actions run.
 
 = What it helps you do =
 
@@ -78,7 +78,7 @@ These are contacted only when configured in **Settings > AI Credentials** and se
 
 = Internet search providers =
 
-Internet search runs only when you or the agent explicitly request it. The first configured provider is used. Only the search query is sent.
+Internet search runs only when you or the agent explicitly request it. The first configured provider is used. Only the search topic comes from your query; requests may also include a configured Tavily or Brave API key, provider-specific request fields, DuckDuckGo API parameters, and a custom User-Agent.
 
 * **Tavily Search API** (api.tavily.com) — Web search results when a Tavily key is configured. Terms: https://tavily.com/terms Privacy: https://tavily.com/privacy
 
