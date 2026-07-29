@@ -229,9 +229,6 @@ class AgentLoop {
 	/** @var int Full-envelope bytes from an upstream 413 eligible for one reduced retry. */
 	private int $provider_retry_baseline_envelope_bytes = 0;
 
-	/** @var float Unix timestamp when this active-job run started. */
-	private float $active_job_started_at = 0.0;
-
 	/** @var string Last coarse loop phase for shutdown diagnostics. */
 	private string $last_loop_phase = 'initializing';
 
