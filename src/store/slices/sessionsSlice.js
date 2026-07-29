@@ -1422,8 +1422,17 @@ export const actions = {
 				dispatch.setTokenUsage( { prompt: 0, completion: 0 } );
 				dispatch.resetSessionTokens();
 				dispatch.fetchSessions();
-			} catch {
-				// ignore
+				return true;
+			} catch ( error ) {
+				return {
+					error:
+						error instanceof Error
+							? error.message
+							: __(
+									'Unable to compact this conversation. Please try again.',
+									'superdav-ai-agent'
+							  ),
+				};
 			}
 		};
 	},

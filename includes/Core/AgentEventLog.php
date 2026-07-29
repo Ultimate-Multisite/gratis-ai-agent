@@ -107,7 +107,9 @@ class AgentEventLog {
 		'request_bytes',
 		'request_bytes_estimate',
 		'request_tokens_estimate',
+		'request_provider_limit_bytes',
 		'request_budget_bytes',
+		'request_safety_margin_bytes',
 		'request_size_class',
 		'request_size_source',
 		'local_rejection',
@@ -117,6 +119,7 @@ class AgentEventLog {
 		'resume_count',
 		'retryable',
 		'next_action',
+		'recovery_outcome',
 	);
 
 	/**

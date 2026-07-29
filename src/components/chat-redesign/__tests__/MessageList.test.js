@@ -234,4 +234,72 @@ describe( 'MessageList stream error banner', () => {
 
 		expect( retryLastMessage ).toHaveBeenCalledTimes( 1 );
 	} );
+
+	test( 'shows compact-and-continue for a locally oversized envelope', async () => {
+		const compactConversation = jest.fn().mockResolvedValue( true );
+		const setPendingActionCard = jest.fn();
+		( { container, root } = await renderMessageList( {
+			selectors: buildSelectors( {
+				hasStreamError: true,
+				pendingActionCard: {
+					type: 'compact_session',
+					sessionId: 123,
+				},
+			} ),
+			dispatchMap: {
+				sendMessage: jest.fn(),
+				retryLastMessage,
+				compactConversation,
+				setPendingActionCard,
+			},
+		} ) );
+
+		expect( container.querySelector( '.sdaa-cr-error-banner' ) ).toBeNull();
+		const compactButton = container.querySelector(
+			'.sdaa-action-card-btn-confirm'
+		);
+		expect( compactButton.textContent ).toBe( 'Compact and continue' );
+
+		await act( async () => {
+			compactButton.dispatchEvent(
+				new MouseEvent( 'click', { bubbles: true } )
+			);
+		} );
+
+		expect( compactConversation ).toHaveBeenCalledTimes( 1 );
+		expect( setPendingActionCard ).toHaveBeenCalledWith( null );
+	} );
+
+	test( 'keeps the compact card and shows a compaction failure', async () => {
+		const compactConversation = jest.fn().mockResolvedValue( {
+			error: 'Compaction service unavailable',
+		} );
+		const setPendingActionCard = jest.fn();
+		( { container, root } = await renderMessageList( {
+			selectors: buildSelectors( {
+				hasStreamError: true,
+				pendingActionCard: {
+					type: 'compact_session',
+					sessionId: 123,
+				},
+			} ),
+			dispatchMap: {
+				sendMessage: jest.fn(),
+				retryLastMessage,
+				compactConversation,
+				setPendingActionCard,
+			},
+		} ) );
+
+		await act( async () => {
+			container
+				.querySelector( '.sdaa-action-card-btn-confirm' )
+				.dispatchEvent( new MouseEvent( 'click', { bubbles: true } ) );
+		} );
+
+		expect( container.textContent ).toContain(
+			'Compaction service unavailable'
+		);
+		expect( setPendingActionCard ).not.toHaveBeenCalledWith( null );
+	} );
 } );

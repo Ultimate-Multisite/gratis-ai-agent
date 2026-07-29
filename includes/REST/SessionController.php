@@ -929,8 +929,28 @@ final class SessionController {
 			);
 		}
 
-		$compacted     = ConversationTrimmer::compact_serialized_history( $source_messages );
-		$seed_messages = $compacted['messages'];
+		$provider_id = sanitize_text_field( (string) ( $request->get_param( 'provider_id' ) ?: $source_session->provider_id ) );
+		$model_id    = sanitize_text_field( (string) ( $request->get_param( 'model_id' ) ?: $source_session->model_id ) );
+
+		// Reserve half of the effective envelope for the next user turn, system
+		// instruction, tool declarations, attachments, and provider options. The
+		// transport preflight remains authoritative immediately before dispatch.
+		$request_byte_budget  = ConversationTrimmer::get_request_envelope_byte_budget( $provider_id, $model_id );
+		$request_token_budget = ConversationTrimmer::get_request_token_budget( $provider_id, $model_id );
+		$compact_byte_budget  = min(
+			ConversationTrimmer::COMPACT_MAX_BYTES,
+			max( 1024, (int) floor( $request_byte_budget / 2 ) )
+		);
+		$compact_token_budget = min(
+			ConversationTrimmer::COMPACT_MAX_TOKENS,
+			max( 256, (int) floor( $request_token_budget / 2 ) )
+		);
+		$compacted            = ConversationTrimmer::compact_serialized_history(
+			$source_messages,
+			$compact_byte_budget,
+			$compact_token_budget
+		);
+		$seed_messages        = $compacted['messages'];
 		if ( empty( $seed_messages ) ) {
 			return new WP_Error(
 				'sd_ai_agent_compact_failed',
@@ -939,16 +959,14 @@ final class SessionController {
 			);
 		}
 
-		$provider_id = (string) ( $request->get_param( 'provider_id' ) ?: $source_session->provider_id );
-		$model_id    = (string) ( $request->get_param( 'model_id' ) ?: $source_session->model_id );
-		$title       = $this->build_compacted_session_title( (string) $source_session->title );
+		$title = $this->build_compacted_session_title( (string) $source_session->title );
 
 		$new_session_id = $this->database->create_session(
 			array(
 				'user_id'     => get_current_user_id(),
 				'title'       => $title,
-				'provider_id' => sanitize_text_field( $provider_id ),
-				'model_id'    => sanitize_text_field( $model_id ),
+				'provider_id' => $provider_id,
+				'model_id'    => $model_id,
 			)
 		);
 
@@ -1328,6 +1346,13 @@ final class SessionController {
 				$response['recoverable'] = true;
 			}
 			$this->add_transient_failure_response( $job_id, $job, $job_session_id, $response );
+			$payload_recovery = $this->normalize_payload_recovery( $job['payload_recovery'] ?? null, $job_session_id );
+			if ( null === $payload_recovery ) {
+				$payload_recovery = $this->get_payload_recovery_from_paused_state( $job_session_id );
+			}
+			if ( null !== $payload_recovery ) {
+				$response['payload_recovery'] = $payload_recovery;
+			}
 
 			// Clean up.
 			delete_transient( RestController::JOB_PREFIX . $job_id );
@@ -1415,6 +1440,10 @@ final class SessionController {
 
 			if ( $this->session_has_recoverable_paused_state( $row->session_id ) ) {
 				$response['recoverable'] = true;
+			}
+			$payload_recovery = $this->get_payload_recovery_from_paused_state( $row->session_id );
+			if ( null !== $payload_recovery ) {
+				$response['payload_recovery'] = $payload_recovery;
 			}
 
 			if ( 'error' !== $status ) {
@@ -2606,6 +2635,59 @@ final class SessionController {
 	}
 
 	/**
+	 * Validate the compact-continuation metadata exposed to the chat client.
+	 *
+	 * Error data can originate in provider SDK layers, so reduce it to the two
+	 * identifiers the UI needs rather than forwarding arbitrary error fields.
+	 *
+	 * @param mixed $recovery   Candidate recovery payload.
+	 * @param int   $session_id Owning source session ID.
+	 * @return array{action:string,source_session_id:int}|null Safe action, or null.
+	 */
+	private function normalize_payload_recovery( mixed $recovery, int $session_id ): ?array {
+		if (
+			$session_id <= 0
+			|| ! is_array( $recovery )
+			|| 'compact_session' !== ( $recovery['action'] ?? '' )
+			|| $session_id !== (int) ( $recovery['source_session_id'] ?? 0 )
+		) {
+			return null;
+		}
+
+		return array(
+			'action'            => 'compact_session',
+			'source_session_id' => $session_id,
+		);
+	}
+
+	/**
+	 * Rebuild safe compaction recovery metadata after a terminal job transient expires.
+	 *
+	 * @param int $session_id Source session ID.
+	 * @return array{action:string,source_session_id:int}|null Safe action, or null.
+	 */
+	private function get_payload_recovery_from_paused_state( int $session_id ): ?array {
+		if ( $session_id <= 0 ) {
+			return null;
+		}
+
+		$session = $this->database->get_session( $session_id );
+		if ( ! $session || empty( $session->paused_state ) ) {
+			return null;
+		}
+
+		$paused_state = json_decode( (string) $session->paused_state, true );
+		if ( ! is_array( $paused_state ) || 'sd_ai_agent_provider_payload_budget_exceeded' !== ( $paused_state['exit_reason'] ?? '' ) ) {
+			return null;
+		}
+
+		return array(
+			'action'            => 'compact_session',
+			'source_session_id' => $session_id,
+		);
+	}
+
+	/**
 	 * Handle POST /job/{id}/confirm — user approves a pending tool call.
 	 *
 	 * @param WP_REST_Request $request The request object.
@@ -3273,6 +3355,10 @@ final class SessionController {
 			);
 			$job['tool_calls'] = $error_data['tool_calls'] ?? ( $job['tool_calls'] ?? array() );
 			$job['messages']   = $error_data['messages'] ?? ( $job['messages'] ?? array() );
+			$payload_recovery  = $this->normalize_payload_recovery( $error_data['recovery'] ?? null, $session_id );
+			if ( null !== $payload_recovery ) {
+				$job['payload_recovery'] = $payload_recovery;
+			}
 			if ( $session_id ) {
 				$this->persist_error_recovery_to_session(
 					$session_id,
