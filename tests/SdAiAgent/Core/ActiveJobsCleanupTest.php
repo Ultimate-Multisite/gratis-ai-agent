@@ -238,6 +238,27 @@ class ActiveJobsCleanupTest extends WP_UnitTestCase {
 		$this->assertSame( $checkpoint, json_decode( (string) $row->checkpoint, true ) );
 	}
 
+	/** A queued durable worker may be claimed exactly once. */
+	public function test_claim_queued_job_has_one_winner(): void {
+		$this->insert_job( 'test-queued-claim-1', 'queued' );
+
+		$this->assertTrue( ActiveJobRepository::claim_queued_job( 'test-queued-claim-1' ) );
+		$this->assertFalse( ActiveJobRepository::claim_queued_job( 'test-queued-claim-1' ) );
+
+		$row = $this->fetch_row( 'test-queued-claim-1' );
+		$this->assertNotNull( $row );
+		$this->assertSame( 'processing', $row->status );
+	}
+
+	/** Processing and paused jobs cannot be claimed as new durable workers. */
+	public function test_claim_queued_job_rejects_nonqueued_jobs(): void {
+		$this->insert_job( 'test-queued-processing-1', 'processing' );
+		$this->insert_job( 'test-queued-paused-1', 'awaiting_confirmation' );
+
+		$this->assertFalse( ActiveJobRepository::claim_queued_job( 'test-queued-processing-1' ) );
+		$this->assertFalse( ActiveJobRepository::claim_queued_job( 'test-queued-paused-1' ) );
+	}
+
 	// ── cleanup_stale() ──────────────────────────────────────────────────
 
 	/**
@@ -257,6 +278,19 @@ class ActiveJobsCleanupTest extends WP_UnitTestCase {
 		$this->assertSame( 'abandoned', $row->status );
 		$diagnostic = ActiveJobFailureDiagnostic::from_stored( 'test-stale-1', $row->error );
 		$this->assertSame( ActiveJobFailureDiagnostic::REASON_WORKER_TERMINATED, $diagnostic['reason'] );
+	}
+
+	/** cleanup_stale() also reaps queued workers that never receive a loopback delivery. */
+	public function test_cleanup_stale_marks_old_queued_rows_as_abandoned(): void {
+		$stale_time = gmdate( 'Y-m-d H:i:s', time() - 1800 );
+		$this->insert_job( 'test-stale-queued-1', 'queued', $stale_time );
+
+		$count = ActiveJobRepository::cleanup_stale( 15 );
+		$row   = $this->fetch_row( 'test-stale-queued-1' );
+
+		$this->assertGreaterThanOrEqual( 1, $count );
+		$this->assertNotNull( $row );
+		$this->assertSame( 'abandoned', $row->status );
 	}
 
 	/**
@@ -409,12 +443,17 @@ class ActiveJobsCleanupTest extends WP_UnitTestCase {
 	// ── STATUSES constant ─────────────────────────────────────────────────
 
 	/**
-	 * 'interrupted' and 'abandoned' are valid status values accepted by update_status().
+	 * 'queued', 'interrupted', and 'abandoned' are valid status values accepted by update_status().
 	 */
 	public function test_interrupted_and_abandoned_are_valid_statuses(): void {
+		$this->insert_job( 'test-status-queued', 'processing' );
 		$this->insert_job( 'test-status-interrupted', 'processing' );
 		$this->insert_job( 'test-status-abandoned', 'processing' );
 
+		$this->assertTrue(
+			ActiveJobRepository::update_status( 'test-status-queued', 'queued' ),
+			"'queued' should be a valid status"
+		);
 		$this->assertTrue(
 			ActiveJobRepository::update_status( 'test-status-interrupted', 'interrupted' ),
 			"'interrupted' should be a valid status"
@@ -424,9 +463,11 @@ class ActiveJobsCleanupTest extends WP_UnitTestCase {
 			"'abandoned' should be a valid status"
 		);
 
+		$row0 = $this->fetch_row( 'test-status-queued' );
 		$row1 = $this->fetch_row( 'test-status-interrupted' );
 		$row2 = $this->fetch_row( 'test-status-abandoned' );
 
+		$this->assertSame( 'queued', $row0->status ?? '' );
 		$this->assertSame( 'interrupted', $row1->status ?? '' );
 		$this->assertSame( 'abandoned', $row2->status ?? '' );
 	}

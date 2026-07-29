@@ -190,6 +190,26 @@ export default function InputArea( { isSimpleMode = false } = {} ) {
 			return;
 		}
 
+		// /plan <site operation>
+		if (
+			! isSimpleMode &&
+			( trimmed === '/plan' || trimmed.startsWith( '/plan ' ) )
+		) {
+			const request = trimmed.slice( 5 ).trim();
+			if ( ! request ) {
+				setText( '/plan ' );
+				return;
+			}
+			sendMessage( request, [], { durablePlan: true } );
+			setText( '' );
+			setAttachments( [] );
+			setTimeout(
+				() => taRef.current?.focus( { preventScroll: true } ),
+				0
+			);
+			return;
+		}
+
 		sendMessage( trimmed, attachments );
 		setText( '' );
 		setAttachments( [] );
@@ -238,6 +258,13 @@ export default function InputArea( { isSimpleMode = false } = {} ) {
 					return;
 				case 'report-issue':
 					setText( '/report-issue ' );
+					setTimeout(
+						() => taRef.current?.focus( { preventScroll: true } ),
+						0
+					);
+					return;
+				case 'plan':
+					setText( '/plan ' );
 					setTimeout(
 						() => taRef.current?.focus( { preventScroll: true } ),
 						0

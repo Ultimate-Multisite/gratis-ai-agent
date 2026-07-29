@@ -351,6 +351,83 @@
 	min-width: 80px;
 }
 
+.sd-ai-agent-durable-plan-card {
+	border-left-color: #2271b1;
+	max-width: 620px;
+}
+
+.sd-ai-agent-durable-plan-card .sdaa-action-card-header,
+.sd-ai-agent-durable-plan-card .sdaa-action-card-footer {
+	border-color: #8cbedc;
+	background: #f0f6fc;
+}
+
+.sd-ai-agent-durable-plan-card .sdaa-action-card-icon,
+.sd-ai-agent-durable-plan-card .sdaa-action-card-heading {
+	color: #135e96;
+}
+
+.sd-ai-agent-durable-plan-summary,
+.sd-ai-agent-durable-plan-scope,
+.sd-ai-agent-durable-plan-scope-change,
+.sd-ai-agent-durable-plan-phase p {
+	margin: 0 0 8px;
+}
+
+.sd-ai-agent-durable-plan-scope-change,
+.sd-ai-agent-durable-plan-failure {
+	padding: 8px;
+	border-radius: 3px;
+	background: #fff8e5;
+}
+
+.sd-ai-agent-durable-plan-failure {
+	color: #8a2424;
+}
+
+.sd-ai-agent-durable-plan-phase {
+	margin: 10px 0;
+	padding: 8px;
+	border: 1px solid #c3c4c7;
+	border-radius: 4px;
+}
+
+.sd-ai-agent-durable-plan-phase summary {
+	font-weight: 600;
+	cursor: pointer;
+}
+
+.sd-ai-agent-durable-plan-steps {
+	margin: 10px 0 0 20px;
+}
+
+.sd-ai-agent-durable-plan-steps li {
+	display: flex;
+	align-items: flex-start;
+	justify-content: space-between;
+	gap: 12px;
+	margin: 4px 0;
+}
+
+.sd-ai-agent-durable-plan-step-details {
+	display: flex;
+	flex-direction: column;
+	min-width: 0;
+}
+
+.sd-ai-agent-durable-plan-evidence {
+	margin-top: 2px;
+	color: #50575e;
+	font-size: 12px;
+	line-height: 1.4;
+}
+
+.sd-ai-agent-durable-plan-steps small {
+	flex-shrink: 0;
+	color: #50575e;
+	text-transform: capitalize;
+}
+
 /* ── Chart blocks (Chart.js) ───────────────────────────────────────────────── */
 .sdaa-chart-block {
 	margin: 0.75em 0;

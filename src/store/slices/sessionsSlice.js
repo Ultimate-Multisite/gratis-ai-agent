@@ -421,13 +421,15 @@ export const actions = {
 	 *
 	 * @param {string} text        - Message text.
 	 * @param {Array}  attachments - Optional attachment objects.
+	 * @param {Object} options     - Optional message options.
 	 * @return {Object} Redux action.
 	 */
-	enqueueMessage( text, attachments ) {
+	enqueueMessage( text, attachments, options = {} ) {
 		return {
 			type: 'ENQUEUE_MESSAGE',
 			text,
 			attachments: attachments || [],
+			options,
 			timestamp: Date.now(),
 		};
 	},
@@ -1098,6 +1100,9 @@ export const actions = {
 			if ( options.systemInstruction ) {
 				body.system_instruction = options.systemInstruction;
 			}
+			if ( options.durablePlan ) {
+				body.durable_plan = true;
+			}
 
 			// Include client-side ability descriptors so the server can route
 			// JS tool calls back to the browser instead of executing them
@@ -1295,7 +1300,7 @@ export const actions = {
 				dispatch.streamMessage( message, attachments, options );
 			} else {
 				// Enqueue the message for later processing.
-				dispatch.enqueueMessage( message, attachments );
+				dispatch.enqueueMessage( message, attachments, options );
 
 				// Show the user message in the chat immediately with a
 				// "queued" marker so the user sees their message was accepted.
@@ -1342,6 +1347,7 @@ export const actions = {
 			// Pass fromQueue: true so streamMessage doesn't re-append
 			// the user message that was already shown when enqueued.
 			dispatch.streamMessage( next.text, next.attachments, {
+				...( next.options || {} ),
 				fromQueue: true,
 			} );
 		};

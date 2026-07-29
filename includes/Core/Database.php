@@ -36,7 +36,7 @@ use SdAiAgent\Tools\CustomTools;
 class Database {
 
 	const DB_VERSION_OPTION = 'sd_ai_agent_db_version';
-	const DB_VERSION        = '19.8.0';
+	const DB_VERSION        = '19.9.1';
 
 	// ─── Table Name Registry ──────────────────────────────────────────────────
 
@@ -235,6 +235,24 @@ class Database {
 	}
 
 	/**
+	 * Get the durable operation plans table name.
+	 */
+	public static function durable_plans_table_name(): string {
+		global $wpdb;
+		/** @var \wpdb $wpdb */
+		return $wpdb->prefix . 'sd_ai_agent_durable_plans';
+	}
+
+	/**
+	 * Get the durable operation plan phases table name.
+	 */
+	public static function durable_plan_steps_table_name(): string {
+		global $wpdb;
+		/** @var \wpdb $wpdb */
+		return $wpdb->prefix . 'sd_ai_agent_durable_plan_steps';
+	}
+
+	/**
 	 * Get the durable customer-agent runtime conversations table name.
 	 */
 	public static function customer_agent_conversations_table_name(): string {
@@ -312,6 +330,8 @@ class Database {
 		$provider_trace_table               = self::provider_trace_table_name();
 		$generated_plugins_table            = self::generated_plugins_table_name();
 		$active_jobs_table                  = self::active_jobs_table_name();
+		$durable_plans_table                = self::durable_plans_table_name();
+		$durable_plan_steps_table           = self::durable_plan_steps_table_name();
 		$customer_agent_conversations_table = self::customer_agent_conversations_table_name();
 		$customer_agent_jobs_table          = self::customer_agent_jobs_table_name();
 		$skill_usage_table                  = self::skill_usage_table_name();
@@ -732,6 +752,61 @@ class Database {
 			KEY session_id (session_id),
 			KEY user_id_status (user_id, status),
 			KEY status_updated_at (status, updated_at)
+		) {$charset};
+
+		CREATE TABLE {$durable_plans_table} (
+			id bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+			plan_id varchar(36) NOT NULL,
+			session_id bigint(20) unsigned NOT NULL,
+			user_id bigint(20) unsigned NOT NULL,
+			scope longtext NOT NULL,
+			scope_hash char(64) NOT NULL,
+			pending_scope longtext NOT NULL,
+			pending_scope_hash char(64) NOT NULL,
+			summary text NOT NULL,
+			status varchar(30) NOT NULL DEFAULT 'pending',
+			current_step int(10) unsigned NOT NULL DEFAULT 0,
+			approval_request_id bigint(20) unsigned NOT NULL DEFAULT 0,
+			created_at datetime NOT NULL,
+			updated_at datetime NOT NULL,
+			completed_at datetime NULL,
+			cancelled_at datetime NULL,
+			PRIMARY KEY  (id),
+			UNIQUE KEY plan_id (plan_id),
+			KEY session_user_updated (session_id, user_id, updated_at),
+			KEY user_status_updated (user_id, status, updated_at),
+			KEY approval_request_id (approval_request_id)
+		) {$charset};
+
+		CREATE TABLE {$durable_plan_steps_table} (
+			id bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+			plan_db_id bigint(20) unsigned NOT NULL,
+			step_key varchar(100) NOT NULL,
+			position int(10) unsigned NOT NULL,
+			title varchar(255) NOT NULL,
+			instruction text NOT NULL,
+			classification varchar(20) NOT NULL DEFAULT 'read',
+			requires_approval tinyint(1) NOT NULL DEFAULT 1,
+			safe_to_resume tinyint(1) NOT NULL DEFAULT 0,
+			idempotency_key varchar(64) NOT NULL,
+			preconditions text NOT NULL,
+			expected_evidence text NOT NULL,
+			rollback_guidance text NOT NULL,
+			status varchar(30) NOT NULL DEFAULT 'pending',
+			approval_request_id bigint(20) unsigned NOT NULL DEFAULT 0,
+			job_id varchar(36) NOT NULL,
+			evidence longtext NOT NULL,
+			failure_message text NOT NULL,
+			attempts int(10) unsigned NOT NULL DEFAULT 0,
+			created_at datetime NOT NULL,
+			updated_at datetime NOT NULL,
+			completed_at datetime NULL,
+			PRIMARY KEY  (id),
+			UNIQUE KEY plan_step_key (plan_db_id, step_key),
+			UNIQUE KEY plan_position (plan_db_id, position),
+			KEY plan_status_position (plan_db_id, status, position),
+			KEY job_id (job_id),
+			KEY approval_request_id (approval_request_id)
 		) {$charset};
 
 		CREATE TABLE {$customer_agent_conversations_table} (

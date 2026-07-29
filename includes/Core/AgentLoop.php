@@ -120,6 +120,21 @@ class AgentLoop {
 	/** Maximum serialized byte length of a provider or model identifier. */
 	private const CHECKPOINT_IDENTIFIER_MAX_BYTES = 191;
 
+	/**
+	 * Dedicated one-turn instruction for a durable-plan proposal.
+	 *
+	 * This mode deliberately has no abilities and returns only a narrow JSON
+	 * definition. The server still treats every resulting phase as untrusted
+	 * metadata and requires explicit approval before execution.
+	 */
+	private const DURABLE_PLAN_SYSTEM_INSTRUCTION = <<<'PROMPT'
+You prepare a compact durable site-operation plan. Do not call tools, browse, change the site, or claim that work has been performed.
+
+Return exactly one JSON object and nothing else: no Markdown fences, prose, comments, or extra fields.
+
+The root object must contain only "scope", "summary", and "steps". "steps" must be a non-empty array with at most 20 objects. Each step object must contain only "title", "instruction", "classification", "preconditions", "expected_evidence", and "rollback_guidance". Use one of "read", "write", or "destructive" for "classification". Include concise bounded instructions and expected evidence. Do not include credentials, tokens, passwords, authorization headers, raw tool payloads, or conversation history.
+PROMPT;
+
 	/** Format version for checkpoint resume metadata. */
 	public const CHECKPOINT_RESUME_METADATA_VERSION = 1;
 
@@ -253,6 +268,9 @@ class AgentLoop {
 	/** @var bool Whether an explicitly constrained customer-agent run is active, even with empty lists. */
 	private bool $customer_agent_mode = false;
 
+	/** @var bool Whether this is a no-tools, one-turn durable-plan proposal. */
+	private bool $durable_plan_mode = false;
+
 	/** @var bool Whether a request-scoped anonymous tool policy is active, even with an empty list. */
 	private bool $anonymous_policy_active = false;
 
@@ -315,16 +333,17 @@ class AgentLoop {
 	 * @param string               $user_message     The user's prompt.
 	 * @param string[]             $abilities         Ability names to enable (empty = all).
 	 * @param Message[]            $history           Prior messages for multi-turn.
-	 * @param array<string, mixed> $options           Optional overrides: system_instruction, max_iterations, provider_id, model_id, temperature, max_output_tokens, page_context.
+	 * @param array<string, mixed> $options           Optional overrides: system_instruction, max_iterations, provider_id, model_id, temperature, max_output_tokens, page_context, durable_plan_mode.
 	 * @param Settings|null        $settings_service  Injected Settings service (uses Settings::instance() when null).
 	 */
 	public function __construct( string $user_message, array $abilities = array(), array $history = array(), array $options = array(), ?Settings $settings_service = null ) {
-		$this->user_message     = $user_message;
-		$this->abilities        = $abilities;
-		$this->history          = $history;
-		$raw_page_ctx           = $options['page_context'] ?? null;
-		$this->page_context     = is_array( $raw_page_ctx ) ? $raw_page_ctx : array();
-		$this->settings_service = $settings_service ?? new Settings();
+		$this->user_message      = $user_message;
+		$this->abilities         = $abilities;
+		$this->history           = $history;
+		$this->durable_plan_mode = ! empty( $options['durable_plan_mode'] );
+		$raw_page_ctx            = $options['page_context'] ?? null;
+		$this->page_context      = is_array( $raw_page_ctx ) ? $raw_page_ctx : array();
+		$this->settings_service  = $settings_service ?? new Settings();
 
 		// Merge explicit options with saved settings as fallbacks.
 		$raw_settings = $this->settings_service->get();
@@ -407,7 +426,11 @@ class AgentLoop {
 		$raw_perms              = $options['tool_permissions'] ?? ( $settings['tool_permissions'] ?? null );
 		$this->tool_permissions = is_array( $raw_perms ) ? $raw_perms : array();
 		// @phpstan-ignore-next-line
-		$this->yolo_mode         = (bool) ( $options['yolo_mode'] ?? ( $settings['yolo_mode'] ?? false ) );
+		$this->yolo_mode = (bool) ( $options['yolo_mode'] ?? ( $settings['yolo_mode'] ?? false ) );
+		if ( $this->durable_plan_mode ) {
+			$this->max_iterations = 1;
+			$this->yolo_mode      = false;
+		}
 		$this->tool_call_log     = self::normalize_activity_log( $options['tool_call_log'] ?? array() );
 		$this->message_log       = self::normalize_activity_log( $options['message_log'] ?? array() );
 		$this->activity_sequence = $this->get_max_activity_sequence( $this->tool_call_log, $this->message_log );
@@ -488,7 +511,7 @@ class AgentLoop {
 
 		// ClientAbilityRouter validates and routes client-side ability calls.
 		// @phpstan-ignore-next-line
-		$raw_client_abilities = $this->customer_agent_mode ? array() : ( $options['client_abilities'] ?? array() );
+		$raw_client_abilities = ( $this->customer_agent_mode || $this->durable_plan_mode ) ? array() : ( $options['client_abilities'] ?? array() );
 		if ( is_array( $raw_client_abilities ) ) {
 			$this->client_router    = ClientAbilityRouter::from_raw( $raw_client_abilities );
 			$this->client_abilities = $this->client_router->get_descriptors();
@@ -503,7 +526,10 @@ class AgentLoop {
 		$this->generated_theme_completion_gate->replay_tool_call_log( $this->tool_call_log );
 
 		// Build or lock the initial system instruction.
-		if ( isset( $options['system_instruction'] ) ) {
+		if ( $this->durable_plan_mode ) {
+			$this->system_instruction        = self::DURABLE_PLAN_SYSTEM_INSTRUCTION;
+			$this->system_instruction_locked = true;
+		} elseif ( isset( $options['system_instruction'] ) ) {
 			// @phpstan-ignore-next-line
 			$this->system_instruction        = $options['system_instruction'];
 			$this->system_instruction_locked = true;
@@ -1443,6 +1469,29 @@ class AgentLoop {
 			// so an unrelated later truncation doesn't inherit prior state.
 			$this->preamble_truncation_retries = 0;
 
+			// Durable-plan proposal turns never execute or pause for tools. Keep the
+			// raw model response out of conversation history and accept only the
+			// narrow parsed definition returned by the planning prompt.
+			if ( $this->durable_plan_mode ) {
+				if ( $this->message_has_function_calls( $assistant_message ) ) {
+					return $this->with_error_recovery_data(
+						new WP_Error(
+							'sd_ai_agent_durable_plan_tool_call',
+							__( 'The planning response attempted to use a tool and was discarded. Please try again.', 'superdav-ai-agent' )
+						),
+						$recovery_history
+					);
+				}
+
+				try {
+					$reply = $result->toText();
+				} catch ( \RuntimeException $e ) {
+					$reply = '';
+				}
+
+				return $this->complete_durable_plan_response( $reply, $recovery_history );
+			}
+
 			// Some providers/models emit the same function call more than once in
 			// a single assistant response when they are hedging. Unless there is an
 			// explicit parallel identifier, execute only the first identical
@@ -1857,6 +1906,41 @@ class AgentLoop {
 					'model_id'        => $this->model_id,
 					'history'         => $this->serialize_history(),
 				)
+			)
+		);
+	}
+
+	/**
+	 * Convert a one-turn planning response into a safe persisted-plan handoff.
+	 *
+	 * The raw provider text is intentionally not appended to history. Only a
+	 * generic confirmation is retained alongside the validated compact shape.
+	 *
+	 * @param string                     $reply            Raw planning-only provider text.
+	 * @param array<int|string, Message> $recovery_history Safe pre-provider history.
+	 * @return array<string, mixed>|WP_Error
+	 */
+	private function complete_durable_plan_response( string $reply, array $recovery_history ) {
+		$definition = DurablePlanDefinitionParser::parse( $reply );
+		if ( is_wp_error( $definition ) ) {
+			$this->last_loop_phase = 'durable_plan_response_invalid';
+			return $this->with_error_recovery_data( $definition, $recovery_history );
+		}
+
+		$safe_reply = __( 'I prepared a durable plan. Review each phase before continuing.', 'superdav-ai-agent' );
+
+		$this->history[]       = new ModelMessage( array( new MessagePart( $safe_reply ) ) );
+		$this->last_loop_phase = 'durable_plan_response_validated';
+
+		return $this->with_result_logs(
+			array(
+				'reply'                   => $safe_reply,
+				'history'                 => $this->serialize_history(),
+				'tool_calls'              => $this->tool_call_log,
+				'token_usage'             => $this->token_usage,
+				'iterations_used'         => $this->iterations_used,
+				'model_id'                => $this->model_id,
+				'durable_plan_definition' => $definition,
 			)
 		);
 	}
@@ -3116,6 +3200,10 @@ class AgentLoop {
 	 * @return \WP_Ability[]
 	 */
 	private function resolve_abilities(): array {
+		if ( $this->durable_plan_mode ) {
+			return array();
+		}
+
 		if ( ! function_exists( 'wp_get_abilities' ) ) {
 			return array();
 		}

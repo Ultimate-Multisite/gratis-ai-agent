@@ -2,7 +2,7 @@
  * WordPress dependencies
  */
 import { useEffect, useRef } from '@wordpress/element';
-import { __ } from '@wordpress/i18n';
+import { __, sprintf } from '@wordpress/i18n';
 
 import RecoverableJobActionCard from './recoverable-job-action-card';
 
@@ -97,6 +97,83 @@ function getFailureNextStep( nextAction ) {
 				'superdav-ai-agent'
 			);
 	}
+}
+
+/**
+ * Return the active or next unfinished phase for a durable plan.
+ *
+ * @param {Object} plan Browser-safe durable plan payload.
+ * @return {Object|null} Current plan phase.
+ */
+function getCurrentPlanStep( plan ) {
+	const steps = Array.isArray( plan?.steps ) ? plan.steps : [];
+	const current = steps.find(
+		( step ) => Number( step.position ) === Number( plan.current_step )
+	);
+	if (
+		current &&
+		! [ 'completed', 'cancelled' ].includes( current.status )
+	) {
+		return current;
+	}
+
+	return (
+		steps.find(
+			( step ) => ! [ 'completed', 'cancelled' ].includes( step.status )
+		) || null
+	);
+}
+
+/**
+ * Build the user-facing controls for a durable plan lifecycle state.
+ *
+ * @param {Object}  root0                 State flags.
+ * @param {boolean} root0.isScopeApproval Whether a scope change is pending.
+ * @param {boolean} root0.isApproval      Whether any plan approval is pending.
+ * @param {boolean} root0.isRetry         Whether an explicit retry is needed.
+ * @param {boolean} root0.isRunning       Whether a phase is executing.
+ * @return {{heading: string, confirmLabel: string, cancelLabel: string}} Labels.
+ */
+function getDurablePlanLabels( {
+	isScopeApproval,
+	isApproval,
+	isRetry,
+	isRunning,
+} ) {
+	if ( isScopeApproval ) {
+		return {
+			heading: __( 'Approve plan scope change', 'superdav-ai-agent' ),
+			confirmLabel: __( 'Approve scope change', 'superdav-ai-agent' ),
+			cancelLabel: __( 'Keep current scope', 'superdav-ai-agent' ),
+		};
+	}
+	if ( isApproval ) {
+		return {
+			heading: __( 'Approve plan phase', 'superdav-ai-agent' ),
+			confirmLabel: __( 'Approve phase', 'superdav-ai-agent' ),
+			cancelLabel: __( 'Decline plan', 'superdav-ai-agent' ),
+		};
+	}
+	if ( isRetry ) {
+		return {
+			heading: __( 'Plan phase needs review', 'superdav-ai-agent' ),
+			confirmLabel: __( 'Retry phase', 'superdav-ai-agent' ),
+			cancelLabel: __( 'Cancel plan', 'superdav-ai-agent' ),
+		};
+	}
+	if ( isRunning ) {
+		return {
+			heading: __( 'Plan phase in progress', 'superdav-ai-agent' ),
+			confirmLabel: '',
+			cancelLabel: __( 'Cancel plan', 'superdav-ai-agent' ),
+		};
+	}
+
+	return {
+		heading: __( 'Site operation plan', 'superdav-ai-agent' ),
+		confirmLabel: __( 'Start next phase', 'superdav-ai-agent' ),
+		cancelLabel: __( 'Cancel plan', 'superdav-ai-agent' ),
+	};
 }
 
 /**
@@ -274,6 +351,167 @@ export default function ActionCard( { card, onConfirm, onCancel } ) {
 				onConfirm={ onConfirm }
 				onCancel={ onCancel }
 			/>
+		);
+	}
+
+	if ( card?.type === 'durable_plan' && card.plan ) {
+		const plan = card.plan;
+		const currentStep = getCurrentPlanStep( plan );
+		const isScopeApproval =
+			plan.status === 'awaiting_approval' &&
+			Boolean( plan.pending_scope );
+		const isApproval = plan.status === 'awaiting_approval';
+		const isRetry = [ 'failed', 'blocked' ].includes( plan.status );
+		const isRunning = plan.status === 'running';
+		const canContinue = plan.status === 'pending';
+		const hasAction = isApproval || isRetry || canContinue;
+		const { heading, confirmLabel, cancelLabel } = getDurablePlanLabels( {
+			isScopeApproval,
+			isApproval,
+			isRetry,
+			isRunning,
+		} );
+
+		return (
+			<div
+				className="sdaa-action-card sd-ai-agent-durable-plan-card"
+				role="region"
+				aria-label={ __(
+					'Durable site operation plan',
+					'superdav-ai-agent'
+				) }
+			>
+				<div className="sdaa-action-card-header">
+					<span className="sdaa-action-card-icon" aria-hidden="true">
+						&#9776;
+					</span>
+					<span className="sdaa-action-card-heading">
+						{ heading }
+					</span>
+				</div>
+				<div className="sdaa-action-card-body">
+					{ plan.summary && (
+						<p className="sd-ai-agent-durable-plan-summary">
+							{ plan.summary }
+						</p>
+					) }
+					<p className="sd-ai-agent-durable-plan-scope">
+						<strong>
+							{ __( 'Approved scope:', 'superdav-ai-agent' ) }
+						</strong>{ ' ' }
+						{ plan.scope }
+					</p>
+					{ isScopeApproval && (
+						<p className="sd-ai-agent-durable-plan-scope-change">
+							<strong>
+								{ __(
+									'Requested scope:',
+									'superdav-ai-agent'
+								) }
+							</strong>{ ' ' }
+							{ plan.pending_scope }
+						</p>
+					) }
+					{ currentStep && (
+						<details
+							className="sd-ai-agent-durable-plan-phase"
+							open={ isApproval || isRetry }
+						>
+							<summary>
+								{ sprintf(
+									/* translators: 1: phase number, 2: phase title, 3: phase status. */
+									__(
+										'Phase %1$d: %2$s (%3$s)',
+										'superdav-ai-agent'
+									),
+									Number( currentStep.position ),
+									currentStep.title,
+									currentStep.status
+								) }
+							</summary>
+							{ currentStep.instruction && (
+								<p>{ currentStep.instruction }</p>
+							) }
+							{ currentStep.preconditions && (
+								<p>
+									<strong>
+										{ __(
+											'Preconditions:',
+											'superdav-ai-agent'
+										) }
+									</strong>{ ' ' }
+									{ currentStep.preconditions }
+								</p>
+							) }
+							{ currentStep.expected_evidence && (
+								<p>
+									<strong>
+										{ __(
+											'Expected evidence:',
+											'superdav-ai-agent'
+										) }
+									</strong>{ ' ' }
+									{ currentStep.expected_evidence }
+								</p>
+							) }
+							{ currentStep.rollback_guidance && (
+								<p>
+									<strong>
+										{ __(
+											'Rollback:',
+											'superdav-ai-agent'
+										) }
+									</strong>{ ' ' }
+									{ currentStep.rollback_guidance }
+								</p>
+							) }
+							{ currentStep.failure_message && (
+								<p className="sd-ai-agent-durable-plan-failure">
+									{ currentStep.failure_message }
+								</p>
+							) }
+						</details>
+					) }
+					<ol className="sd-ai-agent-durable-plan-steps">
+						{ ( plan.steps || [] ).map( ( step ) => (
+							<li key={ step.key || step.position }>
+								<span className="sd-ai-agent-durable-plan-step-details">
+									<span>{ step.title }</span>
+									{ step.evidence?.summary && (
+										<span className="sd-ai-agent-durable-plan-evidence">
+											{ step.evidence.summary }
+										</span>
+									) }
+								</span>
+								<small>{ step.status }</small>
+							</li>
+						) ) }
+					</ol>
+				</div>
+				{ ( hasAction || ! isRunning ) && (
+					<div className="sdaa-action-card-footer">
+						{ ! isRunning && (
+							<button
+								type="button"
+								className="button sdaa-action-card-btn-cancel"
+								onClick={ onCancel }
+							>
+								{ cancelLabel }
+							</button>
+						) }
+						{ hasAction && (
+							<button
+								type="button"
+								ref={ confirmRef }
+								className="button button-primary sdaa-action-card-btn-confirm"
+								onClick={ onConfirm }
+							>
+								{ confirmLabel }
+							</button>
+						) }
+					</div>
+				) }
+			</div>
 		);
 	}
 

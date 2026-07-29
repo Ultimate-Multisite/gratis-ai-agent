@@ -65,6 +65,8 @@ class DatabaseSchemaTest extends WP_UnitTestCase {
 		'sd_ai_agent_provider_trace',
 		'sd_ai_agent_generated_plugins',
 		'sd_ai_agent_active_jobs',
+		'sd_ai_agent_durable_plans',
+		'sd_ai_agent_durable_plan_steps',
 		'sd_ai_agent_customer_agent_conversations',
 		'sd_ai_agent_customer_agent_jobs',
 		'sd_ai_agent_skill_usage',
@@ -419,6 +421,21 @@ class DatabaseSchemaTest extends WP_UnitTestCase {
 				$columns,
 				"active_jobs table missing column '{$col}' — see GH#2026."
 			);
+		}
+	}
+
+	/** Durable plans and their phases retain compact state outside chat history. */
+	public function test_durable_plan_tables_have_required_columns(): void {
+		Database::install();
+
+		$plan_columns = $this->get_column_names( Database::durable_plans_table_name() );
+		foreach ( [ 'plan_id', 'session_id', 'user_id', 'scope', 'scope_hash', 'pending_scope', 'pending_scope_hash', 'summary', 'status', 'current_step', 'approval_request_id', 'completed_at', 'cancelled_at' ] as $column ) {
+			$this->assertContains( $column, $plan_columns, "durable_plans table missing column '{$column}'." );
+		}
+
+		$step_columns = $this->get_column_names( Database::durable_plan_steps_table_name() );
+		foreach ( [ 'plan_db_id', 'step_key', 'position', 'title', 'instruction', 'classification', 'requires_approval', 'safe_to_resume', 'idempotency_key', 'preconditions', 'expected_evidence', 'rollback_guidance', 'status', 'approval_request_id', 'job_id', 'evidence', 'failure_message', 'attempts', 'completed_at' ] as $column ) {
+			$this->assertContains( $column, $step_columns, "durable_plan_steps table missing column '{$column}'." );
 		}
 	}
 
