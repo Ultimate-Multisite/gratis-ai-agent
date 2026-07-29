@@ -256,7 +256,7 @@ describe( 'MessageList stream error banner', () => {
 
 		expect( container.querySelector( '.sdaa-cr-error-banner' ) ).toBeNull();
 		const compactButton = container.querySelector(
-			'.sdaa-action-card-btn-confirm'
+			'.sd-ai-agent-compact-conversation-action-card__confirm'
 		);
 		expect( compactButton.textContent ).toBe( 'Compact and continue' );
 
@@ -293,7 +293,9 @@ describe( 'MessageList stream error banner', () => {
 
 		await act( async () => {
 			container
-				.querySelector( '.sdaa-action-card-btn-confirm' )
+				.querySelector(
+					'.sd-ai-agent-compact-conversation-action-card__confirm'
+				)
 				.dispatchEvent( new MouseEvent( 'click', { bubbles: true } ) );
 		} );
 

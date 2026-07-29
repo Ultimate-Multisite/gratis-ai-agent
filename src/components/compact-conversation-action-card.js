@@ -18,8 +18,8 @@ export default function CompactConversationActionCard( {
 	error = '',
 } ) {
 	return (
-		<div className="sdaa-action-card">
-			<div className="sdaa-action-card-body">
+		<div className="sd-ai-agent-compact-conversation-action-card">
+			<div className="sd-ai-agent-compact-conversation-action-card__body">
 				<p>
 					{ __(
 						'Too large to send. Compact it; your original chat stays available.',
@@ -28,17 +28,17 @@ export default function CompactConversationActionCard( {
 				</p>
 				{ error && <p role="alert">{ error }</p> }
 			</div>
-			<div className="sdaa-action-card-footer">
+			<div className="sd-ai-agent-compact-conversation-action-card__footer">
 				<button
 					type="button"
-					className="button sdaa-action-card-btn-cancel"
+					className="button sd-ai-agent-compact-conversation-action-card__cancel"
 					onClick={ onCancel }
 				>
 					{ __( 'Keep original', 'superdav-ai-agent' ) }
 				</button>
 				<button
 					type="button"
-					className="button button-primary sdaa-action-card-btn-confirm"
+					className="button button-primary sd-ai-agent-compact-conversation-action-card__confirm"
 					onClick={ onConfirm }
 				>
 					{ __( 'Compact and continue', 'superdav-ai-agent' ) }

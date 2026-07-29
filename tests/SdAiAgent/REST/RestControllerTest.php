@@ -1307,6 +1307,54 @@ class RestControllerTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * Checkpoint compaction retains the full-envelope reserve used by transport
+	 * preflight so it does not dispatch a history that only fits in isolation.
+	 */
+	public function test_job_status_compacts_checkpoint_to_full_envelope_budget(): void {
+		wp_set_current_user( $this->admin_id );
+		$job_id  = 'a4444444-b555-c666-d777-e88888888888';
+		$history = array( array( 'role' => 'user', 'parts' => array( array( 'text' => str_repeat( 'envelope reserve context ', 500 ) ) ) ) );
+		$this->create_interrupted_checkpoint_job(
+			$job_id,
+			AgentLoop::CHECKPOINT_BEFORE_PROVIDER_CALL,
+			array(
+				'history'              => $history,
+				'provider_id'          => 'test-provider',
+				'model_id'             => 'test-model',
+				'iterations_remaining' => 3,
+			)
+		);
+
+		$byte_budget  = static fn(): int => 20000;
+		$safety_margin = static fn(): int => 18000;
+		add_filter( 'sd_ai_agent_provider_request_max_bytes', $byte_budget, 10, 3 );
+		add_filter( 'sd_ai_agent_provider_request_safety_margin_bytes', $safety_margin, 10, 4 );
+		try {
+			$response = $this->dispatch( 'GET', "/sd-ai-agent/v1/job/{$job_id}" );
+		} finally {
+			remove_filter( 'sd_ai_agent_provider_request_max_bytes', $byte_budget, 10 );
+			remove_filter( 'sd_ai_agent_provider_request_safety_margin_bytes', $safety_margin, 10 );
+		}
+
+		$this->assertStatus( 202, $response );
+		$row = ActiveJobRepository::get_by_job_id( $job_id );
+		$this->assertNotNull( $row );
+		$checkpoint = json_decode( (string) $row->checkpoint, true );
+		$this->assertIsArray( $checkpoint );
+		$metadata = AgentLoop::describe_checkpoint_request(
+			$checkpoint['history'],
+			AgentLoop::CHECKPOINT_BEFORE_PROVIDER_CALL,
+			'test-provider',
+			'test-model'
+		);
+		$this->assertSame( 2000, $metadata['request_budget_bytes'] );
+		$this->assertFalse( $metadata['locally_rejected'] );
+
+		ActiveJobRepository::delete( $job_id );
+		delete_transient( RestController::JOB_PREFIX . $job_id );
+	}
+
+	/**
 	 * A checkpoint saved immediately before tool execution remains terminal so
 	 * automatic recovery never repeats an ability call.
 	 */
