@@ -1075,9 +1075,13 @@ PROMPT;
 		$request_tokens = ! empty( $history )
 			? ConversationTrimmer::estimate_total_tokens( $history )
 			: (int) ceil( $request_bytes / 4 );
-		$byte_budget    = ConversationTrimmer::get_request_byte_budget( $provider_id, $model_id );
-		$token_budget   = ConversationTrimmer::get_request_token_budget( $provider_id, $model_id );
-		$fingerprint    = hash(
+		// Checkpoint history shares the same full-envelope reserve as transport
+		// preflight. The provider body also contains system instructions, ability
+		// schemas, page context, model options, and framing that are not present
+		// in serialized history.
+		$byte_budget  = ConversationTrimmer::get_request_envelope_byte_budget( $provider_id, $model_id );
+		$token_budget = ConversationTrimmer::get_request_token_budget( $provider_id, $model_id );
+		$fingerprint  = hash(
 			'sha256',
 			(string) wp_json_encode(
 				array(
