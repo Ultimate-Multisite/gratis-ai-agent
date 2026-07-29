@@ -36,13 +36,15 @@ if ( ! baseURL ) {
  * @return {Promise<void>} Resolves after the browser closes.
  */
 async function capture() {
-	const browser = await chromium.launch( { headless: true } );
-	const page = await browser.newPage( {
-		viewport: { width: 1440, height: 960 },
-		baseURL,
-	} );
+	let browser;
 
 	try {
+		browser = await chromium.launch( { headless: true } );
+		const page = await browser.newPage( {
+			viewport: { width: 1440, height: 960 },
+			baseURL,
+		} );
+
 		await loginToWordPress( page );
 
 		await goToAgentPage( page );
@@ -67,7 +69,9 @@ async function capture() {
 			path: path.join( outputDirectory, 'screenshot-3.png' ),
 		} );
 	} finally {
-		await browser.close();
+		if ( browser ) {
+			await browser.close();
+		}
 	}
 }
 

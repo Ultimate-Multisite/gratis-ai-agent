@@ -361,6 +361,7 @@ cp /path/to/superdav-ai-agent-repo/.wordpress-org/assets/screenshot-1.png assets
 # … repeat for each screenshot
 
 svn add --force assets
+svn status assets
 svn commit -m "Add plugin assets (banner, icon, screenshots)" \
     --username YOUR_WP_USERNAME
 ```
