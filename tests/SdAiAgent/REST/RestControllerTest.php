@@ -1331,24 +1331,23 @@ class RestControllerTest extends WP_UnitTestCase {
 		add_filter( 'sd_ai_agent_provider_request_safety_margin_bytes', $safety_margin, 10, 4 );
 		try {
 			$response = $this->dispatch( 'GET', "/sd-ai-agent/v1/job/{$job_id}" );
+			$this->assertStatus( 202, $response );
+			$row = ActiveJobRepository::get_by_job_id( $job_id );
+			$this->assertNotNull( $row );
+			$checkpoint = json_decode( (string) $row->checkpoint, true );
+			$this->assertIsArray( $checkpoint );
+			$metadata = AgentLoop::describe_checkpoint_request(
+				$checkpoint['history'],
+				AgentLoop::CHECKPOINT_BEFORE_PROVIDER_CALL,
+				'test-provider',
+				'test-model'
+			);
+			$this->assertSame( 2000, $metadata['request_budget_bytes'] );
+			$this->assertFalse( $metadata['locally_rejected'] );
 		} finally {
 			remove_filter( 'sd_ai_agent_provider_request_max_bytes', $byte_budget, 10 );
 			remove_filter( 'sd_ai_agent_provider_request_safety_margin_bytes', $safety_margin, 10 );
 		}
-
-		$this->assertStatus( 202, $response );
-		$row = ActiveJobRepository::get_by_job_id( $job_id );
-		$this->assertNotNull( $row );
-		$checkpoint = json_decode( (string) $row->checkpoint, true );
-		$this->assertIsArray( $checkpoint );
-		$metadata = AgentLoop::describe_checkpoint_request(
-			$checkpoint['history'],
-			AgentLoop::CHECKPOINT_BEFORE_PROVIDER_CALL,
-			'test-provider',
-			'test-model'
-		);
-		$this->assertSame( 2000, $metadata['request_budget_bytes'] );
-		$this->assertFalse( $metadata['locally_rejected'] );
 
 		ActiveJobRepository::delete( $job_id );
 		delete_transient( RestController::JOB_PREFIX . $job_id );
