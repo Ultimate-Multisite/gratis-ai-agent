@@ -376,14 +376,17 @@ function gatherPageContext() {
 	return context;
 }
 
-// Mount the floating widget.
-const wrapper = document.createElement( 'div' );
-wrapper.id = 'sdaa-floating-root';
-document.body.appendChild( wrapper );
+// Admin shell plugins can load WordPress screens in an iframe. The parent
+// screen owns the floating widget, so avoid rendering a duplicate in the frame.
+if ( window.self === window.top ) {
+	const wrapper = document.createElement( 'div' );
+	wrapper.id = 'sdaa-floating-root';
+	document.body.appendChild( wrapper );
 
-const root = createRoot( wrapper );
-root.render(
-	<ErrorBoundary label={ __( 'AI Agent widget', 'sd-ai-agent' ) }>
-		<FloatingWidget />
-	</ErrorBoundary>
-);
+	const root = createRoot( wrapper );
+	root.render(
+		<ErrorBoundary label={ __( 'AI Agent widget', 'sd-ai-agent' ) }>
+			<FloatingWidget />
+		</ErrorBoundary>
+	);
+}
