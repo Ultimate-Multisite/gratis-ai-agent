@@ -164,6 +164,42 @@ class DurablePlanRunnerTest extends WP_UnitTestCase {
 		$this->assertNotSame( $first_approval, (int) $retry['plan']['approval_request_id'] );
 	}
 
+	/** Invalid phase keys are rejected before they can trip a database constraint. */
+	public function test_invalid_step_keys_are_rejected_and_empty_job_lookups_are_safe(): void {
+		$plan = $this->create_plan();
+		$this->assertNull( DurablePlanRepository::get_step_by_job_id( '' ) );
+
+		$duplicate_steps         = $this->steps();
+		$duplicate_steps[1]['key'] = $duplicate_steps[0]['key'];
+		$duplicate               = DurablePlanRunner::create(
+			(int) $plan['session_id'],
+			$this->admin_id,
+			[
+				'scope' => 'Reject duplicate durable plan phase keys.',
+				'steps' => $duplicate_steps,
+			]
+		);
+		$this->assertTrue( is_wp_error( $duplicate ) );
+		if ( is_wp_error( $duplicate ) ) {
+			$this->assertSame( 'sd_ai_agent_plan_duplicate_step_key', $duplicate->get_error_code() );
+		}
+
+		$long_key_steps         = $this->steps();
+		$long_key_steps[0]['key'] = str_repeat( 'phase-key-', 12 );
+		$long_key               = DurablePlanRunner::create(
+			(int) $plan['session_id'],
+			$this->admin_id,
+			[
+				'scope' => 'Reject oversized durable plan phase keys.',
+				'steps' => $long_key_steps,
+			]
+		);
+		$this->assertTrue( is_wp_error( $long_key ) );
+		if ( is_wp_error( $long_key ) ) {
+			$this->assertSame( 'sd_ai_agent_plan_invalid_step_key', $long_key->get_error_code() );
+		}
+	}
+
 	/** Pending scope approval cannot be bypassed with a direct continue call. */
 	public function test_scope_change_requires_approval_before_a_phase_can_start(): void {
 		$plan    = $this->create_plan();
@@ -429,6 +465,27 @@ class DurablePlanRunnerTest extends WP_UnitTestCase {
 		$this->assertSame( 'interrupted', $this->step( $updated_plan, 'inspect' )['status'] );
 
 		ActiveJobRepository::delete( $job_id );
+	}
+
+	/** A late worker error cannot overwrite a phase that already completed. */
+	public function test_late_failure_cannot_overwrite_a_completed_phase(): void {
+		$plan    = $this->create_plan();
+		$plan_id = (string) $plan['plan_id'];
+		$phase   = $this->prepare( $plan_id );
+
+		$this->complete( $plan_id, $phase, 'Inspection completed before the late failure.' );
+		$this->assertNull(
+			DurablePlanRunner::fail_phase(
+				$plan_id,
+				(int) $phase['step']['id'],
+				'A stale worker reported an error after completion.'
+			)
+		);
+
+		$updated = DurablePlanRunner::public_plan( $plan_id );
+		$this->assertIsArray( $updated );
+		$this->assertSame( 'pending', $updated['status'] );
+		$this->assertSame( 'completed', $this->step( $updated, 'inspect' )['status'] );
 	}
 
 	/**

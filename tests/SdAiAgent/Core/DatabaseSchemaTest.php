@@ -437,6 +437,13 @@ class DatabaseSchemaTest extends WP_UnitTestCase {
 		foreach ( [ 'plan_db_id', 'step_key', 'position', 'title', 'instruction', 'classification', 'requires_approval', 'safe_to_resume', 'idempotency_key', 'preconditions', 'expected_evidence', 'rollback_guidance', 'status', 'approval_request_id', 'job_id', 'evidence', 'failure_message', 'attempts', 'completed_at' ] as $column ) {
 			$this->assertContains( $column, $step_columns, "durable_plan_steps table missing column '{$column}'." );
 		}
+
+		global $wpdb;
+		/** @var \wpdb $wpdb */
+		$steps_table = Database::durable_plan_steps_table_name();
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- Test-only schema index introspection.
+		$unique_index = $wpdb->get_var( "SHOW INDEX FROM {$steps_table} WHERE Key_name = 'plan_step_key' AND Non_unique = 0" );
+		$this->assertNotNull( $unique_index, 'Durable plan phase keys must be unique within a plan.' );
 	}
 
 	/**

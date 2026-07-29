@@ -182,12 +182,18 @@ export async function runDurablePlanAction( actionName, context ) {
 	const sessionId = card?.sessionId;
 	const planId = card?.plan?.plan_id;
 	const approvalRequestId = card?.plan?.approval_request_id;
-	if (
-		card?.type !== 'durable_plan' ||
-		! sessionId ||
-		! planId ||
-		( action.requiresApproval && ! approvalRequestId )
-	) {
+	if ( card?.type !== 'durable_plan' || ! sessionId || ! planId ) {
+		return;
+	}
+	if ( action.requiresApproval && ! approvalRequestId ) {
+		appendPlanError(
+			dispatch,
+			null,
+			__(
+				'The plan approval is no longer available. Refresh the plan before trying again.',
+				'superdav-ai-agent'
+			)
+		);
 		return;
 	}
 

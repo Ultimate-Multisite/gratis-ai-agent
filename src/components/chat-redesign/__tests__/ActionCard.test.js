@@ -66,6 +66,7 @@ describe( 'ChatRedesign retry action card', () => {
 	let root;
 	let retryClientToolSubmission;
 	let pendingActionCard;
+	let dispatch;
 
 	beforeEach( () => {
 		retryClientToolSubmission = jest.fn();
@@ -78,7 +79,7 @@ describe( 'ChatRedesign retry action card', () => {
 		useSelect.mockImplementation( ( select ) =>
 			select( () => buildSelectors( pendingActionCard ) )
 		);
-		useDispatch.mockReturnValue( {
+		dispatch = {
 			confirmToolCall: jest.fn(),
 			rejectToolCall: jest.fn(),
 			retryClientToolSubmission,
@@ -88,7 +89,8 @@ describe( 'ChatRedesign retry action card', () => {
 			setSessionJob: jest.fn(),
 			pollJob: jest.fn(),
 			setPendingActionCard: jest.fn(),
-		} );
+		};
+		useDispatch.mockReturnValue( dispatch );
 	} );
 
 	afterEach( async () => {
@@ -185,5 +187,108 @@ describe( 'ChatRedesign retry action card', () => {
 				approval_request_id: 12,
 			},
 		} );
+	} );
+
+	test( 'keeps Cancel plan available while a durable phase is running', async () => {
+		pendingActionCard = {
+			type: 'durable_plan',
+			sessionId: 42,
+			plan: {
+				plan_id: '00000000-0000-0000-0000-000000000042',
+				status: 'running',
+				current_step: 1,
+				scope: 'Update the site navigation.',
+				steps: [
+					{
+						key: 'inspect',
+						position: 1,
+						title: 'Inspect navigation',
+						status: 'running',
+					},
+				],
+			},
+		};
+		container = document.createElement( 'div' );
+		document.body.appendChild( container );
+		root = createRoot( container );
+
+		await act( async () => {
+			root.render( createElement( ChatRedesign, { uiMode: 'admin' } ) );
+		} );
+
+		const cancelButton = container.querySelector(
+			'.sdaa-action-card-btn-cancel'
+		);
+		expect( cancelButton ).not.toBeNull();
+		expect( cancelButton.textContent ).toBe( 'Cancel plan' );
+
+		await act( async () => {
+			cancelButton.dispatchEvent(
+				new MouseEvent( 'click', { bubbles: true } )
+			);
+			await Promise.resolve();
+			await Promise.resolve();
+		} );
+
+		expect( apiFetch ).toHaveBeenCalledWith( {
+			path: '/sd-ai-agent/v1/sessions/42/plan/cancel',
+			method: 'POST',
+			data: {
+				plan_id: '00000000-0000-0000-0000-000000000042',
+			},
+		} );
+	} );
+
+	test( 'reports stale approval cards instead of silently ignoring them', async () => {
+		pendingActionCard = {
+			type: 'durable_plan',
+			sessionId: 42,
+			plan: {
+				plan_id: '00000000-0000-0000-0000-000000000042',
+				status: 'awaiting_approval',
+				current_step: 1,
+				scope: 'Update the site navigation.',
+				steps: [
+					{
+						key: 'configure',
+						position: 1,
+						title: 'Configure navigation',
+						status: 'awaiting_approval',
+					},
+				],
+			},
+		};
+		container = document.createElement( 'div' );
+		document.body.appendChild( container );
+		root = createRoot( container );
+
+		await act( async () => {
+			root.render( createElement( ChatRedesign, { uiMode: 'admin' } ) );
+		} );
+
+		await act( async () => {
+			container
+				.querySelector( '.sdaa-action-card-btn-confirm' )
+				.dispatchEvent( new MouseEvent( 'click', { bubbles: true } ) );
+			await Promise.resolve();
+		} );
+
+		expect( apiFetch ).not.toHaveBeenCalledWith(
+			expect.objectContaining( {
+				path: '/sd-ai-agent/v1/sessions/42/plan/approve',
+			} )
+		);
+		expect( dispatch.appendMessage ).toHaveBeenCalledWith(
+			expect.objectContaining( {
+				role: 'system',
+				parts: [
+					expect.objectContaining( {
+						text: expect.stringContaining(
+							'The plan approval is no longer available.'
+						),
+					} ),
+				],
+			} )
+		);
 	} );
 } );

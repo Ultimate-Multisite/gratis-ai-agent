@@ -1388,9 +1388,9 @@ final class SessionController {
 		}
 
 		$response = array( 'status' => $job['status'] );
-		if ( is_array( $job['durable_plan']['plan'] ?? null ) ) {
+		if ( self::can_current_user_view_durable_job( $db_row ) && is_array( $job['durable_plan']['plan'] ?? null ) ) {
 			$response['durable_plan'] = $job['durable_plan']['plan'];
-		} else {
+		} elseif ( self::can_current_user_view_durable_job( $db_row ) ) {
 			$durable_plan = DurablePlanRunner::public_plan_for_job( $job_id );
 			if ( null !== $durable_plan ) {
 				$response['durable_plan'] = $durable_plan;
@@ -1544,7 +1544,7 @@ final class SessionController {
 		}
 
 		$durable_plan = $durable_plan ?? DurablePlanRunner::public_plan_for_job( $job_id );
-		if ( null !== $durable_plan ) {
+		if ( self::can_current_user_view_durable_job( $row ) && null !== $durable_plan ) {
 			$response['durable_plan'] = $durable_plan;
 		}
 
@@ -1594,6 +1594,16 @@ final class SessionController {
 		}
 
 		return new WP_REST_Response( $response, 200 );
+	}
+
+	/**
+	 * Durable plan state is visible only to the active job's owning user.
+	 *
+	 * Shared session viewers may inspect ordinary conversation activity, but a
+	 * persisted plan can contain owner-scoped operation details and approvals.
+	 */
+	private static function can_current_user_view_durable_job( ?ActiveJobRow $row ): bool {
+		return null !== $row && (int) $row->user_id === get_current_user_id();
 	}
 
 	/**
@@ -3029,14 +3039,22 @@ final class SessionController {
 	 * @param string               $job_id Job identifier.
 	 * @param array<string, mixed> $job    Job transient data.
 	 * @param string               $action 'confirm' or 'reject'.
-	 * @return WP_REST_Response
+	 * @return WP_REST_Response|WP_Error
 	 */
-	private static function resume_job( string $job_id, array $job, string $action ): WP_REST_Response {
+	private static function resume_job( string $job_id, array $job, string $action ): WP_REST_Response|WP_Error {
 		$token                 = wp_generate_password( 40, false );
 		$params                = is_array( $job['params'] ?? null ) ? $job['params'] : array();
 		$phase                 = is_array( $params['durable_plan_phase'] ?? null ) ? $params['durable_plan_phase'] : array();
 		$is_durable_plan_phase = '' !== (string) ( $phase['plan_id'] ?? '' )
 			&& (int) ( $phase['step_id'] ?? 0 ) > 0;
+
+		if ( $is_durable_plan_phase && ! ActiveJobRepository::requeue_paused_job( $job_id ) ) {
+			return new WP_Error(
+				'sd_ai_agent_job_not_resumable',
+				__( 'This durable plan job is no longer waiting for confirmation.', 'superdav-ai-agent' ),
+				array( 'status' => 409 )
+			);
+		}
 
 		$job['status'] = 'processing';
 		$job['token']  = $token;
@@ -3044,9 +3062,11 @@ final class SessionController {
 
 		set_transient( RestController::JOB_PREFIX . $job_id, $job, RestController::JOB_TTL );
 
-		// Durable jobs return to queued so exactly one loopback worker can claim
-		// them. Other jobs retain their established processing transition.
-		ActiveJobRepository::update_status( $job_id, $is_durable_plan_phase ? 'queued' : 'processing' );
+		// Durable jobs are atomically queued above so exactly one loopback worker
+		// can claim them. Other jobs retain their established processing transition.
+		if ( ! $is_durable_plan_phase ) {
+			ActiveJobRepository::update_status( $job_id, 'processing' );
+		}
 
 		// Spawn background worker.
 		wp_remote_post(

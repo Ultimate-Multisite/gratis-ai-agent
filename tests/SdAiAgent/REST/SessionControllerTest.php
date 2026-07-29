@@ -323,6 +323,86 @@ class SessionControllerTest extends WP_UnitTestCase {
 		$this->assertSame( 'processing', $active_job->get_data()['status'] );
 	}
 
+	/** Job polling keeps durable plan details scoped to the job owner. */
+	public function test_job_status_hides_durable_plan_details_from_other_administrators(): void {
+		$session_id = $this->create_session();
+		$plan       = DurablePlanRunner::create( $session_id, $this->admin_id, $this->plan_definition() );
+		$this->assertIsArray( $plan );
+		$next = DurablePlanRunner::prepare_next( (string) $plan['plan_id'], $this->admin_id );
+		$this->assertIsArray( $next );
+		$this->assertSame( 'ready', $next['status'] );
+
+		$job_id = '00000000-0000-4000-8000-000000000101';
+		$this->assertNotFalse( ActiveJobRepository::create( $session_id, $job_id, $this->admin_id, 'queued' ) );
+		$this->assertTrue( DurablePlanRunner::assign_job( (string) $plan['plan_id'], (int) $next['step']['id'], $job_id ) );
+		$public_plan = DurablePlanRunner::public_plan( (string) $plan['plan_id'] );
+		$this->assertIsArray( $public_plan );
+
+		set_transient(
+			RestController::JOB_PREFIX . $job_id,
+			[
+				'status'       => 'processing',
+				'user_id'      => $this->admin_id,
+				'durable_plan' => [ 'plan' => $public_plan ],
+			],
+			RestController::JOB_TTL
+		);
+
+		$owner_inline = $this->dispatch( 'GET', "/sd-ai-agent/v1/job/{$job_id}" );
+		$this->assert_status( 200, $owner_inline );
+		$this->assertArrayHasKey( 'durable_plan', $owner_inline->get_data() );
+
+		wp_set_current_user( $this->other_admin_id );
+		$other_inline = $this->dispatch( 'GET', "/sd-ai-agent/v1/job/{$job_id}" );
+		$this->assert_status( 200, $other_inline );
+		$this->assertArrayNotHasKey( 'durable_plan', $other_inline->get_data() );
+
+		delete_transient( RestController::JOB_PREFIX . $job_id );
+		wp_set_current_user( $this->admin_id );
+		$owner_fallback = $this->dispatch( 'GET', "/sd-ai-agent/v1/job/{$job_id}" );
+		$this->assert_status( 200, $owner_fallback );
+		$this->assertArrayHasKey( 'durable_plan', $owner_fallback->get_data() );
+
+		wp_set_current_user( $this->other_admin_id );
+		$other_fallback = $this->dispatch( 'GET', "/sd-ai-agent/v1/job/{$job_id}" );
+		$this->assert_status( 200, $other_fallback );
+		$this->assertArrayNotHasKey( 'durable_plan', $other_fallback->get_data() );
+
+		ActiveJobRepository::delete( $job_id );
+	}
+
+	/** A stale confirmation cannot return a claimed durable worker to the queue. */
+	public function test_stale_durable_confirmation_does_not_requeue_an_active_worker(): void {
+		$job_id = '00000000-0000-4000-8000-000000000102';
+		$this->assertNotFalse( ActiveJobRepository::create( $this->create_session(), $job_id, $this->admin_id, 'processing' ) );
+		set_transient(
+			RestController::JOB_PREFIX . $job_id,
+			[
+				'status'  => 'awaiting_confirmation',
+				'user_id' => $this->admin_id,
+				'params'  => [
+					'durable_plan_phase' => [
+						'plan_id' => '00000000-0000-0000-0000-000000000001',
+						'step_id' => 1,
+					],
+				],
+			],
+			RestController::JOB_TTL
+		);
+
+		$response = $this->dispatch( 'POST', "/sd-ai-agent/v1/job/{$job_id}/confirm" );
+		$this->assert_status( 409, $response );
+		if ( is_wp_error( $response ) ) {
+			$this->assertSame( 'sd_ai_agent_job_not_resumable', $response->get_error_code() );
+		}
+
+		$row = ActiveJobRepository::get_by_job_id( $job_id );
+		$this->assertNotNull( $row );
+		$this->assertSame( 'processing', $row->status );
+		delete_transient( RestController::JOB_PREFIX . $job_id );
+		ActiveJobRepository::delete( $job_id );
+	}
+
 	/** Expired durable confirmation pauses update their associated plan state. */
 	public function test_expired_paused_durable_job_updates_its_plan_state(): void {
 		$session_id = $this->create_session();

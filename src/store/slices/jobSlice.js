@@ -873,7 +873,7 @@ export const actions = {
 							'superdav-ai-agent'
 						) } ${ errorMessage }`;
 
-						if ( ! isDurablePlan && isCurrentSession ) {
+						if ( isCurrentSession ) {
 							let sessionReloaded = false;
 							const payloadRecovery = result.payload_recovery;
 							const sourceSessionId = Number(
@@ -920,25 +920,27 @@ export const actions = {
 								role: 'system',
 								parts: [ { text: errorText } ],
 							} );
-							if ( canCompactConversation ) {
-								dispatch.setPendingActionCard( {
-									type: 'compact_session',
-									sessionId,
-									sourceSessionId,
-								} );
-							} else if ( result.recoverable ) {
-								dispatch.setPendingActionCard( {
-									type: 'resume_recoverable_job',
-									sessionId,
-									diagnostic: failureDiagnostic,
-								} );
-							} else if ( failureDiagnostic ) {
-								dispatch.setPendingActionCard(
-									failureHelpers.buildActiveJobFailureCard(
+							if ( ! isDurablePlan ) {
+								if ( canCompactConversation ) {
+									dispatch.setPendingActionCard( {
+										type: 'compact_session',
 										sessionId,
-										failureDiagnostic
-									)
-								);
+										sourceSessionId,
+									} );
+								} else if ( result.recoverable ) {
+									dispatch.setPendingActionCard( {
+										type: 'resume_recoverable_job',
+										sessionId,
+										diagnostic: failureDiagnostic,
+									} );
+								} else if ( failureDiagnostic ) {
+									dispatch.setPendingActionCard(
+										failureHelpers.buildActiveJobFailureCard(
+											sessionId,
+											failureDiagnostic
+										)
+									);
+								}
 							}
 							if ( ! isCreditNotice && ! failureDiagnostic ) {
 								dispatch.setStreamError( true, sessionId );

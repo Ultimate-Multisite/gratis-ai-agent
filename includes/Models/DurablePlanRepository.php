@@ -32,6 +32,9 @@ final class DurablePlanRepository {
 	/** @var list<string> Supported phase risk classifications. */
 	public const CLASSIFICATIONS = [ 'read', 'write', 'destructive' ];
 
+	/** Maximum database-backed phase key length. */
+	private const MAX_STEP_KEY_LENGTH = 100;
+
 	/**
 	 * Get the durable plans table name.
 	 */
@@ -57,7 +60,7 @@ final class DurablePlanRepository {
 	 * @param array<string, mixed> $definition Compact plan definition.
 	 * @return array<string, mixed>|WP_Error
 	 */
-	public static function create( int $session_id, int $user_id, array $definition ) {
+	public static function create( int $session_id, int $user_id, array $definition ): array|WP_Error {
 		return self::create_with_policy( $session_id, $user_id, $definition, true );
 	}
 
@@ -72,7 +75,7 @@ final class DurablePlanRepository {
 	 * @param array<string, mixed> $definition Compact plan definition.
 	 * @return array<string, mixed>|WP_Error
 	 */
-	public static function create_from_client( int $session_id, int $user_id, array $definition ) {
+	public static function create_from_client( int $session_id, int $user_id, array $definition ): array|WP_Error {
 		return self::create_with_policy( $session_id, $user_id, $definition, false );
 	}
 
@@ -89,7 +92,7 @@ final class DurablePlanRepository {
 	 * @param bool                 $server_reviewed Whether server-side planning reviewed phase safety.
 	 * @return array<string, mixed>|WP_Error
 	 */
-	private static function create_with_policy( int $session_id, int $user_id, array $definition, bool $server_reviewed ) {
+	private static function create_with_policy( int $session_id, int $user_id, array $definition, bool $server_reviewed ): array|WP_Error {
 		global $wpdb;
 		/** @var \wpdb $wpdb */
 
@@ -132,7 +135,8 @@ final class DurablePlanRepository {
 			return new WP_Error( 'sd_ai_agent_plan_create_failed', __( 'The durable plan could not be saved.', 'superdav-ai-agent' ), [ 'status' => 500 ] );
 		}
 
-		$plan_db_id = (int) $wpdb->insert_id;
+		$plan_db_id     = (int) $wpdb->insert_id;
+		$seen_step_keys = [];
 		foreach ( array_values( $steps ) as $position => $raw_step ) {
 			if ( ! is_array( $raw_step ) ) {
 				self::delete_by_id( $plan_db_id );
@@ -144,6 +148,12 @@ final class DurablePlanRepository {
 				self::delete_by_id( $plan_db_id );
 				return $step;
 			}
+			$step_key = (string) $step['step_key'];
+			if ( isset( $seen_step_keys[ $step_key ] ) ) {
+				self::delete_by_id( $plan_db_id );
+				return new WP_Error( 'sd_ai_agent_plan_duplicate_step_key', __( 'Each durable plan phase needs a unique key.', 'superdav-ai-agent' ), [ 'status' => 400 ] );
+			}
+			$seen_step_keys[ $step_key ] = true;
 
 			// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery -- Custom durable-plan table.
 			$step_inserted = $wpdb->insert(
@@ -306,6 +316,10 @@ final class DurablePlanRepository {
 	 * @return array<string, mixed>|null
 	 */
 	public static function get_step_by_job_id( string $job_id ): ?array {
+		if ( '' === $job_id ) {
+			return null;
+		}
+
 		global $wpdb;
 		/** @var \wpdb $wpdb */
 
@@ -484,7 +498,7 @@ final class DurablePlanRepository {
 	 * @param bool                 $server_reviewed Whether server-side planning reviewed phase safety.
 	 * @return array<string, mixed>|WP_Error
 	 */
-	private static function normalize_step( array $raw, int $position, string $plan_id, bool $server_reviewed ) {
+	private static function normalize_step( array $raw, int $position, string $plan_id, bool $server_reviewed ): array|WP_Error {
 		$title       = self::sanitize_text( (string) ( $raw['title'] ?? '' ), 255 );
 		$instruction = self::sanitize_text( (string) ( $raw['instruction'] ?? '' ), 1600 );
 		if ( '' === $title || '' === $instruction ) {
@@ -494,6 +508,9 @@ final class DurablePlanRepository {
 		$step_key = sanitize_key( (string) ( $raw['key'] ?? '' ) );
 		if ( '' === $step_key ) {
 			$step_key = 'phase-' . $position;
+		}
+		if ( strlen( $step_key ) > self::MAX_STEP_KEY_LENGTH ) {
+			return new WP_Error( 'sd_ai_agent_plan_invalid_step_key', __( 'Each durable plan phase key must be 100 characters or fewer.', 'superdav-ai-agent' ), [ 'status' => 400 ] );
 		}
 
 		$classification = sanitize_key( (string) ( $raw['classification'] ?? 'read' ) );

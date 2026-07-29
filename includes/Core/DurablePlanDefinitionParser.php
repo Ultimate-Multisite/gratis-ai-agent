@@ -27,7 +27,7 @@ final class DurablePlanDefinitionParser {
 	 *
 	 * @return array<string, mixed>|WP_Error
 	 */
-	public static function parse( string $response ) {
+	public static function parse( string $response ): array|WP_Error {
 		$response = trim( $response );
 		if ( '' === $response || strlen( $response ) > self::MAX_RESPONSE_BYTES ) {
 			return self::invalid_response();
@@ -117,7 +117,7 @@ final class DurablePlanDefinitionParser {
 	 * @param bool                 $required Whether the field is required and non-empty.
 	 * @return string|WP_Error
 	 */
-	private static function read_text( array $value, string $key, int $max_size, bool $required ) {
+	private static function read_text( array $value, string $key, int $max_size, bool $required ): string|WP_Error {
 		if ( ! array_key_exists( $key, $value ) ) {
 			return $required ? self::invalid_response() : '';
 		}

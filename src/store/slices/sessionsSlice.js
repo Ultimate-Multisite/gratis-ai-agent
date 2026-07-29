@@ -1870,6 +1870,7 @@ export function reducer( state, action ) {
 					{
 						text: action.text,
 						attachments: action.attachments,
+						options: action.options,
 						timestamp: action.timestamp,
 					},
 				],

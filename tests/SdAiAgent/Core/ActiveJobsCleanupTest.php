@@ -259,6 +259,28 @@ class ActiveJobsCleanupTest extends WP_UnitTestCase {
 		$this->assertFalse( ActiveJobRepository::claim_queued_job( 'test-queued-paused-1' ) );
 	}
 
+	/** A durable confirmation can be requeued once without reviving a newer job state. */
+	public function test_requeue_paused_job_transitions_only_confirmation_rows(): void {
+		$this->insert_job( 'test-requeue-confirmation-1', 'awaiting_confirmation' );
+		$this->assertTrue( ActiveJobRepository::requeue_paused_job( 'test-requeue-confirmation-1' ) );
+		$this->assertFalse( ActiveJobRepository::requeue_paused_job( 'test-requeue-confirmation-1' ) );
+		$confirmation = $this->fetch_row( 'test-requeue-confirmation-1' );
+		$this->assertNotNull( $confirmation );
+		$this->assertSame( 'queued', $confirmation->status );
+
+		$this->insert_job( 'test-requeue-client-tools-1', 'awaiting_client_tools' );
+		$this->assertFalse( ActiveJobRepository::requeue_paused_job( 'test-requeue-client-tools-1' ) );
+		$client_tools = $this->fetch_row( 'test-requeue-client-tools-1' );
+		$this->assertNotNull( $client_tools );
+		$this->assertSame( 'awaiting_client_tools', $client_tools->status );
+
+		$this->insert_job( 'test-requeue-processing-1', 'processing' );
+		$this->assertFalse( ActiveJobRepository::requeue_paused_job( 'test-requeue-processing-1' ) );
+		$processing = $this->fetch_row( 'test-requeue-processing-1' );
+		$this->assertNotNull( $processing );
+		$this->assertSame( 'processing', $processing->status );
+	}
+
 	// ── cleanup_stale() ──────────────────────────────────────────────────
 
 	/**

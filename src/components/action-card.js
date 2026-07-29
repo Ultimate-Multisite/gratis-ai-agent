@@ -488,17 +488,15 @@ export default function ActionCard( { card, onConfirm, onCancel } ) {
 						) ) }
 					</ol>
 				</div>
-				{ ( hasAction || ! isRunning ) && (
+				{ ( hasAction || isRunning ) && (
 					<div className="sdaa-action-card-footer">
-						{ ! isRunning && (
-							<button
-								type="button"
-								className="button sdaa-action-card-btn-cancel"
-								onClick={ onCancel }
-							>
-								{ cancelLabel }
-							</button>
-						) }
+						<button
+							type="button"
+							className="button sdaa-action-card-btn-cancel"
+							onClick={ onCancel }
+						>
+							{ cancelLabel }
+						</button>
 						{ hasAction && (
 							<button
 								type="button"

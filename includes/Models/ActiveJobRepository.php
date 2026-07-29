@@ -103,6 +103,29 @@ class ActiveJobRepository {
 	}
 
 	/**
+	 * Atomically return a durable confirmation pause to the queue for one new claim.
+	 *
+	 * A stale confirmation must never overwrite a worker that has already
+	 * resumed or completed the job under a newer token.
+	 */
+	public static function requeue_paused_job( string $job_id ): bool {
+		global $wpdb;
+		/** @var \wpdb $wpdb */
+
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Conditional confirmation transition prevents stale confirmations from reviving a newer job state.
+		$result = $wpdb->query(
+			$wpdb->prepare(
+				"UPDATE %i SET status = 'queued', updated_at = %s WHERE job_id = %s AND status = 'awaiting_confirmation'",
+				self::table_name(),
+				current_time( 'mysql', true ),
+				$job_id
+			)
+		);
+
+		return false !== $result && $result > 0;
+	}
+
+	/**
 	 * Get an active job row by its UUID.
 	 *
 	 * @param string $job_id The job UUID.

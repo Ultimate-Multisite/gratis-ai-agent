@@ -419,7 +419,7 @@ final class DurablePlanRunner {
 	public static function fail_phase( string $plan_id, int $step_id, string $message ): ?array {
 		$plan = DurablePlanRepository::get_by_plan_id( $plan_id );
 		$step = DurablePlanRepository::get_step( $step_id );
-		if ( null === $plan || null === $step || (int) $step['plan_db_id'] !== (int) $plan['id'] ) {
+		if ( null === $plan || null === $step || (int) $step['plan_db_id'] !== (int) $plan['id'] || 'running' !== $step['status'] ) {
 			return null;
 		}
 
