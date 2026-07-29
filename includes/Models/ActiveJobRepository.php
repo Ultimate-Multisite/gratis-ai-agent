@@ -458,12 +458,13 @@ class ActiveJobRepository {
 		global $wpdb;
 		/** @var \wpdb $wpdb */
 
-		$table  = self::table_name();
-		$reaped = array();
+		$table     = self::table_name();
+		$reaped    = array();
+		$row_count = 0;
 
 		do {
 			// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Bounded custom-table candidate discovery is followed by per-row conditional claims.
-			$rows = $wpdb->get_results(
+			$rows      = $wpdb->get_results(
 				$wpdb->prepare(
 					"SELECT id, session_id, job_id, user_id, checkpoint_phase, resume_attempts FROM %i WHERE status IN ('queued', 'processing') AND updated_at < DATE_SUB(UTC_TIMESTAMP(), INTERVAL %d MINUTE) LIMIT %d",
 					$table,
@@ -471,6 +472,7 @@ class ActiveJobRepository {
 					self::STALE_REAP_BATCH_SIZE
 				)
 			);
+			$row_count = count( $rows ?: array() );
 
 			foreach ( $rows ?: array() as $raw_row ) {
 				$row        = ActiveJobRow::from_row( $raw_row );
@@ -495,7 +497,7 @@ class ActiveJobRepository {
 					ActiveJobFailureDiagnostic::log( $diagnostic, $row->session_id );
 				}
 			}
-		} while ( count( $rows ?: array() ) === self::STALE_REAP_BATCH_SIZE );
+		} while ( $row_count === self::STALE_REAP_BATCH_SIZE );
 
 		return $reaped;
 	}
