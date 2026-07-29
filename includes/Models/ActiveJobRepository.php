@@ -450,6 +450,7 @@ class ActiveJobRepository {
 	 *
 	 * Each candidate is conditionally transitioned so a concurrent heartbeat or
 	 * queued-worker claim can prevent a stale cleanup from overwriting it.
+	 * A database write failure stops the batch so the next cron run can retry it.
 	 *
 	 * @param int $threshold_minutes Number of minutes of inactivity before a row is considered stale.
 	 * @return list<string> Reaped job UUIDs.
