@@ -458,9 +458,10 @@ class ActiveJobRepository {
 		global $wpdb;
 		/** @var \wpdb $wpdb */
 
-		$table     = self::table_name();
-		$reaped    = array();
-		$row_count = 0;
+		$table        = self::table_name();
+		$reaped       = array();
+		$row_count    = 0;
+		$write_failed = false;
 
 		do {
 			// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Bounded custom-table candidate discovery is followed by per-row conditional claims.
@@ -492,12 +493,17 @@ class ActiveJobRepository {
 					)
 				);
 
-				if ( $result !== false && $result > 0 ) {
+				if ( false === $result ) {
+					$write_failed = true;
+					break;
+				}
+
+				if ( $result > 0 ) {
 					$reaped[] = $row->job_id;
 					ActiveJobFailureDiagnostic::log( $diagnostic, $row->session_id );
 				}
 			}
-		} while ( $row_count === self::STALE_REAP_BATCH_SIZE );
+		} while ( $row_count === self::STALE_REAP_BATCH_SIZE && ! $write_failed );
 
 		return $reaped;
 	}
