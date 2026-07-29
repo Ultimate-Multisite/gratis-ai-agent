@@ -877,6 +877,66 @@ describe( 'actions', () => {
 		expect( dispatch.setPendingActionCard ).toHaveBeenCalledWith( null );
 	} );
 
+	test( 'pollJob preserves a durable plan card while handling its terminal error', async () => {
+		jest.useFakeTimers();
+		apiFetch.mockReset();
+		const plan = {
+			plan_id: '00000000-0000-0000-0000-000000000017',
+			status: 'failed',
+		};
+		apiFetch
+			.mockResolvedValueOnce( {
+				status: 'error',
+				message: 'The provider interrupted this phase.',
+				session_id: 17,
+				durable_plan: plan,
+			} )
+			.mockResolvedValueOnce( {
+				id: 17,
+				messages: [],
+				tool_calls: [],
+			} );
+		const dispatch = {
+			appendMessage: jest.fn(),
+			setCurrentSession: jest.fn(),
+			setPendingConfirmation: jest.fn(),
+			setPendingActionCard: jest.fn(),
+			setStreamError: jest.fn(),
+			setSending: jest.fn(),
+			setLiveToolCalls: jest.fn(),
+			drainMessageQueue: jest.fn(),
+			setCurrentJobId: jest.fn(),
+			setSessionJob: jest.fn(),
+		};
+		const select = {
+			getCurrentSessionId: jest.fn( () => 17 ),
+			getCurrentJobId: jest.fn( () => 'durable-failed-job' ),
+		};
+
+		try {
+			actions.pollJob( 'durable-failed-job', 17 )( { dispatch, select } );
+			await jest.advanceTimersByTimeAsync( 2000 );
+			await Promise.resolve();
+			await Promise.resolve();
+		} finally {
+			jest.useRealTimers();
+		}
+
+		expect( dispatch.setCurrentSession ).toHaveBeenCalledWith( 17, [], [] );
+		expect( dispatch.appendMessage ).toHaveBeenCalledWith(
+			expect.objectContaining( { role: 'system' } )
+		);
+		expect( dispatch.setStreamError ).toHaveBeenCalledWith( true, 17 );
+		expect( dispatch.setPendingActionCard ).toHaveBeenCalledWith( {
+			type: 'durable_plan',
+			sessionId: 17,
+			plan,
+		} );
+		expect( dispatch.setPendingActionCard ).not.toHaveBeenCalledWith(
+			null
+		);
+	} );
+
 	test( 'pollJob preserves a recoverable error as a resume action card', async () => {
 		jest.useFakeTimers();
 		apiFetch.mockReset();
@@ -1573,6 +1633,22 @@ describe( 'reducer', () => {
 			confirmation,
 		} );
 		expect( state.pendingConfirmation ).toEqual( confirmation );
+	} );
+
+	test( 'ENQUEUE_MESSAGE preserves deferred message options', () => {
+		const options = { durable_plan: true };
+		const state = reducer(
+			{ ...DEFAULT_STATE, messageQueue: [] },
+			actions.enqueueMessage( 'Prepare a plan.', [], options )
+		);
+
+		expect( state.messageQueue ).toEqual( [
+			expect.objectContaining( {
+				text: 'Prepare a plan.',
+				attachments: [],
+				options,
+			} ),
+		] );
 	} );
 
 	test( 'TRUNCATE_MESSAGES_TO slices messages to given index', () => {

@@ -20,12 +20,14 @@ use SdAiAgent\Core\ConversationSerializer;
 use SdAiAgent\Core\ConversationTrimmer;
 use SdAiAgent\Core\CostCalculator;
 use SdAiAgent\Core\Database;
+use SdAiAgent\Core\DurablePlanRunner;
 use SdAiAgent\Core\Export;
 use SdAiAgent\Core\Settings;
 use SdAiAgent\Core\ToolPermissionResolver;
 use SdAiAgent\Models\ActiveJobRepository;
 use SdAiAgent\Models\Agent;
 use SdAiAgent\Models\DTO\ActiveJobRow;
+use SdAiAgent\Models\DurablePlanRepository;
 use WP_Error;
 use WP_REST_Request;
 use WP_REST_Response;
@@ -488,6 +490,11 @@ final class SessionController {
 						'type'     => 'array',
 						'default'  => array(),
 					),
+					'durable_plan'       => array(
+						'required' => false,
+						'type'     => 'boolean',
+						'default'  => false,
+					),
 				),
 			)
 		);
@@ -656,6 +663,118 @@ final class SessionController {
 				),
 			)
 		);
+
+		// Durable phased-operation plans. Lifecycle actions accept only a plan ID
+		// and explicit user action; plan creation treats browser metadata as untrusted.
+		register_rest_route(
+			RestController::NAMESPACE,
+			'/sessions/(?P<id>\d+)/plan',
+			array(
+				array(
+					'methods'             => WP_REST_Server::READABLE,
+					'callback'            => array( $this, 'handle_durable_plan_status' ),
+					'permission_callback' => array( $this, 'check_session_permission' ),
+				),
+				array(
+					'methods'             => WP_REST_Server::CREATABLE,
+					'callback'            => array( $this, 'handle_create_durable_plan' ),
+					'permission_callback' => array( $this, 'check_session_owner_permission' ),
+					'args'                => array(
+						'scope'   => array(
+							'required'          => true,
+							'type'              => 'string',
+							'sanitize_callback' => 'sanitize_textarea_field',
+						),
+						'summary' => array(
+							'required'          => false,
+							'type'              => 'string',
+							'sanitize_callback' => 'sanitize_textarea_field',
+						),
+						'steps'   => array(
+							'required' => true,
+							'type'     => 'array',
+						),
+					),
+				),
+			)
+		);
+
+		register_rest_route(
+			RestController::NAMESPACE,
+			'/sessions/(?P<id>\d+)/plan/status',
+			array(
+				'methods'             => WP_REST_Server::READABLE,
+				'callback'            => array( $this, 'handle_durable_plan_status' ),
+				'permission_callback' => array( $this, 'check_session_permission' ),
+			)
+		);
+
+		foreach (
+			array(
+				'continue' => array(
+					'callback' => 'handle_continue_durable_plan',
+					'args'     => array(),
+				),
+				'approve'  => array(
+					'callback' => 'handle_approve_durable_plan',
+					'args'     => array(
+						'approval_request_id' => array(
+							'required'          => true,
+							'type'              => 'integer',
+							'sanitize_callback' => 'absint',
+						),
+					),
+				),
+				'reject'   => array(
+					'callback' => 'handle_reject_durable_plan',
+					'args'     => array(
+						'approval_request_id' => array(
+							'required'          => true,
+							'type'              => 'integer',
+							'sanitize_callback' => 'absint',
+						),
+					),
+				),
+				'retry'    => array(
+					'callback' => 'handle_retry_durable_plan',
+					'args'     => array(),
+				),
+				'cancel'   => array(
+					'callback' => 'handle_cancel_durable_plan',
+					'args'     => array(),
+				),
+				'scope'    => array(
+					'callback' => 'handle_durable_plan_scope_change',
+					'args'     => array(
+						'scope' => array(
+							'required'          => true,
+							'type'              => 'string',
+							'sanitize_callback' => 'sanitize_textarea_field',
+						),
+					),
+				),
+			) as $operation => $route
+		) {
+			register_rest_route(
+				RestController::NAMESPACE,
+				'/sessions/(?P<id>\d+)/plan/' . $operation,
+				array(
+					'methods'             => WP_REST_Server::CREATABLE,
+					'callback'            => array( $this, $route['callback'] ),
+					'permission_callback' => array( $this, 'check_session_owner_permission' ),
+					'args'                => array_merge(
+						array(
+							'plan_id' => array(
+								'required'          => true,
+								'type'              => 'string',
+								'sanitize_callback' => 'sanitize_text_field',
+							),
+						),
+						$route['args']
+					),
+				)
+			);
+		}
 
 		// Public customer chat config for static documentation embeds.
 		register_rest_route(
@@ -1269,6 +1388,14 @@ final class SessionController {
 		}
 
 		$response = array( 'status' => $job['status'] );
+		if ( self::can_current_user_view_durable_job( $db_row ) && is_array( $job['durable_plan']['plan'] ?? null ) ) {
+			$response['durable_plan'] = $job['durable_plan']['plan'];
+		} elseif ( self::can_current_user_view_durable_job( $db_row ) ) {
+			$durable_plan = DurablePlanRunner::public_plan_for_job( $job_id );
+			if ( null !== $durable_plan ) {
+				$response['durable_plan'] = $durable_plan;
+			}
+		}
 
 		// Include live tool call progress for all statuses that have it.
 		if ( ! empty( $job['tool_calls'] ) ) {
@@ -1376,31 +1503,35 @@ final class SessionController {
 	 */
 	private function job_status_from_db_row( string $job_id, ActiveJobRow $row ): WP_REST_Response {
 		$original_status = $row->status;
-		$status          = $row->status;
+		$status          = 'queued' === $row->status ? 'processing' : $row->status;
 		$response        = [
 			'status'     => $status,
 			'from_db'    => true,
 			'session_id' => $row->session_id,
 		];
+		$durable_plan    = null;
 
 		if ( in_array( $status, array( 'interrupted', 'abandoned' ), true ) ) {
-			$resume_outcome = $this->maybe_dispatch_checkpoint_resume( $job_id, $row );
-			if ( $resume_outcome['dispatched'] ) {
-				return new WP_REST_Response(
-					array(
-						'status'            => 'processing',
-						'from_db'           => true,
-						'auto_resumed'      => true,
-						'original_status'   => $status,
-						'session_id'        => $row->session_id,
-						'checkpoint_resume' => $resume_outcome['metadata'],
-					),
-					202
-				);
-			}
+			$durable_plan = DurablePlanRunner::mark_phase_interrupted_by_job( $job_id );
+			if ( null === $durable_plan ) {
+				$resume_outcome = $this->maybe_dispatch_checkpoint_resume( $job_id, $row );
+				if ( $resume_outcome['dispatched'] ) {
+					return new WP_REST_Response(
+						array(
+							'status'            => 'processing',
+							'from_db'           => true,
+							'auto_resumed'      => true,
+							'original_status'   => $status,
+							'session_id'        => $row->session_id,
+							'checkpoint_resume' => $resume_outcome['metadata'],
+						),
+						202
+					);
+				}
 
-			if ( $resume_outcome['terminal'] ) {
-				return $this->checkpoint_resume_terminal_response( $job_id, $row, $resume_outcome['metadata'] );
+				if ( $resume_outcome['terminal'] ) {
+					return $this->checkpoint_resume_terminal_response( $job_id, $row, $resume_outcome['metadata'] );
+				}
 			}
 		}
 
@@ -1410,6 +1541,11 @@ final class SessionController {
 				$row    = $refreshed_row;
 				$status = $row->status;
 			}
+		}
+
+		$durable_plan = $durable_plan ?? DurablePlanRunner::public_plan_for_job( $job_id );
+		if ( self::can_current_user_view_durable_job( $row ) && null !== $durable_plan ) {
+			$response['durable_plan'] = $durable_plan;
 		}
 
 		// Include tool-call progress when present.
@@ -1458,6 +1594,16 @@ final class SessionController {
 		}
 
 		return new WP_REST_Response( $response, 200 );
+	}
+
+	/**
+	 * Durable plan state is visible only to the active job's owning user.
+	 *
+	 * Shared session viewers may inspect ordinary conversation activity, but a
+	 * persisted plan can contain owner-scoped operation details and approvals.
+	 */
+	private static function can_current_user_view_durable_job( ?ActiveJobRow $row ): bool {
+		return null !== $row && (int) $row->user_id === get_current_user_id();
 	}
 
 	/**
@@ -2893,10 +3039,22 @@ final class SessionController {
 	 * @param string               $job_id Job identifier.
 	 * @param array<string, mixed> $job    Job transient data.
 	 * @param string               $action 'confirm' or 'reject'.
-	 * @return WP_REST_Response
+	 * @return WP_REST_Response|WP_Error
 	 */
-	private static function resume_job( string $job_id, array $job, string $action ): WP_REST_Response {
-		$token = wp_generate_password( 40, false );
+	private static function resume_job( string $job_id, array $job, string $action ): WP_REST_Response|WP_Error {
+		$token                 = wp_generate_password( 40, false );
+		$params                = is_array( $job['params'] ?? null ) ? $job['params'] : array();
+		$phase                 = is_array( $params['durable_plan_phase'] ?? null ) ? $params['durable_plan_phase'] : array();
+		$is_durable_plan_phase = '' !== (string) ( $phase['plan_id'] ?? '' )
+			&& (int) ( $phase['step_id'] ?? 0 ) > 0;
+
+		if ( $is_durable_plan_phase && ! ActiveJobRepository::requeue_paused_job( $job_id ) ) {
+			return new WP_Error(
+				'sd_ai_agent_job_not_resumable',
+				__( 'This durable plan job is no longer waiting for confirmation.', 'superdav-ai-agent' ),
+				array( 'status' => 409 )
+			);
+		}
 
 		$job['status'] = 'processing';
 		$job['token']  = $token;
@@ -2904,8 +3062,11 @@ final class SessionController {
 
 		set_transient( RestController::JOB_PREFIX . $job_id, $job, RestController::JOB_TTL );
 
-		// Keep DB in sync — job is back to processing after confirmation/rejection.
-		ActiveJobRepository::update_status( $job_id, 'processing' );
+		// Durable jobs are atomically queued above so exactly one loopback worker
+		// can claim them. Other jobs retain their established processing transition.
+		if ( ! $is_durable_plan_phase ) {
+			ActiveJobRepository::update_status( $job_id, 'processing' );
+		}
 
 		// Spawn background worker.
 		wp_remote_post(
@@ -2940,15 +3101,27 @@ final class SessionController {
 	 * Creates a job, spawns a background worker, and returns immediately.
 	 *
 	 * @param WP_REST_Request $request The request object.
-	 * @return WP_REST_Response
+	 * @return WP_REST_Response|WP_Error
 	 */
-	public function handle_run( WP_REST_Request $request ): WP_REST_Response {
+	public function handle_run( WP_REST_Request $request ): WP_REST_Response|WP_Error {
+		$durable_plan_requested = true === $request->get_param( 'durable_plan' );
+		$session_id             = self::get_int_param( $request, 'session_id' );
+		if ( $durable_plan_requested ) {
+			$session = $this->database->get_session( $session_id );
+			if ( ! $session ) {
+				return new WP_Error( 'sd_ai_agent_session_not_found', __( 'A durable plan requires an existing session.', 'superdav-ai-agent' ), [ 'status' => 404 ] );
+			}
+			if ( (int) $session->user_id !== get_current_user_id() ) {
+				return new WP_Error( 'sd_ai_agent_plan_forbidden', __( 'Only the session owner can create a durable plan.', 'superdav-ai-agent' ), [ 'status' => 403 ] );
+			}
+		}
+
 		$job_id = wp_generate_uuid4();
 		$token  = wp_generate_password( 40, false );
 
 		// Upload attachments to the media library NOW (in the browser-facing
 		// request that has auth cookies) so the loopback worker doesn't need to.
-		$raw_attachments = $request->get_param( 'attachments' ) ?? array();
+		$raw_attachments = $durable_plan_requested ? array() : ( $request->get_param( 'attachments' ) ?? array() );
 		/** @var array<int, array{name: string, type: string, data_url: string, is_image: bool}> $raw_attachments_typed */
 		$raw_attachments_typed = is_array( $raw_attachments ) ? $raw_attachments : array();
 		$attachments           = RestController::upload_attachments_to_media_library( $raw_attachments_typed );
@@ -2966,13 +3139,14 @@ final class SessionController {
 				'system_instruction' => $request->get_param( 'system_instruction' ),
 				'bootstrap_prompt'   => $request->get_param( 'bootstrap_prompt' ),
 				'max_iterations'     => $request->get_param( 'max_iterations' ),
-				'session_id'         => $request->get_param( 'session_id' ),
+				'session_id'         => $session_id,
 				'provider_id'        => $request->get_param( 'provider_id' ),
 				'model_id'           => $request->get_param( 'model_id' ),
 				'page_context'       => $request->get_param( 'page_context' ),
 				'agent_id'           => $request->get_param( 'agent_id' ),
 				'attachments'        => $attachments,
 				'client_abilities'   => $request->get_param( 'client_abilities' ) ?? array(),
+				'durable_plan'       => $durable_plan_requested,
 			),
 		);
 
@@ -2980,8 +3154,13 @@ final class SessionController {
 
 		// Persist to DB so the job survives transient expiry (source of truth).
 		// @phpstan-ignore-next-line
-		$db_session_id = isset( $job['params']['session_id'] ) ? (int) $job['params']['session_id'] : 0;
-		ActiveJobRepository::create( $db_session_id, $job_id, (int) ( $job['user_id'] ?? 0 ) );
+		$db_session_id = $session_id;
+		ActiveJobRepository::create(
+			$db_session_id,
+			$job_id,
+			(int) ( $job['user_id'] ?? 0 ),
+			$durable_plan_requested ? 'queued' : 'processing'
+		);
 
 		// Spawn background worker via non-blocking loopback.
 		wp_remote_post(
@@ -3048,11 +3227,23 @@ final class SessionController {
 		$params = $job['params'];
 		/** @var array<string, mixed> $params */
 		// @phpstan-ignore-next-line
-		$session_id = ! empty( $params['session_id'] ) ? (int) $params['session_id'] : 0;
+		$session_id              = ! empty( $params['session_id'] ) ? (int) $params['session_id'] : 0;
+		$durable_plan_phase      = $params['durable_plan_phase'] ?? null;
+		$is_durable_plan_phase   = is_array( $durable_plan_phase )
+			&& '' !== (string) ( $durable_plan_phase['plan_id'] ?? '' )
+			&& (int) ( $durable_plan_phase['step_id'] ?? 0 ) > 0;
+		$is_durable_plan_request = ! $is_durable_plan_phase && ! empty( $params['durable_plan'] );
+		if ( ( $is_durable_plan_phase || $is_durable_plan_request ) && ! ActiveJobRepository::claim_queued_job( $job_id ) ) {
+			return new WP_REST_Response( array( 'ok' => false ), 200 );
+		}
 
-		// Load history from session if session_id is provided.
+		// Durable plans deliberately start every provider turn with only the compact
+		// active-phase context. They must not grow provider context by reloading the
+		// session transcript after every completed phase.
 		$history = array();
-		if ( $session_id ) {
+		if ( $is_durable_plan_phase || $is_durable_plan_request ) {
+			$history = array();
+		} elseif ( $session_id ) {
 			$session = $this->database->get_session( $session_id );
 			if ( $session ) {
 				$session_messages = json_decode( $session->messages, true ) ?: array();
@@ -3172,6 +3363,14 @@ final class SessionController {
 			// @phpstan-ignore-next-line
 			$agent_options = Agent::get_loop_options( (int) $params['agent_id'] );
 			$options       = array_merge( $options, $agent_options );
+		}
+
+		if ( $is_durable_plan_request ) {
+			// A planning request is a no-tools, one-turn proposal. Do not allow
+			// a selected agent or browser descriptor to restore normal tool access.
+			$options['durable_plan_mode'] = true;
+			$options['client_abilities']  = array();
+			$options['yolo_mode']         = false;
 		}
 
 		/*
@@ -3301,7 +3500,7 @@ final class SessionController {
 				)
 			);
 
-			if ( $session_id ) {
+			if ( $session_id && ! $is_durable_plan_phase ) {
 				$recovery_error = new WP_Error(
 					'sd_ai_agent_loop_exception',
 					ActiveJobFailureDiagnostic::message_for( (string) $diagnostic['reason'] ),
@@ -3330,9 +3529,14 @@ final class SessionController {
 			}
 
 			unset( $job['token'], $job['tool_calls'], $job['messages'] );
+			$this->finalize_durable_plan_phase( $job );
 			set_transient( RestController::JOB_PREFIX . $job_id, $job, RestController::JOB_TTL );
 
 			return new WP_REST_Response( array( 'ok' => false ), 200 );
+		}
+
+		if ( $is_durable_plan_request && is_array( $result ) ) {
+			$result = $this->attach_durable_plan_to_result( $job, $session_id, $result );
 		}
 
 		if ( is_wp_error( $result ) ) {
@@ -3359,7 +3563,7 @@ final class SessionController {
 			if ( null !== $payload_recovery ) {
 				$job['payload_recovery'] = $payload_recovery;
 			}
-			if ( $session_id ) {
+			if ( $session_id && ! $is_durable_plan_phase ) {
 				$this->persist_error_recovery_to_session(
 					$session_id,
 					$result,
@@ -3488,7 +3692,7 @@ final class SessionController {
 
 				$full_history = $result['history'] ?? array();
 				/** @var array<mixed> $full_history */
-				$appended = array_slice( $full_history, $existing_count );
+				$appended = ( $is_durable_plan_phase || $is_durable_plan_request ) ? $full_history : array_slice( $full_history, $existing_count );
 				/** @var list<array<string, mixed>> $tool_calls_result */
 				$tool_calls_result = $result['tool_calls'] ?? array();
 				$this->database->append_to_session( $session_id, array_values( $appended ), $tool_calls_result );
@@ -3577,6 +3781,8 @@ final class SessionController {
 			}
 		}
 
+		$this->finalize_durable_plan_phase( $job );
+
 		// Clear the token — no longer needed.
 		unset( $job['token'] );
 		set_transient( RestController::JOB_PREFIX . $job_id, $job, RestController::JOB_TTL );
@@ -3632,7 +3838,7 @@ final class SessionController {
 
 		$response = array(
 			'job_id' => $db_row->job_id,
-			'status' => $db_row->status,
+			'status' => 'queued' === $db_row->status ? 'processing' : $db_row->status,
 		);
 
 		$response['tool_calls'] = json_decode( $db_row->tool_calls, true ) ?: [];
@@ -3659,7 +3865,7 @@ final class SessionController {
 				return array(
 					'session_id' => $row->session_id,
 					'job_id'     => $row->job_id,
-					'status'     => $row->status,
+					'status'     => 'queued' === $row->status ? 'processing' : $row->status,
 				);
 			},
 			array_filter(
@@ -3669,6 +3875,351 @@ final class SessionController {
 		);
 
 		return new WP_REST_Response( array_values( $data ), 200 );
+	}
+
+	/**
+	 * Handle GET /sessions/{id}/plan and return only the current user's plan.
+	 *
+	 * @param WP_REST_Request $request REST request.
+	 * @return WP_REST_Response|WP_Error
+	 */
+	public function handle_durable_plan_status( WP_REST_Request $request ) {
+		$session_id = self::get_int_param( $request, 'id' );
+		$plan       = DurablePlanRepository::get_latest_for_session( $session_id, get_current_user_id() );
+		if ( null === $plan ) {
+			return new WP_Error( 'sd_ai_agent_plan_not_found', __( 'No durable plan was found for this session.', 'superdav-ai-agent' ), [ 'status' => 404 ] );
+		}
+
+		return new WP_REST_Response( [ 'plan' => DurablePlanRepository::to_public( $plan ) ], 200 );
+	}
+
+	/**
+	 * Handle POST /sessions/{id}/plan.
+	 *
+	 * Only a session owner may create a durable plan. Shared-session viewers must
+	 * not be able to create a plan that later runs under the owner-owned session.
+	 *
+	 * @param WP_REST_Request $request REST request.
+	 * @return WP_REST_Response|WP_Error
+	 */
+	public function handle_create_durable_plan( WP_REST_Request $request ) {
+		$session_id = self::get_int_param( $request, 'id' );
+		$session    = $this->database->get_session( $session_id );
+		$user_id    = get_current_user_id();
+		if ( ! $session ) {
+			return new WP_Error( 'sd_ai_agent_session_not_found', __( 'Session not found.', 'superdav-ai-agent' ), [ 'status' => 404 ] );
+		}
+		if ( (int) $session->user_id !== $user_id ) {
+			return new WP_Error( 'sd_ai_agent_plan_forbidden', __( 'Only the session owner can create a durable plan.', 'superdav-ai-agent' ), [ 'status' => 403 ] );
+		}
+
+		$plan = DurablePlanRunner::create_from_client(
+			$session_id,
+			$user_id,
+			[
+				'scope'   => (string) $request->get_param( 'scope' ),
+				'summary' => (string) $request->get_param( 'summary' ),
+				'steps'   => $request->get_param( 'steps' ),
+			]
+		);
+		if ( is_wp_error( $plan ) ) {
+			return $plan;
+		}
+
+		return new WP_REST_Response( [ 'plan' => DurablePlanRepository::to_public( $plan ) ], 201 );
+	}
+
+	/**
+	 * Handle POST /sessions/{id}/plan/continue.
+	 *
+	 * @param WP_REST_Request $request REST request.
+	 * @return WP_REST_Response|WP_Error
+	 */
+	public function handle_continue_durable_plan( WP_REST_Request $request ) {
+		$plan_id = self::get_string_param( $request, 'plan_id' );
+		$valid   = $this->validate_durable_plan_request( $plan_id, self::get_int_param( $request, 'id' ) );
+		if ( is_wp_error( $valid ) ) {
+			return $valid;
+		}
+
+		$outcome = DurablePlanRunner::prepare_next( $plan_id, get_current_user_id() );
+		return $this->respond_to_durable_plan_outcome( $outcome );
+	}
+
+	/**
+	 * Handle POST /sessions/{id}/plan/approve.
+	 *
+	 * @param WP_REST_Request $request REST request.
+	 * @return WP_REST_Response|WP_Error
+	 */
+	public function handle_approve_durable_plan( WP_REST_Request $request ) {
+		$plan_id = self::get_string_param( $request, 'plan_id' );
+		$valid   = $this->validate_durable_plan_request( $plan_id, self::get_int_param( $request, 'id' ) );
+		if ( is_wp_error( $valid ) ) {
+			return $valid;
+		}
+
+		$outcome = DurablePlanRunner::approve( $plan_id, self::get_int_param( $request, 'approval_request_id' ), get_current_user_id() );
+		return $this->respond_to_durable_plan_outcome( $outcome );
+	}
+
+	/**
+	 * Handle POST /sessions/{id}/plan/reject.
+	 *
+	 * @param WP_REST_Request $request REST request.
+	 * @return WP_REST_Response|WP_Error
+	 */
+	public function handle_reject_durable_plan( WP_REST_Request $request ) {
+		$plan_id = self::get_string_param( $request, 'plan_id' );
+		$valid   = $this->validate_durable_plan_request( $plan_id, self::get_int_param( $request, 'id' ) );
+		if ( is_wp_error( $valid ) ) {
+			return $valid;
+		}
+
+		$outcome = DurablePlanRunner::reject( $plan_id, self::get_int_param( $request, 'approval_request_id' ), get_current_user_id() );
+		return $this->respond_to_durable_plan_outcome( $outcome );
+	}
+
+	/**
+	 * Handle POST /sessions/{id}/plan/retry.
+	 *
+	 * @param WP_REST_Request $request REST request.
+	 * @return WP_REST_Response|WP_Error
+	 */
+	public function handle_retry_durable_plan( WP_REST_Request $request ) {
+		$plan_id = self::get_string_param( $request, 'plan_id' );
+		$valid   = $this->validate_durable_plan_request( $plan_id, self::get_int_param( $request, 'id' ) );
+		if ( is_wp_error( $valid ) ) {
+			return $valid;
+		}
+
+		$outcome = DurablePlanRunner::retry( $plan_id, get_current_user_id() );
+		return $this->respond_to_durable_plan_outcome( $outcome );
+	}
+
+	/**
+	 * Handle POST /sessions/{id}/plan/cancel.
+	 *
+	 * @param WP_REST_Request $request REST request.
+	 * @return WP_REST_Response|WP_Error
+	 */
+	public function handle_cancel_durable_plan( WP_REST_Request $request ) {
+		$plan_id = self::get_string_param( $request, 'plan_id' );
+		$valid   = $this->validate_durable_plan_request( $plan_id, self::get_int_param( $request, 'id' ) );
+		if ( is_wp_error( $valid ) ) {
+			return $valid;
+		}
+
+		$outcome = DurablePlanRunner::cancel( $plan_id, get_current_user_id() );
+		return $this->respond_to_durable_plan_outcome( $outcome );
+	}
+
+	/**
+	 * Handle POST /sessions/{id}/plan/scope.
+	 *
+	 * A browser can request a scope change but cannot apply it. The persisted
+	 * approval record binds the change to this exact plan and owner.
+	 *
+	 * @param WP_REST_Request $request REST request.
+	 * @return WP_REST_Response|WP_Error
+	 */
+	public function handle_durable_plan_scope_change( WP_REST_Request $request ) {
+		$plan_id = self::get_string_param( $request, 'plan_id' );
+		$valid   = $this->validate_durable_plan_request( $plan_id, self::get_int_param( $request, 'id' ) );
+		if ( is_wp_error( $valid ) ) {
+			return $valid;
+		}
+
+		$outcome = DurablePlanRunner::request_scope_change( $plan_id, get_current_user_id(), self::get_string_param( $request, 'scope' ) );
+		return $this->respond_to_durable_plan_outcome( $outcome );
+	}
+
+	/**
+	 * Check both user ownership and route-session ownership against durable state.
+	 *
+	 * @return array<string, mixed>|WP_Error
+	 */
+	private function validate_durable_plan_request( string $plan_id, int $session_id ) {
+		$plan = DurablePlanRepository::get_by_plan_id( $plan_id );
+		if ( null === $plan ) {
+			return new WP_Error( 'sd_ai_agent_plan_not_found', __( 'Durable plan not found.', 'superdav-ai-agent' ), [ 'status' => 404 ] );
+		}
+		if ( (int) $plan['session_id'] !== $session_id || (int) $plan['user_id'] !== get_current_user_id() ) {
+			return new WP_Error( 'sd_ai_agent_plan_forbidden', __( 'You are not authorized to change this durable plan.', 'superdav-ai-agent' ), [ 'status' => 403 ] );
+		}
+
+		return $plan;
+	}
+
+	/**
+	 * Persist a planning-only model result using the fail-closed client policy.
+	 *
+	 * The model response is intentionally treated like untrusted browser metadata:
+	 * classifications remain descriptive, every phase requires approval, and no
+	 * phase can automatically resume after an interruption.
+	 *
+	 * @param array<string, mixed> $job    Background job state.
+	 * @param int                  $session_id Session that owns the request.
+	 * @param array<string, mixed> $result Agent-loop result.
+	 * @return array<string, mixed>|WP_Error
+	 */
+	private function attach_durable_plan_to_result( array &$job, int $session_id, array $result ) {
+		$definition = $result['durable_plan_definition'] ?? null;
+		$user_id    = (int) ( $job['user_id'] ?? 0 );
+		$session    = $this->database->get_session( $session_id );
+		if ( ! is_array( $definition ) || $session_id <= 0 || $user_id <= 0 || ! $session || (int) $session->user_id !== $user_id || get_current_user_id() !== $user_id ) {
+			return new WP_Error( 'sd_ai_agent_plan_forbidden', __( 'The durable plan could not be saved for this session.', 'superdav-ai-agent' ) );
+		}
+
+		$plan = DurablePlanRunner::create_from_client( $session_id, $user_id, $definition );
+		if ( is_wp_error( $plan ) ) {
+			return $plan;
+		}
+
+		unset( $result['durable_plan_definition'] );
+		$public_plan         = DurablePlanRepository::to_public( $plan );
+		$job['durable_plan'] = array(
+			'plan_id' => (string) $public_plan['plan_id'],
+			'plan'    => $public_plan,
+		);
+
+		return $result;
+	}
+
+	/**
+	 * Queue a bounded provider turn only when the runner has claimed a phase.
+	 *
+	 * @param array<string, mixed>|WP_Error $outcome Runner result.
+	 * @return WP_REST_Response|WP_Error
+	 */
+	private function respond_to_durable_plan_outcome( array|WP_Error $outcome ) {
+		if ( is_wp_error( $outcome ) ) {
+			return $outcome;
+		}
+		if ( 'ready' !== ( $outcome['status'] ?? '' ) ) {
+			return new WP_REST_Response( $outcome, 200 );
+		}
+
+		$plan    = is_array( $outcome['plan'] ?? null ) ? $outcome['plan'] : [];
+		$step    = is_array( $outcome['step'] ?? null ) ? $outcome['step'] : [];
+		$context = (string) ( $outcome['provider_context'] ?? '' );
+		$queued  = $this->enqueue_durable_plan_phase( $plan, $step, $context );
+		if ( is_wp_error( $queued ) ) {
+			return $queued;
+		}
+
+		return new WP_REST_Response( $queued, 202 );
+	}
+
+	/**
+	 * Create a plan-phase job without loading the full session transcript.
+	 *
+	 * @param array<string, mixed> $plan             Browser-safe plan payload.
+	 * @param array<string, mixed> $step             Internal claimed phase record.
+	 * @param string               $provider_context Bounded active-phase context.
+	 * @return array<string, mixed>|WP_Error
+	 */
+	private function enqueue_durable_plan_phase( array $plan, array $step, string $provider_context ) {
+		$plan_id    = (string) ( $plan['plan_id'] ?? '' );
+		$session_id = (int) ( $plan['session_id'] ?? 0 );
+		$step_id    = (int) ( $step['id'] ?? 0 );
+		$session    = $this->database->get_session( $session_id );
+		if ( '' === $plan_id || $step_id <= 0 || '' === $provider_context || ! $session ) {
+			return new WP_Error( 'sd_ai_agent_plan_enqueue_invalid', __( 'The durable plan phase could not be prepared for execution.', 'superdav-ai-agent' ), [ 'status' => 500 ] );
+		}
+
+		$job_id = wp_generate_uuid4();
+		$token  = wp_generate_password( 40, false );
+		$job    = array(
+			'status'       => 'processing',
+			'token'        => $token,
+			'user_id'      => get_current_user_id(),
+			'tool_calls'   => array(),
+			'messages'     => array(),
+			'durable_plan' => array(
+				'plan_id' => $plan_id,
+				'step_id' => $step_id,
+				'plan'    => $plan,
+			),
+			'params'       => array(
+				'message'            => $provider_context,
+				'history'            => array(),
+				'abilities'          => array(),
+				'system_instruction' => '',
+				'bootstrap_prompt'   => '',
+				'max_iterations'     => null,
+				'session_id'         => $session_id,
+				'provider_id'        => (string) $session->provider_id,
+				'model_id'           => (string) $session->model_id,
+				'page_context'       => array(),
+				'agent_id'           => 0,
+				'attachments'        => array(),
+				'client_abilities'   => array(),
+				'durable_plan_phase' => array(
+					'plan_id' => $plan_id,
+					'step_id' => $step_id,
+				),
+			),
+		);
+
+		set_transient( RestController::JOB_PREFIX . $job_id, $job, RestController::JOB_TTL );
+		if ( false === ActiveJobRepository::create( $session_id, $job_id, get_current_user_id(), 'queued' ) || ! DurablePlanRunner::assign_job( $plan_id, $step_id, $job_id ) ) {
+			delete_transient( RestController::JOB_PREFIX . $job_id );
+			ActiveJobRepository::delete( $job_id );
+			DurablePlanRunner::fail_phase( $plan_id, $step_id, __( 'The phase job could not be queued.', 'superdav-ai-agent' ) );
+			return new WP_Error( 'sd_ai_agent_plan_enqueue_failed', __( 'The durable plan phase could not be queued.', 'superdav-ai-agent' ), [ 'status' => 500 ] );
+		}
+
+		wp_remote_post(
+			rest_url( RestController::NAMESPACE . '/process' ),
+			array(
+				'timeout'  => 0.01,
+				'blocking' => false,
+				'body'     => (string) wp_json_encode(
+					array(
+						'job_id' => $job_id,
+						'token'  => $token,
+					)
+				),
+				'headers'  => array( 'Content-Type' => 'application/json' ),
+			)
+		);
+
+		return array(
+			'status' => 'processing',
+			'job_id' => $job_id,
+			'plan'   => DurablePlanRunner::public_plan( $plan_id ),
+		);
+	}
+
+	/**
+	 * Persist terminal plan-phase state without copying raw history or tool data.
+	 *
+	 * @param array<string, mixed> $job Background job state.
+	 */
+	private function finalize_durable_plan_phase( array &$job ): void {
+		$params  = is_array( $job['params'] ?? null ) ? $job['params'] : array();
+		$phase   = is_array( $params['durable_plan_phase'] ?? null ) ? $params['durable_plan_phase'] : array();
+		$plan_id = (string) ( $phase['plan_id'] ?? '' );
+		$step_id = (int) ( $phase['step_id'] ?? 0 );
+		if ( '' === $plan_id || $step_id <= 0 ) {
+			return;
+		}
+
+		$plan = null;
+		if ( 'complete' === ( $job['status'] ?? '' ) && is_array( $job['result'] ?? null ) ) {
+			$plan = DurablePlanRunner::complete_phase( $plan_id, $step_id, $job['result'] );
+		} elseif ( 'error' === ( $job['status'] ?? '' ) ) {
+			$plan = DurablePlanRunner::fail_phase( $plan_id, $step_id, (string) ( $job['error'] ?? __( 'The plan phase failed.', 'superdav-ai-agent' ) ) );
+		}
+
+		if ( null !== $plan ) {
+			$job['durable_plan'] = array(
+				'plan_id' => $plan_id,
+				'step_id' => $step_id,
+				'plan'    => $plan,
+			);
+		}
 	}
 
 	/**
@@ -3690,6 +4241,14 @@ final class SessionController {
 		$job = get_transient( RestController::JOB_PREFIX . $row->job_id );
 		if ( is_array( $job ) ) {
 			return false;
+		}
+
+		// Durable phases retain their actionable state in the plan tables, so the
+		// expired active-job row can be removed after that state is updated. Normal
+		// jobs retain the existing prompt-free diagnostic for recovery guidance.
+		if ( null !== DurablePlanRunner::mark_phase_interrupted_by_job( $row->job_id ) ) {
+			ActiveJobRepository::delete( $row->job_id );
+			return true;
 		}
 
 		ActiveJobRepository::record_failure(

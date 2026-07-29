@@ -570,7 +570,7 @@ class AgentLoopTest extends WP_UnitTestCase {
 	}
 
 	/** Build a deterministic SDK result for scripted provider recovery tests. */
-	private function create_scripted_result( string $reply ): GenerativeAiResult {
+	private function create_scripted_result( string $reply, ?FunctionCall $function_call = null ): GenerativeAiResult {
 		$provider_metadata = new ProviderMetadata(
 			'scripted-provider',
 			'Scripted Provider',
@@ -585,7 +585,7 @@ class AgentLoopTest extends WP_UnitTestCase {
 			array()
 		);
 		$candidate         = new Candidate(
-			new ModelMessage( array( new MessagePart( $reply ) ) ),
+			new ModelMessage( array( new MessagePart( $function_call ?? $reply ) ) ),
 			FinishReasonEnum::stop()
 		);
 
@@ -713,6 +713,109 @@ class AgentLoopTest extends WP_UnitTestCase {
 		$this->assertArrayHasKey( 'token_usage', $result );
 		$this->assertSame( 100, $result['token_usage']['prompt'] );
 		$this->assertSame( 50, $result['token_usage']['completion'] );
+	}
+
+	/** Durable planning accepts only a compact JSON shape and never saves raw model JSON to history. */
+	public function test_durable_plan_mode_returns_a_compact_definition_without_raw_history(): void {
+		$raw_response = (string) wp_json_encode(
+			[
+				'scope'   => 'MODEL-ONLY-SCOPE-MARKER',
+				'summary' => 'MODEL-ONLY-SUMMARY-MARKER',
+				'steps'   => [
+					[
+						'title'             => 'Inspect the current configuration',
+						'instruction'       => 'Inspect the current configuration without changing the site.',
+						'classification'    => 'read',
+						'preconditions'     => 'An administrator session is active.',
+						'expected_evidence' => 'A concise configuration inventory.',
+						'rollback_guidance' => 'No rollback is required.',
+					],
+				],
+			]
+		);
+		$loop         = new ScriptedAgentLoop(
+			'Prepare a safe plan for the current site operation.',
+			[],
+			[],
+			[
+				'durable_plan_mode' => true,
+				'provider_id'       => 'scripted-provider',
+				'model_id'          => 'scripted-model',
+			],
+			[ $this->create_scripted_result( $raw_response ) ]
+		);
+		$result       = $loop->run();
+
+		$this->assertIsArray( $result );
+		$this->assertSame( 'I prepared a durable plan. Review each phase before continuing.', $result['reply'] );
+		$this->assertSame( 'MODEL-ONLY-SCOPE-MARKER', $result['durable_plan_definition']['scope'] );
+		$this->assertSame( 'read', $result['durable_plan_definition']['steps'][0]['classification'] );
+		$this->assertSame( [], $result['tool_calls'] );
+		$this->assertStringNotContainsString( 'MODEL-ONLY-SCOPE-MARKER', (string) wp_json_encode( $result['history'] ) );
+		$this->assertStringNotContainsString( 'MODEL-ONLY-SUMMARY-MARKER', (string) wp_json_encode( $result['history'] ) );
+	}
+
+	/** Planner-only turns reject a provider tool call before it can execute or pause. */
+	public function test_durable_plan_mode_rejects_model_tool_calls_without_recording_them(): void {
+		$tool_name = 'wpab__sd-ai-agent__site-info';
+		$loop      = new ScriptedAgentLoop(
+			'Prepare a safe plan for the current site operation.',
+			array(),
+			array(),
+			array(
+				'durable_plan_mode' => true,
+				'provider_id'       => 'scripted-provider',
+				'model_id'          => 'scripted-model',
+			),
+			array( $this->create_scripted_result( '', new FunctionCall( 'plan_tool_call', $tool_name, array() ) ) )
+		);
+		$result    = $loop->run();
+
+		$this->assertInstanceOf( WP_Error::class, $result );
+		$this->assertSame( 'sd_ai_agent_durable_plan_tool_call', $result->get_error_code() );
+		$error_data = $result->get_error_data();
+		$this->assertIsArray( $error_data );
+		$this->assertSame( array(), $error_data['tool_calls'] ?? array() );
+		$this->assertStringNotContainsString( $tool_name, (string) wp_json_encode( $error_data['history'] ?? array() ) );
+	}
+
+	/** Planner-only turns reject unknown model fields without reflecting their raw response into history. */
+	public function test_durable_plan_mode_rejects_unknown_model_fields_without_raw_history(): void {
+		$raw_response = (string) wp_json_encode(
+			[
+				'scope'           => 'Review the site configuration.',
+				'summary'         => 'Create a reviewed plan.',
+				'idempotency_key' => 'MODEL-ONLY-UNTRUSTED-KEY-MARKER',
+				'steps'           => [
+					[
+						'title'             => 'Inspect configuration',
+						'instruction'       => 'Inspect the current configuration.',
+						'classification'    => 'read',
+						'preconditions'     => '',
+						'expected_evidence' => 'Configuration inventory.',
+						'rollback_guidance' => '',
+					],
+				],
+			]
+		);
+		$loop         = new ScriptedAgentLoop(
+			'Prepare a safe plan for the current site operation.',
+			[],
+			[],
+			[
+				'durable_plan_mode' => true,
+				'provider_id'       => 'scripted-provider',
+				'model_id'          => 'scripted-model',
+			],
+			[ $this->create_scripted_result( $raw_response ) ]
+		);
+		$result       = $loop->run();
+
+		$this->assertInstanceOf( WP_Error::class, $result );
+		$this->assertSame( 'sd_ai_agent_durable_plan_invalid_response', $result->get_error_code() );
+		$error_data = $result->get_error_data();
+		$this->assertIsArray( $error_data );
+		$this->assertStringNotContainsString( 'MODEL-ONLY-UNTRUSTED-KEY-MARKER', (string) wp_json_encode( $error_data['history'] ?? [] ) );
 	}
 
 	/**

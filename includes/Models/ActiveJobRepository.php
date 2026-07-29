@@ -21,6 +21,7 @@ class ActiveJobRepository {
 	/**
 	 * Valid job status values.
 	 *
+	 * - queued                — durable phase is awaiting its one worker claim.
 	 * - processing            — loop is actively running.
 	 * - awaiting_confirmation — paused waiting for user confirmation.
 	 * - awaiting_client_tools — paused waiting for browser to execute JS tools.
@@ -29,7 +30,7 @@ class ActiveJobRepository {
 	 * - interrupted           — PHP request terminated before loop completion (shutdown handler fired).
 	 * - abandoned             — row reaped by the hourly cron because updated_at is stale.
 	 */
-	const STATUSES = [ 'processing', 'awaiting_confirmation', 'awaiting_client_tools', 'complete', 'error', 'interrupted', 'abandoned' ];
+	const STATUSES = [ 'queued', 'processing', 'awaiting_confirmation', 'awaiting_client_tools', 'complete', 'error', 'interrupted', 'abandoned' ];
 
 	/**
 	 * Get the active jobs table name.
@@ -78,6 +79,53 @@ class ActiveJobRepository {
 	}
 
 	/**
+	 * Atomically claim a queued durable-plan job for one worker.
+	 *
+	 * A loopback request can be retried or delivered more than once. Only the
+	 * request that changes this row from queued to processing may execute the
+	 * phase, preventing duplicated site operations.
+	 */
+	public static function claim_queued_job( string $job_id ): bool {
+		global $wpdb;
+		/** @var \wpdb $wpdb */
+
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Conditional status transition is the durable worker claim.
+		$result = $wpdb->query(
+			$wpdb->prepare(
+				"UPDATE %i SET status = 'processing', updated_at = %s WHERE job_id = %s AND status = 'queued'",
+				self::table_name(),
+				current_time( 'mysql', true ),
+				$job_id
+			)
+		);
+
+		return false !== $result && $result > 0;
+	}
+
+	/**
+	 * Atomically return a durable confirmation pause to the queue for one new claim.
+	 *
+	 * A stale confirmation must never overwrite a worker that has already
+	 * resumed or completed the job under a newer token.
+	 */
+	public static function requeue_paused_job( string $job_id ): bool {
+		global $wpdb;
+		/** @var \wpdb $wpdb */
+
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Conditional confirmation transition prevents stale confirmations from reviving a newer job state.
+		$result = $wpdb->query(
+			$wpdb->prepare(
+				"UPDATE %i SET status = 'queued', updated_at = %s WHERE job_id = %s AND status = 'awaiting_confirmation'",
+				self::table_name(),
+				current_time( 'mysql', true ),
+				$job_id
+			)
+		);
+
+		return false !== $result && $result > 0;
+	}
+
+	/**
 	 * Get an active job row by its UUID.
 	 *
 	 * @param string $job_id The job UUID.
@@ -108,7 +156,7 @@ class ActiveJobRepository {
 	 * Get the active (non-terminal) job for a session.
 	 *
 	 * Returns the most-recently-created job that is still in a non-terminal
-	 * state (processing or awaiting_confirmation).
+	 * state (queued, processing, or awaiting_confirmation).
 	 *
 	 * @param int $session_id Session ID.
 	 * @return ActiveJobRow|null Row DTO or null if no active job exists.
@@ -121,7 +169,7 @@ class ActiveJobRepository {
 		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Custom table query; caching not applicable.
 		$row = $wpdb->get_row(
 			$wpdb->prepare(
-				"SELECT * FROM %i WHERE session_id = %d AND status IN ('processing', 'awaiting_confirmation', 'awaiting_client_tools') ORDER BY created_at DESC LIMIT 1",
+				"SELECT * FROM %i WHERE session_id = %d AND status IN ('queued', 'processing', 'awaiting_confirmation', 'awaiting_client_tools') ORDER BY created_at DESC LIMIT 1",
 				$table,
 				$session_id
 			)
@@ -148,7 +196,7 @@ class ActiveJobRepository {
 		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Custom table query; caching not applicable.
 		$rows = $wpdb->get_results(
 			$wpdb->prepare(
-				"SELECT * FROM %i WHERE user_id = %d AND status IN ('processing', 'awaiting_confirmation', 'awaiting_client_tools') ORDER BY created_at DESC",
+				"SELECT * FROM %i WHERE user_id = %d AND status IN ('queued', 'processing', 'awaiting_confirmation', 'awaiting_client_tools') ORDER BY created_at DESC",
 				$table,
 				$user_id
 			)
@@ -382,28 +430,41 @@ class ActiveJobRepository {
 	}
 
 	/**
-	 * Reap stale processing rows by marking them as 'abandoned'.
+	 * Reap stale queued or processing rows by marking them as 'abandoned'.
 	 *
-	 * Rows are considered stale when status='processing' and updated_at has
+	 * Rows are considered stale when their status is queued or processing and updated_at has
 	 * not advanced within the given threshold. Called by the hourly cron job.
 	 *
 	 * @param int $threshold_minutes Number of minutes of inactivity before a row is considered stale.
 	 * @return int Number of rows updated.
 	 */
 	public static function cleanup_stale( int $threshold_minutes ): int {
+		return count( self::reap_stale_jobs( $threshold_minutes ) );
+	}
+
+	/**
+	 * Reap stale queued or processing jobs and return only the rows this call won.
+	 *
+	 * Each candidate is conditionally transitioned so a concurrent heartbeat or
+	 * queued-worker claim can prevent a stale cleanup from overwriting it.
+	 *
+	 * @param int $threshold_minutes Number of minutes of inactivity before a row is considered stale.
+	 * @return list<string> Reaped job UUIDs.
+	 */
+	public static function reap_stale_jobs( int $threshold_minutes ): array {
 		global $wpdb;
 		/** @var \wpdb $wpdb */
 
 		$table = self::table_name();
-		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Custom table query; caching not applicable.
-		$rows  = $wpdb->get_results(
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Candidate discovery is followed by per-row conditional claims.
+		$rows   = $wpdb->get_results(
 			$wpdb->prepare(
-				"SELECT * FROM %i WHERE status = 'processing' AND updated_at < DATE_SUB(UTC_TIMESTAMP(), INTERVAL %d MINUTE)",
+				"SELECT * FROM %i WHERE status IN ('queued', 'processing') AND updated_at < DATE_SUB(UTC_TIMESTAMP(), INTERVAL %d MINUTE)",
 				$table,
 				$threshold_minutes
 			)
 		);
-		$count = 0;
+		$reaped = array();
 
 		foreach ( $rows ?: array() as $raw_row ) {
 			$row        = ActiveJobRow::from_row( $raw_row );
@@ -412,23 +473,24 @@ class ActiveJobRepository {
 				ActiveJobFailureDiagnostic::REASON_WORKER_TERMINATED,
 				$row
 			);
-			// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Conditional custom-table state transition.
+			// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Conditional custom-table state transition prevents stale candidate races.
 			$result = $wpdb->query(
 				$wpdb->prepare(
-					"UPDATE %i SET status = 'abandoned', error = %s, updated_at = UTC_TIMESTAMP() WHERE job_id = %s AND status = 'processing'",
+					"UPDATE %i SET status = 'abandoned', error = %s, updated_at = UTC_TIMESTAMP() WHERE job_id = %s AND status IN ('queued', 'processing') AND updated_at < DATE_SUB(UTC_TIMESTAMP(), INTERVAL %d MINUTE)",
 					$table,
 					ActiveJobFailureDiagnostic::encode( $row->job_id, $diagnostic ),
-					$row->job_id
+					$row->job_id,
+					$threshold_minutes
 				)
 			);
 
 			if ( $result !== false && $result > 0 ) {
-				++$count;
+				$reaped[] = $row->job_id;
 				ActiveJobFailureDiagnostic::log( $diagnostic, $row->session_id );
 			}
 		}
 
-		return $count;
+		return $reaped;
 	}
 
 	/**

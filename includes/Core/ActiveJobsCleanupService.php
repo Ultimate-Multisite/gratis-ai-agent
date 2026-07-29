@@ -4,8 +4,8 @@ declare(strict_types=1);
 /**
  * Active Jobs Cleanup Service — hourly reaper for zombie processing rows.
  *
- * Rows in wp_sd_ai_agent_active_jobs become permanently stuck in
- * status='processing' when the PHP request running an AgentLoop terminates
+ * Rows in wp_sd_ai_agent_active_jobs become permanently stuck in queued or
+ * processing status when the PHP request running an AgentLoop terminates
  * abnormally (PHP fatal, FastCGI/nginx timeout, SIGKILL, OOM, FPM child exit).
  *
  * Two-tier cleanup strategy:
@@ -16,7 +16,7 @@ declare(strict_types=1);
  *
  * 2. Periodic reaper (this class, hourly cron):
  *    For cases where the shutdown handler itself could not run. Marks rows as
- *    'abandoned' when status='processing' and updated_at has not advanced
+ *    'abandoned' when status is queued or processing and updated_at has not advanced
  *    within the configured threshold (default 15 minutes, filterable via
  *    `sd_ai_agent_stale_job_threshold_minutes`).
  *
@@ -48,7 +48,7 @@ class ActiveJobsCleanupService {
 	/**
 	 * Default stale-job threshold in minutes.
 	 *
-	 * A row is considered stale when status='processing' and updated_at has
+	 * A row is considered stale when status is queued or processing and updated_at has
 	 * not advanced within this window. Must be longer than the longest
 	 * expected legitimate single loop iteration (image generation, large RAG
 	 * queries, etc. can legitimately take several minutes).
@@ -92,7 +92,7 @@ class ActiveJobsCleanupService {
 	 * Execute the stale-job reaper (called by WP-Cron).
 	 *
 	 * Marks rows as 'abandoned' when:
-	 *   - status = 'processing', AND
+	 *   - status is queued or processing, AND
 	 *   - updated_at < NOW() - INTERVAL {threshold} MINUTE
 	 *
 	 * The threshold is filterable via `sd_ai_agent_stale_job_threshold_minutes`.
@@ -103,7 +103,7 @@ class ActiveJobsCleanupService {
 	 */
 	public static function run(): void {
 		/**
-		 * Filter the number of minutes of inactivity before a processing row
+		 * Filter the number of minutes of inactivity before a queued or processing row
 		 * is considered stale and reaped by the hourly cron job.
 		 *
 		 * Must be longer than the longest expected legitimate single loop
@@ -114,7 +114,11 @@ class ActiveJobsCleanupService {
 		$threshold = (int) apply_filters( 'sd_ai_agent_stale_job_threshold_minutes', self::DEFAULT_THRESHOLD_MINUTES );
 		$threshold = max( 1, $threshold );
 
-		$count = ActiveJobRepository::cleanup_stale( $threshold );
+		$job_ids = ActiveJobRepository::reap_stale_jobs( $threshold );
+		foreach ( $job_ids as $job_id ) {
+			DurablePlanRunner::mark_phase_interrupted_by_job( $job_id );
+		}
+		$count = count( $job_ids );
 		/**
 		 * Filter the number of days to retain undelivered terminal job diagnostics.
 		 *

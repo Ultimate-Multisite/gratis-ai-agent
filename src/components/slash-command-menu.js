@@ -62,6 +62,14 @@ const COMMANDS = [
 		action: 'compact',
 	},
 	{
+		name: '/plan',
+		description: __(
+			'Prepare a phased site-operation plan (type request after)',
+			'superdav-ai-agent'
+		),
+		action: 'plan',
+	},
+	{
 		name: '/help',
 		description: __( 'Show keyboard shortcuts', 'superdav-ai-agent' ),
 		action: 'help',

@@ -458,6 +458,22 @@ export const actions = {
 					if ( liveActivity.length ) {
 						lastLiveActivity = liveActivity;
 					}
+					const durablePlan = result?.durable_plan;
+					if ( durablePlan?.plan_id ) {
+						import(
+							/* webpackChunkName: "durable-plan-actions" */
+							'./durable-plan-actions'
+						)
+							.then( ( { syncDurablePlanCard } ) =>
+								syncDurablePlanCard(
+									{ dispatch, select },
+									durablePlan,
+									sessionId,
+									result.status
+								)
+							)
+							.catch( () => undefined );
+					}
 
 					if ( result.status === 'processing' ) {
 						// Update per-session job state for ALL sessions.
@@ -804,9 +820,14 @@ export const actions = {
 						// previous tool call). Clear the card before rendering the
 						// terminal error so the UI cannot submit a confirmation for a
 						// job that has already been closed.
-						if ( select.getCurrentSessionId() === sessionId ) {
+						const isDurablePlan = durablePlan?.plan_id;
+						const isCurrentSession =
+							select.getCurrentSessionId() === sessionId;
+						if ( isCurrentSession ) {
 							dispatch.setPendingConfirmation?.( null );
-							dispatch.setPendingActionCard?.( null );
+							if ( ! isDurablePlan ) {
+								dispatch.setPendingActionCard?.( null );
+							}
 							clearNotification( jobId );
 						}
 						const rawErrorMessage =
@@ -852,7 +873,7 @@ export const actions = {
 							'superdav-ai-agent'
 						) } ${ errorMessage }`;
 
-						if ( select.getCurrentSessionId() === sessionId ) {
+						if ( isCurrentSession ) {
 							let sessionReloaded = false;
 							const payloadRecovery = result.payload_recovery;
 							const sourceSessionId = Number(
@@ -899,25 +920,27 @@ export const actions = {
 								role: 'system',
 								parts: [ { text: errorText } ],
 							} );
-							if ( canCompactConversation ) {
-								dispatch.setPendingActionCard( {
-									type: 'compact_session',
-									sessionId,
-									sourceSessionId,
-								} );
-							} else if ( result.recoverable ) {
-								dispatch.setPendingActionCard( {
-									type: 'resume_recoverable_job',
-									sessionId,
-									diagnostic: failureDiagnostic,
-								} );
-							} else if ( failureDiagnostic ) {
-								dispatch.setPendingActionCard(
-									failureHelpers.buildActiveJobFailureCard(
+							if ( ! isDurablePlan ) {
+								if ( canCompactConversation ) {
+									dispatch.setPendingActionCard( {
+										type: 'compact_session',
 										sessionId,
-										failureDiagnostic
-									)
-								);
+										sourceSessionId,
+									} );
+								} else if ( result.recoverable ) {
+									dispatch.setPendingActionCard( {
+										type: 'resume_recoverable_job',
+										sessionId,
+										diagnostic: failureDiagnostic,
+									} );
+								} else if ( failureDiagnostic ) {
+									dispatch.setPendingActionCard(
+										failureHelpers.buildActiveJobFailureCard(
+											sessionId,
+											failureDiagnostic
+										)
+									);
+								}
 							}
 							if ( ! isCreditNotice && ! failureDiagnostic ) {
 								dispatch.setStreamError( true, sessionId );

@@ -77,12 +77,13 @@ export default function ChatRedesign( { uiMode = getChatUiMode() } = {} ) {
 		[]
 	);
 
+	const durablePlanDispatchers = useDispatch( STORE_NAME );
 	const {
 		confirmToolCall,
 		rejectToolCall,
 		retryClientToolSubmission,
 		setPendingActionCard,
-	} = useDispatch( STORE_NAME );
+	} = durablePlanDispatchers;
 
 	// Auto-confirm pending tool calls when YOLO is on.
 	useEffect( () => {
@@ -132,6 +133,116 @@ export default function ChatRedesign( { uiMode = getChatUiMode() } = {} ) {
 			refreshChangesCount();
 		}
 	}, [ sending, currentSessionId, refreshChangesCount ] );
+
+	useEffect( () => {
+		let active = true;
+		if (
+			! currentSessionId ||
+			isSimpleMode ||
+			( pendingActionCard &&
+				pendingActionCard.type !== 'durable_plan' ) ||
+			( pendingActionCard?.type === 'durable_plan' &&
+				pendingActionCard.sessionId === currentSessionId )
+		) {
+			return () => {
+				active = false;
+			};
+		}
+
+		if ( pendingActionCard?.type === 'durable_plan' ) {
+			setPendingActionCard( null );
+		}
+
+		import(
+			/* webpackChunkName: "durable-plan-actions" */
+			'../../store/slices/durable-plan-actions'
+		)
+			.then( ( { loadDurablePlan } ) =>
+				loadDurablePlan( currentSessionId )
+			)
+			.then( ( plan ) => {
+				if (
+					! active ||
+					! plan ||
+					[ 'completed', 'cancelled' ].includes( plan.status )
+				) {
+					return;
+				}
+				setPendingActionCard( {
+					type: 'durable_plan',
+					sessionId: currentSessionId,
+					plan,
+				} );
+			} )
+			.catch( () => undefined );
+
+		return () => {
+			active = false;
+		};
+	}, [
+		currentSessionId,
+		isSimpleMode,
+		pendingActionCard,
+		setPendingActionCard,
+	] );
+
+	const runDurablePlanAction = useCallback(
+		( actionName ) => {
+			import(
+				/* webpackChunkName: "durable-plan-actions" */
+				'../../store/slices/durable-plan-actions'
+			)
+				.then( ( { runDurablePlanAction: runAction } ) =>
+					runAction( actionName, {
+						dispatch: durablePlanDispatchers,
+						card: pendingActionCard,
+					} )
+				)
+				.catch( ( error ) => {
+					durablePlanDispatchers.appendMessage( {
+						role: 'system',
+						parts: [
+							{
+								text: `${ __(
+									'Error:',
+									'superdav-ai-agent'
+								) } ${
+									error instanceof Error
+										? error.message
+										: __(
+												'Unable to load the durable plan action.',
+												'superdav-ai-agent'
+										  )
+								}`,
+							},
+						],
+					} );
+					durablePlanDispatchers.setSending( false );
+				} );
+		},
+		[ durablePlanDispatchers, pendingActionCard ]
+	);
+
+	const handleDurablePlanConfirm = useCallback( () => {
+		const status = pendingActionCard?.plan?.status;
+		if ( status === 'awaiting_approval' ) {
+			runDurablePlanAction( 'approve' );
+			return;
+		}
+		if ( [ 'failed', 'blocked' ].includes( status ) ) {
+			runDurablePlanAction( 'retry' );
+			return;
+		}
+		runDurablePlanAction( 'continue' );
+	}, [ pendingActionCard, runDurablePlanAction ] );
+
+	const handleDurablePlanCancel = useCallback( () => {
+		if ( pendingActionCard?.plan?.status === 'awaiting_approval' ) {
+			runDurablePlanAction( 'reject' );
+			return;
+		}
+		runDurablePlanAction( 'cancel' );
+	}, [ pendingActionCard, runDurablePlanAction ] );
 
 	return (
 		<div
@@ -200,6 +311,23 @@ export default function ChatRedesign( { uiMode = getChatUiMode() } = {} ) {
 									onCancel={ () =>
 										setPendingActionCard( null )
 									}
+								/>
+							</ErrorBoundary>
+						) }
+
+					{ pendingActionCard?.type === 'durable_plan' &&
+						pendingActionCard.sessionId === currentSessionId &&
+						! isSimpleMode && (
+							<ErrorBoundary
+								label={ __(
+									'Durable site operation plan',
+									'superdav-ai-agent'
+								) }
+							>
+								<ActionCard
+									card={ pendingActionCard }
+									onConfirm={ handleDurablePlanConfirm }
+									onCancel={ handleDurablePlanCancel }
 								/>
 							</ErrorBoundary>
 						) }
