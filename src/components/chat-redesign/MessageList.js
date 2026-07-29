@@ -111,6 +111,7 @@ export default function MessageList() {
 	const [ unseenCount, setUnseenCount ] = useState( 0 );
 	const [ thumbsDownMessageIndex, setThumbsDownMessageIndex ] =
 		useState( null );
+	const [ compactError, setCompactError ] = useState( '' );
 
 	// TTS hook — mirrors the old message-list.js TTS integration.
 	const { speak, cancel } = useTextToSpeech( {
@@ -267,10 +268,20 @@ export default function MessageList() {
 	};
 
 	const compactAndContinue = useCallback( async () => {
+		setCompactError( '' );
 		const compacted = await compactConversation();
-		if ( compacted ) {
+		if ( compacted === true ) {
 			setPendingActionCard( null );
+			return;
 		}
+
+		setCompactError(
+			compacted?.error ||
+				__(
+					'Unable to compact this conversation. Please try again.',
+					'superdav-ai-agent'
+				)
+		);
 	}, [ compactConversation, setPendingActionCard ] );
 
 	// ── Derived values ────────────────────────────────────────────────────────
@@ -397,6 +408,7 @@ export default function MessageList() {
 						pendingActionCard.sessionId === currentSessionId &&
 						! sending && (
 							<CompactConversationActionCard
+								error={ compactError }
 								onConfirm={ compactAndContinue }
 								onCancel={ () => setPendingActionCard( null ) }
 							/>

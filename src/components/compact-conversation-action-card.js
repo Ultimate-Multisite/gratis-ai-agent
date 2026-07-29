@@ -9,11 +9,13 @@ import { __ } from '@wordpress/i18n';
  * @param {Object}   props
  * @param {Function} props.onConfirm Creates and opens the bounded continuation.
  * @param {Function} props.onCancel  Dismisses the action.
+ * @param {string}   props.error     Latest compaction failure message.
  * @return {JSX.Element} Compaction action card.
  */
 export default function CompactConversationActionCard( {
 	onConfirm,
 	onCancel,
+	error = '',
 } ) {
 	return (
 		<div className="sdaa-action-card">
@@ -24,6 +26,7 @@ export default function CompactConversationActionCard( {
 						'superdav-ai-agent'
 					) }
 				</p>
+				{ error && <p role="alert">{ error }</p> }
 			</div>
 			<div className="sdaa-action-card-footer">
 				<button

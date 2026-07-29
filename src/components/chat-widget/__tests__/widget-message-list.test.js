@@ -226,4 +226,54 @@ describe( 'WidgetMessageList compact conversation action card', () => {
 			root.unmount();
 		} );
 	} );
+
+	test( 'keeps the compact card and shows a compaction failure', async () => {
+		const compactConversation = jest.fn().mockResolvedValue( {
+			error: 'Compaction service unavailable',
+		} );
+		const setPendingActionCard = jest.fn();
+		const selectors = {
+			getCurrentSessionMessages: () => [],
+			isSending: () => false,
+			getCurrentSessionId: () => 123,
+			getLiveToolCalls: () => [],
+			getSessionJobs: () => ( {} ),
+			getSettings: () => ( {} ),
+			hasStreamError: () => true,
+			getPendingActionCard: () => ( {
+				type: 'compact_session',
+				sessionId: 123,
+			} ),
+			getProviders: () => [],
+		};
+		useSelect.mockImplementation( ( fn ) => fn( () => selectors ) );
+		useDispatch.mockReturnValue( {
+			sendMessage: jest.fn(),
+			retryLastMessage: jest.fn(),
+			compactConversation,
+			setPendingActionCard,
+		} );
+
+		const container = document.createElement( 'div' );
+		document.body.appendChild( container );
+		const root = createRoot( container );
+		await act( async () => {
+			root.render( createElement( WidgetMessageList ) );
+		} );
+
+		await act( async () => {
+			container
+				.querySelector( '.sdaa-action-card-btn-confirm' )
+				.dispatchEvent( new MouseEvent( 'click', { bubbles: true } ) );
+		} );
+
+		expect( container.textContent ).toContain(
+			'Compaction service unavailable'
+		);
+		expect( setPendingActionCard ).not.toHaveBeenCalledWith( null );
+
+		await act( async () => {
+			root.unmount();
+		} );
+	} );
 } );

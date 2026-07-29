@@ -1423,8 +1423,16 @@ export const actions = {
 				dispatch.resetSessionTokens();
 				dispatch.fetchSessions();
 				return true;
-			} catch {
-				return false;
+			} catch ( error ) {
+				return {
+					error:
+						error instanceof Error
+							? error.message
+							: __(
+									'Unable to compact this conversation. Please try again.',
+									'superdav-ai-agent'
+							  ),
+				};
 			}
 		};
 	},

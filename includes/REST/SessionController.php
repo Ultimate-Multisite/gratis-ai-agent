@@ -3369,7 +3369,6 @@ final class SessionController {
 					$job
 				);
 			}
-			}
 
 			// Log webhook execution failure.
 			if ( ! empty( $job['webhook_id'] ) ) {

@@ -402,6 +402,28 @@ describe( 'actions', () => {
 		expect( dispatch.sendMessage ).not.toHaveBeenCalled();
 	} );
 
+	test( 'compactConversation returns a display-safe failure message', async () => {
+		apiFetch.mockReset();
+		apiFetch.mockRejectedValue(
+			new Error( 'Compaction service unavailable' )
+		);
+		const dispatch = {};
+		const select = {
+			getCurrentSessionId: jest.fn( () => 12 ),
+			getSelectedProviderId: jest.fn( () => 'openai' ),
+			getSelectedModelId: jest.fn( () => 'gpt-test' ),
+		};
+
+		const result = await actions.compactConversation()( {
+			dispatch,
+			select,
+		} );
+
+		expect( result ).toEqual( {
+			error: 'Compaction service unavailable',
+		} );
+	} );
+
 	test( 'retryLastMessage rewinds to the last user message and resends it', async () => {
 		const dispatch = {
 			truncateMessagesTo: jest.fn(),
@@ -1030,7 +1052,10 @@ describe( 'actions', () => {
 		};
 
 		try {
-			actions.pollJob( 'mismatched-payload-job', 17 )( {
+			actions.pollJob(
+				'mismatched-payload-job',
+				17
+			)( {
 				dispatch,
 				select,
 			} );

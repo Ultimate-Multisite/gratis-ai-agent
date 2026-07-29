@@ -103,6 +103,7 @@ export default function WidgetMessageList() {
 	const [ unseenCount, setUnseenCount ] = useState( 0 );
 	const [ thumbsDownMessageIndex, setThumbsDownMessageIndex ] =
 		useState( null );
+	const [ compactError, setCompactError ] = useState( '' );
 
 	// ── Compute visible messages ──────────────────────────────────────────────
 	// Placed before effects so visibleCountRef is updated before they fire.
@@ -195,10 +196,20 @@ export default function WidgetMessageList() {
 	}, [] );
 
 	const compactAndContinue = useCallback( async () => {
+		setCompactError( '' );
 		const compacted = await compactConversation();
-		if ( compacted ) {
+		if ( compacted === true ) {
 			setPendingActionCard( null );
+			return;
 		}
+
+		setCompactError(
+			compacted?.error ||
+				__(
+					'Unable to compact this conversation. Please try again.',
+					'superdav-ai-agent'
+				)
+		);
 	}, [ compactConversation, setPendingActionCard ] );
 
 	// ── Derived values ────────────────────────────────────────────────────────
@@ -304,6 +315,7 @@ export default function WidgetMessageList() {
 						pendingActionCard.sessionId === currentSessionId &&
 						! sending && (
 							<CompactConversationActionCard
+								error={ compactError }
 								onConfirm={ compactAndContinue }
 								onCancel={ () => setPendingActionCard( null ) }
 							/>
