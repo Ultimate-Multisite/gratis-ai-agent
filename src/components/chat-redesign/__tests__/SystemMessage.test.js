@@ -6,7 +6,7 @@ import { createElement } from '@wordpress/element';
 import { createRoot } from 'react-dom/client';
 import { act } from 'react';
 
-import AccountActionSystemMessage from '../account-action-system-message';
+import AccountActionMessage from '../../chat-messages/account-action-message';
 
 global.IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -43,28 +43,29 @@ jest.mock( '../../../utils/linkify', () => ( {
  * @param {Object} props Component props.
  * @return {Promise<Object>} Render result.
  */
-async function renderAccountActionSystemMessage( props ) {
+async function renderAccountActionMessage( props ) {
 	const container = document.createElement( 'div' );
 	document.body.appendChild( container );
 	const root = createRoot( container );
 	await act( async () => {
-		root.render( createElement( AccountActionSystemMessage, props ) );
+		root.render( createElement( AccountActionMessage, props ) );
 	} );
 	return { container, root };
 }
 
-describe( 'AccountActionSystemMessage', () => {
+describe( 'AccountActionMessage', () => {
 	afterEach( () => {
 		document.body.innerHTML = '';
 	} );
 
-	test( 'renders Superdav credit notices as account actions', async () => {
-		const { container, root } = await renderAccountActionSystemMessage( {
-			notice: [
-				"You've used all of your available SD AI credits. Purchase more credits in your account settings to continue using Standard.",
-				'https://account.example.test/login',
-				'credit_exhausted',
-			],
+	test( 'renders managed-credit notices as account actions', async () => {
+		const { container, root } = await renderAccountActionMessage( {
+			notice: {
+				type: 'account_action',
+				reason: 'credit_exhausted',
+				action: 'purchase_credits',
+				actionUrl: 'https://account.example.test/login',
+			},
 		} );
 
 		expect(

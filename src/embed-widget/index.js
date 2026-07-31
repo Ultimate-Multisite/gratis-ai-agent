@@ -8,6 +8,11 @@
  */
 
 import './style.css';
+import {
+	buildSuperdavCreditNoticeMessage,
+	CREDIT_EXHAUSTED_REASON,
+	PURCHASE_CREDITS_ACTION,
+} from '../utils/superdav-credit-notice';
 
 const DEFAULTS = {
 	apiBase: '',
@@ -425,36 +430,51 @@ export function getAccountSettingsUrl( apiBase ) {
 /**
  * Render the safe managed-credit account action without provider error text.
  *
- * @param {HTMLElement} item       Message element receiving the notice.
- * @param {string}      accountUrl Safe WordPress admin settings URL.
+ * @param {HTMLElement} item   Message element receiving the notice.
+ * @param {Object}      notice Semantic account-action notice.
  * @return {void}
  */
-export function renderCreditExhaustedNotice( item, accountUrl ) {
+export function renderAccountActionNotice( item, notice ) {
+	if (
+		notice?.reason !== CREDIT_EXHAUSTED_REASON ||
+		notice?.action !== PURCHASE_CREDITS_ACTION
+	) {
+		item.textContent = STRINGS.unavailable;
+		return;
+	}
+
+	const accountUrl = notice.actionUrl;
 	item.textContent = '';
 	item.appendChild(
 		document.createTextNode(
-			"You've used all of your available Superdav credits. Purchase more credits in your "
+			"You've used all of your available SD AI credits. Purchase more credits in your "
 		)
 	);
 
-	const inlineLink = document.createElement( 'a' );
-	inlineLink.className = 'sdaa-embed__credit-inline-link';
-	inlineLink.href = accountUrl;
-	inlineLink.target = '_blank';
-	inlineLink.rel = 'noopener noreferrer';
-	inlineLink.textContent = 'account settings';
-	item.appendChild( inlineLink );
+	if ( accountUrl ) {
+		const inlineLink = document.createElement( 'a' );
+		inlineLink.className = 'sdaa-embed__credit-inline-link';
+		inlineLink.href = accountUrl;
+		inlineLink.target = '_blank';
+		inlineLink.rel = 'noopener noreferrer';
+		inlineLink.textContent = 'account settings';
+		item.appendChild( inlineLink );
+	} else {
+		item.appendChild( document.createTextNode( 'account settings' ) );
+	}
 	item.appendChild(
-		document.createTextNode( ' to continue using Superdav Chat Pro.' )
+		document.createTextNode( ' to continue using Standard.' )
 	);
 
-	const action = document.createElement( 'a' );
-	action.className = 'sdaa-embed__credit-action';
-	action.href = accountUrl;
-	action.target = '_blank';
-	action.rel = 'noopener noreferrer';
-	action.textContent = 'Purchase credits';
-	item.appendChild( action );
+	if ( accountUrl ) {
+		const action = document.createElement( 'a' );
+		action.className = 'sdaa-embed__credit-action';
+		action.href = accountUrl;
+		action.target = '_blank';
+		action.rel = 'noopener noreferrer';
+		action.textContent = 'Purchase credits';
+		item.appendChild( action );
+	}
 }
 
 /**
@@ -650,10 +670,14 @@ export function mountEmbed( config ) {
 				status = await client.poll( run.job_id, sessionToken );
 			}
 			if ( status.status !== 'complete' ) {
-				if ( status?.diagnostic?.reason === 'credit_exhausted' ) {
-					renderCreditExhaustedNotice(
+				if ( status?.diagnostic?.reason === CREDIT_EXHAUSTED_REASON ) {
+					renderAccountActionNotice(
 						pending,
-						getAccountSettingsUrl( config.apiBase )
+						buildSuperdavCreditNoticeMessage( [], {
+							settingsPageUrl: getAccountSettingsUrl(
+								config.apiBase
+							),
+						} ).notice
 					);
 					return;
 				}

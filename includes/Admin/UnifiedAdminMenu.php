@@ -315,6 +315,7 @@ class UnifiedAdminMenu {
 				'initialRoute'         => self::getCurrentRoute(),
 				'menuItems'            => self::getMenuItems(),
 				'connectorsUrl'        => self::getConnectorsUrl(),
+				'settingsPageUrl'      => admin_url( 'admin.php?page=sd-ai-agent#/settings' ),
 				'connectorsAvailable'  => self::hasNativeConnectorsPage() || self::hasGutenbergConnectorsPage() ? '1' : '',
 				'screenshotOrigins'    => self::getScreenshotAllowedOrigins(),
 				'onboarding_complete'  => \SdAiAgent\Core\OnboardingManager::is_complete(),

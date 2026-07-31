@@ -29,12 +29,23 @@
  */
 
 /**
+ * A semantic account action attached to a system message.
+ *
+ * @typedef {Object} AccountActionNotice
+ * @property {'account_action'}   type        - Notice presentation type.
+ * @property {'credit_exhausted'} reason      - Safe account state identifier.
+ * @property {'purchase_credits'} action      - Account action identifier.
+ * @property {string}             [actionUrl] - Safe absolute account destination.
+ * @property {string}             [message]   - Optional fallback copy for unknown actions.
+ */
+
+/**
  * A single chat message.
  *
  * @typedef {Object} Message
  * @property {'user'|'model'|'system'|'function'} role        - Message role.
  * @property {MessagePart[]}                      [parts]     - Message content parts.
- * @property {Array}                              [notice]    - Optional UI notice metadata for system messages.
+ * @property {AccountActionNotice}                [notice]    - Semantic UI notice for a system message.
  * @property {ToolCall[]}                         [toolCalls] - Tool calls attached to this message.
  * @property {MessageDebug}                       [debug]     - Debug metadata (debug mode only).
  */

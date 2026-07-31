@@ -8,6 +8,11 @@
 
 import { __ } from '@wordpress/i18n';
 
+export {
+	buildSuperdavCreditNoticeMessage,
+	isSuperdavCreditBalanceNotice,
+} from '../../utils/superdav-credit-notice';
+
 const ACTIVE_JOB_FAILURE_REASONS = [
 	'local_payload_guard',
 	'upstream_payload_rejection',

@@ -50,10 +50,13 @@ describe( 'embed widget', () => {
 
 	test( 'renders managed-credit notices with linked settings text and CTA', () => {
 		const message = document.createElement( 'div' );
-		module.renderCreditExhaustedNotice(
-			message,
-			'https://example.test/wp-admin/admin.php?page=sd-ai-agent#/settings'
-		);
+		module.renderAccountActionNotice( message, {
+			type: 'account_action',
+			reason: 'credit_exhausted',
+			action: 'purchase_credits',
+			actionUrl:
+				'https://example.test/wp-admin/admin.php?page=sd-ai-agent#/settings',
+		} );
 
 		const links = message.querySelectorAll( 'a' );
 		expect( message.textContent ).toContain(

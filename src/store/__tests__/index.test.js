@@ -1090,11 +1090,12 @@ describe( 'actions', () => {
 		expect( dispatch.appendMessage ).toHaveBeenCalledWith(
 			expect.objectContaining( {
 				role: 'system',
-				notice: [
-					expect.stringContaining( 'Purchase more credits' ),
-					'https://account.example.test/login',
-					'credit_exhausted',
-				],
+				notice: {
+					type: 'account_action',
+					reason: 'credit_exhausted',
+					action: 'purchase_credits',
+					actionUrl: 'https://account.example.test/login',
+				},
 			} )
 		);
 		// The stale terminal card is cleared, but no generic failure card replaces it.

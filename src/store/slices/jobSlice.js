@@ -15,7 +15,6 @@ import {
 } from '../../utils/notification-manager';
 import { playDing, playDong, playThinking } from '../../utils/sound-manager';
 import { executeClientAbility } from '../../abilities/registry';
-import { buildSuperdavCreditNoticeMessage } from '../../utils/superdav-credit-notice';
 import { emitReflectionEvents } from '../reflection-emitter';
 
 /**
@@ -837,43 +836,49 @@ export const actions = {
 						const hasFailureDiagnostic = !! result.diagnostic;
 						let failureDiagnostic = null;
 						let failureHelpers = null;
-						let errorMessage = rawErrorMessage;
+						let errorMessage = __(
+							'The request could not be completed. Retry shortly or contact support if it continues.',
+							'superdav-ai-agent'
+						);
 
-						if ( hasFailureDiagnostic ) {
-							try {
-								// Failure copy and validation are only needed after a
-								// terminal error, so keep them out of the launch bundle.
-								failureHelpers = await import(
-									/* webpackChunkName: "active-job-failure-diagnostic" */
-									'./active-job-failure-diagnostic'
-								);
-								failureDiagnostic =
-									failureHelpers.getFailureDiagnostic(
-										result.diagnostic
-									);
-								errorMessage =
-									failureHelpers.getActiveJobFailureMessage(
-										failureDiagnostic
-									);
-							} catch {
-								// A failed optional chunk must not surface raw provider
-								// errors or leave the terminal job cleanup incomplete.
-								errorMessage = __(
-									'Recovery details unavailable.',
-									'superdav-ai-agent'
-								);
-							}
+						try {
+							// Failure copy, validation, and account actions are only
+							// needed after a terminal error, so keep them out of the
+							// floating-widget launch bundle.
+							failureHelpers = await import(
+								/* webpackChunkName: "active-job-failure-diagnostic" */
+								'./active-job-failure-diagnostic'
+							);
+						} catch {
+							// Continue terminal cleanup with generic, display-safe copy.
 						}
-						const isCreditNotice =
-							failureDiagnostic?.reason === 'credit_exhausted' ||
-							( ! hasFailureDiagnostic &&
-								/superdav.*credit|credit.*superdav/i.test(
+
+						if ( hasFailureDiagnostic && failureHelpers ) {
+							failureDiagnostic =
+								failureHelpers.getFailureDiagnostic(
+									result.diagnostic
+								);
+							errorMessage =
+								failureHelpers.getActiveJobFailureMessage(
+									failureDiagnostic
+								);
+						}
+
+						const isCreditNotice = hasFailureDiagnostic
+							? failureDiagnostic?.reason === 'credit_exhausted'
+							: !! failureHelpers?.isSuperdavCreditBalanceNotice(
 									rawErrorMessage
-								) );
+							  );
 						const errorText = `${ __(
 							'Error:',
 							'superdav-ai-agent'
 						) } ${ errorMessage }`;
+						const creditNoticeMessage =
+							isCreditNotice && failureHelpers
+								? failureHelpers.buildSuperdavCreditNoticeMessage(
+										select.getProviders?.() || []
+								  )
+								: null;
 
 						if ( isCurrentSession ) {
 							let sessionReloaded = false;
@@ -920,9 +925,7 @@ export const actions = {
 
 							dispatch.appendMessage(
 								isCreditNotice
-									? buildSuperdavCreditNoticeMessage(
-											select.getProviders?.() || []
-									  )
+									? creditNoticeMessage
 									: {
 											role: 'system',
 											parts: [ { text: errorText } ],
