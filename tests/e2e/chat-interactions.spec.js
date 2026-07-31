@@ -46,12 +46,10 @@ const {
  *   `status: 'processing'` before the handler switches to `status: 'complete'`.
  *   Use `processingPolls: 1` in the stop-button test so `sending` stays true
  *   long enough for the assertion to observe the stop button.
- * @param {Array} [options.sessionMessages] - Persisted messages returned after
- *   completion to exercise session hydration.
  * @return {Promise<void>}
  */
 async function interceptStream( page, options = {} ) {
-	const { generatedTitle, processingPolls = 0, sessionMessages = [] } = options;
+	const { generatedTitle, processingPolls = 0 } = options;
 	let jobPollCount = 0;
 
 	// Track the session_id from the /run POST body so the job-complete payload
@@ -146,7 +144,7 @@ async function interceptStream( page, options = {} ) {
 					title: 'Untitled',
 					status: 'active',
 					user_id: 1,
-					messages: sessionMessages,
+					messages: [],
 					tool_calls: [],
 				} ),
 			} );
@@ -463,38 +461,65 @@ test.describe( 'Chat Input Interactions', () => {
 	} );
 
 	test( 'rehydrated history keeps each turn model label', async ( { page } ) => {
-		await interceptStream( page, {
-			sessionMessages: [
-				{
-					role: 'user',
-					parts: [ { text: 'First turn' } ],
-					provider_id: 'superdav',
-					model_id: 'superdav-chat-fast',
-				},
-				{
-					role: 'model',
-					parts: [ { text: 'First reply' } ],
-					provider_id: 'superdav',
-					model_id: 'superdav-chat-fast',
-				},
-				{
-					role: 'user',
-					parts: [ { text: 'Second turn' } ],
-					provider_id: 'superdav',
-					model_id: 'superdav-chat-pro',
-				},
-				{
-					role: 'model',
-					parts: [ { text: 'Second reply' } ],
-					provider_id: 'superdav',
-					model_id: 'superdav-chat-pro',
-				},
-			],
-		} );
+		const sessionId = 2393;
+		const sessionPath = `/sd-ai-agent/v1/sessions/${ sessionId }`;
+		await page.route(
+			( url ) => {
+				const decoded = decodeURIComponent( url.toString() );
+				return (
+					decoded.includes( sessionPath ) &&
+					! decoded.includes( `${ sessionPath }/` )
+				);
+			},
+			async ( route ) => {
+				await route.fulfill( {
+					status: 200,
+					contentType: 'application/json',
+					body: JSON.stringify( {
+						id: sessionId,
+						title: 'Mixed-model history',
+						status: 'active',
+						user_id: 1,
+						messages: [
+							{
+								role: 'user',
+								parts: [ { text: 'First turn' } ],
+								provider_id: 'superdav',
+								model_id: 'superdav-chat-fast',
+							},
+							{
+								role: 'model',
+								parts: [ { text: 'First reply' } ],
+								provider_id: 'superdav',
+								model_id: 'superdav-chat-fast',
+							},
+							{
+								role: 'user',
+								parts: [ { text: 'Second turn' } ],
+								provider_id: 'superdav',
+								model_id: 'superdav-chat-pro',
+							},
+							{
+								role: 'model',
+								parts: [ { text: 'Second reply' } ],
+								provider_id: 'superdav',
+								model_id: 'superdav-chat-pro',
+							},
+						],
+						tool_calls: [],
+					} ),
+				} );
+			}
+		);
 
-		const input = getMessageInput( page );
-		await input.fill( 'Load mixed-model history' );
-		await input.press( 'Enter' );
+		await page.waitForFunction(
+			() =>
+				typeof window.wp?.data?.dispatch( 'sd-ai-agent' )?.openSession ===
+				'function'
+		);
+		await page.evaluate( async ( id ) => {
+			await window.wp.data.dispatch( 'sd-ai-agent' ).openSession( id );
+		}, sessionId );
 
 		const modelLabels = page.locator(
 			'.sdaa-cr-msg-user .sdaa-cr-msg-meta-model'
