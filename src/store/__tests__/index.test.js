@@ -1436,6 +1436,38 @@ describe( 'reducer', () => {
 		expect( state.currentSessionToolCalls ).toEqual( [ { type: 'call' } ] );
 	} );
 
+	test( 'SET_CURRENT_SESSION preserves per-turn model metadata during hydration', () => {
+		const messages = [
+			{
+				role: 'user',
+				parts: [ { text: 'First turn' } ],
+				provider_id: 'superdav',
+				model_id: 'fast',
+			},
+			{
+				role: 'model',
+				parts: [ { text: 'First reply' } ],
+				provider_id: 'superdav',
+				model_id: 'fast',
+			},
+			{
+				role: 'user',
+				parts: [ { text: 'Second turn' } ],
+				provider_id: 'superdav',
+				model_id: 'pro',
+			},
+		];
+		const state = reducer( DEFAULT_STATE, {
+			type: 'SET_CURRENT_SESSION',
+			sessionId: 7,
+			messages,
+			toolCalls: [],
+		} );
+
+		expect( state.currentSessionMessages[ 0 ].model_id ).toBe( 'fast' );
+		expect( state.currentSessionMessages[ 2 ].model_id ).toBe( 'pro' );
+	} );
+
 	test( 'CLEAR_CURRENT_SESSION resets session state and token usage', () => {
 		const populated = {
 			...DEFAULT_STATE,

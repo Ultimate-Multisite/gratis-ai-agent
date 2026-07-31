@@ -80,13 +80,20 @@ jest.mock( '../../../utils/linkify', () => ( {
  * @param {boolean} [root0.sending=false] Whether the store is currently sending.
  * @return {Object} Mock store selector map.
  */
-function buildStoreSelectors( { index, editing = true, sending = false } ) {
+function buildStoreSelectors( {
+	index,
+	editing = true,
+	sending = false,
+	providers = [],
+	selectedProviderId = 'anthropic-max',
+	selectedModelId = 'claude-sonnet-4-6',
+} ) {
 	return {
 		isSending: () => sending,
 		getMessageTokens: () => [],
-		getProviders: () => [],
-		getSelectedProviderId: () => 'anthropic-max',
-		getSelectedModelId: () => 'claude-sonnet-4-6',
+		getProviders: () => providers,
+		getSelectedProviderId: () => selectedProviderId,
+		getSelectedModelId: () => selectedModelId,
 		getEditingMessageIndex: () => ( editing ? index : null ),
 	};
 }
@@ -274,5 +281,83 @@ describe( 'UserMessage handleSubmit (GH#1495)', () => {
 
 		expect( editAndResend ).not.toHaveBeenCalled();
 		expect( setEditingMessageIndex ).toHaveBeenCalledWith( null );
+	} );
+} );
+
+describe( 'UserMessage model labels (GH#2393)', () => {
+	let container;
+	let root;
+
+	afterEach( async () => {
+		if ( root ) {
+			await act( async () => {
+				root.unmount();
+			} );
+			document.body.removeChild( container );
+			root = undefined;
+			container = undefined;
+		}
+		jest.clearAllMocks();
+	} );
+
+	test( 'uses the model captured on the historical message, not the current selection', async () => {
+		setupMocks( {
+			selectors: buildStoreSelectors( {
+				index: 0,
+				editing: false,
+				providers: [
+					{
+						id: 'superdav',
+						models: [
+							{ id: 'fast', name: 'Superdav Chat Fast' },
+							{ id: 'pro', name: 'Superdav Chat Pro' },
+						],
+					},
+				],
+				selectedProviderId: 'superdav',
+				selectedModelId: 'pro',
+			} ),
+			dispatchMap: {
+				editAndResend: jest.fn(),
+				setEditingMessageIndex: jest.fn(),
+			},
+		} );
+
+		const rendered = await renderUserMessage( {
+			index: 0,
+			msg: {
+				role: 'user',
+				parts: [ { text: 'First turn' } ],
+				provider_id: 'superdav',
+				model_id: 'fast',
+			},
+		} );
+		container = rendered.container;
+		root = rendered.root;
+
+		expect(
+			container.querySelector( '.sdaa-cr-msg-meta-model' ).textContent
+		).toBe( 'Superdav Chat Fast' );
+	} );
+
+	test( 'omits a label when historical model metadata is unavailable', async () => {
+		setupMocks( {
+			selectors: buildStoreSelectors( { index: 0, editing: false } ),
+			dispatchMap: {
+				editAndResend: jest.fn(),
+				setEditingMessageIndex: jest.fn(),
+			},
+		} );
+
+		const rendered = await renderUserMessage( {
+			index: 0,
+			msg: { role: 'user', parts: [ { text: 'Legacy turn' } ] },
+		} );
+		container = rendered.container;
+		root = rendered.root;
+
+		expect(
+			container.querySelector( '.sdaa-cr-msg-meta-model' )
+		).toBeNull();
 	} );
 } );

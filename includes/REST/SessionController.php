@@ -3693,6 +3693,12 @@ final class SessionController {
 				$full_history = $result['history'] ?? array();
 				/** @var array<mixed> $full_history */
 				$appended = ( $is_durable_plan_phase || $is_durable_plan_request ) ? $full_history : array_slice( $full_history, $existing_count );
+				// Persist the resolved provider/model with each new display message.
+				// Session-level fields only describe the initial selection and cannot
+				// accurately label a conversation whose model changes between turns.
+				$provider_id = (string) ( $options['provider_id'] ?? $params['provider_id'] ?? '' );
+				$model_id    = (string) ( $options['model_id'] ?? $params['model_id'] ?? '' );
+				$appended    = self::add_turn_model_metadata( $appended, $provider_id, $model_id );
 				/** @var list<array<string, mixed>> $tool_calls_result */
 				$tool_calls_result = $result['tool_calls'] ?? array();
 				$this->database->append_to_session( $session_id, array_values( $appended ), $tool_calls_result );
@@ -3813,6 +3819,42 @@ final class SessionController {
 		}
 
 		return new WP_REST_Response( array( 'ok' => true ), 200 );
+	}
+
+	/**
+	 * Add immutable model metadata to newly persisted conversation messages.
+	 *
+	 * Metadata is intentionally stored beside the serialized SDK message rather
+	 * than only on the session row: one session may contain exchanges from
+	 * multiple providers or models. Existing metadata is never overwritten so
+	 * durable-plan history retains its original attribution.
+	 *
+	 * @param array<mixed> $messages    New serialized conversation messages.
+	 * @param string       $provider_id Resolved provider used for this turn.
+	 * @param string       $model_id    Resolved model used for this turn.
+	 * @return array<mixed> Messages with per-turn model metadata.
+	 */
+	private static function add_turn_model_metadata( array $messages, string $provider_id, string $model_id ): array {
+		foreach ( $messages as $index => $message ) {
+			if ( ! is_array( $message ) ) {
+				continue;
+			}
+
+			$role = (string) ( $message['role'] ?? '' );
+			if ( ! in_array( $role, array( 'user', 'model', 'assistant' ), true ) ) {
+				continue;
+			}
+
+			if ( '' !== $provider_id && ! isset( $message['provider_id'] ) ) {
+				$message['provider_id'] = $provider_id;
+			}
+			if ( '' !== $model_id && ! isset( $message['model_id'] ) ) {
+				$message['model_id'] = $model_id;
+			}
+			$messages[ $index ] = $message;
+		}
+
+		return $messages;
 	}
 
 	/**

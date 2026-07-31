@@ -76,6 +76,23 @@ class ConversationDisplaySanitizerTest extends WP_UnitTestCase {
 		$this->assertSame( 'Legacy visible answer.', $sanitized[1]['parts'][0]['text'] );
 	}
 
+	/** Per-turn model metadata remains available to hydrated transcript UIs. */
+	public function test_sanitize_messages_preserves_turn_model_metadata(): void {
+		$messages = [
+			[
+				'role'        => 'user',
+				'provider_id' => 'superdav',
+				'model_id'    => 'superdav-chat-fast',
+				'parts'       => [ [ 'text' => 'First turn.' ] ],
+			],
+		];
+
+		$sanitized = ConversationDisplaySanitizer::sanitize_messages( $messages );
+
+		$this->assertSame( 'superdav', $sanitized[0]['provider_id'] );
+		$this->assertSame( 'superdav-chat-fast', $sanitized[0]['model_id'] );
+	}
+
 	/**
 	 * extract_text() concatenates only content-channel or legacy unchannelled text.
 	 */
