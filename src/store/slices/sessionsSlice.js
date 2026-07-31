@@ -1002,6 +1002,11 @@ export const actions = {
 	 */
 	streamMessage( message, attachments = [], options = {} ) {
 		return async ( { dispatch, select } ) => {
+			// Capture the requested model before any asynchronous work. This
+			// immutable turn metadata is displayed locally immediately and is
+			// persisted by the server alongside the completed exchange.
+			const providerId = select.getSelectedProviderId();
+			const modelId = select.getSelectedModelId();
 			dispatch.setSending( true );
 			dispatch.setStreamError( false );
 			dispatch.setPendingActionCard( null );
@@ -1026,6 +1031,8 @@ export const actions = {
 					role: 'user',
 					parts: parts.length ? parts : [ { text: '' } ],
 					attachments: imageAttachments,
+					provider_id: providerId,
+					model_id: modelId,
 					ts: Date.now(),
 				} );
 			}
@@ -1036,8 +1043,8 @@ export const actions = {
 			if ( ! sessionId ) {
 				try {
 					const sessionData = {
-						provider_id: select.getSelectedProviderId(),
-						model_id: select.getSelectedModelId(),
+						provider_id: providerId,
+						model_id: modelId,
 					};
 					const agentIdForSession = select.getSelectedAgentId();
 					if ( agentIdForSession ) {
@@ -1067,8 +1074,8 @@ export const actions = {
 			const body = {
 				message,
 				session_id: sessionId,
-				provider_id: select.getSelectedProviderId(),
-				model_id: select.getSelectedModelId(),
+				provider_id: providerId,
+				model_id: modelId,
 			};
 
 			// Include image attachments as base64 data URLs for vision models.

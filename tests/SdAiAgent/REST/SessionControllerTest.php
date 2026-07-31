@@ -59,6 +59,40 @@ class SessionControllerTest extends WP_UnitTestCase {
 		parent::tear_down();
 	}
 
+	/** Completed mixed-model turns keep their own immutable model attribution. */
+	public function test_turn_model_metadata_is_added_without_overwriting_existing_attribution(): void {
+		$method = new \ReflectionMethod(
+			\SdAiAgent\REST\SessionController::class,
+			'add_turn_model_metadata'
+		);
+		$method->setAccessible( true );
+		$messages = [
+			[
+				'role'  => 'user',
+				'parts' => [ [ 'text' => 'First turn.' ] ],
+			],
+			[
+				'role'        => 'model',
+				'provider_id' => 'existing-provider',
+				'model_id'    => 'existing-model',
+				'parts'       => [ [ 'text' => 'Existing reply.' ] ],
+			],
+			[
+				'role'  => 'system',
+				'parts' => [ [ 'text' => 'System notice.' ] ],
+			],
+		];
+
+		/** @var array<int, array<string, mixed>> $annotated */
+		$annotated = $method->invoke( null, $messages, 'superdav', 'superdav-chat-fast' );
+
+		$this->assertSame( 'superdav', $annotated[0]['provider_id'] );
+		$this->assertSame( 'superdav-chat-fast', $annotated[0]['model_id'] );
+		$this->assertSame( 'existing-provider', $annotated[1]['provider_id'] );
+		$this->assertSame( 'existing-model', $annotated[1]['model_id'] );
+		$this->assertArrayNotHasKey( 'model_id', $annotated[2] );
+	}
+
 	/** Durable-plan routes remain private session endpoints. */
 	public function test_durable_plan_routes_are_registered(): void {
 		$routes = $this->server->get_routes();
