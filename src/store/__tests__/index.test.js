@@ -85,6 +85,7 @@ const DEFAULT_STATE = {
 	currentSessionId: null,
 	currentSessionMessages: [],
 	currentSessionToolCalls: [],
+	isNewChatPending: false,
 	sending: false,
 	streamError: false,
 	streamErrorSessionId: null,
@@ -1434,6 +1435,7 @@ describe( 'reducer', () => {
 		expect( state.currentSessionId ).toBe( 7 );
 		expect( state.currentSessionMessages ).toEqual( [ { role: 'user' } ] );
 		expect( state.currentSessionToolCalls ).toEqual( [ { type: 'call' } ] );
+		expect( state.isNewChatPending ).toBe( false );
 	} );
 
 	test( 'SET_CURRENT_SESSION preserves per-turn model metadata during hydration', () => {
@@ -1487,6 +1489,7 @@ describe( 'reducer', () => {
 		expect( state.streamError ).toBe( false );
 		expect( state.streamErrorSessionId ).toBeNull();
 		expect( state.lastUserMessage ).toBe( '' );
+		expect( state.isNewChatPending ).toBe( true );
 	} );
 
 	test( 'SET_SENDING updates sending flag', () => {

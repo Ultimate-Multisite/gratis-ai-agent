@@ -66,6 +66,7 @@ function FloatingWidget() {
 		sessions,
 		sessionsLoaded,
 		currentSessionId,
+		isNewChatPending,
 		sessionJobs,
 	] = useSelect(
 		( select ) => [
@@ -77,6 +78,7 @@ function FloatingWidget() {
 			select( STORE_NAME ).getSessions(),
 			select( STORE_NAME ).getSessionsLoaded(),
 			select( STORE_NAME ).getCurrentSessionId(),
+			select( STORE_NAME ).isNewChatPending(),
 			select( STORE_NAME ).getSessionJobs(),
 		],
 		[]
@@ -140,7 +142,16 @@ function FloatingWidget() {
 			setFrontendOnboardingMode( null );
 			if ( sessions.length && ! currentSessionId ) {
 				import( './frontend-onboarding' ).then(
-					( { getHydrationSessionId } ) => {
+					( { getHydrationSessionId, shouldHydrateSession } ) => {
+						if (
+							! shouldHydrateSession( {
+								sessionCount: sessions.length,
+								currentSessionId,
+								isNewChatPending,
+							} )
+						) {
+							return;
+						}
 						const sessionId = getHydrationSessionId(
 							sessions,
 							sessionJobs
@@ -183,6 +194,7 @@ function FloatingWidget() {
 		sessions,
 		sessionJobs,
 		currentSessionId,
+		isNewChatPending,
 		openSession,
 		sendMessage,
 		setSelectedAgentId,
