@@ -136,8 +136,8 @@ final class AdminHandler {
 			$data,
 			array(
 				'providerId'      => SuperdavAiProvider::PROVIDER_ID,
-				'name'            => __( 'Superdav AI', 'superdav-ai-agent' ),
-				'description'     => __( 'Managed AI models and account credits for Superdav AI Agent.', 'superdav-ai-agent' ),
+				'name'            => __( 'SD AI', 'superdav-ai-agent' ),
+				'description'     => __( 'Managed AI models and account credits for SD AI Agent.', 'superdav-ai-agent' ),
 				'account'         => ( new SuperdavSiteConnectionService() )->get_status(),
 				'accountEndpoint' => rest_url( 'sd-ai-agent/v1/superdav-account' ),
 				'nonce'           => wp_create_nonce( 'wp_rest' ),

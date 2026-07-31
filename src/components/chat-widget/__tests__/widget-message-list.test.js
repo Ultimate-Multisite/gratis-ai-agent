@@ -208,8 +208,9 @@ describe( 'WidgetMessageList compact conversation action card', () => {
 			container.querySelector( '.sdaa-w-retry-failed-step' )
 		).toBeNull();
 		const compactButton = container.querySelector(
-			'.sdaa-action-card-btn-confirm'
+			'.sd-ai-agent-compact-conversation-action-card__confirm'
 		);
+		expect( compactButton ).not.toBeNull();
 		expect( compactButton.textContent ).toBe( 'Compact and continue' );
 
 		await act( async () => {
@@ -261,10 +262,15 @@ describe( 'WidgetMessageList compact conversation action card', () => {
 			root.render( createElement( WidgetMessageList ) );
 		} );
 
+		const compactButton = container.querySelector(
+			'.sd-ai-agent-compact-conversation-action-card__confirm'
+		);
+		expect( compactButton ).not.toBeNull();
+
 		await act( async () => {
-			container
-				.querySelector( '.sdaa-action-card-btn-confirm' )
-				.dispatchEvent( new MouseEvent( 'click', { bubbles: true } ) );
+			compactButton.dispatchEvent(
+				new MouseEvent( 'click', { bubbles: true } )
+			);
 		} );
 
 		expect( container.textContent ).toContain(

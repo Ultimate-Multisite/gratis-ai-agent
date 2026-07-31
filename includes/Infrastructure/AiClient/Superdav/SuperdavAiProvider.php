@@ -171,11 +171,11 @@ final class SuperdavAiProvider extends AbstractApiProvider {
 	protected static function createProviderMetadata(): ProviderMetadata {
 		return new ProviderMetadata(
 			self::PROVIDER_ID,
-			'Superdav AI',
+			'SD AI',
 			ProviderTypeEnum::cloud(),
 			null,
 			RequestAuthenticationMethod::apiKey(),
-			'OpenAI-compatible AI service hosted for Superdav AI Agent.'
+			'OpenAI-compatible AI service hosted for SD AI Agent.'
 		);
 	}
 

@@ -121,7 +121,7 @@ describe( 'SuperdavAccountManager', () => {
 
 		expect( container.textContent ).toContain( 'Account request failed.' );
 		expect( container.textContent ).not.toContain(
-			'Superdav AI is not connected for this site yet.'
+			'SD AI is not connected for this site yet.'
 		);
 	} );
 
@@ -136,7 +136,7 @@ describe( 'SuperdavAccountManager', () => {
 		} );
 
 		expect( container.textContent ).toContain(
-			'Superdav AI is not connected for this site yet.'
+			'SD AI is not connected for this site yet.'
 		);
 		expect(
 			container.querySelector( '.sd-ai-agent-superdav-account' )

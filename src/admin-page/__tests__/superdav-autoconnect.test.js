@@ -13,8 +13,8 @@ jest.mock( '@wordpress/i18n', () => ( {
 } ) );
 
 describe( 'superdav-autoconnect helpers', () => {
-	test( 'finds the bundled Superdav AI provider', () => {
-		const provider = { id: SUPERDAV_PROVIDER_ID, name: 'Superdav AI' };
+	test( 'finds the bundled SD AI provider', () => {
+		const provider = { id: SUPERDAV_PROVIDER_ID, name: 'SD AI' };
 
 		expect( findSuperdavProvider( [ { id: 'openai' }, provider ] ) ).toBe(
 			provider
@@ -41,6 +41,7 @@ describe( 'superdav-autoconnect helpers', () => {
 		} );
 
 		expect( notice ).toContain( 'secure site token' );
+		expect( notice ).toContain( 'SD AI is connected' );
 		expect( notice ).toContain( 'free tier' );
 		expect( notice ).toContain( '$10' );
 	} );

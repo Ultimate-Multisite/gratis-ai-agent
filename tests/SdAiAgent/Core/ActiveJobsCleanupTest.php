@@ -334,6 +334,70 @@ class ActiveJobsCleanupTest extends WP_UnitTestCase {
 		$this->assertSame( 'abandoned', $last->status );
 	}
 
+	/** A failed stale-job write stops the batch and leaves its candidate for the next cleanup run. */
+	public function test_reap_stale_jobs_stops_after_a_database_write_failure(): void {
+		$stale_time = gmdate( 'Y-m-d H:i:s', time() - 1800 );
+		$this->insert_job( 'test-stale-write-failure-first', 'processing', $stale_time );
+		$this->insert_job( 'test-stale-write-failure-failed', 'processing', $stale_time );
+		$this->insert_job( 'test-stale-write-failure-later', 'processing', $stale_time );
+
+		global $wpdb;
+		/** @var \wpdb $database */
+		$database = $wpdb;
+		$wpdb     = new class( $database ) {
+			public string $prefix;
+
+			private \wpdb $database;
+
+			public int $update_calls = 0;
+
+			public function __construct( \wpdb $database ) {
+				$this->database = $database;
+				$this->prefix   = $database->prefix;
+			}
+
+			public function get_results( string $query ): mixed {
+				return $this->database->get_results( $query );
+			}
+
+			public function prepare( string $query, mixed ...$args ): string {
+				return $this->database->prepare( $query, ...$args );
+			}
+
+			public function query( string $query ): int|false {
+				++$this->update_calls;
+
+				if ( 2 === $this->update_calls ) {
+					return false;
+				}
+
+				return $this->database->query( $query );
+			}
+		};
+
+		try {
+			$reaped       = ActiveJobRepository::reap_stale_jobs( 15 );
+			$update_calls = $wpdb->update_calls;
+		} finally {
+			$wpdb = $database;
+		}
+
+		$this->assertCount( 1, $reaped );
+		$this->assertSame( 2, $update_calls, 'The failed write must stop later candidates from being touched.' );
+
+		$remaining = array();
+		foreach ( array( 'test-stale-write-failure-first', 'test-stale-write-failure-failed', 'test-stale-write-failure-later' ) as $job_id ) {
+			$row = $this->fetch_row( $job_id );
+			$this->assertNotNull( $row );
+			if ( 'processing' === $row->status ) {
+				$remaining[] = $job_id;
+			}
+		}
+
+		$this->assertCount( 2, $remaining, 'The failed and later candidates must remain available for cleanup.' );
+		$this->assertSame( $remaining, ActiveJobRepository::reap_stale_jobs( 15 ) );
+	}
+
 	/**
 	 * cleanup_stale() does NOT touch rows whose updated_at is within the threshold.
 	 */

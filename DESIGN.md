@@ -59,6 +59,12 @@ All colours are drawn from the WordPress admin palette. Custom colours are not i
 
 ## 3. Typography Rules
 
+### Managed AI naming
+
+- Display the bundled provider as **SD AI** in selectors, connection notices, and account screens.
+- Display its chat models as **Speedy**, **Standard**, and **Strong**. The provider grouping supplies the product context, so do not prefix these labels with the provider name.
+- Keep the stable internal provider and model IDs unchanged (`sd-ai-agent-cloud`, `superdav-chat-fast`, `superdav-chat-pro`, and `superdav-chat-strong`). These identifiers are implementation contracts, not customer-facing copy.
+
 ### Font Families
 - **UI / Body**: inherits wp-admin system font stack — `-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen-Sans, Ubuntu, Cantarell, "Helvetica Neue", sans-serif`
 - **Monospace**: `ui-monospace, SFMono-Regular, SF Mono, Menlo, Consolas, Liberation Mono, monospace` — code blocks, debug panels, tool arguments

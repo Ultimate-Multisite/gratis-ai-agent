@@ -61,7 +61,7 @@ describe( 'ConnectorGate', () => {
 
 	test( 'renders the title', () => {
 		const html = renderToStaticMarkup( createElement( ConnectorGate, {} ) );
-		expect( html ).toContain( 'Connect Superdav AI' );
+		expect( html ).toContain( 'Connect SD AI' );
 	} );
 
 	test( 'renders descriptive text about connectors', () => {
@@ -72,7 +72,7 @@ describe( 'ConnectorGate', () => {
 	test( 'renders managed Superdav AI CTA button when connectors available', () => {
 		window.sdAiAgentData = { connectorsAvailable: '1' };
 		const html = renderToStaticMarkup( createElement( ConnectorGate, {} ) );
-		expect( html ).toContain( 'Connect Superdav AI' );
+		expect( html ).toContain( 'Connect SD AI' );
 	} );
 
 	test( 'renders secondary connector choice when connectors available', () => {
