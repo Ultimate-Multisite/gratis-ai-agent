@@ -61,7 +61,7 @@ describe( 'AccountActionSystemMessage', () => {
 	test( 'renders Superdav credit notices as account actions', async () => {
 		const { container, root } = await renderAccountActionSystemMessage( {
 			notice: [
-				"You've used all of your available Superdav credits. Purchase more credits in your account settings to continue using Superdav Chat Pro.",
+				"You've used all of your available SD AI credits. Purchase more credits in your account settings to continue using Standard.",
 				'https://account.example.test/login',
 			],
 		} );

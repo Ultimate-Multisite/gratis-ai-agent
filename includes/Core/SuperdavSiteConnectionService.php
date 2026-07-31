@@ -117,12 +117,12 @@ final class SuperdavSiteConnectionService {
 	public function refresh_account_status(): array|WP_Error {
 		$token = $this->get_stored_token();
 		if ( '' === $token ) {
-			return new WP_Error( 'sd_ai_agent_cloud_account_unavailable', __( 'Connect Superdav AI before refreshing your account.', 'superdav-ai-agent' ), array( 'status' => 412 ) );
+			return new WP_Error( 'sd_ai_agent_cloud_account_unavailable', __( 'Connect SD AI before refreshing your account.', 'superdav-ai-agent' ), array( 'status' => 412 ) );
 		}
 
 		$endpoint = $this->get_account_status_endpoint();
 		if ( '' === $endpoint ) {
-			return new WP_Error( 'sd_ai_agent_cloud_account_unavailable', __( 'Superdav AI account status is unavailable.', 'superdav-ai-agent' ), array( 'status' => 503 ) );
+			return new WP_Error( 'sd_ai_agent_cloud_account_unavailable', __( 'SD AI account status is unavailable.', 'superdav-ai-agent' ), array( 'status' => 503 ) );
 		}
 
 		$response = wp_remote_post(
@@ -144,17 +144,17 @@ final class SuperdavSiteConnectionService {
 		);
 
 		if ( is_wp_error( $response ) ) {
-			return new WP_Error( 'sd_ai_agent_cloud_account_refresh_failed', __( 'Superdav AI account refresh failed.', 'superdav-ai-agent' ), array( 'status' => 502 ) );
+			return new WP_Error( 'sd_ai_agent_cloud_account_refresh_failed', __( 'SD AI account refresh failed.', 'superdav-ai-agent' ), array( 'status' => 502 ) );
 		}
 
 		$status_code = (int) wp_remote_retrieve_response_code( $response );
 		if ( $status_code < 200 || $status_code >= 300 ) {
-			return new WP_Error( 'sd_ai_agent_cloud_account_refresh_failed', __( 'Superdav AI account refresh failed.', 'superdav-ai-agent' ), array( 'status' => 502 ) );
+			return new WP_Error( 'sd_ai_agent_cloud_account_refresh_failed', __( 'SD AI account refresh failed.', 'superdav-ai-agent' ), array( 'status' => 502 ) );
 		}
 
 		$body = json_decode( wp_remote_retrieve_body( $response ), true );
 		if ( ! is_array( $body ) ) {
-			return new WP_Error( 'sd_ai_agent_cloud_account_invalid', __( 'Superdav AI account response was invalid.', 'superdav-ai-agent' ), array( 'status' => 502 ) );
+			return new WP_Error( 'sd_ai_agent_cloud_account_invalid', __( 'SD AI account response was invalid.', 'superdav-ai-agent' ), array( 'status' => 502 ) );
 		}
 
 		$metadata = $this->get_metadata();
@@ -189,7 +189,7 @@ final class SuperdavSiteConnectionService {
 	public function redeem_coupon( string $coupon_code ): array|WP_Error {
 		$token = $this->get_stored_token();
 		if ( '' === $token ) {
-			return new WP_Error( 'sd_ai_agent_cloud_account_unavailable', __( 'Connect Superdav AI before redeeming a coupon.', 'superdav-ai-agent' ), array( 'status' => 412 ) );
+			return new WP_Error( 'sd_ai_agent_cloud_account_unavailable', __( 'Connect SD AI before redeeming a coupon.', 'superdav-ai-agent' ), array( 'status' => 412 ) );
 		}
 
 		$endpoint = $this->get_account_coupon_redemption_endpoint();
@@ -520,22 +520,22 @@ final class SuperdavSiteConnectionService {
 		);
 
 		if ( is_wp_error( $response ) ) {
-			return new WP_Error( 'sd_ai_agent_cloud_registration_failed', __( 'Superdav AI connection failed.', 'superdav-ai-agent' ), array( 'status' => 502 ) );
+			return new WP_Error( 'sd_ai_agent_cloud_registration_failed', __( 'SD AI connection failed.', 'superdav-ai-agent' ), array( 'status' => 502 ) );
 		}
 
 		$status = (int) wp_remote_retrieve_response_code( $response );
 		if ( $status < 200 || $status >= 300 ) {
-			return new WP_Error( 'sd_ai_agent_cloud_registration_failed', __( 'Superdav AI connection failed.', 'superdav-ai-agent' ), array( 'status' => 502 ) );
+			return new WP_Error( 'sd_ai_agent_cloud_registration_failed', __( 'SD AI connection failed.', 'superdav-ai-agent' ), array( 'status' => 502 ) );
 		}
 
 		$body = json_decode( wp_remote_retrieve_body( $response ), true );
 		if ( ! is_array( $body ) ) {
-			return new WP_Error( 'sd_ai_agent_cloud_registration_invalid', __( 'Superdav AI connection response was invalid.', 'superdav-ai-agent' ), array( 'status' => 502 ) );
+			return new WP_Error( 'sd_ai_agent_cloud_registration_invalid', __( 'SD AI connection response was invalid.', 'superdav-ai-agent' ), array( 'status' => 502 ) );
 		}
 
 		$token = $body['site_token'] ?? $body['access_token'] ?? '';
 		if ( ! is_string( $token ) || '' === $token ) {
-			return new WP_Error( 'sd_ai_agent_cloud_registration_invalid', __( 'Superdav AI connection response was invalid.', 'superdav-ai-agent' ), array( 'status' => 502 ) );
+			return new WP_Error( 'sd_ai_agent_cloud_registration_invalid', __( 'SD AI connection response was invalid.', 'superdav-ai-agent' ), array( 'status' => 502 ) );
 		}
 
 		unset( $body['site_token'], $body['access_token'] );
@@ -573,12 +573,12 @@ final class SuperdavSiteConnectionService {
 		);
 
 		if ( is_wp_error( $response ) ) {
-			return new WP_Error( 'sd_ai_agent_cloud_revoke_failed', __( 'Superdav AI disconnection failed.', 'superdav-ai-agent' ), array( 'status' => 502 ) );
+			return new WP_Error( 'sd_ai_agent_cloud_revoke_failed', __( 'SD AI disconnection failed.', 'superdav-ai-agent' ), array( 'status' => 502 ) );
 		}
 
 		$status = (int) wp_remote_retrieve_response_code( $response );
 		if ( $status < 200 || $status >= 300 ) {
-			return new WP_Error( 'sd_ai_agent_cloud_revoke_failed', __( 'Superdav AI disconnection failed.', 'superdav-ai-agent' ), array( 'status' => 502 ) );
+			return new WP_Error( 'sd_ai_agent_cloud_revoke_failed', __( 'SD AI disconnection failed.', 'superdav-ai-agent' ), array( 'status' => 502 ) );
 		}
 
 		return true;

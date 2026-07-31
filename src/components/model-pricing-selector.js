@@ -89,19 +89,19 @@ const MODEL_CATALOG = [
 	{
 		id: 'superdav-chat-fast',
 		provider: 'sd-ai-agent-cloud',
-		name: 'Superdav Chat Fast',
+		name: 'Speedy',
 		note: __( 'fast', 'superdav-ai-agent' ),
 	},
 	{
 		id: 'superdav-chat-pro',
 		provider: 'sd-ai-agent-cloud',
-		name: 'Superdav Chat Pro',
+		name: 'Standard',
 		note: __( 'standard', 'superdav-ai-agent' ),
 	},
 	{
 		id: 'superdav-chat-strong',
 		provider: 'sd-ai-agent-cloud',
-		name: 'Superdav Chat Strong',
+		name: 'Strong',
 		note: __( 'strong', 'superdav-ai-agent' ),
 	},
 	// Anthropic

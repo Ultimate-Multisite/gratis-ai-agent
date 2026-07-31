@@ -38,7 +38,7 @@ async function renderUnavailablePicker( dispatchMap ) {
 		getProviders: () => [
 			{
 				id: 'sd-ai-agent-cloud',
-				name: 'Superdav AI',
+				name: 'SD AI',
 				models: [],
 				model_discovery: {
 					state: 'retryable_unavailable',

@@ -106,7 +106,7 @@ export default function SuperdavAccountManager() {
 			setError(
 				err?.message ||
 					__(
-						'Unable to load your Superdav AI account.',
+						'Unable to load your SD AI account.',
 						'superdav-ai-agent'
 					)
 			);
@@ -286,12 +286,10 @@ export default function SuperdavAccountManager() {
 		<div className="sd-ai-agent-superdav-account">
 			<div className="sd-ai-agent-superdav-account-header">
 				<div>
-					<h3>
-						{ __( 'Superdav AI account', 'superdav-ai-agent' ) }
-					</h3>
+					<h3>{ __( 'SD AI account', 'superdav-ai-agent' ) }</h3>
 					<p className="description">
 						{ __(
-							'View your available credits and securely manage billing with Superdav AI.',
+							'View your available credits and securely manage billing with SD AI.',
 							'superdav-ai-agent'
 						) }
 					</p>
@@ -324,7 +322,7 @@ export default function SuperdavAccountManager() {
 				( ! configured ? (
 					<Notice status="warning" isDismissible={ false }>
 						{ __(
-							'Superdav AI is not connected for this site yet. Connect a provider before managing account credits.',
+							'SD AI is not connected for this site yet. Connect a provider before managing account credits.',
 							'superdav-ai-agent'
 						) }
 					</Notice>
@@ -463,7 +461,7 @@ export default function SuperdavAccountManager() {
 						) : (
 							<Notice status="info" isDismissible={ false }>
 								{ __(
-									'Account billing is managed by your Superdav AI service administrator.',
+									'Account billing is managed by your SD AI service administrator.',
 									'superdav-ai-agent'
 								) }
 							</Notice>

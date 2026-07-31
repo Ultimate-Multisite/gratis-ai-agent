@@ -87,7 +87,7 @@ export function buildConnectionNoticeText( status = {} ) {
 		return sprintf(
 			/* translators: %s: formatted starter usage credit, for example $10. */
 			__(
-				'Superdav AI is connected. A secure site token was created and stored safely for this site; raw token values are never shown. This site is on the free tier with %s of starter usage credit.',
+				'SD AI is connected. A secure site token was created and stored safely for this site; raw token values are never shown. This site is on the free tier with %s of starter usage credit.',
 				'superdav-ai-agent'
 			),
 			getStarterCreditAmount( status )
@@ -95,7 +95,7 @@ export function buildConnectionNoticeText( status = {} ) {
 	}
 
 	return __(
-		'Superdav AI is connected. A secure site token was created and stored safely for this site; raw token values are never shown.',
+		'SD AI is connected. A secure site token was created and stored safely for this site; raw token values are never shown.',
 		'superdav-ai-agent'
 	);
 }

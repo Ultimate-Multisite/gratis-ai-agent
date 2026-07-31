@@ -197,9 +197,7 @@ describe( 'ProviderSelector rendering', () => {
 		const html = renderToStaticMarkup(
 			createElement( ProviderSelector, {} )
 		);
-		expect( html ).toContain(
-			'Connect Superdav AI or choose another provider'
-		);
+		expect( html ).toContain( 'Connect SD AI or choose another provider' );
 		expect( html ).toContain(
 			'options-general.php?page=options-connectors-wp-admin'
 		);
