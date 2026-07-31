@@ -1,5 +1,52 @@
 /* Shared component styles — loaded by both admin-page and floating-widget bundles */
 
+/* ── Slash command menu ───────────────────────────────────────────────────── */
+.sdaa-slash-menu {
+	position: absolute;
+	bottom: 100%;
+	left: 12px;
+	right: 12px;
+	margin-bottom: 4px;
+	max-height: 240px;
+	overflow-y: auto;
+	z-index: 100;
+	border: 1px solid #c3c4c7;
+	border-radius: 6px;
+	background: #fff;
+	box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
+}
+
+.sdaa-slash-item {
+	display: flex;
+	align-items: center;
+	gap: 12px;
+	padding: 8px 14px;
+	cursor: pointer;
+	transition: background 0.1s;
+}
+
+.sdaa-slash-item:hover,
+.sdaa-slash-item.is-selected {
+	background: #f0f0f1;
+}
+
+.sdaa-slash-item:focus-visible {
+	outline: 2px solid var(--wp-admin-theme-color, #2271b1);
+	outline-offset: -2px;
+}
+
+.sdaa-slash-name {
+	min-width: 80px;
+	color: var(--wp-admin-theme-color, #2271b1);
+	font-size: 13px;
+	font-weight: 600;
+}
+
+.sdaa-slash-desc {
+	color: #50575e;
+	font-size: 13px;
+}
+
 /* ── AI Icon — unified mark + thinking animation ───────────────────────────── */
 .sdaa-ai-icon .sp {
 	transform-box: fill-box;

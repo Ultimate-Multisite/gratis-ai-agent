@@ -204,4 +204,46 @@ test.describe( 'Floating Widget', () => {
 		// Input should be cleared after submission.
 		await expect( input ).toHaveValue( '' );
 	} );
+
+	test( 'slash command menu stays inside narrow viewports', async ( {
+		page,
+	} ) => {
+		const viewports = [
+			{ width: 390, height: 844 },
+			{ width: 320, height: 568 },
+		];
+
+		for ( const viewport of viewports ) {
+			await page.setViewportSize( viewport );
+
+			const fab = getFloatingButton( page );
+			await fab.click();
+
+			const panel = getFloatingPanel( page );
+			const input = panel.locator( '.sdaa-w-input-textarea' );
+			const slashMenu = panel.getByRole( 'listbox', {
+				name: 'Slash commands',
+			} );
+			const options = slashMenu.getByRole( 'option' );
+
+			await input.fill( '/' );
+			await expect( slashMenu ).toBeVisible();
+			await expect( options ).toHaveCount( 10 );
+
+			const menuBox = await slashMenu.boundingBox();
+			expect( menuBox ).not.toBeNull();
+			expect( menuBox.x ).toBeGreaterThanOrEqual( 0 );
+			expect( menuBox.y ).toBeGreaterThanOrEqual( 0 );
+			expect( menuBox.x + menuBox.width ).toBeLessThanOrEqual(
+				viewport.width
+			);
+			expect( menuBox.y + menuBox.height ).toBeLessThanOrEqual(
+				viewport.height
+			);
+
+			await options.last().scrollIntoViewIfNeeded();
+			await expect( options.last() ).toBeVisible();
+			await panel.getByLabel( 'Close' ).click();
+		}
+	} );
 } );
