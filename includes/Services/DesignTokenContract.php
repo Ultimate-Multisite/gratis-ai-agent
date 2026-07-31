@@ -126,6 +126,12 @@ final class DesignTokenContract {
 			'minLength' => 1,
 			'maxLength' => 120,
 		];
+		$size_value = [
+			'type'        => 'string',
+			'minLength'   => 1,
+			'maxLength'   => 200,
+			'description' => 'A non-negative CSS length such as 1rem, 24px, or 10%, or a bounded calc(), min(), max(), or clamp() expression using those lengths.',
+		];
 
 		$typography_role = [
 			'type'                 => 'object',
@@ -244,49 +250,39 @@ final class DesignTokenContract {
 						'font_families' => self::primitive_collection_schema(
 							'fontFamily',
 							[
-								'type'      => 'string',
-								'minLength' => 1,
-								'maxLength' => 200,
+								'type'        => 'string',
+								'minLength'   => 1,
+								'maxLength'   => 200,
+								'description' => 'A comma-separated CSS font-family list, with optional single- or double-quoted family names.',
 							],
 							$slug,
 							$label
 							),
 						'font_sizes'    => self::primitive_collection_schema(
 							'size',
-							[
-								'type'      => 'string',
-								'minLength' => 1,
-								'maxLength' => 200,
-							],
+							$size_value,
 							$slug,
 							$label
 							),
 						'spacing'       => self::primitive_collection_schema(
 							'size',
-							[
-								'type'      => 'string',
-								'minLength' => 1,
-								'maxLength' => 200,
-							],
+							$size_value,
 							$slug,
 							$label
 							),
 						'radii'         => self::primitive_collection_schema(
 							'size',
-							[
-								'type'      => 'string',
-								'minLength' => 1,
-								'maxLength' => 200,
-							],
+							$size_value,
 							$slug,
 							$label
 							),
 						'shadows'       => self::primitive_collection_schema(
 							'shadow',
 							[
-								'type'      => 'string',
-								'minLength' => 1,
-								'maxLength' => 200,
+								'type'        => 'string',
+								'minLength'   => 1,
+								'maxLength'   => 200,
+								'description' => 'A bounded CSS box-shadow value, such as 0 2px 8px rgb(0 0 0 / 0.12), or none.',
 							],
 							$slug,
 							$label,
@@ -1237,14 +1233,33 @@ final class DesignTokenContract {
 			default       => false,
 		};
 		if ( ! $valid ) {
+			$expected = self::css_value_expectation( $kind );
+
 			return self::error(
 				'invalid_value',
 				$path,
-				__( 'This primitive does not use a supported, well-formed CSS value.', 'superdav-ai-agent' )
+				/* translators: 1: design-token contract path, 2: expected CSS value shape. */
+				sprintf( __( 'Invalid design-token primitive at "%1$s". Expected %2$s.', 'superdav-ai-agent' ), $path, $expected ),
+				[
+					'expected'   => $expected,
+					'value_kind' => $kind,
+				]
 			);
 		}
 
 		return $value;
+	}
+
+	/**
+	 * Describe the bounded CSS grammar for an invalid primitive response.
+	 */
+	private static function css_value_expectation( string $kind ): string {
+		return match ( $kind ) {
+			'size'        => __( 'a non-negative CSS length such as 1rem, 24px, or 10%, or a bounded calc(), min(), max(), or clamp() expression using those lengths', 'superdav-ai-agent' ),
+			'font_family' => __( 'a comma-separated CSS font-family list, with optional single- or double-quoted family names', 'superdav-ai-agent' ),
+			'shadow'      => __( 'a bounded CSS box-shadow value such as 0 2px 8px rgb(0 0 0 / 0.12), or none', 'superdav-ai-agent' ),
+			default       => __( 'a supported CSS primitive value', 'superdav-ai-agent' ),
+		};
 	}
 
 	/**

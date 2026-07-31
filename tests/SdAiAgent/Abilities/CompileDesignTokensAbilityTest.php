@@ -94,6 +94,24 @@ class CompileDesignTokensAbilityTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * Invalid CSS primitives identify the exact field and the supported grammar for repair.
+	 */
+	public function test_run_reports_invalid_css_primitive_path_and_expected_shape(): void {
+		$contract                                      = $this->valid_contract();
+		$contract['primitives']['font_sizes'][0]['size'] = 'calc(1rem 2rem)';
+
+		$result = $this->ability()->run( [ 'contract' => $contract ] );
+
+		$this->assertWPError( $result );
+		$this->assertSame( 'sd_ai_agent_design_token_invalid_value', $result->get_error_code() );
+		$this->assertSame( 'primitives.font_sizes.0.size', $result->get_error_data()['path'] );
+		$this->assertSame( 'size', $result->get_error_data()['value_kind'] );
+		$this->assertStringContainsString( 'bounded calc()', $result->get_error_data()['expected'] );
+		$this->assertStringContainsString( 'primitives.font_sizes.0.size', $result->get_error_message() );
+		$this->assertStringContainsString( $result->get_error_data()['expected'], $result->get_error_message() );
+	}
+
+	/**
 	 * Return a small but complete valid contract for the public ability surface.
 	 *
 	 * @return array<string,mixed>
