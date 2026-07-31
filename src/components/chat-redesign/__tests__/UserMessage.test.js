@@ -74,10 +74,13 @@ jest.mock( '../../../utils/linkify', () => ( {
 /**
  * Build a minimal selector mock for a UserMessage in edit mode.
  *
- * @param {Object}  root0                 Options.
- * @param {number}  root0.index           Message index under edit.
- * @param {boolean} [root0.editing=true]  Whether this message is in edit mode.
- * @param {boolean} [root0.sending=false] Whether the store is currently sending.
+ * @param {Object}  root0                      Options.
+ * @param {number}  root0.index                Message index under edit.
+ * @param {boolean} [root0.editing=true]       Whether this message is in edit mode.
+ * @param {boolean} [root0.sending=false]      Whether the store is currently sending.
+ * @param {Array}   [root0.providers=[]]       Available providers and their models.
+ * @param {string}  [root0.selectedProviderId] Current provider selection.
+ * @param {string}  [root0.selectedModelId]    Current model selection.
  * @return {Object} Mock store selector map.
  */
 function buildStoreSelectors( {

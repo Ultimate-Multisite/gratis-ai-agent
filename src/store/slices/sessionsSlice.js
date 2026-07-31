@@ -1028,12 +1028,12 @@ export const actions = {
 			// unless this message came from the queue (already visible).
 			if ( ! options.fromQueue ) {
 				dispatch.appendMessage( {
-						role: 'user',
-						parts: parts.length ? parts : [ { text: '' } ],
-						attachments: imageAttachments,
-						provider_id: providerId,
-						model_id: modelId,
-						ts: Date.now(),
+					role: 'user',
+					parts: parts.length ? parts : [ { text: '' } ],
+					attachments: imageAttachments,
+					provider_id: providerId,
+					model_id: modelId,
+					ts: Date.now(),
 				} );
 			}
 

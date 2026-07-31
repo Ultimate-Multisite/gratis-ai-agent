@@ -317,7 +317,8 @@ export function UserMessage( { msg, index } ) {
 			return {
 				sending: store.isSending(),
 				messageToken: tokens[ index ],
-				messageModelName: model?.name || model?.id || msg.model_id || '',
+				messageModelName:
+					model?.name || model?.id || msg.model_id || '',
 				// Derive editing from the store's editingMessageIndex so only the
 				// exact message whose index matches enters edit mode. Using a
 				// store-level flag (rather than local useState) means a single
