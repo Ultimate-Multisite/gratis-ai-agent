@@ -151,7 +151,7 @@ function sd_ai_agent_setup_read_config_database(string $tests_dir): array
 	foreach (array('DB_NAME', 'DB_USER', 'DB_PASSWORD', 'DB_HOST') as $constant) {
 		$pattern = "/define\s*\(\s*'" . $constant . "'\s*,\s*'((?:\\\\.|[^'])*)'\s*\)/";
 		if (preg_match($pattern, $content, $matches)) {
-			$database[$constant] = stripcslashes($matches[1]);
+			$database[$constant] = str_replace(array("\\'", "\\\\"), array("'", "\\"), $matches[1]);
 		}
 	}
 
