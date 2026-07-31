@@ -212,7 +212,7 @@ function ProviderCard( { provider, onRefresh } ) {
 			} );
 			setCardNotice( {
 				status: 'success',
-				message: __( 'Superdav AI connected.', 'sd-ai-agent' ),
+				message: __( 'SD AI connected.', 'sd-ai-agent' ),
 			} );
 			onRefresh();
 		} catch ( err ) {
@@ -220,7 +220,7 @@ function ProviderCard( { provider, onRefresh } ) {
 				status: 'error',
 				message:
 					err?.message ||
-					__( 'Failed to connect Superdav AI.', 'sd-ai-agent' ),
+					__( 'Failed to connect SD AI.', 'sd-ai-agent' ),
 			} );
 		} finally {
 			setConnecting( false );
@@ -231,7 +231,7 @@ function ProviderCard( { provider, onRefresh } ) {
 		/* eslint-disable no-alert */
 		const confirmed = window.confirm(
 			provider.managed
-				? __( 'Disconnect Superdav AI for this site?', 'sd-ai-agent' )
+				? __( 'Disconnect SD AI for this site?', 'sd-ai-agent' )
 				: __(
 						'Clear the saved API key for this provider?',
 						'sd-ai-agent'
@@ -251,7 +251,7 @@ function ProviderCard( { provider, onRefresh } ) {
 			setCardNotice( {
 				status: 'success',
 				message: provider.managed
-					? __( 'Superdav AI disconnected.', 'sd-ai-agent' )
+					? __( 'SD AI disconnected.', 'sd-ai-agent' )
 					: __( 'API key cleared.', 'sd-ai-agent' ),
 			} );
 			onRefresh();
@@ -366,7 +366,7 @@ function ProviderCard( { provider, onRefresh } ) {
 										'sd-ai-agent'
 								  )
 								: __(
-										'Connect this site to Superdav AI without pasting API keys or installing a separate provider plugin.',
+										'Connect this site to SD AI without pasting API keys or installing a separate provider plugin.',
 										'sd-ai-agent'
 								  ) }
 						</p>
@@ -392,10 +392,7 @@ function ProviderCard( { provider, onRefresh } ) {
 								>
 									{ connecting
 										? __( 'Connecting…', 'sd-ai-agent' )
-										: __(
-												'Connect Superdav AI',
-												'sd-ai-agent'
-										  ) }
+										: __( 'Connect SD AI', 'sd-ai-agent' ) }
 								</Button>
 							) }
 							{ provider.status?.account_connect_url && (
@@ -545,18 +542,18 @@ export default function ConnectorsRoute() {
 				<p className="sd-ai-connectors__intro">
 					{ state.hasNative
 						? __(
-								'Connect the bundled Superdav AI managed provider here, or use the WordPress Connectors page for third-party provider API keys.',
+								'Connect the bundled SD AI managed provider here, or use the WordPress Connectors page for third-party provider API keys.',
 								'sd-ai-agent'
 						  )
 						: __(
-								'Connect the bundled Superdav AI managed provider, or install and configure third-party provider plugins with their own API keys.',
+								'Connect the bundled SD AI managed provider, or install and configure third-party provider plugins with their own API keys.',
 								'sd-ai-agent'
 						  ) }
 				</p>
 				{ state.hasNative && (
 					<Notice status="info" isDismissible={ false }>
 						{ __(
-							'Superdav AI does not require pasting a raw key. Third-party provider keys remain available on the WordPress Connectors page.',
+							'SD AI does not require pasting a raw key. Third-party provider keys remain available on the WordPress Connectors page.',
 							'sd-ai-agent'
 						) }{ ' ' }
 						<Button variant="link" href={ connectorsUrl }>

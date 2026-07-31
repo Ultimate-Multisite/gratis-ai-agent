@@ -149,14 +149,14 @@ describe( 'OnboardingBootstrap', () => {
 		} );
 
 		await renderBootstrap( {
-			initialSystemNotice: 'Superdav AI is connected.',
+			initialSystemNotice: 'SD AI is connected.',
 			onInitialSystemNoticeAppended,
 		} );
 
 		expect( appendMessageMock ).toHaveBeenCalledWith(
 			expect.objectContaining( {
 				role: 'system',
-				parts: [ { text: 'Superdav AI is connected.' } ],
+				parts: [ { text: 'SD AI is connected.' } ],
 			} )
 		);
 		expect( onInitialSystemNoticeAppended ).toHaveBeenCalledTimes( 1 );

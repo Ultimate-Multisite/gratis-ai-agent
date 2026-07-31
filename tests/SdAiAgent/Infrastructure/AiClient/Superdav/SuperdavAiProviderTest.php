@@ -65,7 +65,7 @@ final class SuperdavAiProviderTest extends WP_UnitTestCase {
 		$metadata = SuperdavAiProvider::metadata();
 
 		$this->assertSame( 'sd-ai-agent-cloud', $metadata->getId() );
-		$this->assertSame( 'Superdav AI', $metadata->getName() );
+		$this->assertSame( 'SD AI', $metadata->getName() );
 		$this->assertNotNull( $metadata->getAuthenticationMethod() );
 	}
 

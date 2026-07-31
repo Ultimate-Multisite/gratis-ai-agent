@@ -53,7 +53,7 @@ export function buildSuperdavCreditNoticeMessage( providers ) {
 		role: 'system',
 		notice: [
 			__(
-				"You've used all of your available Superdav credits. Purchase more credits in your account settings to continue using Superdav Chat Pro.",
+				"You've used all of your available SD AI credits. Purchase more credits in your account settings to continue using Standard.",
 				'superdav-ai-agent'
 			),
 			getSuperdavAccountConnectUrl( providers ),

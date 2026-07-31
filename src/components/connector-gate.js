@@ -89,7 +89,7 @@ export default function ConnectorGate( { onConnected } = {} ) {
 			} );
 			setNotice(
 				__(
-					'Superdav AI is connected. Loading available models…',
+					'SD AI is connected. Loading available models…',
 					'superdav-ai-agent'
 				)
 			);
@@ -100,7 +100,7 @@ export default function ConnectorGate( { onConnected } = {} ) {
 			setError(
 				err?.message ||
 					__(
-						'Failed to connect Superdav AI. Please try again from the Connectors page.',
+						'Failed to connect SD AI. Please try again from the Connectors page.',
 						'superdav-ai-agent'
 					)
 			);
@@ -113,12 +113,12 @@ export default function ConnectorGate( { onConnected } = {} ) {
 		<div className="sdaa-connector-gate">
 			<div className="sdaa-connector-gate__inner">
 				<h2 className="sdaa-connector-gate__title">
-					{ __( 'Connect Superdav AI', 'superdav-ai-agent' ) }
+					{ __( 'Connect SD AI', 'superdav-ai-agent' ) }
 				</h2>
 
 				<p className="sdaa-connector-gate__description">
 					{ __(
-						'Superdav AI is the recommended managed connection for first-time setup. Connect this site without pasting API keys, or choose another provider connector.',
+						'SD AI is the recommended managed connection for first-time setup. Connect this site without pasting API keys, or choose another provider connector.',
 						'superdav-ai-agent'
 					) }
 				</p>
@@ -139,7 +139,7 @@ export default function ConnectorGate( { onConnected } = {} ) {
 					<>
 						<Notice status="info" isDismissible={ false }>
 							{ __(
-								'Superdav AI uses a service-managed site token. Raw token values are never shown in the admin UI.',
+								'SD AI uses a service-managed site token. Raw token values are never shown in the admin UI.',
 								'superdav-ai-agent'
 							) }
 						</Notice>
@@ -156,15 +156,12 @@ export default function ConnectorGate( { onConnected } = {} ) {
 									<>
 										<Spinner />
 										{ __(
-											'Connecting Superdav AI…',
+											'Connecting SD AI…',
 											'superdav-ai-agent'
 										) }
 									</>
 								) : (
-									__(
-										'Connect Superdav AI',
-										'superdav-ai-agent'
-									)
+									__( 'Connect SD AI', 'superdav-ai-agent' )
 								) }
 							</Button>
 							<Button

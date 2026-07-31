@@ -543,7 +543,7 @@ export default function SettingsApp() {
 	const allTabs = [
 		{
 			name: 'superdav-account',
-			title: __( 'Superdav AI', 'superdav-ai-agent' ),
+			title: __( 'SD AI', 'superdav-ai-agent' ),
 			className: 'sdaa-settings-tab',
 		},
 		{
@@ -644,7 +644,7 @@ export default function SettingsApp() {
 									<div className="sdaa-settings-section">
 										<ErrorBoundary
 											label={ __(
-												'Superdav AI account manager',
+												'SD AI account manager',
 												'superdav-ai-agent'
 											) }
 										>

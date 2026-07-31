@@ -52,7 +52,7 @@ export default function ProviderSelector( { compact = false } ) {
 						}
 					>
 						{ __(
-							'Connect Superdav AI or choose another provider',
+							'Connect SD AI or choose another provider',
 							'superdav-ai-agent'
 						) }
 					</a>

@@ -80,7 +80,7 @@ function SuperdavConnectorCard( props ) {
 			setError(
 				requestError?.message ||
 					__(
-						'Unable to refresh your Superdav AI account.',
+						'Unable to refresh your SD AI account.',
 						'superdav-ai-agent'
 					)
 			);
@@ -101,7 +101,7 @@ function SuperdavConnectorCard( props ) {
 						'superdav-ai-agent'
 				  )
 				: __(
-						'Connect Superdav AI from the account settings page.',
+						'Connect SD AI from the account settings page.',
 						'superdav-ai-agent'
 				  )
 		),
@@ -167,7 +167,7 @@ function SuperdavConnectorCard( props ) {
 				{ variant: 'primary', href: data.settingsUrl },
 				configured
 					? __( 'Manage account and credits', 'superdav-ai-agent' )
-					: __( 'Connect Superdav AI', 'superdav-ai-agent' )
+					: __( 'Connect SD AI', 'superdav-ai-agent' )
 			)
 		)
 	);

@@ -65,7 +65,7 @@ final class ConnectorsController {
 	 */
 	const PROVIDERS = array(
 		SuperdavAiProvider::PROVIDER_ID => array(
-			'name'        => 'Superdav AI',
+			'name'        => 'SD AI',
 			'plugin_file' => '',
 			'plugin_slug' => '',
 			'option_key'  => SuperdavAiProvider::CREDENTIAL_OPTION,
