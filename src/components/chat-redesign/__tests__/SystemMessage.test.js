@@ -63,6 +63,7 @@ describe( 'AccountActionSystemMessage', () => {
 			notice: [
 				"You've used all of your available Superdav credits. Purchase more credits in your account settings to continue using Superdav Chat Pro.",
 				'https://account.example.test/login',
+				'credit_exhausted',
 			],
 		} );
 
@@ -88,6 +89,14 @@ describe( 'AccountActionSystemMessage', () => {
 		expect( action.getAttribute( 'target' ) ).toBe( '_blank' );
 		expect( action.getAttribute( 'rel' ) ).toBe( 'noopener noreferrer' );
 		expect( action.textContent ).toBe( 'Purchase credits' );
+
+		const inlineAction = container.querySelector(
+			'.sd-ai-agent-cr-msg-system-inline-action'
+		);
+		expect( inlineAction.textContent ).toBe( 'account settings' );
+		expect( inlineAction.getAttribute( 'href' ) ).toBe(
+			'https://account.example.test/login'
+		);
 
 		await act( async () => {
 			root.unmount();

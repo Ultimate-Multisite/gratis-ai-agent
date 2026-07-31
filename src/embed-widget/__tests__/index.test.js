@@ -35,6 +35,41 @@ describe( 'embed widget', () => {
 		expect( window.wp ).toBeUndefined();
 	} );
 
+	test( 'derives the owning WordPress account settings page from the REST base', () => {
+		expect(
+			module.getAccountSettingsUrl(
+				'https://example.test/subsite/wp-json/sd-ai-agent/v1'
+			)
+		).toBe(
+			'https://example.test/subsite/wp-admin/admin.php?page=sd-ai-agent#/settings'
+		);
+		expect(
+			module.getAccountSettingsUrl( 'https://example.test/api' )
+		).toBe( '' );
+	} );
+
+	test( 'renders managed-credit notices with linked settings text and CTA', () => {
+		const message = document.createElement( 'div' );
+		module.renderCreditExhaustedNotice(
+			message,
+			'https://example.test/wp-admin/admin.php?page=sd-ai-agent#/settings'
+		);
+
+		const links = message.querySelectorAll( 'a' );
+		expect( message.textContent ).toContain(
+			'Purchase more credits in your account settings'
+		);
+		expect( links ).toHaveLength( 2 );
+		expect( links[ 0 ].textContent ).toBe( 'account settings' );
+		expect( links[ 1 ].textContent ).toBe( 'Purchase credits' );
+		expect( links[ 0 ].getAttribute( 'href' ) ).toBe(
+			'https://example.test/wp-admin/admin.php?page=sd-ai-agent#/settings'
+		);
+		expect( links[ 1 ].getAttribute( 'href' ) ).toBe(
+			'https://example.test/wp-admin/admin.php?page=sd-ai-agent#/settings'
+		);
+	} );
+
 	test( 'mounts a launcher and panel in a plain DOM fixture', () => {
 		const root = module.mountEmbed( {
 			...module.resolveConfig( null, {} ),

@@ -162,6 +162,7 @@
  * @property {Session[]}                                                 sessions                - Session list.
  * @property {boolean}                                                   sessionsLoaded          - Whether sessions have been fetched.
  * @property {number|null}                                               currentSessionId        - Active session ID.
+ * @property {boolean}                                                   currentSessionCleared   - Whether a user-requested blank chat suppresses automatic hydration.
  * @property {Message[]}                                                 currentSessionMessages  - Messages in the active session.
  * @property {ToolCall[]}                                                currentSessionToolCalls - Tool calls in the active session.
  * @property {boolean}                                                   sending                 - Whether a message is in-flight.

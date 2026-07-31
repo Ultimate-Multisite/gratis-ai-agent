@@ -148,6 +148,9 @@ export const initialState = {
 	sessions: [],
 	sessionsLoaded: false,
 	currentSessionId: null,
+	// Prevent widget hydration from immediately reopening the most-recent
+	// session after the user explicitly starts a new chat.
+	currentSessionCleared: false,
 	currentSessionMessages: [],
 	currentSessionToolCalls: [],
 	sending: false,
@@ -1522,6 +1525,16 @@ export const selectors = {
 	},
 
 	/**
+	 * Whether the user explicitly chose to start a blank chat.
+	 *
+	 * @param {import('../../types').StoreState} state
+	 * @return {boolean} Whether automatic session hydration is suppressed.
+	 */
+	isCurrentSessionCleared( state ) {
+		return state.currentSessionCleared;
+	},
+
+	/**
 	 * @param {import('../../types').StoreState} state
 	 * @return {Message[]} Messages in the active session.
 	 */
@@ -1718,6 +1731,7 @@ export function reducer( state, action ) {
 		case 'SET_CURRENT_SESSION':
 			return {
 				...state,
+				currentSessionCleared: false,
 				currentSessionId:
 					typeof action.sessionId === 'string'
 						? parseInt( action.sessionId, 10 )
@@ -1731,6 +1745,7 @@ export function reducer( state, action ) {
 		case 'CLEAR_CURRENT_SESSION':
 			return {
 				...state,
+				currentSessionCleared: true,
 				currentSessionId: null,
 				currentSessionMessages: [],
 				currentSessionToolCalls: [],

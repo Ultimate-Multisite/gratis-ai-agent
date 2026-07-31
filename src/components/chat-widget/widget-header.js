@@ -166,10 +166,14 @@ export default function WidgetHeader( {
 		[ openSession ]
 	);
 
-	const handleNewChat = useCallback( () => {
-		clearCurrentSession();
-		setDrawerOpen( false );
-	}, [ clearCurrentSession ] );
+	const handleNewChat = useCallback(
+		( event ) => {
+			event.stopPropagation();
+			clearCurrentSession();
+			setDrawerOpen( false );
+		},
+		[ clearCurrentSession ]
+	);
 
 	const recent = sessions.slice( 0, 8 );
 
@@ -316,6 +320,7 @@ export default function WidgetHeader( {
 				<button
 					type="button"
 					className="sdaa-w-new-btn"
+					onMouseDown={ ( event ) => event.stopPropagation() }
 					onClick={ handleNewChat }
 					aria-label={ __( 'Start new chat', 'sd-ai-agent' ) }
 					title={ __( 'Start new chat', 'sd-ai-agent' ) }

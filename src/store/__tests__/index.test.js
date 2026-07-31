@@ -1041,6 +1041,69 @@ describe( 'actions', () => {
 		).not.toContain( '/private/path.php' );
 	} );
 
+	test( 'pollJob renders a managed-credit diagnostic as a purchase notice', async () => {
+		jest.useFakeTimers();
+		apiFetch.mockReset();
+		apiFetch.mockResolvedValue( {
+			status: 'error',
+			message: 'PRIVATE_PROVIDER_MESSAGE',
+			diagnostic: {
+				reason: 'credit_exhausted',
+				last_safe_phase: 'agent_loop',
+				retryable: false,
+				next_action: 'purchase_credits',
+				correlation_id: 'job-1234abcd5678',
+			},
+		} );
+		const dispatch = {
+			appendMessage: jest.fn(),
+			setPendingConfirmation: jest.fn(),
+			setPendingActionCard: jest.fn(),
+			setStreamError: jest.fn(),
+			setSending: jest.fn(),
+			setLiveToolCalls: jest.fn(),
+			drainMessageQueue: jest.fn(),
+			setCurrentJobId: jest.fn(),
+			setSessionJob: jest.fn(),
+		};
+		const select = {
+			getCurrentSessionId: jest.fn( () => 17 ),
+			getCurrentJobId: jest.fn( () => 'failed-job' ),
+			getProviders: jest.fn( () => [
+				{
+					id: 'sd-ai-agent-cloud',
+					status: {
+						account_connect_url:
+							'https://account.example.test/login',
+					},
+				},
+			] ),
+		};
+
+		try {
+			actions.pollJob( 'failed-job', 17 )( { dispatch, select } );
+			await jest.advanceTimersByTimeAsync( 2000 );
+		} finally {
+			jest.useRealTimers();
+		}
+
+		expect( dispatch.appendMessage ).toHaveBeenCalledWith(
+			expect.objectContaining( {
+				role: 'system',
+				notice: [
+					expect.stringContaining( 'Purchase more credits' ),
+					'https://account.example.test/login',
+					'credit_exhausted',
+				],
+			} )
+		);
+		// The stale terminal card is cleared, but no generic failure card replaces it.
+		expect( dispatch.setPendingActionCard ).toHaveBeenLastCalledWith(
+			null
+		);
+		expect( dispatch.setStreamError ).not.toHaveBeenCalled();
+	} );
+
 	test( 'pollJob shows max-iteration feedback from a raw diagnostic reason', async () => {
 		jest.useFakeTimers();
 		apiFetch.mockReset();
@@ -1432,6 +1495,7 @@ describe( 'reducer', () => {
 			toolCalls: [ { type: 'call' } ],
 		} );
 		expect( state.currentSessionId ).toBe( 7 );
+		expect( state.currentSessionCleared ).toBe( false );
 		expect( state.currentSessionMessages ).toEqual( [ { role: 'user' } ] );
 		expect( state.currentSessionToolCalls ).toEqual( [ { type: 'call' } ] );
 	} );
@@ -1449,6 +1513,7 @@ describe( 'reducer', () => {
 		};
 		const state = reducer( populated, { type: 'CLEAR_CURRENT_SESSION' } );
 		expect( state.currentSessionId ).toBeNull();
+		expect( state.currentSessionCleared ).toBe( true );
 		expect( state.currentSessionMessages ).toEqual( [] );
 		expect( state.currentSessionToolCalls ).toEqual( [] );
 		expect( state.tokenUsage ).toEqual( { prompt: 0, completion: 0 } );

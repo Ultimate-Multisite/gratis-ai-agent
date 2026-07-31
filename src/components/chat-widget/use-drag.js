@@ -98,11 +98,8 @@ export default function useDrag( {
 		if (
 			e.target.closest(
 				'button, input, textarea, select, a, [role="button"]'
-			) &&
-			! e.target.closest( '[data-drag-target]' )?.contains( e.target )
+			)
 		) {
-			// If the click is on a button inside the drag target, still
-			// allow the button to work — do nothing here.
 			return;
 		}
 		const el = e.target.closest( '[data-drag-target]' ) || e.currentTarget;

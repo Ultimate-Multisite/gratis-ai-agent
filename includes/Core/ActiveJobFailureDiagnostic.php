@@ -34,6 +34,9 @@ final class ActiveJobFailureDiagnostic {
 	/** Failure caused by an upstream provider timeout. */
 	public const REASON_PROVIDER_TIMEOUT = 'provider_timeout';
 
+	/** The managed Superdav provider requires additional account credit. */
+	public const REASON_CREDIT_EXHAUSTED = 'credit_exhausted';
+
 	/** Failure caused by a loopback request or worker terminating unexpectedly. */
 	public const REASON_WORKER_TERMINATED = 'worker_terminated';
 
@@ -57,6 +60,7 @@ final class ActiveJobFailureDiagnostic {
 		self::REASON_LOCAL_PAYLOAD_GUARD,
 		self::REASON_UPSTREAM_PAYLOAD_REJECTION,
 		self::REASON_PROVIDER_TIMEOUT,
+		self::REASON_CREDIT_EXHAUSTED,
 		self::REASON_WORKER_TERMINATED,
 		self::REASON_APPROVAL_WAIT,
 		self::REASON_APPROVAL_EXPIRED,
@@ -138,10 +142,18 @@ final class ActiveJobFailureDiagnostic {
 	 * @param \WP_Error $error Provider or loop error.
 	 * @return string Normalized diagnostic reason.
 	 */
-	public static function reason_from_error( \WP_Error $error ): string {
-		$code = sanitize_key( (string) $error->get_error_code() );
-		$data = $error->get_error_data();
-		$data = is_array( $data ) ? $data : array();
+	public static function reason_from_error( \WP_Error $error, string $provider_id = '' ): string {
+		$code        = sanitize_key( (string) $error->get_error_code() );
+		$data        = $error->get_error_data();
+		$data        = is_array( $data ) ? $data : array();
+		$provider_id = sanitize_key( $provider_id );
+
+		// HTTP 402 only gets the managed-credit recovery path for the provider
+		// that owns that account. Other providers may use 402 for unrelated
+		// billing states and must remain safely classified as unknown.
+		if ( 'sd-ai-agent-cloud' === $provider_id && 402 === (int) ( $data['status_code'] ?? 0 ) ) {
+			return self::REASON_CREDIT_EXHAUSTED;
+		}
 
 		if (
 			'sd_ai_agent_provider_payload_budget_exceeded' === $code ||
@@ -220,6 +232,7 @@ final class ActiveJobFailureDiagnostic {
 			self::REASON_LOCAL_PAYLOAD_GUARD => __( 'This request is too large to send safely. Compact the conversation, shorten the latest message, or remove large attachments before retrying.', 'superdav-ai-agent' ),
 			self::REASON_UPSTREAM_PAYLOAD_REJECTION => __( 'The selected AI provider rejected this request because it exceeds its payload limit. Start a smaller continuation and retry.', 'superdav-ai-agent' ),
 			self::REASON_PROVIDER_TIMEOUT => __( 'The AI provider timed out before finishing. Retry the request shortly.', 'superdav-ai-agent' ),
+			self::REASON_CREDIT_EXHAUSTED => __( 'Your Superdav account needs more credits to continue. Purchase credits in your account settings.', 'superdav-ai-agent' ),
 			self::REASON_WORKER_TERMINATED => __( 'The background worker stopped before the job could finish. Retry the job or start a continuation from the saved conversation.', 'superdav-ai-agent' ),
 			self::REASON_APPROVAL_WAIT => __( 'This job is waiting for approval before it can continue.', 'superdav-ai-agent' ),
 			self::REASON_APPROVAL_EXPIRED => __( 'The pending approval expired before it could be completed. Review the conversation and start a continuation.', 'superdav-ai-agent' ),
@@ -283,6 +296,7 @@ final class ActiveJobFailureDiagnostic {
 			self::REASON_UPSTREAM_PAYLOAD_REJECTION => 'compact',
 			self::REASON_PROVIDER_TIMEOUT,
 			self::REASON_WORKER_TERMINATED => 'retry',
+			self::REASON_CREDIT_EXHAUSTED => 'purchase_credits',
 			self::REASON_APPROVAL_WAIT => 'approve_review',
 			self::REASON_APPROVAL_EXPIRED,
 			self::REASON_RESUME_EXHAUSTED,

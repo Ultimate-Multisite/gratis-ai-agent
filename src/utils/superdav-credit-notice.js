@@ -26,7 +26,11 @@ export function isSuperdavCreditBalanceNotice( message ) {
 }
 
 /**
- * Resolve the magic account-login URL exposed by the managed Superdav provider.
+ * Resolve the best managed-account destination for a credit-exhaustion action.
+ *
+ * Prefer the service-issued credit-purchase URL, then its account portal. The
+ * local admin fallback lets a site owner reach the plugin's account settings
+ * even when older provider metadata has not supplied either service URL yet.
  *
  * @param {Array} providers Provider objects from the store.
  * @return {string} Safe account URL, or an empty string when unavailable.
@@ -35,10 +39,20 @@ export function getSuperdavAccountConnectUrl( providers ) {
 	const provider = ( Array.isArray( providers ) ? providers : [] ).find(
 		( item ) => item?.id === SUPERDAV_CLOUD_PROVIDER_ID
 	);
-	const url = provider?.status?.account_connect_url || '';
+	const status = provider?.status || {};
+	const url =
+		status.purchase_credits_url ||
+		status.account_connect_url ||
+		status.account_portal_url ||
+		'';
 
-	return typeof url === 'string' && /^https?:\/\//i.test( url.trim() )
-		? url.trim()
+	if ( typeof url === 'string' && /^https?:\/\//i.test( url.trim() ) ) {
+		return url.trim();
+	}
+
+	return typeof window !== 'undefined' &&
+		window.location.pathname.includes( '/wp-admin/' )
+		? 'admin.php?page=sd-ai-agent#/settings'
 		: '';
 }
 
@@ -57,6 +71,7 @@ export function buildSuperdavCreditNoticeMessage( providers ) {
 				'superdav-ai-agent'
 			),
 			getSuperdavAccountConnectUrl( providers ),
+			'credit_exhausted',
 		],
 	};
 }

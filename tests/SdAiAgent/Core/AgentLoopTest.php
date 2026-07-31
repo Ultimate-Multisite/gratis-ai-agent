@@ -1194,6 +1194,22 @@ class AgentLoopTest extends WP_UnitTestCase {
 		$this->assertSame( 413, $result->get_error_data()['status_code'] );
 	}
 
+	/** Provider-derived 402 status is retained as safe scalar metadata for job diagnostics. */
+	public function test_provider_error_retains_classified_status_for_safe_diagnostics(): void {
+		$loop   = new AgentLoop( 'Hello' );
+		$method = new \ReflectionMethod( AgentLoop::class, 'provider_error_to_wp_error' );
+		$method->setAccessible( true );
+		$result = $method->invoke(
+			$loop,
+			new \WP_Error( 'prompt_client_error', 'Client error (402): PRIVATE_PROVIDER_RESPONSE' ),
+			402
+		);
+
+		$this->assertInstanceOf( \WP_Error::class, $result );
+		$this->assertSame( 402, $result->get_error_data()['status_code'] );
+		$this->assertStringNotContainsString( 'PRIVATE_PROVIDER_RESPONSE', wp_json_encode( $result->get_error_data() ) );
+	}
+
 	/**
 	 * Each distinct provider invocation may make one demonstrably smaller 413 retry.
 	 */

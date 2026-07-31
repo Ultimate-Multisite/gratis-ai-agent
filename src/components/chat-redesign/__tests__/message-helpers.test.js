@@ -148,6 +148,18 @@ describe( 'buildRunningItems', () => {
 		expect( items[ 3 ].response ).toBeNull();
 	} );
 
+	test( 'strips thinking tags from preamble narration', () => {
+		const items = buildRunningItems( [
+			{
+				type: 'preamble',
+				text: '<thinking>Planning templates</thinking>',
+			},
+		] );
+
+		expect( items ).toHaveLength( 1 );
+		expect( items[ 0 ].text ).toBe( 'Planning templates' );
+	} );
+
 	test( 'suppresses whitespace-only preambles', () => {
 		const log = [
 			{ type: 'preamble', text: '  \n  ' },
@@ -226,6 +238,12 @@ describe( 'friendly tool progress summaries', () => {
 		expect( text ).not.toContain( 'sd-ai-agent/' );
 		expect( text ).toContain( 'preparing design tokens' );
 		expect( text ).toContain( 'checking colour contrast' );
+	} );
+
+	test( 'strips reasoning tags while keeping their visible narration', () => {
+		expect(
+			sanitizeProgressText( '<thinking>Planning templates</thinking>' )
+		).toBe( 'Planning templates' );
 	} );
 
 	test( 'summarizes completed, failed, and running steps', () => {

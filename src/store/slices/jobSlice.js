@@ -15,6 +15,7 @@ import {
 } from '../../utils/notification-manager';
 import { playDing, playDong, playThinking } from '../../utils/sound-manager';
 import { executeClientAbility } from '../../abilities/registry';
+import { buildSuperdavCreditNoticeMessage } from '../../utils/superdav-credit-notice';
 import { emitReflectionEvents } from '../reflection-emitter';
 
 /**
@@ -864,10 +865,11 @@ export const actions = {
 							}
 						}
 						const isCreditNotice =
-							! hasFailureDiagnostic &&
-							/superdav.*credit|credit.*superdav/i.test(
-								rawErrorMessage
-							);
+							failureDiagnostic?.reason === 'credit_exhausted' ||
+							( ! hasFailureDiagnostic &&
+								/superdav.*credit|credit.*superdav/i.test(
+									rawErrorMessage
+								) );
 						const errorText = `${ __(
 							'Error:',
 							'superdav-ai-agent'
@@ -916,11 +918,17 @@ export const actions = {
 								}
 							}
 
-							dispatch.appendMessage( {
-								role: 'system',
-								parts: [ { text: errorText } ],
-							} );
-							if ( ! isDurablePlan ) {
+							dispatch.appendMessage(
+								isCreditNotice
+									? buildSuperdavCreditNoticeMessage(
+											select.getProviders?.() || []
+									  )
+									: {
+											role: 'system',
+											parts: [ { text: errorText } ],
+									  }
+							);
+							if ( ! isDurablePlan && ! isCreditNotice ) {
 								if ( canCompactConversation ) {
 									dispatch.setPendingActionCard( {
 										type: 'compact_session',

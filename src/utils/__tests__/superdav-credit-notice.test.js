@@ -29,18 +29,20 @@ describe( 'isSuperdavCreditBalanceNotice', () => {
 } );
 
 describe( 'getSuperdavAccountConnectUrl', () => {
-	test( 'returns the provider account-connect URL', () => {
+	test( 'prefers the provider credit-purchase URL', () => {
 		expect(
 			getSuperdavAccountConnectUrl( [
 				{
 					id: 'sd-ai-agent-cloud',
 					status: {
+						purchase_credits_url:
+							'https://account.example.test/credits',
 						account_connect_url:
 							'https://account.example.test/magic-login',
 					},
 				},
 			] )
-		).toBe( 'https://account.example.test/magic-login' );
+		).toBe( 'https://account.example.test/credits' );
 	} );
 
 	test( 'rejects non-http account URLs', () => {
@@ -73,6 +75,7 @@ describe( 'buildSuperdavCreditNoticeMessage', () => {
 		expect( message.notice[ 0 ] ).toContain(
 			'Purchase more credits in your account settings'
 		);
+		expect( message.notice[ 2 ] ).toBe( 'credit_exhausted' );
 		expect( message.notice[ 0 ] ).not.toMatch(
 			/\b(error|rejected|insufficient)\b/i
 		);

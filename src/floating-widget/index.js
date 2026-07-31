@@ -66,6 +66,7 @@ function FloatingWidget() {
 		sessions,
 		sessionsLoaded,
 		currentSessionId,
+		currentSessionCleared,
 		sessionJobs,
 	] = useSelect(
 		( select ) => [
@@ -77,6 +78,7 @@ function FloatingWidget() {
 			select( STORE_NAME ).getSessions(),
 			select( STORE_NAME ).getSessionsLoaded(),
 			select( STORE_NAME ).getCurrentSessionId(),
+			select( STORE_NAME ).isCurrentSessionCleared(),
 			select( STORE_NAME ).getSessionJobs(),
 		],
 		[]
@@ -138,7 +140,11 @@ function FloatingWidget() {
 		// the dedicated chat page after reloads or frontend navigation.
 		if ( sessions.length || ! providers.length ) {
 			setFrontendOnboardingMode( null );
-			if ( sessions.length && ! currentSessionId ) {
+			if (
+				sessions.length &&
+				! currentSessionId &&
+				! currentSessionCleared
+			) {
 				import( './frontend-onboarding' ).then(
 					( { getHydrationSessionId } ) => {
 						const sessionId = getHydrationSessionId(
@@ -183,6 +189,7 @@ function FloatingWidget() {
 		sessions,
 		sessionJobs,
 		currentSessionId,
+		currentSessionCleared,
 		openSession,
 		sendMessage,
 		setSelectedAgentId,

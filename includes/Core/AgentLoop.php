@@ -2534,6 +2534,17 @@ PROMPT;
 		}
 
 		if ( $error instanceof WP_Error ) {
+			// SDK layers sometimes expose the status only in their exception
+			// message. Preserve the already-classified scalar so downstream safe
+			// diagnostics can distinguish managed account actions (such as 402)
+			// without retaining that message.
+			$error_data = $error->get_error_data();
+			$error_data = is_array( $error_data ) ? $error_data : array();
+			if ( $status_code > 0 && empty( $error_data['status_code'] ) ) {
+				$error_data['status_code'] = $status_code;
+				$error->add_data( $error_data );
+			}
+
 			return $error;
 		}
 
