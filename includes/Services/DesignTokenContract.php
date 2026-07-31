@@ -116,12 +116,12 @@ final class DesignTokenContract {
 	 * @return array<string,mixed>
 	 */
 	public static function schema(): array {
-		$slug  = [
+		$slug       = [
 			'type'        => 'string',
 			'pattern'     => '^[a-z0-9]+(?:-[a-z0-9]+)*$',
 			'description' => 'Lowercase CSS-safe identifier.',
 		];
-		$label = [
+		$label      = [
 			'type'      => 'string',
 			'minLength' => 1,
 			'maxLength' => 120,
