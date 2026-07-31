@@ -32,11 +32,11 @@
  * A semantic account action attached to a system message.
  *
  * @typedef {Object} AccountActionNotice
- * @property {'account_action'}   type        - Notice presentation type.
- * @property {'credit_exhausted'} reason      - Safe account state identifier.
- * @property {'purchase_credits'} action      - Account action identifier.
- * @property {string}             [actionUrl] - Safe absolute account destination.
- * @property {string}             [message]   - Optional fallback copy for unknown actions.
+ * @property {'account_action'} type        - Notice presentation type.
+ * @property {string}           reason      - Safe account state identifier, such as credit_exhausted.
+ * @property {string}           action      - Account action identifier, such as purchase_credits.
+ * @property {string}           [actionUrl] - Safe absolute account destination.
+ * @property {string}           [message]   - Optional fallback copy for unknown actions.
  */
 
 /**

@@ -4,13 +4,19 @@
 
 import { useState, useRef, useCallback, useEffect } from '@wordpress/element';
 import { useDispatch, useSelect } from '@wordpress/data';
-import { __ } from '@wordpress/i18n';
+import { __, sprintf } from '@wordpress/i18n';
 import apiFetch from '@wordpress/api-fetch';
 
 import STORE_NAME from '../../store';
 import useSpeechRecognition from '../use-speech-recognition';
 
 const MAX_FILE_SIZE = 10 * 1024 * 1024;
+const REMEMBER_PREFIX = '/remember ';
+const FORGET_PREFIX = '/forget ';
+const REPORT_COMMAND = '/report-issue';
+const REPORT_PREFIX = `${ REPORT_COMMAND } `;
+const PLAN_COMMAND = '/plan';
+const PLAN_PREFIX = `${ PLAN_COMMAND } `;
 const ACCEPTED_IMAGE_TYPES = [
 	'image/jpeg',
 	'image/png',
@@ -70,6 +76,7 @@ export default function useChatComposer( {
 	const [ text, setText ] = useState( '' );
 	const [ showSlash, setShowSlash ] = useState( false );
 	const [ attachments, setAttachments ] = useState( [] );
+	const [ attachmentError, setAttachmentError ] = useState( '' );
 	const [ isDragOver, setIsDragOver ] = useState( false );
 	const [ feedbackModal, setFeedbackModal ] = useState( {
 		isOpen: false,
@@ -120,11 +127,14 @@ export default function useChatComposer( {
 
 	const processFiles = useCallback( async ( files ) => {
 		const next = [];
+		const rejectedNames = [];
+		setAttachmentError( '' );
 		for ( const file of Array.from( files ) ) {
 			if (
 				file.size > MAX_FILE_SIZE ||
 				! ACCEPTED_TYPES.includes( file.type )
 			) {
+				rejectedNames.push( file.name );
 				continue;
 			}
 			try {
@@ -136,17 +146,27 @@ export default function useChatComposer( {
 					isImage: ACCEPTED_IMAGE_TYPES.includes( file.type ),
 				} );
 			} catch {
-				// Ignore unreadable browser files.
+				rejectedNames.push( file.name );
 			}
 		}
 		if ( next.length ) {
 			setAttachments( ( previous ) => [ ...previous, ...next ] );
+		}
+		if ( rejectedNames.length ) {
+			setAttachmentError(
+				sprintf(
+					/* translators: %s: comma-separated attachment file names */
+					__( 'Could not attach: %s', 'superdav-ai-agent' ),
+					rejectedNames.join( ', ' )
+				)
+			);
 		}
 	}, [] );
 
 	const clearComposer = useCallback( () => {
 		setText( '' );
 		setAttachments( [] );
+		setAttachmentError( '' );
 	}, [] );
 
 	const handleSend = useCallback( () => {
@@ -155,8 +175,8 @@ export default function useChatComposer( {
 			return;
 		}
 
-		if ( ! isSimpleMode && trimmed.startsWith( '/remember ' ) ) {
-			const fact = trimmed.slice( 10 ).trim();
+		if ( ! isSimpleMode && trimmed.startsWith( REMEMBER_PREFIX ) ) {
+			const fact = trimmed.slice( REMEMBER_PREFIX.length ).trim();
 			if ( fact ) {
 				apiFetch( {
 					path: '/sd-ai-agent/v1/memory',
@@ -168,8 +188,8 @@ export default function useChatComposer( {
 			return;
 		}
 
-		if ( ! isSimpleMode && trimmed.startsWith( '/forget ' ) ) {
-			const topic = trimmed.slice( 8 ).trim();
+		if ( ! isSimpleMode && trimmed.startsWith( FORGET_PREFIX ) ) {
+			const topic = trimmed.slice( FORGET_PREFIX.length ).trim();
 			if ( topic ) {
 				apiFetch( {
 					path: '/sd-ai-agent/v1/memory/forget',
@@ -182,14 +202,15 @@ export default function useChatComposer( {
 		}
 
 		if (
-			trimmed === '/report-issue' ||
-			trimmed.startsWith( '/report-issue ' )
+			! isSimpleMode &&
+			( trimmed === REPORT_COMMAND ||
+				trimmed.startsWith( REPORT_PREFIX ) )
 		) {
 			setFeedbackModal( {
 				isOpen: true,
 				reportType: 'user_reported',
-				userDescription: trimmed.startsWith( '/report-issue ' )
-					? trimmed.slice( 14 ).trim()
+				userDescription: trimmed.startsWith( REPORT_PREFIX )
+					? trimmed.slice( REPORT_PREFIX.length ).trim()
 					: '',
 			} );
 			clearComposer();
@@ -198,14 +219,14 @@ export default function useChatComposer( {
 
 		if (
 			! isSimpleMode &&
-			( trimmed === '/plan' || trimmed.startsWith( '/plan ' ) )
+			( trimmed === PLAN_COMMAND || trimmed.startsWith( PLAN_PREFIX ) )
 		) {
-			const request = trimmed.slice( 5 ).trim();
+			const request = trimmed.slice( PLAN_PREFIX.length ).trim();
 			if ( ! request ) {
-				setText( '/plan ' );
+				setText( PLAN_PREFIX );
 				return;
 			}
-			sendMessage( request, [], { durablePlan: true } );
+			sendMessage( request, attachments, { durablePlan: true } );
 			clearComposer();
 			focusTextarea();
 			return;
@@ -351,6 +372,7 @@ export default function useChatComposer( {
 		showSlash,
 		setShowSlash,
 		attachments,
+		attachmentError,
 		isDragOver,
 		setIsDragOver,
 		feedbackModal,

@@ -103,4 +103,24 @@ describe( 'AccountActionMessage', () => {
 			root.unmount();
 		} );
 	} );
+
+	test( 'renders readable translated copy when no action URL is available', async () => {
+		const { container, root } = await renderAccountActionMessage( {
+			notice: {
+				type: 'account_action',
+				reason: 'credit_exhausted',
+				action: 'purchase_credits',
+			},
+		} );
+
+		expect( container.textContent ).toContain(
+			'Purchase more credits in your account settings'
+		);
+		expect( container.textContent ).not.toContain( '<link>' );
+		expect( container.querySelector( 'a' ) ).toBeNull();
+
+		await act( async () => {
+			root.unmount();
+		} );
+	} );
 } );

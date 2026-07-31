@@ -170,13 +170,13 @@
 }
 
 .sdaa-embed__message--assistant a,
-.sdaa-embed__credit-inline-link {
+.sd-ai-agent-embed-credit-inline-link {
 	color: var(--sdaa-embed-primary);
 	text-decoration: underline;
 	text-underline-offset: 2px;
 }
 
-.sdaa-embed__credit-action {
+.sd-ai-agent-embed-credit-action {
 	display: block;
 	width: fit-content;
 	margin-top: 10px;
@@ -188,8 +188,8 @@
 	text-decoration: none;
 }
 
-.sdaa-embed__credit-action:hover,
-.sdaa-embed__credit-action:focus {
+.sd-ai-agent-embed-credit-action:hover,
+.sd-ai-agent-embed-credit-action:focus {
 	color: #fff;
 	text-decoration: none;
 }

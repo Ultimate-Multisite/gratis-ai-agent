@@ -125,6 +125,29 @@ export function getHydrationSessionId( sessions, sessionJobs = {} ) {
 }
 
 /**
+ * Open the preferred session only while the hydration effect is current.
+ *
+ * @param {Array}    sessions    Available sessions.
+ * @param {Object}   sessionJobs Per-session active jobs.
+ * @param {Function} openSession Store session opener.
+ * @param {Function} isCurrent   Whether this hydration run is current.
+ * @return {number|null} Opened session ID, or null when invalidated.
+ */
+export function openHydrated( sessions, sessionJobs, openSession, isCurrent ) {
+	if ( ! isCurrent() ) {
+		return null;
+	}
+
+	const sessionId = getHydrationSessionId( sessions, sessionJobs );
+	if ( ! sessionId || ! isCurrent() ) {
+		return null;
+	}
+
+	openSession( sessionId );
+	return sessionId;
+}
+
+/**
  * Determine whether first-run frontend onboarding may start.
  *
  * Onboarding must wait until sessions have loaded. Otherwise a reload during a

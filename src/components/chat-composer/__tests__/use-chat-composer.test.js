@@ -21,6 +21,7 @@ jest.mock( '@wordpress/api-fetch', () => jest.fn() );
 
 jest.mock( '@wordpress/i18n', () => ( {
 	__: ( text ) => text,
+	sprintf: ( template, value ) => template.replace( '%s', value ),
 } ) );
 
 jest.mock( '../../../store', () => 'sd-ai-agent' );
@@ -34,10 +35,13 @@ jest.mock( '../../use-speech-recognition', () => () => ( {
 /**
  * Minimal presentation harness for shared composer events.
  *
+ * @param {Object}  root0
+ * @param {boolean} root0.isSimpleMode Whether simple customer mode is active.
  * @return {JSX.Element} Test harness.
  */
-function ComposerHarness() {
+function ComposerHarness( { isSimpleMode = false } ) {
 	const composer = useChatComposer( {
+		isSimpleMode,
 		defaultPlaceholder: 'Ask',
 		maxTextareaHeight: 140,
 	} );
@@ -68,8 +72,54 @@ function ComposerHarness() {
 			>
 				Help
 			</button>
+			<button
+				type="button"
+				data-attach
+				onClick={ () =>
+					composer.processFiles( [
+						new File( [ 'brief' ], 'brief.txt', {
+							type: 'text/plain',
+						} ),
+					] )
+				}
+			>
+				Attach
+			</button>
+			<button
+				type="button"
+				data-reject
+				onClick={ () =>
+					composer.processFiles( [
+						new File( [ 'binary' ], 'plugin.zip', {
+							type: 'application/zip',
+						} ),
+					] )
+				}
+			>
+				Reject
+			</button>
+			{ composer.feedbackModal.isOpen && <span data-feedback /> }
+			{ composer.attachmentError && (
+				<span data-attachment-error>{ composer.attachmentError }</span>
+			) }
 		</div>
 	);
+}
+
+/**
+ * Update the controlled textarea value through React's input event.
+ *
+ * @param {HTMLElement} container Composer fixture container.
+ * @param {string}      value     New textarea value.
+ */
+function setTextareaValue( container, value ) {
+	const textarea = container.querySelector( 'textarea' );
+	const valueSetter = Object.getOwnPropertyDescriptor(
+		HTMLTextAreaElement.prototype,
+		'value'
+	).set;
+	valueSetter.call( textarea, value );
+	textarea.dispatchEvent( new Event( 'input', { bubbles: true } ) );
 }
 
 describe( 'useChatComposer', () => {
@@ -120,13 +170,7 @@ describe( 'useChatComposer', () => {
 		expect( container.querySelector( 'textarea' ).value ).toBe( '/plan ' );
 
 		await act( async () => {
-			const textarea = container.querySelector( 'textarea' );
-			const valueSetter = Object.getOwnPropertyDescriptor(
-				HTMLTextAreaElement.prototype,
-				'value'
-			).set;
-			valueSetter.call( textarea, '/plan Build a landing page' );
-			textarea.dispatchEvent( new Event( 'input', { bubbles: true } ) );
+			setTextareaValue( container, '/plan Build a landing page' );
 		} );
 		await act( async () => {
 			container
@@ -139,6 +183,69 @@ describe( 'useChatComposer', () => {
 			[],
 			{ durablePlan: true }
 		);
+	} );
+
+	test( 'preserves attachments submitted with a durable plan', async () => {
+		await act( async () => {
+			container
+				.querySelector( '[data-attach]' )
+				.dispatchEvent( new MouseEvent( 'click', { bubbles: true } ) );
+			await new Promise( ( resolve ) => setTimeout( resolve, 0 ) );
+		} );
+		await act( async () => {
+			setTextareaValue( container, '/plan Review this brief' );
+		} );
+		await act( async () => {
+			container
+				.querySelector( '[data-send]' )
+				.dispatchEvent( new MouseEvent( 'click', { bubbles: true } ) );
+		} );
+
+		expect( dispatchers.sendMessage ).toHaveBeenCalledWith(
+			'Review this brief',
+			[
+				expect.objectContaining( {
+					name: 'brief.txt',
+					type: 'text/plain',
+				} ),
+			],
+			{ durablePlan: true }
+		);
+	} );
+
+	test( 'does not open issue reporting in simple customer mode', async () => {
+		await act( async () => {
+			root.render(
+				createElement( ComposerHarness, { isSimpleMode: true } )
+			);
+		} );
+		await act( async () => {
+			setTextareaValue( container, '/report-issue private details' );
+		} );
+		await act( async () => {
+			container
+				.querySelector( '[data-send]' )
+				.dispatchEvent( new MouseEvent( 'click', { bubbles: true } ) );
+		} );
+
+		expect( container.querySelector( '[data-feedback]' ) ).toBeNull();
+		expect( dispatchers.sendMessage ).toHaveBeenCalledWith(
+			'/report-issue private details',
+			[]
+		);
+	} );
+
+	test( 'surfaces rejected attachment names', async () => {
+		await act( async () => {
+			container
+				.querySelector( '[data-reject]' )
+				.dispatchEvent( new MouseEvent( 'click', { bubbles: true } ) );
+			await Promise.resolve();
+		} );
+
+		expect(
+			container.querySelector( '[data-attachment-error]' ).textContent
+		).toContain( 'plugin.zip' );
 	} );
 
 	test( 'shares the shortcuts-help command', async () => {

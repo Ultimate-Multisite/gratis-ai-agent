@@ -8,7 +8,7 @@
  */
 
 import { useSelect, useDispatch } from '@wordpress/data';
-import { useEffect, useRef, useState } from '@wordpress/element';
+import { useEffect, useMemo, useRef, useState } from '@wordpress/element';
 import { __ } from '@wordpress/i18n';
 
 import STORE_NAME from '../../store';
@@ -83,7 +83,10 @@ export default function MessageList() {
 	const [ thumbsDownMessageIndex, setThumbsDownMessageIndex ] =
 		useState( null );
 
-	const visible = getVisibleMessages( messages );
+	const visible = useMemo(
+		() => getVisibleMessages( messages ),
+		[ messages ]
+	);
 	const { containerRef, unseenCount, scrollToBottom } = useMessageListScroll(
 		{
 			visibleCount: visible.length,

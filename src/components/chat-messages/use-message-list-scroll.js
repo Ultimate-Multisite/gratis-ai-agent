@@ -26,10 +26,35 @@ export default function useMessageListScroll( {
 	liveToolCalls,
 	preservePageScroll = false,
 } ) {
-	const containerRef = useRef( null );
+	const elementRef = useRef( null );
 	const isAtBottomRef = useRef( true );
 	const previousVisibleCountRef = useRef( 0 );
 	const [ unseenCount, setUnseenCount ] = useState( 0 );
+
+	const handleScroll = useCallback( () => {
+		const element = elementRef.current;
+		if ( ! element ) {
+			return;
+		}
+		const atBottom =
+			element.scrollHeight - element.scrollTop - element.clientHeight <
+			SCROLL_THRESHOLD;
+		isAtBottomRef.current = atBottom;
+		if ( atBottom ) {
+			setUnseenCount( 0 );
+		}
+	}, [] );
+
+	const containerRef = useCallback(
+		( element ) => {
+			elementRef.current?.removeEventListener( 'scroll', handleScroll );
+			elementRef.current = element;
+			element?.addEventListener( 'scroll', handleScroll, {
+				passive: true,
+			} );
+		},
+		[ handleScroll ]
+	);
 
 	useEffect( () => {
 		isAtBottomRef.current = true;
@@ -37,30 +62,15 @@ export default function useMessageListScroll( {
 		setUnseenCount( 0 );
 	}, [ currentSessionId ] );
 
-	useEffect( () => {
-		const element = containerRef.current;
-		if ( ! element ) {
-			return;
-		}
-
-		const handleScroll = () => {
-			const atBottom =
-				element.scrollHeight -
-					element.scrollTop -
-					element.clientHeight <
-				SCROLL_THRESHOLD;
-			isAtBottomRef.current = atBottom;
-			if ( atBottom ) {
-				setUnseenCount( 0 );
-			}
-		};
-
-		element.addEventListener( 'scroll', handleScroll, { passive: true } );
-		return () => element.removeEventListener( 'scroll', handleScroll );
-	}, [] );
+	useEffect(
+		() => () => {
+			elementRef.current?.removeEventListener( 'scroll', handleScroll );
+		},
+		[ handleScroll ]
+	);
 
 	useEffect( () => {
-		const element = containerRef.current;
+		const element = elementRef.current;
 		if ( ! element ) {
 			return;
 		}
@@ -82,7 +92,7 @@ export default function useMessageListScroll( {
 	}, [ visibleCount, sending, liveToolCalls, preservePageScroll ] );
 
 	const scrollToBottom = useCallback( () => {
-		const element = containerRef.current;
+		const element = elementRef.current;
 		if ( ! element ) {
 			return;
 		}

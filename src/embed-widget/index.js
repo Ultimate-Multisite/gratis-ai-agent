@@ -453,7 +453,7 @@ export function renderAccountActionNotice( item, notice ) {
 
 	if ( accountUrl ) {
 		const inlineLink = document.createElement( 'a' );
-		inlineLink.className = 'sdaa-embed__credit-inline-link';
+		inlineLink.className = 'sd-ai-agent-embed-credit-inline-link';
 		inlineLink.href = accountUrl;
 		inlineLink.target = '_blank';
 		inlineLink.rel = 'noopener noreferrer';
@@ -468,7 +468,7 @@ export function renderAccountActionNotice( item, notice ) {
 
 	if ( accountUrl ) {
 		const action = document.createElement( 'a' );
-		action.className = 'sdaa-embed__credit-action';
+		action.className = 'sd-ai-agent-embed-credit-action';
 		action.href = accountUrl;
 		action.target = '_blank';
 		action.rel = 'noopener noreferrer';

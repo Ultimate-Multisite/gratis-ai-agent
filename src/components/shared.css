@@ -1,5 +1,11 @@
 /* Shared component styles — loaded by both admin-page and floating-widget bundles */
 
+.sd-ai-agent-composer-attachment-error {
+	margin: 0 0 8px;
+	color: #b32d2e;
+	font-size: 12px;
+}
+
 /* ── Slash command menu ───────────────────────────────────────────────────── */
 .sdaa-slash-menu {
 	position: absolute;

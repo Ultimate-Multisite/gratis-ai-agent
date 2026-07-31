@@ -2,7 +2,7 @@
  * Shared session-change count behavior for the main and floating chat shells.
  */
 
-import { useCallback, useEffect, useState } from '@wordpress/element';
+import { useCallback, useEffect, useRef, useState } from '@wordpress/element';
 import apiFetch from '@wordpress/api-fetch';
 
 /**
@@ -21,19 +21,40 @@ export default function useChangesCount( {
 	enabled = true,
 } ) {
 	const [ changesCount, setChangesCount ] = useState( 0 );
+	const requestIdRef = useRef( 0 );
+	const activeSessionIdRef = useRef( sessionId );
+	const enabledRef = useRef( enabled );
+	const previousSessionIdRef = useRef( sessionId );
+	const wasSendingRef = useRef( sending );
+	activeSessionIdRef.current = sessionId;
+	enabledRef.current = enabled;
 
 	const refreshChangesCount = useCallback( async () => {
-		if ( ! enabled || ! sessionId ) {
+		const requestId = ++requestIdRef.current;
+		const requestSessionId = sessionId;
+		if ( ! enabled || ! requestSessionId ) {
 			setChangesCount( 0 );
 			return;
 		}
 		try {
 			const data = await apiFetch( {
-				path: `/sd-ai-agent/v1/changes?session_id=${ sessionId }&reverted=false&revertable=true&per_page=1`,
+				path: `/sd-ai-agent/v1/changes?session_id=${ requestSessionId }&reverted=false&revertable=true&per_page=1`,
 			} );
-			setChangesCount( data?.total ?? ( data?.items?.length || 0 ) );
+			if (
+				requestId === requestIdRef.current &&
+				requestSessionId === activeSessionIdRef.current &&
+				enabledRef.current
+			) {
+				setChangesCount( data?.total ?? ( data?.items?.length || 0 ) );
+			}
 		} catch {
-			setChangesCount( 0 );
+			if (
+				requestId === requestIdRef.current &&
+				requestSessionId === activeSessionIdRef.current &&
+				enabledRef.current
+			) {
+				setChangesCount( 0 );
+			}
 		}
 	}, [ enabled, sessionId ] );
 
@@ -42,10 +63,13 @@ export default function useChangesCount( {
 	}, [ refreshChangesCount ] );
 
 	useEffect( () => {
-		if ( ! sending && sessionId ) {
+		const sameSession = previousSessionIdRef.current === sessionId;
+		if ( sameSession && wasSendingRef.current && ! sending ) {
 			refreshChangesCount();
 		}
-	}, [ sending, sessionId, refreshChangesCount ] );
+		previousSessionIdRef.current = sessionId;
+		wasSendingRef.current = sending;
+	}, [ sessionId, sending, refreshChangesCount ] );
 
 	return { changesCount, setChangesCount, refreshChangesCount };
 }

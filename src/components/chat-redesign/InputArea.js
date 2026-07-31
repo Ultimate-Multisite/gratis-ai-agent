@@ -33,6 +33,9 @@ export default function InputArea( { isSimpleMode = false } = {} ) {
 			'superdav-ai-agent'
 		),
 	} );
+	const sendLabel = composer.sending
+		? __( 'Queue message', 'superdav-ai-agent' )
+		: __( 'Send message', 'superdav-ai-agent' );
 
 	return (
 		<div className="sdaa-cr-input-area">
@@ -60,6 +63,14 @@ export default function InputArea( { isSimpleMode = false } = {} ) {
 								__( '%d messages queued', 'superdav-ai-agent' ),
 								composer.queueCount
 						  ) }
+				</div>
+			) }
+			{ composer.attachmentError && (
+				<div
+					className="sd-ai-agent-composer-attachment-error"
+					role="alert"
+				>
+					{ composer.attachmentError }
 				</div>
 			) }
 			<div className="sdaa-cr-input-inner">
@@ -192,7 +203,16 @@ export default function InputArea( { isSimpleMode = false } = {} ) {
 									<Microphone />
 								</button>
 							) }
-							{ composer.sending ? (
+							<button
+								type="button"
+								className="sdaa-cr-send-btn"
+								onClick={ composer.handleSend }
+								disabled={ ! composer.canSend }
+								aria-label={ sendLabel }
+							>
+								<Icon icon={ arrowUp } size={ 16 } />
+							</button>
+							{ composer.sending && (
 								<button
 									type="button"
 									className="sdaa-cr-send-btn is-stop"
@@ -203,19 +223,6 @@ export default function InputArea( { isSimpleMode = false } = {} ) {
 									) }
 								>
 									<Stop />
-								</button>
-							) : (
-								<button
-									type="button"
-									className="sdaa-cr-send-btn"
-									onClick={ composer.handleSend }
-									disabled={ ! composer.canSend }
-									aria-label={ __(
-										'Send message',
-										'superdav-ai-agent'
-									) }
-								>
-									<Icon icon={ arrowUp } size={ 16 } />
 								</button>
 							) }
 						</div>

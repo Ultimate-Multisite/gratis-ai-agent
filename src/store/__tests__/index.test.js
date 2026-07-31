@@ -1098,6 +1098,7 @@ describe( 'actions', () => {
 				},
 			} )
 		);
+		expect( dispatch.appendMessage ).toHaveBeenCalledTimes( 1 );
 		// The stale terminal card is cleared, but no generic failure card replaces it.
 		expect( dispatch.setPendingActionCard ).toHaveBeenLastCalledWith(
 			null

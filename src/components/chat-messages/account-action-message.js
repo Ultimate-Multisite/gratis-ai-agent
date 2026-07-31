@@ -2,6 +2,7 @@
  * Shared account-action message rendered by every React chat surface.
  */
 
+import { createInterpolateElement } from '@wordpress/element';
 import { __ } from '@wordpress/i18n';
 
 import {
@@ -13,7 +14,7 @@ import {
  * Resolve translated presentation copy for a semantic account action.
  *
  * @param {Object} notice Structured account-action notice.
- * @return {{prefix: string, linkText: string, suffix: string, actionText: string}}
+ * @return {{template: string, actionText: string, hasInlineLink: boolean}}
  *   Translated notice presentation.
  */
 export function getAccountActionPresentation( notice ) {
@@ -22,27 +23,25 @@ export function getAccountActionPresentation( notice ) {
 		notice?.action === PURCHASE_CREDITS_ACTION
 	) {
 		return {
-			prefix: __(
-				"You've used all of your available SD AI credits. Purchase more credits in your",
+			template: __(
+				"You've used all of your available SD AI credits. Purchase more credits in your <link>account settings</link> to continue using Standard.",
 				'superdav-ai-agent'
 			),
-			linkText: __( 'account settings', 'superdav-ai-agent' ),
-			suffix: __( 'to continue using Standard.', 'superdav-ai-agent' ),
 			actionText: __( 'Purchase credits', 'superdav-ai-agent' ),
+			hasInlineLink: true,
 		};
 	}
 
 	return {
-		prefix:
+		template:
 			typeof notice?.message === 'string'
 				? notice.message
 				: __(
 						'Review your account settings to continue.',
 						'superdav-ai-agent'
 				  ),
-		linkText: '',
-		suffix: '',
 		actionText: __( 'Account settings', 'superdav-ai-agent' ),
+		hasInlineLink: false,
 	};
 }
 
@@ -56,19 +55,23 @@ export function getAccountActionPresentation( notice ) {
 export default function AccountActionMessage( { notice } ) {
 	const actionUrl = notice?.actionUrl || '';
 	const presentation = getAccountActionPresentation( notice );
-	const inlineLink =
-		actionUrl && presentation.linkText ? (
-			<a
-				className="sd-ai-agent-cr-msg-system-inline-action"
-				href={ actionUrl }
-				target="_blank"
-				rel="noopener noreferrer"
-			>
-				{ presentation.linkText }
-			</a>
-		) : (
-			presentation.linkText
-		);
+	const inlineElement = actionUrl ? (
+		// The translated <link>…</link> content is supplied by createInterpolateElement.
+		// eslint-disable-next-line jsx-a11y/anchor-has-content
+		<a
+			className="sd-ai-agent-cr-msg-system-inline-action"
+			href={ actionUrl }
+			target="_blank"
+			rel="noopener noreferrer"
+		/>
+	) : (
+		<span />
+	);
+	const message = presentation.hasInlineLink
+		? createInterpolateElement( presentation.template, {
+				link: inlineElement,
+		  } )
+		: presentation.template;
 
 	return (
 		<div className="sdaa-cr-msg-row">
@@ -76,19 +79,7 @@ export default function AccountActionMessage( { notice } ) {
 				className="sd-ai-agent-cr-msg-system sd-ai-agent-cr-msg-system--account-action"
 				role="status"
 			>
-				<span>{ presentation.prefix }</span>
-				{ presentation.linkText && (
-					<>
-						{ ' ' }
-						<span>{ inlineLink }</span>
-					</>
-				) }
-				{ presentation.suffix && (
-					<>
-						{ ' ' }
-						<span>{ presentation.suffix }</span>
-					</>
-				) }
+				{ message }
 				{ actionUrl && (
 					<a
 						className="sd-ai-agent-cr-msg-system-action"
