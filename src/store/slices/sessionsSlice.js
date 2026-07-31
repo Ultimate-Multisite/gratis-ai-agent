@@ -150,6 +150,9 @@ export const initialState = {
 	currentSessionId: null,
 	currentSessionMessages: [],
 	currentSessionToolCalls: [],
+	// Set only by an explicit new-chat action. The floating widget consumes this
+	// to distinguish a user-requested empty conversation from initial hydration.
+	isNewChatPending: false,
 	sending: false,
 
 	// Token usage (current session)
@@ -1545,6 +1548,17 @@ export const selectors = {
 	},
 
 	/**
+	 * Whether the user explicitly started a new chat and the UI should remain
+	 * empty until the next message creates its new session.
+	 *
+	 * @param {import('../../types').StoreState} state
+	 * @return {boolean} Whether a new chat is pending its first message.
+	 */
+	isNewChatPending( state ) {
+		return state.isNewChatPending;
+	},
+
+	/**
 	 * @param {import('../../types').StoreState} state
 	 * @return {boolean} Whether a message is in-flight.
 	 */
@@ -1725,6 +1739,7 @@ export function reducer( state, action ) {
 		case 'SET_CURRENT_SESSION':
 			return {
 				...state,
+				isNewChatPending: false,
 				currentSessionId:
 					typeof action.sessionId === 'string'
 						? parseInt( action.sessionId, 10 )
@@ -1738,6 +1753,7 @@ export function reducer( state, action ) {
 		case 'CLEAR_CURRENT_SESSION':
 			return {
 				...state,
+				isNewChatPending: true,
 				currentSessionId: null,
 				currentSessionMessages: [],
 				currentSessionToolCalls: [],

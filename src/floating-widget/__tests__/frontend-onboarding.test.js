@@ -3,6 +3,7 @@ import {
 	hasLiveSiteChangeActivity,
 	isFrontendOnboardingEnabled,
 	isMobileViewport,
+	shouldHydrateSession,
 	shouldStartFrontendOnboarding,
 	startOnboarding,
 } from '../frontend-onboarding';
@@ -116,6 +117,24 @@ describe( 'frontend onboarding helpers', () => {
 				}
 			)
 		).toBe( 12 );
+	} );
+
+	test( 'does not hydrate a persisted session after an explicit new chat', () => {
+		expect(
+			shouldHydrateSession( {
+				sessionCount: 1,
+				currentSessionId: null,
+				isNewChatPending: true,
+			} )
+		).toBe( false );
+
+		expect(
+			shouldHydrateSession( {
+				sessionCount: 1,
+				currentSessionId: null,
+				isNewChatPending: false,
+			} )
+		).toBe( true );
 	} );
 
 	test( 'starts frontend onboarding only after sessions load empty', () => {
