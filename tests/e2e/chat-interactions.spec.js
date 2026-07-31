@@ -46,10 +46,12 @@ const {
  *   `status: 'processing'` before the handler switches to `status: 'complete'`.
  *   Use `processingPolls: 1` in the stop-button test so `sending` stays true
  *   long enough for the assertion to observe the stop button.
+ * @param {Array} [options.sessionMessages] - Persisted messages returned after
+ *   completion to exercise session hydration.
  * @return {Promise<void>}
  */
 async function interceptStream( page, options = {} ) {
-	const { generatedTitle, processingPolls = 0 } = options;
+	const { generatedTitle, processingPolls = 0, sessionMessages = [] } = options;
 	let jobPollCount = 0;
 
 	// Track the session_id from the /run POST body so the job-complete payload
@@ -144,7 +146,7 @@ async function interceptStream( page, options = {} ) {
 					title: 'Untitled',
 					status: 'active',
 					user_id: 1,
-					messages: [],
+					messages: sessionMessages,
 					tool_calls: [],
 				} ),
 			} );
@@ -458,6 +460,49 @@ test.describe( 'Chat Input Interactions', () => {
 		// Stop button should appear while the request is in flight.
 		const stopButton = getStopButton( page );
 		await expect( stopButton ).toBeVisible( { timeout: 5_000 } );
+	} );
+
+	test( 'rehydrated history keeps each turn model label', async ( { page } ) => {
+		await interceptStream( page, {
+			sessionMessages: [
+				{
+					role: 'user',
+					parts: [ { text: 'First turn' } ],
+					provider_id: 'superdav',
+					model_id: 'superdav-chat-fast',
+				},
+				{
+					role: 'model',
+					parts: [ { text: 'First reply' } ],
+					provider_id: 'superdav',
+					model_id: 'superdav-chat-fast',
+				},
+				{
+					role: 'user',
+					parts: [ { text: 'Second turn' } ],
+					provider_id: 'superdav',
+					model_id: 'superdav-chat-pro',
+				},
+				{
+					role: 'model',
+					parts: [ { text: 'Second reply' } ],
+					provider_id: 'superdav',
+					model_id: 'superdav-chat-pro',
+				},
+			],
+		} );
+
+		const input = getMessageInput( page );
+		await input.fill( 'Load mixed-model history' );
+		await input.press( 'Enter' );
+
+		const modelLabels = page.locator(
+			'.sdaa-cr-msg-user .sdaa-cr-msg-meta-model'
+		);
+		await expect( modelLabels ).toHaveText(
+			[ 'superdav-chat-fast', 'superdav-chat-pro' ],
+			{ timeout: 15_000 }
+		);
 	} );
 } );
 
