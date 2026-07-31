@@ -184,8 +184,11 @@ class FloatingWidgetTest extends WP_UnitTestCase {
 	public function test_enqueue_assets_frontend_localizes_settings_page_url(): void {
 		wp_set_current_user( $this->admin_id );
 		Settings::instance()->update( [ 'show_on_frontend' => true ] );
+		$fixture_dir = dirname( __DIR__, 2 ) . '/fixtures/assets';
+		add_filter( 'sd_ai_agent_build_dir', static fn() => $fixture_dir );
 
 		FloatingWidget::enqueue_assets_frontend();
+		remove_all_filters( 'sd_ai_agent_build_dir' );
 
 		$data = (string) wp_scripts()->get_data( 'sd-ai-agent-floating-widget', 'data' );
 		$this->assertStringContainsString( 'settingsPageUrl', $data );
