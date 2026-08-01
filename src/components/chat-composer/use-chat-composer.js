@@ -141,7 +141,9 @@ export default function useChatComposer( {
 			}
 			try {
 				const dataUrl = await readAsDataUrl( file );
-				if ( attachmentGeneration !== attachmentGenerationRef.current ) {
+				if (
+					attachmentGeneration !== attachmentGenerationRef.current
+				) {
 					return;
 				}
 				next.push( {
@@ -151,7 +153,9 @@ export default function useChatComposer( {
 					isImage: ACCEPTED_IMAGE_TYPES.includes( file.type ),
 				} );
 			} catch {
-				if ( attachmentGeneration !== attachmentGenerationRef.current ) {
+				if (
+					attachmentGeneration !== attachmentGenerationRef.current
+				) {
 					return;
 				}
 				rejectedNames.push( file.name );
