@@ -460,6 +460,20 @@ test.describe( 'Chat Input Interactions', () => {
 		await expect( stopButton ).toBeVisible( { timeout: 5_000 } );
 	} );
 
+	test( 'rotates the working status while the agent is processing', async ( {
+		page,
+	} ) => {
+		await interceptStream( page, { processingPolls: 2 } );
+
+		const input = getMessageInput( page );
+		await input.fill( 'Show the agent status' );
+		await input.press( 'Enter' );
+
+		const status = page.locator( '.sdaa-cr-progress-title' );
+		await expect( status ).toHaveText( 'Thinking…', { timeout: 5_000 } );
+		await expect( status ).toHaveText( 'Working…', { timeout: 5_000 } );
+	} );
+
 	test( 'rehydrated history keeps each turn model label', async ( { page } ) => {
 		const sessionId = 2393;
 		const sessionPath = `/sd-ai-agent/v1/sessions/${ sessionId }`;

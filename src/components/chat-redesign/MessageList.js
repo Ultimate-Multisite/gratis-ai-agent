@@ -23,6 +23,7 @@ import {
 } from '../chat-messages/message-presentation';
 import useCompactConversationAction from '../chat-messages/use-compact-conversation-action';
 import useMessageListScroll from '../chat-messages/use-message-list-scroll';
+import useRunningStatus from '../chat-messages/use-running-status';
 import { extractText } from './message-helpers';
 import { RunningMessage } from './message-items';
 
@@ -105,6 +106,7 @@ export default function MessageList() {
 		sessionJobs,
 		liveToolCalls,
 	} );
+	const runningStatus = useRunningStatus( sending && running.isFallback );
 
 	const { speak, cancel } = useTextToSpeech( {
 		voiceURI: ttsVoiceURI,
@@ -175,7 +177,11 @@ export default function MessageList() {
 
 					{ sending && (
 						<RunningMessage
-							step={ running.step }
+							step={
+								running.isFallback
+									? runningStatus
+									: running.step
+							}
 							liveToolCalls={ running.toolCalls }
 							showToolCallDetails={ showToolCallDetails }
 						/>

@@ -20,6 +20,7 @@ import {
 } from '../chat-messages/message-presentation';
 import useCompactConversationAction from '../chat-messages/use-compact-conversation-action';
 import useMessageListScroll from '../chat-messages/use-message-list-scroll';
+import useRunningStatus from '../chat-messages/use-running-status';
 import { RunningMessage } from '../chat-redesign/message-items';
 
 /**
@@ -84,6 +85,7 @@ export default function WidgetMessageList() {
 		sessionJobs,
 		liveToolCalls,
 	} );
+	const runningStatus = useRunningStatus( sending && running.isFallback );
 
 	return (
 		<>
@@ -99,7 +101,11 @@ export default function WidgetMessageList() {
 
 					{ sending && (
 						<RunningMessage
-							step={ running.step }
+							step={
+								running.isFallback
+									? runningStatus
+									: running.step
+							}
 							liveToolCalls={ running.toolCalls }
 							showToolCallDetails={ showToolCallDetails }
 						/>
