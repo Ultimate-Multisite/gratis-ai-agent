@@ -8,6 +8,9 @@ import apiFetch from '@wordpress/api-fetch';
 import SuperdavAccountManager, {
 	formatCreditActivityDate,
 	formatCreditActivityType,
+	formatManagedModelName,
+	formatTokenCount,
+	formatUsageCost,
 	formatWalletAmount,
 } from '../superdav-account-manager';
 
@@ -95,6 +98,7 @@ describe( 'SuperdavAccountManager', () => {
 		expect( formatWalletAmount( undefined ) ).toBe( '—' );
 		expect( formatWalletAmount( '' ) ).toBe( '—' );
 		expect( formatWalletAmount( 0 ) ).not.toBe( '—' );
+		expect( formatUsageCost( 1250 ) ).toMatch( /0[.,]00125/ );
 	} );
 
 	test( 'formats safe activity states and unavailable timestamps', () => {
@@ -107,6 +111,10 @@ describe( 'SuperdavAccountManager', () => {
 		expect( formatCreditActivityDate( 'invalid', 'UTC' ) ).toBe(
 			'Unavailable'
 		);
+		expect( formatManagedModelName( 'superdav-chat-pro' ) ).toBe(
+			'Standard'
+		);
+		expect( formatTokenCount( 1234 ) ).toMatch( /1.234|1,234/ );
 	} );
 
 	test( 'does not show a disconnected warning after a failed request', async () => {
@@ -184,8 +192,68 @@ describe( 'SuperdavAccountManager', () => {
 		} );
 
 		expect( container.textContent ).toContain(
-			'No recent credit activity is available.'
+			'No purchases, promotions, or adjustments are available.'
 		);
+	} );
+
+	test( 'expands actual usage grouped by chat session and links to the full chat', async () => {
+		apiFetch.mockResolvedValue( {
+			configured: true,
+			site_timezone: 'UTC',
+			chat_sessions: [
+				{
+					session_id: 42,
+					title: 'Build the landing page',
+					last_used_at: '2026-07-31T10:01:00+00:00',
+					input_tokens: 1200,
+					cached_input_tokens: 300,
+					output_tokens: 400,
+					total_tokens: 1600,
+					cost_usd_micros: 125000,
+					loop_count: 3,
+					tool_call_count: 7,
+					models: [
+						{
+							model_id: 'superdav-chat-pro',
+							total_tokens: 1400,
+							cost_usd_micros: 100000,
+							loop_count: 2,
+						},
+						{
+							model_id: 'superdav-chat-fast',
+							total_tokens: 200,
+							cost_usd_micros: 25000,
+							loop_count: 1,
+						},
+					],
+				},
+			],
+			credit_activity: [],
+		} );
+
+		await act( async () => {
+			root.render( createElement( SuperdavAccountManager, {} ) );
+		} );
+		await act( async () => {
+			await Promise.resolve();
+		} );
+
+		expect( container.textContent ).toContain( 'Build the landing page' );
+		expect( container.textContent ).toContain( 'Standard, Speedy' );
+		expect( container.textContent ).toContain( '$0.125' );
+		expect( container.textContent ).not.toContain( 'Agent loops' );
+
+		await act( async () => {
+			container
+				.querySelector( '.sd-ai-agent-superdav-session-usage-summary' )
+				.click();
+		} );
+
+		expect( container.textContent ).toContain( 'Agent loops3' );
+		expect( container.textContent ).toContain( 'Tool calls7' );
+		expect(
+			container.querySelector( 'a[href$="#/chat/42"]' )
+		).not.toBeNull();
 	} );
 
 	test( 'renders dedicated billing actions with their service-issued URLs', async () => {

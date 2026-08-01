@@ -27,6 +27,30 @@ export function formatWalletAmount( micros ) {
 }
 
 /**
+ * Format an actual usage charge without rounding sub-cent costs to zero.
+ *
+ * @param {number|string|null|undefined} micros Amount in USD micros.
+ * @return {string} Localized usage cost.
+ */
+export function formatUsageCost( micros ) {
+	if ( micros === null || micros === undefined || micros === '' ) {
+		return '—';
+	}
+
+	const amount = Number( micros );
+	if ( ! Number.isFinite( amount ) ) {
+		return '—';
+	}
+
+	return new Intl.NumberFormat( undefined, {
+		style: 'currency',
+		currency: 'USD',
+		minimumFractionDigits: 2,
+		maximumFractionDigits: 6,
+	} ).format( amount / 1_000_000 );
+}
+
+/**
  * Format a service timestamp in the WordPress site's configured timezone.
  *
  * @param {string|null|undefined} timestamp ISO-8601 timestamp.
@@ -67,6 +91,294 @@ export function formatCreditActivityType( type ) {
 	};
 
 	return labels[ type ] || __( 'Credit activity', 'superdav-ai-agent' );
+}
+
+/**
+ * @param {number|string|null|undefined} tokens Token count.
+ * @return {string} Localized integer token count.
+ */
+export function formatTokenCount( tokens ) {
+	const count = Number( tokens );
+
+	return new Intl.NumberFormat().format(
+		Number.isFinite( count ) && count > 0 ? Math.floor( count ) : 0
+	);
+}
+
+/**
+ * @param {string} modelId Managed model identifier.
+ * @return {string} User-facing model name.
+ */
+export function formatManagedModelName( modelId ) {
+	const names = {
+		'superdav-chat-fast': __( 'Speedy', 'superdav-ai-agent' ),
+		'superdav-chat-pro': __( 'Standard', 'superdav-ai-agent' ),
+		'superdav-chat-strong': __( 'Strong', 'superdav-ai-agent' ),
+		'superdav-image': __( 'Image', 'superdav-ai-agent' ),
+	};
+
+	return (
+		names[ modelId ] ||
+		modelId ||
+		__( 'Unknown model', 'superdav-ai-agent' )
+	);
+}
+
+/**
+ * Build a same-origin deep link to one local chat session.
+ *
+ * @param {number} sessionId Local chat session ID.
+ * @return {string} Chat review URL.
+ */
+function getChatSessionUrl( sessionId ) {
+	return `${ window.location.href.split( '#' )[ 0 ] }#/chat/${ sessionId }`;
+}
+
+/**
+ * Render actual managed-service charges grouped by local chat session.
+ *
+ * @param {Object}     props          Component props.
+ * @param {Array|null} props.sessions Safe owned session summaries.
+ * @param {string}     props.timeZone Site timezone.
+ * @return {JSX.Element} Session usage content.
+ */
+function ChatSessionUsage( { sessions, timeZone } ) {
+	const [ expandedSessionId, setExpandedSessionId ] = useState( null );
+
+	if ( sessions === null ) {
+		return (
+			<p className="description">
+				{ __(
+					'Session-level usage is unavailable. Refresh your balance and try again.',
+					'superdav-ai-agent'
+				) }
+			</p>
+		);
+	}
+
+	if ( sessions.length === 0 ) {
+		return (
+			<p className="description">
+				{ __(
+					'No chat session usage is available yet.',
+					'superdav-ai-agent'
+				) }
+			</p>
+		);
+	}
+
+	return (
+		<ul className="sd-ai-agent-superdav-session-usage-list">
+			{ sessions.map( ( session ) => {
+				const sessionId = Number( session.session_id );
+				const expanded = expandedSessionId === sessionId;
+				const detailsId = `sd-ai-agent-session-usage-${ sessionId }`;
+				const models = Array.isArray( session.models )
+					? session.models
+					: [];
+				const modelNames = models
+					.map( ( model ) =>
+						formatManagedModelName( model.model_id )
+					)
+					.join( ', ' );
+
+				return (
+					<li key={ sessionId }>
+						<button
+							type="button"
+							className="sd-ai-agent-superdav-session-usage-summary"
+							aria-expanded={ expanded }
+							aria-controls={ detailsId }
+							onClick={ () =>
+								setExpandedSessionId(
+									expanded ? null : sessionId
+								)
+							}
+						>
+							<span className="sd-ai-agent-superdav-session-identity">
+								<strong>{ session.title }</strong>
+								<span>
+									{ modelNames ||
+										__(
+											'Unknown model',
+											'superdav-ai-agent'
+										) }
+									{ ' · ' }
+									{ formatCreditActivityDate(
+										session.last_used_at,
+										timeZone
+									) }
+								</span>
+							</span>
+							<span className="sd-ai-agent-superdav-session-usage-totals">
+								<span>
+									{ sprintf(
+										/* translators: %s: total number of tokens. */
+										__( '%s tokens', 'superdav-ai-agent' ),
+										formatTokenCount( session.total_tokens )
+									) }
+								</span>
+								<strong>
+									{ formatUsageCost(
+										session.cost_usd_micros
+									) }
+								</strong>
+							</span>
+						</button>
+
+						{ expanded && (
+							<div
+								id={ detailsId }
+								className="sd-ai-agent-superdav-session-usage-details"
+							>
+								<dl>
+									<div>
+										<dt>
+											{ __(
+												'Input tokens',
+												'superdav-ai-agent'
+											) }
+										</dt>
+										<dd>
+											{ formatTokenCount(
+												session.input_tokens
+											) }
+										</dd>
+									</div>
+									<div>
+										<dt>
+											{ __(
+												'Cached input tokens',
+												'superdav-ai-agent'
+											) }
+										</dt>
+										<dd>
+											{ formatTokenCount(
+												session.cached_input_tokens
+											) }
+										</dd>
+									</div>
+									<div>
+										<dt>
+											{ __(
+												'Output tokens',
+												'superdav-ai-agent'
+											) }
+										</dt>
+										<dd>
+											{ formatTokenCount(
+												session.output_tokens
+											) }
+										</dd>
+									</div>
+									<div>
+										<dt>
+											{ __(
+												'Agent loops',
+												'superdav-ai-agent'
+											) }
+										</dt>
+										<dd>{ session.loop_count || 0 }</dd>
+									</div>
+									<div>
+										<dt>
+											{ __(
+												'Tool calls',
+												'superdav-ai-agent'
+											) }
+										</dt>
+										<dd>
+											{ session.tool_call_count || 0 }
+										</dd>
+									</div>
+									<div>
+										<dt>
+											{ __(
+												'Actual cost',
+												'superdav-ai-agent'
+											) }
+										</dt>
+										<dd>
+											{ formatUsageCost(
+												session.cost_usd_micros
+											) }
+										</dd>
+									</div>
+								</dl>
+
+								{ models.length > 1 && (
+									<table className="sd-ai-agent-superdav-session-models">
+										<thead>
+											<tr>
+												<th>
+													{ __(
+														'Model',
+														'superdav-ai-agent'
+													) }
+												</th>
+												<th>
+													{ __(
+														'Tokens',
+														'superdav-ai-agent'
+													) }
+												</th>
+												<th>
+													{ __(
+														'Loops',
+														'superdav-ai-agent'
+													) }
+												</th>
+												<th>
+													{ __(
+														'Cost',
+														'superdav-ai-agent'
+													) }
+												</th>
+											</tr>
+										</thead>
+										<tbody>
+											{ models.map( ( model ) => (
+												<tr key={ model.model_id }>
+													<td>
+														{ formatManagedModelName(
+															model.model_id
+														) }
+													</td>
+													<td>
+														{ formatTokenCount(
+															model.total_tokens
+														) }
+													</td>
+													<td>
+														{ model.loop_count }
+													</td>
+													<td>
+														{ formatUsageCost(
+															model.cost_usd_micros
+														) }
+													</td>
+												</tr>
+											) ) }
+										</tbody>
+									</table>
+								) }
+
+								<Button
+									variant="secondary"
+									href={ getChatSessionUrl( sessionId ) }
+								>
+									{ __(
+										'Review full session',
+										'superdav-ai-agent'
+									) }
+								</Button>
+							</div>
+						) }
+					</li>
+				);
+			} ) }
+		</ul>
+	);
 }
 
 /**
@@ -197,14 +509,22 @@ export default function SuperdavAccountManager() {
 		purchaseCreditsUrl || paymentMethodsUrl || accountUrl;
 	const configured = !! account?.configured;
 	const tier = account?.tier || '';
+	const chatSessions = Array.isArray( account?.chat_sessions )
+		? account.chat_sessions
+		: null;
 	const creditActivity = Array.isArray( account?.credit_activity )
-		? account.credit_activity
+		? account.credit_activity.filter(
+				( event ) =>
+					event.type !== 'consumed' &&
+					( event.type !== 'pending' ||
+						event.label === 'Credit adjustment' )
+		  )
 		: null;
 	const siteTimezone = account?.site_timezone || '';
 	let creditActivityContent = (
 		<p className="description">
 			{ __(
-				'Recent credit activity is unavailable.',
+				'Other credit activity is unavailable.',
 				'superdav-ai-agent'
 			) }
 		</p>
@@ -214,7 +534,7 @@ export default function SuperdavAccountManager() {
 		creditActivityContent = (
 			<p className="description">
 				{ __(
-					'No recent credit activity is available.',
+					'No purchases, promotions, or adjustments are available.',
 					'superdav-ai-agent'
 				) }
 			</p>
@@ -407,11 +727,36 @@ export default function SuperdavAccountManager() {
 						</form>
 
 						<section
+							className="sd-ai-agent-superdav-session-usage"
+							aria-labelledby="sd-ai-agent-superdav-session-usage-heading"
+						>
+							<h4 id="sd-ai-agent-superdav-session-usage-heading">
+								{ __(
+									'Credit usage by chat session',
+									'superdav-ai-agent'
+								) }
+							</h4>
+							<p className="description">
+								{ __(
+									'Actual SD AI charges and tokens are grouped by the chat that created them.',
+									'superdav-ai-agent'
+								) }
+							</p>
+							<ChatSessionUsage
+								sessions={ chatSessions }
+								timeZone={ siteTimezone }
+							/>
+						</section>
+
+						<section
 							className="sd-ai-agent-superdav-credit-activity"
 							aria-labelledby="sd-ai-agent-superdav-credit-activity-heading"
 						>
 							<h4 id="sd-ai-agent-superdav-credit-activity-heading">
-								{ __( 'Credit activity', 'superdav-ai-agent' ) }
+								{ __(
+									'Other credit activity',
+									'superdav-ai-agent'
+								) }
 							</h4>
 							{ creditActivityContent }
 						</section>

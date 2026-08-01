@@ -541,7 +541,9 @@ final class SettingsController {
 	 * Return safe account metadata for the Superdav AI account manager.
 	 */
 	public function handle_get_superdav_account(): WP_REST_Response {
-		return new WP_REST_Response( ( new SuperdavSiteConnectionService() )->get_status(), 200 );
+		$status = ( new SuperdavSiteConnectionService() )->get_status();
+
+		return new WP_REST_Response( $this->add_local_chat_session_details( $status ), 200 );
 	}
 
 	/**
@@ -555,7 +557,7 @@ final class SettingsController {
 			return $status;
 		}
 
-		return new WP_REST_Response( $status, 200 );
+		return new WP_REST_Response( $this->add_local_chat_session_details( $status ), 200 );
 	}
 
 	/**
@@ -572,7 +574,57 @@ final class SettingsController {
 			return $status;
 		}
 
-		return new WP_REST_Response( $status, 200 );
+		return new WP_REST_Response( $this->add_local_chat_session_details( $status ), 200 );
+	}
+
+	/**
+	 * Add current-user-owned local details to safe cloud billing summaries.
+	 *
+	 * The managed service never receives chat titles, messages, or tool payloads.
+	 * Session ownership is re-checked locally before a reviewable row is exposed.
+	 *
+	 * @param array<string, mixed> $status Safe managed account status.
+	 * @return array<string, mixed> Status with safe local session details.
+	 */
+	private function add_local_chat_session_details( array $status ): array {
+		if ( ! isset( $status['chat_sessions'] ) || ! is_array( $status['chat_sessions'] ) ) {
+			return $status;
+		}
+
+		$user_id       = get_current_user_id();
+		$chat_sessions = array();
+		foreach ( $status['chat_sessions'] as $usage ) {
+			if ( ! is_array( $usage ) ) {
+				continue;
+			}
+
+			$session_id = absint( $usage['session_id'] ?? 0 );
+			$session    = $session_id > 0 ? $this->database->get_session( $session_id ) : null;
+			if ( ! is_object( $session ) || (int) ( $session->user_id ?? 0 ) !== $user_id ) {
+				continue;
+			}
+
+			$title = sanitize_text_field( (string) ( $session->title ?? '' ) );
+			if ( '' === $title ) {
+				$title = sprintf(
+					/* translators: %d: chat session ID. */
+					__( 'Chat session #%d', 'superdav-ai-agent' ),
+					$session_id
+				);
+			}
+
+			$tool_calls = json_decode( (string) ( $session->tool_calls ?? '[]' ), true );
+			$messages   = json_decode( (string) ( $session->messages ?? '[]' ), true );
+
+			$usage['title']           = $title;
+			$usage['tool_call_count'] = is_array( $tool_calls ) ? count( $tool_calls ) : 0;
+			$usage['message_count']   = is_array( $messages ) ? count( $messages ) : 0;
+			$chat_sessions[]          = $usage;
+		}
+
+		$status['chat_sessions'] = $chat_sessions;
+
+		return $status;
 	}
 
 	/**

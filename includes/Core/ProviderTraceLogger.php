@@ -140,6 +140,11 @@ class ProviderTraceLogger {
 		);
 	}
 
+	/** Return the non-secret chat session ID for the active provider request. */
+	public static function get_runtime_session_id(): int {
+		return self::$runtimeContext['session_id'];
+	}
+
 	/** Clear runtime provider attribution after a synchronous request. */
 	public static function clear_runtime_context(): void {
 		self::$runtimeContext = array(
