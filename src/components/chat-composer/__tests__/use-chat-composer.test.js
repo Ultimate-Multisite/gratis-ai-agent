@@ -213,6 +213,63 @@ describe( 'useChatComposer', () => {
 		);
 	} );
 
+	test( 'does not restore an attachment after submitting while it is loading', async () => {
+		const originalFileReader = global.FileReader;
+		let pendingReader;
+
+		class DeferredFileReader {
+			readAsDataURL() {
+				pendingReader = this;
+			}
+		}
+
+		global.FileReader = DeferredFileReader;
+
+		try {
+			await act( async () => {
+				container
+					.querySelector( '[data-attach]' )
+					.dispatchEvent(
+						new MouseEvent( 'click', { bubbles: true } )
+					);
+			} );
+			expect( pendingReader ).toBeDefined();
+
+			await act( async () => {
+				setTextareaValue( container, 'Send before attachment loads' );
+				container
+					.querySelector( '[data-send]' )
+					.dispatchEvent(
+						new MouseEvent( 'click', { bubbles: true } )
+					);
+			} );
+
+			pendingReader.onload( {
+				target: { result: 'data:text/plain;base64,YnJpZWY=' },
+			} );
+			await act( async () => {
+				await Promise.resolve();
+			} );
+
+			await act( async () => {
+				setTextareaValue( container, 'Send after attachment loads' );
+				container
+					.querySelector( '[data-send]' )
+					.dispatchEvent(
+						new MouseEvent( 'click', { bubbles: true } )
+					);
+			} );
+
+			expect( dispatchers.sendMessage ).toHaveBeenNthCalledWith(
+				2,
+				'Send after attachment loads',
+				[]
+			);
+		} finally {
+			global.FileReader = originalFileReader;
+		}
+	} );
+
 	test( 'does not open issue reporting in simple customer mode', async () => {
 		await act( async () => {
 			root.render(
