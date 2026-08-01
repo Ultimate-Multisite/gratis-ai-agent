@@ -366,10 +366,7 @@ class ToolDiscovery {
 			if ( '' === $name ) {
 				continue;
 			}
-			// sd-ai-agent/navigate is a separately registered server ability that
-			// also has a browser callback. It remains discoverable through that
-			// registration, so never replace it with a discovery stub.
-			if ( 'sd-ai-agent/navigate' === $name || AbilityRegistry::get( $name ) instanceof \WP_Ability ) {
+			if ( AbilityRegistry::get( $name ) instanceof \WP_Ability ) {
 				continue;
 			}
 			wp_register_ability(

@@ -163,30 +163,6 @@ function extractDesignPreviews( call, response ) {
 }
 
 /**
- * Return a safe, user-visible fallback URL from a completed navigation call.
- *
- * @param {*} call     Tool call entry.
- * @param {*} response Tool response entry.
- * @return {string|null} Navigation URL when the completed result provides one.
- */
-function extractNavigationUrl( call, response ) {
-	const name = ( call?.name || '' ).toLowerCase();
-	const targetAbility = call?.args?.ability || '';
-	const url = response?.response?.url;
-
-	if (
-		( name.includes( 'navigate' ) ||
-			targetAbility === 'sd-ai-agent/navigate' ) &&
-		typeof url === 'string' &&
-		url !== ''
-	) {
-		return url;
-	}
-
-	return null;
-}
-
-/**
  * Render rich, user-facing tool results that should remain visible even when
  * raw tool-call details are hidden.
  *
@@ -196,12 +172,11 @@ function extractNavigationUrl( call, response ) {
  */
 export function ToolResultHighlights( { call, response } ) {
 	const designPreviews = extractDesignPreviews( call, response );
-	const navigationUrl = extractNavigationUrl( call, response );
 	const previewMessage = response?.response?.message
 		? formatValue( response.response.message )
 		: null;
 
-	if ( ! designPreviews && ! navigationUrl ) {
+	if ( ! designPreviews ) {
 		return null;
 	}
 
@@ -212,14 +187,6 @@ export function ToolResultHighlights( { call, response } ) {
 					designPreviews={ designPreviews }
 					message={ previewMessage }
 				/>
-			) }
-			{ navigationUrl && (
-				<a
-					className="sdaa-cr-tool-navigation-link"
-					href={ navigationUrl }
-				>
-					{ __( 'Open page', 'superdav-ai-agent' ) }
-				</a>
 			) }
 		</>
 	);

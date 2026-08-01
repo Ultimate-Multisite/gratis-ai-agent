@@ -59,11 +59,13 @@ final class ClientAbilityRouter {
 	 * @return list<string>
 	 */
 	public function get_names(): array {
-		return array_map(
-			static function ( array $d ): string {
-				return (string) ( $d['name'] ?? '' );
-			},
-			$this->client_abilities
+		return array_values(
+			array_map(
+				static function ( array $d ): string {
+					return (string) ( $d['name'] ?? '' );
+				},
+				$this->client_abilities
+			)
 		);
 	}
 
@@ -207,9 +209,9 @@ final class ClientAbilityRouter {
 				$client[] = array(
 					'id'          => (string) $call->getId(),
 					'name'        => $ability_name,
-					'client_name' => 'sd-ai-agent/navigate',
+					'client_name' => 'sd-ai-agent-js/navigate-to',
 					'args'        => is_array( $args['arguments'] ?? null ) ? $args['arguments'] : array(),
-					'annotations' => $annotations_by_name['sd-ai-agent/navigate'] ?? array(),
+					'annotations' => $annotations_by_name['sd-ai-agent-js/navigate-to'] ?? array(),
 				);
 			} else {
 				$php_parts[] = $part;
@@ -229,12 +231,11 @@ final class ClientAbilityRouter {
 	 * the nested target remains subject to the same WordPress capability gate as
 	 * the server-side navigation ability.
 	 *
-	 * @param string       $ability_name Resolved outer ability name.
-	 * @param mixed        $args         Outer ability arguments.
-	 * @param list<string> $client_names Validated browser ability names.
+	 * @param string        $ability_name Resolved outer ability name.
+	 * @param mixed         $args         Outer ability arguments.
+	 * @param array<string> $client_names Validated browser ability names.
 	 * @return bool Whether the call is safe to route to the browser.
 	 */
-	// phpcs:ignore Squiz.Commenting.FunctionComment.IncorrectTypeHint -- list<string> is valid PHPStan but not a native PHP type.
 	private function is_browser_navigation_meta_call(
 		string $ability_name,
 		mixed $args,
@@ -244,7 +245,7 @@ final class ClientAbilityRouter {
 			&& is_array( $args )
 			&& 'sd-ai-agent/navigate' === ( $args['ability'] ?? '' )
 			&& is_array( $args['arguments'] ?? null )
-			&& in_array( 'sd-ai-agent/navigate', $client_names, true )
+			&& in_array( 'sd-ai-agent-js/navigate-to', $client_names, true )
 			&& ToolCapabilities::current_user_can( 'sd-ai-agent/navigate' );
 	}
 

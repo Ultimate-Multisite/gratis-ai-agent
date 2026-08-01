@@ -34,13 +34,10 @@ describe( 'browser site navigation', () => {
 		await navigation.registerNavigationAbility();
 
 		await expect(
-			registry.executeClientAbility( 'sd-ai-agent/navigate', {
+			registry.executeClientAbility( 'sd-ai-agent-js/navigate-to', {
 				url: '/portfolio/',
 			} )
-		).resolves.toEqual( {
-			navigated: true,
-			url: `${ window.location.origin }/portfolio/`,
-		} );
+		).resolves.toEqual( { navigated: true, path: '' } );
 		expect( window._sdAiAgentPendingNavigation ).toBe(
 			`${ window.location.origin }/portfolio/`
 		);
@@ -51,10 +48,10 @@ describe( 'browser site navigation', () => {
 		await navigation.registerNavigationAbility();
 
 		await expect(
-			registry.executeClientAbility( 'sd-ai-agent/navigate', {
+			registry.executeClientAbility( 'sd-ai-agent-js/navigate-to', {
 				url: 'https://example.com/',
 			} )
-		).rejects.toThrow( 'limited to the current WordPress site' );
+		).rejects.toThrow( 'Invalid URL.' );
 		expect( window._sdAiAgentPendingNavigation ).toBeUndefined();
 	} );
 } );

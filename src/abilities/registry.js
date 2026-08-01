@@ -190,7 +190,7 @@ export async function registerCategory() {
  * arguments throws "Ability name is required". The call is also async.
  *
  * @param {Object}   def              Ability definition.
- * @param {string}   def.name         Fully-qualified browser ability name.
+ * @param {string}   def.name         Fully-qualified ability name (sd-ai-agent-js/...).
  * @param {string}   def.label        Human-readable label.
  * @param {string}   def.description  Description of what the ability does.
  * @param {Object}   def.inputSchema  JSON Schema for the ability's input.
@@ -268,7 +268,7 @@ export async function registerClientAbility( def ) {
 }
 
 /**
- * Snapshot the current browser ability descriptors as plain objects.
+ * Snapshot the current sd-ai-agent-js/* ability descriptors as plain objects.
  *
  * Returns an array of descriptor objects suitable for posting to the server
  * as `client_abilities` in the /chat request body. The server validates each
@@ -330,16 +330,9 @@ export async function snapshotDescriptors() {
 				annotations: ability.meta?.annotations || {},
 			} ) );
 
-		const descriptorsByName = new Map(
-			descriptors.map( ( descriptor ) => [ descriptor.name, descriptor ] )
-		);
-		for ( const descriptor of localDescriptors.values() ) {
-			if ( ! descriptorsByName.has( descriptor.name ) ) {
-				descriptorsByName.set( descriptor.name, descriptor );
-			}
-		}
-
-		return Array.from( descriptorsByName.values() );
+		return descriptors.length
+			? descriptors
+			: Array.from( localDescriptors.values() );
 	} catch ( _err ) {
 		return Array.from( localDescriptors.values() );
 	}
@@ -352,7 +345,7 @@ export async function snapshotDescriptors() {
  * `pending_client_tool_calls`. The ability must have been registered via
  * `registerClientAbility()` in the same page lifetime.
  *
- * @param {string} name Fully-qualified browser ability name.
+ * @param {string} name Fully-qualified ability name (sd-ai-agent-js/...).
  * @param {Object} args Ability arguments from the model's tool call.
  * @return {Promise<Object>} The ability's result object.
  * @throws {Error} When the ability is not registered in the current page.
