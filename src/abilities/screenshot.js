@@ -29,10 +29,10 @@ import { registerClientAbility } from './registry';
 /* ── Constants ─────────────────────────────────────────────────────────── */
 
 /** Maximum width (px) for the captured image to control token cost. */
-const MAX_IMAGE_WIDTH = 1024;
+const MAX_IMAGE_WIDTH = 768;
 
-/** JPEG quality (0-1). Balances clarity vs size for vision model input. */
-const JPEG_QUALITY = 0.8;
+/** JPEG quality (0-1). Keeps parallel vision evidence within provider envelopes. */
+const JPEG_QUALITY = 0.72;
 
 /** How long to wait (ms) for an iframe page to fully load before capture. */
 const IFRAME_LOAD_TIMEOUT = 15000;

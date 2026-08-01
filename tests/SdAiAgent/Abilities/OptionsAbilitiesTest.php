@@ -119,6 +119,7 @@ class OptionsAbilitiesTest extends WP_UnitTestCase {
 		$this->assertTrue( OptionsAbilities::is_write_allowed_option( 'blogdescription' ) );
 		$this->assertTrue( OptionsAbilities::is_write_allowed_option( 'show_on_front' ) );
 		$this->assertTrue( OptionsAbilities::is_write_allowed_option( 'page_on_front' ) );
+		$this->assertTrue( OptionsAbilities::is_write_allowed_option( 'woocommerce_coming_soon' ) );
 		$this->assertTrue( OptionsAbilities::is_write_allowed_option( 'page_for_posts' ) );
 		$this->assertFalse( OptionsAbilities::is_write_allowed_option( 'third_party_test_option' ) );
 		$this->assertFalse( OptionsAbilities::is_write_allowed_option( 'siteurl' ) );

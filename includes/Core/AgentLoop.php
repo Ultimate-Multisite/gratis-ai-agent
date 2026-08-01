@@ -840,24 +840,37 @@ PROMPT;
 				continue;
 			}
 
-			// Page-quality reports include bounded mobile/desktop screenshots for
-			// the Setup Assistant's separate visual-critic turn. Convert those data
-			// URIs to real SDK File parts, then remove base64 from the function
-			// response and activity log so checkpoints stay bounded.
+			// Screenshot abilities return data URIs that must be genuine image
+			// parts, not huge base64 strings hidden in function-response text. Strip
+			// the text copy after attachment so vision models can inspect it and
+			// checkpoints/provider envelopes remain bounded.
 			$review_parts   = array();
 			$result_payload = $result['result'] ?? array();
-			if ( self::is_page_quality_tool_name( $name ) && is_array( $result_payload['screenshots'] ?? null ) ) {
-				foreach ( $result_payload['screenshots'] as $screenshot_index => $screenshot ) {
-					if ( ! is_array( $screenshot ) || empty( $screenshot['image'] ) || ! is_string( $screenshot['image'] ) ) {
-						continue;
-					}
+			if ( self::is_screenshot_tool_name( $name ) && is_array( $result_payload ) ) {
+				if ( is_string( $result_payload['image'] ?? null ) && str_starts_with( $result_payload['image'], 'data:image/' ) ) {
 					try {
-						$review_parts[] = new MessagePart( new File( $screenshot['image'], 'image/jpeg' ) );
-						unset( $result_payload['screenshots'][ $screenshot_index ]['image'] );
-						$result_payload['screenshots'][ $screenshot_index ]['attached_to_model'] = true;
+						$review_parts[] = new MessagePart( new File( $result_payload['image'], 'image/jpeg' ) );
+						unset( $result_payload['image'] );
+						$result_payload['attached_to_model'] = true;
 					} catch ( \Throwable $e ) {
-						unset( $result_payload['screenshots'][ $screenshot_index ]['image'] );
-						$result_payload['screenshots'][ $screenshot_index ]['attachment_error'] = $e->getMessage();
+						unset( $result_payload['image'] );
+						$result_payload['attachment_error'] = $e->getMessage();
+					}
+				}
+
+				if ( is_array( $result_payload['screenshots'] ?? null ) ) {
+					foreach ( $result_payload['screenshots'] as $screenshot_index => $screenshot ) {
+						if ( ! is_array( $screenshot ) || ! is_string( $screenshot['image'] ?? null ) || ! str_starts_with( $screenshot['image'], 'data:image/' ) ) {
+							continue;
+						}
+						try {
+							$review_parts[] = new MessagePart( new File( $screenshot['image'], 'image/jpeg' ) );
+							unset( $result_payload['screenshots'][ $screenshot_index ]['image'] );
+							$result_payload['screenshots'][ $screenshot_index ]['attached_to_model'] = true;
+						} catch ( \Throwable $e ) {
+							unset( $result_payload['screenshots'][ $screenshot_index ]['image'] );
+							$result_payload['screenshots'][ $screenshot_index ]['attachment_error'] = $e->getMessage();
+						}
 					}
 				}
 				$results[ $result_index ]['result'] = $result_payload;
@@ -1088,6 +1101,7 @@ PROMPT;
 				'model_id'                      => $model_id,
 				'provider_id'                   => $provider_id,
 				'client_ability_names'          => self::checkpoint_ability_names( $this->client_router->get_names() ),
+				'agent_slug'                    => $this->agent_slug,
 				'page_context'                  => $this->checkpoint_page_context(),
 				'anonymous_allowed_abilities'   => self::checkpoint_ability_names( $this->anonymous_allowed_abilities ),
 				'anonymous_allowed_collections' => self::checkpoint_ability_names( $this->anonymous_allowed_collections ),
@@ -1719,6 +1733,8 @@ PROMPT;
 							'model_id'                  => $this->model_id,
 							'provider_id'               => $this->provider_id,
 							'client_abilities'          => $this->client_abilities,
+							'agent_slug'                => $this->agent_slug,
+							'page_context'              => $this->page_context,
 							// Bind the browser's resume payload to this exact paused batch.
 							'pending_client_tool_calls' => $partition['client'],
 						);
@@ -1801,6 +1817,8 @@ PROMPT;
 						'model_id'             => $this->model_id,
 						'provider_id'          => $this->provider_id,
 						'client_abilities'     => $this->client_abilities,
+						'agent_slug'           => $this->agent_slug,
+						'page_context'         => $this->page_context,
 					);
 					Database::save_paused_state( $this->session_id, $paused_state );
 				}
@@ -2654,14 +2672,17 @@ PROMPT;
 			Database::save_paused_state(
 				$this->session_id,
 				[
-					'history'          => $this->serialize_history(),
-					'tool_call_log'    => $this->tool_call_log,
-					'message_log'      => $this->message_log,
-					'token_usage'      => $this->token_usage,
-					'model_id'         => $this->model_id,
-					'provider_id'      => $this->provider_id,
-					'client_abilities' => $this->client_abilities,
-					'exit_reason'      => 'provider_retry_failed',
+					'history'              => $this->serialize_history(),
+					'tool_call_log'        => $this->tool_call_log,
+					'message_log'          => $this->message_log,
+					'token_usage'          => $this->token_usage,
+					'model_id'             => $this->model_id,
+					'provider_id'          => $this->provider_id,
+					'client_abilities'     => $this->client_abilities,
+					'agent_slug'           => $this->agent_slug,
+					'page_context'         => $this->page_context,
+					'iterations_remaining' => max( 1, (int) $this->max_iterations - $this->iterations_used ),
+					'exit_reason'          => 'provider_retry_failed',
 				]
 			);
 		}
@@ -4520,13 +4541,17 @@ PROMPT;
 		return '' === $notice ? $reply : $notice;
 	}
 
-	/** Return whether an SDK function name is the page-quality browser tool. */
-	private static function is_page_quality_tool_name( string $tool_name ): bool {
+	/** Return whether an SDK function name produces visual screenshot evidence. */
+	private static function is_screenshot_tool_name( string $tool_name ): bool {
 		return in_array(
 			$tool_name,
 			array(
 				PageCompletionGate::CLIENT_ABILITY,
+				'sd-ai-agent-js/capture-screenshot',
+				'sd-ai-agent-js/screenshot-url',
 				'wpab__sd-ai-agent-js__validate-page-quality',
+				'wpab__sd-ai-agent-js__capture-screenshot',
+				'wpab__sd-ai-agent-js__screenshot-url',
 			),
 			true
 		);

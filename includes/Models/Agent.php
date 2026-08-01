@@ -65,7 +65,19 @@ class Agent {
 		'sd-ai-agent/site-loopback-check',
 		'sd-ai-agent/fetch-url',
 		'sd-ai-agent/list-block-templates',
+		'sd-ai-agent/update-option',
 		'sd-ai-agent/submit-page-visual-review',
+	);
+
+	/**
+	 * Direct tools required for safe, focused General-agent page edits.
+	 *
+	 * @var list<string>
+	 */
+	private const GENERAL_REQUIRED_TIER_1_TOOLS = array(
+		'sd-ai-agent/get-page-blocks',
+		'sd-ai-agent/edit-block-tree',
+		'sd-ai-agent/list-block-templates',
 	);
 
 	/**
@@ -574,10 +586,14 @@ class Agent {
 		// Keep the broad dispatcher out of Phase 0 while always restoring the
 		// safer dedicated discovery tools for the built-in onboarding agent.
 		if ( self::ONBOARDING_AGENT_SLUG === $agent->slug && $agent->is_builtin ) {
+			$options['agent_system_prompt'] = trim( (string) ( $options['agent_system_prompt'] ?? '' ) )
+				. "\n\n## Mandatory built-in page preservation (runtime)\n"
+				. "These safety rules override stale seeded instructions and custom shortcuts. On an established site with a published static `page_on_front`, update that exact post in place with its latest revision. Never create a replacement/candidate/backup homepage, never blank its title or content, never switch the front page unless explicitly requested, and reuse real existing CTA pages. Set the allowlisted `woocommerce_coming_soon=no` before anonymous launch QA. Completion requires the exact current Setup page-quality report and screenshot visual review; do not claim success from a write, preview, or stale report.\n";
+
 			// First-run builds deliberately reserve enough turns for discovery,
 			// composition, three-viewport browser QA, and at least one repair pass.
 			// General-agent edits retain the user's ordinary iteration budget.
-			$options['max_iterations'] = max( 40, (int) ( $options['max_iterations'] ?? 0 ) );
+			$options['max_iterations'] = max( 60, (int) ( $options['max_iterations'] ?? 0 ) );
 			$tier_1_tools              = array_values(
 				array_unique(
 					array_merge(
@@ -591,12 +607,16 @@ class Agent {
 			);
 		}
 
-		// Existing built-in General rows also predate rendered page QA. Keep its
-		// template preflight tool direct so small edits do not burn a discovery
-		// round or ignore the active template contract.
+		// Existing built-in General rows also predate rendered page QA and stable
+		// block mutators. Keep focused read/edit/template tools direct so a tiny
+		// copy change cannot fall back to a destructive full-post replacement.
 		if ( self::DEFAULT_AGENT_SLUG === $agent->slug && $agent->is_builtin ) {
+			$options['agent_system_prompt'] = trim( (string) ( $options['agent_system_prompt'] ?? '' ) )
+				. "\n\n## Mandatory built-in focused-edit safety (runtime)\n"
+				. "These safety rules override stale seeded instructions and broad-edit shortcuts. For one existing Gutenberg block, call `sd-ai-agent/get-page-blocks` with fields including `ref,path,name,attributes,innerHTML,text_preview`, then call `sd-ai-agent/edit-block-tree` once with that ref, one operation, complete non-empty innerHTML when editing text/link markup, and the returned revision as `expected_revision`. Do not use `update-blocks` for one target and do not use `update-post` for a block-level edit. Never send provider-filled empty post fields or default draft status; empty/no-op patches are rejected. Preserve unrelated content and run the exact current incremental page-quality gate after the mutation.\n";
+
 			$tier_1_tools = array_values(
-				array_unique( array_merge( $tier_1_tools, [ 'sd-ai-agent/list-block-templates' ] ) )
+				array_unique( array_merge( $tier_1_tools, self::GENERAL_REQUIRED_TIER_1_TOOLS ) )
 			);
 		}
 
@@ -808,7 +828,7 @@ class Agent {
 			'greeting'       => __( "Hi! Give me a moment to look around, then I'll show you what I can do.", 'superdav-ai-agent' ),
 			'avatar_icon'    => 'dashicons-welcome-learn-more',
 			'tier_1_tools'   => self::get_unified_onboarding_tier_1_tools( $base_tools ),
-			'max_iterations' => 40,
+			'max_iterations' => 60,
 			'suggestions'    => [
 				[
 					'title'       => __( 'Build me a site', 'superdav-ai-agent' ),
@@ -911,6 +931,7 @@ class Agent {
 			. "Decide which branch you are in. The user never sees this decision:\n\n"
 			. "- **Empty install** = the active theme is a WordPress default (twenty-twentyfive, twenty-twentyfour, twenty-twentythree, etc.) AND there are 0–1 real published posts/pages. The seed \"Hello world!\" post and the seed \"Sample Page\" do NOT count as real content.\n"
 			. "- **Established site** = anything else (a non-default theme, or 2+ real published items).\n\n"
+			. "**Non-negotiable established-site preservation:** when `show_on_front=page` and `page_on_front` identifies a published page, that exact post is the homepage authority. A rebuild, repair, launch pass, or quality pass MUST update that post in place with its latest revision. Never call `create-post` for a replacement, candidate, backup, or cleaner homepage; never blank its title; and never switch `page_on_front` unless the user explicitly asks to replace the homepage. Reuse real existing CTA/contact/booking pages rather than duplicating them. A damaged block tree is a reason to validate and rewrite the authoritative post content, not to create another page.\n\n"
 			. "Do NOT mention these probes to the user. They are how you arrive at the first message already understanding their site.\n\n";
 
 		$phase_1_empty = "### Empty-install branch — Phase 1: Capture (one warm turn)\n\n"
@@ -925,7 +946,7 @@ class Agent {
 			. "2. Offers 3–5 concrete suggestion chips for what to do next, picked from the Phase 3 list below. Common picks: \"Audit my content\", \"Suggest blog topics\", \"Add a new page\", \"Build a custom theme\", \"Improve SEO\", \"Set up a shop\".\n\n"
 			. "Then WAIT. Do not run Phase 2 unless the user explicitly asks for a theme rebuild.\n\n";
 
-		$phase_2 = "## Phase 2: Build the homepage (empty-install branch only)\n\n"
+		$phase_2 = "## Phase 2: Build or explicitly rebuild the homepage\n\n"
 			. "Run this silently — no per-step narration. Post one brief status message (\"Building your homepage…\") and then the finished result with the homepage URL. Do NOT pause for user input between steps.\n\n"
 			. "1. Load the `site-specification` and `wp-block-themes` skills via `sd-ai-agent/skill-load`.\n"
 			. "2. If the user gave a URL, call `sd-ai-agent/site-scrape` to pre-fill brand facts.\n"
@@ -938,13 +959,13 @@ class Agent {
 			. "9. Call `sd-ai-agent/scaffold-block-theme` with the inferred metadata and the compiler's `theme_json` output. It must use schema **version 3** (never v2) with `\"\$schema\": \"https://schemas.wp.org/trunk/theme.json\"` and `\"version\": 3`.\n"
 			. "10. Write `parts/header.html`, `parts/footer.html`, `templates/index.html`, `templates/page.html`, and `templates/front-page.html` via `sd-ai-agent/file-write`. Validate each one with `sd-ai-agent/validate-block-content`.\n"
 			. "11. Persist the compiler's non-empty `global_styles.settings` and `global_styles.styles` through `sd-ai-agent/update-global-styles`. Never reconstruct raw color, typography, spacing, or element-style payloads independently and never pass empty arrays/objects.\n"
-			. "12. Before publishing, call `sd-ai-agent/list-block-templates` and inspect how the active page template renders post title and featured media. Choose an available no-title/full-width template when the composed hero owns the H1 and media. Never set the same attachment as featured media and also render it in page content. Then publish the homepage via `sd-ai-agent/create-post` (post_type: page, status: publish), following the selected variant's measurable `hero_contract` as well as its structural section roles:\n"
+			. "12. Before publishing, call `sd-ai-agent/list-block-templates` and inspect how the active page template renders post title and featured media. Choose an available no-title/full-width template when the composed hero owns the H1 and media. Never set the same attachment as featured media and also render it in page content. On an empty install, publish the homepage via `sd-ai-agent/create-post` (post_type: page, status: publish). On an explicit established-site rebuild, update the current published static front page in place using its latest revision ID; do not create duplicate candidate homepages or switch `page_on_front` away from a real existing homepage. Follow the selected variant's measurable `hero_contract` as well as its structural section roles:\n"
 			. "   - real user-supplied facts (name, location, vertical, photos) FIRST\n"
 			. "   - safe inferred copy where the user gave nothing (e.g. \"Welcome to {name}\", a 2-sentence about paragraph derived from vertical + name, a vertical-appropriate CTA label).\n"
 			. "   For hospitality verticals, only call `sd-ai-agent/generate-menu-page` if the user supplied menu data in the capture turn; otherwise the menu page is a Phase 3 follow-up.\n"
-			. "13. Create the CTA target page as a published page (e.g. /contact/ for services, /shop/ for retail, /menu/ for hospitality — but hospitality CTAs stay as a Phase 3 \"Add menu\" prompt if no menu data exists yet, in which case use /about/ as the temporary CTA target).\n"
+			. "13. On an empty install, create the CTA target page as a published page (e.g. /contact/ for services, /shop/ for retail, /menu/ for hospitality — but hospitality CTAs stay as a Phase 3 \"Add menu\" prompt if no menu data exists yet, in which case use /about/ as the temporary CTA target). On an established site, reuse a real existing contact, booking, shop, menu, or about page; do not create a duplicate target unless the user explicitly requested a new page.\n"
 			. "14. Update `templates/front-page.html` to replace `href=\"#\"` and \"Call to action\" with the real CTA URL and text. Re-validate.\n"
-			. "15. Set the published homepage as the front page: `sd-ai-agent/update-option show_on_front=page` and `page_on_front={homepage_id}` (via the options ability path).\n"
+			. "15. Set the published homepage as the front page: `sd-ai-agent/update-option show_on_front=page` and `page_on_front={homepage_id}`. If WooCommerce Coming soon is enabled, set the allowlisted presentation option `woocommerce_coming_soon=no` before anonymous browser QA.\n"
 			. "16. Call `sd-ai-agent/validate-block-theme-project` for the generated stylesheet. Repair every returned error (including token, asset, placeholder, part, pattern, variation, and block-markup diagnostics) and retry until `valid` is exactly `true`. Do not activate a generated theme with any validation error.\n"
 			. "17. Activate the new theme via `sd-ai-agent/activate-theme`.\n"
 			. "18. Call `sd-ai-agent-js/validate-theme-completion` after activation with the generated stylesheet, the exact current `fingerprint` returned by Step 16, `homepage_url` set to the active homepage, and `interior_url` set to one published same-origin interior page (the CTA target is normally suitable). It must render both pages at 375×812, 768×1024, and 1280×800. Treat every reported responsive, accessibility, content, activation, or render-health violation as a repair task. A standalone preview, uploaded HTML, cached PNG, screenshot, or subjective approval is never completion evidence. If the browser validator is unavailable, timed out, or only partially executed, do NOT report success.\n"
@@ -1042,7 +1063,8 @@ class Agent {
 				. "5. **After receiving tool results, ALWAYS provide a text response summarizing the results for the user.** Never return an empty response after tool calls.\n\n"
 				. "## Content Creation (IMPORTANT)\n"
 				. "To create any page or blog post, use `sd-ai-agent/create-post`.\n"
-				. "To update an existing post or page, use `sd-ai-agent/update-post` (pass post_id plus the fields to change).\n"
+				. "For a focused edit inside one existing block, call `sd-ai-agent/get-page-blocks` to get the target ref and revision, then `sd-ai-agent/edit-block-tree` with one smallest operation and that expected revision. Do not use `update-post` or a batch mutation for a button-label, heading, paragraph, link, image, or other single-block change.\n"
+				. "Use `sd-ai-agent/update-post` only for non-empty whole post fields you truly intend to replace. Never send empty title/content/excerpt, a default draft status, empty taxonomy arrays, or an empty template as filler; omitted optional values from providers are ignored and an all-empty patch is rejected.\n"
 				. "To list or search posts, use `sd-ai-agent/list-posts` (filter by post_type, status, search term, category, or tag).\n"
 				. "- For pages: set `post_type` to `page`.\n"
 				. "- For blog posts: set `post_type` to `post`.\n"
@@ -1080,6 +1102,7 @@ class Agent {
 							'sd-ai-agent/stock-image',
 							'sd-ai-agent/generate-image',
 							'sd-ai-agent/report-inability',
+							...self::GENERAL_REQUIRED_TIER_1_TOOLS,
 						]
 					)
 				)

@@ -1678,7 +1678,7 @@ final class SessionController {
 				'provider_id'                   => $checkpoint['provider_id'] ?? '',
 				'model_id'                      => $checkpoint['model_id'] ?? '',
 				'page_context'                  => $checkpoint['page_context'] ?? array(),
-				'agent_id'                      => 0,
+				'agent_id'                      => self::resumed_agent_id( $checkpoint ),
 				'attachments'                   => array(),
 				'client_abilities'              => $this->checkpoint_client_abilities( $checkpoint ),
 				'anonymous_allowed_abilities'   => $checkpoint['anonymous_allowed_abilities'] ?? array(),
@@ -1713,6 +1713,20 @@ final class SessionController {
 		);
 
 		return $this->checkpoint_resume_outcome( true, false, 'resumed', $metadata, $phase );
+	}
+
+	/**
+	 * Resolve the original selected agent for checkpoint and failure resumes.
+	 *
+	 * @param array<string,mixed> $state Persisted resume state.
+	 */
+	private static function resumed_agent_id( array $state ): int {
+		$slug = sanitize_key( (string) ( $state['agent_slug'] ?? '' ) );
+		if ( '' === $slug ) {
+			return 0;
+		}
+		$agent = Agent::get_by_slug( $slug );
+		return null !== $agent ? $agent->id : 0;
 	}
 
 	/**
@@ -2997,7 +3011,7 @@ final class SessionController {
 				'provider_id'                   => $paused_state['provider_id'] ?? '',
 				'model_id'                      => $paused_state['model_id'] ?? '',
 				'page_context'                  => $paused_state['page_context'] ?? array(),
-				'agent_id'                      => 0,
+				'agent_id'                      => self::resumed_agent_id( $paused_state ),
 				'attachments'                   => array(),
 				'client_abilities'              => $paused_state['client_abilities'] ?? array(),
 				'anonymous_allowed_abilities'   => $paused_state['anonymous_allowed_abilities'] ?? array(),

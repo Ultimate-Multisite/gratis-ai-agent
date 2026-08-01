@@ -22,6 +22,7 @@ namespace SdAiAgent\Tests\Core;
 use SdAiAgent\Abilities\Js\JsAbilityCatalog;
 use SdAiAgent\Core\AgentLoop;
 use SdAiAgent\Core\ClientAbilityRouter;
+use SdAiAgent\Core\Database;
 use SdAiAgent\Core\Settings;
 use WordPress\AiClient\Messages\DTO\MessagePart;
 use WordPress\AiClient\Messages\DTO\UserMessage;
@@ -102,6 +103,26 @@ class AgentLoopClientToolsTest extends WP_UnitTestCase {
 		$navigate = $map['sd-ai-agent-js/navigate-to'];
 		$this->assertSame( 'sd-ai-agent-js', $navigate['category'] );
 		$this->assertTrue( $navigate['annotations']['readonly'] );
+	}
+
+	/**
+	 * Page-quality nested objects must remain concrete in provider schemas.
+	 * Empty object definitions make some adapters emit [] for every target.
+	 */
+	public function test_page_quality_catalog_has_concrete_nested_schemas(): void {
+		$catalog = JsAbilityCatalog::get_descriptors_by_name();
+		$schema  = $catalog['sd-ai-agent-js/validate-page-quality']['input_schema'];
+
+		$this->assertSame(
+			array( 'post_id', 'revision_id', 'url', 'fields', 'role' ),
+			$schema['properties']['pages']['items']['required']
+		);
+		$this->assertArrayHasKey( 'url', $schema['properties']['pages']['items']['properties'] );
+		$this->assertArrayHasKey( 'strategy', $schema['properties']['hero_contract']['properties'] );
+		$this->assertSame(
+			array( 'label', 'width', 'height' ),
+			$schema['properties']['viewports']['items']['required']
+		);
 	}
 
 	/**
@@ -527,6 +548,38 @@ class AgentLoopClientToolsTest extends WP_UnitTestCase {
 		$this->assertSame( $completion_gate->get_terminal_notice(), $reply );
 		$this->assertStringNotContainsString( 'DONE', $reply );
 		$this->assertStringContainsString( 'remains incomplete', $reply );
+	}
+
+	/** Recoverable provider state retains the selected agent and its budget. */
+	public function test_provider_retry_state_retains_agent_context(): void {
+		$session_id = Database::create_session(
+			array(
+				'user_id' => 1,
+				'title'   => 'Agent resume context',
+			)
+		);
+		$loop       = new AgentLoop(
+			'test',
+			array(),
+			array(),
+			array(
+				'agent_slug'    => 'onboarding',
+				'session_id'    => $session_id,
+				'max_iterations' => 40,
+				'page_context'  => array( 'url' => 'https://example.test/' ),
+			)
+		);
+		$reflection = new \ReflectionClass( $loop );
+		$iterations = $reflection->getProperty( 'iterations_used' );
+		$iterations->setValue( $loop, 6 );
+		$method = $reflection->getMethod( 'build_provider_retry_failed_error' );
+		$method->invoke( $loop, null, 7 );
+
+		$state = Database::load_and_clear_paused_state( $session_id );
+		$this->assertIsArray( $state );
+		$this->assertSame( 'onboarding', $state['agent_slug'] );
+		$this->assertSame( 34, $state['iterations_remaining'] );
+		$this->assertSame( array( 'url' => 'https://example.test/' ), $state['page_context'] );
 	}
 
 	/** An incomplete page-quality run must replace a model success claim. */

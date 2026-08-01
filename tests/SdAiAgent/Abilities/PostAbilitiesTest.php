@@ -475,6 +475,129 @@ class PostAbilitiesTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * Provider-filled empty optional fields must not erase a published page.
+	 */
+	public function test_handle_update_post_blocks_empty_published_page_replacement(): void {
+		$post_id = $this->factory->post->create(
+			[
+				'post_type'    => 'page',
+				'post_status'  => 'publish',
+				'post_title'   => 'Existing homepage',
+				'post_content' => '<!-- wp:paragraph --><p>Existing content.</p><!-- /wp:paragraph -->',
+			]
+		);
+
+		$result = PostAbilities::handle_update_post(
+			[
+				'post_id' => $post_id,
+				'title'   => '',
+				'content' => '',
+				'status'  => 'publish',
+			]
+		);
+
+		$this->assertWPError( $result );
+		$this->assertSame( 'sd_ai_agent_no_effective_post_updates', $result->get_error_code() );
+		$this->assertSame( 'Existing homepage', get_post( $post_id )->post_title );
+		$this->assertStringContainsString( 'Existing content.', get_post( $post_id )->post_content );
+		$this->assertSame( 'publish', get_post_status( $post_id ) );
+	}
+
+	/**
+	 * One meaningful field remains a focused patch when provider defaults fill
+	 * every other optional input.
+	 */
+	public function test_handle_update_post_ignores_provider_filled_optional_defaults(): void {
+		$post_id = $this->factory->post->create(
+			[
+				'post_type'    => 'page',
+				'post_status'  => 'publish',
+				'post_title'   => 'Existing homepage',
+				'post_content' => '<!-- wp:paragraph --><p>Preserve this.</p><!-- /wp:paragraph -->',
+			]
+		);
+
+		$result = PostAbilities::handle_update_post(
+			[
+				'post_id'             => $post_id,
+				'title'               => 'Updated homepage',
+				'content'             => '',
+				'excerpt'             => '',
+				'status'              => 'draft',
+				'categories'          => [],
+				'tags'                => [],
+				'featured_image_id'   => 0,
+				'meta'                => [],
+				'page_template'       => '',
+				'site_url'            => '',
+				'expected_revision'   => '',
+				'confirm_status_change' => false,
+			]
+		);
+
+		$this->assertIsArray( $result );
+		$this->assertSame( 'Updated homepage', get_post( $post_id )->post_title );
+		$this->assertStringContainsString( 'Preserve this.', get_post( $post_id )->post_content );
+		$this->assertSame( 'publish', get_post_status( $post_id ) );
+		$this->assertSame( [ 'post_title' ], $result['affected']['fields'] );
+	}
+
+	/** Published-to-draft changes require an explicit confirmation bit. */
+	public function test_handle_update_post_requires_confirmation_to_unpublish(): void {
+		$post_id = $this->factory->post->create(
+			[
+				'post_status' => 'publish',
+				'post_title'  => 'Published item',
+			]
+		);
+
+		$blocked = PostAbilities::handle_update_post(
+			[
+				'post_id' => $post_id,
+				'status'  => 'draft',
+			]
+		);
+		$this->assertWPError( $blocked );
+		$this->assertSame( 'publish', get_post_status( $post_id ) );
+
+		$updated = PostAbilities::handle_update_post(
+			[
+				'post_id'              => $post_id,
+				'status'               => 'draft',
+				'confirm_status_change' => true,
+			]
+		);
+		$this->assertIsArray( $updated );
+		$this->assertSame( 'draft', get_post_status( $post_id ) );
+	}
+
+	/**
+	 * Explicitly trashing a page remains available instead of silently erasing it.
+	 */
+	public function test_handle_update_post_allows_empty_fields_while_trashing_page(): void {
+		$post_id = $this->factory->post->create(
+			[
+				'post_type'    => 'page',
+				'post_status'  => 'publish',
+				'post_title'   => 'Obsolete page',
+				'post_content' => 'Obsolete content',
+			]
+		);
+
+		$result = PostAbilities::handle_update_post(
+			[
+				'post_id' => $post_id,
+				'title'   => '',
+				'content' => '',
+				'status'  => 'trash',
+			]
+		);
+
+		$this->assertIsArray( $result );
+		$this->assertSame( 'trash', get_post_status( $post_id ) );
+	}
+
+	/**
 	 * Test handle_update_post updates status.
 	 */
 	public function test_handle_update_post_updates_status() {
@@ -509,18 +632,14 @@ class PostAbilitiesTest extends WP_UnitTestCase {
 		$this->assertSame( 'templates/landing.php', get_page_template_slug( $post_id ) );
 	}
 
-	/**
-	 * Test handle_update_post returns post_id, permalink, status.
-	 */
-	public function test_handle_update_post_returns_structure() {
+	/** A no-op patch is rejected instead of creating a misleading revision. */
+	public function test_handle_update_post_rejects_no_effective_fields(): void {
 		$post_id = $this->factory->post->create( [ 'post_status' => 'draft' ] );
 
 		$result = PostAbilities::handle_update_post( [ 'post_id' => $post_id ] );
 
-		$this->assertIsArray( $result );
-		$this->assertArrayHasKey( 'post_id', $result );
-		$this->assertArrayHasKey( 'permalink', $result );
-		$this->assertArrayHasKey( 'status', $result );
+		$this->assertWPError( $result );
+		$this->assertSame( 'sd_ai_agent_no_effective_post_updates', $result->get_error_code() );
 	}
 
 	// ─── affected payload (frontend live-preview bus, Phase 1 spike) ────

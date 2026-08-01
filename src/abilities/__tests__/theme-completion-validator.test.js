@@ -201,6 +201,49 @@ describe( 'generated theme completion validator', () => {
 		);
 	} );
 
+	test( 'ignores logged-in WordPress admin-bar controls and remote avatars', () => {
+		document.body.insertAdjacentHTML(
+			'afterbegin',
+			'<div id="wpadminbar"><a class="ab-item" href="#"><img src="https://secure.gravatar.com/avatar/demo" alt="Admin"></a><button></button></div>'
+		);
+
+		const result = inspectThemeDocument( {
+			document,
+			window,
+			url: urls[ 0 ],
+			viewport: THEME_COMPLETION_VIEWPORTS[ 0 ],
+			expectedStylesheet: stylesheet,
+		} );
+		const codes = result.violations.map( ( item ) => item.code );
+
+		expect( codes ).not.toContain( 'unprovided_remote_image' );
+		expect( codes ).not.toContain( 'empty_or_hash_link' );
+		expect( codes ).not.toContain( 'control_missing_accessible_name' );
+	} );
+
+	test( 'uses descendant image alt text for an image-only logo link', () => {
+		document
+			.querySelector( 'header' )
+			.insertAdjacentHTML(
+				'afterbegin',
+				'<a class="custom-logo-link" href="/"><img src="/logo.png" alt="Example business"></a>'
+			);
+
+		const result = inspectThemeDocument( {
+			document,
+			window,
+			url: urls[ 0 ],
+			viewport: THEME_COMPLETION_VIEWPORTS[ 0 ],
+			expectedStylesheet: stylesheet,
+		} );
+
+		expect(
+			result.violations.filter(
+				( item ) => item.code === 'control_missing_accessible_name'
+			)
+		).toEqual( [] );
+	} );
+
 	test( 'returns structured violations for frontend render failures', async () => {
 		loadSameOriginIframe.mockImplementationOnce( async ( { url } ) => ( {
 			success: false,

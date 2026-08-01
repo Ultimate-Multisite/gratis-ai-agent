@@ -727,6 +727,10 @@ class BlockAbilities {
 							'type'        => 'boolean',
 							'description' => 'Override the Block Bindings write-lock. When true, writes to attributes listed in the block\'s metadata.bindings are allowed. Default: false.',
 						],
+						'expected_revision'  => [
+							'type'        => [ 'integer', 'null' ],
+							'description' => 'Expected revision ID for optimistic concurrency. Pass revision_id from get-page-blocks; re-read after a stale_revision error.',
+						],
 						'dry_run'            => [
 							'type'        => 'boolean',
 							'description' => 'When true, validate and compute the result but do not persist. Returns the would-be block tree.',
@@ -737,27 +741,31 @@ class BlockAbilities {
 				'output_schema'       => [
 					'type'       => 'object',
 					'properties' => [
-						'success'    => [
+						'success'     => [
 							'type'        => 'boolean',
 							'description' => 'True when the operation succeeded (or dry_run succeeded).',
 						],
-						'dry_run'    => [
+						'dry_run'     => [
 							'type'        => 'boolean',
 							'description' => 'Echoes the dry_run flag.',
 						],
-						'op'         => [
+						'op'          => [
 							'type'        => 'string',
 							'description' => 'The operation that was applied.',
 						],
-						'post_id'    => [
+						'post_id'     => [
 							'type'        => 'integer',
 							'description' => 'Post ID that was mutated.',
 						],
-						'block_tree' => [
+						'revision_id' => [
+							'type'        => [ 'integer', 'null' ],
+							'description' => 'Latest revision ID after the mutation.',
+						],
+						'block_tree'  => [
 							'type'        => 'array',
 							'description' => 'The resulting block tree (always returned, even on dry_run).',
 						],
-						'error'      => [ 'type' => 'string' ],
+						'error'       => [ 'type' => 'string' ],
 					],
 				],
 				'execute_callback'    => [ __CLASS__, 'handle_edit_block_tree' ],
@@ -2864,8 +2872,8 @@ class BlockAbilities {
 	 * Handle the sd-ai-agent/edit-block-tree ability.
 	 *
 	 * Loads the post's block tree, applies the requested mutation via
-	 * BlockMutator::apply(), and (unless dry_run) persists the result
-	 * directly to the DB without creating a revision.
+	 * BlockMutator::apply(), and (unless dry_run) persists the result as one
+	 * normal WordPress revision.
 	 *
 	 * @param array<string,mixed> $input Ability input.
 	 * @return array<string,mixed>|\WP_Error Result array or WP_Error.
@@ -3016,6 +3024,7 @@ class BlockAbilities {
 				'kind'      => [ 'type' => 'string' ],
 				'post_id'   => [ 'type' => 'integer' ],
 				'post_type' => [ 'type' => 'string' ],
+				'status'    => [ 'type' => 'string' ],
 				'url'       => [ 'type' => 'string' ],
 				'fields'    => [
 					'type'  => 'array',
@@ -3043,6 +3052,7 @@ class BlockAbilities {
 			'kind'      => 'post',
 			'post_id'   => $post_id,
 			'post_type' => $post instanceof \WP_Post ? $post->post_type : '',
+			'status'    => $post instanceof \WP_Post ? $post->post_status : '',
 			'url'       => is_string( $permalink ) ? $permalink : '',
 			'fields'    => [ 'post_content' ],
 		];
@@ -3068,15 +3078,13 @@ class BlockAbilities {
 	 * Handle the sd-ai-agent/edit-block-tree ability.
 	 *
 	 * Loads the post's block tree, applies the requested mutation via
-	 * BlockMutator::apply(), and (unless dry_run) persists the result
-	 * directly to the DB without creating a revision.
+	 * BlockMutator::apply(), and (unless dry_run) persists the result as one
+	 * normal WordPress revision.
 	 *
 	 * @param array<string,mixed> $input Ability input.
 	 * @return array<string,mixed>|\WP_Error Result array or WP_Error.
 	 */
 	public static function handle_edit_block_tree( array $input ) {
-		global $wpdb;
-
 		$post_id = (int) ( $input['post_id'] ?? 0 );
 		$op      = isset( $input['op'] ) && is_string( $input['op'] ) ? $input['op'] : '';
 		$dry_run = isset( $input['dry_run'] ) ? (bool) $input['dry_run'] : false;
@@ -3120,6 +3128,12 @@ class BlockAbilities {
 			);
 		}
 
+		$expected = isset( $input['expected_revision'] ) ? (string) $input['expected_revision'] : '';
+		$guard    = RevisionGuard::check( $post_id, RevisionGuard::parse_raw( $expected ) );
+		if ( is_wp_error( $guard ) ) {
+			return $guard;
+		}
+
 		$content = $post->post_content;
 		$blocks  = is_string( $content ) ? parse_blocks( $content ) : [];
 
@@ -3141,24 +3155,17 @@ class BlockAbilities {
 		if ( ! $dry_run ) {
 			// @phpstan-ignore-next-line
 			$new_content = serialize_blocks( $new_tree );
-			// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching
-			$updated = $wpdb->update(
-				$wpdb->posts,
-				[ 'post_content' => $new_content ],
-				[ 'ID' => $post_id ],
-				[ '%s' ],
-				[ '%d' ]
+			$updated     = wp_update_post(
+				[
+					'ID'           => $post_id,
+					'post_content' => $new_content,
+				],
+				true
 			);
 
-			if ( false === $updated ) {
-				return new \WP_Error(
-					'db_write_failed',
-					__( 'Failed to persist the mutated block tree to the database.', 'superdav-ai-agent' ),
-					[ 'status' => 500 ]
-				);
+			if ( is_wp_error( $updated ) ) {
+				return $updated;
 			}
-
-			clean_post_cache( $post_id );
 
 			// Record rate-limit tick after successful write.
 			RateLimiter::record( 'write', $post_id );
@@ -3166,11 +3173,12 @@ class BlockAbilities {
 
 		return self::with_post_content_affected_payload(
 			[
-				'success'    => true,
-				'dry_run'    => $dry_run,
-				'op'         => $op,
-				'post_id'    => $post_id,
-				'block_tree' => self::annotate_bindings_tree( $new_tree ),
+				'success'     => true,
+				'dry_run'     => $dry_run,
+				'op'          => $op,
+				'post_id'     => $post_id,
+				'revision_id' => RevisionGuard::current_revision_id( $post_id ),
+				'block_tree'  => self::annotate_bindings_tree( $new_tree ),
 			],
 			$post_id,
 			$dry_run

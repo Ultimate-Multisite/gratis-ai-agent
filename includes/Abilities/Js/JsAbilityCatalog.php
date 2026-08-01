@@ -228,12 +228,12 @@ class JsAbilityCatalog {
 						'quality_token' => array( 'type' => 'string' ),
 						'pages'         => array(
 							'type'  => 'array',
-							'items' => array( 'type' => 'object' ),
+							'items' => self::page_quality_page_schema(),
 						),
-						'hero_contract' => array( 'type' => 'object' ),
+						'hero_contract' => self::page_quality_hero_contract_schema(),
 						'viewports'     => array(
 							'type'  => 'array',
-							'items' => array( 'type' => 'object' ),
+							'items' => self::page_quality_viewport_schema(),
 						),
 					),
 					'required'   => array( 'profile', 'quality_token', 'pages', 'hero_contract', 'viewports' ),
@@ -246,21 +246,25 @@ class JsAbilityCatalog {
 						'passed'        => array( 'type' => 'boolean' ),
 						'profile'       => array( 'type' => 'string' ),
 						'quality_token' => array( 'type' => 'string' ),
+						'viewports'     => array(
+							'type'  => 'array',
+							'items' => self::page_quality_viewport_schema(),
+						),
 						'reports'       => array(
 							'type'  => 'array',
-							'items' => array( 'type' => 'object' ),
+							'items' => self::page_quality_report_schema(),
 						),
 						'violations'    => array(
 							'type'  => 'array',
-							'items' => array( 'type' => 'object' ),
+							'items' => self::page_quality_finding_schema(),
 						),
 						'warnings'      => array(
 							'type'  => 'array',
-							'items' => array( 'type' => 'object' ),
+							'items' => self::page_quality_finding_schema(),
 						),
 						'screenshots'   => array(
 							'type'  => 'array',
-							'items' => array( 'type' => 'object' ),
+							'items' => self::page_quality_screenshot_schema(),
 						),
 						'minimum_score' => array( 'type' => 'number' ),
 					),
@@ -321,6 +325,130 @@ class JsAbilityCatalog {
 				),
 				'screens'       => array( 'all' ),
 			),
+		);
+	}
+
+	/** @return array<string,mixed> */
+	private static function page_quality_viewport_schema(): array {
+		return array(
+			'type'       => 'object',
+			'properties' => array(
+				'label'  => array(
+					'type' => 'string',
+					'enum' => array( 'mobile', 'tablet', 'desktop' ),
+				),
+				'width'  => array( 'type' => 'integer' ),
+				'height' => array( 'type' => 'integer' ),
+			),
+			'required'   => array( 'label', 'width', 'height' ),
+		);
+	}
+
+	/** @return array<string,mixed> */
+	private static function page_quality_page_schema(): array {
+		return array(
+			'type'       => 'object',
+			'properties' => array(
+				'post_id'     => array( 'type' => 'integer' ),
+				'revision_id' => array( 'type' => 'integer' ),
+				'url'         => array( 'type' => 'string' ),
+				'fields'      => array(
+					'type'  => 'array',
+					'items' => array( 'type' => 'string' ),
+				),
+				'role'        => array(
+					'type' => 'string',
+					'enum' => array( 'homepage', 'page' ),
+				),
+			),
+			'required'   => array( 'post_id', 'revision_id', 'url', 'fields', 'role' ),
+		);
+	}
+
+	/** @return array<string,mixed> */
+	private static function page_quality_hero_contract_schema(): array {
+		return array(
+			'type'       => 'object',
+			'properties' => array(
+				'strategy'                         => array(
+					'type' => 'string',
+					'enum' => array( 'balanced', 'immersive-media', 'split-media', 'editorial-feature', 'product-focus' ),
+				),
+				'media_role'                       => array( 'type' => 'string' ),
+				'desktop_media_min_viewport_ratio' => array( 'type' => 'number' ),
+				'desktop_min_height_vh'            => array( 'type' => 'integer' ),
+				'primary_cta_above_fold'           => array( 'type' => 'boolean' ),
+			),
+			'required'   => array( 'strategy', 'media_role', 'desktop_media_min_viewport_ratio', 'desktop_min_height_vh', 'primary_cta_above_fold' ),
+		);
+	}
+
+	/** @return array<string,mixed> */
+	private static function page_quality_finding_schema(): array {
+		return array(
+			'type'       => 'object',
+			'properties' => array(
+				'code'        => array( 'type' => 'string' ),
+				'url'         => array( 'type' => 'string' ),
+				'viewport'    => self::page_quality_viewport_schema(),
+				'selector'    => array( 'type' => 'string' ),
+				'evidence'    => array( 'type' => 'string' ),
+				'severity'    => array( 'type' => 'string' ),
+				'remediation' => array( 'type' => 'string' ),
+			),
+			'required'   => array( 'code', 'url', 'selector', 'evidence', 'severity', 'remediation' ),
+		);
+	}
+
+	/** @return array<string,mixed> */
+	private static function page_quality_report_schema(): array {
+		return array(
+			'type'       => 'object',
+			'properties' => array(
+				'post_id'           => array( 'type' => 'integer' ),
+				'revision_id'       => array( 'type' => 'integer' ),
+				'requested_url'     => array( 'type' => 'string' ),
+				'final_url'         => array( 'type' => 'string' ),
+				'role'              => array( 'type' => 'string' ),
+				'is_homepage'       => array( 'type' => 'boolean' ),
+				'viewport'          => self::page_quality_viewport_schema(),
+				'success'           => array( 'type' => 'boolean' ),
+				'violations'        => array(
+					'type'  => 'array',
+					'items' => self::page_quality_finding_schema(),
+				),
+				'warnings'          => array(
+					'type'  => 'array',
+					'items' => self::page_quality_finding_schema(),
+				),
+				'checks'            => array(
+					'type'       => 'object',
+					'properties' => array(
+						'composition_score' => array( 'type' => 'number' ),
+					),
+				),
+				'score'             => array( 'type' => 'number' ),
+				'active_stylesheet' => array( 'type' => 'string' ),
+			),
+			'required'   => array( 'post_id', 'revision_id', 'requested_url', 'final_url', 'role', 'viewport', 'success', 'violations', 'warnings' ),
+		);
+	}
+
+	/** @return array<string,mixed> */
+	private static function page_quality_screenshot_schema(): array {
+		return array(
+			'type'       => 'object',
+			'properties' => array(
+				'post_id'  => array( 'type' => 'integer' ),
+				'url'      => array( 'type' => 'string' ),
+				'viewport' => self::page_quality_viewport_schema(),
+				'success'  => array( 'type' => 'boolean' ),
+				'image'    => array( 'type' => 'string' ),
+				'width'    => array( 'type' => 'integer' ),
+				'height'   => array( 'type' => 'integer' ),
+				'error'    => array( 'type' => 'string' ),
+			),
+			'required'   => array( 'post_id', 'url', 'viewport', 'success', 'image', 'width', 'height', 'error' ),
 		);
 	}
 

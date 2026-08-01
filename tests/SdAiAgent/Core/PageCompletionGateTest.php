@@ -50,6 +50,40 @@ class PageCompletionGateTest extends WP_UnitTestCase {
 		$this->assertSame( PageCompletionGate::INCREMENTAL_VIEWPORTS, $inputs['viewports'] );
 	}
 
+	/** Stable block mutations participate in the same rendered-page gate. */
+	public function test_block_mutation_requires_incremental_page_quality(): void {
+		$gate = $this->gate( PageCompletionGate::PROFILE_INCREMENTAL );
+		$gate->record_tool_call(
+			'sd-ai-agent/update-blocks',
+			array(
+				'post_id'          => 41,
+				'expected_revision' => 101,
+			)
+		);
+		$gate->record_tool_response(
+			'sd-ai-agent/update-blocks',
+			array(
+				'success'     => true,
+				'post_id'     => 41,
+				'revision_id' => 102,
+				'affected'    => array(
+					'post_id'   => 41,
+					'post_type' => 'page',
+					'status'    => 'publish',
+					'url'       => self::PAGE_URL,
+					'fields'    => array( 'post_content' ),
+				),
+			)
+		);
+
+		$inputs = $gate->get_expected_report_inputs();
+		$this->assertTrue( $gate->is_required() );
+		$this->assertSame( 41, $inputs['pages'][0]['post_id'] );
+		$this->assertSame( 102, $inputs['pages'][0]['revision_id'] );
+		$this->assertSame( array( 'post_content' ), $inputs['pages'][0]['fields'] );
+		$this->assertSame( PageCompletionGate::INCREMENTAL_VIEWPORTS, $inputs['viewports'] );
+	}
+
 	/** Static-front-page selection changes the target URL and role. */
 	public function test_front_page_selection_uses_real_homepage_url(): void {
 		$gate = $this->gate( PageCompletionGate::PROFILE_SETUP );

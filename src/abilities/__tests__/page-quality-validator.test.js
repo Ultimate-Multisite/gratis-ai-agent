@@ -8,12 +8,13 @@ jest.mock( '../theme-completion-iframe', () => ( {
 
 jest.mock( 'html2canvas', () =>
 	jest.fn( async () => ( {
-		width: 800,
-		height: 500,
+		width: 700,
+		height: 438,
 		toDataURL: () => 'data:image/jpeg;base64,cmV2aWV3',
 	} ) )
 );
 
+const originalFetch = global.fetch;
 const { loadSameOriginIframe } = require( '../theme-completion-iframe' );
 const {
 	PAGE_QUALITY_VIEWPORTS,
@@ -146,12 +147,19 @@ describe( 'rendered page quality validator', () => {
 			window,
 			cleanup: jest.fn(),
 		} ) );
+		global.fetch = jest.fn( async () => ( {
+			ok: true,
+			status: 200,
+			text: async () =>
+				'<!doctype html><html><body class="home"></body></html>',
+		} ) );
 	} );
 
 	afterEach( () => {
 		jest.restoreAllMocks();
 		document.body.className = '';
 		document.body.innerHTML = '';
+		global.fetch = originalFetch;
 	} );
 
 	test( 'uses a fuller setup matrix than incremental edits', () => {
@@ -180,6 +188,26 @@ describe( 'rendered page quality validator', () => {
 		);
 	} );
 
+	test( 'rejects a homepage hidden behind anonymous coming-soon mode', async () => {
+		global.fetch.mockResolvedValue( {
+			ok: true,
+			status: 200,
+			text: async () =>
+				'<html><head><meta name="woo-coming-soon-page" content="yes"></head><body></body></html>',
+		} );
+
+		const report = await validatePageQuality( args() );
+
+		expect( report.passed ).toBe( false );
+		expect( report.violations ).toEqual(
+			expect.arrayContaining( [
+				expect.objectContaining( {
+					code: 'public_homepage_coming_soon',
+				} ),
+			] )
+		);
+	} );
+
 	test( 'rejects nested main landmarks and duplicate H1 output', () => {
 		document
 			.querySelector( 'main' )
@@ -202,6 +230,60 @@ describe( 'rendered page quality validator', () => {
 			expect.arrayContaining( [
 				expect.objectContaining( { code: 'nested_main_landmark' } ),
 				expect.objectContaining( { code: 'invalid_page_heading' } ),
+			] )
+		);
+	} );
+
+	test( 'blocks an oversized Setup header but keeps it advisory for General', () => {
+		HTMLElement.prototype.getBoundingClientRect.mockImplementation(
+			function getRect() {
+				if ( this.tagName === 'HEADER' ) {
+					return {
+						width: 1280,
+						height: 360,
+						top: 0,
+						left: 0,
+						bottom: 360,
+						right: 1280,
+					};
+				}
+				return {
+					width: 160,
+					height: 40,
+					top: 100,
+					left: 20,
+					bottom: 140,
+					right: 180,
+				};
+			}
+		);
+
+		const inspect = ( profile ) =>
+			inspectPageQualityDocument( {
+				document,
+				window,
+				url: window.location.origin + '/',
+				viewport: PAGE_QUALITY_VIEWPORTS.setup[ 2 ],
+				profile,
+				role: 'homepage',
+				heroContract,
+			} );
+		const setup = inspect( 'setup' );
+		const general = inspect( 'incremental' );
+
+		expect( setup.violations ).toEqual(
+			expect.arrayContaining( [
+				expect.objectContaining( { code: 'oversized_site_header' } ),
+			] )
+		);
+		expect( general.violations ).not.toEqual(
+			expect.arrayContaining( [
+				expect.objectContaining( { code: 'oversized_site_header' } ),
+			] )
+		);
+		expect( general.warnings ).toEqual(
+			expect.arrayContaining( [
+				expect.objectContaining( { code: 'oversized_site_header' } ),
 			] )
 		);
 	} );

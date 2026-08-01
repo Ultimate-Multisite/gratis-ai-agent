@@ -219,7 +219,23 @@ final class PageCompletionGate {
 			return;
 		}
 
-		if ( in_array( $name, array( 'sd-ai-agent/create-post', 'sd-ai-agent/update-post', 'sd-ai-agent/append-post-content' ), true ) ) {
+		if (
+			in_array(
+				$name,
+				array(
+					'sd-ai-agent/create-post',
+					'sd-ai-agent/update-post',
+					'sd-ai-agent/append-post-content',
+					'sd-ai-agent/edit-block-tree',
+					'sd-ai-agent/update-blocks',
+					'sd-ai-agent/rewrite-post-blocks',
+					'sd-ai-agent/insert-pattern',
+					'sd-ai-agent/replace-block-range',
+					'sd-ai-agent/revert-to-revision',
+				),
+				true
+			)
+		) {
 			$this->record_page_target( $call_args, $normalized );
 			return;
 		}
@@ -379,7 +395,7 @@ final class PageCompletionGate {
 	 */
 	private function record_page_target( array $call_args, array $response ): void {
 		$post_type = (string) ( $response['post_type'] ?? $response['affected']['post_type'] ?? $call_args['post_type'] ?? '' );
-		$status    = (string) ( $response['status'] ?? $call_args['status'] ?? '' );
+		$status    = (string) ( $response['status'] ?? $response['affected']['status'] ?? $call_args['status'] ?? '' );
 		if ( 'page' !== $post_type || 'publish' !== $status ) {
 			return;
 		}

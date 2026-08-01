@@ -23,7 +23,7 @@ export const PAGE_QUALITY_VIEWPORTS = Object.freeze( {
 } );
 
 const MAX_FINDINGS = 100;
-const MAX_REVIEW_IMAGE_WIDTH = 1024;
+const MAX_REVIEW_IMAGE_WIDTH = 768;
 const INCREMENTAL_BLOCKING_CODES = new Set( [
 	'iframe_document_unavailable',
 	'frontend_render_failed',
@@ -247,7 +247,7 @@ async function captureReviewScreenshot( doc, viewport ) {
 		}
 		return {
 			success: true,
-			image: target.toDataURL( 'image/jpeg', 0.8 ),
+			image: target.toDataURL( 'image/jpeg', 0.72 ),
 			width: target.width,
 			height: target.height,
 			error: '',
@@ -260,6 +260,68 @@ async function captureReviewScreenshot( doc, viewport ) {
 			height: 0,
 			error: error.message || 'Screenshot capture failed.',
 		};
+	}
+}
+
+/**
+ * Verify that an anonymous visitor receives the real homepage, not a launch,
+ * maintenance, or coming-soon interstitial hidden from logged-in editors.
+ *
+ * @param {string} url      Public homepage URL.
+ * @param {Object} viewport Evidence viewport.
+ * @return {Promise<Object|null>} Blocking finding, or null.
+ */
+async function inspectAnonymousHomepage( url, viewport ) {
+	try {
+		const response = await fetch( url, {
+			credentials: 'omit',
+			cache: 'no-store',
+			headers: { Accept: 'text/html' },
+		} );
+		if ( ! response.ok ) {
+			return finding( {
+				code: 'public_homepage_unavailable',
+				url,
+				viewport,
+				selector: 'document',
+				evidence: `Anonymous homepage request returned HTTP ${ response.status } instead of the published page.`,
+				remediation:
+					'Publish the site for anonymous visitors, then rerun rendered-page validation.',
+			} );
+		}
+
+		const html = await response.text();
+		const publicDocument = new DOMParser().parseFromString(
+			html,
+			'text/html'
+		);
+		const launchInterstitial = publicDocument.querySelector(
+			'meta[name="woo-coming-soon-page"][content="yes"], .wp-block-woocommerce-coming-soon, [data-block-name="woocommerce/coming-soon"]'
+		);
+		if ( launchInterstitial ) {
+			return finding( {
+				code: 'public_homepage_coming_soon',
+				url,
+				viewport,
+				selector: selectorFor( launchInterstitial ),
+				evidence:
+					'Anonymous visitors receive a WooCommerce coming-soon page while logged-in editors see the composed homepage.',
+				remediation:
+					'Disable Coming soon / launch mode and rerun validation against the public homepage before reporting a successful first impression.',
+			} );
+		}
+		return null;
+	} catch ( error ) {
+		return finding( {
+			code: 'public_homepage_check_failed',
+			url,
+			viewport,
+			selector: 'document',
+			evidence:
+				error.message || 'Anonymous homepage verification failed.',
+			remediation:
+				'Restore anonymous same-origin homepage access and rerun rendered-page validation.',
+		} );
 	}
 }
 
@@ -350,6 +412,27 @@ export function inspectPageQualityDocument( {
 			remediation:
 				'Replace the post-content main block with a core/group container.',
 		} );
+	}
+
+	const siteHeader = Array.from( doc.querySelectorAll( 'header' ) ).find(
+		( header ) => isVisible( header, win )
+	);
+	if ( siteHeader ) {
+		const headerRect = siteHeader.getBoundingClientRect();
+		const headerRatio = headerRect.height / viewport.height;
+		const maximumRatio = viewport.label === 'desktop' ? 0.4 : 0.34;
+		checks.header_viewport_ratio = headerRatio;
+		if ( headerRatio > maximumRatio ) {
+			report( {
+				code: 'oversized_site_header',
+				selector: selectorFor( siteHeader ),
+				evidence: `The site header consumes ${ Math.round(
+					headerRatio * 100
+				) }% of the initial ${ viewport.label } viewport.`,
+				remediation:
+					"Reduce logo scale and header padding so navigation remains clear without crowding the page's primary first impression.",
+			} );
+		}
 	}
 
 	const contentRoot = findPageContentRoot( doc );
@@ -716,6 +799,19 @@ export async function validatePageQuality( args ) {
 	}
 
 	for ( const page of pages ) {
+		if ( profile === 'setup' && page.role === 'homepage' ) {
+			// eslint-disable-next-line no-await-in-loop -- Each homepage has a distinct anonymous launch state.
+			const publicFinding = await inspectAnonymousHomepage(
+				page.url,
+				viewports.find(
+					( viewport ) => viewport.label === 'desktop'
+				) || viewports[ 0 ]
+			);
+			if ( publicFinding ) {
+				pushFinding( violations, publicFinding );
+			}
+		}
+
 		for ( const viewport of viewports ) {
 			// eslint-disable-next-line no-await-in-loop -- Quality reports must not race hidden iframe resources.
 			const loaded = await loadSameOriginIframe( {
