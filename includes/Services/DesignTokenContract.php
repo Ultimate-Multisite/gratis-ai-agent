@@ -1394,7 +1394,7 @@ final class DesignTokenContract {
 			return false;
 		}
 
-		return 1 === preg_match( '~^calc\(\s*' . $length . '(?:(?:\s*[+*/]\s*|\s+-\s+)' . $length . ')+\s*\)$~', $value )
+		return 1 === preg_match( '~^calc\(\s*' . $length . '(?:(?:\s*\+\s*|\s+-\s+)' . $length . ')+\s*\)$~', $value )
 			|| 1 === preg_match( '~^(?:min|max)\(\s*' . $length . '(?:\s*,\s*' . $length . ')+\s*\)$~', $value )
 			|| 1 === preg_match( '~^clamp\(\s*' . $length . '\s*,\s*' . $length . '\s*,\s*' . $length . '\s*\)$~', $value );
 	}
