@@ -642,7 +642,7 @@ export const actions = {
 								try {
 									const abilityResult = await Promise.race( [
 										executeClientAbility(
-											call.name,
+											call.client_name || call.name,
 											call.args || {}
 										),
 										new Promise( ( _resolve, reject ) =>

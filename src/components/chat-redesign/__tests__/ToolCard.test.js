@@ -143,4 +143,25 @@ describe( 'ToolCard', () => {
 
 		expect( html ).toContain( 'Design preview gallery' );
 	} );
+
+	test( 'renders a visible fallback link for completed navigate ability calls', () => {
+		const html = renderToStaticMarkup(
+			createElement( ToolResultHighlights, {
+				call: {
+					id: 'tool-5',
+					name: 'sd-ai-agent/ability-call',
+					args: { ability: 'sd-ai-agent/navigate' },
+				},
+				response: {
+					id: 'tool-5',
+					response: {
+						url: 'https://example.test/',
+					},
+				},
+			} )
+		);
+
+		expect( html ).toContain( 'href="https://example.test/"' );
+		expect( html ).toContain( 'Open page' );
+	} );
 } );

@@ -14,6 +14,7 @@ declare(strict_types=1);
 
 namespace SdAiAgent\Core;
 
+use SdAiAgent\Abilities\ToolCapabilities;
 use SdAiAgent\Abilities\Js\JsAbilityCatalog;
 use WordPress\AiClient\Messages\DTO\Message;
 use WordPress\AiClient\Messages\DTO\ModelMessage;
@@ -197,6 +198,19 @@ final class ClientAbilityRouter {
 					// to auto-execute (readonly=true) or show a confirmation dialog.
 					'annotations' => $annotations_by_name[ $ability_name ] ?? array(),
 				);
+			} elseif ( $this->is_browser_navigation_meta_call( $ability_name, $call->getArgs(), $client_names ) ) {
+				// Tier-2 abilities normally arrive inside ability-call rather than as
+				// direct function calls. Preserve the outer call identity so the
+				// browser result can be matched to the paused server-side batch, but
+				// route the nested navigation to the browser callback.
+				$args = $call->getArgs();
+				$client[] = array(
+					'id'          => (string) $call->getId(),
+					'name'        => $ability_name,
+					'client_name' => 'sd-ai-agent/navigate',
+					'args'        => is_array( $args['arguments'] ?? null ) ? $args['arguments'] : array(),
+					'annotations' => $annotations_by_name['sd-ai-agent/navigate'] ?? array(),
+				);
 			} else {
 				$php_parts[] = $part;
 			}
@@ -206,6 +220,31 @@ final class ClientAbilityRouter {
 			'php'    => $php_parts,
 			'client' => $client,
 		);
+	}
+
+	/**
+	 * Whether an ability-call targets browser-executed site navigation.
+	 *
+	 * Keep this allowlist narrow: client descriptors are request supplied, while
+	 * the nested target remains subject to the same WordPress capability gate as
+	 * the server-side navigation ability.
+	 *
+	 * @param string              $ability_name Resolved outer ability name.
+	 * @param mixed               $args         Outer ability arguments.
+	 * @param list<string>        $client_names Validated browser ability names.
+	 * @return bool Whether the call is safe to route to the browser.
+	 */
+	private function is_browser_navigation_meta_call(
+		string $ability_name,
+		mixed $args,
+		array $client_names
+	): bool {
+		return 'sd-ai-agent/ability-call' === $ability_name
+			&& is_array( $args )
+			&& 'sd-ai-agent/navigate' === ( $args['ability'] ?? '' )
+			&& is_array( $args['arguments'] ?? null )
+			&& in_array( 'sd-ai-agent/navigate', $client_names, true )
+			&& ToolCapabilities::current_user_can( 'sd-ai-agent/navigate' );
 	}
 
 	/**

@@ -1,5 +1,5 @@
 /**
- * Client-side navigate-to ability.
+ * Client-side navigation abilities.
  *
  * Navigates to a WordPress admin page. Uses window.location.assign() for now
  * (full-page nav) — can be upgraded to SPA navigation once core ships a router
@@ -44,6 +44,33 @@ function executeNavigateTo( args ) {
 }
 
 /**
+ * Schedule navigation to a URL on the current WordPress site.
+ *
+ * @param {Object} args Navigation arguments.
+ * @param {string} args.url Full site URL or relative path.
+ * @return {{ navigated: boolean, url: string }} Navigation scheduling result.
+ * @throws {Error} When the URL is outside the current site.
+ */
+function executeNavigate( args ) {
+	const url = args?.url || '';
+	let target;
+
+	try {
+		target = new URL( url, window.location.origin );
+	} catch ( _err ) {
+		throw new Error( 'Navigation requires a valid site URL.' );
+	}
+
+	if ( target.origin !== window.location.origin ) {
+		throw new Error( 'Navigation is limited to the current WordPress site.' );
+	}
+
+	window._sdAiAgentPendingNavigation = target.href;
+
+	return { navigated: true, url: target.href };
+}
+
+/**
  * Register the navigate-to ability with the client-side abilities registry.
  *
  * Called by src/abilities/index.js after the sd-ai-agent-js category
@@ -54,6 +81,33 @@ function executeNavigateTo( args ) {
  * @return {void}
  */
 export async function registerNavigationAbility() {
+	await registerClientAbility( {
+		name: 'sd-ai-agent/navigate',
+		label: 'Open Site URL',
+		description:
+			'Open a URL within this WordPress site in the user\'s browser.',
+		inputSchema: {
+			type: 'object',
+			properties: {
+				url: {
+					type: 'string',
+					description:
+						'Full site URL or relative path to open in the browser.',
+				},
+			},
+			required: [ 'url' ],
+		},
+		outputSchema: {
+			type: 'object',
+			properties: {
+				navigated: { type: 'boolean' },
+				url: { type: 'string' },
+			},
+		},
+		annotations: { readonly: true },
+		callback: executeNavigate,
+	} );
+
 	await registerClientAbility( {
 		name: 'sd-ai-agent-js/navigate-to',
 		label: 'Navigate to Admin Page',

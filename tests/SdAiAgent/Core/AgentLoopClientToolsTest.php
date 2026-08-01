@@ -66,6 +66,7 @@ class AgentLoopClientToolsTest extends WP_UnitTestCase {
 		$this->assertContains( 'sd-ai-agent-js/refresh-page', $names );
 		$this->assertContains( 'sd-ai-agent-js/insert-block', $names );
 		$this->assertContains( 'sd-ai-agent-js/validate-theme-completion', $names );
+		$this->assertContains( 'sd-ai-agent/navigate', $names );
 	}
 
 	/**
@@ -76,6 +77,7 @@ class AgentLoopClientToolsTest extends WP_UnitTestCase {
 		$this->assertTrue( JsAbilityCatalog::has( 'sd-ai-agent-js/refresh-page' ) );
 		$this->assertTrue( JsAbilityCatalog::has( 'sd-ai-agent-js/insert-block' ) );
 		$this->assertTrue( JsAbilityCatalog::has( 'sd-ai-agent-js/validate-theme-completion' ) );
+		$this->assertTrue( JsAbilityCatalog::has( 'sd-ai-agent/navigate' ) );
 		$this->assertFalse( JsAbilityCatalog::has( 'sd-ai-agent-js/unknown-ability' ) );
 		$this->assertFalse( JsAbilityCatalog::has( 'sd-ai-agent/memory-save' ) );
 	}
@@ -91,6 +93,7 @@ class AgentLoopClientToolsTest extends WP_UnitTestCase {
 		$this->assertArrayHasKey( 'sd-ai-agent-js/refresh-page', $map );
 		$this->assertArrayHasKey( 'sd-ai-agent-js/insert-block', $map );
 		$this->assertArrayHasKey( 'sd-ai-agent-js/validate-theme-completion', $map );
+		$this->assertArrayHasKey( 'sd-ai-agent/navigate', $map );
 
 		$refresh = $map['sd-ai-agent-js/refresh-page'];
 		$this->assertTrue( $refresh['annotations']['readonly'] );
@@ -99,6 +102,10 @@ class AgentLoopClientToolsTest extends WP_UnitTestCase {
 		$navigate = $map['sd-ai-agent-js/navigate-to'];
 		$this->assertSame( 'sd-ai-agent-js', $navigate['category'] );
 		$this->assertTrue( $navigate['annotations']['readonly'] );
+
+		$site_navigate = $map['sd-ai-agent/navigate'];
+		$this->assertSame( 'sd-ai-agent-js', $site_navigate['category'] );
+		$this->assertTrue( $site_navigate['annotations']['readonly'] );
 	}
 
 	/**
@@ -247,6 +254,49 @@ class AgentLoopClientToolsTest extends WP_UnitTestCase {
 		$this->assertCount( 1, $result['client'] );
 		$this->assertSame( 'sd-ai-agent-js/navigate-to', $result['client'][0]['name'] );
 		$this->assertSame( 'call-2', $result['client'][0]['id'] );
+	}
+
+	/**
+	 * Tier-2 navigate calls route through the browser callback while preserving
+	 * their outer ability-call identity for the tool-result resume contract.
+	 */
+	public function test_partition_routes_nested_navigate_call_to_browser(): void {
+		$admin_id = self::factory()->user->create( array( 'role' => 'administrator' ) );
+		wp_set_current_user( $admin_id );
+
+		$loop = new AgentLoop(
+			'test',
+			array(),
+			array(),
+			array(
+				'client_abilities' => array(
+					array(
+						'name'  => 'sd-ai-agent/navigate',
+						'label' => 'Open Site URL',
+					),
+				),
+			)
+		);
+
+		$reflection = new \ReflectionClass( $loop );
+		$method     = $reflection->getMethod( 'partition_tool_calls' );
+		$method->setAccessible( true );
+		$call = $this->create_mock_message_part(
+			'sd-ai-agent/ability-call',
+			'call-navigate',
+			array(
+				'ability'   => 'sd-ai-agent/navigate',
+				'arguments' => array( 'url' => '/' ),
+			)
+		);
+
+		$result = $method->invoke( $loop, $this->create_mock_message( array( $call ) ), array( 'sd-ai-agent/navigate' ) );
+
+		$this->assertCount( 0, $result['php'] );
+		$this->assertCount( 1, $result['client'] );
+		$this->assertSame( 'sd-ai-agent/ability-call', $result['client'][0]['name'] );
+		$this->assertSame( 'sd-ai-agent/navigate', $result['client'][0]['client_name'] );
+		$this->assertSame( array( 'url' => '/' ), $result['client'][0]['args'] );
 	}
 
 	/**

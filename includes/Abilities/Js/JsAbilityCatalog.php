@@ -37,6 +37,33 @@ class JsAbilityCatalog {
 	public static function get_descriptors(): array {
 		return array(
 			array(
+				'name'          => 'sd-ai-agent/navigate',
+				'label'         => 'Open Site URL',
+				'description'   => 'Open a URL within this WordPress site in the user\'s browser. When reached through sd-ai-agent/ability-call, the browser executes the nested navigation after its tool result is saved.',
+				'category'      => 'sd-ai-agent-js',
+				'input_schema'  => array(
+					'type'       => 'object',
+					'properties' => array(
+						'url' => array(
+							'type'        => 'string',
+							'description' => 'A full URL or relative path within the current WordPress site.',
+						),
+					),
+					'required'   => array( 'url' ),
+				),
+				'output_schema' => array(
+					'type'       => 'object',
+					'properties' => array(
+						'navigated' => array( 'type' => 'boolean' ),
+						'url'       => array( 'type' => 'string' ),
+					),
+				),
+				'annotations'   => array(
+					'readonly' => true,
+				),
+				'screens'       => array( 'all' ),
+			),
+			array(
 				'name'          => 'sd-ai-agent-js/navigate-to',
 				'label'         => 'Navigate to Admin Page',
 				'description'   => 'Navigate to a WordPress admin page without a full page reload when inside the admin SPA.',
