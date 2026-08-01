@@ -98,7 +98,7 @@ class CompileDesignTokensAbilityTest extends WP_UnitTestCase {
 	 */
 	public function test_run_reports_invalid_css_primitive_path_and_expected_shape(): void {
 		$contract                                      = $this->valid_contract();
-		$contract['primitives']['font_sizes'][0]['size'] = 'calc(1rem 2rem)';
+		$contract['primitives']['font_sizes'][0]['size'] = 'calc(1rem * 2rem)';
 
 		$result = $this->ability()->run( [ 'contract' => $contract ] );
 
