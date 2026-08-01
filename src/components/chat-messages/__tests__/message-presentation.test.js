@@ -3,8 +3,10 @@
  */
 
 import {
+	getRunningStatusMessage,
 	getRunningJobPresentation,
 	getVisibleMessages,
+	RUNNING_STATUS_MESSAGES,
 	resolveSystemMessagePresentation,
 } from '../message-presentation';
 
@@ -77,7 +79,7 @@ describe( 'shared chat message presentation', () => {
 		} );
 	} );
 
-	test( 'uses the same running-job precedence and friendly fallback', () => {
+	test( 'uses the same running-job precedence and starts the fallback rotation', () => {
 		expect(
 			getRunningJobPresentation( {
 				currentSessionId: 7,
@@ -88,7 +90,17 @@ describe( 'shared chat message presentation', () => {
 			} )
 		).toEqual( {
 			toolCalls: [ { type: 'preamble', text: 'Working' } ],
-			step: 'Composing reply…',
+			isFallback: true,
+			step: 'Thinking…',
 		} );
+	} );
+
+	test( 'rotates 100 progressive fallback statuses in order and wraps', () => {
+		expect( RUNNING_STATUS_MESSAGES ).toHaveLength( 100 );
+		expect( getRunningStatusMessage( 0 ) ).toBe( 'Thinking…' );
+		expect( getRunningStatusMessage( 1 ) ).toBe( 'Working…' );
+		expect( getRunningStatusMessage( 77 ) ).toBe( 'Transmogrifying…' );
+		expect( getRunningStatusMessage( 78 ) ).toBe( 'Discombobulating…' );
+		expect( getRunningStatusMessage( 100 ) ).toBe( 'Thinking…' );
 	} );
 } );
