@@ -2,6 +2,11 @@
  * Unit tests for browser-executed site navigation.
  */
 
+/**
+ * Load isolated navigation and registry modules.
+ *
+ * @return {{ navigation: Object, registry: Object }} Isolated module exports.
+ */
 function loadNavigationAndRegistry() {
 	let navigation;
 	let registry;

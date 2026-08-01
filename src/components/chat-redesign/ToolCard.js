@@ -165,7 +165,7 @@ function extractDesignPreviews( call, response ) {
 /**
  * Return a safe, user-visible fallback URL from a completed navigation call.
  *
- * @param {*} call Tool call entry.
+ * @param {*} call     Tool call entry.
  * @param {*} response Tool response entry.
  * @return {string|null} Navigation URL when the completed result provides one.
  */
@@ -214,7 +214,10 @@ export function ToolResultHighlights( { call, response } ) {
 				/>
 			) }
 			{ navigationUrl && (
-				<a className="sdaa-cr-tool-navigation-link" href={ navigationUrl }>
+				<a
+					className="sdaa-cr-tool-navigation-link"
+					href={ navigationUrl }
+				>
 					{ __( 'Open page', 'superdav-ai-agent' ) }
 				</a>
 			) }

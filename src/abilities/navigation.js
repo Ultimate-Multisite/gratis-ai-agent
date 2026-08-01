@@ -46,7 +46,7 @@ function executeNavigateTo( args ) {
 /**
  * Schedule navigation to a URL on the current WordPress site.
  *
- * @param {Object} args Navigation arguments.
+ * @param {Object} args     Navigation arguments.
  * @param {string} args.url Full site URL or relative path.
  * @return {{ navigated: boolean, url: string }} Navigation scheduling result.
  * @throws {Error} When the URL is outside the current site.
@@ -62,7 +62,9 @@ function executeNavigate( args ) {
 	}
 
 	if ( target.origin !== window.location.origin ) {
-		throw new Error( 'Navigation is limited to the current WordPress site.' );
+		throw new Error(
+			'Navigation is limited to the current WordPress site.'
+		);
 	}
 
 	window._sdAiAgentPendingNavigation = target.href;
@@ -85,7 +87,7 @@ export async function registerNavigationAbility() {
 		name: 'sd-ai-agent/navigate',
 		label: 'Open Site URL',
 		description:
-			'Open a URL within this WordPress site in the user\'s browser.',
+			"Open a URL within this WordPress site in the user's browser.",
 		inputSchema: {
 			type: 'object',
 			properties: {

@@ -203,7 +203,7 @@ final class ClientAbilityRouter {
 				// direct function calls. Preserve the outer call identity so the
 				// browser result can be matched to the paused server-side batch, but
 				// route the nested navigation to the browser callback.
-				$args = $call->getArgs();
+				$args     = $call->getArgs();
 				$client[] = array(
 					'id'          => (string) $call->getId(),
 					'name'        => $ability_name,
@@ -229,11 +229,12 @@ final class ClientAbilityRouter {
 	 * the nested target remains subject to the same WordPress capability gate as
 	 * the server-side navigation ability.
 	 *
-	 * @param string              $ability_name Resolved outer ability name.
-	 * @param mixed               $args         Outer ability arguments.
-	 * @param list<string>        $client_names Validated browser ability names.
+	 * @param string       $ability_name Resolved outer ability name.
+	 * @param mixed        $args         Outer ability arguments.
+	 * @param list<string> $client_names Validated browser ability names.
 	 * @return bool Whether the call is safe to route to the browser.
 	 */
+	// phpcs:ignore Squiz.Commenting.FunctionComment.IncorrectTypeHint -- list<string> is valid PHPStan but not a native PHP type.
 	private function is_browser_navigation_meta_call(
 		string $ability_name,
 		mixed $args,
