@@ -96,10 +96,15 @@ class StockImageAbility extends \SdAiAgent\Abilities\AbstractAbility {
 					'type'        => 'integer',
 					'description' => 'Maximum number of candidates to return in search mode (default: 5, max: 20).',
 				],
+				'usage'       => [
+					'type'        => 'string',
+					'enum'        => [ 'hero', 'gallery', 'content', 'thumbnail' ],
+					'description' => 'Intended design role. Hero and gallery usage enforce stronger source-resolution, aspect-ratio, and quality floors before a candidate can be returned or imported.',
+				],
 				'orientation' => [
 					'type'        => 'string',
 					'enum'        => [ 'landscape', 'portrait', 'squarish' ],
-					'description' => 'Preferred image orientation.',
+					'description' => 'Preferred image orientation. Hero usage defaults to landscape.',
 				],
 				'colour'      => [
 					'type'        => 'string',
@@ -138,34 +143,44 @@ class StockImageAbility extends \SdAiAgent\Abilities\AbstractAbility {
 			'type'       => 'object',
 			'properties' => [
 				// Search-mode output.
-				'candidates'    => [
+				'candidates'      => [
 					'type'        => 'array',
 					'description' => 'List of candidate images returned in search mode.',
 					'items'       => [
 						'type'       => 'object',
 						'properties' => [
-							'image_id'    => [ 'type' => 'string' ],
-							'provider'    => [ 'type' => 'string' ],
-							'thumbnail'   => [ 'type' => 'string' ],
-							'width'       => [ 'type' => 'integer' ],
-							'height'      => [ 'type' => 'integer' ],
-							'licence'     => [ 'type' => 'string' ],
-							'attribution' => [ 'type' => 'string' ],
-							'title'       => [ 'type' => 'string' ],
+							'image_id'        => [ 'type' => 'string' ],
+							'provider'        => [ 'type' => 'string' ],
+							'thumbnail'       => [ 'type' => 'string' ],
+							'width'           => [ 'type' => 'integer' ],
+							'height'          => [ 'type' => 'integer' ],
+							'licence'         => [ 'type' => 'string' ],
+							'attribution'     => [ 'type' => 'string' ],
+							'title'           => [ 'type' => 'string' ],
+							'quality_score'   => [ 'type' => 'integer' ],
+							'quality_reasons' => [
+								'type'  => 'array',
+								'items' => [ 'type' => 'string' ],
+							],
 						],
 					],
 				],
-				'total'         => [ 'type' => 'integer' ],
+				'total'           => [ 'type' => 'integer' ],
 				// Import-mode output.
-				'attachment_id' => [ 'type' => 'integer' ],
-				'url'           => [ 'type' => 'string' ],
-				'alt'           => [ 'type' => 'string' ],
-				'title'         => [ 'type' => 'string' ],
-				'source'        => [ 'type' => 'string' ],
-				'attribution'   => [ 'type' => 'string' ],
+				'attachment_id'   => [ 'type' => 'integer' ],
+				'url'             => [ 'type' => 'string' ],
+				'alt'             => [ 'type' => 'string' ],
+				'title'           => [ 'type' => 'string' ],
+				'source'          => [ 'type' => 'string' ],
+				'attribution'     => [ 'type' => 'string' ],
+				'quality_score'   => [ 'type' => 'integer' ],
+				'quality_reasons' => [
+					'type'  => 'array',
+					'items' => [ 'type' => 'string' ],
+				],
 				// Shared.
-				'error'         => [ 'type' => 'string' ],
-				'tip'           => [ 'type' => 'string' ],
+				'error'           => [ 'type' => 'string' ],
+				'tip'             => [ 'type' => 'string' ],
 			],
 		];
 	}
@@ -231,6 +246,7 @@ class StockImageAbility extends \SdAiAgent\Abilities\AbstractAbility {
 		$width    = (int) ( $input['width'] ?? 1200 );
 		$height   = (int) ( $input['height'] ?? 800 );
 		$site_url = sanitize_text_field( $input['site_url'] ?? '' );
+		$usage    = sanitize_key( $input['usage'] ?? '' );
 
 		$is_specific_import = 'import' === $action && '' !== $image_id && '' !== $provider;
 
@@ -240,7 +256,8 @@ class StockImageAbility extends \SdAiAgent\Abilities\AbstractAbility {
 
 		$filters = array_filter(
 			[
-				'orientation' => sanitize_key( $input['orientation'] ?? '' ),
+				'usage'       => $usage,
+				'orientation' => sanitize_key( $input['orientation'] ?? ( 'hero' === $usage ? 'landscape' : '' ) ),
 				'colour'      => sanitize_text_field( $input['colour'] ?? '' ),
 				'min_width'   => (int) ( $input['min_width'] ?? 0 ),
 				'min_height'  => (int) ( $input['min_height'] ?? 0 ),
@@ -256,7 +273,7 @@ class StockImageAbility extends \SdAiAgent\Abilities\AbstractAbility {
 		// ── action=import with specific provider + image_id ───────────────────
 		if ( $is_specific_import ) {
 			$import_keyword = '' !== $keyword ? $keyword : $image_id;
-			return $this->handle_import_by_id( $import_keyword, $provider, $image_id, $width, $height, $site_url );
+			return $this->handle_import_by_id( $import_keyword, $provider, $image_id, $width, $height, $site_url, $usage );
 		}
 
 		// ── Default (auto) / action=import without image_id: original behavior ─
@@ -365,6 +382,7 @@ class StockImageAbility extends \SdAiAgent\Abilities\AbstractAbility {
 	 * @param int    $width     Desired width.
 	 * @param int    $height    Desired height.
 	 * @param string $site_url  Multisite subsite URL.
+	 * @param string $usage     Intended design role.
 	 * @return array<string, mixed> Result (with optional 'error' key on failure).
 	 */
 	private function handle_import_by_id(
@@ -373,11 +391,13 @@ class StockImageAbility extends \SdAiAgent\Abilities\AbstractAbility {
 		string $image_id,
 		int $width,
 		int $height,
-		string $site_url
+		string $site_url,
+		string $usage
 	): array {
 		$options = [
 			'site_url' => $site_url,
 			'keyword'  => $keyword,
+			'usage'    => $usage,
 		];
 
 		$result = ImageSourceFactory::import_by_provider_id( $provider, $image_id, $width, $height, $options );

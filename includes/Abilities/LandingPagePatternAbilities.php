@@ -48,6 +48,13 @@ final class LandingPagePatternAbilities {
 			self::selection_input_schema(),
 			'handle_select'
 		);
+		self::register_ability(
+			'sd-ai-agent/submit-page-visual-review',
+			__( 'Submit Page Visual Review', 'superdav-ai-agent' ),
+			__( 'Submit the Setup Assistant\'s screenshot-based visual critique after deterministic page validation. Scores hierarchy, composition, spacing, typography, imagery, coherence, and content credibility against the current mutation token. This ability records no WordPress state; the agent loop independently verifies the token, score floor, and absence of blocking findings.', 'superdav-ai-agent' ),
+			self::visual_review_input_schema(),
+			'handle_visual_review'
+		);
 	}
 
 	/**
@@ -77,6 +84,39 @@ final class LandingPagePatternAbilities {
 	 */
 	public static function handle_select( array $input ): array|WP_Error {
 		return LandingPagePatternCatalog::select_family( $input );
+	}
+
+	/**
+	 * Normalize one screenshot-based visual critique for completion-gate review.
+	 *
+	 * @param array<string,mixed> $input Ability input.
+	 * @return array<string,mixed>
+	 */
+	public static function handle_visual_review( array $input ): array {
+		$score_keys = [ 'hierarchy', 'composition', 'spacing', 'typography', 'imagery', 'coherence', 'content_credibility' ];
+		$scores     = [];
+		$raw_scores = is_array( $input['scores'] ?? null ) ? $input['scores'] : [];
+		foreach ( $score_keys as $key ) {
+			$scores[ $key ] = max( 0, min( 100, (int) ( $raw_scores[ $key ] ?? 0 ) ) );
+		}
+
+		$findings = [];
+		if ( is_array( $input['blocking_findings'] ?? null ) ) {
+			foreach ( $input['blocking_findings'] as $finding ) {
+				if ( is_string( $finding ) && '' !== trim( $finding ) ) {
+					$findings[] = sanitize_text_field( $finding );
+				}
+			}
+		}
+
+		return [
+			'quality_token'     => sanitize_text_field( (string) ( $input['quality_token'] ?? '' ) ),
+			'passed'            => true === ( $input['passed'] ?? false ),
+			'overall_score'     => max( 0, min( 100, (int) ( $input['overall_score'] ?? 0 ) ) ),
+			'scores'            => $scores,
+			'blocking_findings' => $findings,
+			'summary'           => sanitize_textarea_field( (string) ( $input['summary'] ?? '' ) ),
+		];
 	}
 
 	/**
@@ -159,6 +199,52 @@ final class LandingPagePatternAbilities {
 				],
 			],
 			'required'             => [],
+			'additionalProperties' => false,
+		];
+	}
+
+	/** Return the strict screenshot-based visual-review schema. */
+	private static function visual_review_input_schema(): array {
+		$score_properties = [];
+		foreach ( [ 'hierarchy', 'composition', 'spacing', 'typography', 'imagery', 'coherence', 'content_credibility' ] as $key ) {
+			$score_properties[ $key ] = [
+				'type'        => 'integer',
+				'minimum'     => 0,
+				'maximum'     => 100,
+				'description' => 'Blind screenshot-review score from 0 to 100.',
+			];
+		}
+
+		return [
+			'type'                 => 'object',
+			'properties'           => [
+				'quality_token'     => [ 'type' => 'string' ],
+				'passed'            => [ 'type' => 'boolean' ],
+				'overall_score'     => [
+					'type'    => 'integer',
+					'minimum' => 0,
+					'maximum' => 100,
+				],
+				'scores'            => [
+					'type'                 => 'object',
+					'properties'           => $score_properties,
+					'required'             => array_keys( $score_properties ),
+					'additionalProperties' => false,
+				],
+				'blocking_findings' => [
+					'type'     => 'array',
+					'items'    => [
+						'type'      => 'string',
+						'maxLength' => 500,
+					],
+					'maxItems' => 20,
+				],
+				'summary'           => [
+					'type'      => 'string',
+					'maxLength' => 2000,
+				],
+			],
+			'required'             => [ 'quality_token', 'passed', 'overall_score', 'scores', 'blocking_findings', 'summary' ],
 			'additionalProperties' => false,
 		];
 	}

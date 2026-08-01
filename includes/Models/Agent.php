@@ -64,6 +64,8 @@ class Agent {
 		'sd-ai-agent/assign-menu-location',
 		'sd-ai-agent/site-loopback-check',
 		'sd-ai-agent/fetch-url',
+		'sd-ai-agent/list-block-templates',
+		'sd-ai-agent/submit-page-visual-review',
 	);
 
 	/**
@@ -546,7 +548,9 @@ class Agent {
 			return [];
 		}
 
-		$options = [];
+		$options = [
+			'agent_slug' => $agent->slug,
+		];
 
 		if ( ! empty( $agent->system_prompt ) ) {
 			$options['agent_system_prompt'] = $agent->system_prompt;
@@ -570,7 +574,11 @@ class Agent {
 		// Keep the broad dispatcher out of Phase 0 while always restoring the
 		// safer dedicated discovery tools for the built-in onboarding agent.
 		if ( self::ONBOARDING_AGENT_SLUG === $agent->slug && $agent->is_builtin ) {
-			$tier_1_tools = array_values(
+			// First-run builds deliberately reserve enough turns for discovery,
+			// composition, three-viewport browser QA, and at least one repair pass.
+			// General-agent edits retain the user's ordinary iteration budget.
+			$options['max_iterations'] = max( 40, (int) ( $options['max_iterations'] ?? 0 ) );
+			$tier_1_tools              = array_values(
 				array_unique(
 					array_merge(
 						array_filter(
@@ -580,6 +588,15 @@ class Agent {
 						self::ONBOARDING_REQUIRED_TIER_1_TOOLS
 					)
 				)
+			);
+		}
+
+		// Existing built-in General rows also predate rendered page QA. Keep its
+		// template preflight tool direct so small edits do not burn a discovery
+		// round or ignore the active template contract.
+		if ( self::DEFAULT_AGENT_SLUG === $agent->slug && $agent->is_builtin ) {
+			$tier_1_tools = array_values(
+				array_unique( array_merge( $tier_1_tools, [ 'sd-ai-agent/list-block-templates' ] ) )
 			);
 		}
 
@@ -729,6 +746,7 @@ class Agent {
 			'sd-ai-agent/create-post',
 			'sd-ai-agent/update-post',
 			'sd-ai-agent/list-posts',
+			'sd-ai-agent/list-block-templates',
 			'sd-ai-agent/update-global-styles',
 			'sd-ai-agent/compile-design-tokens',
 		];
@@ -783,14 +801,15 @@ class Agent {
 		$site_url   = function_exists( 'get_site_url' ) ? get_site_url() : '';
 
 		return [
-			'slug'          => 'onboarding',
-			'name'          => __( 'Setup Assistant', 'superdav-ai-agent' ),
-			'description'   => __( 'Discovers your site, builds your homepage, and helps with everything after. The all-in-one first-run agent.', 'superdav-ai-agent' ),
-			'system_prompt' => self::build_setup_assistant_prompt( $site_title, $site_url ),
-			'greeting'      => __( "Hi! Give me a moment to look around, then I'll show you what I can do.", 'superdav-ai-agent' ),
-			'avatar_icon'   => 'dashicons-welcome-learn-more',
-			'tier_1_tools'  => self::get_unified_onboarding_tier_1_tools( $base_tools ),
-			'suggestions'   => [
+			'slug'           => 'onboarding',
+			'name'           => __( 'Setup Assistant', 'superdav-ai-agent' ),
+			'description'    => __( 'Discovers your site, builds your homepage, and helps with everything after. The all-in-one first-run agent.', 'superdav-ai-agent' ),
+			'system_prompt'  => self::build_setup_assistant_prompt( $site_title, $site_url ),
+			'greeting'       => __( "Hi! Give me a moment to look around, then I'll show you what I can do.", 'superdav-ai-agent' ),
+			'avatar_icon'    => 'dashicons-welcome-learn-more',
+			'tier_1_tools'   => self::get_unified_onboarding_tier_1_tools( $base_tools ),
+			'max_iterations' => 40,
+			'suggestions'    => [
 				[
 					'title'       => __( 'Build me a site', 'superdav-ai-agent' ),
 					'description' => __( 'Custom theme + homepage in a couple of minutes', 'superdav-ai-agent' ),
@@ -812,8 +831,8 @@ class Agent {
 					'prompt'      => __( 'Suggest some blog post topics based on what my site is about.', 'superdav-ai-agent' ),
 				],
 			],
-			'is_builtin'    => true,
-			'enabled'       => true,
+			'is_builtin'     => true,
+			'enabled'        => true,
 		];
 	}
 
@@ -910,16 +929,16 @@ class Agent {
 			. "Run this silently — no per-step narration. Post one brief status message (\"Building your homepage…\") and then the finished result with the homepage URL. Do NOT pause for user input between steps.\n\n"
 			. "1. Load the `site-specification` and `wp-block-themes` skills via `sd-ai-agent/skill-load`.\n"
 			. "2. If the user gave a URL, call `sd-ai-agent/site-scrape` to pre-fill brand facts.\n"
-			. "3. After the site brief is inferred, call `sd-ai-agent/select-landing-page-pattern-family` with the site brief, known `available_content`, layout notes, and explicit section requests. Mark only real business facts as available. If `requires_clarification` is `true`, ask exactly ONE targeted question for the reported missing content and rerun selection before composing; never treat its fallback as selected. Otherwise use the selected family and variant's ordered section roles, core-block allowlist, responsive behavior, and accessibility requirements as a structural plan only. Do not use it to generate copy, media, testimonials, or statistics — visual direction remains a separate decision.\n"
+			. "3. After the site brief is inferred, call `sd-ai-agent/select-landing-page-pattern-family` with the site brief, known `available_content`, layout notes, and explicit section requests. Mark only real business facts as available. If `requires_clarification` is `true`, ask exactly ONE targeted question for the reported missing content and rerun selection before composing; never treat its fallback as selected. Otherwise use the selected family and variant's ordered section roles, core-block allowlist, responsive behavior, and accessibility requirements as a structural plan only. Compose the selected family and variant only after selection, then compile that contract into valid core Gutenberg structure instead of free-forming a conflicting layout. Do not use it to generate copy, media, testimonials, or statistics — visual direction remains a separate decision.\n"
 			. "4. If the user did NOT supply a logo, call `sd-ai-agent/generate-logo-svg` with `action: generate`. Auto-pick the first candidate and promote it via `action: select_candidate`. Treat `logo_set` as confirmation that the WordPress custom-logo setting changed, not proof that the logo is visible. If `logo_visible` is false, add a `core/site-logo` block to the active header before reporting success; if it is null, verify the returned `refresh_url` first. The user can swap it later via a Phase 3 chip. If `existing_logo_url` was supplied, pass it to skip generation.\n"
-			. "5. Add at least one locally stored visual asset to the homepage before composing it: reuse a user upload when available; otherwise call `sd-ai-agent/stock-image` with `action: search`, select a relevant result, and finish with `action: import`, or call `sd-ai-agent/generate-image` for a brand-specific composition. Do not skip this step merely because the logo exists. Use the returned local `attachment_id` or local media URL in the homepage markup, never an external thumbnail URL. If both stock import and image generation are unavailable, report the specific failure instead of silently shipping a text-only homepage.\n"
+			. "5. Curate the homepage imagery before composing. Reuse user uploads first. Otherwise call `sd-ai-agent/stock-image` with `action: search`, `usage: hero`, landscape orientation, and at least 12 candidates; consider only candidates returned above the role-specific quality floor, select for subject relevance and a coherent visual set, then import the exact reviewed candidate. A filename or search rank is not visual evidence. Never use a watermarked, signed, preview-sized, visibly compressed, or stylistically inconsistent image. Use the returned local `attachment_id` or local media URL, never an external thumbnail. If no candidate passes, use `sd-ai-agent/generate-image` for a brand-specific composition or report the specific failure instead of silently shipping a weak/text-only homepage.\n"
 			. "6. Load the `design-system-aesthetics` skill. Pick ONE design direction grounded in the inferred vertical — do NOT render the 3-up gallery on first pass. (\"Try a different look\" in Phase 3 triggers the 3-up gallery later.)\n"
 			. "7. Build one complete schema-v1 design-token contract for the chosen direction and call `sd-ai-agent/compile-design-tokens`. If it returns an error (including contrast failures), repair the contract and retry compilation before continuing. Do not independently reconstruct theme.json or Global Styles payloads.\n"
 			. "8. Call `sd-ai-agent/validate-palette-contrast` on the compiler's returned `palette`. If it reports missing roles or failures, repair the contract, recompile it, and call `sd-ai-agent/validate-palette-contrast` again. Call `sd-ai-agent/scaffold-block-theme` only after a validation result whose `passed` field is exactly `true`; a failed, missing, or unevaluated result must never proceed to scaffolding.\n"
 			. "9. Call `sd-ai-agent/scaffold-block-theme` with the inferred metadata and the compiler's `theme_json` output. It must use schema **version 3** (never v2) with `\"\$schema\": \"https://schemas.wp.org/trunk/theme.json\"` and `\"version\": 3`.\n"
 			. "10. Write `parts/header.html`, `parts/footer.html`, `templates/index.html`, `templates/page.html`, and `templates/front-page.html` via `sd-ai-agent/file-write`. Validate each one with `sd-ai-agent/validate-block-content`.\n"
 			. "11. Persist the compiler's non-empty `global_styles.settings` and `global_styles.styles` through `sd-ai-agent/update-global-styles`. Never reconstruct raw color, typography, spacing, or element-style payloads independently and never pass empty arrays/objects.\n"
-			. "12. Publish the homepage as a real page via `sd-ai-agent/create-post` (post_type: page, status: publish). Compose the selected family and variant's structural section roles using:\n"
+			. "12. Before publishing, call `sd-ai-agent/list-block-templates` and inspect how the active page template renders post title and featured media. Choose an available no-title/full-width template when the composed hero owns the H1 and media. Never set the same attachment as featured media and also render it in page content. Then publish the homepage via `sd-ai-agent/create-post` (post_type: page, status: publish), following the selected variant's measurable `hero_contract` as well as its structural section roles:\n"
 			. "   - real user-supplied facts (name, location, vertical, photos) FIRST\n"
 			. "   - safe inferred copy where the user gave nothing (e.g. \"Welcome to {name}\", a 2-sentence about paragraph derived from vertical + name, a vertical-appropriate CTA label).\n"
 			. "   For hospitality verticals, only call `sd-ai-agent/generate-menu-page` if the user supplied menu data in the capture turn; otherwise the menu page is a Phase 3 follow-up.\n"
@@ -930,9 +949,10 @@ class Agent {
 			. "17. Activate the new theme via `sd-ai-agent/activate-theme`.\n"
 			. "18. Call `sd-ai-agent-js/validate-theme-completion` after activation with the generated stylesheet, the exact current `fingerprint` returned by Step 16, `homepage_url` set to the active homepage, and `interior_url` set to one published same-origin interior page (the CTA target is normally suitable). It must render both pages at 375×812, 768×1024, and 1280×800. Treat every reported responsive, accessibility, content, activation, or render-health violation as a repair task. A standalone preview, uploaded HTML, cached PNG, screenshot, or subjective approval is never completion evidence. If the browser validator is unavailable, timed out, or only partially executed, do NOT report success.\n"
 			. "19. After any relevant theme, page, Global Styles, or style-variation mutation, rerun `sd-ai-agent/validate-block-theme-project`, activate the current stylesheet when needed, and rerun `sd-ai-agent-js/validate-theme-completion`. Only a report with `passed: true` for the current stylesheet and fingerprint may satisfy completion. If the activated theme is unrenderable at every required viewport, restore `previous_stylesheet` instead of calling the generated theme complete.\n"
-			. "20. Verify the activated homepage contains the imported/generated local image asset and that no external image URL or text-only hero remains before reporting success.\n"
-			. "21. Save the final site brief and chosen design direction with `sd-ai-agent/memory-save` (category: site_brief) only after the current completion report passes.\n"
-			. "22. Reply with a short success message including the live homepage URL and 4–6 Phase 3 follow-up suggestions tailored to the vertical only after the generated-theme completion gate passes.\n\n";
+			. "20. Verify the activated homepage contains the reviewed local image assets, no duplicated featured/content media, no external image URL, no placeholder destination, and no text-only hero where the contract requires primary media.\n"
+			. "21. Call `sd-ai-agent-js/validate-page-quality` with the exact setup profile, mutation token, pages, hero contract, and mobile/tablet/desktop matrix supplied by the page-quality completion gate. Repair every blocking first-impression, composition, template, branding, media-resolution, responsive, placeholder, and accessibility finding and rerun after every mutation. After deterministic checks pass, critically review the attached mobile/desktop screenshots against hierarchy, composition, spacing, typography, imagery, coherence, and content credibility; repair anything weak, rerun validation, then call `sd-ai-agent/submit-page-visual-review` only with evidence-backed passing scores. This gate applies even when Advanced was unavailable and the work used the existing theme.\n"
+			. "22. Save the final site brief and chosen design direction with `sd-ai-agent/memory-save` (category: site_brief) only after both current completion reports pass.\n"
+			. "23. Reply with a short success message including the live homepage URL and 4–6 Phase 3 follow-up suggestions tailored to the vertical only after every required completion gate passes.\n\n";
 
 		$phase_3 = "## Phase 3: Follow-up loop (both branches)\n\n"
 			. "After the homepage is live (empty-install branch) or after the discover summary (established branch), let the user drive via suggestion chips. Each chip is a discrete, fast action — one ability call or one page at a time. Common chips:\n\n"
@@ -956,7 +976,7 @@ class Agent {
 			. "- Save anything the user tells you about themselves or the site via `sd-ai-agent/memory-save` (category: site_brief for site facts; user_preference for tone/style).\n"
 			. "- Be warm and natural. This is a first conversation, not an intake form.\n"
 			. "- Never explain phases or the build pipeline to the user — they should feel like things are just happening.\n"
-			. "- If a tool call fails, try a different approach or skip that step and continue — never stop entirely after a single error.\n"
+			. "- If a non-critical tool call fails, try a different approach and continue. Theme activation, hero media quality, real CTA destinations, block validation, and rendered completion reports are critical: never skip them or downgrade silently. If Advanced is unavailable, build and validate the best page-level experience supported by the active theme and describe the scope accurately; do not call a page-only fallback a custom theme.\n"
 			. "- After Phase 2 success (or after the established-site summary), offer suggestion chips. Do not narrate \"now we are in Phase 3\".\n\n";
 
 		$hard_rules = "## Hard rules for any theme / page generation\n\n"
@@ -1032,7 +1052,8 @@ class Agent {
 				. "- Set `status` to `publish` to make it live, or `draft` to save without publishing.\n"
 				. "- Include `categories` and `tags` arrays for blog posts.\n"
 				. "- Include `excerpt` for SEO meta descriptions.\n"
-				. "- To add a featured image: first call `sd-ai-agent/stock-image` or `sd-ai-agent/generate-image`, then pass the returned attachment_id as `featured_image_id`.\n"
+				. "- To add a featured image: first call `sd-ai-agent/stock-image` or `sd-ai-agent/generate-image`, then pass the returned attachment_id as `featured_image_id`. Never also render the same attachment in page content unless the active template is known not to output featured media.\n"
+				. "- For visual page changes, inspect the current post and available block templates first, make the smallest requested mutation, preserve unrelated blocks, and then call `sd-ai-agent-js/validate-page-quality` with the exact incremental profile and mutation token supplied by the completion gate. Repair blocking mobile/desktop findings before reporting success. Do not turn a small edit into an unsolicited redesign.\n"
 				. "- For WooCommerce products, search for `woocommerce/products-*` abilities via `sd-ai-agent/ability-search` (only available when WooCommerce is active).\n\n"
 				. "## Tips\n"
 				. "- Chain operations: create content first, then configure settings.\n"

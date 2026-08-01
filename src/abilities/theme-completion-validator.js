@@ -530,12 +530,22 @@ export function inspectThemeDocument( {
 	}
 
 	const body = doc.body;
-	const expectedThemeClass = `wp-theme-${ expectedStylesheet }`;
-	const activeStylesheet = body.classList.contains( expectedThemeClass )
-		? expectedStylesheet
+	const expectedThemeClass = expectedStylesheet
+		? `wp-theme-${ expectedStylesheet }`
 		: '';
+	let activeStylesheet = '';
+	if ( expectedStylesheet ) {
+		activeStylesheet = body.classList.contains( expectedThemeClass )
+			? expectedStylesheet
+			: '';
+	} else {
+		activeStylesheet =
+			Array.from( body.classList )
+				.find( ( className ) => className.startsWith( 'wp-theme-' ) )
+				?.slice( 'wp-theme-'.length ) || '';
+	}
 	checks.active_stylesheet = activeStylesheet;
-	if ( activeStylesheet !== expectedStylesheet ) {
+	if ( expectedStylesheet && activeStylesheet !== expectedStylesheet ) {
 		reportViolation( {
 			code: 'unexpected_active_stylesheet',
 			selector: 'body',

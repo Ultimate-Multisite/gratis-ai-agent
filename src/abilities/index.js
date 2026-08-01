@@ -110,6 +110,7 @@ export function ensureRegistered() {
 		await registerEditorAbility();
 		await registerCaptureScreenshotAbility();
 		await registerScreenshotUrlAbility();
+		await ( await import( './page-quality-validator' ) ).default();
 
 		// If the abilities API was not available (e.g. script module not
 		// yet loaded), the registration calls above silently no-oped.

@@ -465,6 +465,7 @@ class AgentTest extends WP_UnitTestCase {
 
 		$options = Agent::get_loop_options( $id );
 
+		$this->assertSame( 'loop-options-test', $options['agent_slug'] );
 		$this->assertArrayHasKey( 'agent_system_prompt', $options );
 		$this->assertSame( 'Custom system prompt', $options['agent_system_prompt'] );
 		$this->assertArrayHasKey( 'provider_id', $options );
@@ -491,6 +492,7 @@ class AgentTest extends WP_UnitTestCase {
 
 		$options = Agent::get_loop_options( $id );
 
+		$this->assertSame( 'sparse-agent', $options['agent_slug'] );
 		$this->assertArrayNotHasKey( 'agent_system_prompt', $options );
 		$this->assertArrayNotHasKey( 'provider_id', $options );
 		$this->assertArrayNotHasKey( 'model_id', $options );
@@ -576,6 +578,7 @@ class AgentTest extends WP_UnitTestCase {
 		$this->assertContains( 'sd-ai-agent/create-post', $tools );
 		$this->assertContains( 'sd-ai-agent/update-post', $tools );
 		$this->assertContains( 'sd-ai-agent/list-posts', $tools );
+		$this->assertContains( 'sd-ai-agent/list-block-templates', $tools );
 		$this->assertContains( 'sd-ai-agent/update-global-styles', $tools );
 		$this->assertContains( 'sd-ai-agent/compile-design-tokens', $tools );
 	}
@@ -607,6 +610,7 @@ class AgentTest extends WP_UnitTestCase {
 		$this->assertContains( 'sd-ai-agent/assign-menu-location', $tools );
 		$this->assertContains( 'sd-ai-agent/site-loopback-check', $tools );
 		$this->assertContains( 'sd-ai-agent/fetch-url', $tools );
+		$this->assertContains( 'sd-ai-agent/list-block-templates', $tools );
 		$this->assertNotContains( 'wp-cli/execute', $tools );
 		$this->assertStringContainsString( 'Do not use the generic `wp-cli/execute` dispatcher for site title, tagline, active-plugin, or theme discovery', $prompt );
 	}
@@ -625,6 +629,7 @@ class AgentTest extends WP_UnitTestCase {
 
 		try {
 			$options = Agent::get_loop_options( $agent->id );
+			$this->assertSame( 40, $options['max_iterations'] );
 			$this->assertContains( 'sd-ai-agent/get-option', $options['tier_1_tools'] );
 			$this->assertContains( 'sd-ai-agent/create-menu', $options['tier_1_tools'] );
 			$this->assertContains( 'sd-ai-agent/add-menu-item', $options['tier_1_tools'] );

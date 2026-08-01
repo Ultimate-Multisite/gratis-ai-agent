@@ -388,6 +388,15 @@ Color-only cover (no image):
 <!-- /wp:cover -->
 ```
 
+## Page composition contract
+
+Before composing a visual page, inspect `sd-ai-agent/list-block-templates` and determine whether the active template already renders `core/post-title` or featured media. A composed page must have one owner for each concern:
+
+- If the template renders the page title, do not add another H1 to post content unless a no-title template is selected.
+- If the composed hero renders an attachment, do not also assign that attachment as featured media unless the selected template is known not to output it.
+- Post content uses `core/group`, `core/cover`, or another block container; never insert a `<main>` element because the active template owns the main landmark.
+- Follow the selected landing-page pattern's `hero_contract`. An `immersive-media` contract requires a full-bleed (`alignfull`) media container; split and editorial contracts have different measurable width expectations. This is content-role selection, not a site-type special case.
+
 ## Page Layout Patterns
 
 ### Landing Page Structure
@@ -525,4 +534,5 @@ After generating block markup, verify before committing it to a published post:
 1. Run `sd-ai-agent/validate-block-content` — catches mixed-content and malformed markup.
 2. If creating a draft via the editor: open it, look for "This block contains unexpected or invalid content." Click "Attempt Block Recovery" — the diff points at the offending attribute.
 3. View the rendered page in a new tab; check the browser console for validation warnings.
-4. If a rule here conflicts with what your installed WordPress version produces, trust the editor's saved output — copy it and use it as your reference.
+4. View the real rendered URL through `sd-ai-agent-js/validate-page-quality` using the exact profile, mutation token, pages, hero contract, and viewport matrix supplied by the completion gate. Repair every blocking finding and rerun after any mutation. `create-post` success, valid block serialization, imported media, or a refresh does not prove visual completion.
+5. If a rule here conflicts with what your installed WordPress version produces, trust the editor's saved output — copy it and use it as your reference.

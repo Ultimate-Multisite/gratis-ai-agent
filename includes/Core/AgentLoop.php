@@ -42,6 +42,7 @@ use WordPress\AiClient\Messages\DTO\MessagePart;
 use WordPress\AiClient\Messages\DTO\ModelMessage;
 use WordPress\AiClient\Messages\DTO\UserMessage;
 use WordPress\AiClient\Messages\Enums\MessageRoleEnum;
+use WordPress\AiClient\Files\DTO\File;
 use WordPress\AiClient\Results\DTO\GenerativeAiResult;
 use WordPress\AiClient\Tools\DTO\FunctionCall;
 use WordPress\AiClient\Tools\DTO\FunctionResponse;
@@ -256,6 +257,9 @@ PROMPT;
 	/** @var list<string> Per-agent Tier 1 tool override (empty = use global default). */
 	private array $agent_tier_1_tools = array();
 
+	/** @var string Agent slug used to select the appropriate quality profile. */
+	private string $agent_slug = '';
+
 	/** @var list<string> Ability names approved for one resumed confirmation turn. */
 	private array $approved_once_abilities = array();
 
@@ -328,6 +332,9 @@ PROMPT;
 
 	/** @var GeneratedThemeCompletionGate Tracks hard completion evidence for generated block themes. */
 	private GeneratedThemeCompletionGate $generated_theme_completion_gate;
+
+	/** @var PageCompletionGate Tracks rendered quality evidence for published page mutations. */
+	private PageCompletionGate $page_completion_gate;
 
 	/**
 	 * @param string               $user_message     The user's prompt.
@@ -476,6 +483,8 @@ PROMPT;
 		$raw_tier_1_tools = $options['tier_1_tools'] ?? array();
 		// @phpstan-ignore-next-line -- Options bag contains mixed values; runtime array_values is safe.
 		$this->agent_tier_1_tools = is_array( $raw_tier_1_tools ) ? array_values( $raw_tier_1_tools ) : array();
+		// @phpstan-ignore-next-line -- Agent options carry the stable stored slug.
+		$this->agent_slug = sanitize_key( (string) ( $options['agent_slug'] ?? '' ) );
 
 		// Progress callback for live tool-call reporting (used by job system).
 		if ( isset( $options['progress_callback'] ) && is_callable( $options['progress_callback'] ) ) {
@@ -524,6 +533,17 @@ PROMPT;
 			$this->client_router->get_names()
 		);
 		$this->generated_theme_completion_gate->replay_tool_call_log( $this->tool_call_log );
+
+		$page_quality_profile = match ( $this->agent_slug ) {
+			'onboarding' => PageCompletionGate::PROFILE_SETUP,
+			'general'    => PageCompletionGate::PROFILE_INCREMENTAL,
+			default      => PageCompletionGate::PROFILE_OFF,
+		};
+		$this->page_completion_gate = new PageCompletionGate(
+			$page_quality_profile,
+			$this->client_router->get_names()
+		);
+		$this->page_completion_gate->replay_tool_call_log( $this->tool_call_log );
 
 		// Build or lock the initial system instruction.
 		if ( $this->durable_plan_mode ) {
@@ -812,7 +832,7 @@ PROMPT;
 
 		// Build a tool-response message from the client results.
 		$parts = array();
-		foreach ( $results as $result ) {
+		foreach ( $results as $result_index => $result ) {
 			$id   = (string) ( $result['id'] ?? '' );
 			$name = (string) ( $result['name'] ?? '' );
 
@@ -820,10 +840,33 @@ PROMPT;
 				continue;
 			}
 
-			// Encode the result payload as a JSON string for the response.
+			// Page-quality reports include bounded mobile/desktop screenshots for
+			// the Setup Assistant's separate visual-critic turn. Convert those data
+			// URIs to real SDK File parts, then remove base64 from the function
+			// response and activity log so checkpoints stay bounded.
+			$review_parts   = array();
+			$result_payload = $result['result'] ?? array();
+			if ( self::is_page_quality_tool_name( $name ) && is_array( $result_payload['screenshots'] ?? null ) ) {
+				foreach ( $result_payload['screenshots'] as $screenshot_index => $screenshot ) {
+					if ( ! is_array( $screenshot ) || empty( $screenshot['image'] ) || ! is_string( $screenshot['image'] ) ) {
+						continue;
+					}
+					try {
+						$review_parts[] = new MessagePart( new File( $screenshot['image'], 'image/jpeg' ) );
+						unset( $result_payload['screenshots'][ $screenshot_index ]['image'] );
+						$result_payload['screenshots'][ $screenshot_index ]['attached_to_model'] = true;
+					} catch ( \Throwable $e ) {
+						unset( $result_payload['screenshots'][ $screenshot_index ]['image'] );
+						$result_payload['screenshots'][ $screenshot_index ]['attachment_error'] = $e->getMessage();
+					}
+				}
+				$results[ $result_index ]['result'] = $result_payload;
+			}
+
+			// Encode the bounded result payload for the function response.
 			$response_payload = isset( $result['error'] )
 				? wp_json_encode( array( 'error' => $result['error'] ) )
-				: wp_json_encode( $result['result'] ?? array() );
+				: wp_json_encode( $result_payload );
 
 			$parts[] = new MessagePart(
 				new FunctionResponse(
@@ -832,6 +875,7 @@ PROMPT;
 					(string) $response_payload
 				)
 			);
+			array_push( $parts, ...$review_parts );
 		}
 
 		if ( ! empty( $parts ) ) {
@@ -866,10 +910,9 @@ PROMPT;
 					'sequence' => $this->next_activity_sequence(),
 				);
 
-				$this->generated_theme_completion_gate->record_tool_response(
-					$name,
-					$result['result'] ?? array( 'error' => $result['error'] ?? '' )
-				);
+				$client_result = $result['result'] ?? array( 'error' => $result['error'] ?? '' );
+				$this->generated_theme_completion_gate->record_tool_response( $name, $client_result );
+				$this->page_completion_gate->record_tool_response( $name, $client_result );
 			}
 
 			// Fire progress so the UI reflects the client tool responses
@@ -896,6 +939,9 @@ PROMPT;
 		$payload['messages'] = $this->message_log;
 		if ( $this->generated_theme_completion_gate->is_required() ) {
 			$payload['generated_theme_completion'] = $this->generated_theme_completion_gate->get_status();
+		}
+		if ( $this->page_completion_gate->is_required() ) {
+			$payload['page_quality_completion'] = $this->page_completion_gate->get_status();
 		}
 		return $payload;
 	}
@@ -934,6 +980,9 @@ PROMPT;
 		$payload['messages']    = $this->message_log;
 		if ( $this->generated_theme_completion_gate->is_required() ) {
 			$payload['generated_theme_completion'] = $this->generated_theme_completion_gate->get_status();
+		}
+		if ( $this->page_completion_gate->is_required() ) {
+			$payload['page_quality_completion'] = $this->page_completion_gate->get_status();
 		}
 		return $payload;
 	}
@@ -1554,6 +1603,14 @@ PROMPT;
 					continue;
 				}
 
+				// Published page creation and edits have their own mutation-bound
+				// rendered quality lifecycle. Setup gets the strict first-impression
+				// profile; General gets focused mobile/desktop verification.
+				if ( $this->page_completion_gate->requires_repair() && $iterations > 0 ) {
+					$this->inject_page_completion_guidance();
+					continue;
+				}
+
 				// If the response is empty or whitespace-only after tool results,
 				// inject a follow-up user message asking the AI to summarize.
 				// This handles models that silently return an empty text turn
@@ -1595,6 +1652,7 @@ PROMPT;
 				// Post-process the reply to inject real permalinks from create-post responses.
 				$reply = $this->inject_real_permalinks( $reply );
 				$reply = $this->append_generated_theme_completion_notice( $reply );
+				$reply = $this->append_page_completion_notice( $reply );
 
 				return $this->inject_inability_data(
 					$this->with_result_logs(
@@ -1867,6 +1925,7 @@ PROMPT;
 			// Post-process the reply to inject real permalinks from create-post responses.
 			$reply = $this->inject_real_permalinks( $reply );
 			$reply = $this->append_generated_theme_completion_notice( $reply );
+			$reply = $this->append_page_completion_notice( $reply );
 
 			return $this->inject_inability_data(
 				$this->with_result_logs(
@@ -3985,10 +4044,9 @@ PROMPT;
 					'sequence' => $this->next_activity_sequence(),
 				);
 
-				$this->generated_theme_completion_gate->record_tool_call(
-					$name,
-					self::normalize_function_call_args( $call->getArgs() )
-				);
+				$normalized_args = self::normalize_function_call_args( $call->getArgs() );
+				$this->generated_theme_completion_gate->record_tool_call( $name, $normalized_args );
+				$this->page_completion_gate->record_tool_call( $name, $normalized_args );
 			}
 		}
 
@@ -4286,6 +4344,7 @@ PROMPT;
 
 				$this->track_block_validation_response( $name, $response->getResponse() );
 				$this->generated_theme_completion_gate->record_tool_response( $name, $response->getResponse() );
+				$this->page_completion_gate->record_tool_response( $name, $response->getResponse() );
 
 				$this->tool_call_log[] = array(
 					'type'     => 'response',
@@ -4434,6 +4493,43 @@ PROMPT;
 		}
 
 		return $notice;
+	}
+
+	/** Inject the exact missing rendered-page evidence as a repair turn. */
+	private function inject_page_completion_guidance(): void {
+		$guidance = $this->page_completion_gate->get_repair_guidance();
+		if ( '' === $guidance ) {
+			return;
+		}
+
+		$this->history[]     = new UserMessage( array( new MessagePart( $guidance ) ) );
+		$this->message_log[] = array(
+			'type'       => 'guardrail',
+			'reason'     => 'page_quality_completion_required',
+			'completion' => $this->page_completion_gate->get_status(),
+			'sequence'   => $this->next_activity_sequence(),
+		);
+
+		$this->last_loop_phase = 'page_quality_completion_repair_required';
+		$this->fire_progress();
+	}
+
+	/** Prevent a terminal reply from representing incomplete page QA as success. */
+	private function append_page_completion_notice( string $reply ): string {
+		$notice = $this->page_completion_gate->get_terminal_notice();
+		return '' === $notice ? $reply : $notice;
+	}
+
+	/** Return whether an SDK function name is the page-quality browser tool. */
+	private static function is_page_quality_tool_name( string $tool_name ): bool {
+		return in_array(
+			$tool_name,
+			array(
+				PageCompletionGate::CLIENT_ABILITY,
+				'wpab__sd-ai-agent-js__validate-page-quality',
+			),
+			true
+		);
 	}
 
 	/**

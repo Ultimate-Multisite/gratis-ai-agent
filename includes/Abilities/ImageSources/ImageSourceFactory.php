@@ -34,7 +34,7 @@ class ImageSourceFactory {
 	 * Number of candidate results to request from each free source before falling
 	 * through to the next provider in the stock-image fallback chain.
 	 */
-	private const FREE_SOURCE_SEARCH_LIMIT = 3;
+	private const FREE_SOURCE_SEARCH_LIMIT = 12;
 
 	/**
 	 * Registered sources.
@@ -238,8 +238,9 @@ class ImageSourceFactory {
 
 		$candidates = [];
 
+		$search_limit = min( 50, max( 12, $limit * 4 ) );
 		foreach ( $free_sources as $source ) {
-			$search_result = $source->search( $keyword, $limit, $filters );
+			$search_result = $source->search( $keyword, $search_limit, $filters );
 
 			if ( is_wp_error( $search_result ) ) {
 				continue;
@@ -248,22 +249,31 @@ class ImageSourceFactory {
 			$hits = $search_result['hits'] ?? [];
 
 			foreach ( $hits as $hit ) {
-				if ( count( $candidates ) >= $limit ) {
-					break 2;
+				$assessment = self::assess_candidate_quality( $hit, (string) ( $filters['usage'] ?? '' ), $filters );
+				if ( ! $assessment['eligible'] ) {
+					continue;
 				}
 
 				$candidates[] = [
-					'image_id'    => (string) ( $hit['id'] ?? '' ),
-					'provider'    => $source->get_id(),
-					'thumbnail'   => $hit['preview'] ?? $hit['medium'] ?? '',
-					'width'       => (int) ( $hit['width'] ?? 0 ),
-					'height'      => (int) ( $hit['height'] ?? 0 ),
-					'licence'     => $hit['license'] ?? '',
-					'attribution' => self::build_attribution_string( $hit, $source->get_id() ),
-					'title'       => $hit['title'] ?? $hit['alt'] ?? '',
+					'image_id'        => (string) ( $hit['id'] ?? '' ),
+					'provider'        => $source->get_id(),
+					'thumbnail'       => $hit['preview'] ?? $hit['medium'] ?? '',
+					'width'           => (int) ( $hit['width'] ?? 0 ),
+					'height'          => (int) ( $hit['height'] ?? 0 ),
+					'licence'         => $hit['license'] ?? '',
+					'attribution'     => self::build_attribution_string( $hit, $source->get_id() ),
+					'title'           => $hit['title'] ?? $hit['alt'] ?? '',
+					'quality_score'   => $assessment['score'],
+					'quality_reasons' => $assessment['reasons'],
 				];
 			}
 		}
+
+		usort(
+			$candidates,
+			static fn( array $first, array $second ): int => (int) $second['quality_score'] <=> (int) $first['quality_score']
+		);
+		$candidates = array_slice( $candidates, 0, $limit );
 
 		return [
 			'candidates' => $candidates,
@@ -323,7 +333,23 @@ class ImageSourceFactory {
 				'license'     => $image_meta['license'] ?? '',
 				'license_url' => $image_meta['license_url'] ?? '',
 				'attribution' => $image_meta['attribution'] ?? '',
+				'width'       => (int) ( $image_meta['width'] ?? 0 ),
+				'height'      => (int) ( $image_meta['height'] ?? 0 ),
+				'title'       => (string) ( $image_meta['title'] ?? '' ),
 			];
+		}
+
+		$usage = (string) ( $options['usage'] ?? '' );
+		if ( '' !== $usage ) {
+			$assessment = self::assess_candidate_quality( $hit, $usage );
+			if ( ! $assessment['eligible'] ) {
+				return new WP_Error(
+					'image_quality_floor_failed',
+					sprintf( 'The selected %1$s image does not meet the required quality floor: %2$s.', $usage, implode( '; ', $assessment['reasons'] ) )
+				);
+			}
+			$hit['quality_score']   = $assessment['score'];
+			$hit['quality_reasons'] = $assessment['reasons'];
 		}
 
 		$tmp_file = $source->download( $image_id, $width, $height );
@@ -335,6 +361,72 @@ class ImageSourceFactory {
 		$keyword = (string) ( $options['keyword'] ?? $image_id );
 
 		return self::handle_sideload( $tmp_file, $keyword, $options, $hit );
+	}
+
+	/**
+	 * Assess whether an image is technically suitable for its intended role.
+	 *
+	 * This deliberately scores provider metadata rather than pretending that a
+	 * filename proves aesthetic quality. It removes objectively unsuitable
+	 * assets (small sources, wrong hero aspect, preview/watermark-labelled files)
+	 * before the agent performs its visual curation pass.
+	 *
+	 * @param array<string,mixed> $hit     Provider hit or image metadata.
+	 * @param string              $usage   hero, gallery, content, thumbnail, or empty.
+	 * @param array<string,mixed> $filters Explicit minimum dimensions.
+	 * @return array{eligible:bool,score:int,reasons:list<string>}
+	 */
+	public static function assess_candidate_quality( array $hit, string $usage = '', array $filters = array() ): array {
+		$width  = max( 0, (int) ( $hit['width'] ?? 0 ) );
+		$height = max( 0, (int) ( $hit['height'] ?? 0 ) );
+		$title  = strtolower( trim( (string) ( $hit['title'] ?? $hit['alt'] ?? '' ) ) );
+		$usage  = sanitize_key( $usage );
+
+		$role_minimums = array(
+			'hero'      => array( 1920, 900 ),
+			'gallery'   => array( 1200, 800 ),
+			'content'   => array( 1200, 675 ),
+			'thumbnail' => array( 600, 400 ),
+		);
+		$minimums      = $role_minimums[ $usage ] ?? array( 0, 0 );
+		$min_width     = max( (int) $minimums[0], (int) ( $filters['min_width'] ?? 0 ) );
+		$min_height    = max( (int) $minimums[1], (int) ( $filters['min_height'] ?? 0 ) );
+		$reasons       = array();
+		$eligible      = true;
+
+		if ( $width < $min_width ) {
+			$eligible  = false;
+			$reasons[] = sprintf( 'source width %1$dpx is below %2$dpx', $width, $min_width );
+		}
+		if ( $height < $min_height ) {
+			$eligible  = false;
+			$reasons[] = sprintf( 'source height %1$dpx is below %2$dpx', $height, $min_height );
+		}
+		if ( 'hero' === $usage && $height > 0 && $width / $height < 1.3 ) {
+			$eligible  = false;
+			$reasons[] = 'hero source is not sufficiently landscape-oriented';
+		}
+		if ( '' !== $title && preg_match( '/\b(?:watermark(?:ed)?|preview|thumbnail|sample|screenshot|logo|signature)\b/i', $title ) ) {
+			$eligible  = false;
+			$reasons[] = 'provider title signals a preview, watermark, logo, or sample asset';
+		}
+
+		$megapixels = $width > 0 && $height > 0 ? ( $width * $height ) / 1000000 : 0.0;
+		$score      = min( 100, (int) round( 45 + min( 45, $megapixels * 8 ) ) );
+		if ( 'hero' === $usage && $width >= 2400 && $height >= 1200 ) {
+			$score = min( 100, $score + 10 );
+		}
+		if ( ! $eligible ) {
+			$score = min( $score, 39 );
+		} elseif ( empty( $reasons ) ) {
+			$reasons[] = sprintf( '%1$dx%2$d source meets the %3$s technical floor', $width, $height, '' !== $usage ? $usage : 'requested' );
+		}
+
+		return array(
+			'eligible' => $eligible,
+			'score'    => $score,
+			'reasons'  => $reasons,
+		);
 	}
 
 	/**
@@ -483,7 +575,18 @@ class ImageSourceFactory {
 				continue;
 			}
 
-			$hits = $search_result['hits'] ?? [];
+			$hits  = $search_result['hits'] ?? [];
+			$usage = (string) ( $filters['usage'] ?? '' );
+			$hits  = array_values(
+				array_filter(
+					$hits,
+					static fn( array $hit ): bool => self::assess_candidate_quality( $hit, $usage, $filters )['eligible']
+				)
+			);
+			usort(
+				$hits,
+				static fn( array $first, array $second ): int => self::assess_candidate_quality( $second, $usage, $filters )['score'] <=> self::assess_candidate_quality( $first, $usage, $filters )['score']
+			);
 
 			if ( empty( $hits ) ) {
 				$tried[ $try_source->get_id() ] = 'no results found';
@@ -493,7 +596,10 @@ class ImageSourceFactory {
 			$download_failures = [];
 
 			foreach ( $hits as $hit ) {
-				$image_id = (string) ( $hit['id'] ?? '' );
+				$assessment             = self::assess_candidate_quality( $hit, $usage, $filters );
+				$hit['quality_score']   = $assessment['score'];
+				$hit['quality_reasons'] = $assessment['reasons'];
+				$image_id               = (string) ( $hit['id'] ?? '' );
 
 				if ( '' === $image_id ) {
 					$download_failures[] = 'missing image ID';
@@ -661,13 +767,15 @@ class ImageSourceFactory {
 		$attachment_url = wp_get_attachment_url( $attachment_id );
 
 		return [
-			'attachment_id' => $attachment_id,
-			'url'           => $attachment_url,
-			'alt'           => $title,
-			'title'         => $title,
-			'source'        => $source_id,
-			'attribution'   => $attribution,
-			'tip'           => 'Use attachment_id as featured_image_id for create-post.',
+			'attachment_id'   => $attachment_id,
+			'url'             => $attachment_url,
+			'alt'             => $title,
+			'title'           => $title,
+			'source'          => $source_id,
+			'attribution'     => $attribution,
+			'quality_score'   => (int) ( $hit['quality_score'] ?? 0 ),
+			'quality_reasons' => is_array( $hit['quality_reasons'] ?? null ) ? $hit['quality_reasons'] : array(),
+			'tip'             => 'Use attachment_id as featured_image_id for create-post.',
 		];
 	}
 }

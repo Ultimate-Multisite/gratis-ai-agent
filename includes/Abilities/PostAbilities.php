@@ -172,11 +172,12 @@ class PostAbilities {
 				'output_schema'       => [
 					'type'       => 'object',
 					'properties' => [
-						'post_id'   => [ 'type' => 'integer' ],
-						'permalink' => [ 'type' => 'string' ],
-						'status'    => [ 'type' => 'string' ],
-						'post_type' => [ 'type' => 'string' ],
-						'affected'  => self::affected_output_schema( 'post' ),
+						'post_id'     => [ 'type' => 'integer' ],
+						'permalink'   => [ 'type' => 'string' ],
+						'status'      => [ 'type' => 'string' ],
+						'post_type'   => [ 'type' => 'string' ],
+						'revision_id' => [ 'type' => [ 'integer', 'null' ] ],
+						'affected'    => self::affected_output_schema( 'post' ),
 					],
 				],
 				'meta'                => [
@@ -339,6 +340,8 @@ class PostAbilities {
 					'properties' => [
 						'post_id'        => [ 'type' => 'integer' ],
 						'permalink'      => [ 'type' => 'string' ],
+						'post_type'      => [ 'type' => 'string' ],
+						'status'         => [ 'type' => 'string' ],
 						'appended_bytes' => [ 'type' => 'integer' ],
 						'total_bytes'    => [ 'type' => 'integer' ],
 						'revision_id'    => [
@@ -1322,10 +1325,11 @@ class PostAbilities {
 		}
 
 		$response = [
-			'post_id'   => $post_id,
-			'permalink' => $permalink ?: '',
-			'status'    => $status,
-			'post_type' => $post_type,
+			'post_id'     => $post_id,
+			'permalink'   => $permalink ?: '',
+			'status'      => $status,
+			'post_type'   => $post_type,
+			'revision_id' => RevisionGuard::current_revision_id( $post_id ),
 		];
 
 		// GH#1584 follow-up: run BlockValidator on serialized block content so
@@ -1739,8 +1743,11 @@ class PostAbilities {
 			return $result;
 		}
 
-		$permalink   = get_permalink( $post_id ) ?: '';
-		$total_bytes = strlen( $new_content );
+		$permalink    = get_permalink( $post_id ) ?: '';
+		$total_bytes  = strlen( $new_content );
+		$updated_post = get_post( $post_id );
+		$revision_id  = RevisionGuard::current_revision_id( $post_id );
+		$affected     = self::build_affected_payload( $post_id, $updated_post, $permalink, $input, [ 'post_content' => $new_content ] );
 
 		if ( $switched ) {
 			restore_current_blog();
@@ -1749,10 +1756,12 @@ class PostAbilities {
 		return [
 			'post_id'        => $post_id,
 			'permalink'      => $permalink,
+			'post_type'      => $updated_post instanceof WP_Post ? $updated_post->post_type : '',
+			'status'         => $updated_post instanceof WP_Post ? $updated_post->post_status : '',
 			'appended_bytes' => $appended_bytes,
 			'total_bytes'    => $total_bytes,
-			'revision_id'    => RevisionGuard::current_revision_id( $post_id ),
-			'affected'       => self::build_affected_payload( $post_id, get_post( $post_id ), $permalink, $input, [ 'post_content' => $new_content ] ),
+			'revision_id'    => $revision_id,
+			'affected'       => $affected,
 		];
 	}
 

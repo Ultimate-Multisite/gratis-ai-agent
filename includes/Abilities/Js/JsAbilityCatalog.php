@@ -214,6 +214,63 @@ class JsAbilityCatalog {
 				'screens'       => array( 'all' ),
 			),
 			array(
+				'name'          => 'sd-ai-agent-js/validate-page-quality',
+				'label'         => 'Validate Rendered Page Quality',
+				'description'   => 'Validate current affected published pages at the agent profile\'s required viewports. Setup performs strict first-impression, composition, branding, media, accessibility, and responsive checks; General performs focused regression-safe page checks. Reports are bound to the current page mutation token.',
+				'category'      => 'sd-ai-agent-js',
+				'input_schema'  => array(
+					'type'       => 'object',
+					'properties' => array(
+						'profile'       => array(
+							'type' => 'string',
+							'enum' => array( 'setup', 'incremental' ),
+						),
+						'quality_token' => array( 'type' => 'string' ),
+						'pages'         => array(
+							'type'  => 'array',
+							'items' => array( 'type' => 'object' ),
+						),
+						'hero_contract' => array( 'type' => 'object' ),
+						'viewports'     => array(
+							'type'  => 'array',
+							'items' => array( 'type' => 'object' ),
+						),
+					),
+					'required'   => array( 'profile', 'quality_token', 'pages', 'hero_contract', 'viewports' ),
+				),
+				'output_schema' => array(
+					'type'       => 'object',
+					'properties' => array(
+						'success'       => array( 'type' => 'boolean' ),
+						'complete'      => array( 'type' => 'boolean' ),
+						'passed'        => array( 'type' => 'boolean' ),
+						'profile'       => array( 'type' => 'string' ),
+						'quality_token' => array( 'type' => 'string' ),
+						'reports'       => array(
+							'type'  => 'array',
+							'items' => array( 'type' => 'object' ),
+						),
+						'violations'    => array(
+							'type'  => 'array',
+							'items' => array( 'type' => 'object' ),
+						),
+						'warnings'      => array(
+							'type'  => 'array',
+							'items' => array( 'type' => 'object' ),
+						),
+						'screenshots'   => array(
+							'type'  => 'array',
+							'items' => array( 'type' => 'object' ),
+						),
+						'minimum_score' => array( 'type' => 'number' ),
+					),
+				),
+				'annotations'   => array(
+					'readonly' => true,
+				),
+				'screens'       => array( 'all' ),
+			),
+			array(
 				'name'          => 'sd-ai-agent-js/validate-theme-completion',
 				'label'         => 'Validate Generated Theme Completion',
 				'description'   => 'Validate the active generated WordPress theme on the real homepage and one interior page at mobile, tablet, and desktop viewports. Returns deterministic render, accessibility, responsive, content, and remediation evidence; previews and screenshots do not satisfy this check.',

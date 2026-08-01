@@ -26,10 +26,12 @@ class LandingPagePatternAbilitiesTest extends WP_UnitTestCase {
 	public function test_registered_abilities_are_public_readonly_and_capability_gated(): void {
 		$list   = wp_get_ability( 'sd-ai-agent/list-landing-page-pattern-families' );
 		$select = wp_get_ability( 'sd-ai-agent/select-landing-page-pattern-family' );
+		$review = wp_get_ability( 'sd-ai-agent/submit-page-visual-review' );
 
 		$this->assertNotNull( $list );
 		$this->assertNotNull( $select );
-		foreach ( [ $list, $select ] as $ability ) {
+		$this->assertNotNull( $review );
+		foreach ( [ $list, $select, $review ] as $ability ) {
 			$this->assertTrue( $ability->get_meta()['mcp']['public'] );
 			$this->assertTrue( $ability->get_meta()['annotations']['readonly'] );
 			$this->assertFalse( $ability->get_meta()['annotations']['destructive'] );
@@ -38,7 +40,9 @@ class LandingPagePatternAbilitiesTest extends WP_UnitTestCase {
 		}
 		$this->assertSame( 'edit_theme_options', ToolCapabilities::CORE_CAP_MAP['sd-ai-agent/list-landing-page-pattern-families'] );
 		$this->assertSame( 'edit_theme_options', ToolCapabilities::CORE_CAP_MAP['sd-ai-agent/select-landing-page-pattern-family'] );
+		$this->assertSame( 'edit_theme_options', ToolCapabilities::CORE_CAP_MAP['sd-ai-agent/submit-page-visual-review'] );
 		$this->assertFalse( $select->get_input_schema()['additionalProperties'] );
+		$this->assertFalse( $review->get_input_schema()['additionalProperties'] );
 	}
 
 	/**
@@ -68,6 +72,8 @@ class LandingPagePatternAbilitiesTest extends WP_UnitTestCase {
 			$this->assertNotEmpty( $family['section_roles'] );
 			$this->assertSame( [ 'mobile', 'tablet', 'desktop' ], array_keys( $family['responsive_behavior'] ) );
 			$this->assertArrayHasKey( 'heading_hierarchy', $family['accessibility_requirements'] );
+			$this->assertContains( $family['hero_contract']['strategy'], [ 'immersive-media', 'split-media', 'editorial-feature', 'product-focus' ] );
+			$this->assertTrue( $family['hero_contract']['primary_cta_above_fold'] );
 			$this->assertSame( 'stable', $family['governance']['maturity'] );
 			$this->assertStringStartsWith( 'sd-ai-agent/pattern/', $family['governance']['id'] );
 			foreach ( $family['core_block_allowlist'] as $block ) {
@@ -76,6 +82,7 @@ class LandingPagePatternAbilitiesTest extends WP_UnitTestCase {
 			foreach ( $family['variants'] as $variant ) {
 				$this->assertNotEmpty( $variant['section_roles'] );
 				$this->assertNotEmpty( $variant['layout_cues'] );
+				$this->assertSame( $family['hero_contract'], $variant['hero_contract'] );
 				$this->assertSame( 'stable', $variant['governance']['maturity'] );
 				$this->assertStringStartsWith( 'sd-ai-agent/pattern/', $variant['governance']['id'] );
 			}
@@ -198,6 +205,32 @@ class LandingPagePatternAbilitiesTest extends WP_UnitTestCase {
 		$this->assertSame( 'focused-product-conversion', $result['selected_family']['slug'] );
 		$this->assertSame( 'comparison-led', $result['selected_variant']['slug'] );
 		$this->assertSame( [ 'comparison' ], $result['score_breakdown']['section_requests']['matched_terms'] );
+	}
+
+	/** A visual review is bounded and normalized without mutating WordPress. */
+	public function test_visual_review_normalizes_scores_and_findings(): void {
+		$result = LandingPagePatternAbilities::handle_visual_review(
+			[
+				'quality_token'     => 'current-token',
+				'passed'            => true,
+				'overall_score'     => 110,
+				'scores'            => [
+					'hierarchy'           => 90,
+					'composition'         => 89,
+					'spacing'             => 88,
+					'typography'          => 87,
+					'imagery'             => 86,
+					'coherence'           => 85,
+					'content_credibility' => 84,
+				],
+				'blocking_findings' => [ '  Repair weak crop  ', '' ],
+				'summary'           => 'Reviewed mobile and desktop screenshots.',
+			]
+		);
+
+		$this->assertSame( 100, $result['overall_score'] );
+		$this->assertSame( [ 'Repair weak crop' ], $result['blocking_findings'] );
+		$this->assertSame( 84, $result['scores']['content_credibility'] );
 	}
 
 	/**
