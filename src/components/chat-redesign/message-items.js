@@ -303,21 +303,22 @@ export function UserMessage( { msg, index } ) {
 	const [ draft, setDraft ] = useState( '' );
 	const textareaRef = useRef( null );
 	const { editAndResend, setEditingMessageIndex } = useDispatch( STORE_NAME );
-	const { sending, messageToken, selectedModelName, editing } = useSelect(
+	const { sending, messageToken, messageModelName, editing } = useSelect(
 		( sel ) => {
 			const store = sel( STORE_NAME );
 			const tokens = store.getMessageTokens() || [];
 			const providers = store.getProviders() || [];
 			const provider = providers.find(
-				( p ) => p.id === store.getSelectedProviderId()
+				( p ) => p.id === msg.provider_id
 			);
 			const model = provider?.models?.find(
-				( m ) => m.id === store.getSelectedModelId()
+				( m ) => m.id === msg.model_id
 			);
 			return {
 				sending: store.isSending(),
 				messageToken: tokens[ index ],
-				selectedModelName: model?.name || model?.id || '',
+				messageModelName:
+					model?.name || model?.id || msg.model_id || '',
 				// Derive editing from the store's editingMessageIndex so only the
 				// exact message whose index matches enters edit mode. Using a
 				// store-level flag (rather than local useState) means a single
@@ -326,7 +327,7 @@ export function UserMessage( { msg, index } ) {
 				editing: store.getEditingMessageIndex() === index,
 			};
 		},
-		[ index ]
+		[ index, msg.provider_id, msg.model_id ]
 	);
 
 	const attachments = msg.attachments || [];
@@ -371,9 +372,10 @@ export function UserMessage( { msg, index } ) {
 		editAndResend( index, trimmed );
 	}, [ draft, text, index, editAndResend, setEditingMessageIndex ] );
 
-	// Prefer the model actually used for the nearest assistant reply if
-	// available, else show the currently-selected model.
-	const modelLabel = messageToken?.modelName || selectedModelName || '';
+	// Model selection is captured with the message, so changing the picker only
+	// affects future turns. Older rows without persisted metadata remain unlabeled
+	// rather than being misrepresented as having used the current selection.
+	const modelLabel = messageModelName || messageToken?.modelName || '';
 	const timeLabel = formatTime( msg.ts || msg.created_at );
 
 	if ( editing ) {

@@ -85,6 +85,7 @@ const DEFAULT_STATE = {
 	currentSessionId: null,
 	currentSessionMessages: [],
 	currentSessionToolCalls: [],
+	isNewChatPending: false,
 	sending: false,
 	streamError: false,
 	streamErrorSessionId: null,
@@ -1497,9 +1498,41 @@ describe( 'reducer', () => {
 			toolCalls: [ { type: 'call' } ],
 		} );
 		expect( state.currentSessionId ).toBe( 7 );
-		expect( state.currentSessionCleared ).toBe( false );
 		expect( state.currentSessionMessages ).toEqual( [ { role: 'user' } ] );
 		expect( state.currentSessionToolCalls ).toEqual( [ { type: 'call' } ] );
+		expect( state.isNewChatPending ).toBe( false );
+	} );
+
+	test( 'SET_CURRENT_SESSION preserves per-turn model metadata during hydration', () => {
+		const messages = [
+			{
+				role: 'user',
+				parts: [ { text: 'First turn' } ],
+				provider_id: 'superdav',
+				model_id: 'fast',
+			},
+			{
+				role: 'model',
+				parts: [ { text: 'First reply' } ],
+				provider_id: 'superdav',
+				model_id: 'fast',
+			},
+			{
+				role: 'user',
+				parts: [ { text: 'Second turn' } ],
+				provider_id: 'superdav',
+				model_id: 'pro',
+			},
+		];
+		const state = reducer( DEFAULT_STATE, {
+			type: 'SET_CURRENT_SESSION',
+			sessionId: 7,
+			messages,
+			toolCalls: [],
+		} );
+
+		expect( state.currentSessionMessages[ 0 ].model_id ).toBe( 'fast' );
+		expect( state.currentSessionMessages[ 2 ].model_id ).toBe( 'pro' );
 	} );
 
 	test( 'CLEAR_CURRENT_SESSION resets session state and token usage', () => {
@@ -1515,13 +1548,13 @@ describe( 'reducer', () => {
 		};
 		const state = reducer( populated, { type: 'CLEAR_CURRENT_SESSION' } );
 		expect( state.currentSessionId ).toBeNull();
-		expect( state.currentSessionCleared ).toBe( true );
 		expect( state.currentSessionMessages ).toEqual( [] );
 		expect( state.currentSessionToolCalls ).toEqual( [] );
 		expect( state.tokenUsage ).toEqual( { prompt: 0, completion: 0 } );
 		expect( state.streamError ).toBe( false );
 		expect( state.streamErrorSessionId ).toBeNull();
 		expect( state.lastUserMessage ).toBe( '' );
+		expect( state.isNewChatPending ).toBe( true );
 	} );
 
 	test( 'SET_SENDING updates sending flag', () => {

@@ -125,6 +125,28 @@ export function getHydrationSessionId( sessions, sessionJobs = {} ) {
 }
 
 /**
+ * Determine whether the widget should reopen a persisted conversation.
+ *
+ * An empty current session normally means the widget is mounting after a page
+ * load or navigation, so it should restore the active/latest conversation.
+ * An explicit new-chat action uses the same empty state but must retain it
+ * until the user sends the first message in the new conversation.
+ *
+ * @param {Object}  options
+ * @param {number}  options.sessionCount     Number of persisted sessions.
+ * @param {?number} options.currentSessionId Currently opened session ID.
+ * @param {boolean} options.isNewChatPending Whether the user started a new chat.
+ * @return {boolean} Whether persisted-session hydration should run.
+ */
+export function shouldHydrateSession( {
+	sessionCount,
+	currentSessionId,
+	isNewChatPending,
+} ) {
+	return sessionCount > 0 && ! currentSessionId && ! isNewChatPending;
+}
+
+/**
  * Open the preferred session only while the hydration effect is current.
  *
  * @param {Array}    sessions    Available sessions.

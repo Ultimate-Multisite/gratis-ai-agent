@@ -148,11 +148,11 @@ export const initialState = {
 	sessions: [],
 	sessionsLoaded: false,
 	currentSessionId: null,
-	// Prevent widget hydration from immediately reopening the most-recent
-	// session after the user explicitly starts a new chat.
-	currentSessionCleared: false,
 	currentSessionMessages: [],
 	currentSessionToolCalls: [],
+	// Set only by an explicit new-chat action. The floating widget consumes this
+	// to distinguish a user-requested empty conversation from initial hydration.
+	isNewChatPending: false,
 	sending: false,
 
 	// Token usage (current session)
@@ -1005,6 +1005,11 @@ export const actions = {
 	 */
 	streamMessage( message, attachments = [], options = {} ) {
 		return async ( { dispatch, select } ) => {
+			// Capture the requested model before any asynchronous work. This
+			// immutable turn metadata is displayed locally immediately and is
+			// persisted by the server alongside the completed exchange.
+			const providerId = select.getSelectedProviderId();
+			const modelId = select.getSelectedModelId();
 			dispatch.setSending( true );
 			dispatch.setStreamError( false );
 			dispatch.setPendingActionCard( null );
@@ -1029,6 +1034,8 @@ export const actions = {
 					role: 'user',
 					parts: parts.length ? parts : [ { text: '' } ],
 					attachments: imageAttachments,
+					provider_id: providerId,
+					model_id: modelId,
 					ts: Date.now(),
 				} );
 			}
@@ -1039,8 +1046,8 @@ export const actions = {
 			if ( ! sessionId ) {
 				try {
 					const sessionData = {
-						provider_id: select.getSelectedProviderId(),
-						model_id: select.getSelectedModelId(),
+						provider_id: providerId,
+						model_id: modelId,
 					};
 					const agentIdForSession = select.getSelectedAgentId();
 					if ( agentIdForSession ) {
@@ -1070,8 +1077,8 @@ export const actions = {
 			const body = {
 				message,
 				session_id: sessionId,
-				provider_id: select.getSelectedProviderId(),
-				model_id: select.getSelectedModelId(),
+				provider_id: providerId,
+				model_id: modelId,
 			};
 
 			// Include image attachments as base64 data URLs for vision models.
@@ -1525,16 +1532,6 @@ export const selectors = {
 	},
 
 	/**
-	 * Whether the user explicitly chose to start a blank chat.
-	 *
-	 * @param {import('../../types').StoreState} state
-	 * @return {boolean} Whether automatic session hydration is suppressed.
-	 */
-	isCurrentSessionCleared( state ) {
-		return state.currentSessionCleared;
-	},
-
-	/**
 	 * @param {import('../../types').StoreState} state
 	 * @return {Message[]} Messages in the active session.
 	 */
@@ -1548,6 +1545,17 @@ export const selectors = {
 	 */
 	getCurrentSessionToolCalls( state ) {
 		return state.currentSessionToolCalls;
+	},
+
+	/**
+	 * Whether the user explicitly started a new chat and the UI should remain
+	 * empty until the next message creates its new session.
+	 *
+	 * @param {import('../../types').StoreState} state
+	 * @return {boolean} Whether a new chat is pending its first message.
+	 */
+	isNewChatPending( state ) {
+		return state.isNewChatPending;
 	},
 
 	/**
@@ -1731,7 +1739,7 @@ export function reducer( state, action ) {
 		case 'SET_CURRENT_SESSION':
 			return {
 				...state,
-				currentSessionCleared: false,
+				isNewChatPending: false,
 				currentSessionId:
 					typeof action.sessionId === 'string'
 						? parseInt( action.sessionId, 10 )
@@ -1745,7 +1753,7 @@ export function reducer( state, action ) {
 		case 'CLEAR_CURRENT_SESSION':
 			return {
 				...state,
-				currentSessionCleared: true,
+				isNewChatPending: true,
 				currentSessionId: null,
 				currentSessionMessages: [],
 				currentSessionToolCalls: [],

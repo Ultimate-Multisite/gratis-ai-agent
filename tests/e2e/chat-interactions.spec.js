@@ -459,6 +459,76 @@ test.describe( 'Chat Input Interactions', () => {
 		const stopButton = getStopButton( page );
 		await expect( stopButton ).toBeVisible( { timeout: 5_000 } );
 	} );
+
+	test( 'rehydrated history keeps each turn model label', async ( { page } ) => {
+		const sessionId = 2393;
+		const sessionPath = `/sd-ai-agent/v1/sessions/${ sessionId }`;
+		await page.route(
+			( url ) => {
+				const decoded = decodeURIComponent( url.toString() );
+				return (
+					decoded.includes( sessionPath ) &&
+					! decoded.includes( `${ sessionPath }/` )
+				);
+			},
+			async ( route ) => {
+				await route.fulfill( {
+					status: 200,
+					contentType: 'application/json',
+					body: JSON.stringify( {
+						id: sessionId,
+						title: 'Mixed-model history',
+						status: 'active',
+						user_id: 1,
+						messages: [
+							{
+								role: 'user',
+								parts: [ { text: 'First turn' } ],
+								provider_id: 'superdav',
+								model_id: 'superdav-chat-fast',
+							},
+							{
+								role: 'model',
+								parts: [ { text: 'First reply' } ],
+								provider_id: 'superdav',
+								model_id: 'superdav-chat-fast',
+							},
+							{
+								role: 'user',
+								parts: [ { text: 'Second turn' } ],
+								provider_id: 'superdav',
+								model_id: 'superdav-chat-pro',
+							},
+							{
+								role: 'model',
+								parts: [ { text: 'Second reply' } ],
+								provider_id: 'superdav',
+								model_id: 'superdav-chat-pro',
+							},
+						],
+						tool_calls: [],
+					} ),
+				} );
+			}
+		);
+
+		await page.waitForFunction(
+			() =>
+				typeof window.wp?.data?.dispatch( 'sd-ai-agent' )?.openSession ===
+				'function'
+		);
+		await page.evaluate( async ( id ) => {
+			await window.wp.data.dispatch( 'sd-ai-agent' ).openSession( id );
+		}, sessionId );
+
+		const modelLabels = page.locator(
+			'.sdaa-cr-msg-user .sdaa-cr-msg-meta-model'
+		);
+		await expect( modelLabels ).toHaveText(
+			[ 'superdav-chat-fast', 'superdav-chat-pro' ],
+			{ timeout: 15_000 }
+		);
+	} );
 } );
 
 test.describe( 'Confirmation and client-tool continuation', () => {

@@ -66,7 +66,7 @@ function FloatingWidget() {
 		sessions,
 		sessionsLoaded,
 		currentSessionId,
-		currentSessionCleared,
+		isNewChatPending,
 		sessionJobs,
 	] = useSelect(
 		( select ) => [
@@ -78,7 +78,7 @@ function FloatingWidget() {
 			select( STORE_NAME ).getSessions(),
 			select( STORE_NAME ).getSessionsLoaded(),
 			select( STORE_NAME ).getCurrentSessionId(),
-			select( STORE_NAME ).isCurrentSessionCleared(),
+			select( STORE_NAME ).isNewChatPending(),
 			select( STORE_NAME ).getSessionJobs(),
 		],
 		[]
@@ -144,7 +144,7 @@ function FloatingWidget() {
 		}
 
 		setFrontendOnboardingMode( null );
-		if ( ! sessions.length || currentSessionId || currentSessionCleared ) {
+		if ( ! sessions.length || currentSessionId || isNewChatPending ) {
 			return undefined;
 		}
 
@@ -163,7 +163,7 @@ function FloatingWidget() {
 		sessions,
 		sessionJobs,
 		currentSessionId,
-		currentSessionCleared,
+		isNewChatPending,
 		openSession,
 	] );
 
@@ -199,6 +199,7 @@ function FloatingWidget() {
 		sessionsLoaded,
 		sessions.length,
 		currentSessionId,
+		isNewChatPending,
 		openSession,
 		sendMessage,
 		setSelectedAgentId,
