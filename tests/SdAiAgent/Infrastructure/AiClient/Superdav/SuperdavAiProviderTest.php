@@ -124,6 +124,61 @@ final class SuperdavAiProviderTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * Local development may use the configured loopback edge with the safe SDK transporter.
+	 */
+	public function test_handler_allows_only_the_configured_loopback_edge(): void {
+		add_filter(
+			'sd_ai_agent_cloud_base_url',
+			static fn(): string => 'http://127.0.0.1:3200/v1'
+		);
+		$handler = new SuperdavAiProviderHandler();
+
+		$this->assertTrue(
+			$handler->allow_configured_loopback_host( false, '127.0.0.1', 'http://127.0.0.1:3200/v1/models' )
+		);
+		$this->assertFalse(
+			$handler->allow_configured_loopback_host( false, '127.0.0.1', 'http://127.0.0.1:3200/admin' )
+		);
+		$this->assertFalse(
+			$handler->allow_configured_loopback_host( false, 'localhost', 'http://localhost:3200/v1/models' )
+		);
+		$this->assertFalse(
+			$handler->allow_configured_loopback_host( false, '127.0.0.1', 'http://127.0.0.1:3300/v1/models' )
+		);
+		$this->assertTrue(
+			$handler->allow_configured_loopback_host( true, 'unrelated.example', 'https://unrelated.example/models' )
+		);
+	}
+
+	/**
+	 * Only the configured loopback service port is added to WordPress's safe list.
+	 */
+	public function test_handler_allows_only_the_configured_loopback_port(): void {
+		add_filter(
+			'sd_ai_agent_cloud_base_url',
+			static fn(): string => 'http://127.0.0.1:3200/v1'
+		);
+		$handler = new SuperdavAiProviderHandler();
+
+		$this->assertSame(
+			array( 80, 443, 3200 ),
+			$handler->allow_configured_loopback_port(
+				array( 80, 443 ),
+				'127.0.0.1',
+				'http://127.0.0.1:3200/v1/chat/completions'
+			)
+		);
+		$this->assertSame(
+			array( 80, 443 ),
+			$handler->allow_configured_loopback_port(
+				array( 80, 443 ),
+				'127.0.0.1',
+				'http://127.0.0.1:3300/v1/chat/completions'
+			)
+		);
+	}
+
+	/**
 	 * The bundled provider defaults clean installs to the standard managed alias.
 	 */
 	public function test_default_model_is_managed_standard_alias(): void {
