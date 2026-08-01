@@ -12,6 +12,7 @@
 	--sdaa-w-text-primary: #1d2327;
 	--sdaa-w-text-secondary: #50575e;
 	--sdaa-w-text-muted: #787c82;
+	--sdaa-w-text-muted-contrast: #71767b;
 	--sdaa-w-border-strong: #c3c4c7;
 	--sdaa-w-border-subtle: #dcdcde;
 	--sdaa-w-bubble-user-border: #c5d9ed;
@@ -419,7 +420,7 @@
 	gap: 4px;
 	margin-top: 1px;
 	font-size: 11px;
-	color: var(--sdaa-w-text-muted);
+	color: var(--sdaa-w-text-muted-contrast);
 }
 
 .sdaa-w-head-status.is-running {

@@ -17,6 +17,7 @@
 	--sdaa-text-primary: #1d2327;
 	--sdaa-text-secondary: #50575e;
 	--sdaa-text-muted: #787c82;
+	--sdaa-text-muted-contrast: #71767b;
 	--sdaa-text-disabled: #a7aaad;
 	--sdaa-surface-page: #fff;
 	--sdaa-surface: #f6f7f7;
@@ -1489,7 +1490,7 @@ textarea.sdaa-cr-input-textarea {
 
 .sdaa-cr-model-chip-provider {
 	font-size: 11px;
-	color: var(--sdaa-text-muted);
+	color: var(--sdaa-text-muted-contrast);
 	padding-right: 6px;
 	border-right: 1px solid var(--sdaa-border-subtle);
 	margin-right: 2px;
