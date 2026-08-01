@@ -117,6 +117,9 @@ final class SuperdavAiProviderHandler {
 
 		$base_path    = '/' . trim( (string) ( $base_parts['path'] ?? '' ), '/' );
 		$request_path = '/' . trim( (string) ( $request_parts['path'] ?? '' ), '/' );
+		if ( 1 === preg_match( '#(?:^|/)\.{1,2}(?:/|$)#', rawurldecode( $request_path ) ) ) {
+			return false;
+		}
 
 		return $request_path === $base_path || str_starts_with( $request_path, rtrim( $base_path, '/' ) . '/' );
 	}

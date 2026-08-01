@@ -140,10 +140,19 @@ final class SuperdavAiProviderTest extends WP_UnitTestCase {
 			$handler->allow_configured_loopback_host( false, '127.0.0.1', 'http://127.0.0.1:3200/admin' )
 		);
 		$this->assertFalse(
+			$handler->allow_configured_loopback_host( false, '127.0.0.1', 'http://127.0.0.1:3200/v1/../admin' )
+		);
+		$this->assertFalse(
+			$handler->allow_configured_loopback_host( false, '127.0.0.1', 'http://127.0.0.1:3200/v1/%2e%2e/admin' )
+		);
+		$this->assertFalse(
 			$handler->allow_configured_loopback_host( false, 'localhost', 'http://localhost:3200/v1/models' )
 		);
 		$this->assertFalse(
 			$handler->allow_configured_loopback_host( false, '127.0.0.1', 'http://127.0.0.1:3300/v1/models' )
+		);
+		$this->assertFalse(
+			$handler->allow_configured_loopback_host( false, '127.0.0.1', 'https://127.0.0.1:3200/v1/models' )
 		);
 		$this->assertTrue(
 			$handler->allow_configured_loopback_host( true, 'unrelated.example', 'https://unrelated.example/models' )
