@@ -13,6 +13,7 @@ namespace SdAiAgent\Tests\Infrastructure\AiClient\Superdav;
 use SdAiAgent\Bootstrap\SuperdavAiProviderHandler;
 use SdAiAgent\Core\ModelCapabilityRegistry;
 use SdAiAgent\Core\ProviderCredentialLoader;
+use SdAiAgent\Core\ProviderTraceLogger;
 use SdAiAgent\Infrastructure\AiClient\Superdav\SuperdavAiImageGenerationModel;
 use SdAiAgent\Infrastructure\AiClient\Superdav\SuperdavAiModelMetadataDirectory;
 use SdAiAgent\Infrastructure\AiClient\Superdav\SuperdavAiProvider;
@@ -55,6 +56,7 @@ final class SuperdavAiProviderTest extends WP_UnitTestCase {
 		remove_all_filters( 'sd_ai_agent_superdav_default_model' );
 		remove_all_filters( 'sd_ai_agent_superdav_reasoning_effort' );
 		remove_all_filters( 'sd_ai_agent_openai_tool_search_enabled' );
+		ProviderTraceLogger::clear_runtime_context();
 		parent::tear_down();
 	}
 
@@ -165,6 +167,39 @@ final class SuperdavAiProviderTest extends WP_UnitTestCase {
 		$data = $request->getData();
 		$this->assertIsArray( $data );
 		$this->assertSame( $expected_effort, $data['reasoning_effort'] ?? '' );
+	}
+
+	/** Managed inference requests carry only the active local session ID. */
+	public function test_text_generation_request_includes_safe_session_attribution(): void {
+		$this->skip_if_sdk_unavailable();
+
+		$model = new SuperdavAiTextGenerationModel(
+			new ModelMetadata( 'example-model', 'Example Model', array(), array() ),
+			SuperdavAiProvider::metadata()
+		);
+		$method = new \ReflectionMethod( $model, 'createRequest' );
+		$method->setAccessible( true );
+
+		ProviderTraceLogger::set_runtime_context( SuperdavAiProvider::PROVIDER_ID, 'example-model', 42 );
+		$request = $method->invoke(
+			$model,
+			HttpMethodEnum::POST(),
+			'chat/completions',
+			array( 'Content-Type' => 'application/json' ),
+			array( 'model' => 'example-model' )
+		);
+		ProviderTraceLogger::clear_runtime_context();
+
+		$this->assertSame( '42', $request->getHeaderAsString( SuperdavAiProvider::SESSION_ATTRIBUTION_HEADER ) );
+
+		$unattributed_request = $method->invoke(
+			$model,
+			HttpMethodEnum::POST(),
+			'chat/completions',
+			array( 'Content-Type' => 'application/json' ),
+			array( 'model' => 'example-model' )
+		);
+		$this->assertNull( $unattributed_request->getHeaderAsString( SuperdavAiProvider::SESSION_ATTRIBUTION_HEADER ) );
 	}
 
 	/**

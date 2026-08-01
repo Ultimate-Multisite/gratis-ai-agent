@@ -71,19 +71,23 @@ const ShortcutsHelp = lazy( () =>
  *
  * 3. After onboarding completes the full redesigned chat layout is shown.
  *
+ * @param {Object}      props                  Component props.
+ * @param {number|null} props.initialSessionId Session selected by a deep link.
  * @return {JSX.Element|null} Admin page app element, or null while settings are loading.
  */
-function AdminPageApp() {
+function AdminPageApp( { initialSessionId = null } ) {
 	const {
 		fetchProviders,
 		fetchSessions,
 		fetchSettings,
 		clearCurrentSession,
+		openSession,
 		restoreActiveJobs,
 		setShowShortcutsHelp,
 		appendMessage,
 	} = useDispatch( STORE_NAME );
 	const serviceNoticeDisplayedRef = useRef( false );
+	const initialSessionOpenedRef = useRef( false );
 	const [ serviceConnectionNotice, setServiceConnectionNotice ] =
 		useState( '' );
 	const [
@@ -114,7 +118,23 @@ function AdminPageApp() {
 		fetchSessions();
 		fetchSettings();
 		restoreActiveJobs();
-	}, [ fetchProviders, fetchSessions, fetchSettings, restoreActiveJobs ] );
+
+		if (
+			! initialSessionOpenedRef.current &&
+			Number.isInteger( initialSessionId ) &&
+			initialSessionId > 0
+		) {
+			initialSessionOpenedRef.current = true;
+			openSession( initialSessionId );
+		}
+	}, [
+		fetchProviders,
+		fetchSessions,
+		fetchSettings,
+		initialSessionId,
+		openSession,
+		restoreActiveJobs,
+	] );
 
 	const appendServiceConnectionNotice = useCallback(
 		( notice ) => {
@@ -291,12 +311,15 @@ function AdminPageApp() {
  * Called by the unified admin's ChatRoute via window.sdAiAgentChat.mount().
  * Returns a root instance so the caller can unmount cleanly.
  *
- * @param {HTMLElement} container - DOM element to mount into.
+ * @param {HTMLElement}          container DOM element to mount into.
+ * @param {{sessionId?: number}} options   Optional mount options.
  * @return {import('@wordpress/element').Root} React root.
  */
-function mountAdminPageApp( container ) {
+function mountAdminPageApp( container, options = {} ) {
 	const root = createRoot( container );
-	root.render( <AdminPageApp /> );
+	root.render(
+		<AdminPageApp initialSessionId={ options.sessionId ?? null } />
+	);
 	return root;
 }
 
@@ -313,14 +336,15 @@ window.sdAiAgentChat = {
 	/**
 	 * Mount the admin page app into the given container.
 	 *
-	 * @param {HTMLElement} container - Target DOM element.
+	 * @param {HTMLElement}          container Target DOM element.
+	 * @param {{sessionId?: number}} options   Optional mount options.
 	 */
-	mount( container ) {
+	mount( container, options = {} ) {
 		if ( ! container ) {
 			return;
 		}
 		// Store the root so unmount() can tear it down cleanly.
-		container.__sdAiRoot = mountAdminPageApp( container );
+		container.__sdAiRoot = mountAdminPageApp( container, options );
 	},
 
 	/**

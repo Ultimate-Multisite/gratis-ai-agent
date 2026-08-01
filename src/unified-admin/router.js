@@ -68,8 +68,12 @@ export default function Router( { route } ) {
 
 	switch ( mainRoute ) {
 		case 'chat':
-		case '':
-			return <ChatRoute />;
+		case '': {
+			const sessionId = /^\d+$/.test( subRoute || '' )
+				? Number( subRoute )
+				: null;
+			return <ChatRoute sessionId={ sessionId } />;
+		}
 
 		case 'abilities':
 			return <AbilitiesRoute />;

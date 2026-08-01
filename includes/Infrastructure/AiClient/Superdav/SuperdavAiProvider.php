@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace SdAiAgent\Infrastructure\AiClient\Superdav;
 
+use SdAiAgent\Core\ProviderTraceLogger;
 use WordPress\AiClient\Providers\ApiBasedImplementation\AbstractApiProvider;
 use WordPress\AiClient\Providers\Contracts\ModelMetadataDirectoryInterface;
 use WordPress\AiClient\Providers\Contracts\ProviderAvailabilityInterface;
@@ -23,13 +24,14 @@ if ( ! defined( 'ABSPATH' ) ) {
  */
 final class SuperdavAiProvider extends AbstractApiProvider {
 
-	public const PROVIDER_ID       = 'sd-ai-agent-cloud';
-	public const CREDENTIAL_OPTION = 'connectors_ai_sd_ai_agent_cloud_api_key';
-	public const DEFAULT_BASE_URL  = 'https://api.sdaiagent.com/v1';
-	public const FAST_MODEL_ID     = 'superdav-chat-fast';
-	public const DEFAULT_MODEL_ID  = 'superdav-chat-pro';
-	public const STRONG_MODEL_ID   = 'superdav-chat-strong';
-	public const IMAGE_MODEL_ID    = 'superdav-image';
+	public const PROVIDER_ID                = 'sd-ai-agent-cloud';
+	public const CREDENTIAL_OPTION          = 'connectors_ai_sd_ai_agent_cloud_api_key';
+	public const DEFAULT_BASE_URL           = 'https://api.sdaiagent.com/v1';
+	public const FAST_MODEL_ID              = 'superdav-chat-fast';
+	public const DEFAULT_MODEL_ID           = 'superdav-chat-pro';
+	public const STRONG_MODEL_ID            = 'superdav-chat-strong';
+	public const IMAGE_MODEL_ID             = 'superdav-image';
+	public const SESSION_ATTRIBUTION_HEADER = 'X-Superdav-Session-ID';
 
 	/**
 	 * Reasoning effort hints for managed Superdav model aliases.
@@ -46,6 +48,24 @@ final class SuperdavAiProvider extends AbstractApiProvider {
 		self::DEFAULT_MODEL_ID => 'medium',
 		self::STRONG_MODEL_ID  => 'high',
 	);
+
+	/**
+	 * Add non-secret local chat attribution to a managed inference request.
+	 *
+	 * The site-scoped service token remains the authorization boundary. The
+	 * numeric session ID is used only to group metered usage for the same site.
+	 *
+	 * @param array<string, string|list<string>> $headers Existing request headers.
+	 * @return array<string, string|list<string>> Headers with safe attribution.
+	 */
+	public static function with_session_attribution( array $headers ): array {
+		$session_id = ProviderTraceLogger::get_runtime_session_id();
+		if ( $session_id > 0 ) {
+			$headers[ self::SESSION_ATTRIBUTION_HEADER ] = (string) $session_id;
+		}
+
+		return $headers;
+	}
 
 	/**
 	 * Return the managed model that new Superdav-provider installs should prefer.

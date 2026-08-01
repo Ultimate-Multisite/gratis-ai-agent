@@ -18,9 +18,11 @@ import { useEffect, useRef } from '@wordpress/element';
  * which bypasses React's unmount hooks and leaks subscriptions and event
  * handlers.
  *
+ * @param {Object}      props           Component props.
+ * @param {number|null} props.sessionId Optional session to open after mount.
  * @return {JSX.Element} Chat route element.
  */
-export default function ChatRoute() {
+export default function ChatRoute( { sessionId = null } ) {
 	const containerRef = useRef( null );
 	// Track whether mount() has been called so we don't call it twice.
 	const mountedRef = useRef( false );
@@ -43,7 +45,7 @@ export default function ChatRoute() {
 				! mountedRef.current
 			) {
 				mountedRef.current = true;
-				window.sdAiAgentChat.mount( container );
+				window.sdAiAgentChat.mount( container, { sessionId } );
 				return true;
 			}
 			return false;
@@ -111,7 +113,7 @@ export default function ChatRoute() {
 				mountedRef.current = false;
 			}
 		};
-	}, [] );
+	}, [ sessionId ] );
 
 	return (
 		<div className="sdaa-route sdaa-route-chat">

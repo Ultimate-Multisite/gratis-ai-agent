@@ -591,8 +591,137 @@
 	gap: 8px;
 }
 
+.sd-ai-agent-superdav-session-usage h4,
 .sd-ai-agent-superdav-credit-activity h4 {
 	margin: 0 0 8px;
+}
+
+.sd-ai-agent-superdav-session-usage > .description {
+	margin: -2px 0 10px;
+}
+
+.sd-ai-agent-superdav-session-usage-list {
+	margin: 0;
+	padding: 0;
+	list-style: none;
+	border: 1px solid #dcdcde;
+	border-radius: 4px;
+	background: #fff;
+	overflow: hidden;
+}
+
+.sd-ai-agent-superdav-session-usage-list > li {
+	margin: 0;
+	border-bottom: 1px solid #dcdcde;
+}
+
+.sd-ai-agent-superdav-session-usage-list > li:last-child {
+	border-bottom: 0;
+}
+
+.sd-ai-agent-superdav-session-usage-summary {
+	display: grid;
+	grid-template-columns: minmax(0, 1fr) auto;
+	align-items: center;
+	gap: 20px;
+	width: 100%;
+	padding: 14px 16px;
+	border: 0;
+	background: transparent;
+	color: #1d2327;
+	font: inherit;
+	text-align: left;
+	cursor: pointer;
+}
+
+.sd-ai-agent-superdav-session-usage-summary:hover,
+.sd-ai-agent-superdav-session-usage-summary[aria-expanded="true"] {
+	background: #f6f7f7;
+}
+
+.sd-ai-agent-superdav-session-usage-summary:focus-visible {
+	outline: 2px solid var(--wp-admin-theme-color, #2271b1);
+	outline-offset: -2px;
+}
+
+.sd-ai-agent-superdav-session-identity,
+.sd-ai-agent-superdav-session-identity > span,
+.sd-ai-agent-superdav-session-usage-totals > span {
+	display: block;
+}
+
+.sd-ai-agent-superdav-session-identity {
+	min-width: 0;
+}
+
+.sd-ai-agent-superdav-session-identity > strong {
+	display: block;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.sd-ai-agent-superdav-session-identity > span,
+.sd-ai-agent-superdav-session-usage-totals > span {
+	margin-top: 3px;
+	color: #50575e;
+	font-size: 12px;
+}
+
+.sd-ai-agent-superdav-session-usage-totals {
+	min-width: 110px;
+	text-align: right;
+}
+
+.sd-ai-agent-superdav-session-usage-totals > strong {
+	display: block;
+	margin-top: 3px;
+	font-size: 16px;
+}
+
+.sd-ai-agent-superdav-session-usage-details {
+	padding: 16px;
+	border-top: 1px solid #dcdcde;
+	background: #f6f7f7;
+}
+
+.sd-ai-agent-superdav-session-usage-details dl {
+	display: grid;
+	grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+	gap: 10px;
+	margin: 0 0 16px;
+}
+
+.sd-ai-agent-superdav-session-usage-details dl > div {
+	padding: 10px 12px;
+	border: 1px solid #dcdcde;
+	border-radius: 3px;
+	background: #fff;
+}
+
+.sd-ai-agent-superdav-session-usage-details dt {
+	color: #50575e;
+	font-size: 12px;
+}
+
+.sd-ai-agent-superdav-session-usage-details dd {
+	margin: 3px 0 0;
+	font-weight: 600;
+}
+
+.sd-ai-agent-superdav-session-models {
+	width: 100%;
+	margin: 0 0 16px;
+	border-collapse: collapse;
+	background: #fff;
+	font-size: 12px;
+}
+
+.sd-ai-agent-superdav-session-models th,
+.sd-ai-agent-superdav-session-models td {
+	padding: 7px 9px;
+	border: 1px solid #dcdcde;
+	text-align: left;
 }
 
 .sd-ai-agent-superdav-credit-activity-list {
@@ -631,6 +760,15 @@
 @media screen and (max-width: 600px) {
 	.sd-ai-agent-superdav-account-header {
 		flex-direction: column;
+	}
+
+	.sd-ai-agent-superdav-session-usage-summary {
+		grid-template-columns: 1fr;
+		gap: 8px;
+	}
+
+	.sd-ai-agent-superdav-session-usage-totals {
+		text-align: left;
 	}
 
 	.sd-ai-agent-superdav-credit-activity-list li {

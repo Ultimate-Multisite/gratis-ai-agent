@@ -253,6 +253,25 @@ final class SettingsControllerTest extends WP_UnitTestCase {
 
 	/** Superdav account refresh returns safe wallet metadata without a bearer token. */
 	public function test_handle_refresh_superdav_account_returns_safe_wallet_metadata(): void {
+		$user_id = self::factory()->user->create( array( 'role' => 'administrator' ) );
+		wp_set_current_user( $user_id );
+		$session_id = Database::create_session(
+			array(
+				'user_id'     => $user_id,
+				'title'       => 'Build the landing page',
+				'provider_id' => SuperdavAiProvider::PROVIDER_ID,
+				'model_id'    => SuperdavAiProvider::DEFAULT_MODEL_ID,
+			)
+		);
+		$this->assertIsInt( $session_id );
+		Database::update_session(
+			$session_id,
+			array(
+				'messages'   => wp_json_encode( array( array( 'role' => 'user' ), array( 'role' => 'assistant' ) ) ),
+				'tool_calls' => wp_json_encode( array( array( 'name' => 'site-info' ), array( 'name' => 'update-post' ) ) ),
+			)
+		);
+
 		$base_url    = 'https://service.example/v1';
 		$account_url = $base_url . '/site/account';
 		$token       = 'sdaist_account_refresh_token';
@@ -260,12 +279,15 @@ final class SettingsControllerTest extends WP_UnitTestCase {
 		add_filter( 'sd_ai_agent_cloud_base_url', static fn(): string => $base_url );
 		add_filter(
 			'pre_http_request',
-			static function ( mixed $preempt, array $parsed_args, string $url ) use ( $account_url, $token ): mixed {
+			static function ( mixed $preempt, array $parsed_args, string $url ) use ( $account_url, $token, $session_id ): mixed {
 				if ( $account_url !== $url ) {
 					return $preempt;
 				}
 
 				self::assertSame( 'Bearer ' . $token, self::authorization_header_from_args( $parsed_args ) );
+				$request_body = json_decode( (string) ( $parsed_args['body'] ?? '' ), true );
+				self::assertSame( SuperdavSiteConnectionService::MAX_CREDIT_ACTIVITY_EVENTS, $request_body['credit_activity_limit'] ?? null );
+				self::assertSame( SuperdavSiteConnectionService::MAX_CHAT_SESSION_EVENTS, $request_body['chat_session_limit'] ?? null );
 
 				return array(
 					'response' => array(
@@ -284,6 +306,32 @@ final class SettingsControllerTest extends WP_UnitTestCase {
 								'cash_usd_micros'  => 12500000,
 								'total_usd_micros' => 15000000,
 								'payment_token'    => 'must-not-be-exposed',
+							),
+							'chat_sessions' => array(
+								array(
+									'session_id'         => (string) $session_id,
+									'started_at'         => '2026-07-16T00:00:00Z',
+									'last_used_at'       => '2026-07-16T00:05:00Z',
+									'input_tokens'       => 1200,
+									'cached_input_tokens' => 300,
+									'output_tokens'      => 400,
+									'total_tokens'       => 1600,
+									'cost_usd_micros'    => 125000,
+									'loop_count'         => 3,
+									'models'             => array(
+										array(
+											'model_id'           => SuperdavAiProvider::DEFAULT_MODEL_ID,
+											'input_tokens'       => 1200,
+											'cached_input_tokens' => 300,
+											'output_tokens'      => 400,
+											'total_tokens'       => 1600,
+											'cost_usd_micros'    => 125000,
+											'loop_count'         => 3,
+											'upstream_request_id' => 'must-not-be-exposed',
+										),
+									),
+									'account_id'         => 'must-not-be-exposed',
+								),
 							),
 							'credit_activity' => array(
 								array(
@@ -348,6 +396,14 @@ final class SettingsControllerTest extends WP_UnitTestCase {
 		$this->assertSame( 2500000, $data['credit_activity'][0]['amount_usd_micros'] );
 		$this->assertSame( '2026-08-16T00:00:00+00:00', $data['credit_activity'][0]['expires_at'] );
 		$this->assertArrayNotHasKey( 'customer_id', $data['credit_activity'][0] );
+		$this->assertCount( 1, $data['chat_sessions'] );
+		$this->assertSame( $session_id, $data['chat_sessions'][0]['session_id'] );
+		$this->assertSame( 'Build the landing page', $data['chat_sessions'][0]['title'] );
+		$this->assertSame( 2, $data['chat_sessions'][0]['tool_call_count'] );
+		$this->assertSame( 2, $data['chat_sessions'][0]['message_count'] );
+		$this->assertSame( 125000, $data['chat_sessions'][0]['cost_usd_micros'] );
+		$this->assertSame( SuperdavAiProvider::DEFAULT_MODEL_ID, $data['chat_sessions'][0]['models'][0]['model_id'] );
+		$this->assertArrayNotHasKey( 'upstream_request_id', $data['chat_sessions'][0]['models'][0] );
 		$this->assertArrayNotHasKey( 'usage', $data );
 		$this->assertArrayNotHasKey( 'verification', $data );
 		$this->assertArrayNotHasKey( 'refreshed_at', $data );

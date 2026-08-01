@@ -40,6 +40,10 @@ final class SuperdavSiteConnectionService {
 	 * billing ledger. The managed service must return only its newest page.
 	 */
 	public const MAX_CREDIT_ACTIVITY_EVENTS = 25;
+	public const MAX_CHAT_SESSION_EVENTS    = 25;
+
+	/** Maximum per-model breakdown rows retained for one chat session. */
+	private const MAX_CHAT_SESSION_MODELS = 10;
 
 	/** @var string[] Event types that are safe to render in the account UI. */
 	private const CREDIT_ACTIVITY_EVENT_TYPES = array(
@@ -101,6 +105,10 @@ final class SuperdavSiteConnectionService {
 			$status['credit_activity'] = $this->sanitize_credit_activity_metadata( $metadata['credit_activity'] );
 		}
 
+		if ( isset( $metadata['chat_sessions'] ) && is_array( $metadata['chat_sessions'] ) ) {
+			$status['chat_sessions'] = $this->sanitize_chat_session_metadata( $metadata['chat_sessions'] );
+		}
+
 		$status['site_timezone'] = wp_timezone_string();
 
 		return $status;
@@ -138,6 +146,7 @@ final class SuperdavSiteConnectionService {
 						'installation_id'       => $this->get_installation_id(),
 						'site_url'              => $this->get_verified_site_url(),
 						'credit_activity_limit' => self::MAX_CREDIT_ACTIVITY_EVENTS,
+						'chat_session_limit'    => self::MAX_CHAT_SESSION_EVENTS,
 					)
 				),
 			)
@@ -168,7 +177,8 @@ final class SuperdavSiteConnectionService {
 			$metadata['usage'],
 			$metadata['verification'],
 			$metadata['wallet'],
-			$metadata['credit_activity']
+			$metadata['credit_activity'],
+			$metadata['chat_sessions']
 		);
 		$metadata = array_merge( $metadata, $this->sanitize_remote_metadata( $body ) );
 		update_option( self::TOKEN_METADATA_OPTION, $metadata, false );
@@ -712,6 +722,10 @@ final class SuperdavSiteConnectionService {
 			$safe['credit_activity'] = $this->sanitize_credit_activity_metadata( $metadata['credit_activity'] );
 		}
 
+		if ( isset( $metadata['chat_sessions'] ) && is_array( $metadata['chat_sessions'] ) ) {
+			$safe['chat_sessions'] = $this->sanitize_chat_session_metadata( $metadata['chat_sessions'] );
+		}
+
 		return $safe;
 	}
 
@@ -838,6 +852,121 @@ final class SuperdavSiteConnectionService {
 		}
 
 		return new WP_Error( 'sd_ai_agent_coupon_redemption_unavailable', __( 'Coupon redemption is temporarily unavailable.', 'superdav-ai-agent' ), array( 'status' => $status_code >= 500 ? 502 : 503 ) );
+	}
+
+	/**
+	 * Keep only display-safe, authoritative usage grouped by local chat session.
+	 *
+	 * Request IDs, account identifiers, provider routing, prompts, tool arguments,
+	 * and arbitrary service metadata are never retained. The local REST layer adds
+	 * the current user's session title and tool-call count after ownership checks.
+	 *
+	 * @param array<mixed, mixed> $sessions Remote grouped chat usage rows.
+	 * @return array<int, array<string, mixed>>
+	 */
+	private function sanitize_chat_session_metadata( array $sessions ): array {
+		$safe_sessions = array();
+
+		foreach ( array_slice( $sessions, 0, self::MAX_CHAT_SESSION_EVENTS ) as $session ) {
+			if ( ! is_array( $session ) ) {
+				continue;
+			}
+
+			$session_id   = filter_var( $session['session_id'] ?? null, FILTER_VALIDATE_INT, array( 'options' => array( 'min_range' => 1 ) ) );
+			$started_at   = $this->sanitize_credit_activity_timestamp( $session['started_at'] ?? null );
+			$last_used_at = $this->sanitize_credit_activity_timestamp( $session['last_used_at'] ?? null );
+			$models       = isset( $session['models'] ) && is_array( $session['models'] )
+				? $this->sanitize_chat_session_models( $session['models'] )
+				: array();
+
+			if ( false === $session_id || null === $started_at || null === $last_used_at || empty( $models ) ) {
+				continue;
+			}
+
+			$metric_keys = array(
+				'input_tokens',
+				'cached_input_tokens',
+				'output_tokens',
+				'total_tokens',
+				'cost_usd_micros',
+				'loop_count',
+			);
+			$metrics     = array();
+			foreach ( $metric_keys as $key ) {
+				$value = $session[ $key ] ?? null;
+				if ( ! is_int( $value ) || $value < 0 || ( 'loop_count' === $key && 0 === $value ) ) {
+					continue 2;
+				}
+				$metrics[ $key ] = $value;
+			}
+
+			$safe_sessions[] = array_merge(
+				array(
+					'session_id'   => (int) $session_id,
+					'started_at'   => $started_at,
+					'last_used_at' => $last_used_at,
+					'models'       => $models,
+				),
+				$metrics
+			);
+		}
+
+		usort(
+			$safe_sessions,
+			static function ( array $left, array $right ): int {
+				$left_date  = $left['last_used_at'];
+				$right_date = $right['last_used_at'];
+				if ( ! is_string( $left_date ) || ! is_string( $right_date ) ) {
+					return 0;
+				}
+
+				return strcmp( $right_date, $left_date );
+			}
+		);
+
+		return $safe_sessions;
+	}
+
+	/**
+	 * Sanitize a bounded per-model usage breakdown for one chat session.
+	 *
+	 * @param array<mixed, mixed> $models Remote model usage rows.
+	 * @return array<int, array<string, int|string>>
+	 */
+	private function sanitize_chat_session_models( array $models ): array {
+		$safe_models = array();
+
+		foreach ( array_slice( $models, 0, self::MAX_CHAT_SESSION_MODELS ) as $model ) {
+			if ( ! is_array( $model ) || ! isset( $model['model_id'] ) || ! is_string( $model['model_id'] ) ) {
+				continue;
+			}
+
+			$model_id = substr( sanitize_text_field( $model['model_id'] ), 0, 100 );
+			if ( '' === $model_id ) {
+				continue;
+			}
+
+			$safe_model  = array( 'model_id' => $model_id );
+			$metric_keys = array(
+				'input_tokens',
+				'cached_input_tokens',
+				'output_tokens',
+				'total_tokens',
+				'cost_usd_micros',
+				'loop_count',
+			);
+			foreach ( $metric_keys as $key ) {
+				$value = $model[ $key ] ?? null;
+				if ( ! is_int( $value ) || $value < 0 || ( 'loop_count' === $key && 0 === $value ) ) {
+					continue 2;
+				}
+				$safe_model[ $key ] = $value;
+			}
+
+			$safe_models[] = $safe_model;
+		}
+
+		return $safe_models;
 	}
 
 	/**
