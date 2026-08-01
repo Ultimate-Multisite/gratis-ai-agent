@@ -103,4 +103,22 @@ describe( 'shared chat message presentation', () => {
 		expect( getRunningStatusMessage( 78 ) ).toBe( 'Discombobulating…' );
 		expect( getRunningStatusMessage( 100 ) ).toBe( 'Thinking…' );
 	} );
+
+	test( 'keeps a concrete tool status instead of rotating fallback copy', () => {
+		expect(
+			getRunningJobPresentation( {
+				currentSessionId: 7,
+				sessionJobs: {},
+				liveToolCalls: [
+					{
+						type: 'call',
+						name: 'sd-ai-agent/get-site-info',
+					},
+				],
+			} )
+		).toMatchObject( {
+			isFallback: false,
+			step: 'Checking site info…',
+		} );
+	} );
 } );
