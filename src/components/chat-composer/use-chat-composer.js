@@ -85,6 +85,7 @@ export default function useChatComposer( {
 	} );
 	const textareaRef = useRef( null );
 	const fileInputRef = useRef( null );
+	const attachmentGenerationRef = useRef( 0 );
 
 	const focusTextarea = useCallback( () => {
 		setTimeout(
@@ -126,6 +127,7 @@ export default function useChatComposer( {
 	}, [ text, isSimpleMode ] );
 
 	const processFiles = useCallback( async ( files ) => {
+		const attachmentGeneration = attachmentGenerationRef.current;
 		const next = [];
 		const rejectedNames = [];
 		setAttachmentError( '' );
@@ -139,6 +141,9 @@ export default function useChatComposer( {
 			}
 			try {
 				const dataUrl = await readAsDataUrl( file );
+				if ( attachmentGeneration !== attachmentGenerationRef.current ) {
+					return;
+				}
 				next.push( {
 					name: file.name,
 					type: file.type,
@@ -146,8 +151,14 @@ export default function useChatComposer( {
 					isImage: ACCEPTED_IMAGE_TYPES.includes( file.type ),
 				} );
 			} catch {
+				if ( attachmentGeneration !== attachmentGenerationRef.current ) {
+					return;
+				}
 				rejectedNames.push( file.name );
 			}
+		}
+		if ( attachmentGeneration !== attachmentGenerationRef.current ) {
+			return;
 		}
 		if ( next.length ) {
 			setAttachments( ( previous ) => [ ...previous, ...next ] );
@@ -164,6 +175,7 @@ export default function useChatComposer( {
 	}, [] );
 
 	const clearComposer = useCallback( () => {
+		attachmentGenerationRef.current += 1;
 		setText( '' );
 		setAttachments( [] );
 		setAttachmentError( '' );
