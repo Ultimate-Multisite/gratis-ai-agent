@@ -198,6 +198,7 @@ class FloatingWidget {
 				'frontendOnboarding'  => ( $is_frontend && ( ! $onboarding_complete || $force_onboarding ) ) ? '1' : '',
 				'onboarding_complete' => $onboarding_complete,
 				'changesPageUrl'      => admin_url( 'admin.php?page=sd-ai-agent#/changes' ),
+				'settingsPageUrl'     => current_user_can( 'manage_options' ) ? admin_url( 'admin.php?page=sd-ai-agent#/settings' ) : '',
 				'viewedPostId'        => $viewed_post_id,
 				'viewedPostType'      => $viewed_post_type,
 				'viewedTitle'         => $viewed_title,

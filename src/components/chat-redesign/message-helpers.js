@@ -52,6 +52,7 @@ const FRIENDLY_TOOL_LABELS = {
 
 const PROGRESS_TOOL_PATTERN =
 	/`?(?:wpab__)?(?:sd-ai-agent|sd-ai-agent-js)(?:__|\/)[a-z0-9][a-z0-9-]*`?/gi;
+const THINKING_TAG_PATTERN = /<\/?thinking\b[^>]*>/gi;
 
 /**
  * Normalize provider/native ability bridge names into canonical ability IDs.
@@ -202,6 +203,7 @@ export function getFriendlyToolLabel( name ) {
  */
 export function sanitizeProgressText( text ) {
 	return String( text || '' )
+		.replace( THINKING_TAG_PATTERN, '' )
 		.replace( PROGRESS_TOOL_PATTERN, ( match ) =>
 			getFriendlyToolLabel( match ).toLowerCase()
 		)
@@ -407,11 +409,11 @@ export function buildRunningItems( toolCalls ) {
 	let pairSeq = 0;
 	for ( const t of toolCalls ) {
 		if ( t.type === 'preamble' && typeof t.text === 'string' ) {
-			const trimmed = t.text.trim();
-			if ( trimmed !== '' ) {
+			const text = sanitizeProgressText( t.text );
+			if ( text !== '' ) {
 				items.push( {
 					kind: 'preamble',
-					text: t.text,
+					text,
 					key: `preamble-${ preambleSeq++ }`,
 				} );
 			}

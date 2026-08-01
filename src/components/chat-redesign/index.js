@@ -8,13 +8,13 @@
 import { useState, useCallback, useEffect } from '@wordpress/element';
 import { useSelect, useDispatch } from '@wordpress/data';
 import { __ } from '@wordpress/i18n';
-import apiFetch from '@wordpress/api-fetch';
 
 import STORE_NAME from '../../store';
 import ChatBanners from '../chat-banners';
 import ErrorBoundary from '../error-boundary';
 import ToolConfirmationDialog from '../tool-confirmation-dialog';
 import ActionCard from '../action-card';
+import useChangesCount from '../use-changes-count';
 import { getChatUiMode, isCustomerSimpleMode } from '../../utils/chat-ui-mode';
 import Sidebar from './Sidebar';
 import ConvoHeader from './ConvoHeader';
@@ -58,7 +58,6 @@ export default function ChatRedesign( { uiMode = getChatUiMode() } = {} ) {
 		}
 	} );
 	const [ showChanges, setShowChanges ] = useState( false );
-	const [ changesCount, setChangesCount ] = useState( 0 );
 
 	const {
 		currentSessionId,
@@ -104,35 +103,11 @@ export default function ChatRedesign( { uiMode = getChatUiMode() } = {} ) {
 		} );
 	}, [] );
 
-	// Refresh the changes count when the session changes or a turn finishes.
-	const refreshChangesCount = useCallback( async () => {
-		if ( isSimpleMode ) {
-			setChangesCount( 0 );
-			return;
-		}
-		if ( ! currentSessionId ) {
-			setChangesCount( 0 );
-			return;
-		}
-		try {
-			const data = await apiFetch( {
-				path: `/sd-ai-agent/v1/changes?session_id=${ currentSessionId }&reverted=false&revertable=true&per_page=1`,
-			} );
-			setChangesCount( data?.total ?? ( data?.items?.length || 0 ) );
-		} catch {
-			setChangesCount( 0 );
-		}
-	}, [ currentSessionId, isSimpleMode ] );
-
-	useEffect( () => {
-		refreshChangesCount();
-	}, [ refreshChangesCount ] );
-
-	useEffect( () => {
-		if ( ! sending && currentSessionId ) {
-			refreshChangesCount();
-		}
-	}, [ sending, currentSessionId, refreshChangesCount ] );
+	const { changesCount, setChangesCount } = useChangesCount( {
+		sessionId: currentSessionId,
+		sending,
+		enabled: ! isSimpleMode,
+	} );
 
 	useEffect( () => {
 		let active = true;

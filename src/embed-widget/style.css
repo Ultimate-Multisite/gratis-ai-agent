@@ -169,10 +169,29 @@
 	background: transparent;
 }
 
-.sdaa-embed__message--assistant a {
+.sdaa-embed__message--assistant a,
+.sd-ai-agent-embed-credit-inline-link {
 	color: var(--sdaa-embed-primary);
 	text-decoration: underline;
 	text-underline-offset: 2px;
+}
+
+.sd-ai-agent-embed-credit-action {
+	display: block;
+	width: fit-content;
+	margin-top: 10px;
+	padding: 6px 12px;
+	border-radius: 999px;
+	background: var(--sdaa-embed-primary);
+	color: #fff;
+	font-weight: 600;
+	text-decoration: none;
+}
+
+.sd-ai-agent-embed-credit-action:hover,
+.sd-ai-agent-embed-credit-action:focus {
+	color: #fff;
+	text-decoration: none;
 }
 
 .sdaa-embed__input {

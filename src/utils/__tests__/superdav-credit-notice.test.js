@@ -4,13 +4,9 @@
 
 import {
 	buildSuperdavCreditNoticeMessage,
-	getSuperdavAccountConnectUrl,
+	getSuperdavAccountActionUrl,
 	isSuperdavCreditBalanceNotice,
 } from '../superdav-credit-notice';
-
-jest.mock( '@wordpress/i18n', () => ( {
-	__: ( str ) => str,
-} ) );
 
 describe( 'isSuperdavCreditBalanceNotice', () => {
 	test( 'detects the managed Superdav 402 credit message', () => {
@@ -28,35 +24,47 @@ describe( 'isSuperdavCreditBalanceNotice', () => {
 	} );
 } );
 
-describe( 'getSuperdavAccountConnectUrl', () => {
-	test( 'returns the provider account-connect URL', () => {
+describe( 'getSuperdavAccountActionUrl', () => {
+	test( 'prefers the provider credit-purchase URL', () => {
 		expect(
-			getSuperdavAccountConnectUrl( [
+			getSuperdavAccountActionUrl( [
 				{
 					id: 'sd-ai-agent-cloud',
 					status: {
+						purchase_credits_url:
+							'https://account.example.test/credits',
 						account_connect_url:
 							'https://account.example.test/magic-login',
 					},
 				},
 			] )
-		).toBe( 'https://account.example.test/magic-login' );
+		).toBe( 'https://account.example.test/credits' );
 	} );
 
-	test( 'rejects non-http account URLs', () => {
+	test( 'falls back to the localized absolute settings URL', () => {
 		expect(
-			getSuperdavAccountConnectUrl( [
+			getSuperdavAccountActionUrl(
+				[
+					{
+						id: 'sd-ai-agent-cloud',
+						status: {
+							account_connect_url: 'javascript:alert(1)',
+						},
+					},
+				],
 				{
-					id: 'sd-ai-agent-cloud',
-					status: { account_connect_url: 'javascript:alert(1)' },
-				},
-			] )
-		).toBe( '' );
+					settingsPageUrl:
+						'https://site.example.test/wp-admin/admin.php?page=sd-ai-agent#/settings',
+				}
+			)
+		).toBe(
+			'https://site.example.test/wp-admin/admin.php?page=sd-ai-agent#/settings'
+		);
 	} );
 } );
 
 describe( 'buildSuperdavCreditNoticeMessage', () => {
-	test( 'builds friendly copy and a payment CTA', () => {
+	test( 'builds a semantic payment action', () => {
 		const message = buildSuperdavCreditNoticeMessage( [
 			{
 				id: 'sd-ai-agent-cloud',
@@ -66,15 +74,14 @@ describe( 'buildSuperdavCreditNoticeMessage', () => {
 			},
 		] );
 
-		expect( message.role ).toBe( 'system' );
-		expect( message.notice[ 1 ] ).toBe(
-			'https://account.example.test/login'
-		);
-		expect( message.notice[ 0 ] ).toContain(
-			'Purchase more credits in your account settings'
-		);
-		expect( message.notice[ 0 ] ).not.toMatch(
-			/\b(error|rejected|insufficient)\b/i
-		);
+		expect( message ).toEqual( {
+			role: 'system',
+			notice: {
+				type: 'account_action',
+				reason: 'credit_exhausted',
+				action: 'purchase_credits',
+				actionUrl: 'https://account.example.test/login',
+			},
+		} );
 	} );
 } );

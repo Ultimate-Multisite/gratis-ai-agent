@@ -32,6 +32,7 @@ namespace SdAiAgent\Tests\Core;
 
 use SdAiAgent\Abilities\Js\JsAbilityCatalog;
 use SdAiAgent\Abilities\KnowledgeAbilities;
+use SdAiAgent\Core\ActiveJobFailureDiagnostic;
 use SdAiAgent\Core\AgentLoop;
 use SdAiAgent\Core\ConversationSerializer;
 use SdAiAgent\Core\ConversationTrimmer;
@@ -1192,6 +1193,33 @@ class AgentLoopTest extends WP_UnitTestCase {
 		$this->assertSame( 'sd_ai_agent_provider_payload_too_large', $result->get_error_code() );
 		$this->assertStringContainsString( 'Start a new chat', $result->get_error_message() );
 		$this->assertSame( 413, $result->get_error_data()['status_code'] );
+	}
+
+	/** Resolved managed-provider metadata survives error conversion and recovery wrapping. */
+	public function test_provider_error_retains_resolved_provider_for_safe_diagnostics(): void {
+		$loop       = new AgentLoop( 'Hello' );
+		$conversion = new \ReflectionMethod( AgentLoop::class, 'provider_error_to_wp_error' );
+		$conversion->setAccessible( true );
+		$result = $conversion->invoke(
+			$loop,
+			new \WP_Error( 'prompt_client_error', 'Client error (402): PRIVATE_PROVIDER_RESPONSE' ),
+			402,
+			'sd-ai-agent-cloud'
+		);
+
+		$recovery = new \ReflectionMethod( AgentLoop::class, 'with_error_recovery_data' );
+		$recovery->setAccessible( true );
+		$result = $recovery->invoke( $loop, $result );
+		$data   = $result->get_error_data();
+
+		$this->assertInstanceOf( \WP_Error::class, $result );
+		$this->assertSame( 402, $data['status_code'] );
+		$this->assertSame( 'sd-ai-agent-cloud', $data['provider_id'] );
+		$this->assertSame(
+			ActiveJobFailureDiagnostic::REASON_CREDIT_EXHAUSTED,
+			ActiveJobFailureDiagnostic::reason_from_error( $result, $data['provider_id'] )
+		);
+		$this->assertStringNotContainsString( 'PRIVATE_PROVIDER_RESPONSE', wp_json_encode( $data ) );
 	}
 
 	/**

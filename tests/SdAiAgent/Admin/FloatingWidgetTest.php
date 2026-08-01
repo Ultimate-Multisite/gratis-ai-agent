@@ -36,12 +36,20 @@ class FloatingWidgetTest extends WP_UnitTestCase {
 	protected int $subscriber_id;
 
 	/**
+	 * Editor user ID (chat access without manage_options).
+	 *
+	 * @var int
+	 */
+	protected int $editor_id;
+
+	/**
 	 * Set up test users before each test.
 	 */
 	public function set_up(): void {
 		parent::set_up();
 		$this->admin_id      = self::factory()->user->create( [ 'role' => 'administrator' ] );
 		$this->subscriber_id = self::factory()->user->create( [ 'role' => 'subscriber' ] );
+		$this->editor_id     = self::factory()->user->create( [ 'role' => 'editor' ] );
 	}
 
 	/**
@@ -176,5 +184,55 @@ class FloatingWidgetTest extends WP_UnitTestCase {
 		remove_all_filters( 'sd_ai_agent_build_dir' );
 
 		$this->assertFalse( wp_script_is( 'sd-ai-agent-floating-widget', 'enqueued' ) );
+	}
+
+	/**
+	 * Test frontend administrators receive an absolute account-settings fallback URL.
+	 */
+	public function test_enqueue_assets_frontend_localizes_settings_page_url(): void {
+		wp_set_current_user( $this->admin_id );
+		Settings::instance()->update( [ 'show_on_frontend' => true ] );
+		$fixture_dir = dirname( __DIR__, 2 ) . '/fixtures/assets';
+		add_filter( 'sd_ai_agent_build_dir', static fn() => $fixture_dir );
+
+		FloatingWidget::enqueue_assets_frontend();
+		remove_all_filters( 'sd_ai_agent_build_dir' );
+
+		$data = $this->get_localized_widget_data();
+		$this->assertSame(
+			admin_url( 'admin.php?page=sd-ai-agent#/settings' ),
+			$data['settingsPageUrl']
+		);
+	}
+
+	/**
+	 * Test frontend chat users without settings access do not receive that link.
+	 */
+	public function test_enqueue_assets_frontend_omits_settings_url_for_editor(): void {
+		wp_set_current_user( $this->editor_id );
+		Settings::instance()->update( [ 'show_on_frontend' => true ] );
+		$fixture_dir = dirname( __DIR__, 2 ) . '/fixtures/assets';
+		add_filter( 'sd_ai_agent_build_dir', static fn() => $fixture_dir );
+
+		FloatingWidget::enqueue_assets_frontend();
+		remove_all_filters( 'sd_ai_agent_build_dir' );
+
+		$data = $this->get_localized_widget_data();
+		$this->assertSame( '', $data['settingsPageUrl'] );
+	}
+
+	/**
+	 * Decode the floating widget's localized runtime data.
+	 *
+	 * @return array<string, mixed>
+	 */
+	private function get_localized_widget_data(): array {
+		$script_data = (string) wp_scripts()->get_data( 'sd-ai-agent-floating-widget', 'data' );
+		$matched     = preg_match( '/var sdAiAgentData = (\{[^\n]+\});/', $script_data, $matches );
+		$this->assertSame( 1, $matched );
+		$decoded = json_decode( $matches[1], true );
+		$this->assertIsArray( $decoded );
+
+		return $decoded;
 	}
 }

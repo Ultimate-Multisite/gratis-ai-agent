@@ -109,11 +109,29 @@ class ActiveJobFailureDiagnosticTest extends WP_UnitTestCase {
 		);
 	}
 
+	public function test_reason_from_error_classifies_managed_credit_exhaustion_without_retaining_provider_message(): void {
+		$error = new \WP_Error(
+			'prompt_client_error',
+			'Superdav credit balance is insufficient for PRIVATE_PROMPT_CONTENT.',
+			array( 'status_code' => 402 )
+		);
+
+		$this->assertSame(
+			ActiveJobFailureDiagnostic::REASON_CREDIT_EXHAUSTED,
+			ActiveJobFailureDiagnostic::reason_from_error( $error, 'sd-ai-agent-cloud' )
+		);
+		$this->assertSame(
+			ActiveJobFailureDiagnostic::REASON_UNKNOWN,
+			ActiveJobFailureDiagnostic::reason_from_error( $error, 'other-provider' )
+		);
+	}
+
 	public function test_all_normalized_reasons_have_safe_recovery_metadata(): void {
 		$expected = array(
 			ActiveJobFailureDiagnostic::REASON_LOCAL_PAYLOAD_GUARD        => array( 'compact', false ),
 			ActiveJobFailureDiagnostic::REASON_UPSTREAM_PAYLOAD_REJECTION => array( 'compact', false ),
 			ActiveJobFailureDiagnostic::REASON_PROVIDER_TIMEOUT           => array( 'retry', true ),
+			ActiveJobFailureDiagnostic::REASON_CREDIT_EXHAUSTED           => array( 'purchase_credits', false ),
 			ActiveJobFailureDiagnostic::REASON_WORKER_TERMINATED          => array( 'retry', true ),
 			ActiveJobFailureDiagnostic::REASON_APPROVAL_WAIT              => array( 'approve_review', true ),
 			ActiveJobFailureDiagnostic::REASON_APPROVAL_EXPIRED           => array( 'continuation', false ),

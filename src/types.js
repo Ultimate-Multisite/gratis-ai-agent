@@ -29,12 +29,23 @@
  */
 
 /**
+ * A semantic account action attached to a system message.
+ *
+ * @typedef {Object} AccountActionNotice
+ * @property {'account_action'} type        - Notice presentation type.
+ * @property {string}           reason      - Safe account state identifier, such as credit_exhausted.
+ * @property {string}           action      - Account action identifier, such as purchase_credits.
+ * @property {string}           [actionUrl] - Safe absolute account destination.
+ * @property {string}           [message]   - Optional fallback copy for unknown actions.
+ */
+
+/**
  * A single chat message.
  *
  * @typedef {Object} Message
  * @property {'user'|'model'|'system'|'function'} role        - Message role.
  * @property {MessagePart[]}                      [parts]     - Message content parts.
- * @property {Array}                              [notice]    - Optional UI notice metadata for system messages.
+ * @property {AccountActionNotice}                [notice]    - Semantic UI notice for a system message.
  * @property {ToolCall[]}                         [toolCalls] - Tool calls attached to this message.
  * @property {MessageDebug}                       [debug]     - Debug metadata (debug mode only).
  */
@@ -162,6 +173,7 @@
  * @property {Session[]}                                                 sessions                - Session list.
  * @property {boolean}                                                   sessionsLoaded          - Whether sessions have been fetched.
  * @property {number|null}                                               currentSessionId        - Active session ID.
+ * @property {boolean}                                                   isNewChatPending        - Whether a new chat awaits its first message.
  * @property {Message[]}                                                 currentSessionMessages  - Messages in the active session.
  * @property {ToolCall[]}                                                currentSessionToolCalls - Tool calls in the active session.
  * @property {boolean}                                                   sending                 - Whether a message is in-flight.

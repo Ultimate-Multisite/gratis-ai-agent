@@ -8,12 +8,12 @@
 import { useState, useEffect, useCallback } from '@wordpress/element';
 import { useSelect, useDispatch } from '@wordpress/data';
 import { __, _n } from '@wordpress/i18n';
-import apiFetch from '@wordpress/api-fetch';
 
 import STORE_NAME from '../../store';
 import ErrorBoundary from '../error-boundary';
 import ToolConfirmationDialog from '../tool-confirmation-dialog';
 import ProposalPanel from '../proposal-panel';
+import useChangesCount from '../use-changes-count';
 import ChangesDrawer from '../chat-redesign/ChangesDrawer';
 import { isCustomerSimpleMode } from '../../utils/chat-ui-mode';
 // chat-redesign base styles (.sdaa-cr-*) are only needed by panel
@@ -64,7 +64,6 @@ export default function WidgetPanel( {
 		};
 	}, [] );
 
-	const [ changesCount, setChangesCount ] = useState( 0 );
 	const [ showChanges, setShowChanges ] = useState( false );
 
 	// Auto-confirm pending tool calls when YOLO is on.
@@ -74,34 +73,11 @@ export default function WidgetPanel( {
 		}
 	}, [ yoloMode, pendingConfirmation, confirmToolCall ] );
 
-	const refreshChangesCount = useCallback( async () => {
-		if ( isSimpleMode ) {
-			setChangesCount( 0 );
-			return;
-		}
-		if ( ! currentSessionId ) {
-			setChangesCount( 0 );
-			return;
-		}
-		try {
-			const data = await apiFetch( {
-				path: `/sd-ai-agent/v1/changes?session_id=${ currentSessionId }&reverted=false&revertable=true&per_page=1`,
-			} );
-			setChangesCount( data?.total ?? ( data?.items?.length || 0 ) );
-		} catch {
-			setChangesCount( 0 );
-		}
-	}, [ currentSessionId, isSimpleMode ] );
-
-	useEffect( () => {
-		refreshChangesCount();
-	}, [ refreshChangesCount ] );
-
-	useEffect( () => {
-		if ( ! sending && currentSessionId ) {
-			refreshChangesCount();
-		}
-	}, [ sending, currentSessionId, refreshChangesCount ] );
+	const { changesCount, setChangesCount } = useChangesCount( {
+		sessionId: currentSessionId,
+		sending,
+		enabled: ! isSimpleMode,
+	} );
 
 	const toggleMinimize = useCallback( () => {
 		setFloatingMinimized( ! isMinimized );

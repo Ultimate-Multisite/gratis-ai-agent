@@ -894,6 +894,17 @@ input[type="text"].sdaa-cr-search-input {
 	color: var(--sdaa-text-primary);
 }
 
+.sd-ai-agent-cr-msg-system-inline-action {
+	color: var(--sdaa-primary-dark);
+	font-weight: 600;
+	text-decoration: underline;
+}
+
+.sd-ai-agent-cr-msg-system-inline-action:hover,
+.sd-ai-agent-cr-msg-system-inline-action:focus {
+	color: var(--sdaa-primary-dark);
+}
+
 .sd-ai-agent-cr-msg-system-action {
 	display: flex;
 	width: fit-content;

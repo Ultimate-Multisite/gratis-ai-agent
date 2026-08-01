@@ -3554,7 +3554,7 @@ final class SessionController {
 			$diagnostic        = $this->persist_active_job_failure(
 				$job_id,
 				$job,
-				ActiveJobFailureDiagnostic::reason_from_error( $result ),
+				ActiveJobFailureDiagnostic::reason_from_error( $result, $failure_data['provider_id'] ),
 				$failure_data
 			);
 			$job['tool_calls'] = $error_data['tool_calls'] ?? ( $job['tool_calls'] ?? array() );

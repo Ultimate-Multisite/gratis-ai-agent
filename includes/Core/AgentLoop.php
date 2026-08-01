@@ -2280,7 +2280,7 @@ PROMPT;
 
 			$status_code = $this->extract_provider_error_status( $last_error );
 			if ( ! $this->is_retryable_provider_error( $last_error, $status_code ) ) {
-				return $this->provider_error_to_wp_error( $last_error, $status_code );
+				return $this->provider_error_to_wp_error( $last_error, $status_code, $provider_id );
 			}
 
 			if ( $attempt >= $this->provider_retry_max_attempts ) {
@@ -2492,10 +2492,14 @@ PROMPT;
 	 *
 	 * @param WP_Error|\Throwable|null $error       Last provider error.
 	 * @param int                      $status_code HTTP status code, or 0 when unknown.
+	 * @param string                   $provider_id Runtime-selected provider ID.
 	 */
-	private function provider_error_to_wp_error( $error, int $status_code ): WP_Error {
+	private function provider_error_to_wp_error( $error, int $status_code, string $provider_id = '' ): WP_Error {
 		if ( 413 === $status_code ) {
-			$data     = array( 'status_code' => $status_code );
+			$data = array( 'status_code' => $status_code );
+			if ( '' !== $provider_id ) {
+				$data['provider_id'] = $provider_id;
+			}
 			$is_local = false;
 			if ( $error instanceof WP_Error ) {
 				$source_data = $error->get_error_data();
@@ -2534,6 +2538,20 @@ PROMPT;
 		}
 
 		if ( $error instanceof WP_Error ) {
+			// SDK layers sometimes expose the status only in their exception
+			// message. Preserve the already-classified scalar so downstream safe
+			// diagnostics can distinguish managed account actions (such as 402)
+			// without retaining that message.
+			$error_data = $error->get_error_data();
+			$error_data = is_array( $error_data ) ? $error_data : array();
+			if ( $status_code > 0 && empty( $error_data['status_code'] ) ) {
+				$error_data['status_code'] = $status_code;
+			}
+			if ( '' !== $provider_id && empty( $error_data['provider_id'] ) ) {
+				$error_data['provider_id'] = $provider_id;
+			}
+			$error->add_data( $error_data );
+
 			return $error;
 		}
 
@@ -2542,12 +2560,15 @@ PROMPT;
 			$message = __( 'AI provider request failed.', 'superdav-ai-agent' );
 		}
 
+		$error_data = array( 'status_code' => $status_code );
+		if ( '' !== $provider_id ) {
+			$error_data['provider_id'] = $provider_id;
+		}
+
 		return new WP_Error(
 			'sd_ai_agent_provider_error',
 			$message,
-			[
-				'status_code' => $status_code,
-			]
+			$error_data
 		);
 	}
 

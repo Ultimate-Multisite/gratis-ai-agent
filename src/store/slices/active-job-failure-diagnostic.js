@@ -8,10 +8,16 @@
 
 import { __ } from '@wordpress/i18n';
 
+export {
+	buildSuperdavCreditNoticeMessage,
+	isSuperdavCreditBalanceNotice,
+} from '../../utils/superdav-credit-notice';
+
 const ACTIVE_JOB_FAILURE_REASONS = [
 	'local_payload_guard',
 	'upstream_payload_rejection',
 	'provider_timeout',
+	'credit_exhausted',
 	'worker_terminated',
 	'approval_wait',
 	'approval_expired',
@@ -26,6 +32,7 @@ const ACTIVE_JOB_FAILURE_ACTIONS = [
 	'approve_review',
 	'continuation',
 	'contact_support',
+	'purchase_credits',
 ];
 
 /**
@@ -114,6 +121,11 @@ export function getActiveJobFailureMessage( diagnostic ) {
 		case 'provider_timeout':
 			return __(
 				'The AI provider timed out before finishing. Retry the request shortly.',
+				'superdav-ai-agent'
+			);
+		case 'credit_exhausted':
+			return __(
+				'Your Superdav account needs more credits to continue. Purchase credits in your account settings.',
 				'superdav-ai-agent'
 			);
 		case 'worker_terminated':

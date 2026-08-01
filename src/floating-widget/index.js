@@ -131,41 +131,47 @@ function FloatingWidget() {
 		setFloatingMinimized( false );
 	}, [ frontendOnboardingEnabled, setFloatingOpen, setFloatingMinimized ] );
 
+	// Keep the public widget attached to the same active/latest conversation as
+	// the dedicated chat page after reloads or frontend navigation. Invalidate
+	// asynchronous selection when the user starts a new chat or state changes.
 	useEffect( () => {
-		if ( ! sessionsLoaded ) {
-			return;
-		}
-
-		// Keep the public widget attached to the same active/latest conversation as
-		// the dedicated chat page after reloads or frontend navigation.
-		if ( sessions.length || ! providers.length ) {
-			setFrontendOnboardingMode( null );
-			if ( sessions.length && ! currentSessionId ) {
-				import( './frontend-onboarding' ).then(
-					( { getHydrationSessionId, shouldHydrateSession } ) => {
-						if (
-							! shouldHydrateSession( {
-								sessionCount: sessions.length,
-								currentSessionId,
-								isNewChatPending,
-							} )
-						) {
-							return;
-						}
-						const sessionId = getHydrationSessionId(
-							sessions,
-							sessionJobs
-						);
-						if ( sessionId ) {
-							openSession( sessionId );
-						}
-					}
-				);
-			}
-			return;
-		}
-
+		let active = true;
 		if (
+			! sessionsLoaded ||
+			( ! sessions.length && providers.length > 0 )
+		) {
+			return undefined;
+		}
+
+		setFrontendOnboardingMode( null );
+		if ( ! sessions.length || currentSessionId || isNewChatPending ) {
+			return undefined;
+		}
+
+		import( './frontend-onboarding' )
+			.then( ( { openHydrated } ) =>
+				openHydrated( sessions, sessionJobs, openSession, () => active )
+			)
+			.catch( () => undefined );
+
+		return () => {
+			active = false;
+		};
+	}, [
+		providers.length,
+		sessionsLoaded,
+		sessions,
+		sessionJobs,
+		currentSessionId,
+		isNewChatPending,
+		openSession,
+	] );
+
+	useEffect( () => {
+		if (
+			! sessionsLoaded ||
+			sessions.length ||
+			! providers.length ||
 			! frontendOnboardingEnabled ||
 			frontendOnboardingStartedRef.current ||
 			! providersLoaded ||
@@ -191,8 +197,7 @@ function FloatingWidget() {
 		providersLoaded,
 		providers.length,
 		sessionsLoaded,
-		sessions,
-		sessionJobs,
+		sessions.length,
 		currentSessionId,
 		isNewChatPending,
 		openSession,

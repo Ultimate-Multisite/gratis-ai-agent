@@ -1154,7 +1154,8 @@
 		box-shadow var(--sdaa-w-duration);
 }
 
-.sdaa-w-input-frame:focus-within {
+.sdaa-w-input-frame:focus-within,
+.sdaa-w-input-frame.is-drag-over {
 	border-color: var(--sdaa-w-primary);
 	box-shadow: 0 0 0 1px var(--sdaa-w-primary);
 }

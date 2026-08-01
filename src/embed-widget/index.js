@@ -8,6 +8,11 @@
  */
 
 import './style.css';
+import {
+	buildSuperdavCreditNoticeMessage,
+	CREDIT_EXHAUSTED_REASON,
+	PURCHASE_CREDITS_ACTION,
+} from '../utils/superdav-credit-notice';
 
 const DEFAULTS = {
 	apiBase: '',
@@ -398,6 +403,81 @@ export function endpoint( apiBase, path ) {
 }
 
 /**
+ * Resolve the owning WordPress site's account-settings URL from its REST base.
+ *
+ * The public widget never receives service account or payment URLs. This
+ * capability-gated WordPress admin destination is safe to expose and lets a
+ * signed-in site owner purchase credits without exposing provider secrets.
+ *
+ * @param {string} apiBase Public REST API base URL.
+ * @return {string} Absolute admin settings URL, or an empty string.
+ */
+export function getAccountSettingsUrl( apiBase ) {
+	try {
+		const apiUrl = new URL( apiBase, window.location.href );
+		const rootPath = apiUrl.pathname.replace( /\/wp-json(?:\/.*)?$/, '' );
+
+		if ( rootPath === apiUrl.pathname ) {
+			return '';
+		}
+
+		return `${ apiUrl.origin }${ rootPath }/wp-admin/admin.php?page=sd-ai-agent#/settings`;
+	} catch {
+		return '';
+	}
+}
+
+/**
+ * Render the safe managed-credit account action without provider error text.
+ *
+ * @param {HTMLElement} item   Message element receiving the notice.
+ * @param {Object}      notice Semantic account-action notice.
+ * @return {void}
+ */
+export function renderAccountActionNotice( item, notice ) {
+	if (
+		notice?.reason !== CREDIT_EXHAUSTED_REASON ||
+		notice?.action !== PURCHASE_CREDITS_ACTION
+	) {
+		item.textContent = STRINGS.unavailable;
+		return;
+	}
+
+	const accountUrl = notice.actionUrl;
+	item.textContent = '';
+	item.appendChild(
+		document.createTextNode(
+			"You've used all of your available SD AI credits. Purchase more credits in your "
+		)
+	);
+
+	if ( accountUrl ) {
+		const inlineLink = document.createElement( 'a' );
+		inlineLink.className = 'sd-ai-agent-embed-credit-inline-link';
+		inlineLink.href = accountUrl;
+		inlineLink.target = '_blank';
+		inlineLink.rel = 'noopener noreferrer';
+		inlineLink.textContent = 'account settings';
+		item.appendChild( inlineLink );
+	} else {
+		item.appendChild( document.createTextNode( 'account settings' ) );
+	}
+	item.appendChild(
+		document.createTextNode( ' to continue using Standard.' )
+	);
+
+	if ( accountUrl ) {
+		const action = document.createElement( 'a' );
+		action.className = 'sd-ai-agent-embed-credit-action';
+		action.href = accountUrl;
+		action.target = '_blank';
+		action.rel = 'noopener noreferrer';
+		action.textContent = 'Purchase credits';
+		item.appendChild( action );
+	}
+}
+
+/**
  * Create the public chat API client.
  *
  * @param {Object} config Embed configuration.
@@ -590,6 +670,17 @@ export function mountEmbed( config ) {
 				status = await client.poll( run.job_id, sessionToken );
 			}
 			if ( status.status !== 'complete' ) {
+				if ( status?.diagnostic?.reason === CREDIT_EXHAUSTED_REASON ) {
+					renderAccountActionNotice(
+						pending,
+						buildSuperdavCreditNoticeMessage( [], {
+							settingsPageUrl: getAccountSettingsUrl(
+								config.apiBase
+							),
+						} ).notice
+					);
+					return;
+				}
 				throw new Error( status.error || STRINGS.unavailable );
 			}
 			setMessageContent(
