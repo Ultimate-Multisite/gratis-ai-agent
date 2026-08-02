@@ -1446,10 +1446,11 @@ class BlockAbilitiesTest extends WP_UnitTestCase {
 		$this->assertNotEmpty( $first_ref );
 
 		$result = BlockAbilities::handle_edit_block_tree( [
-			'post_id'   => $post_id,
-			'op'        => 'update-html',
-			'ref'       => $first_ref,
-			'innerHTML' => '<p>updated original</p>',
+			'post_id'          => $post_id,
+			'op'               => 'update-html',
+			'ref'              => $first_ref,
+			'innerHTML'        => '<p>updated original</p>',
+			'expected_revision' => $get['revision_id'],
 		] );
 
 		$this->assertIsArray( $result );
@@ -1457,6 +1458,9 @@ class BlockAbilitiesTest extends WP_UnitTestCase {
 		$this->assertSame( 'post', $result['affected']['kind'] );
 		$this->assertSame( $post_id, $result['affected']['post_id'] );
 		$this->assertSame( 'post', $result['affected']['post_type'] );
+		$this->assertSame( 'publish', $result['affected']['status'] );
+		$this->assertIsInt( $result['revision_id'] );
+		$this->assertGreaterThan( 0, $result['revision_id'] );
 		$this->assertContains( 'post_content', $result['affected']['fields'] );
 		$this->assertNotEmpty( $result['affected']['url'] );
 	}

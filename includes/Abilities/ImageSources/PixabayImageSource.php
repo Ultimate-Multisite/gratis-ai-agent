@@ -214,6 +214,7 @@ class PixabayImageSource implements ImageSourceInterface {
 			'url'        => $item['largeImageURL'] ?? '',
 			'width'      => $item['imageWidth'] ?? 0,
 			'height'     => $item['imageHeight'] ?? 0,
+			'title'      => $item['tags'] ?? '',
 			'author'     => $item['user'] ?? '',
 			'author_url' => 'https://pixabay.com/users/' . ( $item['user'] ?? '' ),
 			'license'    => 'CC0',

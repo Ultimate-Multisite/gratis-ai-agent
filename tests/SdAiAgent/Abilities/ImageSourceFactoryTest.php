@@ -137,6 +137,67 @@ class ImageSourceFactoryTest extends WP_UnitTestCase {
 		$this->assertStringContainsString( 'openverse', $result->get_error_message() );
 	}
 
+	/** Hero assets must be large, landscape, and free of preview signals. */
+	public function test_hero_quality_floor_rejects_small_or_watermarked_metadata(): void {
+		$small = ImageSourceFactory::assess_candidate_quality(
+			[
+				'width'  => 500,
+				'height' => 425,
+				'title'  => 'Editorial portrait',
+			],
+			'hero'
+		);
+		$watermarked = ImageSourceFactory::assess_candidate_quality(
+			[
+				'width'  => 3000,
+				'height' => 1800,
+				'title'  => 'Watermarked sample preview',
+			],
+			'hero'
+		);
+
+		$this->assertFalse( $small['eligible'] );
+		$this->assertLessThan( 40, $small['score'] );
+		$this->assertStringContainsString( 'below', implode( ' ', $small['reasons'] ) );
+		$this->assertFalse( $watermarked['eligible'] );
+		$this->assertStringContainsString( 'watermark', implode( ' ', $watermarked['reasons'] ) );
+	}
+
+	/** A large landscape source is eligible and receives a useful score. */
+	public function test_hero_quality_floor_accepts_large_landscape_source(): void {
+		$result = ImageSourceFactory::assess_candidate_quality(
+			[
+				'width'  => 3200,
+				'height' => 1800,
+				'title'  => 'Mountain studio landscape',
+			],
+			'hero'
+		);
+
+		$this->assertTrue( $result['eligible'] );
+		$this->assertGreaterThanOrEqual( 90, $result['score'] );
+	}
+
+	/** Search removes ineligible hero sources and ranks remaining candidates. */
+	public function test_search_candidates_applies_role_quality_floor(): void {
+		$source = new FakeImageSource(
+			'openverse',
+			'free',
+			[
+				[ 'id' => 'small', 'width' => 500, 'height' => 425, 'title' => 'Small' ],
+				[ 'id' => 'good', 'width' => 3200, 'height' => 1800, 'title' => 'Good' ],
+			]
+		);
+		$this->set_sources( [ 'openverse' => $source ] );
+
+		$result = ImageSourceFactory::search_candidates( 'portfolio', 10, '', [ 'usage' => 'hero' ] );
+
+		$this->assertIsArray( $result );
+		$this->assertSame( 1, $result['total'] );
+		$this->assertSame( 'good', $result['candidates'][0]['image_id'] );
+		$this->assertGreaterThanOrEqual( 90, $result['candidates'][0]['quality_score'] );
+	}
+
 	/**
 	 * Get the private source registry.
 	 *

@@ -22,6 +22,7 @@ namespace SdAiAgent\Tests\Core;
 use SdAiAgent\Abilities\Js\JsAbilityCatalog;
 use SdAiAgent\Core\AgentLoop;
 use SdAiAgent\Core\ClientAbilityRouter;
+use SdAiAgent\Core\Database;
 use SdAiAgent\Core\Settings;
 use WordPress\AiClient\Messages\DTO\MessagePart;
 use WordPress\AiClient\Messages\DTO\UserMessage;
@@ -65,6 +66,7 @@ class AgentLoopClientToolsTest extends WP_UnitTestCase {
 		$this->assertContains( 'sd-ai-agent-js/navigate-to', $names );
 		$this->assertContains( 'sd-ai-agent-js/refresh-page', $names );
 		$this->assertContains( 'sd-ai-agent-js/insert-block', $names );
+		$this->assertContains( 'sd-ai-agent-js/validate-page-quality', $names );
 		$this->assertContains( 'sd-ai-agent-js/validate-theme-completion', $names );
 	}
 
@@ -75,6 +77,7 @@ class AgentLoopClientToolsTest extends WP_UnitTestCase {
 		$this->assertTrue( JsAbilityCatalog::has( 'sd-ai-agent-js/navigate-to' ) );
 		$this->assertTrue( JsAbilityCatalog::has( 'sd-ai-agent-js/refresh-page' ) );
 		$this->assertTrue( JsAbilityCatalog::has( 'sd-ai-agent-js/insert-block' ) );
+		$this->assertTrue( JsAbilityCatalog::has( 'sd-ai-agent-js/validate-page-quality' ) );
 		$this->assertTrue( JsAbilityCatalog::has( 'sd-ai-agent-js/validate-theme-completion' ) );
 		$this->assertFalse( JsAbilityCatalog::has( 'sd-ai-agent-js/unknown-ability' ) );
 		$this->assertFalse( JsAbilityCatalog::has( 'sd-ai-agent/memory-save' ) );
@@ -90,6 +93,7 @@ class AgentLoopClientToolsTest extends WP_UnitTestCase {
 		$this->assertArrayHasKey( 'sd-ai-agent-js/navigate-to', $map );
 		$this->assertArrayHasKey( 'sd-ai-agent-js/refresh-page', $map );
 		$this->assertArrayHasKey( 'sd-ai-agent-js/insert-block', $map );
+		$this->assertArrayHasKey( 'sd-ai-agent-js/validate-page-quality', $map );
 		$this->assertArrayHasKey( 'sd-ai-agent-js/validate-theme-completion', $map );
 
 		$refresh = $map['sd-ai-agent-js/refresh-page'];
@@ -99,6 +103,28 @@ class AgentLoopClientToolsTest extends WP_UnitTestCase {
 		$navigate = $map['sd-ai-agent-js/navigate-to'];
 		$this->assertSame( 'sd-ai-agent-js', $navigate['category'] );
 		$this->assertTrue( $navigate['annotations']['readonly'] );
+	}
+
+	/**
+	 * Page-quality nested objects must remain concrete in provider schemas.
+	 * Empty object definitions make some adapters emit [] for every target.
+	 */
+	public function test_page_quality_catalog_has_concrete_nested_schemas(): void {
+		$catalog = JsAbilityCatalog::get_descriptors_by_name();
+		$schema  = $catalog['sd-ai-agent-js/validate-page-quality']['input_schema'];
+
+		$this->assertSame(
+			array( 'post_id', 'revision_id', 'url', 'fields', 'role', 'render_mode' ),
+			$schema['properties']['pages']['items']['required']
+		);
+		$this->assertArrayHasKey( 'url', $schema['properties']['pages']['items']['properties'] );
+		$this->assertArrayHasKey( 'preview_rest_path', $schema['properties']['pages']['items']['properties'] );
+		$this->assertContains( 'render_mode', $schema['required'] );
+		$this->assertArrayHasKey( 'strategy', $schema['properties']['hero_contract']['properties'] );
+		$this->assertSame(
+			array( 'label', 'width', 'height' ),
+			$schema['properties']['viewports']['items']['required']
+		);
 	}
 
 	/**
@@ -524,6 +550,134 @@ class AgentLoopClientToolsTest extends WP_UnitTestCase {
 		$this->assertSame( $completion_gate->get_terminal_notice(), $reply );
 		$this->assertStringNotContainsString( 'DONE', $reply );
 		$this->assertStringContainsString( 'remains incomplete', $reply );
+	}
+
+	/** Recoverable provider state retains the selected agent and its budget. */
+	public function test_provider_retry_state_retains_agent_context(): void {
+		$session_id = Database::create_session(
+			array(
+				'user_id' => 1,
+				'title'   => 'Agent resume context',
+			)
+		);
+		$loop       = new AgentLoop(
+			'test',
+			array(),
+			array(),
+			array(
+				'agent_slug'    => 'onboarding',
+				'session_id'    => $session_id,
+				'max_iterations' => 40,
+				'page_context'  => array( 'url' => 'https://example.test/' ),
+			)
+		);
+		$reflection = new \ReflectionClass( $loop );
+		$iterations = $reflection->getProperty( 'iterations_used' );
+		$iterations->setValue( $loop, 6 );
+		$method = $reflection->getMethod( 'build_provider_retry_failed_error' );
+		$method->invoke( $loop, null, 7 );
+
+		$state = Database::load_and_clear_paused_state( $session_id );
+		$this->assertIsArray( $state );
+		$this->assertSame( 'onboarding', $state['agent_slug'] );
+		$this->assertSame( 34, $state['iterations_remaining'] );
+		$this->assertSame( array( 'url' => 'https://example.test/' ), $state['page_context'] );
+	}
+
+	/** An incomplete page-quality run must replace a model success claim. */
+	public function test_incomplete_page_quality_notice_replaces_model_success_reply(): void {
+		$loop = new AgentLoop(
+			'test',
+			array(),
+			array(),
+			array(
+				'agent_slug'      => 'general',
+				'client_abilities' => array(
+					array( 'name' => 'sd-ai-agent-js/validate-page-quality' ),
+				),
+			)
+		);
+		$reflection = new \ReflectionClass( $loop );
+		$gate       = $reflection->getProperty( 'page_completion_gate' );
+		$gate->setAccessible( true );
+		$completion_gate = $gate->getValue( $loop );
+		$completion_gate->record_tool_call(
+			'sd-ai-agent/create-post',
+			array( 'post_type' => 'page', 'status' => 'publish' )
+		);
+		$completion_gate->record_tool_response(
+			'sd-ai-agent/create-post',
+			array(
+				'post_id'     => 42,
+				'post_type'   => 'page',
+				'status'      => 'publish',
+				'permalink'   => 'https://example.test/page/',
+				'revision_id' => 10,
+			)
+		);
+
+		$method = $reflection->getMethod( 'append_page_completion_notice' );
+		$method->setAccessible( true );
+		$reply = (string) $method->invoke( $loop, 'DONE: The page is perfect.' );
+
+		$this->assertSame( $completion_gate->get_terminal_notice(), $reply );
+		$this->assertStringNotContainsString( 'DONE', $reply );
+	}
+
+	/** Server-directed page validation uses exact gate-owned preview arguments. */
+	public function test_page_quality_dispatch_does_not_depend_on_model_arguments(): void {
+		$loop = new AgentLoop(
+			'test',
+			array(),
+			array(),
+			array(
+				'agent_slug'      => 'general',
+				'client_abilities' => array(
+					array( 'name' => 'sd-ai-agent-js/validate-page-quality' ),
+				),
+			)
+		);
+		$reflection = new \ReflectionClass( $loop );
+		$gate_prop  = $reflection->getProperty( 'page_completion_gate' );
+		$gate_prop->setAccessible( true );
+		$gate = $gate_prop->getValue( $loop );
+		$gate->record_tool_call( 'sd-ai-agent/edit-block-tree', array( 'post_id' => 42 ) );
+		$gate->record_tool_response(
+			'sd-ai-agent/edit-block-tree',
+			array(
+				'success'     => true,
+				'post_id'     => 42,
+				'revision_id' => 90,
+				'render_mode' => 'preview',
+				'preview'     => array(
+					'render_mode'       => 'preview',
+					'workspace_id'      => 'workspace-42',
+					'autosave_id'       => 90,
+					'preview_rest_path' => '/wp/v2/pages/42/autosaves/90?context=edit',
+					'generation'        => 3,
+					'working_hash'      => 'hash-42',
+				),
+				'affected'    => array(
+					'post_id'   => 42,
+					'post_type' => 'page',
+					'status'    => 'publish',
+					'url'       => 'https://example.test/page/',
+					'fields'    => array( 'post_content' ),
+				),
+			)
+		);
+		$expected = $gate->get_expected_report_inputs();
+
+		$method = $reflection->getMethod( 'pause_for_page_validation' );
+		$method->setAccessible( true );
+		$result  = $method->invoke( $loop, 7 );
+		$pending = $result['pending_client_tool_calls'];
+
+		$this->assertCount( 1, $pending );
+		$this->assertSame( 'sd-ai-agent-js/validate-page-quality', $pending[0]['name'] );
+		$this->assertSame( $expected, $pending[0]['args'] );
+		$this->assertSame( 'preview', $pending[0]['args']['render_mode'] );
+		$this->assertSame( 7, $result['iterations_remaining'] );
 	}
 
 	// ── Helper methods ────────────────────────────────────────────────────

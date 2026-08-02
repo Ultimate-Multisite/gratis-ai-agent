@@ -608,7 +608,20 @@ Assistant: %s',
 			),
 			'session_id'       => $session_id,
 			'client_abilities' => $paused_state['client_abilities'] ?? array(),
+			'page_context'     => $paused_state['page_context'] ?? array(),
 		);
+
+		// A browser-tool pause must not silently turn Setup Assistant or a
+		// specialized agent into General on resume. Rehydrate the original
+		// agent prompt, Tier-1 tools, quality profile, and inference settings;
+		// exact provider/model/client state from the pause still wins.
+		$agent_slug = sanitize_key( (string) ( $paused_state['agent_slug'] ?? '' ) );
+		if ( '' !== $agent_slug ) {
+			$agent = Agent::get_by_slug( $agent_slug );
+			if ( null !== $agent ) {
+				$options = array_merge( Agent::get_loop_options( $agent->id ), $options );
+			}
+		}
 
 		// Use an empty user message — the loop resumes from history.
 		$loop = new AgentLoop( '', array(), $history, $options );

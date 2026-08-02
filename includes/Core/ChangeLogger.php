@@ -237,7 +237,7 @@ class ChangeLogger {
 	 * @param \WP_Post $post_before Post object before update.
 	 */
 	public static function on_post_updated( int $post_id, \WP_Post $post_after, \WP_Post $post_before ): void {
-		if ( ! self::$active ) {
+		if ( ! self::$active || 'revision' === $post_after->post_type ) {
 			return;
 		}
 
@@ -544,6 +544,7 @@ class ChangeLogger {
 			'_wp_trash_meta_status',
 			'_wp_trash_meta_time',
 			'_wp_desired_post_slug',
+			'_sd_ai_agent_page_preview_workspace',
 		];
 		if ( in_array( $meta_key, $noisy, true ) ) {
 			return true;

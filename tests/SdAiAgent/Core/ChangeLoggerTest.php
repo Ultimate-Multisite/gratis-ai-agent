@@ -127,6 +127,29 @@ class ChangeLoggerTest extends WP_UnitTestCase {
 		$this->assertSame( '0', (string) $count );
 	}
 
+	/** Autosave revisions are working copies, not user-visible committed changes. */
+	public function test_on_post_updated_skips_revision_working_copies(): void {
+		ChangeLogger::begin( 42, 'sd-ai-agent/update-post' );
+		$post_id = self::factory()->post->create( array( 'post_title' => 'Parent' ) );
+		$before  = clone get_post( $post_id );
+		$after   = clone $before;
+		$before->post_type  = 'revision';
+		$after->post_type   = 'revision';
+		$after->post_title  = 'Private preview';
+
+		ChangeLogger::on_post_updated( $post_id, $after, $before );
+
+		global $wpdb;
+		$count = $wpdb->get_var(
+			$wpdb->prepare(
+				'SELECT COUNT(*) FROM %i WHERE object_id = %d',
+				$wpdb->prefix . 'sd_ai_agent_changes_log',
+				$post_id
+			)
+		);
+		$this->assertSame( '0', (string) $count );
+	}
+
 	/**
 	 * on_post_updated() records a change when logging is active and title differs.
 	 * object_type must reflect the actual post_type, not the hardcoded string 'post'.

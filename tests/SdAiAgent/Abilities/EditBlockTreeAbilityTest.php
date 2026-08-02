@@ -299,7 +299,7 @@ class EditBlockTreeAbilityTest extends WP_UnitTestCase {
 			'post_id'    => $post_id,
 			'op'         => 'update-attrs',
 			'path'       => [ 0 ],
-			'attributes' => [],
+			'attributes' => [ 'dropCap' => true ],
 			'dry_run'    => true,
 		] );
 

@@ -388,6 +388,15 @@ Color-only cover (no image):
 <!-- /wp:cover -->
 ```
 
+## Page composition contract
+
+Before composing a visual page, inspect `sd-ai-agent/list-block-templates` and determine whether the active template already renders `core/post-title` or featured media. A composed page must have one owner for each concern:
+
+- If the template renders the page title, do not add another H1 to post content unless a no-title template is selected.
+- If the composed hero renders an attachment, do not also assign that attachment as featured media unless the selected template is known not to output it.
+- Post content uses `core/group`, `core/cover`, or another block container; never insert a `<main>` element because the active template owns the main landmark.
+- Follow the selected landing-page pattern's `hero_contract`. An `immersive-media` contract requires a full-bleed (`alignfull`) media container; split and editorial contracts have different measurable width expectations. This is content-role selection, not a site-type special case.
+
 ## Page Layout Patterns
 
 ### Landing Page Structure
@@ -506,12 +515,23 @@ Incremental workflow when needed:
 
 Never use `update-post` to "append" by re-sending the full accumulated content — it wastes tokens and reintroduces truncation risk. Use `append-post-content` instead.
 
+### Make a focused edit to an existing block
+
+For a button label, link, heading, paragraph, image, or other single-block change, preserve the rest of the post by using stable block refs:
+
+1. Call `sd-ai-agent/get-page-blocks` with the post ID, `persist_refs: true`, a narrow `search` or `block_name` filter, and response `fields` that include `ref,path,name,attributes,innerHTML,text_preview`. Keep its `revision_id`. Never attempt a text/link edit from `text_preview` alone because it omits the destination and wrapper markup.
+2. Call `sd-ai-agent/edit-block-tree` with one smallest-possible operation addressed by the returned `ref` and pass that revision as `expected_revision`. For text-bearing blocks, use `op: update-html` with the complete valid inner HTML for that block; preserve its classes, link destination, and unrelated attributes. Do not use the batch mutator for a single target.
+3. If the write returns `stale_revision`, re-read once and retry with the new revision. Never fall back to an empty `update-post` call.
+4. Run the exact rendered page-quality gate supplied by the server after the mutation.
+
+Do not use `sd-ai-agent/update-post` for a focused block edit. Some strict model providers materialize omitted optional update-post fields as empty values; the ability ignores those placeholders and rejects an all-empty patch rather than risking a blank title, blank page, draft status, cleared taxonomy, removed image, or reset template.
+
 ### Analyze and improve existing content
 
 1. Use `sd-ai-agent/parse-block-content` with a post_id to see the current structure
 2. Identify issues (missing layout blocks, unstyled sections)
 3. Build improved content using block markup
-4. Use `sd-ai-agent/update-post` to replace the content (only if the new content fits in one call — otherwise rebuild incrementally as above)
+4. Use `sd-ai-agent/update-post` to replace the content only when you have a complete, non-empty replacement (and only if it fits in one call — otherwise rebuild incrementally as above)
 
 ## See also
 
@@ -525,4 +545,5 @@ After generating block markup, verify before committing it to a published post:
 1. Run `sd-ai-agent/validate-block-content` — catches mixed-content and malformed markup.
 2. If creating a draft via the editor: open it, look for "This block contains unexpected or invalid content." Click "Attempt Block Recovery" — the diff points at the offending attribute.
 3. View the rendered page in a new tab; check the browser console for validation warnings.
-4. If a rule here conflicts with what your installed WordPress version produces, trust the editor's saved output — copy it and use it as your reference.
+4. View the real rendered URL through `sd-ai-agent-js/validate-page-quality` using the exact profile, mutation token, pages, hero contract, and viewport matrix supplied by the completion gate. Repair every blocking finding and rerun after any mutation. `create-post` success, valid block serialization, imported media, or a refresh does not prove visual completion.
+5. If a rule here conflicts with what your installed WordPress version produces, trust the editor's saved output — copy it and use it as your reference.

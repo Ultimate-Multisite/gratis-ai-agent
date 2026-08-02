@@ -38,9 +38,8 @@
  */
 
 const CATEGORY_SLUG = 'sd-ai-agent-js';
-const CATEGORY_LABEL = 'Superdav AI Agent (Client)';
-const CATEGORY_DESCRIPTION =
-	'Client-side abilities provided by the Superdav AI Agent plugin. Execute in the browser without a server round-trip.';
+const CATEGORY_LABEL = 'SD AI Agent';
+const CATEGORY_DESCRIPTION = 'SD AI Agent browser abilities';
 
 /**
  * Single category-registration Promise shared across all callers in the

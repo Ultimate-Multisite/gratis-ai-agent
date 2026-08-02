@@ -16,6 +16,7 @@ namespace SdAiAgent\Abilities;
 use SdAiAgent\Abilities\UrlResolverAbilities;
 use SdAiAgent\Core\BlockValidator;
 use SdAiAgent\Core\ChangeLogger;
+use SdAiAgent\Core\PagePreviewWorkspace;
 use SdAiAgent\Core\RateLimiter;
 use SdAiAgent\Core\RevisionGuard;
 use SdAiAgent\Models\MarkdownToBlocks;
@@ -172,11 +173,12 @@ class PostAbilities {
 				'output_schema'       => [
 					'type'       => 'object',
 					'properties' => [
-						'post_id'   => [ 'type' => 'integer' ],
-						'permalink' => [ 'type' => 'string' ],
-						'status'    => [ 'type' => 'string' ],
-						'post_type' => [ 'type' => 'string' ],
-						'affected'  => self::affected_output_schema( 'post' ),
+						'post_id'     => [ 'type' => 'integer' ],
+						'permalink'   => [ 'type' => 'string' ],
+						'status'      => [ 'type' => 'string' ],
+						'post_type'   => [ 'type' => 'string' ],
+						'revision_id' => [ 'type' => [ 'integer', 'null' ] ],
+						'affected'    => self::affected_output_schema( 'post' ),
 					],
 				],
 				'meta'                => [
@@ -204,56 +206,60 @@ class PostAbilities {
 				'input_schema'        => [
 					'type'       => 'object',
 					'properties' => [
-						'post_id'           => [
+						'post_id'               => [
 							'type'        => 'integer',
 							'description' => 'The ID of the post to update.',
 						],
-						'title'             => [
+						'title'                 => [
 							'type'        => 'string',
 							'description' => 'New post title.',
 						],
-						'content'           => [
+						'content'               => [
 							'type'        => 'string',
 							'description' => 'New post content.',
 						],
-						'excerpt'           => [
+						'excerpt'               => [
 							'type'        => 'string',
 							'description' => 'New post excerpt.',
 						],
-						'status'            => [
+						'status'                => [
 							'type'        => 'string',
-							'description' => 'New post status.',
+							'description' => 'New post status. Changing an existing published item to draft also requires confirm_status_change=true so provider-filled defaults cannot unpublish content.',
 							'enum'        => [ 'draft', 'publish', 'pending', 'private', 'future', 'trash' ],
 						],
-						'categories'        => [
+						'confirm_status_change' => [
+							'type'        => 'boolean',
+							'description' => 'Set true when intentionally changing an existing published item to draft. Default false protects against provider adapters that materialize an omitted status as draft.',
+						],
+						'categories'            => [
 							'type'        => 'array',
 							'description' => 'Replace categories with this array of IDs (integers) or names (strings).',
 							'items'       => [
 								'type' => [ 'string', 'integer' ],
 							],
 						],
-						'tags'              => [
+						'tags'                  => [
 							'type'        => 'array',
 							'description' => 'Replace tags with this array of names.',
 							'items'       => [ 'type' => 'string' ],
 						],
-						'featured_image_id' => [
+						'featured_image_id'     => [
 							'type'        => 'integer',
 							'description' => 'Attachment ID to set as the featured image.',
 						],
-						'meta'              => [
+						'meta'                  => [
 							'type'        => 'object',
 							'description' => 'Key-value pairs of post meta to update.',
 						],
-						'page_template'     => [
+						'page_template'         => [
 							'type'        => 'string',
 							'description' => 'Page template filename to assign (e.g. "page-full-width.php"). Only meaningful for post_type "page".',
 						],
-						'site_url'          => [
+						'site_url'              => [
 							'type'        => 'string',
 							'description' => 'Subsite URL for multisite. Omit for the main site.',
 						],
-						'expected_revision' => [
+						'expected_revision'     => [
 							'type'        => [ 'integer', 'string' ],
 							'description' => 'Optimistic concurrency guard. Pass the revision_id returned by get-page-blocks (or the If-Match header value). If the post has been modified since you read it, the call returns HTTP 412 stale_revision with the current_revision_id so you can re-fetch and retry. Omit to skip the check (backward-compatible).',
 						],
@@ -339,6 +345,8 @@ class PostAbilities {
 					'properties' => [
 						'post_id'        => [ 'type' => 'integer' ],
 						'permalink'      => [ 'type' => 'string' ],
+						'post_type'      => [ 'type' => 'string' ],
+						'status'         => [ 'type' => 'string' ],
 						'appended_bytes' => [ 'type' => 'integer' ],
 						'total_bytes'    => [ 'type' => 'integer' ],
 						'revision_id'    => [
@@ -1322,10 +1330,11 @@ class PostAbilities {
 		}
 
 		$response = [
-			'post_id'   => $post_id,
-			'permalink' => $permalink ?: '',
-			'status'    => $status,
-			'post_type' => $post_type,
+			'post_id'     => $post_id,
+			'permalink'   => $permalink ?: '',
+			'status'      => $status,
+			'post_type'   => $post_type,
+			'revision_id' => RevisionGuard::current_revision_id( $post_id ),
 		];
 
 		// GH#1584 follow-up: run BlockValidator on serialized block content so
@@ -1478,7 +1487,7 @@ class PostAbilities {
 
 		// Optimistic concurrency check (opt-in via expected_revision).
 		$raw_expected = isset( $input['expected_revision'] ) ? (string) $input['expected_revision'] : '';
-		$guard        = RevisionGuard::check( $post_id, RevisionGuard::parse_raw( $raw_expected ) );
+		$guard        = PagePreviewWorkspace::check_expected_revision( $post_id, $raw_expected );
 		if ( is_wp_error( $guard ) ) {
 			if ( $switched ) {
 				restore_current_blog();
@@ -1488,30 +1497,114 @@ class PostAbilities {
 
 		$post_data = [ 'ID' => $post_id ];
 
-		if ( isset( $input['title'] ) ) {
+		// Some strict provider adapters materialize every omitted optional field as
+		// an empty string/array (and choose the first enum value, "draft"). Treat
+		// those placeholders as absent so focused edits preserve unrelated data.
+		if ( isset( $input['title'] ) && '' !== trim( (string) $input['title'] ) ) {
 			// @phpstan-ignore-next-line
 			$post_data['post_title'] = sanitize_text_field( $input['title'] );
 		}
-		if ( isset( $input['content'] ) ) {
+		if ( isset( $input['content'] ) && '' !== trim( (string) $input['content'] ) ) {
 			// @phpstan-ignore-next-line
 			$post_data['post_content'] = wp_kses_post( self::maybe_convert_markdown( $input['content'] ) );
 		}
-		if ( isset( $input['excerpt'] ) ) {
+		if ( isset( $input['excerpt'] ) && '' !== trim( (string) $input['excerpt'] ) ) {
 			// @phpstan-ignore-next-line
 			$post_data['post_excerpt'] = sanitize_textarea_field( $input['excerpt'] );
 		}
 		if ( isset( $input['status'] ) ) {
 			$allowed_statuses = [ 'draft', 'publish', 'pending', 'private', 'future', 'trash' ];
 			// @phpstan-ignore-next-line
-			$new_status = sanitize_text_field( $input['status'] );
-			if ( in_array( $new_status, $allowed_statuses, true ) ) {
+			$new_status              = sanitize_text_field( $input['status'] );
+			$unsafe_provider_default = 'publish' === $post->post_status
+				&& 'draft' === $new_status
+				&& true !== ( $input['confirm_status_change'] ?? false );
+			if ( in_array( $new_status, $allowed_statuses, true ) && $new_status !== $post->post_status && ! $unsafe_provider_default ) {
 				$post_data['post_status'] = $new_status;
 			}
 		}
 		$page_template = null;
-		if ( isset( $input['page_template'] ) ) {
+		if ( isset( $input['page_template'] ) && '' !== trim( (string) $input['page_template'] ) ) {
 			// @phpstan-ignore-next-line
 			$page_template = sanitize_text_field( $input['page_template'] );
+		}
+
+		$has_categories_update = ! empty( $input['categories'] ) && is_array( $input['categories'] );
+		$has_tags_update       = ! empty( $input['tags'] ) && is_array( $input['tags'] );
+		$featured_image_id     = isset( $input['featured_image_id'] ) ? (int) $input['featured_image_id'] : 0;
+		$has_meta_update       = ! empty( $input['meta'] ) && is_array( $input['meta'] );
+		if ( 1 === count( $post_data ) && null === $page_template && ! $has_categories_update && ! $has_tags_update && $featured_image_id <= 0 && ! $has_meta_update ) {
+			if ( $switched ) {
+				restore_current_blog();
+			}
+			return new WP_Error(
+				'sd_ai_agent_no_effective_post_updates',
+				__( 'No effective post fields were supplied. Empty optional values are ignored to protect existing content; use a block mutator for a focused block edit or send the complete non-empty replacement field.', 'superdav-ai-agent' ),
+				array( 'status' => 400 )
+			);
+		}
+
+		if ( PagePreviewWorkspace::governs( $post ) ) {
+			$status_changes = isset( $post_data['post_status'] ) && (string) $post_data['post_status'] !== $post->post_status;
+			if ( $status_changes || $has_categories_update || $has_tags_update || null !== $page_template || $has_meta_update ) {
+				if ( $switched ) {
+					restore_current_blog();
+				}
+				return new WP_Error(
+					'sd_ai_agent_preview_field_unsupported',
+					__( 'Preview-first repairs to existing published pages support title, content, excerpt, and featured image only. Status, taxonomy, template, and arbitrary meta changes require a separate explicitly supported workflow.', 'superdav-ai-agent' ),
+					array( 'status' => 400 )
+				);
+			}
+
+			$preview_fields = array();
+			foreach ( array( 'post_title', 'post_content', 'post_excerpt' ) as $field ) {
+				if ( isset( $post_data[ $field ] ) ) {
+					$preview_fields[ $field ] = (string) $post_data[ $field ];
+				}
+			}
+			$affected_fields = array_keys( $preview_fields );
+			if ( $featured_image_id > 0 ) {
+				$affected_fields[] = 'featured_image';
+			}
+			$preview = PagePreviewWorkspace::stage_fields(
+				$post_id,
+				$preview_fields,
+				$featured_image_id > 0 ? $featured_image_id : null,
+				$affected_fields
+			);
+			if ( is_wp_error( $preview ) ) {
+				if ( $switched ) {
+					restore_current_blog();
+				}
+				return $preview;
+			}
+			if ( is_array( $preview ) ) {
+				RateLimiter::record( 'write', $post_id );
+				$permalink = get_permalink( $post_id );
+				if ( $switched ) {
+					restore_current_blog();
+				}
+
+				$response = array(
+					'post_id'     => $post_id,
+					'permalink'   => $permalink ?: '',
+					'status'      => $post->post_status,
+					'post_type'   => $post->post_type,
+					'revision_id' => (int) $preview['autosave_id'],
+					'render_mode' => 'preview',
+					'preview'     => $preview,
+				);
+				if ( isset( $post_data['post_content'] ) ) {
+					$validation = self::maybe_validate_block_content( (string) $post_data['post_content'] );
+					if ( null !== $validation ) {
+						$response['block_validation'] = $validation;
+					}
+				}
+				$response['affected']                = self::build_affected_payload( $post_id, $post, $permalink, $input, $post_data );
+				$response['affected']['render_mode'] = 'preview';
+				return $response;
+			}
 		}
 
 		$result = wp_update_post( $post_data, true );
@@ -1527,14 +1620,14 @@ class PostAbilities {
 		RateLimiter::record( 'write', $post_id );
 
 		// Update categories if provided.
-		if ( isset( $input['categories'] ) && is_array( $input['categories'] ) ) {
+		if ( $has_categories_update ) {
 			// @phpstan-ignore-next-line
 			$cat_ids = self::resolve_category_ids( $input['categories'] );
 			wp_set_post_categories( $post_id, $cat_ids );
 		}
 
 		// Update tags if provided.
-		if ( isset( $input['tags'] ) && is_array( $input['tags'] ) ) {
+		if ( $has_tags_update ) {
 			// @phpstan-ignore-next-line
 			$tag_names = array_map( 'sanitize_text_field', $input['tags'] );
 			wp_set_post_tags( $post_id, $tag_names );
@@ -1545,14 +1638,12 @@ class PostAbilities {
 		}
 
 		// Update featured image if provided.
-		// @phpstan-ignore-next-line
-		$featured_image_id = isset( $input['featured_image_id'] ) ? (int) $input['featured_image_id'] : 0;
 		if ( $featured_image_id > 0 ) {
 			set_post_thumbnail( $post_id, $featured_image_id );
 		}
 
 		// Update meta if provided.
-		if ( isset( $input['meta'] ) && is_array( $input['meta'] ) ) {
+		if ( $has_meta_update ) {
 			foreach ( $input['meta'] as $key => $value ) {
 				update_post_meta( $post_id, sanitize_key( $key ), $value );
 			}
@@ -1582,7 +1673,23 @@ class PostAbilities {
 			}
 		}
 
-		$response['affected'] = self::build_affected_payload( $post_id, $updated_post, $permalink, $input, $post_data );
+		$affected_input = $input;
+		if ( ! $has_categories_update ) {
+			unset( $affected_input['categories'] );
+		}
+		if ( ! $has_tags_update ) {
+			unset( $affected_input['tags'] );
+		}
+		if ( $featured_image_id <= 0 ) {
+			unset( $affected_input['featured_image_id'] );
+		}
+		if ( null === $page_template ) {
+			unset( $affected_input['page_template'] );
+		}
+		if ( ! $has_meta_update ) {
+			unset( $affected_input['meta'] );
+		}
+		$response['affected'] = self::build_affected_payload( $post_id, $updated_post, $permalink, $affected_input, $post_data );
 
 		return $response;
 	}
@@ -1687,22 +1794,25 @@ class PostAbilities {
 			}
 		}
 
-		$post = get_post( $post_id );
+		$post = PagePreviewWorkspace::get_working_post( $post_id );
 
-		if ( ! ( $post instanceof WP_Post ) ) {
+		if ( is_wp_error( $post ) ) {
 			if ( $switched ) {
 				restore_current_blog();
 			}
-			return new WP_Error(
-				'ai_agent_post_not_found',
-				/* translators: %d: post ID */
-				sprintf( __( 'Post %d not found.', 'superdav-ai-agent' ), $post_id )
-			);
+			if ( 'post_not_found' === $post->get_error_code() ) {
+				return new WP_Error(
+					'ai_agent_post_not_found',
+					/* translators: %d: post ID */
+					sprintf( __( 'Post %d not found.', 'superdav-ai-agent' ), $post_id )
+				);
+			}
+			return $post;
 		}
 
 		// Optimistic concurrency check (opt-in via expected_revision).
 		$raw_expected = isset( $input['expected_revision'] ) ? (string) $input['expected_revision'] : '';
-		$guard        = RevisionGuard::check( $post_id, RevisionGuard::parse_raw( $raw_expected ) );
+		$guard        = PagePreviewWorkspace::check_expected_revision( $post_id, $raw_expected );
 		if ( is_wp_error( $guard ) ) {
 			if ( $switched ) {
 				restore_current_blog();
@@ -1724,36 +1834,58 @@ class PostAbilities {
 		// @phpstan-ignore-next-line
 		$new_content = $existing . $separator . wp_kses_post( $content );
 
-		$result = wp_update_post(
-			[
-				'ID'           => $post_id,
-				'post_content' => $new_content,
-			],
-			true
-		);
-
-		if ( is_wp_error( $result ) ) {
+		$preview = PagePreviewWorkspace::stage_fields( $post_id, array( 'post_content' => $new_content ), null, array( 'post_content' ) );
+		if ( is_wp_error( $preview ) ) {
 			if ( $switched ) {
 				restore_current_blog();
 			}
-			return $result;
+			return $preview;
+		}
+		if ( ! is_array( $preview ) ) {
+			$result = wp_update_post(
+				[
+					'ID'           => $post_id,
+					'post_content' => $new_content,
+				],
+				true
+			);
+
+			if ( is_wp_error( $result ) ) {
+				if ( $switched ) {
+					restore_current_blog();
+				}
+				return $result;
+			}
 		}
 
-		$permalink   = get_permalink( $post_id ) ?: '';
-		$total_bytes = strlen( $new_content );
+		$permalink    = get_permalink( $post_id ) ?: '';
+		$total_bytes  = strlen( $new_content );
+		$updated_post = get_post( $post_id );
+		$revision_id  = is_array( $preview ) ? (int) $preview['autosave_id'] : RevisionGuard::current_revision_id( $post_id );
+		$affected     = self::build_affected_payload( $post_id, $updated_post, $permalink, $input, [ 'post_content' => $new_content ] );
+		if ( is_array( $preview ) ) {
+			$affected['render_mode'] = 'preview';
+		}
 
 		if ( $switched ) {
 			restore_current_blog();
 		}
 
-		return [
+		$response = [
 			'post_id'        => $post_id,
 			'permalink'      => $permalink,
+			'post_type'      => $updated_post instanceof WP_Post ? $updated_post->post_type : '',
+			'status'         => $updated_post instanceof WP_Post ? $updated_post->post_status : '',
 			'appended_bytes' => $appended_bytes,
 			'total_bytes'    => $total_bytes,
-			'revision_id'    => RevisionGuard::current_revision_id( $post_id ),
-			'affected'       => self::build_affected_payload( $post_id, get_post( $post_id ), $permalink, $input, [ 'post_content' => $new_content ] ),
+			'revision_id'    => $revision_id,
+			'affected'       => $affected,
 		];
+		if ( is_array( $preview ) ) {
+			$response['render_mode'] = 'preview';
+			$response['preview']     = $preview;
+		}
+		return $response;
 	}
 
 	/**
@@ -1881,6 +2013,36 @@ class PostAbilities {
 				/* translators: %d: post ID */
 				sprintf( __( 'Post %d not found.', 'superdav-ai-agent' ), $post_id )
 			);
+		}
+
+		if ( PagePreviewWorkspace::governs( $post ) ) {
+			$preview = PagePreviewWorkspace::stage_fields( $post_id, array(), $featured_image_id, array( 'featured_image' ) );
+			if ( is_wp_error( $preview ) ) {
+				if ( $switched ) {
+					restore_current_blog();
+				}
+				return $preview;
+			}
+			if ( is_array( $preview ) ) {
+				$permalink = get_permalink( $post_id );
+				if ( $switched ) {
+					restore_current_blog();
+				}
+				$affected                = self::build_affected_payload( $post_id, $post, $permalink, $input, array() );
+				$affected['render_mode'] = 'preview';
+				return array(
+					'post_id'           => $post_id,
+					'featured_image_id' => $featured_image_id,
+					'result'            => 0 === $featured_image_id ? 'removed' : 'set',
+					'post_type'         => $post->post_type,
+					'status'            => $post->post_status,
+					'permalink'         => is_string( $permalink ) ? $permalink : '',
+					'revision_id'       => (int) $preview['autosave_id'],
+					'render_mode'       => 'preview',
+					'preview'           => $preview,
+					'affected'          => $affected,
+				);
+			}
 		}
 
 		if ( 0 === $featured_image_id ) {
