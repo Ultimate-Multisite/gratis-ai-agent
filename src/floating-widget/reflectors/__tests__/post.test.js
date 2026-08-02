@@ -137,7 +137,15 @@ describe( 'post reflector', () => {
 		);
 	} );
 
-	test( 'reflectPost skips non-current URLs and block editor pages', async () => {
+	test( 'reflectPost skips private previews, non-current URLs, and block editor pages', async () => {
+		await reflectPost( {
+			result: { preview: { workspace_id: 'preview-1' } },
+			affected: {
+				url: '/about/',
+				fields: [ 'post_content' ],
+			},
+		} );
+
 		await reflectPost( {
 			affected: {
 				url: '/elsewhere/',

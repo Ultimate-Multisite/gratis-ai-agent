@@ -16,6 +16,7 @@ namespace SdAiAgent\Abilities;
 use SdAiAgent\Abilities\UrlResolverAbilities;
 use SdAiAgent\Core\BlockValidator;
 use SdAiAgent\Core\ChangeLogger;
+use SdAiAgent\Core\PagePreviewWorkspace;
 use SdAiAgent\Core\RateLimiter;
 use SdAiAgent\Core\RevisionGuard;
 use SdAiAgent\Models\MarkdownToBlocks;
@@ -1486,7 +1487,7 @@ class PostAbilities {
 
 		// Optimistic concurrency check (opt-in via expected_revision).
 		$raw_expected = isset( $input['expected_revision'] ) ? (string) $input['expected_revision'] : '';
-		$guard        = RevisionGuard::check( $post_id, RevisionGuard::parse_raw( $raw_expected ) );
+		$guard        = PagePreviewWorkspace::check_expected_revision( $post_id, $raw_expected );
 		if ( is_wp_error( $guard ) ) {
 			if ( $switched ) {
 				restore_current_blog();
@@ -1541,6 +1542,69 @@ class PostAbilities {
 				__( 'No effective post fields were supplied. Empty optional values are ignored to protect existing content; use a block mutator for a focused block edit or send the complete non-empty replacement field.', 'superdav-ai-agent' ),
 				array( 'status' => 400 )
 			);
+		}
+
+		if ( PagePreviewWorkspace::governs( $post ) ) {
+			$status_changes = isset( $post_data['post_status'] ) && (string) $post_data['post_status'] !== $post->post_status;
+			if ( $status_changes || $has_categories_update || $has_tags_update || null !== $page_template || $has_meta_update ) {
+				if ( $switched ) {
+					restore_current_blog();
+				}
+				return new WP_Error(
+					'sd_ai_agent_preview_field_unsupported',
+					__( 'Preview-first repairs to existing published pages support title, content, excerpt, and featured image only. Status, taxonomy, template, and arbitrary meta changes require a separate explicitly supported workflow.', 'superdav-ai-agent' ),
+					array( 'status' => 400 )
+				);
+			}
+
+			$preview_fields = array();
+			foreach ( array( 'post_title', 'post_content', 'post_excerpt' ) as $field ) {
+				if ( isset( $post_data[ $field ] ) ) {
+					$preview_fields[ $field ] = (string) $post_data[ $field ];
+				}
+			}
+			$affected_fields = array_keys( $preview_fields );
+			if ( $featured_image_id > 0 ) {
+				$affected_fields[] = 'featured_image';
+			}
+			$preview = PagePreviewWorkspace::stage_fields(
+				$post_id,
+				$preview_fields,
+				$featured_image_id > 0 ? $featured_image_id : null,
+				$affected_fields
+			);
+			if ( is_wp_error( $preview ) ) {
+				if ( $switched ) {
+					restore_current_blog();
+				}
+				return $preview;
+			}
+			if ( is_array( $preview ) ) {
+				RateLimiter::record( 'write', $post_id );
+				$permalink = get_permalink( $post_id );
+				if ( $switched ) {
+					restore_current_blog();
+				}
+
+				$response = array(
+					'post_id'     => $post_id,
+					'permalink'   => $permalink ?: '',
+					'status'      => $post->post_status,
+					'post_type'   => $post->post_type,
+					'revision_id' => (int) $preview['autosave_id'],
+					'render_mode' => 'preview',
+					'preview'     => $preview,
+				);
+				if ( isset( $post_data['post_content'] ) ) {
+					$validation = self::maybe_validate_block_content( (string) $post_data['post_content'] );
+					if ( null !== $validation ) {
+						$response['block_validation'] = $validation;
+					}
+				}
+				$response['affected']                = self::build_affected_payload( $post_id, $post, $permalink, $input, $post_data );
+				$response['affected']['render_mode'] = 'preview';
+				return $response;
+			}
 		}
 
 		$result = wp_update_post( $post_data, true );
@@ -1730,22 +1794,25 @@ class PostAbilities {
 			}
 		}
 
-		$post = get_post( $post_id );
+		$post = PagePreviewWorkspace::get_working_post( $post_id );
 
-		if ( ! ( $post instanceof WP_Post ) ) {
+		if ( is_wp_error( $post ) ) {
 			if ( $switched ) {
 				restore_current_blog();
 			}
-			return new WP_Error(
-				'ai_agent_post_not_found',
-				/* translators: %d: post ID */
-				sprintf( __( 'Post %d not found.', 'superdav-ai-agent' ), $post_id )
-			);
+			if ( 'post_not_found' === $post->get_error_code() ) {
+				return new WP_Error(
+					'ai_agent_post_not_found',
+					/* translators: %d: post ID */
+					sprintf( __( 'Post %d not found.', 'superdav-ai-agent' ), $post_id )
+				);
+			}
+			return $post;
 		}
 
 		// Optimistic concurrency check (opt-in via expected_revision).
 		$raw_expected = isset( $input['expected_revision'] ) ? (string) $input['expected_revision'] : '';
-		$guard        = RevisionGuard::check( $post_id, RevisionGuard::parse_raw( $raw_expected ) );
+		$guard        = PagePreviewWorkspace::check_expected_revision( $post_id, $raw_expected );
 		if ( is_wp_error( $guard ) ) {
 			if ( $switched ) {
 				restore_current_blog();
@@ -1767,32 +1834,44 @@ class PostAbilities {
 		// @phpstan-ignore-next-line
 		$new_content = $existing . $separator . wp_kses_post( $content );
 
-		$result = wp_update_post(
-			[
-				'ID'           => $post_id,
-				'post_content' => $new_content,
-			],
-			true
-		);
-
-		if ( is_wp_error( $result ) ) {
+		$preview = PagePreviewWorkspace::stage_fields( $post_id, array( 'post_content' => $new_content ), null, array( 'post_content' ) );
+		if ( is_wp_error( $preview ) ) {
 			if ( $switched ) {
 				restore_current_blog();
 			}
-			return $result;
+			return $preview;
+		}
+		if ( ! is_array( $preview ) ) {
+			$result = wp_update_post(
+				[
+					'ID'           => $post_id,
+					'post_content' => $new_content,
+				],
+				true
+			);
+
+			if ( is_wp_error( $result ) ) {
+				if ( $switched ) {
+					restore_current_blog();
+				}
+				return $result;
+			}
 		}
 
 		$permalink    = get_permalink( $post_id ) ?: '';
 		$total_bytes  = strlen( $new_content );
 		$updated_post = get_post( $post_id );
-		$revision_id  = RevisionGuard::current_revision_id( $post_id );
+		$revision_id  = is_array( $preview ) ? (int) $preview['autosave_id'] : RevisionGuard::current_revision_id( $post_id );
 		$affected     = self::build_affected_payload( $post_id, $updated_post, $permalink, $input, [ 'post_content' => $new_content ] );
+		if ( is_array( $preview ) ) {
+			$affected['render_mode'] = 'preview';
+		}
 
 		if ( $switched ) {
 			restore_current_blog();
 		}
 
-		return [
+		$response = [
 			'post_id'        => $post_id,
 			'permalink'      => $permalink,
 			'post_type'      => $updated_post instanceof WP_Post ? $updated_post->post_type : '',
@@ -1802,6 +1881,11 @@ class PostAbilities {
 			'revision_id'    => $revision_id,
 			'affected'       => $affected,
 		];
+		if ( is_array( $preview ) ) {
+			$response['render_mode'] = 'preview';
+			$response['preview']     = $preview;
+		}
+		return $response;
 	}
 
 	/**
@@ -1929,6 +2013,36 @@ class PostAbilities {
 				/* translators: %d: post ID */
 				sprintf( __( 'Post %d not found.', 'superdav-ai-agent' ), $post_id )
 			);
+		}
+
+		if ( PagePreviewWorkspace::governs( $post ) ) {
+			$preview = PagePreviewWorkspace::stage_fields( $post_id, array(), $featured_image_id, array( 'featured_image' ) );
+			if ( is_wp_error( $preview ) ) {
+				if ( $switched ) {
+					restore_current_blog();
+				}
+				return $preview;
+			}
+			if ( is_array( $preview ) ) {
+				$permalink = get_permalink( $post_id );
+				if ( $switched ) {
+					restore_current_blog();
+				}
+				$affected                = self::build_affected_payload( $post_id, $post, $permalink, $input, array() );
+				$affected['render_mode'] = 'preview';
+				return array(
+					'post_id'           => $post_id,
+					'featured_image_id' => $featured_image_id,
+					'result'            => 0 === $featured_image_id ? 'removed' : 'set',
+					'post_type'         => $post->post_type,
+					'status'            => $post->post_status,
+					'permalink'         => is_string( $permalink ) ? $permalink : '',
+					'revision_id'       => (int) $preview['autosave_id'],
+					'render_mode'       => 'preview',
+					'preview'           => $preview,
+					'affected'          => $affected,
+				);
+			}
 		}
 
 		if ( 0 === $featured_image_id ) {

@@ -144,6 +144,63 @@ class PageCompletionGateTest extends WP_UnitTestCase {
 		$this->assertSame( 0.9, $gate->get_status()['hero_contract']['desktop_media_min_viewport_ratio'] );
 	}
 
+	/** An approved autosave preview becomes public only after a second smoke report. */
+	public function test_preview_publish_transition_requires_canonical_smoke_test(): void {
+		$gate = $this->gate( PageCompletionGate::PROFILE_INCREMENTAL );
+		$gate->record_tool_call( 'sd-ai-agent/edit-block-tree', array( 'post_id' => 41 ) );
+		$gate->record_tool_response(
+			'sd-ai-agent/edit-block-tree',
+			array(
+				'success'     => true,
+				'post_id'     => 41,
+				'revision_id' => 501,
+				'render_mode' => 'preview',
+				'preview'     => array(
+					'render_mode'       => 'preview',
+					'workspace_id'      => 'workspace-41',
+					'autosave_id'       => 501,
+					'preview_rest_path' => '/wp/v2/pages/41/autosaves/501?context=edit',
+					'generation'        => 1,
+					'working_hash'      => 'preview-hash',
+				),
+				'affected'    => array(
+					'post_id'   => 41,
+					'post_type' => 'page',
+					'status'    => 'publish',
+					'url'       => self::PAGE_URL,
+					'fields'    => array( 'post_content' ),
+				),
+			)
+		);
+
+		$preview_inputs = $gate->get_expected_report_inputs();
+		$this->assertSame( 'preview', $preview_inputs['render_mode'] );
+		$this->assertTrue( $gate->should_dispatch_validation() );
+		$gate->record_tool_call( PageCompletionGate::CLIENT_ABILITY, $preview_inputs );
+		$gate->record_tool_response( PageCompletionGate::CLIENT_ABILITY, $this->passing_report( $preview_inputs ) );
+		$this->assertTrue( $gate->is_ready_to_publish() );
+
+		$gate->record_published_previews(
+			array(
+				array(
+					'post_id'      => 41,
+					'revision_id'  => 777,
+					'workspace_id' => 'workspace-41',
+					'permalink'    => self::PAGE_URL,
+				),
+			)
+		);
+		$public_inputs = $gate->get_expected_report_inputs();
+		$this->assertSame( 'public', $public_inputs['render_mode'] );
+		$this->assertFalse( $gate->is_ready_to_publish() );
+		$this->assertTrue( $gate->should_dispatch_validation() );
+		$this->assertSame( 777, $public_inputs['pages'][0]['revision_id'] );
+
+		$gate->record_tool_call( PageCompletionGate::CLIENT_ABILITY, $public_inputs );
+		$gate->record_tool_response( PageCompletionGate::CLIENT_ABILITY, $this->passing_report( $public_inputs ) );
+		$this->assertTrue( $gate->has_current_passing_report() );
+	}
+
 	/** Any later mutation invalidates a report by changing the quality token. */
 	public function test_page_mutation_invalidates_passing_report_and_token(): void {
 		$gate = $this->gate( PageCompletionGate::PROFILE_INCREMENTAL );
@@ -277,6 +334,7 @@ class PageCompletionGateTest extends WP_UnitTestCase {
 					'requested_url' => $page['url'],
 					'final_url'    => $page['url'],
 					'role'         => $page['role'],
+					'render_mode'  => $page['render_mode'] ?? 'public',
 					'viewport'     => $viewport,
 					'success'      => true,
 					'violations'   => array(),
@@ -298,6 +356,7 @@ class PageCompletionGateTest extends WP_UnitTestCase {
 			'passed'        => true,
 			'profile'       => $inputs['profile'],
 			'quality_token' => $inputs['quality_token'],
+			'render_mode'   => $inputs['render_mode'] ?? 'public',
 			'reports'       => $reports,
 			'violations'    => array(),
 			'warnings'      => array(),

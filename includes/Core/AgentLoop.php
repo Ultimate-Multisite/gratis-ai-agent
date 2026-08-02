@@ -582,6 +582,7 @@ PROMPT;
 		IdenticalFailureTracker::reset();
 		ModelHealthTracker::set_current_model( $this->model_id );
 		$this->apply_anonymous_mode_context();
+		$this->apply_page_preview_context();
 
 		// Make session_id available to event-log emitters in sub-layers
 		// (AbilityFunctionResolver, ProviderTraceLogger) that don't carry
@@ -616,6 +617,7 @@ PROMPT;
 		} finally {
 			$this->last_loop_phase = 'agent_loop_exiting';
 			$this->clear_anonymous_mode_context();
+			$this->clear_page_preview_context();
 			AgentEventLog::clear_session();
 		}
 	}
@@ -633,6 +635,22 @@ PROMPT;
 
 		ToolDiscovery::set_anonymous_allowed_abilities( $this->anonymous_allowed_abilities );
 		KnowledgeAbilities::set_public_collection_allowlist( $this->anonymous_allowed_collections, $this->user_message );
+	}
+
+	/** Enable autosave-backed page preview routing for this loop request. */
+	private function apply_page_preview_context(): void {
+		$status = $this->page_completion_gate->get_status();
+		PagePreviewWorkspace::activate(
+			(string) ( $status['profile'] ?? PageCompletionGate::PROFILE_OFF ),
+			$this->session_id,
+			$this->active_job_id,
+			true === ( $status['client_validator_present'] ?? false )
+		);
+	}
+
+	/** Clear request-scoped autosave preview routing. */
+	private function clear_page_preview_context(): void {
+		PagePreviewWorkspace::deactivate();
 	}
 
 	/** Clear request-scoped anonymous public-chat gating from tool helpers. */
@@ -720,6 +738,7 @@ PROMPT;
 		}
 
 		$this->apply_anonymous_mode_context();
+		$this->apply_page_preview_context();
 		AgentEventLog::set_session( $this->session_id );
 
 		try {
@@ -758,6 +777,7 @@ PROMPT;
 			return $this->run_loop( $remaining_iterations );
 		} finally {
 			$this->clear_anonymous_mode_context();
+			$this->clear_page_preview_context();
 			AgentEventLog::clear_session();
 		}
 	}
@@ -788,6 +808,7 @@ PROMPT;
 		IdenticalFailureTracker::reset();
 		ModelHealthTracker::set_current_model( $this->model_id );
 		$this->apply_anonymous_mode_context();
+		$this->apply_page_preview_context();
 		AgentEventLog::set_session( $this->session_id );
 
 		try {
@@ -803,6 +824,7 @@ PROMPT;
 		} finally {
 			$this->last_loop_phase = 'agent_loop_exiting';
 			$this->clear_anonymous_mode_context();
+			$this->clear_page_preview_context();
 			AgentEventLog::clear_session();
 		}
 	}
@@ -934,10 +956,12 @@ PROMPT;
 		}
 
 		$this->apply_anonymous_mode_context();
+		$this->apply_page_preview_context();
 		try {
 			return $this->run_loop( $remaining_iterations );
 		} finally {
 			$this->clear_anonymous_mode_context();
+			$this->clear_page_preview_context();
 			AgentEventLog::clear_session();
 		}
 	}
@@ -1617,9 +1641,20 @@ PROMPT;
 					continue;
 				}
 
-				// Published page creation and edits have their own mutation-bound
-				// rendered quality lifecycle. Setup gets the strict first-impression
-				// profile; General gets focused mobile/desktop verification.
+				// Existing published-page repairs remain private autosave previews
+				// until the exact gate-owned browser report (and Setup visual review)
+				// passes. AgentLoop, not the model, commits and dispatches validation.
+				if ( $this->page_completion_gate->is_ready_to_publish() && $iterations > 0 ) {
+					$published = $this->publish_approved_page_previews();
+					if ( ! is_wp_error( $published ) ) {
+						return $this->pause_for_page_validation( $iterations );
+					}
+				}
+
+				if ( $this->page_completion_gate->should_dispatch_validation() && $iterations > 0 ) {
+					return $this->pause_for_page_validation( $iterations );
+				}
+
 				if ( $this->page_completion_gate->requires_repair() && $iterations > 0 ) {
 					$this->inject_page_completion_guidance();
 					continue;
@@ -1971,6 +2006,8 @@ PROMPT;
 				'provider_id'     => (string) $this->provider_id,
 			)
 		);
+
+		$this->discard_unpublished_page_previews();
 
 		return new WP_Error(
 			'sd_ai_agent_max_iterations',
@@ -4516,6 +4553,149 @@ PROMPT;
 		return $notice;
 	}
 
+	/**
+	 * Pause for the exact server-owned page-quality browser call.
+	 *
+	 * The model never supplies preview paths, mutation tokens, or viewports.
+	 * Keeping the synthetic function call in history preserves the ordinary
+	 * client-tool result pairing and resume validation.
+	 *
+	 * @return array<string,mixed>
+	 */
+	private function pause_for_page_validation( int $iterations ): array {
+		$args    = $this->page_completion_gate->get_expected_report_inputs();
+		$call_id = 'page_quality_' . str_replace( '-', '', wp_generate_uuid4() );
+		$message = new ModelMessage(
+			array(
+				new MessagePart(
+					new FunctionCall(
+						$call_id,
+						'wpab__sd-ai-agent-js__validate-page-quality',
+						$args
+					)
+				),
+			)
+		);
+		$pending = array(
+			array(
+				'id'          => $call_id,
+				'name'        => PageCompletionGate::CLIENT_ABILITY,
+				'args'        => $args,
+				'annotations' => array( 'readonly' => true ),
+			),
+		);
+
+		$this->append_assistant_message_to_history( $message );
+		$this->log_tool_calls( $message );
+		if ( $this->session_id > 0 ) {
+			Database::save_paused_state(
+				$this->session_id,
+				array(
+					'history'                   => $this->serialize_history(),
+					'tool_call_log'             => $this->tool_call_log,
+					'message_log'               => $this->message_log,
+					'token_usage'               => $this->token_usage,
+					'iterations_remaining'      => $iterations,
+					'model_id'                  => $this->model_id,
+					'provider_id'               => $this->provider_id,
+					'client_abilities'          => $this->client_abilities,
+					'agent_slug'                => $this->agent_slug,
+					'page_context'              => $this->page_context,
+					'pending_client_tool_calls' => $pending,
+				)
+			);
+		}
+
+		$this->last_loop_phase = 'page_quality_client_validation_pending';
+		AgentEventLog::log(
+			'client_tools_pending',
+			AgentEventLog::SEVERITY_INFO,
+			$this->build_loop_event_context(
+				array(
+					'client_tool_count'  => 1,
+					'php_tool_count'     => 0,
+					'paused_state_saved' => $this->session_id > 0,
+					'reason'             => 'server_directed_page_quality',
+				)
+			)
+		);
+
+		return $this->with_paused_logs(
+			array(
+				'pending_client_tool_calls' => $pending,
+				'history'                   => $this->serialize_history(),
+				'tool_call_log'             => $this->tool_call_log,
+				'token_usage'               => $this->token_usage,
+				'iterations_remaining'      => $iterations,
+				'iterations_used'           => $this->iterations_used,
+				'model_id'                  => $this->model_id,
+			)
+		);
+	}
+
+	/** Publish every exact preview accepted by the current completion gate. */
+	private function publish_approved_page_previews(): true|WP_Error {
+		$targets = $this->page_completion_gate->get_preview_targets();
+		if ( empty( $targets ) ) {
+			return true;
+		}
+
+		foreach ( $targets as $target ) {
+			$preflight = PagePreviewWorkspace::preflight_commit( $target );
+			if ( is_wp_error( $preflight ) ) {
+				$this->page_completion_gate->record_publish_failure( $preflight->get_error_message() );
+				return $preflight;
+			}
+		}
+
+		$published = array();
+		ChangeLogger::begin( $this->session_id, 'sd-ai-agent/publish-page-preview' );
+		try {
+			foreach ( $targets as $target ) {
+				$result = PagePreviewWorkspace::commit( $target );
+				if ( is_wp_error( $result ) ) {
+					$this->page_completion_gate->record_publish_failure( $result->get_error_message() );
+					return $result;
+				}
+				$published[] = $result;
+			}
+		} finally {
+			ChangeLogger::end();
+		}
+
+		$this->page_completion_gate->record_published_previews( $published );
+		$publish_call_id       = 'publish_page_preview_' . str_replace( '-', '', wp_generate_uuid4() );
+		$this->tool_call_log[] = array(
+			'type'     => 'call',
+			'id'       => $publish_call_id,
+			'name'     => 'sd-ai-agent/publish-page-preview',
+			'args'     => array( 'post_ids' => array_values( array_map( static fn( array $target ): int => (int) $target['post_id'], $targets ) ) ),
+			'source'   => 'server',
+			'sequence' => $this->next_activity_sequence(),
+		);
+		$this->tool_call_log[] = array(
+			'type'     => 'response',
+			'id'       => $publish_call_id,
+			'name'     => 'sd-ai-agent/publish-page-preview',
+			'response' => array(
+				'success'   => true,
+				'published' => $published,
+			),
+			'source'   => 'server',
+			'sequence' => $this->next_activity_sequence(),
+		);
+		$this->message_log[]   = array(
+			'type'       => 'event',
+			'reason'     => 'approved_page_preview_published',
+			'post_ids'   => array_values( array_map( static fn( array $result ): int => (int) $result['post_id'], $published ) ),
+			'completion' => $this->page_completion_gate->get_status(),
+			'sequence'   => $this->next_activity_sequence(),
+		);
+		$this->last_loop_phase = 'approved_page_preview_published';
+		$this->fire_progress();
+		return true;
+	}
+
 	/** Inject the exact missing rendered-page evidence as a repair turn. */
 	private function inject_page_completion_guidance(): void {
 		$guidance = $this->page_completion_gate->get_repair_guidance();
@@ -4538,7 +4718,25 @@ PROMPT;
 	/** Prevent a terminal reply from representing incomplete page QA as success. */
 	private function append_page_completion_notice( string $reply ): string {
 		$notice = $this->page_completion_gate->get_terminal_notice();
+		if ( '' !== $notice ) {
+			$this->discard_unpublished_page_previews();
+		}
 		return '' === $notice ? $reply : $notice;
+	}
+
+	/** Discard only gate-owned autosaves; the published parents are untouched. */
+	private function discard_unpublished_page_previews(): void {
+		$targets = $this->page_completion_gate->get_preview_targets();
+		if ( empty( $targets ) ) {
+			return;
+		}
+		foreach ( $targets as $target ) {
+			PagePreviewWorkspace::discard(
+				(int) ( $target['post_id'] ?? 0 ),
+				(string) ( $target['workspace_id'] ?? '' )
+			);
+		}
+		$this->page_completion_gate->record_previews_discarded();
 	}
 
 	/** Return whether an SDK function name produces visual screenshot evidence. */

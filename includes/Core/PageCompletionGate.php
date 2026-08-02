@@ -4,12 +4,12 @@ declare(strict_types=1);
 /**
  * Stateful rendered-page quality gate for agent-created and agent-edited pages.
  *
- * Unlike GeneratedThemeCompletionGate, this lifecycle is tied to published
- * page revisions rather than generated theme files. It applies to the Setup
- * Assistant's first-build flow and to focused page edits made by the General
- * agent. Every accepted browser report is bound to a mutation token so a
- * later content, media, template, navigation, logo, or style change makes the
- * report stale immediately.
+ * Unlike GeneratedThemeCompletionGate, this lifecycle is tied to exact page
+ * revisions rather than generated theme files. Existing published pages are
+ * repaired in a private WordPress autosave preview, validated there, published
+ * only after approval, and then checked once at the anonymous canonical URL.
+ * Every accepted report is bound to a mutation token so later visual changes
+ * make the evidence stale immediately.
  *
  * @package SdAiAgent
  * @license GPL-2.0-or-later
@@ -78,9 +78,9 @@ final class PageCompletionGate {
 	private array $pending_calls = array();
 
 	/**
-	 * Current published page targets keyed by post ID.
+	 * Current public or autosave-preview page targets keyed by post ID.
 	 *
-	 * @var array<int,array{post_id:int,revision_id:int,url:string,fields:list<string>}>
+	 * @var array<int,array<string,mixed>>
 	 */
 	private array $targets = array();
 
@@ -103,6 +103,15 @@ final class PageCompletionGate {
 	private bool $deterministic_report_passed = false;
 
 	private bool $visual_review_passed = false;
+
+	/** @var bool True only for the canonical anonymous check immediately after preview publication. */
+	private bool $public_smoke_only = false;
+
+	/** @var bool Whether terminal cleanup removed the private autosave. */
+	private bool $preview_discarded = false;
+
+	/** @var bool Whether guarded publication failed and must terminate safely. */
+	private bool $publish_failed = false;
 
 	private int $front_page_id = 0;
 
@@ -202,6 +211,25 @@ final class PageCompletionGate {
 			return;
 		}
 
+		if ( 'sd-ai-agent/publish-page-preview' === $name && true === ( $normalized['success'] ?? false ) ) {
+			$published = array();
+			$raw_items = is_array( $normalized['published'] ?? null ) ? $normalized['published'] : array();
+			foreach ( $raw_items as $item ) {
+				if ( ! is_array( $item ) ) {
+					continue;
+				}
+				$normalized_item = array();
+				foreach ( $item as $key => $value ) {
+					if ( is_string( $key ) ) {
+						$normalized_item[ $key ] = $value;
+					}
+				}
+				$published[] = $normalized_item;
+			}
+			$this->record_published_previews( $published );
+			return;
+		}
+
 		if ( ! self::is_successful_response( $normalized ) ) {
 			return;
 		}
@@ -232,6 +260,7 @@ final class PageCompletionGate {
 					'sd-ai-agent/insert-pattern',
 					'sd-ai-agent/replace-block-range',
 					'sd-ai-agent/revert-to-revision',
+					'sd-ai-agent/set-featured-image',
 				),
 				true
 			)
@@ -257,7 +286,86 @@ final class PageCompletionGate {
 
 	/** Whether the loop should spend another repair/validation turn. */
 	public function requires_repair(): bool {
-		return $this->is_required() && ! $this->passed && $this->client_validator_available;
+		return $this->is_required() && ! $this->publish_failed && ! $this->passed && $this->client_validator_available;
+	}
+
+	/** Whether AgentLoop should dispatch the exact gate-owned browser call. */
+	public function should_dispatch_validation(): bool {
+		return $this->is_required() && ! $this->publish_failed && ! $this->deterministic_report_passed && $this->client_validator_available;
+	}
+
+	/** Whether an approved private preview is ready for guarded publication. */
+	public function is_ready_to_publish(): bool {
+		if ( $this->preview_discarded || $this->publish_failed || ! $this->passed ) {
+			return false;
+		}
+		foreach ( $this->targets as $target ) {
+			if ( 'preview' === ( $target['render_mode'] ?? 'public' ) ) {
+				return true;
+			}
+		}
+		return false;
+	}
+
+	/** @return list<array<string,mixed>> Gate-owned targets ready to commit. */
+	public function get_preview_targets(): array {
+		return array_values(
+			array_filter(
+				$this->targets,
+				static fn( array $target ): bool => 'preview' === ( $target['render_mode'] ?? 'public' )
+			)
+		);
+	}
+
+	/**
+	 * Replace approved preview targets with the exact published revisions.
+	 *
+	 * @param list<array<string,mixed>> $published Commit results.
+	 */
+	public function record_published_previews( array $published ): void {
+		$by_post = array();
+		foreach ( $published as $result ) {
+			if ( is_array( $result ) ) {
+				$by_post[ (int) ( $result['post_id'] ?? 0 ) ] = $result;
+			}
+		}
+		foreach ( $this->targets as $post_id => $target ) {
+			if ( 'preview' !== ( $target['render_mode'] ?? 'public' ) || ! isset( $by_post[ $post_id ] ) ) {
+				continue;
+			}
+			$result = $by_post[ $post_id ];
+			if ( (string) ( $target['workspace_id'] ?? '' ) !== (string) ( $result['workspace_id'] ?? '' ) ) {
+				$this->last_failure = 'The published page did not match the approved preview workspace.';
+				$this->passed       = false;
+				return;
+			}
+			$this->targets[ $post_id ] = array(
+				'post_id'     => $post_id,
+				'revision_id' => max( 0, (int) ( $result['revision_id'] ?? 0 ) ),
+				'url'         => self::normalize_url( (string) ( $result['permalink'] ?? $target['url'] ?? '' ) ),
+				'fields'      => is_array( $target['fields'] ?? null ) ? array_values( $target['fields'] ) : array(),
+				'render_mode' => 'public',
+			);
+		}
+
+		$this->invalidate( 'The approved preview was published and now requires one canonical anonymous smoke test.' );
+		$this->public_smoke_only = true;
+	}
+
+	/** Mark private previews discarded after a terminal incomplete run. */
+	public function record_previews_discarded(): void {
+		$this->preview_discarded           = true;
+		$this->passed                      = false;
+		$this->deterministic_report_passed = false;
+		$this->visual_review_passed        = false;
+		$this->last_failure                = 'The private preview was discarded without changing the published page.';
+	}
+
+	/** Record a guarded publication failure without losing preview evidence. */
+	public function record_publish_failure( string $message ): void {
+		$this->publish_failed = true;
+		$this->passed         = false;
+		$this->last_failure   = '' !== trim( $message ) ? trim( $message ) : 'The approved preview could not be published safely.';
 	}
 
 	/**
@@ -268,12 +376,16 @@ final class PageCompletionGate {
 	public function get_expected_report_inputs(): array {
 		$pages = $this->get_required_pages();
 
+		$render_modes = array_values( array_unique( array_map( static fn( array $page ): string => (string) ( $page['render_mode'] ?? 'public' ), $pages ) ) );
+
 		return array(
-			'profile'       => $this->profile,
-			'quality_token' => $this->quality_token( $pages ),
-			'pages'         => $pages,
-			'hero_contract' => $this->hero_contract,
-			'viewports'     => $this->required_viewports(),
+			'profile'                => $this->profile,
+			'quality_token'          => $this->quality_token( $pages ),
+			'render_mode'            => 1 === count( $render_modes ) ? $render_modes[0] : 'mixed',
+			'visual_review_required' => $this->requires_visual_review(),
+			'pages'                  => $pages,
+			'hero_contract'          => $this->hero_contract,
+			'viewports'              => $this->required_viewports(),
 		);
 	}
 
@@ -304,26 +416,39 @@ final class PageCompletionGate {
 			}
 		}
 
+		$surface = 'preview' === ( $inputs['render_mode'] ?? 'public' )
+			? 'The published page is unchanged while repairs are staged in a private WordPress autosave preview.'
+			: 'The approved preview has been published and requires its final canonical anonymous smoke test.';
+
 		return sprintf(
-			'Published page quality is a hard completion gate. Call %1$s with profile "%2$s", quality_token "%3$s", the exact pages and hero_contract from page_quality_completion status, and the required viewport matrix. Inspect every violation, repair the smallest relevant page/template/media setting, and rerun the validator after each mutation. Do not substitute create-post success, imported-media success, refresh, or prose review for a passing current report. Required URLs: %4$s.',
+			'%1$s Rendered page quality is a hard completion gate. Do not invent validator arguments or call %2$s manually: end your repair turn and AgentLoop will dispatch the exact server-owned profile, token, pages, preview descriptor, hero contract, and viewport matrix. Inspect every returned violation, repair the smallest supported page surface, and end the next turn to rerun validation. Do not substitute write success, imported-media success, refresh, or prose review for the current report. Required URLs: %3$s.',
+			$surface,
 			self::CLIENT_ABILITY,
-			$this->profile,
-			(string) $inputs['quality_token'],
 			implode( ', ', $urls )
 		);
 	}
 
 	/** Return the terminal disclosure when quality evidence is incomplete. */
 	public function get_terminal_notice(): string {
-		if ( ! $this->is_required() || $this->passed ) {
+		if ( ! $this->is_required() ) {
+			return '';
+		}
+		if ( $this->is_ready_to_publish() ) {
+			return 'The private page preview passed its quality gate but was not published because no iteration remained for guarded publication and the final canonical smoke test. The existing public page remains unchanged.';
+		}
+		if ( $this->passed ) {
 			return '';
 		}
 
-		$reason = '' !== $this->last_failure ? ' ' . $this->last_failure : '';
+		$reason      = '' !== $this->last_failure ? ' ' . $this->last_failure : '';
+		$has_preview = ! empty( $this->get_preview_targets() );
 		if ( $this->deterministic_report_passed && ! $this->visual_review_passed ) {
-			return 'The page changes were saved and deterministic browser checks passed, but the required screenshot-based visual critique did not pass, so I cannot call the first impression finished.' . $reason;
+			return ( $has_preview ? 'The published page remains unchanged. ' : '' ) . 'Deterministic browser checks passed, but the required screenshot-based visual critique did not pass, so the first impression was not published.' . $reason;
 		}
-		return 'The page changes were saved, but rendered page quality is not complete. A current browser report for every affected published page and required viewport did not pass, so I cannot call the visual work finished.' . $reason;
+		if ( $has_preview ) {
+			return 'The private page preview was not published because its current rendered-page evidence did not pass. The existing public page remains unchanged.' . $reason;
+		}
+		return 'The page was published from an approved preview, but its canonical anonymous smoke test did not pass, so I cannot call the public result complete.' . $reason;
 	}
 
 	/**
@@ -339,6 +464,7 @@ final class PageCompletionGate {
 			'passed'                      => $this->passed,
 			'profile'                     => $this->profile,
 			'quality_token'               => $inputs['quality_token'],
+			'render_mode'                 => $inputs['render_mode'],
 			'pages'                       => $inputs['pages'],
 			'hero_contract'               => $this->hero_contract,
 			'viewports'                   => $inputs['viewports'],
@@ -346,6 +472,10 @@ final class PageCompletionGate {
 			'deterministic_report_passed' => $this->deterministic_report_passed,
 			'visual_review_required'      => $this->requires_visual_review(),
 			'visual_review_passed'        => $this->visual_review_passed,
+			'public_smoke_only'           => $this->public_smoke_only,
+			'preview_discarded'           => $this->preview_discarded,
+			'publish_failed'              => $this->publish_failed,
+			'ready_to_publish'            => $this->is_ready_to_publish(),
 			'last_failure'                => $this->last_failure,
 			'report'                      => $this->last_report,
 		);
@@ -418,12 +548,31 @@ final class PageCompletionGate {
 		}
 		$fields = array_values( array_unique( $normalized_fields ) );
 
-		$target = array(
+		$preview     = is_array( $response['preview'] ?? null ) ? $response['preview'] : array();
+		$render_mode = 'preview' === ( $response['render_mode'] ?? $preview['render_mode'] ?? '' ) ? 'preview' : 'public';
+		$target      = array(
 			'post_id'     => $post_id,
 			'revision_id' => $revision_id,
 			'url'         => $url,
 			'fields'      => $fields,
+			'render_mode' => $render_mode,
 		);
+		if ( 'preview' === $render_mode ) {
+			$workspace_id = (string) ( $preview['workspace_id'] ?? '' );
+			$rest_path    = (string) ( $preview['preview_rest_path'] ?? '' );
+			if ( '' === $workspace_id || '' === $rest_path || (int) ( $preview['autosave_id'] ?? 0 ) !== $revision_id ) {
+				return;
+			}
+			$target['workspace_id']      = $workspace_id;
+			$target['preview_rest_path'] = $rest_path;
+			$target['generation']        = max( 1, (int) ( $preview['generation'] ?? 1 ) );
+			$target['working_hash']      = (string) ( $preview['working_hash'] ?? '' );
+			$target['featured_image_id'] = max( 0, (int) ( $preview['featured_image_id'] ?? 0 ) );
+		}
+
+		$this->public_smoke_only = false;
+		$this->preview_discarded = false;
+		$this->publish_failed    = false;
 
 		if ( self::PROFILE_INCREMENTAL === $this->profile ) {
 			$this->targets = array( $post_id => $target );
@@ -451,12 +600,15 @@ final class PageCompletionGate {
 			return;
 		}
 
-		$expected = $this->get_expected_report_inputs();
+		$expected      = $this->get_expected_report_inputs();
+		$expected_mode = (string) ( $expected['render_mode'] ?? 'public' );
 		if (
 			(string) ( $call_args['profile'] ?? '' ) !== $this->profile
 			|| (string) ( $call_args['quality_token'] ?? '' ) !== (string) $expected['quality_token']
+			|| (string) ( $call_args['render_mode'] ?? 'public' ) !== $expected_mode
 			|| (string) ( $response['profile'] ?? '' ) !== $this->profile
 			|| (string) ( $response['quality_token'] ?? '' ) !== (string) $expected['quality_token']
+			|| (string) ( $response['render_mode'] ?? 'public' ) !== $expected_mode
 		) {
 			$this->last_failure = 'The page-quality report was stale or used a different quality profile.';
 			return;
@@ -619,6 +771,7 @@ final class PageCompletionGate {
 				(int) ( $report['post_id'] ?? 0 ) !== (int) ( $page['post_id'] ?? 0 )
 				|| (int) ( $report['revision_id'] ?? 0 ) !== (int) ( $page['revision_id'] ?? 0 )
 				|| (string) ( $report['role'] ?? '' ) !== (string) ( $page['role'] ?? '' )
+				|| (string) ( $report['render_mode'] ?? 'public' ) !== (string) ( $page['render_mode'] ?? 'public' )
 				|| self::normalize_url( (string) ( $report['requested_url'] ?? '' ) ) !== self::normalize_url( (string) ( $page['url'] ?? '' ) )
 				|| ! is_array( $reported_viewport )
 				|| (int) ( $reported_viewport['width'] ?? 0 ) !== (int) ( $viewport['width'] ?? 0 )
@@ -662,7 +815,7 @@ final class PageCompletionGate {
 
 	/** Whether the current Setup run includes a homepage first impression. */
 	private function requires_visual_review(): bool {
-		if ( self::PROFILE_SETUP !== $this->profile ) {
+		if ( self::PROFILE_SETUP !== $this->profile || $this->public_smoke_only ) {
 			return false;
 		}
 		foreach ( $this->get_required_pages() as $page ) {
@@ -676,6 +829,9 @@ final class PageCompletionGate {
 	/** Invalidate any prior report and advance the mutation token. */
 	private function invalidate( string $reason ): void {
 		++$this->mutation_version;
+		$this->public_smoke_only           = false;
+		$this->preview_discarded           = false;
+		$this->publish_failed              = false;
 		$this->passed                      = false;
 		$this->deterministic_report_passed = false;
 		$this->visual_review_passed        = false;
@@ -719,7 +875,6 @@ final class PageCompletionGate {
 	/** @return list<string> */
 	private static function related_visual_mutations(): array {
 		return array(
-			'sd-ai-agent/set-featured-image',
 			'sd-ai-agent/update-global-styles',
 			'sd-ai-agent/reset-global-styles',
 			'sd-ai-agent/create-style-variation',

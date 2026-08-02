@@ -29,8 +29,21 @@ const pageSchema = {
 		url: { type: 'string' },
 		fields: { type: 'array', items: { type: 'string' } },
 		role: { type: 'string', enum: [ 'homepage', 'page' ] },
+		render_mode: { type: 'string', enum: [ 'preview', 'public' ] },
+		workspace_id: { type: 'string' },
+		preview_rest_path: { type: 'string' },
+		generation: { type: 'integer' },
+		working_hash: { type: 'string' },
+		featured_image_id: { type: 'integer' },
 	},
-	required: [ 'post_id', 'revision_id', 'url', 'fields', 'role' ],
+	required: [
+		'post_id',
+		'revision_id',
+		'url',
+		'fields',
+		'role',
+		'render_mode',
+	],
 };
 
 const heroContractSchema = {
@@ -89,6 +102,7 @@ const reportSchema = {
 		requested_url: { type: 'string' },
 		final_url: { type: 'string' },
 		role: { type: 'string' },
+		render_mode: { type: 'string' },
 		is_homepage: { type: 'boolean' },
 		viewport: viewportSchema,
 		success: { type: 'boolean' },
@@ -107,6 +121,7 @@ const reportSchema = {
 		'requested_url',
 		'final_url',
 		'role',
+		'render_mode',
 		'viewport',
 		'success',
 		'violations',
@@ -157,12 +172,14 @@ export async function registerPageQualityValidatorAbility() {
 		name: 'sd-ai-agent-js/validate-page-quality',
 		label: 'Validate Rendered Page Quality',
 		description:
-			'Validate current affected published pages at the agent profile’s required viewports. Setup performs strict first-impression, composition, branding, media, accessibility, and responsive checks; General performs focused regression-safe page checks. A passing report is bound to the current page mutation token.',
+			'Validate the server-owned page preview or public page at required viewports. Setup performs strict first-impression and screenshot checks; General performs focused regression checks. Reports bind to the current mutation and render mode.',
 		inputSchema: {
 			type: 'object',
 			properties: {
 				profile: { type: 'string', enum: [ 'setup', 'incremental' ] },
 				quality_token: { type: 'string' },
+				render_mode: { type: 'string', enum: [ 'preview', 'public' ] },
+				visual_review_required: { type: 'boolean' },
 				pages: { type: 'array', items: pageSchema },
 				hero_contract: heroContractSchema,
 				viewports: { type: 'array', items: viewportSchema },
@@ -170,6 +187,8 @@ export async function registerPageQualityValidatorAbility() {
 			required: [
 				'profile',
 				'quality_token',
+				'render_mode',
+				'visual_review_required',
 				'pages',
 				'hero_contract',
 				'viewports',
@@ -183,6 +202,7 @@ export async function registerPageQualityValidatorAbility() {
 				passed: { type: 'boolean' },
 				profile: { type: 'string' },
 				quality_token: { type: 'string' },
+				render_mode: { type: 'string' },
 				viewports: { type: 'array', items: viewportSchema },
 				reports: { type: 'array', items: reportSchema },
 				violations: { type: 'array', items: findingSchema },

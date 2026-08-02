@@ -2,6 +2,8 @@
  * Focused browser-side tests for rendered page-quality validation.
  */
 
+jest.mock( '@wordpress/api-fetch', () => jest.fn() );
+
 jest.mock( '../theme-completion-iframe', () => ( {
 	loadSameOriginIframe: jest.fn(),
 } ) );
@@ -15,6 +17,7 @@ jest.mock( 'html2canvas', () =>
 );
 
 const originalFetch = global.fetch;
+const apiFetch = require( '@wordpress/api-fetch' );
 const { loadSameOriginIframe } = require( '../theme-completion-iframe' );
 const {
 	PAGE_QUALITY_VIEWPORTS,
@@ -120,12 +123,15 @@ function args( profile = 'setup' ) {
 	return {
 		profile,
 		quality_token: 'current-token',
+		render_mode: 'public',
+		visual_review_required: true,
 		pages: [
 			{
 				post_id: 42,
 				revision_id: 100,
 				url: window.location.origin + '/',
 				role: 'homepage',
+				render_mode: 'public',
 				fields: [ 'post_content' ],
 			},
 		],
@@ -139,6 +145,7 @@ describe( 'rendered page quality validator', () => {
 		jest.restoreAllMocks();
 		jest.clearAllMocks();
 		prepareDocument();
+		apiFetch.mockResolvedValue( {} );
 		loadSameOriginIframe.mockImplementation( async ( { url } ) => ( {
 			success: true,
 			url,
@@ -186,6 +193,59 @@ describe( 'rendered page quality validator', () => {
 		expect( report.screenshots[ 0 ].image ).toMatch(
 			/^data:image\/jpeg;base64,/
 		);
+	} );
+
+	test( 'resolves an authenticated autosave preview without leaking its nonce', async () => {
+		const input = args();
+		input.render_mode = 'preview';
+		Object.assign( input.pages[ 0 ], {
+			render_mode: 'preview',
+			revision_id: 155,
+			workspace_id: 'workspace-1',
+			preview_rest_path: '/wp/v2/pages/42/autosaves/155?context=edit',
+			generation: 2,
+			working_hash: 'working-hash',
+			featured_image_id: 77,
+		} );
+		apiFetch.mockResolvedValue( {
+			id: 155,
+			parent: 42,
+			preview_link:
+				window.location.origin +
+				'/?preview_id=42&preview_nonce=secret&preview=true',
+		} );
+
+		const report = await validatePageQuality( input );
+
+		expect( apiFetch ).toHaveBeenCalledWith( {
+			path: '/wp/v2/pages/42/autosaves/155?context=edit',
+		} );
+		expect( loadSameOriginIframe ).toHaveBeenCalledWith(
+			expect.objectContaining( {
+				url: expect.stringContaining( 'preview_nonce=secret' ),
+			} )
+		);
+		expect( global.fetch ).not.toHaveBeenCalled();
+		expect( report ).toMatchObject( {
+			passed: true,
+			render_mode: 'preview',
+		} );
+		expect( JSON.stringify( report ) ).not.toContain( 'secret' );
+		expect( report.reports[ 0 ] ).toMatchObject( {
+			requested_url: window.location.origin,
+			final_url: window.location.origin,
+			render_mode: 'preview',
+		} );
+	} );
+
+	test( 'skips duplicate screenshots for the final public smoke check', async () => {
+		const input = args();
+		input.visual_review_required = false;
+
+		const report = await validatePageQuality( input );
+
+		expect( report.passed ).toBe( true );
+		expect( report.screenshots ).toEqual( [] );
 	} );
 
 	test( 'rejects a homepage hidden behind anonymous coming-soon mode', async () => {

@@ -114,10 +114,12 @@ class AgentLoopClientToolsTest extends WP_UnitTestCase {
 		$schema  = $catalog['sd-ai-agent-js/validate-page-quality']['input_schema'];
 
 		$this->assertSame(
-			array( 'post_id', 'revision_id', 'url', 'fields', 'role' ),
+			array( 'post_id', 'revision_id', 'url', 'fields', 'role', 'render_mode' ),
 			$schema['properties']['pages']['items']['required']
 		);
 		$this->assertArrayHasKey( 'url', $schema['properties']['pages']['items']['properties'] );
+		$this->assertArrayHasKey( 'preview_rest_path', $schema['properties']['pages']['items']['properties'] );
+		$this->assertContains( 'render_mode', $schema['required'] );
 		$this->assertArrayHasKey( 'strategy', $schema['properties']['hero_contract']['properties'] );
 		$this->assertSame(
 			array( 'label', 'width', 'height' ),
@@ -620,6 +622,62 @@ class AgentLoopClientToolsTest extends WP_UnitTestCase {
 
 		$this->assertSame( $completion_gate->get_terminal_notice(), $reply );
 		$this->assertStringNotContainsString( 'DONE', $reply );
+	}
+
+	/** Server-directed page validation uses exact gate-owned preview arguments. */
+	public function test_page_quality_dispatch_does_not_depend_on_model_arguments(): void {
+		$loop = new AgentLoop(
+			'test',
+			array(),
+			array(),
+			array(
+				'agent_slug'      => 'general',
+				'client_abilities' => array(
+					array( 'name' => 'sd-ai-agent-js/validate-page-quality' ),
+				),
+			)
+		);
+		$reflection = new \ReflectionClass( $loop );
+		$gate_prop  = $reflection->getProperty( 'page_completion_gate' );
+		$gate_prop->setAccessible( true );
+		$gate = $gate_prop->getValue( $loop );
+		$gate->record_tool_call( 'sd-ai-agent/edit-block-tree', array( 'post_id' => 42 ) );
+		$gate->record_tool_response(
+			'sd-ai-agent/edit-block-tree',
+			array(
+				'success'     => true,
+				'post_id'     => 42,
+				'revision_id' => 90,
+				'render_mode' => 'preview',
+				'preview'     => array(
+					'render_mode'       => 'preview',
+					'workspace_id'      => 'workspace-42',
+					'autosave_id'       => 90,
+					'preview_rest_path' => '/wp/v2/pages/42/autosaves/90?context=edit',
+					'generation'        => 3,
+					'working_hash'      => 'hash-42',
+				),
+				'affected'    => array(
+					'post_id'   => 42,
+					'post_type' => 'page',
+					'status'    => 'publish',
+					'url'       => 'https://example.test/page/',
+					'fields'    => array( 'post_content' ),
+				),
+			)
+		);
+		$expected = $gate->get_expected_report_inputs();
+
+		$method = $reflection->getMethod( 'pause_for_page_validation' );
+		$method->setAccessible( true );
+		$result  = $method->invoke( $loop, 7 );
+		$pending = $result['pending_client_tool_calls'];
+
+		$this->assertCount( 1, $pending );
+		$this->assertSame( 'sd-ai-agent-js/validate-page-quality', $pending[0]['name'] );
+		$this->assertSame( $expected, $pending[0]['args'] );
+		$this->assertSame( 'preview', $pending[0]['args']['render_mode'] );
+		$this->assertSame( 7, $result['iterations_remaining'] );
 	}
 
 	// ── Helper methods ────────────────────────────────────────────────────

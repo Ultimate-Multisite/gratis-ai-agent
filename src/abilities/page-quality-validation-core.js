@@ -7,6 +7,8 @@
  * structural, responsive, media, and placeholder regressions.
  */
 
+import apiFetch from '@wordpress/api-fetch';
+
 import { loadSameOriginIframe } from './theme-completion-iframe';
 import { inspectThemeDocument } from './theme-completion-validator';
 
@@ -49,6 +51,47 @@ const INCREMENTAL_BLOCKING_CODES = new Set( [
 function normalizeUrl( url ) {
 	const value = String( url || '' ).trim();
 	return value === '/' ? '/' : value.replace( /\/+$/, '' );
+}
+
+/**
+ * Resolve a browser-session-valid WordPress preview URL without exposing its
+ * nonce to the background worker, model transcript, or persisted report.
+ *
+ * @param {Object} page Gate-owned page descriptor.
+ * @return {Promise<string>} Internal render URL.
+ */
+async function resolveRenderUrl( page ) {
+	if ( page.render_mode !== 'preview' ) {
+		return String( page.url || '' );
+	}
+
+	const restPath = String( page.preview_rest_path || '' );
+	const expectedPath = new RegExp(
+		`^/wp/v2/pages/${ Number( page.post_id ) }/autosaves/${ Number(
+			page.revision_id
+		) }\\?context=edit$`
+	);
+	if ( ! expectedPath.test( restPath ) ) {
+		throw new Error( 'The preview REST descriptor is invalid or stale.' );
+	}
+
+	const autosave = await apiFetch( { path: restPath } );
+	if (
+		Number( autosave?.id ) !== Number( page.revision_id ) ||
+		Number( autosave?.parent ) !== Number( page.post_id ) ||
+		! autosave?.preview_link
+	) {
+		throw new Error( 'WordPress returned a different autosave preview.' );
+	}
+
+	const previewUrl = new URL( autosave.preview_link, window.location.origin );
+	if ( Number( page.featured_image_id ) > 0 ) {
+		previewUrl.searchParams.set(
+			'_thumbnail_id',
+			String( Number( page.featured_image_id ) )
+		);
+	}
+	return previewUrl.href;
 }
 
 /**
@@ -720,6 +763,8 @@ export function inspectPageQualityDocument( {
 export async function validatePageQuality( args ) {
 	const profile = String( args?.profile || '' );
 	const qualityToken = String( args?.quality_token || '' ).trim();
+	const renderMode = String( args?.render_mode || '' );
+	const visualReviewRequired = args?.visual_review_required === true;
 	const pages = Array.isArray( args?.pages ) ? args.pages : [];
 	const heroContract = args?.hero_contract || {};
 	const viewports = PAGE_QUALITY_VIEWPORTS[ profile ] || [];
@@ -739,6 +784,21 @@ export async function validatePageQuality( args ) {
 				evidence: 'Page quality requires setup or incremental profile.',
 				remediation:
 					'Use the profile supplied by the server completion gate.',
+			} )
+		);
+	}
+	if ( ! [ 'preview', 'public' ].includes( renderMode ) ) {
+		pushFinding(
+			violations,
+			finding( {
+				code: 'invalid_page_render_mode',
+				url: '',
+				viewport: null,
+				selector: 'request',
+				evidence:
+					'Page quality requires preview or public render mode.',
+				remediation:
+					'Use the render_mode supplied by the server completion gate.',
 			} )
 		);
 	}
@@ -764,6 +824,7 @@ export async function validatePageQuality( args ) {
 				! Number.isInteger( Number( page?.post_id ) ) ||
 				Number( page?.post_id ) <= 0 ||
 				! page?.url ||
+				page?.render_mode !== renderMode ||
 				! [ 'homepage', 'page' ].includes( page?.role ) ||
 				String( page.url ).includes( '/wp-content/uploads/' )
 		)
@@ -790,6 +851,7 @@ export async function validatePageQuality( args ) {
 			passed: false,
 			profile,
 			quality_token: qualityToken,
+			render_mode: renderMode,
 			viewports,
 			reports,
 			violations,
@@ -799,7 +861,45 @@ export async function validatePageQuality( args ) {
 	}
 
 	for ( const page of pages ) {
-		if ( profile === 'setup' && page.role === 'homepage' ) {
+		let renderUrl = String( page.url );
+		try {
+			// eslint-disable-next-line no-await-in-loop -- Each autosave is user/session specific.
+			renderUrl = await resolveRenderUrl( page );
+		} catch ( error ) {
+			for ( const viewport of viewports ) {
+				const item = finding( {
+					code: 'preview_url_unavailable',
+					url: page.url,
+					viewport,
+					selector: 'document',
+					evidence:
+						error.message ||
+						'The private WordPress preview could not be resolved.',
+					remediation:
+						'Restore the current user autosave and rerun the server-owned preview validation.',
+				} );
+				pushFinding( violations, item );
+				reports.push( {
+					post_id: Number( page.post_id ),
+					revision_id: Number( page.revision_id || 0 ),
+					requested_url: normalizeUrl( page.url ),
+					final_url: normalizeUrl( page.url ),
+					role: page.role,
+					render_mode: renderMode,
+					viewport,
+					success: false,
+					violations: [ item ],
+					warnings: [],
+				} );
+			}
+			continue;
+		}
+
+		if (
+			renderMode === 'public' &&
+			profile === 'setup' &&
+			page.role === 'homepage'
+		) {
 			// eslint-disable-next-line no-await-in-loop -- Each homepage has a distinct anonymous launch state.
 			const publicFinding = await inspectAnonymousHomepage(
 				page.url,
@@ -815,7 +915,7 @@ export async function validatePageQuality( args ) {
 		for ( const viewport of viewports ) {
 			// eslint-disable-next-line no-await-in-loop -- Quality reports must not race hidden iframe resources.
 			const loaded = await loadSameOriginIframe( {
-				url: page.url,
+				url: renderUrl,
 				width: viewport.width,
 				height: viewport.height,
 			} );
@@ -823,7 +923,7 @@ export async function validatePageQuality( args ) {
 			if ( ! loaded.success || ! loaded.document || ! loaded.window ) {
 				const item = finding( {
 					code: 'frontend_render_failed',
-					url: loaded.url || page.url,
+					url: page.url,
 					viewport,
 					selector: 'document',
 					evidence:
@@ -837,8 +937,9 @@ export async function validatePageQuality( args ) {
 					post_id: Number( page.post_id ),
 					revision_id: Number( page.revision_id || 0 ),
 					requested_url: normalizeUrl( page.url ),
-					final_url: normalizeUrl( loaded.url || page.url ),
+					final_url: normalizeUrl( page.url ),
 					role: page.role,
+					render_mode: renderMode,
 					viewport,
 					success: false,
 					violations: [ item ],
@@ -853,7 +954,7 @@ export async function validatePageQuality( args ) {
 				const inspected = inspectPageQualityDocument( {
 					document: loaded.document,
 					window: loaded.window,
-					url: loaded.url,
+					url: page.url,
 					viewport,
 					profile,
 					role: page.role,
@@ -861,14 +962,14 @@ export async function validatePageQuality( args ) {
 				} );
 				const semanticallyHome = isHomepageDocument(
 					loaded.document,
-					loaded.url,
+					renderUrl,
 					page.url,
 					page.role
 				);
 				if ( page.role === 'homepage' && ! semanticallyHome ) {
 					const item = finding( {
 						code: 'homepage_target_not_homepage',
-						url: loaded.url,
+						url: page.url,
 						viewport,
 						selector: 'body',
 						evidence:
@@ -883,8 +984,9 @@ export async function validatePageQuality( args ) {
 					post_id: Number( page.post_id ),
 					revision_id: Number( page.revision_id || 0 ),
 					requested_url: normalizeUrl( page.url ),
-					final_url: normalizeUrl( loaded.url ),
+					final_url: normalizeUrl( page.url ),
 					role: page.role,
+					render_mode: renderMode,
 					is_homepage: semanticallyHome,
 					viewport,
 					success: inspected.violations.length === 0,
@@ -898,6 +1000,7 @@ export async function validatePageQuality( args ) {
 				}
 
 				if (
+					visualReviewRequired &&
 					profile === 'setup' &&
 					page.role === 'homepage' &&
 					[ 'mobile', 'desktop' ].includes( viewport.label )
@@ -910,14 +1013,14 @@ export async function validatePageQuality( args ) {
 					if ( screenshot.success ) {
 						screenshots.push( {
 							post_id: Number( page.post_id ),
-							url: normalizeUrl( loaded.url ),
+							url: normalizeUrl( page.url ),
 							viewport,
 							...screenshot,
 						} );
 					} else {
 						const item = finding( {
 							code: 'visual_review_screenshot_failed',
-							url: loaded.url,
+							url: page.url,
 							viewport,
 							selector: 'document',
 							evidence: screenshot.error,
@@ -930,7 +1033,7 @@ export async function validatePageQuality( args ) {
 			} catch ( error ) {
 				const item = finding( {
 					code: 'page_quality_inspection_failed',
-					url: loaded.url || page.url,
+					url: page.url,
 					viewport,
 					selector: 'document',
 					evidence:
@@ -944,8 +1047,9 @@ export async function validatePageQuality( args ) {
 					post_id: Number( page.post_id ),
 					revision_id: Number( page.revision_id || 0 ),
 					requested_url: normalizeUrl( page.url ),
-					final_url: normalizeUrl( loaded.url || page.url ),
+					final_url: normalizeUrl( page.url ),
 					role: page.role,
+					render_mode: renderMode,
 					viewport,
 					success: false,
 					violations: [ item ],
@@ -972,6 +1076,7 @@ export async function validatePageQuality( args ) {
 		passed,
 		profile,
 		quality_token: qualityToken,
+		render_mode: renderMode,
 		viewports,
 		reports,
 		violations,
