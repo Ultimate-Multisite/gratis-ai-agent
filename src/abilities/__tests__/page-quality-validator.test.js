@@ -199,6 +199,7 @@ describe( 'rendered page quality validator', () => {
 		const input = args();
 		input.render_mode = 'preview';
 		Object.assign( input.pages[ 0 ], {
+			url: window.location.origin + '/?page_id=42',
 			render_mode: 'preview',
 			revision_id: 155,
 			workspace_id: 'workspace-1',
@@ -232,10 +233,27 @@ describe( 'rendered page quality validator', () => {
 		} );
 		expect( JSON.stringify( report ) ).not.toContain( 'secret' );
 		expect( report.reports[ 0 ] ).toMatchObject( {
-			requested_url: window.location.origin,
-			final_url: window.location.origin,
+			requested_url: window.location.origin + '/?page_id=42',
+			final_url: window.location.origin + '/?page_id=42',
 			render_mode: 'preview',
 		} );
+	} );
+
+	test( 'reports the iframe final URL after a same-origin redirect', async () => {
+		loadSameOriginIframe.mockImplementation( async () => ( {
+			success: true,
+			url: window.location.origin + '/login/',
+			error: '',
+			document,
+			window,
+			cleanup: jest.fn(),
+		} ) );
+
+		const report = await validatePageQuality( args() );
+
+		expect( report.reports[ 0 ].final_url ).toBe(
+			window.location.origin + '/login'
+		);
 	} );
 
 	test( 'skips duplicate screenshots for the final public smoke check', async () => {

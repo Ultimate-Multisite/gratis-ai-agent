@@ -268,6 +268,21 @@ class BlockMutatorTest extends WP_UnitTestCase {
 		$this->assertSame( 'missing_inner_html', $result->get_error_code() );
 	}
 
+	/** Disallowed-only HTML cannot sanitize to an empty destructive update. */
+	public function test_update_html_rejects_content_empty_after_sanitization(): void {
+		$result = BlockMutator::apply(
+			[ $this->make_block( 'core/paragraph' ) ],
+			'update-html',
+			[
+				'path'      => [ 0 ],
+				'innerHTML' => '<script></script>',
+			]
+		);
+
+		$this->assertWPError( $result );
+		$this->assertSame( 'missing_inner_html', $result->get_error_code() );
+	}
+
 	/**
 	 * update-html addressed by flat_index works.
 	 */

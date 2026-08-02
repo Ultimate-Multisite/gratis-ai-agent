@@ -11,6 +11,7 @@ namespace SdAiAgent\Tests\Abilities;
 
 use SdAiAgent\Abilities\PostAbilities;
 use SdAiAgent\Core\ChangeLogger;
+use SdAiAgent\Core\PagePreviewWorkspace;
 use WP_UnitTestCase;
 
 /**
@@ -30,6 +31,7 @@ class PostAbilitiesTest extends WP_UnitTestCase {
 
 	public function tear_down(): void {
 		remove_filter( 'theme_page_templates', [ $this, 'register_test_page_templates' ] );
+		PagePreviewWorkspace::deactivate();
 
 		parent::tear_down();
 	}
@@ -540,6 +542,7 @@ class PostAbilitiesTest extends WP_UnitTestCase {
 		$this->assertStringContainsString( 'Preserve this.', get_post( $post_id )->post_content );
 		$this->assertSame( 'publish', get_post_status( $post_id ) );
 		$this->assertSame( [ 'post_title' ], $result['affected']['fields'] );
+		$this->assertArrayHasKey( 'status', $result['ignored_fields'] );
 	}
 
 	/** Published-to-draft changes require an explicit confirmation bit. */
@@ -554,11 +557,22 @@ class PostAbilitiesTest extends WP_UnitTestCase {
 		$blocked = PostAbilities::handle_update_post(
 			[
 				'post_id' => $post_id,
+				'title'   => 'Renamed item',
 				'status'  => 'draft',
 			]
 		);
-		$this->assertWPError( $blocked );
+		$this->assertIsArray( $blocked );
+		$this->assertArrayHasKey( 'status', $blocked['ignored_fields'] );
 		$this->assertSame( 'publish', get_post_status( $post_id ) );
+
+		$status_only = PostAbilities::handle_update_post(
+			[
+				'post_id' => $post_id,
+				'status'  => 'draft',
+			]
+		);
+		$this->assertWPError( $status_only );
+		$this->assertSame( 'sd_ai_agent_no_effective_post_updates', $status_only->get_error_code() );
 
 		$updated = PostAbilities::handle_update_post(
 			[
@@ -1055,6 +1069,57 @@ class PostAbilitiesTest extends WP_UnitTestCase {
 
 		$this->assertInstanceOf( \WP_Error::class, $result );
 		$this->assertSame( 'ai_agent_empty_post_id', $result->get_error_code() );
+	}
+
+	/** Governed pages preserve idempotent featured-image success semantics. */
+	public function test_handle_set_featured_image_idempotent_remove_succeeds_in_preview_context(): void {
+		$post_id = $this->factory->post->create(
+			[
+				'post_type'   => 'page',
+				'post_status' => 'publish',
+			]
+		);
+		PagePreviewWorkspace::activate( 'incremental', 901, '', true );
+
+		$result = PostAbilities::handle_set_featured_image(
+			[
+				'post_id'           => $post_id,
+				'featured_image_id' => 0,
+			]
+		);
+
+		$this->assertIsArray( $result );
+		$this->assertSame( 'removed', $result['result'] );
+		$this->assertFalse( PagePreviewWorkspace::has_workspace( $post_id ) );
+	}
+
+	/** Preview affected fields include only values that were actually staged. */
+	public function test_handle_update_post_preview_omits_empty_provider_default_fields(): void {
+		$post_id = $this->factory->post->create(
+			[
+				'post_type'   => 'page',
+				'post_status' => 'publish',
+				'post_title'  => 'Original',
+			]
+		);
+		PagePreviewWorkspace::activate( 'incremental', 902, '', true );
+
+		$result = PostAbilities::handle_update_post(
+			[
+				'post_id'           => $post_id,
+				'title'             => 'Staged title',
+				'categories'        => [],
+				'tags'              => [],
+				'featured_image_id' => 0,
+				'page_template'     => '',
+				'meta'              => [],
+			]
+		);
+
+		$this->assertIsArray( $result );
+		$this->assertSame( [ 'post_title' ], $result['affected']['fields'] );
+		$this->assertSame( 'Original', get_post( $post_id )->post_title );
+		$this->assertTrue( PagePreviewWorkspace::discard( $post_id, (string) $result['preview']['workspace_id'] ) );
 	}
 
 	/**

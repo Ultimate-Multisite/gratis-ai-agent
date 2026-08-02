@@ -323,21 +323,27 @@ final class PageCompletionGate {
 	 * @param list<array<string,mixed>> $published Commit results.
 	 */
 	public function record_published_previews( array $published ): void {
-		$by_post = array();
+		$had_public_target = ! empty(
+			array_filter(
+				$this->targets,
+				static fn( array $target ): bool => 'public' === (string) ( $target['render_mode'] ?? 'public' )
+			)
+		);
+		$by_post           = array();
 		foreach ( $published as $result ) {
 			if ( is_array( $result ) ) {
 				$by_post[ (int) ( $result['post_id'] ?? 0 ) ] = $result;
 			}
 		}
+		$workspace_mismatch = false;
 		foreach ( $this->targets as $post_id => $target ) {
 			if ( 'preview' !== ( $target['render_mode'] ?? 'public' ) || ! isset( $by_post[ $post_id ] ) ) {
 				continue;
 			}
 			$result = $by_post[ $post_id ];
 			if ( (string) ( $target['workspace_id'] ?? '' ) !== (string) ( $result['workspace_id'] ?? '' ) ) {
-				$this->last_failure = 'The published page did not match the approved preview workspace.';
-				$this->passed       = false;
-				return;
+				$workspace_mismatch = true;
+				continue;
 			}
 			$this->targets[ $post_id ] = array(
 				'post_id'     => $post_id,
@@ -348,8 +354,18 @@ final class PageCompletionGate {
 			);
 		}
 
-		$this->invalidate( 'The approved preview was published and now requires one canonical anonymous smoke test.' );
-		$this->public_smoke_only = true;
+		$this->invalidate(
+			$workspace_mismatch
+				? 'A published page did not match its approved preview workspace; reconciled pages still require a canonical smoke test.'
+				: 'The approved preview was published and now requires one canonical anonymous smoke test.'
+		);
+		// A setup run that already had public mutations still needs its full
+		// first-impression screenshot review; otherwise this is the narrow final
+		// anonymous smoke check for the just-published preview.
+		$this->public_smoke_only = ! ( self::PROFILE_SETUP === $this->profile && $had_public_target );
+		if ( $workspace_mismatch ) {
+			$this->publish_failed = true;
+		}
 	}
 
 	/** Mark private previews discarded after a terminal incomplete run. */
@@ -374,14 +390,14 @@ final class PageCompletionGate {
 	 * @return array<string,mixed>
 	 */
 	public function get_expected_report_inputs(): array {
-		$pages = $this->get_required_pages();
+		$pages = $this->get_report_pages();
 
 		$render_modes = array_values( array_unique( array_map( static fn( array $page ): string => (string) ( $page['render_mode'] ?? 'public' ), $pages ) ) );
 
 		return array(
 			'profile'                => $this->profile,
 			'quality_token'          => $this->quality_token( $pages ),
-			'render_mode'            => 1 === count( $render_modes ) ? $render_modes[0] : 'mixed',
+			'render_mode'            => 1 === count( $render_modes ) ? $render_modes[0] : 'public',
 			'visual_review_required' => $this->requires_visual_review(),
 			'pages'                  => $pages,
 			'hero_contract'          => $this->hero_contract,
@@ -434,7 +450,7 @@ final class PageCompletionGate {
 			return '';
 		}
 		if ( $this->is_ready_to_publish() ) {
-			return 'The private page preview passed its quality gate but was not published because no iteration remained for guarded publication and the final canonical smoke test. The existing public page remains unchanged.';
+			return __( 'The private page preview passed its quality gate but was not published because no iteration remained for guarded publication and the final canonical smoke test. The existing public page remains unchanged.', 'superdav-ai-agent' );
 		}
 		if ( $this->passed ) {
 			return '';
@@ -443,12 +459,26 @@ final class PageCompletionGate {
 		$reason      = '' !== $this->last_failure ? ' ' . $this->last_failure : '';
 		$has_preview = ! empty( $this->get_preview_targets() );
 		if ( $this->deterministic_report_passed && ! $this->visual_review_passed ) {
-			return ( $has_preview ? 'The published page remains unchanged. ' : '' ) . 'Deterministic browser checks passed, but the required screenshot-based visual critique did not pass, so the first impression was not published.' . $reason;
+			$unchanged = $has_preview ? __( 'The published page remains unchanged. ', 'superdav-ai-agent' ) : '';
+			return sprintf(
+				/* translators: 1: optional unchanged-page notice, 2: internal quality failure detail. */
+				__( '%1$sDeterministic browser checks passed, but the required screenshot-based visual critique did not pass, so the first impression was not published.%2$s', 'superdav-ai-agent' ),
+				$unchanged,
+				$reason
+			);
 		}
 		if ( $has_preview ) {
-			return 'The private page preview was not published because its current rendered-page evidence did not pass. The existing public page remains unchanged.' . $reason;
+			return sprintf(
+				/* translators: %s: internal quality failure detail. */
+				__( 'The private page preview was not published because its current rendered-page evidence did not pass. The existing public page remains unchanged.%s', 'superdav-ai-agent' ),
+				$reason
+			);
 		}
-		return 'The page was published from an approved preview, but its canonical anonymous smoke test did not pass, so I cannot call the public result complete.' . $reason;
+		return sprintf(
+			/* translators: %s: internal quality failure detail. */
+			__( 'The page was published from an approved preview, but its canonical anonymous smoke test did not pass, so I cannot call the public result complete.%s', 'superdav-ai-agent' ),
+			$reason
+		);
 	}
 
 	/**
@@ -777,6 +807,7 @@ final class PageCompletionGate {
 				|| (int) ( $reported_viewport['width'] ?? 0 ) !== (int) ( $viewport['width'] ?? 0 )
 				|| (int) ( $reported_viewport['height'] ?? 0 ) !== (int) ( $viewport['height'] ?? 0 )
 				|| ! self::same_origin_url( (string) ( $page['url'] ?? '' ), (string) ( $report['final_url'] ?? '' ) )
+				|| self::normalize_url( (string) ( $page['url'] ?? '' ) ) !== self::normalize_url( (string) ( $report['final_url'] ?? '' ) )
 			) {
 				continue;
 			}
@@ -813,12 +844,30 @@ final class PageCompletionGate {
 		return $pages;
 	}
 
-	/** Whether the current Setup run includes a homepage first impression. */
+	/**
+	 * Return one renderable validation phase; private previews are approved
+	 * before unrelated already-public targets receive the final smoke test.
+	 *
+	 * @return list<array<string,mixed>>
+	 */
+	private function get_report_pages(): array {
+		$pages         = $this->get_required_pages();
+		$preview_pages = array_values(
+			array_filter(
+				$pages,
+				static fn( array $page ): bool => 'preview' === (string) ( $page['render_mode'] ?? 'public' )
+			)
+		);
+
+		return empty( $preview_pages ) ? $pages : $preview_pages;
+	}
+
+	/** Whether the current Setup validation phase includes a homepage first impression. */
 	private function requires_visual_review(): bool {
 		if ( self::PROFILE_SETUP !== $this->profile || $this->public_smoke_only ) {
 			return false;
 		}
-		foreach ( $this->get_required_pages() as $page ) {
+		foreach ( $this->get_report_pages() as $page ) {
 			if ( 'homepage' === ( $page['role'] ?? '' ) ) {
 				return true;
 			}

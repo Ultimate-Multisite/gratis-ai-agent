@@ -141,16 +141,7 @@ const screenshotSchema = {
 		height: { type: 'integer' },
 		error: { type: 'string' },
 	},
-	required: [
-		'post_id',
-		'url',
-		'viewport',
-		'success',
-		'image',
-		'width',
-		'height',
-		'error',
-	],
+	required: [ 'post_id', 'url', 'viewport', 'success' ],
 };
 
 /**

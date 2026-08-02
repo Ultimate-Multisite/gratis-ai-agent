@@ -2324,12 +2324,9 @@ class BlockAbilities {
 		if ( $persist_refs && $refs_needed ) {
 			// @phpstan-ignore-next-line
 			$new_content = serialize_blocks( $blocks );
-			if ( PagePreviewWorkspace::has_workspace( $post_id ) ) {
-				$write = self::persist_post_content( $post_id, $new_content );
-				if ( is_wp_error( $write ) ) {
-					return $write;
-				}
-				$refs_stored = true;
+			if ( PagePreviewWorkspace::governs( $post ) ) {
+				$write       = self::persist_post_content( $post_id, $new_content );
+				$refs_stored = ! is_wp_error( $write );
 			} else {
 				// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching
 				$updated = $wpdb->update(
@@ -3085,7 +3082,15 @@ class BlockAbilities {
 	 *
 	 * @return array{revision_id:int|null,preview?:array<string,mixed>}|\WP_Error
 	 */
-	private static function persist_post_content( int $post_id, string $content ) {
+	private static function persist_post_content( int $post_id, string $content ): array|\WP_Error {
+		if ( ! current_user_can( 'edit_post', $post_id ) ) {
+			return new \WP_Error(
+				'insufficient_capability',
+				__( 'You do not have permission to edit this post.', 'superdav-ai-agent' ),
+				[ 'status' => 403 ]
+			);
+		}
+
 		$preview = PagePreviewWorkspace::stage_fields( $post_id, array( 'post_content' => $content ), null, array( 'post_content' ) );
 		if ( is_wp_error( $preview ) ) {
 			return $preview;
@@ -3154,6 +3159,14 @@ class BlockAbilities {
 
 		if ( is_wp_error( $post ) ) {
 			return $post;
+		}
+
+		if ( ! current_user_can( 'edit_post', $post_id ) ) {
+			return new \WP_Error(
+				'insufficient_capability',
+				__( 'You do not have permission to edit this post.', 'superdav-ai-agent' ),
+				[ 'status' => 403 ]
+			);
 		}
 
 		$expected = isset( $input['expected_revision'] ) ? (string) $input['expected_revision'] : '';

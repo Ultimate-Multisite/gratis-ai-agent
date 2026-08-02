@@ -163,6 +163,39 @@ class ImageSourceFactoryTest extends WP_UnitTestCase {
 		$this->assertStringContainsString( 'watermark', implode( ' ', $watermarked['reasons'] ) );
 	}
 
+	/** Gallery assets enforce the documented landscape aspect-ratio floor. */
+	public function test_gallery_quality_floor_rejects_portrait_source(): void {
+		$result = ImageSourceFactory::assess_candidate_quality(
+			[
+				'width'  => 1200,
+				'height' => 1500,
+				'title'  => 'Portrait gallery image',
+			],
+			'gallery'
+		);
+
+		$this->assertFalse( $result['eligible'] );
+		$this->assertStringContainsString( 'landscape', implode( ' ', $result['reasons'] ) );
+	}
+
+	/** Metadata provider errors remain actionable when a role requires metadata. */
+	public function test_import_by_provider_id_returns_metadata_error_for_quality_usage(): void {
+		$source = new FakeImageSource( 'openverse', 'free', [] );
+		$this->set_sources( [ 'openverse' => $source ] );
+
+		$result = ImageSourceFactory::import_by_provider_id(
+			'openverse',
+			'image-1',
+			0,
+			0,
+			[ 'usage' => 'hero' ]
+		);
+
+		$this->assertWPError( $result );
+		$this->assertSame( 'not_used', $result->get_error_code() );
+		$this->assertSame( [], $source->downloaded_ids );
+	}
+
 	/** A large landscape source is eligible and receives a useful score. */
 	public function test_hero_quality_floor_accepts_large_landscape_source(): void {
 		$result = ImageSourceFactory::assess_candidate_quality(
@@ -196,6 +229,24 @@ class ImageSourceFactoryTest extends WP_UnitTestCase {
 		$this->assertSame( 1, $result['total'] );
 		$this->assertSame( 'good', $result['candidates'][0]['image_id'] );
 		$this->assertGreaterThanOrEqual( 90, $result['candidates'][0]['quality_score'] );
+	}
+
+	/** Candidate limits are clamped before search and slicing. */
+	public function test_search_candidates_clamps_negative_limit(): void {
+		$source = new FakeImageSource(
+			'openverse',
+			'free',
+			[
+				[ 'id' => 'one', 'width' => 1200, 'height' => 800, 'title' => 'One' ],
+				[ 'id' => 'two', 'width' => 1200, 'height' => 800, 'title' => 'Two' ],
+			]
+		);
+		$this->set_sources( [ 'openverse' => $source ] );
+
+		$result = ImageSourceFactory::search_candidates( 'portfolio', -5 );
+
+		$this->assertIsArray( $result );
+		$this->assertCount( 1, $result['candidates'] );
 	}
 
 	/**

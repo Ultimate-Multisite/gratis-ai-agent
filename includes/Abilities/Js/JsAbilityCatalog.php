@@ -464,7 +464,7 @@ class JsAbilityCatalog {
 				'height'   => array( 'type' => 'integer' ),
 				'error'    => array( 'type' => 'string' ),
 			),
-			'required'   => array( 'post_id', 'url', 'viewport', 'success', 'image', 'width', 'height', 'error' ),
+			'required'   => array( 'post_id', 'url', 'viewport', 'success' ),
 		);
 	}
 

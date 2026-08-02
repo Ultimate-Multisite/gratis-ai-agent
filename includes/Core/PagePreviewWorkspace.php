@@ -89,7 +89,7 @@ final class PagePreviewWorkspace {
 	 *
 	 * @return WP_Post|WP_Error
 	 */
-	public static function get_working_post( int $post_id ) {
+	public static function get_working_post( int $post_id ): WP_Post|WP_Error {
 		$parent = get_post( $post_id );
 		if ( ! ( $parent instanceof WP_Post ) ) {
 			return new WP_Error(
@@ -185,7 +185,7 @@ final class PagePreviewWorkspace {
 	 * @phpstan-param list<string> $affected_fields
 	 * @return array<string,mixed>|WP_Error|null
 	 */
-	public static function stage_fields( int $post_id, array $fields, ?int $featured_image_id = null, array $affected_fields = array() ) {
+	public static function stage_fields( int $post_id, array $fields, ?int $featured_image_id = null, array $affected_fields = array() ): array|WP_Error|null {
 		$parent = get_post( $post_id );
 		if ( ! ( $parent instanceof WP_Post ) || ! self::governs( $parent ) ) {
 			return null;
@@ -272,15 +272,42 @@ final class PagePreviewWorkspace {
 			return $scope;
 		}
 
-		$controller  = new \WP_REST_Autosaves_Controller( 'page' );
-		$autosave_id = $controller->create_post_autosave(
-			array(
-				'ID'           => $post_id,
-				'post_title'   => $title,
-				'post_content' => $content,
-				'post_excerpt' => $excerpt,
-			)
-		);
+		$metadata['generation']   = (int) ( $metadata['generation'] ?? 0 ) + 1;
+		$metadata['working_hash'] = $working_hash;
+		$metadata['updated_at']   = time();
+		$stored_fields            = array();
+		$raw_fields               = is_array( $metadata['fields'] ?? null ) ? $metadata['fields'] : array();
+		foreach ( array_merge( $raw_fields, $affected_fields ) as $field ) {
+			if ( is_scalar( $field ) ) {
+				$stored_fields[] = (string) $field;
+			}
+		}
+		$metadata['fields'] = array_values( array_unique( $stored_fields ) );
+
+		// Persist ownership inside the autosave insertion lifecycle. This closes
+		// the failure window where WordPress had written a revision but the next
+		// request could only see an apparently unrelated editor autosave.
+		$persist_ownership = static function ( int $saved_post_id, WP_Post $saved_post ) use ( $post_id, $metadata ): void {
+			if ( 'revision' !== $saved_post->post_type || $post_id !== (int) wp_is_post_autosave( $saved_post_id ) ) {
+				return;
+			}
+			// update_post_meta() redirects revision IDs to their parent.
+			update_metadata( 'post', $saved_post_id, self::META_KEY, $metadata );
+		};
+		add_action( 'wp_after_insert_post', $persist_ownership, 10, 2 );
+		try {
+			$controller  = new \WP_REST_Autosaves_Controller( 'page' );
+			$autosave_id = $controller->create_post_autosave(
+				array(
+					'ID'           => $post_id,
+					'post_title'   => $title,
+					'post_content' => $content,
+					'post_excerpt' => $excerpt,
+				)
+			);
+		} finally {
+			remove_action( 'wp_after_insert_post', $persist_ownership, 10 );
+		}
 		if ( is_wp_error( $autosave_id ) ) {
 			if ( ! ( $autosave instanceof WP_Post ) ) {
 				self::release_context_scope( $post_id );
@@ -298,19 +325,8 @@ final class PagePreviewWorkspace {
 			);
 		}
 
-		$metadata['generation']   = (int) ( $metadata['generation'] ?? 0 ) + 1;
-		$metadata['working_hash'] = $working_hash;
-		$metadata['updated_at']   = time();
-		$stored_fields            = array();
-		$raw_fields               = is_array( $metadata['fields'] ?? null ) ? $metadata['fields'] : array();
-		foreach ( array_merge( $raw_fields, $affected_fields ) as $field ) {
-			if ( is_scalar( $field ) ) {
-				$stored_fields[] = (string) $field;
-			}
-		}
-		$metadata['fields'] = array_values( array_unique( $stored_fields ) );
-		// Use low-level metadata APIs: update_post_meta() redirects revision IDs
-		// to their parent and would make the autosave appear unowned on resume.
+		// Keep this idempotent write for WordPress implementations that suppress
+		// the normal post-insertion hook while creating autosave revisions.
 		update_metadata( 'post', (int) $autosave_id, self::META_KEY, $metadata );
 
 		return self::build_descriptor( $parent, (int) $autosave_id, $metadata );
@@ -323,42 +339,8 @@ final class PagePreviewWorkspace {
 	 * @return true|WP_Error
 	 */
 	public static function preflight_commit( array $target ): true|WP_Error {
-		$post_id      = (int) ( $target['post_id'] ?? 0 );
-		$workspace_id = (string) ( $target['workspace_id'] ?? '' );
-		$autosave_id  = (int) ( $target['revision_id'] ?? 0 );
-		$workspace    = self::load_owned_workspace( $post_id, true );
-		if ( is_wp_error( $workspace ) ) {
-			return $workspace;
-		}
-		if ( ! is_array( $workspace ) ) {
-			return new WP_Error(
-				'sd_ai_agent_preview_missing',
-				__( 'The approved page preview no longer exists.', 'superdav-ai-agent' ),
-				array( 'status' => 409 )
-			);
-		}
-		$metadata = $workspace['metadata'];
-		if ( $workspace_id !== (string) ( $metadata['workspace_id'] ?? '' ) || $autosave_id !== (int) $workspace['autosave']->ID ) {
-			return new WP_Error(
-				'sd_ai_agent_preview_target_mismatch',
-				__( 'The approved page preview does not match the current working copy.', 'superdav-ai-agent' ),
-				array( 'status' => 409 )
-			);
-		}
-		$integrity = self::verify_workspace_integrity( $workspace );
-		if ( is_wp_error( $integrity ) ) {
-			return $integrity;
-		}
-		$featured_image_id = (int) ( $metadata['featured_image_id'] ?? 0 );
-		$changed_fields    = is_array( $metadata['fields'] ?? null ) ? $metadata['fields'] : array();
-		if ( in_array( 'featured_image', $changed_fields, true ) && $featured_image_id > 0 && ! self::is_previewable_image( $featured_image_id ) ) {
-			return new WP_Error(
-				'sd_ai_agent_preview_featured_image_missing',
-				__( 'The approved preview featured image is no longer renderable, so the page was not published.', 'superdav-ai-agent' ),
-				array( 'status' => 409 )
-			);
-		}
-		return true;
+		$workspace = self::verified_workspace( $target );
+		return is_wp_error( $workspace ) ? $workspace : true;
 	}
 
 	/**
@@ -367,42 +349,18 @@ final class PagePreviewWorkspace {
 	 * @param array<string,mixed> $target Gate-owned preview target.
 	 * @return array<string,mixed>|WP_Error
 	 */
-	public static function commit( array $target ) {
-		$preflight = self::preflight_commit( $target );
-		if ( is_wp_error( $preflight ) ) {
-			return $preflight;
+	public static function commit( array $target ): array|WP_Error {
+		$workspace = self::verified_workspace( $target );
+		if ( is_wp_error( $workspace ) ) {
+			return $workspace;
 		}
 
 		$post_id      = (int) ( $target['post_id'] ?? 0 );
 		$workspace_id = (string) ( $target['workspace_id'] ?? '' );
 		$autosave_id  = (int) ( $target['revision_id'] ?? 0 );
-		$workspace    = self::load_owned_workspace( $post_id, true );
-		if ( is_wp_error( $workspace ) ) {
-			return $workspace;
-		}
-		if ( ! is_array( $workspace ) ) {
-			return new WP_Error(
-				'sd_ai_agent_preview_missing',
-				__( 'The approved page preview no longer exists.', 'superdav-ai-agent' ),
-				array( 'status' => 409 )
-			);
-		}
-
-		$metadata = $workspace['metadata'];
-		if ( $workspace_id !== (string) ( $metadata['workspace_id'] ?? '' ) || $autosave_id !== (int) $workspace['autosave']->ID ) {
-			return new WP_Error(
-				'sd_ai_agent_preview_target_mismatch',
-				__( 'The approved page preview does not match the current working copy.', 'superdav-ai-agent' ),
-				array( 'status' => 409 )
-			);
-		}
-		$integrity = self::verify_workspace_integrity( $workspace );
-		if ( is_wp_error( $integrity ) ) {
-			return $integrity;
-		}
-
-		$autosave = $workspace['autosave'];
-		$result   = wp_update_post(
+		$metadata     = $workspace['metadata'];
+		$autosave     = $workspace['autosave'];
+		$result       = wp_update_post(
 			array(
 				'ID'           => $post_id,
 				'post_title'   => $autosave->post_title,
@@ -515,7 +473,7 @@ final class PagePreviewWorkspace {
 	 * @param bool $conflict_on_foreign Whether an unrelated autosave is an error.
 	 * @return array{parent:WP_Post,autosave:WP_Post,metadata:array<string,mixed>}|WP_Error|null
 	 */
-	private static function load_owned_workspace( int $post_id, bool $conflict_on_foreign ) {
+	private static function load_owned_workspace( int $post_id, bool $conflict_on_foreign ): array|WP_Error|null {
 		$parent = get_post( $post_id );
 		if ( ! ( $parent instanceof WP_Post ) || ! self::governs( $parent ) ) {
 			return null;
@@ -553,6 +511,62 @@ final class PagePreviewWorkspace {
 			'autosave' => $autosave,
 			'metadata' => $normalized_metadata,
 		);
+	}
+
+	/**
+	 * Load and verify the exact workspace named by a gate target.
+	 *
+	 * @param array<string,mixed> $target Gate-owned preview target.
+	 * @return array{parent:WP_Post,autosave:WP_Post,metadata:array<string,mixed>}|WP_Error
+	 */
+	private static function verified_workspace( array $target ): array|WP_Error {
+		$post_id      = (int) ( $target['post_id'] ?? 0 );
+		$workspace_id = (string) ( $target['workspace_id'] ?? '' );
+		$autosave_id  = (int) ( $target['revision_id'] ?? 0 );
+		if ( ! current_user_can( 'edit_post', $post_id ) ) {
+			return new WP_Error(
+				'insufficient_capability',
+				__( 'You do not have permission to publish this page preview.', 'superdav-ai-agent' ),
+				array( 'status' => 403 )
+			);
+		}
+
+		$workspace = self::load_owned_workspace( $post_id, true );
+		if ( is_wp_error( $workspace ) ) {
+			return $workspace;
+		}
+		if ( ! is_array( $workspace ) ) {
+			return new WP_Error(
+				'sd_ai_agent_preview_missing',
+				__( 'The approved page preview no longer exists.', 'superdav-ai-agent' ),
+				array( 'status' => 409 )
+			);
+		}
+
+		$metadata = $workspace['metadata'];
+		if ( $workspace_id !== (string) ( $metadata['workspace_id'] ?? '' ) || $autosave_id !== (int) $workspace['autosave']->ID ) {
+			return new WP_Error(
+				'sd_ai_agent_preview_target_mismatch',
+				__( 'The approved page preview does not match the current working copy.', 'superdav-ai-agent' ),
+				array( 'status' => 409 )
+			);
+		}
+		$integrity = self::verify_workspace_integrity( $workspace );
+		if ( is_wp_error( $integrity ) ) {
+			return $integrity;
+		}
+
+		$featured_image_id = (int) ( $metadata['featured_image_id'] ?? 0 );
+		$changed_fields    = is_array( $metadata['fields'] ?? null ) ? $metadata['fields'] : array();
+		if ( in_array( 'featured_image', $changed_fields, true ) && $featured_image_id > 0 && ! self::is_previewable_image( $featured_image_id ) ) {
+			return new WP_Error(
+				'sd_ai_agent_preview_featured_image_missing',
+				__( 'The approved preview featured image is no longer renderable, so the page was not published.', 'superdav-ai-agent' ),
+				array( 'status' => 409 )
+			);
+		}
+
+		return $workspace;
 	}
 
 	/**

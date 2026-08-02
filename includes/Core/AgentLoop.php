@@ -581,33 +581,32 @@ PROMPT;
 		// attribute subsequent telemetry to the configured model.
 		IdenticalFailureTracker::reset();
 		ModelHealthTracker::set_current_model( $this->model_id );
-		$this->apply_anonymous_mode_context();
-		$this->apply_page_preview_context();
-
-		// Make session_id available to event-log emitters in sub-layers
-		// (AbilityFunctionResolver, ProviderTraceLogger) that don't carry
-		// a session reference through their call chain. Always cleared on exit
-		// via try/finally so a thrown exception cannot leak attribution into
-		// a subsequent unrelated run.
-		AgentEventLog::set_session( $this->session_id );
-
-		// Ensure provider auth is available (critical for loopback requests).
-		ProviderCredentialLoader::load();
-
-		// Register a shutdown handler to mark the active-jobs row as
-		// 'interrupted' if the PHP request terminates before the loop
-		// completes (PHP fatal, FastCGI/nginx timeout, SIGKILL, OOM).
-		// Only registered when an active_job_id is set (background jobs).
-		// The handler is a no-op when the row is no longer 'processing'
-		// (i.e. the loop finished normally and updated the status first).
-		if ( '' !== $this->active_job_id ) {
-			register_shutdown_function( array( $this, 'handle_active_job_shutdown' ) );
-		}
-
-		// Append the new user message to history.
-		$this->history[] = new UserMessage( array( new MessagePart( $this->user_message ) ) );
 
 		try {
+			$this->apply_anonymous_mode_context();
+			$this->apply_page_preview_context();
+
+			// Make session_id available to event-log emitters in sub-layers
+			// (AbilityFunctionResolver, ProviderTraceLogger) that don't carry
+			// a session reference through their call chain.
+			AgentEventLog::set_session( $this->session_id );
+
+			// Ensure provider auth is available (critical for loopback requests).
+			ProviderCredentialLoader::load();
+
+			// Register a shutdown handler to mark the active-jobs row as
+			// 'interrupted' if the PHP request terminates before the loop
+			// completes (PHP fatal, FastCGI/nginx timeout, SIGKILL, OOM).
+			// Only registered when an active_job_id is set (background jobs).
+			// The handler is a no-op when the row is no longer 'processing'
+			// (i.e. the loop finished normally and updated the status first).
+			if ( '' !== $this->active_job_id ) {
+				register_shutdown_function( array( $this, 'handle_active_job_shutdown' ) );
+			}
+
+			// Append the new user message to history.
+			$this->history[] = new UserMessage( array( new MessagePart( $this->user_message ) ) );
+
 			$result = $this->run_loop( $this->max_iterations );
 
 			// Apply Phase-1 outcome heuristic to skill usage rows for this session.
@@ -737,11 +736,10 @@ PROMPT;
 			);
 		}
 
-		$this->apply_anonymous_mode_context();
-		$this->apply_page_preview_context();
-		AgentEventLog::set_session( $this->session_id );
-
 		try {
+			$this->apply_anonymous_mode_context();
+			$this->apply_page_preview_context();
+			AgentEventLog::set_session( $this->session_id );
 			ProviderCredentialLoader::load();
 
 			if ( $confirmed ) {
@@ -807,11 +805,11 @@ PROMPT;
 
 		IdenticalFailureTracker::reset();
 		ModelHealthTracker::set_current_model( $this->model_id );
-		$this->apply_anonymous_mode_context();
-		$this->apply_page_preview_context();
-		AgentEventLog::set_session( $this->session_id );
 
 		try {
+			$this->apply_anonymous_mode_context();
+			$this->apply_page_preview_context();
+			AgentEventLog::set_session( $this->session_id );
 			ProviderCredentialLoader::load();
 
 			if ( '' !== $this->active_job_id ) {
@@ -871,7 +869,11 @@ PROMPT;
 			if ( self::is_screenshot_tool_name( $name ) && is_array( $result_payload ) ) {
 				if ( is_string( $result_payload['image'] ?? null ) && str_starts_with( $result_payload['image'], 'data:image/' ) ) {
 					try {
-						$review_parts[] = new MessagePart( new File( $result_payload['image'], 'image/jpeg' ) );
+						$mime_type = self::screenshot_data_uri_mime_type( $result_payload['image'] );
+						if ( null === $mime_type ) {
+							throw new \UnexpectedValueException( 'Screenshot data URI has no supported image MIME type.' );
+						}
+						$review_parts[] = new MessagePart( new File( $result_payload['image'], $mime_type ) );
 						unset( $result_payload['image'] );
 						$result_payload['attached_to_model'] = true;
 					} catch ( \Throwable $e ) {
@@ -886,7 +888,11 @@ PROMPT;
 							continue;
 						}
 						try {
-							$review_parts[] = new MessagePart( new File( $screenshot['image'], 'image/jpeg' ) );
+							$mime_type = self::screenshot_data_uri_mime_type( $screenshot['image'] );
+							if ( null === $mime_type ) {
+								throw new \UnexpectedValueException( 'Screenshot data URI has no supported image MIME type.' );
+							}
+							$review_parts[] = new MessagePart( new File( $screenshot['image'], $mime_type ) );
 							unset( $result_payload['screenshots'][ $screenshot_index ]['image'] );
 							$result_payload['screenshots'][ $screenshot_index ]['attached_to_model'] = true;
 						} catch ( \Throwable $e ) {
@@ -955,9 +961,9 @@ PROMPT;
 			$this->fire_progress();
 		}
 
-		$this->apply_anonymous_mode_context();
-		$this->apply_page_preview_context();
 		try {
+			$this->apply_anonymous_mode_context();
+			$this->apply_page_preview_context();
 			return $this->run_loop( $remaining_iterations );
 		} finally {
 			$this->clear_anonymous_mode_context();
@@ -1769,7 +1775,7 @@ PROMPT;
 							'provider_id'               => $this->provider_id,
 							'client_abilities'          => $this->client_abilities,
 							'agent_slug'                => $this->agent_slug,
-							'page_context'              => $this->page_context,
+							'page_context'              => $this->checkpoint_page_context(),
 							// Bind the browser's resume payload to this exact paused batch.
 							'pending_client_tool_calls' => $partition['client'],
 						);
@@ -1853,7 +1859,7 @@ PROMPT;
 						'provider_id'          => $this->provider_id,
 						'client_abilities'     => $this->client_abilities,
 						'agent_slug'           => $this->agent_slug,
-						'page_context'         => $this->page_context,
+						'page_context'         => $this->checkpoint_page_context(),
 					);
 					Database::save_paused_state( $this->session_id, $paused_state );
 				}
@@ -2717,7 +2723,7 @@ PROMPT;
 					'provider_id'          => $this->provider_id,
 					'client_abilities'     => $this->client_abilities,
 					'agent_slug'           => $this->agent_slug,
-					'page_context'         => $this->page_context,
+					'page_context'         => $this->checkpoint_page_context(),
 					'iterations_remaining' => max( 1, (int) $this->max_iterations - $this->iterations_used ),
 					'exit_reason'          => 'provider_retry_failed',
 				]
@@ -4600,7 +4606,7 @@ PROMPT;
 					'provider_id'               => $this->provider_id,
 					'client_abilities'          => $this->client_abilities,
 					'agent_slug'                => $this->agent_slug,
-					'page_context'              => $this->page_context,
+					'page_context'              => $this->checkpoint_page_context(),
 					'pending_client_tool_calls' => $pending,
 				)
 			);
@@ -4648,14 +4654,15 @@ PROMPT;
 			}
 		}
 
-		$published = array();
+		$published     = array();
+		$publish_error = null;
 		ChangeLogger::begin( $this->session_id, 'sd-ai-agent/publish-page-preview' );
 		try {
 			foreach ( $targets as $target ) {
 				$result = PagePreviewWorkspace::commit( $target );
 				if ( is_wp_error( $result ) ) {
-					$this->page_completion_gate->record_publish_failure( $result->get_error_message() );
-					return $result;
+					$publish_error = $result;
+					break;
 				}
 				$published[] = $result;
 			}
@@ -4663,7 +4670,13 @@ PROMPT;
 			ChangeLogger::end();
 		}
 
-		$this->page_completion_gate->record_published_previews( $published );
+		if ( ! empty( $published ) ) {
+			$this->page_completion_gate->record_published_previews( $published );
+		}
+		if ( $publish_error instanceof WP_Error ) {
+			$this->page_completion_gate->record_publish_failure( $publish_error->get_error_message() );
+			return $publish_error;
+		}
 		$publish_call_id       = 'publish_page_preview_' . str_replace( '-', '', wp_generate_uuid4() );
 		$this->tool_call_log[] = array(
 			'type'     => 'call',
@@ -4737,6 +4750,15 @@ PROMPT;
 			);
 		}
 		$this->page_completion_gate->record_previews_discarded();
+	}
+
+	/** Extract a safe image MIME type from a base64 screenshot data URI. */
+	private static function screenshot_data_uri_mime_type( string $data_uri ): ?string {
+		if ( 1 !== preg_match( '/^data:(image\/[a-z0-9.+-]+)(?:;[^,]*)?;base64,/i', $data_uri, $matches ) ) {
+			return null;
+		}
+
+		return strtolower( (string) $matches[1] );
 	}
 
 	/** Return whether an SDK function name produces visual screenshot evidence. */

@@ -54,6 +54,32 @@ function normalizeUrl( url ) {
 }
 
 /**
+ * Report the document's real final location without leaking preview secrets.
+ *
+ * @param {string} finalUrl     Iframe location after redirects.
+ * @param {string} renderMode   Gate-owned render mode.
+ * @param {string} canonicalUrl Public target URL without preview credentials.
+ * @return {string} Nonce-free final URL evidence.
+ */
+function reportedFinalUrl( finalUrl, renderMode, canonicalUrl ) {
+	try {
+		const resolved = new URL( finalUrl, window.location.origin );
+		if ( renderMode === 'preview' ) {
+			const canonical = new URL( canonicalUrl, window.location.origin );
+			resolved.search =
+				resolved.origin === canonical.origin &&
+				resolved.pathname === canonical.pathname
+					? canonical.search
+					: '';
+			resolved.hash = '';
+		}
+		return normalizeUrl( resolved.href );
+	} catch {
+		return normalizeUrl( finalUrl );
+	}
+}
+
+/**
  * Resolve a browser-session-valid WordPress preview URL without exposing its
  * nonce to the background worker, model transcript, or persisted report.
  *
@@ -921,6 +947,7 @@ export async function validatePageQuality( args ) {
 			} );
 
 			if ( ! loaded.success || ! loaded.document || ! loaded.window ) {
+				loaded.cleanup();
 				const item = finding( {
 					code: 'frontend_render_failed',
 					url: page.url,
@@ -948,6 +975,11 @@ export async function validatePageQuality( args ) {
 				continue;
 			}
 
+			const finalUrl = reportedFinalUrl(
+				loaded.url,
+				renderMode,
+				page.url
+			);
 			try {
 				// eslint-disable-next-line no-await-in-loop -- Native lazy images must settle before natural dimensions are measured.
 				await settleImages( loaded.document );
@@ -962,7 +994,7 @@ export async function validatePageQuality( args ) {
 				} );
 				const semanticallyHome = isHomepageDocument(
 					loaded.document,
-					renderUrl,
+					finalUrl,
 					page.url,
 					page.role
 				);
@@ -984,7 +1016,7 @@ export async function validatePageQuality( args ) {
 					post_id: Number( page.post_id ),
 					revision_id: Number( page.revision_id || 0 ),
 					requested_url: normalizeUrl( page.url ),
-					final_url: normalizeUrl( page.url ),
+					final_url: finalUrl,
 					role: page.role,
 					render_mode: renderMode,
 					is_homepage: semanticallyHome,
@@ -1047,7 +1079,7 @@ export async function validatePageQuality( args ) {
 					post_id: Number( page.post_id ),
 					revision_id: Number( page.revision_id || 0 ),
 					requested_url: normalizeUrl( page.url ),
-					final_url: normalizeUrl( page.url ),
+					final_url: finalUrl,
 					role: page.role,
 					render_mode: renderMode,
 					viewport,
