@@ -597,9 +597,7 @@ Assistant: %s',
 		$iterations_remaining = (int) ( $paused_state['iterations_remaining'] ?? 100 );
 
 		// Reconstruct the AgentLoop with the persisted state.
-		$options = array(
-			'provider_id'      => (string) ( $paused_state['provider_id'] ?? '' ),
-			'model_id'         => (string) ( $paused_state['model_id'] ?? '' ),
+		$options            = array(
 			'tool_call_log'    => $paused_state['tool_call_log'] ?? array(),
 			'message_log'      => $paused_state['message_log'] ?? array(),
 			'token_usage'      => $paused_state['token_usage'] ?? array(
@@ -610,6 +608,14 @@ Assistant: %s',
 			'client_abilities' => $paused_state['client_abilities'] ?? array(),
 			'page_context'     => $paused_state['page_context'] ?? array(),
 		);
+		$paused_provider_id = trim( (string) ( $paused_state['provider_id'] ?? '' ) );
+		$paused_model_id    = trim( (string) ( $paused_state['model_id'] ?? '' ) );
+		if ( '' !== $paused_provider_id ) {
+			$options['provider_id'] = $paused_provider_id;
+		}
+		if ( '' !== $paused_model_id ) {
+			$options['model_id'] = $paused_model_id;
+		}
 
 		// A browser-tool pause must not silently turn Setup Assistant or a
 		// specialized agent into General on resume. Rehydrate the original
@@ -640,8 +646,8 @@ Assistant: %s',
 				$result,
 				array(
 					'last_safe_phase' => 'client_tool_resume',
-					'provider_id'     => $options['provider_id'],
-					'model_id'        => $options['model_id'],
+					'provider_id'     => (string) ( $options['provider_id'] ?? '' ),
+					'model_id'        => (string) ( $options['model_id'] ?? '' ),
 				)
 			);
 

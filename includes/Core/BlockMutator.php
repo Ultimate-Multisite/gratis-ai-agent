@@ -1237,7 +1237,16 @@ class BlockMutator {
 	 * @return array<int|string,mixed>|\WP_Error
 	 */
 	private static function op_update_html( array $blocks, array $path, array $args ) {
-		if ( ! isset( $args['innerHTML'] ) || ! is_string( $args['innerHTML'] ) || '' === trim( $args['innerHTML'] ) ) {
+		if ( ! isset( $args['innerHTML'] ) || ! is_string( $args['innerHTML'] ) ) {
+			return new \WP_Error(
+				'missing_inner_html',
+				'update-html requires a non-empty innerHTML string. Use remove-block to remove content.',
+				[ 'status' => 400 ]
+			);
+		}
+
+		$safe_html = wp_kses_post( $args['innerHTML'] );
+		if ( '' === trim( $safe_html ) ) {
 			return new \WP_Error(
 				'missing_inner_html',
 				'update-html requires a non-empty innerHTML string. Use remove-block to remove content.',
@@ -1282,8 +1291,6 @@ class BlockMutator {
 				}
 			}
 		}
-
-		$safe_html = wp_kses_post( $args['innerHTML'] );
 
 		// When attributes are also supplied (required for dual-storage blocks),
 		// capture the merge flag and attrs for the closure.

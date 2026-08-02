@@ -201,6 +201,60 @@ class PageCompletionGateTest extends WP_UnitTestCase {
 		$this->assertTrue( $gate->has_current_passing_report() );
 	}
 
+	/** Preview approval and public smoke validation never use a mixed render mode. */
+	public function test_preview_phase_defers_unrelated_public_targets_until_public_smoke(): void {
+		$gate = $this->gate( PageCompletionGate::PROFILE_SETUP );
+		$this->record_page( $gate, 42, 'https://example.test/other/', 102 );
+		$gate->record_tool_call( 'sd-ai-agent/edit-block-tree', array( 'post_id' => 41 ) );
+		$gate->record_tool_response(
+			'sd-ai-agent/edit-block-tree',
+			array(
+				'success'     => true,
+				'post_id'     => 41,
+				'revision_id' => 501,
+				'render_mode' => 'preview',
+				'preview'     => array(
+					'render_mode'       => 'preview',
+					'workspace_id'      => 'workspace-41',
+					'autosave_id'       => 501,
+					'preview_rest_path' => '/wp/v2/pages/41/autosaves/501?context=edit',
+					'generation'        => 1,
+					'working_hash'      => 'preview-hash',
+				),
+				'affected'    => array(
+					'post_id'   => 41,
+					'post_type' => 'page',
+					'status'    => 'publish',
+					'url'       => self::PAGE_URL,
+					'fields'    => array( 'post_content' ),
+				),
+			)
+		);
+
+		$preview_inputs = $gate->get_expected_report_inputs();
+		$this->assertSame( 'preview', $preview_inputs['render_mode'] );
+		$this->assertCount( 1, $preview_inputs['pages'] );
+		$this->assertSame( 41, $preview_inputs['pages'][0]['post_id'] );
+		$gate->record_tool_call( PageCompletionGate::CLIENT_ABILITY, $preview_inputs );
+		$gate->record_tool_response( PageCompletionGate::CLIENT_ABILITY, $this->passing_report( $preview_inputs ) );
+		$this->assertTrue( $gate->is_ready_to_publish() );
+
+		$gate->record_published_previews(
+			array(
+				array(
+					'post_id'      => 41,
+					'revision_id'  => 777,
+					'workspace_id' => 'workspace-41',
+					'permalink'    => self::PAGE_URL,
+				),
+			)
+		);
+		$public_inputs = $gate->get_expected_report_inputs();
+		$this->assertSame( 'public', $public_inputs['render_mode'] );
+		$this->assertCount( 2, $public_inputs['pages'] );
+		$this->assertFalse( $gate->get_status()['public_smoke_only'] );
+	}
+
 	/** Any later mutation invalidates a report by changing the quality token. */
 	public function test_page_mutation_invalidates_passing_report_and_token(): void {
 		$gate = $this->gate( PageCompletionGate::PROFILE_INCREMENTAL );
@@ -216,6 +270,24 @@ class PageCompletionGateTest extends WP_UnitTestCase {
 		$this->assertFalse( $gate->has_current_passing_report() );
 		$this->assertNotSame( $before['quality_token'], $after['quality_token'] );
 		$this->assertTrue( $gate->requires_repair() );
+	}
+
+	/** A same-origin redirect cannot masquerade as the requested page. */
+	public function test_same_origin_redirect_report_is_rejected(): void {
+		$gate = $this->gate( PageCompletionGate::PROFILE_INCREMENTAL );
+		$this->record_page( $gate, 41, self::PAGE_URL, 101 );
+		$inputs = $gate->get_expected_report_inputs();
+		$report = $this->passing_report( $inputs );
+		foreach ( $report['reports'] as &$item ) {
+			$item['final_url'] = 'https://example.test/login/';
+		}
+		unset( $item );
+
+		$gate->record_tool_call( PageCompletionGate::CLIENT_ABILITY, $inputs );
+		$gate->record_tool_response( PageCompletionGate::CLIENT_ABILITY, $report );
+
+		$this->assertFalse( $gate->has_current_passing_report() );
+		$this->assertStringContainsString( 'partial', $gate->get_status()['last_failure'] );
 	}
 
 	/** A stale report cannot satisfy a later page revision. */

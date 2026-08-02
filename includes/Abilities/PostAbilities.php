@@ -1495,7 +1495,8 @@ class PostAbilities {
 			return $guard;
 		}
 
-		$post_data = [ 'ID' => $post_id ];
+		$post_data             = [ 'ID' => $post_id ];
+		$ignored_status_change = false;
 
 		// Some strict provider adapters materialize every omitted optional field as
 		// an empty string/array (and choose the first enum value, "draft"). Treat
@@ -1522,6 +1523,7 @@ class PostAbilities {
 			if ( in_array( $new_status, $allowed_statuses, true ) && $new_status !== $post->post_status && ! $unsafe_provider_default ) {
 				$post_data['post_status'] = $new_status;
 			}
+			$ignored_status_change = $unsafe_provider_default;
 		}
 		$page_template = null;
 		if ( isset( $input['page_template'] ) && '' !== trim( (string) $input['page_template'] ) ) {
@@ -1601,8 +1603,12 @@ class PostAbilities {
 						$response['block_validation'] = $validation;
 					}
 				}
-				$response['affected']                = self::build_affected_payload( $post_id, $post, $permalink, $input, $post_data );
+				$response['affected']                = self::build_affected_payload( $post_id, $post, $permalink, array(), $post_data );
+				$response['affected']['fields']      = $affected_fields;
 				$response['affected']['render_mode'] = 'preview';
+				if ( $ignored_status_change ) {
+					$response['ignored_fields'] = array( 'status' => 'draft requires confirm_status_change=true for a published post' );
+				}
 				return $response;
 			}
 		}
@@ -1690,6 +1696,9 @@ class PostAbilities {
 			unset( $affected_input['meta'] );
 		}
 		$response['affected'] = self::build_affected_payload( $post_id, $updated_post, $permalink, $affected_input, $post_data );
+		if ( $ignored_status_change ) {
+			$response['ignored_fields'] = array( 'status' => 'draft requires confirm_status_change=true for a published post' );
+		}
 
 		return $response;
 	}
@@ -1808,6 +1817,17 @@ class PostAbilities {
 				);
 			}
 			return $post;
+		}
+
+		if ( ! current_user_can( 'edit_post', $post_id ) ) {
+			if ( $switched ) {
+				restore_current_blog();
+			}
+			return new WP_Error(
+				'insufficient_capability',
+				__( 'You do not have permission to edit this post.', 'superdav-ai-agent' ),
+				array( 'status' => 403 )
+			);
 		}
 
 		// Optimistic concurrency check (opt-in via expected_revision).
@@ -2015,7 +2035,32 @@ class PostAbilities {
 			);
 		}
 
+		if ( ! current_user_can( 'edit_post', $post_id ) ) {
+			if ( $switched ) {
+				restore_current_blog();
+			}
+			return new WP_Error(
+				'insufficient_capability',
+				__( 'You do not have permission to edit this post.', 'superdav-ai-agent' ),
+				array( 'status' => 403 )
+			);
+		}
+
 		if ( PagePreviewWorkspace::governs( $post ) ) {
+			if ( $featured_image_id === (int) get_post_thumbnail_id( $post_id ) && ! PagePreviewWorkspace::has_workspace( $post_id ) ) {
+				$permalink = get_permalink( $post_id );
+				$affected  = self::build_affected_payload( $post_id, $post, $permalink, $input, array() );
+				if ( $switched ) {
+					restore_current_blog();
+				}
+				return array(
+					'post_id'           => $post_id,
+					'featured_image_id' => $featured_image_id,
+					'result'            => 0 === $featured_image_id ? 'removed' : 'set',
+					'affected'          => $affected,
+				);
+			}
+
 			$preview = PagePreviewWorkspace::stage_fields( $post_id, array(), $featured_image_id, array( 'featured_image' ) );
 			if ( is_wp_error( $preview ) ) {
 				if ( $switched ) {

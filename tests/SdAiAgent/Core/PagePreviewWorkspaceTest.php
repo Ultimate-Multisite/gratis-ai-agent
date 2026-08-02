@@ -99,6 +99,33 @@ class PagePreviewWorkspaceTest extends WP_UnitTestCase {
 		$this->assertInstanceOf( \WP_Post::class, wp_get_post_autosave( $post_id, $this->user_id ) );
 	}
 
+	/** Publication rechecks capabilities after preview approval. */
+	public function test_commit_rejects_capability_revoked_after_staging(): void {
+		$post_id = self::factory()->post->create(
+			array(
+				'post_type'    => 'page',
+				'post_status'  => 'publish',
+				'post_content' => 'Live copy',
+			)
+		);
+		$preview = PagePreviewWorkspace::stage_fields( $post_id, array( 'post_content' => 'Preview copy' ) );
+		$this->assertIsArray( $preview );
+
+		$subscriber_id = self::factory()->user->create( array( 'role' => 'subscriber' ) );
+		wp_set_current_user( $subscriber_id );
+		$result = PagePreviewWorkspace::commit(
+			array(
+				'post_id'      => $post_id,
+				'revision_id'  => $preview['autosave_id'],
+				'workspace_id' => $preview['workspace_id'],
+			)
+		);
+
+		$this->assertWPError( $result );
+		$this->assertSame( 'insufficient_capability', $result->get_error_code() );
+		$this->assertSame( 'Live copy', get_post( $post_id )->post_content );
+	}
+
 	/** Existing editor autosaves are never overwritten by an AI workspace. */
 	public function test_unrelated_autosave_causes_conflict(): void {
 		$post_id = self::factory()->post->create(
@@ -137,6 +164,26 @@ class PagePreviewWorkspaceTest extends WP_UnitTestCase {
 		$this->assertWPError( $result );
 		$this->assertSame( 'sd_ai_agent_preview_scope_conflict', $result->get_error_code() );
 		$this->assertSame( 'Second live', get_post( $second )->post_content );
+	}
+
+	/** Read-oriented ref persistence degrades safely outside the claimed page scope. */
+	public function test_get_page_blocks_scope_conflict_returns_non_persisting_read(): void {
+		$first = self::factory()->post->create( array( 'post_type' => 'page', 'post_status' => 'publish', 'post_content' => 'First live' ) );
+		$second_content = '<!-- wp:paragraph --><p>Second live</p><!-- /wp:paragraph -->';
+		$second         = self::factory()->post->create( array( 'post_type' => 'page', 'post_status' => 'publish', 'post_content' => $second_content ) );
+		$this->assertIsArray( PagePreviewWorkspace::stage_fields( $first, array( 'post_content' => 'First preview' ) ) );
+
+		$result = BlockAbilities::handle_get_page_blocks(
+			array(
+				'post_id'      => $second,
+				'persist_refs' => true,
+			)
+		);
+
+		$this->assertIsArray( $result );
+		$this->assertFalse( $result['refs_stored'] );
+		$this->assertNotEmpty( $result['blocks'][0]['ref'] );
+		$this->assertSame( $second_content, get_post( $second )->post_content );
 	}
 
 	/** Missing browser validation blocks the write instead of falling back live. */

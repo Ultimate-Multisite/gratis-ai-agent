@@ -110,7 +110,11 @@ export function ensureRegistered() {
 		await registerEditorAbility();
 		await registerCaptureScreenshotAbility();
 		await registerScreenshotUrlAbility();
-		await ( await import( './page-quality-validator' ) ).default();
+		try {
+			await ( await import( './page-quality-validator' ) ).default();
+		} catch {
+			// Keep the already-registered core browser abilities available.
+		}
 
 		// If the abilities API was not available (e.g. script module not
 		// yet loaded), the registration calls above silently no-oped.

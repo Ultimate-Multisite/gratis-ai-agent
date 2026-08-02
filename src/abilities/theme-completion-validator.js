@@ -651,6 +651,9 @@ export function inspectThemeDocument( {
 
 	const ids = new Map();
 	for ( const element of doc.querySelectorAll( '[id]' ) ) {
+		if ( isWordPressAdminChrome( element ) ) {
+			continue;
+		}
 		const id = element.id;
 		ids.set( id, ( ids.get( id ) || 0 ) + 1 );
 	}

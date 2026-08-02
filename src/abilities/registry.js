@@ -37,9 +37,14 @@
  *     registration pipeline properly async-aware.
  */
 
+import { __ } from '@wordpress/i18n';
+
 const CATEGORY_SLUG = 'sd-ai-agent-js';
-const CATEGORY_LABEL = 'SD AI Agent';
-const CATEGORY_DESCRIPTION = 'SD AI Agent browser abilities';
+const CATEGORY_LABEL = __( 'SD AI Agent', 'superdav-ai-agent' );
+const CATEGORY_DESCRIPTION = __(
+	'SD AI Agent browser abilities',
+	'superdav-ai-agent'
+);
 
 /**
  * Single category-registration Promise shared across all callers in the
@@ -200,10 +205,6 @@ export async function registerCategory() {
  */
 export async function registerClientAbility( def ) {
 	if ( ! def || typeof def.name !== 'string' || def.name === '' ) {
-		// eslint-disable-next-line no-console
-		console.warn(
-			'[sd-ai-agent] registerClientAbility called without a name; skipping.'
-		);
 		return;
 	}
 	if ( registeredAbilityNames.has( def.name ) ) {

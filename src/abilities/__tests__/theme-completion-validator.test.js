@@ -204,8 +204,11 @@ describe( 'generated theme completion validator', () => {
 	test( 'ignores logged-in WordPress admin-bar controls and remote avatars', () => {
 		document.body.insertAdjacentHTML(
 			'afterbegin',
-			'<div id="wpadminbar"><a class="ab-item" href="#"><img src="https://secure.gravatar.com/avatar/demo" alt="Admin"></a><button></button></div>'
+			'<div id="wpadminbar"><span id="site-marker"></span><a class="ab-item" href="#"><img src="https://secure.gravatar.com/avatar/demo" alt="Admin"></a><button></button></div>'
 		);
+		document
+			.querySelector( 'main' )
+			.insertAdjacentHTML( 'beforeend', '<div id="site-marker"></div>' );
 
 		const result = inspectThemeDocument( {
 			document,
@@ -219,6 +222,7 @@ describe( 'generated theme completion validator', () => {
 		expect( codes ).not.toContain( 'unprovided_remote_image' );
 		expect( codes ).not.toContain( 'empty_or_hash_link' );
 		expect( codes ).not.toContain( 'control_missing_accessible_name' );
+		expect( codes ).not.toContain( 'duplicate_id' );
 	} );
 
 	test( 'uses descendant image alt text for an image-only logo link', () => {

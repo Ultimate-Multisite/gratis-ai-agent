@@ -204,6 +204,7 @@ class ImageSourceFactory {
 			self::init();
 		}
 
+		$limit        = max( 1, $limit );
 		$available    = self::get_available();
 		$free_sources = array_filter(
 			$available,
@@ -322,9 +323,14 @@ class ImageSourceFactory {
 
 		// Fetch metadata for attribution before downloading.
 		$image_meta = $source->get_image( $image_id );
+		$usage      = (string) ( $options['usage'] ?? '' );
 		$hit        = [];
 
-		if ( ! is_wp_error( $image_meta ) ) {
+		if ( is_wp_error( $image_meta ) ) {
+			if ( '' !== $usage ) {
+				return $image_meta;
+			}
+		} else {
 			$hit = [
 				'id'          => $image_id,
 				'source'      => $image_meta['source'] ?? $provider,
@@ -339,7 +345,6 @@ class ImageSourceFactory {
 			];
 		}
 
-		$usage = (string) ( $options['usage'] ?? '' );
 		if ( '' !== $usage ) {
 			$assessment = self::assess_candidate_quality( $hit, $usage );
 			if ( ! $assessment['eligible'] ) {
@@ -402,9 +407,9 @@ class ImageSourceFactory {
 			$eligible  = false;
 			$reasons[] = sprintf( 'source height %1$dpx is below %2$dpx', $height, $min_height );
 		}
-		if ( 'hero' === $usage && $height > 0 && $width / $height < 1.3 ) {
+		if ( in_array( $usage, array( 'hero', 'gallery' ), true ) && $height > 0 && $width / $height < 1.3 ) {
 			$eligible  = false;
-			$reasons[] = 'hero source is not sufficiently landscape-oriented';
+			$reasons[] = sprintf( '%s source is not sufficiently landscape-oriented', $usage );
 		}
 		if ( '' !== $title && preg_match( '/\b(?:watermark(?:ed)?|preview|thumbnail|sample|screenshot|logo|signature)\b/i', $title ) ) {
 			$eligible  = false;
