@@ -262,6 +262,13 @@ Base unit: **4px**
 
 Err toward more whitespace. Padding should feel generous inside panels. List items can be compact (7px vertical padding) because the sidebar is a dense navigation element — the chat area should breathe more.
 
+### Account settings surfaces
+
+- Separate account overview, usage, and activity surfaces with a `24px` vertical gap.
+- Give each account surface `24px` desktop padding, reducing to `16px` on mobile, with an `8px` radius and the standard subtle border.
+- Keep the account header focused on one primary action. Coupon redemption opens in a modal rather than placing a persistent form between account sections.
+- Refresh managed account data automatically when the account screen mounts; do not require a manual refresh control for current balances.
+
 ---
 
 ## 6. Depth & Elevation
