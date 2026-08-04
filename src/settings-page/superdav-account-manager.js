@@ -2,7 +2,13 @@
  * WordPress dependencies
  */
 import { useCallback, useEffect, useState } from '@wordpress/element';
-import { Button, Notice, Spinner, TextControl } from '@wordpress/components';
+import {
+	Button,
+	Modal,
+	Notice,
+	Spinner,
+	TextControl,
+} from '@wordpress/components';
 import { __, sprintf } from '@wordpress/i18n';
 import apiFetch from '@wordpress/api-fetch';
 
@@ -149,7 +155,7 @@ function ChatSessionUsage( { sessions, timeZone } ) {
 		return (
 			<p className="description">
 				{ __(
-					'Session-level usage is unavailable. Refresh your balance and try again.',
+					'Session-level usage is unavailable. Reload the page and try again.',
 					'superdav-ai-agent'
 				) }
 			</p>
@@ -392,25 +398,21 @@ function ChatSessionUsage( { sessions, timeZone } ) {
 export default function SuperdavAccountManager() {
 	const [ account, setAccount ] = useState( null );
 	const [ loading, setLoading ] = useState( true );
-	const [ refreshing, setRefreshing ] = useState( false );
+	const [ isCouponModalOpen, setIsCouponModalOpen ] = useState( false );
 	const [ couponCode, setCouponCode ] = useState( '' );
 	const [ redeeming, setRedeeming ] = useState( false );
 	const [ redemptionNotice, setRedemptionNotice ] = useState( null );
 	const [ error, setError ] = useState( '' );
 	const [ hasLoadedAccount, setHasLoadedAccount ] = useState( false );
 
-	const loadAccount = useCallback( async ( refresh = false ) => {
-		if ( refresh ) {
-			setRefreshing( true );
-		} else {
-			setLoading( true );
-		}
+	const loadAccount = useCallback( async () => {
+		setLoading( true );
 		setError( '' );
 
 		try {
 			const result = await apiFetch( {
 				path: '/sd-ai-agent/v1/superdav-account',
-				method: refresh ? 'POST' : 'GET',
+				method: 'POST',
 			} );
 			setAccount( result );
 			setHasLoadedAccount( true );
@@ -424,9 +426,24 @@ export default function SuperdavAccountManager() {
 			);
 		} finally {
 			setLoading( false );
-			setRefreshing( false );
 		}
 	}, [] );
+
+	const openCouponModal = useCallback( () => {
+		setCouponCode( '' );
+		setRedemptionNotice( null );
+		setIsCouponModalOpen( true );
+	}, [] );
+
+	const closeCouponModal = useCallback( () => {
+		if ( redeeming ) {
+			return;
+		}
+
+		setCouponCode( '' );
+		setRedemptionNotice( null );
+		setIsCouponModalOpen( false );
+	}, [ redeeming ] );
 
 	const redeemCoupon = useCallback(
 		async ( event ) => {
@@ -453,6 +470,8 @@ export default function SuperdavAccountManager() {
 						'superdav-ai-agent'
 					),
 				} );
+				setCouponCode( '' );
+				setIsCouponModalOpen( false );
 			} catch ( err ) {
 				const messages = {
 					sd_ai_agent_coupon_invalid: __(
@@ -482,7 +501,6 @@ export default function SuperdavAccountManager() {
 						),
 				} );
 			} finally {
-				setCouponCode( '' );
 				setRedeeming( false );
 			}
 		},
@@ -615,12 +633,11 @@ export default function SuperdavAccountManager() {
 					</p>
 				</div>
 				<Button
-					variant="secondary"
-					onClick={ () => loadAccount( true ) }
-					isBusy={ refreshing }
-					disabled={ refreshing || ! configured }
+					variant="primary"
+					onClick={ openCouponModal }
+					disabled={ ! configured }
 				>
-					{ __( 'Refresh balance', 'superdav-ai-agent' ) }
+					{ __( 'Redeem Coupon', 'superdav-ai-agent' ) }
 				</Button>
 			</div>
 
@@ -629,7 +646,7 @@ export default function SuperdavAccountManager() {
 					{ error }
 				</Notice>
 			) }
-			{ redemptionNotice && (
+			{ redemptionNotice && ! isCouponModalOpen && (
 				<Notice
 					status={ redemptionNotice.status }
 					isDismissible={ false }
@@ -648,83 +665,68 @@ export default function SuperdavAccountManager() {
 					</Notice>
 				) : (
 					<>
-						<div className="sd-ai-agent-superdav-account-balance">
-							<div className="sd-ai-agent-superdav-account-balance-label">
-								{ __(
-									'Available balance',
-									'superdav-ai-agent'
-								) }
-							</div>
-							<div className="sd-ai-agent-superdav-account-balance-value">
-								{ formatWalletAmount(
-									wallet.total_usd_micros
-								) }
-							</div>
-							{ tier && (
-								<div className="sd-ai-agent-superdav-account-tier">
-									{ sprintf(
-										/* translators: %s: Superdav AI service tier. */
-										__( 'Plan: %s', 'superdav-ai-agent' ),
-										tier
+						<section
+							className="sd-ai-agent-superdav-account-overview"
+							aria-label={ __(
+								'Available credits',
+								'superdav-ai-agent'
+							) }
+						>
+							<div className="sd-ai-agent-superdav-account-balance">
+								<div className="sd-ai-agent-superdav-account-balance-label">
+									{ __(
+										'Available balance',
+										'superdav-ai-agent'
 									) }
 								</div>
-							) }
-						</div>
-
-						<div className="sd-ai-agent-superdav-account-breakdown">
-							<div>
-								<span>
-									{ __(
-										'Purchased credits',
-										'superdav-ai-agent'
-									) }
-								</span>
-								<strong>
+								<div className="sd-ai-agent-superdav-account-balance-value">
 									{ formatWalletAmount(
-										wallet.cash_usd_micros
+										wallet.total_usd_micros
 									) }
-								</strong>
-							</div>
-							<div>
-								<span>
-									{ __(
-										'Promotional credits',
-										'superdav-ai-agent'
-									) }
-								</span>
-								<strong>
-									{ formatWalletAmount(
-										wallet.promo_usd_micros
-									) }
-								</strong>
-							</div>
-						</div>
-
-						<form
-							className="sd-ai-agent-superdav-coupon-redemption"
-							onSubmit={ redeemCoupon }
-						>
-							<TextControl
-								label={ __(
-									'Coupon code',
-									'superdav-ai-agent'
+								</div>
+								{ tier && (
+									<div className="sd-ai-agent-superdav-account-tier">
+										{ sprintf(
+											/* translators: %s: Superdav AI service tier. */
+											__(
+												'Plan: %s',
+												'superdav-ai-agent'
+											),
+											tier
+										) }
+									</div>
 								) }
-								value={ couponCode }
-								onChange={ setCouponCode }
-								autoComplete="off"
-								disabled={ redeeming }
-								__next40pxDefaultSize
-								__nextHasNoMarginBottom
-							/>
-							<Button
-								variant="secondary"
-								type="submit"
-								isBusy={ redeeming }
-								disabled={ redeeming || ! couponCode.trim() }
-							>
-								{ __( 'Redeem coupon', 'superdav-ai-agent' ) }
-							</Button>
-						</form>
+							</div>
+
+							<div className="sd-ai-agent-superdav-account-breakdown">
+								<div>
+									<span>
+										{ __(
+											'Purchased credits',
+											'superdav-ai-agent'
+										) }
+									</span>
+									<strong>
+										{ formatWalletAmount(
+											wallet.cash_usd_micros
+										) }
+									</strong>
+								</div>
+								<div>
+									<span>
+										{ __(
+											'Promotional credits',
+											'superdav-ai-agent'
+										) }
+									</span>
+									<strong>
+										{ formatWalletAmount(
+											wallet.promo_usd_micros
+										) }
+									</strong>
+								</div>
+							</div>
+						</section>
 
 						<section
 							className="sd-ai-agent-superdav-session-usage"
@@ -813,6 +815,60 @@ export default function SuperdavAccountManager() {
 						) }
 					</>
 				) ) }
+
+			{ isCouponModalOpen && (
+				<Modal
+					title={ __( 'Redeem coupon', 'superdav-ai-agent' ) }
+					onRequestClose={ closeCouponModal }
+					className="sd-ai-agent-superdav-coupon-modal"
+				>
+					<form
+						className="sd-ai-agent-superdav-coupon-redemption"
+						onSubmit={ redeemCoupon }
+					>
+						<p className="description">
+							{ __(
+								'Enter your coupon code to verify it and add the credit to this account.',
+								'superdav-ai-agent'
+							) }
+						</p>
+						<TextControl
+							label={ __( 'Coupon code', 'superdav-ai-agent' ) }
+							value={ couponCode }
+							onChange={ setCouponCode }
+							autoComplete="off"
+							disabled={ redeeming }
+							__next40pxDefaultSize
+							__nextHasNoMarginBottom
+						/>
+						{ redemptionNotice && (
+							<Notice
+								status={ redemptionNotice.status }
+								isDismissible={ false }
+							>
+								{ redemptionNotice.message }
+							</Notice>
+						) }
+						<div className="sd-ai-agent-superdav-coupon-modal-actions">
+							<Button
+								variant="tertiary"
+								onClick={ closeCouponModal }
+								disabled={ redeeming }
+							>
+								{ __( 'Cancel', 'superdav-ai-agent' ) }
+							</Button>
+							<Button
+								variant="primary"
+								type="submit"
+								isBusy={ redeeming }
+								disabled={ redeeming || ! couponCode.trim() }
+							>
+								{ __( 'Redeem coupon', 'superdav-ai-agent' ) }
+							</Button>
+						</div>
+					</form>
+				</Modal>
+			) }
 		</div>
 	);
 }

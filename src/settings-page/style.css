@@ -524,6 +524,12 @@
 }
 
 /* Superdav AI account manager */
+.sd-ai-agent-superdav-account {
+	display: flex;
+	flex-direction: column;
+	gap: 24px;
+}
+
 .sd-ai-agent-superdav-account-loading {
 	padding: 40px;
 	text-align: center;
@@ -543,6 +549,21 @@
 
 .sd-ai-agent-superdav-account-header .description {
 	margin: 0;
+}
+
+.sd-ai-agent-superdav-account-overview,
+.sd-ai-agent-superdav-session-usage,
+.sd-ai-agent-superdav-credit-activity {
+	padding: 24px;
+	border: 1px solid #dcdcde;
+	border-radius: 8px;
+	background: #fff;
+}
+
+.sd-ai-agent-superdav-account-overview {
+	display: flex;
+	flex-direction: column;
+	gap: 16px;
 }
 
 .sd-ai-agent-superdav-account-balance {
@@ -589,6 +610,28 @@
 	display: flex;
 	flex-wrap: wrap;
 	gap: 8px;
+	padding: 0 4px 4px;
+}
+
+.sd-ai-agent-superdav-coupon-redemption {
+	display: flex;
+	flex-direction: column;
+	gap: 20px;
+}
+
+.sd-ai-agent-superdav-coupon-modal {
+	width: min(480px, calc(100% - 32px));
+}
+
+.sd-ai-agent-superdav-coupon-redemption > .description {
+	margin: 0;
+}
+
+.sd-ai-agent-superdav-coupon-modal-actions {
+	display: flex;
+	justify-content: flex-end;
+	gap: 8px;
+	padding-top: 4px;
 }
 
 .sd-ai-agent-superdav-session-usage h4,
@@ -760,6 +803,16 @@
 @media screen and (max-width: 600px) {
 	.sd-ai-agent-superdav-account-header {
 		flex-direction: column;
+	}
+
+	.sd-ai-agent-superdav-account-header .components-button {
+		min-height: 44px;
+	}
+
+	.sd-ai-agent-superdav-account-overview,
+	.sd-ai-agent-superdav-session-usage,
+	.sd-ai-agent-superdav-credit-activity {
+		padding: 16px;
 	}
 
 	.sd-ai-agent-superdav-session-usage-summary {
