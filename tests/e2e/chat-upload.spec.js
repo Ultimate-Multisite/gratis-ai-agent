@@ -24,7 +24,7 @@
  *   .sdaa-attachment-thumb__name              → .sdaa-cr-attachment-thumb-name
  *   .sdaa-attachment-thumb__remove            → .sdaa-cr-attachment-thumb-remove
  *
- * Run: npm run test:e2e:playwright
+ * Run: pnpm run test:e2e:playwright
  */
 
 const { test, expect } = require( '@playwright/test' );

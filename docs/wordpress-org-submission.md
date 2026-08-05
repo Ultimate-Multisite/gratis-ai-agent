@@ -62,7 +62,7 @@ bin/build.sh --target=core      # core package: superdav-ai-agent-X.Y.Z.zip
 bin/build.sh --target=wporg     # alias for core
 bin/build.sh --target=advanced  # advanced package: superdav-ai-agent-advanced-X.Y.Z.zip
 bin/build.sh --target=both      # both packages
-npm run archive                 # both packages plus slug-only local aliases
+pnpm run archive                 # both packages plus slug-only local aliases
 ```
 
 The core zip contains one top-level directory named `superdav-ai-agent/`. The
@@ -196,7 +196,7 @@ that the plugin is not ready for approval:
 2. List each finding separately, with the fix or rationale and file/pattern
    references where possible.
 3. Include the verification commands that passed, such as `wp plugin check`,
-   `composer phpcs`, `composer phpstan`, `npm run build`, or relevant tests.
+   `composer phpcs`, `composer phpstan`, `pnpm run build`, or relevant tests.
 4. Avoid defensive wording, marketing language, emojis, or unsupported claims.
 5. State whether the updated ZIP has been resubmitted and whether any item needs
    reviewer confirmation.

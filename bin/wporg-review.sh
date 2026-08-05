@@ -32,11 +32,11 @@
 # what the WP.org Internal Scanner uses for AI review (the team has
 # not published the model). Override per run:
 #
-#   npm run wporg-review                                       # default
-#   MODEL=anthropic::claude-sonnet-4-5 npm run wporg-review    # claude
-#   MODEL=openai::gpt-4o            npm run wporg-review       # gpt-4o
-#   KEEP=1 npm run wporg-review                                # leave extracted
-#   SKIP_PLUGINS=foo,bar npm run wporg-review                  # extra skips
+#   pnpm run wporg-review                                       # default
+#   MODEL=anthropic::claude-sonnet-4-5 pnpm run wporg-review    # claude
+#   MODEL=openai::gpt-4o            pnpm run wporg-review       # gpt-4o
+#   KEEP=1 pnpm run wporg-review                                # leave extracted
+#   SKIP_PLUGINS=foo,bar pnpm run wporg-review                  # extra skips
 #
 # Prereqs:
 #   - ../wordpress  (the dev install per AGENTS.md "Local Development
@@ -79,7 +79,7 @@ cd "$PLUGIN_DIR"
 # running this script from a git worktree under ~/Git/<repo>-worktrees/,
 # where ${PLUGIN_DIR}/../wordpress points at the wrong directory:
 #
-#   WP_DIR=/home/dave/Git/wordpress npm run wporg-review
+#   WP_DIR=/home/dave/Git/wordpress pnpm run wporg-review
 : "${WP_DIR:=${PLUGIN_DIR}/../wordpress}"
 PLUGINS_DIR="${WP_DIR}/wp-content/plugins"
 REPORT_DIR="${PLUGIN_DIR}/build/wporg-review"

@@ -32,11 +32,12 @@ jobs:
           extensions: mbstring, intl, zip
           tools: composer:v2
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v6
+      - name: Setup pnpm and Node.js
+        uses: pnpm/setup@c9883cc79df532ad1a7b81bf9ab944ceb090d65c # v2.0.0
         with:
-          node-version: '24'
-          cache: 'npm'
+          runtime: node@24
+          cache: true
+          install: false
 
       - name: Get version from tag
         id: version
@@ -57,7 +58,7 @@ jobs:
           echo "IS_PRERELEASE=${IS_PRERELEASE}" >> "$GITHUB_ENV"
 
       - name: Install Node dependencies
-        run: npm ci
+        run: pnpm install --frozen-lockfile
 
       - name: Verify version matches
         run: |

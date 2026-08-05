@@ -18,7 +18,7 @@
  *   6. Unknown hash route shows a 404 / not-found message
  *   7. Non-admin users cannot access the admin menu page
  *
- * Run: npm run test:e2e:playwright
+ * Run: pnpm run test:e2e:playwright
  */
 
 const { test, expect } = require( '@playwright/test' );

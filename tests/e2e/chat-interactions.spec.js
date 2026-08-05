@@ -4,7 +4,7 @@
  * Tests message input, slash commands, and UI state transitions
  * that do not require a live AI provider response.
  *
- * Run: npm run test:e2e:playwright
+ * Run: pnpm run test:e2e:playwright
  */
 
 const { test, expect } = require( '@playwright/test' );

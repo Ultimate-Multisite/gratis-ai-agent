@@ -20,7 +20,7 @@
  *   6. snapshotDescriptors returns the expected list
  *   7. no relevant console errors on any screen
  *
- * Run: npm run test:e2e:playwright -- --grep client-abilities
+ * Run: pnpm run test:e2e:playwright -- --grep client-abilities
  *
  * Verification: temporarily comment out `await registerCategory()` in
  * src/abilities/index.js — test 1 must go red (category not found).

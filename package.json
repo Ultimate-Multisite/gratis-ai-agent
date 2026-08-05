@@ -3,6 +3,10 @@
 	"version": "1.21.0",
 	"private": true,
 	"license": "GPL-2.0-or-later",
+	"packageManager": "pnpm@11.20.0",
+	"engines": {
+		"node": ">=20"
+	},
 	"scripts": {
 		"build": "wp-scripts build",
 		"postbuild": "node scripts/add-strict-types.js",
@@ -14,8 +18,8 @@
 		"lint:css:fix": "wp-scripts lint-style 'src/**/*.css' --fix",
 		"lint:php": "composer phpcs",
 		"lint:php:fix": "composer phpcbf",
-		"lint": "npm run lint:js && npm run lint:css && npm run lint:php",
-		"verify": "npm run lint && COMPOSER_PROCESS_TIMEOUT=1200 composer phpstan && npm run test:php && npm run build && npm run check:bundle",
+		"lint": "pnpm run lint:js && pnpm run lint:css && pnpm run lint:php",
+		"verify": "pnpm run lint && COMPOSER_PROCESS_TIMEOUT=1200 composer phpstan && pnpm run test:php && pnpm run build && pnpm run check:bundle",
 		"check:bundle": "node scripts/check-bundle-size.js",
 		"test:js": "wp-scripts test-unit-js",
 		"test:unit": "wp-scripts test-unit-js",

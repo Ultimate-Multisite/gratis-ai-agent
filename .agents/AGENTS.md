@@ -163,7 +163,7 @@ a JS/TS project — use `@stackone/defender` to sanitize untrusted tool results
 before they enter the LLM context:
 
 ```bash
-npm install @stackone/defender
+pnpm add @stackone/defender
 ```
 
 ```typescript
