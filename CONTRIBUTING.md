@@ -43,15 +43,16 @@ cd superdav-ai-agent
 # Install PHP dependencies (includes PHPUnit, PHPCS, PHPStan)
 composer install
 
-# Install Node dependencies (includes wp-env, ESLint, Stylelint, wp-scripts)
-npm install
+# Enable the pinned pnpm version, then install dependencies
+corepack enable pnpm
+pnpm install
 ```
 
 ### 2. Start the development environment
 
 ```bash
 # Build JS assets in watch mode (rebuilds on file change)
-npm start
+pnpm start
 ```
 
 The built assets are written to `build/`. The plugin is ready to activate in any WordPress installation that has the `build/` directory present.
@@ -60,7 +61,7 @@ The built assets are written to `build/`. The plugin is ready to activate in any
 
 ```bash
 # First run pulls Docker images — takes a few minutes
-npm run wp-env:start
+pnpm run wp-env:start
 ```
 
 This starts two WordPress instances:
@@ -72,13 +73,13 @@ Both run WordPress 7.0 in multisite mode (path-based, not subdomain) with `WP_DE
 Stop the environment when you are done:
 
 ```bash
-npm run wp-env:stop
+pnpm run wp-env:stop
 ```
 
 To reset the environment to a clean state (drops all data):
 
 ```bash
-npm run wp-env:clean
+pnpm run wp-env:clean
 ```
 
 ---
@@ -127,19 +128,19 @@ Tests run inside the `tests-wordpress` Docker container via wp-env. Docker must 
 
 ```bash
 # Start the test environment (required before running tests)
-npm run wp-env:start
+pnpm run wp-env:start
 
 # Run the full test suite
-npm run test:php
+pnpm run test:php
 
 # Run with human-readable testdox output
-npm run test:php:testdox
+pnpm run test:php:testdox
 
 # Run with code coverage report (stdout summary + HTML in coverage-html/)
-npm run test:php:coverage
+pnpm run test:php:coverage
 
 # Stop the environment when done
-npm run wp-env:stop
+pnpm run wp-env:stop
 ```
 
 The test environment is configured in `.wp-env.json`:
@@ -188,7 +189,7 @@ All quality checks run automatically in CI on every push and PR. Run them locall
 
 ```bash
 # PHP (PHPCS + PHPStan) + JS (ESLint) + CSS (Stylelint)
-npm run lint
+pnpm run lint
 ```
 
 ### PHP CodeSniffer (PHPCS)
@@ -197,12 +198,12 @@ Enforces WordPress Coding Standards with PSR-4 naming and PHP 8.2 compatibility.
 
 ```bash
 # Check for violations
-npm run lint:php
+pnpm run lint:php
 # or directly:
 vendor/bin/phpcs
 
 # Auto-fix fixable violations
-npm run lint:php:fix
+pnpm run lint:php:fix
 # or directly:
 vendor/bin/phpcbf
 ```
@@ -232,10 +233,10 @@ Lints `src/` using `@wordpress/eslint-plugin` rules.
 
 ```bash
 # Check for violations
-npm run lint:js
+pnpm run lint:js
 
 # Auto-fix fixable violations
-npm run lint:js:fix
+pnpm run lint:js:fix
 ```
 
 ### Stylelint (CSS)
@@ -244,10 +245,10 @@ Lints all `src/**/*.css` files using `@wordpress/stylelint-config`.
 
 ```bash
 # Check for violations
-npm run lint:css
+pnpm run lint:css
 
 # Auto-fix fixable violations
-npm run lint:css:fix
+pnpm run lint:css:fix
 ```
 
 ### Build check
@@ -255,7 +256,7 @@ npm run lint:css:fix
 Verify the JS/CSS build compiles without errors:
 
 ```bash
-npm run build
+pnpm run build
 ```
 
 ---
@@ -325,8 +326,8 @@ Branch naming convention: `<type>/<short-description>` — e.g., `feat/memory-se
 
 - Follow the [Code Style Reference](#code-style-reference) below
 - Add or update tests for any behaviour change (see [Testing Requirements](#testing-requirements))
-- Run linters locally before pushing: `npm run lint`
-- Run the test suite: `npm run wp-env:start && npm run test:php`
+- Run linters locally before pushing: `pnpm run lint`
+- Run the test suite: `pnpm run wp-env:start && pnpm run test:php`
 
 ### 3. Push and open a PR
 
@@ -346,12 +347,12 @@ All PRs must pass:
 
 | Check | Command | Config |
 |-------|---------|--------|
-| PHPUnit | `npm run test:php` | `phpunit.xml.dist` |
+| PHPUnit | `pnpm run test:php` | `phpunit.xml.dist` |
 | PHPCS | `vendor/bin/phpcs` | `phpcs.xml` |
 | PHPStan | `vendor/bin/phpstan analyse` | `phpstan.neon` |
-| ESLint | `npx eslint src/` | `.eslintrc` / `@wordpress/eslint-plugin` |
-| Stylelint | `npx stylelint "src/**/*.css"` | `@wordpress/stylelint-config` |
-| Build | `npm run build` | `webpack.config.js` via `@wordpress/scripts` |
+| ESLint | `pnpm exec eslint src/` | `.eslintrc` / `@wordpress/eslint-plugin` |
+| Stylelint | `pnpm exec stylelint "src/**/*.css"` | `@wordpress/stylelint-config` |
+| Build | `pnpm run build` | `webpack.config.js` via `@wordpress/scripts` |
 
 CI runs on GitHub Actions (`.github/workflows/tests.yml` and `.github/workflows/code-quality.yml`). Fix any failures before requesting review.
 

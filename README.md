@@ -387,15 +387,16 @@ add_filter( 'ai_agent_context_providers', function( $providers ) {
 ## Development
 
 ```bash
-# Install dependencies
-npm install
+# Enable the pinned pnpm version, then install dependencies
+corepack enable pnpm
+pnpm install
 composer install
 
 # Development build with watch
-npm start
+pnpm start
 
 # Production build
-npm run build
+pnpm run build
 
 # Run linters
 composer phpcs      # PHP CodeSniffer

@@ -369,7 +369,7 @@ class PublicChatSetupAbilities {
 			$steps[] = __( 'Fix the warnings, then rerun this ability with action=status.', 'superdav-ai-agent' );
 		}
 
-		$steps[] = __( 'Build the plugin assets with npm run build and copy build/embed-widget.js plus build/style-embed-widget.css to the docs site.', 'superdav-ai-agent' );
+		$steps[] = __( 'Build the plugin assets with pnpm run build and copy build/embed-widget.js plus build/style-embed-widget.css to the docs site.', 'superdav-ai-agent' );
 		$steps[] = __( 'Embed the returned snippet on the customer/docs frontend.', 'superdav-ai-agent' );
 		$steps[] = __( 'Run a logged-out browser smoke test with a real docs question and confirm only public-chat endpoints are called.', 'superdav-ai-agent' );
 

@@ -23,7 +23,7 @@ jobs:
     name: Playwright E2E (WP ${{ matrix.wp }} shard ${{ matrix.shard }})
     runs-on: ubuntu-latest
     # Each shard runs ~1/3 of the 13 spec files. 90 min accounts for setup
-    # overhead (~20 min: npm ci, composer, wp-env start) + worst-case test
+    # overhead (~20 min: pnpm install, composer, wp-env start) + worst-case test
     # runtime (2 retries at 90 s/test × 3 attempts / 2 workers). The 60-min
     # limit was exceeded after the per-test timeout increased from 60 s to
     # 90 s in playwright.config.js — setup + test time could exceed 60 min.
@@ -53,11 +53,12 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v6
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v6
+      - name: Setup pnpm and Node.js
+        uses: pnpm/setup@c9883cc79df532ad1a7b81bf9ab944ceb090d65c # v2.0.0
         with:
-          node-version: '24'
-          cache: 'npm'
+          runtime: node@24
+          cache: true
+          install: false
 
       - name: Setup PHP
         uses: shivammathur/setup-php@v2
@@ -82,7 +83,7 @@ jobs:
         run: composer install --prefer-dist --no-progress
 
       - name: Install Node dependencies
-        run: npm ci
+        run: pnpm install --frozen-lockfile
 
       - name: Patch @wordpress/env phpunit constraint
         # @wordpress/env's CLI.Dockerfile installs phpunit globally. Composer
@@ -117,11 +118,11 @@ jobs:
 
       - name: Install Playwright browser dependencies
         run: |
-          npx playwright install-deps chromium
+          pnpm exec playwright install-deps chromium
           google-chrome --version
 
       - name: Build plugin assets
-        run: npm run build
+        run: pnpm run build
 
       - name: Override wp-env core version
         if: matrix.wp_env_override != ''
@@ -137,7 +138,7 @@ jobs:
           "
 
       - name: Start wp-env
-        run: npm run wp-env:start
+        run: pnpm run wp-env:start
         timeout-minutes: 10
         env:
           WP_ENV_HOME: /tmp/wp-env
@@ -162,10 +163,10 @@ jobs:
       - name: Verify plugin health
         run: |
           echo "=== Plugin status ==="
-          npx wp-env run cli wp plugin list --format=table
+          pnpm exec wp-env run cli wp plugin list --format=table
           echo ""
           echo "=== Verify plugin is active ==="
-          npx wp-env run cli wp plugin is-active superdav-ai-agent && echo "Plugin is active" || echo "ERROR: Plugin is NOT active"
+          pnpm exec wp-env run cli wp plugin is-active superdav-ai-agent && echo "Plugin is active" || echo "ERROR: Plugin is NOT active"
           echo ""
           echo "=== Check admin page loads (HTTP status) ==="
           # Log in and fetch the admin page to verify the SPA renders.
@@ -177,7 +178,7 @@ jobs:
           echo "Admin page HTTP status: $STATUS"
           echo ""
           echo "=== PHP error log (last 30 lines) ==="
-          npx wp-env run cli cat /var/www/html/wp-content/debug.log 2>/dev/null | tail -30 || echo "(no error log)"
+          pnpm exec wp-env run cli cat /var/www/html/wp-content/debug.log 2>/dev/null | tail -30 || echo "(no error log)"
         env:
           WP_ENV_HOME: /tmp/wp-env
 
@@ -185,30 +186,30 @@ jobs:
         run: |
           # Mark onboarding complete so the main chat UI renders instead of
           # the bootstrap discovery session (Setup Assistant agent).
-          npx wp-env run cli wp option update sd_ai_agent_settings \
+          pnpm exec wp-env run cli wp option update sd_ai_agent_settings \
             '{"onboarding_complete":true}' --format=json
 
           # Register the deterministic SDK provider from tests/mu-plugins so
           # /providers returns one authenticated provider without installing a
           # real ai-provider-for-* plugin. E2E specs mock /stream, so no real
           # provider API calls are made.
-          npx wp-env run cli wp option update sd_ai_agent_e2e_register_provider 1
+          pnpm exec wp-env run cli wp option update sd_ai_agent_e2e_register_provider 1
 
           # Create a real post so the site is no longer detected as a fresh install
           # even after the transient expires (belt-and-suspenders).
-          npx wp-env run cli wp post create --post_title='E2E Test Post' \
+          pnpm exec wp-env run cli wp post create --post_title='E2E Test Post' \
             --post_status=publish --post_type=post
 
           # Create the second admin user required by shared-conversations.spec.js.
           # Done here (not in test.beforeAll) so WP_ENV_HOME is available and
           # wp-env can locate its docker-compose.yml.
-          npx wp-env run cli wp user create admin2 admin2@example.com \
+          pnpm exec wp-env run cli wp user create admin2 admin2@example.com \
             --role=administrator --user_pass=password2 --send-email=false || true
         env:
           WP_ENV_HOME: /tmp/wp-env
 
       - name: Run Playwright E2E tests (shard ${{ matrix.shard }}/3)
-        run: npx playwright test --shard=${{ matrix.shard }}/3
+        run: pnpm exec playwright test --shard=${{ matrix.shard }}/3
         env:
           WP_BASE_URL: http://localhost:${{ matrix.wp_env_port }}
           WP_ADMIN_USER: admin
@@ -239,12 +240,12 @@ jobs:
         if: failure()
         run: |
           echo "=== PHP debug.log ==="
-          npx wp-env run cli cat /var/www/html/wp-content/debug.log 2>/dev/null | tail -100 || echo "(no error log)"
+          pnpm exec wp-env run cli cat /var/www/html/wp-content/debug.log 2>/dev/null | tail -100 || echo "(no error log)"
         env:
           WP_ENV_HOME: /tmp/wp-env
 
       - name: Stop wp-env
         if: always()
-        run: npm run wp-env:stop
+        run: pnpm run wp-env:stop
         env:
           WP_ENV_HOME: /tmp/wp-env

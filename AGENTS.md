@@ -209,7 +209,7 @@ The Google Search Console integration lives in these committed surfaces:
   abilities behind `manage_options`.
 
 When changing or auditing this integration, verify both credential secrecy and
-capability gating with `npm run test:php -- --filter=GscAbilitiesTest` plus the
+capability gating with `pnpm run test:php -- --filter=GscAbilitiesTest` plus the
 relevant REST/settings test when a route or settings response changes.
 
 ### Block Theme Automation Guidance
@@ -318,20 +318,20 @@ the abort text itself as the task outcome:
 - Verification for guidance-only fixes: run `rg -n "Tool execution aborted|bash:other|signature gate|read:file_not_found" AGENTS.md .agents/AGENTS.md .agents/scripts/commands/feedback-triage.md` and ensure the recovery policy is loaded by future workers.
 
 ## Build Commands
-- **Build**: `npm run build` or `npx wp-scripts build` (production)
-- **Dev**: `npm start` or `npx wp-scripts start` (watch mode)
-- **Install**: `npm install && composer install`
+- **Build**: `pnpm run build` or `pnpm exec wp-scripts build` (production)
+- **Dev**: `pnpm start` or `pnpm exec wp-scripts start` (watch mode)
+- **Install**: `pnpm install && composer install`
 - **Autoload**: `composer dump-autoload` (after adding/moving PHP classes)
-- **Lint JS**: `npm run lint:js` (ESLint with `@wordpress/eslint-plugin`)
-- **Lint CSS**: `npm run lint:css` (Stylelint)
-- **Lint PHP**: `npm run lint:php` or `composer phpcs` (WordPress Coding Standards via PHPCS)
-- **Fix lint**: `npm run lint:js:fix`, `npm run lint:css:fix`, `npm run lint:php:fix`
+- **Lint JS**: `pnpm run lint:js` (ESLint with `@wordpress/eslint-plugin`)
+- **Lint CSS**: `pnpm run lint:css` (Stylelint)
+- **Lint PHP**: `pnpm run lint:php` or `composer phpcs` (WordPress Coding Standards via PHPCS)
+- **Fix lint**: `pnpm run lint:js:fix`, `pnpm run lint:css:fix`, `pnpm run lint:php:fix`
 - **Static analysis**: `composer phpstan` (PHPStan with WordPress extensions)
-- **Test JS**: `npm run test:js` (Jest via `@wordpress/scripts`)
-- **Test PHP**: `npm run test:php` (PHPUnit via shared WordPress tests lib; run `npm run test:php:setup` once)
-- **Test E2E**: `npm run test:e2e:playwright` (Playwright)
+- **Test JS**: `pnpm run test:js` (Jest via `@wordpress/scripts`)
+- **Test PHP**: `pnpm run test:php` (PHPUnit via shared WordPress tests lib; run `pnpm run test:php:setup` once)
+- **Test E2E**: `pnpm run test:e2e:playwright` (Playwright)
 - **Pre-commit**: Husky + lint-staged runs lint fixes on staged files
-- **Dev environment**: `npx wp-env start` (WordPress 7.0 via `.wp-env.json`) — dev site at http://localhost:8890, test site at http://localhost:8893
+- **Dev environment**: `pnpm exec wp-env start` (WordPress 7.0 via `.wp-env.json`) — dev site at http://localhost:8890, test site at http://localhost:8893
 
 ## Worker Self-Verification Protocol
 
@@ -342,7 +342,7 @@ the abort text itself as the task outcome:
 1. **Full PHPUnit suite passes**
 
    ```bash
-   npm run test:php
+   pnpm run test:php
    ```
 
    The final summary line MUST read `Tests: <N>, Assertions: <M>, ... Errors: 0, Failures: 0` (Skipped > 0 is acceptable). A filtered run (`--filter ClassName`) is NOT sufficient — your change may break a test in a different file. Run the full suite.
@@ -350,9 +350,9 @@ the abort text itself as the task outcome:
 2. **Lint passes**
 
    ```bash
-   npm run lint:php
-   npm run lint:js
-   npm run lint:css
+   pnpm run lint:php
+   pnpm run lint:js
+   pnpm run lint:css
    ```
 
 3. **Static analysis passes**
@@ -364,16 +364,16 @@ the abort text itself as the task outcome:
 4. **Build succeeds**
 
    ```bash
-   npm run build
+   pnpm run build
    ```
 
    Or run all four steps in sequence with the single alias:
 
    ```bash
-   npm run verify
+   pnpm run verify
    ```
 
-   `npm run verify` = `lint` → `phpstan` → `test:php` → `build`. If any step fails, the rest are skipped — fix the failure and rerun.
+   `pnpm run verify` = `lint` → `phpstan` → `test:php` → `build`. If any step fails, the rest are skipped — fix the failure and rerun.
 
 5. **Paste the test summary in the PR body** under a `## Worker self-verification` heading, in this exact format:
 
@@ -396,7 +396,7 @@ the abort text itself as the task outcome:
 **If verification fails:**
 
 - Fix the implementation until step 1 is genuinely clean.
-- If a pre-existing failure is unrelated to your change, file a separate issue, link it in the PR body, and proceed only if the failure was already failing on `main` (provide proof — `git stash && npm run test:php` on `main`).
+- If a pre-existing failure is unrelated to your change, file a separate issue, link it in the PR body, and proceed only if the failure was already failing on `main` (provide proof — `git stash && pnpm run test:php` on `main`).
 - Never `--filter` past failures, never delete failing tests, never mark them skipped without a linked tracking issue and explicit user approval.
 
 ## Code Style & Architecture
@@ -534,7 +534,7 @@ reads option data:**
 
 ```bash
 rg -n "is_secret_option_name|is_write_allowed_option|get_write_allowlist_prefixes|SECRET_REDACTED_PLACEHOLDER|sd_ai_agent_option_secret_redacted|sd_ai_agent_options_write_allowlist|sd_ai_agent_options_write_allowlist_prefixes|sd_ai_agent_options_read_blocklist" includes/ tests/
-npm run test:php -- --filter='OptionsAbilitiesTest|WordPressAbilitiesTest|DatabaseAbilitiesTest|WpCliAbilitiesTest'
+pnpm run test:php -- --filter='OptionsAbilitiesTest|WordPressAbilitiesTest|DatabaseAbilitiesTest|WpCliAbilitiesTest'
 ```
 
 The first command must show coverage in every read/write surface (get-option,

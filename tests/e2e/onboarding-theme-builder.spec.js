@@ -24,7 +24,7 @@
  *
  * Closes #1385.   Ref #1373.
  *
- * Run: npm run test:e2e:playwright -- tests/e2e/onboarding-theme-builder.spec.js
+ * Run: pnpm run test:e2e:playwright -- tests/e2e/onboarding-theme-builder.spec.js
  */
 
 'use strict';
@@ -54,7 +54,7 @@ const {
  * WP_ENV_HOME detection order:
  *   1. WP_ENV_HOME env var (set explicitly by the caller or by the shell).
  *   2. /tmp/wp-env — the path used by the GitHub Actions E2E workflow when
- *      `npm run wp-env:start` is executed with `WP_ENV_HOME: /tmp/wp-env`.
+ *      `pnpm run wp-env:start` is executed with `WP_ENV_HOME: /tmp/wp-env`.
  *      The directory is present for the lifetime of the CI job.
  *   3. Undefined (falls back to @wordpress/env's default ~/.wp-env).
  *
@@ -82,8 +82,8 @@ function wpCli( command ) {
 
 	try {
 		return execFileSync(
-			'npx',
-			[ 'wp-env', 'run', service, 'wp', ...wpCliArgs( command ) ],
+			'pnpm',
+			[ 'exec', 'wp-env', 'run', service, 'wp', ...wpCliArgs( command ) ],
 			{
 				cwd,
 				encoding: 'utf8',

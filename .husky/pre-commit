@@ -1,7 +1,7 @@
 #!/bin/sh
 # Pre-commit hook: lint-staged (JS+CSS+PHP) with PHP-native fallback.
 # If node_modules is missing, fall back to running phpcs/phpcbf directly
-# so PHP indentation errors are caught even without a full npm install.
+# so PHP indentation errors are caught even without a full pnpm install.
 
 # --- Guard: block dev-dependency references in committed vendor manifests ---
 # Dev packages (phpunit, phpstan, etc.) are gitignored under vendor/ but the
@@ -41,8 +41,8 @@ if [ ! -x "vendor/bin/phpcs" ]; then
 	fi
 fi
 
-if command -v npx >/dev/null 2>&1 && [ -d "node_modules/.bin" ]; then
-	npx lint-staged
+if command -v pnpm >/dev/null 2>&1 && [ -d "node_modules/.bin" ]; then
+	pnpm exec lint-staged
 else
 	# Fallback: run phpcs/phpcbf on staged PHP files without lint-staged
 	STAGED_PHP=$(git diff --cached --name-only --diff-filter=ACM | grep '\.php$' || true)

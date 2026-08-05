@@ -42,8 +42,8 @@ Bundle size budgets are enforced in CI via [size-limit](https://github.com/ai-to
 
 ```bash
 # Check locally after building
-npm run build
-npm run size
+pnpm run build
+pnpm run size
 ```
 
 The `bundle-size` CI job runs on every PR and fails if any budget is breached.

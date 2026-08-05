@@ -116,7 +116,7 @@ if (! is_file($tests_dir . '/includes/functions.php')) {
 	fwrite(
 		STDERR,
 		"WordPress test library not found at {$tests_dir}/includes/functions.php." . PHP_EOL
-		. 'Run `npm run test:php:setup`, or set WP_TESTS_DIR to an existing wordpress-tests-lib checkout.' . PHP_EOL
+		. 'Run `pnpm run test:php:setup`, or set WP_TESTS_DIR to an existing wordpress-tests-lib checkout.' . PHP_EOL
 		. 'Shared cache root: ' . $cache_root . PHP_EOL
 	);
 	exit(1);
@@ -126,7 +126,7 @@ if (! is_file($tests_dir . '/wp-tests-config.php')) {
 	fwrite(
 		STDERR,
 		"WordPress test config not found at {$tests_dir}/wp-tests-config.php." . PHP_EOL
-		. 'Run `npm run test:php:setup`, or create wp-tests-config.php for your local test database.' . PHP_EOL
+		. 'Run `pnpm run test:php:setup`, or create wp-tests-config.php for your local test database.' . PHP_EOL
 	);
 	exit(1);
 }

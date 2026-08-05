@@ -1,6 +1,6 @@
 # Static docs chat embed
 
-Build `embed-widget` with `npm run build`, copy `build/embed-widget.js` and
+Build `embed-widget` with `pnpm run build`, copy `build/embed-widget.js` and
 `build/embed-widget.css` to the static docs site, then load it without WordPress
 globals:
 

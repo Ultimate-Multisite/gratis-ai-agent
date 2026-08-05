@@ -58,13 +58,13 @@ if [ "$SKIP_DEPS" = "0" ]; then
 	if [ ! -d "$plugin_dir/vendor" ] && [ -f "$plugin_dir/composer.json" ] && have composer; then
 		(cd "$plugin_dir" && run_cmd composer install)
 	fi
-	if [ ! -d "$plugin_dir/node_modules" ] && [ -f "$plugin_dir/package.json" ] && have npm; then
-		(cd "$plugin_dir" && run_cmd npm install)
+	if [ ! -d "$plugin_dir/node_modules" ] && [ -f "$plugin_dir/package.json" ] && have pnpm; then
+		(cd "$plugin_dir" && run_cmd pnpm install)
 	fi
 fi
 
-if [ "$RUN_BUILD" = "1" ] && [ -f "$plugin_dir/package.json" ] && have npm; then
-	(cd "$plugin_dir" && run_cmd npm run build)
+if [ "$RUN_BUILD" = "1" ] && [ -f "$plugin_dir/package.json" ] && have pnpm; then
+	(cd "$plugin_dir" && run_cmd pnpm run build)
 fi
 
 if [ ! -f "$wp_root/wp-load.php" ]; then

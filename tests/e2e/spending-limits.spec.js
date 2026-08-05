@@ -12,7 +12,7 @@
  * All REST calls to /sd-ai-agent/v1/* are intercepted and mocked so
  * these tests run without a real AI provider or a live WordPress back-end.
  *
- * Run: npm run test:e2e:playwright -- --grep "Spending Limits"
+ * Run: pnpm run test:e2e:playwright -- --grep "Spending Limits"
  */
 
 const { test, expect } = require( '@playwright/test' );

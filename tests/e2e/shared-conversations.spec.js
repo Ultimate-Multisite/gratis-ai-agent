@@ -39,7 +39,7 @@
  * first (`decodeURIComponent(req.url())`) so matching is reliable regardless
  * of the permalink format in use.
  *
- * Run: npm run test:e2e:playwright
+ * Run: pnpm run test:e2e:playwright
  */
 
 const { test, expect } = require( '@playwright/test' );

@@ -9,7 +9,7 @@
  * navigating. The mock records calls to speak() and cancel() so tests can
  * assert on TTS behaviour without requiring real audio output.
  *
- * Run: npm run test:e2e:playwright
+ * Run: pnpm run test:e2e:playwright
  */
 
 const { test, expect } = require( '@playwright/test' );
