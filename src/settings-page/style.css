@@ -606,11 +606,12 @@
 	font-size: 16px;
 }
 
-.sd-ai-agent-superdav-account-actions {
+.sd-ai-agent-superdav-account-header-actions {
 	display: flex;
+	flex: 0 1 auto;
 	flex-wrap: wrap;
 	gap: 8px;
-	padding: 0 4px 4px;
+	justify-content: flex-end;
 }
 
 .sd-ai-agent-superdav-coupon-redemption {
@@ -803,6 +804,11 @@
 @media screen and (max-width: 600px) {
 	.sd-ai-agent-superdav-account-header {
 		flex-direction: column;
+	}
+
+	.sd-ai-agent-superdav-account-header-actions {
+		justify-content: flex-start;
+		width: 100%;
 	}
 
 	.sd-ai-agent-superdav-account-header .components-button {

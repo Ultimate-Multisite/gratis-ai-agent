@@ -632,13 +632,48 @@ export default function SuperdavAccountManager() {
 						) }
 					</p>
 				</div>
-				<Button
-					variant="primary"
-					onClick={ openCouponModal }
-					disabled={ ! configured }
-				>
-					{ __( 'Redeem Coupon', 'superdav-ai-agent' ) }
-				</Button>
+				<div className="sd-ai-agent-superdav-account-header-actions">
+					{ accountUrl && (
+						<Button
+							variant="tertiary"
+							href={ accountUrl }
+							target="_blank"
+							rel="noopener noreferrer"
+						>
+							{ __( 'Open account portal', 'superdav-ai-agent' ) }
+						</Button>
+					) }
+					{ paymentMethodsUrl && (
+						<Button
+							variant="secondary"
+							href={ paymentMethodsUrl }
+							target="_blank"
+							rel="noopener noreferrer"
+						>
+							{ __(
+								'Manage payment methods',
+								'superdav-ai-agent'
+							) }
+						</Button>
+					) }
+					<Button
+						variant="primary"
+						onClick={ openCouponModal }
+						disabled={ ! configured }
+					>
+						{ __( 'Redeem Coupon', 'superdav-ai-agent' ) }
+					</Button>
+					{ purchaseCreditsUrl && (
+						<Button
+							variant="primary"
+							href={ purchaseCreditsUrl }
+							target="_blank"
+							rel="noopener noreferrer"
+						>
+							{ __( 'Add credits', 'superdav-ai-agent' ) }
+						</Button>
+					) }
+				</div>
 			</div>
 
 			{ error && (
@@ -763,49 +798,7 @@ export default function SuperdavAccountManager() {
 							{ creditActivityContent }
 						</section>
 
-						{ hasAccountActions ? (
-							<div className="sd-ai-agent-superdav-account-actions">
-								{ purchaseCreditsUrl && (
-									<Button
-										variant="primary"
-										href={ purchaseCreditsUrl }
-										target="_blank"
-										rel="noopener noreferrer"
-									>
-										{ __(
-											'Add credits',
-											'superdav-ai-agent'
-										) }
-									</Button>
-								) }
-								{ paymentMethodsUrl && (
-									<Button
-										variant="secondary"
-										href={ paymentMethodsUrl }
-										target="_blank"
-										rel="noopener noreferrer"
-									>
-										{ __(
-											'Manage payment methods',
-											'superdav-ai-agent'
-										) }
-									</Button>
-								) }
-								{ accountUrl && (
-									<Button
-										variant="tertiary"
-										href={ accountUrl }
-										target="_blank"
-										rel="noopener noreferrer"
-									>
-										{ __(
-											'Open account portal',
-											'superdav-ai-agent'
-										) }
-									</Button>
-								) }
-							</div>
-						) : (
+						{ ! hasAccountActions && (
 							<Notice status="info" isDismissible={ false }>
 								{ __(
 									'Account billing is managed by your SD AI service administrator.',
