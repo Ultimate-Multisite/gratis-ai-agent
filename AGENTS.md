@@ -335,7 +335,7 @@ the abort text itself as the task outcome:
 
 ## Worker Self-Verification Protocol
 
-**Applies to every headless dispatched worker** (auto-dispatch, pulse, manual `headless-runtime-helper.sh run`). Interactive maintainer sessions must also satisfy steps 1–4 before pushing.
+**Applies to every headless dispatched worker** (auto-dispatch, pulse, manual `headless-runtime-helper.sh run`). Interactive maintainer sessions must also satisfy steps 1–5 before pushing.
 
 **Hard gate — do NOT open a PR until ALL of the following succeed locally on your worktree branch:**
 
@@ -367,15 +367,21 @@ the abort text itself as the task outcome:
    pnpm run build
    ```
 
-   Or run all four steps in sequence with the single alias:
+5. **Bundle budgets pass**
+
+   ```bash
+   pnpm run check:bundle
+   ```
+
+   Or run all five steps in sequence with the single alias:
 
    ```bash
    pnpm run verify
    ```
 
-   `pnpm run verify` = `lint` → `phpstan` → `test:php` → `build`. If any step fails, the rest are skipped — fix the failure and rerun.
+   `pnpm run verify` = `lint` → `phpstan` → `test:php` → `build` → `check:bundle`. If any step fails, the rest are skipped — fix the failure and rerun.
 
-5. **Paste the test summary in the PR body** under a `## Worker self-verification` heading, in this exact format:
+6. **Paste the test summary in the PR body** under a `## Worker self-verification` heading, in this exact format:
 
    ```text
    ## Worker self-verification
@@ -383,6 +389,7 @@ the abort text itself as the task outcome:
    - Lint:    PHP/JS/CSS all clean
    - PHPStan: 0 errors
    - Build:   succeeded
+   - Bundle:  budgets passed
    ```
 
    Reviewers and auto-merge gates read this block to verify you ran the suite. Missing or stale summary = PR is treated as unverified and will be rejected by auto-merge.

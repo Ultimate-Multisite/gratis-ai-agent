@@ -4,6 +4,9 @@
 	"private": true,
 	"license": "GPL-2.0-or-later",
 	"packageManager": "pnpm@11.20.0",
+	"engines": {
+		"node": ">=20"
+	},
 	"scripts": {
 		"build": "wp-scripts build",
 		"postbuild": "node scripts/add-strict-types.js",

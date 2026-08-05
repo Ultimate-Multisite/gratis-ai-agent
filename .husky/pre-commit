@@ -41,7 +41,7 @@ if [ ! -x "vendor/bin/phpcs" ]; then
 	fi
 fi
 
-if command -v pnpm >/dev/null 2>&1 && [ -d "node_modules/.bin" ]; then
+if command -v pnpm >/dev/null 2>&1 && [ -x "node_modules/.bin/lint-staged" ]; then
 	pnpm exec lint-staged
 else
 	# Fallback: run phpcs/phpcbf on staged PHP files without lint-staged

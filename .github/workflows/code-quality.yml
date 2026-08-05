@@ -16,6 +16,9 @@ concurrency:
   group: code-quality-${{ github.ref }}
   cancel-in-progress: true
 
+permissions:
+  contents: read
+
 jobs:
   # ESLint + Stylelint merged into a single job — saves a full pnpm install.
   lint:

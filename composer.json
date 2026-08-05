@@ -55,6 +55,8 @@
 			"phpstan.neon",
 			".idea",
 			"node_modules",
+			"pnpm-lock.yaml",
+			"pnpm-workspace.yaml",
 			".gitignore",
 			".phpunit.result.cache",
 			".github",

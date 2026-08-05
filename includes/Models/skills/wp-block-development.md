@@ -144,7 +144,7 @@ Read:
 
 Prefer whatever the repo already uses:
 
-- `@wordpress/scripts` (common) → run existing npm scripts
+- `@wordpress/scripts` (common) → run existing package-manager scripts
 - `wp-env` (common) → use for local WP + E2E
 
 Read:
