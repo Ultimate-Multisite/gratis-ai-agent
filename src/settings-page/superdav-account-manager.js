@@ -483,7 +483,7 @@ export default function SuperdavAccountManager() {
 				}
 
 				setActionNotice( {
-					status: 'error',
+					status: 'info',
 					message: __(
 						'Unable to open that SD AI account action. Try again.',
 						'superdav-ai-agent'
@@ -725,7 +725,7 @@ export default function SuperdavAccountManager() {
 					</Button>
 					{ purchaseCreditsAvailable && (
 						<Button
-							variant="primary"
+							variant="secondary"
 							onClick={ () =>
 								openAccountAction( 'purchase_credits' )
 							}

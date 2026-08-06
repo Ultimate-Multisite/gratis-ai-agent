@@ -491,7 +491,7 @@ final class SuperdavSiteConnectionService {
 		 */
 		$endpoint = apply_filters( 'sd_ai_agent_cloud_account_status_endpoint', $endpoint );
 
-		return is_string( $endpoint ) ? esc_url_raw( $endpoint ) : '';
+		return $this->sanitize_account_url( $endpoint );
 	}
 
 	/** Resolve the managed endpoint that mints fresh one-time account actions. */
@@ -505,7 +505,7 @@ final class SuperdavSiteConnectionService {
 		 */
 		$endpoint = apply_filters( 'sd_ai_agent_cloud_account_action_endpoint', $endpoint );
 
-		return is_string( $endpoint ) ? esc_url_raw( $endpoint ) : '';
+		return $this->sanitize_account_url( $endpoint );
 	}
 
 	/**

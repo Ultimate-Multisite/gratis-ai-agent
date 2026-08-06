@@ -46,6 +46,7 @@ final class SettingsControllerTest extends WP_UnitTestCase {
 		delete_option( SuperdavSiteConnectionService::TOKEN_METADATA_OPTION );
 		remove_all_filters( 'sd_ai_agent_cloud_base_url' );
 		remove_all_filters( 'sd_ai_agent_cloud_portal_signing_secret' );
+		remove_all_filters( 'sd_ai_agent_cloud_account_action_endpoint' );
 		remove_all_filters( 'sd_ai_agent_cloud_account_coupon_redemption_endpoint' );
 		remove_all_filters( 'sd_ai_agent_options_read_blocklist' );
 		remove_all_filters( 'pre_update_option_' . SuperdavSiteConnectionService::TOKEN_METADATA_OPTION );
@@ -498,6 +499,36 @@ final class SettingsControllerTest extends WP_UnitTestCase {
 		$this->assertSame( 200, $response->get_status() );
 		$this->assertSame( 'https://account.example/action?sdai_action_ticket=opaque-ticket', $response->get_data()['url'] );
 		$this->assertStringNotContainsString( $token, wp_json_encode( $response->get_data() ) ?: '' );
+	}
+
+	/** Account actions never send their bearer token to unsafe filtered endpoints. */
+	public function test_handle_superdav_account_action_rejects_unsafe_endpoint_overrides(): void {
+		$endpoints = array(
+			'http://service.example/v1/site/account/action',
+			'https://action-user:action-password@service.example/v1/site/account/action',
+			'https://service.example/v1/site/account/action?access_token=must-not-be-sent',
+		);
+
+		update_option( SuperdavAiProvider::CREDENTIAL_OPTION, 'sdaist_action_endpoint_token', false );
+		add_filter(
+			'pre_http_request',
+			static function (): void {
+				self::fail( 'Unsafe account action endpoint must not receive an HTTP request.' );
+			},
+			10,
+			0
+		);
+
+		foreach ( $endpoints as $endpoint ) {
+			add_filter( 'sd_ai_agent_cloud_account_action_endpoint', static fn(): string => $endpoint );
+			$request = new WP_REST_Request( 'POST', '/sd-ai-agent/v1/superdav-account/action' );
+			$request->set_param( 'action', 'account_portal' );
+			$response = ( new SettingsController( new Settings(), new Database() ) )->handle_superdav_account_action( $request );
+
+			$this->assertInstanceOf( \WP_Error::class, $response );
+			$this->assertSame( 'sd_ai_agent_account_action_unavailable', $response->get_error_code() );
+			remove_all_filters( 'sd_ai_agent_cloud_account_action_endpoint' );
+		}
 	}
 
 	/** Coupon redemption signs the documented request and returns only safe refreshed metadata. */
