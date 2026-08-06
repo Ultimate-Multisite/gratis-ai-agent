@@ -179,6 +179,10 @@ class StockImageAbility extends \SdAiAgent\Abilities\AbstractAbility {
 					'items' => [ 'type' => 'string' ],
 				],
 				// Shared.
+				'success'         => [
+					'type'        => 'boolean',
+					'description' => 'Whether the requested search or import completed. An import is unsuccessful when attachment_id is 0 or url is empty.',
+				],
 				'error'           => [ 'type' => 'string' ],
 				'tip'             => [ 'type' => 'string' ],
 			],
@@ -292,6 +296,7 @@ class StockImageAbility extends \SdAiAgent\Abilities\AbstractAbility {
 
 		if ( ! $has_free ) {
 			$response = [
+				'success'       => false,
 				'attachment_id' => 0,
 				'url'           => '',
 				'alt'           => '',
@@ -316,6 +321,7 @@ class StockImageAbility extends \SdAiAgent\Abilities\AbstractAbility {
 
 		if ( is_wp_error( $result ) ) {
 			$response = [
+				'success'       => false,
 				'attachment_id' => 0,
 				'url'           => '',
 				'alt'           => '',
@@ -331,7 +337,8 @@ class StockImageAbility extends \SdAiAgent\Abilities\AbstractAbility {
 			return $response;
 		}
 
-		$result['tip'] = 'Use attachment_id as featured_image_id when calling create-post or update-post.';
+		$result['success'] = true;
+		$result['tip']     = 'Use attachment_id as featured_image_id when calling create-post or update-post.';
 
 		return $result;
 	}
@@ -360,12 +367,14 @@ class StockImageAbility extends \SdAiAgent\Abilities\AbstractAbility {
 			return [
 				'candidates' => [],
 				'total'      => 0,
+				'success'    => false,
 				'error'      => $result->get_error_message(),
 				'tip'        => 'Call again with action=import and image_id + provider to import a specific image.',
 			];
 		}
 
-		$result['tip'] = 'Present these candidates to the user, then call again with action=import and image_id + provider to import the selected image.';
+		$result['success'] = true;
+		$result['tip']     = 'Present these candidates to the user, then call again with action=import and image_id + provider to import the selected image.';
 
 		return $result;
 	}
@@ -407,6 +416,7 @@ class StockImageAbility extends \SdAiAgent\Abilities\AbstractAbility {
 				&& wp_ai_client_prompt()->is_supported_for_image_generation();
 
 			$response = [
+				'success'       => false,
 				'attachment_id' => 0,
 				'url'           => '',
 				'alt'           => '',
@@ -421,7 +431,8 @@ class StockImageAbility extends \SdAiAgent\Abilities\AbstractAbility {
 			return $response;
 		}
 
-		$result['tip'] = 'Use attachment_id as featured_image_id when calling create-post or update-post.';
+		$result['success'] = true;
+		$result['tip']     = 'Use attachment_id as featured_image_id when calling create-post or update-post.';
 
 		return $result;
 	}
