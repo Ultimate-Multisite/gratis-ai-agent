@@ -293,9 +293,10 @@ describe( 'SuperdavAccountManager', () => {
 		).not.toBeNull();
 	} );
 
-	test( 'renders dedicated billing actions with their service-issued URLs', async () => {
+	test( 'renders account actions in the requested header order with their service-issued URLs', async () => {
 		apiFetch.mockResolvedValueOnce( {
 			configured: true,
+			account_portal_url: 'https://account.example/portal',
 			purchase_credits_url: 'https://account.example/credits/purchase',
 			payment_methods_url:
 				'https://account.example/billing/payment-methods',
@@ -318,6 +319,25 @@ describe( 'SuperdavAccountManager', () => {
 				'a[href="https://account.example/billing/payment-methods"]'
 			)
 		).not.toBeNull();
+		expect(
+			container.querySelector(
+				'a[href="https://account.example/portal"]'
+			)
+		).not.toBeNull();
+
+		const headerActions = container.querySelector(
+			'.sd-ai-agent-superdav-account-header-actions'
+		);
+		expect(
+			[ ...headerActions.querySelectorAll( 'a, button' ) ].map(
+				( action ) => action.textContent
+			)
+		).toEqual( [
+			'Open account portal',
+			'Manage payment methods',
+			'Redeem Coupon',
+			'Add credits',
+		] );
 	} );
 
 	test( 'redeems a coupon, disables submission while pending, and updates the balance', async () => {
