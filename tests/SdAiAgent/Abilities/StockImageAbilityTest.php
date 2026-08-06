@@ -506,6 +506,18 @@ class StockImageAbilityTest extends WP_UnitTestCase {
 		$this->assertNotEmpty( $result['error'] );
 	}
 
+	/**
+	 * Imports require both a local attachment ID and URL before succeeding.
+	 */
+	public function test_import_result_requires_attachment_id_and_url(): void {
+		$method = new \ReflectionMethod( StockImageAbility::class, 'has_usable_import_result' );
+		$method->setAccessible( true );
+
+		$this->assertTrue( $method->invoke( $this->ability, [ 'attachment_id' => 1, 'url' => 'https://example.com/image.jpg' ] ) );
+		$this->assertFalse( $method->invoke( $this->ability, [ 'attachment_id' => 0, 'url' => 'https://example.com/image.jpg' ] ) );
+		$this->assertFalse( $method->invoke( $this->ability, [ 'attachment_id' => 1, 'url' => '' ] ) );
+	}
+
 	// ─── search result candidate structure ───────────────────────────────────
 
 	/**
