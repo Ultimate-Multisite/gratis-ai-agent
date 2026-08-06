@@ -204,6 +204,13 @@ System notices:
 - Hover: `border-color: --wp-admin-theme-color`, `box-shadow: 0 2px 8px rgba(0,0,0,.06)`
 - No transform or scale on hover — keep transitions to colour/border only
 
+### SD AI Account Card
+
+- Show the verified linked user's display name, masked email, and a concise “Email verified” status above wallet details.
+- Use **Link a different user** as a secondary action. Relinking must open the managed confirmation flow rather than accepting identity details in WordPress.
+- **Open account portal**, **Manage payment methods**, and **Add credits** are buttons that request a fresh one-time URL when clicked; do not render, inspect, or persist action tickets in the settings page.
+- Open account actions in a separate tab when the browser permits, clear `window.opener`, and show one neutral retry notice if URL minting fails.
+
 ### Tooltips
 
 Use `<Tooltip>` from `@wordpress/components` (or `showTooltip + label` on `<Button>`) for every icon-only button. Do not rely on the native `title` attribute — it has poor accessibility and inconsistent browser styling.

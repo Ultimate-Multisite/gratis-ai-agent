@@ -149,6 +149,23 @@ final class SettingsController {
 
 		register_rest_route(
 			RestController::NAMESPACE,
+			'/superdav-account/action',
+			array(
+				'methods'             => WP_REST_Server::CREATABLE,
+				'callback'            => array( $this, 'handle_superdav_account_action' ),
+				'permission_callback' => array( __CLASS__, 'check_admin_permission' ),
+				'args'                => array(
+					'action' => array(
+						'required'          => true,
+						'type'              => 'string',
+						'validate_callback' => static fn( mixed $value ): bool => is_string( $value ) && in_array( $value, array( 'account_portal', 'purchase_credits', 'payment_methods', 'link_account' ), true ),
+					),
+				),
+			)
+		);
+
+		register_rest_route(
+			RestController::NAMESPACE,
 			'/superdav-account/redeem-coupon',
 			array(
 				'methods'             => WP_REST_Server::CREATABLE,
@@ -558,6 +575,26 @@ final class SettingsController {
 		}
 
 		return new WP_REST_Response( $this->add_local_chat_session_details( $status ), 200 );
+	}
+
+	/**
+	 * Mint one fresh, action-specific browser URL without exposing the site token.
+	 *
+	 * @param WP_REST_Request $request Current administrator request.
+	 * @return WP_REST_Response|WP_Error Safe action URL or service error.
+	 */
+	public function handle_superdav_account_action( WP_REST_Request $request ): WP_REST_Response|WP_Error {
+		$action = $request->get_param( 'action' );
+		if ( ! is_string( $action ) ) {
+			return new WP_Error( 'sd_ai_agent_account_action_invalid', __( 'That SD AI account action is invalid.', 'superdav-ai-agent' ), array( 'status' => 400 ) );
+		}
+
+		$result = ( new SuperdavSiteConnectionService() )->request_account_action( $action );
+		if ( $result instanceof WP_Error ) {
+			return $result;
+		}
+
+		return new WP_REST_Response( $result, 200 );
 	}
 
 	/**

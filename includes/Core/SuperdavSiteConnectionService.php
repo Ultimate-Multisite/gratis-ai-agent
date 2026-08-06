@@ -29,6 +29,7 @@ final class SuperdavSiteConnectionService {
 	private const REGISTRATION_ENDPOINT_PATH              = 'site/installations';
 	private const REVOCATION_ENDPOINT_PATH                = 'site/token/revoke';
 	private const ACCOUNT_STATUS_ENDPOINT_PATH            = 'site/account';
+	private const ACCOUNT_ACTION_ENDPOINT_PATH            = 'site/account/action';
 	private const ACCOUNT_COUPON_REDEMPTION_ENDPOINT_PATH = 'portal/account/redeem-coupon';
 	private const ACCOUNT_COUPON_REDEMPTION_PATH          = '/v1/portal/account/redeem-coupon';
 
@@ -64,22 +65,28 @@ final class SuperdavSiteConnectionService {
 		$token    = $this->get_stored_token();
 		$metadata = $this->get_metadata();
 
-		$account_portal_url   = $this->get_account_portal_url( $metadata );
-		$purchase_credits_url = $this->get_account_action_url( $metadata, 'purchase_credits_url' );
-		$payment_methods_url  = $this->get_account_action_url( $metadata, 'payment_methods_url' );
+		$account_portal_available   = true === ( $metadata['account_portal_available'] ?? false );
+		$purchase_credits_available = true === ( $metadata['purchase_credits_available'] ?? false );
+		$payment_methods_available  = true === ( $metadata['payment_methods_available'] ?? false );
+		$link_account_available     = true === ( $metadata['link_account_available'] ?? false );
 
 		$status = array(
-			'configured'                => '' !== $token,
-			'provider'                  => SuperdavAiProvider::PROVIDER_ID,
-			'connection_mode'           => $metadata['connection_mode'] ?? ( '' !== $token ? 'site' : 'none' ),
-			'installation_id'           => $this->get_installation_id(),
-			'site_url'                  => $this->get_verified_site_url(),
-			'connected_at'              => $metadata['connected_at'] ?? null,
-			'account_connect_available' => '' !== $account_portal_url,
-			'account_connect_url'       => $account_portal_url,
-			'account_portal_url'        => $account_portal_url,
-			'purchase_credits_url'      => $purchase_credits_url,
-			'payment_methods_url'       => $payment_methods_url,
+			'configured'                 => '' !== $token,
+			'provider'                   => SuperdavAiProvider::PROVIDER_ID,
+			'connection_mode'            => $metadata['connection_mode'] ?? ( '' !== $token ? 'site' : 'none' ),
+			'installation_id'            => $this->get_installation_id(),
+			'site_url'                   => $this->get_verified_site_url(),
+			'connected_at'               => $metadata['connected_at'] ?? null,
+			'account_connect_available'  => $account_portal_available,
+			'account_connect_url'        => '',
+			'account_portal_url'         => '',
+			'purchase_credits_url'       => '',
+			'payment_methods_url'        => '',
+			'link_account_url'           => '',
+			'account_portal_available'   => $account_portal_available,
+			'purchase_credits_available' => $purchase_credits_available,
+			'payment_methods_available'  => $payment_methods_available,
+			'link_account_available'     => $link_account_available,
 		);
 
 		foreach ( array( 'tier', 'verified', 'request_id', 'refreshed_at', 'connection_notice_pending' ) as $key ) {
@@ -108,6 +115,10 @@ final class SuperdavSiteConnectionService {
 		if ( isset( $metadata['chat_sessions'] ) && is_array( $metadata['chat_sessions'] ) ) {
 			$status['chat_sessions'] = $this->sanitize_chat_session_metadata( $metadata['chat_sessions'] );
 		}
+
+		$status['linked_user'] = isset( $metadata['linked_user'] ) && is_array( $metadata['linked_user'] )
+			? $this->sanitize_linked_user_metadata( $metadata['linked_user'] )
+			: null;
 
 		$status['site_timezone'] = wp_timezone_string();
 
@@ -174,6 +185,14 @@ final class SuperdavSiteConnectionService {
 			$metadata['request_id'],
 			$metadata['refreshed_at'],
 			$metadata['account_portal_url'],
+			$metadata['purchase_credits_url'],
+			$metadata['payment_methods_url'],
+			$metadata['link_account_url'],
+			$metadata['account_portal_available'],
+			$metadata['purchase_credits_available'],
+			$metadata['payment_methods_available'],
+			$metadata['link_account_available'],
+			$metadata['linked_user'],
 			$metadata['usage'],
 			$metadata['verification'],
 			$metadata['wallet'],
@@ -184,6 +203,69 @@ final class SuperdavSiteConnectionService {
 		update_option( self::TOKEN_METADATA_OPTION, $metadata, false );
 
 		return $this->get_status();
+	}
+
+	/**
+	 * Request a fresh, one-time browser URL for an account action.
+	 *
+	 * @param string $action Documented account action name.
+	 * @return array{action:string,url:string}|WP_Error Safe action response or service error.
+	 */
+	public function request_account_action( string $action ): array|WP_Error {
+		$allowed_actions = array( 'account_portal', 'purchase_credits', 'payment_methods', 'link_account' );
+
+		if ( ! in_array( $action, $allowed_actions, true ) ) {
+			return new WP_Error( 'sd_ai_agent_account_action_invalid', __( 'That SD AI account action is invalid.', 'superdav-ai-agent' ), array( 'status' => 400 ) );
+		}
+
+		$token = $this->get_stored_token();
+		if ( '' === $token ) {
+			return new WP_Error( 'sd_ai_agent_cloud_account_unavailable', __( 'Connect SD AI before opening account actions.', 'superdav-ai-agent' ), array( 'status' => 412 ) );
+		}
+
+		$endpoint = $this->get_account_action_endpoint();
+		if ( '' === $endpoint ) {
+			return new WP_Error( 'sd_ai_agent_account_action_unavailable', __( 'SD AI account actions are temporarily unavailable.', 'superdav-ai-agent' ), array( 'status' => 503 ) );
+		}
+
+		$response = wp_remote_post(
+			$endpoint,
+			array(
+				'timeout'     => 15,
+				'redirection' => 0,
+				'headers'     => array(
+					'Authorization' => 'Bearer ' . $token,
+					'Content-Type'  => 'application/json',
+				),
+				'body'        => wp_json_encode(
+					array(
+						'installation_id' => $this->get_installation_id(),
+						'action'          => $action,
+					)
+				),
+			)
+		);
+
+		if ( is_wp_error( $response ) ) {
+			return new WP_Error( 'sd_ai_agent_account_action_unavailable', __( 'SD AI account actions are temporarily unavailable.', 'superdav-ai-agent' ), array( 'status' => 502 ) );
+		}
+
+		$status_code = (int) wp_remote_retrieve_response_code( $response );
+		$body        = json_decode( wp_remote_retrieve_body( $response ), true );
+
+		if ( $status_code < 200 || $status_code >= 300 || ! is_array( $body ) || ( $body['action'] ?? null ) !== $action ) {
+			return new WP_Error( 'sd_ai_agent_account_action_unavailable', __( 'SD AI account actions are temporarily unavailable.', 'superdav-ai-agent' ), array( 'status' => 502 ) );
+		}
+
+		$url = $this->sanitize_account_url( $body['url'] ?? '' );
+		if ( '' === $url ) {
+			return new WP_Error( 'sd_ai_agent_account_action_invalid_response', __( 'The SD AI account action response was invalid.', 'superdav-ai-agent' ), array( 'status' => 502 ) );
+		}
+
+		return array(
+			'action' => $action,
+			'url'    => $url,
+		);
 	}
 
 	/**
@@ -394,39 +476,6 @@ final class SuperdavSiteConnectionService {
 	}
 
 	/**
-	 * Return the account portal URL when the service exposes one.
-	 *
-	 * @param array<string, mixed> $metadata Safe connection metadata.
-	 */
-	private function get_account_portal_url( array $metadata ): string {
-		/**
-		 * Filters the Superdav account connection URL for future paid-account flows.
-		 *
-		 * The URL is safe UI metadata and must not include bearer tokens.
-		 *
-		 * @param string $url             Account connect URL.
-		 * @param string $installation_id Durable site-installation identity.
-		 * @param string $site_url        Verified site URL.
-		 */
-		$default_url = $metadata['account_portal_url'] ?? '';
-		$default_url = is_string( $default_url ) ? $default_url : '';
-		$url         = apply_filters( 'sd_ai_agent_cloud_account_connect_url', $default_url, $this->get_installation_id(), $this->get_verified_site_url() );
-
-		return $this->sanitize_account_url( $url );
-	}
-
-	/**
-	 * Return a dedicated, service-issued billing action URL when available.
-	 *
-	 * @param array<string, mixed> $metadata Safe connection metadata.
-	 * @param string               $key      Dedicated action metadata key.
-	 * @return string Service-issued action URL, or empty when unavailable.
-	 */
-	private function get_account_action_url( array $metadata, string $key ): string {
-		return $this->sanitize_account_url( $metadata[ $key ] ?? '' );
-	}
-
-	/**
 	 * Resolve the managed service endpoint used to refresh safe wallet metadata.
 	 */
 	private function get_account_status_endpoint(): string {
@@ -441,6 +490,20 @@ final class SuperdavSiteConnectionService {
 		 * @param string $endpoint Account-status endpoint URL.
 		 */
 		$endpoint = apply_filters( 'sd_ai_agent_cloud_account_status_endpoint', $endpoint );
+
+		return is_string( $endpoint ) ? esc_url_raw( $endpoint ) : '';
+	}
+
+	/** Resolve the managed endpoint that mints fresh one-time account actions. */
+	private function get_account_action_endpoint(): string {
+		$endpoint = $this->configured_endpoint( 'SD_AI_AGENT_CLOUD_ACCOUNT_ACTION_ENDPOINT', self::ACCOUNT_ACTION_ENDPOINT_PATH );
+
+		/**
+		 * Filters the server-to-server account action endpoint.
+		 *
+		 * @param string $endpoint Account action endpoint URL.
+		 */
+		$endpoint = apply_filters( 'sd_ai_agent_cloud_account_action_endpoint', $endpoint );
 
 		return is_string( $endpoint ) ? esc_url_raw( $endpoint ) : '';
 	}
@@ -667,10 +730,11 @@ final class SuperdavSiteConnectionService {
 			'verified',
 			'connect_required',
 			'request_id',
-			'account_portal_url',
+			'account_portal_available',
+			'purchase_credits_available',
+			'payment_methods_available',
+			'link_account_available',
 			'refreshed_at',
-			'purchase_credits_url',
-			'payment_methods_url',
 		);
 		$safe         = array();
 
@@ -680,14 +744,14 @@ final class SuperdavSiteConnectionService {
 			}
 		}
 
-		foreach ( array( 'account_portal_url', 'purchase_credits_url', 'payment_methods_url' ) as $key ) {
-			if ( isset( $safe[ $key ] ) ) {
-				$url = $this->sanitize_account_url( $safe[ $key ] );
-				if ( '' === $url ) {
-					unset( $safe[ $key ] );
-				} else {
-					$safe[ $key ] = $url;
-				}
+		$billing_actions = isset( $metadata['billing_actions'] ) && is_array( $metadata['billing_actions'] )
+			? $metadata['billing_actions']
+			: array();
+
+		foreach ( array( 'account_portal', 'purchase_credits', 'payment_methods', 'link_account' ) as $action ) {
+			$key = $action . '_available';
+			if ( isset( $billing_actions[ $action ] ) && is_array( $billing_actions[ $action ] ) ) {
+				$safe[ $key ] = true === ( $billing_actions[ $action ]['available'] ?? false );
 			}
 		}
 
@@ -726,7 +790,38 @@ final class SuperdavSiteConnectionService {
 			$safe['chat_sessions'] = $this->sanitize_chat_session_metadata( $metadata['chat_sessions'] );
 		}
 
+		if ( isset( $metadata['linked_user'] ) && is_array( $metadata['linked_user'] ) ) {
+			$safe['linked_user'] = $this->sanitize_linked_user_metadata( $metadata['linked_user'] );
+		}
+
 		return $safe;
+	}
+
+	/**
+	 * Keep only display-safe identity fields returned by the managed service.
+	 *
+	 * @param array<string, mixed> $identity Remote linked-user metadata.
+	 * @return array<string, bool|string>|null Safe linked user, or null when invalid.
+	 */
+	private function sanitize_linked_user_metadata( array $identity ): ?array {
+		$display_name      = isset( $identity['display_name'] ) && is_string( $identity['display_name'] )
+			? substr( sanitize_text_field( $identity['display_name'] ), 0, 100 )
+			: '';
+		$masked_email      = isset( $identity['masked_email'] ) && is_string( $identity['masked_email'] )
+			? substr( sanitize_text_field( $identity['masked_email'] ), 0, 191 )
+			: '';
+		$email_verified_at = $this->sanitize_credit_activity_timestamp( $identity['email_verified_at'] ?? null );
+
+		if ( '' === $display_name || '' === $masked_email || true !== ( $identity['email_verified'] ?? false ) || null === $email_verified_at ) {
+			return null;
+		}
+
+		return array(
+			'display_name'      => $display_name,
+			'masked_email'      => $masked_email,
+			'email_verified'    => true,
+			'email_verified_at' => $email_verified_at,
+		);
 	}
 
 	/**
