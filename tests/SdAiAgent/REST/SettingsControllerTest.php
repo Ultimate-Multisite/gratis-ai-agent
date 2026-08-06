@@ -46,6 +46,7 @@ final class SettingsControllerTest extends WP_UnitTestCase {
 		delete_option( SuperdavSiteConnectionService::TOKEN_METADATA_OPTION );
 		remove_all_filters( 'sd_ai_agent_cloud_base_url' );
 		remove_all_filters( 'sd_ai_agent_cloud_portal_signing_secret' );
+		remove_all_filters( 'sd_ai_agent_cloud_account_action_endpoint' );
 		remove_all_filters( 'sd_ai_agent_cloud_account_coupon_redemption_endpoint' );
 		remove_all_filters( 'sd_ai_agent_options_read_blocklist' );
 		remove_all_filters( 'pre_update_option_' . SuperdavSiteConnectionService::TOKEN_METADATA_OPTION );
@@ -297,9 +298,23 @@ final class SettingsControllerTest extends WP_UnitTestCase {
 					'body'     => wp_json_encode(
 						array(
 							'tier'                 => 'pro',
-							'account_portal_url'   => 'https://account.example/billing',
-							'purchase_credits_url' => 'https://account.example/credits/purchase',
-							'payment_methods_url'  => 'https://account.example/billing/payment-methods',
+							'account_portal_url'   => 'https://account.example/action?sdai_action_ticket=opaque-action-ticket',
+							'purchase_credits_url' => 'https://account.example/action?sdai_action_ticket=opaque-action-ticket',
+							'payment_methods_url'  => 'https://account.example/action?sdai_action_ticket=opaque-action-ticket',
+							'link_account_url'     => 'https://account.example/action?sdai_action_ticket=opaque-action-ticket',
+							'billing_actions'      => array(
+								'account_portal'   => array( 'available' => true ),
+								'purchase_credits' => array( 'available' => true ),
+								'payment_methods'  => array( 'available' => true ),
+								'link_account'     => array( 'available' => true ),
+							),
+							'linked_user'          => array(
+								'display_name'      => 'Verified Customer',
+								'masked_email'      => 'v***@example.test',
+								'email_verified'    => true,
+								'email_verified_at' => '2026-08-05T12:00:00Z',
+								'raw_email'         => 'must-not-be-exposed',
+							),
 							'wallet'             => array(
 								'currency'         => 'USD',
 								'promo_usd_micros' => 2500000,
@@ -386,9 +401,23 @@ final class SettingsControllerTest extends WP_UnitTestCase {
 		$this->assertSame( 200, $response->get_status() );
 		$data = $response->get_data();
 		$this->assertSame( 15000000, $data['wallet']['total_usd_micros'] );
-		$this->assertSame( 'https://account.example/billing', $data['account_portal_url'] );
-		$this->assertSame( 'https://account.example/credits/purchase', $data['purchase_credits_url'] );
-		$this->assertSame( 'https://account.example/billing/payment-methods', $data['payment_methods_url'] );
+		$this->assertSame( '', $data['account_portal_url'] );
+		$this->assertSame( '', $data['purchase_credits_url'] );
+		$this->assertSame( '', $data['payment_methods_url'] );
+		$this->assertSame( '', $data['link_account_url'] );
+		$this->assertTrue( $data['account_portal_available'] );
+		$this->assertTrue( $data['purchase_credits_available'] );
+		$this->assertTrue( $data['payment_methods_available'] );
+		$this->assertTrue( $data['link_account_available'] );
+		$this->assertSame(
+			array(
+				'display_name'      => 'Verified Customer',
+				'masked_email'      => 'v***@example.test',
+				'email_verified'    => true,
+				'email_verified_at' => '2026-08-05T12:00:00+00:00',
+			),
+			$data['linked_user']
+		);
 		$this->assertSame( '2026-07-16T00:00:00+00:00', $data['connected_at'] );
 		$this->assertSame( wp_timezone_string(), $data['site_timezone'] );
 		$this->assertCount( 2, $data['credit_activity'] );
@@ -408,6 +437,8 @@ final class SettingsControllerTest extends WP_UnitTestCase {
 		$this->assertArrayNotHasKey( 'verification', $data );
 		$this->assertArrayNotHasKey( 'refreshed_at', $data );
 		$this->assertStringNotContainsString( $token, wp_json_encode( $data ) ?: '' );
+		$this->assertStringNotContainsString( 'opaque-action-ticket', wp_json_encode( $data ) ?: '' );
+		$this->assertStringNotContainsString( 'opaque-action-ticket', wp_json_encode( get_option( SuperdavSiteConnectionService::TOKEN_METADATA_OPTION ) ) ?: '' );
 		$this->assertStringNotContainsString( 'must-not-be-exposed', wp_json_encode( $data ) ?: '' );
 	}
 
@@ -419,6 +450,85 @@ final class SettingsControllerTest extends WP_UnitTestCase {
 
 		wp_set_current_user( 0 );
 		$this->assertFalse( SettingsController::check_admin_permission() );
+	}
+
+	/** Account actions are minted on demand without exposing or persisting the site token. */
+	public function test_handle_superdav_account_action_returns_fresh_safe_url(): void {
+		$base_url   = 'https://service.example/v1';
+		$action_url = $base_url . '/site/account/action';
+		$token      = 'sdaist_fresh_account_action_token';
+
+		add_filter( 'sd_ai_agent_cloud_base_url', static fn(): string => $base_url );
+		add_filter(
+			'pre_http_request',
+			static function ( mixed $preempt, array $parsed_args, string $url ) use ( $action_url, $token ): mixed {
+				if ( $action_url !== $url ) {
+					return $preempt;
+				}
+
+				self::assertSame( 'Bearer ' . $token, self::authorization_header_from_args( $parsed_args ) );
+				self::assertSame( 0, $parsed_args['redirection'] ?? null );
+				self::assertSame(
+					'account_portal',
+					json_decode( (string) ( $parsed_args['body'] ?? '' ), true )['action'] ?? null
+				);
+
+				return array(
+					'response' => array(
+						'code'    => 200,
+						'message' => 'OK',
+					),
+					'body'     => wp_json_encode(
+						array(
+							'action' => 'account_portal',
+							'url'    => 'https://account.example/action?sdai_action_ticket=opaque-ticket',
+						)
+					),
+				);
+			},
+			10,
+			3
+		);
+
+		update_option( SuperdavAiProvider::CREDENTIAL_OPTION, $token, false );
+		$request = new WP_REST_Request( 'POST', '/sd-ai-agent/v1/superdav-account/action' );
+		$request->set_param( 'action', 'account_portal' );
+		$response = ( new SettingsController( new Settings(), new Database() ) )->handle_superdav_account_action( $request );
+
+		$this->assertInstanceOf( \WP_REST_Response::class, $response );
+		$this->assertSame( 200, $response->get_status() );
+		$this->assertSame( 'https://account.example/action?sdai_action_ticket=opaque-ticket', $response->get_data()['url'] );
+		$this->assertStringNotContainsString( $token, wp_json_encode( $response->get_data() ) ?: '' );
+	}
+
+	/** Account actions never send their bearer token to unsafe filtered endpoints. */
+	public function test_handle_superdav_account_action_rejects_unsafe_endpoint_overrides(): void {
+		$endpoints = array(
+			'http://service.example/v1/site/account/action',
+			'https://action-user:action-password@service.example/v1/site/account/action',
+			'https://service.example/v1/site/account/action?access_token=must-not-be-sent',
+		);
+
+		update_option( SuperdavAiProvider::CREDENTIAL_OPTION, 'sdaist_action_endpoint_token', false );
+		add_filter(
+			'pre_http_request',
+			static function (): void {
+				self::fail( 'Unsafe account action endpoint must not receive an HTTP request.' );
+			},
+			10,
+			0
+		);
+
+		foreach ( $endpoints as $endpoint ) {
+			add_filter( 'sd_ai_agent_cloud_account_action_endpoint', static fn(): string => $endpoint );
+			$request = new WP_REST_Request( 'POST', '/sd-ai-agent/v1/superdav-account/action' );
+			$request->set_param( 'action', 'account_portal' );
+			$response = ( new SettingsController( new Settings(), new Database() ) )->handle_superdav_account_action( $request );
+
+			$this->assertInstanceOf( \WP_Error::class, $response );
+			$this->assertSame( 'sd_ai_agent_account_action_unavailable', $response->get_error_code() );
+			remove_all_filters( 'sd_ai_agent_cloud_account_action_endpoint' );
+		}
 	}
 
 	/** Coupon redemption signs the documented request and returns only safe refreshed metadata. */

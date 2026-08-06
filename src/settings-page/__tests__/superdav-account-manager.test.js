@@ -293,14 +293,30 @@ describe( 'SuperdavAccountManager', () => {
 		).not.toBeNull();
 	} );
 
-	test( 'renders account actions in the requested header order with their service-issued URLs', async () => {
-		apiFetch.mockResolvedValueOnce( {
-			configured: true,
-			account_portal_url: 'https://account.example/portal',
-			purchase_credits_url: 'https://account.example/credits/purchase',
-			payment_methods_url:
-				'https://account.example/billing/payment-methods',
-		} );
+	test( 'shows the linked user and mints a fresh URL when an account action is clicked', async () => {
+		const portalWindow = {
+			location: { assign: jest.fn() },
+			close: jest.fn(),
+			opener: window,
+		};
+		window.open = jest.fn( () => portalWindow );
+		apiFetch
+			.mockResolvedValueOnce( {
+				configured: true,
+				account_portal_available: true,
+				purchase_credits_available: true,
+				payment_methods_available: true,
+				link_account_available: true,
+				linked_user: {
+					display_name: 'Verified Customer',
+					masked_email: 'v***@example.test',
+					email_verified: true,
+				},
+			} )
+			.mockResolvedValueOnce( {
+				action: 'account_portal',
+				url: 'https://account.example/fresh-account-action',
+			} );
 
 		await act( async () => {
 			root.render( createElement( SuperdavAccountManager, {} ) );
@@ -309,21 +325,9 @@ describe( 'SuperdavAccountManager', () => {
 			await Promise.resolve();
 		} );
 
-		expect(
-			container.querySelector(
-				'a[href="https://account.example/credits/purchase"]'
-			)
-		).not.toBeNull();
-		expect(
-			container.querySelector(
-				'a[href="https://account.example/billing/payment-methods"]'
-			)
-		).not.toBeNull();
-		expect(
-			container.querySelector(
-				'a[href="https://account.example/portal"]'
-			)
-		).not.toBeNull();
+		expect( container.textContent ).toContain( 'Verified Customer' );
+		expect( container.textContent ).toContain( 'v***@example.test' );
+		expect( findButton( 'Link a different user' ) ).toBeDefined();
 
 		const headerActions = container.querySelector(
 			'.sd-ai-agent-superdav-account-header-actions'
@@ -338,6 +342,21 @@ describe( 'SuperdavAccountManager', () => {
 			'Redeem Coupon',
 			'Add credits',
 		] );
+
+		await act( async () => {
+			findButton( 'Open account portal' ).click();
+			await Promise.resolve();
+		} );
+
+		expect( apiFetch ).toHaveBeenLastCalledWith( {
+			path: '/sd-ai-agent/v1/superdav-account/action',
+			method: 'POST',
+			data: { action: 'account_portal' },
+		} );
+		expect( portalWindow.opener ).toBeNull();
+		expect( portalWindow.location.assign ).toHaveBeenCalledWith(
+			'https://account.example/fresh-account-action'
+		);
 	} );
 
 	test( 'redeems a coupon, disables submission while pending, and updates the balance', async () => {

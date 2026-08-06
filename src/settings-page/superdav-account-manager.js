@@ -402,6 +402,8 @@ export default function SuperdavAccountManager() {
 	const [ couponCode, setCouponCode ] = useState( '' );
 	const [ redeeming, setRedeeming ] = useState( false );
 	const [ redemptionNotice, setRedemptionNotice ] = useState( null );
+	const [ actionNotice, setActionNotice ] = useState( null );
+	const [ openingAction, setOpeningAction ] = useState( '' );
 	const [ error, setError ] = useState( '' );
 	const [ hasLoadedAccount, setHasLoadedAccount ] = useState( false );
 
@@ -444,6 +446,55 @@ export default function SuperdavAccountManager() {
 		setRedemptionNotice( null );
 		setIsCouponModalOpen( false );
 	}, [ redeeming ] );
+
+	const openAccountAction = useCallback(
+		async ( action ) => {
+			if ( openingAction ) {
+				return;
+			}
+
+			const portalWindow = window.open( 'about:blank', '_blank' );
+			if ( portalWindow ) {
+				portalWindow.opener = null;
+			}
+
+			setOpeningAction( action );
+			setActionNotice( null );
+
+			try {
+				const result = await apiFetch( {
+					path: '/sd-ai-agent/v1/superdav-account/action',
+					method: 'POST',
+					data: { action },
+				} );
+
+				if ( ! result?.url ) {
+					throw new Error( 'invalid_account_action' );
+				}
+
+				if ( portalWindow ) {
+					portalWindow.location.assign( result.url );
+				} else {
+					window.location.assign( result.url );
+				}
+			} catch {
+				if ( portalWindow ) {
+					portalWindow.close();
+				}
+
+				setActionNotice( {
+					status: 'info',
+					message: __(
+						'Unable to open that SD AI account action. Try again.',
+						'superdav-ai-agent'
+					),
+				} );
+			} finally {
+				setOpeningAction( '' );
+			}
+		},
+		[ openingAction ]
+	);
 
 	const redeemCoupon = useCallback(
 		async ( event ) => {
@@ -520,11 +571,16 @@ export default function SuperdavAccountManager() {
 	}
 
 	const wallet = account?.wallet || {};
-	const accountUrl = account?.account_portal_url || '';
-	const purchaseCreditsUrl = account?.purchase_credits_url || '';
-	const paymentMethodsUrl = account?.payment_methods_url || '';
+	const accountPortalAvailable = !! account?.account_portal_available;
+	const purchaseCreditsAvailable = !! account?.purchase_credits_available;
+	const paymentMethodsAvailable = !! account?.payment_methods_available;
+	const linkAccountAvailable = !! account?.link_account_available;
+	const linkedUser = account?.linked_user || null;
 	const hasAccountActions =
-		purchaseCreditsUrl || paymentMethodsUrl || accountUrl;
+		purchaseCreditsAvailable ||
+		paymentMethodsAvailable ||
+		accountPortalAvailable ||
+		linkAccountAvailable;
 	const configured = !! account?.configured;
 	const tier = account?.tier || '';
 	const chatSessions = Array.isArray( account?.chat_sessions )
@@ -633,22 +689,26 @@ export default function SuperdavAccountManager() {
 					</p>
 				</div>
 				<div className="sd-ai-agent-superdav-account-header-actions">
-					{ accountUrl && (
+					{ accountPortalAvailable && (
 						<Button
 							variant="tertiary"
-							href={ accountUrl }
-							target="_blank"
-							rel="noopener noreferrer"
+							onClick={ () =>
+								openAccountAction( 'account_portal' )
+							}
+							isBusy={ openingAction === 'account_portal' }
+							disabled={ !! openingAction }
 						>
 							{ __( 'Open account portal', 'superdav-ai-agent' ) }
 						</Button>
 					) }
-					{ paymentMethodsUrl && (
+					{ paymentMethodsAvailable && (
 						<Button
 							variant="secondary"
-							href={ paymentMethodsUrl }
-							target="_blank"
-							rel="noopener noreferrer"
+							onClick={ () =>
+								openAccountAction( 'payment_methods' )
+							}
+							isBusy={ openingAction === 'payment_methods' }
+							disabled={ !! openingAction }
 						>
 							{ __(
 								'Manage payment methods',
@@ -663,12 +723,14 @@ export default function SuperdavAccountManager() {
 					>
 						{ __( 'Redeem Coupon', 'superdav-ai-agent' ) }
 					</Button>
-					{ purchaseCreditsUrl && (
+					{ purchaseCreditsAvailable && (
 						<Button
-							variant="primary"
-							href={ purchaseCreditsUrl }
-							target="_blank"
-							rel="noopener noreferrer"
+							variant="secondary"
+							onClick={ () =>
+								openAccountAction( 'purchase_credits' )
+							}
+							isBusy={ openingAction === 'purchase_credits' }
+							disabled={ !! openingAction }
 						>
 							{ __( 'Add credits', 'superdav-ai-agent' ) }
 						</Button>
@@ -689,6 +751,11 @@ export default function SuperdavAccountManager() {
 					{ redemptionNotice.message }
 				</Notice>
 			) }
+			{ actionNotice && (
+				<Notice status={ actionNotice.status } isDismissible={ false }>
+					{ actionNotice.message }
+				</Notice>
+			) }
 
 			{ hasLoadedAccount &&
 				( ! configured ? (
@@ -700,6 +767,50 @@ export default function SuperdavAccountManager() {
 					</Notice>
 				) : (
 					<>
+						<section className="sd-ai-agent-superdav-linked-user">
+							<div>
+								<h4>
+									{ __( 'Linked user', 'superdav-ai-agent' ) }
+								</h4>
+								{ linkedUser ? (
+									<>
+										<strong>
+											{ linkedUser.display_name }
+										</strong>
+										<span>{ linkedUser.masked_email }</span>
+										<span className="sd-ai-agent-superdav-linked-user-status">
+											{ __(
+												'Email verified',
+												'superdav-ai-agent'
+											) }
+										</span>
+									</>
+								) : (
+									<p className="description">
+										{ __(
+											'No verified user is linked to this site yet.',
+											'superdav-ai-agent'
+										) }
+									</p>
+								) }
+							</div>
+							{ linkAccountAvailable && (
+								<Button
+									variant="secondary"
+									onClick={ () =>
+										openAccountAction( 'link_account' )
+									}
+									isBusy={ openingAction === 'link_account' }
+									disabled={ !! openingAction }
+								>
+									{ __(
+										'Link a different user',
+										'superdav-ai-agent'
+									) }
+								</Button>
+							) }
+						</section>
+
 						<section
 							className="sd-ai-agent-superdav-account-overview"
 							aria-label={ __(
