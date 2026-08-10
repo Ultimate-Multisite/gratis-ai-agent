@@ -59,9 +59,8 @@ function executeNavigateTo( args ) {
 export async function registerNavigationAbility() {
 	await registerClientAbility( {
 		name: 'sd-ai-agent-js/navigate-to',
-		label: 'Navigate to Admin Page',
-		description:
-			'Navigate to a WordPress admin page without a full page reload when inside the admin SPA.',
+		label: 'Navigate',
+		description: 'Navigate in the browser.',
 		inputSchema: {
 			type: 'object',
 			properties: {
@@ -72,7 +71,6 @@ export async function registerNavigationAbility() {
 				},
 				url: {
 					type: 'string',
-					description: 'Same-site URL to open in the browser.',
 				},
 			},
 			anyOf: [ { required: [ 'path' ] }, { required: [ 'url' ] } ],
