@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="3.75in" height="2.25in" viewBox="0 0 1125 675" role="img" aria-labelledby="title desc">
+  <style>@page { size: 3.75in 2.25in; margin: 0; }</style>
+  <title id="title">SD AI Agent business card front</title>
+  <desc id="desc">Blue business card with the SD AI Agent logo and WordPress native AI agent tagline.</desc>
+  <rect width="1125" height="675" fill="#135e96"/>
+  <path fill="#ffffff" fill-opacity=".055" d="M1010-60l28 84 84 28-84 28-28 84-28-84-84-28 84-28z"/>
+  <path fill="#ffffff" fill-opacity=".055" d="M52 492l17 51 51 17-51 17-17 51-17-51-51-17 51-17z"/>
+
+  <g transform="translate(126 168) scale(1.08)">
+    <text x="20" y="180" fill="#ffffff" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif" font-size="142" font-weight="800" letter-spacing="-6">SD</text>
+    <text x="310" y="180" fill="#ffffff" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif" font-size="154" font-weight="800" letter-spacing="-9" text-anchor="middle">AI</text>
+    <path fill="#b5d9f3" d="M360 9l8 24 24 8-24 8-8 24-8-24-24-8 24-8z"/>
+    <path fill="#ffffff" d="M222 26l4.5 13.5L240 44l-13.5 4.5L222 62l-4.5-13.5L204 44l13.5-4.5z"/>
+    <path fill="#ffffff" d="M402 108l6 18 18 6-18 6-6 18-6-18-18-6 18-6z"/>
+    <text x="440" y="180" fill="#ffffff" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif" font-size="132" font-weight="700" letter-spacing="-5">Agent</text>
+  </g>
+
+  <rect x="215" y="445" width="695" height="2" fill="#ffffff" fill-opacity=".35"/>
+  <text x="562.5" y="516" fill="#ffffff" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif" font-size="38" font-weight="600" letter-spacing="-.5" text-anchor="middle">The only WordPress native AI Agent.</text>
+  <text x="562.5" y="584" fill="#b5d9f3" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif" font-size="29" font-weight="600" letter-spacing="1" text-anchor="middle">GITHUB.COM/ULTIMATE-MULTISITE/SUPERDAV-AI-AGENT</text>
+</svg>

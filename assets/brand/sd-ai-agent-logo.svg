@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="900" height="230" viewBox="0 0 900 230" role="img" aria-labelledby="title desc">
+  <title id="title">SD AI Agent</title>
+  <desc id="desc">SD AI Agent wordmark with the blue AI sparkle symbol integrated into the name.</desc>
+  <g fill="none" fill-rule="evenodd">
+    <text x="20" y="180" fill="#1d2327" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif" font-size="142" font-weight="800" letter-spacing="-6">SD</text>
+    <text x="310" y="180" fill="#2271b1" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif" font-size="154" font-weight="800" letter-spacing="-9" text-anchor="middle">AI</text>
+    <path fill="#72aee6" d="M360 9l8 24 24 8-24 8-8 24-8-24-24-8 24-8z"/>
+    <path fill="#2271b1" d="M222 26l4.5 13.5L240 44l-13.5 4.5L222 62l-4.5-13.5L204 44l13.5-4.5z"/>
+    <path fill="#135e96" d="M402 108l6 18 18 6-18 6-6 18-6-18-18-6 18-6z"/>
+    <text x="440" y="180" fill="#1d2327" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif" font-size="132" font-weight="700" letter-spacing="-5">Agent</text>
+  </g>
+</svg>

@@ -380,3 +380,27 @@ When instructing an AI agent to build or modify UI in this plugin, include this 
 Design system for sd-ai-agent WordPress plugin.
 Reflects the interface decisions made during the chat UI redesign (April 2026).
 -->
+
+---
+
+## 10. Brand Identity & Print Collateral
+
+The public brand is **SD AI Agent**. Marketing collateral extends the restrained
+WordPress admin visual language without changing the product UI rules above.
+
+- The primary logo is the existing blue `AI` sparkle mark paired with the full
+  `SD AI Agent` wordmark. The sparkle above the wordmark's `I` is a required
+  recognition device and must remain visible at small sizes.
+- Use WordPress blue `#2271b1`, dark blue `#135e96`, light blue `#72aee6`,
+  charcoal `#1d2327`, and white. The fixed values are permitted for exported
+  brand collateral; interactive plugin UI must continue to inherit the admin
+  colour tokens defined above.
+- Keep typography bold, geometric, and system-native. Avoid futuristic neon,
+  gradients, robot imagery, and visual effects that make the product feel
+  separate from WordPress.
+- The canonical logo and WordCamp business-card sources live in
+  `assets/brand/`. Preserve their stated clear space, bleed, trim, and safe-area
+  rules when adapting them for other printed formats.
+- Event cards lead with the tagline `The only WordPress native AI Agent.` and
+  separate the product benefit from temporary promotional copy. Verify all
+  offer terms and redemption details before each print run.
