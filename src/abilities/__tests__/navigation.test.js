@@ -29,6 +29,21 @@ describe( 'browser site navigation', () => {
 		delete window._sdAiAgentPendingNavigation;
 	} );
 
+	test( 'advertises path or url navigation inputs', async () => {
+		const { navigation, registry } = loadNavigationAndRegistry();
+		await navigation.registerNavigationAbility();
+
+		const [ ability ] = await registry.snapshotDescriptors();
+		expect( ability.input_schema.properties ).toMatchObject( {
+			path: { type: 'string' },
+			url: { type: 'string' },
+		} );
+		expect( ability.input_schema.anyOf ).toEqual( [
+			{ required: [ 'path' ] },
+			{ required: [ 'url' ] },
+		] );
+	} );
+
 	test( 'schedules a same-site URL after the client tool result is posted', async () => {
 		const { navigation, registry } = loadNavigationAndRegistry();
 		await navigation.registerNavigationAbility();

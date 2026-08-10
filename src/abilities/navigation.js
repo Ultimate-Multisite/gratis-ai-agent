@@ -70,8 +70,12 @@ export async function registerNavigationAbility() {
 					description:
 						'wp-admin-relative path, e.g. "plugins.php" or "edit.php?post_type=page".',
 				},
+				url: {
+					type: 'string',
+					description: 'Same-site URL to open in the browser.',
+				},
 			},
-			required: [ 'path' ],
+			anyOf: [ { required: [ 'path' ] }, { required: [ 'url' ] } ],
 		},
 		outputSchema: {
 			type: 'object',
