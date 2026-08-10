@@ -69,6 +69,7 @@ class OpenverseImageSource implements ImageSourceInterface {
 		$query_args = [
 			'q'         => $keyword,
 			'page_size' => min( $per_page, 50 ),
+			'mature'    => 'false',
 		];
 
 		// Orientation: Openverse uses tall|wide|square.
@@ -164,13 +165,16 @@ class OpenverseImageSource implements ImageSourceInterface {
 		$item = json_decode( wp_remote_retrieve_body( $response ), true );
 
 		return [
-			'url'        => $item['url'] ?? '',
-			'width'      => $item['width'] ?? 0,
-			'height'     => $item['height'] ?? 0,
-			'author'     => $item['creator'] ?? '',
-			'author_url' => $item['creator_url'] ?? '',
-			'license'    => $item['license'] ?? '',
-			'source'     => $item['source'] ?? $item['provider'] ?? 'openverse',
+			'url'         => $item['url'] ?? '',
+			'width'       => $item['width'] ?? 0,
+			'height'      => $item['height'] ?? 0,
+			'title'       => $item['title'] ?? '',
+			'author'      => $item['creator'] ?? '',
+			'author_url'  => $item['creator_url'] ?? '',
+			'license'     => $item['license'] ?? '',
+			'license_url' => $item['license_url'] ?? '',
+			'attribution' => $item['attribution'] ?? '',
+			'source'      => $item['source'] ?? $item['provider'] ?? 'openverse',
 		];
 	}
 

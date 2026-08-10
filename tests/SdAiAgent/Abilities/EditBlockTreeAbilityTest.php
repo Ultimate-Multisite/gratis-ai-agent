@@ -26,6 +26,11 @@ use WP_UnitTestCase;
  */
 class EditBlockTreeAbilityTest extends WP_UnitTestCase {
 
+	public function set_up(): void {
+		parent::set_up();
+		wp_set_current_user( self::factory()->user->create( [ 'role' => 'administrator' ] ) );
+	}
+
 	// ── Helpers ────────────────────────────────────────────────────────────
 
 	/**
@@ -299,7 +304,7 @@ class EditBlockTreeAbilityTest extends WP_UnitTestCase {
 			'post_id'    => $post_id,
 			'op'         => 'update-attrs',
 			'path'       => [ 0 ],
-			'attributes' => [],
+			'attributes' => [ 'dropCap' => true ],
 			'dry_run'    => true,
 		] );
 

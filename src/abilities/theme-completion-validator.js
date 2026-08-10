@@ -173,6 +173,18 @@ function isVisible( element, win ) {
 }
 
 /**
+ * Return whether an element belongs to logged-in WordPress administration
+ * chrome rather than the rendered site. Browser QA runs with the real current
+ * user's cookies, so the admin toolbar must not create page-content failures.
+ *
+ * @param {Element} element Candidate rendered element.
+ * @return {boolean} True for WordPress administration chrome.
+ */
+function isWordPressAdminChrome( element ) {
+	return !! element?.closest?.( '#wpadminbar, #adminmenumain' );
+}
+
+/**
  * Add a violation until the result cap is reached.
  *
  * @param {Object[]} violations Violation list.
@@ -306,6 +318,17 @@ function getAccessibleName( element, doc ) {
 
 	if ( element.tagName === 'IMG' ) {
 		return ( element.getAttribute( 'alt' ) || '' ).trim();
+	}
+
+	// The accessible name of an image-only link includes its descendant image's
+	// alt text. Treating a standard custom-logo link as unnamed is a false
+	// failure even though assistive technology announces the logo correctly.
+	const descendantImageName = element
+		.querySelector?.( 'img[alt]' )
+		?.getAttribute( 'alt' )
+		?.trim();
+	if ( descendantImageName ) {
+		return descendantImageName;
 	}
 
 	const text = ( element.textContent || '' ).trim();
@@ -530,12 +553,22 @@ export function inspectThemeDocument( {
 	}
 
 	const body = doc.body;
-	const expectedThemeClass = `wp-theme-${ expectedStylesheet }`;
-	const activeStylesheet = body.classList.contains( expectedThemeClass )
-		? expectedStylesheet
+	const expectedThemeClass = expectedStylesheet
+		? `wp-theme-${ expectedStylesheet }`
 		: '';
+	let activeStylesheet = '';
+	if ( expectedStylesheet ) {
+		activeStylesheet = body.classList.contains( expectedThemeClass )
+			? expectedStylesheet
+			: '';
+	} else {
+		activeStylesheet =
+			Array.from( body.classList )
+				.find( ( className ) => className.startsWith( 'wp-theme-' ) )
+				?.slice( 'wp-theme-'.length ) || '';
+	}
 	checks.active_stylesheet = activeStylesheet;
-	if ( activeStylesheet !== expectedStylesheet ) {
+	if ( expectedStylesheet && activeStylesheet !== expectedStylesheet ) {
 		reportViolation( {
 			code: 'unexpected_active_stylesheet',
 			selector: 'body',
@@ -618,6 +651,9 @@ export function inspectThemeDocument( {
 
 	const ids = new Map();
 	for ( const element of doc.querySelectorAll( '[id]' ) ) {
+		if ( isWordPressAdminChrome( element ) ) {
+			continue;
+		}
 		const id = element.id;
 		ids.set( id, ( ids.get( id ) || 0 ) + 1 );
 	}
@@ -633,6 +669,9 @@ export function inspectThemeDocument( {
 	}
 
 	for ( const image of doc.querySelectorAll( 'img' ) ) {
+		if ( isWordPressAdminChrome( image ) ) {
+			continue;
+		}
 		const src = image.currentSrc || image.getAttribute( 'src' ) || '';
 		if ( ! image.hasAttribute( 'alt' ) ) {
 			reportViolation( {
@@ -685,6 +724,9 @@ export function inspectThemeDocument( {
 	}
 
 	for ( const link of doc.querySelectorAll( 'a[href]' ) ) {
+		if ( isWordPressAdminChrome( link ) ) {
+			continue;
+		}
 		const href = ( link.getAttribute( 'href' ) || '' ).trim();
 		if (
 			! href ||
@@ -705,7 +747,10 @@ export function inspectThemeDocument( {
 		doc.querySelectorAll(
 			'a[href], button, input:not([type="hidden"]), select, textarea, [role="button"]'
 		)
-	).filter( ( control ) => isVisible( control, win ) );
+	).filter(
+		( control ) =>
+			! isWordPressAdminChrome( control ) && isVisible( control, win )
+	);
 	for ( const control of controls ) {
 		if ( ! getAccessibleName( control, doc ) ) {
 			reportViolation( {
@@ -736,6 +781,7 @@ export function inspectThemeDocument( {
 		)
 	).filter(
 		( element ) =>
+			! isWordPressAdminChrome( element ) &&
 			isVisible( element, win ) &&
 			( ( element.textContent || '' ).trim() ||
 				element.tagName === 'INPUT' )

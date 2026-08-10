@@ -209,7 +209,7 @@ class UnifiedAdminMenu {
 				'admin_notices',
 				function () {
 					echo '<div class="notice notice-error"><p>';
-					echo esc_html__( 'SD AI Agent build files are missing. Please run npm run build.', 'superdav-ai-agent' );
+					echo esc_html__( 'SD AI Agent build files are missing. Please run pnpm run build.', 'superdav-ai-agent' );
 					echo '</p></div>';
 				}
 			);

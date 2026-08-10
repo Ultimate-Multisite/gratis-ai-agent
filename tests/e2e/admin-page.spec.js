@@ -8,7 +8,7 @@
  *   - Changes:   admin.php?page=sd-ai-agent#/changes
  *   - Settings:  admin.php?page=sd-ai-agent#/settings
  *
- * Run: npm run test:e2e:playwright
+ * Run: pnpm run test:e2e:playwright
  */
 
 const { test, expect } = require( '@playwright/test' );

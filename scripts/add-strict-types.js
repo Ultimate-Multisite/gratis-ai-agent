@@ -6,7 +6,7 @@
  *   1. `declare(strict_types=1);` after `<?php`
  *   2. Direct file access protection check
  *
- * Run automatically via the `postbuild` npm script.
+ * Run automatically via the `postbuild` package script.
  */
 
 const fs = require( 'fs' );

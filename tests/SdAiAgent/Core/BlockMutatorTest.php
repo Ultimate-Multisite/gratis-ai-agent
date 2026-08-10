@@ -161,6 +161,21 @@ class BlockMutatorTest extends WP_UnitTestCase {
 		$this->assertSame( 'missing_attributes', $result->get_error_code() );
 	}
 
+	/** Empty provider-filled attributes cannot become a destructive no-op. */
+	public function test_update_attrs_rejects_empty_attributes(): void {
+		$result = BlockMutator::apply(
+			[ $this->make_block( 'core/paragraph' ) ],
+			'update-attrs',
+			[
+				'path'       => [ 0 ],
+				'attributes' => [],
+			]
+		);
+
+		$this->assertWPError( $result );
+		$this->assertSame( 'missing_attributes', $result->get_error_code() );
+	}
+
 	/**
 	 * update-attrs addressed by ref works.
 	 */
@@ -238,6 +253,36 @@ class BlockMutatorTest extends WP_UnitTestCase {
 		$this->assertSame( 'missing_inner_html', $result->get_error_code() );
 	}
 
+	/** Empty provider-filled HTML cannot erase an existing block. */
+	public function test_update_html_rejects_empty_content(): void {
+		$result = BlockMutator::apply(
+			[ $this->make_block( 'core/paragraph' ) ],
+			'update-html',
+			[
+				'path'      => [ 0 ],
+				'innerHTML' => '',
+			]
+		);
+
+		$this->assertWPError( $result );
+		$this->assertSame( 'missing_inner_html', $result->get_error_code() );
+	}
+
+	/** Disallowed-only HTML cannot sanitize to an empty destructive update. */
+	public function test_update_html_rejects_content_empty_after_sanitization(): void {
+		$result = BlockMutator::apply(
+			[ $this->make_block( 'core/paragraph' ) ],
+			'update-html',
+			[
+				'path'      => [ 0 ],
+				'innerHTML' => '<script></script>',
+			]
+		);
+
+		$this->assertWPError( $result );
+		$this->assertSame( 'missing_inner_html', $result->get_error_code() );
+	}
+
 	/**
 	 * update-html addressed by flat_index works.
 	 */
@@ -301,6 +346,21 @@ class BlockMutatorTest extends WP_UnitTestCase {
 			'path' => [ 0 ],
 		] );
 		$this->assertInstanceOf( \WP_Error::class, $result );
+		$this->assertSame( 'missing_block_def', $result->get_error_code() );
+	}
+
+	/** Empty provider-filled block definitions cannot erase a target block. */
+	public function test_replace_block_rejects_empty_definition(): void {
+		$result = BlockMutator::apply(
+			[ $this->make_block( 'core/paragraph' ) ],
+			'replace-block',
+			[
+				'path'      => [ 0 ],
+				'block_def' => [],
+			]
+		);
+
+		$this->assertWPError( $result );
 		$this->assertSame( 'missing_block_def', $result->get_error_code() );
 	}
 

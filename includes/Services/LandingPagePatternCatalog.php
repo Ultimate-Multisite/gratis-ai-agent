@@ -25,8 +25,9 @@ if ( ! defined( 'ABSPATH' ) ) {
  *
  * @phpstan-type PatternSection array{role:string,required:bool}
  * @phpstan-type RawPatternVariant array{slug:string,title:string,section_roles:list<PatternSection>,layout_cues:list<string>,selection_keywords:list<string>}
- * @phpstan-type PatternVariant array{slug:string,title:string,required_content:list<string>,optional_content:list<string>,section_roles:list<PatternSection>,core_block_allowlist:list<string>,responsive_behavior:array<string,array<string,string>>,accessibility_requirements:array<string,string>,layout_cues:list<string>,selection_keywords:list<string>,governance?:array<string,mixed>}
- * @phpstan-type PatternFamily array{slug:string,title:string,visitor_goal:string,goal_aliases:list<string>,compatible_site_types:list<string>,required_content:list<string>,optional_content:list<string>,section_roles:list<PatternSection>,core_block_allowlist:list<string>,responsive_behavior:array<string,array<string,string>>,accessibility_requirements:array<string,string>,variants:list<PatternVariant>,contraindications:list<string>,layout_keywords:list<string>,governance?:array<string,mixed>}
+ * @phpstan-type HeroContract array{strategy:string,media_role:string,desktop_media_min_viewport_ratio:float,desktop_min_height_vh:int,primary_cta_above_fold:bool}
+ * @phpstan-type PatternVariant array{slug:string,title:string,required_content:list<string>,optional_content:list<string>,section_roles:list<PatternSection>,core_block_allowlist:list<string>,responsive_behavior:array<string,array<string,string>>,accessibility_requirements:array<string,string>,hero_contract:HeroContract,layout_cues:list<string>,selection_keywords:list<string>,governance?:array<string,mixed>}
+ * @phpstan-type PatternFamily array{slug:string,title:string,visitor_goal:string,goal_aliases:list<string>,compatible_site_types:list<string>,required_content:list<string>,optional_content:list<string>,section_roles:list<PatternSection>,core_block_allowlist:list<string>,responsive_behavior:array<string,array<string,string>>,accessibility_requirements:array<string,string>,hero_contract:HeroContract,variants:list<PatternVariant>,contraindications:list<string>,layout_keywords:list<string>,governance?:array<string,mixed>}
  * @phpstan-type SelectionContext array{primary_goal:string,site_type:string,layout_notes:list<string>,section_requests:list<string>,available_content:array<string,true>}
  * @phpstan-type MatchScore array{score:int,matched_terms:list<string>}
  * @phpstan-type RequiredContentScore array{score:int,required:int,missing:list<string>}
@@ -284,6 +285,7 @@ final class LandingPagePatternCatalog {
 				[ 'site_name', 'offer', 'cta_destination' ],
 				[ 'social_proof', 'services', 'case_studies', 'testimonials', 'faq', 'team' ],
 				self::section_roles( [ 'hero', 'proof', 'offer', 'process', 'faq', 'final-cta' ], [ 'proof', 'faq' ] ),
+				self::hero_contract( 'split-media', 'supporting', 0.35, 55 ),
 				[
 					self::variant(
 						'proof-led',
@@ -312,6 +314,7 @@ final class LandingPagePatternCatalog {
 				[ 'site_name', 'product', 'cta_destination' ],
 				[ 'product_media', 'price_or_offer', 'reviews', 'shipping_or_fulfilment', 'faq' ],
 				self::section_roles( [ 'hero', 'product-focus', 'benefits', 'trust', 'purchase-cta', 'faq' ], [ 'trust', 'faq' ] ),
+				self::hero_contract( 'product-focus', 'primary', 0.4, 55 ),
 				[
 					self::variant(
 						'benefit-led',
@@ -340,6 +343,7 @@ final class LandingPagePatternCatalog {
 				[ 'site_name', 'booking_method' ],
 				[ 'menu_or_service_list', 'location_or_contact', 'hours', 'availability', 'gallery', 'accessibility_details' ],
 				self::section_roles( [ 'hero', 'availability', 'offer', 'location', 'reservation-cta', 'faq' ], [ 'availability', 'location', 'faq' ] ),
+				self::hero_contract( 'immersive-media', 'primary', 0.85, 55 ),
 				[
 					self::variant(
 						'menu-led',
@@ -368,6 +372,7 @@ final class LandingPagePatternCatalog {
 				[ 'site_name', 'location_or_contact' ],
 				[ 'hours', 'services', 'map', 'parking_or_access', 'local_reviews', 'gallery' ],
 				self::section_roles( [ 'hero', 'local-value', 'location-contact', 'practical-details', 'contact-cta' ], [ 'practical-details' ] ),
+				self::hero_contract( 'split-media', 'supporting', 0.35, 50 ),
 				[
 					self::variant(
 						'location-led',
@@ -396,6 +401,7 @@ final class LandingPagePatternCatalog {
 				[ 'site_name', 'portfolio_items', 'inquiry_method' ],
 				[ 'services', 'bio', 'process', 'testimonials', 'awards_or_press' ],
 				self::section_roles( [ 'hero', 'selected-work', 'capabilities', 'process', 'inquiry-cta' ], [ 'process' ] ),
+				self::hero_contract( 'immersive-media', 'primary', 0.9, 60 ),
 				[
 					self::variant(
 						'work-first',
@@ -424,6 +430,7 @@ final class LandingPagePatternCatalog {
 				[ 'site_name', 'mission', 'donation_or_volunteer_path' ],
 				[ 'programs', 'impact_evidence', 'stories', 'events', 'newsletter', 'contact' ],
 				self::section_roles( [ 'hero', 'mission', 'programs', 'ways-to-help', 'support-cta', 'updates' ], [ 'programs', 'updates' ] ),
+				self::hero_contract( 'immersive-media', 'primary', 0.8, 55 ),
 				[
 					self::variant(
 						'donation-led',
@@ -452,6 +459,7 @@ final class LandingPagePatternCatalog {
 				[ 'site_name', 'publication_or_topic', 'subscription_method' ],
 				[ 'featured_content', 'recent_content', 'author_or_host', 'categories', 'social_proof' ],
 				self::section_roles( [ 'hero', 'editorial-value', 'featured-content', 'subscription-cta', 'recent-content', 'about' ], [ 'featured-content', 'recent-content', 'about' ] ),
+				self::hero_contract( 'editorial-feature', 'primary', 0.55, 50 ),
 				[
 					self::variant(
 						'editorial-led',
@@ -487,6 +495,7 @@ final class LandingPagePatternCatalog {
 	 * @param array<string>             $required_content Required known-content keys.
 	 * @param array<string>             $optional_content Optional known-content keys.
 	 * @param list<array<string,mixed>> $section_roles Ordered section roles.
+	 * @param array<string,mixed>       $hero_contract Governed hero composition contract.
 	 * @param list<array<string,mixed>> $variants Structural variants.
 	 * @param array<string>             $contraindications Contraindications.
 	 * @param array<string>             $layout_keywords Layout matching terms.
@@ -496,12 +505,13 @@ final class LandingPagePatternCatalog {
 	 * @phpstan-param list<string> $required_content
 	 * @phpstan-param list<string> $optional_content
 	 * @phpstan-param list<PatternSection> $section_roles
+	 * @phpstan-param HeroContract $hero_contract
 	 * @phpstan-param list<RawPatternVariant> $variants
 	 * @phpstan-param list<string> $contraindications
 	 * @phpstan-param list<string> $layout_keywords
 	 * @phpstan-return PatternFamily
 	 */
-	private static function build_family( string $slug, string $title, string $visitor_goal, array $goal_aliases, array $site_types, array $required_content, array $optional_content, array $section_roles, array $variants, array $contraindications, array $layout_keywords ): array {
+	private static function build_family( string $slug, string $title, string $visitor_goal, array $goal_aliases, array $site_types, array $required_content, array $optional_content, array $section_roles, array $hero_contract, array $variants, array $contraindications, array $layout_keywords ): array {
 		$complete_variants = [];
 		foreach ( $variants as $variant ) {
 			$complete_variants[] = [
@@ -513,6 +523,7 @@ final class LandingPagePatternCatalog {
 				'core_block_allowlist'       => self::CORE_BLOCK_ALLOWLIST,
 				'responsive_behavior'        => self::responsive_behavior(),
 				'accessibility_requirements' => self::accessibility_requirements(),
+				'hero_contract'              => $hero_contract,
 				'layout_cues'                => array_values( $variant['layout_cues'] ),
 				'selection_keywords'         => array_values( $variant['selection_keywords'] ),
 			];
@@ -530,6 +541,7 @@ final class LandingPagePatternCatalog {
 			'core_block_allowlist'       => self::CORE_BLOCK_ALLOWLIST,
 			'responsive_behavior'        => self::responsive_behavior(),
 			'accessibility_requirements' => self::accessibility_requirements(),
+			'hero_contract'              => $hero_contract,
 			'variants'                   => $complete_variants,
 			'contraindications'          => array_values( $contraindications ),
 			'layout_keywords'            => array_values( $layout_keywords ),
@@ -580,6 +592,25 @@ final class LandingPagePatternCatalog {
 		}
 
 		return $sections;
+	}
+
+	/**
+	 * Build a measurable, topic-independent hero composition contract.
+	 *
+	 * The contract is selected by visitor goal and available content. It avoids
+	 * hard-coding rules such as “photography sites use full-width images” while
+	 * still ensuring that media-first work is rendered as media-first work.
+	 *
+	 * @return array{strategy:string,media_role:string,desktop_media_min_viewport_ratio:float,desktop_min_height_vh:int,primary_cta_above_fold:bool}
+	 */
+	private static function hero_contract( string $strategy, string $media_role, float $minimum_width_ratio, int $minimum_height_vh ): array {
+		return [
+			'strategy'                         => $strategy,
+			'media_role'                       => $media_role,
+			'desktop_media_min_viewport_ratio' => $minimum_width_ratio,
+			'desktop_min_height_vh'            => $minimum_height_vh,
+			'primary_cta_above_fold'           => true,
+		];
 	}
 
 	/**
@@ -731,6 +762,7 @@ final class LandingPagePatternCatalog {
 			'core_block_allowlist',
 			'responsive_behavior',
 			'accessibility_requirements',
+			'hero_contract',
 			'variants',
 			'contraindications',
 			'layout_keywords',
@@ -774,6 +806,9 @@ final class LandingPagePatternCatalog {
 		}
 		if ( ! self::is_accessibility_requirements( $family['accessibility_requirements'] ) ) {
 			return self::error( 'invalid_accessibility_requirements', __( 'Landing-page patterns must include complete accessibility requirements.', 'superdav-ai-agent' ), [ 'family' => $family['slug'] ] );
+		}
+		if ( ! self::is_hero_contract( $family['hero_contract'] ) ) {
+			return self::error( 'invalid_hero_contract', __( 'Landing-page patterns must include a measurable hero composition contract.', 'superdav-ai-agent' ), [ 'family' => $family['slug'] ] );
 		}
 
 		if ( ! is_array( $family['variants'] ) || ! array_is_list( $family['variants'] ) || [] === $family['variants'] ) {
@@ -825,7 +860,7 @@ final class LandingPagePatternCatalog {
 	 * @return true|WP_Error
 	 */
 	private static function validate_variant( array $family, array $variant ): true|WP_Error {
-		$required_fields = [ 'slug', 'title', 'required_content', 'optional_content', 'section_roles', 'core_block_allowlist', 'responsive_behavior', 'accessibility_requirements', 'layout_cues', 'selection_keywords', 'governance' ];
+		$required_fields = [ 'slug', 'title', 'required_content', 'optional_content', 'section_roles', 'core_block_allowlist', 'responsive_behavior', 'accessibility_requirements', 'hero_contract', 'layout_cues', 'selection_keywords', 'governance' ];
 		foreach ( $required_fields as $field ) {
 			if ( ! array_key_exists( $field, $variant ) ) {
 				return self::error(
@@ -854,7 +889,7 @@ final class LandingPagePatternCatalog {
 					);
 			}
 		}
-		if ( ! self::is_section_role_list( $variant['section_roles'] ) || ! self::is_core_block_list( $variant['core_block_allowlist'] ) || ! self::is_responsive_behavior( $variant['responsive_behavior'] ) || ! self::is_accessibility_requirements( $variant['accessibility_requirements'] ) ) {
+		if ( ! self::is_section_role_list( $variant['section_roles'] ) || ! self::is_core_block_list( $variant['core_block_allowlist'] ) || ! self::is_responsive_behavior( $variant['responsive_behavior'] ) || ! self::is_accessibility_requirements( $variant['accessibility_requirements'] ) || ! self::is_hero_contract( $variant['hero_contract'] ) ) {
 			return self::error(
 				'invalid_variant_structure',
 				__( 'Landing-page pattern variants must include complete structural, responsive, accessibility, and core-block metadata.', 'superdav-ai-agent' ),
@@ -1467,6 +1502,27 @@ final class LandingPagePatternCatalog {
 		}
 
 		return true;
+	}
+
+	/** Check the measurable hero composition contract remains complete. */
+	private static function is_hero_contract( mixed $value ): bool {
+		if ( ! is_array( $value ) ) {
+			return false;
+		}
+
+		$strategies = [ 'balanced', 'immersive-media', 'split-media', 'editorial-feature', 'product-focus' ];
+		return isset( $value['strategy'], $value['media_role'], $value['desktop_media_min_viewport_ratio'], $value['desktop_min_height_vh'], $value['primary_cta_above_fold'] )
+			&& is_string( $value['strategy'] )
+			&& in_array( $value['strategy'], $strategies, true )
+			&& is_string( $value['media_role'] )
+			&& '' !== trim( $value['media_role'] )
+			&& is_float( $value['desktop_media_min_viewport_ratio'] )
+			&& $value['desktop_media_min_viewport_ratio'] >= 0.0
+			&& $value['desktop_media_min_viewport_ratio'] <= 1.0
+			&& is_int( $value['desktop_min_height_vh'] )
+			&& $value['desktop_min_height_vh'] >= 0
+			&& $value['desktop_min_height_vh'] <= 100
+			&& is_bool( $value['primary_cta_above_fold'] );
 	}
 
 	/**

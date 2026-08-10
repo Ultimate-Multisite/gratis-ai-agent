@@ -137,6 +137,118 @@ class ImageSourceFactoryTest extends WP_UnitTestCase {
 		$this->assertStringContainsString( 'openverse', $result->get_error_message() );
 	}
 
+	/** Hero assets must be large, landscape, and free of preview signals. */
+	public function test_hero_quality_floor_rejects_small_or_watermarked_metadata(): void {
+		$small = ImageSourceFactory::assess_candidate_quality(
+			[
+				'width'  => 500,
+				'height' => 425,
+				'title'  => 'Editorial portrait',
+			],
+			'hero'
+		);
+		$watermarked = ImageSourceFactory::assess_candidate_quality(
+			[
+				'width'  => 3000,
+				'height' => 1800,
+				'title'  => 'Watermarked sample preview',
+			],
+			'hero'
+		);
+
+		$this->assertFalse( $small['eligible'] );
+		$this->assertLessThan( 40, $small['score'] );
+		$this->assertStringContainsString( 'below', implode( ' ', $small['reasons'] ) );
+		$this->assertFalse( $watermarked['eligible'] );
+		$this->assertStringContainsString( 'watermark', implode( ' ', $watermarked['reasons'] ) );
+	}
+
+	/** Gallery assets enforce the documented landscape aspect-ratio floor. */
+	public function test_gallery_quality_floor_rejects_portrait_source(): void {
+		$result = ImageSourceFactory::assess_candidate_quality(
+			[
+				'width'  => 1200,
+				'height' => 1500,
+				'title'  => 'Portrait gallery image',
+			],
+			'gallery'
+		);
+
+		$this->assertFalse( $result['eligible'] );
+		$this->assertStringContainsString( 'landscape', implode( ' ', $result['reasons'] ) );
+	}
+
+	/** Metadata provider errors remain actionable when a role requires metadata. */
+	public function test_import_by_provider_id_returns_metadata_error_for_quality_usage(): void {
+		$source = new FakeImageSource( 'openverse', 'free', [] );
+		$this->set_sources( [ 'openverse' => $source ] );
+
+		$result = ImageSourceFactory::import_by_provider_id(
+			'openverse',
+			'image-1',
+			0,
+			0,
+			[ 'usage' => 'hero' ]
+		);
+
+		$this->assertWPError( $result );
+		$this->assertSame( 'not_used', $result->get_error_code() );
+		$this->assertSame( [], $source->downloaded_ids );
+	}
+
+	/** A large landscape source is eligible and receives a useful score. */
+	public function test_hero_quality_floor_accepts_large_landscape_source(): void {
+		$result = ImageSourceFactory::assess_candidate_quality(
+			[
+				'width'  => 3200,
+				'height' => 1800,
+				'title'  => 'Mountain studio landscape',
+			],
+			'hero'
+		);
+
+		$this->assertTrue( $result['eligible'] );
+		$this->assertGreaterThanOrEqual( 90, $result['score'] );
+	}
+
+	/** Search removes ineligible hero sources and ranks remaining candidates. */
+	public function test_search_candidates_applies_role_quality_floor(): void {
+		$source = new FakeImageSource(
+			'openverse',
+			'free',
+			[
+				[ 'id' => 'small', 'width' => 500, 'height' => 425, 'title' => 'Small' ],
+				[ 'id' => 'good', 'width' => 3200, 'height' => 1800, 'title' => 'Good' ],
+			]
+		);
+		$this->set_sources( [ 'openverse' => $source ] );
+
+		$result = ImageSourceFactory::search_candidates( 'portfolio', 10, '', [ 'usage' => 'hero' ] );
+
+		$this->assertIsArray( $result );
+		$this->assertSame( 1, $result['total'] );
+		$this->assertSame( 'good', $result['candidates'][0]['image_id'] );
+		$this->assertGreaterThanOrEqual( 90, $result['candidates'][0]['quality_score'] );
+	}
+
+	/** Candidate limits are clamped before search and slicing. */
+	public function test_search_candidates_clamps_negative_limit(): void {
+		$source = new FakeImageSource(
+			'openverse',
+			'free',
+			[
+				[ 'id' => 'one', 'width' => 1200, 'height' => 800, 'title' => 'One' ],
+				[ 'id' => 'two', 'width' => 1200, 'height' => 800, 'title' => 'Two' ],
+			]
+		);
+		$this->set_sources( [ 'openverse' => $source ] );
+
+		$result = ImageSourceFactory::search_candidates( 'portfolio', -5 );
+
+		$this->assertIsArray( $result );
+		$this->assertCount( 1, $result['candidates'] );
+	}
+
 	/**
 	 * Get the private source registry.
 	 *

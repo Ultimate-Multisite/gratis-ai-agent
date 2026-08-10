@@ -11,7 +11,7 @@
  *   .sdaa-input       → .sdaa-w-input-textarea
  *   .sdaa-send-btn    → .sdaa-cr-send-btn
  *
- * Run: npm run test:e2e:playwright
+ * Run: pnpm run test:e2e:playwright
  */
 
 const { test, expect } = require( '@playwright/test' );

@@ -110,7 +110,7 @@ restore_dev_vendor() {
 
 build_assets_and_vendor() {
 	echo "==> Building Superdav AI Agent v${VERSION} assets..."
-	npx wp-scripts build
+	pnpm exec wp-scripts build
 	node scripts/add-strict-types.js
 	echo "    Assets built."
 

@@ -345,8 +345,8 @@ interfaces stabilize.
 7. Install WordPress if not already installed.
 8. Symlink the current worktree as
    `wp-content/plugins/superdav-ai-agent`.
-9. Run `composer install` and `npm install` only when requested or missing.
-10. Run `npm run build` unless skipped explicitly.
+9. Run `composer install` and `pnpm install` only when requested or missing.
+10. Run `pnpm run build` unless skipped explicitly.
 11. Activate `superdav-ai-agent`.
 12. Generate the per-site certificate.
 13. Generate/enable the nginx site config.
@@ -631,7 +631,7 @@ curl -s https://<slug>.superdav.test/wp-json/ | jq '.namespaces'
   snippets for manual installation.
 - Whether generated nginx site configs should live under `/etc/nginx/conf.d/` or
   `/etc/nginx/sites-enabled/` on this CachyOS host.
-- Whether to make `npm run build` default during provisioning or require an
+- Whether to make `pnpm run build` default during provisioning or require an
   explicit `--build` flag for speed.
 - Whether to use `mkcert` if available, or keep the OpenSSL-based CA helper to
   avoid another dependency.

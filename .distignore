@@ -29,7 +29,8 @@
 /node_modules
 /src
 /package.json
-/package-lock.json
+/pnpm-lock.yaml
+/pnpm-workspace.yaml
 /webpack.config.js
 
 # Composer dev metadata.

@@ -32,6 +32,13 @@ jest.mock( '@wordpress/components', () => {
 				  ),
 		Notice: ( { children } ) =>
 			React.createElement( 'div', null, children ),
+		Modal: ( { children, title } ) =>
+			React.createElement(
+				'div',
+				{ role: 'dialog', 'aria-label': title },
+				React.createElement( 'h2', null, title ),
+				children
+			),
 		Spinner: () => React.createElement( 'div', { role: 'status' } ),
 		TextControl: ( { label, value, onChange, type = 'text', disabled } ) =>
 			React.createElement(
@@ -93,6 +100,18 @@ describe( 'SuperdavAccountManager', () => {
 		} );
 	}
 
+	/**
+	 * Find a rendered button by its exact visible label.
+	 *
+	 * @param {string} label Button label.
+	 * @return {HTMLButtonElement|undefined} Matching button.
+	 */
+	function findButton( label ) {
+		return [ ...container.querySelectorAll( 'button' ) ].find(
+			( button ) => button.textContent === label
+		);
+	}
+
 	test( 'treats absent wallet amounts as unknown', () => {
 		expect( formatWalletAmount( null ) ).toBe( '—' );
 		expect( formatWalletAmount( undefined ) ).toBe( '—' );
@@ -149,6 +168,24 @@ describe( 'SuperdavAccountManager', () => {
 		expect(
 			container.querySelector( '.sd-ai-agent-superdav-account' )
 		).not.toBeNull();
+	} );
+
+	test( 'refreshes the balance on page visit and replaces the manual refresh action', async () => {
+		apiFetch.mockResolvedValue( { configured: true } );
+
+		await act( async () => {
+			root.render( createElement( SuperdavAccountManager, {} ) );
+		} );
+		await act( async () => {
+			await Promise.resolve();
+		} );
+
+		expect( apiFetch ).toHaveBeenCalledWith( {
+			path: '/sd-ai-agent/v1/superdav-account',
+			method: 'POST',
+		} );
+		expect( findButton( 'Redeem Coupon' ) ).toBeDefined();
+		expect( container.textContent ).not.toContain( 'Refresh balance' );
 	} );
 
 	test( 'renders credit activity and labels missing promotional expiry as unavailable', async () => {
@@ -256,13 +293,30 @@ describe( 'SuperdavAccountManager', () => {
 		).not.toBeNull();
 	} );
 
-	test( 'renders dedicated billing actions with their service-issued URLs', async () => {
-		apiFetch.mockResolvedValueOnce( {
-			configured: true,
-			purchase_credits_url: 'https://account.example/credits/purchase',
-			payment_methods_url:
-				'https://account.example/billing/payment-methods',
-		} );
+	test( 'shows the linked user and mints a fresh URL when an account action is clicked', async () => {
+		const portalWindow = {
+			location: { assign: jest.fn() },
+			close: jest.fn(),
+			opener: window,
+		};
+		window.open = jest.fn( () => portalWindow );
+		apiFetch
+			.mockResolvedValueOnce( {
+				configured: true,
+				account_portal_available: true,
+				purchase_credits_available: true,
+				payment_methods_available: true,
+				link_account_available: true,
+				linked_user: {
+					display_name: 'Verified Customer',
+					masked_email: 'v***@example.test',
+					email_verified: true,
+				},
+			} )
+			.mockResolvedValueOnce( {
+				action: 'account_portal',
+				url: 'https://account.example/fresh-account-action',
+			} );
 
 		await act( async () => {
 			root.render( createElement( SuperdavAccountManager, {} ) );
@@ -271,16 +325,38 @@ describe( 'SuperdavAccountManager', () => {
 			await Promise.resolve();
 		} );
 
+		expect( container.textContent ).toContain( 'Verified Customer' );
+		expect( container.textContent ).toContain( 'v***@example.test' );
+		expect( findButton( 'Link a different user' ) ).toBeDefined();
+
+		const headerActions = container.querySelector(
+			'.sd-ai-agent-superdav-account-header-actions'
+		);
 		expect(
-			container.querySelector(
-				'a[href="https://account.example/credits/purchase"]'
+			[ ...headerActions.querySelectorAll( 'a, button' ) ].map(
+				( action ) => action.textContent
 			)
-		).not.toBeNull();
-		expect(
-			container.querySelector(
-				'a[href="https://account.example/billing/payment-methods"]'
-			)
-		).not.toBeNull();
+		).toEqual( [
+			'Open account portal',
+			'Manage payment methods',
+			'Redeem Coupon',
+			'Add credits',
+		] );
+
+		await act( async () => {
+			findButton( 'Open account portal' ).click();
+			await Promise.resolve();
+		} );
+
+		expect( apiFetch ).toHaveBeenLastCalledWith( {
+			path: '/sd-ai-agent/v1/superdav-account/action',
+			method: 'POST',
+			data: { action: 'account_portal' },
+		} );
+		expect( portalWindow.opener ).toBeNull();
+		expect( portalWindow.location.assign ).toHaveBeenCalledWith(
+			'https://account.example/fresh-account-action'
+		);
 	} );
 
 	test( 'redeems a coupon, disables submission while pending, and updates the balance', async () => {
@@ -304,7 +380,12 @@ describe( 'SuperdavAccountManager', () => {
 			await Promise.resolve();
 		} );
 
-		const input = container.querySelector( 'input' );
+		await act( async () => {
+			findButton( 'Redeem Coupon' ).click();
+		} );
+
+		const dialog = container.querySelector( '[role="dialog"]' );
+		const input = dialog.querySelector( 'input' );
 		await setInputValue( input, ' test-coupon-code ' );
 		await act( async () => {
 			container
@@ -327,11 +408,11 @@ describe( 'SuperdavAccountManager', () => {
 			await Promise.resolve();
 		} );
 
-		expect( input.value ).toBe( '' );
 		expect( container.textContent ).toContain(
 			'Coupon redeemed. Your balance has been updated.'
 		);
 		expect( container.textContent ).toContain( '$6.00' );
+		expect( container.querySelector( '[role="dialog"]' ) ).toBeNull();
 		expect( apiFetch ).toHaveBeenLastCalledWith( {
 			path: '/sd-ai-agent/v1/superdav-account/redeem-coupon',
 			method: 'POST',
@@ -339,7 +420,7 @@ describe( 'SuperdavAccountManager', () => {
 		} );
 	} );
 
-	test( 'clears a failed coupon and renders only its stable error message', async () => {
+	test( 'keeps a failed coupon available for correction and renders only its stable error message', async () => {
 		apiFetch
 			.mockResolvedValueOnce( { configured: true } )
 			.mockRejectedValueOnce( {
@@ -354,7 +435,11 @@ describe( 'SuperdavAccountManager', () => {
 			await Promise.resolve();
 		} );
 
-		const input = container.querySelector( 'input' );
+		await act( async () => {
+			findButton( 'Redeem Coupon' ).click();
+		} );
+
+		const input = container.querySelector( '[role="dialog"] input' );
 		await setInputValue( input, 'test-coupon-code' );
 		await act( async () => {
 			container
@@ -365,7 +450,8 @@ describe( 'SuperdavAccountManager', () => {
 			await Promise.resolve();
 		} );
 
-		expect( input.value ).toBe( '' );
+		expect( input.value ).toBe( 'test-coupon-code' );
+		expect( container.querySelector( '[role="dialog"]' ) ).not.toBeNull();
 		expect( container.textContent ).toContain( 'The coupon has expired.' );
 		expect( container.textContent ).not.toContain(
 			'test-coupon-code must not be rendered'

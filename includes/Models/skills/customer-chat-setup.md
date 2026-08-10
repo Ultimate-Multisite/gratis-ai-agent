@@ -44,7 +44,7 @@ support chat.
 
 ## Verification before telling the admin setup is done
 
-- Build assets with `npm run build` and copy `build/embed-widget.js` plus
+- Build assets with `pnpm run build` and copy `build/embed-widget.js` plus
   `build/style-embed-widget.css` to the docs site.
 - Load a logged-out static page with no `window.wp` global and confirm the widget
   renders without model picker, agent picker, session drawer, sidebar, or new-chat

@@ -92,7 +92,7 @@ class SystemInstructionBuilder {
 		return "## Frontend live-preview context\n\n"
 			. 'The user is viewing the public frontend page that appears in Current Context. '
 			. 'When you mutate that visible page, inspect each tool result for an `affected` descriptor. '
-			. "If the result includes `affected.kind: post`, a matching `post_id`/URL, and `fields` containing `post_content`, the widget's live-preview reflector will attempt to update the visible page automatically; tell the user the page should update live. "
+			. "If the result includes `affected.render_mode: preview`, the change exists only in a private WordPress autosave and the reflector deliberately leaves the public DOM unchanged; do not tell the user it is live. Otherwise, when the result includes `affected.kind: post`, a matching `post_id`/URL, and `fields` containing `post_content`, the widget's live-preview reflector will attempt to update the visible page automatically. "
 			. 'If a mutating tool result does not include an `affected` descriptor for the visible page, the browser cannot know what changed and the user must refresh to see it. In that case, call `sd-ai-agent-js/refresh-page` after your server-side write completes; it refreshes the current page while preserving the open widget and current session. '
 			. 'Do not call the refresh tool after a dry run or after read-only inspection. If you are unsure whether live reflection succeeded, use a screenshot/inspection tool or explain that a refresh may be required.';
 	}

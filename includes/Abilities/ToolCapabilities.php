@@ -148,6 +148,7 @@ class ToolCapabilities {
 		// ─── Landing page patterns ───────────────────────────────────────────
 		'sd-ai-agent/list-landing-page-pattern-families' => 'edit_theme_options',
 		'sd-ai-agent/select-landing-page-pattern-family' => 'edit_theme_options',
+		'sd-ai-agent/submit-page-visual-review'          => 'edit_theme_options',
 
 		'sd-ai-agent/generate-logo-svg'                  => 'upload_files',
 

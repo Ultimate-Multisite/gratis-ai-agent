@@ -21,7 +21,7 @@
  * registered at that point the request hits the real server, which may
  * return stale data from a previous test and corrupt subsequent assertions.
  *
- * Run: npm run test:e2e:playwright
+ * Run: pnpm run test:e2e:playwright
  */
 
 const { test, expect } = require( '@playwright/test' );

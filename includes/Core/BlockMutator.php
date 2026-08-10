@@ -1136,10 +1136,10 @@ class BlockMutator {
 	 * @return array<int|string,mixed>|\WP_Error
 	 */
 	private static function op_update_attrs( array $blocks, array $path, array $args ) {
-		if ( ! isset( $args['attributes'] ) || ! is_array( $args['attributes'] ) ) {
+		if ( ! isset( $args['attributes'] ) || ! is_array( $args['attributes'] ) || empty( $args['attributes'] ) ) {
 			return new \WP_Error(
 				'missing_attributes',
-				'update-attrs requires an attributes object.',
+				'update-attrs requires a non-empty attributes object.',
 				[ 'status' => 400 ]
 			);
 		}
@@ -1240,7 +1240,16 @@ class BlockMutator {
 		if ( ! isset( $args['innerHTML'] ) || ! is_string( $args['innerHTML'] ) ) {
 			return new \WP_Error(
 				'missing_inner_html',
-				'update-html requires an innerHTML string.',
+				'update-html requires a non-empty innerHTML string. Use remove-block to remove content.',
+				[ 'status' => 400 ]
+			);
+		}
+
+		$safe_html = wp_kses_post( $args['innerHTML'] );
+		if ( '' === trim( $safe_html ) ) {
+			return new \WP_Error(
+				'missing_inner_html',
+				'update-html requires a non-empty innerHTML string. Use remove-block to remove content.',
 				[ 'status' => 400 ]
 			);
 		}
@@ -1282,8 +1291,6 @@ class BlockMutator {
 				}
 			}
 		}
-
-		$safe_html = wp_kses_post( $args['innerHTML'] );
 
 		// When attributes are also supplied (required for dual-storage blocks),
 		// capture the merge flag and attrs for the closure.
@@ -1333,10 +1340,16 @@ class BlockMutator {
 	 * @return array<int|string,mixed>|\WP_Error
 	 */
 	private static function op_replace_block( array $blocks, array $path, array $args ) {
-		if ( ! isset( $args['block_def'] ) || ! is_array( $args['block_def'] ) ) {
+		if (
+			! isset( $args['block_def'] )
+			|| ! is_array( $args['block_def'] )
+			|| ! isset( $args['block_def']['blockName'] )
+			|| ! is_string( $args['block_def']['blockName'] )
+			|| '' === trim( $args['block_def']['blockName'] )
+		) {
 			return new \WP_Error(
 				'missing_block_def',
-				'replace-block requires a block_def object.',
+				'replace-block requires a block_def object with a non-empty blockName.',
 				[ 'status' => 400 ]
 			);
 		}
@@ -1510,10 +1523,16 @@ class BlockMutator {
 	 * @return array<int|string,mixed>|\WP_Error
 	 */
 	private static function op_insert_child( array $blocks, array $path, array $args ) {
-		if ( ! isset( $args['block_def'] ) || ! is_array( $args['block_def'] ) ) {
+		if (
+			! isset( $args['block_def'] )
+			|| ! is_array( $args['block_def'] )
+			|| ! isset( $args['block_def']['blockName'] )
+			|| ! is_string( $args['block_def']['blockName'] )
+			|| '' === trim( $args['block_def']['blockName'] )
+		) {
 			return new \WP_Error(
 				'missing_block_def',
-				'insert-child requires a block_def object.',
+				'insert-child requires a block_def object with a non-empty blockName.',
 				[ 'status' => 400 ]
 			);
 		}

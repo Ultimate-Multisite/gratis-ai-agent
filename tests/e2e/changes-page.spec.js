@@ -6,7 +6,7 @@
  * route is at admin.php?page=sd-ai-agent#/changes and renders the
  * ChangesRoute component inside the unified admin layout.
  *
- * Run: npm run test:e2e:playwright
+ * Run: pnpm run test:e2e:playwright
  */
 
 const { test, expect } = require( '@playwright/test' );

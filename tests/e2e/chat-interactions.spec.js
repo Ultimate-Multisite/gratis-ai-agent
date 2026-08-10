@@ -4,7 +4,7 @@
  * Tests message input, slash commands, and UI state transitions
  * that do not require a live AI provider response.
  *
- * Run: npm run test:e2e:playwright
+ * Run: pnpm run test:e2e:playwright
  */
 
 const { test, expect } = require( '@playwright/test' );
@@ -458,6 +458,20 @@ test.describe( 'Chat Input Interactions', () => {
 		// Stop button should appear while the request is in flight.
 		const stopButton = getStopButton( page );
 		await expect( stopButton ).toBeVisible( { timeout: 5_000 } );
+	} );
+
+	test( 'rotates the working status while the agent is processing', async ( {
+		page,
+	} ) => {
+		await interceptStream( page, { processingPolls: 2 } );
+
+		const input = getMessageInput( page );
+		await input.fill( 'Show the agent status' );
+		await input.press( 'Enter' );
+
+		const status = page.locator( '.sdaa-cr-progress-title' );
+		await expect( status ).toHaveText( 'Thinking…', { timeout: 5_000 } );
+		await expect( status ).toHaveText( 'Working…', { timeout: 5_000 } );
 	} );
 
 	test( 'rehydrated history keeps each turn model label', async ( { page } ) => {

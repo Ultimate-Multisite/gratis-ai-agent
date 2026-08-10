@@ -524,6 +524,12 @@
 }
 
 /* Superdav AI account manager */
+.sd-ai-agent-superdav-account {
+	display: flex;
+	flex-direction: column;
+	gap: 24px;
+}
+
 .sd-ai-agent-superdav-account-loading {
 	padding: 40px;
 	text-align: center;
@@ -543,6 +549,49 @@
 
 .sd-ai-agent-superdav-account-header .description {
 	margin: 0;
+}
+
+.sd-ai-agent-superdav-account-overview,
+.sd-ai-agent-superdav-linked-user,
+.sd-ai-agent-superdav-session-usage,
+.sd-ai-agent-superdav-credit-activity {
+	padding: 24px;
+	border: 1px solid #dcdcde;
+	border-radius: 8px;
+	background: #fff;
+}
+
+.sd-ai-agent-superdav-linked-user {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 16px;
+}
+
+.sd-ai-agent-superdav-linked-user h4 {
+	margin: 0 0 8px;
+}
+
+.sd-ai-agent-superdav-linked-user strong,
+.sd-ai-agent-superdav-linked-user span {
+	display: block;
+}
+
+.sd-ai-agent-superdav-linked-user span {
+	margin-top: 3px;
+	color: #50575e;
+}
+
+.sd-ai-agent-superdav-linked-user .sd-ai-agent-superdav-linked-user-status {
+	color: #008a20;
+	font-size: 12px;
+	font-weight: 600;
+}
+
+.sd-ai-agent-superdav-account-overview {
+	display: flex;
+	flex-direction: column;
+	gap: 16px;
 }
 
 .sd-ai-agent-superdav-account-balance {
@@ -585,10 +634,33 @@
 	font-size: 16px;
 }
 
-.sd-ai-agent-superdav-account-actions {
+.sd-ai-agent-superdav-account-header-actions {
 	display: flex;
+	flex: 0 1 auto;
 	flex-wrap: wrap;
 	gap: 8px;
+	justify-content: flex-end;
+}
+
+.sd-ai-agent-superdav-coupon-redemption {
+	display: flex;
+	flex-direction: column;
+	gap: 20px;
+}
+
+.sd-ai-agent-superdav-coupon-modal {
+	width: min(480px, calc(100% - 32px));
+}
+
+.sd-ai-agent-superdav-coupon-redemption > .description {
+	margin: 0;
+}
+
+.sd-ai-agent-superdav-coupon-modal-actions {
+	display: flex;
+	justify-content: flex-end;
+	gap: 8px;
+	padding-top: 4px;
 }
 
 .sd-ai-agent-superdav-session-usage h4,
@@ -759,6 +831,27 @@
 
 @media screen and (max-width: 600px) {
 	.sd-ai-agent-superdav-account-header {
+		flex-direction: column;
+	}
+
+	.sd-ai-agent-superdav-account-header-actions {
+		justify-content: flex-start;
+		width: 100%;
+	}
+
+	.sd-ai-agent-superdav-account-header .components-button {
+		min-height: 44px;
+	}
+
+	.sd-ai-agent-superdav-account-overview,
+	.sd-ai-agent-superdav-linked-user,
+	.sd-ai-agent-superdav-session-usage,
+	.sd-ai-agent-superdav-credit-activity {
+		padding: 16px;
+	}
+
+	.sd-ai-agent-superdav-linked-user {
+		align-items: flex-start;
 		flex-direction: column;
 	}
 

@@ -126,6 +126,10 @@ class OptionsAbilities {
 		'show_on_front',
 		'page_on_front',
 		'page_for_posts',
+		// WooCommerce launch visibility is a non-secret presentation setting.
+		// Setup must be able to publish the real site instead of validating the
+		// editor-only homepage while anonymous visitors see Coming soon.
+		'woocommerce_coming_soon',
 	];
 
 	/**

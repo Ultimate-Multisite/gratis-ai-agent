@@ -226,6 +226,7 @@ class AiImageAbilitiesTest extends WP_UnitTestCase {
 				SuperdavAiProvider::PROVIDER_ID => [
 					SuperdavAiProvider::DEFAULT_MODEL_ID,
 					SuperdavAiProvider::IMAGE_MODEL_ID,
+					'custom-image-model',
 				],
 			];
 		};

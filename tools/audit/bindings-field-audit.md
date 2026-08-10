@@ -83,5 +83,5 @@ When a block has **no bindings**:
 ## Verification
 
 ```bash
-npm run verify   # lint -> phpstan -> test:php -> build
+pnpm run verify   # lint -> phpstan -> test:php -> build
 ```

@@ -22,6 +22,7 @@ use SdAiAgent\Core\BlockRenderer;
 use SdAiAgent\Core\BlockStorageScanner;
 use SdAiAgent\Core\BlockTreeAddress;
 use SdAiAgent\Core\BlockValidator;
+use SdAiAgent\Core\PagePreviewWorkspace;
 use SdAiAgent\Core\PatternInserter;
 use SdAiAgent\Core\RateLimiter;
 use SdAiAgent\Core\RevisionGuard;
@@ -727,6 +728,10 @@ class BlockAbilities {
 							'type'        => 'boolean',
 							'description' => 'Override the Block Bindings write-lock. When true, writes to attributes listed in the block\'s metadata.bindings are allowed. Default: false.',
 						],
+						'expected_revision'  => [
+							'type'        => [ 'integer', 'null' ],
+							'description' => 'Expected revision ID for optimistic concurrency. Pass revision_id from get-page-blocks; re-read after a stale_revision error.',
+						],
 						'dry_run'            => [
 							'type'        => 'boolean',
 							'description' => 'When true, validate and compute the result but do not persist. Returns the would-be block tree.',
@@ -737,27 +742,31 @@ class BlockAbilities {
 				'output_schema'       => [
 					'type'       => 'object',
 					'properties' => [
-						'success'    => [
+						'success'     => [
 							'type'        => 'boolean',
 							'description' => 'True when the operation succeeded (or dry_run succeeded).',
 						],
-						'dry_run'    => [
+						'dry_run'     => [
 							'type'        => 'boolean',
 							'description' => 'Echoes the dry_run flag.',
 						],
-						'op'         => [
+						'op'          => [
 							'type'        => 'string',
 							'description' => 'The operation that was applied.',
 						],
-						'post_id'    => [
+						'post_id'     => [
 							'type'        => 'integer',
 							'description' => 'Post ID that was mutated.',
 						],
-						'block_tree' => [
+						'revision_id' => [
+							'type'        => [ 'integer', 'null' ],
+							'description' => 'Latest revision ID after the mutation.',
+						],
+						'block_tree'  => [
 							'type'        => 'array',
 							'description' => 'The resulting block tree (always returned, even on dry_run).',
 						],
-						'error'      => [ 'type' => 'string' ],
+						'error'       => [ 'type' => 'string' ],
 					],
 				],
 				'execute_callback'    => [ __CLASS__, 'handle_edit_block_tree' ],
@@ -2257,16 +2266,9 @@ class BlockAbilities {
 			);
 		}
 
-		$post = get_post( $post_id );
-		if ( ! $post ) {
-			return new \WP_Error(
-				'post_not_found',
-				sprintf(
-					/* translators: %d: post ID */
-					__( 'Post %d not found.', 'superdav-ai-agent' ),
-					$post_id
-				)
-			);
+		$post = PagePreviewWorkspace::get_working_post( $post_id );
+		if ( is_wp_error( $post ) ) {
+			return $post;
 		}
 
 		// ── Per-resource capability check ──────────────────────────────────────
@@ -2283,7 +2285,7 @@ class BlockAbilities {
 				'blocks'      => [],
 				'block_count' => 0,
 				'refs_stored' => false,
-				'revision_id' => RevisionGuard::current_revision_id( $post_id ),
+				'revision_id' => PagePreviewWorkspace::current_revision_id( $post_id ),
 			];
 
 			if ( $summary_only ) {
@@ -2317,23 +2319,28 @@ class BlockAbilities {
 			$blocks = $result;
 		}
 
-		// Persist newly-assigned refs to DB without creating a revision.
+		// Persist newly-assigned refs without leaking staged refs to the live page.
 		$refs_stored = false;
 		if ( $persist_refs && $refs_needed ) {
 			// @phpstan-ignore-next-line
 			$new_content = serialize_blocks( $blocks );
-			// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching
-			$updated = $wpdb->update(
-				$wpdb->posts,
-				[ 'post_content' => $new_content ],
-				[ 'ID' => $post_id ],
-				[ '%s' ],
-				[ '%d' ]
-			);
+			if ( PagePreviewWorkspace::governs( $post ) ) {
+				$write       = self::persist_post_content( $post_id, $new_content );
+				$refs_stored = ! is_wp_error( $write );
+			} else {
+				// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching
+				$updated = $wpdb->update(
+					$wpdb->posts,
+					[ 'post_content' => $new_content ],
+					[ 'ID' => $post_id ],
+					[ '%s' ],
+					[ '%d' ]
+				);
 
-			if ( false !== $updated ) {
-				clean_post_cache( $post_id );
-				$refs_stored = true;
+				if ( false !== $updated ) {
+					clean_post_cache( $post_id );
+					$refs_stored = true;
+				}
 			}
 		}
 
@@ -2345,7 +2352,7 @@ class BlockAbilities {
 				'blocks'      => [],
 				'block_count' => 0,
 				'refs_stored' => $refs_stored,
-				'revision_id' => RevisionGuard::current_revision_id( $post_id ),
+				'revision_id' => PagePreviewWorkspace::current_revision_id( $post_id ),
 				'summary'     => $summary,
 			];
 		}
@@ -2391,7 +2398,7 @@ class BlockAbilities {
 			'blocks'      => $flat_list,
 			'block_count' => $flat_index,
 			'refs_stored' => $refs_stored,
-			'revision_id' => RevisionGuard::current_revision_id( $post_id ),
+			'revision_id' => PagePreviewWorkspace::current_revision_id( $post_id ),
 		];
 	}
 
@@ -2864,8 +2871,8 @@ class BlockAbilities {
 	 * Handle the sd-ai-agent/edit-block-tree ability.
 	 *
 	 * Loads the post's block tree, applies the requested mutation via
-	 * BlockMutator::apply(), and (unless dry_run) persists the result
-	 * directly to the DB without creating a revision.
+	 * BlockMutator::apply(), and (unless dry_run) persists the result as one
+	 * normal WordPress revision.
 	 *
 	 * @param array<string,mixed> $input Ability input.
 	 * @return array<string,mixed>|\WP_Error Result array or WP_Error.
@@ -3016,6 +3023,7 @@ class BlockAbilities {
 				'kind'      => [ 'type' => 'string' ],
 				'post_id'   => [ 'type' => 'integer' ],
 				'post_type' => [ 'type' => 'string' ],
+				'status'    => [ 'type' => 'string' ],
 				'url'       => [ 'type' => 'string' ],
 				'fields'    => [
 					'type'  => 'array',
@@ -3043,6 +3051,7 @@ class BlockAbilities {
 			'kind'      => 'post',
 			'post_id'   => $post_id,
 			'post_type' => $post instanceof \WP_Post ? $post->post_type : '',
+			'status'    => $post instanceof \WP_Post ? $post->post_status : '',
 			'url'       => is_string( $permalink ) ? $permalink : '',
 			'fields'    => [ 'post_content' ],
 		];
@@ -3059,24 +3068,64 @@ class BlockAbilities {
 	private static function with_post_content_affected_payload( array $response, int $post_id, bool $dry_run = false ): array {
 		if ( ! $dry_run ) {
 			$response['affected'] = self::build_post_content_affected_payload( $post_id );
+			if ( is_array( $response['preview'] ?? null ) ) {
+				$response['render_mode']             = 'preview';
+				$response['affected']['render_mode'] = 'preview';
+			}
 		}
 
 		return $response;
 	}
 
 	/**
+	 * Persist post content to an autosave preview when active, otherwise live.
+	 *
+	 * @return array{revision_id:int|null,preview?:array<string,mixed>}|\WP_Error
+	 */
+	private static function persist_post_content( int $post_id, string $content ): array|\WP_Error {
+		if ( ! current_user_can( 'edit_post', $post_id ) ) {
+			return new \WP_Error(
+				'insufficient_capability',
+				__( 'You do not have permission to edit this post.', 'superdav-ai-agent' ),
+				[ 'status' => 403 ]
+			);
+		}
+
+		$preview = PagePreviewWorkspace::stage_fields( $post_id, array( 'post_content' => $content ), null, array( 'post_content' ) );
+		if ( is_wp_error( $preview ) ) {
+			return $preview;
+		}
+		if ( is_array( $preview ) ) {
+			return array(
+				'revision_id' => (int) $preview['autosave_id'],
+				'preview'     => $preview,
+			);
+		}
+
+		$updated = wp_update_post(
+			array(
+				'ID'           => $post_id,
+				'post_content' => $content,
+			),
+			true
+		);
+		if ( is_wp_error( $updated ) ) {
+			return $updated;
+		}
+		return array( 'revision_id' => RevisionGuard::current_revision_id( $post_id ) );
+	}
+
+	/**
 	 * Handle the sd-ai-agent/edit-block-tree ability.
 	 *
 	 * Loads the post's block tree, applies the requested mutation via
-	 * BlockMutator::apply(), and (unless dry_run) persists the result
-	 * directly to the DB without creating a revision.
+	 * BlockMutator::apply(), and (unless dry_run) persists the result as one
+	 * normal WordPress revision.
 	 *
 	 * @param array<string,mixed> $input Ability input.
 	 * @return array<string,mixed>|\WP_Error Result array or WP_Error.
 	 */
 	public static function handle_edit_block_tree( array $input ) {
-		global $wpdb;
-
 		$post_id = (int) ( $input['post_id'] ?? 0 );
 		$op      = isset( $input['op'] ) && is_string( $input['op'] ) ? $input['op'] : '';
 		$dry_run = isset( $input['dry_run'] ) ? (bool) $input['dry_run'] : false;
@@ -3106,18 +3155,24 @@ class BlockAbilities {
 			}
 		}
 
-		$post = get_post( $post_id );
+		$post = PagePreviewWorkspace::get_working_post( $post_id );
 
-		if ( ! $post ) {
+		if ( is_wp_error( $post ) ) {
+			return $post;
+		}
+
+		if ( ! current_user_can( 'edit_post', $post_id ) ) {
 			return new \WP_Error(
-				'post_not_found',
-				sprintf(
-					/* translators: %d: post ID */
-					__( 'Post %d not found.', 'superdav-ai-agent' ),
-					$post_id
-				),
-				[ 'status' => 404 ]
+				'insufficient_capability',
+				__( 'You do not have permission to edit this post.', 'superdav-ai-agent' ),
+				[ 'status' => 403 ]
 			);
+		}
+
+		$expected = isset( $input['expected_revision'] ) ? (string) $input['expected_revision'] : '';
+		$guard    = PagePreviewWorkspace::check_expected_revision( $post_id, $expected );
+		if ( is_wp_error( $guard ) ) {
+			return $guard;
 		}
 
 		$content = $post->post_content;
@@ -3137,41 +3192,34 @@ class BlockAbilities {
 
 		$new_tree = $result;
 
+		$write = array( 'revision_id' => PagePreviewWorkspace::current_revision_id( $post_id ) );
 		// Persist (unless dry_run).
 		if ( ! $dry_run ) {
 			// @phpstan-ignore-next-line
 			$new_content = serialize_blocks( $new_tree );
-			// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching
-			$updated = $wpdb->update(
-				$wpdb->posts,
-				[ 'post_content' => $new_content ],
-				[ 'ID' => $post_id ],
-				[ '%s' ],
-				[ '%d' ]
-			);
-
-			if ( false === $updated ) {
-				return new \WP_Error(
-					'db_write_failed',
-					__( 'Failed to persist the mutated block tree to the database.', 'superdav-ai-agent' ),
-					[ 'status' => 500 ]
-				);
+			$write       = self::persist_post_content( $post_id, $new_content );
+			if ( is_wp_error( $write ) ) {
+				return $write;
 			}
-
-			clean_post_cache( $post_id );
 
 			// Record rate-limit tick after successful write.
 			RateLimiter::record( 'write', $post_id );
 		}
 
+		$response = [
+			'success'     => true,
+			'dry_run'     => $dry_run,
+			'op'          => $op,
+			'post_id'     => $post_id,
+			'revision_id' => $write['revision_id'],
+			'block_tree'  => self::annotate_bindings_tree( $new_tree ),
+		];
+		if ( is_array( $write['preview'] ?? null ) ) {
+			$response['preview'] = $write['preview'];
+		}
+
 		return self::with_post_content_affected_payload(
-			[
-				'success'    => true,
-				'dry_run'    => $dry_run,
-				'op'         => $op,
-				'post_id'    => $post_id,
-				'block_tree' => self::annotate_bindings_tree( $new_tree ),
-			],
+			$response,
 			$post_id,
 			$dry_run
 		);
@@ -3223,18 +3271,10 @@ class BlockAbilities {
 			}
 		}
 
-		$post = get_post( $post_id );
+		$post = PagePreviewWorkspace::get_working_post( $post_id );
 
-		if ( ! $post ) {
-			return new \WP_Error(
-				'post_not_found',
-				sprintf(
-					/* translators: %d: post ID */
-					__( 'Post %d not found.', 'superdav-ai-agent' ),
-					$post_id
-				),
-				[ 'status' => 404 ]
-			);
+		if ( is_wp_error( $post ) ) {
+			return $post;
 		}
 
 		// ── Per-resource capability check ──────────────────────────────────────
@@ -3248,7 +3288,7 @@ class BlockAbilities {
 
 		// Optimistic concurrency guard.
 		$expected = isset( $input['expected_revision'] ) ? (string) $input['expected_revision'] : '';
-		$guard    = RevisionGuard::check( $post_id, RevisionGuard::parse_raw( $expected ) );
+		$guard    = PagePreviewWorkspace::check_expected_revision( $post_id, $expected );
 
 		if ( is_wp_error( $guard ) ) {
 			return self::with_update_blocks_recovery_hints( $guard );
@@ -3278,35 +3318,35 @@ class BlockAbilities {
 
 		$new_tree = $result;
 
-		// Persist with wp_update_post() → exactly one revision.
+		$write = array( 'revision_id' => PagePreviewWorkspace::current_revision_id( $post_id ) );
+		// Persist as one preview generation or one live revision.
 		if ( ! $dry_run ) {
 			// @phpstan-ignore-next-line
-			$new_content   = serialize_blocks( $new_tree );
-			$update_result = wp_update_post(
-				[
-					'ID'           => $post_id,
-					'post_content' => $new_content,
-				],
-				true
-			);
+			$new_content = serialize_blocks( $new_tree );
+			$write       = self::persist_post_content( $post_id, $new_content );
 
-			if ( is_wp_error( $update_result ) ) {
-				return $update_result;
+			if ( is_wp_error( $write ) ) {
+				return $write;
 			}
 
 			// Record one rate-limit tick per batch (not per op).
 			RateLimiter::record( 'write', $post_id );
 		}
 
+		$response = [
+			'success'     => true,
+			'dry_run'     => $dry_run,
+			'post_id'     => $post_id,
+			'updates'     => count( $updates ),
+			'revision_id' => $write['revision_id'],
+			'block_tree'  => self::annotate_bindings_tree( $new_tree ),
+		];
+		if ( is_array( $write['preview'] ?? null ) ) {
+			$response['preview'] = $write['preview'];
+		}
+
 		return self::with_post_content_affected_payload(
-			[
-				'success'     => true,
-				'dry_run'     => $dry_run,
-				'post_id'     => $post_id,
-				'updates'     => count( $updates ),
-				'revision_id' => RevisionGuard::current_revision_id( $post_id ),
-				'block_tree'  => self::annotate_bindings_tree( $new_tree ),
-			],
+			$response,
 			$post_id,
 			$dry_run
 		);
@@ -3388,17 +3428,9 @@ class BlockAbilities {
 		}
 
 		// ── Load post ─────────────────────────────────────────────────
-		$post = get_post( $post_id );
-		if ( ! $post ) {
-			return new \WP_Error(
-				'post_not_found',
-				sprintf(
-					/* translators: %d: post ID */
-					__( 'Post %d not found.', 'superdav-ai-agent' ),
-					$post_id
-				),
-				[ 'status' => 404 ]
-			);
+		$post = PagePreviewWorkspace::get_working_post( $post_id );
+		if ( is_wp_error( $post ) ) {
+			return $post;
 		}
 
 		// ── Per-resource capability check ──────────────────────────────────────
@@ -3412,7 +3444,7 @@ class BlockAbilities {
 
 		// ── Optimistic concurrency ────────────────────────────────────
 		$expected = isset( $input['expected_revision_id'] ) ? (string) $input['expected_revision_id'] : '';
-		$guard    = RevisionGuard::check( $post_id, RevisionGuard::parse_raw( $expected ) );
+		$guard    = PagePreviewWorkspace::check_expected_revision( $post_id, $expected );
 		if ( is_wp_error( $guard ) ) {
 			return $guard;
 		}
@@ -3464,32 +3496,31 @@ class BlockAbilities {
 		// @phpstan-ignore-next-line
 		$refs_count = self::count_refs_recursive( $final_tree );
 
-		// ── Persist via wp_update_post → single revision ──────────────
+		// ── Persist to the private preview or one live revision ───────
 		// @phpstan-ignore-next-line
-		$new_content   = serialize_blocks( $final_tree );
-		$update_result = wp_update_post(
-			[
-				'ID'           => $post_id,
-				'post_content' => $new_content,
-			],
-			true
-		);
+		$new_content = serialize_blocks( $final_tree );
+		$write       = self::persist_post_content( $post_id, $new_content );
 
-		if ( is_wp_error( $update_result ) ) {
-			return $update_result;
+		if ( is_wp_error( $write ) ) {
+			return $write;
 		}
 
 		// Record rate-limit tick after successful rewrite.
 		RateLimiter::record( 'rewrite', $post_id );
 
+		$response = [
+			'success'     => true,
+			'post_id'     => $post_id,
+			'revision_id' => $write['revision_id'],
+			'block_count' => count( $final_tree ),
+			'refs_count'  => $refs_count,
+		];
+		if ( is_array( $write['preview'] ?? null ) ) {
+			$response['preview'] = $write['preview'];
+		}
+
 		return self::with_post_content_affected_payload(
-			[
-				'success'     => true,
-				'post_id'     => $post_id,
-				'revision_id' => RevisionGuard::current_revision_id( $post_id ),
-				'block_count' => count( $final_tree ),
-				'refs_count'  => $refs_count,
-			],
+			$response,
 			$post_id
 		);
 	}
@@ -3662,17 +3693,9 @@ class BlockAbilities {
 
 		// ── Load post ─────────────────────────────────────────────────
 
-		$post = get_post( $post_id );
-		if ( ! $post ) {
-			return new \WP_Error(
-				'post_not_found',
-				sprintf(
-					/* translators: %d: post ID */
-					__( 'Post %d not found.', 'superdav-ai-agent' ),
-					$post_id
-				),
-				[ 'status' => 404 ]
-			);
+		$post = PagePreviewWorkspace::get_working_post( $post_id );
+		if ( is_wp_error( $post ) ) {
+			return $post;
 		}
 
 		// ── Per-resource capability check ──────────────────────────────────────
@@ -3687,7 +3710,7 @@ class BlockAbilities {
 		// ── Optimistic concurrency ────────────────────────────────────
 
 		$expected = isset( $input['expected_revision_id'] ) ? (string) $input['expected_revision_id'] : '';
-		$guard    = RevisionGuard::check( $post_id, RevisionGuard::parse_raw( $expected ) );
+		$guard    = PagePreviewWorkspace::check_expected_revision( $post_id, $expected );
 		if ( is_wp_error( $guard ) ) {
 			return $guard;
 		}
@@ -3828,36 +3851,36 @@ class BlockAbilities {
 		}
 
 		// ── Persist (unless dry_run) ──────────────────────────────────
+		$write = array( 'revision_id' => PagePreviewWorkspace::current_revision_id( $post_id ) );
 
 		if ( ! $dry_run ) {
 			// @phpstan-ignore-next-line
-			$new_content   = serialize_blocks( $blocks );
-			$update_result = wp_update_post(
-				[
-					'ID'           => $post_id,
-					'post_content' => $new_content,
-				],
-				true
-			);
+			$new_content = serialize_blocks( $blocks );
+			$write       = self::persist_post_content( $post_id, $new_content );
 
-			if ( is_wp_error( $update_result ) ) {
-				return $update_result;
+			if ( is_wp_error( $write ) ) {
+				return $write;
 			}
 
 			// Record rate-limit tick after successful write.
 			RateLimiter::record( 'write', $post_id );
 		}
 
+		$response = [
+			'success'         => true,
+			'dry_run'         => $dry_run,
+			'post_id'         => $post_id,
+			'pattern_type'    => $pattern_type,
+			'blocks_inserted' => $blocks_inserted,
+			'revision_id'     => $write['revision_id'],
+			'block_tree'      => self::annotate_bindings_tree( $blocks ),
+		];
+		if ( is_array( $write['preview'] ?? null ) ) {
+			$response['preview'] = $write['preview'];
+		}
+
 		return self::with_post_content_affected_payload(
-			[
-				'success'         => true,
-				'dry_run'         => $dry_run,
-				'post_id'         => $post_id,
-				'pattern_type'    => $pattern_type,
-				'blocks_inserted' => $blocks_inserted,
-				'revision_id'     => RevisionGuard::current_revision_id( $post_id ),
-				'block_tree'      => self::annotate_bindings_tree( $blocks ),
-			],
+			$response,
 			$post_id,
 			$dry_run
 		);
@@ -3917,18 +3940,10 @@ class BlockAbilities {
 		}
 
 		// ── Load post ────────────────────────────────────────────────
-		$post = get_post( $post_id );
+		$post = PagePreviewWorkspace::get_working_post( $post_id );
 
-		if ( ! $post ) {
-			return new \WP_Error(
-				'post_not_found',
-				sprintf(
-					/* translators: %d: post ID */
-					__( 'Post %d not found.', 'superdav-ai-agent' ),
-					$post_id
-				),
-				[ 'status' => 404 ]
-			);
+		if ( is_wp_error( $post ) ) {
+			return $post;
 		}
 
 		// ── Per-resource capability check ──────────────────────────────────────
@@ -3942,7 +3957,7 @@ class BlockAbilities {
 
 		// ── Optimistic concurrency ───────────────────────────────────
 		$expected = isset( $input['expected_revision_id'] ) ? (string) $input['expected_revision_id'] : '';
-		$guard    = RevisionGuard::check( $post_id, RevisionGuard::parse_raw( $expected ) );
+		$guard    = PagePreviewWorkspace::check_expected_revision( $post_id, $expected );
 
 		if ( is_wp_error( $guard ) ) {
 			return $guard;
@@ -4009,36 +4024,35 @@ class BlockAbilities {
 		$refs_removed   = $refs_before - $refs_preserved;
 
 		// ── Persist (unless dry_run) ─────────────────────────────────
+		$write = array( 'revision_id' => PagePreviewWorkspace::current_revision_id( $post_id ) );
 		if ( ! $dry_run ) {
 			// @phpstan-ignore-next-line
-			$new_content   = serialize_blocks( $result );
-			$update_result = wp_update_post(
-				[
-					'ID'           => $post_id,
-					'post_content' => $new_content,
-				],
-				true
-			);
+			$new_content = serialize_blocks( $result );
+			$write       = self::persist_post_content( $post_id, $new_content );
 
-			if ( is_wp_error( $update_result ) ) {
-				return $update_result;
+			if ( is_wp_error( $write ) ) {
+				return $write;
 			}
 		}
 
 		// ── Build response ───────────────────────────────────────────
 		// @phpstan-ignore-next-line
 		$block_count = self::count_blocks_in_tree( $result );
+		$response    = [
+			'post_id'        => $post_id,
+			'revision_id'    => $write['revision_id'],
+			'refs_added'     => $refs_added,
+			'refs_removed'   => $refs_removed,
+			'refs_preserved' => $refs_preserved,
+			'block_count'    => $block_count,
+			'dry_run'        => $dry_run,
+		];
+		if ( is_array( $write['preview'] ?? null ) ) {
+			$response['preview'] = $write['preview'];
+		}
 
 		return self::with_post_content_affected_payload(
-			[
-				'post_id'        => $post_id,
-				'revision_id'    => RevisionGuard::current_revision_id( $post_id ),
-				'refs_added'     => $refs_added,
-				'refs_removed'   => $refs_removed,
-				'refs_preserved' => $refs_preserved,
-				'block_count'    => $block_count,
-				'dry_run'        => $dry_run,
-			],
+			$response,
 			$post_id,
 			$dry_run
 		);
@@ -4077,6 +4091,15 @@ class BlockAbilities {
 				'missing_revision_id',
 				__( 'revision_id is required and must be a positive integer.', 'superdav-ai-agent' ),
 				[ 'status' => 400 ]
+			);
+		}
+
+		$parent = get_post( $post_id );
+		if ( $parent instanceof \WP_Post && PagePreviewWorkspace::governs( $parent ) ) {
+			return new \WP_Error(
+				'sd_ai_agent_preview_operation_unsupported',
+				__( 'Live revision restore is unavailable during preview-first page repair. Apply the intended block change to the private preview instead.', 'superdav-ai-agent' ),
+				array( 'status' => 400 )
 			);
 		}
 

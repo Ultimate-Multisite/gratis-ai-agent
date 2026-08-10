@@ -123,6 +123,7 @@ export async function reflectPost( event ) {
 
 	if (
 		! affected?.url ||
+		event.result?.preview ||
 		document.body.classList.contains( 'block-editor-page' ) ||
 		! isCurrentLocation( affected.url, affected.post_id )
 	) {
