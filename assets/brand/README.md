@@ -23,7 +23,8 @@ The front is intentionally sparse for fast brand recognition. The back uses a tw
 ### Final card copy
 
 - Tagline: `The only WordPress native AI Agent.`
-- Feature: `Free + open source. Use any AI provider.`
+- Feature: `Free + open source plugin. Use any AI provider.`
+- Comparison: `Like running Claude Code or Cursor inside of WP admin.`
 - Offer: `$200 in AI usage. Use promo code EARLY.`
 - Destination: `https://SDAIAgent.com`
 

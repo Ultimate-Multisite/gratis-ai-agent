@@ -15,13 +15,14 @@
   </g>
 
   <g transform="translate(100 194)">
-    <rect width="380" height="46" rx="23" fill="#f0f6fc"/>
-    <text x="190" y="33" fill="#135e96" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif" font-size="28" font-weight="800" letter-spacing="1.2" text-anchor="middle">FREE + OPEN SOURCE</text>
+    <rect width="485" height="46" rx="23" fill="#f0f6fc"/>
+    <text x="242.5" y="33" fill="#135e96" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif" font-size="27" font-weight="800" letter-spacing=".8" text-anchor="middle">FREE + OPEN SOURCE PLUGIN</text>
   </g>
   <text x="100" y="324" fill="#1d2327" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif" font-size="58" font-weight="800" letter-spacing="-2">Use any AI provider.</text>
   <text x="100" y="382" fill="#50575e" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif" font-size="30" font-weight="500">Native to WordPress. No platform lock-in.</text>
   <path fill="#72aee6" d="M114 432l7 21 21 7-21 7-7 21-7-21-21-7 21-7z"/>
-  <text x="154" y="472" fill="#1d2327" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif" font-size="30" font-weight="700">Install it. Choose a model. Get to work.</text>
+  <text x="154" y="453" fill="#1d2327" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif" font-size="29" font-weight="700">Like running Claude Code or Cursor</text>
+  <text x="154" y="490" fill="#1d2327" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif" font-size="29" font-weight="700">inside of WP admin.</text>
   <text x="100" y="580" fill="#135e96" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif" font-size="36" font-weight="800">SDAIAgent.com</text>
 
   <g transform="translate(725 86)">
