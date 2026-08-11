@@ -25,6 +25,6 @@ The front is intentionally sparse for fast brand recognition. The back uses a tw
 - Tagline: `The only WordPress native AI Agent.`
 - Feature: `Free + open source. Use any AI provider.`
 - Offer: `$200 in AI usage. Use promo code EARLY.`
-- Destination: `https://github.com/Ultimate-Multisite/superdav-ai-agent`
+- Destination: `https://SDAIAgent.com`
 
 Confirm the offer value, eligibility, expiry, and redemption flow before sending the card to print.
