@@ -28,9 +28,9 @@
   <g transform="translate(760 84)">
     <rect width="285" height="510" rx="24" fill="#135e96"/>
     <text x="0" y="66" transform="translate(142.5 0) scale(.82 1)" fill="#b5d9f3" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif" font-size="34" font-weight="800" letter-spacing=".5" text-anchor="middle">EARLY ADOPTERS</text>
-    <text x="142.5" y="158" fill="#ffffff" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif" font-size="68" font-weight="800" letter-spacing="-2" text-anchor="middle">$200</text>
-    <text x="142.5" y="211" fill="#ffffff" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif" font-size="34" font-weight="700" text-anchor="middle">AI USAGE</text>
-    <text x="142.5" y="249" fill="#ffffff" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif" font-size="34" font-weight="700" text-anchor="middle">CREDIT</text>
+    <text x="142.5" y="166" fill="#ffffff" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif" font-size="86" font-weight="800" letter-spacing="-3" text-anchor="middle">$200</text>
+    <text x="142.5" y="217" fill="#ffffff" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif" font-size="34" font-weight="700" text-anchor="middle">AI USAGE</text>
+    <text x="142.5" y="255" fill="#ffffff" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif" font-size="34" font-weight="700" text-anchor="middle">CREDIT</text>
     <rect x="30" y="282" width="225" height="2" fill="#ffffff" fill-opacity=".3"/>
     <text x="142.5" y="334" fill="#b5d9f3" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif" font-size="34" font-weight="700" letter-spacing=".8" text-anchor="middle">PROMO CODE</text>
     <rect x="27" y="359" width="231" height="82" rx="10" fill="#ffffff"/>
