@@ -1,0 +1,42 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="3.75in" height="2.25in" viewBox="0 0 1125 675" role="img" aria-labelledby="title desc">
+  <style>@page { size: 3.75in 2.25in; margin: 0; }</style>
+  <title id="title">SD AI Agent business card back</title>
+  <desc id="desc">Business card promoting the free open source plugin, AI provider choice, and a 200 dollar early adopter AI usage credit.</desc>
+  <rect width="1125" height="675" fill="#ffffff"/>
+
+  <g transform="translate(75 70) scale(.44)">
+    <text x="20" y="180" fill="#1d2327" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif" font-size="142" font-weight="800" letter-spacing="-6">SD</text>
+    <text x="310" y="180" fill="#2271b1" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif" font-size="154" font-weight="800" letter-spacing="-9" text-anchor="middle">AI</text>
+    <path fill="#72aee6" d="M360 9l8 24 24 8-24 8-8 24-8-24-24-8 24-8z"/>
+    <path fill="#2271b1" d="M222 26l4.5 13.5L240 44l-13.5 4.5L222 62l-4.5-13.5L204 44l13.5-4.5z"/>
+    <path fill="#135e96" d="M402 108l6 18 18 6-18 6-6 18-6-18-18-6 18-6z"/>
+    <text x="440" y="180" fill="#1d2327" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif" font-size="132" font-weight="700" letter-spacing="-5">Agent</text>
+  </g>
+
+  <g transform="translate(75 190)">
+    <rect width="570" height="54" rx="27" fill="#f0f6fc"/>
+    <text x="285" y="39" fill="#135e96" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif" font-size="34" font-weight="800" letter-spacing=".4" text-anchor="middle">FREE + OPEN SOURCE PLUGIN</text>
+  </g>
+  <text x="75" y="324" fill="#1d2327" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif" font-size="54" font-weight="800" letter-spacing="-2">Bring your AI provider.</text>
+  <text x="75" y="382" fill="#50575e" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif" font-size="34" font-weight="500">Native to WordPress. No platform lock-in.</text>
+
+  <rect x="75" y="426" width="6" height="112" rx="3" fill="#72aee6"/>
+  <text x="99" y="457" fill="#1d2327" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif" font-size="34" font-weight="700">Like running Claude Code</text>
+  <text x="99" y="497" fill="#1d2327" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif" font-size="34" font-weight="700">or Cursor inside</text>
+  <text x="99" y="537" fill="#1d2327" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif" font-size="34" font-weight="700">WordPress admin.</text>
+  <text x="75" y="590" fill="#135e96" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif" font-size="38" font-weight="800">SDAIAgent.com</text>
+
+  <image x="540" y="420" width="170" height="170" xlink:href="sd-ai-agent-qr.svg"/>
+
+  <g transform="translate(760 84)">
+    <rect width="285" height="510" rx="24" fill="#135e96"/>
+    <text x="142.5" y="66" fill="#b5d9f3" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif" font-size="34" font-weight="800" letter-spacing="1" text-anchor="middle">EARLY OFFER</text>
+    <text x="142.5" y="158" fill="#ffffff" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif" font-size="68" font-weight="800" letter-spacing="-2" text-anchor="middle">$200</text>
+    <text x="142.5" y="211" fill="#ffffff" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif" font-size="34" font-weight="700" text-anchor="middle">AI USAGE</text>
+    <text x="142.5" y="249" fill="#ffffff" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif" font-size="34" font-weight="700" text-anchor="middle">CREDIT</text>
+    <rect x="30" y="282" width="225" height="2" fill="#ffffff" fill-opacity=".3"/>
+    <text x="142.5" y="334" fill="#b5d9f3" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif" font-size="34" font-weight="700" letter-spacing=".8" text-anchor="middle">PROMO CODE</text>
+    <rect x="27" y="359" width="231" height="82" rx="10" fill="#ffffff"/>
+    <text x="142.5" y="417" fill="#135e96" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="46" font-weight="800" letter-spacing="6" text-anchor="middle">EARLY</text>
+  </g>
+</svg>
