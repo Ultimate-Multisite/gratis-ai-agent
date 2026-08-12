@@ -403,7 +403,7 @@ WordPress admin visual language without changing the product UI rules above.
   rules when adapting them for other printed formats.
 - Event cards lead with the defensible tagline `A native AI agent for
   WordPress.` and separate the product benefit from temporary promotional copy.
-  Keep event-card body type at least 8pt, use a tested QR code alongside a
-  human-readable destination, and distribute outlined final artwork while
-  retaining separate live-text masters. Verify all offer terms and redemption
-  details before each print run.
+  Keep event-card body type at least 8pt, use a prominent human-readable
+  destination, and distribute outlined final artwork while retaining separate
+  live-text masters. Verify all offer terms and redemption details before each
+  print run.

@@ -19,15 +19,14 @@ The two SVGs are US-standard print files with bleed:
 - Intended output: 300 DPI or direct vector PDF
 - Colour space: source files are sRGB; ask the printer to convert to its preferred CMYK profile.
 
-The front is intentionally sparse for fast brand recognition. The back uses a two-column hierarchy so the product benefit and event offer can be scanned independently. Final SVGs and PDFs use outlined type to prevent printer-side font substitution; the `*-editable.svg` files are the live-text masters. Regenerate the outlined finals after changing an editable master, and confirm the QR still resolves to the documented destination before printing.
+The front is intentionally sparse for fast brand recognition. The back uses a two-column hierarchy so the product benefit and early-adopter offer can be scanned independently. Final SVGs and PDFs use outlined type to prevent printer-side font substitution; the `*-editable.svg` files are the live-text masters. Regenerate the outlined finals after changing an editable master.
 
 ### Final card copy
 
 - Tagline: `A native AI agent for WordPress.`
 - Feature: `Free + open source plugin. Bring your AI provider.`
 - Comparison: `Like running Claude Code or Cursor inside WordPress admin.`
-- Offer: `$200 AI usage credit. Use promo code EARLY.`
+- Offer: `Early adopters: $200 AI usage credit. Use promo code EARLY.`
 - Destination: `https://SDAIAgent.com`
-- QR destination: `https://SDAIAgent.com`
 
 Confirm the offer value, eligibility, expiry, and redemption flow before sending the card to print.
