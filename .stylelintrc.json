@@ -11,6 +11,7 @@
 	},
 	"ignoreFiles": [
 		"build/**",
+		"coverage-html/**",
 		"node_modules/**",
 		"vendor/**"
 	]
