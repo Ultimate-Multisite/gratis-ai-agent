@@ -1,7 +1,7 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="3.75in" height="2.25in" viewBox="0 0 1125 675" role="img" aria-labelledby="title desc">
   <style>@page { size: 3.75in 2.25in; margin: 0; }</style>
   <title id="title">SD AI Agent business card front</title>
-  <desc id="desc">Blue business card with the SD AI Agent logo and native WordPress AI agent tagline.</desc>
+  <desc id="desc">Blue business card with the SD AI Agent logo and the tagline The first WordPress native AI Agent.</desc>
   <rect width="1125" height="675" fill="#135e96"/>
   <path fill="#ffffff" fill-opacity=".045" d="M1010-60l28 84 84 28-84 28-28 84-28-84-84-28 84-28z"/>
 
@@ -14,6 +14,6 @@
     <text x="440" y="180" fill="#ffffff" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif" font-size="132" font-weight="700" letter-spacing="-5">Agent</text>
   </g>
 
-  <text x="562.5" y="483" fill="#ffffff" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif" font-size="40" font-weight="600" letter-spacing="-.5" text-anchor="middle">A native AI agent for WordPress.</text>
+  <text x="562.5" y="483" fill="#ffffff" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif" font-size="38" font-weight="600" letter-spacing="-.7" text-anchor="middle">The <tspan fill="#b5d9f3" font-weight="800">first</tspan> WordPress <tspan fill="#b5d9f3" font-weight="800">native</tspan> AI Agent</text>
   <text x="562.5" y="563" fill="#ffffff" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif" font-size="38" font-weight="800" letter-spacing="1" text-anchor="middle">SDAIAgent.com</text>
 </svg>

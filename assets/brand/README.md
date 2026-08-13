@@ -23,7 +23,7 @@ The front is intentionally sparse for fast brand recognition. The back uses a tw
 
 ### Final card copy
 
-- Tagline: `A native AI agent for WordPress.`
+- Tagline: `The first WordPress native AI Agent` (emphasise `first` and `native`)
 - Feature: `Free + open source plugin. Bring your AI provider.`
 - Comparison: `Like running Claude Code or Cursor inside WordPress admin.`
 - Offer: `Early adopters: $200 AI usage credit. Use promo code EARLY.`

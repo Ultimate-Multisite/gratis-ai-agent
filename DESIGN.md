@@ -401,8 +401,9 @@ WordPress admin visual language without changing the product UI rules above.
 - The canonical logo and WordCamp business-card sources live in
   `assets/brand/`. Preserve their stated clear space, bleed, trim, and safe-area
   rules when adapting them for other printed formats.
-- Event cards lead with the defensible tagline `A native AI agent for
-  WordPress.` and separate the product benefit from temporary promotional copy.
+- Event cards lead with the tagline `The first WordPress native AI Agent`, with
+  `first` and `native` emphasised, and separate the product benefit from
+  temporary promotional copy.
   Keep event-card body type at least 8pt, use a prominent human-readable
   destination, and distribute outlined final artwork while retaining separate
   live-text masters. Verify all offer terms and redemption details before each
