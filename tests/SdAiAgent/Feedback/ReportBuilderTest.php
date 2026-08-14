@@ -75,8 +75,11 @@ class ReportBuilderTest extends WP_UnitTestCase {
 		$this->assertSame( $payload['session_data']['message_count'], $summary['message_count'] );
 
 		$complete_payload = ReportBuilder::build( $session_id, 'user_reported' );
+		$complete_summary = ReportBuilder::build_summary( $session_id );
 		$this->assertIsArray( $complete_payload );
+		$this->assertIsArray( $complete_summary );
 		$this->assertSame( $tool_calls, $complete_payload['session_data']['tool_calls'] );
 		$this->assertSame( count( $tool_calls ), $complete_payload['session_data']['tool_call_count'] );
+		$this->assertSame( count( $tool_calls ), $complete_summary['tool_call_count'] );
 	}
 }
