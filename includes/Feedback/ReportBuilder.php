@@ -72,9 +72,11 @@ class ReportBuilder {
 		/** @var array<int, array<string, mixed>> $tool_calls */
 		$tool_calls = is_array( $decoded_tool_calls ) ? $decoded_tool_calls : [];
 
-		// Scope to a context window around the target message when requested (t186).
+		// Tool logs do not record their originating message index, so they cannot be
+		// safely correlated with a targeted message window.
 		if ( $message_index >= 0 ) {
-			$messages = self::slice_message_context( $messages, $message_index );
+			$messages   = self::slice_message_context( $messages, $message_index );
+			$tool_calls = array();
 		}
 
 		if ( $strip_tool_results ) {
@@ -131,9 +133,11 @@ class ReportBuilder {
 		$messages           = is_array( $decoded_messages ) ? $decoded_messages : [];
 		$tool_calls         = is_array( $decoded_tool_calls ) ? $decoded_tool_calls : [];
 
-		// Scope message count to the context window when a specific message is targeted.
+		// Tool logs do not record their originating message index, so omit them from
+		// targeted summaries rather than reporting an unrelated session-wide count.
 		if ( $message_index >= 0 ) {
-			$messages = self::slice_message_context( $messages, $message_index );
+			$messages   = self::slice_message_context( $messages, $message_index );
+			$tool_calls = array();
 		}
 
 		return array(
