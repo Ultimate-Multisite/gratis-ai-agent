@@ -919,6 +919,53 @@ class AgentLoopTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * Managed Superdav calls tolerate a short edge outage while other providers
+	 * retain the existing retry budget. Explicit per-run overrides still win.
+	 */
+	public function test_managed_provider_uses_longer_default_retry_policy(): void {
+		$attempts = new \ReflectionProperty( AgentLoop::class, 'provider_retry_max_attempts' );
+		$delays   = new \ReflectionProperty( AgentLoop::class, 'provider_retry_delays' );
+
+		$managed = new AgentLoop(
+			'Inspect the site.',
+			[],
+			[],
+			[
+				'provider_id' => 'sd-ai-agent-cloud',
+				'model_id'    => 'superdav-chat-pro',
+			]
+		);
+		$this->assertSame( 6, $attempts->getValue( $managed ) );
+		$this->assertSame( [ 1, 2, 4, 8, 16 ], $delays->getValue( $managed ) );
+
+		$other = new AgentLoop(
+			'Inspect the site.',
+			[],
+			[],
+			[
+				'provider_id' => 'another-provider',
+				'model_id'    => 'another-model',
+			]
+		);
+		$this->assertSame( 4, $attempts->getValue( $other ) );
+		$this->assertSame( [ 1, 2, 4 ], $delays->getValue( $other ) );
+
+		$overridden = new AgentLoop(
+			'Inspect the site.',
+			[],
+			[],
+			[
+				'provider_id'                => 'sd-ai-agent-cloud',
+				'model_id'                   => 'superdav-chat-pro',
+				'provider_retry_max_attempts' => 2,
+				'provider_retry_delays'       => [ 0 ],
+			]
+		);
+		$this->assertSame( 2, $attempts->getValue( $overridden ) );
+		$this->assertSame( [ 0 ], $delays->getValue( $overridden ) );
+	}
+
+	/**
 	 * Test run() returns WP_Error when the AI proxy returns an HTTP error.
 	 */
 	public function test_run_retries_http_error_response_then_succeeds(): void {
