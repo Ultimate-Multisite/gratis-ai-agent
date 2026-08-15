@@ -20,22 +20,22 @@ use WP_UnitTestCase;
  */
 class ReportBuilderTest extends WP_UnitTestCase {
 
-	private int $user_id;
+	private int $userId;
 
 	public function set_up(): void {
 		parent::set_up();
-		$this->user_id = self::factory()->user->create();
-		wp_set_current_user( $this->user_id );
+		$this->userId = self::factory()->user->create();
+		wp_set_current_user( $this->userId );
 	}
 
 	/**
 	 * Targeted reports include only tool pairs referenced by scoped messages.
 	 */
 	public function test_targeted_report_scopes_tool_calls_to_message_context(): void {
-		$session_id = $this->create_session_with_tool_history();
+		$sessionId = $this->create_session_with_tool_history();
 
-		$report  = ReportBuilder::build( $session_id, 'thumbs_down', '', false, 5 );
-		$summary = ReportBuilder::build_summary( $session_id, false, 5 );
+		$report  = ReportBuilder::build( $sessionId, 'thumbs_down', '', false, 5 );
+		$summary = ReportBuilder::build_summary( $sessionId, false, 5 );
 
 		$this->assertNotNull( $report );
 		$this->assertNotNull( $summary );
@@ -49,9 +49,9 @@ class ReportBuilderTest extends WP_UnitTestCase {
 	 * Full-session reports preserve the complete tool log.
 	 */
 	public function test_full_report_preserves_all_tool_calls(): void {
-		$session_id = $this->create_session_with_tool_history();
+		$sessionId = $this->create_session_with_tool_history();
 
-		$report = ReportBuilder::build( $session_id, 'user_reported' );
+		$report = ReportBuilder::build( $sessionId, 'user_reported' );
 
 		$this->assertNotNull( $report );
 		$this->assertSame( 6, $report['session_data']['tool_call_count'] );
@@ -65,10 +65,10 @@ class ReportBuilderTest extends WP_UnitTestCase {
 	 * Targeted text-only context omits unrelated session-wide tool history.
 	 */
 	public function test_targeted_report_without_tool_ids_omits_tool_log(): void {
-		$session_id = $this->create_session_with_tool_history();
+		$sessionId = $this->create_session_with_tool_history();
 		$this->assertTrue(
 			Database::update_session(
-				$session_id,
+				$sessionId,
 				array(
 					'messages' => wp_json_encode(
 						array(
@@ -80,7 +80,7 @@ class ReportBuilderTest extends WP_UnitTestCase {
 			)
 		);
 
-		$report = ReportBuilder::build( $session_id, 'thumbs_down', '', false, 1 );
+		$report = ReportBuilder::build( $sessionId, 'thumbs_down', '', false, 1 );
 
 		$this->assertNotNull( $report );
 		$this->assertSame( array(), $report['session_data']['tool_calls'] );
@@ -88,15 +88,15 @@ class ReportBuilderTest extends WP_UnitTestCase {
 	}
 
 	private function create_session_with_tool_history(): int {
-		$session_id = Database::create_session(
+		$sessionId = Database::create_session(
 			array(
-				'user_id'     => $this->user_id,
+				'user_id'     => $this->userId,
 				'title'       => 'Scoped feedback',
 				'provider_id' => 'test-provider',
 				'model_id'    => 'test-model',
 			)
 		);
-		$this->assertIsInt( $session_id );
+		$this->assertIsInt( $sessionId );
 
 		$messages = array(
 			array( 'role' => 'user', 'parts' => array( array( 'type' => 'text', 'text' => 'Earlier task' ) ) ),
@@ -111,7 +111,7 @@ class ReportBuilderTest extends WP_UnitTestCase {
 			$this->function_message( 'user', 'functionResponse', 'after-call' ),
 		);
 
-		$tool_calls = array(
+		$toolCalls = array(
 			array( 'type' => 'call', 'id' => 'before-call', 'name' => 'before-tool', 'args' => array() ),
 			array( 'type' => 'response', 'id' => 'before-call', 'name' => 'before-tool', 'response' => array( 'ok' => true ) ),
 			array( 'type' => 'call', 'id' => 'target-call', 'name' => 'target-tool', 'args' => array() ),
@@ -122,15 +122,15 @@ class ReportBuilderTest extends WP_UnitTestCase {
 
 		$this->assertTrue(
 			Database::update_session(
-				$session_id,
+				$sessionId,
 				array(
 					'messages'   => wp_json_encode( $messages ),
-					'tool_calls' => wp_json_encode( $tool_calls ),
+					'tool_calls' => wp_json_encode( $toolCalls ),
 				)
 			)
 		);
 
-		return $session_id;
+		return $sessionId;
 	}
 
 	/**
