@@ -3915,44 +3915,44 @@ class AgentLoopTest extends WP_UnitTestCase {
 
 	/**
 	 * A generic first prompt cannot use an always-allowed write tool to publish
-	 * invented content. The normal confirmation response gives the UI a proposal
-	 * boundary instead of executing the provider call or surfacing an error.
+	 * invented content, even when YOLO mode is enabled. The normal confirmation
+	 * response gives the UI a proposal boundary instead of executing the call.
 	 */
 	public function test_underspecified_prompt_requires_confirmation_before_publishing(): void {
-		$this->skip_if_sdk_unavailable();
-		if ( ! class_exists( 'WP_AI_Client_Ability_Function_Resolver' ) ) {
-			$this->markTestSkipped( 'WP_AI_Client_Ability_Function_Resolver not available.' );
+		if (
+			! function_exists( 'wp_get_abilities' )
+			|| ! wp_has_ability( 'sd-ai-agent/create-post' )
+			|| ! class_exists( 'WP_AI_Client_Ability_Function_Resolver' )
+		) {
+			$this->markTestSkipped( 'Required ability resolver is not available.' );
 		}
 
-		Settings::instance()->update(
-			[
-				'tool_permissions' => [
-					'sd-ai-agent/create-post' => 'always_allow',
-				],
-			]
+		$loop = new ScriptedAgentLoop(
+			'do anything',
+			array(),
+			array(),
+			array(
+				'provider_id'       => 'scripted-provider',
+				'model_id'          => 'scripted-model',
+				'yolo_mode'         => true,
+				'tool_permissions' => array( 'sd-ai-agent/create-post' => 'always_allow' ),
+			),
+			array(
+				$this->create_scripted_result(
+					'',
+					new FunctionCall(
+						'call_underspecified_publish',
+						'wpab__sd-ai-agent__create-post',
+						array(
+							'title'   => 'Invented post',
+							'content' => 'This must not be published from a vague prompt.',
+							'status'  => 'publish',
+						)
+					)
+				),
+			)
 		);
 
-		$this->mock_ai_response(
-			'',
-			[
-				[
-					'id'       => 'call_underspecified_publish',
-					'type'     => 'function',
-					'function' => [
-						'name'      => 'wpab__sd-ai-agent__create-post',
-						'arguments' => wp_json_encode(
-							[
-								'title'   => 'Invented post',
-								'content' => 'This must not be published from a vague prompt.',
-								'status'  => 'publish',
-							]
-						),
-					],
-				],
-			]
-		);
-
-		$loop   = new AgentLoop( 'do anything' );
 		$result = $loop->run();
 
 		$this->assertIsArray( $result );
