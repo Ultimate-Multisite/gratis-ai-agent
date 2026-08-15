@@ -3962,6 +3962,44 @@ class AgentLoopTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * The deterministic boundary remains covered without an authenticated AI
+	 * provider: an always-allowed create-post call from "do anything" is held
+	 * as an underspecified-request proposal before the resolver can execute it.
+	 */
+	public function test_underspecified_prompt_holds_always_allowed_create_post_at_permission_boundary(): void {
+		if ( ! function_exists( 'wp_get_abilities' ) || ! wp_has_ability( 'sd-ai-agent/create-post' ) ) {
+			$this->markTestSkipped( 'sd-ai-agent/create-post ability is not registered.' );
+		}
+
+		$resolver = new ToolPermissionResolver(
+			false,
+			[ 'sd-ai-agent/create-post' => 'always_allow' ],
+			SystemInstructionBuilder::requires_clarification_before_mutation( 'do anything' )
+		);
+		$message  = new ModelMessage(
+			[
+				new MessagePart(
+					new FunctionCall(
+						'call_vague_publish',
+						'wpab__sd-ai-agent__create-post',
+						[
+							'title'   => 'Invented post',
+							'content' => 'This must not be published from a vague prompt.',
+							'status'  => 'publish',
+						]
+					)
+				),
+			]
+		);
+
+		$pending = $resolver->get_tools_needing_confirmation( $message );
+
+		$this->assertCount( 1, $pending );
+		$this->assertSame( 'sd-ai-agent/create-post', $pending[0]['ability'] );
+		$this->assertSame( 'underspecified_request', $pending[0]['reason'] );
+	}
+
+	/**
 	 * Identical function calls in one model response should be dispatched once.
 	 */
 	public function test_run_deduplicates_identical_tool_calls_within_iteration(): void {
