@@ -177,9 +177,9 @@ describe( 'WidgetMessageList recoverable-job action card', () => {
 			hasStreamError: () => true,
 			getPendingActionCard: () => ( {
 				type: 'retry_client_tools',
-				sessionId: 123,
 				toolNames: [ 'sd-ai-agent-js/screenshot-url' ],
 			} ),
+			getPendingToolResultRetry: () => ( { sessionId: 123 } ),
 			getProviders: () => [],
 		};
 		useSelect.mockImplementation( ( fn ) => fn( () => selectors ) );
