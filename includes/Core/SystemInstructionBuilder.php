@@ -359,11 +359,14 @@ class SystemInstructionBuilder {
 	 * prompts remain the model's responsibility, while these known no-objective
 	 * forms receive a deterministic server-side guard.
 	 *
-	 * @param string $user_message User message for the current turn.
+	 * @param string $userMessage User message for the current turn.
 	 * @return bool
 	 */
-	public static function requires_clarification_before_mutation( string $user_message ): bool {
-		$normalized = strtolower( trim( preg_replace( '/\s+/', ' ', $user_message ) ?? '' ) );
+	// phpcs:ignore WordPress.NamingConventions.ValidVariableName.VariableNotSnakeCase -- Project variable naming guidance requires camelCase.
+	public static function requires_clarification_before_mutation( string $userMessage ): bool {
+		// phpcs:ignore WordPress.NamingConventions.ValidVariableName.VariableNotSnakeCase -- Project variable naming guidance requires camelCase.
+		$normalized = strtolower( trim( preg_replace( '/\s+/', ' ', $userMessage ) ?? '' ) );
+		$normalized = rtrim( $normalized, '.!?' );
 
 		return in_array(
 			$normalized,

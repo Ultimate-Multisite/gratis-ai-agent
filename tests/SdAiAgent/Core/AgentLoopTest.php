@@ -3962,6 +3962,69 @@ class AgentLoopTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * Mixed client and PHP calls must be classified before the PHP partition can
+	 * execute, so a generic prompt cannot publish while a read-only browser call
+	 * is pending.
+	 */
+	public function test_underspecified_prompt_confirms_before_mixed_client_and_publish_calls(): void {
+		$this->skip_if_sdk_unavailable();
+		if ( ! class_exists( 'WP_AI_Client_Ability_Function_Resolver' ) ) {
+			$this->markTestSkipped( 'WP_AI_Client_Ability_Function_Resolver not available.' );
+		}
+
+		Settings::instance()->update(
+			[
+				'tool_permissions' => [
+					'sd-ai-agent/create-post' => 'always_allow',
+				],
+			]
+		);
+
+		$this->mock_ai_response(
+			'',
+			[
+				[
+					'id'       => 'call_vague_navigate',
+					'type'     => 'function',
+					'function' => [
+						'name'      => 'wpab__sd-ai-agent-js__navigate-to',
+						'arguments' => wp_json_encode( [ 'path' => 'edit.php' ] ),
+					],
+				],
+				[
+					'id'       => 'call_vague_publish',
+					'type'     => 'function',
+					'function' => [
+						'name'      => 'wpab__sd-ai-agent__create-post',
+						'arguments' => wp_json_encode(
+							[
+								'title'   => 'Invented post',
+								'content' => 'This must not be published from a vague prompt.',
+								'status'  => 'publish',
+							]
+						),
+					],
+				],
+			]
+		);
+
+		$catalog = JsAbilityCatalog::get_descriptors_by_name();
+		$loop    = new AgentLoop(
+			'do anything',
+			array(),
+			array(),
+			array( 'client_abilities' => array( $catalog['sd-ai-agent-js/navigate-to'] ) )
+		);
+		$result  = $loop->run();
+
+		$this->assertTrue( $result['awaiting_confirmation'] ?? false );
+		$this->assertCount( 1, $result['pending_tools'] );
+		$this->assertSame( 'sd-ai-agent/create-post', $result['pending_tools'][0]['ability'] ?? '' );
+		$this->assertSame( 'underspecified_request', $result['pending_tools'][0]['reason'] ?? '' );
+		$this->assertArrayNotHasKey( 'pending_client_tool_calls', $result );
+	}
+
+	/**
 	 * The deterministic boundary remains covered without an authenticated AI
 	 * provider: an always-allowed create-post call from "do anything" is held
 	 * as an underspecified-request proposal before the resolver can execute it.

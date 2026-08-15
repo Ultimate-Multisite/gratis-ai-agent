@@ -27,12 +27,13 @@ class ToolPermissionResolver {
 	/**
 	 * @param bool                     $yolo_mode        When true, skip all confirmations.
 	 * @param array<int|string, mixed> $tool_permissions Tool permission levels from settings.
-	 * @param bool                     $requires_mutation_clarification Whether the current prompt lacks an actionable objective.
+	 * @param bool                     $requiresMutationClarification Whether the current prompt lacks an actionable objective.
 	 */
 	public function __construct(
 		private bool $yolo_mode = false,
 		private array $tool_permissions = array(),
-		private bool $requires_mutation_clarification = false
+		// phpcs:ignore WordPress.NamingConventions.ValidVariableName.VariableNotSnakeCase -- Project property naming guidance requires camelCase.
+		private bool $requiresMutationClarification = false
 	) {}
 
 	/**
@@ -59,7 +60,7 @@ class ToolPermissionResolver {
 		// YOLO mode: skip all confirmations and execute immediately. A prompt
 		// with no stated objective is the exception: it must not manufacture a
 		// mutation merely because a site-wide convenience setting is enabled.
-		if ( $this->yolo_mode && ! $this->requires_mutation_clarification ) {
+		if ( $this->yolo_mode && ! $this->requiresMutationClarification ) {
 			return array();
 		}
 
@@ -93,7 +94,7 @@ class ToolPermissionResolver {
 			$ability                 = $all_abilities[ $confirmation_ability_id ] ?? null;
 			$ability                 = $ability instanceof \WP_Ability ? $ability : null;
 
-			$requires_clarification = $this->requires_mutation_clarification
+			$requires_clarification = $this->requiresMutationClarification
 				&& $ability instanceof \WP_Ability
 				&& 'read' !== self::classify_ability( $ability );
 

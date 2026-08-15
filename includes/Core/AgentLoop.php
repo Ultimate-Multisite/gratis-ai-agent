@@ -1738,6 +1738,26 @@ PROMPT;
 				continue;
 			}
 
+			$confirm_needed = $this->permission_resolver->get_tools_needing_confirmation( $assistant_message );
+
+			if ( ! empty( $confirm_needed ) ) {
+				$this->approved_once_abilities = $this->extract_pending_ability_names( $confirm_needed );
+
+				return $this->with_paused_logs(
+					array(
+						'awaiting_confirmation'   => true,
+						'pending_tools'           => $confirm_needed,
+						'approved_once_abilities' => $this->approved_once_abilities,
+						'history'                 => $this->serialize_history(),
+						'tool_call_log'           => $this->tool_call_log,
+						'token_usage'             => $this->token_usage,
+						'iterations_remaining'    => $iterations,
+						'iterations_used'         => $this->iterations_used,
+						'model_id'                => $this->model_id,
+					)
+				);
+			}
+
 			// ── Client-side ability routing ───────────────────────────────
 			// Partition tool calls into PHP-executable and JS-pending sets.
 			// PHP calls execute inline; JS calls are returned as pending so
@@ -1811,26 +1831,6 @@ PROMPT;
 				}
 			}
 			// ── End client-side routing ───────────────────────────────────
-
-			$confirm_needed = $this->permission_resolver->get_tools_needing_confirmation( $assistant_message );
-
-			if ( ! empty( $confirm_needed ) ) {
-				$this->approved_once_abilities = $this->extract_pending_ability_names( $confirm_needed );
-
-				return $this->with_paused_logs(
-					array(
-						'awaiting_confirmation'   => true,
-						'pending_tools'           => $confirm_needed,
-						'approved_once_abilities' => $this->approved_once_abilities,
-						'history'                 => $this->serialize_history(),
-						'tool_call_log'           => $this->tool_call_log,
-						'token_usage'             => $this->token_usage,
-						'iterations_remaining'    => $iterations,
-						'iterations_used'         => $this->iterations_used,
-						'model_id'                => $this->model_id,
-					)
-				);
-			}
 
 			// Execute the ability calls and get the function response message.
 			$this->save_active_job_checkpoint( self::CHECKPOINT_TOOL_EXECUTION_STARTED, $iterations );

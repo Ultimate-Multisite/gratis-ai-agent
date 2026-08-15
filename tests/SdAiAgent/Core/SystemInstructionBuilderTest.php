@@ -176,7 +176,10 @@ class SystemInstructionBuilderTest extends WP_UnitTestCase {
 		$this->assertStringContainsString( 'bounded read-only inspection', $section );
 		$this->assertStringContainsString( 'never a public change', $section );
 		$this->assertTrue( SystemInstructionBuilder::requires_clarification_before_mutation( 'do anything' ) );
+		$this->assertTrue( SystemInstructionBuilder::requires_clarification_before_mutation( 'do anything!' ) );
 		$this->assertTrue( SystemInstructionBuilder::requires_clarification_before_mutation( '  surprise   me ' ) );
+		$this->assertTrue( SystemInstructionBuilder::requires_clarification_before_mutation( 'surprise me?' ) );
+		$this->assertTrue( SystemInstructionBuilder::requires_clarification_before_mutation( 'whatever.' ) );
 		$this->assertFalse( SystemInstructionBuilder::requires_clarification_before_mutation( 'Publish a post about gardening.' ) );
 	}
 
