@@ -2485,10 +2485,7 @@ PROMPT;
 			$last_retry_after_seconds = $this->extract_retry_after_seconds( $last_error );
 			$backoff_delays[]         = $delay;
 			$this->log_provider_retry_progress( $status_code, $attempt + 1, $delay );
-
-			if ( $delay > 0 ) {
-				sleep( $delay );
-			}
+			$this->wait_for_provider_retry( $delay );
 		}
 
 		$elapsed_seconds = max( 0, (int) round( microtime( true ) - $started_at ) );
@@ -2600,6 +2597,24 @@ PROMPT;
 
 		$index = max( 0, $attempt - 1 );
 		return (int) ( $this->provider_retry_delays[ $index ] ?? 60 );
+	}
+
+	/**
+	 * Wait between transient provider attempts while keeping the active job alive.
+	 *
+	 * The managed-provider retry window can now include a 16-second delay. A
+	 * one-second heartbeat preserves the post-client-result job/checkpoint if a
+	 * stale-job monitor runs while that accepted continuation is backing off.
+	 *
+	 * @param int $delay Delay in seconds, already bounded by retry configuration.
+	 */
+	private function wait_for_provider_retry( int $delay ): void {
+		for ( $remaining = max( 0, $delay ); $remaining > 0; --$remaining ) {
+			if ( '' !== $this->active_job_id ) {
+				ActiveJobRepository::heartbeat( $this->active_job_id );
+			}
+			sleep( 1 );
+		}
 	}
 
 	/**
