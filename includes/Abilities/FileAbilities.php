@@ -15,6 +15,7 @@ declare(strict_types=1);
 
 namespace SdAiAgent\Abilities;
 
+use SdAiAgent\Core\AgentEventLog;
 use SdAiAgent\Core\Filesystem\PathCanonicalizer;
 use SdAiAgent\Core\Settings;
 use SdAiAgent\Core\WordPressPaths;
@@ -284,6 +285,11 @@ abstract class AbstractFileAbility extends AbstractAbility {
 		$wp_content_path = WordPressPaths::content_dir();
 		$full_path       = $wp_content_path . '/' . $relative_path;
 
+		// Long-lived PHP workers can retain stale stat and realpath entries after
+		// another request creates a file or updates a symlinked content root.
+		// Resolve each request against the current filesystem state.
+		clearstatcache( true, $full_path );
+
 		// Resolve real path for security check.
 		$real_path = realpath( dirname( $full_path ) );
 		if ( false === $real_path ) {
@@ -300,7 +306,12 @@ abstract class AbstractFileAbility extends AbstractAbility {
 		if ( false === $real_path || false === $wp_content_real ) {
 			return new WP_Error(
 				'sd_ai_agent_path_resolve_failed',
-				__( 'Cannot resolve path.', 'superdav-ai-agent' )
+				__( 'Cannot resolve path.', 'superdav-ai-agent' ),
+				[
+					'content_root_resolved' => false !== $wp_content_real,
+					'parent_resolved'       => false !== $real_path,
+					'reason'                => false === $wp_content_real ? 'unresolved_content_root' : 'unresolved_parent',
+				]
 			);
 		}
 
@@ -317,6 +328,46 @@ abstract class AbstractFileAbility extends AbstractAbility {
 		}
 
 		return $canonical;
+	}
+
+	/**
+	 * Build and record a path-safe missing-file diagnostic.
+	 *
+	 * The returned data deliberately contains no absolute path or file contents.
+	 * It lets callers distinguish a missing leaf from a parent/root resolution
+	 * failure while the event log retains only a hash of the caller input.
+	 *
+	 * @param string $relative_path Requested wp-content-relative path.
+	 * @param string $full_path Canonical path returned by resolve_path().
+	 * @return WP_Error
+	 */
+	protected function file_not_found_error( string $relative_path, string $full_path ): WP_Error {
+		$parent_path = dirname( $full_path );
+		clearstatcache( true, $full_path );
+
+		$diagnostics = [
+			'content_root_resolved' => false !== realpath( WordPressPaths::content_dir() ),
+			'parent_exists'         => is_dir( $parent_path ),
+			'parent_resolved'       => false !== realpath( $parent_path ),
+			'reason'                => 'missing_leaf',
+		];
+
+		AgentEventLog::log(
+			'file_read_not_found',
+			AgentEventLog::SEVERITY_WARNING,
+			[
+				'ability'   => $this->name,
+				'code'      => 'sd_ai_agent_file_not_found',
+				'reason'    => 'missing_leaf',
+				'args_hash' => AgentEventLog::payload_hash( [ 'path' => $relative_path ] ),
+			]
+		);
+
+		return new WP_Error(
+			'sd_ai_agent_file_not_found',
+			sprintf( 'File not found: %s', $relative_path ),
+			$diagnostics
+		);
 	}
 
 	/**
@@ -533,9 +584,9 @@ class FileReadAbility extends AbstractFileAbility {
 			return $full_path;
 		}
 
+		clearstatcache( true, $full_path );
 		if ( ! file_exists( $full_path ) ) {
-			// @phpstan-ignore-next-line
-			return new WP_Error( 'sd_ai_agent_file_not_found', sprintf( 'File not found: %s', $path ) );
+			return $this->file_not_found_error( $path, $full_path );
 		}
 
 		if ( ! is_readable( $full_path ) ) {
