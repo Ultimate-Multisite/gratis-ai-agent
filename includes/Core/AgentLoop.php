@@ -342,6 +342,9 @@ PROMPT;
 	/** @var PageCompletionGate Tracks rendered quality evidence for published page mutations. */
 	private PageCompletionGate $page_completion_gate;
 
+	/** @var RenderedOutputEvidenceGate Tracks post-file-mutation browser evidence for rendered claims. */
+	private RenderedOutputEvidenceGate $rendered_output_evidence_gate;
+
 	/**
 	 * @param string               $user_message     The user's prompt.
 	 * @param string[]             $abilities         Ability names to enable (empty = all).
@@ -551,6 +554,10 @@ PROMPT;
 			$this->client_router->get_names()
 		);
 		$this->page_completion_gate->replay_tool_call_log( $this->tool_call_log );
+		$this->rendered_output_evidence_gate = new RenderedOutputEvidenceGate(
+			$this->client_router->get_names()
+		);
+		$this->rendered_output_evidence_gate->replay_tool_call_log( $this->tool_call_log );
 
 		// Build or lock the initial system instruction.
 		if ( $this->durable_plan_mode ) {
@@ -961,6 +968,7 @@ PROMPT;
 				$client_result = $result['result'] ?? array( 'error' => $result['error'] ?? '' );
 				$this->generated_theme_completion_gate->record_tool_response( $name, $client_result );
 				$this->page_completion_gate->record_tool_response( $name, $client_result );
+				$this->rendered_output_evidence_gate->record_tool_response( $name, $client_result );
 			}
 
 			// Fire progress so the UI reflects the client tool responses
@@ -998,6 +1006,9 @@ PROMPT;
 		}
 		if ( $this->page_completion_gate->is_required() ) {
 			$payload['page_quality_completion'] = $this->page_completion_gate->get_status();
+		}
+		if ( $this->rendered_output_evidence_gate->get_status()['required'] ) {
+			$payload['rendered_output_evidence'] = $this->rendered_output_evidence_gate->get_status();
 		}
 		return $payload;
 	}
@@ -1043,6 +1054,9 @@ PROMPT;
 		}
 		if ( $this->page_completion_gate->is_required() ) {
 			$payload['page_quality_completion'] = $this->page_completion_gate->get_status();
+		}
+		if ( $this->rendered_output_evidence_gate->get_status()['required'] ) {
+			$payload['rendered_output_evidence'] = $this->rendered_output_evidence_gate->get_status();
 		}
 		return $payload;
 	}
@@ -1728,6 +1742,7 @@ PROMPT;
 				$reply = $this->inject_real_permalinks( $reply );
 				$reply = $this->append_generated_theme_completion_notice( $reply );
 				$reply = $this->append_page_completion_notice( $reply );
+				$reply = $this->append_rendered_output_evidence_notice( $reply );
 
 				return $this->inject_inability_data(
 					$this->with_result_logs(
@@ -2026,6 +2041,7 @@ PROMPT;
 			$reply = $this->inject_real_permalinks( $reply );
 			$reply = $this->append_generated_theme_completion_notice( $reply );
 			$reply = $this->append_page_completion_notice( $reply );
+			$reply = $this->append_rendered_output_evidence_notice( $reply );
 
 			return $this->inject_inability_data(
 				$this->with_result_logs(
@@ -4183,6 +4199,7 @@ PROMPT;
 				$normalized_args = self::normalize_function_call_args( $call->getArgs() );
 				$this->generated_theme_completion_gate->record_tool_call( $name, $normalized_args );
 				$this->page_completion_gate->record_tool_call( $name, $normalized_args );
+				$this->rendered_output_evidence_gate->record_tool_call( $name, $normalized_args );
 			}
 		}
 
@@ -4481,6 +4498,7 @@ PROMPT;
 				$this->track_block_validation_response( $name, $response->getResponse() );
 				$this->generated_theme_completion_gate->record_tool_response( $name, $response->getResponse() );
 				$this->page_completion_gate->record_tool_response( $name, $response->getResponse() );
+				$this->rendered_output_evidence_gate->record_tool_response( $name, $response->getResponse() );
 
 				$this->tool_call_log[] = array(
 					'type'     => 'response',
@@ -4807,6 +4825,15 @@ PROMPT;
 			$this->discard_unpublished_page_previews();
 		}
 		return '' === $notice ? $reply : $notice;
+	}
+
+	/** Prevent unsupported rendered-success claims after a successful file mutation. */
+	private function append_rendered_output_evidence_notice( string $reply ): string {
+		if ( ! $this->rendered_output_evidence_gate->blocks_rendered_claim( $reply ) ) {
+			return $reply;
+		}
+
+		return $this->rendered_output_evidence_gate->get_terminal_notice();
 	}
 
 	/** Discard only gate-owned autosaves; the published parents are untouched. */
