@@ -74,6 +74,7 @@ function selectors() {
 	return {
 		getCurrentSessionId: () => 7,
 		getMessageQueue: () => [],
+		getPendingActionCard: () => null,
 		getProviders: () => [],
 		getSelectedProviderId: () => '',
 		getSelectedModelId: () => '',
@@ -95,6 +96,8 @@ function actions() {
 		exportSession: jest.fn(),
 		fetchSessions: jest.fn(),
 		openSession: jest.fn(),
+		resumeRecoverableJob: jest.fn(),
+		retryClientToolSubmission: jest.fn(),
 		sendMessage: jest.fn(),
 		setFloatingOpen: jest.fn(),
 		stopGeneration: jest.fn(),

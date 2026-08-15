@@ -34,8 +34,10 @@ use SdAiAgent\Abilities\Js\JsAbilityCatalog;
 use SdAiAgent\Abilities\KnowledgeAbilities;
 use SdAiAgent\Core\ActiveJobFailureDiagnostic;
 use SdAiAgent\Core\AgentLoop;
+use SdAiAgent\Core\ClientAbilityRouter;
 use SdAiAgent\Core\ConversationSerializer;
 use SdAiAgent\Core\ConversationTrimmer;
+use SdAiAgent\Core\Database;
 use SdAiAgent\Core\ProviderCredentialLoader;
 use SdAiAgent\Core\Settings;
 use SdAiAgent\Core\SystemInstructionBuilder;
@@ -107,6 +109,11 @@ class ScriptedAgentLoop extends AgentLoop {
 		}
 
 		$result = array_shift( $this->scriptedResults );
+		if ( $result instanceof WP_Error && 'sd_ai_agent_test_provider_timeout' === $result->get_error_code() ) {
+			$retry_error = new \ReflectionMethod( AgentLoop::class, 'build_provider_retry_failed_error' );
+
+			return $retry_error->invoke( $this, $result, 0 );
+		}
 		if ( $result instanceof GenerativeAiResult || $result instanceof WP_Error ) {
 			return $result;
 		}
@@ -947,6 +954,95 @@ class AgentLoopTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * Managed Superdav calls tolerate a short edge outage while other providers
+	 * retain the existing retry budget. Explicit per-run overrides still win.
+	 */
+	public function test_managed_provider_uses_longer_default_retry_policy(): void {
+		$attempts = new \ReflectionProperty( AgentLoop::class, 'provider_retry_max_attempts' );
+		$delays   = new \ReflectionProperty( AgentLoop::class, 'provider_retry_delays' );
+		$jitter   = new \ReflectionProperty( AgentLoop::class, 'provider_retry_jitter' );
+		$resolve  = new \ReflectionMethod( AgentLoop::class, 'get_provider_retry_delay' );
+
+		$managed = new AgentLoop(
+			'Inspect the site.',
+			[],
+			[],
+			[
+				'provider_id' => 'sd-ai-agent-cloud',
+				'model_id'    => 'superdav-chat-pro',
+			]
+		);
+		$this->assertSame( 6, $attempts->getValue( $managed ) );
+		$this->assertSame( [ 1, 2, 4, 8, 16 ], $delays->getValue( $managed ) );
+		$this->assertTrue( $jitter->getValue( $managed ) );
+		for ( $sample = 0; $sample < 20; ++$sample ) {
+			$resolved_delay = $resolve->invoke( $managed, 5, null );
+			$this->assertGreaterThanOrEqual( 16, $resolved_delay );
+			$this->assertLessThanOrEqual( 20, $resolved_delay );
+		}
+
+		$other = new AgentLoop(
+			'Inspect the site.',
+			[],
+			[],
+			[
+				'provider_id' => 'another-provider',
+				'model_id'    => 'another-model',
+			]
+		);
+		$this->assertSame( 4, $attempts->getValue( $other ) );
+		$this->assertSame( [ 1, 2, 4 ], $delays->getValue( $other ) );
+		$this->assertFalse( $jitter->getValue( $other ) );
+
+		$overridden = new AgentLoop(
+			'Inspect the site.',
+			[],
+			[],
+			[
+				'provider_id'                => 'sd-ai-agent-cloud',
+				'model_id'                   => 'superdav-chat-pro',
+				'provider_retry_max_attempts' => 2,
+				'provider_retry_delays'       => [ 0 ],
+			]
+		);
+		$this->assertSame( 2, $attempts->getValue( $overridden ) );
+		$this->assertSame( [ 0 ], $delays->getValue( $overridden ) );
+		$this->assertFalse( $jitter->getValue( $overridden ) );
+		$this->assertSame( 0, $resolve->invoke( $overridden, 1, null ) );
+	}
+
+	/**
+	 * Longer retry waits heartbeat the active continuation instead of leaving
+	 * the accepted client-result job looking stale.
+	 */
+	public function test_provider_retry_wait_heartbeats_active_job(): void {
+		global $wpdb;
+
+		$job_id = '44444444-5555-6666-7777-888888888888';
+		$this->assertNotFalse( ActiveJobRepository::create( 1, $job_id, 1 ) );
+		$wpdb->update(
+			ActiveJobRepository::table_name(),
+			[ 'updated_at' => '2000-01-01 00:00:00' ],
+			[ 'job_id' => $job_id ],
+			[ '%s' ],
+			[ '%s' ]
+		);
+
+		$loop = new AgentLoop(
+			'Inspect the site.',
+			[],
+			[],
+			[ 'active_job_id' => $job_id ]
+		);
+		$wait = new \ReflectionMethod( AgentLoop::class, 'wait_for_provider_retry' );
+		$wait->invoke( $loop, 1 );
+
+		$row = ActiveJobRepository::get_by_job_id( $job_id );
+		$this->assertNotNull( $row );
+		$this->assertNotSame( '2000-01-01 00:00:00', $row->updated_at );
+	}
+
+	/**
 	 * Test run() returns WP_Error when the AI proxy returns an HTTP error.
 	 */
 	public function test_run_retries_http_error_response_then_succeeds(): void {
@@ -1033,6 +1129,96 @@ class AgentLoopTest extends WP_UnitTestCase {
 		$this->assertIsArray( $data );
 		$retry_entries = array_filter( $data['messages'], static fn( $entry ) => 'provider_retry' === ( $entry['type'] ?? '' ) );
 		$this->assertCount( 2, $retry_entries );
+	}
+
+	/**
+	 * Accepted screenshot results survive provider exhaustion and resume from
+	 * their post-results checkpoint without producing another browser-tool pause.
+	 */
+	public function test_client_results_provider_timeout_resumes_without_replay(): void {
+		$session_id = Database::create_session( [
+			'user_id' => 1,
+			'title'   => 'Client result provider recovery',
+		] );
+		$job_id     = '55555555-6666-7777-8888-999999999999';
+		$this->assertNotFalse( ActiveJobRepository::create( $session_id, $job_id, 1 ) );
+		$options = [
+			'session_id'    => $session_id,
+			'active_job_id' => $job_id,
+			'provider_id'   => 'scripted-provider',
+			'model_id'      => 'scripted-model',
+		];
+		$history = [
+			new UserMessage( [ new MessagePart( 'Review the theme code and rendered output.' ) ] ),
+			new ModelMessage(
+				[
+					new MessagePart( new FunctionCall( 'call_screen_one', 'sd-ai-agent-js/screenshot-url', [ 'url' => '/theme/' ] ) ),
+					new MessagePart( new FunctionCall( 'call_screen_two', 'sd-ai-agent-js/screenshot-url', [ 'url' => '/theme/post/' ] ) ),
+				]
+			),
+		];
+
+		$loop   = new ScriptedAgentLoop(
+			'',
+			[],
+			$history,
+			$options,
+			[ new WP_Error( 'sd_ai_agent_test_provider_timeout', 'Managed service unavailable.' ) ]
+		);
+		$accepted_results = [
+			[
+				'id'     => 'call_screen_one',
+				'name'   => 'sd-ai-agent-js/screenshot-url',
+				'result' => [ 'success' => true, 'url' => '/theme/' ],
+			],
+			[
+				'id'     => 'call_screen_two',
+				'name'   => 'sd-ai-agent-js/screenshot-url',
+				'result' => [ 'success' => true, 'url' => '/theme/post/' ],
+			],
+		];
+		$result          = $loop->resume_after_client_tools( $accepted_results, 3 );
+
+		$this->assertInstanceOf( \WP_Error::class, $result );
+		$this->assertSame( 'sd_ai_agent_provider_retry_failed', $result->get_error_code() );
+		$this->assertCount( 1, $loop->requestSizes );
+		$state = Database::load_and_clear_paused_state( $session_id );
+		$this->assertIsArray( $state );
+		$serialized = (string) wp_json_encode( $state['history'] );
+		$this->assertStringContainsString( 'Review the theme code and rendered output.', $serialized );
+		$this->assertStringContainsString( 'call_screen_one', $serialized );
+		$this->assertStringContainsString( 'call_screen_two', $serialized );
+		$this->assertArrayNotHasKey( 'pending_client_tool_calls', $state );
+		$this->assertFalse(
+			ClientAbilityRouter::matches_pending_results(
+				$state['pending_client_tool_calls'] ?? [],
+				$accepted_results
+			),
+			'Accepted screenshot results must be invalid for replay against the post-results checkpoint.'
+		);
+
+		$job = ActiveJobRepository::get_by_job_id( $job_id );
+		$this->assertNotNull( $job );
+		$this->assertSame( AgentLoop::CHECKPOINT_BEFORE_PROVIDER_CALL, $job->checkpoint_phase );
+		$this->assertStringContainsString( 'call_screen_one', $job->checkpoint );
+		$this->assertStringContainsString( 'call_screen_two', $job->checkpoint );
+
+		$resumed_loop = new ScriptedAgentLoop(
+			'',
+			[],
+			ConversationSerializer::deserialize( $state['history'] ),
+			[
+				'provider_id' => 'scripted-provider',
+				'model_id'    => 'scripted-model',
+			],
+			[ $this->create_scripted_result( 'Theme review continued from accepted screenshots.' ) ]
+		);
+		$resumed = $resumed_loop->resume_from_checkpoint( (int) ( $state['iterations_remaining'] ?? 1 ) );
+
+		$this->assertIsArray( $resumed );
+		$this->assertSame( 'Theme review continued from accepted screenshots.', $resumed['reply'] );
+		$this->assertArrayNotHasKey( 'pending_client_tool_calls', $resumed );
+		$this->assertCount( 1, $resumed_loop->requestSizes );
 	}
 
 	/**

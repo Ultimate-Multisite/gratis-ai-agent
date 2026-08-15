@@ -85,8 +85,14 @@ class AgentLoop {
 	/** Maximum provider-call attempts for retryable transient failures. */
 	private const PROVIDER_RETRY_MAX_ATTEMPTS = 4;
 
+	/** Longer managed-service retry budget for short edge/network outages. */
+	private const MANAGED_PROVIDER_RETRY_MAX_ATTEMPTS = 6;
+
 	/** Default exponential backoff schedule in seconds. */
 	private const PROVIDER_RETRY_DELAYS = array( 1, 2, 4 );
+
+	/** Managed-service backoff schedule: 31 seconds before the final attempt. */
+	private const MANAGED_PROVIDER_RETRY_DELAYS = array( 1, 2, 4, 8, 16 );
 
 	/** Durable checkpoint phase saved before a provider call is attempted. */
 	public const CHECKPOINT_BEFORE_PROVIDER_CALL = 'before_provider_call';
@@ -256,6 +262,9 @@ PROMPT;
 
 	/** @var list<int> Retry delay schedule in seconds. */
 	private array $provider_retry_delays = self::PROVIDER_RETRY_DELAYS;
+
+	/** @var bool Whether default managed-provider delays receive bounded positive jitter. */
+	private bool $provider_retry_jitter = false;
 
 	/** @var list<string> Per-agent Tier 1 tool override (empty = use global default). */
 	private array $agent_tier_1_tools = array();
@@ -501,10 +510,22 @@ PROMPT;
 		$this->active_job_id = (string) ( $options['active_job_id'] ?? '' );
 
 		$this->checkpoint_resume_metadata = self::checkpoint_resume_metadata_from_candidate( $options['checkpoint_resume_metadata'] ?? array() );
-		// @phpstan-ignore-next-line -- Test/job callers may lower attempts or delays; production defaults remain four attempts.
-		$this->provider_retry_max_attempts = max( 1, (int) ( $options['provider_retry_max_attempts'] ?? self::PROVIDER_RETRY_MAX_ATTEMPTS ) );
+		$is_managed_provider              = SuperdavAiProvider::PROVIDER_ID === (string) $this->provider_id;
+		$default_retry_attempts           = $is_managed_provider
+			? self::MANAGED_PROVIDER_RETRY_MAX_ATTEMPTS
+			: self::PROVIDER_RETRY_MAX_ATTEMPTS;
+		$default_retry_delays             = $is_managed_provider
+			? self::MANAGED_PROVIDER_RETRY_DELAYS
+			: self::PROVIDER_RETRY_DELAYS;
+		$has_retry_delay_override         = array_key_exists( 'provider_retry_delays', $options );
+		// @phpstan-ignore-next-line -- Test/job callers may lower attempts or delays; managed production calls tolerate short outages by default.
+		$this->provider_retry_max_attempts = max( 1, (int) ( $options['provider_retry_max_attempts'] ?? $default_retry_attempts ) );
+		// Explicit schedules remain exact unless their caller also opts into jitter.
+		$this->provider_retry_jitter = array_key_exists( 'provider_retry_jitter', $options )
+			? ! empty( $options['provider_retry_jitter'] )
+			: $is_managed_provider && ! $has_retry_delay_override;
 		// @phpstan-ignore-next-line -- Values are normalised below to non-negative integer seconds.
-		$retry_delays = $options['provider_retry_delays'] ?? self::PROVIDER_RETRY_DELAYS;
+		$retry_delays = $options['provider_retry_delays'] ?? $default_retry_delays;
 		if ( is_array( $retry_delays ) ) {
 			$this->provider_retry_delays = array_map(
 				static fn( $delay ): int => max( 0, min( 60, (int) $delay ) ),
@@ -2698,10 +2719,7 @@ PROMPT;
 			$last_retry_after_seconds = $this->extract_retry_after_seconds( $last_error );
 			$backoff_delays[]         = $delay;
 			$this->log_provider_retry_progress( $status_code, $attempt + 1, $delay );
-
-			if ( $delay > 0 ) {
-				sleep( $delay );
-			}
+			$this->wait_for_provider_retry( $delay );
 		}
 
 		$elapsed_seconds = max( 0, (int) round( microtime( true ) - $started_at ) );
@@ -2812,7 +2830,35 @@ PROMPT;
 		}
 
 		$index = max( 0, $attempt - 1 );
-		return (int) ( $this->provider_retry_delays[ $index ] ?? 60 );
+		$delay = (int) ( $this->provider_retry_delays[ $index ] ?? 60 );
+		if ( ! $this->provider_retry_jitter || $delay <= 0 || $delay >= 60 ) {
+			return $delay;
+		}
+
+		// Spread managed retries by up to 25% without retrying before the base
+		// delay or exceeding the existing 60-second per-delay ceiling. Integer
+		// scheduling leaves the first two short delays exact and jitters later
+		// attempts where synchronized retries would have the greatest impact.
+		$jitter_max = (int) floor( $delay / 4 );
+		return min( 60, $delay + ( $jitter_max > 0 ? wp_rand( 0, $jitter_max ) : 0 ) );
+	}
+
+	/**
+	 * Wait between transient provider attempts while keeping the active job alive.
+	 *
+	 * The managed-provider retry window can now include a 16-second delay. A
+	 * one-second heartbeat preserves the post-client-result job/checkpoint if a
+	 * stale-job monitor runs while that accepted continuation is backing off.
+	 *
+	 * @param int $delay Delay in seconds, already bounded by retry configuration.
+	 */
+	private function wait_for_provider_retry( int $delay ): void {
+		for ( $remaining = max( 0, $delay ); $remaining > 0; --$remaining ) {
+			if ( '' !== $this->active_job_id ) {
+				ActiveJobRepository::heartbeat( $this->active_job_id );
+			}
+			sleep( 1 );
+		}
 	}
 
 	/**

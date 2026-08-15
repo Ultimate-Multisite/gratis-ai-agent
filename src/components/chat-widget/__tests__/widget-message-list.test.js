@@ -164,6 +164,117 @@ describe( 'WidgetMessageList recoverable-job action card', () => {
 			root.unmount();
 		} );
 	} );
+
+	test( 'renders preserved client-result Retry without the generic error button', async () => {
+		const retryClientToolSubmission = jest.fn();
+		const selectors = {
+			getCurrentSessionMessages: () => [],
+			isSending: () => false,
+			getCurrentSessionId: () => 123,
+			getLiveToolCalls: () => [],
+			getSessionJobs: () => ( {} ),
+			getSettings: () => ( {} ),
+			hasStreamError: () => true,
+			getPendingActionCard: () => ( {
+				type: 'retry_client_tools',
+				toolNames: [ 'sd-ai-agent-js/screenshot-url' ],
+			} ),
+			getPendingToolResultRetry: () => ( { sessionId: 123 } ),
+			getProviders: () => [],
+		};
+		useSelect.mockImplementation( ( fn ) => fn( () => selectors ) );
+		useDispatch.mockReturnValue( {
+			sendMessage: jest.fn(),
+			retryLastMessage: jest.fn(),
+			retryClientToolSubmission,
+			resumeRecoverableJob: jest.fn(),
+			compactConversation: jest.fn(),
+			setPendingActionCard: jest.fn(),
+		} );
+
+		const container = document.createElement( 'div' );
+		document.body.appendChild( container );
+		const root = createRoot( container );
+		await act( async () => {
+			root.render( createElement( WidgetMessageList ) );
+		} );
+
+		expect(
+			container.querySelector( '.sdaa-w-retry-failed-step' )
+		).toBeNull();
+		const retryButton = container.querySelector(
+			'.sdaa-action-card--retry .sdaa-action-card-btn-confirm'
+		);
+		expect( retryButton ).not.toBeNull();
+		expect( retryButton.textContent ).toBe( 'Retry' );
+
+		await act( async () => {
+			retryButton.dispatchEvent(
+				new MouseEvent( 'click', { bubbles: true } )
+			);
+		} );
+		expect( retryClientToolSubmission ).toHaveBeenCalledTimes( 1 );
+
+		await act( async () => {
+			root.unmount();
+		} );
+	} );
+
+	test( 'renders durable Resume and dispatches resumeRecoverableJob', async () => {
+		const resumeRecoverableJob = jest.fn();
+		const selectors = {
+			getCurrentSessionMessages: () => [],
+			isSending: () => false,
+			getCurrentSessionId: () => 123,
+			getLiveToolCalls: () => [],
+			getSessionJobs: () => ( {} ),
+			getSettings: () => ( {} ),
+			hasStreamError: () => false,
+			getPendingActionCard: () => ( {
+				type: 'resume_recoverable_job',
+				sessionId: 123,
+				diagnostic: {
+					next_action: 'retry',
+					last_safe_phase: 'client_tool_resume',
+					correlation_id: 'job-abcdef123456',
+				},
+			} ),
+			getProviders: () => [],
+		};
+		useSelect.mockImplementation( ( fn ) => fn( () => selectors ) );
+		useDispatch.mockReturnValue( {
+			sendMessage: jest.fn(),
+			retryLastMessage: jest.fn(),
+			retryClientToolSubmission: jest.fn(),
+			resumeRecoverableJob,
+			compactConversation: jest.fn(),
+			setPendingActionCard: jest.fn(),
+		} );
+
+		const container = document.createElement( 'div' );
+		document.body.appendChild( container );
+		const root = createRoot( container );
+		await act( async () => {
+			root.render( createElement( WidgetMessageList ) );
+		} );
+
+		const resumeButton = container.querySelector(
+			'.sdaa-action-card--resume .sdaa-action-card-btn-confirm'
+		);
+		expect( resumeButton ).not.toBeNull();
+		expect( resumeButton.textContent ).toBe( 'Retry failed step' );
+
+		await act( async () => {
+			resumeButton.dispatchEvent(
+				new MouseEvent( 'click', { bubbles: true } )
+			);
+		} );
+		expect( resumeRecoverableJob ).toHaveBeenCalledTimes( 1 );
+
+		await act( async () => {
+			root.unmount();
+		} );
+	} );
 } );
 
 describe( 'WidgetMessageList compact conversation action card', () => {

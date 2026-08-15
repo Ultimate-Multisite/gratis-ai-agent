@@ -126,8 +126,12 @@ describe( 'useChatComposer', () => {
 	let container;
 	let root;
 	let dispatchers;
+	let pendingActionCard;
+	let pendingToolResultRetry;
 
 	beforeEach( async () => {
+		pendingActionCard = null;
+		pendingToolResultRetry = null;
 		dispatchers = {
 			sendMessage: jest.fn(),
 			stopGeneration: jest.fn(),
@@ -135,11 +139,15 @@ describe( 'useChatComposer', () => {
 			compactConversation: jest.fn(),
 			exportSession: jest.fn(),
 			setShowShortcutsHelp: jest.fn(),
+			retryClientToolSubmission: jest.fn(),
+			resumeRecoverableJob: jest.fn(),
 		};
 		const selectors = {
 			isSending: () => false,
 			getMessageQueue: () => [],
 			getCurrentSessionId: () => 17,
+			getPendingActionCard: () => pendingActionCard,
+			getPendingToolResultRetry: () => pendingToolResultRetry,
 		};
 		useDispatch.mockReturnValue( dispatchers );
 		useSelect.mockImplementation( ( callback ) =>
@@ -159,6 +167,55 @@ describe( 'useChatComposer', () => {
 		await act( async () => root.unmount() );
 		container.remove();
 		jest.clearAllMocks();
+	} );
+
+	test.each( [
+		[ 'resume_recoverable_job', 'resumeRecoverableJob' ],
+		[ 'retry_client_tools', 'retryClientToolSubmission' ],
+	] )(
+		'typed retry dispatches %s recovery instead of a new message',
+		async ( cardType, expectedAction ) => {
+			pendingActionCard =
+				cardType === 'retry_client_tools'
+					? { type: cardType }
+					: { type: cardType, sessionId: 17 };
+			pendingToolResultRetry =
+				cardType === 'retry_client_tools' ? { sessionId: 17 } : null;
+			await act( async () => {
+				root.render( createElement( ComposerHarness ) );
+			} );
+			await act( async () => {
+				setTextareaValue( container, '  retry  ' );
+				container
+					.querySelector( '[data-send]' )
+					.dispatchEvent(
+						new MouseEvent( 'click', { bubbles: true } )
+					);
+			} );
+
+			expect( dispatchers[ expectedAction ] ).toHaveBeenCalledTimes( 1 );
+			expect( dispatchers.sendMessage ).not.toHaveBeenCalled();
+			expect( container.querySelector( 'textarea' ).value ).toBe( '' );
+		}
+	);
+
+	test( 'typed retry ignores recovery state from another session', async () => {
+		pendingActionCard = {
+			type: 'resume_recoverable_job',
+			sessionId: 18,
+		};
+		await act( async () => {
+			root.render( createElement( ComposerHarness ) );
+		} );
+		await act( async () => {
+			setTextareaValue( container, 'retry' );
+			container
+				.querySelector( '[data-send]' )
+				.dispatchEvent( new MouseEvent( 'click', { bubbles: true } ) );
+		} );
+
+		expect( dispatchers.resumeRecoverableJob ).not.toHaveBeenCalled();
+		expect( dispatchers.sendMessage ).toHaveBeenCalledWith( 'retry', [] );
 	} );
 
 	test( 'supports durable-plan commands identically on both surfaces', async () => {
