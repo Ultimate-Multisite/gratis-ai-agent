@@ -248,6 +248,9 @@ PROMPT;
 	/** @var string Last coarse loop phase for shutdown diagnostics. */
 	private string $last_loop_phase = 'initializing';
 
+	/** @var string Safe provider trace phase for the current request scope. */
+	private string $provider_trace_phase = 'initial_provider_call';
+
 	/** @var int Maximum attempts for retryable provider failures. */
 	private int $provider_retry_max_attempts = self::PROVIDER_RETRY_MAX_ATTEMPTS;
 
@@ -964,8 +967,10 @@ PROMPT;
 		try {
 			$this->apply_anonymous_mode_context();
 			$this->apply_page_preview_context();
+			$this->provider_trace_phase = 'client_tool_resume';
 			return $this->run_loop( $remaining_iterations );
 		} finally {
+			$this->provider_trace_phase = 'initial_provider_call';
 			$this->clear_anonymous_mode_context();
 			$this->clear_page_preview_context();
 			AgentEventLog::clear_session();
@@ -2368,8 +2373,12 @@ PROMPT;
 			$builder->with_history( ...$this->history );
 		}
 
-		$started_at = microtime( true );
-		$last_error = null;
+		$started_at               = microtime( true );
+		$last_error               = null;
+		$last_retry_after_seconds = null;
+		$backoff_delays           = array();
+		$request_envelope         = array();
+		$status_code              = 0;
 
 		for ( $attempt = 1; $attempt <= $this->provider_retry_max_attempts; ++$attempt ) {
 			$request_envelope = array();
@@ -2407,7 +2416,9 @@ PROMPT;
 				break;
 			}
 
-			$delay = $this->get_provider_retry_delay( $attempt, $last_error );
+			$delay                    = $this->get_provider_retry_delay( $attempt, $last_error );
+			$last_retry_after_seconds = $this->extract_retry_after_seconds( $last_error );
+			$backoff_delays[]         = $delay;
 			$this->log_provider_retry_progress( $status_code, $attempt + 1, $delay );
 
 			if ( $delay > 0 ) {
@@ -2416,7 +2427,32 @@ PROMPT;
 		}
 
 		$elapsed_seconds = max( 0, (int) round( microtime( true ) - $started_at ) );
+		ProviderTraceLogger::record_retry_exhausted_failure(
+			$provider_id,
+			$model_id,
+			$last_error,
+			$status_code,
+			$this->provider_retry_max_attempts,
+			(int) round( ( microtime( true ) - $started_at ) * 1000 ),
+			$last_retry_after_seconds,
+			$backoff_delays,
+			$this->get_provider_trace_phase(),
+			$this->session_id,
+			$this->active_job_id,
+			$request_envelope
+		);
 		return $this->build_provider_retry_failed_error( $last_error, $elapsed_seconds );
+	}
+
+	/** Return the bounded provider invocation phase stored in terminal traces. */
+	private function get_provider_trace_phase(): string {
+		if ( 'client_tool_resume' === $this->provider_trace_phase ) {
+			return 'client_tool_resume';
+		}
+
+		return 'provider_followup_call' === $this->last_loop_phase
+			? 'provider_followup_call'
+			: 'initial_provider_call';
 	}
 
 	/**
