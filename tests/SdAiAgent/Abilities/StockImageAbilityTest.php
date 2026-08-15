@@ -481,7 +481,41 @@ class StockImageAbilityTest extends WP_UnitTestCase {
 
 		$this->assertIsArray( $result );
 		$this->assertArrayHasKey( 'error', $result );
+		$this->assertFalse( $result['success'] );
 		$this->assertSame( 0, $result['attachment_id'] );
+	}
+
+	/**
+	 * Stock import failures must remain explicit failures so a caller does not
+	 * mistake an empty URL for a successfully acquired image.
+	 */
+	public function test_auto_mode_source_failure_returns_recoverable_failure_signal(): void {
+		$this->set_factory_sources(
+			[
+				'openverse' => new FakeStockImageSource( 'openverse', 'free', [] ),
+				'generate'  => new FakeStockImageSource( 'generate', 'api', [] ),
+			]
+		);
+
+		$result = $this->invoke_execute( [ 'keyword' => 'photographer portrait' ] );
+
+		$this->assertIsArray( $result );
+		$this->assertFalse( $result['success'] );
+		$this->assertSame( 0, $result['attachment_id'] );
+		$this->assertSame( '', $result['url'] );
+		$this->assertNotEmpty( $result['error'] );
+	}
+
+	/**
+	 * Imports require both a local attachment ID and URL before succeeding.
+	 */
+	public function test_import_result_requires_attachment_id_and_url(): void {
+		$method = new \ReflectionMethod( StockImageAbility::class, 'has_usable_import_result' );
+		$method->setAccessible( true );
+
+		$this->assertTrue( $method->invoke( $this->ability, [ 'attachment_id' => 1, 'url' => 'https://example.com/image.jpg' ] ) );
+		$this->assertFalse( $method->invoke( $this->ability, [ 'attachment_id' => 0, 'url' => 'https://example.com/image.jpg' ] ) );
+		$this->assertFalse( $method->invoke( $this->ability, [ 'attachment_id' => 1, 'url' => '' ] ) );
 	}
 
 	// ─── search result candidate structure ───────────────────────────────────

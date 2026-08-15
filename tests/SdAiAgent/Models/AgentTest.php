@@ -614,6 +614,9 @@ class AgentTest extends WP_UnitTestCase {
 		$this->assertContains( 'sd-ai-agent/update-option', $tools );
 		$this->assertNotContains( 'wp-cli/execute', $tools );
 		$this->assertStringContainsString( 'Do not use the generic `wp-cli/execute` dispatcher for site title, tagline, active-plugin, or theme discovery', $prompt );
+		$this->assertStringContainsString( 'Treat `success: false` or an `error` as a failed search or import. After `action: import`, also treat `attachment_id: 0` or an empty `url` as a failed acquisition', $prompt );
+		$this->assertStringContainsString( 'immediately use `sd-ai-agent/generate-image`', $prompt );
+		$this->assertStringContainsString( 'do not publish a homepage that requires primary media as weak/text-only', $prompt );
 	}
 
 	/**

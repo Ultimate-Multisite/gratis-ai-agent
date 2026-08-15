@@ -1,5 +1,5 @@
 /**
- * Client-side navigate-to ability.
+ * Client-side navigation abilities.
  *
  * Navigates to a WordPress admin page. Uses window.location.assign() for now
  * (full-page nav) — can be upgraded to SPA navigation once core ships a router
@@ -19,15 +19,18 @@ import { registerClientAbility } from './registry';
  */
 function executeNavigateTo( args ) {
 	const path = args?.path || '';
-	if ( ! path ) {
+	const url = args?.url || '';
+	if ( ! path && ! url ) {
 		return { navigated: false, path: '' };
 	}
 
-	// Build the full admin URL.
-	const adminUrl =
-		typeof window.wpApiSettings?.root !== 'undefined'
-			? window.location.origin + '/wp-admin/' + path.replace( /^\//, '' )
-			: '/wp-admin/' + path.replace( /^\//, '' );
+	const target = new URL(
+		url || '/wp-admin/' + path.replace( /^\//, '' ),
+		location.origin
+	);
+	if ( target.origin !== location.origin ) {
+		throw new Error( 'Invalid URL.' );
+	}
 
 	// Defer the actual navigation so jobSlice can POST the tool result back to
 	// the server before the page unloads. Calling window.location.assign() here
@@ -38,7 +41,7 @@ function executeNavigateTo( args ) {
 	//
 	// jobSlice reads window._sdAiAgentPendingNavigation after the POST
 	// succeeds, clears sessionStorage, and then triggers the navigation.
-	window._sdAiAgentPendingNavigation = adminUrl;
+	window._sdAiAgentPendingNavigation = target.href;
 
 	return { navigated: true, path };
 }
@@ -56,9 +59,8 @@ function executeNavigateTo( args ) {
 export async function registerNavigationAbility() {
 	await registerClientAbility( {
 		name: 'sd-ai-agent-js/navigate-to',
-		label: 'Navigate to Admin Page',
-		description:
-			'Navigate to a WordPress admin page without a full page reload when inside the admin SPA.',
+		label: 'Navigate',
+		description: 'Navigate in the browser.',
 		inputSchema: {
 			type: 'object',
 			properties: {
@@ -67,8 +69,11 @@ export async function registerNavigationAbility() {
 					description:
 						'wp-admin-relative path, e.g. "plugins.php" or "edit.php?post_type=page".',
 				},
+				url: {
+					type: 'string',
+				},
 			},
-			required: [ 'path' ],
+			anyOf: [ { required: [ 'path' ] }, { required: [ 'url' ] } ],
 		},
 		outputSchema: {
 			type: 'object',

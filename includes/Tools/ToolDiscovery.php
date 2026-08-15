@@ -366,6 +366,9 @@ class ToolDiscovery {
 			if ( '' === $name ) {
 				continue;
 			}
+			if ( AbilityRegistry::get( $name ) instanceof \WP_Ability ) {
+				continue;
+			}
 			wp_register_ability(
 				$name,
 				array(
