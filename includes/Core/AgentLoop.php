@@ -263,6 +263,9 @@ PROMPT;
 	/** @var list<int> Retry delay schedule in seconds. */
 	private array $provider_retry_delays = self::PROVIDER_RETRY_DELAYS;
 
+	/** @var bool Whether default managed-provider delays receive bounded positive jitter. */
+	private bool $provider_retry_jitter = false;
+
 	/** @var list<string> Per-agent Tier 1 tool override (empty = use global default). */
 	private array $agent_tier_1_tools = array();
 
@@ -514,8 +517,13 @@ PROMPT;
 		$default_retry_delays             = $is_managed_provider
 			? self::MANAGED_PROVIDER_RETRY_DELAYS
 			: self::PROVIDER_RETRY_DELAYS;
+		$has_retry_delay_override         = array_key_exists( 'provider_retry_delays', $options );
 		// @phpstan-ignore-next-line -- Test/job callers may lower attempts or delays; managed production calls tolerate short outages by default.
 		$this->provider_retry_max_attempts = max( 1, (int) ( $options['provider_retry_max_attempts'] ?? $default_retry_attempts ) );
+		// Explicit schedules remain exact unless their caller also opts into jitter.
+		$this->provider_retry_jitter = array_key_exists( 'provider_retry_jitter', $options )
+			? ! empty( $options['provider_retry_jitter'] )
+			: $is_managed_provider && ! $has_retry_delay_override;
 		// @phpstan-ignore-next-line -- Values are normalised below to non-negative integer seconds.
 		$retry_delays = $options['provider_retry_delays'] ?? $default_retry_delays;
 		if ( is_array( $retry_delays ) ) {
@@ -2822,7 +2830,17 @@ PROMPT;
 		}
 
 		$index = max( 0, $attempt - 1 );
-		return (int) ( $this->provider_retry_delays[ $index ] ?? 60 );
+		$delay = (int) ( $this->provider_retry_delays[ $index ] ?? 60 );
+		if ( ! $this->provider_retry_jitter || $delay <= 0 || $delay >= 60 ) {
+			return $delay;
+		}
+
+		// Spread managed retries by up to 25% without retrying before the base
+		// delay or exceeding the existing 60-second per-delay ceiling. Integer
+		// scheduling leaves the first two short delays exact and jitters later
+		// attempts where synchronized retries would have the greatest impact.
+		$jitter_max = (int) floor( $delay / 4 );
+		return min( 60, $delay + ( $jitter_max > 0 ? wp_rand( 0, $jitter_max ) : 0 ) );
 	}
 
 	/**

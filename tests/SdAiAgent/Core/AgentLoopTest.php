@@ -960,6 +960,8 @@ class AgentLoopTest extends WP_UnitTestCase {
 	public function test_managed_provider_uses_longer_default_retry_policy(): void {
 		$attempts = new \ReflectionProperty( AgentLoop::class, 'provider_retry_max_attempts' );
 		$delays   = new \ReflectionProperty( AgentLoop::class, 'provider_retry_delays' );
+		$jitter   = new \ReflectionProperty( AgentLoop::class, 'provider_retry_jitter' );
+		$resolve  = new \ReflectionMethod( AgentLoop::class, 'get_provider_retry_delay' );
 
 		$managed = new AgentLoop(
 			'Inspect the site.',
@@ -972,6 +974,12 @@ class AgentLoopTest extends WP_UnitTestCase {
 		);
 		$this->assertSame( 6, $attempts->getValue( $managed ) );
 		$this->assertSame( [ 1, 2, 4, 8, 16 ], $delays->getValue( $managed ) );
+		$this->assertTrue( $jitter->getValue( $managed ) );
+		for ( $sample = 0; $sample < 20; ++$sample ) {
+			$resolved_delay = $resolve->invoke( $managed, 5, null );
+			$this->assertGreaterThanOrEqual( 16, $resolved_delay );
+			$this->assertLessThanOrEqual( 20, $resolved_delay );
+		}
 
 		$other = new AgentLoop(
 			'Inspect the site.',
@@ -984,6 +992,7 @@ class AgentLoopTest extends WP_UnitTestCase {
 		);
 		$this->assertSame( 4, $attempts->getValue( $other ) );
 		$this->assertSame( [ 1, 2, 4 ], $delays->getValue( $other ) );
+		$this->assertFalse( $jitter->getValue( $other ) );
 
 		$overridden = new AgentLoop(
 			'Inspect the site.',
@@ -998,6 +1007,8 @@ class AgentLoopTest extends WP_UnitTestCase {
 		);
 		$this->assertSame( 2, $attempts->getValue( $overridden ) );
 		$this->assertSame( [ 0 ], $delays->getValue( $overridden ) );
+		$this->assertFalse( $jitter->getValue( $overridden ) );
+		$this->assertSame( 0, $resolve->invoke( $overridden, 1, null ) );
 	}
 
 	/**
