@@ -44,13 +44,18 @@ final class WordPressPaths {
 	/**
 	 * Resolve the content directory.
 	 *
-	 * WordPress exposes helpers for theme and upload directories rather than a
-	 * content-root path helper. The theme root is the most stable public location
-	 * for deriving the surrounding content directory; uploads are the fallback.
+	 * WP_CONTENT_DIR is WordPress' authoritative content root. It remains stable
+	 * when a theme or this plugin is loaded through a symlink, whereas deriving
+	 * the root from get_theme_root() can resolve a different physical directory.
+	 * The helper fallbacks retain compatibility with incomplete test bootstraps.
 	 *
 	 * @return string Absolute directory path without a trailing slash.
 	 */
 	public static function content_dir(): string {
+		if ( defined( 'WP_CONTENT_DIR' ) && '' !== (string) constant( 'WP_CONTENT_DIR' ) ) {
+			return untrailingslashit( (string) constant( 'WP_CONTENT_DIR' ) );
+		}
+
 		$theme_root = get_theme_root();
 		if ( '' !== $theme_root ) {
 			return untrailingslashit( dirname( $theme_root ) );
