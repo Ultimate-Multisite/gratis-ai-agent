@@ -276,6 +276,89 @@ class AgentLoopClientToolsTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * Tier-2 navigate calls route through the browser callback while preserving
+	 * their outer ability-call identity for the tool-result resume contract.
+	 */
+	public function test_partition_routes_nested_navigate_call_to_browser(): void {
+		$admin_id = self::factory()->user->create( array( 'role' => 'administrator' ) );
+		wp_set_current_user( $admin_id );
+
+		$loop = new AgentLoop(
+			'test',
+			array(),
+			array(),
+			array(
+				'client_abilities' => array(
+					array(
+						'name'  => 'sd-ai-agent-js/navigate-to',
+						'label' => 'Navigate to Admin Page',
+					),
+				),
+			)
+		);
+
+		$reflection = new \ReflectionClass( $loop );
+		$method     = $reflection->getMethod( 'partition_tool_calls' );
+		$method->setAccessible( true );
+		$call = $this->create_mock_message_part(
+			'sd-ai-agent/ability-call',
+			'call-navigate',
+			array(
+				'ability'   => 'sd-ai-agent/navigate',
+				'arguments' => array( 'url' => '/' ),
+			)
+		);
+
+		$result = $method->invoke( $loop, $this->create_mock_message( array( $call ) ), array( 'sd-ai-agent-js/navigate-to' ) );
+
+		$this->assertCount( 0, $result['php'] );
+		$this->assertCount( 1, $result['client'] );
+		$this->assertSame( 'sd-ai-agent/ability-call', $result['client'][0]['name'] );
+		$this->assertSame( 'sd-ai-agent-js/navigate-to', $result['client'][0]['client_name'] );
+		$this->assertSame( array( 'url' => home_url( '/' ) ), $result['client'][0]['args'] );
+	}
+
+	/**
+	 * Invalid nested navigation URLs remain server-side so NavigateAbility can
+	 * return its normal validation error instead of bypassing that contract.
+	 */
+	public function test_partition_does_not_route_invalid_nested_navigate_url(): void {
+		$admin_id = self::factory()->user->create( array( 'role' => 'administrator' ) );
+		wp_set_current_user( $admin_id );
+
+		$loop = new AgentLoop(
+			'test',
+			array(),
+			array(),
+			array(
+				'client_abilities' => array(
+					array(
+						'name'  => 'sd-ai-agent-js/navigate-to',
+						'label' => 'Navigate to Admin Page',
+					),
+				),
+			)
+		);
+
+		$reflection = new \ReflectionClass( $loop );
+		$method     = $reflection->getMethod( 'partition_tool_calls' );
+		$method->setAccessible( true );
+		$call = $this->create_mock_message_part(
+			'sd-ai-agent/ability-call',
+			'call-external-navigation',
+			array(
+				'ability'   => 'sd-ai-agent/navigate',
+				'arguments' => array( 'url' => 'https://example.com/' ),
+			)
+		);
+
+		$result = $method->invoke( $loop, $this->create_mock_message( array( $call ) ), array( 'sd-ai-agent-js/navigate-to' ) );
+
+		$this->assertCount( 1, $result['php'] );
+		$this->assertCount( 0, $result['client'] );
+	}
+
+	/**
 	 * partition_tool_calls() returns all parts as PHP when no client names match.
 	 */
 	public function test_partition_tool_calls_all_php_when_no_match(): void {
