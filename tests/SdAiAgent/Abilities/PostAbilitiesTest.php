@@ -477,6 +477,26 @@ class PostAbilitiesTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * Heading-only Markdown must be converted when updating post content.
+	 */
+	public function test_handle_update_post_converts_heading_only_markdown(): void {
+		$post_id = $this->factory->post->create( [ 'post_status' => 'draft' ] );
+		$content = "## Updated section\n\nUpdated paragraph.";
+
+		$result = PostAbilities::handle_update_post(
+			[
+				'post_id' => $post_id,
+				'content' => $content,
+			]
+		);
+
+		$this->assertIsArray( $result );
+		$this->assertTrue( $result['block_validation']['isValid'] );
+		$this->assertStringContainsString( '<!-- wp:heading', get_post( $post_id )->post_content );
+		$this->assertStringNotContainsString( '## Updated section', get_post( $post_id )->post_content );
+	}
+
+	/**
 	 * Provider-filled empty optional fields must not erase a published page.
 	 */
 	public function test_handle_update_post_blocks_empty_published_page_replacement(): void {
@@ -807,17 +827,17 @@ class PostAbilitiesTest extends WP_UnitTestCase {
 	// ─── block_validation save-time gate (GH#1584 follow-up) ────────
 
 	/**
-	 * Content without block markup should omit the block_validation key — the
-	 * helper short-circuits when `<!-- wp:` is not present.
+	 * A single heading with plain paragraphs is converted and validated as blocks.
 	 */
-	public function test_handle_create_post_omits_block_validation_for_markdown() {
+	public function test_handle_create_post_validates_single_heading_markdown() {
 		$result = PostAbilities::handle_create_post( [
 			'title'   => 'Markdown post',
 			'content' => "## Heading\n\nParagraph.",
 		] );
 
 		$this->assertIsArray( $result );
-		$this->assertArrayNotHasKey( 'block_validation', $result );
+		$this->assertArrayHasKey( 'block_validation', $result );
+		$this->assertTrue( $result['block_validation']['isValid'] );
 	}
 
 	/**
@@ -1499,6 +1519,50 @@ class PostAbilitiesTest extends WP_UnitTestCase {
 		$this->assertStringContainsString( '<!-- wp:', $result );
 		// Must not contain the raw markdown heading.
 		$this->assertStringNotContainsString( '## Introduction', $result );
+	}
+
+	/**
+	 * Test that headings are converted without a second Markdown construct.
+	 */
+	public function test_maybe_convert_markdown_heading_only_converted() {
+		$markdown = "Intro paragraph.\n\n## First section\n\nBody.\n\n### Second section\n\nMore body.";
+		$result   = $this->call_maybe_convert_markdown( $markdown );
+
+		$this->assertStringContainsString( '<!-- wp:heading', $result );
+		$this->assertStringContainsString( '<!-- wp:paragraph', $result );
+		$this->assertStringNotContainsString( '## First section', $result );
+		$this->assertStringNotContainsString( '### Second section', $result );
+	}
+
+	/**
+	 * Test that prose using hash characters is not mistaken for an ATX heading.
+	 */
+	public function test_maybe_convert_markdown_ignores_non_heading_hash_characters() {
+		$prose  = "#not a heading\nC# is a programming language.";
+		$result = $this->call_maybe_convert_markdown( $prose );
+
+		$this->assertSame( $prose, $result );
+	}
+
+	/**
+	 * Create-post saves heading-only Markdown as valid Gutenberg blocks.
+	 */
+	public function test_handle_create_post_converts_heading_only_markdown_to_valid_blocks(): void {
+		$result = PostAbilities::handle_create_post(
+			[
+				'title'   => 'Heading-only markdown',
+				'content' => "Intro paragraph.\n\n## First section\n\nBody.\n\n## Second section\n\nMore body.",
+			]
+		);
+
+		$this->assertIsArray( $result );
+		$this->assertTrue( $result['block_validation']['isValid'] );
+
+		$saved_content = get_post( $result['post_id'] )->post_content;
+		$this->assertStringContainsString( '<!-- wp:heading', $saved_content );
+		$this->assertStringContainsString( '<!-- wp:paragraph', $saved_content );
+		$this->assertStringNotContainsString( '## First section', $saved_content );
+		$this->assertStringNotContainsString( '## Second section', $saved_content );
 	}
 
 	/**

@@ -10,6 +10,8 @@
 namespace SdAiAgent\Tests\Abilities;
 
 use SdAiAgent\Abilities\FileAbilities;
+use SdAiAgent\Core\AgentEventLog;
+use SdAiAgent\Core\WordPressPaths;
 use WP_UnitTestCase;
 
 /**
@@ -173,12 +175,80 @@ class FileAbilitiesTest extends WP_UnitTestCase {
 	 * Test handle_read_file returns WP_Error for non-existent file.
 	 */
 	public function test_handle_read_file_not_found() {
+		$events   = [];
+		$listener = static function ( string $event, string $severity, array $context ) use ( &$events ): void {
+			$events[] = compact( 'event', 'severity', 'context' );
+		};
+		add_action( 'sd_ai_agent_event_logged', $listener, 10, 3 );
+
 		$result = FileAbilities::handle_read_file( [
 			'path' => 'uploads/nonexistent-file-xyz.txt',
 		] );
+		remove_action( 'sd_ai_agent_event_logged', $listener, 10 );
 
 		$this->assertInstanceOf( \WP_Error::class, $result );
 		$this->assertSame( 'sd_ai_agent_file_not_found', $result->get_error_code() );
+		$this->assertSame(
+			[
+				'content_root_resolved' => true,
+				'parent_exists'         => true,
+				'parent_resolved'       => true,
+				'reason'                => 'missing_leaf',
+			],
+			$result->get_error_data()
+		);
+		$this->assertCount( 1, $events );
+		$this->assertSame( 'file_read_not_found', $events[0]['event'] );
+		$this->assertSame( AgentEventLog::SEVERITY_WARNING, $events[0]['severity'] );
+		$this->assertSame( 'missing_leaf', $events[0]['context']['reason'] );
+		$this->assertArrayHasKey( 'args_hash', $events[0]['context'] );
+		$this->assertArrayNotHasKey( 'path', $events[0]['context'] );
+	}
+
+	/**
+	 * An existing sibling must remain correlated to its own result when the
+	 * caller dispatches a missing and an existing read in the same batch.
+	 */
+	public function test_handle_read_file_keeps_sibling_batch_results_distinct() {
+		file_put_contents( $this->test_file_full, 'Existing sibling content' );
+
+		$requests = [
+			'call_missing_sibling'  => [ 'path' => 'uploads/sd-ai-agent-missing-sibling.txt' ],
+			'call_existing_sibling' => [ 'path' => $this->test_file ],
+		];
+		$results  = [];
+		foreach ( $requests as $call_id => $request ) {
+			$results[ $call_id ] = FileAbilities::handle_read_file( $request );
+		}
+
+		$this->assertInstanceOf( \WP_Error::class, $results['call_missing_sibling'] );
+		$this->assertSame( 'sd_ai_agent_file_not_found', $results['call_missing_sibling']->get_error_code() );
+		$this->assertIsArray( $results['call_existing_sibling'] );
+		$this->assertSame( $this->test_file, $results['call_existing_sibling']['path'] );
+		$this->assertSame( 'Existing sibling content', $results['call_existing_sibling']['content'] );
+	}
+
+	/**
+	 * Repeated and resumed reads must resolve the same unchanged canonical path.
+	 */
+	public function test_handle_read_file_repeated_requests_bypass_stale_filesystem_cache() {
+		file_put_contents( $this->test_file_full, 'Stable repeated read content' );
+
+		for ( $request = 0; $request < 3; $request++ ) {
+			$result = FileAbilities::handle_read_file( [ 'path' => $this->test_file ] );
+
+			$this->assertIsArray( $result );
+			$this->assertSame( $this->test_file, $result['path'] );
+			$this->assertSame( 'Stable repeated read content', $result['content'] );
+		}
+	}
+
+	/**
+	 * File abilities must anchor their allowed root to WordPress' content root,
+	 * not to a theme path that may be symlinked elsewhere.
+	 */
+	public function test_file_abilities_use_the_wordpress_content_root() {
+		$this->assertSame( untrailingslashit( WP_CONTENT_DIR ), WordPressPaths::content_dir() );
 	}
 
 	/**

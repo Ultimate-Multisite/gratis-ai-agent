@@ -1804,6 +1804,83 @@ class RestControllerTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * A full recovery replay ignores turn attribution but preserves ordered tool history.
+	 */
+	public function test_error_recovery_replay_ignores_transport_metadata_and_is_idempotent(): void {
+		$session_id = Database::create_session( [
+			'user_id' => $this->admin_id,
+			'title'   => 'Recover metadata replay',
+		] );
+
+		$recovery_history = [
+			[ 'role' => 'user', 'parts' => [ [ 'text' => 'Do anything.' ] ] ],
+			[ 'role' => 'model', 'parts' => [ [ 'function_call' => [ 'id' => 'create-post', 'name' => 'create_post', 'args' => [ 'title' => 'Recovery test' ] ] ] ] ],
+			[ 'role' => 'user', 'parts' => [ [ 'function_response' => [ 'id' => 'create-post', 'name' => 'create_post', 'response' => [ 'id' => 123 ] ] ] ] ],
+			[ 'role' => 'model', 'parts' => [ [ 'text' => 'The post was created.' ] ] ],
+			[ 'role' => 'user', 'parts' => [ [ 'text' => 'Follow up on the post.' ] ] ],
+			[ 'role' => 'model', 'parts' => [ [ 'function_call' => [ 'id' => 'inspect-post', 'name' => 'get_post', 'args' => [ 'id' => 123 ] ] ] ] ],
+			[ 'role' => 'user', 'parts' => [ [ 'function_response' => [ 'id' => 'inspect-post', 'name' => 'get_post', 'response' => [ 'status' => 'publish' ] ] ] ] ],
+			[ 'role' => 'model', 'parts' => [ [ 'text' => 'The post is published.' ] ] ],
+			[ 'role' => 'user', 'parts' => [ [ 'text' => "But I don't, check it yourself." ] ] ],
+			[ 'role' => 'model', 'parts' => [ [ 'text' => 'I verified the published post.' ] ] ],
+		];
+		$persisted_history = array_map(
+			static function ( array $message ): array {
+				$message['provider_id'] = 'recovery-provider';
+				$message['model_id']    = 'recovery-model';
+				return $message;
+			},
+			$recovery_history
+		);
+		$tool_calls        = [
+			[ 'id' => 'create-post', 'name' => 'create_post' ],
+			[ 'id' => 'inspect-post', 'name' => 'get_post' ],
+		];
+		Database::append_to_session( $session_id, $persisted_history, $tool_calls );
+
+		// A second identical user turn is a legitimate new turn, not a replay.
+		$recovery_history[] = [ 'role' => 'user', 'parts' => [ [ 'text' => "But I don't, check it yourself." ] ] ];
+		$error              = new \WP_Error(
+			'prompt_invalid_argument',
+			'The provider rejected the prompt.',
+			[
+				'history'    => $recovery_history,
+				'tool_calls' => $tool_calls,
+				'messages'   => [],
+				'token_usage' => [ 'prompt' => 1, 'completion' => 0 ],
+			]
+		);
+
+		$controller = new \SdAiAgent\REST\SessionController( new Database() );
+		$method     = new \ReflectionMethod( \SdAiAgent\REST\SessionController::class, 'persist_error_recovery_to_session' );
+		$method->setAccessible( true );
+		$params     = [ 'message' => "But I don't, check it yourself.", 'session_id' => $session_id ];
+		$options    = [];
+		$error_data = $error->get_error_data();
+		$this->assertIsArray( $error_data );
+
+		$job = [ 'status' => 'error', 'error' => $error->get_error_message(), 'params' => $params ];
+		$method->invokeArgs( $controller, [ $session_id, $error, $error_data, $params, $options, &$job ] );
+		$job = [ 'status' => 'error', 'error' => $error->get_error_message(), 'params' => $params ];
+		$method->invokeArgs( $controller, [ $session_id, $error, $error_data, $params, $options, &$job ] );
+
+		$session       = Database::get_session( $session_id );
+		$messages      = json_decode( (string) $session->messages, true );
+		$stored_calls  = json_decode( (string) $session->tool_calls, true );
+		$this->assertIsArray( $messages );
+		$this->assertSame( $persisted_history, array_slice( $messages, 0, 10 ) );
+		$this->assertCount( 11, $messages );
+		$this->assertSame( $recovery_history[10], $messages[10] );
+		$this->assertSame( 'create-post', $messages[1]['parts'][0]['function_call']['id'] );
+		$this->assertSame( 'create-post', $messages[2]['parts'][0]['function_response']['id'] );
+		$this->assertSame( 'inspect-post', $messages[5]['parts'][0]['function_call']['id'] );
+		$this->assertSame( 'inspect-post', $messages[6]['parts'][0]['function_response']['id'] );
+		$this->assertSame( $tool_calls, $stored_calls );
+		$this->assertSame( $session_id, $job['session_id'] );
+		$this->assertTrue( $job['recoverable'] );
+	}
+
+	/**
 	 * Test recovery persistence appends a suffix payload instead of dropping it by count.
 	 */
 	public function test_persist_error_recovery_appends_shorter_failed_turn_suffix(): void {

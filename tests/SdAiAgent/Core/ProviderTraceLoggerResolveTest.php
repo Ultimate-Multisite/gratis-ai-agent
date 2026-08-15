@@ -18,6 +18,7 @@ namespace SdAiAgent\Tests\Core;
 
 use SdAiAgent\Core\ConversationTrimmer;
 use SdAiAgent\Core\ProviderTraceLogger;
+use SdAiAgent\Models\ProviderTrace;
 use WP_UnitTestCase;
 
 /**
@@ -28,6 +29,8 @@ class ProviderTraceLoggerResolveTest extends WP_UnitTestCase {
 
 	public function tear_down(): void {
 		ProviderTraceLogger::clear_runtime_context();
+		ProviderTrace::clear();
+		ProviderTrace::set_enabled( false );
 		remove_all_filters( 'sd_ai_agent_trace_match_provider' );
 		remove_all_filters( 'sd_ai_agent_trace_resolve_provider' );
 		remove_all_filters( 'sd_ai_agent_provider_trace_enabled' );
@@ -384,5 +387,96 @@ class ProviderTraceLoggerResolveTest extends WP_UnitTestCase {
 			)
 		);
 		$this->assertNull( $body_seen, 'Disabled tracing must not pass 413 prompt bodies to trace resolution filters.' );
+	}
+
+	/** Retry exhaustion has one prompt-free terminal trace even when transport callbacks never run. */
+	public function test_retry_exhaustion_writes_safe_terminal_trace(): void {
+		ProviderTrace::set_enabled( true );
+		ProviderTrace::clear();
+
+		ProviderTraceLogger::record_retry_exhausted_failure(
+			'openai_compat',
+			'gpt-test',
+			new \WP_Error( 'http_request_failed', 'cURL error: Could not resolve host: PRIVATE_HOST' ),
+			0,
+			4,
+			12000,
+			null,
+			array( 1, 2, 4 ),
+			'client_tool_resume',
+			73,
+			'job-123',
+			array(
+				'request_bytes'      => 2048,
+				'request_size_class' => 'small',
+			)
+		);
+
+		$rows = ProviderTrace::list( array( 'limit' => 1 ) );
+		$this->assertCount( 1, $rows );
+		$this->assertSame( 0, $rows[0]->status_code );
+		$this->assertSame( 'provider_dns_failure', $rows[0]->error );
+
+		$trace = ProviderTrace::get( $rows[0]->id );
+		$this->assertNotNull( $trace );
+		$diagnostics = json_decode( $trace->response_body, true );
+		$this->assertIsArray( $diagnostics );
+		$this->assertSame( 'provider_retry_exhausted', $diagnostics['event'] );
+		$this->assertSame( 4, $diagnostics['attempts'] );
+		$this->assertSame( 'client_tool_resume', $diagnostics['phase'] );
+		$this->assertSame( 73, $diagnostics['session_id'] );
+		$this->assertSame( 'job-123', $diagnostics['job_id'] );
+		$this->assertStringNotContainsString( 'PRIVATE_HOST', $trace->response_body );
+	}
+
+	/** Timeout, connection, and rate-limit failures retain only bounded retry diagnostics. */
+	public function test_retry_exhaustion_classifies_transport_and_rate_limit_failures(): void {
+		ProviderTrace::set_enabled( true );
+		ProviderTrace::clear();
+
+		ProviderTraceLogger::record_retry_exhausted_failure(
+			'openai',
+			'gpt-test',
+			new \WP_Error( 'http_request_failed', 'cURL error: Operation timed out after 30000 milliseconds' ),
+			0,
+			2,
+			31000,
+			null,
+			array( 1 ),
+			'initial_provider_call'
+		);
+		ProviderTraceLogger::record_retry_exhausted_failure(
+			'openai',
+			'gpt-test',
+			new \WP_Error( 'http_request_failed', 'cURL error: Connection refused' ),
+			0,
+			2,
+			2000,
+			null,
+			array( 1 ),
+			'initial_provider_call'
+		);
+		ProviderTraceLogger::record_retry_exhausted_failure(
+			'openai',
+			'gpt-test',
+			new \WP_Error( '429', 'Rate limit response' ),
+			429,
+			4,
+			12000,
+			12,
+			array( 12, 12, 12 ),
+			'initial_provider_call'
+		);
+
+		$rows = ProviderTrace::list( array( 'limit' => 3 ) );
+		$this->assertCount( 3, $rows );
+		$errors = array_column( $rows, 'error' );
+		$this->assertContains( 'provider_timeout', $errors );
+		$this->assertContains( 'provider_connection_failure', $errors );
+		$this->assertContains( 'provider_rate_limited', $errors );
+
+		$rate_limit = ProviderTrace::get( $rows[0]->id );
+		$this->assertNotNull( $rate_limit );
+		$this->assertSame( 12, json_decode( $rate_limit->response_body, true )['retry_after_seconds'] );
 	}
 }

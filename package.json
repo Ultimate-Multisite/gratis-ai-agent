@@ -14,8 +14,8 @@
 		"start": "wp-scripts start",
 		"lint:js": "wp-scripts lint-js src/",
 		"lint:js:fix": "wp-scripts lint-js src/ --fix",
-		"lint:css": "wp-scripts lint-style 'src/**/*.css'",
-		"lint:css:fix": "wp-scripts lint-style 'src/**/*.css' --fix",
+		"lint:css": "wp-scripts lint-style --config-basedir . 'src/**/*.css'",
+		"lint:css:fix": "wp-scripts lint-style --config-basedir . 'src/**/*.css' --fix",
 		"lint:php": "composer phpcs",
 		"lint:php:fix": "composer phpcbf",
 		"lint": "pnpm run lint:js && pnpm run lint:css && pnpm run lint:php",
@@ -120,7 +120,7 @@
 			"eslint --fix"
 		],
 		"src/**/*.css": [
-			"wp-scripts lint-style --fix"
+			"wp-scripts lint-style --config-basedir . --fix"
 		],
 		"**/*.php": [
 			"bash -c 'vendor/bin/phpcbf \"$@\"; ec=$?; [ $ec -le 1 ] || exit $ec' --",

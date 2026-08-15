@@ -139,6 +139,52 @@ final class ProviderErrorClassifier {
 	}
 
 	/**
+	 * Return a prompt-free error code suitable for persisted trace diagnostics.
+	 *
+	 * The source error message is used only to select a bounded code and must
+	 * never be written to a trace row: connector and transport libraries can
+	 * include request URLs, credentials, or provider response fragments.
+	 *
+	 * @param WP_Error|\Throwable|null $error       Provider error.
+	 * @param int                      $status_code HTTP status code, or 0 when unknown.
+	 * @return string Normalized safe diagnostic code.
+	 */
+	public static function get_safe_error_code( $error, int $status_code = 0 ): string {
+		if ( 0 === $status_code ) {
+			$status_code = self::extract_status_code( $error );
+		}
+
+		if ( 429 === $status_code ) {
+			return 'provider_rate_limited';
+		}
+		if ( 408 === $status_code ) {
+			return 'provider_timeout';
+		}
+		if ( $status_code >= 400 && $status_code <= 599 ) {
+			return 'provider_http_' . $status_code;
+		}
+
+		$message = self::get_message( $error );
+		if ( (bool) preg_match( '/\b(timeout|timed out|operation timed out)\b/i', $message ) ) {
+			return 'provider_timeout';
+		}
+		if ( (bool) preg_match( '/\b(could not resolve|name or service not known|dns)\b/i', $message ) ) {
+			return 'provider_dns_failure';
+		}
+		if ( (bool) preg_match( '/\b(connection reset|connection refused|could not connect|connect\(\)|network)\b/i', $message ) ) {
+			return 'provider_connection_failure';
+		}
+		if ( $error instanceof WP_Error ) {
+			return 'provider_wp_error';
+		}
+		if ( $error instanceof \Throwable ) {
+			return 'provider_exception';
+		}
+
+		return 'provider_error';
+	}
+
+	/**
 	 * Return the provider error message only for local classification.
 	 *
 	 * Callers must never return or log this value.
