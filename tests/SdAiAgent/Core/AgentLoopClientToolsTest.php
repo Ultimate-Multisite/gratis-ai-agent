@@ -762,6 +762,41 @@ class AgentLoopClientToolsTest extends WP_UnitTestCase {
 		$this->assertSame( $reply, $method->invoke( $loop, $reply ) );
 	}
 
+	/** Tier-2 file mutations invoked through ability-call still require evidence. */
+	public function test_nested_file_mutation_cannot_bypass_rendered_evidence_gate(): void {
+		$loop = new AgentLoop( 'test', array(), array(), array() );
+		$gate = $this->get_rendered_output_evidence_gate( $loop );
+		$gate->record_tool_call(
+			'sd-ai-agent/ability-call',
+			array(
+				'ability'   => 'sd-ai-agent/file-edit',
+				'arguments' => array( 'path' => 'themes/example/templates/single.html' ),
+			)
+		);
+		$gate->record_tool_response(
+			'sd-ai-agent/ability-call',
+			array(
+				'ability' => 'sd-ai-agent/file-edit',
+				'success' => true,
+				'result'  => array( 'success' => true ),
+			)
+		);
+
+		$this->assertTrue( $gate->get_status()['required'] );
+		$this->assertTrue( $gate->blocks_rendered_claim( 'I visually verified the rendered page.' ) );
+	}
+
+	/** Theme-style mutations receive the same post-render evidence requirement. */
+	public function test_theme_style_mutation_requires_rendered_evidence(): void {
+		$loop = new AgentLoop( 'test', array(), array(), array() );
+		$gate = $this->get_rendered_output_evidence_gate( $loop );
+		$gate->record_tool_call( 'sd-ai-agent/update-global-styles', array( 'styles' => array( 'color' => array() ) ) );
+		$gate->record_tool_response( 'sd-ai-agent/update-global-styles', array( 'success' => true ) );
+
+		$this->assertTrue( $gate->get_status()['required'] );
+		$this->assertTrue( $gate->blocks_rendered_claim( 'I checked the rendered site.' ) );
+	}
+
 	/** Server-directed page validation uses exact gate-owned preview arguments. */
 	public function test_page_quality_dispatch_does_not_depend_on_model_arguments(): void {
 		$loop = new AgentLoop(

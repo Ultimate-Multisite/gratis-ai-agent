@@ -88,10 +88,23 @@ final class RenderedOutputEvidenceGate {
 			return;
 		}
 
-		if ( self::is_file_mutation( $name ) ) {
+		// Meta-tool responses retain the actual target and result. Replay that
+		// nested pair so Tier-2 file/theme mutations cannot bypass this gate.
+		if ( 'sd-ai-agent/ability-call' === $name && true === ( $payload['success'] ?? false ) ) {
+			$target = self::normalize_tool_name( (string) ( $payload['ability'] ?? $call_args['ability'] ?? '' ) );
+			$args   = $call_args['arguments'] ?? array();
+			$result = $payload['result'] ?? array();
+			if ( '' !== $target && 'sd-ai-agent/ability-call' !== $target ) {
+				$this->record_tool_call( $target, is_array( $args ) ? $args : array() );
+				$this->record_tool_response( $target, $result );
+			}
+			return;
+		}
+
+		if ( self::is_rendered_mutation( $name ) ) {
 			$this->mutation_requires_evidence = true;
 			$this->has_post_mutation_evidence = false;
-			$this->last_failure               = 'The successful file mutation has no later browser screenshot, DOM inspection, or page-quality result.';
+			$this->last_failure               = 'The successful rendered-output mutation has no later browser screenshot, DOM inspection, or page-quality result.';
 			return;
 		}
 
@@ -123,7 +136,7 @@ final class RenderedOutputEvidenceGate {
 		$availability = $this->browser_evidence_available
 			? 'No post-mutation browser evidence was captured.'
 			: 'Browser verification was unavailable in this client.';
-		return 'The file change was saved, but its rendered result remains unverified. ' . $availability . ' I cannot claim that the rendered page was checked or visually verified.';
+		return 'The change was saved, but its rendered result remains unverified. ' . $availability . ' I cannot claim that the rendered page was checked or visually verified.';
 	}
 
 	/** @return array<string,mixed> */
@@ -150,8 +163,23 @@ final class RenderedOutputEvidenceGate {
 		return is_array( $args ) ? $args : array();
 	}
 
-	private static function is_file_mutation( string $name ): bool {
-		return in_array( $name, array( 'sd-ai-agent/file-write', 'sd-ai-agent/file-edit', 'sd-ai-agent/file-delete' ), true );
+	private static function is_rendered_mutation( string $name ): bool {
+		return in_array(
+			$name,
+			array(
+				'sd-ai-agent/file-write',
+				'sd-ai-agent/file-edit',
+				'sd-ai-agent/file-delete',
+				'sd-ai-agent/scaffold-block-theme',
+				'sd-ai-agent/update-global-styles',
+				'sd-ai-agent/reset-global-styles',
+				'sd-ai-agent/create-style-variation',
+				'sd-ai-agent/update-style-variation',
+				'sd-ai-agent/select-style-variation',
+				'sd-ai-agent/reset-style-variation',
+			),
+			true
+		);
 	}
 
 	/**
