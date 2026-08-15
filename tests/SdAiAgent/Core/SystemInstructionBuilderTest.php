@@ -168,6 +168,24 @@ class SystemInstructionBuilderTest extends WP_UnitTestCase {
 		$this->assertStringContainsString( 'update options', $section );
 	}
 
+	/** Underspecified prompts must not be treated as permission to mutate. */
+	public function test_underspecified_request_policy_requires_clarification_before_mutation(): void {
+		$section = SystemInstructionBuilder::build_underspecified_request_section();
+		$instruction = ( new SystemInstructionBuilder() )->build( array() );
+
+		$this->assertStringContainsString( 'no stated intent, target, or success criteria', $section );
+		$this->assertStringContainsString( 'bounded read-only inspection', $section );
+		$this->assertStringContainsString( 'never a public change', $section );
+		$this->assertStringContainsString( '## Underspecified requests', $instruction );
+		$this->assertStringContainsString( 'Act on clear requests, don\'t invent public changes', $instruction );
+		$this->assertTrue( SystemInstructionBuilder::requires_clarification_before_mutation( 'do anything' ) );
+		$this->assertTrue( SystemInstructionBuilder::requires_clarification_before_mutation( 'do anything!' ) );
+		$this->assertTrue( SystemInstructionBuilder::requires_clarification_before_mutation( '  surprise   me ' ) );
+		$this->assertTrue( SystemInstructionBuilder::requires_clarification_before_mutation( 'surprise me?' ) );
+		$this->assertTrue( SystemInstructionBuilder::requires_clarification_before_mutation( 'whatever.' ) );
+		$this->assertFalse( SystemInstructionBuilder::requires_clarification_before_mutation( 'Publish a post about gardening.' ) );
+	}
+
 	/**
 	 * Test that custom system prompt overrides the default.
 	 */

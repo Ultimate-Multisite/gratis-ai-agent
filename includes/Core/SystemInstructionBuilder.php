@@ -112,6 +112,7 @@ class SystemInstructionBuilder {
 		$custom = $settings['system_prompt'] ?? '';
 		$base   = is_string( $custom ) && '' !== $custom ? $custom : self::default_system_instruction();
 		$base  .= "\n\n" . self::build_advanced_companion_section();
+		$base  .= "\n\n" . self::build_underspecified_request_section();
 
 		// Append memory section if memories exist.
 		$memory_text = Memory::get_formatted_for_prompt();
@@ -333,6 +334,55 @@ class SystemInstructionBuilder {
 	}
 
 	/**
+	 * Build the policy for prompts that do not name any useful objective.
+	 *
+	 * Read-only inspection is safe when it can help form a recommendation. Any
+	 * mutation needs a stated intent, target, and success criteria; otherwise a
+	 * model must ask a concise question or present a bounded proposal. AgentLoop
+	 * independently confirms a mutating call if a provider ignores this policy.
+	 *
+	 * @return string
+	 */
+	public static function build_underspecified_request_section(): string {
+		return "## Underspecified requests\n\n"
+			. 'A prompt with no stated intent, target, or success criteria (for example, "do anything") is not permission to invent a site change. '
+			. 'Do not publish, delete, install, activate, send, or otherwise mutate WordPress or an external service from such a prompt. '
+			. 'You may perform bounded read-only inspection when it will support a recommendation, then summarize the findings and offer a small, explicit set of next actions. '
+			. 'Otherwise ask one concise clarifying question. If the user intentionally wants a demonstration, make it a clearly labelled draft or proposal, never a public change.';
+	}
+
+	/**
+	 * Whether a user message has no actionable intent, target, or success
+	 * criteria and therefore needs clarification before any mutation.
+	 *
+	 * This deliberately recognizes only short, generic requests. More nuanced
+	 * prompts remain the model's responsibility, while these known no-objective
+	 * forms receive a deterministic server-side guard.
+	 *
+	 * @param string $userMessage User message for the current turn.
+	 * @return bool
+	 */
+	// phpcs:ignore WordPress.NamingConventions.ValidVariableName.VariableNotSnakeCase -- Project variable naming guidance requires camelCase.
+	public static function requires_clarification_before_mutation( string $userMessage ): bool {
+		// phpcs:ignore WordPress.NamingConventions.ValidVariableName.VariableNotSnakeCase -- Project variable naming guidance requires camelCase.
+		$normalized = strtolower( trim( preg_replace( '/\s+/', ' ', $userMessage ) ?? '' ) );
+		$normalized = rtrim( $normalized, '.!?' );
+
+		return in_array(
+			$normalized,
+			array(
+				'anything',
+				'do anything',
+				'do something',
+				'whatever',
+				'something',
+				'surprise me',
+			),
+			true
+		);
+	}
+
+	/**
 	 * Build the "## Build vs install" planning section.
 	 *
 	 * Reminds the model to check the wp.org plugin directory and consider
@@ -438,7 +488,8 @@ class SystemInstructionBuilder {
 			. "- WordPress content path: {$wp_path}\n"
 			. "- Site URL: {$site_url}\n\n"
 			. "## Core Principles\n"
-			. "1. **Act, don't ask.** Execute the task right away. Don't ask \"shall I proceed?\" or request confirmation unless the task is destructive (deleting data, dropping tables).\n"
+			. "1. **Act on clear requests, don't invent public changes.** Execute a clearly specified task right away. Don't ask \"shall I proceed?\" or request confirmation unless the task is destructive (deleting data, dropping tables). "
+			. "For a prompt with no stated intent, target, or success criteria, do not publish, delete, install, activate, send, or otherwise mutate WordPress or an external service. Instead ask one concise clarifying question, offer a bounded proposal, perform bounded read-only inspection, or create only a clearly labelled draft demonstration.\n"
 			. "2. **Generate real content.** When creating pages or posts, write substantial, realistic content (3+ paragraphs). Never use placeholder text like \"Lorem ipsum\" or \"Content goes here\".\n"
 			. "3. **Use tools directly.** Call tools immediately — don't describe what you would do.\n"
 			. "4. **Call all needed tools in one response.** When a task requires multiple tools (e.g. create a post AND find an image), call them all at once.\n"

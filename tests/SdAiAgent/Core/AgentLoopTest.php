@@ -3914,6 +3914,250 @@ class AgentLoopTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * A generic first prompt cannot use an always-allowed write tool to publish
+	 * invented content. The normal confirmation response gives the UI a proposal
+	 * boundary instead of executing the provider call or surfacing an error.
+	 */
+	public function test_underspecified_prompt_requires_confirmation_before_publishing(): void {
+		$this->skip_if_sdk_unavailable();
+		if ( ! class_exists( 'WP_AI_Client_Ability_Function_Resolver' ) ) {
+			$this->markTestSkipped( 'WP_AI_Client_Ability_Function_Resolver not available.' );
+		}
+
+		Settings::instance()->update(
+			[
+				'tool_permissions' => [
+					'sd-ai-agent/create-post' => 'always_allow',
+				],
+			]
+		);
+
+		$this->mock_ai_response(
+			'',
+			[
+				[
+					'id'       => 'call_underspecified_publish',
+					'type'     => 'function',
+					'function' => [
+						'name'      => 'wpab__sd-ai-agent__create-post',
+						'arguments' => wp_json_encode(
+							[
+								'title'   => 'Invented post',
+								'content' => 'This must not be published from a vague prompt.',
+								'status'  => 'publish',
+							]
+						),
+					],
+				],
+			]
+		);
+
+		$loop   = new AgentLoop( 'do anything' );
+		$result = $loop->run();
+
+		$this->assertIsArray( $result );
+		$this->assertTrue( $result['awaiting_confirmation'] ?? false );
+		$this->assertSame( 'sd-ai-agent/create-post', $result['pending_tools'][0]['ability'] ?? '' );
+		$this->assertSame( 'underspecified_request', $result['pending_tools'][0]['reason'] ?? '' );
+	}
+
+	/**
+	 * Mixed client and PHP calls must be classified before the PHP partition can
+	 * execute, so a generic prompt cannot publish while a read-only browser call
+	 * is pending.
+	 */
+	public function test_underspecified_prompt_confirms_before_mixed_client_and_publish_calls(): void {
+		$this->skip_if_sdk_unavailable();
+		if ( ! class_exists( 'WP_AI_Client_Ability_Function_Resolver' ) ) {
+			$this->markTestSkipped( 'WP_AI_Client_Ability_Function_Resolver not available.' );
+		}
+
+		Settings::instance()->update(
+			[
+				'tool_permissions' => [
+					'sd-ai-agent/create-post' => 'always_allow',
+				],
+			]
+		);
+
+		$this->mock_ai_response(
+			'',
+			[
+				[
+					'id'       => 'call_vague_navigate',
+					'type'     => 'function',
+					'function' => [
+						'name'      => 'wpab__sd-ai-agent-js__navigate-to',
+						'arguments' => wp_json_encode( [ 'path' => 'edit.php' ] ),
+					],
+				],
+				[
+					'id'       => 'call_vague_publish',
+					'type'     => 'function',
+					'function' => [
+						'name'      => 'wpab__sd-ai-agent__create-post',
+						'arguments' => wp_json_encode(
+							[
+								'title'   => 'Invented post',
+								'content' => 'This must not be published from a vague prompt.',
+								'status'  => 'publish',
+							]
+						),
+					],
+				],
+			]
+		);
+
+		$catalog = JsAbilityCatalog::get_descriptors_by_name();
+		$loop    = new AgentLoop(
+			'do anything',
+			array(),
+			array(),
+			array( 'client_abilities' => array( $catalog['sd-ai-agent-js/navigate-to'] ) )
+		);
+		$result  = $loop->run();
+
+		$this->assertTrue( $result['awaiting_confirmation'] ?? false );
+		$this->assertCount( 1, $result['pending_tools'] );
+		$this->assertSame( 'sd-ai-agent/create-post', $result['pending_tools'][0]['ability'] ?? '' );
+		$this->assertSame( 'underspecified_request', $result['pending_tools'][0]['reason'] ?? '' );
+		$this->assertArrayNotHasKey( 'pending_client_tool_calls', $result );
+	}
+
+	/**
+	 * The deterministic boundary remains covered without an authenticated AI
+	 * provider: an always-allowed create-post call from "do anything" is held
+	 * as an underspecified-request proposal before the resolver can execute it.
+	 */
+	public function test_underspecified_prompt_holds_always_allowed_create_post_at_permission_boundary(): void {
+		if ( ! function_exists( 'wp_get_abilities' ) || ! wp_has_ability( 'sd-ai-agent/create-post' ) ) {
+			$this->markTestSkipped( 'sd-ai-agent/create-post ability is not registered.' );
+		}
+
+		$resolver = new ToolPermissionResolver(
+			false,
+			[ 'sd-ai-agent/create-post' => 'always_allow' ],
+			SystemInstructionBuilder::requires_clarification_before_mutation( 'do anything' )
+		);
+		$message  = new ModelMessage(
+			[
+				new MessagePart(
+					new FunctionCall(
+						'call_vague_publish',
+						'wpab__sd-ai-agent__create-post',
+						[
+							'title'   => 'Invented post',
+							'content' => 'This must not be published from a vague prompt.',
+							'status'  => 'publish',
+						]
+					)
+				),
+			]
+		);
+
+		$pending = $resolver->get_tools_needing_confirmation( $message );
+
+		$this->assertCount( 1, $pending );
+		$this->assertSame( 'sd-ai-agent/create-post', $pending[0]['ability'] );
+		$this->assertSame( 'underspecified_request', $pending[0]['reason'] );
+	}
+
+	/** Read-only inspection remains available to form a bounded recommendation. */
+	public function test_underspecified_prompt_allows_readonly_inspection(): void {
+		if ( ! function_exists( 'wp_get_abilities' ) || ! wp_has_ability( 'sd-ai-agent/get-post' ) ) {
+			$this->markTestSkipped( 'sd-ai-agent/get-post ability is not registered.' );
+		}
+
+		$resolver = new ToolPermissionResolver(
+			false,
+			array(),
+			SystemInstructionBuilder::requires_clarification_before_mutation( 'do anything' )
+		);
+		$message  = new ModelMessage(
+			array(
+				new MessagePart(
+					new FunctionCall(
+						'call_vague_inspection',
+						'wpab__sd-ai-agent__get-post',
+						array( 'id' => 1 )
+					)
+				)
+			)
+		);
+
+		$this->assertSame( array(), $resolver->get_tools_needing_confirmation( $message ) );
+	}
+
+	/** Nested ability calls must not bypass the underspecified mutation guard. */
+	public function test_underspecified_prompt_holds_nested_create_post_at_permission_boundary(): void {
+		if ( ! function_exists( 'wp_get_abilities' ) || ! wp_has_ability( 'sd-ai-agent/create-post' ) ) {
+			$this->markTestSkipped( 'sd-ai-agent/create-post ability is not registered.' );
+		}
+
+		$resolver = new ToolPermissionResolver(
+			false,
+			array( 'sd-ai-agent/create-post' => 'always_allow' ),
+			SystemInstructionBuilder::requires_clarification_before_mutation( 'do anything' )
+		);
+		$message  = new ModelMessage(
+			array(
+				new MessagePart(
+					new FunctionCall(
+						'call_vague_nested_publish',
+						'wpab__sd-ai-agent__ability-call',
+						array(
+							'ability'   => 'sd-ai-agent/create-post',
+							'arguments' => array(
+								'title'   => 'Invented post',
+								'content' => 'This must not be published from a vague prompt.',
+								'status'  => 'publish',
+							),
+						)
+					)
+				)
+			)
+		);
+
+		$pending = $resolver->get_tools_needing_confirmation( $message );
+
+		$this->assertCount( 1, $pending );
+		$this->assertSame( 'sd-ai-agent/create-post', $pending[0]['ability'] );
+		$this->assertSame( 'underspecified_request', $pending[0]['reason'] );
+	}
+
+	/** Explicit publish intent preserves the always-allowed direct-post path. */
+	public function test_explicit_publish_request_allows_always_allowed_create_post(): void {
+		if ( ! function_exists( 'wp_get_abilities' ) || ! wp_has_ability( 'sd-ai-agent/create-post' ) ) {
+			$this->markTestSkipped( 'sd-ai-agent/create-post ability is not registered.' );
+		}
+
+		$requires_clarification = SystemInstructionBuilder::requires_clarification_before_mutation( 'Publish a post about gardening.' );
+		$resolver               = new ToolPermissionResolver(
+			false,
+			array( 'sd-ai-agent/create-post' => 'always_allow' ),
+			$requires_clarification
+		);
+		$message                = new ModelMessage(
+			array(
+				new MessagePart(
+					new FunctionCall(
+						'call_explicit_publish',
+						'wpab__sd-ai-agent__create-post',
+						array(
+							'title'   => 'Gardening',
+							'content' => 'A clearly requested post.',
+							'status'  => 'publish',
+						)
+					)
+				)
+			)
+		);
+
+		$this->assertFalse( $requires_clarification );
+		$this->assertSame( array(), $resolver->get_tools_needing_confirmation( $message ) );
+	}
+
+	/**
 	 * Identical function calls in one model response should be dispatched once.
 	 */
 	public function test_run_deduplicates_identical_tool_calls_within_iteration(): void {
