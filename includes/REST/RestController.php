@@ -638,13 +638,16 @@ Assistant: %s',
 		$result             = $loop->resume_after_client_tools( $tool_results_typed, $iterations_remaining );
 
 		if ( is_wp_error( $result ) ) {
-			// Sync the job transient/DB row to 'error' so the browser's poll
-			// loop sees a terminal state and stops re-issuing the same
-			// pending client tool call. Without this, the transient still
-			// says 'awaiting_client_tools' and the next poll cycle produces
-			// an infinite 409 loop on /chat/tool-result.
-			self::mark_job_error_after_resume(
+			// The browser results have already been validated, consumed, and
+			// appended to the resumed history. A provider failure from this point
+			// is a job-continuation failure, not a failed tool-result delivery.
+			// Return a bounded accepted response so the browser polls the terminal
+			// job and offers durable resume instead of POSTing the same results
+			// again. Returning the raw WP_Error previously leaked up to ~1 MB of
+			// recovery history and triggered two invalid result-mismatch retries.
+			return self::accepted_tool_result_failure_response(
 				$job_id,
+				$session_id,
 				$result,
 				array(
 					'last_safe_phase' => 'client_tool_resume',
@@ -652,8 +655,6 @@ Assistant: %s',
 					'model_id'        => (string) ( $options['model_id'] ?? '' ),
 				)
 			);
-
-			return $result;
 		}
 
 		/** @var array<string, mixed> $result */
@@ -844,6 +845,33 @@ Assistant: %s',
 	}
 
 	/**
+	 * Return a compact acknowledgement after client results were accepted but
+	 * the resumed provider call failed. The browser must poll/resume the job;
+	 * it must not submit the already-consumed result batch again.
+	 *
+	 * @param string               $job_id    Job UUID supplied by the browser.
+	 * @param int                  $session_id Owning session identifier.
+	 * @param WP_Error             $error     Provider/loop continuation error.
+	 * @param array<string, mixed> $context   Allowlisted diagnostic metadata.
+	 */
+	private static function accepted_tool_result_failure_response( string $job_id, int $session_id, WP_Error $error, array $context ): WP_REST_Response {
+		$recovery = self::mark_job_error_after_resume( $job_id, $error, $context, $session_id );
+
+		return new WP_REST_Response(
+			array(
+				'status'           => 'recoverable_error',
+				'results_accepted' => true,
+				'recoverable'      => $recovery['recoverable'],
+				'session_id'       => $session_id,
+				'job_id'           => $job_id,
+				'message'          => ActiveJobFailureDiagnostic::message_for( (string) $recovery['diagnostic']['reason'] ),
+				'diagnostic'       => ActiveJobFailureDiagnostic::to_rest( $recovery['diagnostic'] ),
+			),
+			202
+		);
+	}
+
+	/**
 	 * Mark a job as 'error' on both the transient and the DB row.
 	 *
 	 * Called from /chat/tool-result when resume_after_client_tools() returns
@@ -854,32 +882,37 @@ Assistant: %s',
 	 * (paused_state was already consumed before resume_after_client_tools
 	 * ran).
 	 *
-	 * @param string               $job_id  Job UUID supplied by the browser. No-op when empty.
-	 * @param WP_Error             $error   Error returned by the resumed loop.
-	 * @param array<string, mixed> $context Allowlisted diagnostic metadata.
+	 * @param string               $job_id    Job UUID supplied by the browser.
+	 * @param WP_Error             $error     Error returned by the resumed loop.
+	 * @param array<string, mixed> $context   Allowlisted diagnostic metadata.
+	 * @param int                  $session_id Owning session with durable recovery state.
+	 * @return array{diagnostic:array<string,bool|int|string>,recoverable:bool} Safe recovery result.
 	 */
-	private static function mark_job_error_after_resume( string $job_id, WP_Error $error, array $context = array() ): void {
+	private static function mark_job_error_after_resume( string $job_id, WP_Error $error, array $context = array(), int $session_id = 0 ): array {
+		$error_data  = $error->get_error_data();
+		$error_data  = is_array( $error_data ) ? $error_data : array();
+		$context     = array_merge( ActiveJobFailureDiagnostic::context_from_error_data( $error_data ), $context );
+		$reason      = ActiveJobFailureDiagnostic::reason_from_error( $error, (string) ( $context['provider_id'] ?? '' ) );
+		$diagnostic  = ActiveJobFailureDiagnostic::create( $job_id, $reason, $context );
+		$recoverable = self::session_has_recoverable_state( $session_id );
+
 		if ( '' === $job_id ) {
-			return;
+			return array(
+				'diagnostic'  => $diagnostic,
+				'recoverable' => $recoverable,
+			);
 		}
 
 		$transient_key = self::JOB_PREFIX . $job_id;
 		$job           = get_transient( $transient_key );
-		$error_data    = $error->get_error_data();
-		$error_data    = is_array( $error_data ) ? $error_data : array();
-		$context       = array_merge( ActiveJobFailureDiagnostic::context_from_error_data( $error_data ), $context );
-		$diagnostic    = ActiveJobRepository::record_failure(
-			$job_id,
-			'error',
-			ActiveJobFailureDiagnostic::reason_from_error( $error ),
-			$context
-		);
+		$diagnostic    = ActiveJobRepository::record_failure( $job_id, 'error', $reason, $context );
 
 		if ( is_array( $job ) ) {
 			unset( $job['token'], $job['tool_calls'], $job['messages'] );
-			$job['status']     = 'error';
-			$job['error']      = ActiveJobFailureDiagnostic::message_for( (string) $diagnostic['reason'] );
-			$job['diagnostic'] = ActiveJobFailureDiagnostic::to_rest( $diagnostic );
+			$job['status']      = 'error';
+			$job['error']       = ActiveJobFailureDiagnostic::message_for( (string) $diagnostic['reason'] );
+			$job['diagnostic']  = ActiveJobFailureDiagnostic::to_rest( $diagnostic );
+			$job['recoverable'] = $recoverable;
 
 			// Drop stale pending-call hints so a transient-served poll cannot
 			// re-emit 'awaiting_client_tools' for the next browser poll.
@@ -887,6 +920,29 @@ Assistant: %s',
 
 			set_transient( $transient_key, $job, self::JOB_TTL );
 		}
+
+		return array(
+			'diagnostic'  => $diagnostic,
+			'recoverable' => $recoverable,
+		);
+	}
+
+	/**
+	 * Check whether AgentLoop saved a bounded continuation for this session.
+	 */
+	private static function session_has_recoverable_state( int $session_id ): bool {
+		if ( $session_id <= 0 ) {
+			return false;
+		}
+
+		$session = Database::get_session( $session_id );
+		if ( ! $session || empty( $session->paused_state ) ) {
+			return false;
+		}
+
+		$state = json_decode( (string) $session->paused_state, true );
+
+		return is_array( $state ) && ! empty( $state['history'] ) && is_array( $state['history'] );
 	}
 
 	/**

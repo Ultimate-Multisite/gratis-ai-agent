@@ -63,15 +63,19 @@ export default function useChatComposer( {
 		compactConversation,
 		exportSession,
 		setShowShortcutsHelp,
+		retryClientToolSubmission,
+		resumeRecoverableJob,
 	} = useDispatch( STORE_NAME );
-	const { sending, queueCount, currentSessionId } = useSelect(
-		( sel ) => ( {
-			sending: sel( STORE_NAME ).isSending(),
-			queueCount: sel( STORE_NAME ).getMessageQueue().length,
-			currentSessionId: sel( STORE_NAME ).getCurrentSessionId(),
-		} ),
-		[]
-	);
+	const { sending, queueCount, currentSessionId, pendingActionCard } =
+		useSelect(
+			( sel ) => ( {
+				sending: sel( STORE_NAME ).isSending(),
+				queueCount: sel( STORE_NAME ).getMessageQueue().length,
+				currentSessionId: sel( STORE_NAME ).getCurrentSessionId(),
+				pendingActionCard: sel( STORE_NAME ).getPendingActionCard(),
+			} ),
+			[]
+		);
 
 	const [ text, setText ] = useState( '' );
 	const [ showSlash, setShowSlash ] = useState( false );
@@ -191,6 +195,28 @@ export default function useChatComposer( {
 			return;
 		}
 
+		const cardMatchesSession =
+			! pendingActionCard?.sessionId ||
+			pendingActionCard.sessionId === currentSessionId;
+		if (
+			trimmed.toLowerCase() === 'retry' &&
+			! attachments.length &&
+			cardMatchesSession
+		) {
+			if ( pendingActionCard?.type === 'resume_recoverable_job' ) {
+				resumeRecoverableJob();
+				clearComposer();
+				focusTextarea();
+				return;
+			}
+			if ( pendingActionCard?.type === 'retry_client_tools' ) {
+				retryClientToolSubmission();
+				clearComposer();
+				focusTextarea();
+				return;
+			}
+		}
+
 		if ( ! isSimpleMode && trimmed.startsWith( REMEMBER_PREFIX ) ) {
 			const fact = trimmed.slice( REMEMBER_PREFIX.length ).trim();
 			if ( fact ) {
@@ -258,6 +284,10 @@ export default function useChatComposer( {
 		sendMessage,
 		clearComposer,
 		focusTextarea,
+		pendingActionCard,
+		currentSessionId,
+		resumeRecoverableJob,
+		retryClientToolSubmission,
 	] );
 
 	const handleSlashSelect = useCallback(

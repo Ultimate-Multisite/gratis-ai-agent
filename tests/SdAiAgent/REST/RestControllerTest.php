@@ -2484,6 +2484,100 @@ class RestControllerTest extends WP_UnitTestCase {
 	// ─── /chat/tool-result regression: 409 loop fix (sd-ai-9ip) ──────────────
 
 	/**
+	 * A provider failure after browser results were accepted returns a bounded
+	 * acknowledgement and leaves the exact continuation available for resume.
+	 */
+	public function test_tool_result_provider_failure_is_bounded_and_recoverable(): void {
+		wp_set_current_user( $this->admin_id );
+
+		$session_id = Database::create_session( [
+			'user_id' => $this->admin_id,
+			'title'   => 'Accepted client results recovery',
+		] );
+		$history    = [
+			[
+				'role'  => 'user',
+				'parts' => [ [ 'text' => 'Inspect the theme code and rendered output.' ] ],
+			],
+		];
+		Database::save_paused_state(
+			$session_id,
+			[
+				'history'              => $history,
+				'tool_call_log'        => [],
+				'message_log'          => [],
+				'iterations_remaining' => 90,
+				'provider_id'          => 'sd-ai-agent-cloud',
+				'model_id'             => 'superdav-chat-pro',
+			]
+		);
+
+		$job_id = '33333333-4444-5555-6666-777777777777';
+		ActiveJobRepository::create( $session_id, $job_id, $this->admin_id, 'awaiting_client_tools' );
+		set_transient(
+			RestController::JOB_PREFIX . $job_id,
+			[
+				'status'                    => 'awaiting_client_tools',
+				'params'                    => [ 'session_id' => $session_id ],
+				'pending_client_tool_calls' => [
+					[ 'id' => 'call-screenshot', 'name' => 'sd-ai-agent-js/screenshot-url' ],
+				],
+				'tool_calls'                => [ [ 'type' => 'call', 'id' => 'call-screenshot' ] ],
+				'messages'                  => [],
+			],
+			RestController::JOB_TTL
+		);
+
+		$error = new \WP_Error(
+			'sd_ai_agent_provider_retry_failed',
+			'The provider response included unsafe detail that must not escape.',
+			[
+				'history'     => [ [ 'private' => str_repeat( 'x', 900000 ) ] ],
+				'tool_calls'  => [ [ 'private' => 'MUST_NOT_ESCAPE' ] ],
+				'provider_id' => 'sd-ai-agent-cloud',
+				'model_id'    => 'superdav-chat-pro',
+			]
+		);
+
+		$method   = new \ReflectionMethod( RestController::class, 'accepted_tool_result_failure_response' );
+		$response = $method->invoke(
+			null,
+			$job_id,
+			$session_id,
+			$error,
+			[
+				'last_safe_phase' => 'client_tool_resume',
+				'provider_id'     => 'sd-ai-agent-cloud',
+				'model_id'        => 'superdav-chat-pro',
+			]
+		);
+
+		$this->assertInstanceOf( \WP_REST_Response::class, $response );
+		$this->assertSame( 202, $response->get_status() );
+		$data = $response->get_data();
+		$this->assertTrue( $data['results_accepted'] );
+		$this->assertTrue( $data['recoverable'] );
+		$this->assertSame( 'recoverable_error', $data['status'] );
+		$this->assertSame( 'provider_timeout', $data['diagnostic']['reason'] );
+		$this->assertSame( 'client_tool_resume', $data['diagnostic']['last_safe_phase'] );
+		$this->assertLessThan( 4096, strlen( (string) wp_json_encode( $data ) ) );
+		$this->assertStringNotContainsString( 'MUST_NOT_ESCAPE', (string) wp_json_encode( $data ) );
+		$this->assertArrayNotHasKey( 'history', $data );
+		$this->assertArrayNotHasKey( 'tool_calls', $data );
+
+		$job = get_transient( RestController::JOB_PREFIX . $job_id );
+		$this->assertIsArray( $job );
+		$this->assertSame( 'error', $job['status'] );
+		$this->assertTrue( $job['recoverable'] );
+		$this->assertArrayNotHasKey( 'pending_client_tool_calls', $job );
+
+		$session = Database::get_session( $session_id );
+		$this->assertNotNull( $session );
+		$saved_state = json_decode( (string) $session->paused_state, true );
+		$this->assertSame( $history, $saved_state['history'] );
+	}
+
+	/**
 	 * Invalid browser batches are rejected before resume and preserve the paused
 	 * state so the exact pending calls can still be submitted.
 	 */

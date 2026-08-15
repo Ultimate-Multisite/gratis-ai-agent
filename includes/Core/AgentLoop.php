@@ -85,8 +85,14 @@ class AgentLoop {
 	/** Maximum provider-call attempts for retryable transient failures. */
 	private const PROVIDER_RETRY_MAX_ATTEMPTS = 4;
 
+	/** Longer managed-service retry budget for short edge/network outages. */
+	private const MANAGED_PROVIDER_RETRY_MAX_ATTEMPTS = 6;
+
 	/** Default exponential backoff schedule in seconds. */
 	private const PROVIDER_RETRY_DELAYS = array( 1, 2, 4 );
+
+	/** Managed-service backoff schedule: 31 seconds before the final attempt. */
+	private const MANAGED_PROVIDER_RETRY_DELAYS = array( 1, 2, 4, 8, 16 );
 
 	/** Durable checkpoint phase saved before a provider call is attempted. */
 	public const CHECKPOINT_BEFORE_PROVIDER_CALL = 'before_provider_call';
@@ -501,10 +507,17 @@ PROMPT;
 		$this->active_job_id = (string) ( $options['active_job_id'] ?? '' );
 
 		$this->checkpoint_resume_metadata = self::checkpoint_resume_metadata_from_candidate( $options['checkpoint_resume_metadata'] ?? array() );
-		// @phpstan-ignore-next-line -- Test/job callers may lower attempts or delays; production defaults remain four attempts.
-		$this->provider_retry_max_attempts = max( 1, (int) ( $options['provider_retry_max_attempts'] ?? self::PROVIDER_RETRY_MAX_ATTEMPTS ) );
+		$is_managed_provider              = SuperdavAiProvider::PROVIDER_ID === (string) $this->provider_id;
+		$default_retry_attempts           = $is_managed_provider
+			? self::MANAGED_PROVIDER_RETRY_MAX_ATTEMPTS
+			: self::PROVIDER_RETRY_MAX_ATTEMPTS;
+		$default_retry_delays             = $is_managed_provider
+			? self::MANAGED_PROVIDER_RETRY_DELAYS
+			: self::PROVIDER_RETRY_DELAYS;
+		// @phpstan-ignore-next-line -- Test/job callers may lower attempts or delays; managed production calls tolerate short outages by default.
+		$this->provider_retry_max_attempts = max( 1, (int) ( $options['provider_retry_max_attempts'] ?? $default_retry_attempts ) );
 		// @phpstan-ignore-next-line -- Values are normalised below to non-negative integer seconds.
-		$retry_delays = $options['provider_retry_delays'] ?? self::PROVIDER_RETRY_DELAYS;
+		$retry_delays = $options['provider_retry_delays'] ?? $default_retry_delays;
 		if ( is_array( $retry_delays ) ) {
 			$this->provider_retry_delays = array_map(
 				static fn( $delay ): int => max( 0, min( 60, (int) $delay ) ),

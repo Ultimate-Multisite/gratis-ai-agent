@@ -12,6 +12,7 @@ import { __ } from '@wordpress/i18n';
 
 import STORE_NAME from '../../store';
 import CompactConversationActionCard from '../compact-conversation-action-card';
+import RecoverableJobActionCard from '../recoverable-job-action-card';
 import FeedbackConsentModal from '../feedback-consent-modal';
 import MessageRows from '../chat-messages/message-rows';
 import {
@@ -22,6 +23,68 @@ import useCompactConversationAction from '../chat-messages/use-compact-conversat
 import useMessageListScroll from '../chat-messages/use-message-list-scroll';
 import useRunningStatus from '../chat-messages/use-running-status';
 import { RunningMessage } from '../chat-redesign/message-items';
+
+/**
+ * Lightweight retry card for a browser-result POST that did not reach the
+ * server. Kept local so the floating-widget bundle does not load the much
+ * broader confirmation/proposal ActionCard component.
+ *
+ * @param {Object}   props           Component props.
+ * @param {string[]} props.toolNames Completed client tool names.
+ * @param {Function} props.onConfirm Retry callback.
+ * @param {Function} props.onCancel  Dismiss callback.
+ * @return {JSX.Element} Client-result retry action.
+ */
+function ClientToolRetryActionCard( { toolNames = [], onConfirm, onCancel } ) {
+	return (
+		<div
+			className="sdaa-action-card sdaa-action-card--retry"
+			role="region"
+			aria-label={ __(
+				'Retry client tool results',
+				'superdav-ai-agent'
+			) }
+		>
+			<div className="sdaa-action-card-header">
+				<span className="sdaa-action-card-heading">
+					{ __(
+						'Submit completed results again?',
+						'superdav-ai-agent'
+					) }
+				</span>
+			</div>
+			<div className="sdaa-action-card-body">
+				<p>
+					{ __(
+						'The browser tools already ran. Retry only resubmits their saved results.',
+						'superdav-ai-agent'
+					) }
+				</p>
+				{ toolNames.length > 0 && (
+					<p className="sdaa-action-card-tool-names">
+						{ toolNames.join( ', ' ) }
+					</p>
+				) }
+			</div>
+			<div className="sdaa-action-card-footer">
+				<button
+					type="button"
+					className="button sdaa-action-card-btn-cancel"
+					onClick={ onCancel }
+				>
+					{ __( 'Dismiss', 'superdav-ai-agent' ) }
+				</button>
+				<button
+					type="button"
+					className="button button-primary sdaa-action-card-btn-confirm"
+					onClick={ onConfirm }
+				>
+					{ __( 'Retry', 'superdav-ai-agent' ) }
+				</button>
+			</div>
+		</div>
+	);
+}
 
 /**
  * Render the floating widget's message list and surface-specific actions.
@@ -58,6 +121,8 @@ export default function WidgetMessageList() {
 	const {
 		sendMessage,
 		retryLastMessage,
+		retryClientToolSubmission,
+		resumeRecoverableJob,
 		compactConversation,
 		setPendingActionCard,
 	} = useDispatch( STORE_NAME );
@@ -86,6 +151,23 @@ export default function WidgetMessageList() {
 		liveToolCalls,
 	} );
 	const runningStatus = useRunningStatus( sending && running.isFallback );
+	const actionableCardTypes = [
+		'retry_client_tools',
+		'resume_recoverable_job',
+	];
+	const hasActionableCard =
+		actionableCardTypes.includes( pendingActionCard?.type ) &&
+		( ! pendingActionCard?.sessionId ||
+			pendingActionCard.sessionId === currentSessionId );
+	const confirmRecoveryAction = () => {
+		if ( pendingActionCard?.type === 'retry_client_tools' ) {
+			retryClientToolSubmission();
+			return;
+		}
+		if ( pendingActionCard?.type === 'resume_recoverable_job' ) {
+			resumeRecoverableJob();
+		}
+	};
 
 	return (
 		<>
@@ -114,6 +196,7 @@ export default function WidgetMessageList() {
 					{ hasStreamError &&
 						currentSessionId &&
 						! sending &&
+						! hasActionableCard &&
 						pendingActionCard?.type !== 'compact_session' && (
 							<button
 								type="button"
@@ -125,6 +208,26 @@ export default function WidgetMessageList() {
 									'superdav-ai-agent'
 								) }
 							</button>
+						) }
+
+					{ hasActionableCard &&
+						! sending &&
+						pendingActionCard.type === 'retry_client_tools' && (
+							<ClientToolRetryActionCard
+								toolNames={ pendingActionCard.toolNames }
+								onConfirm={ confirmRecoveryAction }
+								onCancel={ () => setPendingActionCard( null ) }
+							/>
+						) }
+
+					{ hasActionableCard &&
+						! sending &&
+						pendingActionCard.type === 'resume_recoverable_job' && (
+							<RecoverableJobActionCard
+								diagnostic={ pendingActionCard.diagnostic }
+								onConfirm={ confirmRecoveryAction }
+								onCancel={ () => setPendingActionCard( null ) }
+							/>
 						) }
 
 					{ pendingActionCard?.type === 'compact_session' &&
