@@ -1,8 +1,8 @@
 /**
  * Client-side refresh-page ability.
  *
- * Schedules a reload of the current browser page after the tool result has been posted back.
- * to the server. The job poller performs the actual reload so the in-flight
+ * Schedules a reload after the tool result has been posted back to the server.
+ * The job poller performs the actual reload so the in-flight
  * tool-result POST is not aborted. It also stores the active session/widget
  * state so the floating widget reopens to the same conversation after reload.
  */
@@ -34,7 +34,7 @@ export async function registerRefreshPageAbility() {
 		name: 'sd-ai-agent-js/refresh-page',
 		label: 'Refresh Current Page',
 		description:
-			'Schedule a refresh of the current browser page while preserving the open AI Agent widget and current session. Use after site changes that did not return an affected descriptor for live preview. This only schedules navigation and does not validate rendered output.',
+			'Refresh the current browser page while preserving the open AI Agent widget and current session. Navigation only; it does not validate rendered output.',
 		inputSchema: {
 			type: 'object',
 			properties: {},
