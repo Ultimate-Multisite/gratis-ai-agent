@@ -14,8 +14,9 @@ declare(strict_types=1);
 
 namespace SdAiAgent\Core;
 
-use SdAiAgent\Abilities\ToolCapabilities;
 use SdAiAgent\Abilities\Js\JsAbilityCatalog;
+use SdAiAgent\Abilities\NavigationAbilities;
+use SdAiAgent\Abilities\ToolCapabilities;
 use WordPress\AiClient\Messages\DTO\Message;
 use WordPress\AiClient\Messages\DTO\ModelMessage;
 
@@ -190,6 +191,7 @@ final class ClientAbilityRouter {
 			if ( str_starts_with( $fn_name, 'wpab__' ) && class_exists( 'WP_AI_Client_Ability_Function_Resolver' ) ) {
 				$ability_name = \WP_AI_Client_Ability_Function_Resolver::function_name_to_ability_name( $fn_name );
 			}
+			$browser_navigation_args = $this->get_browser_navigation_args( $ability_name, $call->getArgs(), $client_names );
 
 			if ( in_array( $ability_name, $client_names, true ) ) {
 				$client[] = array(
@@ -200,17 +202,16 @@ final class ClientAbilityRouter {
 					// to auto-execute (readonly=true) or show a confirmation dialog.
 					'annotations' => $annotations_by_name[ $ability_name ] ?? array(),
 				);
-			} elseif ( $this->is_browser_navigation_meta_call( $ability_name, $call->getArgs(), $client_names ) ) {
+			} elseif ( null !== $browser_navigation_args ) {
 				// Tier-2 abilities normally arrive inside ability-call rather than as
 				// direct function calls. Preserve the outer call identity so the
 				// browser result can be matched to the paused server-side batch, but
 				// route the nested navigation to the browser callback.
-				$args     = $call->getArgs();
 				$client[] = array(
 					'id'          => (string) $call->getId(),
 					'name'        => $ability_name,
 					'client_name' => 'sd-ai-agent-js/navigate-to',
-					'args'        => is_array( $args['arguments'] ?? null ) ? $args['arguments'] : array(),
+					'args'        => $browser_navigation_args,
 					'annotations' => $annotations_by_name['sd-ai-agent-js/navigate-to'] ?? array(),
 				);
 			} else {
@@ -225,7 +226,7 @@ final class ClientAbilityRouter {
 	}
 
 	/**
-	 * Whether an ability-call targets browser-executed site navigation.
+	 * Return validated browser arguments for a nested navigation call.
 	 *
 	 * Keep this allowlist narrow: client descriptors are request supplied, while
 	 * the nested target remains subject to the same WordPress capability gate as
@@ -234,19 +235,31 @@ final class ClientAbilityRouter {
 	 * @param string        $ability_name Resolved outer ability name.
 	 * @param mixed         $args         Outer ability arguments.
 	 * @param array<string> $client_names Validated browser ability names.
-	 * @return bool Whether the call is safe to route to the browser.
+	 * @return array{url: string}|null Validated browser arguments, or null when
+	 *                                the call must remain server-side.
 	 */
-	private function is_browser_navigation_meta_call(
+	private function get_browser_navigation_args(
 		string $ability_name,
 		mixed $args,
 		array $client_names
-	): bool {
-		return 'sd-ai-agent/ability-call' === $ability_name
-			&& is_array( $args )
-			&& 'sd-ai-agent/navigate' === ( $args['ability'] ?? '' )
-			&& is_array( $args['arguments'] ?? null )
-			&& in_array( 'sd-ai-agent-js/navigate-to', $client_names, true )
-			&& ToolCapabilities::current_user_can( 'sd-ai-agent/navigate' );
+	): ?array {
+		if (
+			'sd-ai-agent/ability-call' !== $ability_name
+			|| ! is_array( $args )
+			|| 'sd-ai-agent/navigate' !== ( $args['ability'] ?? '' )
+			|| ! is_array( $args['arguments'] ?? null )
+			|| ! in_array( 'sd-ai-agent-js/navigate-to', $client_names, true )
+			|| ! ToolCapabilities::current_user_can( 'sd-ai-agent/navigate' )
+		) {
+			return null;
+		}
+
+		$validated = NavigationAbilities::handle_navigate( $args['arguments'] );
+		if ( is_wp_error( $validated ) || ! is_array( $validated ) || empty( $validated['url'] ) ) {
+			return null;
+		}
+
+		return array( 'url' => (string) $validated['url'] );
 	}
 
 	/**

@@ -181,14 +181,10 @@ export function ToolResultHighlights( { call, response } ) {
 	}
 
 	return (
-		<>
-			{ designPreviews && (
-				<DesignPreviewGallery
-					designPreviews={ designPreviews }
-					message={ previewMessage }
-				/>
-			) }
-		</>
+		<DesignPreviewGallery
+			designPreviews={ designPreviews }
+			message={ previewMessage }
+		/>
 	);
 }
 
