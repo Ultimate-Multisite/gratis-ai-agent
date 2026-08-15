@@ -624,6 +624,60 @@ class AgentLoopClientToolsTest extends WP_UnitTestCase {
 		$this->assertStringNotContainsString( 'DONE', $reply );
 	}
 
+	/** A refresh acknowledgement cannot support a rendered-success claim after a file write. */
+	public function test_file_write_then_refresh_replaces_unsupported_rendered_success_claim(): void {
+		$loop = new AgentLoop(
+			'test',
+			array(),
+			array(),
+			array(
+				'client_abilities' => array(
+					array( 'name' => 'sd-ai-agent-js/refresh-page' ),
+				),
+			)
+		);
+		$gate = $this->get_rendered_output_evidence_gate( $loop );
+		$gate->record_tool_call( 'sd-ai-agent/file-write', array( 'path' => 'themes/example/templates/single.html' ) );
+		$gate->record_tool_response( 'sd-ai-agent/file-write', array( 'success' => true ) );
+		$gate->record_tool_call( 'sd-ai-agent-js/refresh-page', array() );
+		$gate->record_tool_response( 'sd-ai-agent-js/refresh-page', array( 'refresh_scheduled' => true ) );
+
+		$method = ( new \ReflectionClass( $loop ) )->getMethod( 'append_rendered_output_evidence_notice' );
+		$method->setAccessible( true );
+		$reply = (string) $method->invoke( $loop, 'I checked the rendered page and the complete article is visible.' );
+
+		$this->assertStringContainsString( 'remains unverified', $reply );
+		$this->assertStringNotContainsString( 'complete article is visible', $reply );
+	}
+
+	/** A screenshot returned after a file write supports the later rendered-success claim. */
+	public function test_file_write_then_refresh_then_screenshot_preserves_rendered_success_claim(): void {
+		$loop = new AgentLoop(
+			'test',
+			array(),
+			array(),
+			array(
+				'client_abilities' => array(
+					array( 'name' => 'sd-ai-agent-js/refresh-page' ),
+					array( 'name' => 'sd-ai-agent-js/capture-screenshot' ),
+				),
+			)
+		);
+		$gate = $this->get_rendered_output_evidence_gate( $loop );
+		$gate->record_tool_call( 'sd-ai-agent/file-write', array( 'path' => 'themes/example/templates/single.html' ) );
+		$gate->record_tool_response( 'sd-ai-agent/file-write', array( 'success' => true ) );
+		$gate->record_tool_call( 'sd-ai-agent-js/refresh-page', array() );
+		$gate->record_tool_response( 'sd-ai-agent-js/refresh-page', array( 'refresh_scheduled' => true ) );
+		$gate->record_tool_call( 'sd-ai-agent-js/capture-screenshot', array() );
+		$gate->record_tool_response( 'sd-ai-agent-js/capture-screenshot', array( 'success' => true, 'image' => 'data:image/jpeg;base64,abc' ) );
+
+		$method = ( new \ReflectionClass( $loop ) )->getMethod( 'append_rendered_output_evidence_notice' );
+		$method->setAccessible( true );
+		$reply = 'I checked the rendered page and the complete article is visible.';
+
+		$this->assertSame( $reply, $method->invoke( $loop, $reply ) );
+	}
+
 	/** Server-directed page validation uses exact gate-owned preview arguments. */
 	public function test_page_quality_dispatch_does_not_depend_on_model_arguments(): void {
 		$loop = new AgentLoop(
@@ -700,6 +754,13 @@ class AgentLoopClientToolsTest extends WP_UnitTestCase {
 		$part->method( 'getFunctionCall' )->willReturn( $call );
 
 		return $part;
+	}
+
+	/** Return the focused rendered-output gate from an AgentLoop instance. */
+	private function get_rendered_output_evidence_gate( AgentLoop $loop ): object {
+		$property = ( new \ReflectionClass( $loop ) )->getProperty( 'rendered_output_evidence_gate' );
+		$property->setAccessible( true );
+		return $property->getValue( $loop );
 	}
 
 	/**
