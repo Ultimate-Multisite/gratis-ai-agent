@@ -66,16 +66,23 @@ export default function useChatComposer( {
 		retryClientToolSubmission,
 		resumeRecoverableJob,
 	} = useDispatch( STORE_NAME );
-	const { sending, queueCount, currentSessionId, pendingActionCard } =
-		useSelect(
-			( sel ) => ( {
-				sending: sel( STORE_NAME ).isSending(),
-				queueCount: sel( STORE_NAME ).getMessageQueue().length,
-				currentSessionId: sel( STORE_NAME ).getCurrentSessionId(),
-				pendingActionCard: sel( STORE_NAME ).getPendingActionCard(),
-			} ),
-			[]
-		);
+	const {
+		sending,
+		queueCount,
+		currentSessionId,
+		pendingActionCard,
+		pendingToolResultRetry,
+	} = useSelect(
+		( sel ) => ( {
+			sending: sel( STORE_NAME ).isSending(),
+			queueCount: sel( STORE_NAME ).getMessageQueue().length,
+			currentSessionId: sel( STORE_NAME ).getCurrentSessionId(),
+			pendingActionCard: sel( STORE_NAME ).getPendingActionCard(),
+			pendingToolResultRetry:
+				sel( STORE_NAME ).getPendingToolResultRetry?.(),
+		} ),
+		[]
+	);
 
 	const [ text, setText ] = useState( '' );
 	const [ showSlash, setShowSlash ] = useState( false );
@@ -195,9 +202,13 @@ export default function useChatComposer( {
 			return;
 		}
 
+		const recoverySessionId =
+			pendingActionCard?.sessionId ||
+			( pendingActionCard?.type === 'retry_client_tools'
+				? pendingToolResultRetry?.sessionId
+				: null );
 		const cardMatchesSession =
-			! pendingActionCard?.sessionId ||
-			pendingActionCard.sessionId === currentSessionId;
+			! recoverySessionId || recoverySessionId === currentSessionId;
 		if (
 			trimmed.toLowerCase() === 'retry' &&
 			! attachments.length &&
@@ -285,6 +296,7 @@ export default function useChatComposer( {
 		clearComposer,
 		focusTextarea,
 		pendingActionCard,
+		pendingToolResultRetry,
 		currentSessionId,
 		resumeRecoverableJob,
 		retryClientToolSubmission,

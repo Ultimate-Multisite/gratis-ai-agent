@@ -100,6 +100,7 @@ export default function WidgetMessageList() {
 		sessionJobs,
 		hasStreamError,
 		pendingActionCard,
+		pendingToolResultRetry,
 		providers,
 		showToolCallDetails,
 	} = useSelect( ( sel ) => {
@@ -113,6 +114,7 @@ export default function WidgetMessageList() {
 			sessionJobs: store.getSessionJobs(),
 			hasStreamError: store.hasStreamError(),
 			pendingActionCard: store.getPendingActionCard(),
+			pendingToolResultRetry: store.getPendingToolResultRetry?.(),
 			providers: store.getProviders(),
 			showToolCallDetails: settings?.show_tool_call_details === true,
 		};
@@ -155,10 +157,14 @@ export default function WidgetMessageList() {
 		'retry_client_tools',
 		'resume_recoverable_job',
 	];
+	const actionCardSessionId =
+		pendingActionCard?.sessionId ||
+		( pendingActionCard?.type === 'retry_client_tools'
+			? pendingToolResultRetry?.sessionId
+			: null );
 	const hasActionableCard =
 		actionableCardTypes.includes( pendingActionCard?.type ) &&
-		( ! pendingActionCard?.sessionId ||
-			pendingActionCard.sessionId === currentSessionId );
+		( ! actionCardSessionId || actionCardSessionId === currentSessionId );
 	const confirmRecoveryAction = () => {
 		if ( pendingActionCard?.type === 'retry_client_tools' ) {
 			retryClientToolSubmission();
