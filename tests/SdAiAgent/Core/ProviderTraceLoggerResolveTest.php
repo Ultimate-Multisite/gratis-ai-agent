@@ -428,4 +428,55 @@ class ProviderTraceLoggerResolveTest extends WP_UnitTestCase {
 		$this->assertSame( 'job-123', $diagnostics['job_id'] );
 		$this->assertStringNotContainsString( 'PRIVATE_HOST', $trace->response_body );
 	}
+
+	/** Timeout, connection, and rate-limit failures retain only bounded retry diagnostics. */
+	public function test_retry_exhaustion_classifies_transport_and_rate_limit_failures(): void {
+		ProviderTrace::set_enabled( true );
+		ProviderTrace::clear();
+
+		ProviderTraceLogger::record_retry_exhausted_failure(
+			'openai',
+			'gpt-test',
+			new \WP_Error( 'http_request_failed', 'cURL error: Operation timed out after 30000 milliseconds' ),
+			0,
+			2,
+			31000,
+			null,
+			array( 1 ),
+			'initial_provider_call'
+		);
+		ProviderTraceLogger::record_retry_exhausted_failure(
+			'openai',
+			'gpt-test',
+			new \WP_Error( 'http_request_failed', 'cURL error: Connection refused' ),
+			0,
+			2,
+			2000,
+			null,
+			array( 1 ),
+			'initial_provider_call'
+		);
+		ProviderTraceLogger::record_retry_exhausted_failure(
+			'openai',
+			'gpt-test',
+			new \WP_Error( '429', 'Rate limit response' ),
+			429,
+			4,
+			12000,
+			12,
+			array( 12, 12, 12 ),
+			'initial_provider_call'
+		);
+
+		$rows = ProviderTrace::list( array( 'limit' => 3 ) );
+		$this->assertCount( 3, $rows );
+		$errors = array_column( $rows, 'error' );
+		$this->assertContains( 'provider_timeout', $errors );
+		$this->assertContains( 'provider_connection_failure', $errors );
+		$this->assertContains( 'provider_rate_limited', $errors );
+
+		$rate_limit = ProviderTrace::get( $rows[0]->id );
+		$this->assertNotNull( $rate_limit );
+		$this->assertSame( 12, json_decode( $rate_limit->response_body, true )['retry_after_seconds'] );
+	}
 }
