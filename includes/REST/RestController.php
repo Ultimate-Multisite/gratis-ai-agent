@@ -607,6 +607,7 @@ Assistant: %s',
 			'session_id'       => $session_id,
 			'client_abilities' => $paused_state['client_abilities'] ?? array(),
 			'page_context'     => $paused_state['page_context'] ?? array(),
+			'active_job_id'    => $job_id,
 		);
 		$paused_provider_id = trim( (string) ( $paused_state['provider_id'] ?? '' ) );
 		$paused_model_id    = trim( (string) ( $paused_state['model_id'] ?? '' ) );
@@ -636,22 +637,40 @@ Assistant: %s',
 		$result             = $loop->resume_after_client_tools( $tool_results_typed, $iterations_remaining );
 
 		if ( is_wp_error( $result ) ) {
+			$is_recoverable_provider_failure = 'sd_ai_agent_provider_retry_failed' === $result->get_error_code();
 			// Sync the job transient/DB row to 'error' so the browser's poll
 			// loop sees a terminal state and stops re-issuing the same
 			// pending client tool call. Without this, the transient still
 			// says 'awaiting_client_tools' and the next poll cycle produces
 			// an infinite 409 loop on /chat/tool-result.
-			self::mark_job_error_after_resume(
+			$diagnostic = self::mark_job_error_after_resume(
 				$job_id,
 				$result,
 				array(
-					'last_safe_phase' => 'client_tool_resume',
+					'last_safe_phase' => 'client_tool_results_accepted',
 					'provider_id'     => (string) ( $options['provider_id'] ?? '' ),
 					'model_id'        => (string) ( $options['model_id'] ?? '' ),
 				)
 			);
 
-			return $result;
+			// Do not expose the raw WP_Error, which can contain a full conversation
+			// and tool log. A retry-exhausted provider continuation has already
+			// checkpointed the accepted results, so its client must resume that state
+			// rather than re-POSTing the browser result batch.
+			return new WP_REST_Response(
+				array(
+					'code'    => (string) $result->get_error_code(),
+					'message' => ActiveJobFailureDiagnostic::message_for( (string) $diagnostic['reason'] ),
+					'data'    => array(
+						'status'      => $is_recoverable_provider_failure ? 503 : 500,
+						'safe_phase'  => 'client_tool_results_accepted',
+						'recoverable' => $is_recoverable_provider_failure,
+						'diagnostic'  => ActiveJobFailureDiagnostic::to_rest( $diagnostic ),
+						'session_id'  => $session_id,
+					),
+				),
+				$is_recoverable_provider_failure ? 503 : 500
+			);
 		}
 
 		/** @var array<string, mixed> $result */
@@ -855,10 +874,19 @@ Assistant: %s',
 	 * @param string               $job_id  Job UUID supplied by the browser. No-op when empty.
 	 * @param WP_Error             $error   Error returned by the resumed loop.
 	 * @param array<string, mixed> $context Allowlisted diagnostic metadata.
+	 * @return array<string, bool|int|string> Persisted diagnostic metadata.
 	 */
-	private static function mark_job_error_after_resume( string $job_id, WP_Error $error, array $context = array() ): void {
+	private static function mark_job_error_after_resume( string $job_id, WP_Error $error, array $context = array() ): array {
 		if ( '' === $job_id ) {
-			return;
+			$error_data = $error->get_error_data();
+			$error_data = is_array( $error_data ) ? $error_data : array();
+			$context    = array_merge( ActiveJobFailureDiagnostic::context_from_error_data( $error_data ), $context );
+
+			return ActiveJobFailureDiagnostic::create(
+				'',
+				ActiveJobFailureDiagnostic::reason_from_error( $error ),
+				$context
+			);
 		}
 
 		$transient_key = self::JOB_PREFIX . $job_id;
@@ -885,6 +913,8 @@ Assistant: %s',
 
 			set_transient( $transient_key, $job, self::JOB_TTL );
 		}
+
+		return $diagnostic;
 	}
 
 	/**

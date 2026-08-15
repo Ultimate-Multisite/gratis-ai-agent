@@ -1304,6 +1304,15 @@ export const actions = {
 	 */
 	sendMessage( message, attachments = [], options = {} ) {
 		return ( { dispatch, select } ) => {
+			const pendingActionCard = select.getPendingActionCard?.();
+			if (
+				'retry' === String( message ).trim().toLowerCase() &&
+				pendingActionCard?.type === 'resume_recoverable_job'
+			) {
+				dispatch.resumeRecoverableJob();
+				return;
+			}
+
 			const isBusy = select.isSending();
 
 			if ( ! isBusy ) {

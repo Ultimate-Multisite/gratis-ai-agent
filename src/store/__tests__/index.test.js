@@ -493,6 +493,26 @@ describe( 'actions', () => {
 		expect( dispatch.truncateMessagesTo ).not.toHaveBeenCalled();
 	} );
 
+	test( 'sendMessage treats a typed retry as durable recovery', async () => {
+		const dispatch = {
+			resumeRecoverableJob: jest.fn(),
+			streamMessage: jest.fn(),
+		};
+		const select = {
+			getPendingActionCard: jest.fn( () => ( {
+				type: 'resume_recoverable_job',
+				sessionId: 17,
+			} ) ),
+			isSending: jest.fn(),
+		};
+
+		await actions.sendMessage( ' retry ' )( { dispatch, select } );
+
+		expect( dispatch.resumeRecoverableJob ).toHaveBeenCalledTimes( 1 );
+		expect( select.isSending ).not.toHaveBeenCalled();
+		expect( dispatch.streamMessage ).not.toHaveBeenCalled();
+	} );
+
 	test( 'retryClientToolSubmission resubmits preserved results and resumes the same job once', async () => {
 		apiFetch.mockReset();
 		apiFetch.mockResolvedValue( {} );
@@ -595,6 +615,49 @@ describe( 'actions', () => {
 		);
 	} );
 
+	test( 'retryClientToolSubmission resumes after accepted results hit a provider timeout', async () => {
+		apiFetch.mockReset();
+		apiFetch.mockRejectedValue( {
+			data: {
+				recoverable: true,
+				safe_phase: 'client_tool_results_accepted',
+			},
+		} );
+		const retry = {
+			sessionId: 17,
+			jobId: 'client-tool-job',
+			toolResults: [
+				{
+					id: 'call-screenshot',
+					name: 'sd-ai-agent-js/screenshot-url',
+					result: { success: true },
+				},
+			],
+			toolNames: [ 'sd-ai-agent-js/screenshot-url' ],
+		};
+		const dispatch = {
+			setPendingToolResultRetry: jest.fn(),
+			setPendingActionCard: jest.fn(),
+			setSending: jest.fn(),
+			setCurrentJobId: jest.fn(),
+			setSessionJob: jest.fn(),
+			pollJob: jest.fn(),
+		};
+		const select = {
+			getPendingToolResultRetry: jest.fn( () => retry ),
+		};
+
+		await actions.retryClientToolSubmission()( { dispatch, select } );
+
+		expect( apiFetch ).toHaveBeenCalledTimes( 1 );
+		expect( dispatch.setPendingActionCard ).toHaveBeenLastCalledWith( {
+			type: 'resume_recoverable_job',
+			sessionId: 17,
+		} );
+		expect( dispatch.pollJob ).not.toHaveBeenCalled();
+		expect( dispatch.setSending ).toHaveBeenLastCalledWith( false );
+	} );
+
 	test( 'retryClientToolSubmission preserves results after terminal POST failures', async () => {
 		apiFetch.mockReset();
 		apiFetch.mockRejectedValue( new Error( 'Network unavailable' ) );
@@ -638,6 +701,7 @@ describe( 'actions', () => {
 		);
 		expect( dispatch.setPendingActionCard ).toHaveBeenLastCalledWith( {
 			type: 'retry_client_tools',
+			sessionId: 17,
 			toolNames: retry.toolNames,
 		} );
 		expect( dispatch.appendMessage ).toHaveBeenCalledWith(

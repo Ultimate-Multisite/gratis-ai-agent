@@ -282,6 +282,7 @@ export const actions = {
 			dispatch.setSending( true );
 
 			let postSucceeded = false;
+			let serverAcceptedResults = false;
 			let lastErr = null;
 			for ( let attempt = 0; attempt < 3; attempt++ ) {
 				try {
@@ -297,6 +298,13 @@ export const actions = {
 					postSucceeded = true;
 					break;
 				} catch ( err ) {
+					if (
+						err?.data?.recoverable === true &&
+						err?.data?.safe_phase === 'client_tool_results_accepted'
+					) {
+						serverAcceptedResults = true;
+						break;
+					}
 					// 409: server already processed results (POST got through
 					// on a prior attempt but the response was lost) — resume.
 					if (
@@ -315,7 +323,13 @@ export const actions = {
 				}
 			}
 
-			if ( postSucceeded ) {
+			if ( serverAcceptedResults ) {
+				dispatch.setPendingActionCard( {
+					type: 'resume_recoverable_job',
+					sessionId,
+				} );
+				dispatch.setSending( false );
+			} else if ( postSucceeded ) {
 				// Re-register and resume polling the existing job.
 				setActiveJob( sessionId, jobId );
 				dispatch.setCurrentJobId( jobId );
@@ -330,6 +344,7 @@ export const actions = {
 				dispatch.setPendingToolResultRetry( retry );
 				dispatch.setPendingActionCard( {
 					type: 'retry_client_tools',
+					sessionId,
 					toolNames: retry.toolNames,
 				} );
 				dispatch.appendMessage( {
@@ -685,6 +700,7 @@ export const actions = {
 						// post-resume state, preventing an infinite 409 loop.
 						const currentSessionId = select.getCurrentSessionId();
 						let postSucceeded = false;
+						let serverAcceptedResults = false;
 						let postErr = null;
 						for ( let attempt = 0; attempt < 3; attempt++ ) {
 							try {
@@ -700,6 +716,14 @@ export const actions = {
 								postSucceeded = true;
 								break;
 							} catch ( err ) {
+								if (
+									err?.data?.recoverable === true &&
+									err?.data?.safe_phase ===
+										'client_tool_results_accepted'
+								) {
+									serverAcceptedResults = true;
+									break;
+								}
 								if (
 									err?.data?.status === 409 ||
 									err?.code ===
@@ -721,6 +745,21 @@ export const actions = {
 							}
 						}
 
+						if ( serverAcceptedResults ) {
+							if ( currentSessionId === sessionId ) {
+								dispatch.setPendingActionCard( {
+									type: 'resume_recoverable_job',
+									sessionId,
+								} );
+								dispatch.setSending( false );
+							}
+							unsubscribeVisibility();
+							clearActiveJob( sessionId );
+							dispatch.setCurrentJobId( null );
+							dispatch.setSessionJob( sessionId, null );
+							return;
+						}
+
 						if ( ! postSucceeded ) {
 							// All retries exhausted — preserve the tool results so
 							// the user can retry via the action card without
@@ -737,6 +776,7 @@ export const actions = {
 								} );
 								dispatch.setPendingActionCard( {
 									type: 'retry_client_tools',
+									sessionId,
 									toolNames,
 								} );
 								dispatch.appendMessage( {

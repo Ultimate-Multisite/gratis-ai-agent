@@ -584,6 +584,19 @@ class AgentLoopClientToolsTest extends WP_UnitTestCase {
 		$this->assertSame( array( 'url' => 'https://example.test/' ), $state['page_context'] );
 	}
 
+	/** Managed-provider retries cover roughly thirty seconds before recovery. */
+	public function test_default_provider_retry_window_has_six_attempts(): void {
+		$loop       = new AgentLoop( 'test' );
+		$reflection = new \ReflectionClass( $loop );
+		$attempts   = $reflection->getProperty( 'provider_retry_max_attempts' );
+		$delays     = $reflection->getProperty( 'provider_retry_delays' );
+		$attempts->setAccessible( true );
+		$delays->setAccessible( true );
+
+		$this->assertSame( 6, $attempts->getValue( $loop ) );
+		$this->assertSame( array( 1, 2, 4, 8, 16 ), $delays->getValue( $loop ) );
+	}
+
 	/** An incomplete page-quality run must replace a model success claim. */
 	public function test_incomplete_page_quality_notice_replaces_model_success_reply(): void {
 		$loop = new AgentLoop(

@@ -58,6 +58,8 @@ export default function WidgetMessageList() {
 	const {
 		sendMessage,
 		retryLastMessage,
+		retryClientToolSubmission,
+		resumeRecoverableJob,
 		compactConversation,
 		setPendingActionCard,
 	} = useDispatch( STORE_NAME );
@@ -86,6 +88,24 @@ export default function WidgetMessageList() {
 		liveToolCalls,
 	} );
 	const runningStatus = useRunningStatus( sending && running.isFallback );
+	const confirmJobFailureAction = () => {
+		if ( pendingActionCard?.type === 'retry_client_tools' ) {
+			retryClientToolSubmission();
+			return;
+		}
+
+		if ( pendingActionCard?.type === 'resume_recoverable_job' ) {
+			resumeRecoverableJob();
+			return;
+		}
+
+		if (
+			pendingActionCard?.type === 'active_job_failure' &&
+			pendingActionCard.diagnostic?.next_action === 'retry'
+		) {
+			retryLastMessage();
+		}
+	};
 
 	return (
 		<>
@@ -114,7 +134,12 @@ export default function WidgetMessageList() {
 					{ hasStreamError &&
 						currentSessionId &&
 						! sending &&
-						pendingActionCard?.type !== 'compact_session' && (
+						! [
+							'retry_client_tools',
+							'resume_recoverable_job',
+							'active_job_failure',
+							'compact_session',
+						].includes( pendingActionCard?.type ) && (
 							<button
 								type="button"
 								className="button button-primary sdaa-w-retry-failed-step"
@@ -125,6 +150,43 @@ export default function WidgetMessageList() {
 									'superdav-ai-agent'
 								) }
 							</button>
+						) }
+
+					{ [
+						'retry_client_tools',
+						'resume_recoverable_job',
+						'active_job_failure',
+					].includes( pendingActionCard?.type ) &&
+						pendingActionCard.sessionId === currentSessionId &&
+						! sending && (
+							<div
+								className="sdaa-action-card"
+								role="region"
+								aria-label={ __(
+									'Recovery action',
+									'superdav-ai-agent'
+								) }
+							>
+								<button
+									type="button"
+									className="button button-primary sdaa-action-card-btn-confirm"
+									onClick={ confirmJobFailureAction }
+								>
+									{ __(
+										'Retry failed step',
+										'superdav-ai-agent'
+									) }
+								</button>
+								<button
+									type="button"
+									className="button sdaa-action-card-btn-cancel"
+									onClick={ () =>
+										setPendingActionCard( null )
+									}
+								>
+									{ __( 'Dismiss', 'superdav-ai-agent' ) }
+								</button>
+							</div>
 						) }
 
 					{ pendingActionCard?.type === 'compact_session' &&

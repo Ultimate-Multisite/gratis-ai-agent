@@ -83,10 +83,10 @@ class AgentLoop {
 	const MAX_TOOL_RESULT_CHARS = 40000;
 
 	/** Maximum provider-call attempts for retryable transient failures. */
-	private const PROVIDER_RETRY_MAX_ATTEMPTS = 4;
+	private const PROVIDER_RETRY_MAX_ATTEMPTS = 6;
 
 	/** Default exponential backoff schedule in seconds. */
-	private const PROVIDER_RETRY_DELAYS = array( 1, 2, 4 );
+	private const PROVIDER_RETRY_DELAYS = array( 1, 2, 4, 8, 16 );
 
 	/** Durable checkpoint phase saved before a provider call is attempted. */
 	public const CHECKPOINT_BEFORE_PROVIDER_CALL = 'before_provider_call';
@@ -2410,9 +2410,7 @@ PROMPT;
 			$delay = $this->get_provider_retry_delay( $attempt, $last_error );
 			$this->log_provider_retry_progress( $status_code, $attempt + 1, $delay );
 
-			if ( $delay > 0 ) {
-				sleep( $delay );
-			}
+			$this->wait_for_provider_retry( $delay );
 		}
 
 		$elapsed_seconds = max( 0, (int) round( microtime( true ) - $started_at ) );
@@ -2499,6 +2497,23 @@ PROMPT;
 
 		$index = max( 0, $attempt - 1 );
 		return (int) ( $this->provider_retry_delays[ $index ] ?? 60 );
+	}
+
+	/**
+	 * Wait between transient provider attempts while keeping the active job alive.
+	 *
+	 * A one-second heartbeat avoids marking a still-waiting continuation stale on
+	 * hosts where managed-provider backoff is longer than the normal job poll.
+	 *
+	 * @param int $delay Delay in seconds, already bounded by retry configuration.
+	 */
+	private function wait_for_provider_retry( int $delay ): void {
+		for ( $remaining = max( 0, $delay ); $remaining > 0; --$remaining ) {
+			if ( '' !== $this->active_job_id ) {
+				ActiveJobRepository::heartbeat( $this->active_job_id );
+			}
+			sleep( 1 );
+		}
 	}
 
 	/**

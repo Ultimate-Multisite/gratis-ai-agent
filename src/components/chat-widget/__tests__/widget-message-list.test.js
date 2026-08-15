@@ -164,6 +164,65 @@ describe( 'WidgetMessageList recoverable-job action card', () => {
 			root.unmount();
 		} );
 	} );
+
+	test.each( [
+		[ 'retry_client_tools', 'retryClientToolSubmission' ],
+		[ 'resume_recoverable_job', 'resumeRecoverableJob' ],
+	] )(
+		'renders %s with its matching recovery action',
+		async ( type, actionName ) => {
+			const action = jest.fn();
+			const selectors = {
+				getCurrentSessionMessages: () => [],
+				isSending: () => false,
+				getCurrentSessionId: () => 123,
+				getLiveToolCalls: () => [],
+				getSessionJobs: () => ( {} ),
+				getSettings: () => ( {} ),
+				hasStreamError: () => true,
+				getPendingActionCard: () => ( {
+					type,
+					sessionId: 123,
+					toolNames: [ 'sd-ai-agent-js/screenshot-url' ],
+				} ),
+				getProviders: () => [],
+			};
+			useSelect.mockImplementation( ( fn ) => fn( () => selectors ) );
+			useDispatch.mockReturnValue( {
+				sendMessage: jest.fn(),
+				retryLastMessage: jest.fn(),
+				retryClientToolSubmission:
+					actionName === 'retryClientToolSubmission'
+						? action
+						: jest.fn(),
+				resumeRecoverableJob:
+					actionName === 'resumeRecoverableJob' ? action : jest.fn(),
+				setPendingActionCard: jest.fn(),
+			} );
+
+			const container = document.createElement( 'div' );
+			document.body.appendChild( container );
+			const root = createRoot( container );
+			await act( async () => {
+				root.render( createElement( WidgetMessageList ) );
+			} );
+
+			const confirmButton = container.querySelector(
+				'.sdaa-action-card-btn-confirm'
+			);
+			expect( confirmButton ).not.toBeNull();
+			await act( async () => {
+				confirmButton.dispatchEvent(
+					new MouseEvent( 'click', { bubbles: true } )
+				);
+			} );
+			expect( action ).toHaveBeenCalledTimes( 1 );
+
+			await act( async () => {
+				root.unmount();
+			} );
+		}
+	);
 } );
 
 describe( 'WidgetMessageList compact conversation action card', () => {
