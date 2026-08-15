@@ -37,6 +37,59 @@ class ReportBuilder {
 	}
 
 	/**
+	 * Keep only logged tool entries referenced by the scoped message context.
+	 *
+	 * Function-call and function-response parts share the same ID as their
+	 * corresponding tool log entries. Matching by ID keeps each call/response
+	 * pair together without leaking unrelated activity from the wider session.
+	 * If the scoped messages contain no tool IDs, the targeted report omits the
+	 * session-wide tool log rather than attaching misleading history.
+	 *
+	 * @param array<int, array<string, mixed>> $tool_calls Logged session tool entries.
+	 * @param array<int, array<string, mixed>> $messages   Scoped messages array.
+	 * @return array<int, array<string, mixed>> Matching tool entries, re-indexed.
+	 */
+	private static function scope_tool_calls_to_messages( array $tool_calls, array $messages ): array {
+		$tool_ids = array();
+
+		foreach ( $messages as $message ) {
+			$parts = $message['parts'] ?? $message['content'] ?? array();
+			if ( ! is_array( $parts ) ) {
+				continue;
+			}
+
+			foreach ( $parts as $part ) {
+				if ( ! is_array( $part ) ) {
+					continue;
+				}
+
+				foreach ( array( 'functionCall', 'function_call', 'functionResponse', 'function_response' ) as $key ) {
+					$tool_part = $part[ $key ] ?? null;
+					if ( ! is_array( $tool_part ) || ! isset( $tool_part['id'] ) ) {
+						continue;
+					}
+
+					$id = (string) $tool_part['id'];
+					if ( '' !== $id ) {
+						$tool_ids[ $id ] = true;
+					}
+				}
+			}
+		}
+
+		return array_values(
+			array_filter(
+				$tool_calls,
+				static function ( array $entry ) use ( $tool_ids ): bool {
+					$id = isset( $entry['id'] ) ? (string) $entry['id'] : '';
+
+					return '' !== $id && isset( $tool_ids[ $id ] );
+				}
+			)
+		);
+	}
+
+	/**
 	 * Build a feedback report payload from a session.
 	 *
 	 * @param int    $session_id        Session to report on.
@@ -72,11 +125,10 @@ class ReportBuilder {
 		/** @var array<int, array<string, mixed>> $tool_calls */
 		$tool_calls = is_array( $decoded_tool_calls ) ? $decoded_tool_calls : [];
 
-		// Tool logs do not record their originating message index, so they cannot be
-		// safely correlated with a targeted message window.
+		// Scope to a context window around the target message when requested (t186).
 		if ( $message_index >= 0 ) {
 			$messages   = self::slice_message_context( $messages, $message_index );
-			$tool_calls = array();
+			$tool_calls = self::scope_tool_calls_to_messages( $tool_calls, $messages );
 		}
 
 		if ( $strip_tool_results ) {
@@ -133,11 +185,10 @@ class ReportBuilder {
 		$messages           = is_array( $decoded_messages ) ? $decoded_messages : [];
 		$tool_calls         = is_array( $decoded_tool_calls ) ? $decoded_tool_calls : [];
 
-		// Tool logs do not record their originating message index, so omit them from
-		// targeted summaries rather than reporting an unrelated session-wide count.
+		// Scope both counts to the same context window used by the report payload.
 		if ( $message_index >= 0 ) {
 			$messages   = self::slice_message_context( $messages, $message_index );
-			$tool_calls = array();
+			$tool_calls = self::scope_tool_calls_to_messages( $tool_calls, $messages );
 		}
 
 		return array(
