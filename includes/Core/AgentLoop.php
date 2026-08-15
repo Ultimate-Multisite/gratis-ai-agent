@@ -512,7 +512,8 @@ PROMPT;
 		// ToolPermissionResolver encapsulates yolo_mode and tool_permissions.
 		$this->permission_resolver = new ToolPermissionResolver(
 			$this->yolo_mode,
-			$this->tool_permissions
+			$this->tool_permissions,
+			SystemInstructionBuilder::requires_clarification_before_mutation( $this->user_message )
 		);
 
 		// SpinDetector tracks consecutive identical tool-call rounds.

@@ -112,6 +112,7 @@ class SystemInstructionBuilder {
 		$custom = $settings['system_prompt'] ?? '';
 		$base   = is_string( $custom ) && '' !== $custom ? $custom : self::default_system_instruction();
 		$base  .= "\n\n" . self::build_advanced_companion_section();
+		$base  .= "\n\n" . self::build_underspecified_request_section();
 
 		// Append memory section if memories exist.
 		$memory_text = Memory::get_formatted_for_prompt();
@@ -330,6 +331,52 @@ class SystemInstructionBuilder {
 			. 'For read-only diagnostic requests, call only inspection abilities, then summarize findings, severity, and recommended next steps. '
 			. 'Do not install or activate plugins, change security settings, write files, run privileged configuration commands, update options, execute remediation PHP/SQL/WP-CLI, or navigate to unrelated admin pages. '
 			. 'If remediation seems useful, ask for explicit approval and name the proposed changes before taking action.';
+	}
+
+	/**
+	 * Build the policy for prompts that do not name any useful objective.
+	 *
+	 * Read-only inspection is safe when it can help form a recommendation. Any
+	 * mutation needs a stated intent, target, and success criteria; otherwise a
+	 * model must ask a concise question or present a bounded proposal. AgentLoop
+	 * independently confirms a mutating call if a provider ignores this policy.
+	 *
+	 * @return string
+	 */
+	public static function build_underspecified_request_section(): string {
+		return "## Underspecified requests\n\n"
+			. 'A prompt with no stated intent, target, or success criteria (for example, "do anything") is not permission to invent a site change. '
+			. 'Do not publish, delete, install, activate, send, or otherwise mutate WordPress or an external service from such a prompt. '
+			. 'You may perform bounded read-only inspection when it will support a recommendation, then summarize the findings and offer a small, explicit set of next actions. '
+			. 'Otherwise ask one concise clarifying question. If the user intentionally wants a demonstration, make it a clearly labelled draft or proposal, never a public change.';
+	}
+
+	/**
+	 * Whether a user message has no actionable intent, target, or success
+	 * criteria and therefore needs clarification before any mutation.
+	 *
+	 * This deliberately recognizes only short, generic requests. More nuanced
+	 * prompts remain the model's responsibility, while these known no-objective
+	 * forms receive a deterministic server-side guard.
+	 *
+	 * @param string $user_message User message for the current turn.
+	 * @return bool
+	 */
+	public static function requires_clarification_before_mutation( string $user_message ): bool {
+		$normalized = strtolower( trim( preg_replace( '/\s+/', ' ', $user_message ) ?? '' ) );
+
+		return in_array(
+			$normalized,
+			array(
+				'anything',
+				'do anything',
+				'do something',
+				'whatever',
+				'something',
+				'surprise me',
+			),
+			true
+		);
 	}
 
 	/**

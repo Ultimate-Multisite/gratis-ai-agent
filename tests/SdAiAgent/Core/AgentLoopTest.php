@@ -3914,6 +3914,54 @@ class AgentLoopTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * A generic first prompt cannot use an always-allowed write tool to publish
+	 * invented content. The normal confirmation response gives the UI a proposal
+	 * boundary instead of executing the provider call or surfacing an error.
+	 */
+	public function test_underspecified_prompt_requires_confirmation_before_publishing(): void {
+		$this->skip_if_sdk_unavailable();
+		if ( ! class_exists( 'WP_AI_Client_Ability_Function_Resolver' ) ) {
+			$this->markTestSkipped( 'WP_AI_Client_Ability_Function_Resolver not available.' );
+		}
+
+		Settings::instance()->update(
+			[
+				'tool_permissions' => [
+					'sd-ai-agent/create-post' => 'always_allow',
+				],
+			]
+		);
+
+		$this->mock_ai_response(
+			'',
+			[
+				[
+					'id'       => 'call_underspecified_publish',
+					'type'     => 'function',
+					'function' => [
+						'name'      => 'wpab__sd-ai-agent__create-post',
+						'arguments' => wp_json_encode(
+							[
+								'title'   => 'Invented post',
+								'content' => 'This must not be published from a vague prompt.',
+								'status'  => 'publish',
+							]
+						),
+					],
+				],
+			]
+		);
+
+		$loop   = new AgentLoop( 'do anything' );
+		$result = $loop->run();
+
+		$this->assertIsArray( $result );
+		$this->assertTrue( $result['awaiting_confirmation'] ?? false );
+		$this->assertSame( 'sd-ai-agent/create-post', $result['pending_tools'][0]['ability'] ?? '' );
+		$this->assertSame( 'underspecified_request', $result['pending_tools'][0]['reason'] ?? '' );
+	}
+
+	/**
 	 * Identical function calls in one model response should be dispatched once.
 	 */
 	public function test_run_deduplicates_identical_tool_calls_within_iteration(): void {

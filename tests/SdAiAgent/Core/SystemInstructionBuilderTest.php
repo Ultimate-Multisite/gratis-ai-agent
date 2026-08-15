@@ -168,6 +168,18 @@ class SystemInstructionBuilderTest extends WP_UnitTestCase {
 		$this->assertStringContainsString( 'update options', $section );
 	}
 
+	/** Underspecified prompts must not be treated as permission to mutate. */
+	public function test_underspecified_request_policy_requires_clarification_before_mutation(): void {
+		$section = SystemInstructionBuilder::build_underspecified_request_section();
+
+		$this->assertStringContainsString( 'no stated intent, target, or success criteria', $section );
+		$this->assertStringContainsString( 'bounded read-only inspection', $section );
+		$this->assertStringContainsString( 'never a public change', $section );
+		$this->assertTrue( SystemInstructionBuilder::requires_clarification_before_mutation( 'do anything' ) );
+		$this->assertTrue( SystemInstructionBuilder::requires_clarification_before_mutation( '  surprise   me ' ) );
+		$this->assertFalse( SystemInstructionBuilder::requires_clarification_before_mutation( 'Publish a post about gardening.' ) );
+	}
+
 	/**
 	 * Test that custom system prompt overrides the default.
 	 */

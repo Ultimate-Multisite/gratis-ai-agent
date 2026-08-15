@@ -27,34 +27,39 @@ class ToolPermissionResolver {
 	/**
 	 * @param bool                     $yolo_mode        When true, skip all confirmations.
 	 * @param array<int|string, mixed> $tool_permissions Tool permission levels from settings.
+	 * @param bool                     $requires_mutation_clarification Whether the current prompt lacks an actionable objective.
 	 */
 	public function __construct(
 		private bool $yolo_mode = false,
-		private array $tool_permissions = array()
+		private array $tool_permissions = array(),
+		private bool $requires_mutation_clarification = false
 	) {}
 
 	/**
 	 * Check which tool calls in an assistant message require user confirmation.
 	 *
 	 * Permission resolution order (first match wins):
-	 * 1. YOLO mode → skip all confirmations.
-	 * 2. Explicit tool_permissions setting:
+	 * 1. An underspecified request → require confirmation for every mutation.
+	 * 2. YOLO mode → skip all other confirmations.
+	 * 3. Explicit tool_permissions setting:
 	 *    - confirm → require confirmation.
 	 *    - always_allow/disabled → do not pause here (disabled is enforced before execution).
 	 *    - auto or unset → continue to the default annotation policy.
-	 * 3. Annotation-based classification:
+	 * 4. Annotation-based classification:
 	 *    - readonly=true      → auto-execute (read-only, safe).
 	 *    - destructive=false  → auto-execute (non-destructive write).
 	 *    - destructive=true or unknown → require confirmation.
-	 * 4. For sd-ai-agent/ability-call, classify the nested target ability so the
+	 * 5. For sd-ai-agent/ability-call, classify the nested target ability so the
 	 *    meta-tool cannot bypass a target tool's confirmation policy.
 	 *
 	 * @param Message $message The assistant's tool-call message.
 	 * @return list<array<string, mixed>> Array of tool details needing confirmation (empty if none).
 	 */
 	public function get_tools_needing_confirmation( Message $message ): array {
-		// YOLO mode: skip all confirmations and execute immediately.
-		if ( $this->yolo_mode ) {
+		// YOLO mode: skip all confirmations and execute immediately. A prompt
+		// with no stated objective is the exception: it must not manufacture a
+		// mutation merely because a site-wide convenience setting is enabled.
+		if ( $this->yolo_mode && ! $this->requires_mutation_clarification ) {
 			return array();
 		}
 
@@ -88,12 +93,17 @@ class ToolPermissionResolver {
 			$ability                 = $all_abilities[ $confirmation_ability_id ] ?? null;
 			$ability                 = $ability instanceof \WP_Ability ? $ability : null;
 
-			if ( self::ability_needs_confirmation( $confirmation_ability_id, $ability, $this->tool_permissions ) ) {
+			$requires_clarification = $this->requires_mutation_clarification
+				&& $ability instanceof \WP_Ability
+				&& 'read' !== self::classify_ability( $ability );
+
+			if ( $requires_clarification || self::ability_needs_confirmation( $confirmation_ability_id, $ability, $this->tool_permissions ) ) {
 				$confirm[] = array(
 					'id'      => $call->getId(),
 					'name'    => $fn_name,
 					'ability' => $confirmation_ability_id,
 					'args'    => $call->getArgs(),
+					'reason'  => $requires_clarification ? 'underspecified_request' : 'tool_permission',
 				);
 			}
 		}
