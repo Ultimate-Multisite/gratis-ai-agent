@@ -647,6 +647,7 @@ class AgentLoopClientToolsTest extends WP_UnitTestCase {
 		$reply = (string) $method->invoke( $loop, 'I checked the rendered page and the complete article is visible.' );
 
 		$this->assertStringContainsString( 'remains unverified', $reply );
+		$this->assertStringContainsString( 'Browser verification was unavailable', $reply );
 		$this->assertStringNotContainsString( 'complete article is visible', $reply );
 	}
 
