@@ -2377,6 +2377,8 @@ PROMPT;
 		$last_error               = null;
 		$last_retry_after_seconds = null;
 		$backoff_delays           = array();
+		$request_envelope         = array();
+		$status_code              = 0;
 
 		for ( $attempt = 1; $attempt <= $this->provider_retry_max_attempts; ++$attempt ) {
 			$request_envelope = array();
