@@ -170,6 +170,46 @@ class SystemInstructionBuilderTest extends WP_UnitTestCase {
 		$this->assertStringContainsString( 'update options', $section );
 	}
 
+	/** Underspecified prompts must not be treated as permission to mutate. */
+	public function test_underspecified_request_policy_requires_clarification_before_mutation(): void {
+		$section = SystemInstructionBuilder::build_underspecified_request_section();
+		$instruction = ( new SystemInstructionBuilder() )->build( array() );
+
+		$this->assertStringContainsString( 'no stated intent, target, or success criteria', $section );
+		$this->assertStringContainsString( 'bounded read-only inspection', $section );
+		$this->assertStringContainsString( 'Never make a public change', $section );
+		$this->assertStringContainsString( 'tool-call status alone is not consent', $section );
+		$this->assertStringContainsString( '## Underspecified requests', $instruction );
+		$this->assertStringContainsString( 'Act on clear requests, don\'t invent public changes', $instruction );
+		$this->assertTrue( SystemInstructionBuilder::requires_clarification_before_mutation( 'do anything' ) );
+		$this->assertTrue( SystemInstructionBuilder::requires_clarification_before_mutation( 'do anything!' ) );
+		$this->assertTrue( SystemInstructionBuilder::requires_clarification_before_mutation( '  surprise   me ' ) );
+		$this->assertTrue( SystemInstructionBuilder::requires_clarification_before_mutation( 'surprise me?' ) );
+		$this->assertTrue( SystemInstructionBuilder::requires_clarification_before_mutation( 'whatever.' ) );
+		$this->assertTrue( SystemInstructionBuilder::requires_clarification_before_mutation( 'make it better' ) );
+		$this->assertTrue( SystemInstructionBuilder::requires_clarification_before_mutation( 'Could you improve my website?' ) );
+		$this->assertTrue( SystemInstructionBuilder::requires_clarification_before_mutation( 'Improve our website' ) );
+		$this->assertTrue( SystemInstructionBuilder::requires_clarification_before_mutation( 'Make the site better' ) );
+		$this->assertTrue( SystemInstructionBuilder::requires_clarification_before_mutation( 'Make my website nicer' ) );
+		$this->assertTrue( SystemInstructionBuilder::requires_clarification_before_mutation( 'Could you make the site look more professional?' ) );
+		$this->assertTrue( SystemInstructionBuilder::requires_clarification_before_mutation( 'Redesign my website' ) );
+		$this->assertTrue( SystemInstructionBuilder::requires_clarification_before_mutation( 'Give the site a makeover' ) );
+		$this->assertTrue( SystemInstructionBuilder::requires_clarification_before_mutation( 'please take care of this' ) );
+		$this->assertFalse( SystemInstructionBuilder::requires_clarification_before_mutation( 'Publish a post about gardening.' ) );
+		$this->assertFalse( SystemInstructionBuilder::requires_clarification_before_mutation( 'Improve the gardening post with two practical tips.' ) );
+		$this->assertFalse( SystemInstructionBuilder::requires_clarification_before_mutation( 'Improve my website accessibility.' ) );
+		$this->assertFalse( SystemInstructionBuilder::requires_clarification_before_mutation( 'Make the site load faster.' ) );
+		$this->assertFalse( SystemInstructionBuilder::requires_clarification_before_mutation( 'Redesign the homepage hero with an accessible call to action.' ) );
+	}
+
+	/** A draft tool argument never substitutes for a user request. */
+	public function test_explicit_draft_proposal_signal_requires_user_language(): void {
+		$this->assertTrue( SystemInstructionBuilder::explicitly_requests_draft_proposal( 'Create a draft proposal for a gardening post.' ) );
+		$this->assertTrue( SystemInstructionBuilder::explicitly_requests_draft_proposal( 'Prepare a demonstration draft for the homepage.' ) );
+		$this->assertFalse( SystemInstructionBuilder::explicitly_requests_draft_proposal( 'Make it better.' ) );
+		$this->assertFalse( SystemInstructionBuilder::explicitly_requests_draft_proposal( 'Do not create a draft proposal.' ) );
+	}
+
 	/**
 	 * Test that custom system prompt overrides the default.
 	 */

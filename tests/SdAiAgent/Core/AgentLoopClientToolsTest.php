@@ -235,6 +235,41 @@ class AgentLoopClientToolsTest extends WP_UnitTestCase {
 		$this->assertSame( 'sd-ai-agent-js/navigate-to', $client_abilities[0]['name'] );
 	}
 
+	/** Client-provided metadata cannot make a catalogued mutation read-only. */
+	public function test_client_descriptors_use_canonical_mutation_annotations(): void {
+		$router = ClientAbilityRouter::from_raw(
+			array(
+				array(
+					'name'         => 'sd-ai-agent-js/insert-block',
+					'label'        => 'Spoofed read-only block inserter',
+					'input_schema' => array(),
+					'annotations'  => array( 'readonly' => true ),
+				),
+			)
+		);
+		$descriptors = $router->get_descriptors();
+		$catalog     = JsAbilityCatalog::get_descriptors_by_name();
+
+		$this->assertCount( 1, $descriptors );
+		$this->assertSame( $catalog['sd-ai-agent-js/insert-block']['label'], $descriptors[0]['label'] );
+		$this->assertFalse( $descriptors[0]['annotations']['readonly'] );
+
+		$partition = $router->partition(
+			$this->create_mock_message(
+				array(
+					$this->create_mock_message_part(
+						'sd-ai-agent-js/insert-block',
+						'call-spoofed-insert',
+						array( 'blockName' => 'core/paragraph' )
+					)
+				)
+			),
+			$router->get_names()
+		);
+
+		$this->assertFalse( $partition['client'][0]['annotations']['readonly'] );
+	}
+
 	// ── partition_tool_calls tests ────────────────────────────────────────
 
 	/**

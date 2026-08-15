@@ -723,6 +723,80 @@ describe( 'actions', () => {
 		} );
 	} );
 
+	test( 'pollJob executes only server-confirmed mutating client abilities', async () => {
+		jest.useFakeTimers();
+		apiFetch.mockReset();
+		executeClientAbility.mockReset();
+		executeClientAbility.mockResolvedValue( { inserted: true } );
+		apiFetch.mockImplementation( ( request ) => {
+			if ( request.path === '/sd-ai-agent/v1/job/client-tool-job' ) {
+				return Promise.resolve( {
+					status: 'awaiting_client_tools',
+					pending_client_tool_calls: [
+						{
+							id: 'call-confirmed-insert',
+							name: 'sd-ai-agent-js/insert-block',
+							annotations: { readonly: false },
+							user_confirmed: true,
+							args: { blockName: 'core/paragraph' },
+						},
+						{
+							id: 'call-unconfirmed-insert',
+							name: 'sd-ai-agent-js/insert-block',
+							annotations: { readonly: false },
+							args: { blockName: 'core/image' },
+						},
+					],
+				} );
+			}
+
+			return Promise.resolve( {} );
+		} );
+
+		const dispatch = {
+			setCurrentJobId: jest.fn(),
+			setSessionJob: jest.fn(),
+		};
+		const select = {
+			getCurrentSessionId: jest.fn( () => 17 ),
+			getCurrentJobId: jest.fn( () => 'client-tool-job' ),
+		};
+
+		try {
+			actions.pollJob( 'client-tool-job', 17 )( { dispatch, select } );
+			await jest.advanceTimersByTimeAsync( 2000 );
+
+			expect( executeClientAbility ).toHaveBeenCalledTimes( 1 );
+			expect( executeClientAbility ).toHaveBeenCalledWith(
+				'sd-ai-agent-js/insert-block',
+				{ blockName: 'core/paragraph' }
+			);
+			expect( apiFetch ).toHaveBeenCalledWith( {
+				path: '/sd-ai-agent/v1/chat/tool-result',
+				method: 'POST',
+				data: {
+					session_id: 17,
+					job_id: 'client-tool-job',
+					tool_results: [
+						{
+							id: 'call-confirmed-insert',
+							name: 'sd-ai-agent-js/insert-block',
+							result: { inserted: true },
+						},
+						{
+							id: 'call-unconfirmed-insert',
+							name: 'sd-ai-agent-js/insert-block',
+							error: 'Client-side ability requires explicit user confirmation.',
+						},
+					],
+				},
+			} );
+		} finally {
+			jest.clearAllTimers();
+			jest.useRealTimers();
+		}
+	} );
+
 	test( 'pollJob posts a timeout error when a client ability never resolves', async () => {
 		jest.useFakeTimers();
 		apiFetch.mockReset();

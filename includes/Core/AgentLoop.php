@@ -266,6 +266,22 @@ PROMPT;
 	/** @var list<string> Ability names approved for one resumed confirmation turn. */
 	private array $approved_once_abilities = array();
 
+	/** @var array<string, mixed> Serialized assistant message that produced the pending confirmation batch. */
+	private array $confirmation_message = array();
+
+	/** @var list<array<string, mixed>>|null Serialized history before the pending confirmation batch. */
+	private ?array $confirmation_history_before = null;
+
+	/**
+	 * Derived source-turn policy state retained across server-owned resumes.
+	 *
+	 * @var array{requires_clarification: bool, allows_explicit_draft_proposal: bool}
+	 */
+	private array $mutation_policy_context = array(
+		'requires_clarification'         => true,
+		'allows_explicit_draft_proposal' => false,
+	);
+
 	/** @var list<string> Anonymous public-chat ability allowlist for this run. */
 	private array $anonymous_allowed_abilities = array();
 
@@ -452,6 +468,19 @@ PROMPT;
 		$this->activity_sequence = $this->get_max_activity_sequence( $this->tool_call_log, $this->message_log );
 		// @phpstan-ignore-next-line -- Resumed confirmation state carries scalar ability names.
 		$this->approved_once_abilities = $this->normalize_ability_names( $options['approved_once_abilities'] ?? array() );
+		// Preserve the original unsplit assistant batch for a confirmed resume.
+		// Conversation history may split parallel tool calls for provider transport.
+		$raw_confirmation_message   = $options['confirmation_message'] ?? array();
+		$this->confirmation_message = is_array( $raw_confirmation_message )
+			? self::string_keyed_array( $raw_confirmation_message )
+			: array();
+
+		$raw_confirmation_history_before   = $options['confirmation_history_before'] ?? null;
+		$this->confirmation_history_before = self::normalize_serialized_history( $raw_confirmation_history_before );
+		$this->mutation_policy_context     = self::resolve_mutation_policy_context(
+			$this->user_message,
+			$options['mutation_policy_context'] ?? null
+		);
 		// @phpstan-ignore-next-line -- Public-chat options are scalar string lists.
 		$this->anonymous_allowed_abilities = $this->normalize_ability_names( $options['anonymous_allowed_abilities'] ?? array() );
 		// @phpstan-ignore-next-line -- Public-chat options are scalar string lists.
@@ -521,7 +550,9 @@ PROMPT;
 		// ToolPermissionResolver encapsulates yolo_mode and tool_permissions.
 		$this->permission_resolver = new ToolPermissionResolver(
 			$this->yolo_mode,
-			$this->tool_permissions
+			$this->tool_permissions,
+			$this->mutation_policy_context['requires_clarification'],
+			$this->mutation_policy_context['allows_explicit_draft_proposal']
 		);
 
 		// SpinDetector tracks consecutive identical tool-call rounds.
@@ -757,13 +788,58 @@ PROMPT;
 			ProviderCredentialLoader::load();
 
 			if ( $confirmed ) {
-				// The last message in history is the model's tool call message.
-				$assistant_message     = end( $this->history );
+				// The persisted batch preserves parallel calls that history may split
+				// into separate ModelMessages for OpenAI-compatible providers. Fall
+				// back to legacy history for confirmation jobs created before this state
+				// was added.
+				$assistant_message = $this->get_confirmation_message();
+				if ( ! $assistant_message instanceof Message ) {
+					$assistant_message = end( $this->history );
+				}
+				if ( ! $assistant_message instanceof Message ) {
+					return new WP_Error(
+						'sd_ai_agent_invalid_confirmation_state',
+						__( 'The pending confirmation state is invalid. Please retry the request.', 'superdav-ai-agent' )
+					);
+				}
+				$client_names = $this->client_router->get_names();
+
+				// A confirmation can cover a mixed PHP/browser response. Execute only
+				// the approved PHP calls and return browser calls to the client instead
+				// of sending their no-op stubs through the PHP ability resolver.
+				if ( ! empty( $client_names ) ) {
+					$partition = $this->partition_tool_calls( $assistant_message, $client_names );
+					if ( ! empty( $partition['client'] ) ) {
+						$partition['client'] = $this->mark_user_confirmed_client_tool_calls( $partition['client'] );
+						if ( ! empty( $partition['php'] ) ) {
+							$php_message           = ClientAbilityRouter::build_message_from_parts( $assistant_message, $partition['php'] );
+							$this->last_loop_phase = 'executing_confirmed_abilities';
+							ToolPermissionResolver::set_one_turn_approved_abilities( $this->approved_once_abilities );
+							ChangeLogger::begin( $this->session_id, 'confirmed-tool' );
+							try {
+								$response_message = $this->execute_abilities( $php_message );
+								/** @var \WordPress\AiClient\Messages\DTO\Message $response_message */
+							} finally {
+								ChangeLogger::end();
+								ToolPermissionResolver::clear_one_turn_approved_abilities();
+							}
+							$this->last_loop_phase = 'confirmed_ability_response_received';
+							// Truncate then split for OpenAI-compatible providers.
+							$truncated_message = self::truncate_tool_results( $response_message );
+							$this->append_tool_response_to_history( $truncated_message );
+							$this->log_tool_responses( $truncated_message );
+						}
+
+						$this->last_loop_phase = 'confirmed_client_tools_pending';
+						return $this->pause_for_client_tools( $partition, $remaining_iterations );
+					}
+				}
+
 				$this->last_loop_phase = 'executing_confirmed_abilities';
 				ToolPermissionResolver::set_one_turn_approved_abilities( $this->approved_once_abilities );
 				ChangeLogger::begin( $this->session_id, 'confirmed-tool' );
 				try {
-					$response_message = $this->get_ability_resolver()->execute_abilities( $assistant_message );
+					$response_message = $this->execute_abilities( $assistant_message );
 					/** @var \WordPress\AiClient\Messages\DTO\Message $response_message */
 				} finally {
 					ChangeLogger::end();
@@ -775,8 +851,18 @@ PROMPT;
 				$this->append_tool_response_to_history( $truncated_message );
 				$this->log_tool_responses( $truncated_message );
 			} else {
-				// Remove the model's tool call message and tell the model the call was rejected.
-				array_pop( $this->history );
+				// Remove the entire model tool-call batch and tell the model the call
+				// was rejected. Parallel function calls may have been split into
+				// several ModelMessages for provider transport, so a single pop would
+				// leave unpaired calls in the resumed history.
+				$history_before = $this->get_confirmation_history_before();
+				if ( null !== $history_before ) {
+					$this->history = $history_before;
+				} else {
+					// Backward compatibility for jobs created before the snapshot was
+					// stored. Those jobs used the previous one-message representation.
+					array_pop( $this->history );
+				}
 				$this->history[] = new UserMessage(
 					array(
 						new MessagePart(
@@ -1055,10 +1141,187 @@ PROMPT;
 		if ( $this->page_completion_gate->is_required() ) {
 			$payload['page_quality_completion'] = $this->page_completion_gate->get_status();
 		}
+		$payload['mutation_policy_context'] = $this->mutation_policy_context;
+
 		if ( $this->rendered_output_evidence_gate->get_status()['required'] ) {
 			$payload['rendered_output_evidence'] = $this->rendered_output_evidence_gate->get_status();
 		}
 		return $payload;
+	}
+
+	/**
+	 * Resolve source-turn mutation policy state for a fresh or resumed loop.
+	 *
+	 * A resumed loop has no new user message. Its server-owned context must be
+	 * carried forward so a vague request cannot become permissive after a
+	 * confirmation, browser-tool, or checkpoint boundary. Missing legacy state
+	 * defaults to clarification required rather than bypassing the policy.
+	 *
+	 * @param string $user_message   New user message, if this is a fresh turn.
+	 * @param mixed  $resume_context Persisted source-turn policy candidate.
+	 * @return array{requires_clarification: bool, allows_explicit_draft_proposal: bool}
+	 */
+	private static function resolve_mutation_policy_context( string $user_message, $resume_context ): array {
+		if ( '' !== trim( $user_message ) ) {
+			return array(
+				'requires_clarification'         => SystemInstructionBuilder::requires_clarification_before_mutation( $user_message ),
+				'allows_explicit_draft_proposal' => SystemInstructionBuilder::explicitly_requests_draft_proposal( $user_message ),
+			);
+		}
+
+		if (
+			is_array( $resume_context )
+			&& isset( $resume_context['requires_clarification'], $resume_context['allows_explicit_draft_proposal'] )
+			&& is_bool( $resume_context['requires_clarification'] )
+			&& is_bool( $resume_context['allows_explicit_draft_proposal'] )
+		) {
+			return array(
+				'requires_clarification'         => $resume_context['requires_clarification'],
+				'allows_explicit_draft_proposal' => $resume_context['allows_explicit_draft_proposal'],
+			);
+		}
+
+		return array(
+			'requires_clarification'         => true,
+			'allows_explicit_draft_proposal' => false,
+		);
+	}
+
+	/**
+	 * Restore the original assistant tool-call batch from trusted pause state.
+	 *
+	 * @return Message|null Original unsplit assistant message, when valid.
+	 */
+	private function get_confirmation_message(): ?Message {
+		if ( empty( $this->confirmation_message ) ) {
+			return null;
+		}
+
+		try {
+			$message = Message::fromArray( $this->confirmation_message );
+		} catch ( \Throwable $e ) {
+			return null;
+		}
+
+		return $this->message_has_function_calls( $message ) ? $message : null;
+	}
+
+	/**
+	 * Restore the history from immediately before a pending confirmation batch.
+	 *
+	 * @return list<Message>|null
+	 */
+	private function get_confirmation_history_before(): ?array {
+		if ( null === $this->confirmation_history_before ) {
+			return null;
+		}
+
+		try {
+			return ConversationSerializer::deserialize( $this->confirmation_history_before );
+		} catch ( \Throwable $e ) {
+			return null;
+		}
+	}
+
+	/**
+	 * Normalize a serialized history candidate from resumable job state.
+	 *
+	 * @param mixed $raw Serialized history candidate.
+	 * @return list<array<string, mixed>>|null
+	 */
+	private static function normalize_serialized_history( $raw ): ?array {
+		if ( ! is_array( $raw ) ) {
+			return null;
+		}
+
+		$history = array();
+		foreach ( $raw as $message ) {
+			if ( ! is_array( $message ) ) {
+				return null;
+			}
+			$history[] = self::string_keyed_array( $message );
+		}
+
+		return $history;
+	}
+
+	/**
+	 * Mark browser calls that were included in the approved confirmation batch.
+	 *
+	 * This server-generated flag lets the browser execute a mutating client
+	 * ability only after the authenticated confirmation endpoint accepted the
+	 * user's approval. Calls that were merely read-only remain unmarked.
+	 *
+	 * @param list<array<string, mixed>> $client_calls Pending client calls.
+	 * @return list<array<string, mixed>>
+	 */
+	private function mark_user_confirmed_client_tool_calls( array $client_calls ): array {
+		$approved = array_fill_keys( $this->approved_once_abilities, true );
+		$marked   = array();
+
+		foreach ( $client_calls as $call ) {
+			$name = (string) ( $call['name'] ?? '' );
+			if ( '' !== $name && isset( $approved[ $name ] ) ) {
+				$call['user_confirmed'] = true;
+			}
+			$marked[] = $call;
+		}
+
+		return $marked;
+	}
+
+	/**
+	 * Persist and return one browser-tool batch for execution by the client.
+	 *
+	 * @param array{php: list<MessagePart>, client: list<array<string, mixed>>} $partition            Partitioned tool calls.
+	 * @param int                                                               $iterations_remaining Remaining loop iterations.
+	 * @return array<string, mixed>
+	 */
+	private function pause_for_client_tools( array $partition, int $iterations_remaining ): array {
+		// Persist loop state so the resume endpoint can reconstruct it.
+		if ( $this->session_id > 0 ) {
+			$paused_state = array(
+				'history'                   => $this->serialize_history(),
+				'tool_call_log'             => $this->tool_call_log,
+				'message_log'               => $this->message_log,
+				'token_usage'               => $this->token_usage,
+				'mutation_policy_context'   => $this->mutation_policy_context,
+				'iterations_remaining'      => $iterations_remaining,
+				'model_id'                  => $this->model_id,
+				'provider_id'               => $this->provider_id,
+				'client_abilities'          => $this->client_abilities,
+				'agent_slug'                => $this->agent_slug,
+				'page_context'              => $this->checkpoint_page_context(),
+				// Bind the browser's resume payload to this exact paused batch.
+				'pending_client_tool_calls' => $partition['client'],
+			);
+			Database::save_paused_state( $this->session_id, $paused_state );
+		}
+
+		AgentEventLog::log(
+			'client_tools_pending',
+			AgentEventLog::SEVERITY_INFO,
+			$this->build_loop_event_context(
+				array(
+					'client_tool_count'  => count( $partition['client'] ),
+					'php_tool_count'     => count( $partition['php'] ),
+					'paused_state_saved' => $this->session_id > 0,
+					'reason'             => 'browser_tool_required',
+				)
+			)
+		);
+
+		return $this->with_paused_logs(
+			array(
+				'pending_client_tool_calls' => $partition['client'],
+				'history'                   => $this->serialize_history(),
+				'tool_call_log'             => $this->tool_call_log,
+				'token_usage'               => $this->token_usage,
+				'iterations_remaining'      => $iterations_remaining,
+				'iterations_used'           => $this->iterations_used,
+				'model_id'                  => $this->model_id,
+			)
+		);
 	}
 
 	/**
@@ -1167,6 +1430,7 @@ PROMPT;
 				'anonymous_allowed_abilities'   => self::checkpoint_ability_names( $this->anonymous_allowed_abilities ),
 				'anonymous_allowed_collections' => self::checkpoint_ability_names( $this->anonymous_allowed_collections ),
 				'anonymous_policy_active'       => $this->anonymous_policy_active,
+				'mutation_policy_context'       => $this->mutation_policy_context,
 			)
 		);
 	}
@@ -1635,8 +1899,9 @@ PROMPT;
 				continue;
 			}
 
-			$history_message = $assistant_message;
-			$reuse_plan      = $this->readonly_tool_cache->reuse( $assistant_message );
+			$history_message          = $assistant_message;
+			$history_before_assistant = $this->history;
+			$reuse_plan               = $this->readonly_tool_cache->reuse( $assistant_message );
 
 			// Split multi-part assistant messages so each function_call lives
 			// in its own ModelMessage. The OpenAI Responses API rejects
@@ -1792,6 +2057,28 @@ PROMPT;
 				continue;
 			}
 
+			$confirm_needed = $this->permission_resolver->get_tools_needing_confirmation( $assistant_message );
+
+			if ( ! empty( $confirm_needed ) ) {
+				$this->approved_once_abilities = $this->extract_pending_ability_names( $confirm_needed );
+
+				return $this->with_paused_logs(
+					array(
+						'awaiting_confirmation'       => true,
+						'pending_tools'               => $confirm_needed,
+						'approved_once_abilities'     => $this->approved_once_abilities,
+						'confirmation_message'        => $assistant_message->toArray(),
+						'confirmation_history_before' => ConversationSerializer::serialize( $history_before_assistant ),
+						'history'                     => $this->serialize_history(),
+						'tool_call_log'               => $this->tool_call_log,
+						'token_usage'                 => $this->token_usage,
+						'iterations_remaining'        => $iterations,
+						'iterations_used'             => $this->iterations_used,
+						'model_id'                    => $this->model_id,
+					)
+				);
+			}
+
 			// ── Client-side ability routing ───────────────────────────────
 			// Partition tool calls into PHP-executable and JS-pending sets.
 			// PHP calls execute inline; JS calls are returned as pending so
@@ -1807,7 +2094,7 @@ PROMPT;
 						$this->last_loop_phase = 'executing_client_partition_abilities';
 						ChangeLogger::begin( $this->session_id );
 						try {
-							$php_response = $this->get_ability_resolver()->execute_abilities( $php_message );
+							$php_response = $this->execute_abilities( $php_message );
 							/** @var \WordPress\AiClient\Messages\DTO\Message $php_response */
 						} finally {
 							ChangeLogger::end();
@@ -1818,80 +2105,18 @@ PROMPT;
 						$this->log_tool_responses( $truncated_php );
 					}
 
-					// Persist loop state so the resume endpoint can reconstruct it.
-					if ( $this->session_id > 0 ) {
-						$paused_state = array(
-							'history'                   => $this->serialize_history(),
-							'tool_call_log'             => $this->tool_call_log,
-							'message_log'               => $this->message_log,
-							'token_usage'               => $this->token_usage,
-							'iterations_remaining'      => $iterations,
-							'model_id'                  => $this->model_id,
-							'provider_id'               => $this->provider_id,
-							'client_abilities'          => $this->client_abilities,
-							'agent_slug'                => $this->agent_slug,
-							'page_context'              => $this->checkpoint_page_context(),
-							// Bind the browser's resume payload to this exact paused batch.
-							'pending_client_tool_calls' => $partition['client'],
-						);
-						Database::save_paused_state( $this->session_id, $paused_state );
-					}
-
-					AgentEventLog::log(
-						'client_tools_pending',
-						AgentEventLog::SEVERITY_INFO,
-						$this->build_loop_event_context(
-							array(
-								'client_tool_count'  => count( $partition['client'] ),
-								'php_tool_count'     => count( $partition['php'] ),
-								'paused_state_saved' => $this->session_id > 0,
-								'reason'             => 'browser_tool_required',
-							)
-						)
-					);
-
-					// Return pending client tool calls to the browser.
-					return $this->with_paused_logs(
-						array(
-							'pending_client_tool_calls' => $partition['client'],
-							'history'                   => $this->serialize_history(),
-							'tool_call_log'             => $this->tool_call_log,
-							'token_usage'               => $this->token_usage,
-							'iterations_remaining'      => $iterations,
-							'iterations_used'           => $this->iterations_used,
-							'model_id'                  => $this->model_id,
-						)
-					);
+					$this->last_loop_phase = 'client_tools_pending';
+					return $this->pause_for_client_tools( $partition, $iterations );
 				}
 			}
 			// ── End client-side routing ───────────────────────────────────
-
-			$confirm_needed = $this->permission_resolver->get_tools_needing_confirmation( $assistant_message );
-
-			if ( ! empty( $confirm_needed ) ) {
-				$this->approved_once_abilities = $this->extract_pending_ability_names( $confirm_needed );
-
-				return $this->with_paused_logs(
-					array(
-						'awaiting_confirmation'   => true,
-						'pending_tools'           => $confirm_needed,
-						'approved_once_abilities' => $this->approved_once_abilities,
-						'history'                 => $this->serialize_history(),
-						'tool_call_log'           => $this->tool_call_log,
-						'token_usage'             => $this->token_usage,
-						'iterations_remaining'    => $iterations,
-						'iterations_used'         => $this->iterations_used,
-						'model_id'                => $this->model_id,
-					)
-				);
-			}
 
 			// Execute the ability calls and get the function response message.
 			$this->save_active_job_checkpoint( self::CHECKPOINT_TOOL_EXECUTION_STARTED, $iterations );
 			$this->last_loop_phase = 'executing_abilities';
 			ChangeLogger::begin( $this->session_id );
 			try {
-				$response_message = $this->get_ability_resolver()->execute_abilities( $assistant_message );
+				$response_message = $this->execute_abilities( $assistant_message );
 				/** @var \WordPress\AiClient\Messages\DTO\Message $response_message */
 			} finally {
 				ChangeLogger::end();
@@ -1905,16 +2130,17 @@ PROMPT;
 				// Persist loop state so the resume endpoint can reconstruct it.
 				if ( $this->session_id > 0 ) {
 					$paused_state = array(
-						'history'              => $this->serialize_history(),
-						'tool_call_log'        => $this->tool_call_log,
-						'message_log'          => $this->message_log,
-						'token_usage'          => $this->token_usage,
-						'iterations_remaining' => $iterations,
-						'model_id'             => $this->model_id,
-						'provider_id'          => $this->provider_id,
-						'client_abilities'     => $this->client_abilities,
-						'agent_slug'           => $this->agent_slug,
-						'page_context'         => $this->checkpoint_page_context(),
+						'history'                 => $this->serialize_history(),
+						'tool_call_log'           => $this->tool_call_log,
+						'message_log'             => $this->message_log,
+						'token_usage'             => $this->token_usage,
+						'iterations_remaining'    => $iterations,
+						'model_id'                => $this->model_id,
+						'provider_id'             => $this->provider_id,
+						'client_abilities'        => $this->client_abilities,
+						'agent_slug'              => $this->agent_slug,
+						'page_context'            => $this->checkpoint_page_context(),
+						'mutation_policy_context' => $this->mutation_policy_context,
 					);
 					Database::save_paused_state( $this->session_id, $paused_state );
 				}
@@ -2800,21 +3026,24 @@ PROMPT;
 		}
 
 		if ( $this->session_id > 0 ) {
+			$paused_state = array(
+				'history'                 => $this->serialize_history(),
+				'tool_call_log'           => $this->tool_call_log,
+				'message_log'             => $this->message_log,
+				'token_usage'             => $this->token_usage,
+				'model_id'                => $this->model_id,
+				'provider_id'             => $this->provider_id,
+				'client_abilities'        => $this->client_abilities,
+				'agent_slug'              => $this->agent_slug,
+				'page_context'            => $this->checkpoint_page_context(),
+				'iterations_remaining'    => max( 1, (int) $this->max_iterations - $this->iterations_used ),
+				'exit_reason'             => 'provider_retry_failed',
+				'mutation_policy_context' => $this->mutation_policy_context,
+			);
+
 			Database::save_paused_state(
 				$this->session_id,
-				[
-					'history'              => $this->serialize_history(),
-					'tool_call_log'        => $this->tool_call_log,
-					'message_log'          => $this->message_log,
-					'token_usage'          => $this->token_usage,
-					'model_id'             => $this->model_id,
-					'provider_id'          => $this->provider_id,
-					'client_abilities'     => $this->client_abilities,
-					'agent_slug'           => $this->agent_slug,
-					'page_context'         => $this->checkpoint_page_context(),
-					'iterations_remaining' => max( 1, (int) $this->max_iterations - $this->iterations_used ),
-					'exit_reason'          => 'provider_retry_failed',
-				]
+				$paused_state
 			);
 		}
 
@@ -3036,14 +3265,15 @@ PROMPT;
 		$history    = $recovery_history ?? $this->history;
 
 		$defaults = array(
-			'tool_calls'       => $this->tool_call_log,
-			'token_usage'      => $this->token_usage,
-			'iterations_used'  => $this->iterations_used,
-			'model_id'         => $this->model_id,
-			'provider_id'      => $this->provider_id,
-			'history'          => ConversationSerializer::serialize( $history ),
-			'client_abilities' => $this->client_abilities,
-			'recoverable'      => true,
+			'tool_calls'              => $this->tool_call_log,
+			'token_usage'             => $this->token_usage,
+			'iterations_used'         => $this->iterations_used,
+			'model_id'                => $this->model_id,
+			'provider_id'             => $this->provider_id,
+			'history'                 => ConversationSerializer::serialize( $history ),
+			'client_abilities'        => $this->client_abilities,
+			'recoverable'             => true,
+			'mutation_policy_context' => $this->mutation_policy_context,
 		);
 
 		foreach ( $defaults as $key => $value ) {
@@ -3622,6 +3852,19 @@ PROMPT;
 			$this->ability_resolver = new AbilityFunctionResolver( ...$abilities );
 		}
 		return $this->ability_resolver;
+	}
+
+	/**
+	 * Execute server-side abilities for one model tool-call message.
+	 *
+	 * Kept behind a protected seam so deterministic loop tests can exercise
+	 * mixed PHP/client confirmation without a live provider or SDK resolver.
+	 *
+	 * @param Message $message Model tool-call message.
+	 * @return Message Tool-response message.
+	 */
+	protected function execute_abilities( Message $message ): Message {
+		return $this->get_ability_resolver()->execute_abilities( $message );
 	}
 
 	// ── Tool call logging ─────────────────────────────────────────────────
@@ -4691,6 +4934,7 @@ PROMPT;
 					'tool_call_log'             => $this->tool_call_log,
 					'message_log'               => $this->message_log,
 					'token_usage'               => $this->token_usage,
+					'mutation_policy_context'   => $this->mutation_policy_context,
 					'iterations_remaining'      => $iterations,
 					'model_id'                  => $this->model_id,
 					'provider_id'               => $this->provider_id,

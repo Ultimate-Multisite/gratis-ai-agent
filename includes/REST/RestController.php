@@ -597,17 +597,19 @@ Assistant: %s',
 		$iterations_remaining = (int) ( $paused_state['iterations_remaining'] ?? 100 );
 
 		// Reconstruct the AgentLoop with the persisted state.
-		$options            = array(
-			'tool_call_log'    => $paused_state['tool_call_log'] ?? array(),
-			'message_log'      => $paused_state['message_log'] ?? array(),
-			'token_usage'      => $paused_state['token_usage'] ?? array(
+		$options = array(
+			'tool_call_log'           => $paused_state['tool_call_log'] ?? array(),
+			'message_log'             => $paused_state['message_log'] ?? array(),
+			'token_usage'             => $paused_state['token_usage'] ?? array(
 				'prompt'     => 0,
 				'completion' => 0,
 			),
-			'session_id'       => $session_id,
-			'client_abilities' => $paused_state['client_abilities'] ?? array(),
-			'page_context'     => $paused_state['page_context'] ?? array(),
+			'session_id'              => $session_id,
+			'client_abilities'        => $paused_state['client_abilities'] ?? array(),
+			'page_context'            => $paused_state['page_context'] ?? array(),
+			'mutation_policy_context' => $paused_state['mutation_policy_context'] ?? array(),
 		);
+
 		$paused_provider_id = trim( (string) ( $paused_state['provider_id'] ?? '' ) );
 		$paused_model_id    = trim( (string) ( $paused_state['model_id'] ?? '' ) );
 		if ( '' !== $paused_provider_id ) {

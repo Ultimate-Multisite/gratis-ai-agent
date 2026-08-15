@@ -2668,6 +2668,7 @@ final class SessionController {
 					?? $params['provider_id']
 					?? '' ),
 				'client_abilities'              => $client_abilities,
+				'mutation_policy_context'       => $error_data['mutation_policy_context'] ?? array(),
 				'anonymous_allowed_abilities'   => $options['anonymous_allowed_abilities'] ?? array(),
 				'anonymous_allowed_collections' => $options['anonymous_allowed_collections'] ?? array(),
 				'anonymous_policy_active'       => ! empty( $options['anonymous_policy_active'] ),
@@ -3574,6 +3575,8 @@ final class SessionController {
 					'completion' => 0,
 				);
 
+				$resume_options['mutation_policy_context'] = is_array( $state ) ? ( $state['mutation_policy_context'] ?? array() ) : array();
+
 				$loop   = new AgentLoop( '', array(), $resume_history, $resume_options );
 				$result = $loop->resume_from_checkpoint( (int) ( is_array( $state ) ? ( $state['iterations_remaining'] ?? 100 ) : 100 ) );
 			} elseif ( $is_resume ) {
@@ -3596,6 +3599,12 @@ final class SessionController {
 				);
 				// @phpstan-ignore-next-line
 				$resume_options['approved_once_abilities'] = $state['approved_once_abilities'] ?? array();
+				// @phpstan-ignore-next-line -- Stored by AgentLoop from the original, unsplit assistant batch.
+				$resume_options['confirmation_message'] = $state['confirmation_message'] ?? array();
+				// @phpstan-ignore-next-line -- Stored by AgentLoop before it splits parallel tool calls for transport.
+				$resume_options['confirmation_history_before'] = $state['confirmation_history_before'] ?? null;
+				// @phpstan-ignore-next-line -- Stored by AgentLoop from the originating user turn.
+				$resume_options['mutation_policy_context'] = $state['mutation_policy_context'] ?? array();
 
 				$loop = new AgentLoop( '', array(), $resume_history, $resume_options );
 				// Fallback to 100 matches the rest of the codebase
@@ -3719,15 +3728,18 @@ final class SessionController {
 			$job['pending_tools']      = $result['pending_tools'] ?? array();
 			$job['messages']           = $result['message_log'] ?? array();
 			$job['confirmation_state'] = array(
-				'history'                 => $result['history'] ?? array(),
-				'tool_call_log'           => $result['tool_call_log'] ?? array(),
-				'message_log'             => $result['message_log'] ?? array(),
-				'token_usage'             => $result['token_usage'] ?? array(
+				'history'                     => $result['history'] ?? array(),
+				'tool_call_log'               => $result['tool_call_log'] ?? array(),
+				'message_log'                 => $result['message_log'] ?? array(),
+				'token_usage'                 => $result['token_usage'] ?? array(
 					'prompt'     => 0,
 					'completion' => 0,
 				),
-				'approved_once_abilities' => $result['approved_once_abilities'] ?? array(),
-				'iterations_remaining'    => $result['iterations_remaining'] ?? 5,
+				'approved_once_abilities'     => $result['approved_once_abilities'] ?? array(),
+				'confirmation_message'        => $result['confirmation_message'] ?? array(),
+				'confirmation_history_before' => $result['confirmation_history_before'] ?? null,
+				'mutation_policy_context'     => $result['mutation_policy_context'] ?? array(),
+				'iterations_remaining'        => $result['iterations_remaining'] ?? 5,
 			);
 			// Keep token and params for the resume flow.
 			unset( $job['token'] );
