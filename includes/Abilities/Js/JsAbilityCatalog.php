@@ -66,7 +66,7 @@ class JsAbilityCatalog {
 			array(
 				'name'          => 'sd-ai-agent-js/refresh-page',
 				'label'         => 'Refresh Current Page',
-				'description'   => 'Refresh the current browser page while preserving the open AI Agent widget and current session. Use after site changes that did not return an affected descriptor for live preview.',
+				'description'   => 'Schedule a refresh of the current browser page while preserving the open AI Agent widget and current session. Use after site changes that did not return an affected descriptor for live preview. This is navigation only, not rendered-output validation; capture or inspect the refreshed page before claiming visual verification.',
 				'category'      => 'sd-ai-agent-js',
 				'input_schema'  => array(
 					'type'       => 'object',

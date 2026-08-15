@@ -311,6 +311,89 @@ class AgentLoopClientToolsTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * Tier-2 navigate calls route through the browser callback while preserving
+	 * their outer ability-call identity for the tool-result resume contract.
+	 */
+	public function test_partition_routes_nested_navigate_call_to_browser(): void {
+		$admin_id = self::factory()->user->create( array( 'role' => 'administrator' ) );
+		wp_set_current_user( $admin_id );
+
+		$loop = new AgentLoop(
+			'test',
+			array(),
+			array(),
+			array(
+				'client_abilities' => array(
+					array(
+						'name'  => 'sd-ai-agent-js/navigate-to',
+						'label' => 'Navigate to Admin Page',
+					),
+				),
+			)
+		);
+
+		$reflection = new \ReflectionClass( $loop );
+		$method     = $reflection->getMethod( 'partition_tool_calls' );
+		$method->setAccessible( true );
+		$call = $this->create_mock_message_part(
+			'sd-ai-agent/ability-call',
+			'call-navigate',
+			array(
+				'ability'   => 'sd-ai-agent/navigate',
+				'arguments' => array( 'url' => '/' ),
+			)
+		);
+
+		$result = $method->invoke( $loop, $this->create_mock_message( array( $call ) ), array( 'sd-ai-agent-js/navigate-to' ) );
+
+		$this->assertCount( 0, $result['php'] );
+		$this->assertCount( 1, $result['client'] );
+		$this->assertSame( 'sd-ai-agent/ability-call', $result['client'][0]['name'] );
+		$this->assertSame( 'sd-ai-agent-js/navigate-to', $result['client'][0]['client_name'] );
+		$this->assertSame( array( 'url' => home_url( '/' ) ), $result['client'][0]['args'] );
+	}
+
+	/**
+	 * Invalid nested navigation URLs remain server-side so NavigateAbility can
+	 * return its normal validation error instead of bypassing that contract.
+	 */
+	public function test_partition_does_not_route_invalid_nested_navigate_url(): void {
+		$admin_id = self::factory()->user->create( array( 'role' => 'administrator' ) );
+		wp_set_current_user( $admin_id );
+
+		$loop = new AgentLoop(
+			'test',
+			array(),
+			array(),
+			array(
+				'client_abilities' => array(
+					array(
+						'name'  => 'sd-ai-agent-js/navigate-to',
+						'label' => 'Navigate to Admin Page',
+					),
+				),
+			)
+		);
+
+		$reflection = new \ReflectionClass( $loop );
+		$method     = $reflection->getMethod( 'partition_tool_calls' );
+		$method->setAccessible( true );
+		$call = $this->create_mock_message_part(
+			'sd-ai-agent/ability-call',
+			'call-external-navigation',
+			array(
+				'ability'   => 'sd-ai-agent/navigate',
+				'arguments' => array( 'url' => 'https://example.com/' ),
+			)
+		);
+
+		$result = $method->invoke( $loop, $this->create_mock_message( array( $call ) ), array( 'sd-ai-agent-js/navigate-to' ) );
+
+		$this->assertCount( 1, $result['php'] );
+		$this->assertCount( 0, $result['client'] );
+	}
+
+	/**
 	 * partition_tool_calls() returns all parts as PHP when no client names match.
 	 */
 	public function test_partition_tool_calls_all_php_when_no_match(): void {
@@ -659,6 +742,96 @@ class AgentLoopClientToolsTest extends WP_UnitTestCase {
 		$this->assertStringNotContainsString( 'DONE', $reply );
 	}
 
+	/** A refresh acknowledgement cannot support a rendered-success claim after a file write. */
+	public function test_file_write_then_refresh_replaces_unsupported_rendered_success_claim(): void {
+		$loop = new AgentLoop(
+			'test',
+			array(),
+			array(),
+			array(
+				'client_abilities' => array(
+					array( 'name' => 'sd-ai-agent-js/refresh-page' ),
+				),
+			)
+		);
+		$gate = $this->get_rendered_output_evidence_gate( $loop );
+		$gate->record_tool_call( 'sd-ai-agent/file-write', array( 'path' => 'themes/example/templates/single.html' ) );
+		$gate->record_tool_response( 'sd-ai-agent/file-write', array( 'success' => true ) );
+		$gate->record_tool_call( 'sd-ai-agent-js/refresh-page', array() );
+		$gate->record_tool_response( 'sd-ai-agent-js/refresh-page', array( 'refresh_scheduled' => true ) );
+
+		$method = ( new \ReflectionClass( $loop ) )->getMethod( 'append_rendered_output_evidence_notice' );
+		$method->setAccessible( true );
+		$reply = (string) $method->invoke( $loop, 'I checked the rendered page and the complete article is visible.' );
+
+		$this->assertStringContainsString( 'remains unverified', $reply );
+		$this->assertStringContainsString( 'Browser verification was unavailable', $reply );
+		$this->assertStringNotContainsString( 'complete article is visible', $reply );
+	}
+
+	/** A screenshot returned after a file write supports the later rendered-success claim. */
+	public function test_file_write_then_refresh_then_screenshot_preserves_rendered_success_claim(): void {
+		$loop = new AgentLoop(
+			'test',
+			array(),
+			array(),
+			array(
+				'client_abilities' => array(
+					array( 'name' => 'sd-ai-agent-js/refresh-page' ),
+					array( 'name' => 'sd-ai-agent-js/capture-screenshot' ),
+				),
+			)
+		);
+		$gate = $this->get_rendered_output_evidence_gate( $loop );
+		$gate->record_tool_call( 'sd-ai-agent/file-write', array( 'path' => 'themes/example/templates/single.html' ) );
+		$gate->record_tool_response( 'sd-ai-agent/file-write', array( 'success' => true ) );
+		$gate->record_tool_call( 'sd-ai-agent-js/refresh-page', array() );
+		$gate->record_tool_response( 'sd-ai-agent-js/refresh-page', array( 'refresh_scheduled' => true ) );
+		$gate->record_tool_call( 'sd-ai-agent-js/capture-screenshot', array() );
+		$gate->record_tool_response( 'sd-ai-agent-js/capture-screenshot', array( 'success' => true, 'image' => 'data:image/jpeg;base64,abc' ) );
+
+		$method = ( new \ReflectionClass( $loop ) )->getMethod( 'append_rendered_output_evidence_notice' );
+		$method->setAccessible( true );
+		$reply = 'I checked the rendered page and the complete article is visible.';
+
+		$this->assertSame( $reply, $method->invoke( $loop, $reply ) );
+	}
+
+	/** Tier-2 file mutations invoked through ability-call still require evidence. */
+	public function test_nested_file_mutation_cannot_bypass_rendered_evidence_gate(): void {
+		$loop = new AgentLoop( 'test', array(), array(), array() );
+		$gate = $this->get_rendered_output_evidence_gate( $loop );
+		$gate->record_tool_call(
+			'sd-ai-agent/ability-call',
+			array(
+				'ability'   => 'sd-ai-agent/file-edit',
+				'arguments' => array( 'path' => 'themes/example/templates/single.html' ),
+			)
+		);
+		$gate->record_tool_response(
+			'sd-ai-agent/ability-call',
+			array(
+				'ability' => 'sd-ai-agent/file-edit',
+				'success' => true,
+				'result'  => array( 'success' => true ),
+			)
+		);
+
+		$this->assertTrue( $gate->get_status()['required'] );
+		$this->assertTrue( $gate->blocks_rendered_claim( 'I visually verified the rendered page.' ) );
+	}
+
+	/** Theme-style mutations receive the same post-render evidence requirement. */
+	public function test_theme_style_mutation_requires_rendered_evidence(): void {
+		$loop = new AgentLoop( 'test', array(), array(), array() );
+		$gate = $this->get_rendered_output_evidence_gate( $loop );
+		$gate->record_tool_call( 'sd-ai-agent/update-global-styles', array( 'styles' => array( 'color' => array() ) ) );
+		$gate->record_tool_response( 'sd-ai-agent/update-global-styles', array( 'success' => true ) );
+
+		$this->assertTrue( $gate->get_status()['required'] );
+		$this->assertTrue( $gate->blocks_rendered_claim( 'I checked the rendered site.' ) );
+	}
+
 	/** Server-directed page validation uses exact gate-owned preview arguments. */
 	public function test_page_quality_dispatch_does_not_depend_on_model_arguments(): void {
 		$loop = new AgentLoop(
@@ -735,6 +908,13 @@ class AgentLoopClientToolsTest extends WP_UnitTestCase {
 		$part->method( 'getFunctionCall' )->willReturn( $call );
 
 		return $part;
+	}
+
+	/** Return the focused rendered-output gate from an AgentLoop instance. */
+	private function get_rendered_output_evidence_gate( AgentLoop $loop ): object {
+		$property = ( new \ReflectionClass( $loop ) )->getProperty( 'rendered_output_evidence_gate' );
+		$property->setAccessible( true );
+		return $property->getValue( $loop );
 	}
 
 	/**

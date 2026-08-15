@@ -128,6 +128,8 @@ class SystemInstructionBuilderTest extends WP_UnitTestCase {
 		$this->assertStringContainsString( '`affected` descriptor', $instruction );
 		$this->assertStringContainsString( 'sd-ai-agent-js/refresh-page', $instruction );
 		$this->assertStringContainsString( 'preserving the open widget and current session', $instruction );
+		$this->assertStringContainsString( 'not evidence that the changed output rendered', $instruction );
+		$this->assertStringContainsString( 'rendered result remains unverified', $instruction );
 	}
 
 	/**
