@@ -12,6 +12,11 @@ Content passed to `sd-ai-agent/create-post` or `sd-ai-agent/update-post` must be
 
 **NEVER mix raw markdown with block markup.** Mixed content renders incorrectly.
 
+An ATX heading at the start of a line (for example, `## Section heading`) is
+enough to identify Markdown content. Pass heading-only outlines and a single
+heading followed by plain paragraphs directly to the post abilities; they are
+converted to `core/heading` and `core/paragraph` blocks.
+
 ## Quick diagnostic — symptom → fix
 
 | Symptom or error | Fix |

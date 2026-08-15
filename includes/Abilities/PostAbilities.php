@@ -124,7 +124,7 @@ class PostAbilities {
 						],
 						'content'           => [
 							'type'        => 'string',
-							'description' => 'The post content. Write in markdown (headings with ##, lists with -, bold with **) or HTML — markdown is automatically converted to Gutenberg blocks.',
+							'description' => 'The post content. Write in markdown (headings with ##, lists with -, bold with **) or HTML — markdown is automatically converted to Gutenberg blocks. A single Markdown heading with plain paragraphs is supported.',
 						],
 						'excerpt'           => [
 							'type'        => 'string',
@@ -216,7 +216,7 @@ class PostAbilities {
 						],
 						'content'               => [
 							'type'        => 'string',
-							'description' => 'New post content.',
+							'description' => 'New post content. Markdown, including a single heading with plain paragraphs, is automatically converted to Gutenberg blocks.',
 						],
 						'excerpt'               => [
 							'type'        => 'string',
@@ -2179,7 +2179,7 @@ class PostAbilities {
 		// Check for markdown signals.
 		$markdown_signals = self::count_markdown_signals( $content );
 
-		if ( $markdown_signals < 2 ) {
+		if ( $markdown_signals < 2 && ! self::has_atx_heading( $content ) ) {
 			return $content;
 		}
 
@@ -2195,7 +2195,7 @@ class PostAbilities {
 	private static function count_markdown_signals( string $text ): int {
 		$signals = 0;
 
-		if ( preg_match( '/^#{1,6}\s+\S/m', $text ) ) {
+		if ( self::has_atx_heading( $text ) ) {
 			++$signals;
 		}
 		if ( preg_match( '/\*{1,2}[^*\n]+\*{1,2}/', $text ) || preg_match( '/_{1,2}[^_\n]+_{1,2}/', $text ) ) {
@@ -2215,6 +2215,16 @@ class PostAbilities {
 		}
 
 		return $signals;
+	}
+
+	/**
+	 * Determine whether text contains an ATX heading at the start of a line.
+	 *
+	 * @param string $text Text to check for a Markdown heading.
+	 * @return bool Whether the text contains an ATX heading.
+	 */
+	private static function has_atx_heading( string $text ): bool {
+		return 1 === preg_match( '/^#{1,6}\s+\S/m', $text );
 	}
 
 	/**

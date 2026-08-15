@@ -248,6 +248,9 @@ PROMPT;
 	/** @var string Last coarse loop phase for shutdown diagnostics. */
 	private string $last_loop_phase = 'initializing';
 
+	/** @var string Safe provider trace phase for the current request scope. */
+	private string $provider_trace_phase = 'initial_provider_call';
+
 	/** @var int Maximum attempts for retryable provider failures. */
 	private int $provider_retry_max_attempts = self::PROVIDER_RETRY_MAX_ATTEMPTS;
 
@@ -326,6 +329,9 @@ PROMPT;
 
 	/** @var SpinDetector Tracks consecutive identical tool-call rounds. */
 	private SpinDetector $spin_detector;
+
+	/** @var RunLocalReadonlyToolCache Reuses safe local readonly calls within this run. */
+	private RunLocalReadonlyToolCache $readonly_tool_cache;
 
 	/** @var ClientAbilityRouter Partitions tool calls to PHP or JS handlers. */
 	private ClientAbilityRouter $client_router;
@@ -516,7 +522,8 @@ PROMPT;
 		);
 
 		// SpinDetector tracks consecutive identical tool-call rounds.
-		$this->spin_detector = new SpinDetector();
+		$this->spin_detector       = new SpinDetector();
+		$this->readonly_tool_cache = new RunLocalReadonlyToolCache();
 
 		// ClientAbilityRouter validates and routes client-side ability calls.
 		// @phpstan-ignore-next-line
@@ -964,8 +971,10 @@ PROMPT;
 		try {
 			$this->apply_anonymous_mode_context();
 			$this->apply_page_preview_context();
+			$this->provider_trace_phase = 'client_tool_resume';
 			return $this->run_loop( $remaining_iterations );
 		} finally {
+			$this->provider_trace_phase = 'initial_provider_call';
 			$this->clear_anonymous_mode_context();
 			$this->clear_page_preview_context();
 			AgentEventLog::clear_session();
@@ -979,7 +988,11 @@ PROMPT;
 	 * @return array<string, mixed>
 	 */
 	private function with_result_logs( array $payload ): array {
-		$payload['messages'] = $this->message_log;
+		$payload['messages']        = $this->message_log;
+		$payload['run_diagnostics'] = array_merge(
+			$this->readonly_tool_cache->get_diagnostics(),
+			array( 'cumulative_prompt_tokens' => (int) ( $this->token_usage['prompt'] ?? 0 ) )
+		);
 		if ( $this->generated_theme_completion_gate->is_required() ) {
 			$payload['generated_theme_completion'] = $this->generated_theme_completion_gate->get_status();
 		}
@@ -1019,8 +1032,12 @@ PROMPT;
 	 * @return array<string, mixed>
 	 */
 	private function with_paused_logs( array $payload ): array {
-		$payload['message_log'] = $this->message_log;
-		$payload['messages']    = $this->message_log;
+		$payload['message_log']     = $this->message_log;
+		$payload['messages']        = $this->message_log;
+		$payload['run_diagnostics'] = array_merge(
+			$this->readonly_tool_cache->get_diagnostics(),
+			array( 'cumulative_prompt_tokens' => (int) ( $this->token_usage['prompt'] ?? 0 ) )
+		);
 		if ( $this->generated_theme_completion_gate->is_required() ) {
 			$payload['generated_theme_completion'] = $this->generated_theme_completion_gate->get_status();
 		}
@@ -1604,12 +1621,15 @@ PROMPT;
 				continue;
 			}
 
+			$history_message = $assistant_message;
+			$reuse_plan      = $this->readonly_tool_cache->reuse( $assistant_message );
+
 			// Split multi-part assistant messages so each function_call lives
 			// in its own ModelMessage. The OpenAI Responses API rejects
 			// "function_call + other part" shapes (see
 			// ConversationSerializer::append_assistant_message for the full
 			// rationale and provider-side validator reference).
-			$this->append_assistant_message_to_history( $assistant_message );
+			$this->append_assistant_message_to_history( $history_message );
 			$this->save_active_job_checkpoint( self::CHECKPOINT_PROVIDER_RESPONSE_RECORDED, $iterations );
 
 			// Check if the model wants to call tools.
@@ -1726,7 +1746,22 @@ PROMPT;
 			$last_was_tool_call = true;
 
 			// Log tool calls and check for confirmation requirement.
-			$this->log_tool_calls( $assistant_message );
+			$this->log_tool_calls( $history_message );
+			if ( null !== $reuse_plan['reused'] ) {
+				$this->append_tool_response_to_history( $reuse_plan['reused'] );
+				$this->log_tool_responses( $reuse_plan['reused'] );
+				$this->message_log[] = array(
+					'type'     => 'event',
+					'reason'   => 'repeated_readonly_tool_calls_reused',
+					'count'    => $reuse_plan['count'],
+					'sequence' => $this->next_activity_sequence(),
+				);
+				$this->history[]     = new UserMessage(
+					array( new MessagePart( __( 'Do not repeat unchanged local file inspections. Synthesize the results already in this conversation or name the specific missing information needed to continue.', 'superdav-ai-agent' ) ) )
+				);
+			}
+
+			$assistant_message = $reuse_plan['execute'];
 
 			$empty_global_styles_guard = $this->build_empty_global_styles_guard_response( $assistant_message );
 			if ( null !== $empty_global_styles_guard ) {
@@ -1734,6 +1769,11 @@ PROMPT;
 				$this->log_tool_responses( $empty_global_styles_guard );
 				$this->inject_empty_global_styles_update_guidance();
 				$this->last_loop_phase = 'empty_global_styles_update_guarded';
+				continue;
+			}
+
+			if ( ! $this->message_has_function_calls( $assistant_message ) ) {
+				$this->last_loop_phase = 'reused_readonly_tool_results';
 				continue;
 			}
 
@@ -1883,6 +1923,7 @@ PROMPT;
 			$truncated_message = self::truncate_tool_results( $response_message );
 			$this->append_tool_response_to_history( $truncated_message );
 			$this->log_tool_responses( $truncated_message );
+			$this->readonly_tool_cache->record( $history_message, $truncated_message );
 			$this->last_loop_phase = 'tool_response_recorded';
 			$this->save_active_job_checkpoint( self::CHECKPOINT_TOOL_RESPONSE_RECORDED, $iterations );
 
@@ -2368,8 +2409,12 @@ PROMPT;
 			$builder->with_history( ...$this->history );
 		}
 
-		$started_at = microtime( true );
-		$last_error = null;
+		$started_at               = microtime( true );
+		$last_error               = null;
+		$last_retry_after_seconds = null;
+		$backoff_delays           = array();
+		$request_envelope         = array();
+		$status_code              = 0;
 
 		for ( $attempt = 1; $attempt <= $this->provider_retry_max_attempts; ++$attempt ) {
 			$request_envelope = array();
@@ -2407,7 +2452,9 @@ PROMPT;
 				break;
 			}
 
-			$delay = $this->get_provider_retry_delay( $attempt, $last_error );
+			$delay                    = $this->get_provider_retry_delay( $attempt, $last_error );
+			$last_retry_after_seconds = $this->extract_retry_after_seconds( $last_error );
+			$backoff_delays[]         = $delay;
 			$this->log_provider_retry_progress( $status_code, $attempt + 1, $delay );
 
 			if ( $delay > 0 ) {
@@ -2416,7 +2463,32 @@ PROMPT;
 		}
 
 		$elapsed_seconds = max( 0, (int) round( microtime( true ) - $started_at ) );
+		ProviderTraceLogger::record_retry_exhausted_failure(
+			$provider_id,
+			$model_id,
+			$last_error,
+			$status_code,
+			$this->provider_retry_max_attempts,
+			(int) round( ( microtime( true ) - $started_at ) * 1000 ),
+			$last_retry_after_seconds,
+			$backoff_delays,
+			$this->get_provider_trace_phase(),
+			$this->session_id,
+			$this->active_job_id,
+			$request_envelope
+		);
 		return $this->build_provider_retry_failed_error( $last_error, $elapsed_seconds );
+	}
+
+	/** Return the bounded provider invocation phase stored in terminal traces. */
+	private function get_provider_trace_phase(): string {
+		if ( 'client_tool_resume' === $this->provider_trace_phase ) {
+			return 'client_tool_resume';
+		}
+
+		return 'provider_followup_call' === $this->last_loop_phase
+			? 'provider_followup_call'
+			: 'initial_provider_call';
 	}
 
 	/**

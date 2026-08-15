@@ -619,6 +619,96 @@ class ProviderTraceLogger {
 		AgentEventLog::log( 'provider_model_discovery_failed', AgentEventLog::SEVERITY_ERROR, $context );
 	}
 
+	/**
+	 * Persist one bounded terminal trace for a retry-exhausted provider call.
+	 *
+	 * WordPress's HTTP response filter does not run when a transport returns a
+	 * WP_Error, and SDK exceptions do not dispatch an After event. This summary
+	 * deliberately records the invocation rather than another raw request: it
+	 * gives operators one correlated failure row without retaining a prompt,
+	 * provider error message, URL, header, or credential.
+	 *
+	 * @param string                    $provider_id         Runtime provider ID.
+	 * @param string                    $model_id            Runtime model ID.
+	 * @param \WP_Error|\Throwable|null $error               Last provider error.
+	 * @param int                       $status_code         HTTP status, or 0 when unavailable.
+	 * @param int                       $attempts            Total attempts in this invocation.
+	 * @param int                       $elapsed_ms          Total invocation elapsed time.
+	 * @param int|null                  $retry_after_seconds Retry-After from the last response, if available.
+	 * @param array<int>                $backoff_delays      Delays applied before retries.
+	 * @param string                    $phase               Safe invocation phase.
+	 * @param int                       $session_id          Correlating chat session, if any.
+	 * @param string                    $job_id              Correlating background job, if any.
+	 * @param array<string, int|string> $request_metrics     Prompt-free full-envelope measurements.
+	 */
+	public static function record_retry_exhausted_failure(
+		string $provider_id,
+		string $model_id,
+		$error,
+		int $status_code,
+		int $attempts,
+		int $elapsed_ms,
+		?int $retry_after_seconds,
+		array $backoff_delays,
+		string $phase,
+		int $session_id = 0,
+		string $job_id = '',
+		array $request_metrics = array()
+	): void {
+		if ( ! ProviderTrace::is_enabled() ) {
+			return;
+		}
+
+		$allowed_phases = array( 'initial_provider_call', 'client_tool_resume', 'provider_followup_call' );
+		if ( ! in_array( $phase, $allowed_phases, true ) ) {
+			$phase = 'initial_provider_call';
+		}
+
+		$metrics = array(
+			'request_size_class' => 'unknown',
+		);
+		foreach ( array( 'request_bytes', 'request_tokens_estimate', 'request_provider_limit_bytes', 'request_budget_bytes', 'request_safety_margin_bytes' ) as $key ) {
+			if ( isset( $request_metrics[ $key ] ) && is_numeric( $request_metrics[ $key ] ) ) {
+				$metrics[ $key ] = max( 0, (int) $request_metrics[ $key ] );
+			}
+		}
+		if ( isset( $request_metrics['request_size_class'] ) && is_string( $request_metrics['request_size_class'] ) ) {
+			$metrics['request_size_class'] = sanitize_key( $request_metrics['request_size_class'] );
+		}
+
+		$diagnostics = array(
+			'event'                  => 'provider_retry_exhausted',
+			'error_code'             => ProviderErrorClassifier::get_safe_error_code( $error, $status_code ),
+			'attempts'               => max( 1, $attempts ),
+			'elapsed_ms'             => max( 0, $elapsed_ms ),
+			'phase'                  => $phase,
+			'session_id'             => max( 0, $session_id ),
+			'backoff_delays_seconds' => array_values( array_map( static fn( $delay ): int => min( 60, max( 0, (int) $delay ) ), array_slice( $backoff_delays, 0, 10 ) ) ),
+		);
+		if ( null !== $retry_after_seconds ) {
+			$diagnostics['retry_after_seconds'] = min( 60, max( 0, $retry_after_seconds ) );
+		}
+		if ( '' !== $job_id ) {
+			$diagnostics['job_id'] = sanitize_text_field( $job_id );
+		}
+
+		ProviderTrace::insert(
+			array(
+				'provider_id'      => sanitize_key( $provider_id ),
+				'model_id'         => sanitize_text_field( $model_id ),
+				'url'              => '',
+				'method'           => 'SDK',
+				'status_code'      => max( 0, $status_code ),
+				'duration_ms'      => max( 0, $elapsed_ms ),
+				'request_headers'  => '{}',
+				'request_body'     => (string) wp_json_encode( $metrics ),
+				'response_headers' => '{}',
+				'response_body'    => (string) wp_json_encode( $diagnostics ),
+				'error'            => (string) $diagnostics['error_code'],
+			)
+		);
+	}
+
 	/** Classify request size without retaining request content. */
 	public static function classify_request_size( int $request_bytes ): string {
 		if ( $request_bytes < 65536 ) {

@@ -179,6 +179,10 @@ class StockImageAbility extends \SdAiAgent\Abilities\AbstractAbility {
 					'items' => [ 'type' => 'string' ],
 				],
 				// Shared.
+				'success'         => [
+					'type'        => 'boolean',
+					'description' => 'Whether the requested search or import completed. An import is unsuccessful when attachment_id is 0 or url is empty.',
+				],
 				'error'           => [ 'type' => 'string' ],
 				'tip'             => [ 'type' => 'string' ],
 			],
@@ -292,6 +296,7 @@ class StockImageAbility extends \SdAiAgent\Abilities\AbstractAbility {
 
 		if ( ! $has_free ) {
 			$response = [
+				'success'       => false,
 				'attachment_id' => 0,
 				'url'           => '',
 				'alt'           => '',
@@ -316,6 +321,7 @@ class StockImageAbility extends \SdAiAgent\Abilities\AbstractAbility {
 
 		if ( is_wp_error( $result ) ) {
 			$response = [
+				'success'       => false,
 				'attachment_id' => 0,
 				'url'           => '',
 				'alt'           => '',
@@ -331,7 +337,12 @@ class StockImageAbility extends \SdAiAgent\Abilities\AbstractAbility {
 			return $response;
 		}
 
-		$result['tip'] = 'Use attachment_id as featured_image_id when calling create-post or update-post.';
+		if ( ! $this->has_usable_import_result( $result ) ) {
+			return $this->invalid_import_response( $can_generate );
+		}
+
+		$result['success'] = true;
+		$result['tip']     = 'Use attachment_id as featured_image_id when calling create-post or update-post.';
 
 		return $result;
 	}
@@ -360,12 +371,14 @@ class StockImageAbility extends \SdAiAgent\Abilities\AbstractAbility {
 			return [
 				'candidates' => [],
 				'total'      => 0,
+				'success'    => false,
 				'error'      => $result->get_error_message(),
 				'tip'        => 'Call again with action=import and image_id + provider to import a specific image.',
 			];
 		}
 
-		$result['tip'] = 'Present these candidates to the user, then call again with action=import and image_id + provider to import the selected image.';
+		$result['success'] = true;
+		$result['tip']     = 'Present these candidates to the user, then call again with action=import and image_id + provider to import the selected image.';
 
 		return $result;
 	}
@@ -394,19 +407,19 @@ class StockImageAbility extends \SdAiAgent\Abilities\AbstractAbility {
 		string $site_url,
 		string $usage
 	): array {
-		$options = [
+		$options      = [
 			'site_url' => $site_url,
 			'keyword'  => $keyword,
 			'usage'    => $usage,
 		];
+		$can_generate = function_exists( 'wp_ai_client_prompt' )
+			&& wp_ai_client_prompt()->is_supported_for_image_generation();
 
 		$result = ImageSourceFactory::import_by_provider_id( $provider, $image_id, $width, $height, $options );
 
 		if ( is_wp_error( $result ) ) {
-			$can_generate = function_exists( 'wp_ai_client_prompt' )
-				&& wp_ai_client_prompt()->is_supported_for_image_generation();
-
 			$response = [
+				'success'       => false,
 				'attachment_id' => 0,
 				'url'           => '',
 				'alt'           => '',
@@ -421,8 +434,49 @@ class StockImageAbility extends \SdAiAgent\Abilities\AbstractAbility {
 			return $response;
 		}
 
-		$result['tip'] = 'Use attachment_id as featured_image_id when calling create-post or update-post.';
+		if ( ! $this->has_usable_import_result( $result ) ) {
+			return $this->invalid_import_response( $can_generate );
+		}
+
+		$result['success'] = true;
+		$result['tip']     = 'Use attachment_id as featured_image_id when calling create-post or update-post.';
 
 		return $result;
+	}
+
+	/**
+	 * Determine whether an image import returned usable local media fields.
+	 *
+	 * @param array<string, mixed> $result Import result.
+	 * @return bool Whether the result has a local attachment ID and URL.
+	 */
+	private function has_usable_import_result( array $result ): bool {
+		return (int) ( $result['attachment_id'] ?? 0 ) > 0
+			&& '' !== trim( (string) ( $result['url'] ?? '' ) );
+	}
+
+	/**
+	 * Return the standard failure response for an incomplete import result.
+	 *
+	 * @param bool $can_generate Whether the image-generation fallback is available.
+	 * @return array<string, mixed> Import failure response.
+	 */
+	private function invalid_import_response( bool $can_generate ): array {
+		$response = [
+			'success'       => false,
+			'attachment_id' => 0,
+			'url'           => '',
+			'alt'           => '',
+			'title'         => '',
+			'source'        => '',
+			'attribution'   => '',
+			'error'         => 'The image import did not return a usable local attachment and URL.',
+		];
+
+		if ( $can_generate ) {
+			$response['tip'] = 'Use sd-ai-agent/generate-image to create an AI-generated image instead.';
+		}
+
+		return $response;
 	}
 }
