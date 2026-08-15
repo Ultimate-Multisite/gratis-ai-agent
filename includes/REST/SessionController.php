@@ -2770,7 +2770,7 @@ final class SessionController {
 	private function get_history_append_offset( array $full_history, array $existing_messages ): int {
 		$common_prefix = 0;
 		foreach ( $full_history as $index => $row ) {
-			if ( ! isset( $existing_messages[ $index ] ) || ! $this->recovery_rows_are_semantically_equal( $existing_messages[ $index ], $row ) ) {
+			if ( ! isset( $existing_messages[ $index ] ) || ! is_array( $existing_messages[ $index ] ) || ! $this->recovery_rows_are_semantically_equal( $existing_messages[ $index ], $row ) ) {
 				break;
 			}
 
