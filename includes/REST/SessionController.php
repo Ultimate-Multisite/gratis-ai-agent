@@ -69,6 +69,17 @@ final class SessionController {
 	/** Public anonymous chat HMAC purpose string. */
 	private const PUBLIC_CHAT_TOKEN_PURPOSE = 'public_chat_session_v1';
 
+	/**
+	 * Per-message transport attribution that does not alter conversation meaning.
+	 *
+	 * Recovery payloads can be serialized before or after turn attribution is
+	 * added. Keep this list deliberately narrow: roles, ordered parts, function
+	 * IDs, and their payloads must remain part of message identity.
+	 *
+	 * @var list<string>
+	 */
+	private const RECOVERY_TRANSPORT_METADATA = array( 'provider_id', 'model_id' );
+
 	/** @var Database Injected database dependency. */
 	private Database $database;
 
@@ -2727,14 +2738,19 @@ final class SessionController {
 		if ( ! is_array( $existing_messages ) ) {
 			$existing_messages = array();
 		}
+		$existing_tool_calls = json_decode( (string) $session->tool_calls, true );
+		if ( ! is_array( $existing_tool_calls ) ) {
+			$existing_tool_calls = array();
+		}
 
-		$append_offset = $this->get_history_append_offset( $full_history, $existing_messages );
-		$appended      = array_slice( $full_history, $append_offset );
-		if ( empty( $appended ) && empty( $tool_calls ) ) {
+		$append_offset  = $this->get_history_append_offset( $full_history, $existing_messages );
+		$appended       = array_slice( $full_history, $append_offset );
+		$new_tool_calls = $this->get_unpersisted_recovery_rows( $tool_calls, $existing_tool_calls );
+		if ( empty( $appended ) && empty( $new_tool_calls ) ) {
 			return true;
 		}
 
-		return $this->database->append_to_session( $session_id, array_values( $appended ), $tool_calls );
+		return $this->database->append_to_session( $session_id, array_values( $appended ), $new_tool_calls );
 	}
 
 	/**
@@ -2754,7 +2770,7 @@ final class SessionController {
 	private function get_history_append_offset( array $full_history, array $existing_messages ): int {
 		$common_prefix = 0;
 		foreach ( $full_history as $index => $row ) {
-			if ( ! isset( $existing_messages[ $index ] ) || $existing_messages[ $index ] !== $row ) {
+			if ( ! isset( $existing_messages[ $index ] ) || ! $this->recovery_rows_are_semantically_equal( $existing_messages[ $index ], $row ) ) {
 				break;
 			}
 
@@ -2766,12 +2782,104 @@ final class SessionController {
 		}
 
 		foreach ( $full_history as $index => $row ) {
-			if ( ! in_array( $row, $existing_messages, true ) ) {
+			if ( ! $this->recovery_row_exists( $row, $existing_messages ) ) {
 				return $index;
 			}
 		}
 
 		return count( $full_history );
+	}
+
+	/**
+	 * Return recovery rows that have not already been persisted.
+	 *
+	 * Tool-call entries are a separate append-only log from history. Filtering
+	 * against the persisted log makes a replay of the same recovery payload
+	 * idempotent without globally deduplicating conversation messages.
+	 *
+	 * @param list<array<string, mixed>> $recovery_rows Recovery rows to append.
+	 * @param array<mixed>               $persisted_rows Existing stored rows.
+	 * @return list<array<string, mixed>>
+	 */
+	private function get_unpersisted_recovery_rows( array $recovery_rows, array $persisted_rows ): array {
+		$unpersisted = array();
+		foreach ( $recovery_rows as $row ) {
+			if ( ! $this->recovery_row_exists( $row, $persisted_rows ) ) {
+				$unpersisted[] = $row;
+			}
+		}
+
+		return $unpersisted;
+	}
+
+	/**
+	 * Check whether a canonical recovery row exists in a list of persisted rows.
+	 *
+	 * @param array<string, mixed> $needle Candidate row.
+	 * @param array<mixed>         $haystack Persisted rows.
+	 * @return bool
+	 */
+	private function recovery_row_exists( array $needle, array $haystack ): bool {
+		foreach ( $haystack as $row ) {
+			if ( is_array( $row ) && $this->recovery_rows_are_semantically_equal( $needle, $row ) ) {
+				return true;
+			}
+		}
+
+		return false;
+	}
+
+	/**
+	 * Compare serialized recovery rows by conversation semantics.
+	 *
+	 * Only provider/model attribution is transport metadata. All other fields,
+	 * including role, ordered parts, function-call/result IDs, and payloads,
+	 * remain part of the canonical value.
+	 *
+	 * @param array<string, mixed> $left First serialized row.
+	 * @param array<string, mixed> $right Second serialized row.
+	 * @return bool
+	 */
+	private function recovery_rows_are_semantically_equal( array $left, array $right ): bool {
+		return $this->canonicalize_recovery_row( $left ) === $this->canonicalize_recovery_row( $right );
+	}
+
+	/**
+	 * Remove documented transport metadata and normalize associative-key order.
+	 *
+	 * @param array<string, mixed> $row Serialized message or tool-call row.
+	 * @return array<string, mixed>
+	 */
+	private function canonicalize_recovery_row( array $row ): array {
+		foreach ( self::RECOVERY_TRANSPORT_METADATA as $metadata_key ) {
+			unset( $row[ $metadata_key ] );
+		}
+
+		/** @var array<string, mixed> $canonical */
+		$canonical = $this->canonicalize_recovery_value( $row );
+		return $canonical;
+	}
+
+	/**
+	 * Canonicalize array keys without changing ordered conversation lists.
+	 *
+	 * @param mixed $value Serialized field value.
+	 * @return mixed
+	 */
+	private function canonicalize_recovery_value( mixed $value ): mixed {
+		if ( ! is_array( $value ) ) {
+			return $value;
+		}
+
+		foreach ( $value as $key => $entry ) {
+			$value[ $key ] = $this->canonicalize_recovery_value( $entry );
+		}
+
+		if ( ! array_is_list( $value ) ) {
+			ksort( $value );
+		}
+
+		return $value;
 	}
 
 	/**
