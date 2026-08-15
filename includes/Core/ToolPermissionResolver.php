@@ -28,19 +28,23 @@ class ToolPermissionResolver {
 	 * @param bool                     $yolo_mode        When true, skip all confirmations.
 	 * @param array<int|string, mixed> $tool_permissions Tool permission levels from settings.
 	 * @param bool                     $requiresMutationClarification Whether the current prompt lacks an actionable objective.
+	 * @param bool                     $allowsExplicitDraftProposal   Whether the user explicitly requested a draft proposal.
 	 */
 	public function __construct(
 		private bool $yolo_mode = false,
 		private array $tool_permissions = array(),
 		// phpcs:ignore WordPress.NamingConventions.ValidVariableName.VariableNotSnakeCase -- Project property naming guidance requires camelCase.
-		private bool $requiresMutationClarification = false
+		private bool $requiresMutationClarification = false,
+		// phpcs:ignore WordPress.NamingConventions.ValidVariableName.VariableNotSnakeCase -- Project property naming guidance requires camelCase.
+		private bool $allowsExplicitDraftProposal = false
 	) {}
 
 	/**
 	 * Check which tool calls in an assistant message require user confirmation.
 	 *
 	 * Permission resolution order (first match wins):
-	 * 1. An underspecified request → require confirmation for every mutation.
+	 * 1. An underspecified request → require confirmation for every mutation,
+	 *    except a user-requested, explicitly identified create-post draft proposal.
 	 * 2. YOLO mode → skip all other confirmations.
 	 * 3. Explicit tool_permissions setting:
 	 *    - confirm → require confirmation.
@@ -93,10 +97,13 @@ class ToolPermissionResolver {
 			$confirmation_ability_id = self::get_confirmation_ability_id( $ability_name, $args, $all_abilities );
 			$ability                 = $all_abilities[ $confirmation_ability_id ] ?? null;
 			$ability                 = $ability instanceof \WP_Ability ? $ability : null;
+			$is_explicit_draft       = $this->allowsExplicitDraftProposal
+				&& self::is_explicit_draft_creation( $ability_name, $confirmation_ability_id, $args );
 
 			$requires_clarification = $this->requiresMutationClarification
 				&& $ability instanceof \WP_Ability
-				&& 'read' !== self::classify_ability( $ability );
+				&& 'read' !== self::classify_ability( $ability )
+				&& ! $is_explicit_draft;
 
 			if ( $requires_clarification || self::ability_needs_confirmation( $confirmation_ability_id, $ability, $this->tool_permissions ) ) {
 				$confirm[] = array(
@@ -265,6 +272,32 @@ class ToolPermissionResolver {
 		}
 
 		return isset( $all_abilities[ $target ] ) ? $target : $ability_name;
+	}
+
+	/**
+	 * Whether a user-requested proposal call deliberately creates a private draft.
+	 *
+	 * A create-post handler defaults an omitted status to draft, but an omitted
+	 * value is not an explicit bounded proposal. The caller additionally gates
+	 * this on user-supplied draft/proposal intent, so model-supplied arguments
+	 * alone cannot bypass the underspecified-request confirmation boundary.
+	 *
+	 * @param string               $ability_name            Direct ability ID.
+	 * @param string               $confirmation_ability_id Target ability ID.
+	 * @param array<string, mixed> $args                    Normalized direct call arguments.
+	 */
+	private static function is_explicit_draft_creation( string $ability_name, string $confirmation_ability_id, array $args ): bool {
+		if ( 'sd-ai-agent/create-post' !== $confirmation_ability_id ) {
+			return false;
+		}
+
+		$creation_args = $args;
+		if ( 'sd-ai-agent/ability-call' === $ability_name ) {
+			$creation_args = self::normalize_function_call_args( $args['arguments'] ?? array() );
+		}
+
+		$status = $creation_args['status'] ?? null;
+		return is_string( $status ) && 'draft' === strtolower( trim( $status ) );
 	}
 
 	/**

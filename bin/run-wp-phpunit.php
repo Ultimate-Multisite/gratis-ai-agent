@@ -135,6 +135,11 @@ $phpunit_bin = sd_ai_agent_phpunit_binary($plugin_dir);
 $php_args    = preg_split('/\s+/', sd_ai_agent_env('PHPUNIT_PHP_ARGS') ?? '', -1, PREG_SPLIT_NO_EMPTY) ?: array();
 $phpunit_args = array_slice($argv, 1);
 
+// pnpm forwards its script argument separator to the underlying command.
+if (isset($phpunit_args[0]) && '--' === $phpunit_args[0]) {
+	array_shift($phpunit_args);
+}
+
 if (str_starts_with($phpunit_bin, $plugin_dir . '/vendor/bin/')) {
 	$command = sd_ai_agent_shell_command(array_merge(array(PHP_BINARY), $php_args, array($phpunit_bin), $phpunit_args));
 } else {

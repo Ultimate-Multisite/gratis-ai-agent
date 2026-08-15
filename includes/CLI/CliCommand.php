@@ -277,6 +277,11 @@ class CliCommand extends \WP_CLI_Command {
 				'completion' => 0,
 			];
 
+			$resume_options['approved_once_abilities']     = $result['approved_once_abilities'] ?? [];
+			$resume_options['confirmation_message']        = $result['confirmation_message'] ?? [];
+			$resume_options['confirmation_history_before'] = $result['confirmation_history_before'] ?? null;
+			$resume_options['mutation_policy_context']     = $result['mutation_policy_context'] ?? [];
+
 			$loop   = new AgentLoop( '', $abilities, $history, $resume_options );
 			$result = $loop->resume_after_confirmation( true, $remaining );
 		}

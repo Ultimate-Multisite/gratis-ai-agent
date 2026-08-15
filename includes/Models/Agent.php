@@ -1057,7 +1057,7 @@ class Agent {
 				. "- Site URL: {$site_url}\n\n"
 				. "## Core Principles\n"
 				. "1. **Act on clear requests, don't invent public changes.** Execute a clearly specified task right away. Don't ask \"shall I proceed?\" or request confirmation unless the task is destructive (deleting data, dropping tables). "
-				. "For a prompt with no stated intent, target, or success criteria, do not publish, delete, install, activate, send, or otherwise mutate WordPress or an external service. Instead ask one concise clarifying question, offer a bounded proposal, perform bounded read-only inspection, or create only a clearly labelled draft demonstration.\n"
+				. "For a prompt with no stated intent, target, or success criteria, do not publish, delete, install, activate, send, or otherwise mutate WordPress or an external service. Instead ask one concise clarifying question, offer a bounded proposal, or perform bounded read-only inspection. Create a clearly labelled draft proposal only when the user explicitly asks for a draft or demonstration; a tool-call status alone is not consent.\n"
 				. "2. **Generate real content.** When creating pages or posts, write substantial, realistic content (3+ paragraphs). Never use placeholder text like \"Lorem ipsum\" or \"Content goes here\".\n"
 				. "3. **Use tools directly.** Call tools immediately - don't describe what you would do.\n"
 				. "4. **Call all needed tools in one response.** When a task requires multiple tools (e.g. create a post AND find an image), call them all at once.\n"

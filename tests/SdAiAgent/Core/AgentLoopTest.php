@@ -61,7 +61,7 @@ use WP_Error;
 use WP_UnitTestCase;
 
 /** Deterministic provider boundary used to exercise recovery without credentials. */
-final class ScriptedAgentLoop extends AgentLoop {
+class ScriptedAgentLoop extends AgentLoop {
 
 	/** @var list<GenerativeAiResult|WP_Error> */
 	private array $scriptedResults;
@@ -112,6 +112,34 @@ final class ScriptedAgentLoop extends AgentLoop {
 		}
 
 		return new WP_Error( 'sd_ai_agent_test_script_exhausted', 'Scripted provider results exhausted.' );
+	}
+}
+
+/** Scripted server-tool boundary used for deterministic mixed-resume coverage. */
+final class ScriptedAbilityAgentLoop extends ScriptedAgentLoop {
+
+	/** @var list<Message> */
+	public array $executedAbilityMessages = array();
+
+	private Message $scriptedAbilityResponse;
+
+	/**
+	 * @param string                            $user_message             User prompt.
+	 * @param string[]                          $abilities                Enabled abilities.
+	 * @param Message[]                         $history                  Prior history.
+	 * @param array<string, mixed>              $options                  Agent options.
+	 * @param list<GenerativeAiResult|WP_Error> $results                  Scripted provider results.
+	 * @param Message                           $scripted_ability_response Server tool response.
+	 */
+	public function __construct( string $user_message, array $abilities, array $history, array $options, array $results, Message $scripted_ability_response ) {
+		$this->scriptedAbilityResponse = $scripted_ability_response;
+		parent::__construct( $user_message, $abilities, $history, $options, $results );
+	}
+
+	/** Record the PHP partition without constructing an SDK ability resolver. */
+	protected function execute_abilities( Message $message ): Message {
+		$this->executedAbilityMessages[] = $message;
+		return $this->scriptedAbilityResponse;
 	}
 }
 
@@ -2370,12 +2398,202 @@ class AgentLoopTest extends WP_UnitTestCase {
 		$this->assertStringNotContainsString( 'ability_not_allowed', wp_json_encode( $result ) ?: '' );
 	}
 
+	/** Confirmed browser-only calls must not be sent through the PHP resolver. */
+	public function test_confirmation_resume_returns_confirmed_client_call_to_browser(): void {
+		$catalog = JsAbilityCatalog::get_descriptors_by_name();
+		$loop    = new ScriptedAgentLoop(
+			'',
+			array(),
+			array(
+				new UserMessage( array( new MessagePart( 'Insert a block after approval.' ) ) ),
+				new ModelMessage(
+					array(
+						new MessagePart(
+							new FunctionCall(
+								'call_confirmed_insert',
+								'sd-ai-agent-js/insert-block',
+								array( 'blockName' => 'core/paragraph' )
+							)
+						)
+					)
+				),
+			),
+			array(
+				'approved_once_abilities' => array( 'sd-ai-agent-js/insert-block' ),
+				'client_abilities'        => array( $catalog['sd-ai-agent-js/insert-block'] ),
+			),
+			array()
+		);
+
+		$result = $loop->resume_after_confirmation( true, 1 );
+
+		$this->assertIsArray( $result );
+		$this->assertSame( 'sd-ai-agent-js/insert-block', $result['pending_client_tool_calls'][0]['name'] );
+		$this->assertFalse( $result['pending_client_tool_calls'][0]['annotations']['readonly'] );
+		$this->assertTrue( $result['pending_client_tool_calls'][0]['user_confirmed'] ?? false );
+	}
+
 	/**
-	 * A valid browser-result continuation after a confirmed server ability must
-	 * continue the same turn rather than treating the paused model tool call as
-	 * a malformed assistant-ended history.
+	 * A confirmed mixed response executes only the PHP partition, persists the
+	 * browser call, and continues after its result without a live provider.
 	 */
-	public function test_confirmation_then_client_tool_continuation_completes_without_new_user_turn(): void {
+	public function test_confirmation_resume_partitions_mixed_server_and_client_calls_without_provider(): void {
+		$catalog        = JsAbilityCatalog::get_descriptors_by_name();
+		$history_before = array(
+			new UserMessage( array( new MessagePart( 'Save this, then insert a paragraph after approval.' ) ) ),
+		);
+		$confirmation_message = new ModelMessage(
+			array(
+				new MessagePart(
+					new FunctionCall(
+						'call_confirmed_memory',
+						'wpab__sd-ai-agent__memory-save',
+						array( 'category' => 'general', 'content' => 'Confirmed mixed call.' )
+					)
+				),
+				new MessagePart(
+					new FunctionCall(
+						'call_confirmed_insert',
+						'wpab__sd-ai-agent-js__insert-block',
+						array( 'blockName' => 'core/paragraph' )
+					)
+				),
+			)
+		);
+		$history = $history_before;
+		ConversationSerializer::append_assistant_message( $history, $confirmation_message );
+		$persisted_history = ConversationSerializer::serialize( $history );
+		$this->assertCount( 3, $persisted_history );
+		$server_response = new UserMessage(
+			array(
+				new MessagePart(
+					new FunctionResponse(
+						'call_confirmed_memory',
+						'wpab__sd-ai-agent__memory-save',
+						wp_json_encode( array( 'saved' => true ) ) ?: '{}'
+					)
+				)
+			)
+		);
+		$loop            = new ScriptedAbilityAgentLoop(
+			'',
+			array(),
+			ConversationSerializer::deserialize( $persisted_history ),
+			array(
+				'provider_id'             => 'scripted-provider',
+				'model_id'                => 'scripted-model',
+				'approved_once_abilities' => array( 'sd-ai-agent/memory-save', 'sd-ai-agent-js/insert-block' ),
+				'client_abilities'        => array( $catalog['sd-ai-agent-js/insert-block'] ),
+				'confirmation_message'    => $confirmation_message->toArray(),
+				'confirmation_history_before' => ConversationSerializer::serialize( $history_before ),
+			),
+			array(),
+			$server_response
+		);
+
+		$paused = $loop->resume_after_confirmation( true, 4 );
+
+		$this->assertIsArray( $paused );
+		$this->assertCount( 1, $loop->executedAbilityMessages );
+		$this->assertCount( 1, $loop->executedAbilityMessages[0]->getParts() );
+		$this->assertSame(
+			'wpab__sd-ai-agent__memory-save',
+			$loop->executedAbilityMessages[0]->getParts()[0]->getFunctionCall()->getName()
+		);
+		$this->assertSame( 'sd-ai-agent-js/insert-block', $paused['pending_client_tool_calls'][0]['name'] );
+		$this->assertFalse( $paused['pending_client_tool_calls'][0]['annotations']['readonly'] );
+		$this->assertTrue( $paused['pending_client_tool_calls'][0]['user_confirmed'] ?? false );
+
+		$continuation_loop = new ScriptedAgentLoop(
+			'',
+			array(),
+			ConversationSerializer::deserialize( $paused['history'] ),
+			array(
+				'provider_id'      => 'scripted-provider',
+				'model_id'         => 'scripted-model',
+				'client_abilities' => array( $catalog['sd-ai-agent-js/insert-block'] ),
+			),
+			array( $this->create_scripted_result( 'Mixed confirmation completed.' ) )
+		);
+		$result            = $continuation_loop->resume_after_client_tools(
+			array(
+				array(
+					'id'     => 'call_confirmed_insert',
+					'name'   => 'sd-ai-agent-js/insert-block',
+					'result' => array( 'inserted' => true ),
+				)
+			),
+			(int) $paused['iterations_remaining']
+		);
+
+		$this->assertIsArray( $result );
+		$this->assertSame( 'Mixed confirmation completed.', $result['reply'] );
+		$this->assertCount( 1, $continuation_loop->requestSizes );
+	}
+
+	/** Rejection must discard every transport-split call in a confirmation batch. */
+	public function test_confirmation_rejection_discards_entire_split_tool_batch_without_provider(): void {
+		$history_before = array(
+			new UserMessage( array( new MessagePart( 'Make a change after approval.' ) ) ),
+		);
+		$history        = $history_before;
+		ConversationSerializer::append_assistant_message(
+			$history,
+			new ModelMessage(
+				array(
+					new MessagePart(
+						new FunctionCall(
+							'call_rejected_server',
+							'wpab__sd-ai-agent__memory-save',
+							array( 'category' => 'general', 'content' => 'Do not save.' )
+						)
+					),
+					new MessagePart(
+						new FunctionCall(
+							'call_rejected_client',
+							'wpab__sd-ai-agent-js__insert-block',
+							array( 'blockName' => 'core/paragraph' )
+						)
+					),
+				)
+			)
+		);
+		$this->assertCount( 3, $history );
+		$loop = new ScriptedAgentLoop(
+			'',
+			array(),
+			ConversationSerializer::deserialize( ConversationSerializer::serialize( $history ) ),
+			array(
+				'provider_id'                 => 'scripted-provider',
+				'model_id'                    => 'scripted-model',
+				'confirmation_history_before' => ConversationSerializer::serialize( $history_before ),
+			),
+			array( $this->create_scripted_result( 'I will not make that change.' ) )
+		);
+
+		$result = $loop->resume_after_confirmation( false, 1 );
+
+		$this->assertIsArray( $result );
+		$this->assertSame( 'I will not make that change.', $result['reply'] );
+		$history_property = new \ReflectionProperty( AgentLoop::class, 'history' );
+		$history_property->setAccessible( true );
+		$remaining_history = $history_property->getValue( $loop );
+
+		$this->assertIsArray( $remaining_history );
+		foreach ( $remaining_history as $message ) {
+			$this->assertInstanceOf( Message::class, $message );
+			foreach ( $message->getParts() as $part ) {
+				$this->assertNull( $part->getFunctionCall() );
+			}
+		}
+	}
+
+	/**
+	 * A valid browser-result continuation after a mixed confirmed server/browser
+	 * ability response must continue the same turn rather than treating the
+	 * paused model tool call as a malformed assistant-ended history.
+	 */
+	public function test_confirmation_then_mixed_client_tool_continuation_completes_without_new_user_turn(): void {
 		$this->skip_if_sdk_unavailable();
 		if ( ! class_exists( 'WP_AI_Client_Ability_Function_Resolver' ) ) {
 			$this->markTestSkipped( 'WP_AI_Client_Ability_Function_Resolver not available.' );
@@ -2413,43 +2631,24 @@ class AgentLoopTest extends WP_UnitTestCase {
 										),
 									),
 								),
+							array(
+								'id'       => 'call_theme_completion',
+								'type'     => 'function',
+								'function' => array(
+									'name'      => 'wpab__sd-ai-agent-js__validate-theme-completion',
+									'arguments' => wp_json_encode(
+										array(
+											'stylesheet' => 'test-theme',
+										)
+									),
+								),
 							),
+						),
 						),
 						'finish_reason' => 'tool_calls',
 					),
 				),
 				'usage'   => array( 'prompt_tokens' => 10, 'completion_tokens' => 5, 'total_tokens' => 15 ),
-			)
-		);
-		$client_tool_body  = wp_json_encode(
-			array(
-				'id'      => 'chatcmpl-client-tool',
-				'object'  => 'chat.completion',
-				'choices' => array(
-					array(
-						'index'         => 0,
-						'message'       => array(
-							'role'       => 'assistant',
-							'content'    => null,
-							'tool_calls' => array(
-								array(
-									'id'       => 'call_theme_completion',
-									'type'     => 'function',
-									'function' => array(
-										'name'      => 'wpab__sd-ai-agent-js__validate-theme-completion',
-										'arguments' => wp_json_encode(
-											array(
-												'stylesheet' => 'test-theme',
-											)
-										),
-									),
-								),
-							),
-						),
-						'finish_reason' => 'tool_calls',
-					),
-				),
-				'usage'   => array( 'prompt_tokens' => 12, 'completion_tokens' => 5, 'total_tokens' => 17 ),
 			)
 		);
 		$completed_body    = wp_json_encode(
@@ -2473,7 +2672,6 @@ class AgentLoopTest extends WP_UnitTestCase {
 		$this->mock_ai_response_sequence(
 			array(
 				array( 'body' => $confirmation_body ),
-				array( 'body' => $client_tool_body ),
 				array( 'body' => $completed_body ),
 			),
 			$call_count
@@ -2491,6 +2689,8 @@ class AgentLoopTest extends WP_UnitTestCase {
 
 		$this->assertIsArray( $confirmation_pause );
 		$this->assertTrue( $confirmation_pause['awaiting_confirmation'] ?? false );
+		$this->assertArrayHasKey( 'confirmation_message', $confirmation_pause );
+		$this->assertArrayHasKey( 'confirmation_history_before', $confirmation_pause );
 
 		$confirmed_loop = new AgentLoop(
 			'',
@@ -2499,6 +2699,8 @@ class AgentLoopTest extends WP_UnitTestCase {
 			array(
 				'approved_once_abilities' => $confirmation_pause['approved_once_abilities'],
 				'client_abilities'        => $client_abilities,
+				'confirmation_message'    => $confirmation_pause['confirmation_message'],
+				'confirmation_history_before' => $confirmation_pause['confirmation_history_before'],
 			)
 		);
 		$client_pause   = $confirmed_loop->resume_after_confirmation(
@@ -2532,7 +2734,7 @@ class AgentLoopTest extends WP_UnitTestCase {
 
 		$this->assertIsArray( $result );
 		$this->assertSame( 'Theme completion validated after approval.', $result['reply'] );
-		$this->assertSame( 3, $call_count );
+		$this->assertSame( 2, $call_count );
 	}
 
 	/**
@@ -3961,6 +4163,85 @@ class AgentLoopTest extends WP_UnitTestCase {
 		$this->assertSame( 'underspecified_request', $result['pending_tools'][0]['reason'] ?? '' );
 	}
 
+	/** A vague-turn guard must survive a rejected confirmation resume. */
+	public function test_underspecified_mutation_policy_survives_confirmation_rejection_resume(): void {
+		if ( ! function_exists( 'wp_get_abilities' ) || ! wp_has_ability( 'sd-ai-agent/create-post' ) ) {
+			$this->markTestSkipped( 'sd-ai-agent/create-post ability is not registered.' );
+		}
+
+		$options = array(
+			'provider_id'       => 'scripted-provider',
+			'model_id'          => 'scripted-model',
+			'yolo_mode'         => true,
+			'tool_permissions' => array( 'sd-ai-agent/create-post' => 'always_allow' ),
+		);
+		$initial_loop = new ScriptedAgentLoop(
+			'do anything',
+			array(),
+			array(),
+			$options,
+			array(
+				$this->create_scripted_result(
+					'',
+					new FunctionCall(
+						'call_initial_vague_publish',
+						'wpab__sd-ai-agent__create-post',
+						array(
+							'title'   => 'Invented post',
+							'content' => 'This must remain behind a confirmation boundary.',
+							'status'  => 'publish',
+						)
+					)
+				),
+			)
+		);
+		$paused       = $initial_loop->run();
+
+		$this->assertIsArray( $paused );
+		$this->assertTrue( $paused['awaiting_confirmation'] ?? false );
+		$this->assertSame(
+			array(
+				'requires_clarification'          => true,
+				'allows_explicit_draft_proposal' => false,
+			),
+			$paused['mutation_policy_context'] ?? array()
+		);
+
+		$resume_options = array_merge(
+			$options,
+			array(
+				'confirmation_message'        => $paused['confirmation_message'] ?? array(),
+				'confirmation_history_before' => $paused['confirmation_history_before'] ?? null,
+				'mutation_policy_context'     => $paused['mutation_policy_context'] ?? array(),
+			)
+		);
+		$resumed_loop   = new ScriptedAgentLoop(
+			'',
+			array(),
+			ConversationSerializer::deserialize( $paused['history'] ?? array() ),
+			$resume_options,
+			array(
+				$this->create_scripted_result(
+					'',
+					new FunctionCall(
+						'call_retry_vague_publish',
+						'wpab__sd-ai-agent__create-post',
+						array(
+							'title'   => 'Second invented post',
+							'content' => 'A rejection must not make a vague turn permissive.',
+							'status'  => 'publish',
+						)
+					)
+				),
+			)
+		);
+		$resumed        = $resumed_loop->resume_after_confirmation( false, 1 );
+
+		$this->assertIsArray( $resumed );
+		$this->assertTrue( $resumed['awaiting_confirmation'] ?? false );
+		$this->assertSame( 'underspecified_request', $resumed['pending_tools'][0]['reason'] ?? '' );
+	}
+
 	/**
 	 * Mixed client and PHP calls must be classified before the PHP partition can
 	 * execute, so a generic prompt cannot publish while a read-only browser call
@@ -4026,18 +4307,19 @@ class AgentLoopTest extends WP_UnitTestCase {
 
 	/**
 	 * The deterministic boundary remains covered without an authenticated AI
-	 * provider: an always-allowed create-post call from "do anything" is held
-	 * as an underspecified-request proposal before the resolver can execute it.
+	 * provider: an always-allowed create-post call from a generic website request
+	 * is held as an underspecified-request proposal before the resolver can execute it.
 	 */
 	public function test_underspecified_prompt_holds_always_allowed_create_post_at_permission_boundary(): void {
 		if ( ! function_exists( 'wp_get_abilities' ) || ! wp_has_ability( 'sd-ai-agent/create-post' ) ) {
 			$this->markTestSkipped( 'sd-ai-agent/create-post ability is not registered.' );
 		}
 
-		$resolver = new ToolPermissionResolver(
-			false,
+		$requires_clarification = SystemInstructionBuilder::requires_clarification_before_mutation( 'Improve our website' );
+		$resolver               = new ToolPermissionResolver(
+			true,
 			[ 'sd-ai-agent/create-post' => 'always_allow' ],
-			SystemInstructionBuilder::requires_clarification_before_mutation( 'do anything' )
+			$requires_clarification
 		);
 		$message  = new ModelMessage(
 			[
@@ -4057,6 +4339,7 @@ class AgentLoopTest extends WP_UnitTestCase {
 
 		$pending = $resolver->get_tools_needing_confirmation( $message );
 
+		$this->assertTrue( $requires_clarification );
 		$this->assertCount( 1, $pending );
 		$this->assertSame( 'sd-ai-agent/create-post', $pending[0]['ability'] );
 		$this->assertSame( 'underspecified_request', $pending[0]['reason'] );
@@ -4123,6 +4406,113 @@ class AgentLoopTest extends WP_UnitTestCase {
 		$this->assertCount( 1, $pending );
 		$this->assertSame( 'sd-ai-agent/create-post', $pending[0]['ability'] );
 		$this->assertSame( 'underspecified_request', $pending[0]['reason'] );
+	}
+
+	/** A model-supplied draft status cannot bypass the vague-request confirmation gate. */
+	public function test_underspecified_prompt_holds_model_supplied_draft_create_post_directly_or_through_ability_call(): void {
+		if ( ! function_exists( 'wp_get_abilities' ) || ! wp_has_ability( 'sd-ai-agent/create-post' ) ) {
+			$this->markTestSkipped( 'sd-ai-agent/create-post ability is not registered.' );
+		}
+
+		$resolver = new ToolPermissionResolver(
+			false,
+			array( 'sd-ai-agent/create-post' => 'always_allow' ),
+			SystemInstructionBuilder::requires_clarification_before_mutation( 'make it better' )
+		);
+		$direct   = new ModelMessage(
+			array(
+				new MessagePart(
+					new FunctionCall(
+						'call_vague_draft',
+						'wpab__sd-ai-agent__create-post',
+						array(
+							'title'   => 'Draft demonstration',
+							'content' => 'A bounded draft proposal.',
+							'status'  => 'draft',
+						)
+					)
+				)
+			)
+		);
+		$nested   = new ModelMessage(
+			array(
+				new MessagePart(
+					new FunctionCall(
+						'call_vague_nested_draft',
+						'wpab__sd-ai-agent__ability-call',
+						array(
+							'ability'   => 'sd-ai-agent/create-post',
+							'arguments' => array(
+								'title'   => 'Nested draft demonstration',
+								'content' => 'A bounded nested draft proposal.',
+								'status'  => 'draft',
+							),
+						)
+					)
+				)
+			)
+		);
+
+		$direct_pending = $resolver->get_tools_needing_confirmation( $direct );
+		$nested_pending = $resolver->get_tools_needing_confirmation( $nested );
+
+		$this->assertCount( 1, $direct_pending );
+		$this->assertSame( 'underspecified_request', $direct_pending[0]['reason'] );
+		$this->assertCount( 1, $nested_pending );
+		$this->assertSame( 'underspecified_request', $nested_pending[0]['reason'] );
+	}
+
+	/** A user-requested draft proposal remains available through both call paths. */
+	public function test_underspecified_prompt_allows_user_requested_draft_create_post_directly_or_through_ability_call(): void {
+		if ( ! function_exists( 'wp_get_abilities' ) || ! wp_has_ability( 'sd-ai-agent/create-post' ) ) {
+			$this->markTestSkipped( 'sd-ai-agent/create-post ability is not registered.' );
+		}
+
+		$this->assertTrue(
+			SystemInstructionBuilder::explicitly_requests_draft_proposal( 'Create a draft proposal for a gardening post.' )
+		);
+		$resolver = new ToolPermissionResolver(
+			false,
+			array( 'sd-ai-agent/create-post' => 'always_allow' ),
+			true,
+			true
+		);
+		$direct   = new ModelMessage(
+			array(
+				new MessagePart(
+					new FunctionCall(
+						'call_user_requested_draft',
+						'wpab__sd-ai-agent__create-post',
+						array(
+							'title'   => 'Draft proposal',
+							'content' => 'A user-requested draft proposal.',
+							'status'  => 'draft',
+						)
+					)
+				)
+			)
+		);
+		$nested   = new ModelMessage(
+			array(
+				new MessagePart(
+					new FunctionCall(
+						'call_user_requested_nested_draft',
+						'wpab__sd-ai-agent__ability-call',
+						array(
+							'ability'   => 'sd-ai-agent/create-post',
+							'arguments' => array(
+								'title'   => 'Nested draft proposal',
+								'content' => 'A user-requested nested draft proposal.',
+								'status'  => 'draft',
+							),
+						)
+					)
+				)
+			)
+		);
+
+		$this->assertSame( array(), $resolver->get_tools_needing_confirmation( $direct ) );
+		$this->assertSame( array(), $resolver->get_tools_needing_confirmation( $nested ) );
 	}
 
 	/** Explicit publish intent preserves the always-allowed direct-post path. */

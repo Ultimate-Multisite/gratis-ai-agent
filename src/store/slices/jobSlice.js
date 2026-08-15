@@ -613,9 +613,8 @@ export const actions = {
 						// carries an `annotations` object; abilities with
 						// `readonly: true` execute immediately without a
 						// confirmation dialog (screenshots, DOM reads, etc.).
-						// Non-readonly abilities are not yet supported without
-						// an explicit confirmation flow — they will be handled
-						// in a future iteration.
+						// A mutating client ability executes only when the server
+						// returned `user_confirmed: true` after user approval.
 						const pendingCalls =
 							result.pending_client_tool_calls || [];
 
@@ -623,17 +622,17 @@ export const actions = {
 							pendingCalls.map( async ( call ) => {
 								const isReadonly =
 									call.annotations?.readonly === true;
+								const isUserConfirmed =
+									call.user_confirmed === true;
 
-								if ( ! isReadonly ) {
-									// Non-readonly client abilities are not yet
-									// auto-executed — return an error so the
-									// model gets feedback instead of silently
-									// hanging.
+								if ( ! isReadonly && ! isUserConfirmed ) {
+									// Mutating client abilities need an explicit server
+									// confirmation marker before browser execution.
 									return {
 										id: call.id,
 										name: call.name,
 										error: __(
-											'Client-side ability requires user confirmation (not yet supported for non-readonly abilities).',
+											'Client-side ability requires explicit user confirmation.',
 											'superdav-ai-agent'
 										),
 									};

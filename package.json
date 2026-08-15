@@ -21,8 +21,8 @@
 		"lint": "pnpm run lint:js && pnpm run lint:css && pnpm run lint:php",
 		"verify": "pnpm run lint && COMPOSER_PROCESS_TIMEOUT=1200 composer phpstan && pnpm run test:php && pnpm run build && pnpm run check:bundle",
 		"check:bundle": "node scripts/check-bundle-size.js",
-		"test:js": "wp-scripts test-unit-js",
-		"test:unit": "wp-scripts test-unit-js",
+		"test:js": "node scripts/run-js-tests.js",
+		"test:unit": "node scripts/run-js-tests.js",
 		"test:e2e": "wp-scripts test-e2e",
 		"test:e2e:playwright": "playwright test",
 		"test:e2e:playwright:ui": "playwright test --ui",
@@ -117,7 +117,7 @@
 	},
 	"lint-staged": {
 		"src/**/*.{js,jsx}": [
-			"eslint --fix"
+			"wp-scripts lint-js src/ --fix"
 		],
 		"src/**/*.css": [
 			"wp-scripts lint-style --config-basedir . --fix"

@@ -29,7 +29,9 @@ final class ClientAbilityRouter {
 	 * Validate and filter raw client ability descriptors against JsAbilityCatalog.
 	 *
 	 * Only accepts names that exist in JsAbilityCatalog to prevent the client
-	 * from injecting arbitrary ability names into the model's tool list.
+	 * from injecting arbitrary ability names into the model's tool list. All
+	 * descriptor metadata comes from the catalog, so a request cannot reclassify
+	 * a mutating client ability as read-only.
 	 *
 	 * @param array<int|string, mixed> $raw_descriptors Unvalidated descriptors from the request.
 	 * @return self A new instance with validated descriptors.
@@ -44,8 +46,7 @@ final class ClientAbilityRouter {
 			}
 			$name = (string) ( $descriptor['name'] ?? '' );
 			if ( '' !== $name && isset( $catalog[ $name ] ) ) {
-				/** @var array<string, mixed> $descriptor */
-				$validated[] = $descriptor;
+				$validated[] = $catalog[ $name ];
 			}
 		}
 

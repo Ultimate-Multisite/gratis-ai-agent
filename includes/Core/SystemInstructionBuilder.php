@@ -44,6 +44,23 @@ class SystemInstructionBuilder {
 	);
 
 	/**
+	 * Short generic requests that provide no actionable objective.
+	 *
+	 * These patterns intentionally cover common paraphrases of an open-ended
+	 * request without treating a named content target as underspecified.
+	 *
+	 * @var string[]
+	 */
+	private const UNDERSPECIFIED_REQUEST_PATTERNS = array(
+		'/^(?:anything|something|whatever)$/',
+		'/^(?:please\s+)?(?:do|make|fix|improve|change|update|refresh|polish|redesign|revamp)\s+(?:anything|something|whatever|everything)(?:\s+(?:useful|creative|nice))?(?:\s+please)?$/',
+		'/^(?:please\s+)?(?:do|make|fix|improve|change|update|refresh|polish|redesign|revamp)\s+(?:it|this|that|(?:(?:the|my|our|your)\s+)?(?:site|website))(?:\s+(?:(?:look|feel)\s+)?(?:better|nicer|nice|good|great|beautiful|prettier|fresh|up|now|more\s+(?:professional|modern|appealing)))?(?:\s+please)?$/',
+		'/^(?:can|could|would)\s+you\s+(?:do|make|fix|improve|change|update|refresh|polish|redesign|revamp)\s+(?:anything|something|whatever|everything|it|this|that|(?:(?:the|my|our|your)\s+)?(?:site|website))(?:\s+(?:(?:look|feel)\s+)?(?:better|nicer|nice|good|great|beautiful|prettier|fresh|up|now|more\s+(?:professional|modern|appealing)))?$/',
+		'/^(?:please\s+)?give\s+(?:(?:the|my|our|your)\s+)?(?:site|website)\s+(?:a\s+)?(?:makeover|refresh|redesign)(?:\s+please)?$/',
+		'/^(?:please\s+)?(?:help(?:\s+me)?|surprise me|take care of (?:it|this|that)|do whatever you want)$/',
+	);
+
+	/**
 	 * @param string                   $model_id     Current AI model ID (for weak-model nudges).
 	 * @param string                   $user_message User's message (for knowledge context RAG).
 	 * @param array<int|string, mixed> $page_context Page context from the widget.
@@ -348,39 +365,70 @@ class SystemInstructionBuilder {
 			. 'A prompt with no stated intent, target, or success criteria (for example, "do anything") is not permission to invent a site change. '
 			. 'Do not publish, delete, install, activate, send, or otherwise mutate WordPress or an external service from such a prompt. '
 			. 'You may perform bounded read-only inspection when it will support a recommendation, then summarize the findings and offer a small, explicit set of next actions. '
-			. 'Otherwise ask one concise clarifying question. If the user intentionally wants a demonstration, make it a clearly labelled draft or proposal, never a public change.';
+			. 'Otherwise ask one concise clarifying question. Create a clearly labelled draft proposal only when the user explicitly asks for a draft or demonstration; a tool-call status alone is not consent. Never make a public change.';
 	}
 
 	/**
 	 * Whether a user message has no actionable intent, target, or success
 	 * criteria and therefore needs clarification before any mutation.
 	 *
-	 * This deliberately recognizes only short, generic requests. More nuanced
-	 * prompts remain the model's responsibility, while these known no-objective
-	 * forms receive a deterministic server-side guard.
+	 * This recognizes common short, generic paraphrases rather than only a small
+	 * fixed phrase list. More nuanced prompts remain the model's responsibility,
+	 * while these known no-objective forms receive a deterministic server-side
+	 * guard.
 	 *
 	 * @param string $userMessage User message for the current turn.
 	 * @return bool
 	 */
-	// phpcs:ignore WordPress.NamingConventions.ValidVariableName.VariableNotSnakeCase -- Project variable naming guidance requires camelCase.
+	// phpcs:disable WordPress.NamingConventions.ValidVariableName.VariableNotSnakeCase -- Project variable naming guidance requires camelCase.
 	public static function requires_clarification_before_mutation( string $userMessage ): bool {
-		// phpcs:ignore WordPress.NamingConventions.ValidVariableName.VariableNotSnakeCase -- Project variable naming guidance requires camelCase.
-		$normalized = strtolower( trim( preg_replace( '/\s+/', ' ', $userMessage ) ?? '' ) );
-		$normalized = rtrim( $normalized, '.!?' );
+		$normalized = self::normalize_user_message( $userMessage );
 
-		return in_array(
-			$normalized,
-			array(
-				'anything',
-				'do anything',
-				'do something',
-				'whatever',
-				'something',
-				'surprise me',
-			),
-			true
+		foreach ( self::UNDERSPECIFIED_REQUEST_PATTERNS as $pattern ) {
+			if ( 1 === preg_match( $pattern, $normalized ) ) {
+				return true;
+			}
+		}
+
+		return false;
+	}
+
+	/**
+	 * Whether the user explicitly asks to create a non-public draft proposal.
+	 *
+	 * A model-selected `status=draft` is not source intent. This narrow signal is
+	 * passed to the permission boundary only for user language that asks to make,
+	 * create, stage, prepare, or write a draft, proposal, or demonstration.
+	 *
+	 * @param string $userMessage User message for the current turn.
+	 * @return bool
+	 */
+	public static function explicitly_requests_draft_proposal( string $userMessage ): bool {
+		$normalized = self::normalize_user_message( $userMessage );
+
+		if ( 1 === preg_match( '/\b(?:do not|don\'t|never|without)\b.*\b(?:draft|proposal|demo(?:nstration)?)\b/', $normalized ) ) {
+			return false;
+		}
+
+		return 1 === preg_match(
+			'/\b(?:create|make|stage|prepare|write|build)\b[^.!?]{0,80}\b(?:draft|proposal|demo(?:nstration)?)\b/',
+			$normalized
 		);
 	}
+
+	/**
+	 * Normalize user prose before deterministic intent matching.
+	 *
+	 * @param string $userMessage User message for the current turn.
+	 * @return string
+	 */
+	private static function normalize_user_message( string $userMessage ): string {
+		return rtrim(
+			strtolower( trim( preg_replace( '/\s+/', ' ', $userMessage ) ?? '' ) ),
+			'.!?'
+		);
+	}
+	// phpcs:enable WordPress.NamingConventions.ValidVariableName.VariableNotSnakeCase
 
 	/**
 	 * Build the "## Build vs install" planning section.
