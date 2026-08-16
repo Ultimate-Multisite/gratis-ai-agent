@@ -13,25 +13,16 @@ import ChatRoute from './routes/chat';
 
 // All non-default routes are lazy-loaded so their code (SettingsApp and its
 // 12 managers, AbilitiesExplorer, ChangesPage, …) is only downloaded when
-// the user first navigates to that section.  webpackPrefetch fetches the
-// chunks in the background during idle time so transitions feel instant.
+// the user first navigates to that section. Avoid prefetching every route for
+// chat-only visits, especially the much larger settings dependency graph.
 const AbilitiesRoute = lazy( () =>
-	import(
-		/* webpackChunkName: "route-abilities", webpackPrefetch: true */
-		'./routes/abilities'
-	)
+	import( /* webpackChunkName: "route-abilities" */ './routes/abilities' )
 );
 const ChangesRoute = lazy( () =>
-	import(
-		/* webpackChunkName: "route-changes", webpackPrefetch: true */
-		'./routes/changes'
-	)
+	import( /* webpackChunkName: "route-changes" */ './routes/changes' )
 );
 const SettingsRoute = lazy( () =>
-	import(
-		/* webpackChunkName: "route-settings", webpackPrefetch: true */
-		'./routes/settings'
-	)
+	import( /* webpackChunkName: "route-settings" */ './routes/settings' )
 );
 
 /**

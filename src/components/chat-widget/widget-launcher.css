@@ -1,0 +1,132 @@
+/*
+ * Floating chat widget launcher styles and tokens used by the deferred panel.
+ * Kept deliberately small because this stylesheet loads on every page.
+ */
+
+:root {
+	--sdaa-w-primary: var(--wp-admin-theme-color, #2271b1);
+	--sdaa-w-primary-dark: var(--wp-admin-theme-color-darker-10, #135e96);
+	--sdaa-w-text-primary: #1d2327;
+	--sdaa-w-text-secondary: #50575e;
+	--sdaa-w-text-muted: #787c82;
+	--sdaa-w-text-muted-contrast: #71767b;
+	--sdaa-w-border-strong: #c3c4c7;
+	--sdaa-w-border-subtle: #dcdcde;
+	--sdaa-w-bubble-user-border: #c5d9ed;
+	--sdaa-w-surface: #f6f7f7;
+	--sdaa-w-surface-hover: #f0f0f1;
+	--sdaa-w-surface-active: #f0f6fc;
+	--sdaa-w-success: #00a32a;
+	--sdaa-w-warning: #dba617;
+	--sdaa-w-error: #d63638;
+	--sdaa-w-radius-xs: 4px;
+	--sdaa-w-radius-sm: 6px;
+	--sdaa-w-radius-md: 8px;
+	--sdaa-w-radius-lg: 12px;
+	--sdaa-w-radius-pill: 9999px;
+	--sdaa-w-duration: 150ms;
+	--sdaa-w-shadow-overlay: 0 8px 32px rgb(0 0 0 / 20%);
+	--sdaa-w-shadow-elevated: 0 4px 16px rgb(0 0 0 / 14%);
+	--sdaa-w-font-ui:
+		-apple-system, blinkmacsystemfont, "Segoe UI", Roboto, Oxygen-Sans,
+		Ubuntu, Cantarell, "Helvetica Neue", sans-serif;
+	--sdaa-w-font-mono:
+		ui-monospace, sfmono-regular, "SF Mono", Menlo, Consolas, monospace;
+}
+
+.sdaa-w-launcher {
+	position: fixed;
+	right: 36px;
+	bottom: 28px;
+	z-index: 99999;
+	display: inline-flex;
+	width: 52px;
+	height: 52px;
+	align-items: center;
+	justify-content: center;
+	border: 0;
+	border-radius: 50%;
+	background: var(--sdaa-w-primary);
+	color: #fff;
+	box-shadow:
+		0 4px 16px rgb(0 0 0 / 18%),
+		0 2px 4px rgb(0 0 0 / 10%);
+	cursor: pointer;
+	transition: transform var(--sdaa-w-duration), background var(--sdaa-w-duration);
+}
+
+.sdaa-w-launcher:hover {
+	background: var(--sdaa-w-primary-dark);
+	transform: translateY(-1px);
+}
+
+.sdaa-w-launcher svg {
+	width: 24px;
+	height: 24px;
+	fill: currentcolor;
+}
+
+.sdaa-w-launcher-logo {
+	width: 26px;
+	height: 26px;
+	border-radius: 3px;
+	object-fit: contain;
+}
+
+.sdaa-w-launcher-pulse {
+	position: absolute;
+	top: -2px;
+	right: -2px;
+	width: 10px;
+	height: 10px;
+	border: 2px solid #fff;
+	border-radius: 50%;
+	background: var(--sdaa-w-success);
+	animation: sdaa-w-pulse 1.5s ease-in-out infinite;
+}
+
+.sdaa-w-launcher-badge {
+	position: absolute;
+	top: -4px;
+	right: -4px;
+	display: inline-flex;
+	min-width: 18px;
+	height: 18px;
+	align-items: center;
+	justify-content: center;
+	padding: 0 4px;
+	border: 2px solid #fff;
+	border-radius: 9px;
+	background: var(--sdaa-w-error);
+	color: #fff;
+	font-size: 10px;
+	font-weight: 700;
+	line-height: 1;
+	box-sizing: border-box;
+	pointer-events: none;
+}
+
+@keyframes sdaa-w-pulse {
+	0%,
+	100% {
+		opacity: 1;
+	}
+
+	50% {
+		opacity: 0.4;
+	}
+}
+
+@media (max-width: 500px) {
+	.sdaa-w-launcher {
+		right: 16px;
+		bottom: 16px;
+		width: 44px;
+		height: 44px;
+	}
+
+	.sdaa-w-launcher svg {
+		width: 20px;
+		height: 20px;
+	}
+}

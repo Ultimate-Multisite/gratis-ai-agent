@@ -10,9 +10,8 @@
  * in a separate async chunk.  The browser downloads that chunk only the
  * first time the user opens the widget.
  *
- * webpackPrefetch causes the browser to fetch the chunk in the background
- * during idle time after the main page loads, so when the user clicks the
- * FAB the chunk is already cached — no visible delay on first open.
+ * The browser fetches the panel chunk only after the user opens the widget,
+ * avoiding speculative work on pages where the launcher is never used.
  */
 
 import { lazy, Suspense } from '@wordpress/element';
@@ -21,17 +20,12 @@ import { useSelect } from '@wordpress/data';
 import STORE_NAME from '../../store';
 import { getChatUiMode } from '../../utils/chat-ui-mode';
 import WidgetLauncher from './widget-launcher';
-// widget.css contains the launcher (FAB) styles and is required in the
-// initial bundle so the FAB is styled immediately on every page load.
-// chat-redesign.css is imported inside widget-panel.js so it lands in
-// the async chunk and is only fetched when the panel first opens.
-import './widget.css';
+// Only the launcher (FAB) styles are required in the initial bundle.
+// Panel and chat-redesign styles are imported inside widget-panel.js.
+import './widget-launcher.css';
 
 const WidgetPanel = lazy( () =>
-	import(
-		/* webpackChunkName: "widget-panel", webpackPrefetch: true */
-		'./widget-panel'
-	)
+	import( /* webpackChunkName: "widget-panel" */ './widget-panel' )
 );
 
 /**
@@ -50,7 +44,7 @@ export default function ChatWidget( { frontendOnboardingMode = null } ) {
 	}
 
 	// Suspense renders nothing while the panel chunk is downloading.
-	// On a cache hit (prefetch or repeat visit) this is imperceptible.
+	// On a repeat visit this is normally served from the browser cache.
 	return (
 		<Suspense fallback={ null }>
 			<WidgetPanel

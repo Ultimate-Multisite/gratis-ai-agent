@@ -717,6 +717,10 @@ input[type="text"].sdaa-cr-search-input {
 	color: var(--sdaa-text-primary);
 }
 
+.sdaa-cr-markdown-fallback {
+	white-space: pre-wrap;
+}
+
 .sdaa-cr-msg-body p {
 	margin: 0 0 8px;
 }

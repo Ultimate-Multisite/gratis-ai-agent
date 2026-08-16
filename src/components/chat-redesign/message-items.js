@@ -13,7 +13,14 @@
  * (assistant) or model · time (user), sourced from store.messageTokens.
  */
 
-import { useState, useRef, useEffect, useCallback } from '@wordpress/element';
+import {
+	useState,
+	useRef,
+	useEffect,
+	useCallback,
+	lazy,
+	Suspense,
+} from '@wordpress/element';
 import { useDispatch, useSelect } from '@wordpress/data';
 import { __ } from '@wordpress/i18n';
 import {
@@ -25,7 +32,6 @@ import {
 } from '@wordpress/icons';
 
 import STORE_NAME from '../../store';
-import MarkdownMessage from '../markdown-message';
 import { AiIcon } from './icons';
 import ToolCard, { ToolResultHighlights } from './ToolCard';
 import {
@@ -36,6 +42,29 @@ import {
 } from './message-helpers';
 import { linkifyText } from '../../utils/linkify';
 import { copyToClipboard } from '../../utils/clipboard';
+
+const MarkdownMessage = lazy( () =>
+	import( /* webpackChunkName: "markdown-message" */ '../markdown-message' )
+);
+
+/**
+ * Keep message text visible while the Markdown renderer downloads.
+ *
+ * @param {Object} root0
+ * @param {string} root0.content Markdown source.
+ * @return {JSX.Element} Deferred Markdown output with a plain-text fallback.
+ */
+function DeferredMarkdownMessage( { content } ) {
+	return (
+		<Suspense
+			fallback={
+				<span className="sdaa-cr-markdown-fallback">{ content }</span>
+			}
+		>
+			<MarkdownMessage content={ content } />
+		</Suspense>
+	);
+}
 
 /**
  *
@@ -585,7 +614,9 @@ export function AssistantMessage( {
 							response={ item.response }
 						/>
 					) ) }
-				{ cleanText && <MarkdownMessage content={ cleanText } /> }
+				{ cleanText && (
+					<DeferredMarkdownMessage content={ cleanText } />
+				) }
 				{ isLastModel && suggestions.length > 0 && (
 					<div className="sdaa-cr-suggestions">
 						{ suggestions.map( ( s, i ) => (
@@ -682,7 +713,9 @@ export function RunningMessage( {
 									key={ item.key }
 									className="sdaa-cr-running-preamble"
 								>
-									<MarkdownMessage content={ item.text } />
+									<DeferredMarkdownMessage
+										content={ item.text }
+									/>
 								</div>
 							);
 						}
