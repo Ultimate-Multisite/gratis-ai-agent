@@ -166,7 +166,7 @@ SD AI Agent uses the native WordPress AI Client SDK and Abilities API. These API
 
 == Changelog ==
 
-= 1.22.0 - Released on 2026-08-15 =
+= 1.22.0 - Released on 2026-08-16 =
 * New: Use verified SD account sign-in and account actions, apply account coupons, and review credit usage for each chat session.
 * Improved: Preview-first page changes, clearer agent activity, and stronger clarification and rendered-evidence safeguards.
 * Improved: Reduced initial frontend downloads by loading widget panel styles, live-preview strategies, Markdown, charts, syntax parsers, and non-default admin routes only when needed, while keeping the launcher and plain-text chat available if optional downloads fail.
