@@ -803,10 +803,15 @@ export default function SuperdavAccountManager() {
 									isBusy={ openingAction === 'link_account' }
 									disabled={ !! openingAction }
 								>
-									{ __(
-										'Link a different user',
-										'superdav-ai-agent'
-									) }
+									{ linkedUser
+										? __(
+												'Link a different user',
+												'superdav-ai-agent'
+										  )
+										: __(
+												'Connect account to site',
+												'superdav-ai-agent'
+										  ) }
 								</Button>
 							) }
 						</section>
