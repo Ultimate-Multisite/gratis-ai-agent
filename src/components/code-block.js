@@ -16,87 +16,100 @@ import { EditorView, lineNumbers } from '@codemirror/view';
 import { EditorState } from '@codemirror/state';
 import { oneDark } from '@codemirror/theme-one-dark';
 
-/**
- * CodeMirror language support — imported statically so webpack can tree-shake
- * unused parsers. Only languages commonly returned by AI chat responses are
- * included here to keep the bundle lean.
- */
-import { javascript } from '@codemirror/lang-javascript';
-import { php } from '@codemirror/lang-php';
-import { css } from '@codemirror/lang-css';
-import { html } from '@codemirror/lang-html';
-import { sql } from '@codemirror/lang-sql';
-import { python } from '@codemirror/lang-python';
-import { json } from '@codemirror/lang-json';
-import { yaml } from '@codemirror/lang-yaml';
-import { markdown } from '@codemirror/lang-markdown';
-import { rust } from '@codemirror/lang-rust';
+const languageLoaders = {
+	javascript: () =>
+		import(
+			/* webpackChunkName: "codemirror-lang-javascript" */ '@codemirror/lang-javascript'
+		).then( ( module ) => module.javascript ),
+	php: () =>
+		import(
+			/* webpackChunkName: "codemirror-lang-php" */ '@codemirror/lang-php'
+		).then( ( module ) => module.php ),
+	css: () =>
+		import(
+			/* webpackChunkName: "codemirror-lang-css" */ '@codemirror/lang-css'
+		).then( ( module ) => module.css ),
+	html: () =>
+		import(
+			/* webpackChunkName: "codemirror-lang-html" */ '@codemirror/lang-html'
+		).then( ( module ) => module.html ),
+	sql: () =>
+		import(
+			/* webpackChunkName: "codemirror-lang-sql" */ '@codemirror/lang-sql'
+		).then( ( module ) => module.sql ),
+	python: () =>
+		import(
+			/* webpackChunkName: "codemirror-lang-python" */ '@codemirror/lang-python'
+		).then( ( module ) => module.python ),
+	json: () =>
+		import(
+			/* webpackChunkName: "codemirror-lang-json" */ '@codemirror/lang-json'
+		).then( ( module ) => module.json ),
+	yaml: () =>
+		import(
+			/* webpackChunkName: "codemirror-lang-yaml" */ '@codemirror/lang-yaml'
+		).then( ( module ) => module.yaml ),
+	markdown: () =>
+		import(
+			/* webpackChunkName: "codemirror-lang-markdown" */ '@codemirror/lang-markdown'
+		).then( ( module ) => module.markdown ),
+	rust: () =>
+		import(
+			/* webpackChunkName: "codemirror-lang-rust" */ '@codemirror/lang-rust'
+		).then( ( module ) => module.rust ),
+};
+
+const languageAliases = {
+	javascript: [ 'javascript' ],
+	js: [ 'javascript' ],
+	jsx: [ 'javascript', { jsx: true } ],
+	typescript: [ 'javascript', { typescript: true } ],
+	ts: [ 'javascript', { typescript: true } ],
+	tsx: [ 'javascript', { jsx: true, typescript: true } ],
+	php: [ 'php' ],
+	css: [ 'css' ],
+	scss: [ 'css' ],
+	sass: [ 'css' ],
+	html: [ 'html' ],
+	xml: [ 'html' ],
+	svg: [ 'html' ],
+	sql: [ 'sql' ],
+	mysql: [ 'sql' ],
+	postgresql: [ 'sql' ],
+	sqlite: [ 'sql' ],
+	python: [ 'python' ],
+	py: [ 'python' ],
+	json: [ 'json' ],
+	jsonc: [ 'json' ],
+	yaml: [ 'yaml' ],
+	yml: [ 'yaml' ],
+	markdown: [ 'markdown' ],
+	md: [ 'markdown' ],
+	rust: [ 'rust' ],
+	rs: [ 'rust' ],
+};
 
 /**
  * Map raw language identifiers (from fenced code blocks) to a CodeMirror
- * language extension factory. Aliases are normalised to a canonical key.
+ * language extension factory. Each parser remains in its own async chunk.
  *
  * @param {string|undefined} lang Raw language string from the markdown fence.
- * @return {import('@codemirror/state').Extension|null} Language extension or null.
+ * @return {Promise<import('@codemirror/state').Extension|null>} Language extension or null.
  */
-function getLanguageExtension( lang ) {
+export async function getLanguageExtension( lang ) {
 	if ( ! lang ) {
 		return null;
 	}
 
 	const normalised = lang.toLowerCase().trim();
+	const descriptor = languageAliases[ normalised ];
+	if ( ! descriptor ) {
+		return null;
+	}
 
-	const map = {
-		// JavaScript / TypeScript
-		javascript: () => javascript(),
-		js: () => javascript(),
-		jsx: () => javascript( { jsx: true } ),
-		typescript: () => javascript( { typescript: true } ),
-		ts: () => javascript( { typescript: true } ),
-		tsx: () => javascript( { jsx: true, typescript: true } ),
-
-		// PHP
-		php: () => php(),
-
-		// CSS / SCSS
-		css: () => css(),
-		scss: () => css(),
-		sass: () => css(),
-
-		// HTML / XML
-		html: () => html(),
-		xml: () => html(),
-		svg: () => html(),
-
-		// SQL
-		sql: () => sql(),
-		mysql: () => sql(),
-		postgresql: () => sql(),
-		sqlite: () => sql(),
-
-		// Python
-		python: () => python(),
-		py: () => python(),
-
-		// JSON
-		json: () => json(),
-		jsonc: () => json(),
-
-		// YAML
-		yaml: () => yaml(),
-		yml: () => yaml(),
-
-		// Markdown
-		markdown: () => markdown(),
-		md: () => markdown(),
-
-		// Rust
-		rust: () => rust(),
-		rs: () => rust(),
-	};
-
-	const factory = map[ normalised ];
-	return factory ? factory() : null;
+	const [ canonical, options ] = descriptor;
+	const factory = await languageLoaders[ canonical ]();
+	return options ? factory( options ) : factory();
 }
 
 /**
@@ -174,23 +187,36 @@ export default function CodeBlock( { language, children } ) {
 			viewRef.current = null;
 		}
 
-		const langExtension = getLanguageExtension( language );
-		const extensions = [
-			...BASE_EXTENSIONS,
-			lineNumbers(),
-			...( langExtension ? [ langExtension ] : [] ),
-		];
+		let active = true;
+		const createView = ( langExtension = null ) =>
+			new EditorView( {
+				state: EditorState.create( {
+					doc: code,
+					extensions: [
+						...BASE_EXTENSIONS,
+						lineNumbers(),
+						...( langExtension ? [ langExtension ] : [] ),
+					],
+				} ),
+				parent: containerRef.current,
+			} );
 
-		viewRef.current = new EditorView( {
-			state: EditorState.create( {
-				doc: code,
-				extensions,
-			} ),
-			parent: containerRef.current,
-		} );
+		// Render readable, unhighlighted code immediately, then replace the view
+		// once the requested language parser arrives.
+		viewRef.current = createView();
+		getLanguageExtension( language )
+			.then( ( langExtension ) => {
+				if ( ! active || ! langExtension ) {
+					return;
+				}
+				viewRef.current?.destroy();
+				viewRef.current = createView( langExtension );
+			} )
+			.catch( () => undefined );
 
 		// Cleanup: destroy the view when the effect re-runs or the component unmounts.
 		return () => {
+			active = false;
 			if ( viewRef.current ) {
 				viewRef.current.destroy();
 				viewRef.current = null;

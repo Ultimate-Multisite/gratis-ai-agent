@@ -16,24 +16,15 @@ import DataTable from './data-table';
 import FilePathLink from './FilePathLink';
 
 /**
- * CodeBlock and ChartBlock are lazy-loaded so their heavy dependencies
- * (CodeMirror ~800 KB, Chart.js ~220 KB) are bundled into separate async
- * chunks that are only downloaded the first time the AI returns a fenced
- * code block. webpackPrefetch causes the browser to fetch the chunks in
- * the background during idle time so the download is usually already
- * complete by the time a code block first appears.
+ * CodeBlock and ChartBlock are lazy-loaded so their heavy dependencies are
+ * downloaded only when the AI returns the matching fenced block. Do not
+ * prefetch these chunks: most conversations never need either dependency.
  */
 const CodeBlock = lazy( () =>
-	import(
-		/* webpackChunkName: "code-block", webpackPrefetch: true */
-		'./code-block'
-	)
+	import( /* webpackChunkName: "code-block" */ './code-block' )
 );
 const ChartBlock = lazy( () =>
-	import(
-		/* webpackChunkName: "chart-block", webpackPrefetch: true */
-		'./chart-block'
-	)
+	import( /* webpackChunkName: "chart-block" */ './chart-block' )
 );
 
 /**

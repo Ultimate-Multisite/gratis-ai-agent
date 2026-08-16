@@ -20,6 +20,7 @@ import { isCustomerSimpleMode } from '../../utils/chat-ui-mode';
 // sub-components, so the import lives here rather than in index.js.
 // This keeps the CSS in the async panel chunk and out of the initial bundle.
 import '../chat-redesign/chat-redesign.css';
+import './widget-panel.css';
 import WidgetHeader from './widget-header';
 import WidgetEmpty from './widget-empty';
 import WidgetMessageList from './widget-message-list';
