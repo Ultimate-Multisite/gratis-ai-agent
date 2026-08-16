@@ -532,24 +532,24 @@ final class SettingsControllerTest extends WP_UnitTestCase {
 
 	/** Coupon redemption uses the scoped site bearer token and returns only safe refreshed metadata. */
 	public function test_handle_redeem_superdav_coupon_returns_safe_refreshed_wallet(): void {
-		$base_url    = 'https://service.example/v1';
-		$redeem_url  = 'https://service.example/custom/site/redeem-coupon';
-		$token       = 'sdaist_coupon_redemption_token';
-		$coupon_code = 'test-coupon-code';
+		$baseUrl    = 'https://service.example/v1';
+		$redeemUrl  = 'https://service.example/custom/site/redeem-coupon';
+		$token      = 'sdaist_coupon_redemption_token';
+		$couponCode = 'test-coupon-code';
 
-		add_filter( 'sd_ai_agent_cloud_base_url', static fn(): string => $base_url );
-		add_filter( 'sd_ai_agent_cloud_account_coupon_redemption_endpoint', static fn(): string => $redeem_url );
+		add_filter( 'sd_ai_agent_cloud_base_url', static fn(): string => $baseUrl );
+		add_filter( 'sd_ai_agent_cloud_account_coupon_redemption_endpoint', static fn(): string => $redeemUrl );
 		add_filter(
 			'pre_http_request',
-			static function ( mixed $preempt, array $parsed_args, string $url ) use ( $redeem_url, $token, $coupon_code ): mixed {
-				if ( $redeem_url !== $url ) {
+			static function ( mixed $preempt, array $parsed_args, string $url ) use ( $redeemUrl, $token, $couponCode ): mixed {
+				if ( $redeemUrl !== $url ) {
 					return $preempt;
 				}
 
 				$body = (string) ( $parsed_args['body'] ?? '' );
 				self::assertSame( 'Bearer ' . $token, self::authorization_header_from_args( $parsed_args ) );
 				self::assertSame( 0, $parsed_args['redirection'] ?? null );
-				self::assertSame( $coupon_code, json_decode( $body, true )['coupon_code'] ?? '' );
+				self::assertSame( $couponCode, json_decode( $body, true )['coupon_code'] ?? '' );
 				self::assertArrayNotHasKey( 'X-Superdav-Timestamp', $parsed_args['headers'] );
 				self::assertArrayNotHasKey( 'X-Superdav-Signature', $parsed_args['headers'] );
 
@@ -562,7 +562,7 @@ final class SettingsControllerTest extends WP_UnitTestCase {
 								'promo_usd_micros' => 5000000,
 								'cash_usd_micros'  => 1000000,
 								'total_usd_micros' => 6000000,
-								'coupon_code'      => $coupon_code,
+								'coupon_code'      => $couponCode,
 							),
 							'refreshed_at' => '2026-07-26T00:00:00Z',
 							'request_id'   => 'safe-request-id',
@@ -577,7 +577,7 @@ final class SettingsControllerTest extends WP_UnitTestCase {
 
 		update_option( SuperdavAiProvider::CREDENTIAL_OPTION, $token, false );
 		$request = new WP_REST_Request( 'POST', '/sd-ai-agent/v1/superdav-account/redeem-coupon' );
-		$request->set_param( 'coupon_code', $coupon_code );
+		$request->set_param( 'coupon_code', $couponCode );
 		$response = ( new SettingsController( new Settings(), new Database() ) )->handle_redeem_superdav_coupon( $request );
 
 		$this->assertInstanceOf( \WP_REST_Response::class, $response );
@@ -586,15 +586,15 @@ final class SettingsControllerTest extends WP_UnitTestCase {
 		$this->assertSame( 6000000, $data['wallet']['total_usd_micros'] );
 		$this->assertSame( '2026-07-26T00:00:00+00:00', $data['refreshed_at'] );
 		$this->assertStringNotContainsString( $token, wp_json_encode( $data ) ?: '' );
-		$this->assertStringNotContainsString( $coupon_code, wp_json_encode( $data ) ?: '' );
+		$this->assertStringNotContainsString( $couponCode, wp_json_encode( $data ) ?: '' );
 		$this->assertStringNotContainsString( 'must-not-be-exposed', wp_json_encode( $data ) ?: '' );
-		$this->assertStringNotContainsString( $coupon_code, wp_json_encode( get_option( SuperdavSiteConnectionService::TOKEN_METADATA_OPTION, array() ) ) ?: '' );
+		$this->assertStringNotContainsString( $couponCode, wp_json_encode( get_option( SuperdavSiteConnectionService::TOKEN_METADATA_OPTION, array() ) ) ?: '' );
 	}
 
 	/** Redemption preserves documented coupon errors and safely collapses unknown failures. */
 	public function test_handle_redeem_superdav_coupon_handles_service_errors_without_disclosure(): void {
-		$base_url   = 'https://service.example/v1';
-		$redeem_url = $base_url . '/site/account/redeem-coupon';
+		$baseUrl   = 'https://service.example/v1';
+		$redeemUrl = $baseUrl . '/site/account/redeem-coupon';
 		$responses  = array(
 			array( 'code' => 302, 'error' => 'redirect', 'expected' => 'sd_ai_agent_coupon_redemption_unavailable' ),
 			array( 'code' => 404, 'error' => 'coupon_invalid', 'expected' => 'sd_ai_agent_coupon_invalid' ),
@@ -605,11 +605,11 @@ final class SettingsControllerTest extends WP_UnitTestCase {
 		);
 		$response_index = 0;
 
-		add_filter( 'sd_ai_agent_cloud_base_url', static fn(): string => $base_url );
+		add_filter( 'sd_ai_agent_cloud_base_url', static fn(): string => $baseUrl );
 		add_filter(
 			'pre_http_request',
-			static function ( mixed $preempt, array $parsed_args, string $url ) use ( $redeem_url, $responses, &$response_index ): mixed {
-				if ( $redeem_url !== $url ) {
+			static function ( mixed $preempt, array $parsed_args, string $url ) use ( $redeemUrl, $responses, &$response_index ): mixed {
+				if ( $redeemUrl !== $url ) {
 					return $preempt;
 				}
 
@@ -677,16 +677,16 @@ final class SettingsControllerTest extends WP_UnitTestCase {
 
 	/** A consumed coupon reports a non-retryable refresh error when metadata cannot persist. */
 	public function test_handle_redeem_superdav_coupon_reports_metadata_persistence_failure(): void {
-		$redeem_url = 'https://service.example/site/account/redeem-coupon';
-		$metadata   = array( 'connected_at' => '2026-07-16T00:00:00+00:00' );
+		$redeemUrl = 'https://service.example/site/account/redeem-coupon';
+		$metadata  = array( 'connected_at' => '2026-07-16T00:00:00+00:00' );
 
 		update_option( SuperdavAiProvider::CREDENTIAL_OPTION, 'sdaist_coupon_persistence_token', false );
 		update_option( SuperdavSiteConnectionService::TOKEN_METADATA_OPTION, $metadata, false );
-		add_filter( 'sd_ai_agent_cloud_account_coupon_redemption_endpoint', static fn(): string => $redeem_url );
+		add_filter( 'sd_ai_agent_cloud_account_coupon_redemption_endpoint', static fn(): string => $redeemUrl );
 		add_filter(
 			'pre_http_request',
-			static function ( mixed $preempt, array $parsed_args, string $url ) use ( $redeem_url ): mixed {
-				if ( $redeem_url !== $url ) {
+			static function ( mixed $preempt, array $parsed_args, string $url ) use ( $redeemUrl ): mixed {
+				if ( $redeemUrl !== $url ) {
 					return $preempt;
 				}
 
