@@ -7,6 +7,97 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.22.0] - 2026-08-15
+
+### Added
+
+- Verified SD account sign-in and account-action flow, account coupon support, and per-chat credit usage visibility.
+- Rotating working-status messages during active agent runs.
+
+### Changed
+
+- Page creation and editing now use preview-first publication, rendered quality checks, and stronger post-mutation evidence requirements.
+- Read-only file inspections can be reused, path resolution and heading-only Markdown handling are more robust, and development package management now uses pnpm.
+
+### Fixed
+
+- Client-tool results survive managed-provider timeouts and resume from durable checkpoints without replaying consumed browser actions; managed retries now use bounded jitter.
+- Underspecified mutations require clarification before execution, and provider retry exhaustion produces reliable diagnostics and recovery guidance.
+- Floating-widget chats preserve new sessions, keep slash menus visible, improve muted-label contrast, and reject stale attachments.
+- Site navigation opens reliably in the browser, and stock-image workflows recover cleanly when image acquisition fails.
+
+## [1.21.0] - 2026-07-30
+
+### Added
+
+- Site-scoped commerce plans, SD account billing and credit activity, customer-support agent profiles, and durable site-operation plans.
+
+### Changed
+
+- Improved chat recovery, checkpoint handling, image generation, onboarding verification, and WooCommerce activation safety.
+
+## [1.20.0] - 2026-07-23
+
+### Added
+
+- Clearer SD account and credit status, expanded model and image options, GPT-5.6 aliases, SD image edits, and OpenAI Responses tool search.
+
+### Changed
+
+- Improved interrupted-job recovery, generated-site safeguards, Theme Builder workflows, design-token handling, and block update safety.
+
+## [1.19.0] - 2026-07-09
+
+### Added
+
+- Searchable documentation imports, public and embeddable chat, and calendar-driven SMS reminder workflows.
+
+### Fixed
+
+- Improved chat recovery, Markdown rendering, knowledge counts, provider selection, and tool permissions.
+
+## [1.18.0] - 2026-06-29
+
+### Added
+
+- Google Calendar tools, attendee matching, TextBee SMS support, approval gates, and reminder records for scheduled messages.
+
+### Changed
+
+- Simplified SD setup and improved model selection, request timeouts, onboarding, and retry guidance.
+
+## [1.17.0] - 2026-06-11
+
+### Added
+
+- Previewed and reversible page, post, block, and file editing with Apply/Reject controls and rollback protection.
+
+### Changed
+
+- Improved onboarding, Theme Builder, media helpers, stock-image imports, saved patterns, dashboard access, privacy, and permission protections.
+
+## [1.16.2] - 2026-05-29
+
+### Changed
+
+- Clarified External Services disclosures and removed stale or misleading service examples.
+
+## [1.16.1] - 2026-05-20
+
+### Fixed
+
+- Restored Theme Builder chat scrolling on populated sites and consolidated image/document uploads into the normal chat attachment controls.
+
+## [1.16.0] - 2026-05-20
+
+### Added
+
+- Logo generation, photo-based design context, colour-contrast checks, responsive previews, and hospitality menu-page support for Theme Builder.
+
+### Changed
+
+- Improved site prefill and long-running task reliability.
+
 ## [1.15.0] - 2026-05-19
 
 ### Added
