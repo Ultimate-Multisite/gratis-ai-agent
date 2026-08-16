@@ -197,13 +197,14 @@ class GeneratedThemeCompletionGateTest extends WP_UnitTestCase {
 	}
 
 	/**
-	 * Missing browser capability remains incomplete instead of falling back to review prose.
+	 * Missing browser capability produces one terminal blocker instead of repair turns.
 	 */
-	public function test_browser_unavailability_never_passes(): void {
+	public function test_browser_unavailability_never_passes_or_requests_repair_turns(): void {
 		$gate = $this->prepare_activated_gate( array() );
 
-		$this->assertTrue( $gate->requires_repair() );
+		$this->assertFalse( $gate->requires_repair() );
 		$this->assertFalse( $gate->has_current_passing_report() );
+		$this->assertTrue( $gate->is_client_validation_unavailable() );
 		$this->assertStringContainsString(
 			'browser completion validator is unavailable',
 			$gate->get_repair_guidance()
@@ -263,7 +264,42 @@ class GeneratedThemeCompletionGateTest extends WP_UnitTestCase {
 		$gate->record_tool_response( GeneratedThemeCompletionGate::CLIENT_ABILITY, $report );
 
 		$this->assertFalse( $gate->requires_restore() );
-		$this->assertStringContainsString( 'Browser execution was unavailable', $gate->get_terminal_notice() );
+		$this->assertFalse( $gate->requires_repair() );
+		$this->assertTrue( $gate->is_client_validation_unavailable() );
+		$this->assertStringContainsString( 'browser-capable client', $gate->get_terminal_notice() );
+	}
+
+	/**
+	 * Replaying a browser-unavailable response must preserve a single terminal
+	 * state rather than reviving synthetic repair prompts on later polls.
+	 */
+	public function test_replayed_browser_unavailability_remains_one_terminal_blocker(): void {
+		$gate   = $this->prepare_activated_gate();
+		$inputs = $gate->get_expected_report_inputs();
+		$log    = array(
+			array(
+				'type' => 'call',
+				'name' => GeneratedThemeCompletionGate::CLIENT_ABILITY,
+				'args' => $inputs,
+			),
+			array(
+				'type'     => 'response',
+				'name'     => GeneratedThemeCompletionGate::CLIENT_ABILITY,
+				'response' => array(
+					'stylesheet'                    => self::STYLESHEET,
+					'fingerprint'                   => self::FINGERPRINT,
+					'browser_execution_unavailable' => true,
+				),
+			),
+		);
+
+		$gate->replay_tool_call_log( $log );
+		$first_notice = $gate->get_terminal_notice();
+		$gate->replay_tool_call_log( $log );
+
+		$this->assertFalse( $gate->requires_repair() );
+		$this->assertSame( $first_notice, $gate->get_terminal_notice() );
+		$this->assertSame( true, $gate->get_status()['browser_execution_unavailable'] );
 	}
 
 	/**
