@@ -18,7 +18,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Page creation and editing now use preview-first publication, rendered quality checks, and stronger post-mutation evidence requirements.
 - Read-only file inspections can be reused, path resolution and heading-only Markdown handling are more robust, and development package management now uses pnpm.
-- Initial frontend payloads are smaller: widget panel styles, live-preview strategies, Markdown, charts, syntax parsers, and non-default admin routes now load only when needed, with expanded deferred-bundle budgets guarding regressions.
+- Initial frontend payloads are smaller: widget panel styles, live-preview strategies, Markdown, charts, syntax parsers, and non-default admin routes now load only when needed, with expanded deferred-bundle budgets guarding regressions; the launcher and plain-text chat remain usable after optional chunk download failures, and later activations retry the downloads.
 
 ### Fixed
 
