@@ -1,6 +1,7 @@
 /* Settings Page */
 
 .sdaa-settings {
+	box-sizing: border-box;
 	max-width: 800px;
 	margin-top: 16px;
 	background: #fff;
@@ -113,7 +114,7 @@
 }
 
 .sdaa-settings-section {
-	padding: 20px 24px;
+	padding: 24px clamp(20px, 3vw, 32px);
 	display: flex;
 	flex-direction: column;
 	gap: 16px;
@@ -527,7 +528,8 @@
 .sd-ai-agent-superdav-account {
 	display: flex;
 	flex-direction: column;
-	gap: 24px;
+	gap: 28px;
+	width: 100%;
 }
 
 .sd-ai-agent-superdav-account-loading {
@@ -555,7 +557,8 @@
 .sd-ai-agent-superdav-linked-user,
 .sd-ai-agent-superdav-session-usage,
 .sd-ai-agent-superdav-credit-activity {
-	padding: 24px;
+	box-sizing: border-box;
+	padding: clamp(20px, 3vw, 28px);
 	border: 1px solid #dcdcde;
 	border-radius: 8px;
 	background: #fff;

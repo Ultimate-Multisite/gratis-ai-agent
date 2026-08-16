@@ -359,6 +359,24 @@ describe( 'SuperdavAccountManager', () => {
 		);
 	} );
 
+	test( 'offers to connect the site when no verified user is linked', async () => {
+		apiFetch.mockResolvedValue( {
+			configured: true,
+			link_account_available: true,
+			linked_user: null,
+		} );
+
+		await act( async () => {
+			root.render( createElement( SuperdavAccountManager, {} ) );
+		} );
+		await act( async () => {
+			await Promise.resolve();
+		} );
+
+		expect( findButton( 'Connect account to site' ) ).toBeDefined();
+		expect( findButton( 'Link a different user' ) ).toBeUndefined();
+	} );
+
 	test( 'redeems a coupon, disables submission while pending, and updates the balance', async () => {
 		let resolveRedemption;
 		apiFetch
