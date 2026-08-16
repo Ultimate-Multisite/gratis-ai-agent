@@ -14,8 +14,9 @@
  * avoiding speculative work on pages where the launcher is never used.
  */
 
-import { lazy, Suspense } from '@wordpress/element';
+import { useEffect, useState } from '@wordpress/element';
 import { useSelect } from '@wordpress/data';
+import { __ } from '@wordpress/i18n';
 
 import STORE_NAME from '../../store';
 import { getChatUiMode } from '../../utils/chat-ui-mode';
@@ -24,9 +25,61 @@ import WidgetLauncher from './widget-launcher';
 // Panel and chat-redesign styles are imported inside widget-panel.js.
 import './widget-launcher.css';
 
-const WidgetPanel = lazy( () =>
-	import( /* webpackChunkName: "widget-panel" */ './widget-panel' )
-);
+/**
+ * Load the panel without letting a stale deployment chunk replace the whole
+ * widget with an unrecoverable error boundary.
+ *
+ * @param {Object}      root0                        Component props.
+ * @param {string|null} root0.frontendOnboardingMode Frontend onboarding layout mode.
+ * @param {string}      root0.uiMode                 Chat UI mode.
+ * @return {JSX.Element|null} Loaded panel, retry launcher, or loading fallback.
+ */
+function DeferredWidgetPanel( { frontendOnboardingMode, uiMode } ) {
+	const [ WidgetPanel, setWidgetPanel ] = useState( null );
+	const [ failed, setFailed ] = useState( false );
+	const [ attempt, setAttempt ] = useState( 0 );
+
+	useEffect( () => {
+		let active = true;
+		setFailed( false );
+
+		import( /* webpackChunkName: "widget-panel" */ './widget-panel' )
+			.then( ( module ) => {
+				if ( active ) {
+					setWidgetPanel( () => module.default );
+				}
+			} )
+			.catch( () => {
+				if ( active ) {
+					setFailed( true );
+				}
+			} );
+
+		return () => {
+			active = false;
+		};
+	}, [ attempt ] );
+
+	if ( failed ) {
+		return (
+			<WidgetLauncher
+				label={ __( 'Retry opening AI Agent', 'superdav-ai-agent' ) }
+				onActivate={ () => setAttempt( ( current ) => current + 1 ) }
+			/>
+		);
+	}
+
+	if ( ! WidgetPanel ) {
+		return null;
+	}
+
+	return (
+		<WidgetPanel
+			frontendOnboardingMode={ frontendOnboardingMode }
+			uiMode={ uiMode }
+		/>
+	);
+}
 
 /**
  * @param {Object}      root0                        Component props.
@@ -43,14 +96,10 @@ export default function ChatWidget( { frontendOnboardingMode = null } ) {
 		return <WidgetLauncher />;
 	}
 
-	// Suspense renders nothing while the panel chunk is downloading.
-	// On a repeat visit this is normally served from the browser cache.
 	return (
-		<Suspense fallback={ null }>
-			<WidgetPanel
-				frontendOnboardingMode={ frontendOnboardingMode }
-				uiMode={ uiMode }
-			/>
-		</Suspense>
+		<DeferredWidgetPanel
+			frontendOnboardingMode={ frontendOnboardingMode }
+			uiMode={ uiMode }
+		/>
 	);
 }

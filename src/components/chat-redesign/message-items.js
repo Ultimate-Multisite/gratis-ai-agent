@@ -13,14 +13,7 @@
  * (assistant) or model · time (user), sourced from store.messageTokens.
  */
 
-import {
-	useState,
-	useRef,
-	useEffect,
-	useCallback,
-	lazy,
-	Suspense,
-} from '@wordpress/element';
+import { useState, useRef, useEffect, useCallback } from '@wordpress/element';
 import { useDispatch, useSelect } from '@wordpress/data';
 import { __ } from '@wordpress/i18n';
 import {
@@ -43,9 +36,28 @@ import {
 import { linkifyText } from '../../utils/linkify';
 import { copyToClipboard } from '../../utils/clipboard';
 
-const MarkdownMessage = lazy( () =>
-	import( /* webpackChunkName: "markdown-message" */ '../markdown-message' )
-);
+let markdownMessagePromise = null;
+
+/**
+ * Share the Markdown chunk request across message rows. A rejected request is
+ * cleared so a later mount can retry after a deployment or transient failure.
+ *
+ * @return {Promise<Function>} Markdown message component.
+ */
+function loadMarkdownMessage() {
+	if ( ! markdownMessagePromise ) {
+		markdownMessagePromise = import(
+			/* webpackChunkName: "markdown-message" */ '../markdown-message'
+		)
+			.then( ( module ) => module.default )
+			.catch( ( error ) => {
+				markdownMessagePromise = null;
+				throw error;
+			} );
+	}
+
+	return markdownMessagePromise;
+}
 
 /**
  * Keep message text visible while the Markdown renderer downloads.
@@ -55,15 +67,28 @@ const MarkdownMessage = lazy( () =>
  * @return {JSX.Element} Deferred Markdown output with a plain-text fallback.
  */
 function DeferredMarkdownMessage( { content } ) {
-	return (
-		<Suspense
-			fallback={
-				<span className="sdaa-cr-markdown-fallback">{ content }</span>
-			}
-		>
-			<MarkdownMessage content={ content } />
-		</Suspense>
-	);
+	const [ MarkdownMessage, setMarkdownMessage ] = useState( null );
+
+	useEffect( () => {
+		let active = true;
+		loadMarkdownMessage()
+			.then( ( Component ) => {
+				if ( active ) {
+					setMarkdownMessage( () => Component );
+				}
+			} )
+			.catch( () => undefined );
+
+		return () => {
+			active = false;
+		};
+	}, [] );
+
+	if ( ! MarkdownMessage ) {
+		return <span className="sdaa-cr-markdown-fallback">{ content }</span>;
+	}
+
+	return <MarkdownMessage content={ content } />;
 }
 
 /**
