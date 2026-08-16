@@ -45,7 +45,6 @@ final class SettingsControllerTest extends WP_UnitTestCase {
 		delete_option( SuperdavSiteConnectionService::INSTALLATION_ID_OPTION );
 		delete_option( SuperdavSiteConnectionService::TOKEN_METADATA_OPTION );
 		remove_all_filters( 'sd_ai_agent_cloud_base_url' );
-		remove_all_filters( 'sd_ai_agent_cloud_portal_signing_secret' );
 		remove_all_filters( 'sd_ai_agent_cloud_account_action_endpoint' );
 		remove_all_filters( 'sd_ai_agent_cloud_account_coupon_redemption_endpoint' );
 		remove_all_filters( 'sd_ai_agent_options_read_blocklist' );
@@ -531,33 +530,28 @@ final class SettingsControllerTest extends WP_UnitTestCase {
 		}
 	}
 
-	/** Coupon redemption signs the documented request and returns only safe refreshed metadata. */
+	/** Coupon redemption uses the scoped site bearer token and returns only safe refreshed metadata. */
 	public function test_handle_redeem_superdav_coupon_returns_safe_refreshed_wallet(): void {
 		$base_url    = 'https://service.example/v1';
-		$redeem_url  = 'https://service.example/custom/portal/redeem-coupon';
+		$redeem_url  = 'https://service.example/custom/site/redeem-coupon';
 		$token       = 'sdaist_coupon_redemption_token';
 		$coupon_code = 'test-coupon-code';
-		$secret      = 'test-portal-signing-secret';
 
 		add_filter( 'sd_ai_agent_cloud_base_url', static fn(): string => $base_url );
 		add_filter( 'sd_ai_agent_cloud_account_coupon_redemption_endpoint', static fn(): string => $redeem_url );
-		add_filter( 'sd_ai_agent_cloud_portal_signing_secret', static fn(): string => $secret );
 		add_filter(
 			'pre_http_request',
-			static function ( mixed $preempt, array $parsed_args, string $url ) use ( $redeem_url, $token, $coupon_code, $secret ): mixed {
+			static function ( mixed $preempt, array $parsed_args, string $url ) use ( $redeem_url, $token, $coupon_code ): mixed {
 				if ( $redeem_url !== $url ) {
 					return $preempt;
 				}
 
-				$body      = (string) ( $parsed_args['body'] ?? '' );
-				$timestamp = (string) ( $parsed_args['headers']['X-Superdav-Timestamp'] ?? '' );
+				$body = (string) ( $parsed_args['body'] ?? '' );
 				self::assertSame( 'Bearer ' . $token, self::authorization_header_from_args( $parsed_args ) );
 				self::assertSame( 0, $parsed_args['redirection'] ?? null );
 				self::assertSame( $coupon_code, json_decode( $body, true )['coupon_code'] ?? '' );
-				self::assertSame(
-					hash_hmac( 'sha256', $timestamp . '.POST./custom/portal/redeem-coupon.' . $body, $secret ),
-					$parsed_args['headers']['X-Superdav-Signature'] ?? ''
-				);
+				self::assertArrayNotHasKey( 'X-Superdav-Timestamp', $parsed_args['headers'] );
+				self::assertArrayNotHasKey( 'X-Superdav-Signature', $parsed_args['headers'] );
 
 				return array(
 					'response' => array( 'code' => 200, 'message' => 'OK' ),
@@ -600,7 +594,7 @@ final class SettingsControllerTest extends WP_UnitTestCase {
 	/** Redemption preserves documented coupon errors and safely collapses unknown failures. */
 	public function test_handle_redeem_superdav_coupon_handles_service_errors_without_disclosure(): void {
 		$base_url   = 'https://service.example/v1';
-		$redeem_url = $base_url . '/portal/account/redeem-coupon';
+		$redeem_url = $base_url . '/site/account/redeem-coupon';
 		$responses  = array(
 			array( 'code' => 302, 'error' => 'redirect', 'expected' => 'sd_ai_agent_coupon_redemption_unavailable' ),
 			array( 'code' => 404, 'error' => 'coupon_invalid', 'expected' => 'sd_ai_agent_coupon_invalid' ),
@@ -612,7 +606,6 @@ final class SettingsControllerTest extends WP_UnitTestCase {
 		$response_index = 0;
 
 		add_filter( 'sd_ai_agent_cloud_base_url', static fn(): string => $base_url );
-		add_filter( 'sd_ai_agent_cloud_portal_signing_secret', static fn(): string => 'test-portal-signing-secret' );
 		add_filter(
 			'pre_http_request',
 			static function ( mixed $preempt, array $parsed_args, string $url ) use ( $redeem_url, $responses, &$response_index ): mixed {
@@ -655,13 +648,12 @@ final class SettingsControllerTest extends WP_UnitTestCase {
 	/** Coupon redemption never sends its bearer token to unsafe filtered endpoints. */
 	public function test_handle_redeem_superdav_coupon_rejects_unsafe_endpoint_overrides(): void {
 		$endpoints = array(
-			'http://service.example/portal/account/redeem-coupon',
-			'https://coupon-user:coupon-password@service.example/portal/account/redeem-coupon',
-			'https://service.example/portal/account/redeem-coupon?access_token=must-not-be-sent',
+			'http://service.example/site/account/redeem-coupon',
+			'https://coupon-user:coupon-password@service.example/site/account/redeem-coupon',
+			'https://service.example/site/account/redeem-coupon?access_token=must-not-be-sent',
 		);
 
 		update_option( SuperdavAiProvider::CREDENTIAL_OPTION, 'sdaist_coupon_endpoint_token', false );
-		add_filter( 'sd_ai_agent_cloud_portal_signing_secret', static fn(): string => 'test-portal-signing-secret' );
 		add_filter(
 			'pre_http_request',
 			static function (): void {
@@ -685,13 +677,12 @@ final class SettingsControllerTest extends WP_UnitTestCase {
 
 	/** A consumed coupon reports a non-retryable refresh error when metadata cannot persist. */
 	public function test_handle_redeem_superdav_coupon_reports_metadata_persistence_failure(): void {
-		$redeem_url = 'https://service.example/portal/account/redeem-coupon';
+		$redeem_url = 'https://service.example/site/account/redeem-coupon';
 		$metadata   = array( 'connected_at' => '2026-07-16T00:00:00+00:00' );
 
 		update_option( SuperdavAiProvider::CREDENTIAL_OPTION, 'sdaist_coupon_persistence_token', false );
 		update_option( SuperdavSiteConnectionService::TOKEN_METADATA_OPTION, $metadata, false );
 		add_filter( 'sd_ai_agent_cloud_account_coupon_redemption_endpoint', static fn(): string => $redeem_url );
-		add_filter( 'sd_ai_agent_cloud_portal_signing_secret', static fn(): string => 'test-portal-signing-secret' );
 		add_filter(
 			'pre_http_request',
 			static function ( mixed $preempt, array $parsed_args, string $url ) use ( $redeem_url ): mixed {
