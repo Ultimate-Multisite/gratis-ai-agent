@@ -30,8 +30,7 @@ final class SuperdavSiteConnectionService {
 	private const REVOCATION_ENDPOINT_PATH                = 'site/token/revoke';
 	private const ACCOUNT_STATUS_ENDPOINT_PATH            = 'site/account';
 	private const ACCOUNT_ACTION_ENDPOINT_PATH            = 'site/account/action';
-	private const ACCOUNT_COUPON_REDEMPTION_ENDPOINT_PATH = 'portal/account/redeem-coupon';
-	private const ACCOUNT_COUPON_REDEMPTION_PATH          = '/v1/portal/account/redeem-coupon';
+	private const ACCOUNT_COUPON_REDEMPTION_ENDPOINT_PATH = 'site/account/redeem-coupon';
 
 	/**
 	 * Maximum number of newest-first credit activity rows retained for display.
@@ -298,22 +297,14 @@ final class SuperdavSiteConnectionService {
 		if ( ! is_string( $body ) ) {
 			return new WP_Error( 'sd_ai_agent_coupon_redemption_unavailable', __( 'Coupon redemption is temporarily unavailable.', 'superdav-ai-agent' ), array( 'status' => 502 ) );
 		}
-		$path      = wp_parse_url( $endpoint, PHP_URL_PATH );
-		$signature = $this->get_account_coupon_redemption_signature( $body, is_string( $path ) && '' !== $path ? $path : self::ACCOUNT_COUPON_REDEMPTION_PATH );
-		if ( null === $signature ) {
-			return new WP_Error( 'sd_ai_agent_coupon_redemption_unavailable', __( 'Coupon redemption is temporarily unavailable.', 'superdav-ai-agent' ), array( 'status' => 503 ) );
-		}
-
 		$response = wp_remote_post(
 			$endpoint,
 			array(
 				'timeout'     => 15,
 				'redirection' => 0,
 				'headers'     => array(
-					'Authorization'        => 'Bearer ' . $token,
-					'Content-Type'         => 'application/json',
-					'X-Superdav-Timestamp' => $signature['timestamp'],
-					'X-Superdav-Signature' => $signature['value'],
+					'Authorization' => 'Bearer ' . $token,
+					'Content-Type'  => 'application/json',
 				),
 				'body'        => $body,
 			)
@@ -525,42 +516,6 @@ final class SuperdavSiteConnectionService {
 		$endpoint = apply_filters( 'sd_ai_agent_cloud_account_coupon_redemption_endpoint', $endpoint );
 
 		return $this->sanitize_account_url( $endpoint );
-	}
-
-	/**
-	 * Create the HMAC headers required by the managed portal redemption contract.
-	 *
-	 * The shared secret is deployment configuration only; it is never stored in
-	 * WordPress options, sent to the browser, or included in a REST response.
-	 *
-	 * @param string $body Exact JSON body that the service verifies.
-	 * @param string $path Request path resolved from the endpoint URL.
-	 * @return array{timestamp: string, value: string}|null Signature headers, or null when unconfigured.
-	 */
-	private function get_account_coupon_redemption_signature( string $body, string $path ): ?array {
-		$secret = defined( 'SD_AI_AGENT_CLOUD_PORTAL_SIGNING_SECRET' ) && is_string( SD_AI_AGENT_CLOUD_PORTAL_SIGNING_SECRET )
-			? SD_AI_AGENT_CLOUD_PORTAL_SIGNING_SECRET
-			: '';
-
-		/**
-		 * Filters the deployment-only secret used to sign coupon redemptions.
-		 *
-		 * The service verifies HMAC-SHA256 over timestamp, method, path, and the
-		 * exact JSON request body. Return an empty string to disable redemption.
-		 *
-		 * @param string $secret Portal signing secret.
-		 */
-		$secret = apply_filters( 'sd_ai_agent_cloud_portal_signing_secret', $secret );
-		if ( ! is_string( $secret ) || '' === $secret ) {
-			return null;
-		}
-
-		$timestamp = gmdate( 'c' );
-
-		return array(
-			'timestamp' => $timestamp,
-			'value'     => hash_hmac( 'sha256', $timestamp . '.POST.' . $path . '.' . $body, $secret ),
-		);
 	}
 
 	/**
