@@ -27,6 +27,11 @@ const ESSENTIAL_CONTENT_SELECTORS = [
 	[ 'footer', 'footer, [role="contentinfo"]' ],
 	[ 'page heading', 'h1' ],
 ];
+const REQUIRED_CONTACT_FIELDS = [ 'name', 'email', 'subject' ];
+const BOOKING_IFRAME_PATTERN = /(?:appointment|booking|schedule)/i;
+const UNCONFIGURED_BOOKING_PATTERN = /no appointment types have been set up/i;
+const CHECKOUT_CLAIM_PATTERN = /(?:package|pricing|price|checkout)/i;
+const CHECKOUT_CONTROL_PATTERN = /(?:checkout|buy now|purchase|pay now)/i;
 
 /**
  * Normalize URLs for deterministic report matching without fetching them.
@@ -194,6 +199,38 @@ function addViolation( violations, item ) {
 	if ( violations.length < MAX_VIOLATIONS ) {
 		violations.push( item );
 	}
+}
+
+/**
+ * Return whether a checkout CTA leads to a real destination.
+ *
+ * @param {Element} control Candidate CTA control.
+ * @return {boolean} Whether the control is actionable.
+ */
+function isActionableCheckoutControl( control ) {
+	if ( control.tagName === 'A' ) {
+		const href = ( control.getAttribute( 'href' ) || '' ).trim();
+		return !! href && href !== '#' && ! href.startsWith( 'javascript:' );
+	}
+
+	const form = control.closest( 'form' );
+	return !! form && !! ( form.getAttribute( 'action' ) || '' ).trim();
+}
+
+/**
+ * Return the control associated with a visible label.
+ *
+ * @param {HTMLLabelElement} label Label element.
+ * @param {Document}         doc   Owning document.
+ * @return {Element|null} Associated control.
+ */
+function getLabeledControl( label, doc ) {
+	const forId = ( label.htmlFor || '' ).trim();
+	if ( forId ) {
+		return doc.getElementById( forId );
+	}
+
+	return label.querySelector( 'input, select, textarea' );
 }
 
 /**
@@ -775,6 +812,94 @@ export function inspectThemeDocument( {
 		}
 	}
 
+	const labels = Array.from( doc.querySelectorAll( 'label' ) ).filter(
+		( label ) =>
+			! isWordPressAdminChrome( label ) && isVisible( label, win )
+	);
+	for ( const fieldName of REQUIRED_CONTACT_FIELDS ) {
+		const label = labels.find( ( candidate ) =>
+			new RegExp( `\\b${ fieldName }\\b`, 'i' ).test(
+				candidate.textContent || ''
+			)
+		);
+		if ( ! label ) {
+			continue;
+		}
+
+		const control = getLabeledControl(
+			/** @type {HTMLLabelElement} */ ( label ),
+			doc
+		);
+		if ( ! control ) {
+			reportViolation( {
+				code: 'missing_required_form_control',
+				selector: selectorFor( label ),
+				evidence: `The visible ${ fieldName } label has no associated input control.`,
+				remediation: `Add an associated ${ fieldName } input, select, or textarea to the contact form.`,
+			} );
+			continue;
+		}
+
+		if ( ! control.closest( 'form' ) ) {
+			reportViolation( {
+				code: 'contact_control_outside_form',
+				selector: selectorFor( control ),
+				evidence: `The required ${ fieldName } control is not inside a form.`,
+				remediation:
+					'Wrap all contact controls and the submit action in one form.',
+			} );
+		}
+	}
+
+	const bookingFrames = Array.from( doc.querySelectorAll( 'iframe' ) ).filter(
+		( frame ) =>
+			BOOKING_IFRAME_PATTERN.test(
+				`${ frame.getAttribute( 'src' ) || '' } ${
+					frame.getAttribute( 'title' ) || ''
+				}`
+			)
+	);
+	for ( const frame of bookingFrames ) {
+		const bookingText = `${ body.textContent || '' } ${
+			frame.contentDocument?.body?.textContent || ''
+		}`;
+		if ( UNCONFIGURED_BOOKING_PATTERN.test( bookingText ) ) {
+			reportViolation( {
+				code: 'booking_widget_unconfigured',
+				selector: selectorFor( frame ),
+				evidence:
+					'The booking widget reports no available appointment types.',
+				remediation:
+					'Configure a bookable appointment type before publishing.',
+			} );
+		}
+	}
+
+	const visibleText = ( body.innerText || body.textContent || '' ).replace(
+		/\s+/g,
+		' '
+	);
+	if ( CHECKOUT_CLAIM_PATTERN.test( visibleText ) ) {
+		const checkoutControls = controls.filter( ( control ) =>
+			CHECKOUT_CONTROL_PATTERN.test( getAccessibleName( control, doc ) )
+		);
+		if (
+			checkoutControls.length === 0 ||
+			checkoutControls.every(
+				( control ) => ! isActionableCheckoutControl( control )
+			)
+		) {
+			reportViolation( {
+				code: 'missing_actionable_checkout',
+				selector: 'main',
+				evidence:
+					'The page claims packages or payment without an actionable checkout.',
+				remediation:
+					'Link a visible purchase CTA to a configured sandbox checkout.',
+			} );
+		}
+	}
+
 	const textCandidates = Array.from(
 		doc.querySelectorAll(
 			'h1, h2, h3, h4, h5, h6, p, li, a[href], button, label, input, select, textarea'
@@ -809,10 +934,6 @@ export function inspectThemeDocument( {
 		}
 	}
 
-	const visibleText = ( body.innerText || body.textContent || '' ).replace(
-		/\s+/g,
-		' '
-	);
 	if ( PLACEHOLDER_PATTERN.test( visibleText ) ) {
 		reportViolation( {
 			code: 'placeholder_content',
@@ -874,6 +995,78 @@ export function inspectThemeDocument( {
 		violations,
 		checks,
 	};
+}
+
+/**
+ * Return failures for same-origin image assets that no longer return 2xx.
+ *
+ * @param {Document} doc      Loaded frontend document.
+ * @param {Window}   win      Loaded iframe window.
+ * @param {string}   url      Loaded page URL.
+ * @param {Object}   viewport Viewport metadata.
+ * @return {Promise<Object[]>} Local asset violations.
+ */
+async function validateLocalAssetResponses( doc, win, url, viewport ) {
+	if ( typeof fetch !== 'function' ) {
+		return [];
+	}
+
+	const violations = [];
+	const sources = new Set();
+	for ( const image of doc.querySelectorAll( 'img[src]' ) ) {
+		try {
+			const assetUrl = new URL(
+				image.getAttribute( 'src' ) || '',
+				win.location.href
+			);
+			if ( assetUrl.origin === win.location.origin ) {
+				sources.add( assetUrl.href );
+			}
+		} catch ( _error ) {
+			// inspectThemeDocument() owns invalid URL reporting.
+		}
+	}
+
+	for ( const source of sources ) {
+		try {
+			// eslint-disable-next-line no-await-in-loop -- Asset responses are checked in document order.
+			const response = await fetch( source, {
+				credentials: 'same-origin',
+				method: 'HEAD',
+			} );
+			if ( ! response.ok ) {
+				const assetUrl = new URL( source );
+				addViolation(
+					violations,
+					violation( {
+						code: 'local_asset_response_failed',
+						url: normalizeUrl( url ),
+						viewport,
+						selector: 'asset-response',
+						evidence: `Local asset ${ assetUrl.pathname } returned HTTP ${ response.status }.`,
+						remediation:
+							'Write the referenced local asset before activation.',
+					} )
+				);
+			}
+		} catch ( _error ) {
+			const assetUrl = new URL( source );
+			addViolation(
+				violations,
+				violation( {
+					code: 'local_asset_response_unavailable',
+					url: normalizeUrl( url ),
+					viewport,
+					selector: 'asset-response',
+					evidence: `The response for local asset ${ assetUrl.pathname } could not be verified.`,
+					remediation:
+						'Restore same-origin asset delivery and rerun completion validation.',
+				} )
+			);
+		}
+	}
+
+	return violations;
 }
 
 /**
@@ -1005,6 +1198,16 @@ export async function validateThemeCompletion( args ) {
 					viewport,
 					expectedStylesheet: stylesheet,
 				} );
+				const assetViolations = await validateLocalAssetResponses(
+					loaded.document,
+					loaded.window,
+					loaded.url,
+					viewport
+				);
+				const inspection = {
+					...inspected,
+					violations: [ ...inspected.violations, ...assetViolations ],
+				};
 				reports.push( {
 					url: normalizeUrl( loaded.url ),
 					requested_url: normalizeUrl( url ),
@@ -1016,9 +1219,9 @@ export async function validateThemeCompletion( args ) {
 						homepageUrl
 					),
 					viewport,
-					...inspected,
+					...inspection,
 				} );
-				for ( const item of inspected.violations ) {
+				for ( const item of inspection.violations ) {
 					addViolation( violations, item );
 				}
 			} catch ( error ) {

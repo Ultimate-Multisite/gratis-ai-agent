@@ -201,6 +201,57 @@ describe( 'generated theme completion validator', () => {
 		);
 	} );
 
+	test( 'rejects a referenced local asset that returns HTTP 404', async () => {
+		document
+			.querySelector( 'main' )
+			.insertAdjacentHTML(
+				'beforeend',
+				'<img src="/assets/hero.svg" alt="Hero">'
+			);
+		const originalFetch = global.fetch;
+		global.fetch = jest
+			.fn()
+			.mockResolvedValue( { ok: false, status: 404 } );
+
+		try {
+			const report = await validateThemeCompletion( completionArgs );
+			expect( report.violations ).toEqual(
+				expect.arrayContaining( [
+					expect.objectContaining( {
+						code: 'local_asset_response_failed',
+						evidence: expect.stringContaining( 'HTTP 404' ),
+					} ),
+				] )
+			);
+		} finally {
+			global.fetch = originalFetch;
+		}
+	} );
+
+	test( 'rejects unconfigured booking, inert checkout, and stripped contact controls', () => {
+		document.querySelector( 'main' ).innerHTML = `
+			<h1>Contact and packages</h1>
+			<p>Choose a package and checkout today.</p>
+			<iframe src="/appointments/" title="Booking"></iframe>
+			<p>No appointment types have been set up yet.</p>
+			<label>Name</label><label>Email</label><label>Subject</label>
+			<textarea aria-label="Message"></textarea><button>Submit</button>
+		`;
+
+		const result = inspectThemeDocument( {
+			document,
+			window,
+			url: urls[ 1 ],
+			viewport: THEME_COMPLETION_VIEWPORTS[ 0 ],
+			expectedStylesheet: stylesheet,
+		} );
+		const codes = result.violations.map( ( item ) => item.code );
+
+		expect( codes ).toContain( 'booking_widget_unconfigured' );
+		expect( codes ).toContain( 'missing_actionable_checkout' );
+		expect( codes ).toContain( 'missing_required_form_control' );
+	} );
+
 	test( 'ignores logged-in WordPress admin-bar controls and remote avatars', () => {
 		document.body.insertAdjacentHTML(
 			'afterbegin',

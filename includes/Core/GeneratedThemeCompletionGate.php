@@ -63,6 +63,9 @@ final class GeneratedThemeCompletionGate {
 
 	private bool $client_validator_available;
 
+	/** @var bool Whether the browser advertised the validator but could not execute it. */
+	private bool $browser_execution_unavailable = false;
+
 	private bool $generated_theme_started = false;
 
 	private bool $validation_current = false;
@@ -224,7 +227,20 @@ final class GeneratedThemeCompletionGate {
 	public function requires_repair(): bool {
 		return $this->generated_theme_started
 			&& ! $this->passed
+			&& ! $this->is_client_validation_unavailable()
 			&& ! $this->restored_after_fatal_failure;
+	}
+
+	/**
+	 * Whether completion is terminally blocked until a browser-capable client resumes it.
+	 *
+	 * This is deliberately distinct from a failed render. A client capability
+	 * failure cannot be repaired by another model turn, so reinjecting repair
+	 * guidance would only append duplicate synthetic user messages.
+	 */
+	public function is_client_validation_unavailable(): bool {
+		return $this->generated_theme_started
+			&& ( ! $this->client_validator_available || $this->browser_execution_unavailable );
 	}
 
 	/**
@@ -310,6 +326,10 @@ final class GeneratedThemeCompletionGate {
 			return '';
 		}
 
+		if ( $this->is_client_validation_unavailable() ) {
+			return 'Generated-theme completion is blocked until a browser-capable client can run the pending frontend validator. The generated theme remains incomplete; do not replay the same completion blocker or treat static evidence as a substitute.';
+		}
+
 		$reason = '' !== $this->last_failure ? ' ' . $this->last_failure : '';
 		return 'Generated-theme completion remains incomplete. A current activated-site browser report for the expected stylesheet, project fingerprint, homepage, interior page, and all required viewports was not passed.' . $reason;
 	}
@@ -321,17 +341,18 @@ final class GeneratedThemeCompletionGate {
 	 */
 	public function get_status(): array {
 		return array(
-			'required'                 => $this->generated_theme_started,
-			'passed'                   => $this->passed,
-			'stylesheet'               => $this->expected_stylesheet,
-			'fingerprint'              => $this->validated_fingerprint,
-			'required_urls'            => $this->get_required_urls(),
-			'viewports'                => self::REQUIRED_VIEWPORTS,
-			'client_validator_present' => $this->client_validator_available,
-			'requires_restore'         => $this->requires_restore(),
-			'previous_stylesheet'      => $this->previous_stylesheet,
-			'last_failure'             => $this->last_failure,
-			'report'                   => $this->last_report,
+			'required'                      => $this->generated_theme_started,
+			'passed'                        => $this->passed,
+			'stylesheet'                    => $this->expected_stylesheet,
+			'fingerprint'                   => $this->validated_fingerprint,
+			'required_urls'                 => $this->get_required_urls(),
+			'viewports'                     => self::REQUIRED_VIEWPORTS,
+			'client_validator_present'      => $this->client_validator_available,
+			'browser_execution_unavailable' => $this->browser_execution_unavailable,
+			'requires_restore'              => $this->requires_restore(),
+			'previous_stylesheet'           => $this->previous_stylesheet,
+			'last_failure'                  => $this->last_failure,
+			'report'                        => $this->last_report,
 		);
 	}
 
@@ -349,19 +370,20 @@ final class GeneratedThemeCompletionGate {
 			return;
 		}
 
-		$this->generated_theme_started      = true;
-		$this->expected_stylesheet          = $stylesheet;
-		$this->validation_current           = false;
-		$this->activation_current           = false;
-		$this->passed                       = false;
-		$this->requires_restore             = false;
-		$this->restored_after_fatal_failure = false;
-		$this->validated_fingerprint        = '';
-		$this->previous_stylesheet          = '';
-		$this->published_page_urls          = array();
-		$this->front_page_id                = 0;
-		$this->last_report                  = array();
-		$this->last_failure                 = 'The generated project has not yet passed project validation and activated-site browser QA.';
+		$this->generated_theme_started       = true;
+		$this->expected_stylesheet           = $stylesheet;
+		$this->validation_current            = false;
+		$this->activation_current            = false;
+		$this->passed                        = false;
+		$this->requires_restore              = false;
+		$this->restored_after_fatal_failure  = false;
+		$this->validated_fingerprint         = '';
+		$this->previous_stylesheet           = '';
+		$this->published_page_urls           = array();
+		$this->front_page_id                 = 0;
+		$this->last_report                   = array();
+		$this->browser_execution_unavailable = false;
+		$this->last_failure                  = 'The generated project has not yet passed project validation and activated-site browser QA.';
 	}
 
 	/**
@@ -392,12 +414,13 @@ final class GeneratedThemeCompletionGate {
 			return;
 		}
 
-		$this->validation_current    = true;
-		$this->activation_current    = false;
-		$this->passed                = false;
-		$this->validated_fingerprint = $fingerprint;
-		$this->last_report           = array();
-		$this->last_failure          = 'The project validation passed, but the expected stylesheet still needs activated-site browser QA.';
+		$this->validation_current            = true;
+		$this->activation_current            = false;
+		$this->passed                        = false;
+		$this->validated_fingerprint         = $fingerprint;
+		$this->last_report                   = array();
+		$this->browser_execution_unavailable = false;
+		$this->last_failure                  = 'The project validation passed, but the expected stylesheet still needs activated-site browser QA.';
 	}
 
 	/**
@@ -441,11 +464,12 @@ final class GeneratedThemeCompletionGate {
 			return;
 		}
 
-		$this->activation_current  = true;
-		$this->passed              = false;
-		$this->previous_stylesheet = self::sanitize_stylesheet( (string) ( $response['previous_stylesheet'] ?? '' ) );
-		$this->last_report         = array();
-		$this->last_failure        = 'The expected stylesheet is active, but its frontend completion report has not passed.';
+		$this->activation_current            = true;
+		$this->passed                        = false;
+		$this->previous_stylesheet           = self::sanitize_stylesheet( (string) ( $response['previous_stylesheet'] ?? '' ) );
+		$this->last_report                   = array();
+		$this->browser_execution_unavailable = false;
+		$this->last_failure                  = 'The expected stylesheet is active, but its frontend completion report has not passed.';
 	}
 
 	/**
@@ -485,7 +509,8 @@ final class GeneratedThemeCompletionGate {
 		}
 
 		if ( true === ( $response['browser_execution_unavailable'] ?? false ) ) {
-			$this->last_failure = 'Browser execution was unavailable, so frontend completion evidence could not be collected. Restore browser capability and rerun the full validator; do not treat this as a fatal theme activation failure.';
+			$this->browser_execution_unavailable = true;
+			$this->last_failure                  = 'Browser execution was unavailable, so frontend completion evidence could not be collected. Restore browser capability and rerun the full validator; do not treat this as a fatal theme activation failure.';
 			return;
 		}
 
