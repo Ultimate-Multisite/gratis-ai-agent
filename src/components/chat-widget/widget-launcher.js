@@ -18,9 +18,11 @@ import useDrag from './use-drag';
 const LAUNCHER_POSITION_STORAGE_KEY = 'aiAgentWidgetLauncherPosition';
 
 /**
- *
+ * @param {Object}   root0              Component props.
+ * @param {Function} [root0.onActivate] Optional activation override.
+ * @param {string}   [root0.label]      Optional accessible label override.
  */
-export default function WidgetLauncher() {
+export default function WidgetLauncher( { onActivate, label: labelOverride } ) {
 	const { setFloatingOpen } = useDispatch( STORE_NAME );
 	const { alertCount, isRunning } = useSelect( ( sel ) => {
 		const store = sel( STORE_NAME );
@@ -35,13 +37,15 @@ export default function WidgetLauncher() {
 	}, [] );
 
 	const branding = getBranding();
-	const label = branding.agentName
-		? sprintf(
-				/* translators: %s: agent display name */
-				__( 'Open %s', 'sd-ai-agent' ),
-				branding.agentName
-		  )
-		: __( 'Open AI Agent', 'sd-ai-agent' );
+	const label =
+		labelOverride ||
+		( branding.agentName
+			? sprintf(
+					/* translators: %s: agent display name */
+					__( 'Open %s', 'sd-ai-agent' ),
+					branding.agentName
+			  )
+			: __( 'Open AI Agent', 'sd-ai-agent' ) );
 
 	const { position, moved, handleMouseDown } = useDrag( {
 		storageKey: LAUNCHER_POSITION_STORAGE_KEY,
@@ -55,8 +59,12 @@ export default function WidgetLauncher() {
 			moved.current = false;
 			return;
 		}
+		if ( onActivate ) {
+			onActivate();
+			return;
+		}
 		setFloatingOpen( true );
-	}, [ moved, setFloatingOpen ] );
+	}, [ moved, onActivate, setFloatingOpen ] );
 
 	const positionStyle = position
 		? {
