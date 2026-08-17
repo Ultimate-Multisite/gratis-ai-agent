@@ -335,6 +335,11 @@ function ToolProgressSummary( {
 							<span className="sdaa-cr-progress-step-label">
 								{ step.label }
 							</span>
+							{ step.toolName && (
+								<code className="sdaa-cr-progress-step-tool-name">
+									{ step.toolName }
+								</code>
+							) }
 							<span className="sdaa-cr-progress-step-status">
 								{ getProgressStepStatusLabel( step.status ) }
 							</span>

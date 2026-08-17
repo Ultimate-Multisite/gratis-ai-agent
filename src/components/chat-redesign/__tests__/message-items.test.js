@@ -7,7 +7,7 @@ import { useSelect } from '@wordpress/data';
 import { createRoot } from 'react-dom/client';
 import { act } from 'react';
 
-import { AssistantMessage } from '../message-items';
+import { AssistantMessage, RunningMessage } from '../message-items';
 
 global.IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -137,5 +137,38 @@ describe( 'AssistantMessage progress summary', () => {
 		await act( async () => {
 			root.unmount();
 		} );
+	} );
+} );
+
+describe( 'RunningMessage progress summary', () => {
+	test( 'shows the exact canonical ability name while a tool runs', async () => {
+		const container = document.createElement( 'div' );
+		document.body.appendChild( container );
+		const root = createRoot( container );
+
+		await act( async () => {
+			root.render(
+				createElement( RunningMessage, {
+					step: 'Checking options…',
+					liveToolCalls: [
+						{
+							type: 'call',
+							id: 'options',
+							name: 'wpab__sd-ai-agent__list-options',
+						},
+					],
+				} )
+			);
+		} );
+
+		expect( container.textContent ).toContain( 'sd-ai-agent/list-options' );
+		expect( container.textContent ).not.toContain(
+			'wpab__sd-ai-agent__list-options'
+		);
+
+		await act( async () => {
+			root.unmount();
+		} );
+		document.body.removeChild( container );
 	} );
 } );

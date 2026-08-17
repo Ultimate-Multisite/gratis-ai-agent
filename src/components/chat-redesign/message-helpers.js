@@ -294,6 +294,7 @@ export function buildToolProgressSummary( toolCalls ) {
 		return {
 			id: call.id || call.name || '',
 			label: getFriendlyToolLabel( call.name ),
+			toolName: normalizeToolName( call.name ),
 			status: deriveProgressStatus( response ),
 		};
 	} );

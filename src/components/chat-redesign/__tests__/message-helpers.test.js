@@ -291,6 +291,13 @@ describe( 'friendly tool progress summaries', () => {
 			'Checking colour contrast',
 			'Generating an image',
 		] );
+		expect( summary.recentSteps.map( ( step ) => step.toolName ) ).toEqual(
+			[
+				'sd-ai-agent/compile-design-tokens',
+				'sd-ai-agent/validate-palette-contrast',
+				'sd-ai-agent/generate-image',
+			]
+		);
 	} );
 } );
 
