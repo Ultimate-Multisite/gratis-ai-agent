@@ -14,6 +14,7 @@ namespace SdAiAgent\REST;
 use SdAiAgent\Abilities\CalendarReminderAbilities;
 use SdAiAgent\Abilities\GoogleAnalyticsAbilities;
 use SdAiAgent\Abilities\InternetSearchAbilities;
+use SdAiAgent\Abilities\MessagingAbilities;
 use SdAiAgent\Abilities\SmsAbilities;
 use SdAiAgent\Admin\UnifiedAdminMenu;
 use SdAiAgent\Core\AgentLoop;
@@ -261,6 +262,30 @@ final class SettingsController {
 			)
 		);
 
+		foreach ( [ 'whatsapp', 'telegram' ] as $messaging_provider ) {
+			register_rest_route(
+				RestController::NAMESPACE,
+				'/settings/' . $messaging_provider . '-provider',
+				[
+					[
+						'methods'             => WP_REST_Server::READABLE,
+						'callback'            => [ $this, 'handle_get_' . $messaging_provider . '_provider' ],
+						'permission_callback' => [ __CLASS__, 'check_admin_permission' ],
+					],
+					[
+						'methods'             => WP_REST_Server::CREATABLE,
+						'callback'            => [ $this, 'handle_set_' . $messaging_provider . '_provider' ],
+						'permission_callback' => [ __CLASS__, 'check_admin_permission' ],
+					],
+					[
+						'methods'             => WP_REST_Server::DELETABLE,
+						'callback'            => [ $this, 'handle_delete_' . $messaging_provider . '_provider' ],
+						'permission_callback' => [ __CLASS__, 'check_admin_permission' ],
+					],
+				]
+			);
+		}
+
 		// Attendee contact mapping endpoints.
 		register_rest_route(
 			RestController::NAMESPACE,
@@ -421,6 +446,26 @@ final class SettingsController {
 
 		register_rest_route(
 			RestController::NAMESPACE,
+			'/settings/whatsapp-provider/test',
+			[
+				'methods'             => WP_REST_Server::CREATABLE,
+				'callback'            => [ $this, 'handle_test_whatsapp_provider' ],
+				'permission_callback' => [ __CLASS__, 'check_admin_permission' ],
+			]
+		);
+
+		register_rest_route(
+			RestController::NAMESPACE,
+			'/settings/telegram-provider/test',
+			[
+				'methods'             => WP_REST_Server::CREATABLE,
+				'callback'            => [ $this, 'handle_test_telegram_provider' ],
+				'permission_callback' => [ __CLASS__, 'check_admin_permission' ],
+			]
+		);
+
+		register_rest_route(
+			RestController::NAMESPACE,
 			'/settings/calendar-reminders/dry-run',
 			array(
 				'methods'             => WP_REST_Server::CREATABLE,
@@ -524,6 +569,10 @@ final class SettingsController {
 		$settings['_tavily_api_key_configured'] = '' !== InternetSearchAbilities::get_tavily_api_key();
 		// @phpstan-ignore-next-line
 		$settings['_sms_provider'] = $this->get_sms_provider_metadata();
+		// @phpstan-ignore-next-line
+		$settings['_whatsapp_provider'] = $this->get_whatsapp_provider_metadata();
+		// @phpstan-ignore-next-line
+		$settings['_telegram_provider'] = $this->get_telegram_provider_metadata();
 
 		// Indicate whether a feedback-report receiver API key is configured (boolean only, no key value — t180).
 		// @phpstan-ignore-next-line
@@ -1198,6 +1247,156 @@ final class SettingsController {
 			'device_id_redacted' => '' !== $device_id ? $this->redact_device_id( $device_id ) : null,
 			'api_base_url'       => $config['api_base_url'] ?? SmsAbilities::DEFAULT_API_BASE_URL,
 		);
+	}
+
+	/** Return safe WhatsApp provider metadata. */
+	public function handle_get_whatsapp_provider(): WP_REST_Response {
+		return new WP_REST_Response( $this->get_whatsapp_provider_metadata(), 200 );
+	}
+
+	/** Save WhatsApp Cloud API credentials. */
+	public function handle_set_whatsapp_provider( WP_REST_Request $request ): WP_REST_Response {
+		$params = $request->get_json_params();
+		if ( ! is_array( $params ) ) {
+			return new WP_REST_Response( [ 'error' => 'No data provided.' ], 400 );
+		}
+
+		$existing        = $this->settings->get_whatsapp_provider();
+		$access_token    = sanitize_text_field( (string) ( $params['access_token'] ?? '' ) );
+		$phone_number_id = sanitize_text_field( (string) ( $params['phone_number_id'] ?? $existing['phone_number_id'] ?? '' ) );
+		$api_version     = sanitize_text_field( (string) ( $params['api_version'] ?? $existing['api_version'] ?? MessagingAbilities::WHATSAPP_API_VERSION ) );
+		if ( '' === $access_token ) {
+			$access_token = (string) ( $existing['access_token'] ?? '' );
+		}
+
+		$api_version = MessagingAbilities::normalise_graph_api_version( $api_version );
+		if ( '' === $access_token || '' === $phone_number_id || is_wp_error( $api_version ) ) {
+			return new WP_REST_Response( [ 'error' => 'access_token, phone_number_id, and a valid api_version are required.' ], 400 );
+		}
+
+		$this->settings->set_whatsapp_provider(
+			[
+				'provider'        => 'meta_cloud',
+				'access_token'    => $access_token,
+				'phone_number_id' => $phone_number_id,
+				'api_version'     => $api_version,
+			]
+		);
+
+		return new WP_REST_Response( array_merge( [ 'saved' => true ], $this->get_whatsapp_provider_metadata() ), 200 );
+	}
+
+	/** Clear WhatsApp Cloud API credentials. */
+	public function handle_delete_whatsapp_provider(): WP_REST_Response {
+		$this->settings->set_whatsapp_provider( [] );
+		return new WP_REST_Response(
+			[
+				'deleted'    => true,
+				'configured' => false,
+			],
+			200
+			);
+	}
+
+	/** Send an explicit WhatsApp test message. */
+	public function handle_test_whatsapp_provider( WP_REST_Request $request ): WP_REST_Response|WP_Error {
+		$params = $request->get_json_params();
+		$params = is_array( $params ) ? $params : [];
+		$result = MessagingAbilities::handle_whatsapp_send(
+			[
+				'recipients' => [ sanitize_text_field( (string) ( $params['recipient'] ?? '' ) ) ],
+				'message'    => sanitize_textarea_field( (string) ( $params['message'] ?? __( 'This is an SD AI Agent WhatsApp test message.', 'superdav-ai-agent' ) ) ),
+			]
+		);
+
+		return is_wp_error( $result ) ? $result : new WP_REST_Response( $result, 200 );
+	}
+
+	/** Return safe Telegram provider metadata. */
+	public function handle_get_telegram_provider(): WP_REST_Response {
+		return new WP_REST_Response( $this->get_telegram_provider_metadata(), 200 );
+	}
+
+	/** Save Telegram Bot API credentials. */
+	public function handle_set_telegram_provider( WP_REST_Request $request ): WP_REST_Response {
+		$params = $request->get_json_params();
+		if ( ! is_array( $params ) ) {
+			return new WP_REST_Response( [ 'error' => 'No data provided.' ], 400 );
+		}
+
+		$existing  = $this->settings->get_telegram_provider();
+		$bot_token = sanitize_text_field( (string) ( $params['bot_token'] ?? '' ) );
+		if ( '' === $bot_token ) {
+			$bot_token = (string) ( $existing['bot_token'] ?? '' );
+		}
+		if ( '' === $bot_token ) {
+			return new WP_REST_Response( [ 'error' => 'bot_token is required.' ], 400 );
+		}
+
+		$this->settings->set_telegram_provider(
+			[
+				'provider'  => 'bot_api',
+				'bot_token' => $bot_token,
+			]
+			);
+		return new WP_REST_Response( array_merge( [ 'saved' => true ], $this->get_telegram_provider_metadata() ), 200 );
+	}
+
+	/** Clear Telegram Bot API credentials. */
+	public function handle_delete_telegram_provider(): WP_REST_Response {
+		$this->settings->set_telegram_provider( [] );
+		return new WP_REST_Response(
+			[
+				'deleted'    => true,
+				'configured' => false,
+			],
+			200
+			);
+	}
+
+	/** Send an explicit Telegram test message. */
+	public function handle_test_telegram_provider( WP_REST_Request $request ): WP_REST_Response|WP_Error {
+		$params = $request->get_json_params();
+		$params = is_array( $params ) ? $params : [];
+		$result = MessagingAbilities::handle_telegram_send(
+			[
+				'chat_ids' => [ sanitize_text_field( (string) ( $params['chat_id'] ?? '' ) ) ],
+				'message'  => sanitize_textarea_field( (string) ( $params['message'] ?? __( 'This is an SD AI Agent Telegram test message.', 'superdav-ai-agent' ) ) ),
+			]
+		);
+
+		return is_wp_error( $result ) ? $result : new WP_REST_Response( $result, 200 );
+	}
+
+	/**
+	 * Return safe WhatsApp provider metadata.
+	 *
+	 * @return array<string, mixed>
+	 */
+	private function get_whatsapp_provider_metadata(): array {
+		$config          = $this->settings->get_whatsapp_provider();
+		$phone_number_id = (string) ( $config['phone_number_id'] ?? '' );
+		return [
+			'configured'               => $this->settings->has_whatsapp_provider(),
+			'provider'                 => $config['provider'] ?? null,
+			'has_access_token'         => ! empty( $config['access_token'] ),
+			'phone_number_id_redacted' => '' !== $phone_number_id ? '********' . substr( $phone_number_id, -4 ) : null,
+			'api_version'              => $config['api_version'] ?? MessagingAbilities::WHATSAPP_API_VERSION,
+		];
+	}
+
+	/**
+	 * Return safe Telegram provider metadata.
+	 *
+	 * @return array<string, mixed>
+	 */
+	private function get_telegram_provider_metadata(): array {
+		$config = $this->settings->get_telegram_provider();
+		return [
+			'configured'    => $this->settings->has_telegram_provider(),
+			'provider'      => $config['provider'] ?? null,
+			'has_bot_token' => ! empty( $config['bot_token'] ),
+		];
 	}
 
 	/**

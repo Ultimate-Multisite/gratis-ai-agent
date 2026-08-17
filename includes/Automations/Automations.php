@@ -86,14 +86,19 @@ class Automations {
 			}
 			// @phpstan-ignore-next-line
 			$type = sanitize_text_field( $channel['type'] ?? '' );
-			if ( ! in_array( $type, [ 'slack', 'discord' ], true ) ) {
+			if ( ! in_array( $type, [ 'slack', 'discord', 'whatsapp', 'telegram' ], true ) ) {
 				continue;
 			}
-			$clean[] = [
-				'type'        => $type,
-				'webhook_url' => esc_url_raw( $channel['webhook_url'] ?? '' ),
-				'enabled'     => ! empty( $channel['enabled'] ),
+			$clean_channel = [
+				'type'    => $type,
+				'enabled' => ! empty( $channel['enabled'] ),
 			];
+			if ( in_array( $type, [ 'slack', 'discord' ], true ) ) {
+				$clean_channel['webhook_url'] = esc_url_raw( $channel['webhook_url'] ?? '' );
+			} else {
+				$clean_channel['recipient'] = sanitize_text_field( (string) ( $channel['recipient'] ?? '' ) );
+			}
+			$clean[] = $clean_channel;
 		}
 
 		return wp_json_encode( $clean ) ?: '[]';

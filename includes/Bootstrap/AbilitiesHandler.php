@@ -55,6 +55,7 @@ use SdAiAgent\Abilities\SiteScrapeAbility;
 use SdAiAgent\Abilities\MarketingAbilities;
 use SdAiAgent\Abilities\MediaAbilities;
 use SdAiAgent\Abilities\MemoryAbilities;
+use SdAiAgent\Abilities\MessagingAbilities;
 use SdAiAgent\Abilities\MenuAbilities;
 use SdAiAgent\Abilities\NavigationAbilities;
 use SdAiAgent\Abilities\OptionsAbilities;
@@ -121,6 +122,7 @@ final class AbilitiesHandler {
 		GoogleAnalyticsAbilities::register_abilities();
 		GoogleCalendarAbilities::register_abilities();
 		SmsAbilities::register_abilities();
+		MessagingAbilities::register_abilities();
 		CalendarReminderAbilities::register_abilities();
 		// Wire the block enricher registry before registering block
 		// abilities so handle_get_page_blocks can use it. The registry

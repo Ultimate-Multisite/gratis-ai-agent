@@ -11,6 +11,7 @@ declare(strict_types=1);
 namespace SdAiAgent\Tests\REST;
 
 use SdAiAgent\Bootstrap\SuperdavAiProviderHandler;
+use SdAiAgent\Abilities\MessagingAbilities;
 use SdAiAgent\Abilities\SmsAbilities;
 use SdAiAgent\Core\Database;
 use SdAiAgent\Core\Settings;
@@ -1085,6 +1086,38 @@ final class SettingsControllerTest extends WP_UnitTestCase {
 
 		$this->assertSame( 200, $response->get_status() );
 		$this->assertFalse( $settings->has_sms_provider() );
+	}
+
+	/** Messaging provider settings expose metadata but never credentials. */
+	public function test_messaging_provider_settings_return_safe_metadata(): void {
+		$settings   = new Settings();
+		$controller = new SettingsController( $settings, new Database() );
+
+		$whatsapp_response = $controller->handle_set_whatsapp_provider(
+			$this->json_request(
+				[
+					'access_token'    => 'meta-secret-token',
+					'phone_number_id' => '1234567890',
+					'api_version'     => MessagingAbilities::WHATSAPP_API_VERSION,
+				]
+			)
+		);
+		$telegram_response = $controller->handle_set_telegram_provider(
+			$this->json_request( [ 'bot_token' => '123:telegram-secret' ] )
+		);
+
+		$this->assertSame( 200, $whatsapp_response->get_status() );
+		$this->assertSame( 200, $telegram_response->get_status() );
+		$encoded = wp_json_encode( [ $whatsapp_response->get_data(), $telegram_response->get_data() ] ) ?: '';
+		$this->assertStringNotContainsString( 'meta-secret-token', $encoded );
+		$this->assertStringNotContainsString( 'telegram-secret', $encoded );
+		$this->assertSame( '********7890', $whatsapp_response->get_data()['phone_number_id_redacted'] ?? '' );
+		$this->assertTrue( $telegram_response->get_data()['has_bot_token'] ?? false );
+
+		$controller->handle_delete_whatsapp_provider();
+		$controller->handle_delete_telegram_provider();
+		$this->assertFalse( $settings->has_whatsapp_provider() );
+		$this->assertFalse( $settings->has_telegram_provider() );
 	}
 
 	/**
