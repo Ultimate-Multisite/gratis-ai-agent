@@ -1273,10 +1273,25 @@ input[type="text"].sdaa-cr-search-input {
 	background: var(--sdaa-warning);
 }
 
+.sd-ai-agent-progress-step-details {
+	display: flex;
+	align-items: baseline;
+	gap: 7px;
+	min-width: 0;
+}
+
 .sdaa-cr-progress-step-label {
 	overflow: hidden;
 	text-overflow: ellipsis;
 	white-space: nowrap;
+}
+
+.sd-ai-agent-progress-step-tool-name {
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	color: var(--sdaa-text-muted);
+	font-size: 11px;
 }
 
 .sdaa-cr-progress-step-status {

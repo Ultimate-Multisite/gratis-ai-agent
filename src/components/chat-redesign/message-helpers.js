@@ -70,6 +70,44 @@ export function normalizeToolName( name ) {
 }
 
 /**
+ * Return the actual ability represented by a tool-call entry.
+ *
+ * Tier-2 abilities are invoked through the `sd-ai-agent/ability-call`
+ * dispatcher. Showing only that outer dispatcher hides the capability that is
+ * really running, so prefer its nested `ability` argument when available.
+ *
+ * @param {Object} call Tool-call entry.
+ * @return {string} Canonical ability name for display.
+ */
+export function getToolCallDisplayName( call ) {
+	const outerName = normalizeToolName( call?.name );
+	if (
+		outerName !== 'sd-ai-agent/ability-call' &&
+		outerName !== 'ability-call'
+	) {
+		return outerName;
+	}
+
+	let args = call?.args ?? call?.arguments;
+	if ( typeof args === 'string' ) {
+		try {
+			args = JSON.parse( args );
+		} catch {
+			args = null;
+		}
+	}
+
+	if ( args && typeof args === 'object' && ! Array.isArray( args ) ) {
+		const targetName = normalizeToolName( args.ability );
+		if ( targetName ) {
+			return targetName;
+		}
+	}
+
+	return outerName;
+}
+
+/**
  * Return the ability slug after the namespace.
  *
  * @param {string} name Raw or normalized tool/function name.
@@ -291,10 +329,11 @@ export function buildToolProgressSummary( toolCalls ) {
 
 	const steps = calls.map( ( call ) => {
 		const response = call.id ? responses[ call.id ] || null : null;
+		const toolName = getToolCallDisplayName( call );
 		return {
 			id: call.id || call.name || '',
-			label: getFriendlyToolLabel( call.name ),
-			toolName: normalizeToolName( call.name ),
+			label: getFriendlyToolLabel( toolName ),
+			toolName,
 			status: deriveProgressStatus( response ),
 		};
 	} );
@@ -476,9 +515,7 @@ export function getRunningToolName( toolCalls ) {
 		) || [];
 	const lastCall = calls[ calls.length - 1 ];
 	if ( responses.length < calls.length && lastCall ) {
-		return ( lastCall.name || '' )
-			.replace( /^wpab__/, '' )
-			.replace( /__/g, '/' );
+		return getToolCallDisplayName( lastCall );
 	}
 	return null;
 }

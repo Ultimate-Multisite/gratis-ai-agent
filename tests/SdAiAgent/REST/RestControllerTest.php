@@ -2624,6 +2624,89 @@ class RestControllerTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * A retry of an already-consumed batch must acknowledge success while
+	 * preserving the newer client-tool pause reached by the original POST.
+	 */
+	public function test_tool_result_retry_accepts_processed_batch_without_consuming_newer_pause(): void {
+		wp_set_current_user( $this->admin_id );
+
+		$session_id = Database::create_session( [
+			'user_id' => $this->admin_id,
+			'title'   => 'Idempotent client result retry',
+		] );
+		$old_call   = [
+			'id'   => 'call-old-completion',
+			'name' => 'sd-ai-agent-js/validate-theme-completion',
+		];
+		$new_call   = [
+			'id'          => 'call-current-completion',
+			'name'        => 'sd-ai-agent-js/validate-theme-completion',
+			'args'        => [ 'stylesheet' => 'generated-current' ],
+			'annotations' => [ 'readonly' => true ],
+		];
+		$paused_state = [
+			'history'                   => [],
+			'iterations_remaining'      => 3,
+			'pending_client_tool_calls' => [ $new_call ],
+			'tool_call_log'             => [
+				[ 'type' => 'call', 'id' => $old_call['id'], 'name' => 'wpab__sd-ai-agent-js__validate-theme-completion', 'sequence' => 1 ],
+				[ 'type' => 'response', 'id' => $old_call['id'], 'name' => $old_call['name'], 'response' => [ 'passed' => false ], 'source' => 'client', 'sequence' => 2 ],
+				[ 'type' => 'call', 'id' => $new_call['id'], 'name' => 'wpab__sd-ai-agent-js__validate-theme-completion', 'sequence' => 3 ],
+			],
+		];
+		Database::save_paused_state( $session_id, $paused_state );
+
+		$job_id = '44444444-5555-6666-7777-888888888888';
+		ActiveJobRepository::create( $session_id, $job_id, $this->admin_id, 'awaiting_client_tools' );
+		ActiveJobRepository::update_status(
+			$job_id,
+			'awaiting_client_tools',
+			[ 'pending_tools' => wp_json_encode( [ $new_call ] ) ]
+		);
+		set_transient(
+			RestController::JOB_PREFIX . $job_id,
+			[
+				'status'                    => 'awaiting_client_tools',
+				'pending_client_tool_calls' => [ $new_call ],
+			],
+			RestController::JOB_TTL
+		);
+
+		$request = new WP_REST_Request( 'POST', '/sd-ai-agent/v1/chat/tool-result' );
+		$request->set_body( wp_json_encode( [
+			'session_id'   => $session_id,
+			'job_id'       => $job_id,
+			'tool_results' => [
+				[
+					'id'     => $old_call['id'],
+					'name'   => $old_call['name'],
+					'result' => [ 'passed' => false, 'violations' => [ [ 'code' => 'focus' ] ] ],
+				],
+			],
+		] ) );
+		$request->set_header( 'Content-Type', 'application/json' );
+		$response = $this->server->dispatch( $request );
+
+		$this->assertStatus( 202, $response );
+		$data = $response->get_data();
+		$this->assertSame( 'already_processed', $data['status'] );
+		$this->assertTrue( $data['results_accepted'] );
+
+		$session_after = Database::get_session( $session_id );
+		$this->assertNotNull( $session_after );
+		$this->assertSame( $paused_state, json_decode( (string) $session_after->paused_state, true ) );
+
+		$transient_after = get_transient( RestController::JOB_PREFIX . $job_id );
+		$this->assertIsArray( $transient_after );
+		$this->assertSame( [ $new_call ], $transient_after['pending_client_tool_calls'] );
+
+		$db_row = ActiveJobRepository::get_by_job_id( $job_id );
+		$this->assertNotNull( $db_row );
+		$this->assertSame( 'awaiting_client_tools', $db_row->status );
+		$this->assertSame( [ $new_call ], json_decode( $db_row->pending_tools, true ) );
+	}
+
+	/**
 	 * Test POST /chat/tool-result cannot consume another user's paused state.
 	 *
 	 * The permission callback must verify access to the supplied session_id before

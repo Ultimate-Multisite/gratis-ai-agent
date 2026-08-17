@@ -288,30 +288,117 @@ final class ClientAbilityRouter {
 			$expected_by_id[ $id ] = $name;
 		}
 
-		$seen_ids = array();
+		$submitted_by_id = self::validated_result_names_by_id( $tool_results );
+		if ( null === $submitted_by_id ) {
+			return false;
+		}
+
+		return self::result_name_maps_match( $submitted_by_id, $expected_by_id );
+	}
+
+	/**
+	 * Return whether a submitted result batch was already consumed earlier in
+	 * the resumed loop represented by an activity log.
+	 *
+	 * A successful /chat/tool-result request can continue synchronously until it
+	 * reaches another browser-tool pause. If the original HTTP response is then
+	 * lost or cannot be parsed, retrying the old batch sees that newer paused
+	 * state. The old opaque IDs are no longer the current pending IDs, but their
+	 * contiguous client-response batch is present in tool_call_log. Recognising
+	 * that exact historical ID/name set makes submission idempotent without
+	 * consuming or replacing the newer pause.
+	 *
+	 * Result payload values are deliberately not compared. Screenshot results
+	 * are stripped of image data before entering the activity log, so their
+	 * persisted representation differs from a legitimate browser retry. The
+	 * historical opaque ID/name batch is sufficient because this check never
+	 * replays the payload or mutates loop state.
+	 *
+	 * @param array<mixed,mixed> $tool_call_log Persisted ordered activity log.
+	 * @param array<mixed,mixed> $tool_results  Browser-submitted results.
+	 */
+	public static function matches_processed_results( array $tool_call_log, array $tool_results ): bool {
+		$submitted_by_id = self::validated_result_names_by_id( $tool_results );
+		if ( null === $submitted_by_id ) {
+			return false;
+		}
+
+		$processed_batch = array();
+		foreach ( $tool_call_log as $entry ) {
+			$is_client_response = is_array( $entry )
+				&& 'response' === ( $entry['type'] ?? '' )
+				&& 'client' === ( $entry['source'] ?? '' );
+
+			if ( ! $is_client_response ) {
+				if ( self::processed_batch_matches( $processed_batch, $submitted_by_id ) ) {
+					return true;
+				}
+				$processed_batch = array();
+				continue;
+			}
+
+			$id   = (string) ( $entry['id'] ?? '' );
+			$name = (string) ( $entry['name'] ?? '' );
+			if ( '' === $id || '' === $name || isset( $processed_batch[ $id ] ) ) {
+				$processed_batch = array();
+				continue;
+			}
+			$processed_batch[ $id ] = $name;
+		}
+
+		return self::processed_batch_matches( $processed_batch, $submitted_by_id );
+	}
+
+	/**
+	 * Validate one browser result batch and key its ability names by opaque ID.
+	 *
+	 * @param array<mixed,mixed> $tool_results Browser-submitted results.
+	 * @return array<string,string>|null Validated ID/name map, or null.
+	 */
+	private static function validated_result_names_by_id( array $tool_results ): ?array {
+		if ( empty( $tool_results ) ) {
+			return null;
+		}
+
+		$names_by_id = array();
 		foreach ( $tool_results as $result ) {
 			if ( ! is_array( $result ) ) {
-				return false;
+				return null;
 			}
 
 			$id         = (string) ( $result['id'] ?? '' );
 			$name       = (string) ( $result['name'] ?? '' );
 			$has_result = array_key_exists( 'result', $result );
 			$has_error  = array_key_exists( 'error', $result );
-			if (
-				'' === $id
-				|| ! isset( $expected_by_id[ $id ] )
-				|| $expected_by_id[ $id ] !== $name
-				|| isset( $seen_ids[ $id ] )
-				|| $has_result === $has_error
-			) {
-				return false;
+			if ( '' === $id || '' === $name || isset( $names_by_id[ $id ] ) || $has_result === $has_error ) {
+				return null;
 			}
 
-			$seen_ids[ $id ] = true;
+			$names_by_id[ $id ] = $name;
 		}
 
-		return count( $seen_ids ) === count( $expected_by_id );
+		return $names_by_id;
+	}
+
+	/**
+	 * Compare one contiguous historical client-response batch with a retry.
+	 *
+	 * @param array<string,string> $processed_batch Historical ID/name map.
+	 * @param array<string,string> $submitted_by_id Submitted ID/name map.
+	 */
+	private static function processed_batch_matches( array $processed_batch, array $submitted_by_id ): bool {
+		return self::result_name_maps_match( $processed_batch, $submitted_by_id );
+	}
+
+	/**
+	 * Compare two validated ID/name maps without depending on batch order.
+	 *
+	 * @param array<string,string> $left  First ID/name map.
+	 * @param array<string,string> $right Second ID/name map.
+	 */
+	private static function result_name_maps_match( array $left, array $right ): bool {
+		return count( $left ) === count( $right )
+			&& empty( array_diff_assoc( $left, $right ) );
 	}
 
 	/**
