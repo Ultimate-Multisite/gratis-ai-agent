@@ -4,7 +4,7 @@ Tags: ai, chatbot, assistant, automation, connector
 Requires at least: 7.0
 Tested up to: 7.0
 Requires PHP: 8.2
-Stable tag: 1.22.0
+Stable tag: 1.22.1
 License: GPL-2.0-or-later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -165,6 +165,10 @@ SD AI Agent uses the native WordPress AI Client SDK and Abilities API. These API
 3. Provider and safety settings, including confirmation controls for consequential actions.
 
 == Changelog ==
+
+= 1.22.1 - Released on 2026-08-17 =
+* Fixed: Recover available SD AI image models when model discovery is temporarily unavailable.
+* Improved: Show nested abilities, exact tool calls, and featured images in agent progress and post listings; make client-tool result retries safe.
 
 = 1.22.0 - Released on 2026-08-16 =
 * New: Use verified SD account sign-in and account actions, apply account coupons, and review credit usage for each chat session.
