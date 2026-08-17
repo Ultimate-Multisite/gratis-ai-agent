@@ -1254,6 +1254,70 @@ class PostAbilitiesTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * Listed posts expose featured-image state and safe attachment context.
+	 */
+	public function test_handle_list_posts_includes_featured_image_context() {
+		$post_id = $this->factory->post->create( [ 'post_status' => 'publish' ] );
+		$thumb   = $this->factory->attachment->create_upload_object(
+			DIR_TESTDATA . '/images/canola.jpg',
+			$post_id
+		);
+
+		update_post_meta( $thumb, '_wp_attachment_image_alt', 'Canola field' );
+		set_post_thumbnail( $post_id, $thumb );
+
+		$result = PostAbilities::handle_list_posts( [
+			'post_status' => 'publish',
+			'per_page'    => 50,
+		] );
+
+		$this->assertIsArray( $result );
+		$posts = array_column( $result['posts'], null, 'id' );
+		$this->assertArrayHasKey( $post_id, $posts );
+		$this->assertTrue( $posts[ $post_id ]['has_featured_image'] );
+		$this->assertSame( $thumb, $posts[ $post_id ]['featured_image_id'] );
+		$this->assertSame( 'Canola field', $posts[ $post_id ]['featured_image_alt'] );
+		$this->assertNotSame( '', $posts[ $post_id ]['featured_image_url'] );
+	}
+
+	/**
+	 * Listed posts report image existence without exposing inaccessible media.
+	 */
+	public function test_handle_list_posts_hides_inaccessible_featured_image_metadata() {
+		$post_author_id  = self::factory()->user->create( [ 'role' => 'author' ] );
+		$media_author_id = self::factory()->user->create( [ 'role' => 'author' ] );
+		$post_id         = $this->factory->post->create( [
+			'post_author' => $post_author_id,
+			'post_status' => 'publish',
+		] );
+		$thumb           = $this->factory->attachment->create_upload_object(
+			DIR_TESTDATA . '/images/canola.jpg',
+			$post_id
+		);
+
+		wp_update_post( [
+			'ID'          => $thumb,
+			'post_author' => $media_author_id,
+		] );
+		update_post_meta( $thumb, '_wp_attachment_image_alt', 'Private attachment context' );
+		set_post_thumbnail( $post_id, $thumb );
+		wp_set_current_user( $post_author_id );
+
+		$result = PostAbilities::handle_list_posts( [
+			'post_status' => 'publish',
+			'per_page'    => 50,
+		] );
+
+		$this->assertIsArray( $result );
+		$posts = array_column( $result['posts'], null, 'id' );
+		$this->assertArrayHasKey( $post_id, $posts );
+		$this->assertTrue( $posts[ $post_id ]['has_featured_image'] );
+		$this->assertSame( 0, $posts[ $post_id ]['featured_image_id'] );
+		$this->assertSame( '', $posts[ $post_id ]['featured_image_alt'] );
+		$this->assertSame( '', $posts[ $post_id ]['featured_image_url'] );
+	}
+
+	/**
 	 * Multi-type array: page + post searches should work instead of producing a
 	 * schema validation retry loop when the agent is locating an unknown target.
 	 */
