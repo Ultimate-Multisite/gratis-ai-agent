@@ -332,12 +332,12 @@ function ToolProgressSummary( {
 								className="sdaa-cr-progress-step-dot"
 								aria-hidden="true"
 							/>
-							<span className="sdaa-cr-progress-step-details">
+							<span className="sd-ai-agent-progress-step-details">
 								<span className="sdaa-cr-progress-step-label">
 									{ step.label }
 								</span>
 								{ step.toolName && (
-									<code className="sdaa-cr-progress-step-tool-name">
+									<code className="sd-ai-agent-progress-step-tool-name">
 										{ step.toolName }
 									</code>
 								) }

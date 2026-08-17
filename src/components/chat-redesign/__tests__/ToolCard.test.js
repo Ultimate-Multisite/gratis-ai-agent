@@ -46,6 +46,28 @@ describe( 'ToolCard', () => {
 		expect( html ).not.toContain( 'sd-ai-agent/ability-call</code>' );
 	} );
 
+	test( 'shows an error status when a nested ability response fails', () => {
+		const html = renderToStaticMarkup(
+			createElement( ToolCard, {
+				call: {
+					id: 'tool-dispatch-error',
+					name: 'wpab__sd-ai-agent__ability-call',
+					args: { ability: 'sd-ai-agent/update-post' },
+				},
+				response: {
+					id: 'tool-dispatch-error',
+					response: {
+						success: true,
+						result: { success: false, error: 'Validation failed.' },
+					},
+				},
+			} )
+		);
+
+		expect( html ).toContain( 'sdaa-cr-tool-status is-error' );
+		expect( html ).not.toContain( 'sdaa-cr-tool-status is-ok' );
+	} );
+
 	test( 'stringifies object-shaped response summaries before rendering', () => {
 		const html = renderToStaticMarkup(
 			createElement( ToolCard, {

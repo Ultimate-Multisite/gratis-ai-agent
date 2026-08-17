@@ -1273,7 +1273,7 @@ input[type="text"].sdaa-cr-search-input {
 	background: var(--sdaa-warning);
 }
 
-.sdaa-cr-progress-step-details {
+.sd-ai-agent-progress-step-details {
 	display: flex;
 	align-items: baseline;
 	gap: 7px;
@@ -1286,7 +1286,7 @@ input[type="text"].sdaa-cr-search-input {
 	white-space: nowrap;
 }
 
-.sdaa-cr-progress-step-tool-name {
+.sd-ai-agent-progress-step-tool-name {
 	overflow: hidden;
 	text-overflow: ellipsis;
 	white-space: nowrap;

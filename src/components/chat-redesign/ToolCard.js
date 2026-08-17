@@ -104,7 +104,7 @@ function deriveStatus( call, response ) {
 	if ( ! response ) {
 		return 'running';
 	}
-	const r = response.response;
+	const r = getAbilityResponse( call, response );
 	if ( r && typeof r === 'object' ) {
 		if ( r.success === false || r.error ) {
 			return 'error';
