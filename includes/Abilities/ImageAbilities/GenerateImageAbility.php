@@ -20,6 +20,8 @@ namespace SdAiAgent\Abilities\ImageAbilities;
 
 use SdAiAgent\Abilities\ToolCapabilities;
 use SdAiAgent\Core\Net\SafeHttpClient;
+use SdAiAgent\Core\ProviderCredentialLoader;
+use SdAiAgent\Core\ProviderModelDiscovery;
 use SdAiAgent\Core\Settings;
 use SdAiAgent\Infrastructure\AiClient\Superdav\SuperdavAiProvider;
 use WordPress\AiClient\Providers\Models\DTO\ModelConfig;
@@ -51,8 +53,7 @@ class GenerateImageAbility extends \SdAiAgent\Abilities\AbstractAbility {
 			return;
 		}
 
-		if ( ! function_exists( 'wp_ai_client_prompt' )
-			|| ! wp_ai_client_prompt()->is_supported_for_image_generation() ) {
+		if ( ! self::is_image_generation_supported() ) {
 			return;
 		}
 
@@ -351,8 +352,7 @@ class GenerateImageAbility extends \SdAiAgent\Abilities\AbstractAbility {
 		int $post_id,
 		array $options = []
 	): array|\WP_Error {
-		if ( ! function_exists( 'wp_ai_client_prompt' )
-			|| ! wp_ai_client_prompt()->is_supported_for_image_generation() ) {
+		if ( ! self::is_image_generation_supported() ) {
 			return new WP_Error(
 				'provider_unavailable',
 				'AI image generation is not available. Configure an image-capable provider in Settings > AI.'
@@ -398,6 +398,41 @@ class GenerateImageAbility extends \SdAiAgent\Abilities\AbstractAbility {
 			'attachment_id' => $attachment_id,
 			'url'           => $result['url'],
 		];
+	}
+
+	/**
+	 * Check image support and recover stale managed Superdav model discovery.
+	 *
+	 * The SDK converts model-directory exceptions into a false support result.
+	 * That previously made the image ability disappear when the managed site
+	 * token had expired, even though the existing provider-list path could
+	 * refresh the token. Reuse that bounded discovery recovery before treating
+	 * the configured provider as unavailable.
+	 */
+	private static function is_image_generation_supported(): bool {
+		if ( ! function_exists( 'wp_ai_client_prompt' ) ) {
+			return false;
+		}
+
+		ProviderCredentialLoader::load();
+		if ( wp_ai_client_prompt()->is_supported_for_image_generation() ) {
+			return true;
+		}
+
+		try {
+			$registry = \WordPress\AiClient\AiClient::defaultRegistry();
+			if ( ! $registry->hasProvider( SuperdavAiProvider::PROVIDER_ID )
+				|| null === $registry->getProviderRequestAuthentication( SuperdavAiProvider::PROVIDER_ID )
+			) {
+				return false;
+			}
+
+			ProviderModelDiscovery::discover( SuperdavAiProvider::PROVIDER_ID, SuperdavAiProvider::class );
+		} catch ( \Throwable ) {
+			return false;
+		}
+
+		return wp_ai_client_prompt()->is_supported_for_image_generation();
 	}
 
 	/**
