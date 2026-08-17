@@ -550,6 +550,11 @@ class GitTracker {
 		$original_hash = hash( 'sha256', $original_content );
 		$now           = current_time( 'mysql', true );
 
+		// A second request can race the is_tracked() check. Keep an expected
+		// unique-key race (or a damaged legacy schema) from printing SQL text into
+		// a REST response; the package-scoped follow-up lookup distinguishes an
+		// idempotent insert from a real storage failure.
+		$previous_suppression = $wpdb->suppress_errors();
 		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery -- Custom table insert.
 		$result = $wpdb->insert(
 			$table,
@@ -566,6 +571,11 @@ class GitTracker {
 			],
 			[ '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', null ]
 		);
+		$wpdb->suppress_errors( $previous_suppression );
+
+		if ( false === $result && $this->is_tracked( $relative_path ) ) {
+			return true;
+		}
 
 		if ( false === $result ) {
 			return new WP_Error(

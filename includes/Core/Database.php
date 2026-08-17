@@ -36,7 +36,7 @@ use SdAiAgent\Tools\CustomTools;
 class Database {
 
 	const DB_VERSION_OPTION = 'sd_ai_agent_db_version';
-	const DB_VERSION        = '19.9.1';
+	const DB_VERSION        = '19.9.2';
 
 	// ─── Table Name Registry ──────────────────────────────────────────────────
 
@@ -565,7 +565,7 @@ class Database {
 			tracked_at datetime NOT NULL,
 			modified_at datetime DEFAULT NULL,
 			PRIMARY KEY  (id),
-			UNIQUE KEY file_path (file_path(255)),
+			UNIQUE KEY package_file (package_slug(191), file_path(255)),
 			KEY package_slug (package_slug),
 			KEY file_type (file_type),
 			KEY status (status)
@@ -902,6 +902,8 @@ class Database {
 
 		self::ensure_calendar_reminder_dedupe_index( $calendar_reminders_table );
 
+		self::ensure_git_tracked_files_package_index( $git_tracked_files_table );
+
 		// Add FULLTEXT index on memories table if not present.
 		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.InterpolatedNotPrepared, PluginCheck.Security.DirectDB.UnescapedDBParameter -- Custom table query; table name from internal method.
 		$ft_exists = $wpdb->get_var( "SHOW INDEX FROM {$memories_table} WHERE Key_name = 'ft_content'" );
@@ -944,6 +946,40 @@ class Database {
 
 		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.SchemaChange, WordPress.DB.PreparedSQL.InterpolatedNotPrepared, PluginCheck.Security.DirectDB.UnescapedDBParameter -- Required schema repair for the calendar reminder dedupe index.
 		$wpdb->query( "ALTER TABLE {$table} ADD UNIQUE KEY reminder_dedupe (calendar_id, event_id, attendee_email, reminder_date)" );
+	}
+
+	/**
+	 * Scope tracked relative paths to their owning plugin or theme package.
+	 *
+	 * The legacy file_path-only key made ordinary names such as style.css collide
+	 * across every theme. Besides losing snapshots, wpdb printed those duplicate
+	 * errors into REST responses in debug mode and corrupted client-tool result
+	 * acknowledgements. dbDelta adds the replacement key but does not reliably
+	 * remove obsolete indexes, so repair both sides explicitly.
+	 */
+	private static function ensure_git_tracked_files_package_index( string $table ): bool {
+		global $wpdb;
+		/** @var \wpdb $wpdb */
+
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- Internal schema introspection during a versioned upgrade.
+		$legacy_index = $wpdb->get_var( "SHOW INDEX FROM {$table} WHERE Key_name = 'file_path'" );
+		if ( null !== $legacy_index ) {
+			// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.SchemaChange, WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- Removes the globally-scoped legacy uniqueness constraint.
+			if ( false === $wpdb->query( "ALTER TABLE {$table} DROP INDEX file_path" ) ) {
+				return false;
+			}
+		}
+
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- Internal schema introspection during a versioned upgrade.
+		$package_index = $wpdb->get_var( "SHOW INDEX FROM {$table} WHERE Key_name = 'package_file' AND Non_unique = 0" );
+		if ( null !== $package_index ) {
+			return true;
+		}
+
+		// Prefix lengths remain below InnoDB's utf8mb4 index-byte limit while
+		// retaining enough package/path identity for WordPress-managed files.
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.SchemaChange, WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- Adds the package-scoped uniqueness constraint required by GitTracker.
+		return false !== $wpdb->query( "ALTER TABLE {$table} ADD UNIQUE KEY package_file (package_slug(191), file_path(255))" );
 	}
 
 	/**

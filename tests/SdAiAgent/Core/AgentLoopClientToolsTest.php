@@ -426,10 +426,34 @@ class AgentLoopClientToolsTest extends WP_UnitTestCase {
 		);
 
 		$this->assertTrue( ClientAbilityRouter::matches_pending_results( $expected, $valid ) );
+		$this->assertTrue( ClientAbilityRouter::matches_pending_results( $expected, array_reverse( $valid ) ) );
 		$this->assertFalse( ClientAbilityRouter::matches_pending_results( $expected, array( array( 'id' => 'call-one', 'name' => 'sd-ai-agent-js/refresh-page', 'result' => array() ), array( 'id' => 'call-two', 'name' => 'sd-ai-agent-js/navigate-to', 'error' => 'Denied.' ) ) ) );
 		$this->assertFalse( ClientAbilityRouter::matches_pending_results( $expected, array( array( 'id' => 'unknown', 'name' => 'sd-ai-agent-js/navigate-to', 'result' => array() ), $valid[1] ) ) );
 		$this->assertFalse( ClientAbilityRouter::matches_pending_results( $expected, array( $valid[0], $valid[0] ) ) );
 		$this->assertFalse( ClientAbilityRouter::matches_pending_results( $expected, array( $valid[0] ) ) );
+	}
+
+	/**
+	 * Retries of a consumed client batch match its contiguous activity-log
+	 * response group, even when persisted payloads were transformed.
+	 */
+	public function test_processed_client_result_matcher_recognizes_only_the_complete_historical_batch(): void {
+		$activity = array(
+			array( 'type' => 'call', 'id' => 'old-one', 'name' => 'wpab__sd-ai-agent-js__screenshot-url' ),
+			array( 'type' => 'call', 'id' => 'old-two', 'name' => 'wpab__sd-ai-agent-js__validate-theme-completion' ),
+			array( 'type' => 'response', 'id' => 'old-one', 'name' => 'sd-ai-agent-js/screenshot-url', 'response' => array( 'attached_to_model' => true ), 'source' => 'client' ),
+			array( 'type' => 'response', 'id' => 'old-two', 'name' => 'sd-ai-agent-js/validate-theme-completion', 'response' => array( 'passed' => false ), 'source' => 'client' ),
+			array( 'type' => 'call', 'id' => 'current', 'name' => 'wpab__sd-ai-agent-js__validate-theme-completion' ),
+		);
+		$retry = array(
+			array( 'id' => 'old-two', 'name' => 'sd-ai-agent-js/validate-theme-completion', 'result' => array( 'passed' => false, 'violations' => array() ) ),
+			array( 'id' => 'old-one', 'name' => 'sd-ai-agent-js/screenshot-url', 'result' => array( 'image' => 'data:image/jpeg;base64,old-browser-payload' ) ),
+		);
+
+		$this->assertTrue( ClientAbilityRouter::matches_processed_results( $activity, $retry ) );
+		$this->assertFalse( ClientAbilityRouter::matches_processed_results( $activity, array( $retry[0] ) ) );
+		$this->assertFalse( ClientAbilityRouter::matches_processed_results( $activity, array( array( 'id' => 'old-one', 'name' => 'sd-ai-agent-js/validate-theme-completion', 'result' => array() ), $retry[0] ) ) );
+		$this->assertFalse( ClientAbilityRouter::matches_processed_results( $activity, array( array( 'id' => 'current', 'name' => 'sd-ai-agent-js/validate-theme-completion', 'result' => array() ) ) ) );
 	}
 
 	/**

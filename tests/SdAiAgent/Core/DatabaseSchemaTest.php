@@ -185,6 +185,30 @@ class DatabaseSchemaTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * Git tracking scopes common relative paths (such as style.css) to the
+	 * owning plugin or theme rather than enforcing site-wide uniqueness.
+	 */
+	public function test_git_tracked_files_uses_package_scoped_unique_index(): void {
+		global $wpdb;
+
+		Database::install();
+
+		$table = Database::git_tracked_files_table_name();
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- Test-only schema introspection.
+		$package_index = $wpdb->get_results( "SHOW INDEX FROM {$table} WHERE Key_name = 'package_file' AND Non_unique = 0", ARRAY_A );
+		usort(
+			$package_index,
+			static fn( array $left, array $right ): int => (int) $left['Seq_in_index'] <=> (int) $right['Seq_in_index']
+		);
+
+		$this->assertSame( [ 'package_slug', 'file_path' ], array_column( $package_index, 'Column_name' ) );
+
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- Test-only schema introspection.
+		$legacy_index = $wpdb->get_var( "SHOW INDEX FROM {$table} WHERE Key_name = 'file_path'" );
+		$this->assertNull( $legacy_index, 'The legacy globally unique file_path index must be removed.' );
+	}
+
+	/**
 	 * Skill usage telemetry table has the required columns and indexes.
 	 */
 	public function test_skill_usage_table_has_required_columns_and_indexes(): void {

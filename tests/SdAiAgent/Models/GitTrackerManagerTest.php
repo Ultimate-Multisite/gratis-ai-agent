@@ -219,6 +219,25 @@ class GitTrackerManagerTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * Different packages may track the same ordinary relative file path.
+	 */
+	public function test_snapshot_scopes_relative_file_paths_to_their_package(): void {
+		$plugin_style = $this->plugin_dir . '/style.css';
+		$theme_style  = $this->theme_dir . '/style.css';
+		file_put_contents( $plugin_style, '/* Plugin styles. */' );
+
+		$this->assertTrue( GitTrackerManager::snapshot_before_modify( $plugin_style ) );
+		$this->assertTrue( GitTrackerManager::snapshot_before_modify( $theme_style ) );
+
+		$plugin_tracker = GitTrackerManager::for_plugin( $this->plugin_slug );
+		$theme_tracker  = GitTrackerManager::for_theme( $this->theme_slug );
+		$this->assertInstanceOf( GitTracker::class, $plugin_tracker );
+		$this->assertInstanceOf( GitTracker::class, $theme_tracker );
+		$this->assertTrue( $plugin_tracker->is_tracked( 'style.css' ) );
+		$this->assertTrue( $theme_tracker->is_tracked( 'style.css' ) );
+	}
+
+	/**
 	 * snapshot_before_modify() silently succeeds (returns true) for files outside packages.
 	 */
 	public function test_snapshot_before_modify_silently_succeeds_outside_packages(): void {

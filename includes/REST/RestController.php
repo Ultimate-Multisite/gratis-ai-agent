@@ -532,6 +532,41 @@ Assistant: %s',
 		$pending_client_tool_calls = array_values( $pending_client_tool_calls );
 		$tool_results              = array_values( $tool_results );
 		if ( ! ClientAbilityRouter::matches_pending_results( $pending_client_tool_calls, $tool_results ) ) {
+			$tool_call_log = $paused_state['tool_call_log'] ?? array();
+			if (
+				is_array( $tool_call_log )
+				&& ClientAbilityRouter::matches_processed_results( $tool_call_log, $tool_results )
+			) {
+				// The prior POST was processed far enough to reach this newer
+				// browser-tool pause, but its HTTP response was lost or rejected by
+				// the client. Preserve the newer pause and acknowledge the old batch
+				// idempotently; never replay its already-consumed result payload.
+				Database::save_paused_state( $session_id, $paused_state );
+
+				AgentEventLog::log(
+					'client_tools_duplicate_result_accepted',
+					AgentEventLog::SEVERITY_INFO,
+					array(
+						'session_id'          => $session_id,
+						'job_id'              => $job_id,
+						'phase'               => 'tool_result_validation',
+						'reason'              => 'result_batch_already_processed',
+						'pending_state_found' => true,
+						'client_tool_count'   => count( $tool_results ),
+					)
+				);
+
+				return new WP_REST_Response(
+					array(
+						'status'           => 'already_processed',
+						'results_accepted' => true,
+						'session_id'       => $session_id,
+						'job_id'           => $job_id,
+					),
+					202
+				);
+			}
+
 			Database::save_paused_state( $session_id, $paused_state );
 
 			AgentEventLog::log(
