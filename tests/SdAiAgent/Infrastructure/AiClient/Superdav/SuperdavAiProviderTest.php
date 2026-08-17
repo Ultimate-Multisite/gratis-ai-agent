@@ -469,6 +469,42 @@ final class SuperdavAiProviderTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * Managed image requests translate DALL-E hints to GPT Image options.
+	 */
+	public function test_image_request_normalizes_managed_model_options(): void {
+		$this->skip_if_sdk_unavailable();
+
+		$model = new SuperdavAiImageGenerationModel(
+			new ModelMetadata(
+				SuperdavAiProvider::IMAGE_MODEL_ID,
+				'Superdav Image',
+				array( CapabilityEnum::imageGeneration() ),
+				array()
+			),
+			SuperdavAiProvider::metadata()
+		);
+		$config = new ModelConfig();
+		$config->setCustomOptions(
+			array(
+				'size'    => '1792x1024',
+				'style'   => 'natural',
+				'quality' => 'hd',
+			)
+		);
+		$model->setConfig( $config );
+
+		$prepare = new \ReflectionMethod( $model, 'prepareGenerateImageParams' );
+		$prepare->setAccessible( true );
+		$params = $prepare->invoke( $model, array( new UserMessage( array( new MessagePart( 'Create a beach scene.' ) ) ) ) );
+
+		$this->assertIsArray( $params );
+		$this->assertSame( '1536x1024', $params['size'] );
+		$this->assertSame( 'high', $params['quality'] );
+		$this->assertArrayNotHasKey( 'style', $params );
+		$this->assertArrayNotHasKey( 'response_format', $params );
+	}
+
+	/**
 	 * Image prompts use the OpenAI-compatible edit endpoint with a multipart upload.
 	 */
 	public function test_image_edit_request_uses_multipart_edits_endpoint(): void {
