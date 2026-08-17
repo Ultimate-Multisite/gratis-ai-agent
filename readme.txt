@@ -8,11 +8,11 @@ Stable tag: 1.22.1
 License: GPL-2.0-or-later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
-Your AI teammate for WordPress. Fix, publish, optimise, and run your existing site from one assistant — using the AI provider you choose.
+A native AI agent for WordPress. Fix, publish, optimise, and run your site from WordPress admin — with the AI provider you choose.
 
 == Description ==
 
-SD AI Agent is an AI teammate for the WordPress site you already run. Ask it to improve a page, draft content, review SEO opportunities, prepare media, answer questions with site context, or run routine admin work from inside WordPress using natural language.
+SD AI Agent is a native AI agent for the WordPress site you already run. Ask it to improve a page, draft content, review SEO opportunities, prepare media, answer questions with site context, or run routine admin work from inside WordPress using natural language.
 
 You stay in control: choose the included SD AI-managed service or your own compatible WordPress AI provider, decide which tools the agent can use, and require confirmation before consequential actions run.
 
@@ -27,7 +27,7 @@ You stay in control: choose the included SD AI-managed service or your own compa
 
 = Work where you already work =
 
-Open the full workspace at **Tools > SD AI Agent** for longer jobs with folders, search, history, and exports. Use the compact admin widget when you want quick help while editing another WordPress screen.
+Open **AI Agent > Chat** for longer jobs with folders, search, history, and exports. Use the compact admin widget when you want quick help while editing another WordPress screen.
 
 = Bring context to every conversation =
 
@@ -44,10 +44,10 @@ You need WordPress 7.0 or later and PHP 8.2 or later. Use the included SD AI man
 == Installation ==
 
 1. Install and activate SD AI Agent from the WordPress Plugins screen.
-2. Go to **Settings > AI Credentials**. Use the included SD AI managed service, or configure a connector for your preferred AI provider with its required credentials.
-3. Visit **Tools > SD AI Agent Settings** to choose your provider and model.
-4. Review the available abilities and choose a tool profile that fits the access you want to grant.
-5. Open **Tools > SD AI Agent** and start with a focused task, such as improving a draft or finding information from your site.
+2. Go to **Settings > Connectors**. Connect the included SD AI managed service, or configure a compatible connector for your preferred AI provider.
+3. Visit **AI Agent > Settings** to choose your default provider and model.
+4. Open **AI Agent > Abilities** to review the available tools and access controls.
+5. Open **AI Agent > Chat** and start with a focused task, such as improving a draft or finding information from your site.
 
 = Requirements =
 
@@ -66,7 +66,7 @@ The included SD AI provider can register the site and provide AI responses when 
 
 = AI providers (chat completions) =
 
-These are contacted only when configured in **Settings > AI Credentials** and selected for a response. Requests send the conversation messages, system prompt, attached files if any, and tool definitions to the chosen provider.
+These are contacted only when configured in **Settings > Connectors** and selected for a response. Requests send the conversation messages, system prompt, attached files if any, and tool definitions to the chosen provider.
 
 * **OpenAI** (api.openai.com) — Provides AI chat completions for OpenAI models. Terms: https://openai.com/policies/terms-of-use/ Privacy: https://openai.com/policies/privacy-policy/
 
@@ -128,19 +128,19 @@ Stock-image services run only when requested. They receive the search keyword an
 
 = Which AI providers are supported? =
 
-Any provider that has a connector plugin for the WordPress AI Client SDK. This currently includes OpenAI (GPT-4o, GPT-4.1), Anthropic (Claude Opus 4, Sonnet 4, Haiku 4), and any OpenAI-compatible API (Ollama, Azure OpenAI, Groq, Together AI, etc.).
+The included SD AI managed provider is supported, along with providers registered by compatible connector plugins for the WordPress AI Client SDK. The providers and models available on your site depend on the connectors you install and configure in **Settings > Connectors**.
 
 = How much does it cost to use? =
 
-The plugin itself is free. You pay only for the API usage from your chosen provider at their published rates. There is no markup, subscription, or usage fee from SD AI Agent. The Usage tab in settings tracks your token consumption and estimated costs.
+The plugin is free and open source. The managed SD AI service uses account credits, while third-party providers apply their own pricing and terms. You can also use a compatible self-hosted provider. The **Usage** tab records token usage and estimated provider costs when pricing data is available.
 
 = Is my data sent to a third party? =
 
-Your conversations go directly from your WordPress site to your configured AI provider. Nothing is routed through any intermediary server. The plugin stores conversation history, memories, and knowledge locally in your WordPress database.
+Content submitted for generation is sent to the service you select. SD AI requests are routed through the managed SD AI service; connector-based requests use the endpoint and data handling defined by that connector. Conversation history, memories, and knowledge are stored locally in your WordPress database.
 
 = Can I use a local AI model? =
 
-Yes. If you run a local model through Ollama or any OpenAI-compatible server, configure it as a provider through the WordPress Connectors API and SD AI Agent will use it. All inference happens on your hardware with zero API costs.
+Yes, when a compatible connector registers your local or self-hosted model with the WordPress AI Client SDK. Availability, hardware requirements, and any hosting costs depend on the connector and inference service you choose.
 
 = What can the agent actually do? =
 

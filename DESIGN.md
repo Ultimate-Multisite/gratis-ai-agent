@@ -382,3 +382,20 @@ When instructing an AI agent to build or modify UI in this plugin, include this 
 Design system for sd-ai-agent WordPress plugin.
 Reflects the interface decisions made during the chat UI redesign (April 2026).
 -->
+
+---
+
+## 10. Public Brand Assets
+
+WordPress.org and promotional artwork extends the restrained WordPress admin
+visual language with fixed brand colours: WordPress blue `#2271b1`, dark blue
+`#135e96`, light blue `#b5d9f3`, charcoal `#1d2327`, and white.
+
+- Use the full **SD AI Agent** wordmark with the blue `AI` sparkle treatment.
+- Keep typography bold, system-native, and immediately legible at half size.
+- Prefer flat colour, generous clear space, and restrained sparkle details;
+  avoid gradients, neon effects, robot imagery, and unsupported exclusivity
+  claims such as “the first”.
+- Use **A native AI agent for WordPress.** as the public positioning line.
+- Keep `.wordpress-org/assets/banner-source.svg` as the editable banner master
+  and export both required `1544x500` and `772x250` PNG files from it.
