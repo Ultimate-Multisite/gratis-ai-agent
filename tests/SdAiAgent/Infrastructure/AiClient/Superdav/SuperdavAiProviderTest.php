@@ -488,7 +488,7 @@ final class SuperdavAiProviderTest extends WP_UnitTestCase {
 			array(
 				'size'    => '1792x1024',
 				'style'   => 'natural',
-				'quality' => 'hd',
+				'quality' => ' HIGH ',
 			)
 		);
 		$model->setConfig( $config );
