@@ -1,6 +1,6 @@
 {
 	"name": "superdav-ai-agent",
-	"version": "1.22.2",
+	"version": "1.22.3",
 	"private": true,
 	"license": "GPL-2.0-or-later",
 	"packageManager": "pnpm@11.20.0",
