@@ -104,6 +104,25 @@ describe( 'shared chat message presentation', () => {
 		expect( getRunningStatusMessage( 100 ) ).toBe( 'Thinking…' );
 	} );
 
+	test( 'names the nested ability instead of the ability-call dispatcher', () => {
+		expect(
+			getRunningJobPresentation( {
+				currentSessionId: 7,
+				sessionJobs: {},
+				liveToolCalls: [
+					{
+						type: 'call',
+						name: 'wpab__sd-ai-agent__ability-call',
+						args: { ability: 'sd-ai-agent/update-post' },
+					},
+				],
+			} )
+		).toMatchObject( {
+			isFallback: false,
+			step: 'Updating content…',
+		} );
+	} );
+
 	test( 'keeps a concrete tool status instead of rotating fallback copy', () => {
 		expect(
 			getRunningJobPresentation( {

@@ -141,7 +141,7 @@ describe( 'AssistantMessage progress summary', () => {
 } );
 
 describe( 'RunningMessage progress summary', () => {
-	test( 'shows the exact canonical ability name while a tool runs', async () => {
+	test( 'shows the exact nested ability instead of its dispatcher', async () => {
 		const container = document.createElement( 'div' );
 		document.body.appendChild( container );
 		const root = createRoot( container );
@@ -154,16 +154,20 @@ describe( 'RunningMessage progress summary', () => {
 						{
 							type: 'call',
 							id: 'options',
-							name: 'wpab__sd-ai-agent__list-options',
+							name: 'wpab__sd-ai-agent__ability-call',
+							args: {
+								ability: 'sd-ai-agent/list-options',
+							},
 						},
 					],
 				} )
 			);
 		} );
 
+		expect( container.textContent ).toContain( 'Checking options' );
 		expect( container.textContent ).toContain( 'sd-ai-agent/list-options' );
 		expect( container.textContent ).not.toContain(
-			'wpab__sd-ai-agent__list-options'
+			'sd-ai-agent/ability-call'
 		);
 
 		await act( async () => {

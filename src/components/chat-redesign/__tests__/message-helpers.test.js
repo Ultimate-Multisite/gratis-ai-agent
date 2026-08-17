@@ -22,6 +22,7 @@ import {
 	extractText,
 	getFriendlyToolLabel,
 	getRunningToolName,
+	getToolCallDisplayName,
 	pairToolCalls,
 	parseSuggestions,
 	sanitizeProgressText,
@@ -195,6 +196,37 @@ describe( 'buildRunningItems', () => {
 	} );
 } );
 
+describe( 'tool call display names', () => {
+	test( 'uses the nested target for ability-call dispatches', () => {
+		expect(
+			getToolCallDisplayName( {
+				name: 'wpab__sd-ai-agent__ability-call',
+				args: { ability: 'sd-ai-agent/update-post' },
+			} )
+		).toBe( 'sd-ai-agent/update-post' );
+	} );
+
+	test( 'reads nested targets from JSON-encoded dispatcher arguments', () => {
+		expect(
+			getToolCallDisplayName( {
+				name: 'sd-ai-agent/ability-call',
+				args: '{"ability":"sd-ai-agent/get-theme-json"}',
+			} )
+		).toBe( 'sd-ai-agent/get-theme-json' );
+	} );
+
+	test( 'keeps direct abilities and incomplete dispatches identifiable', () => {
+		expect(
+			getToolCallDisplayName( {
+				name: 'wpab__sd-ai-agent__memory-list',
+			} )
+		).toBe( 'sd-ai-agent/memory-list' );
+		expect(
+			getToolCallDisplayName( { name: 'sd-ai-agent/ability-call' } )
+		).toBe( 'sd-ai-agent/ability-call' );
+	} );
+} );
+
 describe( 'getRunningToolName', () => {
 	test( 'returns null when no calls are present', () => {
 		expect( getRunningToolName( [] ) ).toBeNull();
@@ -209,6 +241,18 @@ describe( 'getRunningToolName', () => {
 			{ type: 'call', id: 'a', name: 'wpab__sd-ai-agent__memory-list' },
 		];
 		expect( getRunningToolName( log ) ).toBe( 'sd-ai-agent/memory-list' );
+	} );
+
+	test( 'returns the nested ability while a dispatcher call is running', () => {
+		const log = [
+			{
+				type: 'call',
+				id: 'a',
+				name: 'wpab__sd-ai-agent__ability-call',
+				args: { ability: 'sd-ai-agent/update-post' },
+			},
+		];
+		expect( getRunningToolName( log ) ).toBe( 'sd-ai-agent/update-post' );
 	} );
 
 	test( 'returns null when every call has a response', () => {
@@ -244,6 +288,22 @@ describe( 'friendly tool progress summaries', () => {
 		expect(
 			sanitizeProgressText( '<thinking>Planning templates</thinking>' )
 		).toBe( 'Planning templates' );
+	} );
+
+	test( 'shows the nested ability and action for dispatcher calls', () => {
+		const summary = buildToolProgressSummary( [
+			{
+				type: 'call',
+				id: 'update',
+				name: 'wpab__sd-ai-agent__ability-call',
+				args: { ability: 'sd-ai-agent/update-post' },
+			},
+		] );
+
+		expect( summary.currentLabel ).toBe( 'Updating content' );
+		expect( summary.recentSteps[ 0 ].toolName ).toBe(
+			'sd-ai-agent/update-post'
+		);
 	} );
 
 	test( 'summarizes completed, failed, and running steps', () => {
