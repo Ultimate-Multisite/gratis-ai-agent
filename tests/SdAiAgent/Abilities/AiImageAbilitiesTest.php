@@ -11,9 +11,11 @@ namespace SdAiAgent\Tests\Abilities;
 
 use SdAiAgent\Abilities\AiImageAbilities;
 use SdAiAgent\Abilities\ImageAbilities\GenerateImageAbility;
+use SdAiAgent\Bootstrap\SuperdavAiProviderHandler;
 use SdAiAgent\Core\Settings;
 use SdAiAgent\Core\ToolPermissionResolver;
 use SdAiAgent\Infrastructure\AiClient\Superdav\SuperdavAiProvider;
+use WordPress\AiClient\AiClient;
 use WordPress\AiClient\Providers\Models\DTO\ModelConfig;
 use WP_UnitTestCase;
 
@@ -158,6 +160,112 @@ class AiImageAbilitiesTest extends WP_UnitTestCase {
 		$this->assertFalse( $meta['annotations']['destructive'] );
 		$this->assertSame( 'write', ToolPermissionResolver::classify_ability( $ability ) );
 		$this->assertFalse( ToolPermissionResolver::ability_needs_confirmation( 'sd-ai-agent/generate-image', $ability, [] ) );
+	}
+
+	/**
+	 * A stale managed token should be refreshed before image support is rejected.
+	 *
+	 * @runInSeparateProcess
+	 * @preserveGlobalState disabled
+	 */
+	public function test_generate_image_recovers_stale_superdav_model_discovery(): void {
+		if ( ! class_exists( AiClient::class ) ) {
+			$this->markTestSkipped( 'WordPress AI Client SDK is unavailable.' );
+		}
+
+		$previous_token   = get_option( SuperdavAiProvider::CREDENTIAL_OPTION, null );
+		$base_url         = 'https://image-service.example/v1';
+		$models_url       = $base_url . '/models';
+		$registration_url = $base_url . '/site/installations';
+		$model_hits        = 0;
+		$registration_hits = 0;
+
+		$base_url_filter = static fn(): string => $base_url;
+		$http_filter     = static function ( mixed $preempt, array $parsed_args, string $url ) use ( $models_url, $registration_url, &$model_hits, &$registration_hits ): mixed {
+			if ( $registration_url === $url ) {
+				++$registration_hits;
+
+				return array(
+					'response' => array(
+						'code'    => 201,
+						'message' => 'Created',
+					),
+					'body'     => wp_json_encode( array( 'site_token' => 'sdaist_refreshed_image_token' ) ),
+				);
+			}
+
+			if ( $models_url !== $url ) {
+				return $preempt;
+			}
+
+			++$model_hits;
+			$headers       = (array) ( $parsed_args['headers'] ?? array() );
+			$authorization = '';
+			foreach ( $headers as $name => $value ) {
+				if ( 'authorization' === strtolower( (string) $name ) ) {
+					$authorization = is_array( $value ) ? (string) reset( $value ) : (string) $value;
+					break;
+				}
+			}
+
+			if ( 'Bearer sdaist_refreshed_image_token' !== $authorization ) {
+				return array(
+					'response' => array(
+						'code'    => 401,
+						'message' => 'Unauthorized',
+					),
+					'body'     => wp_json_encode( array( 'error' => array( 'message' => 'Invalid site token.' ) ) ),
+				);
+			}
+
+			return array(
+				'response' => array(
+					'code'    => 200,
+					'message' => 'OK',
+				),
+				'body'     => wp_json_encode(
+					array(
+						'data' => array(
+							array(
+								'id'           => SuperdavAiProvider::IMAGE_MODEL_ID,
+								'capabilities' => array( 'image_generation' ),
+							),
+						),
+					)
+				),
+			);
+		};
+
+		add_filter( 'sd_ai_agent_cloud_base_url', $base_url_filter );
+		add_filter( 'pre_http_request', $http_filter, 10, 3 );
+		update_option( SuperdavAiProvider::CREDENTIAL_OPTION, 'sdaist_stale_image_token', false );
+		( new SuperdavAiProviderHandler() )->register_provider();
+
+		$directory = SuperdavAiProvider::modelMetadataDirectory();
+		if ( method_exists( $directory, 'invalidateCaches' ) ) {
+			$directory->invalidateCaches();
+		}
+
+		try {
+			$method = new \ReflectionMethod( GenerateImageAbility::class, 'is_image_generation_supported' );
+			$method->setAccessible( true );
+
+			$this->assertTrue( $method->invoke( null ) );
+			$this->assertSame( 3, $model_hits );
+			$this->assertSame( 1, $registration_hits );
+			$this->assertSame( 'sdaist_refreshed_image_token', get_option( SuperdavAiProvider::CREDENTIAL_OPTION, '' ) );
+		} finally {
+			remove_filter( 'sd_ai_agent_cloud_base_url', $base_url_filter );
+			remove_filter( 'pre_http_request', $http_filter, 10 );
+			if ( method_exists( $directory, 'invalidateCaches' ) ) {
+				$directory->invalidateCaches();
+			}
+			if ( null === $previous_token ) {
+				delete_option( SuperdavAiProvider::CREDENTIAL_OPTION );
+			} else {
+				update_option( SuperdavAiProvider::CREDENTIAL_OPTION, $previous_token, false );
+			}
+		}
 	}
 
 	/**
