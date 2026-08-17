@@ -79,8 +79,11 @@ final class SuperdavAiImageGenerationModel extends AbstractOpenAiCompatibleImage
 
 		$quality = strtolower( trim( (string) ( $params['quality'] ?? '' ) ) );
 		if ( 'hd' === $quality ) {
-			$params['quality'] = 'high';
-		} elseif ( ! in_array( $quality, array( 'low', 'medium', 'high', 'auto' ), true ) ) {
+			$quality = 'high';
+		}
+		if ( in_array( $quality, array( 'low', 'medium', 'high', 'auto' ), true ) ) {
+			$params['quality'] = $quality;
+		} else {
 			unset( $params['quality'] );
 		}
 
