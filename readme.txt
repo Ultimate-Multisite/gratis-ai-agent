@@ -74,7 +74,7 @@ These are contacted only when configured in **Settings > Connectors** and select
 
 * **Google AI / Gemini** (generativelanguage.googleapis.com) — Provides AI chat completions for Gemini models. Terms: https://policies.google.com/terms Privacy: https://policies.google.com/privacy
 
-**Other compatible providers.** If you install a separate connector, SD AI Agent uses that connector's configured endpoint and data handling. Some connectors may route requests through regional or cloud services such as Google Vertex AI (`*.aiplatform.googleapis.com`). Review the connector's own terms and privacy policy.
+**Other compatible providers.** Install [Ultimate AI Connector - Compatible Endpoints](https://wordpress.org/plugins/ultimate-ai-connector-compatible-endpoints/) to connect local models or other compatible provider endpoints. SD AI Agent uses the endpoint and data handling configured in that connector. Some endpoints may route requests through regional or cloud services such as Google Vertex AI (`*.aiplatform.googleapis.com`). Review the endpoint provider's terms and privacy policy.
 
 = Internet search providers =
 
@@ -128,11 +128,11 @@ Stock-image services run only when requested. They receive the search keyword an
 
 = Which AI providers are supported? =
 
-The included SD AI managed provider is supported, along with providers registered by compatible connector plugins for the WordPress AI Client SDK. The providers and models available on your site depend on the connectors you install and configure in **Settings > Connectors**.
+The included SD AI managed provider is supported. For local models or other compatible provider endpoints, install [Ultimate AI Connector - Compatible Endpoints](https://wordpress.org/plugins/ultimate-ai-connector-compatible-endpoints/) and configure the endpoint in **Settings > Connectors**. Available providers and models depend on the endpoint you configure.
 
 = How much does it cost to use? =
 
-The plugin is free and open source. The managed SD AI service uses account credits, while third-party providers apply their own pricing and terms. You can also use a compatible self-hosted provider. The **Usage** tab records token usage and estimated provider costs when pricing data is available.
+The plugin is free and open source. The managed SD AI service uses account credits, while third-party providers apply their own pricing and terms. To use a local model or another compatible provider, connect its endpoint with [Ultimate AI Connector - Compatible Endpoints](https://wordpress.org/plugins/ultimate-ai-connector-compatible-endpoints/). The **Usage** tab records token usage and estimated provider costs when pricing data is available.
 
 = Is my data sent to a third party? =
 
@@ -140,7 +140,7 @@ Content submitted for generation is sent to the service you select. SD AI reques
 
 = Can I use a local AI model? =
 
-Yes, when a compatible connector registers your local or self-hosted model with the WordPress AI Client SDK. Availability, hardware requirements, and any hosting costs depend on the connector and inference service you choose.
+Yes. Install [Ultimate AI Connector - Compatible Endpoints](https://wordpress.org/plugins/ultimate-ai-connector-compatible-endpoints/), add your local model server or other compatible provider endpoint in **Settings > Connectors**, and then select its registered model in SD AI Agent. Availability, hardware requirements, and any hosting costs depend on the endpoint and inference service you choose.
 
 = What can the agent actually do? =
 
