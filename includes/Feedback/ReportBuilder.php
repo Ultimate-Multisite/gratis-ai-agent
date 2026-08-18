@@ -92,73 +92,73 @@ class ReportBuilder {
 	/**
 	 * Build a feedback report payload from a session.
 	 *
-	 * @param int    $sessionId         Session to report on.
-	 * @param string $reportType        Caller-supplied category (e.g. 'user_reported').
-	 * @param string $userDescription   Optional free-text description from the user.
-	 * @param bool   $stripToolResults  When true, tool result content is redacted but
+	 * @param int    $session_id        Session to report on.
+	 * @param string $report_type       Caller-supplied category (e.g. 'user_reported').
+	 * @param string $user_description  Optional free-text description from the user.
+	 * @param bool   $strip_tool_results When true, tool result content is redacted but
 	 *                                  tool names/arguments are retained.
-	 * @param int    $messageIndex      When >= 0, only the targeted message ± 2
+	 * @param int    $message_index     When >= 0, only the targeted message ± 2
 	 *                                  surrounding messages are included. Pass -1 to
 	 *                                  include all messages (default).
 	 * @return array<string, mixed>|null Structured payload or null when the session does
 	 *                                  not exist or does not belong to the current user.
 	 */
 	public static function build(
-		int $sessionId,
-		string $reportType,
-		string $userDescription = '',
-		bool $stripToolResults = false,
-		int $messageIndex = -1
+		int $session_id,
+		string $report_type,
+		string $user_description = '',
+		bool $strip_tool_results = false,
+		int $message_index = -1
 	): ?array {
-		$currentUserId = get_current_user_id();
-		$session       = Database::get_session( $sessionId );
+		$current_user_id = get_current_user_id();
+		$session         = Database::get_session( $session_id );
 
-		if ( ! $session || (int) $session->user_id !== $currentUserId ) {
+		if ( ! $session || (int) $session->user_id !== $current_user_id ) {
 			return null;
 		}
 
-		$decodedMessages  = json_decode( $session->messages ?? '[]', true );
-		$decodedToolCalls = json_decode( $session->tool_calls ?? '[]', true );
+		$decoded_messages   = json_decode( $session->messages ?? '[]', true );
+		$decoded_tool_calls = json_decode( $session->tool_calls ?? '[]', true );
 
 		/** @var array<int, array<string, mixed>> $messages */
-		$messages = is_array( $decodedMessages ) ? $decodedMessages : [];
-		/** @var array<int, array<string, mixed>> $toolCalls */
-		$toolCalls = is_array( $decodedToolCalls ) ? $decodedToolCalls : [];
+		$messages = is_array( $decoded_messages ) ? $decoded_messages : [];
+		/** @var array<int, array<string, mixed>> $tool_calls */
+		$tool_calls = is_array( $decoded_tool_calls ) ? $decoded_tool_calls : [];
 
 		// Scope to a context window around the target message when requested (t186).
-		if ( $messageIndex >= 0 ) {
-			$messages  = self::slice_message_context( $messages, $messageIndex );
-			$toolCalls = self::scope_tool_calls_to_messages( $toolCalls, $messages );
+		if ( $message_index >= 0 ) {
+			$messages   = self::slice_message_context( $messages, $message_index );
+			$tool_calls = self::scope_tool_calls_to_messages( $tool_calls, $messages );
 		}
 
-		if ( $stripToolResults ) {
-			$toolCalls = self::strip_tool_results( $toolCalls );
-			$messages  = self::strip_tool_result_messages( $messages );
+		if ( $strip_tool_results ) {
+			$tool_calls = self::strip_tool_results( $tool_calls );
+			$messages   = self::strip_tool_result_messages( $messages );
 		}
 
-		$sessionData = array(
-			'id'                => $sessionId,
+		$session_data = array(
+			'id'                => $session_id,
 			'title'             => $session->title ?? '',
 			'provider_id'       => $session->provider_id ?? '',
 			'model_id'          => $session->model_id ?? '',
 			'prompt_tokens'     => (int) ( $session->prompt_tokens ?? 0 ),
 			'completion_tokens' => (int) ( $session->completion_tokens ?? 0 ),
 			'messages'          => $messages,
-			'tool_calls'        => $toolCalls,
+			'tool_calls'        => $tool_calls,
 			'message_count'     => count( $messages ),
-			'tool_call_count'   => count( $toolCalls ),
+			'tool_call_count'   => count( $tool_calls ),
 		);
 
 		$environment = self::collect_environment();
 
 		return array(
-			'report_type'      => $reportType,
-			'user_description' => $userDescription,
+			'report_type'      => $report_type,
+			'user_description' => $user_description,
 			// Top-level fields for server-side indexing (model, provider, site).
 			'model_id'         => $session->model_id ?? '',
 			'provider_id'      => $session->provider_id ?? '',
 			'site_url'         => $environment['site_host'] ?? '',
-			'session_data'     => $sessionData,
+			'session_data'     => $session_data,
 			'environment'      => $environment,
 			'generated_at'     => gmdate( 'c' ),
 		);
@@ -167,34 +167,34 @@ class ReportBuilder {
 	/**
 	 * Build a lightweight summary (no message content) for the modal preview header.
 	 *
-	 * @param int  $sessionId        Session to summarise.
-	 * @param bool $stripToolResults When true, reflect stripped count.
-	 * @param int  $messageIndex     When >= 0, only count messages in the context window.
+	 * @param int  $session_id       Session to summarise.
+	 * @param bool $strip_tool_results When true, reflect stripped count.
+	 * @param int  $message_index    When >= 0, only count messages in the context window.
 	 * @return array<string, mixed>|null Summary or null when the session is not found.
 	 */
-	public static function build_summary( int $sessionId, bool $stripToolResults = false, int $messageIndex = -1 ): ?array {
-		$currentUserId = get_current_user_id();
-		$session       = Database::get_session( $sessionId );
+	public static function build_summary( int $session_id, bool $strip_tool_results = false, int $message_index = -1 ): ?array {
+		$current_user_id = get_current_user_id();
+		$session         = Database::get_session( $session_id );
 
-		if ( ! $session || (int) $session->user_id !== $currentUserId ) {
+		if ( ! $session || (int) $session->user_id !== $current_user_id ) {
 			return null;
 		}
 
-		$decodedMessages  = json_decode( $session->messages ?? '[]', true );
-		$decodedToolCalls = json_decode( $session->tool_calls ?? '[]', true );
-		$messages         = is_array( $decodedMessages ) ? $decodedMessages : [];
-		$toolCalls        = is_array( $decodedToolCalls ) ? $decodedToolCalls : [];
+		$decoded_messages   = json_decode( $session->messages ?? '[]', true );
+		$decoded_tool_calls = json_decode( $session->tool_calls ?? '[]', true );
+		$messages           = is_array( $decoded_messages ) ? $decoded_messages : [];
+		$tool_calls         = is_array( $decoded_tool_calls ) ? $decoded_tool_calls : [];
 
 		// Scope both counts to the same context window used by the report payload.
-		if ( $messageIndex >= 0 ) {
-			$messages  = self::slice_message_context( $messages, $messageIndex );
-			$toolCalls = self::scope_tool_calls_to_messages( $toolCalls, $messages );
+		if ( $message_index >= 0 ) {
+			$messages   = self::slice_message_context( $messages, $message_index );
+			$tool_calls = self::scope_tool_calls_to_messages( $tool_calls, $messages );
 		}
 
 		return array(
 			'message_count'      => count( $messages ),
-			'tool_call_count'    => count( $toolCalls ),
-			'strip_tool_results' => $stripToolResults,
+			'tool_call_count'    => count( $tool_calls ),
+			'strip_tool_results' => $strip_tool_results,
 			'environment_keys'   => array_keys( self::collect_environment() ),
 			'model_id'           => $session->model_id ?? '',
 			'provider_id'        => $session->provider_id ?? '',
