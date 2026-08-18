@@ -38,6 +38,7 @@ import { registerNavigationAbility } from './navigation';
 import { registerRefreshPageAbility } from './refresh-page';
 import { registerEditorAbility } from './editor';
 import { registerEditorCapabilitiesAbility } from './editor-capabilities';
+import { registerCanonicalBlockExamplesAbility } from './block-examples';
 import {
 	registerCaptureScreenshotAbility,
 	registerScreenshotUrlAbility,
@@ -110,6 +111,7 @@ export function ensureRegistered() {
 		await registerRefreshPageAbility();
 		await registerEditorAbility();
 		await registerEditorCapabilitiesAbility();
+		await registerCanonicalBlockExamplesAbility();
 		await registerCaptureScreenshotAbility();
 		await registerScreenshotUrlAbility();
 		try {
