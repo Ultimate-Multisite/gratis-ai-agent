@@ -15,6 +15,23 @@ function loadEditorModule() {
 }
 
 /**
+ * Load isolated editor and registry modules from the same module instance.
+ *
+ * @return {{ editor: Object, registry: Object }} Editor and registry exports.
+ */
+function loadEditorAndRegistry() {
+	let editor;
+	let registry;
+	jest.isolateModules( () => {
+		// eslint-disable-next-line global-require
+		editor = require( '../editor' );
+		// eslint-disable-next-line global-require
+		registry = require( '../registry' );
+	} );
+	return { editor, registry };
+}
+
+/**
  * Set a minimal Gutenberg editor environment.
  *
  * @param {Object}   options               Mock editor state.
@@ -38,6 +55,7 @@ function setEditor( {
 				getBlockRootClientId: ( clientId ) => rootIds[ clientId ] || '',
 				getBlockIndex: ( clientId ) => selectedIds.indexOf( clientId ),
 			} ) ),
+			dispatch: jest.fn(),
 		},
 		blocks: {
 			serialize: jest.fn( () => markup ),
@@ -87,6 +105,24 @@ describe( 'get-editor-selection', () => {
 			},
 		] );
 		expect( result.fingerprint ).toMatch( /^(sha256|fallback):/ );
+		expect( global.wp.data.dispatch ).not.toHaveBeenCalled();
+	} );
+
+	test( 'registers the current-selection descriptor as read-only', async () => {
+		const { editor, registry } = loadEditorAndRegistry();
+		await editor.registerEditorAbility();
+		const descriptor = ( await registry.snapshotDescriptors() ).find(
+			( candidate ) =>
+				candidate.name === 'sd-ai-agent-js/get-editor-selection'
+		);
+
+		expect( descriptor ).toMatchObject( {
+			name: 'sd-ai-agent-js/get-editor-selection',
+			annotations: { readonly: true },
+		} );
+		expect( descriptor.output_schema.properties ).toHaveProperty(
+			'fingerprint'
+		);
 	} );
 
 	test( 'returns a stable fingerprint for the same current selection', async () => {
