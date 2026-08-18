@@ -1247,18 +1247,18 @@ input[type="text"].sdaa-cr-search-input {
 	background: var(--sdaa-error-surface);
 }
 
-.sdaa-cr-progress-stat.is-recovered {
+.sd-ai-agent-progress-stat--recovered {
 	border-color: #d8eddb;
 	color: var(--sdaa-success);
 }
 
-.sdaa-cr-progress-details {
+.sd-ai-agent-progress-details {
 	display: grid;
 	gap: 8px;
 	padding-top: 2px;
 }
 
-.sdaa-cr-progress-details-label {
+.sd-ai-agent-progress-details-label {
 	color: var(--sdaa-text-secondary);
 	font-size: 12px;
 	font-weight: 600;

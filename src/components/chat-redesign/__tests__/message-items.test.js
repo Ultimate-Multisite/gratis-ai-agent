@@ -43,7 +43,7 @@ jest.mock( '../icons', () => ( {
 
 jest.mock( '../ToolCard', () => ( {
 	__esModule: true,
-	default: ( { call } ) => `Tool card: ${ call.name }`,
+	default: ( { call } ) => `Tool card: ${ call.name } (${ call.id })`,
 	ToolResultHighlights: () => null,
 } ) );
 
@@ -170,15 +170,18 @@ describe( 'AssistantMessage progress summary', () => {
 
 		await act( async () => {
 			container
-				.querySelector( '.sdaa-cr-progress-stat.is-recovered' )
+				.querySelector( '.sd-ai-agent-progress-stat--recovered' )
 				.dispatchEvent( new MouseEvent( 'click', { bubbles: true } ) );
 		} );
 
 		expect(
-			container.querySelector( '.sdaa-cr-progress-details' )
+			container.querySelector( '.sd-ai-agent-progress-details' )
 		).not.toBeNull();
 		expect( container.textContent ).toContain(
-			'Tool card: sd-ai-agent/get-post'
+			'Tool card: sd-ai-agent/get-post (first)'
+		);
+		expect( container.textContent ).toContain(
+			'Tool card: sd-ai-agent/get-post (retry)'
 		);
 
 		await act( async () => {

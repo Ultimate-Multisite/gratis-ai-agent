@@ -331,7 +331,7 @@ function ToolProgressSummary( {
 					{ recoveredCount > 0 && (
 						<button
 							type="button"
-							className="sdaa-cr-progress-stat is-recovered"
+							className="sdaa-cr-progress-stat sd-ai-agent-progress-stat--recovered"
 							onClick={ toggleDetails }
 							aria-expanded={ showDetails }
 						>
@@ -353,8 +353,8 @@ function ToolProgressSummary( {
 				</div>
 			) }
 			{ showDetails && items.length > 0 && (
-				<div className="sdaa-cr-progress-details">
-					<div className="sdaa-cr-progress-details-label">
+				<div className="sd-ai-agent-progress-details">
+					<div className="sd-ai-agent-progress-details-label">
 						{ __( 'Tool call details', 'superdav-ai-agent' ) }
 					</div>
 					{ items.map( ( item ) => (
