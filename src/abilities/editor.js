@@ -10,6 +10,188 @@
 
 import { registerClientAbility } from './registry';
 
+const MAX_SELECTED_BLOCKS = 50;
+const MAX_SELECTION_MARKUP_BYTES = 64 * 1024;
+
+/**
+ * Return a deterministic non-cryptographic hash when SubtleCrypto is absent.
+ *
+ * @param {string} value Value to hash.
+ * @return {string} Stable fingerprint.
+ */
+function fallbackFingerprint( value ) {
+	let hash = 7;
+	for ( let index = 0; index < value.length; index++ ) {
+		hash = ( hash * 31 + value.charCodeAt( index ) ) % 2147483647;
+	}
+
+	return `fallback:${ hash.toString( 16 ).padStart( 8, '0' ) }`;
+}
+
+/**
+ * Calculate the UTF-8 byte length of a string in browsers without TextEncoder.
+ *
+ * @param {string} value Value to measure.
+ * @return {number} UTF-8 byte length.
+ */
+function getByteLength( value ) {
+	if ( typeof TextEncoder !== 'undefined' ) {
+		return new TextEncoder().encode( value ).byteLength;
+	}
+
+	return Array.from( value ).reduce( ( length, character ) => {
+		const codePoint = character.codePointAt( 0 );
+		if ( codePoint <= 127 ) {
+			return length + 1;
+		}
+		if ( codePoint <= 2047 ) {
+			return length + 2;
+		}
+		return length + ( codePoint <= 65535 ? 3 : 4 );
+	}, 0 );
+}
+
+/**
+ * Create a fingerprint from ordered IDs and canonical selected-only markup.
+ *
+ * @param {string[]} clientIds Ordered selected block client IDs.
+ * @param {string}   markup    Canonical serialized selected-block markup.
+ * @return {Promise<string>} Selection fingerprint.
+ */
+async function createSelectionFingerprint( clientIds, markup ) {
+	const value = `${ clientIds.join( '\n' ) }\n${ markup }`;
+	const subtle = globalThis.crypto?.subtle;
+
+	if ( subtle && typeof TextEncoder !== 'undefined' ) {
+		try {
+			const digest = await subtle.digest(
+				'SHA-256',
+				new TextEncoder().encode( value )
+			);
+			return `sha256:${ Array.from( new Uint8Array( digest ) )
+				.map( ( byte ) => byte.toString( 16 ).padStart( 2, '0' ) )
+				.join( '' ) }`;
+		} catch ( _error ) {
+			// Fall through to the deterministic browser-independent fallback.
+		}
+	}
+
+	return fallbackFingerprint( value );
+}
+
+/**
+ * Return the selected editor blocks without dispatching a state mutation.
+ *
+ * @return {Promise<Object>} Bounded current-selection snapshot.
+ */
+export async function getEditorSelection() {
+	const empty = {
+		available: false,
+		selected: false,
+		count: 0,
+		originalCount: 0,
+		blocks: [],
+		markup: '',
+		fingerprint: '',
+		truncated: false,
+		reason: 'unavailable',
+	};
+
+	if ( typeof wp === 'undefined' || ! wp.data || ! wp.blocks ) {
+		return empty;
+	}
+
+	try {
+		const editor = wp.data.select( 'core/block-editor' );
+		if ( ! editor || typeof editor.getBlock !== 'function' ) {
+			return empty;
+		}
+
+		let selectedIds = [];
+		if ( typeof editor.getSelectedBlockClientIds === 'function' ) {
+			selectedIds = editor.getSelectedBlockClientIds();
+		} else if ( typeof editor.getSelectedBlockClientId === 'function' ) {
+			selectedIds = [ editor.getSelectedBlockClientId() ];
+		}
+		const clientIds = Array.isArray( selectedIds )
+			? selectedIds.filter( Boolean )
+			: [];
+
+		if ( ! clientIds.length ) {
+			return { ...empty, available: true, reason: 'no_selection' };
+		}
+
+		const originalCount = clientIds.length;
+		const truncatedByCount = originalCount > MAX_SELECTED_BLOCKS;
+		const boundedIds = clientIds.slice( 0, MAX_SELECTED_BLOCKS );
+		const selectedBlocks = boundedIds.map( ( clientId ) =>
+			editor.getBlock( clientId )
+		);
+
+		if ( selectedBlocks.some( ( block ) => ! block ) ) {
+			return {
+				...empty,
+				available: true,
+				selected: true,
+				count: boundedIds.length,
+				originalCount,
+				truncated: true,
+				reason: 'missing_selected_block',
+			};
+		}
+
+		const markup = wp.blocks.serialize( selectedBlocks );
+		if ( getByteLength( markup ) > MAX_SELECTION_MARKUP_BYTES ) {
+			return {
+				...empty,
+				available: true,
+				selected: true,
+				count: boundedIds.length,
+				originalCount,
+				truncated: true,
+				reason: 'markup_limit',
+			};
+		}
+
+		const blocks = selectedBlocks.map( ( block, index ) => {
+			const parentId =
+				typeof editor.getBlockRootClientId === 'function'
+					? editor.getBlockRootClientId( block.clientId ) || ''
+					: '';
+			const parent = parentId ? editor.getBlock( parentId ) : null;
+			return {
+				clientId: block.clientId,
+				name: block.name,
+				parent: {
+					clientId: parentId,
+					name: parent?.name || '',
+					position:
+						typeof editor.getBlockIndex === 'function'
+							? editor.getBlockIndex(
+									block.clientId,
+									parentId || undefined
+							  )
+							: index,
+				},
+			};
+		} );
+
+		return {
+			available: true,
+			selected: true,
+			count: boundedIds.length,
+			originalCount,
+			blocks,
+			markup,
+			fingerprint: await createSelectionFingerprint( boundedIds, markup ),
+			truncated: truncatedByCount,
+			reason: truncatedByCount ? 'selection_limit' : '',
+		};
+	} catch ( _error ) {
+		return empty;
+	}
+}
+
 /**
  * Execute the insert-block ability.
  *
@@ -78,6 +260,34 @@ function executeInsertBlock( args ) {
  * @return {void}
  */
 export async function registerEditorAbility() {
+	await registerClientAbility( {
+		name: 'sd-ai-agent-js/get-editor-selection',
+		label: 'Get Editor Selection',
+		description:
+			'Return a bounded, current snapshot of explicitly selected Gutenberg blocks without changing editor state.',
+		inputSchema: {
+			type: 'object',
+			properties: {},
+			required: [],
+		},
+		outputSchema: {
+			type: 'object',
+			properties: {
+				available: { type: 'boolean' },
+				selected: { type: 'boolean' },
+				count: { type: 'integer' },
+				originalCount: { type: 'integer' },
+				blocks: { type: 'array', items: { type: 'object' } },
+				markup: { type: 'string' },
+				fingerprint: { type: 'string' },
+				truncated: { type: 'boolean' },
+				reason: { type: 'string' },
+			},
+		},
+		annotations: { readonly: true },
+		callback: getEditorSelection,
+	} );
+
 	await registerClientAbility( {
 		name: 'sd-ai-agent-js/insert-block',
 		label: 'Insert Block',
