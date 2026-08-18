@@ -110,6 +110,9 @@ export function ensureRegistered() {
 		await registerRefreshPageAbility();
 		await registerEditorAbility();
 		await registerEditorCapabilitiesAbility();
+		await (
+			await import( './block-examples' )
+		).registerCanonicalBlockExamplesAbility();
 		await registerCaptureScreenshotAbility();
 		await registerScreenshotUrlAbility();
 		try {

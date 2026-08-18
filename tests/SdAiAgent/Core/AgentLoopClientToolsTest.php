@@ -67,6 +67,7 @@ class AgentLoopClientToolsTest extends WP_UnitTestCase {
 		$this->assertContains( 'sd-ai-agent-js/refresh-page', $names );
 		$this->assertContains( 'sd-ai-agent-js/get-editor-selection', $names );
 		$this->assertContains( 'sd-ai-agent-js/get-editor-capabilities', $names );
+		$this->assertContains( 'sd-ai-agent-js/get-canonical-block-examples', $names );
 		$this->assertContains( 'sd-ai-agent-js/insert-block', $names );
 		$this->assertContains( 'sd-ai-agent-js/validate-page-quality', $names );
 		$this->assertContains( 'sd-ai-agent-js/validate-theme-completion', $names );
@@ -80,6 +81,7 @@ class AgentLoopClientToolsTest extends WP_UnitTestCase {
 		$this->assertTrue( JsAbilityCatalog::has( 'sd-ai-agent-js/refresh-page' ) );
 		$this->assertTrue( JsAbilityCatalog::has( 'sd-ai-agent-js/get-editor-selection' ) );
 		$this->assertTrue( JsAbilityCatalog::has( 'sd-ai-agent-js/get-editor-capabilities' ) );
+		$this->assertTrue( JsAbilityCatalog::has( 'sd-ai-agent-js/get-canonical-block-examples' ) );
 		$this->assertTrue( JsAbilityCatalog::has( 'sd-ai-agent-js/insert-block' ) );
 		$this->assertTrue( JsAbilityCatalog::has( 'sd-ai-agent-js/validate-page-quality' ) );
 		$this->assertTrue( JsAbilityCatalog::has( 'sd-ai-agent-js/validate-theme-completion' ) );
@@ -98,6 +100,7 @@ class AgentLoopClientToolsTest extends WP_UnitTestCase {
 		$this->assertArrayHasKey( 'sd-ai-agent-js/refresh-page', $map );
 		$this->assertArrayHasKey( 'sd-ai-agent-js/get-editor-selection', $map );
 		$this->assertArrayHasKey( 'sd-ai-agent-js/get-editor-capabilities', $map );
+		$this->assertArrayHasKey( 'sd-ai-agent-js/get-canonical-block-examples', $map );
 		$this->assertArrayHasKey( 'sd-ai-agent-js/insert-block', $map );
 		$this->assertArrayHasKey( 'sd-ai-agent-js/validate-page-quality', $map );
 		$this->assertArrayHasKey( 'sd-ai-agent-js/validate-theme-completion', $map );
@@ -123,6 +126,13 @@ class AgentLoopClientToolsTest extends WP_UnitTestCase {
 		$this->assertSame( array( 'editor' ), $capabilities['screens'] );
 		$this->assertArrayHasKey( 'blockNames', $capabilities['input_schema']['properties'] );
 		$this->assertArrayHasKey( 'unavailable_sources', $capabilities['output_schema']['properties'] );
+
+		$examples = $map['sd-ai-agent-js/get-canonical-block-examples'];
+		$this->assertSame( 'sd-ai-agent-js', $examples['category'] );
+		$this->assertTrue( $examples['annotations']['readonly'] );
+		$this->assertSame( array( 'editor' ), $examples['screens'] );
+		$this->assertSame( array( 'blockNames' ), $examples['input_schema']['required'] );
+		$this->assertArrayHasKey( 'examples', $examples['output_schema']['properties'] );
 	}
 
 	/**

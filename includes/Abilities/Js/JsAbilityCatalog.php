@@ -171,6 +171,50 @@ class JsAbilityCatalog {
 				'screens'       => array( 'editor' ),
 			),
 			array(
+				'name'          => 'sd-ai-agent-js/get-canonical-block-examples',
+				'label'         => 'Get Canonical Block Examples',
+				'description'   => 'Generate bounded, validated canonical Gutenberg markup from currently installed block registrations without changing editor state.',
+				'category'      => 'sd-ai-agent-js',
+				'input_schema'  => array(
+					'type'       => 'object',
+					'properties' => array(
+						'blockNames' => array(
+							'type'        => 'array',
+							'minItems'    => 1,
+							'maxItems'    => 20,
+							'uniqueItems' => true,
+							'items'       => array(
+								'type'      => 'string',
+								'maxLength' => 200,
+							),
+						),
+					),
+					'required'   => array( 'blockNames' ),
+				),
+				'output_schema' => array(
+					'type'       => 'object',
+					'properties' => array(
+						'available' => array( 'type' => 'boolean' ),
+						'requested' => array(
+							'type'  => 'array',
+							'items' => array( 'type' => 'string' ),
+						),
+						'examples'  => array(
+							'type'  => 'array',
+							'items' => array( 'type' => 'object' ),
+						),
+						'warnings'  => array(
+							'type'  => 'array',
+							'items' => array( 'type' => 'string' ),
+						),
+					),
+				),
+				'annotations'   => array(
+					'readonly' => true,
+				),
+				'screens'       => array( 'editor' ),
+			),
+			array(
 				'name'          => 'sd-ai-agent-js/insert-block',
 				'label'         => 'Insert Block',
 				'description'   => 'Insert a Gutenberg block into the active block editor. Only available on editor screens.',
