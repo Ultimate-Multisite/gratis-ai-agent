@@ -85,6 +85,20 @@ async function createSelectionFingerprint( clientIds, markup ) {
  * @return {Promise<Object>} Bounded current-selection snapshot.
  */
 export async function getEditorSelection() {
+	return getEditorSelectionForIds();
+}
+
+/**
+ * Return a bounded snapshot for either the current selection or exact IDs.
+ *
+ * Mutation abilities use the explicit-ID form after a transaction so their
+ * response is bound to the blocks that were actually written, not to a UI
+ * selection that may have changed as a side effect of the transaction.
+ *
+ * @param {string[]} [requestedIds] Ordered block IDs to snapshot.
+ * @return {Promise<Object>} Bounded current-selection snapshot.
+ */
+export async function getEditorSelectionForIds( requestedIds ) {
 	const empty = {
 		available: false,
 		selected: false,
@@ -107,10 +121,16 @@ export async function getEditorSelection() {
 			return empty;
 		}
 
-		let selectedIds = [];
-		if ( typeof editor.getSelectedBlockClientIds === 'function' ) {
+		let selectedIds = Array.isArray( requestedIds ) ? requestedIds : [];
+		if (
+			! selectedIds.length &&
+			typeof editor.getSelectedBlockClientIds === 'function'
+		) {
 			selectedIds = editor.getSelectedBlockClientIds();
-		} else if ( typeof editor.getSelectedBlockClientId === 'function' ) {
+		} else if (
+			! selectedIds.length &&
+			typeof editor.getSelectedBlockClientId === 'function'
+		) {
 			selectedIds = [ editor.getSelectedBlockClientId() ];
 		}
 		const clientIds = Array.isArray( selectedIds )

@@ -118,6 +118,77 @@ class JsAbilityCatalog {
 				'screens'       => array( 'editor' ),
 			),
 			array(
+				'name'          => 'sd-ai-agent-js/replace-editor-selection',
+				'label'         => 'Replace Editor Selection',
+				'description'   => 'Replace exactly the selected Gutenberg blocks only when the supplied ordered IDs and fingerprint still match.',
+				'category'      => 'sd-ai-agent-js',
+				'input_schema'  => array(
+					'type'       => 'object',
+					'properties' => array(
+						'markup'              => array( 'type' => 'string' ),
+						'expectedFingerprint' => array( 'type' => 'string' ),
+						'expectedClientIds'   => array(
+							'type'  => 'array',
+							'items' => array( 'type' => 'string' ),
+						),
+					),
+					'required'   => array( 'markup', 'expectedFingerprint', 'expectedClientIds' ),
+				),
+				'output_schema' => self::editor_mutation_output_schema(),
+				'annotations'   => array(
+					'readonly' => false,
+				),
+				'screens'       => array( 'editor' ),
+			),
+			array(
+				'name'          => 'sd-ai-agent-js/insert-block-markup',
+				'label'         => 'Insert Block Markup',
+				'description'   => 'Insert validated canonical Gutenberg markup once at an explicit editor location or the current insertion point.',
+				'category'      => 'sd-ai-agent-js',
+				'input_schema'  => array(
+					'type'       => 'object',
+					'properties' => array(
+						'markup'       => array( 'type' => 'string' ),
+						'rootClientId' => array( 'type' => 'string' ),
+						'index'        => array( 'type' => 'integer' ),
+					),
+					'required'   => array( 'markup' ),
+				),
+				'output_schema' => self::editor_mutation_output_schema(),
+				'annotations'   => array(
+					'readonly' => false,
+				),
+				'screens'       => array( 'editor' ),
+			),
+			array(
+				'name'          => 'sd-ai-agent-js/change-editor-history',
+				'label'         => 'Change Editor History',
+				'description'   => 'Request one native Gutenberg editor undo or redo operation.',
+				'category'      => 'sd-ai-agent-js',
+				'input_schema'  => array(
+					'type'       => 'object',
+					'properties' => array(
+						'direction' => array(
+							'type' => 'string',
+							'enum' => array( 'undo', 'redo' ),
+						),
+					),
+					'required'   => array( 'direction' ),
+				),
+				'output_schema' => array(
+					'type'       => 'object',
+					'properties' => array(
+						'applied'   => array( 'type' => 'boolean' ),
+						'direction' => array( 'type' => 'string' ),
+						'reason'    => array( 'type' => 'string' ),
+					),
+				),
+				'annotations'   => array(
+					'readonly' => false,
+				),
+				'screens'       => array( 'editor' ),
+			),
+			array(
 				'name'          => 'sd-ai-agent-js/get-editor-capabilities',
 				'label'         => 'Get Editor Capabilities',
 				'description'   => 'Return a bounded, current manifest of installed Gutenberg blocks and active editor/theme capabilities without changing editor state.',
@@ -459,6 +530,27 @@ class JsAbilityCatalog {
 					'readonly' => true,
 				),
 				'screens'       => array( 'all' ),
+			),
+		);
+	}
+
+	/** @return array<string,mixed> */
+	private static function editor_mutation_output_schema(): array {
+		return array(
+			'type'       => 'object',
+			'properties' => array(
+				'applied'     => array( 'type' => array( 'boolean', 'string' ) ),
+				'reason'      => array( 'type' => 'string' ),
+				'markup'      => array( 'type' => 'string' ),
+				'clientIds'   => array(
+					'type'  => 'array',
+					'items' => array( 'type' => 'string' ),
+				),
+				'fingerprint' => array( 'type' => 'string' ),
+				'errors'      => array(
+					'type'  => 'array',
+					'items' => array( 'type' => 'object' ),
+				),
 			),
 		);
 	}
