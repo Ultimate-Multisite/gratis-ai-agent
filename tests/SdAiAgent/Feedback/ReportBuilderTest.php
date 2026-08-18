@@ -46,6 +46,42 @@ class ReportBuilderTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * Targeted reports retain every tool exchange from the selected user turn.
+	 */
+	public function test_targeted_report_includes_complete_user_turn(): void {
+		$sessionId = $this->create_session_with_tool_history();
+
+		$report = ReportBuilder::build( $sessionId, 'thumbs_down', '', false, 10 );
+
+		$this->assertNotNull( $report );
+		$this->assertSame( 7, $report['session_data']['message_count'] );
+		$this->assertSame(
+			array( 'target-call', 'target-call', 'after-call', 'after-call' ),
+			array_column( $report['session_data']['tool_calls'], 'id' )
+		);
+	}
+
+	/**
+	 * Scoped reports never include the next human conversation turn.
+	 */
+	public function test_targeted_report_stops_before_next_user_turn(): void {
+		$sessionId = $this->create_session_with_tool_history();
+		$session   = Database::get_session( $sessionId );
+		$this->assertNotFalse( $session );
+
+		$messages   = json_decode( (string) $session->messages, true );
+		$messages[] = array( 'role' => 'user', 'parts' => array( array( 'type' => 'text', 'text' => 'Next task' ) ) );
+		$messages[] = array( 'role' => 'model', 'parts' => array( array( 'type' => 'text', 'text' => 'Next answer' ) ) );
+		$this->assertTrue( Database::update_session( $sessionId, array( 'messages' => wp_json_encode( $messages ) ) ) );
+
+		$report = ReportBuilder::build( $sessionId, 'thumbs_down', '', false, 10 );
+
+		$this->assertNotNull( $report );
+		$this->assertSame( 7, $report['session_data']['message_count'] );
+		$this->assertSame( 'Target task', $report['session_data']['messages'][0]['parts'][0]['text'] );
+	}
+
+	/**
 	 * Full-session reports preserve the complete tool log.
 	 */
 	public function test_full_report_preserves_all_tool_calls(): void {
@@ -109,6 +145,7 @@ class ReportBuilderTest extends WP_UnitTestCase {
 			array( 'role' => 'model', 'parts' => array( array( 'type' => 'text', 'text' => 'Target answer' ) ) ),
 			$this->function_message( 'model', 'functionCall', 'after-call' ),
 			$this->function_message( 'user', 'functionResponse', 'after-call' ),
+			array( 'role' => 'model', 'parts' => array( array( 'type' => 'text', 'text' => 'Final answer' ) ) ),
 		);
 
 		$toolCalls = array(
