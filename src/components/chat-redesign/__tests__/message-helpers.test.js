@@ -343,6 +343,8 @@ describe( 'friendly tool progress summaries', () => {
 		expect( summary.totalCount ).toBe( 3 );
 		expect( summary.completedCount ).toBe( 1 );
 		expect( summary.failedCount ).toBe( 1 );
+		expect( summary.recoveredCount ).toBe( 0 );
+		expect( summary.attentionCount ).toBe( 1 );
 		expect( summary.runningCount ).toBe( 1 );
 		expect( summary.currentLabel ).toBe( 'Generating an image' );
 		expect( summary.latestThought ).not.toContain( 'sd-ai-agent/' );
@@ -358,6 +360,27 @@ describe( 'friendly tool progress summaries', () => {
 				'sd-ai-agent/generate-image',
 			]
 		);
+	} );
+
+	test( 'marks failures followed by a successful tool call as recovered', () => {
+		const summary = buildToolProgressSummary( [
+			{ type: 'call', id: 'first', name: 'sd-ai-agent/get-post' },
+			{
+				type: 'response',
+				id: 'first',
+				response: { error: 'The first request timed out.' },
+			},
+			{ type: 'call', id: 'retry', name: 'sd-ai-agent/get-post' },
+			{
+				type: 'response',
+				id: 'retry',
+				response: { success: true },
+			},
+		] );
+
+		expect( summary.failedCount ).toBe( 1 );
+		expect( summary.recoveredCount ).toBe( 1 );
+		expect( summary.attentionCount ).toBe( 0 );
 	} );
 } );
 

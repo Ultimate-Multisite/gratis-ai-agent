@@ -43,7 +43,7 @@ jest.mock( '../icons', () => ( {
 
 jest.mock( '../ToolCard', () => ( {
 	__esModule: true,
-	default: () => null,
+	default: ( { call } ) => `Tool card: ${ call.name } (${ call.id })`,
 	ToolResultHighlights: () => null,
 } ) );
 
@@ -53,10 +53,15 @@ jest.mock( '../ToolCard', () => ( {
  * @param {Object}  root0                Options.
  * @param {boolean} root0.hasStreamError Whether the active session has a send error.
  * @param {string}  root0.text           Assistant message text.
+ * @param {Array}   root0.toolCalls      Logged tool calls for the message.
  * @return {Promise<{container: HTMLElement, root: import('react-dom/client').Root}>}
  *   Rendered container and root.
  */
-async function renderAssistantMessage( { hasStreamError, text = '' } ) {
+async function renderAssistantMessage( {
+	hasStreamError,
+	text = '',
+	toolCalls,
+} ) {
 	const selectors = {
 		getMessageTokens: () => [],
 		getSettings: () => ( { show_tool_call_details: false } ),
@@ -73,7 +78,7 @@ async function renderAssistantMessage( { hasStreamError, text = '' } ) {
 				msg: {
 					role: 'model',
 					parts: [ { text } ],
-					toolCalls: [
+					toolCalls: toolCalls || [
 						{
 							type: 'call',
 							id: 'theme',
@@ -133,6 +138,51 @@ describe( 'AssistantMessage progress summary', () => {
 		expect( summary.classList.contains( 'is-error' ) ).toBe( true );
 		expect( summary.textContent ).toContain( 'Work paused' );
 		expect( summary.textContent ).not.toContain( 'Work completed' );
+
+		await act( async () => {
+			root.unmount();
+		} );
+	} );
+
+	test( 'keeps recovered failures inspectable without showing an attention warning', async () => {
+		const { container, root } = await renderAssistantMessage( {
+			hasStreamError: false,
+			text: 'I found the page and completed the update.',
+			toolCalls: [
+				{ type: 'call', id: 'first', name: 'sd-ai-agent/get-post' },
+				{
+					type: 'response',
+					id: 'first',
+					response: { error: 'The first request timed out.' },
+				},
+				{ type: 'call', id: 'retry', name: 'sd-ai-agent/get-post' },
+				{
+					type: 'response',
+					id: 'retry',
+					response: { success: true },
+				},
+			],
+		} );
+
+		expect( container.textContent ).toContain( 'Work completed' );
+		expect( container.textContent ).toContain( '1 recovered' );
+		expect( container.textContent ).not.toContain( 'need attention' );
+
+		await act( async () => {
+			container
+				.querySelector( '.sd-ai-agent-progress-stat--recovered' )
+				.dispatchEvent( new MouseEvent( 'click', { bubbles: true } ) );
+		} );
+
+		expect(
+			container.querySelector( '.sd-ai-agent-progress-details' )
+		).not.toBeNull();
+		expect( container.textContent ).toContain(
+			'Tool card: sd-ai-agent/get-post (first)'
+		);
+		expect( container.textContent ).toContain(
+			'Tool card: sd-ai-agent/get-post (retry)'
+		);
 
 		await act( async () => {
 			root.unmount();

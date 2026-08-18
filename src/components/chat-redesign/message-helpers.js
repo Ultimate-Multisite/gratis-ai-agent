@@ -299,6 +299,8 @@ export function buildToolProgressSummary( toolCalls ) {
 			finishedCount: 0,
 			completedCount: 0,
 			failedCount: 0,
+			recoveredCount: 0,
+			attentionCount: 0,
 			runningCount: 0,
 			currentLabel: '',
 			latestThought: '',
@@ -344,6 +346,18 @@ export function buildToolProgressSummary( toolCalls ) {
 	const failedCount = steps.filter(
 		( step ) => step.status === 'error'
 	).length;
+	let recoveredCount = 0;
+	let hasSuccessfulRecovery = false;
+	for ( let index = steps.length - 1; index >= 0; index-- ) {
+		if ( steps[ index ].status === 'done' ) {
+			hasSuccessfulRecovery = true;
+		} else if (
+			steps[ index ].status === 'error' &&
+			hasSuccessfulRecovery
+		) {
+			recoveredCount++;
+		}
+	}
 	const runningCount = steps.filter(
 		( step ) => step.status === 'running'
 	).length;
@@ -361,6 +375,8 @@ export function buildToolProgressSummary( toolCalls ) {
 		finishedCount,
 		completedCount,
 		failedCount,
+		recoveredCount,
+		attentionCount: failedCount - recoveredCount,
 		runningCount,
 		currentLabel: currentStep?.label || '',
 		latestThought: truncateProgressText(
