@@ -37,7 +37,6 @@ import { registerCategory } from './registry';
 import { registerNavigationAbility } from './navigation';
 import { registerRefreshPageAbility } from './refresh-page';
 import { registerEditorAbility } from './editor';
-import { registerEditorMutationAbilities } from './editor-mutations';
 import { registerEditorCapabilitiesAbility } from './editor-capabilities';
 import {
 	registerCaptureScreenshotAbility,
@@ -110,7 +109,9 @@ export function ensureRegistered() {
 		await registerNavigationAbility();
 		await registerRefreshPageAbility();
 		await registerEditorAbility();
-		await registerEditorMutationAbilities();
+		await (
+			await import( './editor-mutations' )
+		).registerEditorMutationAbilities();
 		await registerEditorCapabilitiesAbility();
 		await (
 			await import( './block-examples' )
