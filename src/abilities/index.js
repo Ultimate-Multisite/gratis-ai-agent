@@ -37,6 +37,7 @@ import { registerCategory } from './registry';
 import { registerNavigationAbility } from './navigation';
 import { registerRefreshPageAbility } from './refresh-page';
 import { registerEditorAbility } from './editor';
+import { registerEditorCapabilitiesAbility } from './editor-capabilities';
 import {
 	registerCaptureScreenshotAbility,
 	registerScreenshotUrlAbility,
@@ -108,6 +109,7 @@ export function ensureRegistered() {
 		await registerNavigationAbility();
 		await registerRefreshPageAbility();
 		await registerEditorAbility();
+		await registerEditorCapabilitiesAbility();
 		await registerCaptureScreenshotAbility();
 		await registerScreenshotUrlAbility();
 		try {

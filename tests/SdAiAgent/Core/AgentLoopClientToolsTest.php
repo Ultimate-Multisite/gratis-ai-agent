@@ -66,6 +66,7 @@ class AgentLoopClientToolsTest extends WP_UnitTestCase {
 		$this->assertContains( 'sd-ai-agent-js/navigate-to', $names );
 		$this->assertContains( 'sd-ai-agent-js/refresh-page', $names );
 		$this->assertContains( 'sd-ai-agent-js/get-editor-selection', $names );
+		$this->assertContains( 'sd-ai-agent-js/get-editor-capabilities', $names );
 		$this->assertContains( 'sd-ai-agent-js/insert-block', $names );
 		$this->assertContains( 'sd-ai-agent-js/validate-page-quality', $names );
 		$this->assertContains( 'sd-ai-agent-js/validate-theme-completion', $names );
@@ -78,6 +79,7 @@ class AgentLoopClientToolsTest extends WP_UnitTestCase {
 		$this->assertTrue( JsAbilityCatalog::has( 'sd-ai-agent-js/navigate-to' ) );
 		$this->assertTrue( JsAbilityCatalog::has( 'sd-ai-agent-js/refresh-page' ) );
 		$this->assertTrue( JsAbilityCatalog::has( 'sd-ai-agent-js/get-editor-selection' ) );
+		$this->assertTrue( JsAbilityCatalog::has( 'sd-ai-agent-js/get-editor-capabilities' ) );
 		$this->assertTrue( JsAbilityCatalog::has( 'sd-ai-agent-js/insert-block' ) );
 		$this->assertTrue( JsAbilityCatalog::has( 'sd-ai-agent-js/validate-page-quality' ) );
 		$this->assertTrue( JsAbilityCatalog::has( 'sd-ai-agent-js/validate-theme-completion' ) );
@@ -95,6 +97,7 @@ class AgentLoopClientToolsTest extends WP_UnitTestCase {
 		$this->assertArrayHasKey( 'sd-ai-agent-js/navigate-to', $map );
 		$this->assertArrayHasKey( 'sd-ai-agent-js/refresh-page', $map );
 		$this->assertArrayHasKey( 'sd-ai-agent-js/get-editor-selection', $map );
+		$this->assertArrayHasKey( 'sd-ai-agent-js/get-editor-capabilities', $map );
 		$this->assertArrayHasKey( 'sd-ai-agent-js/insert-block', $map );
 		$this->assertArrayHasKey( 'sd-ai-agent-js/validate-page-quality', $map );
 		$this->assertArrayHasKey( 'sd-ai-agent-js/validate-theme-completion', $map );
@@ -113,6 +116,13 @@ class AgentLoopClientToolsTest extends WP_UnitTestCase {
 		$this->assertSame( array( 'editor' ), $selection['screens'] );
 		$this->assertArrayHasKey( 'fingerprint', $selection['output_schema']['properties'] );
 		$this->assertArrayHasKey( 'truncated', $selection['output_schema']['properties'] );
+
+		$capabilities = $map['sd-ai-agent-js/get-editor-capabilities'];
+		$this->assertSame( 'sd-ai-agent-js', $capabilities['category'] );
+		$this->assertTrue( $capabilities['annotations']['readonly'] );
+		$this->assertSame( array( 'editor' ), $capabilities['screens'] );
+		$this->assertArrayHasKey( 'blockNames', $capabilities['input_schema']['properties'] );
+		$this->assertArrayHasKey( 'unavailable_sources', $capabilities['output_schema']['properties'] );
 	}
 
 	/**
