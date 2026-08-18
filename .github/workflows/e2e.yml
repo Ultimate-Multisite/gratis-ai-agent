@@ -116,10 +116,11 @@ jobs:
             if (!patched) console.log('No files needed patching');
           "
 
-      - name: Install Playwright browser dependencies
-        run: |
-          pnpm exec playwright install-deps chromium
-          google-chrome --version
+      # Playwright launches the preinstalled Chrome channel below. Avoid
+      # `playwright install-deps`, which runs apt and can stall on a runner
+      # mirror before the E2E suite starts.
+      - name: Verify system Chrome availability
+        run: google-chrome --version
 
       - name: Build plugin assets
         run: pnpm run build
