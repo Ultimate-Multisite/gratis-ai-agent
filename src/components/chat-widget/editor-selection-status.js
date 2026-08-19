@@ -18,16 +18,12 @@ const EDITOR_MUTATION_TOOLS = new Set( [
 ] );
 
 const VALIDATION_REASONS = new Set( [
-	'block_api_unavailable',
 	'block_count_exceeded',
 	'block_depth_exceeded',
 	'canonicalization_failed',
 	'disallowed_block',
-	'editor_unavailable',
 	'empty_markup',
 	'expected_selection_required',
-	'history_unavailable',
-	'insertion_point_unavailable',
 	'invalid_block',
 	'invalid_history_direction',
 	'invalid_insertion_point',
@@ -40,6 +36,39 @@ const VALIDATION_REASONS = new Set( [
 	'unsupported_block',
 	'validation_failed',
 ] );
+
+/**
+ * Return actionable copy for unavailable editor execution contexts.
+ *
+ * @param {string} reason Editor mutation result reason.
+ * @return {string|null} Localized status copy when the reason is unavailable.
+ */
+function getUnavailableCopy( reason ) {
+	switch ( reason ) {
+		case 'block_api_unavailable':
+			return __(
+				'The block editor API is unavailable. Wait for the editor to finish loading and try again.',
+				'superdav-ai-agent'
+			);
+		case 'editor_unavailable':
+			return __(
+				'The block editor is unavailable. Return to the editor and try again.',
+				'superdav-ai-agent'
+			);
+		case 'history_unavailable':
+			return __(
+				'Editor history is unavailable. Wait for the editor to finish loading and try again.',
+				'superdav-ai-agent'
+			);
+		case 'insertion_point_unavailable':
+			return __(
+				'No valid insertion point is available. Place the cursor in the editor and try again.',
+				'superdav-ai-agent'
+			);
+		default:
+			return null;
+	}
+}
 
 /**
  * Parse a possibly encoded tool result without exposing arbitrary payload data.
@@ -220,6 +249,13 @@ export function getEditorMutationStatus(
 		};
 	}
 	if ( result?.applied === false ) {
+		const unavailableCopy = getUnavailableCopy( result.reason );
+		if ( unavailableCopy ) {
+			return {
+				kind: 'warning',
+				text: unavailableCopy,
+			};
+		}
 		if ( VALIDATION_REASONS.has( result.reason ) ) {
 			return {
 				kind: 'warning',
