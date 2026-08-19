@@ -86,4 +86,20 @@ describe( 'reflector dispatcher', () => {
 
 		expect( showFallbackToast ).toHaveBeenCalledWith( event );
 	} );
+
+	test( 'runs public reflection when the editor reflector module fails to load', async () => {
+		jest.resetModules();
+		jest.doMock( '../editor-post', () => {
+			throw new Error( 'editor chunk unavailable' );
+		} );
+		const { reflectPost: reloadedReflectPost } = require( '../post' );
+		const {
+			dispatchReflectionEvent: reloadedDispatchReflectionEvent,
+		} = require( '..' );
+		const event = makeEvent( 'post' );
+
+		await reloadedDispatchReflectionEvent( event );
+
+		expect( reloadedReflectPost ).toHaveBeenCalledWith( event );
+	} );
 } );
