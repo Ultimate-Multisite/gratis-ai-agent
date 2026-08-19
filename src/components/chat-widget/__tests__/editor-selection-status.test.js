@@ -254,6 +254,9 @@ describe( 'EditorSelectionStatus', () => {
 		const status = container.querySelector( '[role="status"]' );
 		expect( status.getAttribute( 'aria-live' ) ).toBe( 'polite' );
 		expect( status.getAttribute( 'aria-atomic' ) ).toBe( 'true' );
+		expect( status.className ).toBe(
+			'sd-ai-agent-editor-mutation-status sd-ai-agent-editor-mutation-status--warning'
+		);
 		expect( status.textContent ).toBe( 'No blocks were changed.' );
 
 		await act( async () => root.unmount() );

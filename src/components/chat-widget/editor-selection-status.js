@@ -360,7 +360,7 @@ export function EditorSelectionStatus( {
 			) }
 			{ mutationStatus && (
 				<div
-					className={ `sd-ai-agent-editor-mutation-status is-${ mutationStatus.kind }` }
+					className={ `sd-ai-agent-editor-mutation-status sd-ai-agent-editor-mutation-status--${ mutationStatus.kind }` }
 					role="status"
 					aria-live="polite"
 					aria-atomic="true"
