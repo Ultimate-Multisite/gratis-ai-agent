@@ -148,6 +148,14 @@ class AgentLoopClientToolsTest extends WP_UnitTestCase {
 			$this->assertFalse( $map[ $name ]['annotations']['readonly'] );
 			$this->assertSame( array( 'editor' ), $map[ $name ]['screens'] );
 		}
+
+		$this->assertSame(
+			$map['sd-ai-agent-js/replace-editor-selection']['output_schema'],
+			$map['sd-ai-agent-js/insert-block-markup']['output_schema']
+		);
+		foreach ( array( 'applied', 'reason', 'markup', 'clientIds', 'fingerprint', 'errors' ) as $property ) {
+			$this->assertArrayHasKey( $property, $map['sd-ai-agent-js/insert-block-markup']['output_schema']['properties'] );
+		}
 	}
 
 	/**
@@ -334,7 +342,10 @@ class AgentLoopClientToolsTest extends WP_UnitTestCase {
 			)
 		);
 
-		foreach ( $router->get_descriptors() as $descriptor ) {
+		$descriptors = $router->get_descriptors();
+		$this->assertCount( 3, $descriptors );
+
+		foreach ( $descriptors as $descriptor ) {
 			$this->assertFalse( $descriptor['annotations']['readonly'] );
 		}
 	}

@@ -149,8 +149,14 @@ class JsAbilityCatalog {
 					'type'       => 'object',
 					'properties' => array(
 						'markup'       => array( 'type' => 'string' ),
-						'rootClientId' => array( 'type' => 'string' ),
-						'index'        => array( 'type' => 'integer' ),
+						'rootClientId' => array(
+							'type'        => 'string',
+							'description' => 'Supply rootClientId and index together; omit both to use the current insertion point.',
+						),
+						'index'        => array(
+							'type'        => 'integer',
+							'description' => 'Supply rootClientId and index together; omit both to use the current insertion point.',
+						),
 					),
 					'required'   => array( 'markup' ),
 				),
@@ -178,7 +184,7 @@ class JsAbilityCatalog {
 				'output_schema' => array(
 					'type'       => 'object',
 					'properties' => array(
-						'applied'   => array( 'type' => 'boolean' ),
+						'applied'   => array( 'type' => array( 'boolean', 'string' ) ),
 						'direction' => array( 'type' => 'string' ),
 						'reason'    => array( 'type' => 'string' ),
 					),

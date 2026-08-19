@@ -6,7 +6,11 @@
  * DOM mutation or attempt a retry after a write is uncertain.
  */
 
-import { getEditorSelection, getEditorSelectionForIds } from './editor';
+import {
+	getByteLength,
+	getEditorSelection,
+	getEditorSelectionForIds,
+} from './editor';
 import { registerClientAbility } from './registry';
 
 export const MAX_MARKUP_BYTES = 64 * 1024;
@@ -15,19 +19,6 @@ export const MAX_TOTAL_BLOCKS = 200;
 export const MAX_BLOCK_DEPTH = 20;
 
 const UNSUPPORTED_BLOCKS = new Set( [ 'core/freeform', 'core/missing' ] );
-
-/**
- * Return the UTF-8 size of a string.
- *
- * @param {string} value Value to measure.
- * @return {number} UTF-8 byte count.
- */
-function getByteLength( value ) {
-	if ( typeof TextEncoder !== 'undefined' ) {
-		return new TextEncoder().encode( value ).byteLength;
-	}
-	return unescape( encodeURIComponent( value ) ).length;
-}
 
 /**
  * Normalize WordPress validation return values.
@@ -327,7 +318,11 @@ export async function replaceEditorSelection( args = {} ) {
 	if ( current.error ) {
 		return current.error;
 	}
-	dispatcher.replaceBlocks( current.clientIds, parsed.blocks );
+	try {
+		dispatcher.replaceBlocks( current.clientIds, parsed.blocks );
+	} catch ( _error ) {
+		return { applied: 'unknown', reason: 'dispatch_failed' };
+	}
 	const resultIds = parsed.blocks
 		.map( ( block ) => block.clientId )
 		.filter( Boolean );
@@ -389,7 +384,15 @@ export async function insertBlockMarkup( args = {} ) {
 	if ( ! parsed.blocks ) {
 		return rejected( parsed.reason, parsed.errors );
 	}
-	dispatcher.insertBlocks( parsed.blocks, index, rootClientId || undefined );
+	try {
+		dispatcher.insertBlocks(
+			parsed.blocks,
+			index,
+			rootClientId || undefined
+		);
+	} catch ( _error ) {
+		return { applied: 'unknown', reason: 'dispatch_failed' };
+	}
 	const resultIds = parsed.blocks
 		.map( ( block ) => block.clientId )
 		.filter( Boolean );
@@ -428,12 +431,20 @@ export function changeEditorHistory( args = {} ) {
 		return rejected( 'invalid_history_direction' );
 	}
 	const editor = wp.data.select( 'core/block-editor' );
-	const dispatcher = wp.data.dispatch( 'core/block-editor' );
+	const dispatcher = wp.data.dispatch( 'core/editor' );
 	if ( ! editor || typeof dispatcher?.[ direction ] !== 'function' ) {
 		return rejected( 'history_unavailable' );
 	}
 	const before = wp.blocks?.serialize?.( editor.getBlocks?.() || [] ) || '';
-	dispatcher[ direction ]();
+	try {
+		dispatcher[ direction ]();
+	} catch ( _error ) {
+		return {
+			applied: 'unknown',
+			direction,
+			reason: 'dispatch_failed',
+		};
+	}
 	const after = wp.blocks?.serialize?.( editor.getBlocks?.() || [] ) || '';
 	return { applied: before !== after, direction };
 }
@@ -482,8 +493,16 @@ export async function registerEditorMutationAbilities() {
 			type: 'object',
 			properties: {
 				markup: { type: 'string' },
-				rootClientId: { type: 'string' },
-				index: { type: 'integer' },
+				rootClientId: {
+					type: 'string',
+					description:
+						'Supply rootClientId and index together; omit both to use the current insertion point.',
+				},
+				index: {
+					type: 'integer',
+					description:
+						'Supply rootClientId and index together; omit both to use the current insertion point.',
+				},
 			},
 			required: [ 'markup' ],
 		},
@@ -506,7 +525,7 @@ export async function registerEditorMutationAbilities() {
 		outputSchema: {
 			type: 'object',
 			properties: {
-				applied: { type: 'boolean' },
+				applied: { type: [ 'boolean', 'string' ] },
 				direction: { type: 'string' },
 				reason: { type: 'string' },
 			},

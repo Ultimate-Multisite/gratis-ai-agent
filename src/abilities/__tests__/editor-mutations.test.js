@@ -49,6 +49,8 @@ function setEditor() {
 			}
 			state.selectedIds = blocks.map( ( block ) => block.clientId );
 		} ),
+	};
+	const historyDispatcher = {
 		undo: jest.fn(),
 		redo: jest.fn(),
 	};
@@ -72,7 +74,9 @@ function setEditor() {
 	global.wp = {
 		data: {
 			select: jest.fn( () => selector ),
-			dispatch: jest.fn( () => dispatcher ),
+			dispatch: jest.fn( ( storeName ) =>
+				storeName === 'core/editor' ? historyDispatcher : dispatcher
+			),
 		},
 		blocks: {
 			parse,
@@ -85,7 +89,7 @@ function setEditor() {
 			validateBlock: jest.fn( () => [ true, [] ] ),
 		},
 	};
-	return { state, selector, dispatcher, parse };
+	return { state, selector, dispatcher, historyDispatcher, parse };
 }
 
 describe( 'editor markup mutations', () => {
@@ -187,6 +191,11 @@ describe( 'editor markup mutations', () => {
 		const result = await insertBlockMarkup( { markup: 'valid' } );
 
 		expect( dispatcher.insertBlocks ).toHaveBeenCalledTimes( 1 );
+		expect( dispatcher.insertBlocks ).toHaveBeenCalledWith(
+			expect.any( Array ),
+			1,
+			undefined
+		);
 		expect( result ).toMatchObject( {
 			applied: true,
 			clientIds: [ 'new' ],
@@ -194,14 +203,84 @@ describe( 'editor markup mutations', () => {
 	} );
 
 	test( 'runs one native history operation and reports whether it changed blocks', () => {
-		const { dispatcher } = setEditor();
+		const { historyDispatcher } = setEditor();
 		const { changeEditorHistory } = loadModule();
 
 		expect( changeEditorHistory( { direction: 'undo' } ) ).toEqual( {
 			applied: false,
 			direction: 'undo',
 		} );
-		expect( dispatcher.undo ).toHaveBeenCalledTimes( 1 );
-		expect( dispatcher.redo ).not.toHaveBeenCalled();
+		expect( historyDispatcher.undo ).toHaveBeenCalledTimes( 1 );
+		expect( historyDispatcher.redo ).not.toHaveBeenCalled();
+		expect( global.wp.data.dispatch ).toHaveBeenCalledWith( 'core/editor' );
+	} );
+
+	test( 'reports a history change and rejects an invalid direction', () => {
+		const { state, historyDispatcher } = setEditor();
+		historyDispatcher.undo.mockImplementation( () => {
+			state.blocks.changed = {
+				clientId: 'changed',
+				name: 'core/paragraph',
+				markup: '<!-- wp:paragraph -->Changed<!-- /wp:paragraph -->',
+				attributes: {},
+				innerBlocks: [],
+			};
+		} );
+		const { changeEditorHistory } = loadModule();
+
+		expect( changeEditorHistory( { direction: 'undo' } ) ).toEqual( {
+			applied: true,
+			direction: 'undo',
+		} );
+		expect(
+			changeEditorHistory( { direction: 'sideways' } )
+		).toMatchObject( {
+			applied: false,
+			reason: 'invalid_history_direction',
+		} );
+		expect( historyDispatcher.undo ).toHaveBeenCalledTimes( 1 );
+		expect( historyDispatcher.redo ).not.toHaveBeenCalled();
+	} );
+
+	test( 'returns an uncertain result when an editor dispatch throws', async () => {
+		const { dispatcher, historyDispatcher } = setEditor();
+		const { getEditorSelection } = require( '../editor' );
+		const snapshot = await getEditorSelection();
+		const {
+			changeEditorHistory,
+			insertBlockMarkup,
+			replaceEditorSelection,
+		} = loadModule();
+		dispatcher.replaceBlocks.mockImplementation( () => {
+			throw new Error( 'replace failed' );
+		} );
+		dispatcher.insertBlocks.mockImplementation( () => {
+			throw new Error( 'insert failed' );
+		} );
+		historyDispatcher.undo.mockImplementation( () => {
+			throw new Error( 'undo failed' );
+		} );
+
+		await expect(
+			replaceEditorSelection( {
+				markup: 'valid',
+				expectedFingerprint: snapshot.fingerprint,
+				expectedClientIds: [ 'old' ],
+			} )
+		).resolves.toMatchObject( {
+			applied: 'unknown',
+			reason: 'dispatch_failed',
+		} );
+		await expect(
+			insertBlockMarkup( { markup: 'valid' } )
+		).resolves.toMatchObject( {
+			applied: 'unknown',
+			reason: 'dispatch_failed',
+		} );
+		expect( changeEditorHistory( { direction: 'undo' } ) ).toMatchObject( {
+			applied: 'unknown',
+			direction: 'undo',
+			reason: 'dispatch_failed',
+		} );
 	} );
 } );

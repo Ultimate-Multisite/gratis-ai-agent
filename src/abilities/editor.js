@@ -34,7 +34,7 @@ function fallbackFingerprint( value ) {
  * @param {string} value Value to measure.
  * @return {number} UTF-8 byte length.
  */
-function getByteLength( value ) {
+export function getByteLength( value ) {
 	if ( typeof TextEncoder !== 'undefined' ) {
 		return new TextEncoder().encode( value ).byteLength;
 	}
