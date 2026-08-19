@@ -191,7 +191,7 @@ describe( 'AssistantMessage progress summary', () => {
 } );
 
 describe( 'RunningMessage progress summary', () => {
-	test( 'shows the exact nested ability instead of its dispatcher', async () => {
+	test( 'hides planning preambles while showing the exact nested ability', async () => {
 		const container = document.createElement( 'div' );
 		document.body.appendChild( container );
 		const root = createRoot( container );
@@ -201,6 +201,10 @@ describe( 'RunningMessage progress summary', () => {
 				createElement( RunningMessage, {
 					step: 'Checking options…',
 					liveToolCalls: [
+						{
+							type: 'preamble',
+							text: 'Need append content before checking options.',
+						},
 						{
 							type: 'call',
 							id: 'options',
@@ -218,6 +222,9 @@ describe( 'RunningMessage progress summary', () => {
 		expect( container.textContent ).toContain( 'sd-ai-agent/list-options' );
 		expect( container.textContent ).not.toContain(
 			'sd-ai-agent/ability-call'
+		);
+		expect( container.textContent ).not.toContain(
+			'Need append content before checking options.'
 		);
 
 		await act( async () => {
