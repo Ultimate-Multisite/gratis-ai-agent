@@ -189,7 +189,7 @@ jobs:
           test ! -e wporg-package/superdav-ai-agent/advanced-plugin
 
       - name: Install SVN
-        run: sudo apt-get update && sudo apt-get install -y subversion
+        run: bash .github/scripts/ensure-subversion.sh
 
       - name: Deploy trunk to WordPress.org SVN
         env:
