@@ -16,6 +16,7 @@ import FeedbackConsentModal from '../feedback-consent-modal';
 import { Paperclip, Microphone, Stop } from '../chat-redesign/icons';
 import ModelPicker from '../chat-redesign/ModelPicker';
 import AgentPicker from '../chat-redesign/AgentPicker';
+import ConnectedEditorSelectionStatus from './editor-selection-status';
 
 /**
  * Render the compact floating-widget composer.
@@ -73,6 +74,7 @@ export default function WidgetInput( { isSimpleMode = false } = {} ) {
 					{ composer.attachmentError }
 				</div>
 			) }
+			<ConnectedEditorSelectionStatus />
 			<div
 				className={ `sdaa-w-input-frame${
 					composer.isDragOver ? ' is-drag-over' : ''
