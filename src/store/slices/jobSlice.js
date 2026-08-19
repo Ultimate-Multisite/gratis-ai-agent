@@ -20,10 +20,9 @@ import { emitReflectionEvents } from '../reflection-emitter';
 /**
  * Merge real tool calls with assistant channel messages for live rendering.
  *
- * Backend `tool_calls` now contains only real tool invocations/results. Text
- * preambles, retry notices, and guardrail messages arrive separately in
- * `messages`; the live running UI still needs both streams interleaved by the
- * monotonic `sequence` field.
+ * Backend `tool_calls` contains real tool invocations/results. Model preambles
+ * must never be rendered as progress because providers can emit reasoning as
+ * ordinary content text. Deterministic tool activity remains visible.
  *
  * @param {Array} toolCalls Tool call/result entries.
  * @param {Array} messages  Assistant channel or event entries.
@@ -31,7 +30,9 @@ import { emitReflectionEvents } from '../reflection-emitter';
  */
 function mergeActivityForDisplay( toolCalls, messages ) {
 	const callEntries = Array.isArray( toolCalls ) ? toolCalls : [];
-	const messageEntries = Array.isArray( messages ) ? messages : [];
+	const messageEntries = Array.isArray( messages )
+		? messages.filter( ( entry ) => entry?.type !== 'preamble' )
+		: [];
 
 	if ( ! messageEntries.length ) {
 		return callEntries;

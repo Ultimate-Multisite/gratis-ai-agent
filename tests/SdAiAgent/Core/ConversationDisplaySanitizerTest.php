@@ -114,4 +114,33 @@ class ConversationDisplaySanitizerTest extends WP_UnitTestCase {
 
 		$this->assertSame( 'Visible legacy.', ConversationDisplaySanitizer::extract_text( $message ) );
 	}
+
+	/** Textual thinking blocks are removed from content-channel display text. */
+	public function test_sanitize_messages_removes_complete_multiline_thinking_blocks(): void {
+		$messages = [
+			[
+				'role'  => 'assistant',
+				'parts' => [
+					[
+						'channel' => 'content',
+						'text'    => "Visible before.<THINKING provider=\"example\">\nPrivate plan.\n</ThInKiNg>Visible after.",
+					],
+				],
+			],
+		];
+
+		$sanitized = ConversationDisplaySanitizer::sanitize_messages( $messages );
+
+		$this->assertSame( 'Visible before.Visible after.', $sanitized[0]['parts'][0]['text'] );
+		$this->assertStringNotContainsString( 'Private plan', (string) wp_json_encode( $sanitized ) );
+	}
+
+	/** An unfinished textual thinking block fails closed for display projections. */
+	public function test_sanitize_display_text_removes_unterminated_thinking_block(): void {
+		$text = ConversationDisplaySanitizer::sanitize_display_text(
+			'Visible answer.<thinking>Private reasoning that must not be shown.'
+		);
+
+		$this->assertSame( 'Visible answer.', $text );
+	}
 }
