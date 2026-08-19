@@ -257,6 +257,13 @@ Base unit: **4px**
 - All icon buttons: 32×32px, consistent spacing (`gap: 5px`)
 - Textarea grows with content; `resize: none`
 
+**Block-editor context:**
+- In the Gutenberg editor, place a compact selected-block chip and editor-mutation status immediately above the composer frame.
+- Keep selection state presentation-only: store block IDs-derived labels and counts, never selected markup or block attributes, and never attach selection content to a chat request automatically.
+- The chip may show two block labels before collapsing the remainder into a count. Its icon-only clear action must clear selection without changing block content and must retain a tooltip, accessible label, and visible keyboard focus.
+- Announce mutation progress and outcomes with one polite atomic live region. Confirm success only when the tool result explicitly reports `applied: true`; stale, rejected, unavailable, and uncertain results require truthful next-step copy.
+- On compact screens, let the chip and mutation copy occupy full rows. In forced-colour mode preserve explicit borders and focus outlines; under reduced-motion preferences stop spinner animation while retaining the textual progress label.
+
 ### Border Radius Scale
 
 | Size | Value | Use |
