@@ -1107,11 +1107,11 @@
 	line-height: 1.35;
 }
 
-.sd-ai-agent-editor-mutation-status.is-success {
+.sd-ai-agent-editor-mutation-status--success {
 	color: #007c24;
 }
 
-.sd-ai-agent-editor-mutation-status.is-warning {
+.sd-ai-agent-editor-mutation-status--warning {
 	color: #7a5a10;
 }
 
