@@ -114,6 +114,43 @@ describe( 'getEditorMutationStatus', () => {
 		} );
 	} );
 
+	test.each( [
+		[
+			'block_api_unavailable',
+			'sd-ai-agent-js/replace-editor-selection',
+			'The block editor API is unavailable. Wait for the editor to finish loading and try again.',
+		],
+		[
+			'editor_unavailable',
+			'sd-ai-agent-js/replace-editor-selection',
+			'The block editor is unavailable. Return to the editor and try again.',
+		],
+		[
+			'history_unavailable',
+			'sd-ai-agent-js/change-editor-history',
+			'Editor history is unavailable. Wait for the editor to finish loading and try again.',
+		],
+		[
+			'insertion_point_unavailable',
+			'sd-ai-agent-js/insert-block-markup',
+			'No valid insertion point is available. Place the cursor in the editor and try again.',
+		],
+	] )(
+		'maps %s to truthful unavailable-context copy',
+		( reason, name, text ) => {
+			expect(
+				getEditorMutationStatus( [
+					{ type: 'call', id: 'unavailable-1', name },
+					{
+						type: 'response',
+						id: 'unavailable-1',
+						response: { applied: false, reason },
+					},
+				] )
+			).toEqual( { kind: 'warning', text } );
+		}
+	);
+
 	test( 'does not claim success for an uncertain dispatch', () => {
 		expect(
 			getEditorMutationStatus( [
