@@ -1,6 +1,7 @@
 === SD AI Agent Advanced ===
 Contributors: superdav42
 Requires at least: 7.0
+Tested up to: 7.1
 Requires PHP: 8.2
 Stable tag: 1.22.3
 License: GPLv2 or later
