@@ -4450,26 +4450,17 @@ PROMPT;
 	}
 
 	/**
-	 * Log real tool calls and separate any assistant preamble text.
+	 * Log real tool calls for display and execution tracking.
 	 *
-	 * Some models emit short narration in the same assistant message as a tool
-	 * call. The narration belongs in the message log, not `tool_calls`, so
-	 * usage dashboards and run summaries can count only real tool activity while
-	 * the live UI can still merge both streams by sequence.
+	 * Some providers emit planning narration in the same assistant message as a
+	 * tool call. Do not project that untrusted prose into the live activity log:
+	 * deterministic tool status is the only safe running-job display. The full
+	 * provider message remains in the internal conversation history.
 	 *
 	 * @param Message $message Assistant message to inspect.
 	 */
 	private function log_tool_calls( Message $message ): void {
 		foreach ( $message->getParts() as $part ) {
-			$text = $this->visible_content_text( $part );
-			if ( '' !== $text ) {
-				$this->message_log[] = array(
-					'type'     => 'preamble',
-					'text'     => $text,
-					'sequence' => $this->next_activity_sequence(),
-				);
-			}
-
 			$call = $part->getFunctionCall();
 			if ( $call ) {
 				$name = (string) $call->getName();

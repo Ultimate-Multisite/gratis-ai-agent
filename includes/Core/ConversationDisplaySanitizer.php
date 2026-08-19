@@ -17,6 +17,57 @@ namespace SdAiAgent\Core;
 
 class ConversationDisplaySanitizer {
 
+	/** Complete textual reasoning wrappers emitted in otherwise-content parts. */
+	private const THINKING_BLOCK_PATTERN = '/<thinking\b[^>]*>.*?<\/thinking\s*>/is';
+
+	/** An unfinished textual reasoning wrapper and the remainder of its content. */
+	private const UNTERMINATED_THINKING_PATTERN = '/<thinking\b[^>]*>.*/is';
+
+	/**
+	 * Remove provider textual reasoning wrappers from browser-facing text.
+	 *
+	 * Structured thought-channel parts remain in the persisted conversation so
+	 * providers that require reasoning round trips retain their continuation
+	 * context. This method is deliberately for display projections only.
+	 *
+	 * @param string $text Provider-generated display text.
+	 * @return string Text without complete or unfinished thinking blocks.
+	 */
+	public static function sanitize_display_text( string $text ): string {
+		$text = preg_replace( self::THINKING_BLOCK_PATTERN, '', $text ) ?? '';
+
+		return preg_replace( self::UNTERMINATED_THINKING_PATTERN, '', $text ) ?? '';
+	}
+
+	/**
+	 * Sanitize textual activity messages returned with live job progress.
+	 *
+	 * @param array<mixed> $messages Job activity entries.
+	 * @return list<array<string, mixed>> Display-safe activity entries.
+	 */
+	public static function sanitize_activity_messages( array $messages ): array {
+		$sanitized = array();
+
+		foreach ( $messages as $message ) {
+			if ( ! is_array( $message ) ) {
+				continue;
+			}
+
+			$sanitized_message = array();
+			foreach ( $message as $key => $value ) {
+				if ( is_string( $key ) ) {
+					$sanitized_message[ $key ] = 'text' === $key && is_string( $value )
+						? self::sanitize_display_text( $value )
+						: $value;
+				}
+			}
+
+			$sanitized[] = $sanitized_message;
+		}
+
+		return $sanitized;
+	}
+
 	/**
 	 * Strip hidden/non-content message parts from a list of serialized messages.
 	 *
@@ -98,6 +149,10 @@ class ConversationDisplaySanitizer {
 
 			if ( ! self::is_content_channel( $sanitized_part['channel'] ?? null ) ) {
 				continue;
+			}
+
+			if ( is_string( $sanitized_part['text'] ?? null ) ) {
+				$sanitized_part['text'] = self::sanitize_display_text( $sanitized_part['text'] );
 			}
 
 			$sanitized[] = $sanitized_part;

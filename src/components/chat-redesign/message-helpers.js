@@ -52,7 +52,8 @@ const FRIENDLY_TOOL_LABELS = {
 
 const PROGRESS_TOOL_PATTERN =
 	/`?(?:wpab__)?(?:sd-ai-agent|sd-ai-agent-js)(?:__|\/)[a-z0-9][a-z0-9-]*`?/gi;
-const THINKING_TAG_PATTERN = /<\/?thinking\b[^>]*>/gi;
+const THINKING_BLOCK_PATTERN = /<thinking\b[^>]*>[\s\S]*?<\/thinking\s*>/gi;
+const UNTERMINATED_THINKING_PATTERN = /<thinking\b[^>]*>[\s\S]*$/gi;
 
 /**
  * Normalize provider/native ability bridge names into canonical ability IDs.
@@ -241,26 +242,13 @@ export function getFriendlyToolLabel( name ) {
  */
 export function sanitizeProgressText( text ) {
 	return String( text || '' )
-		.replace( THINKING_TAG_PATTERN, '' )
+		.replace( THINKING_BLOCK_PATTERN, '' )
+		.replace( UNTERMINATED_THINKING_PATTERN, '' )
 		.replace( PROGRESS_TOOL_PATTERN, ( match ) =>
 			getFriendlyToolLabel( match ).toLowerCase()
 		)
 		.replace( /\s+/g, ' ' )
 		.trim();
-}
-
-/**
- * Keep live progress narration compact in the chat timeline.
- *
- * @param {string} text Text to truncate.
- * @return {string} Truncated text.
- */
-function truncateProgressText( text ) {
-	const maxLength = 180;
-	if ( text.length <= maxLength ) {
-		return text;
-	}
-	return `${ text.substring( 0, maxLength - 1 ).trimEnd() }…`;
 }
 
 /**
@@ -310,7 +298,6 @@ export function buildToolProgressSummary( toolCalls ) {
 
 	const responses = {};
 	const calls = [];
-	const thoughts = [];
 	for ( const entry of toolCalls ) {
 		if (
 			( entry.type === 'response' || entry.type === 'result' ) &&
@@ -320,12 +307,6 @@ export function buildToolProgressSummary( toolCalls ) {
 		}
 		if ( entry.type === 'call' ) {
 			calls.push( entry );
-		}
-		if ( entry.type === 'preamble' && typeof entry.text === 'string' ) {
-			const text = sanitizeProgressText( entry.text );
-			if ( text ) {
-				thoughts.push( text );
-			}
 		}
 	}
 
@@ -370,7 +351,7 @@ export function buildToolProgressSummary( toolCalls ) {
 		null;
 
 	return {
-		hasActivity: steps.length > 0 || thoughts.length > 0,
+		hasActivity: steps.length > 0,
 		totalCount: steps.length,
 		finishedCount,
 		completedCount,
@@ -379,9 +360,7 @@ export function buildToolProgressSummary( toolCalls ) {
 		attentionCount: failedCount - recoveredCount,
 		runningCount,
 		currentLabel: currentStep?.label || '',
-		latestThought: truncateProgressText(
-			thoughts[ thoughts.length - 1 ] || ''
-		),
+		latestThought: '',
 		recentSteps: steps.slice( -3 ),
 	};
 }
@@ -434,18 +413,15 @@ export function pairToolCalls( toolCalls ) {
 }
 
 /**
- * Build the ordered list of items to render inside a model message body,
- * preserving the original emission order of preamble text blocks and tool
- * call pairs.
+ * Build the ordered list of deterministic tool-call items to render inside a
+ * model message body.
  *
  * Returns a heterogeneous list of items shaped as either:
- *   { kind: 'preamble', text: string, key: string }
  *   { kind: 'pair', call: ToolCall, response: ToolResponse|null, key: string }
  *
  * The polling frontend uses this for the live RunningMessage so the user
- * can see narration like "Looking that up first…" immediately above the
- * tool card it precedes. Finalised assistant messages also use it so live
- * and persisted views share the same layout pipeline.
+ * can see deterministic tool progress during a running job. Provider narration
+ * is intentionally excluded because it can contain internal reasoning.
  *
  * @param {Array} toolCalls Flat tool-call log entries.
  * @return {Array} Ordered render items.
@@ -461,20 +437,8 @@ export function buildRunningItems( toolCalls ) {
 		}
 	}
 	const items = [];
-	let preambleSeq = 0;
 	let pairSeq = 0;
 	for ( const t of toolCalls ) {
-		if ( t.type === 'preamble' && typeof t.text === 'string' ) {
-			const text = sanitizeProgressText( t.text );
-			if ( text !== '' ) {
-				items.push( {
-					kind: 'preamble',
-					text,
-					key: `preamble-${ preambleSeq++ }`,
-				} );
-			}
-			continue;
-		}
 		if ( t.type === 'call' ) {
 			items.push( {
 				kind: 'pair',

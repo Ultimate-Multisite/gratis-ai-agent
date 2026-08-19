@@ -1413,7 +1413,7 @@ final class SessionController {
 			$response['tool_calls'] = $job['tool_calls'];
 		}
 		if ( ! empty( $job['messages'] ) ) {
-			$response['messages'] = $job['messages'];
+			$response['messages'] = ConversationDisplaySanitizer::sanitize_activity_messages( $job['messages'] );
 		}
 
 		if ( 'awaiting_confirmation' === $job['status'] && isset( $job['pending_tools'] ) ) {
@@ -1430,14 +1430,14 @@ final class SessionController {
 
 		if ( 'complete' === $job['status'] && isset( $job['result'] ) ) {
 			// @phpstan-ignore-next-line
-			$response['reply'] = $job['result']['reply'] ?? '';
+			$response['reply'] = ConversationDisplaySanitizer::sanitize_display_text( (string) ( $job['result']['reply'] ?? '' ) );
 			// @phpstan-ignore-next-line
 			$history             = $job['result']['history'] ?? array();
 			$response['history'] = is_array( $history ) ? ConversationDisplaySanitizer::sanitize_messages( $history ) : array();
 			// @phpstan-ignore-next-line
 			$response['tool_calls'] = $job['result']['tool_calls'] ?? array();
 			// @phpstan-ignore-next-line
-			$response['messages'] = $job['result']['messages'] ?? array();
+			$response['messages'] = ConversationDisplaySanitizer::sanitize_activity_messages( (array) ( $job['result']['messages'] ?? array() ) );
 			// @phpstan-ignore-next-line
 			$response['session_id'] = $job['result']['session_id'] ?? null;
 			// @phpstan-ignore-next-line
@@ -2511,11 +2511,11 @@ final class SessionController {
 			$response['tool_calls'] = $job['tool_calls'];
 		}
 		if ( ! empty( $job['messages'] ) ) {
-			$response['messages'] = $job['messages'];
+			$response['messages'] = ConversationDisplaySanitizer::sanitize_activity_messages( $job['messages'] );
 		}
 
 		if ( 'complete' === ( $job['status'] ?? '' ) && isset( $job['result'] ) && is_array( $job['result'] ) ) {
-			$response['reply']           = $job['result']['reply'] ?? '';
+			$response['reply']           = ConversationDisplaySanitizer::sanitize_display_text( (string) ( $job['result']['reply'] ?? '' ) );
 			$response['history']         = isset( $job['result']['history'] ) && is_array( $job['result']['history'] ) ? ConversationDisplaySanitizer::sanitize_messages( $job['result']['history'] ) : array();
 			$response['tool_calls']      = $job['result']['tool_calls'] ?? array();
 			$response['iterations_used'] = $job['result']['iterations_used'] ?? 0;
