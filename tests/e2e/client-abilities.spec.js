@@ -156,7 +156,9 @@ async function waitForAbilitiesRegistered( page, timeout = 45_000 ) {
 					// attach a side-effect that sets a flag when resolved.
 					if ( ! window.__sdAbilitiesResolved ) {
 						result.then( ( abilities ) => {
-							window.__sdAbilitiesResolved = Array.isArray( abilities )
+							window.__sdAbilitiesResolved = Array.isArray(
+								abilities
+							)
 								? abilities.filter( ( a ) =>
 										a?.name?.startsWith( 'sd-ai-agent-js/' )
 								  ).length >= 2
@@ -185,7 +187,7 @@ async function waitForAbilitiesRegistered( page, timeout = 45_000 ) {
  * Collect console errors and page errors during a test.
  *
  * @param {import('@playwright/test').Page} page
- * @return {{ consoleErrors: string[], pageErrors: string[] }}
+ * @return {{ consoleErrors: string[], pageErrors: string[] }} Captured errors.
  */
 function collectErrors( page ) {
 	const consoleErrors = [];
@@ -202,6 +204,42 @@ function collectErrors( page ) {
 	} );
 
 	return { consoleErrors, pageErrors };
+}
+
+/**
+ * Create a draft through the authenticated REST client and open it in Gutenberg.
+ *
+ * @param {import('@playwright/test').Page} page Browser page.
+ * @return {Promise<number>} Draft post ID.
+ */
+async function createDraftAndOpenEditor( page ) {
+	await page.goto( '/wp-admin/index.php' );
+	await page.waitForLoadState( 'domcontentloaded' );
+	const postId = await page.evaluate( async () => {
+		const post = await wp.apiFetch( {
+			path: '/wp/v2/posts',
+			method: 'POST',
+			data: {
+				status: 'draft',
+				title: 'SD AI Agent reflector test',
+			},
+		} );
+		return post.id;
+	} );
+
+	await page.goto( `/wp-admin/post.php?post=${ postId }&action=edit` );
+	await page.waitForLoadState( 'domcontentloaded' );
+	await page
+		.locator( '.block-editor-writing-flow, .editor-styles-wrapper' )
+		.first()
+		.waitFor( { state: 'visible', timeout: 60_000 } );
+	await page.waitForFunction(
+		() => typeof window.sdAiAgentReflection?.emit === 'function',
+		null,
+		{ timeout: 30_000 }
+	);
+
+	return postId;
 }
 
 // ---------------------------------------------------------------------------
@@ -461,7 +499,108 @@ test.describe( 'client-abilities — insert-block on editor screen', () => {
 } );
 
 // ---------------------------------------------------------------------------
-// Test suite 5: insert-block no-op on non-editor screen
+// Test suite 5: server-side post reflection in the block editor
+// ---------------------------------------------------------------------------
+
+test.describe( 'client-abilities — server post reflection', () => {
+	test.beforeEach( async ( { page } ) => {
+		await loginToWordPress( page );
+	} );
+
+	test( 'synchronizes a server mutation into a clean editor without making it dirty', async ( {
+		page,
+	} ) => {
+		const postId = await createDraftAndOpenEditor( page );
+
+		const markup =
+			'<!-- wp:paragraph -->\n<p>Reflected server revision.</p>\n<!-- /wp:paragraph -->';
+		await page.evaluate(
+			async ( { serverMarkup, currentPostId } ) => {
+				await wp.apiFetch( {
+					path: `/wp/v2/posts/${ currentPostId }`,
+					method: 'POST',
+					data: { content: serverMarkup },
+				} );
+				window.sdAiAgentReflection.emit( {
+					type: 'tool-applied',
+					tool: 'sd-ai-agent/update-post',
+					affected: {
+						kind: 'post',
+						post_id: currentPostId,
+						fields: [ 'post_content' ],
+					},
+				} );
+			},
+			{ serverMarkup: markup, currentPostId: postId }
+		);
+
+		await page.waitForFunction(
+			( serverMarkup ) => {
+				const editor = wp.data.select( 'core/editor' );
+				const blocks = wp.data
+					.select( 'core/block-editor' )
+					.getBlocks();
+				return (
+					wp.blocks.serialize( blocks ) === serverMarkup &&
+					editor.isEditedPostDirty() === false
+				);
+			},
+			markup,
+			{ timeout: 15_000 }
+		);
+	} );
+
+	test( 'preserves a dirty local editor after a server mutation event', async ( {
+		page,
+	} ) => {
+		const postId = await createDraftAndOpenEditor( page );
+
+		const localMarkup =
+			'<!-- wp:paragraph -->\n<p>Local unsaved revision.</p>\n<!-- /wp:paragraph -->';
+		const serverMarkup =
+			'<!-- wp:paragraph -->\n<p>Server revision.</p>\n<!-- /wp:paragraph -->';
+		await page.evaluate(
+			async ( { localContent, serverContent, currentPostId } ) => {
+				wp.data.dispatch( 'core/editor' ).editPost( {
+					content: localContent,
+				} );
+				await wp.apiFetch( {
+					path: `/wp/v2/posts/${ currentPostId }`,
+					method: 'POST',
+					data: { content: serverContent },
+				} );
+				window.sdAiAgentReflection.emit( {
+					type: 'tool-applied',
+					tool: 'sd-ai-agent/edit-block-tree',
+					affected: {
+						kind: 'post',
+						post_id: currentPostId,
+						fields: [ 'post_content' ],
+					},
+				} );
+			},
+			{
+				localContent: localMarkup,
+				serverContent: serverMarkup,
+				currentPostId: postId,
+			}
+		);
+
+		await page.waitForTimeout( 500 );
+		const state = await page.evaluate( () => ( {
+			content: wp.blocks.serialize(
+				wp.data.select( 'core/block-editor' ).getBlocks()
+			),
+			dirty: wp.data.select( 'core/editor' ).isEditedPostDirty(),
+		} ) );
+
+		expect( state.content ).toBe( localMarkup );
+		expect( state.dirty ).toBe( true );
+	} );
+} );
+
+// ---------------------------------------------------------------------------
+// Test suite 6: insert-block no-op on non-editor screen
 // ---------------------------------------------------------------------------
 
 test.describe( 'client-abilities — insert-block no-op on non-editor screen', () => {
@@ -505,7 +644,7 @@ test.describe( 'client-abilities — insert-block no-op on non-editor screen', (
 } );
 
 // ---------------------------------------------------------------------------
-// Test suite 6: snapshotDescriptors
+// Test suite 7: snapshotDescriptors
 // ---------------------------------------------------------------------------
 
 test.describe( 'client-abilities — snapshotDescriptors', () => {
@@ -531,7 +670,8 @@ test.describe( 'client-abilities — snapshotDescriptors', () => {
 				return [];
 			}
 			try {
-				const allAbilities = ( await wp.abilities.getAbilities() ) || [];
+				const allAbilities =
+					( await wp.abilities.getAbilities() ) || [];
 				return allAbilities
 					.filter(
 						( ability ) =>
@@ -578,7 +718,7 @@ test.describe( 'client-abilities — snapshotDescriptors', () => {
 } );
 
 // ---------------------------------------------------------------------------
-// Test suite 7: No relevant console errors
+// Test suite 8: No relevant console errors
 // ---------------------------------------------------------------------------
 
 test.describe( 'client-abilities — no relevant console errors', () => {

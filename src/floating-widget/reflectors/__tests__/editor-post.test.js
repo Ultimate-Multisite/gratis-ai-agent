@@ -161,12 +161,27 @@ describe( 'editor post reflector', () => {
 		expect( blockDispatcher.resetBlocks ).not.toHaveBeenCalled();
 	} );
 
-	test( 'fails safely when Gutenberg APIs are unavailable or parsing fails', async () => {
+	test( 'fails safely when Gutenberg APIs are unavailable', async () => {
 		setEditor();
 		delete global.wp.blocks;
 
 		await reflectEditorPost( postEvent() );
 
 		expect( apiFetch ).not.toHaveBeenCalled();
+	} );
+
+	test( 'fails safely when parsing fetched content throws', async () => {
+		const { blockDispatcher } = setEditor();
+		global.wp.blocks.parse.mockImplementation( () => {
+			throw new Error( 'Malformed block markup' );
+		} );
+		apiFetch.mockResolvedValue( {
+			id: 42,
+			content: { raw: '<!-- wp:broken -->' },
+		} );
+
+		await reflectEditorPost( postEvent() );
+
+		expect( blockDispatcher.resetBlocks ).not.toHaveBeenCalled();
 	} );
 } );
