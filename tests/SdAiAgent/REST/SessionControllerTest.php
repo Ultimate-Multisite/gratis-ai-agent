@@ -485,6 +485,47 @@ class SessionControllerTest extends WP_UnitTestCase {
 		}
 	}
 
+	/** Completed job and persisted-session display projections hide textual reasoning. */
+	public function test_job_and_session_display_responses_scrub_textual_thinking(): void {
+		$session_id = $this->create_session();
+		$messages   = [
+			[
+				'role'  => 'assistant',
+				'parts' => [
+					[ 'text' => 'Saved answer.<thinking>Persisted private reasoning.</thinking>' ],
+				],
+			],
+		];
+		$this->assertTrue( Database::append_to_session( $session_id, $messages ) );
+
+		$session_response = $this->dispatch( 'GET', "/sd-ai-agent/v1/sessions/{$session_id}" );
+		$this->assert_status( 200, $session_response );
+		$this->assertSame( 'Saved answer.', $session_response->get_data()['messages'][0]['parts'][0]['text'] );
+
+		$job_id = '00000000-0000-4000-8000-000000000103';
+		$this->assertNotFalse( ActiveJobRepository::create( $session_id, $job_id, $this->admin_id, 'processing' ) );
+		set_transient(
+			RestController::JOB_PREFIX . $job_id,
+			[
+				'status'   => 'complete',
+				'user_id'  => $this->admin_id,
+				'result'   => [
+					'reply'      => "Completed answer.<thinking>\nDo not expose this.\n</thinking>",
+					'history'    => $messages,
+					'messages'   => [ [ 'type' => 'preamble', 'text' => '<thinking>Live private reasoning.</thinking>' ] ],
+					'tool_calls' => [],
+				],
+			],
+			RestController::JOB_TTL
+		);
+
+		$job_response = $this->dispatch( 'GET', "/sd-ai-agent/v1/job/{$job_id}" );
+		$this->assert_status( 200, $job_response );
+		$this->assertSame( 'Completed answer.', $job_response->get_data()['reply'] );
+		$this->assertSame( 'Saved answer.', $job_response->get_data()['history'][0]['parts'][0]['text'] );
+		$this->assertSame( '', $job_response->get_data()['messages'][0]['text'] );
+	}
+
 	/**
 	 * @return \WP_REST_Response|\WP_Error
 	 */
