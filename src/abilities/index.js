@@ -109,6 +109,9 @@ export function ensureRegistered() {
 		await registerNavigationAbility();
 		await registerRefreshPageAbility();
 		await registerEditorAbility();
+		await (
+			await import( './editor-mutations' )
+		).registerEditorMutationAbilities();
 		await registerEditorCapabilitiesAbility();
 		await (
 			await import( './block-examples' )

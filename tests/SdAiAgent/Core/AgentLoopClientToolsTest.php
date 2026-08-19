@@ -69,6 +69,9 @@ class AgentLoopClientToolsTest extends WP_UnitTestCase {
 		$this->assertContains( 'sd-ai-agent-js/get-editor-capabilities', $names );
 		$this->assertContains( 'sd-ai-agent-js/get-canonical-block-examples', $names );
 		$this->assertContains( 'sd-ai-agent-js/insert-block', $names );
+		$this->assertContains( 'sd-ai-agent-js/replace-editor-selection', $names );
+		$this->assertContains( 'sd-ai-agent-js/insert-block-markup', $names );
+		$this->assertContains( 'sd-ai-agent-js/change-editor-history', $names );
 		$this->assertContains( 'sd-ai-agent-js/validate-page-quality', $names );
 		$this->assertContains( 'sd-ai-agent-js/validate-theme-completion', $names );
 	}
@@ -83,6 +86,9 @@ class AgentLoopClientToolsTest extends WP_UnitTestCase {
 		$this->assertTrue( JsAbilityCatalog::has( 'sd-ai-agent-js/get-editor-capabilities' ) );
 		$this->assertTrue( JsAbilityCatalog::has( 'sd-ai-agent-js/get-canonical-block-examples' ) );
 		$this->assertTrue( JsAbilityCatalog::has( 'sd-ai-agent-js/insert-block' ) );
+		$this->assertTrue( JsAbilityCatalog::has( 'sd-ai-agent-js/replace-editor-selection' ) );
+		$this->assertTrue( JsAbilityCatalog::has( 'sd-ai-agent-js/insert-block-markup' ) );
+		$this->assertTrue( JsAbilityCatalog::has( 'sd-ai-agent-js/change-editor-history' ) );
 		$this->assertTrue( JsAbilityCatalog::has( 'sd-ai-agent-js/validate-page-quality' ) );
 		$this->assertTrue( JsAbilityCatalog::has( 'sd-ai-agent-js/validate-theme-completion' ) );
 		$this->assertFalse( JsAbilityCatalog::has( 'sd-ai-agent-js/unknown-ability' ) );
@@ -102,6 +108,9 @@ class AgentLoopClientToolsTest extends WP_UnitTestCase {
 		$this->assertArrayHasKey( 'sd-ai-agent-js/get-editor-capabilities', $map );
 		$this->assertArrayHasKey( 'sd-ai-agent-js/get-canonical-block-examples', $map );
 		$this->assertArrayHasKey( 'sd-ai-agent-js/insert-block', $map );
+		$this->assertArrayHasKey( 'sd-ai-agent-js/replace-editor-selection', $map );
+		$this->assertArrayHasKey( 'sd-ai-agent-js/insert-block-markup', $map );
+		$this->assertArrayHasKey( 'sd-ai-agent-js/change-editor-history', $map );
 		$this->assertArrayHasKey( 'sd-ai-agent-js/validate-page-quality', $map );
 		$this->assertArrayHasKey( 'sd-ai-agent-js/validate-theme-completion', $map );
 
@@ -133,6 +142,20 @@ class AgentLoopClientToolsTest extends WP_UnitTestCase {
 		$this->assertSame( array( 'editor' ), $examples['screens'] );
 		$this->assertSame( array( 'blockNames' ), $examples['input_schema']['required'] );
 		$this->assertArrayHasKey( 'examples', $examples['output_schema']['properties'] );
+
+		foreach ( array( 'sd-ai-agent-js/replace-editor-selection', 'sd-ai-agent-js/insert-block-markup', 'sd-ai-agent-js/change-editor-history' ) as $name ) {
+			$this->assertSame( 'sd-ai-agent-js', $map[ $name ]['category'] );
+			$this->assertFalse( $map[ $name ]['annotations']['readonly'] );
+			$this->assertSame( array( 'editor' ), $map[ $name ]['screens'] );
+		}
+
+		$this->assertSame(
+			$map['sd-ai-agent-js/replace-editor-selection']['output_schema'],
+			$map['sd-ai-agent-js/insert-block-markup']['output_schema']
+		);
+		foreach ( array( 'applied', 'reason', 'markup', 'clientIds', 'fingerprint', 'errors' ) as $property ) {
+			$this->assertArrayHasKey( $property, $map['sd-ai-agent-js/insert-block-markup']['output_schema']['properties'] );
+		}
 	}
 
 	/**
@@ -298,6 +321,33 @@ class AgentLoopClientToolsTest extends WP_UnitTestCase {
 		);
 
 		$this->assertFalse( $partition['client'][0]['annotations']['readonly'] );
+	}
+
+	/** Client metadata cannot downgrade any editor markup mutation. */
+	public function test_client_descriptors_keep_editor_markup_mutations_mutating(): void {
+		$router = ClientAbilityRouter::from_raw(
+			array(
+				array(
+					'name'        => 'sd-ai-agent-js/replace-editor-selection',
+					'annotations' => array( 'readonly' => true ),
+				),
+				array(
+					'name'        => 'sd-ai-agent-js/insert-block-markup',
+					'annotations' => array( 'readonly' => true ),
+				),
+				array(
+					'name'        => 'sd-ai-agent-js/change-editor-history',
+					'annotations' => array( 'readonly' => true ),
+				),
+			)
+		);
+
+		$descriptors = $router->get_descriptors();
+		$this->assertCount( 3, $descriptors );
+
+		foreach ( $descriptors as $descriptor ) {
+			$this->assertFalse( $descriptor['annotations']['readonly'] );
+		}
 	}
 
 	/** Client-provided metadata cannot make the selection reader appear mutable. */
