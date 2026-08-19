@@ -14,6 +14,7 @@ function loadModule() {
 function setEditor() {
 	const state = {
 		selectedIds: [ 'old' ],
+		onSerialize: null,
 		blocks: {
 			old: {
 				clientId: 'old',
@@ -80,9 +81,10 @@ function setEditor() {
 		},
 		blocks: {
 			parse,
-			serialize: jest.fn( ( blocks ) =>
-				blocks.map( ( block ) => block.markup ).join( '' )
-			),
+			serialize: jest.fn( ( blocks ) => {
+				state.onSerialize?.( blocks );
+				return blocks.map( ( block ) => block.markup ).join( '' );
+			} ),
 			getBlockType: jest.fn( ( name ) =>
 				name === 'core/paragraph' ? { name } : null
 			),
@@ -179,6 +181,34 @@ describe( 'editor markup mutations', () => {
 		} );
 
 		expect( result ).toMatchObject( {
+			applied: false,
+			reason: 'protected_selection',
+		} );
+		expect( dispatcher.replaceBlocks ).not.toHaveBeenCalled();
+	} );
+
+	test( 'rechecks protected state immediately before replacement', async () => {
+		const { state, dispatcher } = setEditor();
+		const { getEditorSelection } = require( '../editor' );
+		const snapshot = await getEditorSelection();
+		let selectionSerializations = 0;
+		state.onSerialize = ( blocks ) => {
+			if (
+				blocks[ 0 ]?.clientId === 'old' &&
+				++selectionSerializations === 2
+			) {
+				state.blocks.old.attributes.lock = { remove: true };
+			}
+		};
+		const { replaceEditorSelection } = loadModule();
+
+		await expect(
+			replaceEditorSelection( {
+				markup: 'valid',
+				expectedFingerprint: snapshot.fingerprint,
+				expectedClientIds: [ 'old' ],
+			} )
+		).resolves.toMatchObject( {
 			applied: false,
 			reason: 'protected_selection',
 		} );

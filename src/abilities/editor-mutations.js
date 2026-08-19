@@ -318,6 +318,9 @@ export async function replaceEditorSelection( args = {} ) {
 	if ( current.error ) {
 		return current.error;
 	}
+	if ( hasProtectedSelectionState( editor, current.clientIds ) ) {
+		return rejected( 'protected_selection' );
+	}
 	try {
 		dispatcher.replaceBlocks( current.clientIds, parsed.blocks );
 	} catch ( _error ) {
