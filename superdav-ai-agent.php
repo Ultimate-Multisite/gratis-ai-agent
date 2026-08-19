@@ -8,6 +8,7 @@
  * Author URI:  https://github.com/superdav42
  * License:     GPL-2.0-or-later
  * Requires at least: 7.0
+ * Tested up to: 7.1
  * Requires PHP: 8.2
  * Text Domain: superdav-ai-agent
  *

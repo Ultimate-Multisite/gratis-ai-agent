@@ -2,7 +2,7 @@
 Contributors: superdav42
 Tags: ai, chatbot, assistant, automation, connector
 Requires at least: 7.0
-Tested up to: 7.0
+Tested up to: 7.1
 Requires PHP: 8.2
 Stable tag: 1.22.3
 License: GPL-2.0-or-later
