@@ -1413,7 +1413,9 @@ final class SessionController {
 			$response['tool_calls'] = $job['tool_calls'];
 		}
 		if ( ! empty( $job['messages'] ) ) {
-			$response['messages'] = ConversationDisplaySanitizer::sanitize_activity_messages( $job['messages'] );
+			$response['messages'] = is_array( $job['messages'] )
+				? ConversationDisplaySanitizer::sanitize_activity_messages( $job['messages'] )
+				: array();
 		}
 
 		if ( 'awaiting_confirmation' === $job['status'] && isset( $job['pending_tools'] ) ) {
@@ -2511,7 +2513,9 @@ final class SessionController {
 			$response['tool_calls'] = $job['tool_calls'];
 		}
 		if ( ! empty( $job['messages'] ) ) {
-			$response['messages'] = ConversationDisplaySanitizer::sanitize_activity_messages( $job['messages'] );
+			$response['messages'] = is_array( $job['messages'] )
+				? ConversationDisplaySanitizer::sanitize_activity_messages( $job['messages'] )
+				: array();
 		}
 
 		if ( 'complete' === ( $job['status'] ?? '' ) && isset( $job['result'] ) && is_array( $job['result'] ) ) {
