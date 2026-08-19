@@ -214,7 +214,7 @@ function getProgressSummaryTitle( summary, mode, fallbackStep ) {
 		return __( 'Work paused', 'superdav-ai-agent' );
 	}
 
-	if ( summary.failedCount > 0 ) {
+	if ( summary.attentionCount > 0 ) {
 		return __( 'Some steps need attention', 'superdav-ai-agent' );
 	}
 
@@ -247,14 +247,19 @@ function getProgressStepStatusLabel( status ) {
  * @param {Object} root0.summary      Progress summary.
  * @param {string} root0.mode         Either 'running', 'complete', or 'error'.
  * @param {string} root0.fallbackStep Fallback running text.
+ * @param {Array}  root0.items        Paired tool calls available for inspection.
  */
 function ToolProgressSummary( {
 	summary,
 	mode = 'running',
 	fallbackStep = '',
+	items = [],
 } ) {
+	const [ showDetails, setShowDetails ] = useState( false );
 	const isRunning = mode === 'running';
 	const isError = mode === 'error';
+	const attentionCount = summary.attentionCount;
+	const recoveredCount = summary.recoveredCount;
 	let statusClass = 'is-complete';
 	if ( isRunning ) {
 		statusClass = 'is-running';
@@ -282,6 +287,7 @@ function ToolProgressSummary( {
 			);
 		}
 	}
+	const toggleDetails = () => setShowDetails( ( visible ) => ! visible );
 
 	return (
 		<div className={ `sdaa-cr-progress-summary ${ statusClass }` }>
@@ -301,23 +307,66 @@ function ToolProgressSummary( {
 			{ summary.totalCount > 0 && (
 				<div className="sdaa-cr-progress-stats">
 					{ summary.completedCount > 0 && (
-						<span className="sdaa-cr-progress-stat is-complete">
+						<button
+							type="button"
+							className="sdaa-cr-progress-stat is-complete"
+							onClick={ toggleDetails }
+							aria-expanded={ showDetails }
+						>
 							{ summary.completedCount }{ ' ' }
 							{ __( 'completed', 'superdav-ai-agent' ) }
-						</span>
+						</button>
 					) }
 					{ summary.runningCount > 0 && (
-						<span className="sdaa-cr-progress-stat is-running">
+						<button
+							type="button"
+							className="sdaa-cr-progress-stat is-running"
+							onClick={ toggleDetails }
+							aria-expanded={ showDetails }
+						>
 							{ summary.runningCount }{ ' ' }
 							{ __( 'in progress', 'superdav-ai-agent' ) }
-						</span>
+						</button>
 					) }
-					{ summary.failedCount > 0 && (
-						<span className="sdaa-cr-progress-stat is-error">
-							{ summary.failedCount }{ ' ' }
+					{ recoveredCount > 0 && (
+						<button
+							type="button"
+							className="sdaa-cr-progress-stat sd-ai-agent-progress-stat--recovered"
+							onClick={ toggleDetails }
+							aria-expanded={ showDetails }
+						>
+							{ recoveredCount }{ ' ' }
+							{ __( 'recovered', 'superdav-ai-agent' ) }
+						</button>
+					) }
+					{ attentionCount > 0 && (
+						<button
+							type="button"
+							className="sdaa-cr-progress-stat is-error"
+							onClick={ toggleDetails }
+							aria-expanded={ showDetails }
+						>
+							{ attentionCount }{ ' ' }
 							{ __( 'need attention', 'superdav-ai-agent' ) }
-						</span>
+						</button>
 					) }
+				</div>
+			) }
+			{ showDetails && items.length > 0 && (
+				<div className="sd-ai-agent-progress-details">
+					<div className="sd-ai-agent-progress-details-label">
+						{ __( 'Tool call details', 'superdav-ai-agent' ) }
+					</div>
+					{ items.map( ( item ) => (
+						<ToolCard
+							key={ `${ item.key }-details` }
+							call={ item.call }
+							response={ item.response }
+							defaultOpen={ Boolean(
+								item.response?.response?.error
+							) }
+						/>
+					) ) }
 				</div>
 			) }
 
@@ -625,6 +674,7 @@ export function AssistantMessage( {
 					<ToolProgressSummary
 						summary={ progressSummary }
 						mode={ showInterruptedProgress ? 'error' : 'complete' }
+						items={ items }
 					/>
 				) }
 				{ showToolCallDetails &&
@@ -736,6 +786,7 @@ export function RunningMessage( {
 					summary={ progressSummary }
 					mode="running"
 					fallbackStep={ step }
+					items={ items.filter( ( item ) => item.kind === 'pair' ) }
 				/>
 				{ showToolCallDetails &&
 					items.map( ( item ) => {

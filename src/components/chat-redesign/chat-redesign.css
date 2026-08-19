@@ -1215,9 +1215,20 @@ input[type="text"].sdaa-cr-search-input {
 	border: 1px solid var(--sdaa-border-subtle);
 	border-radius: var(--sdaa-radius-pill);
 	padding: 2px 8px;
+	font-family: inherit;
 	font-size: 11.5px;
 	color: var(--sdaa-text-secondary);
 	background: #fff;
+	cursor: pointer;
+}
+
+.sdaa-cr-progress-stat:hover {
+	filter: brightness(0.98);
+}
+
+.sdaa-cr-progress-stat:focus-visible {
+	outline: 2px solid var(--sdaa-primary);
+	outline-offset: 2px;
 }
 
 .sdaa-cr-progress-stat.is-complete {
@@ -1234,6 +1245,23 @@ input[type="text"].sdaa-cr-search-input {
 	border-color: #f1b0b7;
 	color: var(--sdaa-error);
 	background: var(--sdaa-error-surface);
+}
+
+.sd-ai-agent-progress-stat--recovered {
+	border-color: #d8eddb;
+	color: var(--sdaa-success);
+}
+
+.sd-ai-agent-progress-details {
+	display: grid;
+	gap: 8px;
+	padding-top: 2px;
+}
+
+.sd-ai-agent-progress-details-label {
+	color: var(--sdaa-text-secondary);
+	font-size: 12px;
+	font-weight: 600;
 }
 
 .sdaa-cr-progress-steps {
