@@ -10,7 +10,13 @@ jest.mock( '@wordpress/api-fetch', () => jest.fn() );
  * @return {Object} Editor test state and dispatchers.
  */
 function setEditor( options = {} ) {
-	const { postId = 42, dirty = false, postType = 'page' } = options;
+	const {
+		postId = 42,
+		dirty = false,
+		postType = 'page',
+		restBase,
+		restNamespace,
+	} = options;
 	const state = { dirty };
 	const editor = {
 		getCurrentPostId: jest.fn( () => postId ),
@@ -18,12 +24,24 @@ function setEditor( options = {} ) {
 		isEditedPostDirty: jest.fn( () => state.dirty ),
 	};
 	const coreData = { receiveEntityRecords: jest.fn() };
+	const core = {
+		getPostType: jest.fn( () => ( {
+			rest_base: restBase,
+			rest_namespace: restNamespace,
+		} ) ),
+	};
 	const blockDispatcher = { resetBlocks: jest.fn() };
 	global.wp = {
 		data: {
-			select: jest.fn( ( store ) =>
-				store === 'core/editor' ? editor : {}
-			),
+			select: jest.fn( ( store ) => {
+				if ( store === 'core/editor' ) {
+					return editor;
+				}
+				if ( store === 'core' ) {
+					return core;
+				}
+				return {};
+			} ),
 			dispatch: jest.fn( ( store ) => {
 				if ( store === 'core' ) {
 					return coreData;
@@ -54,6 +72,26 @@ describe( 'editor post reflector', () => {
 	afterEach( () => {
 		apiFetch.mockReset();
 		delete global.wp;
+	} );
+
+	test( 'uses custom post type REST metadata for the editor fetch', async () => {
+		setEditor( {
+			postType: 'library_item',
+			restBase: 'books',
+			restNamespace: 'my-plugin/v1',
+		} );
+		apiFetch.mockResolvedValue( {
+			id: 42,
+			content: {
+				raw: '<!-- wp:paragraph -->Fresh<!-- /wp:paragraph -->',
+			},
+		} );
+
+		await reflectEditorPost( postEvent() );
+
+		expect( apiFetch ).toHaveBeenCalledWith( {
+			path: '/my-plugin/v1/books/42?context=edit',
+		} );
 	} );
 
 	test( 'synchronizes fetched server content into a matching clean editor', async () => {

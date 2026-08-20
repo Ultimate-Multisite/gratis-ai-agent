@@ -36,10 +36,12 @@ function getEditorContext( postId ) {
 	try {
 		const editor = wp.data.select( 'core/editor' );
 		const blockEditor = wp.data.select( 'core/block-editor' );
+		const core = wp.data.select( 'core' );
 		const coreData = wp.data.dispatch( 'core' );
 		const blockDispatcher = wp.data.dispatch( 'core/block-editor' );
 		const currentPostId = editor?.getCurrentPostId?.();
 		const postType = editor?.getCurrentPostType?.();
+		const postTypeRecord = core?.getPostType?.( postType );
 
 		if (
 			! editor ||
@@ -55,7 +57,14 @@ function getEditorContext( postId ) {
 			return null;
 		}
 
-		return { editor, postType, coreData, blockDispatcher };
+		return {
+			editor,
+			postType,
+			restBase: postTypeRecord?.rest_base || postType,
+			restNamespace: postTypeRecord?.rest_namespace || 'wp/v2',
+			coreData,
+			blockDispatcher,
+		};
 	} catch ( _error ) {
 		return null;
 	}
@@ -87,8 +96,8 @@ export async function reflectEditorPost( event ) {
 
 	try {
 		const record = await apiFetch( {
-			path: `/wp/v2/${ encodeURIComponent(
-				context.postType
+			path: `/${ context.restNamespace }/${ encodeURIComponent(
+				context.restBase
 			) }/${ encodeURIComponent( affected.post_id ) }?context=edit`,
 		} );
 		const rawContent = record?.content?.raw;

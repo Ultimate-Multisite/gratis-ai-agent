@@ -14,7 +14,9 @@ const reflectorLoaders = {
 		Promise.all( [
 			import(
 				/* webpackChunkName: "reflector-editor-post" */ './editor-post'
-			).then( ( module ) => module.reflectEditorPost ),
+			)
+				.then( ( module ) => module.reflectEditorPost )
+				.catch( () => () => undefined ),
 			import( /* webpackChunkName: "reflector-post" */ './post' ).then(
 				( module ) => module.reflectPost
 			),
