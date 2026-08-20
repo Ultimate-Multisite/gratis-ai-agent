@@ -8,6 +8,7 @@
 import apiFetch from '@wordpress/api-fetch';
 
 const reflectionQueues = new Map();
+const REFLECTION_REQUEST_TIMEOUT_MS = 15_000;
 
 /**
  * Compare post identifiers without making numeric/string REST values diverge.
@@ -94,12 +95,30 @@ async function reflectEditorPostEvent( event ) {
 		return;
 	}
 
+	let record;
 	try {
-		const record = await apiFetch( {
-			path: `/${ context.restNamespace }/${ encodeURIComponent(
-				context.restBase
-			) }/${ encodeURIComponent( affected.post_id ) }?context=edit`,
-		} );
+		const controller = new AbortController();
+		const timeout = setTimeout(
+			() => controller.abort(),
+			REFLECTION_REQUEST_TIMEOUT_MS
+		);
+		try {
+			record = await apiFetch( {
+				path: `/${ context.restNamespace }/${ encodeURIComponent(
+					context.restBase
+				) }/${ encodeURIComponent( affected.post_id ) }?context=edit`,
+				signal: controller.signal,
+			} );
+		} finally {
+			clearTimeout( timeout );
+		}
+	} catch ( _error ) {
+		// A missing REST route is safe to ignore: the persisted revision remains
+		// available after a reload.
+		return;
+	}
+
+	try {
 		const rawContent = record?.content?.raw;
 		if ( typeof rawContent !== 'string' ) {
 			return;
@@ -124,8 +143,8 @@ async function reflectEditorPostEvent( event ) {
 			__unstableShouldCreateUndoLevel: false,
 		} );
 	} catch ( _error ) {
-		// A missing REST route, parsing failure, or unavailable editor is safe to
-		// ignore: the persisted revision remains available after a reload.
+		// A parsing failure or unavailable editor is safe to ignore: the persisted
+		// revision remains available after a reload.
 	}
 }
 

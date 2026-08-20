@@ -229,14 +229,22 @@ async function createDraftAndOpenEditor( page ) {
 
 	await page.goto( `/wp-admin/post.php?post=${ postId }&action=edit` );
 	await page.waitForLoadState( 'domcontentloaded' );
-	await page
-		.locator( '.block-editor-writing-flow, .editor-styles-wrapper' )
-		.first()
-		.waitFor( { state: 'visible', timeout: 60_000 } );
+	// The editor canvas can remain visually hidden while Gutenberg finishes
+	// loading on shared CI runners. The reflection tests need its data stores,
+	// not a visible canvas, so wait for those real runtime dependencies instead.
 	await page.waitForFunction(
-		() => typeof window.sdAiAgentReflection?.emit === 'function',
+		() => {
+			const editor = wp.data?.select?.( 'core/editor' );
+			const blockEditor = wp.data?.select?.( 'core/block-editor' );
+			return (
+				typeof editor?.getCurrentPostId === 'function' &&
+				typeof editor?.isEditedPostDirty === 'function' &&
+				typeof blockEditor?.getBlocks === 'function' &&
+				typeof window.sdAiAgentReflection?.emit === 'function'
+			);
+		},
 		null,
-		{ timeout: 30_000 }
+		{ timeout: 90_000 }
 	);
 
 	return postId;

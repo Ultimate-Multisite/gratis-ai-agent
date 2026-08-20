@@ -94,6 +94,7 @@ describe( 'editor post reflector', () => {
 
 		expect( apiFetch ).toHaveBeenCalledWith( {
 			path: '/my-plugin/v1/books/42?context=edit',
+			signal: expect.any( AbortSignal ),
 		} );
 	} );
 
@@ -111,6 +112,7 @@ describe( 'editor post reflector', () => {
 
 		expect( apiFetch ).toHaveBeenCalledWith( {
 			path: '/wp/v2/page/42?context=edit',
+			signal: expect.any( AbortSignal ),
 		} );
 		expect( coreData.receiveEntityRecords ).toHaveBeenCalledWith(
 			'postType',
@@ -236,6 +238,48 @@ describe( 'editor post reflector', () => {
 			],
 			{ __unstableShouldCreateUndoLevel: false }
 		);
+	} );
+
+	test( 'continues queued reflections after an unresponsive request is aborted', async () => {
+		jest.useFakeTimers();
+		const { editorDispatcher } = setEditor();
+		global.wp.blocks.parse.mockImplementation( ( rawContent ) => [
+			{ clientId: rawContent },
+		] );
+		apiFetch
+			.mockImplementationOnce(
+				( { signal } ) =>
+					new Promise( ( _resolve, reject ) => {
+						signal.addEventListener( 'abort', () =>
+							reject( new Error( 'aborted' ) )
+						);
+					} )
+			)
+			.mockResolvedValueOnce( {
+				id: 42,
+				content: {
+					raw: '<!-- wp:paragraph -->Latest<!-- /wp:paragraph -->',
+				},
+			} );
+
+		const firstReflection = reflectEditorPost( postEvent() );
+		const secondReflection = reflectEditorPost( postEvent() );
+
+		jest.advanceTimersByTime( 15_000 );
+		await firstReflection;
+		await secondReflection;
+
+		expect( apiFetch ).toHaveBeenCalledTimes( 2 );
+		expect( editorDispatcher.resetEditorBlocks ).toHaveBeenCalledWith(
+			[
+				{
+					clientId:
+						'<!-- wp:paragraph -->Latest<!-- /wp:paragraph -->',
+				},
+			],
+			{ __unstableShouldCreateUndoLevel: false }
+		);
+		jest.useRealTimers();
 	} );
 
 	test.each( [
