@@ -7,6 +7,8 @@
 
 import apiFetch from '@wordpress/api-fetch';
 
+const reflectionQueues = new Map();
+
 /**
  * Compare post identifiers without making numeric/string REST values diverge.
  *
@@ -35,23 +37,21 @@ function getEditorContext( postId ) {
 
 	try {
 		const editor = wp.data.select( 'core/editor' );
-		const blockEditor = wp.data.select( 'core/block-editor' );
 		const core = wp.data.select( 'core' );
 		const coreData = wp.data.dispatch( 'core' );
-		const blockDispatcher = wp.data.dispatch( 'core/block-editor' );
+		const editorDispatcher = wp.data.dispatch( 'core/editor' );
 		const currentPostId = editor?.getCurrentPostId?.();
 		const postType = editor?.getCurrentPostType?.();
 		const postTypeRecord = core?.getPostType?.( postType );
 
 		if (
 			! editor ||
-			! blockEditor ||
 			! samePost( currentPostId, postId ) ||
 			editor.isEditedPostDirty?.() !== false ||
 			typeof postType !== 'string' ||
 			! postType ||
 			typeof coreData?.receiveEntityRecords !== 'function' ||
-			typeof blockDispatcher?.resetBlocks !== 'function' ||
+			typeof editorDispatcher?.resetEditorBlocks !== 'function' ||
 			typeof wp.blocks?.parse !== 'function'
 		) {
 			return null;
@@ -63,7 +63,7 @@ function getEditorContext( postId ) {
 			restBase: postTypeRecord?.rest_base || postType,
 			restNamespace: postTypeRecord?.rest_namespace || 'wp/v2',
 			coreData,
-			blockDispatcher,
+			editorDispatcher,
 		};
 	} catch ( _error ) {
 		return null;
@@ -76,7 +76,7 @@ function getEditorContext( postId ) {
  * @param {{affected?: {fields?: string[], post_id?: number|string, render_mode?: string}, result?: {preview?: Object}}} event Reflection event.
  * @return {Promise<void>} Resolves after safely applying or skipping the update.
  */
-export async function reflectEditorPost( event ) {
+async function reflectEditorPostEvent( event ) {
 	const affected = event?.affected;
 	if (
 		! Array.isArray( affected?.fields ) ||
@@ -120,9 +120,41 @@ export async function reflectEditorPost( event ) {
 		current.coreData.receiveEntityRecords( 'postType', current.postType, [
 			record,
 		] );
-		current.blockDispatcher.resetBlocks( blocks );
+		current.editorDispatcher.resetEditorBlocks( blocks, {
+			__unstableShouldCreateUndoLevel: false,
+		} );
 	} catch ( _error ) {
 		// A missing REST route, parsing failure, or unavailable editor is safe to
 		// ignore: the persisted revision remains available after a reload.
 	}
+}
+
+/**
+ * Serialize server reflections for one post so an older REST response cannot
+ * replace a newer revision after overlapping tool events.
+ *
+ * @param {Object} event Reflection event.
+ * @return {Promise<void>} Resolves after safely applying or skipping the update.
+ */
+export function reflectEditorPost( event ) {
+	const postId = event?.affected?.post_id;
+	if ( postId === undefined || postId === null ) {
+		return Promise.resolve();
+	}
+
+	const queueKey = String( postId );
+	const previous = reflectionQueues.get( queueKey );
+	const reflection = previous
+		? previous
+				.catch( () => undefined )
+				.then( () => reflectEditorPostEvent( event ) )
+		: reflectEditorPostEvent( event );
+
+	reflectionQueues.set( queueKey, reflection );
+
+	return reflection.finally( () => {
+		if ( reflectionQueues.get( queueKey ) === reflection ) {
+			reflectionQueues.delete( queueKey );
+		}
+	} );
 }
