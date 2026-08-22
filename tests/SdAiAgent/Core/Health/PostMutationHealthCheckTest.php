@@ -221,6 +221,37 @@ class PostMutationHealthCheckTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * A public health-route rejection is not evidence that WordPress is broken.
+	 */
+	public function test_verify_or_revert_ignores_public_health_route_rejection(): void {
+		add_filter(
+			'pre_http_request',
+			function () {
+				return [
+					'headers'       => [ 'content-type' => 'application/json' ],
+					'body'          => '{"code":"sd_ai_agent_health_forbidden"}',
+					'response'      => [ 'code' => 403 ],
+					'cookies'       => [],
+					'http_response' => null,
+				];
+			},
+			10
+		);
+
+		$undo_called = false;
+		$undo        = function () use ( &$undo_called ) {
+			$undo_called = true;
+			return true;
+		};
+
+		$health_check = new PostMutationHealthCheck();
+		$result       = $health_check->verify_or_revert( $undo, 'Test operation' );
+
+		$this->assertNull( $result );
+		$this->assertFalse( $undo_called, 'A rejected public probe must not trigger rollback' );
+	}
+
+	/**
 	 * Test verify_or_revert() returns WP_Error when undo fails.
 	 */
 	public function test_verify_or_revert_includes_undo_error(): void {

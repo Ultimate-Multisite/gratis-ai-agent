@@ -106,13 +106,16 @@ class PostMutationHealthCheck {
 	}
 
 	/**
-	 * Walk candidate loopback URLs until one connects, cache successful URLs,
-	 * and return the first connected URL. Returns null when no candidate connects.
+	 * Walk candidate loopback URLs until one succeeds, cache successful URLs,
+	 * and retain only server-error responses as evidence of a broken site.
 	 *
 	 * Only 127.0.0.1 addresses are tried: the health endpoint rejects requests
 	 * whose REMOTE_ADDR is not loopback, so home_url() would always fail there.
-	 * Discovery caches only a full success response, but returns connected error
-	 * responses so callers can distinguish broken from unreachable.
+	 * Discovery caches only a full success response. Redirects and client errors
+	 * are treated as unreachable because mapped-domain and proxy configurations can
+	 * legitimately reject a public health request even while WordPress is healthy.
+	 * A 5xx response remains authoritative evidence that the candidate connected
+	 * but WordPress failed to boot.
 	 *
 	 * @return string|null The discovered health URL, or null if discovery failed.
 	 */
@@ -156,11 +159,13 @@ class PostMutationHealthCheck {
 				continue;
 			}
 
-			$connected_url ??= $url;
-
 			if ( str_contains( wp_remote_retrieve_body( $response ), '"success":true' ) ) {
 				set_transient( 'sd_ai_agent_health_url', $url, HOUR_IN_SECONDS );
 				return $url;
+			}
+
+			if ( wp_remote_retrieve_response_code( $response ) >= 500 ) {
+				$connected_url ??= $url;
 			}
 		}
 
