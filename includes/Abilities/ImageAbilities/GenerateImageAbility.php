@@ -41,6 +41,9 @@ if ( ! defined( 'ABSPATH' ) ) {
  */
 class GenerateImageAbility extends \SdAiAgent\Abilities\AbstractAbility {
 
+	/** Maximum seconds an image-provider request may occupy the background worker. */
+	private const IMAGE_REQUEST_TIMEOUT_SECONDS = 90;
+
 	/**
 	 * Register this ability.
 	 *
@@ -279,10 +282,9 @@ class GenerateImageAbility extends \SdAiAgent\Abilities\AbstractAbility {
 
 			if ( is_wp_error( $result ) ) {
 				$last_error = $result;
-				// No provider → stop immediately; retrying variations won't help.
-				if ( 'provider_unavailable' === $result->get_error_code() ) {
-					break;
-				}
+				// Repeating a failed provider request for each variation can outlive
+				// the background worker request and leave chat stuck in "Running".
+				break;
 			} else {
 				$attachments[] = [
 					'attachment_id' => $result['attachment_id'],
@@ -348,14 +350,25 @@ class GenerateImageAbility extends \SdAiAgent\Abilities\AbstractAbility {
 		int $post_id,
 		array $options = []
 	): array|\WP_Error {
-		if ( ! self::is_image_generation_supported() ) {
-			return new WP_Error(
-				'provider_unavailable',
-				'AI image generation is not available. Configure an image-capable provider on the Connectors settings page.'
-			);
-		}
+		// Bound both model discovery and generation for every SDK provider. This
+		// lets the agent continue with stock imagery or report the prerequisite
+		// instead of consuming the entire background-worker window.
+		$timeout_filter = static fn (): int => self::IMAGE_REQUEST_TIMEOUT_SECONDS;
+		add_filter( 'wp_ai_client_default_request_timeout', $timeout_filter, 999 );
+		try {
+			if ( ! self::is_image_generation_supported() ) {
+				return new WP_Error(
+					'provider_unavailable',
+					'AI image generation is not available. Configure an image-capable provider on the Connectors settings page.'
+				);
+			}
 
-		$file = $this->create_image_prompt_builder( $prompt, $options )->generate_image();
+			$file = $this->create_image_prompt_builder( $prompt, $options )->generate_image();
+		} catch ( \Throwable $e ) {
+			return new WP_Error( 'generation_failed', 'Image generation failed. The image provider did not respond within the allowed time.' );
+		} finally {
+			remove_filter( 'wp_ai_client_default_request_timeout', $timeout_filter, 999 );
+		}
 
 		if ( is_wp_error( $file ) ) {
 			return new WP_Error(
