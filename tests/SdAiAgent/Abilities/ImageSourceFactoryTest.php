@@ -163,6 +163,21 @@ class ImageSourceFactoryTest extends WP_UnitTestCase {
 		$this->assertStringContainsString( 'watermark', implode( ' ', $watermarked['reasons'] ) );
 	}
 
+	/** A web-ready Openverse landscape can serve as a hero without being rejected. */
+	public function test_hero_quality_floor_accepts_web_ready_landscape_source(): void {
+		$result = ImageSourceFactory::assess_candidate_quality(
+			[
+				'width'  => 1024,
+				'height' => 768,
+				'title'  => 'Wedding couple portrait',
+			],
+			'hero'
+		);
+
+		$this->assertTrue( $result['eligible'] );
+		$this->assertStringContainsString( 'meets the hero technical floor', implode( ' ', $result['reasons'] ) );
+	}
+
 	/** Gallery assets enforce the documented landscape aspect-ratio floor. */
 	public function test_gallery_quality_floor_rejects_portrait_source(): void {
 		$result = ImageSourceFactory::assess_candidate_quality(

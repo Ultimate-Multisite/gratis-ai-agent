@@ -388,7 +388,7 @@ class ImageSourceFactory {
 		$usage  = sanitize_key( $usage );
 
 		$role_minimums = array(
-			'hero'      => array( 1920, 900 ),
+			'hero'      => array( 1024, 576 ),
 			'gallery'   => array( 1200, 800 ),
 			'content'   => array( 1200, 675 ),
 			'thumbnail' => array( 600, 400 ),
