@@ -3780,15 +3780,15 @@ class AgentLoopTest extends WP_UnitTestCase {
 		$this->assertSame( array(), $result['removed'] );
 		$parts = $result['message']->getParts();
 		$this->assertCount( 2, $parts );
-		$first_args  = $parts[0]->getFunctionCall()->getArgs();
-		$second_args = $parts[1]->getFunctionCall()->getArgs();
-		$this->assertSame( 'search', $first_args['action'] );
-		$this->assertArrayNotHasKey( 'action', $second_args );
-		$this->assertArrayNotHasKey( 'provider', $second_args );
-		$this->assertArrayNotHasKey( 'limit', $second_args );
-		$this->assertSame( 'portrait photography studio', $second_args['keyword'] );
+		$firstArgs  = $parts[0]->getFunctionCall()->getArgs();
+		$secondArgs = $parts[1]->getFunctionCall()->getArgs();
+		$this->assertSame( 'search', $firstArgs['action'] );
+		$this->assertArrayNotHasKey( 'action', $secondArgs );
+		$this->assertArrayNotHasKey( 'provider', $secondArgs );
+		$this->assertArrayNotHasKey( 'limit', $secondArgs );
+		$this->assertSame( 'portrait photography studio', $secondArgs['keyword'] );
 
-		$dispatcher_loop = new AgentLoop(
+		$dispatcherLoop = new AgentLoop(
 			'Build a photographer site',
 			array(),
 			array(
@@ -3800,8 +3800,8 @@ class AgentLoopTest extends WP_UnitTestCase {
 			),
 			array( 'agent_slug' => 'onboarding' )
 		);
-		$dispatcher_result = $method->invoke(
-			$dispatcher_loop,
+		$dispatcherResult = $method->invoke(
+			$dispatcherLoop,
 			new ModelMessage(
 				array(
 					new MessagePart(
@@ -3818,12 +3818,12 @@ class AgentLoopTest extends WP_UnitTestCase {
 			)
 		);
 
-		$dispatcher_call = $dispatcher_result['message']->getParts()[0]->getFunctionCall();
-		$dispatcher_args = $dispatcher_call->getArgs();
-		$this->assertSame( 'sd-ai-agent/stock-image', $dispatcher_args['ability'] );
-		$this->assertArrayNotHasKey( 'action', $dispatcher_args['arguments'] );
-		$this->assertArrayNotHasKey( 'provider', $dispatcher_args['arguments'] );
-		$this->assertSame( 'outdoor family portrait', $dispatcher_args['arguments']['keyword'] );
+		$dispatcherCall = $dispatcherResult['message']->getParts()[0]->getFunctionCall();
+		$dispatcherArgs = $dispatcherCall->getArgs();
+		$this->assertSame( 'sd-ai-agent/stock-image', $dispatcherArgs['ability'] );
+		$this->assertArrayNotHasKey( 'action', $dispatcherArgs['arguments'] );
+		$this->assertArrayNotHasKey( 'provider', $dispatcherArgs['arguments'] );
+		$this->assertSame( 'outdoor family portrait', $dispatcherArgs['arguments']['keyword'] );
 	}
 
 	/**

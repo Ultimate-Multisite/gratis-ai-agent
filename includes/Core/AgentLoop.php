@@ -4250,24 +4250,26 @@ PROMPT;
 	}
 
 	/** Convert the second bounded stock search into the documented automatic-import fallback. */
+	// phpcs:disable WordPress.NamingConventions.ValidVariableName.VariableNotSnakeCase -- Project variable naming guidance requires camelCase.
 	private static function convert_stock_image_search_to_auto_import( FunctionCall $call ): FunctionCall {
-		$args          = self::normalize_function_call_args( $call->getArgs() );
-		$is_dispatcher = 'sd-ai-agent/ability-call' === self::normalize_logged_tool_name( (string) $call->getName() );
-		$stock_args    = $is_dispatcher && isset( $args['arguments'] ) && is_array( $args['arguments'] )
+		$args         = self::normalize_function_call_args( $call->getArgs() );
+		$isDispatcher = 'sd-ai-agent/ability-call' === self::normalize_logged_tool_name( (string) $call->getName() );
+		$stockArgs    = $isDispatcher && isset( $args['arguments'] ) && is_array( $args['arguments'] )
 			? $args['arguments']
 			: $args;
 
-		unset( $stock_args['action'], $stock_args['provider'], $stock_args['image_id'], $stock_args['limit'] );
-		$stock_args['keyword'] = self::shorten_stock_image_keyword( (string) ( $stock_args['keyword'] ?? '' ) );
+		unset( $stockArgs['action'], $stockArgs['provider'], $stockArgs['image_id'], $stockArgs['limit'] );
+		$stockArgs['keyword'] = self::shorten_stock_image_keyword( (string) ( $stockArgs['keyword'] ?? '' ) );
 
-		if ( $is_dispatcher ) {
-			$args['arguments'] = $stock_args;
+		if ( $isDispatcher ) {
+			$args['arguments'] = $stockArgs;
 		} else {
-			$args = $stock_args;
+			$args = $stockArgs;
 		}
 
 		return new FunctionCall( (string) $call->getId(), (string) $call->getName(), $args );
 	}
+	// phpcs:enable WordPress.NamingConventions.ValidVariableName.VariableNotSnakeCase
 
 	/** Keep automatic-import fallback searches concrete instead of over-specific. */
 	private static function shorten_stock_image_keyword( string $keyword ): string {
