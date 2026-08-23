@@ -24,6 +24,31 @@ use WP_UnitTestCase;
  */
 class AiImageAbilitiesTest extends WP_UnitTestCase {
 
+	/**
+	 * Image generation remains discoverable so a missing provider produces an
+	 * actionable prerequisite message rather than an absent tool.
+	 */
+	public function test_generate_image_registers_without_a_configured_provider(): void {
+		if ( ! function_exists( 'wp_register_ability' ) || ! function_exists( 'wp_get_ability' ) ) {
+			$this->markTestSkipped( 'WP 7.0+ Abilities API is unavailable.' );
+		}
+
+		if ( function_exists( 'wp_unregister_ability' ) ) {
+			wp_unregister_ability( 'sd-ai-agent/generate-image' );
+		}
+
+		// phpcs:ignore WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedVariableFound -- Standard WordPress test global.
+		global $wp_current_filter;
+		$wp_current_filter[] = 'wp_abilities_api_init';
+		GenerateImageAbility::register();
+		array_pop( $wp_current_filter );
+
+		$ability = wp_get_ability( 'sd-ai-agent/generate-image' );
+
+		$this->assertNotNull( $ability );
+		$this->assertStringContainsString( 'Connectors settings page', $ability->get_description() );
+	}
+
 	// ─── handle_generate ──────────────────────────────────────────
 
 	/**
