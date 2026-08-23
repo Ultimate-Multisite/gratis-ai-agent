@@ -3742,6 +3742,103 @@ class AgentLoopTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * Setup Assistant media acquisition must stay bounded across direct and
+	 * dispatcher calls, including several calls emitted in one model turn.
+	 */
+	public function test_onboarding_media_budget_removes_excess_calls(): void {
+		if ( ! class_exists( FunctionCall::class ) ) {
+			$this->markTestSkipped( 'WP AI Client message classes are not available.' );
+		}
+
+		$history = array(
+			new ModelMessage(
+				array(
+					new MessagePart( new FunctionCall( 'stock-one', 'wpab__sd-ai-agent__stock-image', array( 'keyword' => 'wedding' ) ) ),
+				)
+			),
+			new ModelMessage(
+				array(
+					new MessagePart(
+						new FunctionCall(
+							'stock-two',
+							'wpab__sd-ai-agent__ability-call',
+							array(
+								'ability'   => 'sd-ai-agent/stock-image',
+								'arguments' => array( 'keyword' => 'family' ),
+							)
+						)
+					),
+				)
+			),
+		);
+		$loop    = new AgentLoop( 'Build a photographer site', array(), $history, array( 'agent_slug' => 'onboarding' ) );
+		$message = new ModelMessage(
+			array(
+				new MessagePart( new FunctionCall( 'stock-three', 'wpab__sd-ai-agent__stock-image', array( 'keyword' => 'portrait' ) ) ),
+				new MessagePart( new FunctionCall( 'generate-one', 'wpab__sd-ai-agent__generate-image', array( 'prompt' => 'portrait' ) ) ),
+				new MessagePart( new FunctionCall( 'generate-two', 'wpab__sd-ai-agent__generate-image', array( 'prompt' => 'wedding' ) ) ),
+				new MessagePart( new FunctionCall( 'other-tool', 'wpab__sd-ai-agent__list-posts', array() ) ),
+			)
+		);
+
+		$method = new \ReflectionMethod( AgentLoop::class, 'enforce_onboarding_media_budget' );
+		$method->setAccessible( true );
+		$result = $method->invoke( $loop, $message );
+
+		$this->assertIsArray( $result );
+		$this->assertSame(
+			array(
+				'sd-ai-agent/stock-image'    => 1,
+				'sd-ai-agent/generate-image' => 1,
+			),
+			$result['removed']
+		);
+		$this->assertStringContainsString( 'media budget is exhausted', $result['guidance'] );
+
+		$kept_names = array();
+		foreach ( $result['message']->getParts() as $part ) {
+			$call = $part->getFunctionCall();
+			if ( $call ) {
+				$kept_names[] = $call->getName();
+			}
+		}
+		$this->assertSame(
+			array( 'wpab__sd-ai-agent__generate-image', 'wpab__sd-ai-agent__list-posts' ),
+			$kept_names
+		);
+
+		$exhausted_history   = array_merge(
+			$history,
+			array(
+				new ModelMessage(
+					array(
+						new MessagePart( new FunctionCall( 'generate-used', 'wpab__sd-ai-agent__generate-image', array( 'prompt' => 'portrait' ) ) ),
+					)
+				),
+			)
+		);
+		$exhausted_loop      = new AgentLoop( 'Build a photographer site', array(), $exhausted_history, array( 'agent_slug' => 'onboarding' ) );
+		$fully_blocked       = new ModelMessage(
+			array(
+				new MessagePart( new FunctionCall( 'stock-four', 'wpab__sd-ai-agent__stock-image', array( 'keyword' => 'event' ) ) ),
+				new MessagePart( new FunctionCall( 'generate-three', 'wpab__sd-ai-agent__generate-image', array( 'prompt' => 'event' ) ) ),
+			)
+		);
+		$fully_blocked_result = $method->invoke( $exhausted_loop, $fully_blocked );
+
+		$fully_blocked_parts = $fully_blocked_result['message']->getParts();
+		if ( ! is_array( $fully_blocked_parts ) ) {
+			$this->fail( 'Expected guarded message parts to be an array.' );
+		}
+		$this->assertCount( 1, $fully_blocked_parts );
+		$this->assertNull( $fully_blocked_parts[0]->getFunctionCall() );
+		$this->assertStringContainsString(
+			'Media acquisition call blocked',
+			$fully_blocked_parts[0]->getText()
+		);
+	}
+
+	/**
 	 * Denied block-theme scaffolding should stop dependent theme-writing steps.
 	 */
 	public function test_scaffold_block_theme_permission_denial_builds_terminal_recovery_reply(): void {
