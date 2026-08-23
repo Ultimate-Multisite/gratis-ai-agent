@@ -4111,8 +4111,9 @@ PROMPT;
 			}
 		}
 
-		$kept    = array();
-		$removed = array_fill_keys( array_keys( $limits ), 0 );
+		$kept      = array();
+		$removed   = array_fill_keys( array_keys( $limits ), 0 );
+		$rewritten = 0;
 		foreach ( $message->getParts() as $part ) {
 			$call = $part->getFunctionCall();
 			if ( ! $call ) {
@@ -4131,13 +4132,46 @@ PROMPT;
 				continue;
 			}
 
+			if (
+				'sd-ai-agent/stock-image' === $ability_name
+				&& 1 === $used[ $ability_name ]
+				&& self::is_stock_image_search_call( $call )
+			) {
+				$part = new MessagePart( self::convert_stock_image_search_to_auto_import( $call ) );
+				++$rewritten;
+			}
+
 			++$used[ $ability_name ];
 			$kept[] = $part;
 		}
 
 		$removed = array_filter( $removed );
+		if ( $rewritten > 0 ) {
+			$this->message_log[] = array(
+				'type'     => 'guardrail',
+				'reason'   => 'onboarding_stock_fallback_normalized',
+				'count'    => $rewritten,
+				'sequence' => $this->next_activity_sequence(),
+			);
+			AgentEventLog::log(
+				'onboarding_stock_fallback_normalized',
+				AgentEventLog::SEVERITY_INFO,
+				array(
+					'session_id'  => $this->session_id,
+					'count'       => $rewritten,
+					'model_id'    => (string) $this->model_id,
+					'provider_id' => (string) $this->provider_id,
+				)
+			);
+		}
 		if ( empty( $removed ) ) {
-			return $unchanged;
+			return $rewritten > 0
+				? array(
+					'message'  => new ModelMessage( $kept ),
+					'guidance' => '',
+					'removed'  => array(),
+				)
+				: $unchanged;
 		}
 		if ( empty( $kept ) ) {
 			$kept[] = new MessagePart( __( 'Media acquisition call blocked by the Setup Assistant budget.', 'superdav-ai-agent' ) );
@@ -4203,6 +4237,48 @@ PROMPT;
 			'guidance' => $guidance,
 			'removed'  => $removed,
 		);
+	}
+
+	/** Return whether a direct or dispatcher stock-image call requests search mode. */
+	private static function is_stock_image_search_call( FunctionCall $call ): bool {
+		$args = self::normalize_function_call_args( $call->getArgs() );
+		if ( 'sd-ai-agent/ability-call' === self::normalize_logged_tool_name( (string) $call->getName() ) ) {
+			$args = isset( $args['arguments'] ) && is_array( $args['arguments'] ) ? $args['arguments'] : array();
+		}
+
+		return 'search' === (string) ( $args['action'] ?? '' );
+	}
+
+	/** Convert the second bounded stock search into the documented automatic-import fallback. */
+	// phpcs:disable WordPress.NamingConventions.ValidVariableName.VariableNotSnakeCase -- Project variable naming guidance requires camelCase.
+	private static function convert_stock_image_search_to_auto_import( FunctionCall $call ): FunctionCall {
+		$args         = self::normalize_function_call_args( $call->getArgs() );
+		$isDispatcher = 'sd-ai-agent/ability-call' === self::normalize_logged_tool_name( (string) $call->getName() );
+		$stockArgs    = $isDispatcher && isset( $args['arguments'] ) && is_array( $args['arguments'] )
+			? $args['arguments']
+			: $args;
+
+		unset( $stockArgs['action'], $stockArgs['provider'], $stockArgs['image_id'], $stockArgs['limit'] );
+		$stockArgs['keyword'] = self::shorten_stock_image_keyword( (string) ( $stockArgs['keyword'] ?? '' ) );
+
+		if ( $isDispatcher ) {
+			$args['arguments'] = $stockArgs;
+		} else {
+			$args = $stockArgs;
+		}
+
+		return new FunctionCall( (string) $call->getId(), (string) $call->getName(), $args );
+	}
+	// phpcs:enable WordPress.NamingConventions.ValidVariableName.VariableNotSnakeCase
+
+	/** Keep automatic-import fallback searches concrete instead of over-specific. */
+	private static function shorten_stock_image_keyword( string $keyword ): string {
+		$words = preg_split( '/\s+/', trim( $keyword ) );
+		if ( ! is_array( $words ) ) {
+			return trim( $keyword );
+		}
+
+		return implode( ' ', array_slice( array_filter( $words ), 0, 3 ) );
 	}
 
 	/** Return the bounded media ability represented by a direct or dispatcher call. */

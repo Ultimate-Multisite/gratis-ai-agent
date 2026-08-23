@@ -3742,6 +3742,91 @@ class AgentLoopTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * The second bounded stock call must import automatically instead of spending
+	 * the final stock slot on another candidate search.
+	 */
+	public function test_onboarding_media_budget_normalizes_second_stock_search(): void {
+		if ( ! class_exists( FunctionCall::class ) ) {
+			$this->markTestSkipped( 'WP AI Client message classes are not available.' );
+		}
+
+		$method = new \ReflectionMethod( AgentLoop::class, 'enforce_onboarding_media_budget' );
+		$method->setAccessible( true );
+
+		$loop   = new AgentLoop( 'Build a photographer site', array(), array(), array( 'agent_slug' => 'onboarding' ) );
+		$result = $method->invoke(
+			$loop,
+			new ModelMessage(
+				array(
+					new MessagePart(
+						new FunctionCall(
+							'stock-search-one',
+							'wpab__sd-ai-agent__stock-image',
+							array( 'action' => 'search', 'keyword' => 'wedding couple photography elegant natural light', 'limit' => 12 )
+						)
+					),
+					new MessagePart(
+						new FunctionCall(
+							'stock-search-two',
+							'wpab__sd-ai-agent__stock-image',
+							array( 'action' => 'search', 'provider' => 'openverse', 'keyword' => 'portrait photography studio natural light', 'limit' => 12 )
+						)
+					),
+				)
+			)
+		);
+
+		$this->assertIsArray( $result );
+		$this->assertSame( array(), $result['removed'] );
+		$parts = $result['message']->getParts();
+		$this->assertCount( 2, $parts );
+		$firstArgs  = $parts[0]->getFunctionCall()->getArgs();
+		$secondArgs = $parts[1]->getFunctionCall()->getArgs();
+		$this->assertSame( 'search', $firstArgs['action'] );
+		$this->assertArrayNotHasKey( 'action', $secondArgs );
+		$this->assertArrayNotHasKey( 'provider', $secondArgs );
+		$this->assertArrayNotHasKey( 'limit', $secondArgs );
+		$this->assertSame( 'portrait photography studio', $secondArgs['keyword'] );
+
+		$dispatcherLoop = new AgentLoop(
+			'Build a photographer site',
+			array(),
+			array(
+				new ModelMessage(
+					array(
+						new MessagePart( new FunctionCall( 'prior-stock-search', 'wpab__sd-ai-agent__stock-image', array( 'action' => 'search', 'keyword' => 'wedding' ) ) ),
+					)
+				),
+			),
+			array( 'agent_slug' => 'onboarding' )
+		);
+		$dispatcherResult = $method->invoke(
+			$dispatcherLoop,
+			new ModelMessage(
+				array(
+					new MessagePart(
+						new FunctionCall(
+							'dispatcher-stock-search',
+							'wpab__sd-ai-agent__ability-call',
+							array(
+								'ability'   => 'sd-ai-agent/stock-image',
+								'arguments' => array( 'action' => 'search', 'provider' => 'openverse', 'keyword' => 'outdoor family portrait golden hour' ),
+							)
+						)
+					),
+				)
+			)
+		);
+
+		$dispatcherCall = $dispatcherResult['message']->getParts()[0]->getFunctionCall();
+		$dispatcherArgs = $dispatcherCall->getArgs();
+		$this->assertSame( 'sd-ai-agent/stock-image', $dispatcherArgs['ability'] );
+		$this->assertArrayNotHasKey( 'action', $dispatcherArgs['arguments'] );
+		$this->assertArrayNotHasKey( 'provider', $dispatcherArgs['arguments'] );
+		$this->assertSame( 'outdoor family portrait', $dispatcherArgs['arguments']['keyword'] );
+	}
+
+	/**
 	 * Setup Assistant media acquisition must stay bounded across direct and
 	 * dispatcher calls, including several calls emitted in one model turn.
 	 */
