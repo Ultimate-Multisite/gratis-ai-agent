@@ -35,9 +35,9 @@ final class DurablePlanTextSanitizer {
 		// Preserve a consistently redacted JSON authorization field before the
 		// generic text rules process the remaining credential labels.
 		$value = (string) preg_replace( '/"authorization"\s*:\s*"(?:\\\\.|[^"\\\\])*"/i', '"authorization": "[redacted]"', $value );
-		$value = (string) preg_replace( '/\b(authorization)\b\s*[:=]\s*(?:bearer\s+)?[^\s,;}\]]+/i', '$1: [redacted]', $value );
+		$value = (string) preg_replace( '/\b(authorization)\b\s*[:=]\s*(?:bearer\s+)?(?:\[redacted\]|[^\s,;}\]]+)/i', '$1: [redacted]', $value );
 		$value = (string) preg_replace(
-			'/(?:"|\')?(api[_-]?key|apikey|access[_-]?token|client[_-]?secret|credential(?:s)?|private[_-]?key|password|secret|token)(?:"|\')?\s*[:=]\s*(?:"(?:\\\\.|[^"\\\\])*"|\'(?:\\\\.|[^\'\\\\])*\'|[^\s,;}\]]+)/i',
+			'/(?:"|\')?(api[_-]?key|apikey|access[_-]?token|client[_-]?secret|credential(?:s)?|private[_-]?key|password|secret|token)(?:"|\')?\s*[:=]\s*(?:"(?:\\\\.|[^"\\\\])*"|\'(?:\\\\.|[^\'\\\\])*\'|\[redacted\]|[^\s,;}\]]+)/i',
 			'$1: [redacted]',
 			$value
 		);

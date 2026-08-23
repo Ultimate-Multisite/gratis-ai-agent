@@ -26,6 +26,7 @@ use SdAiAgent\Core\Settings;
 use SdAiAgent\Core\ToolPermissionResolver;
 use SdAiAgent\Models\ActiveJobRepository;
 use SdAiAgent\Models\Agent;
+use SdAiAgent\Models\CustomerConversationReviewRepository;
 use SdAiAgent\Models\DTO\ActiveJobRow;
 use SdAiAgent\Models\DurablePlanRepository;
 use WP_Error;
@@ -519,6 +520,13 @@ final class SessionController {
 				'methods'             => WP_REST_Server::CREATABLE,
 				'callback'            => array( $this, 'handle_public_chat_session' ),
 				'permission_callback' => '__return_true',
+				'args'                => array(
+					'recording_consent' => array(
+						'required' => false,
+						'type'     => 'boolean',
+						'default'  => false,
+					),
+				),
 			)
 		);
 
@@ -817,6 +825,11 @@ final class SessionController {
 					'embed_id'    => sanitize_key( (string) $this->settings->get( 'public_chat_embed_id' ) ),
 					'agent_id'    => (int) $config['agent_id'],
 					'collections' => $config['collections'],
+					'recording'   => array(
+						'enabled'        => $enabled && ! empty( $config['review_recording_enabled'] ),
+						'retention_days' => $enabled && ! empty( $config['review_recording_enabled'] ) ? (int) $config['review_retention_days'] : 0,
+						'disclosure'     => $enabled && ! empty( $config['review_recording_enabled'] ) ? (string) $config['review_disclosure'] : '',
+					),
 				),
 				200
 			),
@@ -2163,7 +2176,7 @@ final class SessionController {
 	/**
 	 * Get sanitized public chat settings.
 	 *
-	 * @return array{enabled: bool, origins: list<string>, provider_id: string, model_id: string, agent_id: int, collections: list<string>, abilities: list<string>, iterations: int, message_length: int, rate_limit: int}
+	 * @return array{enabled: bool, origins: list<string>, provider_id: string, model_id: string, agent_id: int, collections: list<string>, abilities: list<string>, iterations: int, message_length: int, rate_limit: int, review_recording_enabled: bool, review_retention_days: int, review_disclosure: string}
 	 */
 	private function get_public_chat_settings(): array {
 		$settings = Settings::instance()->get();
@@ -2176,17 +2189,30 @@ final class SessionController {
 		$origins = $settings['public_chat_allowed_origins'] ?? array();
 		$origins = is_array( $origins ) ? $this->sanitize_public_chat_string_list( $origins, 'sanitize_text_field' ) : array();
 
+		$review_retention_days = max( 1, min( 90, (int) ( $settings['public_chat_review_retention_days'] ?? 7 ) ) );
+		$review_disclosure     = sanitize_textarea_field( (string) ( $settings['public_chat_review_disclosure'] ?? '' ) );
+		if ( '' === $review_disclosure ) {
+			$review_disclosure = sprintf(
+				/* translators: %d: maximum number of days an opted-in anonymous chat is retained. */
+				__( 'This conversation may be recorded for quality review and retained for up to %d days.', 'superdav-ai-agent' ),
+				$review_retention_days
+			);
+		}
+
 		return array(
-			'enabled'        => (bool) ( $settings['public_chat_enabled'] ?? false ),
-			'origins'        => $origins,
-			'provider_id'    => sanitize_text_field( (string) ( $settings['public_chat_provider_id'] ?? '' ) ),
-			'model_id'       => sanitize_text_field( (string) ( $settings['public_chat_model_id'] ?? '' ) ),
-			'agent_id'       => absint( $settings['public_chat_agent_id'] ?? 0 ),
-			'collections'    => $collections,
-			'abilities'      => $allowed,
-			'iterations'     => max( 1, min( 8, (int) ( $settings['public_chat_max_iterations'] ?? 4 ) ) ),
-			'message_length' => max( 1, min( 8000, (int) ( $settings['public_chat_message_max_length'] ?? 2000 ) ) ),
-			'rate_limit'     => max( 1, min( 60, (int) ( $settings['public_chat_rate_limit_per_min'] ?? 10 ) ) ),
+			'enabled'                  => (bool) ( $settings['public_chat_enabled'] ?? false ),
+			'origins'                  => $origins,
+			'provider_id'              => sanitize_text_field( (string) ( $settings['public_chat_provider_id'] ?? '' ) ),
+			'model_id'                 => sanitize_text_field( (string) ( $settings['public_chat_model_id'] ?? '' ) ),
+			'agent_id'                 => absint( $settings['public_chat_agent_id'] ?? 0 ),
+			'collections'              => $collections,
+			'abilities'                => $allowed,
+			'iterations'               => max( 1, min( 8, (int) ( $settings['public_chat_max_iterations'] ?? 4 ) ) ),
+			'message_length'           => max( 1, min( 8000, (int) ( $settings['public_chat_message_max_length'] ?? 2000 ) ) ),
+			'rate_limit'               => max( 1, min( 60, (int) ( $settings['public_chat_rate_limit_per_min'] ?? 10 ) ) ),
+			'review_recording_enabled' => (bool) ( $settings['public_chat_review_recording_enabled'] ?? false ),
+			'review_retention_days'    => $review_retention_days,
+			'review_disclosure'        => $review_disclosure,
 		);
 	}
 
@@ -2360,15 +2386,36 @@ final class SessionController {
 		if ( true !== $available ) {
 			return $available;
 		}
-		$config = $this->get_public_chat_settings();
-		$origin = $this->get_public_chat_request_origin( $request );
+		$config            = $this->get_public_chat_settings();
+		$origin            = $this->get_public_chat_request_origin( $request );
+		$consent           = $request->get_param( 'recording_consent' );
+		$recording_consent = true === $consent || 1 === $consent || '1' === $consent || 'true' === $consent;
 
 		$session_uuid = wp_generate_uuid4();
 		$token        = $this->create_public_chat_token( $session_uuid );
+		$review_id    = '';
+		if ( ! empty( $config['review_recording_enabled'] ) && $recording_consent ) {
+			$candidate_review_id = wp_generate_uuid4();
+			$review_expires_at   = gmdate( 'Y-m-d H:i:s', time() + ( DAY_IN_SECONDS * (int) $config['review_retention_days'] ) );
+			try {
+				if ( CustomerConversationReviewRepository::create_public_review(
+					$candidate_review_id,
+					(int) $config['agent_id'],
+					(string) $config['provider_id'],
+					(string) $config['model_id'],
+					$review_expires_at
+				) ) {
+					$review_id = $candidate_review_id;
+				}
+			} catch ( \Throwable $exception ) {
+				// Review recording is deliberately fail-open for the public chat flow.
+			}
+		}
 		set_transient(
 			$this->public_chat_session_key( $session_uuid ),
 			array(
 				'history'    => array(),
+				'review_id'  => $review_id,
 				'created_at' => time(),
 			),
 			self::PUBLIC_CHAT_SESSION_TTL
@@ -2424,11 +2471,14 @@ final class SessionController {
 		$job_id    = wp_generate_uuid4();
 		$job_token = wp_generate_password( 40, false );
 		$history   = isset( $session['history'] ) && is_array( $session['history'] ) ? $session['history'] : array();
+		$review_id = isset( $session['review_id'] ) && is_string( $session['review_id'] ) ? $session['review_id'] : '';
 
 		$job = array(
+			'job_id'              => $job_id,
 			'public_chat'         => true,
 			'public_session_uuid' => $session_uuid,
 			'public_token_hash'   => hash( 'sha256', $token ),
+			'public_review_id'    => $review_id,
 			'status'              => 'processing',
 			'token'               => $job_token,
 			'user_id'             => 0,
@@ -2452,6 +2502,16 @@ final class SessionController {
 				'anonymous_allowed_collections' => $config['collections'],
 				'anonymous_policy_active'       => true,
 			),
+		);
+		$this->record_public_chat_review_turn(
+			$job,
+			'user',
+			$message,
+			'processing',
+			array(
+				'provider_id' => (string) $config['provider_id'],
+				'model_id'    => (string) $config['model_id'],
+			)
 		);
 
 		set_transient( RestController::JOB_PREFIX . $job_id, $job, RestController::JOB_TTL );
@@ -2533,6 +2593,71 @@ final class SessionController {
 		}
 
 		return $this->add_public_chat_cors( new WP_REST_Response( $response, 200 ), $origin, $config['origins'] );
+	}
+
+	/**
+	 * Persist one already-safe public-chat turn without exposing the review ID.
+	 *
+	 * The job and metadata contain only server-side public-chat state and safe
+	 * provider/model/usage fields.
+	 *
+	 * @param array<string,mixed> $job      Public transient job.
+	 * @param string              $role     Safe speaker role.
+	 * @param string              $content  Safe turn content.
+	 * @param string              $status   Public turn status.
+	 * @param array<string,mixed> $metadata Safe provider, model, and usage fields.
+	 */
+	private function record_public_chat_review_turn( array $job, string $role, string $content, string $status, array $metadata = array() ): void {
+		if ( ! $this->public_chat_review_recording_enabled() ) {
+			return;
+		}
+
+		$review_id = isset( $job['public_review_id'] ) && is_string( $job['public_review_id'] ) ? $job['public_review_id'] : '';
+		$job_id    = isset( $job['job_id'] ) && is_string( $job['job_id'] ) ? $job['job_id'] : '';
+		if ( '' === $review_id || '' === $job_id ) {
+			return;
+		}
+
+		try {
+			CustomerConversationReviewRepository::append_public_turn( $review_id, $job_id, $role, $content, $status, $metadata );
+		} catch ( \Throwable $exception ) {
+			// Review persistence remains non-blocking for anonymous customer traffic.
+		}
+	}
+
+	/**
+	 * Persist a scrubbed public-chat terminal state without error detail.
+	 *
+	 * @param array<string,mixed> $job Public transient job.
+	 */
+	private function record_public_chat_review_status( array $job, string $status, string $error_code = '' ): void {
+		if ( ! $this->public_chat_review_recording_enabled() ) {
+			return;
+		}
+
+		$review_id = isset( $job['public_review_id'] ) && is_string( $job['public_review_id'] ) ? $job['public_review_id'] : '';
+		$job_id    = isset( $job['job_id'] ) && is_string( $job['job_id'] ) ? $job['job_id'] : '';
+		if ( '' === $review_id || '' === $job_id ) {
+			return;
+		}
+
+		try {
+			CustomerConversationReviewRepository::update_public_review_status(
+				$review_id,
+				$job_id,
+				$status,
+				array( 'error_code' => $error_code )
+			);
+		} catch ( \Throwable $exception ) {
+			// Review persistence remains non-blocking for anonymous customer traffic.
+		}
+	}
+
+	/** Stop new anonymous review writes as soon as site recording is disabled. */
+	private function public_chat_review_recording_enabled(): bool {
+		$config = $this->get_public_chat_settings();
+
+		return ! empty( $config['review_recording_enabled'] );
 	}
 
 	/** Public chat system instruction. */
@@ -3634,6 +3759,7 @@ final class SessionController {
 					'model_id'        => (string) ( $options['model_id'] ?? $params['model_id'] ?? '' ),
 				)
 			);
+			$this->record_public_chat_review_status( $job, 'failed', (string) $diagnostic['reason'] );
 
 			if ( $session_id && ! $is_durable_plan_phase ) {
 				$recovery_error = new WP_Error(
@@ -3686,12 +3812,13 @@ final class SessionController {
 			if ( '' === $failure_data['model_id'] ) {
 				$failure_data['model_id'] = (string) ( $options['model_id'] ?? $params['model_id'] ?? '' );
 			}
-			$diagnostic        = $this->persist_active_job_failure(
+			$diagnostic = $this->persist_active_job_failure(
 				$job_id,
 				$job,
 				ActiveJobFailureDiagnostic::reason_from_error( $result, $failure_data['provider_id'] ),
 				$failure_data
 			);
+			$this->record_public_chat_review_status( $job, 'failed', (string) $diagnostic['reason'] );
 			$job['tool_calls'] = $error_data['tool_calls'] ?? ( $job['tool_calls'] ?? array() );
 			$job['messages']   = $error_data['messages'] ?? ( $job['messages'] ?? array() );
 			$payload_recovery  = $this->normalize_payload_recovery( $error_data['recovery'] ?? null, $session_id );
@@ -3803,14 +3930,31 @@ final class SessionController {
 			$job['result'] = $result;
 
 			if ( ! empty( $job['public_chat'] ) && ! empty( $job['public_session_uuid'] ) ) {
-				$public_history = isset( $result['history'] ) && is_array( $result['history'] ) ? $result['history'] : array();
+				$public_history               = isset( $result['history'] ) && is_array( $result['history'] ) ? $result['history'] : array();
+				$public_session               = get_transient( $this->public_chat_session_key( (string) $job['public_session_uuid'] ) );
+				$public_session               = is_array( $public_session ) ? $public_session : array();
+				$public_session['history']    = $public_history;
+				$public_session['updated_at'] = time();
 				set_transient(
 					$this->public_chat_session_key( (string) $job['public_session_uuid'] ),
-					array(
-						'history'    => $public_history,
-						'updated_at' => time(),
-					),
+					$public_session,
 					self::PUBLIC_CHAT_SESSION_TTL
+				);
+				$token_usage = isset( $result['token_usage'] ) && is_array( $result['token_usage'] ) ? $result['token_usage'] : array();
+				$handoff     = isset( $result['handoff'] ) && is_array( $result['handoff'] ) ? $result['handoff'] : array();
+				$this->record_public_chat_review_turn(
+					$job,
+					'assistant',
+					(string) ( $result['reply'] ?? '' ),
+					'complete',
+					array(
+						'provider_id'       => (string) ( $options['provider_id'] ?? $params['provider_id'] ?? '' ),
+						'model_id'          => (string) ( $options['model_id'] ?? $params['model_id'] ?? '' ),
+						'iterations_used'   => (int) ( $result['iterations_used'] ?? 0 ),
+						'prompt_tokens'     => (int) ( $token_usage['prompt'] ?? 0 ),
+						'completion_tokens' => (int) ( $token_usage['completion'] ?? 0 ),
+						'handoff_intent'    => (string) ( $handoff['intent'] ?? '' ),
+					)
 				);
 			}
 

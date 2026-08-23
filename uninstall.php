@@ -37,6 +37,8 @@ $sd_ai_agent_tables = [
 	$wpdb->prefix . 'sd_ai_agent_benchmark_runs',
 	$wpdb->prefix . 'sd_ai_agent_benchmark_results',
 	$wpdb->prefix . 'sd_ai_agent_skill_usage',
+	$wpdb->prefix . 'sd_ai_agent_customer_conversation_reviews',
+	$wpdb->prefix . 'sd_ai_agent_customer_conversation_review_turns',
 ];
 
 foreach ( $sd_ai_agent_tables as $sd_ai_agent_table ) {
@@ -81,6 +83,7 @@ $sd_ai_agent_cron_hooks = [
 	'sd_ai_agent_run_event_automation',
 	'sd_ai_agent_site_scan',
 	'sd_ai_agent_reindex',
+	'sd_ai_agent_customer_conversation_review_cleanup',
 ];
 
 foreach ( $sd_ai_agent_cron_hooks as $sd_ai_agent_hook ) {

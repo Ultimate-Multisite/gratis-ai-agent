@@ -1,0 +1,136 @@
+.sd-ai-agent-customer-conversations {
+	max-width: 1280px;
+}
+
+.sd-ai-agent-customer-conversations__header,
+.sd-ai-agent-customer-conversations__detail-header,
+.sd-ai-agent-customer-conversations__pagination {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 12px;
+}
+
+.sd-ai-agent-customer-conversations__header {
+	margin-bottom: 16px;
+}
+
+.sd-ai-agent-customer-conversations__header p,
+.sd-ai-agent-customer-conversations__detail > p {
+	max-width: 760px;
+	margin: 8px 0 0;
+	color: #50575e;
+}
+
+.sd-ai-agent-customer-conversations__filters {
+	display: grid;
+	grid-template-columns: repeat( auto-fit, minmax( 150px, 1fr ) );
+	align-items: end;
+	gap: 12px;
+	padding: 16px;
+	border: 1px solid #dcdcde;
+	background: #f6f7f7;
+}
+
+.sd-ai-agent-customer-conversations__filters .components-base-control {
+	margin-bottom: 0;
+}
+
+.sd-ai-agent-customer-conversations__layout {
+	display: grid;
+	grid-template-columns: minmax( 0, 2fr ) minmax( 300px, 1fr );
+	gap: 16px;
+	margin-top: 16px;
+}
+
+.sd-ai-agent-customer-conversations__list-meta {
+	margin-bottom: 8px;
+	color: #50575e;
+	font-size: 12px;
+}
+
+.sd-ai-agent-customer-conversations__table-wrap {
+	overflow-x: auto;
+	border: 1px solid #dcdcde;
+}
+
+.sd-ai-agent-customer-conversations__table-wrap td {
+	vertical-align: middle;
+}
+
+.sd-ai-agent-customer-conversations__table-wrap td:nth-child( 3 ) {
+	min-width: 220px;
+	overflow-wrap: anywhere;
+}
+
+.sd-ai-agent-customer-conversations__loading,
+.sd-ai-agent-customer-conversations__empty,
+.sd-ai-agent-customer-conversations__detail {
+	padding: 16px;
+	border: 1px solid #dcdcde;
+	background: #fff;
+}
+
+.sd-ai-agent-customer-conversations__pagination {
+	justify-content: flex-end;
+	margin-top: 12px;
+}
+
+.sd-ai-agent-customer-conversations__detail {
+	min-height: 240px;
+}
+
+.sd-ai-agent-customer-conversations__detail-header {
+	margin-bottom: 12px;
+	padding-bottom: 12px;
+	border-bottom: 1px solid #dcdcde;
+}
+
+.sd-ai-agent-customer-conversations__detail-header span {
+	display: block;
+	margin-top: 4px;
+	color: #50575e;
+	font-size: 12px;
+}
+
+.sd-ai-agent-customer-conversations__transcript {
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+	margin: 12px 0;
+}
+
+.sd-ai-agent-customer-conversations__turn {
+	padding: 10px 12px;
+	border: 1px solid #dcdcde;
+	border-radius: 8px;
+	overflow-wrap: anywhere;
+}
+
+.sd-ai-agent-customer-conversations__turn--user {
+	border-color: #c5d9ed;
+	background: #f0f6fc;
+}
+
+.sd-ai-agent-customer-conversations__turn p {
+	margin: 6px 0 0;
+	white-space: pre-wrap;
+}
+
+@media (max-width: 900px) {
+	.sd-ai-agent-customer-conversations__layout {
+		grid-template-columns: 1fr;
+	}
+}
+
+@media (max-width: 600px) {
+	.sd-ai-agent-customer-conversations__header {
+		align-items: flex-start;
+		flex-direction: column;
+	}
+
+	.sd-ai-agent-customer-conversations__header .components-button {
+		width: 100%;
+		justify-content: center;
+	}
+}

@@ -97,6 +97,11 @@ Never set a custom font family. The plugin must feel native to the admin environ
 ### General rule
 Use `@wordpress/components` for every interactive element. Do not reach for raw `<button>` or `<input>` elements unless unavoidable (e.g. hidden file inputs). Using WordPress components ensures keyboard accessibility, focus management, and visual consistency come for free.
 
+### Privacy review screens
+- Use a compact filterable summary list with an explicit detail selection; never place transcript text, profile identifiers, tokens, hashes, tool data, or raw provider payloads in list rows.
+- Keep transcript detail text-only, bounded, and visibly separate from its summary. Use pagination to load earlier retained messages instead of rendering an unbounded conversation at once.
+- Deletion and purge controls are destructive secondary buttons. Require a native confirmation dialog or WordPress modal before calling the API, and clearly state that retained content cannot be restored.
+
 ### Buttons
 
 **Primary action** (send, save, confirm):

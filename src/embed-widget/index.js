@@ -503,7 +503,13 @@ export function createPublicClient( config ) {
 
 	return {
 		config: () => request( '/public-chat/config', { method: 'GET' } ),
-		session: () => request( '/public-chat/session', { method: 'POST' } ),
+		session: ( recordingConsent = false ) =>
+			request( '/public-chat/session', {
+				method: 'POST',
+				body: JSON.stringify( {
+					recording_consent: recordingConsent,
+				} ),
+			} ),
 		send: ( message, sessionToken ) =>
 			request( '/public-chat/run', {
 				method: 'POST',
@@ -562,7 +568,10 @@ export function mountEmbed( config ) {
 	const messages = root.querySelector( '.sdaa-embed__messages' );
 	const form = root.querySelector( '.sdaa-embed__form' );
 	const input = root.querySelector( '.sdaa-embed__input' );
+	const sendButton = form.querySelector( '.sdaa-embed__send' );
 	let sessionToken = '';
+	input.disabled = true;
+	sendButton.disabled = true;
 
 	const autosizeInput = () => {
 		input.style.height = 'auto';
@@ -588,14 +597,82 @@ export function mountEmbed( config ) {
 		return item;
 	};
 
-	addMessage( 'assistant', config.greeting );
 	autosizeInput();
 
 	const setUnavailable = ( message = STRINGS.unavailable ) => {
 		root.classList.add( 'is-unavailable' );
 		input.disabled = true;
-		form.querySelector( 'button' ).disabled = true;
+		sendButton.disabled = true;
 		addMessage( 'system', message );
+	};
+
+	const startSession = async ( recordingConsent, choice ) => {
+		try {
+			const session = await client.session( recordingConsent );
+			sessionToken = session?.token || '';
+			if ( ! sessionToken ) {
+				setUnavailable();
+				return;
+			}
+
+			choice?.remove();
+			input.disabled = false;
+			sendButton.disabled = false;
+			addMessage( 'assistant', config.greeting );
+			if ( ! panel.hidden ) {
+				input.focus();
+			}
+		} catch {
+			setUnavailable();
+		}
+	};
+
+	const addRecordingChoice = ( recording ) => {
+		const choice = document.createElement( 'section' );
+		choice.className = 'sdaa-embed__recording-choice';
+		choice.setAttribute( 'aria-label', 'Conversation recording choice' );
+
+		const disclosure = document.createElement( 'p' );
+		disclosure.textContent =
+			typeof recording?.disclosure === 'string' && recording.disclosure
+				? recording.disclosure
+				: 'You can choose whether this conversation is retained for quality review.';
+		choice.appendChild( disclosure );
+
+		const note = document.createElement( 'p' );
+		note.className = 'sdaa-embed__recording-choice-note';
+		note.textContent =
+			'Choose an option before starting. Starting without recording keeps this chat out of administrator review.';
+		choice.appendChild( note );
+
+		const actions = document.createElement( 'div' );
+		actions.className = 'sdaa-embed__recording-actions';
+		const startWithoutRecording = document.createElement( 'button' );
+		startWithoutRecording.type = 'button';
+		startWithoutRecording.className = 'sdaa-embed__recording-decline';
+		startWithoutRecording.dataset.recordingConsent = 'false';
+		startWithoutRecording.textContent = 'Start without recording';
+		const agreeAndStart = document.createElement( 'button' );
+		agreeAndStart.type = 'button';
+		agreeAndStart.className = 'sdaa-embed__recording-accept';
+		agreeAndStart.dataset.recordingConsent = 'true';
+		agreeAndStart.textContent = 'Agree and start chat';
+		actions.append( startWithoutRecording, agreeAndStart );
+		choice.appendChild( actions );
+		messages.appendChild( choice );
+		messages.scrollTop = messages.scrollHeight;
+
+		const chooseRecording = ( recordingConsent ) => {
+			startWithoutRecording.disabled = true;
+			agreeAndStart.disabled = true;
+			startSession( recordingConsent, choice );
+		};
+		startWithoutRecording.addEventListener( 'click', () =>
+			chooseRecording( false )
+		);
+		agreeAndStart.addEventListener( 'click', () =>
+			chooseRecording( true )
+		);
 	};
 
 	client
@@ -606,12 +683,12 @@ export function mountEmbed( config ) {
 				return;
 			}
 
-			return client.session().then( ( session ) => {
-				sessionToken = session?.token || '';
-				if ( ! sessionToken ) {
-					setUnavailable();
-				}
-			} );
+			if ( serverConfig?.recording?.enabled ) {
+				addRecordingChoice( serverConfig.recording );
+				return;
+			}
+
+			return startSession( false );
 		} )
 		.catch( () => setUnavailable() );
 

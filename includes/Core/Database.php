@@ -23,6 +23,7 @@ namespace SdAiAgent\Core;
 
 use SdAiAgent\Knowledge\KnowledgeDatabase;
 use SdAiAgent\Models\Agent;
+use SdAiAgent\Models\CustomerConversationReviewRepository;
 use SdAiAgent\Models\ConversationTemplate;
 use SdAiAgent\Models\ProviderTrace;
 use SdAiAgent\Models\Skill;
@@ -35,8 +36,9 @@ use SdAiAgent\Tools\CustomTools;
 
 class Database {
 
-	const DB_VERSION_OPTION = 'sd_ai_agent_db_version';
-	const DB_VERSION        = '19.9.2';
+	const DB_VERSION_OPTION                         = 'sd_ai_agent_db_version';
+	const DB_VERSION                                = '19.10.0';
+	const CUSTOMER_CONVERSATION_REVIEW_CLEANUP_HOOK = 'sd_ai_agent_customer_conversation_review_cleanup';
 
 	// ─── Table Name Registry ──────────────────────────────────────────────────
 
@@ -271,6 +273,24 @@ class Database {
 	}
 
 	/**
+	 * Get the privacy-safe customer conversation review projection table name.
+	 */
+	public static function customer_conversation_reviews_table_name(): string {
+		global $wpdb;
+		/** @var \wpdb $wpdb */
+		return $wpdb->prefix . 'sd_ai_agent_customer_conversation_reviews';
+	}
+
+	/**
+	 * Get the privacy-safe customer conversation review turns table name.
+	 */
+	public static function customer_conversation_review_turns_table_name(): string {
+		global $wpdb;
+		/** @var \wpdb $wpdb */
+		return $wpdb->prefix . 'sd_ai_agent_customer_conversation_review_turns';
+	}
+
+	/**
 	 * Get the skill usage table name.
 	 *
 	 * Tracks which skills are loaded per session/model and records
@@ -306,37 +326,40 @@ class Database {
 		$installed_version = get_option( self::DB_VERSION_OPTION );
 
 		if ( $installed_version === self::DB_VERSION ) {
+			self::ensure_customer_conversation_review_cleanup();
 			return;
 		}
 
-		$table                              = self::table_name();
-		$usage_table                        = self::usage_table_name();
-		$memories_table                     = self::memories_table_name();
-		$skills_table                       = self::skills_table_name();
-		$custom_tools_table                 = self::custom_tools_table_name();
-		$automations_table                  = self::automations_table_name();
-		$automation_logs_table              = self::automation_logs_table_name();
-		$approval_requests_table            = self::approval_requests_table_name();
-		$calendar_reminders_table           = self::calendar_reminders_table_name();
-		$event_automations_table            = self::event_automations_table_name();
-		$conversation_templates_table       = self::conversation_templates_table_name();
-		$git_tracked_files_table            = self::git_tracked_files_table_name();
-		$changes_log_table                  = self::changes_log_table_name();
-		$modified_files_table               = self::modified_files_table_name();
-		$agents_table                       = self::agents_table_name();
-		$shared_sessions_table              = self::shared_sessions_table_name();
-		$benchmark_runs_table               = self::benchmark_runs_table_name();
-		$benchmark_results_table            = self::benchmark_results_table_name();
-		$provider_trace_table               = self::provider_trace_table_name();
-		$generated_plugins_table            = self::generated_plugins_table_name();
-		$active_jobs_table                  = self::active_jobs_table_name();
-		$durable_plans_table                = self::durable_plans_table_name();
-		$durable_plan_steps_table           = self::durable_plan_steps_table_name();
-		$customer_agent_conversations_table = self::customer_agent_conversations_table_name();
-		$customer_agent_jobs_table          = self::customer_agent_jobs_table_name();
-		$skill_usage_table                  = self::skill_usage_table_name();
-		$contact_mappings_table             = self::contact_mappings_table_name();
-		$charset                            = $wpdb->get_charset_collate();
+		$table                                    = self::table_name();
+		$usage_table                              = self::usage_table_name();
+		$memories_table                           = self::memories_table_name();
+		$skills_table                             = self::skills_table_name();
+		$custom_tools_table                       = self::custom_tools_table_name();
+		$automations_table                        = self::automations_table_name();
+		$automation_logs_table                    = self::automation_logs_table_name();
+		$approval_requests_table                  = self::approval_requests_table_name();
+		$calendar_reminders_table                 = self::calendar_reminders_table_name();
+		$event_automations_table                  = self::event_automations_table_name();
+		$conversation_templates_table             = self::conversation_templates_table_name();
+		$git_tracked_files_table                  = self::git_tracked_files_table_name();
+		$changes_log_table                        = self::changes_log_table_name();
+		$modified_files_table                     = self::modified_files_table_name();
+		$agents_table                             = self::agents_table_name();
+		$shared_sessions_table                    = self::shared_sessions_table_name();
+		$benchmark_runs_table                     = self::benchmark_runs_table_name();
+		$benchmark_results_table                  = self::benchmark_results_table_name();
+		$provider_trace_table                     = self::provider_trace_table_name();
+		$generated_plugins_table                  = self::generated_plugins_table_name();
+		$active_jobs_table                        = self::active_jobs_table_name();
+		$durable_plans_table                      = self::durable_plans_table_name();
+		$durable_plan_steps_table                 = self::durable_plan_steps_table_name();
+		$customer_agent_conversations_table       = self::customer_agent_conversations_table_name();
+		$customer_agent_jobs_table                = self::customer_agent_jobs_table_name();
+		$customer_conversation_reviews_table      = self::customer_conversation_reviews_table_name();
+		$customer_conversation_review_turns_table = self::customer_conversation_review_turns_table_name();
+		$skill_usage_table                        = self::skill_usage_table_name();
+		$contact_mappings_table                   = self::contact_mappings_table_name();
+		$charset                                  = $wpdb->get_charset_collate();
 
 		// Knowledge tables.
 		$sql = KnowledgeDatabase::get_schema( $charset );
@@ -858,6 +881,54 @@ class Database {
 			KEY expires_at (expires_at)
 		) {$charset};
 
+		CREATE TABLE {$customer_conversation_reviews_table} (
+			id bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+			review_id varchar(36) NOT NULL,
+			runtime_conversation_id varchar(36) NULL,
+			source varchar(32) NOT NULL,
+			agent_id bigint(20) unsigned NOT NULL DEFAULT 0,
+			status varchar(30) NOT NULL DEFAULT 'queued',
+			summary varchar(500) NOT NULL DEFAULT '',
+			transcript longtext NOT NULL,
+			turn_count int(10) unsigned NOT NULL DEFAULT 0,
+			provider_id varchar(100) NOT NULL DEFAULT '',
+			model_id varchar(100) NOT NULL DEFAULT '',
+			iterations_used int(10) unsigned NOT NULL DEFAULT 0,
+			prompt_tokens bigint(20) unsigned NOT NULL DEFAULT 0,
+			completion_tokens bigint(20) unsigned NOT NULL DEFAULT 0,
+			handoff_intent varchar(50) NOT NULL DEFAULT '',
+			error_code varchar(100) NOT NULL DEFAULT '',
+			expires_at datetime NOT NULL,
+			created_at datetime NOT NULL,
+			updated_at datetime NOT NULL,
+			deleted_at datetime NULL,
+			PRIMARY KEY  (id),
+			UNIQUE KEY review_id (review_id),
+			UNIQUE KEY runtime_conversation_id (runtime_conversation_id),
+			KEY source_status_updated (source, status, updated_at),
+			KEY agent_updated (agent_id, updated_at),
+			KEY expires_at (expires_at),
+			KEY review_visible_updated (deleted_at, updated_at),
+			KEY review_visible_source_status_updated (deleted_at, source, status, updated_at),
+			KEY review_visible_created (deleted_at, created_at),
+			FULLTEXT KEY review_summary (summary)
+		) {$charset};
+
+		CREATE TABLE {$customer_conversation_review_turns_table} (
+			id bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+			review_id varchar(36) NOT NULL,
+			source_event_id varchar(64) NOT NULL,
+			role varchar(16) NOT NULL,
+			event_status varchar(30) NOT NULL DEFAULT 'queued',
+			content longtext NOT NULL,
+			created_at datetime NOT NULL,
+			updated_at datetime NOT NULL,
+			PRIMARY KEY  (id),
+			UNIQUE KEY review_event_role (review_id, source_event_id, role),
+			KEY review_created (review_id, created_at, id),
+			KEY review_event_status (review_id, event_status, created_at, id)
+		) {$charset};
+
 		CREATE TABLE {$skill_usage_table} (
 			id bigint(20) unsigned NOT NULL AUTO_INCREMENT,
 			skill_id bigint(20) unsigned NOT NULL,
@@ -894,6 +965,7 @@ class Database {
 
 		require_once ABSPATH . 'wp-admin/includes/upgrade.php';
 		dbDelta( $sql );
+		self::ensure_customer_conversation_review_summary_fulltext_index( $customer_conversation_reviews_table );
 
 		// This defence-in-depth index may be blocked by ambiguous historical
 		// duplicates. Fail soft so unrelated schema repairs, seeds, and the version
@@ -925,6 +997,37 @@ class Database {
 		Agent::seed_defaults();
 
 		update_option( self::DB_VERSION_OPTION, self::DB_VERSION, true );
+		self::ensure_customer_conversation_review_cleanup();
+	}
+
+	/** Schedule bounded cleanup and safe runtime backfill for review projections. */
+	private static function ensure_customer_conversation_review_cleanup(): void {
+		add_action( self::CUSTOMER_CONVERSATION_REVIEW_CLEANUP_HOOK, array( self::class, 'run_customer_conversation_review_cleanup' ) );
+
+		if ( ! wp_next_scheduled( self::CUSTOMER_CONVERSATION_REVIEW_CLEANUP_HOOK ) ) {
+			wp_schedule_event( time() + HOUR_IN_SECONDS, 'hourly', self::CUSTOMER_CONVERSATION_REVIEW_CLEANUP_HOOK );
+		}
+	}
+
+	/** Ensure the review-summary search index exists after dbDelta upgrades. */
+	private static function ensure_customer_conversation_review_summary_fulltext_index( string $table ): void {
+		global $wpdb;
+		/** @var \wpdb $wpdb */
+
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.InterpolatedNotPrepared, PluginCheck.Security.DirectDB.UnescapedDBParameter -- Internal schema introspection for the fixed review projection table.
+		$index_exists = $wpdb->get_var( "SHOW INDEX FROM {$table} WHERE Key_name = 'review_summary'" );
+		if ( null !== $index_exists ) {
+			return;
+		}
+
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.SchemaChange, WordPress.DB.PreparedSQL.InterpolatedNotPrepared, PluginCheck.Security.DirectDB.UnescapedDBParameter -- Adds the required full-text index to the fixed review projection table.
+		$wpdb->query( "ALTER TABLE {$table} ADD FULLTEXT KEY review_summary (summary)" );
+	}
+
+	/** Run one bounded, retry-safe review retention and backfill pass. */
+	public static function run_customer_conversation_review_cleanup(): void {
+		CustomerConversationReviewRepository::purge_expired_reviews();
+		CustomerConversationReviewRepository::reconcile_runtime_reviews();
 	}
 
 	/**
