@@ -252,6 +252,83 @@ class PostMutationHealthCheckTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * A cached URL returning 403 remains unreachable rather than broken.
+	 */
+	public function test_cached_health_url_rejecting_request_is_unreachable(): void {
+		set_transient( 'sd_ai_agent_health_url', 'https://example.test/health', HOUR_IN_SECONDS );
+
+		add_filter(
+			'pre_http_request',
+			function ( $preempt, $args ) {
+				$this->assertSame( 0, $args['redirection'] );
+				return [
+					'headers'       => [ 'content-type' => 'application/json' ],
+					'body'          => '{"code":"sd_ai_agent_health_forbidden"}',
+					'response'      => [ 'code' => 403 ],
+					'cookies'       => [],
+					'http_response' => null,
+				];
+			},
+			10,
+			2
+		);
+
+		$health_check = new PostMutationHealthCheck();
+		$this->assertSame( 'unreachable', $health_check->get_status() );
+	}
+
+	/**
+	 * Redirects cannot be followed or accepted even when their body has the token.
+	 */
+	public function test_redirect_with_success_token_is_unreachable(): void {
+		add_filter(
+			'pre_http_request',
+			function ( $preempt, $args ) {
+				$this->assertSame( 0, $args['redirection'] );
+				return [
+					'headers'       => [ 'location' => 'https://example.test/health' ],
+					'body'          => '{"success":true}',
+					'response'      => [ 'code' => 302 ],
+					'cookies'       => [],
+					'http_response' => null,
+				];
+			},
+			10,
+			2
+		);
+
+		$health_check = new PostMutationHealthCheck();
+		$this->assertSame( 'unreachable', $health_check->get_status() );
+		$this->assertFalse( get_transient( 'sd_ai_agent_health_url' ) );
+	}
+
+	/**
+	 * A server error remains broken even when its body contains the success token.
+	 */
+	public function test_server_error_with_success_token_is_broken(): void {
+		set_transient( 'sd_ai_agent_health_url', 'https://example.test/health', HOUR_IN_SECONDS );
+
+		add_filter(
+			'pre_http_request',
+			function ( $preempt, $args ) {
+				$this->assertSame( 0, $args['redirection'] );
+				return [
+					'headers'       => [ 'content-type' => 'application/json' ],
+					'body'          => '{"success":true}',
+					'response'      => [ 'code' => 500 ],
+					'cookies'       => [],
+					'http_response' => null,
+				];
+			},
+			10,
+			2
+		);
+
+		$health_check = new PostMutationHealthCheck();
+		$this->assertSame( 'broken', $health_check->get_status() );
+	}
+
+	/**
 	 * Test verify_or_revert() returns WP_Error when undo fails.
 	 */
 	public function test_verify_or_revert_includes_undo_error(): void {
