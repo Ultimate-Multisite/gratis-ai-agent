@@ -353,8 +353,8 @@ class GenerateImageAbility extends \SdAiAgent\Abilities\AbstractAbility {
 		// Bound both model discovery and generation for every SDK provider. This
 		// lets the agent continue with stock imagery or report the prerequisite
 		// instead of consuming the entire background-worker window.
-		$timeoutFilter = static fn (): int => self::IMAGE_REQUEST_TIMEOUT_SECONDS;
-		add_filter( 'wp_ai_client_default_request_timeout', $timeoutFilter, 999 );
+		$timeout_filter = static fn (): int => self::IMAGE_REQUEST_TIMEOUT_SECONDS;
+		add_filter( 'wp_ai_client_default_request_timeout', $timeout_filter, 999 );
 		try {
 			if ( ! self::is_image_generation_supported() ) {
 				return new WP_Error(
@@ -367,7 +367,7 @@ class GenerateImageAbility extends \SdAiAgent\Abilities\AbstractAbility {
 		} catch ( \Throwable $e ) {
 			return new WP_Error( 'generation_failed', 'Image generation failed. The image provider did not respond within the allowed time.' );
 		} finally {
-			remove_filter( 'wp_ai_client_default_request_timeout', $timeoutFilter, 999 );
+			remove_filter( 'wp_ai_client_default_request_timeout', $timeout_filter, 999 );
 		}
 
 		if ( is_wp_error( $file ) ) {
