@@ -261,6 +261,24 @@ class AgentThemeBuilderTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * First-run setup keeps image fallback bounded and preserves newly created pages.
+	 */
+	public function test_setup_assistant_system_prompt_bounds_fallback_and_preserves_pages(): void {
+		Agent::reset_defaults();
+
+		$agent = Agent::get_by_slug( Agent::ONBOARDING_AGENT_SLUG );
+		$this->assertNotNull( $agent );
+
+		foreach ( [
+			'two `stock-image` calls total and one `generate-image` call total',
+			'Never use the fetch-url or upload-media-from-url tools as an image-sourcing fallback',
+			'Never delete one of those posts',
+		] as $required ) {
+			$this->assertStringContainsString( $required, $agent->system_prompt );
+		}
+	}
+
+	/**
 	 * The unified Setup Assistant prompt is vertical-aware.
 	 */
 	public function test_setup_assistant_system_prompt_is_vertical_aware(): void {
