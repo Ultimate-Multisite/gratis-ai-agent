@@ -3794,6 +3794,8 @@ class AgentLoopTest extends WP_UnitTestCase {
 			$result['removed']
 		);
 		$this->assertStringContainsString( 'media budget is exhausted', $result['guidance'] );
+		$this->assertStringContainsString( 'stock-image (2 calls total)', $result['guidance'] );
+		$this->assertStringContainsString( 'generate-image (1 calls total)', $result['guidance'] );
 
 		$kept_names = array();
 		foreach ( $result['message']->getParts() as $part ) {
@@ -3836,6 +3838,98 @@ class AgentLoopTest extends WP_UnitTestCase {
 			'Media acquisition call blocked',
 			$fully_blocked_parts[0]->getText()
 		);
+		$this->assertStringContainsString( 'Continue without more image sourcing', $fully_blocked_result['guidance'] );
+
+		$stock_exhausted_loop   = new AgentLoop( 'Build a photographer site', array(), $history, array( 'agent_slug' => 'onboarding' ) );
+		$stock_exhausted_result = $method->invoke(
+			$stock_exhausted_loop,
+			new ModelMessage(
+				array(
+					new MessagePart( new FunctionCall( 'stock-five', 'wpab__sd-ai-agent__stock-image', array( 'keyword' => 'event' ) ) ),
+				)
+			)
+		);
+		$this->assertStringContainsString( 'stock-image (2 calls total)', $stock_exhausted_result['guidance'] );
+		$this->assertStringContainsString( 'generate-image (1 calls remaining)', $stock_exhausted_result['guidance'] );
+
+		$generate_exhausted_loop   = new AgentLoop( 'Build a photographer site', array(), $exhausted_history, array( 'agent_slug' => 'onboarding' ) );
+		$generate_exhausted_result = $method->invoke(
+			$generate_exhausted_loop,
+			new ModelMessage(
+				array(
+					new MessagePart( new FunctionCall( 'generate-four', 'wpab__sd-ai-agent__generate-image', array( 'prompt' => 'event' ) ) ),
+				)
+			)
+		);
+		$this->assertStringContainsString( 'generate-image (1 calls total)', $generate_exhausted_result['guidance'] );
+		$this->assertStringContainsString( 'stock-image (1 calls remaining)', $generate_exhausted_result['guidance'] );
+	}
+
+	/**
+	 * A final-turn media guard must not return the provider's tool-only response.
+	 */
+	public function test_onboarding_media_budget_returns_guidance_on_final_iteration(): void {
+		$this->skip_if_sdk_unavailable();
+
+		add_filter(
+			'pre_http_request',
+			static function ( $preempt, $args, $url ) {
+				if ( false === strpos( $url, 'fake-ai-proxy.test' ) ) {
+					return $preempt;
+				}
+
+				return array(
+					'headers'  => array( 'content-type' => 'application/json' ),
+					'body'     => (string) wp_json_encode(
+						array(
+							'id'      => 'chatcmpl-media-budget-final-turn',
+							'object'  => 'chat.completion',
+							'choices' => array(
+								array(
+									'index'         => 0,
+									'message'       => array(
+										'role'       => 'assistant',
+										'content'    => null,
+										'tool_calls' => array(
+											array(
+												'id'       => 'call_stock_blocked',
+												'type'     => 'function',
+												'function' => array(
+													'name'      => 'wpab__sd-ai-agent__stock-image',
+													'arguments' => '{"keyword":"portrait"}',
+												),
+											),
+										),
+									),
+									'finish_reason' => 'tool_calls',
+								),
+							),
+							'usage'   => array( 'prompt_tokens' => 5, 'completion_tokens' => 5, 'total_tokens' => 10 ),
+						)
+					),
+					'response' => array( 'code' => 200, 'message' => 'OK' ),
+					'cookies'  => array(),
+					'filename' => '',
+				);
+			},
+			10,
+			3
+		);
+
+		$history = array(
+			new ModelMessage(
+				array(
+					new MessagePart( new FunctionCall( 'stock-one', 'wpab__sd-ai-agent__stock-image', array( 'keyword' => 'wedding' ) ) ),
+					new MessagePart( new FunctionCall( 'stock-two', 'wpab__sd-ai-agent__stock-image', array( 'keyword' => 'family' ) ) ),
+				)
+			),
+		);
+		$loop    = new AgentLoop( 'Build a photographer site', array(), $history, array( 'agent_slug' => 'onboarding', 'max_iterations' => 1 ) );
+		$result  = $loop->run();
+
+		$this->assertIsArray( $result );
+		$this->assertNotSame( '', $result['reply'] );
+		$this->assertStringContainsString( 'stock-image (2 calls total)', $result['reply'] );
 	}
 
 	/**

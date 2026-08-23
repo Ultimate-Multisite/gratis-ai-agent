@@ -1948,10 +1948,14 @@ PROMPT;
 				$reply                 = '';
 				$this->last_loop_phase = 'final_response_received';
 
-				try {
-					$reply = $result->toText();
-				} catch ( \RuntimeException $e ) {
-					$reply = '';
+				if ( '' !== $media_budget['guidance'] ) {
+					$reply = $media_budget['guidance'];
+				} else {
+					try {
+						$reply = $result->toText();
+					} catch ( \RuntimeException $e ) {
+						$reply = '';
+					}
 				}
 
 				// If a prior create/update saved invalid block markup, do not let the
@@ -4155,9 +4159,44 @@ PROMPT;
 			)
 		);
 
+		$exhausted_abilities = array();
+		$available_abilities = array();
+		foreach ( $limits as $ability_name => $limit ) {
+			if ( $used[ $ability_name ] >= $limit ) {
+				$exhausted_abilities[] = sprintf(
+					/* translators: 1: media ability name, 2: total permitted calls. */
+					__( '%1$s (%2$d calls total)', 'superdav-ai-agent' ),
+					str_replace( 'sd-ai-agent/', '', $ability_name ),
+					$limit
+				);
+			} else {
+				$available_abilities[] = sprintf(
+					/* translators: 1: media ability name, 2: number of calls remaining. */
+					__( '%1$s (%2$d calls remaining)', 'superdav-ai-agent' ),
+					str_replace( 'sd-ai-agent/', '', $ability_name ),
+					$limit - $used[ $ability_name ]
+				);
+			}
+		}
+
+		$guidance             = sprintf(
+			/* translators: %s: comma-separated list of exhausted media abilities. */
+			__( 'The Setup Assistant media budget is exhausted for: %s.', 'superdav-ai-agent' ),
+			implode( ', ', $exhausted_abilities )
+		);
+		if ( ! empty( $available_abilities ) ) {
+			$guidance .= ' ' . sprintf(
+				/* translators: %s: comma-separated list of remaining media abilities. */
+				__( 'You may still use: %s. Do not use URL-fetch or upload fallbacks.', 'superdav-ai-agent' ),
+				implode( ', ', $available_abilities )
+			);
+		} else {
+			$guidance .= ' ' . __( 'Continue without more image sourcing and do not use URL-fetch or upload fallbacks. If required primary media is unavailable, report that blocker and do not publish a weak text-only homepage.', 'superdav-ai-agent' );
+		}
+
 		return array(
 			'message'  => new ModelMessage( $kept ),
-			'guidance' => __( 'The Setup Assistant media budget is exhausted: stock-image allows two calls total and generate-image allows one. Continue without more image sourcing and do not use URL-fetch or upload fallbacks. If required primary media is unavailable, report that blocker and do not publish a weak text-only homepage.', 'superdav-ai-agent' ),
+			'guidance' => $guidance,
 			'removed'  => $removed,
 		);
 	}
