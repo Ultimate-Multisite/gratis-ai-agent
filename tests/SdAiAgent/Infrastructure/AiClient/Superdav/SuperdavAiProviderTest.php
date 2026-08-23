@@ -35,6 +35,7 @@ use WordPress\AiClient\Providers\Http\DTO\Response;
 use WordPress\AiClient\Providers\Http\Enums\HttpMethodEnum;
 use WordPress\AiClient\Providers\Models\DTO\ModelConfig;
 use WordPress\AiClient\Providers\Models\DTO\ModelMetadata;
+use WordPress\AiClient\Providers\Models\DTO\ModelRequirements;
 use WordPress\AiClient\Providers\Models\DTO\SupportedOption;
 use WordPress\AiClient\Providers\Models\Enums\CapabilityEnum;
 use WordPress\AiClient\Tools\DTO\FunctionDeclaration;
@@ -345,6 +346,24 @@ final class SuperdavAiProviderTest extends WP_UnitTestCase {
 		$this->assertSame( 'example-model', $model->getId() );
 		$this->assertSame( 'Example Model', $model->getName() );
 		$this->assertContainsEquals( CapabilityEnum::textGeneration(), $model->getSupportedCapabilities() );
+
+		$input_modalities = array_values(
+			array_filter(
+				$model->getSupportedOptions(),
+				static fn( SupportedOption $option ): bool => 'inputModalities' === $option->getName()->value
+			)
+		);
+		$this->assertCount( 1, $input_modalities );
+		$this->assertTrue( $input_modalities[0]->isSupportedValue( array( ModalityEnum::text() ) ) );
+
+		$model_config = new ModelConfig();
+		$model_config->setSystemInstruction( 'Generate a WordPress plugin.' );
+		$requirements = ModelRequirements::fromPromptData(
+			CapabilityEnum::textGeneration(),
+			array( new UserMessage( array( new MessagePart( 'Create a shortcode plugin.' ) ) ) ),
+			$model_config
+		);
+		$this->assertTrue( $requirements->areMetBy( $model ) );
 
 		$entry = ModelCapabilityRegistry::get( 'example-model' );
 		$this->assertSame( 4096, $entry['max_output_tokens'] );
