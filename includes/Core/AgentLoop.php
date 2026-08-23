@@ -1937,21 +1937,28 @@ PROMPT;
 
 			// Check if the model wants to call tools.
 			if ( ! $this->message_has_function_calls( $assistant_message ) ) {
-				if ( '' !== $media_budget['guidance'] && $iterations > 0 ) {
-					$this->history[]       = new UserMessage( array( new MessagePart( $media_budget['guidance'] ) ) );
-					$this->last_loop_phase = 'onboarding_media_budget_guarded';
-					continue;
+				$guarded_terminal_reply = '';
+				if ( '' !== $media_budget['guidance'] ) {
+					if ( $iterations > 0 ) {
+						$this->history[]       = new UserMessage( array( new MessagePart( $media_budget['guidance'] ) ) );
+						$this->last_loop_phase = 'onboarding_media_budget_guarded';
+						continue;
+					}
+
+					$guarded_terminal_reply = $media_budget['guidance'];
 				}
 
 				// No tool calls — we're done.
 				$last_was_tool_call    = false;
-				$reply                 = '';
+				$reply                 = $guarded_terminal_reply;
 				$this->last_loop_phase = 'final_response_received';
 
-				try {
-					$reply = $result->toText();
-				} catch ( \RuntimeException $e ) {
-					$reply = '';
+				if ( '' === $reply ) {
+					try {
+						$reply = $result->toText();
+					} catch ( \RuntimeException $e ) {
+						$reply = '';
+					}
 				}
 
 				// If a prior create/update saved invalid block markup, do not let the
@@ -4155,9 +4162,19 @@ PROMPT;
 			)
 		);
 
+		$stock_remaining    = max( 0, $limits['sd-ai-agent/stock-image'] - $used['sd-ai-agent/stock-image'] );
+		$generate_remaining = max( 0, $limits['sd-ai-agent/generate-image'] - $used['sd-ai-agent/generate-image'] );
+		if ( 0 === $stock_remaining && 0 === $generate_remaining ) {
+			$guidance = __( 'The Setup Assistant media budget is exhausted: stock-image allows two calls total and generate-image allows one. Continue without more image sourcing and do not use URL-fetch or upload fallbacks. If required primary media is unavailable, report that blocker and do not publish a weak text-only homepage.', 'superdav-ai-agent' );
+		} elseif ( 0 === $stock_remaining ) {
+			$guidance = __( 'The Setup Assistant stock-image budget is exhausted after two calls. Do not call stock-image again or use URL-fetch or upload fallbacks. The generate-image fallback remains available for one call; use it only if required, then continue the build.', 'superdav-ai-agent' );
+		} else {
+			$guidance = __( 'The Setup Assistant generate-image budget is exhausted after one call. Do not call generate-image again or use URL-fetch or upload fallbacks. The remaining stock-image allowance may still be used, up to two calls total; otherwise continue without more image sourcing.', 'superdav-ai-agent' );
+		}
+
 		return array(
 			'message'  => new ModelMessage( $kept ),
-			'guidance' => __( 'The Setup Assistant media budget is exhausted: stock-image allows two calls total and generate-image allows one. Continue without more image sourcing and do not use URL-fetch or upload fallbacks. If required primary media is unavailable, report that blocker and do not publish a weak text-only homepage.', 'superdav-ai-agent' ),
+			'guidance' => $guidance,
 			'removed'  => $removed,
 		);
 	}

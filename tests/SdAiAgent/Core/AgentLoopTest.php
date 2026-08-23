@@ -3836,6 +3836,63 @@ class AgentLoopTest extends WP_UnitTestCase {
 			'Media acquisition call blocked',
 			$fully_blocked_parts[0]->getText()
 		);
+
+		$stock_only_result = $method->invoke(
+			$loop,
+			new ModelMessage(
+				array(
+					new MessagePart( new FunctionCall( 'stock-five', 'wpab__sd-ai-agent__stock-image', array( 'keyword' => 'studio' ) ) ),
+				)
+			)
+		);
+		$this->assertStringContainsString( 'generate-image fallback remains available', $stock_only_result['guidance'] );
+
+		$generation_history = array(
+			new ModelMessage(
+				array(
+					new MessagePart( new FunctionCall( 'generate-first', 'wpab__sd-ai-agent__generate-image', array( 'prompt' => 'studio' ) ) ),
+				)
+			),
+		);
+		$generation_loop    = new AgentLoop( 'Build a photographer site', array(), $generation_history, array( 'agent_slug' => 'onboarding' ) );
+		$generation_result  = $method->invoke(
+			$generation_loop,
+			new ModelMessage(
+				array(
+					new MessagePart( new FunctionCall( 'generate-fourth', 'wpab__sd-ai-agent__generate-image', array( 'prompt' => 'event' ) ) ),
+				)
+			)
+		);
+		$this->assertStringContainsString( 'remaining stock-image allowance', $generation_result['guidance'] );
+
+		$terminal_history = array(
+			new UserMessage( array( new MessagePart( 'Earlier media work.' ) ) ),
+			new ModelMessage( array( new MessagePart( new FunctionCall( 'prior-stock-one', 'wpab__sd-ai-agent__stock-image', array() ) ) ) ),
+			new UserMessage( array( new MessagePart( new FunctionResponse( 'prior-stock-one', 'wpab__sd-ai-agent__stock-image', array( 'ok' => true ) ) ) ) ),
+			new ModelMessage( array( new MessagePart( new FunctionCall( 'prior-stock-two', 'wpab__sd-ai-agent__stock-image', array() ) ) ) ),
+			new UserMessage( array( new MessagePart( new FunctionResponse( 'prior-stock-two', 'wpab__sd-ai-agent__stock-image', array( 'ok' => true ) ) ) ) ),
+			new ModelMessage( array( new MessagePart( new FunctionCall( 'prior-generate', 'wpab__sd-ai-agent__generate-image', array() ) ) ) ),
+			new UserMessage( array( new MessagePart( new FunctionResponse( 'prior-generate', 'wpab__sd-ai-agent__generate-image', array( 'ok' => true ) ) ) ) ),
+		);
+		$terminal_loop = new ScriptedAgentLoop(
+			'Finish the photographer site',
+			array(),
+			$terminal_history,
+			array(
+				'agent_slug'    => 'onboarding',
+				'max_iterations' => 1,
+			),
+			array(
+				$this->create_scripted_result(
+					'',
+					new FunctionCall( 'stock-final', 'wpab__sd-ai-agent__stock-image', array( 'keyword' => 'final' ) )
+				),
+			)
+		);
+		$terminal_result = $terminal_loop->run();
+
+		$this->assertIsArray( $terminal_result );
+		$this->assertStringContainsString( 'media budget is exhausted', $terminal_result['reply'] );
 	}
 
 	/**
