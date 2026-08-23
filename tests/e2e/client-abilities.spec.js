@@ -229,14 +229,22 @@ async function createDraftAndOpenEditor( page ) {
 
 	await page.goto( `/wp-admin/post.php?post=${ postId }&action=edit` );
 	await page.waitForLoadState( 'domcontentloaded' );
-	await page
-		.locator( '.block-editor-writing-flow, .editor-styles-wrapper' )
-		.first()
-		.waitFor( { state: 'visible', timeout: 60_000 } );
+	// The editor canvas can remain visually hidden while Gutenberg finishes
+	// loading on shared CI runners. The reflection tests need its data stores,
+	// not a visible canvas, so wait for those real runtime dependencies instead.
 	await page.waitForFunction(
-		() => typeof window.sdAiAgentReflection?.emit === 'function',
+		() => {
+			const editor = wp.data?.select?.( 'core/editor' );
+			const blockEditor = wp.data?.select?.( 'core/block-editor' );
+			return (
+				typeof editor?.getCurrentPostId === 'function' &&
+				typeof editor?.isEditedPostDirty === 'function' &&
+				typeof blockEditor?.getBlocks === 'function' &&
+				typeof window.sdAiAgentReflection?.emit === 'function'
+			);
+		},
 		null,
-		{ timeout: 30_000 }
+		{ timeout: 90_000 }
 	);
 
 	return postId;
@@ -548,6 +556,73 @@ test.describe( 'client-abilities — server post reflection', () => {
 			markup,
 			{ timeout: 15_000 }
 		);
+	} );
+
+	test( 'keeps successive server mutations reflected and the editor clean', async ( {
+		page,
+	} ) => {
+		const postId = await createDraftAndOpenEditor( page );
+		const revisions = [
+			{
+				tool: 'sd-ai-agent/update-post',
+				markup:
+					'<!-- wp:heading -->\n<h2>Updated heading.</h2>\n<!-- /wp:heading -->',
+			},
+			{
+				tool: 'sd-ai-agent/edit-block-tree',
+				markup:
+					'<!-- wp:list -->\n<ul class="wp-block-list"><li>Updated nested item.</li></ul>\n<!-- /wp:list -->',
+			},
+			{
+				tool: 'sd-ai-agent/append-post-content',
+				markup:
+					'<!-- wp:paragraph -->\n<p>Appended server paragraph.</p>\n<!-- /wp:paragraph -->',
+			},
+		];
+
+		for ( const revision of revisions ) {
+			await page.evaluate(
+				async ( { currentPostId, serverMarkup, tool } ) => {
+					await wp.apiFetch( {
+						path: `/wp/v2/posts/${ currentPostId }`,
+						method: 'POST',
+						data: { content: serverMarkup },
+					} );
+					window.sdAiAgentReflection.emit( {
+						type: 'tool-applied',
+						tool,
+						affected: {
+							kind: 'post',
+							post_id: currentPostId,
+							fields: [ 'post_content' ],
+						},
+					} );
+				},
+				{
+					currentPostId: postId,
+					serverMarkup: revision.markup,
+					tool: revision.tool,
+				}
+			);
+
+			await page.waitForFunction(
+				( serverMarkup ) => {
+					const editor = wp.data.select( 'core/editor' );
+					const blocks = wp.data
+						.select( 'core/block-editor' )
+						.getBlocks();
+					const normalizedMarkup = wp.blocks.serialize(
+						wp.blocks.parse( serverMarkup )
+					);
+					return (
+						wp.blocks.serialize( blocks ) === normalizedMarkup &&
+						editor.isEditedPostDirty() === false
+					);
+				},
+				revision.markup,
+				{ timeout: 15_000 }
+			);
+		}
 	} );
 
 	test( 'preserves a dirty local editor after a server mutation event', async ( {

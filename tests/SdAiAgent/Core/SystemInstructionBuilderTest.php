@@ -110,6 +110,34 @@ class SystemInstructionBuilderTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * Advanced capability questions must be answered from the active manifest.
+	 *
+	 * Regression: issue #2540 — a direct plugin-generation capability question
+	 * triggered unrelated site-inspection tools instead of a status answer.
+	 */
+	public function test_advanced_companion_section_answers_plugin_generation_status_from_manifest(): void {
+		$section = SystemInstructionBuilder::build_advanced_companion_section();
+
+		$this->assertStringContainsString( 'read-only capability-status questions', $section );
+		$this->assertStringContainsString( 'without calling site-inspection tools', $section );
+		$this->assertStringContainsString( 'list-options, list-posts, or get-plugins', $section );
+		$this->assertStringContainsString( '`sd-ai-agent/generate-plugin` appears', $section );
+		$this->assertStringContainsString( 'plugin generation is available', $section );
+		$this->assertStringContainsString( 'plugin generation is not currently available', $section );
+		$this->assertStringContainsString( 'Do not infer availability from installed plugin files', $section );
+	}
+
+	/** The assembled prompt must include the capability-status decision rule. */
+	public function test_build_includes_advanced_capability_status_guidance(): void {
+		$instruction = ( new SystemInstructionBuilder() )->build( array() );
+
+		$this->assertStringContainsString( '“Is Advanced enabled?”', $instruction );
+		$this->assertStringContainsString( '“Can you generate plugins?”', $instruction );
+		$this->assertStringContainsString( '`sd-ai-agent/generate-plugin`', $instruction );
+		$this->assertStringContainsString( 'requires SD AI Agent Advanced', $instruction );
+	}
+
+	/**
 	 * Frontend widget sessions include live-preview affected/refresh guidance.
 	 */
 	public function test_build_includes_frontend_live_preview_guidance(): void {
