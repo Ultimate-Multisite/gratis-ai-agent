@@ -483,6 +483,8 @@ class StockImageAbilityTest extends WP_UnitTestCase {
 		$this->assertArrayHasKey( 'error', $result );
 		$this->assertFalse( $result['success'] );
 		$this->assertSame( 0, $result['attachment_id'] );
+		$this->assertStringContainsString( 'Openverse', $result['error'] );
+		$this->assertStringContainsString( 'Pixabay API key', $result['error'] );
 	}
 
 	/**

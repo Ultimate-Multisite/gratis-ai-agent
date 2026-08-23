@@ -44,16 +44,12 @@ class GenerateImageAbility extends \SdAiAgent\Abilities\AbstractAbility {
 	/**
 	 * Register this ability.
 	 *
-	 * Only registers when an image-capable AI provider is actually configured.
-	 * Without one, exposing the ability would mislead the model into calling a
-	 * tool that can only return an error.
+	 * The ability remains discoverable when no image-capable provider is
+	 * configured. This lets the agent call it and receive the actionable setup
+	 * error instead of silently omitting image generation from the tool catalog.
 	 */
 	public static function register(): void {
 		if ( ! function_exists( 'wp_register_ability' ) ) {
-			return;
-		}
-
-		if ( ! self::is_image_generation_supported() ) {
 			return;
 		}
 
@@ -61,7 +57,7 @@ class GenerateImageAbility extends \SdAiAgent\Abilities\AbstractAbility {
 			'sd-ai-agent/generate-image',
 			[
 				'label'         => __( 'Generate Image', 'superdav-ai-agent' ),
-				'description'   => __( 'Generate unique AI images from a text prompt and import them into the media library. Supports size, style, quality, and multiple variations. Use for brand-specific imagery, concept illustrations, pattern backgrounds, and product visualisations — not for generic photography (use stock-image instead).', 'superdav-ai-agent' ),
+				'description'   => __( 'Generate unique AI images from a text prompt and import them into the media library. Supports size, style, quality, and multiple variations. Requires an image-capable provider configured on the Connectors settings page. Use for brand-specific imagery, concept illustrations, pattern backgrounds, and product visualisations — not for generic photography (use stock-image instead).', 'superdav-ai-agent' ),
 				'ability_class' => self::class,
 			]
 		);
@@ -78,7 +74,7 @@ class GenerateImageAbility extends \SdAiAgent\Abilities\AbstractAbility {
 	 * {@inheritdoc}
 	 */
 	protected function description(): string {
-		return __( 'Generate unique AI images from a text prompt and import them into the media library. Supports size, style, quality, and multiple variations. Use for brand-specific imagery, concept illustrations, pattern backgrounds, and product visualisations — not for generic photography (use stock-image instead).', 'superdav-ai-agent' );
+		return __( 'Generate unique AI images from a text prompt and import them into the media library. Supports size, style, quality, and multiple variations. Requires an image-capable provider configured on the Connectors settings page. Use for brand-specific imagery, concept illustrations, pattern backgrounds, and product visualisations — not for generic photography (use stock-image instead).', 'superdav-ai-agent' );
 	}
 
 	/**
@@ -305,7 +301,7 @@ class GenerateImageAbility extends \SdAiAgent\Abilities\AbstractAbility {
 			$error_message = 'All image generation attempts failed.';
 			if ( $last_error instanceof WP_Error ) {
 				$error_message = 'provider_unavailable' === $last_error->get_error_code()
-					? 'AI image generation is not available. Configure an image-capable provider in Settings > AI.'
+					? 'AI image generation is not available. Configure an image-capable provider on the Connectors settings page.'
 					: $last_error->get_error_message();
 			}
 
@@ -355,7 +351,7 @@ class GenerateImageAbility extends \SdAiAgent\Abilities\AbstractAbility {
 		if ( ! self::is_image_generation_supported() ) {
 			return new WP_Error(
 				'provider_unavailable',
-				'AI image generation is not available. Configure an image-capable provider in Settings > AI.'
+				'AI image generation is not available. Configure an image-capable provider on the Connectors settings page.'
 			);
 		}
 
