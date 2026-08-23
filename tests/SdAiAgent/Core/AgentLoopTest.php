@@ -2095,9 +2095,9 @@ class AgentLoopTest extends WP_UnitTestCase {
 
 	/**
 	 * Test run() triggers the graceful fallback when max iterations are exhausted
-	 * with only tool calls. The fallback send_prompt() also returns a tool call
-	 * (no text), so toText() throws and reply is empty — but the result is still
-	 * a success array, not a WP_Error.
+	 * with only tool calls. If the fallback provider response is another tool call,
+	 * the loop must replace it with an honest terminal response rather than
+	 * persisting an unexecuted call and showing an empty reply.
 	 */
 	public function test_run_exhausts_max_iterations(): void {
 		$this->skip_if_sdk_unavailable();
@@ -2152,13 +2152,14 @@ class AgentLoopTest extends WP_UnitTestCase {
 		$loop   = new AgentLoop( 'Loop forever', [], [], [ 'max_iterations' => 2 ] );
 		$result = $loop->run();
 
-		// The graceful fallback fires after the loop exhausts. The fallback
-		// send_prompt() also returns a tool call (no text), so toText() throws
-		// and reply is ''. The result is a success array, not a WP_Error.
+		// The graceful fallback fires after the loop exhausts. The mocked provider
+		// still returns a tool call, so the deterministic terminal response must win.
 		$this->assertIsArray( $result );
 		$this->assertArrayHasKey( 'reply', $result );
 		$this->assertArrayHasKey( 'tool_calls', $result );
 		$this->assertArrayHasKey( 'iterations_used', $result );
+		$this->assertStringContainsString( 'tool-call limit', $result['reply'] );
+		$this->assertSame( 'max_iterations', $result['exit_reason'] );
 		// 2 loop iterations + 1 fallback call = 3.
 		$this->assertSame( 3, $result['iterations_used'] );
 	}

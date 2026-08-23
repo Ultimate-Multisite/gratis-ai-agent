@@ -2274,7 +2274,6 @@ PROMPT;
 			}
 
 			$fallback_message = $fallback_result->toMessage();
-			$this->append_assistant_message_to_history( $fallback_message );
 			$this->accumulate_tokens( $fallback_result );
 
 			$reply = '';
@@ -2283,6 +2282,17 @@ PROMPT;
 			} catch ( \RuntimeException $e ) {
 				$reply = '';
 			}
+
+			// The summarization request is outside the executable tool budget. Some
+			// providers still return another function call because tools remain in
+			// the conversation history. Never persist that call as if it were going
+			// to run, and never complete the job with an empty customer response.
+			if ( $this->message_has_function_calls( $fallback_message ) || '' === trim( $reply ) ) {
+				$reply            = __( 'I reached the tool-call limit before I could finish. Some requested work may be incomplete, so please review the current site before retrying.', 'superdav-ai-agent' );
+				$fallback_message = new ModelMessage( array( new MessagePart( $reply ) ) );
+			}
+
+			$this->append_assistant_message_to_history( $fallback_message );
 
 			// Post-process the reply to inject real permalinks from create-post responses.
 			$reply = $this->inject_real_permalinks( $reply );
@@ -2299,6 +2309,7 @@ PROMPT;
 						'token_usage'     => $this->token_usage,
 						'iterations_used' => $this->iterations_used,
 						'model_id'        => $this->model_id,
+						'exit_reason'     => 'max_iterations',
 					)
 				)
 			);

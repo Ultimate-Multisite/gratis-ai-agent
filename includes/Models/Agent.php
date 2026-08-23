@@ -593,7 +593,7 @@ class Agent {
 			// First-run builds deliberately reserve enough turns for discovery,
 			// composition, three-viewport browser QA, and at least one repair pass.
 			// General-agent edits retain the user's ordinary iteration budget.
-			$options['max_iterations'] = max( 60, (int) ( $options['max_iterations'] ?? 0 ) );
+			$options['max_iterations'] = max( 100, (int) ( $options['max_iterations'] ?? 0 ) );
 			$tier_1_tools              = array_values(
 				array_unique(
 					array_merge(
@@ -828,7 +828,7 @@ class Agent {
 			'greeting'       => __( "Hi! Give me a moment to look around, then I'll show you what I can do.", 'superdav-ai-agent' ),
 			'avatar_icon'    => 'dashicons-welcome-learn-more',
 			'tier_1_tools'   => self::get_unified_onboarding_tier_1_tools( $base_tools ),
-			'max_iterations' => 60,
+			'max_iterations' => 100,
 			'suggestions'    => [
 				[
 					'title'       => __( 'Build me a site', 'superdav-ai-agent' ),
