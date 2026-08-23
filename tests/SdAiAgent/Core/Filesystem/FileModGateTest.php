@@ -20,6 +20,15 @@ use WP_UnitTestCase;
 class FileModGateTest extends WP_UnitTestCase {
 
 	/**
+	 * Remove scope filters between tests.
+	 */
+	public function tear_down(): void {
+		remove_all_filters( 'sd_ai_agent_allow_shared_code_modifications' );
+		remove_all_filters( 'file_mod_allowed' );
+		parent::tear_down();
+	}
+
+	/**
 	 * Test context_for_path returns 'plugin_files' for plugin paths.
 	 */
 	public function test_context_for_path_plugin_files() {
@@ -87,6 +96,67 @@ class FileModGateTest extends WP_UnitTestCase {
 		$this->assertTrue( $result );
 
 		remove_all_filters( 'file_mod_allowed' );
+	}
+
+	/**
+	 * Test customer contexts cannot mutate shared plugin files.
+	 */
+	public function test_assert_allowed_blocks_shared_plugin_files_for_customer_contexts() {
+		add_filter( 'sd_ai_agent_allow_shared_code_modifications', '__return_false' );
+		add_filter( 'file_mod_allowed', '__return_true' );
+
+		$result = FileModGate::assert_allowed( WP_PLUGIN_DIR . '/my-plugin/file.php' );
+
+		$this->assertWPError( $result );
+		$this->assertSame( 'sd_ai_agent_shared_code_mod_not_allowed', $result->get_error_code() );
+		$this->assertSame( 403, $result->get_error_data()['status'] );
+	}
+
+	/**
+	 * Test customer contexts cannot mutate shared theme files.
+	 */
+	public function test_assert_allowed_blocks_shared_theme_files_for_customer_contexts() {
+		add_filter( 'sd_ai_agent_allow_shared_code_modifications', '__return_false' );
+		add_filter( 'file_mod_allowed', '__return_true' );
+
+		$result = FileModGate::assert_allowed( get_theme_root() . '/ollie/patterns/footer-light.php' );
+
+		$this->assertWPError( $result );
+		$this->assertSame( 'sd_ai_agent_shared_code_mod_not_allowed', $result->get_error_code() );
+	}
+
+	/**
+	 * Test the shared-code scope can be explicitly filtered for host tooling.
+	 */
+	public function test_shared_code_modifications_allowed_is_filterable() {
+		add_filter( 'sd_ai_agent_allow_shared_code_modifications', '__return_false' );
+
+		$this->assertFalse( FileModGate::shared_code_modifications_allowed() );
+	}
+
+	/**
+	 * Test shared code mutations are allowed on the primary main site.
+	 */
+	public function test_shared_code_modifications_allowed_on_primary_main_site() {
+		$this->assertTrue( FileModGate::shared_code_modifications_allowed() );
+	}
+
+	/**
+	 * Test shared code mutations are denied on a customer subsite by default.
+	 */
+	public function test_shared_code_modifications_denied_on_multisite_subsite() {
+		if ( ! is_multisite() ) {
+			$this->markTestSkipped( 'Requires WordPress multisite.' );
+		}
+
+		$blog_id = self::factory()->blog->create();
+		switch_to_blog( $blog_id );
+
+		try {
+			$this->assertFalse( FileModGate::shared_code_modifications_allowed() );
+		} finally {
+			restore_current_blog();
+		}
 	}
 
 	/**
