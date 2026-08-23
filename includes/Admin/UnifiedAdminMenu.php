@@ -108,6 +108,13 @@ class UnifiedAdminMenu {
 				'position'   => 20,
 				'capability' => self::CAPABILITY,
 			),
+			array(
+				'slug'       => 'customer-conversations',
+				'label'      => __( 'Customer Conversations', 'superdav-ai-agent' ),
+				'icon'       => 'dashicons-admin-comments',
+				'position'   => 25,
+				'capability' => self::CAPABILITY,
+			),
 		);
 
 		// The Connectors page is handled by WP 7.0+ core or Gutenberg 22.8.0+.

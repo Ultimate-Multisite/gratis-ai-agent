@@ -114,6 +114,16 @@ class UnifiedAdminMenuTest extends WP_UnitTestCase {
 		$this->assertContains( 'settings', $slugs );
 	}
 
+	/** Customer-conversation review remains an administrator-only menu route. */
+	public function test_get_menu_items_includes_customer_conversations(): void {
+		$items = UnifiedAdminMenu::getMenuItems();
+		$item  = array_values( array_filter( $items, static fn( array $menu_item ): bool => 'customer-conversations' === $menu_item['slug'] ) );
+
+		$this->assertCount( 1, $item );
+		$this->assertSame( 25, $item[0]['position'] );
+		$this->assertSame( UnifiedAdminMenu::CAPABILITY, $item[0]['capability'] );
+	}
+
 	/**
 	 * Test each menu item has required keys.
 	 */

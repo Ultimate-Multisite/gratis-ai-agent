@@ -12,6 +12,7 @@ namespace SdAiAgent\Tests\REST;
 
 use SdAiAgent\Core\Settings;
 use SdAiAgent\Models\ActiveJobRepository;
+use SdAiAgent\Models\CustomerConversationReviewRepository;
 use SdAiAgent\REST\RestController;
 use WP_REST_Request;
 use WP_REST_Server;
@@ -36,6 +37,7 @@ class PublicChatControllerTest extends WP_UnitTestCase {
 		do_action( 'rest_api_init' );
 
 		parent::set_up();
+		$this->clear_customer_conversation_reviews();
 	}
 
 	/**
@@ -44,6 +46,7 @@ class PublicChatControllerTest extends WP_UnitTestCase {
 	public function tear_down(): void {
 		global $wp_rest_server;
 		$wp_rest_server = null;
+		$this->clear_customer_conversation_reviews();
 		delete_option( Settings::OPTION_NAME );
 
 		parent::tear_down();
@@ -168,6 +171,53 @@ class PublicChatControllerTest extends WP_UnitTestCase {
 
 		ActiveJobRepository::delete( $data['job_id'] );
 		delete_transient( RestController::JOB_PREFIX . $data['job_id'] );
+	}
+
+	/** Public recording is disclosed and stored only after explicit session consent. */
+	public function test_public_review_recording_requires_explicit_session_consent(): void {
+		$this->enable_public_chat();
+		Settings::instance()->update(
+			array(
+				'public_chat_review_recording_enabled' => true,
+				'public_chat_review_retention_days'    => 14,
+				'public_chat_review_disclosure'        => 'Opt in before this chat is retained for review.',
+			)
+		);
+
+		$config = $this->dispatch( 'GET', '/sd-ai-agent/v1/public-chat/config' );
+		$this->assertSame( 200, $config->get_status() );
+		$this->assertSame(
+			array(
+				'enabled'        => true,
+				'retention_days' => 14,
+				'disclosure'     => 'Opt in before this chat is retained for review.',
+			),
+			$config->get_data()['recording']
+		);
+
+		$without_consent = $this->dispatch( 'POST', '/sd-ai-agent/v1/public-chat/session', array( 'recording_consent' => false ) );
+		$this->assertSame( 201, $without_consent->get_status() );
+		$this->assertArrayNotHasKey( 'review_id', $without_consent->get_data() );
+		$this->assertCount( 0, CustomerConversationReviewRepository::list_reviews( array() ) );
+
+		$with_consent = $this->dispatch( 'POST', '/sd-ai-agent/v1/public-chat/session', array( 'recording_consent' => true ) );
+		$this->assertSame( 201, $with_consent->get_status() );
+		$this->assertArrayNotHasKey( 'review_id', $with_consent->get_data() );
+
+		$reviews = CustomerConversationReviewRepository::list_reviews( array() );
+		$this->assertCount( 1, $reviews );
+		$this->assertSame( CustomerConversationReviewRepository::SOURCE_PUBLIC_EMBED, $reviews[0]['source'] );
+		$this->assertStringNotContainsString( $reviews[0]['id'], $with_consent->get_data()['token'] );
+	}
+
+	/** Remove test-only review projections and turns. */
+	private function clear_customer_conversation_reviews(): void {
+		global $wpdb;
+
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Test-only cleanup of the dependent minimized turn rows.
+		$wpdb->query( $wpdb->prepare( 'DELETE FROM %i', CustomerConversationReviewRepository::turns_table_name() ) );
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Test-only cleanup of the customer-review projection rows.
+		$wpdb->query( $wpdb->prepare( 'DELETE FROM %i', CustomerConversationReviewRepository::table_name() ) );
 	}
 
 	/** An operator may disable all public tools without silently restoring knowledge search. */

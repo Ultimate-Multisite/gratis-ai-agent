@@ -22,6 +22,7 @@ use SdAiAgent\Bootstrap\CustomerAgentRuntimeHandler;
 use SdAiAgent\Core\Database;
 use SdAiAgent\Knowledge\KnowledgeDatabase;
 use SdAiAgent\Models\Agent;
+use SdAiAgent\Models\CustomerConversationReviewRepository;
 use WP_UnitTestCase;
 use XWP\DI\Decorators\Action;
 
@@ -69,6 +70,8 @@ class DatabaseSchemaTest extends WP_UnitTestCase {
 		'sd_ai_agent_durable_plan_steps',
 		'sd_ai_agent_customer_agent_conversations',
 		'sd_ai_agent_customer_agent_jobs',
+		'sd_ai_agent_customer_conversation_reviews',
+		'sd_ai_agent_customer_conversation_review_turns',
 		'sd_ai_agent_skill_usage',
 		'sd_ai_agent_contact_mappings',
 	];
@@ -486,6 +489,29 @@ class DatabaseSchemaTest extends WP_UnitTestCase {
 		foreach ( [ 'job_id', 'conversation_id', 'external_message_hash', 'status', 'request_payload', 'result_payload', 'error_code', 'deadline_at', 'expires_at' ] as $column ) {
 			$this->assertContains( $column, $job_columns, "Customer-agent job table missing column '{$column}'." );
 		}
+	}
+
+	/** Customer review projection tables exclude runtime profile identifiers. */
+	public function test_customer_conversation_review_tables_have_safe_columns_and_indexes(): void {
+		global $wpdb;
+
+		Database::install();
+
+		$review_columns = $this->get_column_names( CustomerConversationReviewRepository::table_name() );
+		foreach ( [ 'review_id', 'runtime_conversation_id', 'source', 'agent_id', 'summary', 'turn_count', 'expires_at', 'deleted_at' ] as $column ) {
+			$this->assertContains( $column, $review_columns, "Customer conversation review table missing column '{$column}'." );
+		}
+		$this->assertNotContains( 'profile_id', $review_columns, 'Review projections must not retain runtime profile identifiers.' );
+		$this->assertNotContains( 'transcript', $review_columns, 'Review transcripts must remain normalized in the bounded turns table.' );
+
+		$turn_columns = $this->get_column_names( CustomerConversationReviewRepository::turns_table_name() );
+		foreach ( [ 'review_id', 'source_event_id', 'role', 'event_status', 'content', 'created_at' ] as $column ) {
+			$this->assertContains( $column, $turn_columns, "Customer conversation review turns table missing column '{$column}'." );
+		}
+
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Test-only schema index introspection.
+		$summary_index = $wpdb->get_row( $wpdb->prepare( 'SHOW INDEX FROM %i WHERE Key_name = %s', CustomerConversationReviewRepository::table_name(), 'review_summary' ) );
+		$this->assertNotNull( $summary_index, 'Customer conversation review summaries require a FULLTEXT search index.' );
 	}
 
 	/** Managed customer-agent metadata is explicit and indexed for lifecycle lookup. */

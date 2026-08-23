@@ -19,6 +19,21 @@ describe( 'embed widget', () => {
 		delete global.fetch;
 	} );
 
+	/**
+	 * Flush queued mocked fetch promises.
+	 *
+	 * @return {Promise<void>} Resolved after queued promise callbacks.
+	 */
+	async function flushRequests() {
+		await Promise.resolve();
+		await Promise.resolve();
+		await Promise.resolve();
+		await Promise.resolve();
+		await Promise.resolve();
+		await Promise.resolve();
+		await new Promise( ( resolve ) => setTimeout( resolve, 0 ) );
+	}
+
 	test( 'resolves script data attributes without WordPress globals', () => {
 		const script = document.createElement( 'script' );
 		script.dataset.apiBase = 'https://example.test/wp-json/sd-ai-agent/v1';
@@ -86,6 +101,99 @@ describe( 'embed widget', () => {
 			'https://example.test/wp-json/sd-ai-agent/v1/public-chat/config',
 			expect.objectContaining( { credentials: 'omit' } )
 		);
+	} );
+
+	test( 'does not create a recorded session until a visitor explicitly chooses it', async () => {
+		global.fetch = jest.fn( ( url ) => {
+			if ( url.endsWith( '/public-chat/config' ) ) {
+				return Promise.resolve( {
+					ok: true,
+					json: () =>
+						Promise.resolve( {
+							enabled: true,
+							recording: {
+								enabled: true,
+								disclosure:
+									'Opt in before this chat is retained for review.',
+							},
+						} ),
+				} );
+			}
+
+			return Promise.resolve( {
+				ok: true,
+				json: () => Promise.resolve( { token: 'public-token' } ),
+			} );
+		} );
+
+		const root = module.mountEmbed( {
+			...module.resolveConfig( null, {} ),
+			apiBase: 'https://example.test/wp-json/sd-ai-agent/v1',
+			mount: '#mount',
+		} );
+		await flushRequests();
+
+		expect(
+			root.querySelector( '.sdaa-embed__recording-choice' ).textContent
+		).toContain( 'Opt in before this chat is retained for review.' );
+		expect(
+			global.fetch.mock.calls.filter( ( [ url ] ) =>
+				url.endsWith( '/public-chat/session' )
+			)
+		).toHaveLength( 0 );
+
+		root.querySelector( '[data-recording-consent="false"]' ).click();
+		await flushRequests();
+
+		const sessionRequest = global.fetch.mock.calls.find( ( [ url ] ) =>
+			url.endsWith( '/public-chat/session' )
+		);
+		expect( sessionRequest[ 1 ].body ).toBe(
+			JSON.stringify( { recording_consent: false } )
+		);
+	} );
+
+	test( 'sends explicit recording consent only after the visitor agrees', async () => {
+		global.fetch = jest.fn( ( url ) => {
+			if ( url.endsWith( '/public-chat/config' ) ) {
+				return Promise.resolve( {
+					ok: true,
+					json: () =>
+						Promise.resolve( {
+							enabled: true,
+							recording: {
+								enabled: true,
+								disclosure: 'Recording is optional.',
+							},
+						} ),
+				} );
+			}
+
+			return Promise.resolve( {
+				ok: true,
+				json: () => Promise.resolve( { token: 'public-token' } ),
+			} );
+		} );
+
+		const root = module.mountEmbed( {
+			...module.resolveConfig( null, {} ),
+			apiBase: 'https://example.test/wp-json/sd-ai-agent/v1',
+			mount: '#mount',
+		} );
+		await flushRequests();
+
+		root.querySelector( '[data-recording-consent="true"]' ).click();
+		await flushRequests();
+
+		const sessionRequest = global.fetch.mock.calls.find( ( [ url ] ) =>
+			url.endsWith( '/public-chat/session' )
+		);
+		expect( sessionRequest[ 1 ].body ).toBe(
+			JSON.stringify( { recording_consent: true } )
+		);
+		expect(
+			root.querySelector( '.sdaa-embed__recording-choice' )
+		).toBeNull();
 	} );
 
 	test( 'starts collapsed and close button collapses the panel', () => {
@@ -156,7 +264,21 @@ describe( 'embed widget', () => {
 		expect( form.requestSubmit ).toHaveBeenCalledTimes( 1 );
 	} );
 
-	test( 'renders assistant markdown and makes source URLs clickable', () => {
+	test( 'renders assistant markdown and makes source URLs clickable', async () => {
+		global.fetch = jest.fn( ( url ) => {
+			if ( url.endsWith( '/public-chat/config' ) ) {
+				return Promise.resolve( {
+					ok: true,
+					json: () => Promise.resolve( { enabled: true } ),
+				} );
+			}
+
+			return Promise.resolve( {
+				ok: true,
+				json: () => Promise.resolve( { token: 'public-token' } ),
+			} );
+		} );
+
 		const root = module.mountEmbed( {
 			...module.resolveConfig( null, {} ),
 			apiBase: 'https://example.test/wp-json/sd-ai-agent/v1',
@@ -164,6 +286,7 @@ describe( 'embed widget', () => {
 				'Read **Setup Wizard**. Source: https://example.test/docs/setup.',
 			mount: '#mount',
 		} );
+		await flushRequests();
 
 		const message = root.querySelector( '.sdaa-embed__message--assistant' );
 		const sourceLink = message.querySelector( 'a' );

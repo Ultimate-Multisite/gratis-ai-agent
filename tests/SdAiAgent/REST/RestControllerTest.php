@@ -168,6 +168,9 @@ class RestControllerTest extends WP_UnitTestCase {
 			'/sd-ai-agent/v1/public-chat/session',
 			'/sd-ai-agent/v1/public-chat/run',
 			'/sd-ai-agent/v1/public-chat/job/(?P<id>[a-f0-9-]+)',
+			'/sd-ai-agent/v1/customer-conversations',
+			'/sd-ai-agent/v1/customer-conversations/(?P<id>[a-f0-9-]+)',
+			'/sd-ai-agent/v1/customer-conversations/purge',
 			'/sd-ai-agent/v1/job/(?P<id>[a-f0-9-]+)',
 			'/sd-ai-agent/v1/process',
 			'/sd-ai-agent/v1/abilities',
@@ -229,6 +232,27 @@ class RestControllerTest extends WP_UnitTestCase {
 		$response = $this->dispatch( 'GET', '/sd-ai-agent/v1/abilities' );
 		$this->assertStatus( 200, $response );
 		$this->assertIsArray( $response->get_data() );
+	}
+
+	/** Customer conversation review routes remain limited to administrators. */
+	public function test_customer_conversation_reviews_require_manage_options(): void {
+		wp_set_current_user( 0 );
+		$this->assertStatus(
+			401,
+			$this->dispatch( 'GET', '/sd-ai-agent/v1/customer-conversations' )
+		);
+
+		wp_set_current_user( $this->subscriber_id );
+		$this->assertStatus(
+			403,
+			$this->dispatch( 'GET', '/sd-ai-agent/v1/customer-conversations' )
+		);
+
+		wp_set_current_user( $this->admin_id );
+		$this->assertStatus(
+			200,
+			$this->dispatch( 'GET', '/sd-ai-agent/v1/customer-conversations' )
+		);
 	}
 
 	// ─── /providers ──────────────────────────────────────────────────────────
