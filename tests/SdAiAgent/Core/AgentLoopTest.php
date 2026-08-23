@@ -3794,6 +3794,8 @@ class AgentLoopTest extends WP_UnitTestCase {
 			$result['removed']
 		);
 		$this->assertStringContainsString( 'media budget is exhausted', $result['guidance'] );
+		$this->assertStringContainsString( 'stock-image (2 calls total)', $result['guidance'] );
+		$this->assertStringContainsString( 'generate-image (1 call total)', $result['guidance'] );
 
 		$kept_names = array();
 		foreach ( $result['message']->getParts() as $part ) {
@@ -3836,7 +3838,6 @@ class AgentLoopTest extends WP_UnitTestCase {
 			'Media acquisition call blocked',
 			$fully_blocked_parts[0]->getText()
 		);
-
 		$stock_only_result = $method->invoke(
 			$loop,
 			new ModelMessage(
@@ -3845,7 +3846,7 @@ class AgentLoopTest extends WP_UnitTestCase {
 				)
 			)
 		);
-		$this->assertStringContainsString( 'generate-image fallback remains available', $stock_only_result['guidance'] );
+		$this->assertStringContainsString( 'generate-image (1 call remaining)', $stock_only_result['guidance'] );
 
 		$generation_history = array(
 			new ModelMessage(
@@ -3863,7 +3864,7 @@ class AgentLoopTest extends WP_UnitTestCase {
 				)
 			)
 		);
-		$this->assertStringContainsString( 'remaining stock-image allowance', $generation_result['guidance'] );
+		$this->assertStringContainsString( 'stock-image (2 calls remaining)', $generation_result['guidance'] );
 
 		$terminal_history = array(
 			new UserMessage( array( new MessagePart( 'Earlier media work.' ) ) ),

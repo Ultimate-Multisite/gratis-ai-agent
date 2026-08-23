@@ -4162,14 +4162,40 @@ PROMPT;
 			)
 		);
 
-		$stock_remaining    = max( 0, $limits['sd-ai-agent/stock-image'] - $used['sd-ai-agent/stock-image'] );
-		$generate_remaining = max( 0, $limits['sd-ai-agent/generate-image'] - $used['sd-ai-agent/generate-image'] );
-		if ( 0 === $stock_remaining && 0 === $generate_remaining ) {
-			$guidance = __( 'The Setup Assistant media budget is exhausted: stock-image allows two calls total and generate-image allows one. Continue without more image sourcing and do not use URL-fetch or upload fallbacks. If required primary media is unavailable, report that blocker and do not publish a weak text-only homepage.', 'superdav-ai-agent' );
-		} elseif ( 0 === $stock_remaining ) {
-			$guidance = __( 'The Setup Assistant stock-image budget is exhausted after two calls. Do not call stock-image again or use URL-fetch or upload fallbacks. The generate-image fallback remains available for one call; use it only if required, then continue the build.', 'superdav-ai-agent' );
+		$exhausted_abilities = array();
+		$available_abilities = array();
+		foreach ( $limits as $ability_name => $limit ) {
+			if ( $used[ $ability_name ] >= $limit ) {
+				$exhausted_abilities[] = sprintf(
+					/* translators: 1: media ability name, 2: total permitted calls. */
+					_n( '%1$s (%2$d call total)', '%1$s (%2$d calls total)', $limit, 'superdav-ai-agent' ),
+					str_replace( 'sd-ai-agent/', '', $ability_name ),
+					$limit
+				);
+			} else {
+				$remaining             = $limit - $used[ $ability_name ];
+				$available_abilities[] = sprintf(
+					/* translators: 1: media ability name, 2: number of calls remaining. */
+					_n( '%1$s (%2$d call remaining)', '%1$s (%2$d calls remaining)', $remaining, 'superdav-ai-agent' ),
+					str_replace( 'sd-ai-agent/', '', $ability_name ),
+					$remaining
+				);
+			}
+		}
+
+		$guidance = sprintf(
+			/* translators: %s: comma-separated list of exhausted media abilities. */
+			__( 'The Setup Assistant media budget is exhausted for: %s.', 'superdav-ai-agent' ),
+			implode( ', ', $exhausted_abilities )
+		);
+		if ( ! empty( $available_abilities ) ) {
+			$guidance .= ' ' . sprintf(
+				/* translators: %s: comma-separated list of remaining media abilities. */
+				__( 'You may still use: %s. Do not use URL-fetch or upload fallbacks.', 'superdav-ai-agent' ),
+				implode( ', ', $available_abilities )
+			);
 		} else {
-			$guidance = __( 'The Setup Assistant generate-image budget is exhausted after one call. Do not call generate-image again or use URL-fetch or upload fallbacks. The remaining stock-image allowance may still be used, up to two calls total; otherwise continue without more image sourcing.', 'superdav-ai-agent' );
+			$guidance .= ' ' . __( 'Continue without more image sourcing and do not use URL-fetch or upload fallbacks. If required primary media is unavailable, report that blocker and do not publish a weak text-only homepage.', 'superdav-ai-agent' );
 		}
 
 		return array(
