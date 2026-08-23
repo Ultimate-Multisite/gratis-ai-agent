@@ -50,9 +50,9 @@ class PostMutationHealthCheck {
 
 	/**
 	 * Perform the loopback request and return one of three states:
-	 *   healthy     — got a 200 with our success token
-	 *   broken      — connected but WP returned an error body / bad token
-	 *   unreachable — could not establish a connection at all
+	 *   healthy     — got a 2xx response with our success token
+	 *   broken      — got a 5xx response, or a 2xx response with a bad token
+	 *   unreachable — could not connect, or received a redirect/client error
 	 *
 	 * @return string One of STATUS_HEALTHY, STATUS_BROKEN, or STATUS_UNREACHABLE.
 	 */
@@ -71,6 +71,39 @@ class PostMutationHealthCheck {
 		 *
 		 * @param string|null $url The health check URL, or null to auto-discover.
 		 */
+		$discovered_url = $this->discover_health_url();
+		$health_url     = apply_filters( 'sd_ai_agent_health_url', $discovered_url );
+
+		if ( null === $health_url ) {
+			return self::STATUS_UNREACHABLE;
+		}
+
+		// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.wp_remote_get_wp_remote_get
+		$response = wp_remote_get(
+			$health_url,
+			[
+				'timeout'     => 10,
+				'redirection' => 0,
+				'sslverify'   => false,
+			]
+		);
+
+		$status = is_wp_error( $response )
+			? self::STATUS_UNREACHABLE
+			: $this->classify_response( $response );
+		$cached = get_transient( 'sd_ai_agent_health_url' );
+
+		if (
+			self::STATUS_UNREACHABLE !== $status
+			|| ! is_string( $cached )
+			|| $health_url !== $cached
+			|| $health_url !== $discovered_url
+		) {
+			return $status;
+		}
+
+		// A stale cached route may no longer reach this site; retry all candidates before giving up.
+		delete_transient( 'sd_ai_agent_health_url' );
 		$health_url = apply_filters( 'sd_ai_agent_health_url', $this->discover_health_url() );
 
 		if ( null === $health_url ) {
@@ -81,17 +114,37 @@ class PostMutationHealthCheck {
 		$response = wp_remote_get(
 			$health_url,
 			[
-				'timeout'   => 10,
-				'sslverify' => false,
+				'timeout'     => 10,
+				'redirection' => 0,
+				'sslverify'   => false,
 			]
 		);
 
-		if ( is_wp_error( $response ) ) {
+		return is_wp_error( $response ) ? self::STATUS_UNREACHABLE : $this->classify_response( $response );
+	}
+
+	/**
+	 * Classify a connected health response by status before inspecting its body.
+	 *
+	 * @param array<string, mixed> $response WordPress HTTP API response.
+	 * @return string One of STATUS_HEALTHY, STATUS_BROKEN, or STATUS_UNREACHABLE.
+	 */
+	private function classify_response( array $response ): string {
+		$status_code = wp_remote_retrieve_response_code( $response );
+
+		if ( $status_code >= 300 && $status_code < 500 ) {
 			return self::STATUS_UNREACHABLE;
 		}
 
-		$body = wp_remote_retrieve_body( $response );
-		return str_contains( $body, '"success":true' )
+		if ( $status_code >= 500 && $status_code < 600 ) {
+			return self::STATUS_BROKEN;
+		}
+
+		if ( $status_code < 200 || $status_code >= 300 ) {
+			return self::STATUS_UNREACHABLE;
+		}
+
+		return str_contains( wp_remote_retrieve_body( $response ), '"success":true' )
 			? self::STATUS_HEALTHY
 			: self::STATUS_BROKEN;
 	}
@@ -106,13 +159,16 @@ class PostMutationHealthCheck {
 	}
 
 	/**
-	 * Walk candidate loopback URLs until one connects, cache successful URLs,
-	 * and return the first connected URL. Returns null when no candidate connects.
+	 * Walk candidate loopback URLs until one succeeds, cache successful URLs,
+	 * and retain only server-error responses as evidence of a broken site.
 	 *
 	 * Only 127.0.0.1 addresses are tried: the health endpoint rejects requests
 	 * whose REMOTE_ADDR is not loopback, so home_url() would always fail there.
-	 * Discovery caches only a full success response, but returns connected error
-	 * responses so callers can distinguish broken from unreachable.
+	 * Discovery caches only a full success response. Redirects and client errors
+	 * are treated as unreachable because mapped-domain and proxy configurations can
+	 * legitimately reject a public health request even while WordPress is healthy.
+	 * A 5xx response remains authoritative evidence that the candidate connected
+	 * but WordPress failed to boot.
 	 *
 	 * @return string|null The discovered health URL, or null if discovery failed.
 	 */
@@ -148,19 +204,23 @@ class PostMutationHealthCheck {
 			$response = wp_remote_get(
 				$url,
 				[
-					'timeout'   => 5,
-					'sslverify' => false,
+					'timeout'     => 5,
+					'redirection' => 0,
+					'sslverify'   => false,
 				]
 			);
 			if ( is_wp_error( $response ) ) {
 				continue;
 			}
 
-			$connected_url ??= $url;
-
-			if ( str_contains( wp_remote_retrieve_body( $response ), '"success":true' ) ) {
+			$status = $this->classify_response( $response );
+			if ( self::STATUS_HEALTHY === $status ) {
 				set_transient( 'sd_ai_agent_health_url', $url, HOUR_IN_SECONDS );
 				return $url;
+			}
+
+			if ( self::STATUS_BROKEN === $status ) {
+				$connected_url ??= $url;
 			}
 		}
 
