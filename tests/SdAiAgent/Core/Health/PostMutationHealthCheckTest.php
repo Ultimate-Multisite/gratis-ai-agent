@@ -341,6 +341,38 @@ class PostMutationHealthCheckTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * A transport failure from a cached URL must not hide a broken fallback candidate.
+	 */
+	public function test_failed_cached_health_url_retries_fallback_candidates(): void {
+		set_transient( 'sd_ai_agent_health_url', 'https://cached.example.test/health', HOUR_IN_SECONDS );
+
+		add_filter(
+			'pre_http_request',
+			function ( $preempt, $args, $url ) {
+				$this->assertSame( 0, $args['redirection'] );
+
+				if ( 'https://cached.example.test/health' === $url ) {
+					return new WP_Error( 'connection_failed', 'Could not connect' );
+				}
+
+				return [
+					'headers'       => [],
+					'body'          => '',
+					'response'      => [ 'code' => str_contains( $url, '127.0.0.1' ) ? 500 : 403 ],
+					'cookies'       => [],
+					'http_response' => null,
+				];
+			},
+			10,
+			3
+		);
+
+		$health_check = new PostMutationHealthCheck();
+		$this->assertSame( 'broken', $health_check->get_status() );
+		$this->assertFalse( get_transient( 'sd_ai_agent_health_url' ) );
+	}
+
+	/**
 	 * A server error remains broken even when its body contains the success token.
 	 */
 	public function test_server_error_with_success_token_is_broken(): void {

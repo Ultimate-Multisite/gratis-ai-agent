@@ -88,11 +88,9 @@ class PostMutationHealthCheck {
 			]
 		);
 
-		if ( is_wp_error( $response ) ) {
-			return self::STATUS_UNREACHABLE;
-		}
-
-		$status = $this->classify_response( $response );
+		$status = is_wp_error( $response )
+			? self::STATUS_UNREACHABLE
+			: $this->classify_response( $response );
 		$cached = get_transient( 'sd_ai_agent_health_url' );
 
 		if (
