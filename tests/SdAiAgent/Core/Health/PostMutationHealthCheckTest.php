@@ -238,9 +238,9 @@ class PostMutationHealthCheckTest extends WP_UnitTestCase {
 			10
 		);
 
-		$undo_called = false;
-		$undo        = function () use ( &$undo_called ) {
-			$undo_called = true;
+		$undoCalled = false;
+		$undo       = function () use ( &$undoCalled ) {
+			$undoCalled = true;
 			return true;
 		};
 
@@ -248,7 +248,7 @@ class PostMutationHealthCheckTest extends WP_UnitTestCase {
 		$result       = $health_check->verify_or_revert( $undo, 'Test operation' );
 
 		$this->assertNull( $result );
-		$this->assertFalse( $undo_called, 'A rejected public probe must not trigger rollback' );
+		$this->assertFalse( $undoCalled, 'A rejected public probe must not trigger rollback' );
 	}
 
 	/**
@@ -299,6 +299,44 @@ class PostMutationHealthCheckTest extends WP_UnitTestCase {
 
 		$health_check = new PostMutationHealthCheck();
 		$this->assertSame( 'unreachable', $health_check->get_status() );
+		$this->assertFalse( get_transient( 'sd_ai_agent_health_url' ) );
+	}
+
+	/**
+	 * An unreachable cached URL must not hide a broken fallback candidate.
+	 */
+	public function test_unreachable_cached_health_url_retries_fallback_candidates(): void {
+		set_transient( 'sd_ai_agent_health_url', 'https://cached.example.test/health', HOUR_IN_SECONDS );
+
+		add_filter(
+			'pre_http_request',
+			function ( $preempt, $args, $url ) {
+				$this->assertSame( 0, $args['redirection'] );
+
+				if ( 'https://cached.example.test/health' === $url ) {
+					return [
+						'headers'       => [],
+						'body'          => '',
+						'response'      => [ 'code' => 403 ],
+						'cookies'       => [],
+						'http_response' => null,
+					];
+				}
+
+				return [
+					'headers'       => [],
+					'body'          => '',
+					'response'      => [ 'code' => str_contains( $url, '127.0.0.1' ) ? 500 : 403 ],
+					'cookies'       => [],
+					'http_response' => null,
+				];
+			},
+			10,
+			3
+		);
+
+		$health_check = new PostMutationHealthCheck();
+		$this->assertSame( 'broken', $health_check->get_status() );
 		$this->assertFalse( get_transient( 'sd_ai_agent_health_url' ) );
 	}
 

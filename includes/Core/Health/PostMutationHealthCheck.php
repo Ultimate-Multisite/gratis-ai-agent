@@ -71,7 +71,8 @@ class PostMutationHealthCheck {
 		 *
 		 * @param string|null $url The health check URL, or null to auto-discover.
 		 */
-		$health_url = apply_filters( 'sd_ai_agent_health_url', $this->discover_health_url() );
+		$discovered_url = $this->discover_health_url();
+		$health_url     = apply_filters( 'sd_ai_agent_health_url', $discovered_url );
 
 		if ( null === $health_url ) {
 			return self::STATUS_UNREACHABLE;
@@ -91,7 +92,37 @@ class PostMutationHealthCheck {
 			return self::STATUS_UNREACHABLE;
 		}
 
-		return $this->classify_response( $response );
+		$status = $this->classify_response( $response );
+		$cached = get_transient( 'sd_ai_agent_health_url' );
+
+		if (
+			self::STATUS_UNREACHABLE !== $status
+			|| ! is_string( $cached )
+			|| $health_url !== $cached
+			|| $health_url !== $discovered_url
+		) {
+			return $status;
+		}
+
+		// A stale cached route may no longer reach this site; retry all candidates before giving up.
+		delete_transient( 'sd_ai_agent_health_url' );
+		$health_url = apply_filters( 'sd_ai_agent_health_url', $this->discover_health_url() );
+
+		if ( null === $health_url ) {
+			return self::STATUS_UNREACHABLE;
+		}
+
+		// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.wp_remote_get_wp_remote_get
+		$response = wp_remote_get(
+			$health_url,
+			[
+				'timeout'     => 10,
+				'redirection' => 0,
+				'sslverify'   => false,
+			]
+		);
+
+		return is_wp_error( $response ) ? self::STATUS_UNREACHABLE : $this->classify_response( $response );
 	}
 
 	/**
