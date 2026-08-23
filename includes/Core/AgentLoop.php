@@ -1920,6 +1920,9 @@ PROMPT;
 				continue;
 			}
 
+			$media_budget      = $this->enforce_onboarding_media_budget( $assistant_message );
+			$assistant_message = $media_budget['message'];
+
 			$history_message          = $assistant_message;
 			$history_before_assistant = $this->history;
 			$reuse_plan               = $this->readonly_tool_cache->reuse( $assistant_message );
@@ -1934,15 +1937,28 @@ PROMPT;
 
 			// Check if the model wants to call tools.
 			if ( ! $this->message_has_function_calls( $assistant_message ) ) {
+				$guarded_terminal_reply = '';
+				if ( '' !== $media_budget['guidance'] ) {
+					if ( $iterations > 0 ) {
+						$this->history[]       = new UserMessage( array( new MessagePart( $media_budget['guidance'] ) ) );
+						$this->last_loop_phase = 'onboarding_media_budget_guarded';
+						continue;
+					}
+
+					$guarded_terminal_reply = $media_budget['guidance'];
+				}
+
 				// No tool calls — we're done.
 				$last_was_tool_call    = false;
-				$reply                 = '';
+				$reply                 = $guarded_terminal_reply;
 				$this->last_loop_phase = 'final_response_received';
 
-				try {
-					$reply = $result->toText();
-				} catch ( \RuntimeException $e ) {
-					$reply = '';
+				if ( '' === $reply ) {
+					try {
+						$reply = $result->toText();
+					} catch ( \RuntimeException $e ) {
+						$reply = '';
+					}
 				}
 
 				// If a prior create/update saved invalid block markup, do not let the
@@ -2186,6 +2202,9 @@ PROMPT;
 			$this->append_tool_response_to_history( $truncated_message );
 			$this->log_tool_responses( $truncated_message );
 			$this->readonly_tool_cache->record( $history_message, $truncated_message );
+			if ( '' !== $media_budget['guidance'] ) {
+				$this->history[] = new UserMessage( array( new MessagePart( $media_budget['guidance'] ) ) );
+			}
 			$this->last_loop_phase = 'tool_response_recorded';
 			$this->save_active_job_checkpoint( self::CHECKPOINT_TOOL_RESPONSE_RECORDED, $iterations );
 
@@ -4048,6 +4067,160 @@ PROMPT;
 		);
 
 		return new ModelMessage( $deduped );
+	}
+
+	/**
+	 * Enforce the Setup Assistant's per-run media acquisition budget.
+	 *
+	 * Prompt instructions remain useful guidance, but providers can emit several
+	 * parallel image calls in one turn or retry after a failed generation. Count
+	 * admitted calls in durable history so resumed browser-tool loops preserve the
+	 * same budget, and remove excess calls before they can execute.
+	 *
+	 * @param Message $message Assistant message returned by the provider.
+	 * @return array{message:Message,guidance:string,removed:array<string,int>}
+	 */
+	private function enforce_onboarding_media_budget( Message $message ): array {
+		$unchanged = array(
+			'message'  => $message,
+			'guidance' => '',
+			'removed'  => array(),
+		);
+
+		if ( 'onboarding' !== $this->agent_slug ) {
+			return $unchanged;
+		}
+
+		$limits = array(
+			'sd-ai-agent/stock-image'    => 2,
+			'sd-ai-agent/generate-image' => 1,
+		);
+		$used   = array_fill_keys( array_keys( $limits ), 0 );
+
+		foreach ( $this->history as $history_message ) {
+			foreach ( $history_message->getParts() as $part ) {
+				$call = $part->getFunctionCall();
+				if ( ! $call ) {
+					continue;
+				}
+
+				$ability_name = self::media_ability_name_for_call( $call );
+				if ( null !== $ability_name ) {
+					++$used[ $ability_name ];
+				}
+			}
+		}
+
+		$kept    = array();
+		$removed = array_fill_keys( array_keys( $limits ), 0 );
+		foreach ( $message->getParts() as $part ) {
+			$call = $part->getFunctionCall();
+			if ( ! $call ) {
+				$kept[] = $part;
+				continue;
+			}
+
+			$ability_name = self::media_ability_name_for_call( $call );
+			if ( null === $ability_name ) {
+				$kept[] = $part;
+				continue;
+			}
+
+			if ( $used[ $ability_name ] >= $limits[ $ability_name ] ) {
+				++$removed[ $ability_name ];
+				continue;
+			}
+
+			++$used[ $ability_name ];
+			$kept[] = $part;
+		}
+
+		$removed = array_filter( $removed );
+		if ( empty( $removed ) ) {
+			return $unchanged;
+		}
+		if ( empty( $kept ) ) {
+			$kept[] = new MessagePart( __( 'Media acquisition call blocked by the Setup Assistant budget.', 'superdav-ai-agent' ) );
+		}
+
+		$removed_count       = array_sum( $removed );
+		$this->message_log[] = array(
+			'type'     => 'guardrail',
+			'reason'   => 'onboarding_media_budget_guarded',
+			'count'    => $removed_count,
+			'sequence' => $this->next_activity_sequence(),
+		);
+		AgentEventLog::log(
+			'onboarding_media_budget_guarded',
+			AgentEventLog::SEVERITY_WARNING,
+			array(
+				'session_id'       => $this->session_id,
+				'stock_removed'    => $removed['sd-ai-agent/stock-image'] ?? 0,
+				'generate_removed' => $removed['sd-ai-agent/generate-image'] ?? 0,
+				'model_id'         => (string) $this->model_id,
+				'provider_id'      => (string) $this->provider_id,
+			)
+		);
+
+		$exhausted_abilities = array();
+		$available_abilities = array();
+		foreach ( $limits as $ability_name => $limit ) {
+			if ( $used[ $ability_name ] >= $limit ) {
+				$exhausted_abilities[] = sprintf(
+					/* translators: 1: media ability name, 2: total permitted calls. */
+					_n( '%1$s (%2$d call total)', '%1$s (%2$d calls total)', $limit, 'superdav-ai-agent' ),
+					str_replace( 'sd-ai-agent/', '', $ability_name ),
+					$limit
+				);
+			} else {
+				$remaining             = $limit - $used[ $ability_name ];
+				$available_abilities[] = sprintf(
+					/* translators: 1: media ability name, 2: number of calls remaining. */
+					_n( '%1$s (%2$d call remaining)', '%1$s (%2$d calls remaining)', $remaining, 'superdav-ai-agent' ),
+					str_replace( 'sd-ai-agent/', '', $ability_name ),
+					$remaining
+				);
+			}
+		}
+
+		$guidance = sprintf(
+			/* translators: %s: comma-separated list of exhausted media abilities. */
+			__( 'The Setup Assistant media budget is exhausted for: %s.', 'superdav-ai-agent' ),
+			implode( ', ', $exhausted_abilities )
+		);
+		if ( ! empty( $available_abilities ) ) {
+			$guidance .= ' ' . sprintf(
+				/* translators: %s: comma-separated list of remaining media abilities. */
+				__( 'You may still use: %s. Do not use URL-fetch or upload fallbacks.', 'superdav-ai-agent' ),
+				implode( ', ', $available_abilities )
+			);
+		} else {
+			$guidance .= ' ' . __( 'Continue without more image sourcing and do not use URL-fetch or upload fallbacks. If required primary media is unavailable, report that blocker and do not publish a weak text-only homepage.', 'superdav-ai-agent' );
+		}
+
+		return array(
+			'message'  => new ModelMessage( $kept ),
+			'guidance' => $guidance,
+			'removed'  => $removed,
+		);
+	}
+
+	/** Return the bounded media ability represented by a direct or dispatcher call. */
+	private static function media_ability_name_for_call( FunctionCall $call ): ?string {
+		$tool_name = self::normalize_logged_tool_name( (string) $call->getName() );
+		if ( in_array( $tool_name, array( 'sd-ai-agent/stock-image', 'sd-ai-agent/generate-image' ), true ) ) {
+			return $tool_name;
+		}
+
+		if ( 'sd-ai-agent/ability-call' !== $tool_name ) {
+			return null;
+		}
+
+		$args         = self::normalize_function_call_args( $call->getArgs() );
+		$ability_name = (string) ( $args['ability'] ?? '' );
+		return in_array( $ability_name, array( 'sd-ai-agent/stock-image', 'sd-ai-agent/generate-image' ), true )
+			? $ability_name
+			: null;
 	}
 
 	/**
