@@ -358,6 +358,7 @@ final class SuperdavAiProviderTest extends WP_UnitTestCase {
 
 		$modelConfig = new ModelConfig();
 		$modelConfig->setSystemInstruction( 'Generate a WordPress plugin.' );
+		$modelConfig->setOutputModalities( array( ModalityEnum::text() ) );
 		$requirements = ModelRequirements::fromPromptData(
 			CapabilityEnum::textGeneration(),
 			array( new UserMessage( array( new MessagePart( 'Create a shortcode plugin.' ) ) ) ),

@@ -100,6 +100,7 @@ final class SuperdavAiModelMetadataDirectory extends AbstractOpenAiCompatibleMod
 	private static function text_supported_options(): array {
 		return array(
 			new SupportedOption( OptionEnum::inputModalities(), array( array( ModalityEnum::text() ) ) ),
+			new SupportedOption( OptionEnum::outputModalities(), array( array( ModalityEnum::text() ) ) ),
 			new SupportedOption( OptionEnum::systemInstruction() ),
 			new SupportedOption( OptionEnum::maxTokens() ),
 			new SupportedOption( OptionEnum::temperature() ),
