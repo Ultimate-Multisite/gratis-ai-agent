@@ -8,7 +8,7 @@
 import apiFetch from '@wordpress/api-fetch';
 
 const reflectionQueues = new Map();
-const REFLECTION_REQUEST_TIMEOUT_MS = 15_000;
+const reflectionRequestTimeoutMs = 15_000;
 
 /**
  * Compare post identifiers without making numeric/string REST values diverge.
@@ -100,7 +100,7 @@ async function reflectEditorPostEvent( event ) {
 		const controller = new AbortController();
 		const timeout = setTimeout(
 			() => controller.abort(),
-			REFLECTION_REQUEST_TIMEOUT_MS
+			reflectionRequestTimeoutMs
 		);
 		try {
 			record = await apiFetch( {

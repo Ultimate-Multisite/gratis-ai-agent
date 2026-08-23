@@ -611,8 +611,11 @@ test.describe( 'client-abilities — server post reflection', () => {
 					const blocks = wp.data
 						.select( 'core/block-editor' )
 						.getBlocks();
+					const normalizedMarkup = wp.blocks.serialize(
+						wp.blocks.parse( serverMarkup )
+					);
 					return (
-						wp.blocks.serialize( blocks ) === serverMarkup &&
+						wp.blocks.serialize( blocks ) === normalizedMarkup &&
 						editor.isEditedPostDirty() === false
 					);
 				},
