@@ -633,7 +633,7 @@ class AgentTest extends WP_UnitTestCase {
 
 		try {
 			$options = Agent::get_loop_options( $agent->id );
-			$this->assertSame( 60, $options['max_iterations'] );
+			$this->assertSame( 100, $options['max_iterations'] );
 			$this->assertContains( 'sd-ai-agent/get-option', $options['tier_1_tools'] );
 			$this->assertContains( 'sd-ai-agent/create-menu', $options['tier_1_tools'] );
 			$this->assertContains( 'sd-ai-agent/add-menu-item', $options['tier_1_tools'] );
