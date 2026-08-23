@@ -15,6 +15,7 @@ declare(strict_types=1);
 
 namespace SdAiAgent\PluginBuilder;
 
+use SdAiAgent\Core\ProviderCredentialLoader;
 use WP_Error;
 
 if ( ! defined( 'ABSPATH' ) ) {
@@ -50,6 +51,8 @@ class PluginGenerator {
 				__( 'wp_ai_client_prompt() is not available.', 'superdav-ai-agent' )
 			);
 		}
+
+		ProviderCredentialLoader::load();
 
 		if ( empty( trim( $description ) ) ) {
 			return new WP_Error(
@@ -228,6 +231,8 @@ INSTRUCTION;
 			);
 		}
 
+		ProviderCredentialLoader::load();
+
 		$slug    = isset( $plan['slug'] ) ? (string) $plan['slug'] : 'generated-plugin';
 		$name    = isset( $plan['name'] ) ? (string) $plan['name'] : $slug;
 		$version = isset( $plan['version'] ) ? (string) $plan['version'] : '1.0.0';
@@ -308,6 +313,8 @@ INSTRUCTION;
 				__( 'wp_ai_client_prompt() is not available.', 'superdav-ai-agent' )
 			);
 		}
+
+		ProviderCredentialLoader::load();
 
 		if ( empty( $files ) ) {
 			return new WP_Error(
