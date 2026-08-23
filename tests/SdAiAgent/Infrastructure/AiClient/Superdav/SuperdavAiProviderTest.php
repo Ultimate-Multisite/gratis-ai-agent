@@ -347,21 +347,21 @@ final class SuperdavAiProviderTest extends WP_UnitTestCase {
 		$this->assertSame( 'Example Model', $model->getName() );
 		$this->assertContainsEquals( CapabilityEnum::textGeneration(), $model->getSupportedCapabilities() );
 
-		$input_modalities = array_values(
+		$inputModalities = array_values(
 			array_filter(
 				$model->getSupportedOptions(),
 				static fn( SupportedOption $option ): bool => 'inputModalities' === $option->getName()->value
 			)
 		);
-		$this->assertCount( 1, $input_modalities );
-		$this->assertTrue( $input_modalities[0]->isSupportedValue( array( ModalityEnum::text() ) ) );
+		$this->assertCount( 1, $inputModalities );
+		$this->assertTrue( $inputModalities[0]->isSupportedValue( array( ModalityEnum::text() ) ) );
 
-		$model_config = new ModelConfig();
-		$model_config->setSystemInstruction( 'Generate a WordPress plugin.' );
+		$modelConfig = new ModelConfig();
+		$modelConfig->setSystemInstruction( 'Generate a WordPress plugin.' );
 		$requirements = ModelRequirements::fromPromptData(
 			CapabilityEnum::textGeneration(),
 			array( new UserMessage( array( new MessagePart( 'Create a shortcode plugin.' ) ) ) ),
-			$model_config
+			$modelConfig
 		);
 		$this->assertTrue( $requirements->areMetBy( $model ) );
 
