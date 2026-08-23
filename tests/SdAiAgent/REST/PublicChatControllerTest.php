@@ -37,6 +37,7 @@ class PublicChatControllerTest extends WP_UnitTestCase {
 		do_action( 'rest_api_init' );
 
 		parent::set_up();
+		$this->clear_customer_conversation_reviews();
 	}
 
 	/**

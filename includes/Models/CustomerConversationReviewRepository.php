@@ -366,22 +366,13 @@ final class CustomerConversationReviewRepository {
 		if ( ! is_array( $review_ids ) ) {
 			return false;
 		}
-		if ( ! self::delete_turns_by_review_ids( $review_ids ) ) {
-			return false;
+		foreach ( $review_ids as $review_id ) {
+			if ( ! is_string( $review_id ) || '' === $review_id || ! self::delete_review_shell( $review_id ) ) {
+				return false;
+			}
 		}
 
-		// phpcs:disable WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.PreparedSQLPlaceholders.ReplacementsWrongNumber -- The fixed number of placeholders is generated only from a filtered list of opaque IDs.
-		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Removes review shells only after their source runtime conversations are permanently purged.
-		$result = $wpdb->query(
-			$wpdb->prepare(
-				"DELETE FROM %i WHERE runtime_conversation_id IN ({$placeholders})",
-				self::table_name(),
-				...$ids
-			)
-		);
-		// phpcs:enable WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.PreparedSQLPlaceholders.ReplacementsWrongNumber
-
-		return false !== $result;
+		return true;
 	}
 
 	/**
@@ -430,7 +421,6 @@ final class CustomerConversationReviewRepository {
 			'agent_id'                => max( 0, $agent_id ),
 			'status'                  => self::sanitize_status( $status ),
 			'summary'                 => '',
-			'transcript'              => '[]',
 			'turn_count'              => 0,
 			'provider_id'             => self::sanitize_metadata_string( $provider_id, 100 ),
 			'model_id'                => self::sanitize_metadata_string( $model_id, 100 ),
@@ -446,7 +436,7 @@ final class CustomerConversationReviewRepository {
 		$result = $wpdb->insert(
 			self::table_name(),
 			$data,
-			array( '%s', '%s', '%s', '%d', '%s', '%s', '%s', '%d', '%s', '%s', '%d', '%d', '%d', '%s', '%s', '%s', '%s', '%s' )
+			array( '%s', '%s', '%s', '%d', '%s', '%s', '%d', '%s', '%s', '%d', '%d', '%d', '%s', '%s', '%s', '%s', '%s' )
 		);
 		if ( false !== $result ) {
 			return true;
@@ -473,28 +463,32 @@ final class CustomerConversationReviewRepository {
 			return false;
 		}
 
-		$content = self::sanitize_turn_text( $content );
-		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- A row lock makes delete/completion races deterministic for the minimized review projection.
-		if ( false === $wpdb->query( 'START TRANSACTION' ) ) {
+		$content     = self::sanitize_turn_text( $content );
+		$transaction = self::begin_transaction();
+		if ( false === $transaction ) {
 			return false;
 		}
 
 		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Locks one opaque review shell before appending a safe turn.
 		$review = $wpdb->get_row(
 			$wpdb->prepare(
-				'SELECT review_id, deleted_at FROM %i WHERE review_id = %s LIMIT 1 FOR UPDATE',
+				'SELECT review_id, deleted_at, expires_at FROM %i WHERE review_id = %s LIMIT 1 FOR UPDATE',
 				self::table_name(),
 				$review_id
 			),
 			ARRAY_A
 		);
 		if ( ! is_array( $review ) ) {
-			self::finish_transaction( false );
+			self::finish_transaction( $transaction, false );
 			return false;
 		}
 		if ( ! empty( $review['deleted_at'] ) ) {
-			self::finish_transaction( true );
+			self::finish_transaction( $transaction, true );
 			return true;
+		}
+		if ( (string) ( $review['expires_at'] ?? '' ) < current_time( 'mysql', true ) ) {
+			self::finish_transaction( $transaction, true );
+			return false;
 		}
 
 		$now              = current_time( 'mysql', true );
@@ -517,7 +511,7 @@ final class CustomerConversationReviewRepository {
 			);
 			if ( false === $inserted ) {
 				if ( ! self::turn_exists( $review_id, $source_event_id, $role ) ) {
-					self::finish_transaction( false );
+					self::finish_transaction( $transaction, false );
 					return false;
 				}
 				$inserted = 0;
@@ -525,15 +519,15 @@ final class CustomerConversationReviewRepository {
 		}
 
 		if ( ! self::update_locked_event_status( $review_id, $source_event_id, $status, $now ) ) {
-			self::finish_transaction( false );
+			self::finish_transaction( $transaction, false );
 			return false;
 		}
 		if ( ! self::update_locked_review( $review_id, $source_event_id, $status, $metadata, $now, (int) $inserted > 0 && 'assistant' === $role ) ) {
-			self::finish_transaction( false );
+			self::finish_transaction( $transaction, false );
 			return false;
 		}
 
-		return self::finish_transaction( true );
+		return self::finish_transaction( $transaction, true );
 	}
 
 	/**
@@ -553,39 +547,43 @@ final class CustomerConversationReviewRepository {
 			return false;
 		}
 
-		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- A row lock prevents a terminal update from recreating an admin-deleted review.
-		if ( false === $wpdb->query( 'START TRANSACTION' ) ) {
+		$transaction = self::begin_transaction();
+		if ( false === $transaction ) {
 			return false;
 		}
 		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Locks one minimized review shell before status-only update.
 		$review = $wpdb->get_row(
 			$wpdb->prepare(
-				'SELECT review_id, deleted_at FROM %i WHERE review_id = %s LIMIT 1 FOR UPDATE',
+				'SELECT review_id, deleted_at, expires_at FROM %i WHERE review_id = %s LIMIT 1 FOR UPDATE',
 				self::table_name(),
 				$review_id
 			),
 			ARRAY_A
 		);
 		if ( ! is_array( $review ) ) {
-			self::finish_transaction( false );
+			self::finish_transaction( $transaction, false );
 			return false;
 		}
 		if ( ! empty( $review['deleted_at'] ) ) {
-			self::finish_transaction( true );
+			self::finish_transaction( $transaction, true );
 			return true;
+		}
+		if ( (string) ( $review['expires_at'] ?? '' ) < current_time( 'mysql', true ) ) {
+			self::finish_transaction( $transaction, true );
+			return false;
 		}
 
 		$now = current_time( 'mysql', true );
 		if ( ! self::update_locked_event_status( $review_id, $source_event_id, $status, $now ) ) {
-			self::finish_transaction( false );
+			self::finish_transaction( $transaction, false );
 			return false;
 		}
 		if ( ! self::update_locked_review( $review_id, $source_event_id, $status, $metadata, $now, false ) ) {
-			self::finish_transaction( false );
+			self::finish_transaction( $transaction, false );
 			return false;
 		}
 
-		return self::finish_transaction( true );
+		return self::finish_transaction( $transaction, true );
 	}
 
 	/** Update every safe turn for a source event to its latest known safe state. */
@@ -791,8 +789,8 @@ final class CustomerConversationReviewRepository {
 		if ( '' === $status ) {
 			return false;
 		}
-		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Review-row lock ensures deletion wins concurrent completion attempts.
-		if ( false === $wpdb->query( 'START TRANSACTION' ) ) {
+		$transaction = self::begin_transaction();
+		if ( false === $transaction ) {
 			return false;
 		}
 		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Locks one opaque review before clearing safe retained content.
@@ -801,17 +799,17 @@ final class CustomerConversationReviewRepository {
 			ARRAY_A
 		);
 		if ( ! is_array( $review ) ) {
-			self::finish_transaction( false );
+			self::finish_transaction( $transaction, false );
 			return false;
 		}
 		if ( ! empty( $review['deleted_at'] ) ) {
-			return self::finish_transaction( true );
+			return self::finish_transaction( $transaction, true );
 		}
 
 		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Physically removes sanitized turn content while preserving the review-shell tombstone.
 		$turns_deleted = $wpdb->delete( self::turns_table_name(), array( 'review_id' => $review_id ), array( '%s' ) );
 		if ( false === $turns_deleted ) {
-			self::finish_transaction( false );
+			self::finish_transaction( $transaction, false );
 			return false;
 		}
 
@@ -821,7 +819,6 @@ final class CustomerConversationReviewRepository {
 			array(
 				'status'            => $status,
 				'summary'           => '',
-				'transcript'        => '[]',
 				'turn_count'        => 0,
 				'provider_id'       => '',
 				'model_id'          => '',
@@ -834,15 +831,15 @@ final class CustomerConversationReviewRepository {
 				'updated_at'        => $now,
 			),
 			array( 'review_id' => $review_id ),
-			array( '%s', '%s', '%s', '%d', '%s', '%s', '%d', '%d', '%d', '%s', '%s', '%s', '%s' ),
+			array( '%s', '%s', '%d', '%s', '%s', '%d', '%d', '%d', '%s', '%s', '%s', '%s' ),
 			array( '%s' )
 		);
 		if ( false === $update ) {
-			self::finish_transaction( false );
+			self::finish_transaction( $transaction, false );
 			return false;
 		}
 
-		return self::finish_transaction( true );
+		return self::finish_transaction( $transaction, true );
 	}
 
 	/**
@@ -909,41 +906,72 @@ final class CustomerConversationReviewRepository {
 		);
 	}
 
-	/**
-	 * Permanently remove the safe turns belonging to known review shells.
-	 *
-	 * @phpstan-param array<int|string,mixed> $review_ids
-	 */
-	private static function delete_turns_by_review_ids( array $review_ids ): bool {
+	/** Permanently remove one review shell and its turns under the append/delete lock. */
+	private static function delete_review_shell( string $review_id ): bool {
 		global $wpdb;
 		/** @var \wpdb $wpdb */
 
-		$ids = array_values( array_filter( $review_ids, static fn( mixed $id ): bool => is_string( $id ) && '' !== $id ) );
-		if ( empty( $ids ) ) {
-			return true;
+		$transaction = self::begin_transaction();
+		if ( false === $transaction ) {
+			return false;
 		}
-		$placeholders = implode( ', ', array_fill( 0, count( $ids ), '%s' ) );
-		// phpcs:disable WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.PreparedSQLPlaceholders.ReplacementsWrongNumber -- The fixed number of placeholders is generated only from a filtered list of opaque IDs.
-		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Permanently removes minimized turn content during underlying runtime purge.
-		$result = $wpdb->query(
-			$wpdb->prepare(
-				"DELETE FROM %i WHERE review_id IN ({$placeholders})",
-				self::turns_table_name(),
-				...$ids
-			)
-		);
-		// phpcs:enable WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.PreparedSQLPlaceholders.ReplacementsWrongNumber
 
-		return false !== $result;
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Uses the same parent-row lock as append and tombstone operations.
+		$locked = $wpdb->get_var(
+			$wpdb->prepare( 'SELECT review_id FROM %i WHERE review_id = %s LIMIT 1 FOR UPDATE', self::table_name(), $review_id )
+		);
+		if ( ! is_string( $locked ) ) {
+			return self::finish_transaction( $transaction, true );
+		}
+
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Removes minimized turns while their parent shell is locked.
+		$turns_deleted = $wpdb->delete( self::turns_table_name(), array( 'review_id' => $review_id ), array( '%s' ) );
+		if ( false === $turns_deleted ) {
+			self::finish_transaction( $transaction, false );
+			return false;
+		}
+
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Removes the locked review shell after all retained content is gone.
+		$review_deleted = $wpdb->delete( self::table_name(), array( 'review_id' => $review_id ), array( '%s' ) );
+		if ( false === $review_deleted ) {
+			self::finish_transaction( $transaction, false );
+			return false;
+		}
+
+		return self::finish_transaction( $transaction, true );
 	}
 
-	/** Commit or roll back the current local projection transaction. */
-	private static function finish_transaction( bool $commit ): bool {
+	/** Begin a local transaction without committing a caller-owned transaction. */
+	private static function begin_transaction(): string|false {
 		global $wpdb;
 		/** @var \wpdb $wpdb */
 
-		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.NotPrepared -- Ends a narrowly scoped projection write transaction.
-		$result = $wpdb->query( $commit ? 'COMMIT' : 'ROLLBACK' );
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Detects a caller-owned transaction, including the WordPress PHPUnit isolation transaction.
+		$in_transaction = (int) $wpdb->get_var( 'SELECT @@in_transaction' );
+		if ( 1 === $in_transaction ) {
+			// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- A savepoint preserves the caller's transaction boundary.
+			return false === $wpdb->query( 'SAVEPOINT sd_ai_agent_review_projection' ) ? false : 'savepoint';
+		}
+
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Starts a narrowly scoped projection write transaction.
+		return false === $wpdb->query( 'START TRANSACTION' ) ? false : 'transaction';
+	}
+
+	/** Commit or roll back a local transaction or savepoint. */
+	private static function finish_transaction( string $transaction, bool $commit ): bool {
+		global $wpdb;
+		/** @var \wpdb $wpdb */
+
+		if ( 'savepoint' === $transaction ) {
+			$sql = $commit
+				? 'RELEASE SAVEPOINT sd_ai_agent_review_projection'
+				: 'ROLLBACK TO SAVEPOINT sd_ai_agent_review_projection';
+		} else {
+			$sql = $commit ? 'COMMIT' : 'ROLLBACK';
+		}
+
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.NotPrepared -- Ends only the transaction boundary opened by begin_transaction().
+		$result = $wpdb->query( $sql );
 
 		return false !== $result;
 	}

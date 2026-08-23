@@ -889,7 +889,6 @@ class Database {
 			agent_id bigint(20) unsigned NOT NULL DEFAULT 0,
 			status varchar(30) NOT NULL DEFAULT 'queued',
 			summary varchar(500) NOT NULL DEFAULT '',
-			transcript longtext NOT NULL,
 			turn_count int(10) unsigned NOT NULL DEFAULT 0,
 			provider_id varchar(100) NOT NULL DEFAULT '',
 			model_id varchar(100) NOT NULL DEFAULT '',

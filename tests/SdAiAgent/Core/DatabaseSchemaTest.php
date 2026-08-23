@@ -502,6 +502,7 @@ class DatabaseSchemaTest extends WP_UnitTestCase {
 			$this->assertContains( $column, $review_columns, "Customer conversation review table missing column '{$column}'." );
 		}
 		$this->assertNotContains( 'profile_id', $review_columns, 'Review projections must not retain runtime profile identifiers.' );
+		$this->assertNotContains( 'transcript', $review_columns, 'Review transcripts must remain normalized in the bounded turns table.' );
 
 		$turn_columns = $this->get_column_names( CustomerConversationReviewRepository::turns_table_name() );
 		foreach ( [ 'review_id', 'source_event_id', 'role', 'event_status', 'content', 'created_at' ] as $column ) {

@@ -161,7 +161,7 @@ final class CustomerConversationReviewRepositoryTest extends WP_UnitTestCase {
 				0,
 				'',
 				'',
-				gmdate( 'Y-m-d H:i:s', time() - HOUR_IN_SECONDS )
+				gmdate( 'Y-m-d H:i:s', time() + HOUR_IN_SECONDS )
 			)
 		);
 		$this->assertTrue(
@@ -174,10 +174,28 @@ final class CustomerConversationReviewRepositoryTest extends WP_UnitTestCase {
 			)
 		);
 
+		global $wpdb;
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Moves a retained test review past its expiry boundary after content was validly written.
+		$wpdb->update(
+			CustomerConversationReviewRepository::table_name(),
+			array( 'expires_at' => gmdate( 'Y-m-d H:i:s', time() - HOUR_IN_SECONDS ) ),
+			array( 'review_id' => $review_id ),
+			array( '%s' ),
+			array( '%s' )
+		);
+		$this->assertFalse(
+			CustomerConversationReviewRepository::append_public_turn(
+				$review_id,
+				'event-2',
+				'assistant',
+				'Late content must not be retained.',
+				'complete'
+			)
+		);
+
 		$this->assertSame( 1, CustomerConversationReviewRepository::purge_expired_reviews() );
 		$this->assertNull( CustomerConversationReviewRepository::get_review( $review_id ) );
 
-		global $wpdb;
 		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Verifies expiry cleanup removed bounded retained turn content.
 		$turn_count = (int) $wpdb->get_var(
 			$wpdb->prepare(
