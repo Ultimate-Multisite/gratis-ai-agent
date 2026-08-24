@@ -271,6 +271,8 @@ class AgentThemeBuilderTest extends WP_UnitTestCase {
 
 		foreach ( [
 			'two `stock-image` calls total and one `generate-image` call total',
+			'one broad, concrete subject phrase of two or three words',
+			'using the same broad primary subject',
 			'Never use the fetch-url or upload-media-from-url tools as an image-sourcing fallback',
 			'Never delete one of those posts',
 		] as $required ) {
