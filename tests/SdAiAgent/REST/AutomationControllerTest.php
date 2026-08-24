@@ -96,6 +96,29 @@ final class AutomationControllerTest extends WP_UnitTestCase {
 		$this->assertSame( $expected, $status );
 	}
 
+	/** Creating a Monitor cannot bypass the dedicated affirmative enable action. */
+	public function test_monitor_creation_ignores_enabled_request_and_does_not_schedule(): void {
+		wp_set_current_user( $this->admin_id );
+
+		$response = $this->dispatch(
+			'POST',
+			'/sd-ai-agent/v1/automations',
+			[
+				'name'            => 'REST Monitor Opt-in',
+				'prompt'          => 'Assess the current site state.',
+				'mode'            => Automations::MONITOR_MODE,
+				'monitor_scratch' => 'Review recent site changes.',
+				'enabled'         => true,
+			]
+		);
+
+		$this->assert_status( 201, $response );
+		$this->assertInstanceOf( WP_REST_Response::class, $response );
+		$monitor = $response->get_data();
+		$this->assertFalse( $monitor['enabled'] );
+		$this->assertFalse( wp_next_scheduled( AutomationRunner::CRON_HOOK, [ $monitor['id'] ] ) );
+	}
+
 	/** A permitted Check now call runs one disabled Monitor draft without scheduling it. */
 	public function test_manual_monitor_draft_check_preserves_disabled_state_and_no_schedule(): void {
 		wp_set_current_user( $this->admin_id );

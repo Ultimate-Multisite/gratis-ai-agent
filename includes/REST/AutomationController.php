@@ -449,6 +449,9 @@ final class AutomationController {
 			$validation->add_data( array( 'status' => 400 ) );
 			return $validation;
 		}
+		if ( Automations::MONITOR_MODE === sanitize_key( (string) ( $data['mode'] ?? Automations::TASK_MODE ) ) ) {
+			$data['enabled'] = false;
+		}
 		$data['owner_user_id'] = get_current_user_id();
 		$id                    = Automations::create( $data );
 
