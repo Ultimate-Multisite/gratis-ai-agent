@@ -2,7 +2,8 @@
  * E2E tests for the Superdav AI Agent automations system (t080/t081).
  *
  * Covers:
- *   - Scheduled automations: create, list, enable/disable toggle
+ *   - Scheduled tasks: create, list, enable/disable toggle
+ *   - Monitor/Pulse: disabled drafts, explicit enable, and one-off checks
  *   - Event-driven automations: create, list, enable/disable toggle
  *   - Proactive alert badge on the FAB
  *
@@ -31,11 +32,38 @@ const MOCK_AUTOMATION = {
 	schedule: 'daily',
 	tool_profile: '',
 	max_iterations: 10,
+	mode: 'task',
 	enabled: true,
 	notification_channels: [],
 	run_count: 3,
 	last_run_at: '2026-03-18 08:00:00',
 	next_run_at: null,
+	created_at: '2026-01-01 00:00:00',
+	updated_at: '2026-03-18 08:00:00',
+};
+
+/** A minimal disabled Monitor/Pulse definition returned by the REST API. */
+const MOCK_MONITOR = {
+	id: 2,
+	name: 'Test Site Availability Monitor',
+	description: 'Assess site availability and notify only when attention is needed.',
+	prompt: 'Assess the current site health.',
+	monitor_scratch: 'Check the home page and Site Health summary.',
+	schedule: 'daily',
+	tool_profile: 'site-health',
+	max_iterations: 10,
+	mode: 'monitor',
+	enabled: false,
+	notification_channels: [],
+	run_count: 1,
+	last_run_at: '2026-03-18 08:00:00',
+	next_run_at: null,
+	last_monitor_outcome: 'quiet',
+	last_monitor_summary: 'No attention is needed.',
+	last_run_error: '',
+	execution_status: 'idle',
+	owner_user_id: 1,
+	monitor_timing_help: 'WP-Cron can run late when site traffic is low.',
 	created_at: '2026-01-01 00:00:00',
 	updated_at: '2026-03-18 08:00:00',
 };
@@ -90,6 +118,15 @@ const MOCK_TEMPLATES = [
 		prompt: 'Check site health.',
 		schedule: 'daily',
 		tool_profile: 'site-health',
+	},
+	{
+		name: 'Availability Monitor Template',
+		description: 'Assess availability without notifying when the site is healthy.',
+		prompt: 'Assess the site health and report only attention-needed outcomes.',
+		monitor_scratch: 'Check the home page and Site Health summary.',
+		schedule: 'daily',
+		tool_profile: 'site-health',
+		mode: 'monitor',
 	},
 ];
 
@@ -415,6 +452,24 @@ async function goToAutomationsTab( page ) {
 }
 
 /**
+ * Navigate to the Monitor/Pulse manager inside the Automations tab.
+ *
+ * @param {import('@playwright/test').Page} page - Playwright page.
+ * @return {Promise<import('@playwright/test').Locator>} Monitor manager.
+ */
+async function goToMonitorManager( page ) {
+	await goToAutomationsTab( page );
+	const manager = page.locator( '.sd-ai-agent-monitor-manager' );
+	await manager.waitFor( { state: 'visible', timeout: 15_000 } );
+	await manager
+		.getByText( 'Loading Monitor/Pulse configuration…' )
+		.waitFor( { state: 'hidden', timeout: 10_000 } )
+		.catch( () => {} ); // Already gone — that's fine.
+
+	return manager;
+}
+
+/**
  * Navigate to the Settings page and activate the Automations tab to reach the
  * EventsManager.
  *
@@ -463,7 +518,7 @@ test.describe( 'Scheduled Automations (t080)', () => {
 		await loginToWordPress( page );
 	} );
 
-	test( 'automations tab renders the manager heading', async ( { page } ) => {
+	test( 'automations tab renders the scheduled tasks heading', async ( { page } ) => {
 		await goToAutomationsTab( page );
 
 		const manager = page.locator( '.sdaa-automations-manager' );
@@ -471,7 +526,7 @@ test.describe( 'Scheduled Automations (t080)', () => {
 
 		// Heading text.
 		await expect(
-			page.getByRole( 'heading', { name: /scheduled automations/i } )
+			page.getByRole( 'heading', { name: /scheduled tasks/i } )
 		).toBeVisible();
 	} );
 
@@ -828,6 +883,370 @@ test.describe( 'Scheduled Automations (t080)', () => {
 
 		const nameInput = form.getByLabel( /^name/i );
 		await expect( nameInput ).toHaveValue( MOCK_TEMPLATES[ 0 ].name );
+	} );
+} );
+
+// ---------------------------------------------------------------------------
+// Monitor/Pulse
+// ---------------------------------------------------------------------------
+
+test.describe( 'Monitor/Pulse', () => {
+	test.beforeEach( async ( { page } ) => {
+		await mockAutomationRoutes( page );
+		await loginToWordPress( page );
+	} );
+
+	test( 'renders Monitor/Pulse separately from Scheduled Tasks', async ( {
+		page,
+	} ) => {
+		await mockAutomationRoutes( page, {
+			automations: [ MOCK_AUTOMATION, MOCK_MONITOR ],
+		} );
+
+		const manager = await goToMonitorManager( page );
+		const monitorCard = manager
+			.locator( '.sd-ai-agent-monitor-card' )
+			.filter( { hasText: MOCK_MONITOR.name } );
+
+		await expect(
+			manager.getByRole( 'heading', { name: 'Monitor/Pulse' } )
+		).toBeVisible();
+		await expect( monitorCard ).toBeVisible();
+		await expect( monitorCard ).toContainText( 'Disabled draft' );
+		await expect( monitorCard ).toContainText( 'Quiet' );
+		await expect( monitorCard ).toContainText(
+			'No attention notifications'
+		);
+		await expect(
+			monitorCard.getByRole( 'button', { name: 'Check now' } )
+		).toBeVisible();
+		await expect(
+			page
+				.locator( '.sdaa-skill-card' )
+				.filter( { hasText: MOCK_MONITOR.name } )
+		).toHaveCount( 0 );
+	} );
+
+	test( 'renders all API Monitor outcomes and delayed WP-Cron context', async ( {
+		page,
+	} ) => {
+		const monitors = [
+			{ ...MOCK_MONITOR, id: 3, name: 'Quiet Monitor' },
+			{
+				...MOCK_MONITOR,
+				id: 4,
+				name: 'Attention Monitor',
+				last_monitor_outcome: 'notify',
+				last_monitor_summary: 'An administrator should review this result.',
+			},
+			{
+				...MOCK_MONITOR,
+				id: 5,
+				name: 'Blocked Monitor',
+				last_monitor_outcome: 'blocked',
+				last_run_error: 'Approval is required before this check can continue.',
+			},
+			{
+				...MOCK_MONITOR,
+				id: 6,
+				name: 'Error Monitor',
+				last_monitor_outcome: 'error',
+				last_run_error: 'The provider returned an error.',
+			},
+			{
+				...MOCK_MONITOR,
+				id: 7,
+				name: 'Delayed Monitor',
+				enabled: true,
+				next_run_at: '2020-01-01 00:00:00',
+			},
+		];
+
+		await mockAutomationRoutes( page, { automations: monitors } );
+		const manager = await goToMonitorManager( page );
+
+		for ( const [ name, outcome ] of [
+			[ 'Quiet Monitor', 'Quiet' ],
+			[ 'Attention Monitor', 'Attention needed' ],
+			[ 'Blocked Monitor', 'Blocked' ],
+			[ 'Error Monitor', 'Error' ],
+		] ) {
+			const card = manager
+				.locator( '.sd-ai-agent-monitor-card' )
+				.filter( { hasText: name } );
+			await expect( card.getByText( outcome, { exact: true } ) ).toBeVisible();
+		}
+
+		await expect(
+			manager
+				.locator( '.sd-ai-agent-monitor-card' )
+				.filter( { hasText: 'Delayed Monitor' } )
+				.getByText( 'The next expected check time has passed, so WP-Cron may be delayed.' )
+		).toBeVisible();
+	} );
+
+	test( 'new Monitor form starts as a disabled draft', async ( { page } ) => {
+		const manager = await goToMonitorManager( page );
+
+		await manager.getByRole( 'button', { name: 'Add Monitor' } ).click();
+
+		const form = manager.locator( '.sd-ai-agent-monitor-form' );
+		const saveButton = form.getByRole( 'button', {
+			name: 'Save Monitor draft',
+		} );
+
+		await expect( form ).toContainText(
+			'New Monitors are saved as disabled drafts.'
+		);
+		await expect( saveButton ).toBeDisabled();
+		await form.getByLabel( 'Monitor name' ).fill( 'New Monitor' );
+		await form
+			.getByLabel( 'Check instructions' )
+			.fill( 'Assess the current site health.' );
+		await expect( saveButton ).toBeEnabled();
+	} );
+
+	test( 'template Monitor saves as a disabled draft', async ( { page } ) => {
+		let createdMonitor = null;
+		let postBody = null;
+
+		await page.route( '**', async ( route ) => {
+			const decodedUrl = decodeURIComponent( route.request().url() );
+			const isAutomationCollection =
+				decodedUrl.includes( 'sd-ai-agent/v1/automations' ) &&
+				! decodedUrl.includes( '/automation-templates' ) &&
+				! /sd-ai-agent\/v1\/automations\/\d/.test( decodedUrl );
+
+			if ( ! isAutomationCollection ) {
+				return route.fallback();
+			}
+
+			if ( route.request().method() === 'POST' ) {
+				postBody = JSON.parse( route.request().postData() || '{}' );
+				createdMonitor = {
+					...MOCK_MONITOR,
+					...postBody,
+					id: 99,
+				};
+				return route.fulfill( {
+					status: 201,
+					contentType: 'application/json',
+					body: JSON.stringify( createdMonitor ),
+				} );
+			}
+
+			if ( route.request().method() === 'GET' ) {
+				return route.fulfill( {
+					status: 200,
+					contentType: 'application/json',
+					body: JSON.stringify(
+						createdMonitor ? [ createdMonitor ] : []
+					),
+				} );
+			}
+
+			return route.fallback();
+		} );
+
+		const manager = await goToMonitorManager( page );
+		await manager
+			.getByRole( 'button', { name: 'Use as disabled draft' } )
+			.click();
+
+		const form = manager.locator( '.sd-ai-agent-monitor-form' );
+		await form
+			.getByRole( 'button', { name: 'Save Monitor draft' } )
+			.click();
+
+		await expect.poll( () => postBody ).not.toBeNull();
+		expect( postBody ).toMatchObject( {
+			name: 'Availability Monitor Template',
+			mode: 'monitor',
+			enabled: false,
+		} );
+		await expect(
+			manager
+				.locator( '.components-notice' )
+				.filter( { hasText: 'Monitor saved as a disabled draft.' } )
+		).toBeVisible();
+		await expect(
+			manager
+				.locator( '.sd-ai-agent-monitor-card' )
+				.filter( { hasText: 'Availability Monitor Template' } )
+		).toHaveClass( /sd-ai-agent-monitor-card--disabled/ );
+	} );
+
+	test( 'Check now uses the manual draft contract without enabling monitoring', async ( {
+		page,
+	} ) => {
+		let checkBody = null;
+		let patchCalled = false;
+
+		await mockAutomationRoutes( page, { automations: [ MOCK_MONITOR ] } );
+		await page.route( '**', async ( route ) => {
+			const decodedUrl = decodeURIComponent( route.request().url() );
+			const method = route.request().method();
+			const override = route.request().headers()[
+				'x-http-method-override'
+			];
+			const effectiveMethod = override || method;
+
+			if (
+				/sd-ai-agent\/v1\/automations\/2\/run/.test( decodedUrl ) &&
+				effectiveMethod === 'POST'
+			) {
+				checkBody = JSON.parse( route.request().postData() || '{}' );
+				return route.fulfill( {
+					status: 200,
+					contentType: 'application/json',
+					body: JSON.stringify( {
+						lifecycle_status: 'succeeded',
+						monitor_outcome: 'quiet',
+					} ),
+				} );
+			}
+
+			if (
+				/sd-ai-agent\/v1\/automations\/2\b/.test( decodedUrl ) &&
+				effectiveMethod === 'PATCH'
+			) {
+				patchCalled = true;
+			}
+
+			return route.fallback();
+		} );
+
+		const manager = await goToMonitorManager( page );
+		const card = manager.locator( '.sd-ai-agent-monitor-card' );
+
+		await card.getByRole( 'button', { name: 'Check now' } ).click();
+
+		await expect.poll( () => checkBody ).not.toBeNull();
+		expect( checkBody ).toEqual( { manual_monitor_draft: true } );
+		expect( patchCalled ).toBe( false );
+		await expect( card ).toHaveClass( /sd-ai-agent-monitor-card--disabled/ );
+		await expect( card ).toContainText( 'Not scheduled' );
+		await expect(
+			manager.getByText(
+				'Monitor check completed without enabling recurring checks.'
+			)
+		).toBeVisible();
+	} );
+
+	test( 'Enable monitoring is a separate affirmative action', async ( {
+		page,
+	} ) => {
+		let patchBody = null;
+
+		await mockAutomationRoutes( page, { automations: [ MOCK_MONITOR ] } );
+		await page.route( '**', async ( route ) => {
+			const decodedUrl = decodeURIComponent( route.request().url() );
+			const method = route.request().method();
+			const override = route.request().headers()[
+				'x-http-method-override'
+			];
+			const effectiveMethod = override || method;
+
+			if (
+				/sd-ai-agent\/v1\/automations\/2\b/.test( decodedUrl ) &&
+				effectiveMethod === 'PATCH'
+			) {
+				patchBody = JSON.parse( route.request().postData() || '{}' );
+				return route.fulfill( {
+					status: 200,
+					contentType: 'application/json',
+					body: JSON.stringify( {
+						...MOCK_MONITOR,
+						enabled: true,
+						next_run_at: '2026-03-19 08:00:00',
+					} ),
+				} );
+			}
+
+			return route.fallback();
+		} );
+
+		const manager = await goToMonitorManager( page );
+		const card = manager.locator( '.sd-ai-agent-monitor-card' );
+
+		const enableButton = card.getByRole( 'button', {
+			name: 'Enable monitoring',
+		} );
+		await enableButton.focus();
+		await expect( enableButton ).toBeFocused();
+		await page.keyboard.press( 'Enter' );
+
+		await expect.poll( () => patchBody ).not.toBeNull();
+		expect( patchBody ).toEqual( { enabled: true } );
+		await expect( card ).not.toHaveClass(
+			/sd-ai-agent-monitor-card--disabled/
+		);
+		await expect(
+			card.getByRole( 'button', { name: 'Disable monitoring' } )
+		).toBeVisible();
+	} );
+
+	test( 'failed enable restores the disabled draft state', async ( { page } ) => {
+		await mockAutomationRoutes( page, { automations: [ MOCK_MONITOR ] } );
+		await page.route( '**', async ( route ) => {
+			const decodedUrl = decodeURIComponent( route.request().url() );
+			const method = route.request().method();
+			const override = route.request().headers()[
+				'x-http-method-override'
+			];
+			const effectiveMethod = override || method;
+
+			if (
+				/sd-ai-agent\/v1\/automations\/2\b/.test( decodedUrl ) &&
+				effectiveMethod === 'PATCH'
+			) {
+				return route.fulfill( {
+					status: 500,
+					contentType: 'application/json',
+					body: JSON.stringify( {
+						code: 'sd_ai_agent_monitor_enable_failed',
+						message: 'Enable failed for this test.',
+					} ),
+				} );
+			}
+
+			return route.fallback();
+		} );
+
+		const manager = await goToMonitorManager( page );
+		const card = manager.locator( '.sd-ai-agent-monitor-card' );
+		await card
+			.getByRole( 'button', { name: 'Enable monitoring' } )
+			.click();
+
+		await expect(
+			manager.getByText( 'Enable failed for this test.' )
+		).toBeVisible();
+		await expect( card ).toHaveClass( /sd-ai-agent-monitor-card--disabled/ );
+		await expect(
+			card.getByRole( 'button', { name: 'Enable monitoring' } )
+		).toBeVisible();
+	} );
+
+	test( 'keeps Monitor consent and form controls usable on a mobile viewport', async ( {
+		page,
+	} ) => {
+		await page.setViewportSize( { width: 600, height: 900 } );
+		await mockAutomationRoutes( page, { automations: [ MOCK_MONITOR ] } );
+
+		const manager = await goToMonitorManager( page );
+		const card = manager.locator( '.sd-ai-agent-monitor-card' );
+		await expect( card.getByText( 'Disabled draft' ) ).toBeVisible();
+		await expect(
+			card.getByRole( 'button', { name: 'Enable monitoring' } )
+		).toBeVisible();
+
+		await manager.getByRole( 'button', { name: 'Add Monitor' } ).click();
+		const form = manager.locator( '.sd-ai-agent-monitor-form' );
+		await expect( form.getByLabel( 'Monitor name' ) ).toBeVisible();
+		await expect(
+			form.getByRole( 'button', { name: 'Save Monitor draft' } )
+		).toBeVisible();
 	} );
 } );
 
