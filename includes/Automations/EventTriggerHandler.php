@@ -29,6 +29,14 @@ class EventTriggerHandler {
 	private static $registered_hooks = [];
 
 	/**
+	 * Track strict Monitor-wake hook registrations separately from legacy event
+	 * automations, whose arbitrary configured hooks must remain unchanged.
+	 *
+	 * @var array<string, bool>
+	 */
+	private static array $registered_monitor_wake_hooks = [];
+
+	/**
 	 * Guard against re-entrant trigger execution.
 	 *
 	 * @var bool
@@ -79,6 +87,31 @@ class EventTriggerHandler {
 				},
 				99,
 				$arg_count
+			);
+		}
+	}
+
+	/**
+	 * Attach only the fixed, explicitly subscribed Monitor wake sources.
+	 *
+	 * This deliberately does not share the broader legacy event-automation
+	 * registration path: a Monitor never accepts an arbitrary stored hook name
+	 * or passes raw callback arguments into model context.
+	 */
+	public static function attach_monitor_wake_hooks(): void {
+		foreach ( MonitorWakeQueue::get_enabled_source_hooks() as $hook_name => $arg_count ) {
+			if ( isset( self::$registered_monitor_wake_hooks[ $hook_name ] ) ) {
+				continue;
+			}
+
+			self::$registered_monitor_wake_hooks[ $hook_name ] = true;
+			add_action(
+				$hook_name,
+				function () use ( $hook_name ): void {
+					MonitorWakeQueue::capture( $hook_name, func_get_args() );
+				},
+				99,
+				max( 1, $arg_count )
 			);
 		}
 	}

@@ -424,4 +424,44 @@ class AutomationRunnerTest extends WP_UnitTestCase {
 			has_filter( 'cron_schedules', [ AutomationRunner::class, 'add_cron_schedules' ] )
 		);
 	}
+
+	/** A claimed wake loses authority immediately when its source is not selected. */
+	public function test_monitor_wake_with_unselected_source_is_blocked_before_provider_work(): void {
+		$owner_id   = self::factory()->user->create( [ 'role' => 'administrator' ] );
+		$monitor_id = Automations::create(
+			[
+				'name'                        => 'Wake authorization Monitor',
+				'prompt'                      => 'This must not reach a provider.',
+				'mode'                        => Automations::MONITOR_MODE,
+				'monitor_scratch'             => 'Assess the site.',
+				'monitor_event_wakes_enabled' => true,
+				'monitor_event_sources'       => [ 'delete_post' ],
+				'owner_user_id'               => $owner_id,
+				'enabled'                     => 1,
+			]
+		);
+		$this->assertIsInt( $monitor_id );
+
+		try {
+			$result = AutomationRunner::run_monitor_wake(
+				(int) $monitor_id,
+				[
+					'source'      => 'add_attachment',
+					'event_count' => 1,
+					'identifiers' => [ 'attachment_id' => 123 ],
+				],
+				123,
+				'11111111-2222-4333-8444-555555555555'
+			);
+
+			$this->assertIsArray( $result );
+			$this->assertSame( 'blocked', $result['lifecycle_status'] );
+			$this->assertSame( 'complete', $result['_monitor_wake_disposition'] );
+			$this->assertSame( 'event', $result['trigger_type'] );
+			$this->assertSame( 'add_attachment', $result['trigger_name'] );
+		} finally {
+			AutomationRunner::unschedule( (int) $monitor_id );
+			Automations::delete( (int) $monitor_id );
+		}
+	}
 }

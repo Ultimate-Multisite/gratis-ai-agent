@@ -75,4 +75,44 @@ class MonitorOutcomeTest extends WP_UnitTestCase {
 		$this->assertSame( 'blocked', MonitorOutcome::lifecycle_status( 'blocked' ) );
 		$this->assertSame( 'failed', MonitorOutcome::lifecycle_status( 'error' ) );
 	}
+
+	/** The prompt boundary retains only source-specific identifiers and bounded counts. */
+	public function test_wake_context_discards_unapproved_metadata_before_prompt_rendering(): void {
+		$context = MonitorOutcome::sanitize_wake_context(
+			[
+				'source'      => 'delete_post',
+				'event_count' => 999,
+				'identifiers' => [
+					'post_id'    => '42',
+					'unretained' => 'must-not-persist',
+				],
+			]
+		);
+
+		$this->assertSame(
+			[
+				'source'      => 'delete_post',
+				'event_count' => 50,
+				'identifiers' => [ 'post_id' => 42 ],
+			],
+			$context
+		);
+
+		$prompt = MonitorOutcome::build_prompt(
+			[ 'monitor_scratch' => 'Check the site.' ],
+			[
+				'source'      => 'delete_post',
+				'event_count' => 999,
+				'identifiers' => [
+					'post_id'    => '42',
+					'unretained' => 'must-not-persist',
+				],
+			]
+		);
+
+		$this->assertStringContainsString( 'Source: delete_post', $prompt );
+		$this->assertStringContainsString( 'Coalesced deliveries: 50', $prompt );
+		$this->assertStringContainsString( 'post_id=42', $prompt );
+		$this->assertStringNotContainsString( 'must-not-persist', $prompt );
+	}
 }

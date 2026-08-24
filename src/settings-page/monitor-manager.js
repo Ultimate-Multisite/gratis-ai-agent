@@ -5,6 +5,7 @@ import { useCallback, useEffect, useState } from '@wordpress/element';
 import {
 	BaseControl,
 	Button,
+	CheckboxControl,
 	Notice,
 	SelectControl,
 	Spinner,
@@ -39,6 +40,8 @@ const CHANNEL_TYPE_OPTIONS = [
 	{ label: __( 'Discord', 'superdav-ai-agent' ), value: 'discord' },
 ];
 
+const MAX_EVENT_WAKE_SOURCES = 4;
+
 /** Return a blank notification channel definition. */
 function emptyChannel() {
 	return { type: 'slack', webhook_url: '', enabled: true };
@@ -51,6 +54,8 @@ function emptyMonitorForm() {
 		description: '',
 		prompt: '',
 		monitor_scratch: '',
+		monitor_event_wakes_enabled: false,
+		monitor_event_sources: [],
 		schedule: 'daily',
 		tool_profile: '',
 		max_iterations: 10,
@@ -132,12 +137,82 @@ function getTimingMessage( monitor ) {
 }
 
 /**
+ * Return a bounded, non-sensitive queue status from a Monitor API record.
+ *
+ * @param {Object} monitor Monitor record.
+ * @return {Object} Compact queue status.
+ */
+function getWakeStatus( monitor ) {
+	const status = monitor?.monitor_wake_status || {};
+	const getCount = ( value ) =>
+		Math.max( 0, Number.parseInt( value, 10 ) || 0 );
+
+	return {
+		pendingGroups: getCount( status.pending_groups ),
+		pendingEvents: getCount( status.pending_events ),
+		deferredGroups: getCount( status.deferred_groups ),
+		claimedGroups: getCount( status.claimed_groups ),
+		expiredGroups: getCount( status.expired_groups ),
+	};
+}
+
+/**
+ * Render compact operational status without exposing retained event metadata.
+ *
+ * @param {Object} status Compact queue status.
+ * @return {string} Localized queue summary.
+ */
+function getWakeQueueMessage( status ) {
+	const parts = [];
+	if ( status.pendingGroups ) {
+		parts.push(
+			`${ status.pendingGroups } ${ __(
+				'pending group(s)',
+				'superdav-ai-agent'
+			) } / ${ status.pendingEvents } ${ __(
+				'event(s)',
+				'superdav-ai-agent'
+			) }`
+		);
+	}
+	if ( status.deferredGroups ) {
+		parts.push(
+			`${ status.deferredGroups } ${ __(
+				'deferred group(s)',
+				'superdav-ai-agent'
+			) }`
+		);
+	}
+	if ( status.claimedGroups ) {
+		parts.push(
+			`${ status.claimedGroups } ${ __(
+				'claimed group(s)',
+				'superdav-ai-agent'
+			) }`
+		);
+	}
+	if ( status.expiredGroups ) {
+		parts.push(
+			`${ status.expiredGroups } ${ __(
+				'expired group(s)',
+				'superdav-ai-agent'
+			) }`
+		);
+	}
+
+	return parts.length
+		? parts.join( ', ' )
+		: __( 'No event wakes are queued.', 'superdav-ai-agent' );
+}
+
+/**
  * Render the saved-draft Monitor configuration form.
  *
  * @param {Object}      root0                 Component props.
  * @param {Object}      root0.form            Current Monitor definition.
  * @param {number|null} root0.editId          Existing Monitor ID, if editing.
  * @param {boolean}     root0.saving          Whether the form is saving.
+ * @param {Array}       root0.wakeSources     Approved event wake descriptors.
  * @param {Function}    root0.onChange        Update a form field.
  * @param {Function}    root0.onAddChannel    Add a notification channel.
  * @param {Function}    root0.onUpdateChannel Update one notification channel.
@@ -150,6 +225,7 @@ function MonitorForm( {
 	form,
 	editId,
 	saving,
+	wakeSources,
 	onChange,
 	onAddChannel,
 	onUpdateChannel,
@@ -157,6 +233,20 @@ function MonitorForm( {
 	onSubmit,
 	onCancel,
 } ) {
+	const selectedWakeSources = Array.isArray( form.monitor_event_sources )
+		? form.monitor_event_sources
+		: [];
+	const hasSelectedWakeSource = selectedWakeSources.length > 0;
+	const updateWakeSource = ( hookName, selected ) => {
+		const nextSources = selected
+			? [ ...selectedWakeSources, hookName ]
+			: selectedWakeSources.filter( ( source ) => source !== hookName );
+		onChange( 'monitor_event_sources', nextSources );
+		if ( nextSources.length === 0 ) {
+			onChange( 'monitor_event_wakes_enabled', false );
+		}
+	};
+
 	return (
 		<div className="sd-ai-agent-monitor-form">
 			<Notice status="warning" isDismissible={ false }>
@@ -197,6 +287,81 @@ function MonitorForm( {
 					'superdav-ai-agent'
 				) }
 			/>
+			<div className="sd-ai-agent-monitor-event-wakes">
+				<ToggleControl
+					label={ __(
+						'Allow selected site events to wake this Monitor',
+						'superdav-ai-agent'
+					) }
+					checked={ Boolean( form.monitor_event_wakes_enabled ) }
+					disabled={ ! hasSelectedWakeSource }
+					help={
+						hasSelectedWakeSource
+							? __(
+									'Event wakes are coalesced and processed by WP-Cron. They do not run the Monitor immediately.',
+									'superdav-ai-agent'
+							  )
+							: __(
+									'Select at least one approved source before enabling event wakes.',
+									'superdav-ai-agent'
+							  )
+					}
+					onChange={ ( value ) =>
+						onChange( 'monitor_event_wakes_enabled', value )
+					}
+					__nextHasNoMarginBottom
+				/>
+				<BaseControl
+					id="sd-ai-agent-monitor-event-wake-sources"
+					label={ __(
+						'Approved event sources',
+						'superdav-ai-agent'
+					) }
+					help={ __(
+						'Select up to four sources. Only the selected sources can create a coalesced Monitor wake.',
+						'superdav-ai-agent'
+					) }
+					__nextHasNoMarginBottom
+				>
+					<div className="sd-ai-agent-monitor-event-wake-sources">
+						{ wakeSources.length > 0 ? (
+							wakeSources.map( ( source ) => {
+								const hookName = source?.hook_name || '';
+								if ( ! hookName ) {
+									return null;
+								}
+
+								const isSelected =
+									selectedWakeSources.includes( hookName );
+								return (
+									<CheckboxControl
+										key={ hookName }
+										label={ source.label || hookName }
+										help={ source.description || '' }
+										checked={ isSelected }
+										disabled={
+											! isSelected &&
+											selectedWakeSources.length >=
+												MAX_EVENT_WAKE_SOURCES
+										}
+										onChange={ ( value ) =>
+											updateWakeSource( hookName, value )
+										}
+										__nextHasNoMarginBottom
+									/>
+								);
+							} )
+						) : (
+							<p className="description">
+								{ __(
+									'No approved event sources are available right now.',
+									'superdav-ai-agent'
+								) }
+							</p>
+						) }
+					</div>
+				</BaseControl>
+			</div>
 			<div className="sd-ai-agent-monitor-form-grid">
 				<SelectControl
 					label={ __( 'Cadence', 'superdav-ai-agent' ) }
@@ -364,6 +529,12 @@ function MonitorCard( {
 	);
 	const outcome =
 		monitor.last_monitor_outcome || monitor.execution_status || 'idle';
+	const eventWakeSources = Array.isArray( monitor.monitor_event_sources )
+		? monitor.monitor_event_sources
+		: [];
+	const eventWakesEnabled = Boolean( monitor.monitor_event_wakes_enabled );
+	const wakeStatus = getWakeStatus( monitor );
+	const hasWakeActivity = Object.values( wakeStatus ).some( Boolean );
 
 	return (
 		<article
@@ -403,6 +574,17 @@ function MonitorCard( {
 				<div>
 					<dt>{ __( 'Cadence', 'superdav-ai-agent' ) }</dt>
 					<dd>{ monitor.schedule }</dd>
+				</div>
+				<div>
+					<dt>{ __( 'Event wakes', 'superdav-ai-agent' ) }</dt>
+					<dd>
+						{ eventWakesEnabled
+							? `${ eventWakeSources.length } ${ __(
+									'selected source(s)',
+									'superdav-ai-agent'
+							  ) }`
+							: __( 'Off', 'superdav-ai-agent' ) }
+					</dd>
 				</div>
 				<div>
 					<dt>{ __( 'Owner', 'superdav-ai-agent' ) }</dt>
@@ -467,6 +649,14 @@ function MonitorCard( {
 			{ monitor.monitor_timing_help && (
 				<p className="sd-ai-agent-monitor-timing">
 					{ monitor.monitor_timing_help }
+				</p>
+			) }
+			{ ( eventWakesEnabled || hasWakeActivity ) && (
+				<p className="sd-ai-agent-monitor-event-wake-status">
+					<strong>
+						{ __( 'Event wake queue:', 'superdav-ai-agent' ) }
+					</strong>{ ' ' }
+					{ getWakeQueueMessage( wakeStatus ) }
 				</p>
 			) }
 			<p className="sd-ai-agent-monitor-cost">
@@ -578,6 +768,7 @@ function MonitorCard( {
 export default function MonitorManager() {
 	const [ monitors, setMonitors ] = useState( [] );
 	const [ templates, setTemplates ] = useState( [] );
+	const [ wakeSources, setWakeSources ] = useState( [] );
 	const [ loaded, setLoaded ] = useState( false );
 	const [ showForm, setShowForm ] = useState( false );
 	const [ editId, setEditId ] = useState( null );
@@ -590,10 +781,16 @@ export default function MonitorManager() {
 
 	const fetchAll = useCallback( async () => {
 		try {
-			const [ automationResult, templateResult ] = await Promise.all( [
-				apiFetch( { path: '/sd-ai-agent/v1/automations' } ),
-				apiFetch( { path: '/sd-ai-agent/v1/automation-templates' } ),
-			] );
+			const [ automationResult, templateResult, sourceResult ] =
+				await Promise.all( [
+					apiFetch( { path: '/sd-ai-agent/v1/automations' } ),
+					apiFetch( {
+						path: '/sd-ai-agent/v1/automation-templates',
+					} ),
+					apiFetch( {
+						path: '/sd-ai-agent/v1/monitor-wake-sources',
+					} ).catch( () => [] ),
+				] );
 			setMonitors(
 				Array.isArray( automationResult )
 					? automationResult.filter( isMonitor )
@@ -604,9 +801,11 @@ export default function MonitorManager() {
 					? templateResult.filter( isMonitor )
 					: []
 			);
+			setWakeSources( Array.isArray( sourceResult ) ? sourceResult : [] );
 		} catch {
 			setMonitors( [] );
 			setTemplates( [] );
+			setWakeSources( [] );
 		} finally {
 			setLoaded( true );
 		}
@@ -718,6 +917,14 @@ export default function MonitorManager() {
 			description: monitor.description || '',
 			prompt: monitor.prompt || '',
 			monitor_scratch: monitor.monitor_scratch || '',
+			monitor_event_wakes_enabled: Boolean(
+				monitor.monitor_event_wakes_enabled
+			),
+			monitor_event_sources: Array.isArray(
+				monitor.monitor_event_sources
+			)
+				? monitor.monitor_event_sources
+				: [],
 			schedule: monitor.schedule || 'daily',
 			tool_profile: monitor.tool_profile || '',
 			max_iterations: monitor.max_iterations || 10,
@@ -982,6 +1189,7 @@ export default function MonitorManager() {
 					form={ form }
 					editId={ editId }
 					saving={ saving }
+					wakeSources={ wakeSources }
 					onChange={ updateForm }
 					onAddChannel={ addChannel }
 					onUpdateChannel={ updateChannel }

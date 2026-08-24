@@ -13,6 +13,43 @@ namespace SdAiAgent\Automations;
 class EventTriggerRegistry {
 
 	/**
+	 * The only registry sources allowed to wake a Monitor.
+	 *
+	 * Event automations retain their broader, user-configurable catalog. Monitor
+	 * wakes are deliberately narrower because hook arguments often contain raw
+	 * user content, credentials, emails, or object graphs. Each entry maps to
+	 * fields that can be reduced to bounded identifiers before persistence.
+	 *
+	 * @var array<string, array{identifier_fields:list<string>,hook_arg_count:int}>
+	 */
+	private const MONITOR_WAKE_SOURCES = [
+		'transition_post_status' => [
+			'identifier_fields' => [ 'new_status', 'old_status', 'post_id', 'post_type' ],
+			'hook_arg_count'    => 3,
+		],
+		'delete_post'            => [
+			'identifier_fields' => [ 'post_id' ],
+			'hook_arg_count'    => 1,
+		],
+		'activated_plugin'       => [
+			'identifier_fields' => [],
+			'hook_arg_count'    => 1,
+		],
+		'deactivated_plugin'     => [
+			'identifier_fields' => [],
+			'hook_arg_count'    => 1,
+		],
+		'switch_theme'           => [
+			'identifier_fields' => [],
+			'hook_arg_count'    => 2,
+		],
+		'add_attachment'         => [
+			'identifier_fields' => [ 'attachment_id' ],
+			'hook_arg_count'    => 1,
+		],
+	];
+
+	/**
 	 * Get all available triggers grouped by category.
 	 *
 	 * @return list<array<string, mixed>>
@@ -74,6 +111,170 @@ class EventTriggerRegistry {
 			}
 		}
 		return null;
+	}
+
+	/**
+	 * Return the strict, presentation-safe event descriptors available to Monitors.
+	 *
+	 * @return list<array{hook_name:string,label:string,description:string,args:list<string>}>
+	 */
+	public static function get_monitor_wake_sources(): array {
+		$sources = [];
+		foreach ( array_keys( self::MONITOR_WAKE_SOURCES ) as $hook_name ) {
+			$sources[] = [
+				'hook_name'   => $hook_name,
+				'label'       => self::get_monitor_wake_source_label( $hook_name ),
+				'description' => self::get_monitor_wake_source_description( $hook_name ),
+				'args'        => self::get_monitor_wake_identifier_fields( $hook_name ),
+			];
+		}
+
+		return $sources;
+	}
+
+	/** Return whether a hook is one of the strict Monitor wake allowlist entries. */
+	public static function is_monitor_wake_source( string $hook_name ): bool {
+		return array_key_exists( $hook_name, self::MONITOR_WAKE_SOURCES );
+	}
+
+	/** Return the fixed WordPress callback argument count for an approved source. */
+	public static function get_monitor_wake_hook_arg_count( string $hook_name ): int {
+		return (int) ( self::MONITOR_WAKE_SOURCES[ $hook_name ]['hook_arg_count'] ?? 0 );
+	}
+
+	/**
+	 * Return a safe, bounded event summary without retaining raw hook arguments.
+	 *
+	 * @param string $hook_name WordPress action name.
+	 * @param array  $hook_args Action arguments.
+	 * @phpstan-param list<mixed> $hook_args
+	 * @return array{source:string,identifiers:array<string,int|string>}|null
+	 */
+	public static function summarize_monitor_wake( string $hook_name, array $hook_args ): ?array {
+		if ( ! self::is_monitor_wake_source( $hook_name ) ) {
+			return null;
+		}
+
+		$identifiers = [];
+		switch ( $hook_name ) {
+			case 'transition_post_status':
+				$new_status = self::sanitize_monitor_wake_text_identifier( $hook_args[0] ?? null );
+				$old_status = self::sanitize_monitor_wake_text_identifier( $hook_args[1] ?? null );
+				if ( '' !== $new_status ) {
+					$identifiers['new_status'] = $new_status;
+				}
+				if ( '' !== $old_status ) {
+					$identifiers['old_status'] = $old_status;
+				}
+
+				$post = $hook_args[2] ?? null;
+				if ( $post instanceof \WP_Post ) {
+					$post_id   = self::sanitize_monitor_wake_numeric_identifier( $post->ID );
+					$post_type = self::sanitize_monitor_wake_text_identifier( $post->post_type );
+					if ( $post_id > 0 ) {
+						$identifiers['post_id'] = $post_id;
+					}
+					if ( '' !== $post_type ) {
+						$identifiers['post_type'] = $post_type;
+					}
+				}
+				break;
+
+			case 'delete_post':
+			case 'add_attachment':
+				$identifier = self::sanitize_monitor_wake_numeric_identifier( $hook_args[0] ?? null );
+				if ( $identifier > 0 ) {
+					$identifiers[ 'delete_post' === $hook_name ? 'post_id' : 'attachment_id' ] = $identifier;
+				}
+				break;
+		}
+
+		return [
+			'source'      => $hook_name,
+			'identifiers' => self::sanitize_monitor_wake_identifiers( $hook_name, $identifiers ),
+		];
+	}
+
+	/**
+	 * Reduce stored monitor-wake identifiers to their source-specific schema.
+	 *
+	 * @param string               $hook_name   Approved source name.
+	 * @param array<string, mixed> $identifiers Candidate identifiers.
+	 * @return array<string, int|string>
+	 */
+	public static function sanitize_monitor_wake_identifiers( string $hook_name, array $identifiers ): array {
+		$allowed = self::get_monitor_wake_identifier_fields( $hook_name );
+		$clean   = [];
+		foreach ( $allowed as $field ) {
+			if ( ! array_key_exists( $field, $identifiers ) ) {
+				continue;
+			}
+
+			$value = $identifiers[ $field ];
+			if ( in_array( $field, [ 'post_id', 'attachment_id' ], true ) ) {
+				$value = self::sanitize_monitor_wake_numeric_identifier( $value );
+				if ( $value > 0 ) {
+					$clean[ $field ] = $value;
+				}
+				continue;
+			}
+
+			$value = self::sanitize_monitor_wake_text_identifier( $value );
+			if ( '' !== $value ) {
+				$clean[ $field ] = $value;
+			}
+		}
+
+		return $clean;
+	}
+
+	/**
+	 * Return safe identifier names for one hard-coded Monitor event source.
+	 *
+	 * @return list<string>
+	 */
+	private static function get_monitor_wake_identifier_fields( string $hook_name ): array {
+		return self::MONITOR_WAKE_SOURCES[ $hook_name ]['identifier_fields'] ?? [];
+	}
+
+	/** Reduce a scalar hook argument to a safe key-like identifier. */
+	private static function sanitize_monitor_wake_text_identifier( mixed $value ): string {
+		return is_scalar( $value ) ? sanitize_key( (string) $value ) : '';
+	}
+
+	/** Reduce one scalar hook argument to a positive integer identifier. */
+	private static function sanitize_monitor_wake_numeric_identifier( mixed $value ): int {
+		if ( ! is_scalar( $value ) || ! is_numeric( $value ) ) {
+			return 0;
+		}
+
+		return absint( $value );
+	}
+
+	/** Return a fixed translated label without consulting filterable trigger metadata. */
+	private static function get_monitor_wake_source_label( string $hook_name ): string {
+		return match ( $hook_name ) {
+			'transition_post_status' => __( 'Post Status Changed', 'superdav-ai-agent' ),
+			'delete_post'            => __( 'Post Deleted', 'superdav-ai-agent' ),
+			'activated_plugin'       => __( 'Plugin Activated', 'superdav-ai-agent' ),
+			'deactivated_plugin'     => __( 'Plugin Deactivated', 'superdav-ai-agent' ),
+			'switch_theme'           => __( 'Theme Switched', 'superdav-ai-agent' ),
+			'add_attachment'         => __( 'Media Uploaded', 'superdav-ai-agent' ),
+			default                  => $hook_name,
+		};
+	}
+
+	/** Return fixed user-facing source guidance without exposing hook arguments. */
+	private static function get_monitor_wake_source_description( string $hook_name ): string {
+		return match ( $hook_name ) {
+			'transition_post_status' => __( 'Assess a post status change using only its status and ID metadata.', 'superdav-ai-agent' ),
+			'delete_post'            => __( 'Assess a deleted post using only its ID metadata.', 'superdav-ai-agent' ),
+			'activated_plugin'       => __( 'Assess a plugin activation without retaining plugin path data.', 'superdav-ai-agent' ),
+			'deactivated_plugin'     => __( 'Assess a plugin deactivation without retaining plugin path data.', 'superdav-ai-agent' ),
+			'switch_theme'           => __( 'Assess a theme switch without retaining theme metadata.', 'superdav-ai-agent' ),
+			'add_attachment'         => __( 'Assess a media upload using only its attachment ID metadata.', 'superdav-ai-agent' ),
+			default                  => '',
+		};
 	}
 
 	/**

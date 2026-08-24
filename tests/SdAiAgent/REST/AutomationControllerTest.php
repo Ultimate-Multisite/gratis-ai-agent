@@ -163,4 +163,29 @@ final class AutomationControllerTest extends WP_UnitTestCase {
 			$response->get_data()['code'] ?? ''
 		);
 	}
+
+	/** The source endpoint exposes only fixed presentation-safe descriptors. */
+	public function test_monitor_wake_sources_are_available_to_administrators(): void {
+		wp_set_current_user( $this->admin_id );
+
+		$response = $this->dispatch( 'GET', '/sd-ai-agent/v1/monitor-wake-sources' );
+
+		$this->assert_status( 200, $response );
+		$this->assertInstanceOf( WP_REST_Response::class, $response );
+		$sources = $response->get_data();
+		$this->assertIsArray( $sources );
+		$this->assertSame(
+			[
+				'transition_post_status',
+				'delete_post',
+				'activated_plugin',
+				'deactivated_plugin',
+				'switch_theme',
+				'add_attachment',
+			],
+			array_column( $sources, 'hook_name' )
+		);
+		$this->assertSame( [ 'post_id' ], $sources[1]['args'] );
+		$this->assertArrayNotHasKey( 'plugin', $sources[2] );
+	}
 }

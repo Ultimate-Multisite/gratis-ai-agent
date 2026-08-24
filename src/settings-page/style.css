@@ -1027,6 +1027,23 @@
 	gap: 12px;
 }
 
+.sd-ai-agent-monitor-event-wakes {
+	padding: 12px;
+	border: 1px solid #dcdcde;
+	border-radius: 4px;
+	background: #fff;
+}
+
+.sd-ai-agent-monitor-event-wake-sources {
+	display: grid;
+	grid-template-columns: repeat(2, minmax(0, 1fr));
+	gap: 8px 16px;
+}
+
+.sd-ai-agent-monitor-event-wake-sources .components-base-control {
+	margin-bottom: 0;
+}
+
 .sd-ai-agent-monitor-channel {
 	display: grid;
 	grid-template-columns: minmax(120px, 0.75fr) minmax(0, 2fr) minmax(105px, 0.75fr) auto;
@@ -1175,6 +1192,7 @@
 
 .sd-ai-agent-monitor-timing,
 .sd-ai-agent-monitor-cost,
+.sd-ai-agent-monitor-event-wake-status,
 .sd-ai-agent-monitor-summary,
 .sd-ai-agent-monitor-error {
 	margin: 8px 0;
@@ -1189,6 +1207,11 @@
 }
 
 .sd-ai-agent-monitor-cost {
+	background: #f6f7f7;
+	color: #50575e;
+}
+
+.sd-ai-agent-monitor-event-wake-status {
 	background: #f6f7f7;
 	color: #50575e;
 }
@@ -1242,7 +1265,8 @@
 
 @media screen and (max-width: 782px) {
 	.sd-ai-agent-monitor-form-grid,
-	.sd-ai-agent-monitor-details {
+	.sd-ai-agent-monitor-details,
+	.sd-ai-agent-monitor-event-wake-sources {
 		grid-template-columns: repeat(2, minmax(0, 1fr));
 	}
 
@@ -1260,7 +1284,8 @@
 
 	.sd-ai-agent-monitor-form-grid,
 	.sd-ai-agent-monitor-details,
-	.sd-ai-agent-monitor-channel {
+	.sd-ai-agent-monitor-channel,
+	.sd-ai-agent-monitor-event-wake-sources {
 		grid-template-columns: minmax(0, 1fr);
 	}
 

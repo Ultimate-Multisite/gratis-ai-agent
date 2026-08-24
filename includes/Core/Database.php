@@ -37,7 +37,7 @@ use SdAiAgent\Tools\CustomTools;
 class Database {
 
 	const DB_VERSION_OPTION                         = 'sd_ai_agent_db_version';
-	const DB_VERSION                                = '19.13.0';
+	const DB_VERSION                                = '19.15.0';
 	const CUSTOMER_CONVERSATION_REVIEW_CLEANUP_HOOK = 'sd_ai_agent_customer_conversation_review_cleanup';
 
 	// ─── Table Name Registry ──────────────────────────────────────────────────
@@ -106,6 +106,15 @@ class Database {
 	}
 
 	/**
+	 * Get the durable coalesced Monitor event-wake table name.
+	 */
+	public static function monitor_wakes_table_name(): string {
+		global $wpdb;
+		/** @var \wpdb $wpdb */
+		return $wpdb->prefix . 'sd_ai_agent_monitor_wakes';
+	}
+
+	/**
 	 * Whether durable automation lifecycle tables support atomic transitions.
 	 *
 	 * Scheduled execution intentionally fails closed when a host cannot provide
@@ -115,6 +124,14 @@ class Database {
 	public static function has_transactional_automation_storage(): bool {
 		return self::table_uses_innodb( self::automations_table_name() )
 			&& self::table_uses_innodb( self::automation_logs_table_name() );
+	}
+
+	/**
+	 * Return whether the monitor-wake queue can make atomic claim transitions.
+	 */
+	public static function has_transactional_monitor_wake_storage(): bool {
+		return self::has_transactional_automation_storage()
+			&& self::table_uses_innodb( self::monitor_wakes_table_name() );
 	}
 
 	/**
@@ -349,6 +366,7 @@ class Database {
 		$custom_tools_table                       = self::custom_tools_table_name();
 		$automations_table                        = self::automations_table_name();
 		$automation_logs_table                    = self::automation_logs_table_name();
+		$monitor_wakes_table                      = self::monitor_wakes_table_name();
 		$approval_requests_table                  = self::approval_requests_table_name();
 		$calendar_reminders_table                 = self::calendar_reminders_table_name();
 		$event_automations_table                  = self::event_automations_table_name();
@@ -471,6 +489,11 @@ class Database {
 			prompt longtext NOT NULL,
 			mode varchar(20) NOT NULL DEFAULT 'task',
 			monitor_scratch longtext NOT NULL DEFAULT '',
+			monitor_event_wakes_enabled tinyint(1) NOT NULL DEFAULT 0,
+			monitor_event_sources longtext NOT NULL DEFAULT '',
+			monitor_wake_cooldown_until datetime DEFAULT NULL,
+			monitor_wake_dropped_count int(11) unsigned NOT NULL DEFAULT 0,
+			monitor_wake_deferred_count int(11) unsigned NOT NULL DEFAULT 0,
 			schedule varchar(50) NOT NULL DEFAULT 'daily',
 			cron_expression varchar(100) NOT NULL DEFAULT '',
 			tool_profile varchar(100) NOT NULL DEFAULT '',
@@ -527,6 +550,33 @@ class Database {
 			KEY monitor_outcome (monitor_outcome),
 			KEY created_at (created_at),
 			KEY lifecycle_lease (lifecycle_status, lease_expires_at)
+		) ENGINE=InnoDB {$charset};
+
+		CREATE TABLE {$monitor_wakes_table} (
+			id bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+			monitor_id bigint(20) unsigned NOT NULL,
+			source varchar(100) NOT NULL,
+			state_key varchar(64) NOT NULL DEFAULT 'pending',
+			status varchar(20) NOT NULL DEFAULT 'pending',
+			event_summary longtext NOT NULL,
+			event_count int(11) unsigned NOT NULL DEFAULT 0,
+			dropped_count int(11) unsigned NOT NULL DEFAULT 0,
+			deferred_count int(11) unsigned NOT NULL DEFAULT 0,
+			attempt_count int(11) unsigned NOT NULL DEFAULT 0,
+			available_at datetime NOT NULL,
+			lease_expires_at datetime DEFAULT NULL,
+			claimed_run_id char(36) NOT NULL DEFAULT '',
+			provider_started_at datetime DEFAULT NULL,
+			first_seen_at datetime NOT NULL,
+			last_seen_at datetime NOT NULL,
+			expires_at datetime NOT NULL,
+			created_at datetime NOT NULL,
+			updated_at datetime NOT NULL,
+			PRIMARY KEY  (id),
+			UNIQUE KEY monitor_source_state (monitor_id, source, state_key),
+			KEY due_wakes (status, available_at),
+			KEY monitor_id (monitor_id),
+			KEY expires_at (expires_at)
 		) ENGINE=InnoDB {$charset};
 
 		CREATE TABLE {$approval_requests_table} (
@@ -1005,6 +1055,7 @@ class Database {
 		// has_transactional_automation_storage(), so a failed conversion must not
 		// block unrelated schema repairs, seeds, or the version marker.
 		self::ensure_automation_lifecycle_transactional_storage( $automations_table, $automation_logs_table );
+		self::ensure_monitor_wake_transactional_storage( $monitor_wakes_table );
 		self::ensure_customer_conversation_review_summary_fulltext_index( $customer_conversation_reviews_table );
 
 		// This defence-in-depth index may be blocked by ambiguous historical
@@ -1069,6 +1120,25 @@ class Database {
 		}
 
 		return true;
+	}
+
+	/**
+	 * Require InnoDB for durable Monitor event-wake coalescing and claims.
+	 */
+	private static function ensure_monitor_wake_transactional_storage( string $monitor_wakes_table ): bool {
+		global $wpdb;
+		/** @var \wpdb $wpdb */
+
+		if ( self::table_uses_innodb( $monitor_wakes_table ) ) {
+			return true;
+		}
+
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.SchemaChange -- Required migration for atomic Monitor event-wake claims.
+		if ( false === $wpdb->query( $wpdb->prepare( 'ALTER TABLE %i ENGINE=InnoDB', $monitor_wakes_table ) ) ) {
+			return false;
+		}
+
+		return self::table_uses_innodb( $monitor_wakes_table );
 	}
 
 	/**

@@ -20,6 +20,9 @@ class Automations {
 	const TASK_MODE    = 'task';
 	const MONITOR_MODE = 'monitor';
 
+	/** Maximum independently selected event sources for one Monitor. */
+	const MAX_MONITOR_WAKE_SOURCES = 4;
+
 	/** @var list<string> Supported scheduled automation modes. */
 	const VALID_MODES = [ self::TASK_MODE, self::MONITOR_MODE ];
 
@@ -108,13 +111,39 @@ class Automations {
 			);
 		}
 
+		$monitor_fields = [ 'monitor_scratch', 'monitor_event_wakes_enabled', 'monitor_event_sources' ];
 		foreach ( array_keys( $data ) as $key ) {
-			if ( is_string( $key ) && str_starts_with( $key, 'monitor_' ) && 'monitor_scratch' !== $key ) {
+			if ( is_string( $key ) && str_starts_with( $key, 'monitor_' ) && ! in_array( $key, $monitor_fields, true ) ) {
 				return new WP_Error(
 					'sd_ai_agent_automation_unknown_monitor_field',
 					__( 'This Monitor field is not supported by the current site.', 'superdav-ai-agent' )
 				);
 			}
+		}
+
+		$event_wake_fields_present = array_key_exists( 'monitor_event_wakes_enabled', $data ) || array_key_exists( 'monitor_event_sources', $data );
+		if ( $event_wake_fields_present && self::MONITOR_MODE !== $mode ) {
+			return new WP_Error(
+				'sd_ai_agent_automation_monitor_event_wakes_requires_monitor',
+				__( 'Event wakes can only be configured for Monitor automations.', 'superdav-ai-agent' )
+			);
+		}
+
+		$sources = array_key_exists( 'monitor_event_sources', $data )
+			? self::sanitize_monitor_event_sources( $data['monitor_event_sources'] )
+			: self::get_monitor_event_sources( $existing ?? [] );
+		if ( is_wp_error( $sources ) ) {
+			return $sources;
+		}
+
+		$event_wakes_enabled = array_key_exists( 'monitor_event_wakes_enabled', $data )
+			? ! empty( $data['monitor_event_wakes_enabled'] )
+			: self::is_monitor_event_wakes_enabled( $existing ?? [] );
+		if ( self::MONITOR_MODE === $mode && $event_wakes_enabled && empty( $sources ) ) {
+			return new WP_Error(
+				'sd_ai_agent_automation_monitor_event_wakes_requires_source',
+				__( 'Select at least one approved event source before enabling Monitor event wakes.', 'superdav-ai-agent' )
+			);
 		}
 
 		if ( array_key_exists( 'monitor_scratch', $data ) ) {
@@ -151,6 +180,72 @@ class Automations {
 		}
 
 		return true;
+	}
+
+	/**
+	 * Return whether a decoded automation has separately enabled event wakes.
+	 *
+	 * @param array<string, mixed> $automation Automation definition.
+	 */
+	public static function is_monitor_event_wakes_enabled( array $automation ): bool {
+		return self::is_monitor( $automation ) && ! empty( $automation['monitor_event_wakes_enabled'] );
+	}
+
+	/**
+	 * Return the strictly allowlisted event sources selected for one Monitor.
+	 *
+	 * @param array<string, mixed> $automation Automation definition.
+	 * @return list<string>
+	 */
+	public static function get_monitor_event_sources( array $automation ): array {
+		$raw = $automation['monitor_event_sources'] ?? [];
+		if ( is_string( $raw ) ) {
+			$decoded = json_decode( $raw, true );
+			$raw     = is_array( $decoded ) ? $decoded : [];
+		}
+
+		if ( ! is_array( $raw ) ) {
+			return [];
+		}
+
+		$sources = [];
+		foreach ( $raw as $source ) {
+			if ( ! is_scalar( $source ) ) {
+				continue;
+			}
+
+			$source = sanitize_key( (string) $source );
+			if ( EventTriggerRegistry::is_monitor_wake_source( $source ) ) {
+				$sources[] = $source;
+			}
+		}
+
+		return array_values( array_unique( $sources ) );
+	}
+
+	/**
+	 * Return enabled Monitor definitions subscribed to one approved event source.
+	 *
+	 * @param string $source Registered WordPress event source.
+	 * @return list<array<string, mixed>>
+	 */
+	public static function list_monitor_wake_subscribers( string $source ): array {
+		if ( ! EventTriggerRegistry::is_monitor_wake_source( $source ) ) {
+			return [];
+		}
+
+		$subscribers = [];
+		foreach ( self::list( true ) as $automation ) {
+			if ( ! self::is_monitor_event_wakes_enabled( $automation ) ) {
+				continue;
+			}
+
+			if ( in_array( $source, self::get_monitor_event_sources( $automation ), true ) ) {
+				$subscribers[] = $automation;
+			}
+		}
+
+		return $subscribers;
 	}
 
 	/**
@@ -362,50 +457,57 @@ class Automations {
 			$enabled = 0;
 		}
 
-		$schedule        = sanitize_key( (string) ( $data['schedule'] ?? 'daily' ) );
-		$monitor_scratch = self::MONITOR_MODE === $mode ? MonitorOutcome::sanitize_scratch( $data['monitor_scratch'] ?? '' ) : '';
-		$now             = current_time( 'mysql', true );
+		$schedule                    = sanitize_key( (string) ( $data['schedule'] ?? 'daily' ) );
+		$monitor_scratch             = self::MONITOR_MODE === $mode ? MonitorOutcome::sanitize_scratch( $data['monitor_scratch'] ?? '' ) : '';
+		$monitor_event_sources       = self::MONITOR_MODE === $mode ? self::get_monitor_event_sources( [ 'monitor_event_sources' => $data['monitor_event_sources'] ?? [] ] ) : [];
+		$monitor_event_wakes_enabled = self::MONITOR_MODE === $mode && ! empty( $data['monitor_event_wakes_enabled'] ) ? 1 : 0;
+		$now                         = current_time( 'mysql', true );
 
 		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery -- Custom table query; caching not applicable.
 		$result = $wpdb->insert(
 			self::table_name(),
 			[
 				// @phpstan-ignore-next-line
-				'name'                  => sanitize_text_field( $data['name'] ?? '' ),
+				'name'                        => sanitize_text_field( $data['name'] ?? '' ),
 				// @phpstan-ignore-next-line
-				'description'           => sanitize_textarea_field( $data['description'] ?? '' ),
+				'description'                 => sanitize_textarea_field( $data['description'] ?? '' ),
 				// @phpstan-ignore-next-line
-				'prompt'                => wp_kses_post( $data['prompt'] ?? '' ),
-				'mode'                  => $mode,
-				'monitor_scratch'       => $monitor_scratch,
+				'prompt'                      => wp_kses_post( $data['prompt'] ?? '' ),
+				'mode'                        => $mode,
+				'monitor_scratch'             => $monitor_scratch,
+				'monitor_event_wakes_enabled' => $monitor_event_wakes_enabled,
+				'monitor_event_sources'       => wp_json_encode( $monitor_event_sources ) ?: '[]',
+				'monitor_wake_cooldown_until' => null,
+				'monitor_wake_dropped_count'  => 0,
+				'monitor_wake_deferred_count' => 0,
 				// @phpstan-ignore-next-line
-				'schedule'              => $schedule,
+				'schedule'                    => $schedule,
 				// @phpstan-ignore-next-line
-				'cron_expression'       => sanitize_text_field( $data['cron_expression'] ?? '' ),
+				'cron_expression'             => sanitize_text_field( $data['cron_expression'] ?? '' ),
 				// @phpstan-ignore-next-line
-				'tool_profile'          => sanitize_text_field( $data['tool_profile'] ?? '' ),
+				'tool_profile'                => sanitize_text_field( $data['tool_profile'] ?? '' ),
 				// @phpstan-ignore-next-line
-				'owner_user_id'         => absint( $data['owner_user_id'] ?? 0 ),
+				'owner_user_id'               => absint( $data['owner_user_id'] ?? 0 ),
 				// @phpstan-ignore-next-line
-				'max_iterations'        => absint( $data['max_iterations'] ?? 10 ),
+				'max_iterations'              => absint( $data['max_iterations'] ?? 10 ),
 				// @phpstan-ignore-next-line
-				'enabled'               => $enabled,
-				'notification_channels' => self::sanitize_notification_channels( $data['notification_channels'] ?? [] ),
-				'last_run_at'           => null,
-				'next_run_at'           => null,
-				'run_count'             => 0,
-				'active_run_id'         => '',
-				'execution_status'      => 'idle',
-				'lease_expires_at'      => null,
-				'last_run_id'           => '',
-				'last_run_status'       => '',
-				'last_run_error'        => '',
-				'last_monitor_outcome'  => '',
-				'last_monitor_summary'  => '',
-				'created_at'            => $now,
-				'updated_at'            => $now,
+				'enabled'                     => $enabled,
+				'notification_channels'       => self::sanitize_notification_channels( $data['notification_channels'] ?? [] ),
+				'last_run_at'                 => null,
+				'next_run_at'                 => null,
+				'run_count'                   => 0,
+				'active_run_id'               => '',
+				'execution_status'            => 'idle',
+				'lease_expires_at'            => null,
+				'last_run_id'                 => '',
+				'last_run_status'             => '',
+				'last_run_error'              => '',
+				'last_monitor_outcome'        => '',
+				'last_monitor_summary'        => '',
+				'created_at'                  => $now,
+				'updated_at'                  => $now,
 			],
-			[ '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%d', '%d', '%d', '%s', '%s', '%s', '%d', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s' ]
+			[ '%s', '%s', '%s', '%s', '%s', '%d', '%s', '%s', '%d', '%d', '%s', '%s', '%s', '%d', '%d', '%d', '%s', '%s', '%s', '%d', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s' ]
 		);
 
 		if ( ! $result ) {
@@ -492,6 +594,44 @@ class Automations {
 			$formats[]                 = '%s';
 		}
 
+		$event_wake_sources_changed  = false;
+		$event_wakes_enabled_changed = false;
+		if ( array_key_exists( 'monitor_event_sources', $data ) ) {
+			if ( self::MONITOR_MODE !== $new_mode ) {
+				return false;
+			}
+
+			$sources = self::sanitize_monitor_event_sources( $data['monitor_event_sources'] );
+			if ( is_wp_error( $sources ) ) {
+				return false;
+			}
+
+			$existing_sources   = self::get_monitor_event_sources( $existing );
+			$comparison_sources = $sources;
+			sort( $existing_sources );
+			sort( $comparison_sources );
+
+			$update['monitor_event_sources'] = wp_json_encode( $sources ) ?: '[]';
+			$formats[]                       = '%s';
+			$event_wake_sources_changed      = $comparison_sources !== $existing_sources;
+		}
+
+		if ( array_key_exists( 'monitor_event_wakes_enabled', $data ) ) {
+			if ( self::MONITOR_MODE !== $new_mode ) {
+				return false;
+			}
+
+			$new_event_wakes_enabled               = ! empty( $data['monitor_event_wakes_enabled'] );
+			$update['monitor_event_wakes_enabled'] = $new_event_wakes_enabled ? 1 : 0;
+			$formats[]                             = '%d';
+			$event_wakes_enabled_changed           = $new_event_wakes_enabled !== self::is_monitor_event_wakes_enabled( $existing );
+		}
+
+		if ( self::MONITOR_MODE === $new_mode && ( $event_wake_sources_changed || $event_wakes_enabled_changed ) ) {
+			$update['monitor_wake_cooldown_until'] = null;
+			$formats[]                             = '%s';
+		}
+
 		if ( array_key_exists( 'enabled', $data ) ) {
 			// @phpstan-ignore-next-line
 			$update['enabled'] = (int) $data['enabled'];
@@ -508,12 +648,18 @@ class Automations {
 		}
 
 		if ( self::TASK_MODE === $new_mode && self::MONITOR_MODE === $existing_mode ) {
-			$update['monitor_scratch']      = '';
-			$update['last_monitor_outcome'] = '';
-			$update['last_monitor_summary'] = '';
-			$formats[]                      = '%s';
-			$formats[]                      = '%s';
-			$formats[]                      = '%s';
+			$update['monitor_scratch']             = '';
+			$update['monitor_event_wakes_enabled'] = 0;
+			$update['monitor_event_sources']       = '[]';
+			$update['monitor_wake_cooldown_until'] = null;
+			$update['last_monitor_outcome']        = '';
+			$update['last_monitor_summary']        = '';
+			$formats[]                             = '%s';
+			$formats[]                             = '%d';
+			$formats[]                             = '%s';
+			$formats[]                             = '%s';
+			$formats[]                             = '%s';
+			$formats[]                             = '%s';
 		}
 
 		if ( empty( $update ) ) {
@@ -539,10 +685,19 @@ class Automations {
 			$new_enabled = false;
 		}
 
+		$new_event_wakes_enabled = self::MONITOR_MODE === $new_mode
+			&& ( array_key_exists( 'monitor_event_wakes_enabled', $data )
+				? ! empty( $data['monitor_event_wakes_enabled'] )
+				: self::is_monitor_event_wakes_enabled( $existing ) );
+
 		if ( false !== $result ) {
 			AutomationRunner::unschedule( $id );
 			if ( $new_enabled ) {
 				AutomationRunner::schedule( $id, $new_schedule );
+			}
+
+			if ( ! $new_enabled || ! $new_event_wakes_enabled || $event_wake_sources_changed || self::TASK_MODE === $new_mode ) {
+				MonitorWakeQueue::clear_for_monitor( $id );
 			}
 		}
 
@@ -561,9 +716,6 @@ class Automations {
 
 		AutomationRunner::unschedule( $id );
 
-		// Delete associated logs.
-		AutomationLogs::delete_for_automation( $id );
-
 		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Custom table query; caching not applicable.
 		$result = $wpdb->delete(
 			self::table_name(),
@@ -571,7 +723,47 @@ class Automations {
 			[ '%d' ]
 		);
 
-		return (int) $result > 0;
+		if ( (int) $result <= 0 ) {
+			return false;
+		}
+
+		// Delete retained event evidence after the definition so a concurrent
+		// capture cannot create a new authorized wake after this cleanup completes.
+		MonitorWakeQueue::clear_for_monitor( $id );
+		AutomationLogs::delete_for_automation( $id );
+
+		return true;
+	}
+
+	/** Record one bounded event that could not be retained in the queue. */
+	public static function record_monitor_wake_drop( int $id ): void {
+		self::increment_monitor_wake_counter( $id, 'monitor_wake_dropped_count' );
+	}
+
+	/** Record one safe-to-retry event wake deferral. */
+	public static function record_monitor_wake_deferral( int $id ): void {
+		self::increment_monitor_wake_counter( $id, 'monitor_wake_deferred_count' );
+	}
+
+	/** Set the bounded cooldown deadline after a Monitor event wake completes. */
+	public static function set_monitor_wake_cooldown( int $id, int $seconds ): void {
+		global $wpdb;
+		/** @var \wpdb $wpdb */
+
+		if ( $id <= 0 ) {
+			return;
+		}
+
+		$wpdb->update(
+			self::table_name(),
+			[
+				'monitor_wake_cooldown_until' => gmdate( 'Y-m-d H:i:s', time() + max( 0, $seconds ) ),
+				'updated_at'                  => current_time( 'mysql', true ),
+			],
+			[ 'id' => $id ],
+			[ '%s', '%s' ],
+			[ '%d' ]
+		);
 	}
 
 	/**
@@ -1030,33 +1222,38 @@ class Automations {
 		}
 
 		return [
-			'id'                    => (int) $row->id,
-			'name'                  => $row->name,
-			'description'           => $row->description,
-			'prompt'                => $row->prompt,
-			'mode'                  => $mode,
-			'monitor_scratch'       => (string) ( $row->monitor_scratch ?? '' ),
-			'monitor_timing_help'   => self::MONITOR_MODE === $mode ? self::get_monitor_timing_help() : '',
-			'schedule'              => $row->schedule,
-			'cron_expression'       => $row->cron_expression,
-			'tool_profile'          => $row->tool_profile,
-			'owner_user_id'         => (int) ( $row->owner_user_id ?? 0 ),
-			'max_iterations'        => (int) $row->max_iterations,
-			'enabled'               => (bool) $row->enabled,
-			'notification_channels' => $channels,
-			'last_run_at'           => $row->last_run_at,
-			'next_run_at'           => $row->next_run_at,
-			'run_count'             => (int) $row->run_count,
-			'active_run_id'         => (string) ( $row->active_run_id ?? '' ),
-			'execution_status'      => (string) ( $row->execution_status ?? 'idle' ),
-			'lease_expires_at'      => $row->lease_expires_at ?? null,
-			'last_run_id'           => (string) ( $row->last_run_id ?? '' ),
-			'last_run_status'       => (string) ( $row->last_run_status ?? '' ),
-			'last_run_error'        => (string) ( $row->last_run_error ?? '' ),
-			'last_monitor_outcome'  => (string) ( $row->last_monitor_outcome ?? '' ),
-			'last_monitor_summary'  => (string) ( $row->last_monitor_summary ?? '' ),
-			'created_at'            => $row->created_at,
-			'updated_at'            => $row->updated_at,
+			'id'                          => (int) $row->id,
+			'name'                        => $row->name,
+			'description'                 => $row->description,
+			'prompt'                      => $row->prompt,
+			'mode'                        => $mode,
+			'monitor_scratch'             => (string) ( $row->monitor_scratch ?? '' ),
+			'monitor_event_wakes_enabled' => self::MONITOR_MODE === $mode && ! empty( $row->monitor_event_wakes_enabled ),
+			'monitor_event_sources'       => self::get_monitor_event_sources( [ 'monitor_event_sources' => $row->monitor_event_sources ?? '' ] ),
+			'monitor_wake_cooldown_until' => $row->monitor_wake_cooldown_until ?? null,
+			'monitor_wake_dropped_count'  => (int) ( $row->monitor_wake_dropped_count ?? 0 ),
+			'monitor_wake_deferred_count' => (int) ( $row->monitor_wake_deferred_count ?? 0 ),
+			'monitor_timing_help'         => self::MONITOR_MODE === $mode ? self::get_monitor_timing_help() : '',
+			'schedule'                    => $row->schedule,
+			'cron_expression'             => $row->cron_expression,
+			'tool_profile'                => $row->tool_profile,
+			'owner_user_id'               => (int) ( $row->owner_user_id ?? 0 ),
+			'max_iterations'              => (int) $row->max_iterations,
+			'enabled'                     => (bool) $row->enabled,
+			'notification_channels'       => $channels,
+			'last_run_at'                 => $row->last_run_at,
+			'next_run_at'                 => $row->next_run_at,
+			'run_count'                   => (int) $row->run_count,
+			'active_run_id'               => (string) ( $row->active_run_id ?? '' ),
+			'execution_status'            => (string) ( $row->execution_status ?? 'idle' ),
+			'lease_expires_at'            => $row->lease_expires_at ?? null,
+			'last_run_id'                 => (string) ( $row->last_run_id ?? '' ),
+			'last_run_status'             => (string) ( $row->last_run_status ?? '' ),
+			'last_run_error'              => (string) ( $row->last_run_error ?? '' ),
+			'last_monitor_outcome'        => (string) ( $row->last_monitor_outcome ?? '' ),
+			'last_monitor_summary'        => (string) ( $row->last_monitor_summary ?? '' ),
+			'created_at'                  => $row->created_at,
+			'updated_at'                  => $row->updated_at,
 		];
 	}
 
@@ -1067,6 +1264,85 @@ class Automations {
 	 */
 	private static function sanitize_mode( $mode ): string {
 		return is_scalar( $mode ) ? strtolower( trim( (string) $mode ) ) : '';
+	}
+
+	/**
+	 * Validate and normalize the explicitly selected Monitor event sources.
+	 *
+	 * @param mixed $sources Candidate source list.
+	 * @return list<string>|WP_Error
+	 */
+	private static function sanitize_monitor_event_sources( $sources ): array|WP_Error {
+		if ( ! is_array( $sources ) || array_is_list( $sources ) === false ) {
+			return new WP_Error(
+				'sd_ai_agent_automation_invalid_monitor_event_sources',
+				__( 'Monitor event sources must be a list of approved sources.', 'superdav-ai-agent' )
+			);
+		}
+
+		$sanitized = [];
+		foreach ( $sources as $source ) {
+			if ( ! is_scalar( $source ) ) {
+				return new WP_Error(
+					'sd_ai_agent_automation_invalid_monitor_event_source',
+					__( 'Each Monitor event source must be an approved source name.', 'superdav-ai-agent' )
+				);
+			}
+
+			$source = sanitize_key( (string) $source );
+			if ( ! EventTriggerRegistry::is_monitor_wake_source( $source ) ) {
+				return new WP_Error(
+					'sd_ai_agent_automation_monitor_event_source_not_allowed',
+					__( 'This Monitor event source is not allowed.', 'superdav-ai-agent' )
+				);
+			}
+
+			$sanitized[] = $source;
+		}
+
+		$sanitized = array_values( array_unique( $sanitized ) );
+		if ( count( $sanitized ) > self::MAX_MONITOR_WAKE_SOURCES ) {
+			return new WP_Error(
+				'sd_ai_agent_automation_too_many_monitor_event_sources',
+				__( 'Too many Monitor event sources were selected.', 'superdav-ai-agent' )
+			);
+		}
+
+		return $sanitized;
+	}
+
+	/** Increment one fixed, internal Monitor event-wake diagnostic counter. */
+	private static function increment_monitor_wake_counter( int $id, string $column ): void {
+		global $wpdb;
+		/** @var \wpdb $wpdb */
+
+		if ( $id <= 0 || ! in_array( $column, [ 'monitor_wake_dropped_count', 'monitor_wake_deferred_count' ], true ) ) {
+			return;
+		}
+
+		if ( 'monitor_wake_dropped_count' === $column ) {
+			// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Records one bounded dropped wake using a fixed internal column.
+			$wpdb->query(
+				$wpdb->prepare(
+					'UPDATE %i SET monitor_wake_dropped_count = monitor_wake_dropped_count + 1, updated_at = %s WHERE id = %d',
+					self::table_name(),
+					current_time( 'mysql', true ),
+					$id
+				)
+			);
+
+			return;
+		}
+
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Records one bounded deferred wake using a fixed internal column.
+		$wpdb->query(
+			$wpdb->prepare(
+				'UPDATE %i SET monitor_wake_deferred_count = monitor_wake_deferred_count + 1, updated_at = %s WHERE id = %d',
+				self::table_name(),
+				current_time( 'mysql', true ),
+				$id
+			)
+		);
 	}
 
 	/**

@@ -54,6 +54,15 @@ const MOCK_MONITOR = {
 	max_iterations: 10,
 	mode: 'monitor',
 	enabled: false,
+	monitor_event_wakes_enabled: false,
+	monitor_event_sources: [],
+	monitor_wake_status: {
+		pending_groups: 0,
+		pending_events: 0,
+		deferred_groups: 0,
+		claimed_groups: 0,
+		expired_groups: 0,
+	},
 	notification_channels: [],
 	run_count: 1,
 	last_run_at: '2026-03-18 08:00:00',
@@ -108,6 +117,14 @@ const MOCK_TRIGGER = {
 		post_type: 'Post type equals',
 		new_status: 'New status equals',
 	},
+};
+
+/** A fixed, presentation-safe Monitor event wake source. */
+const MOCK_MONITOR_WAKE_SOURCE = {
+	hook_name: 'delete_post',
+	label: 'Post Deleted',
+	description: 'Assess a deleted post using only its ID metadata.',
+	args: [ 'post_id' ],
 };
 
 /** Automation templates returned by the REST API. */
@@ -187,6 +204,7 @@ const MOCK_SETTINGS = {
  * @param {Array}                           [overrides.automations]          - List response.
  * @param {Array}                           [overrides.eventAutomations]     - List response.
  * @param {Array}                           [overrides.triggers]             - Triggers list.
+ * @param {Array}                           [overrides.wakeSources]          - Monitor wake source list.
  * @param {Array}                           [overrides.templates]            - Templates list.
  * @param {object}                          [overrides.createdAutomation]    - POST response.
  * @param {object}                          [overrides.createdEvent]         - POST response.
@@ -197,6 +215,7 @@ async function mockAutomationRoutes( page, overrides = {} ) {
 		automations = [ MOCK_AUTOMATION ],
 		eventAutomations = [ MOCK_EVENT ],
 		triggers = [ MOCK_TRIGGER ],
+		wakeSources = [ MOCK_MONITOR_WAKE_SOURCE ],
 		templates = MOCK_TEMPLATES,
 		createdAutomation = { ...MOCK_AUTOMATION, id: 99 },
 		createdEvent = { ...MOCK_EVENT, id: 99 },
@@ -320,6 +339,15 @@ async function mockAutomationRoutes( page, overrides = {} ) {
 				status: 200,
 				contentType: 'application/json',
 				body: JSON.stringify( triggers ),
+			} );
+		}
+
+		// Fixed Monitor wake source registry.
+		if ( url.includes( '/monitor-wake-sources' ) ) {
+			return route.fulfill( {
+				status: 200,
+				contentType: 'application/json',
+				body: JSON.stringify( wakeSources ),
 			} );
 		}
 
@@ -1004,6 +1032,48 @@ test.describe( 'Monitor/Pulse', () => {
 			.getByLabel( 'Check instructions' )
 			.fill( 'Assess the current site health.' );
 		await expect( saveButton ).toBeEnabled();
+
+		const eventWakeToggle = form.getByLabel(
+			'Allow selected site events to wake this Monitor'
+		);
+		await expect( eventWakeToggle ).toBeDisabled();
+		await form.getByLabel( 'Post Deleted' ).check();
+		await expect( eventWakeToggle ).toBeEnabled();
+	} );
+
+	test( 'shows selected event-wake consent and compact queue status', async ( {
+		page,
+	} ) => {
+		const eventWakeMonitor = {
+			...MOCK_MONITOR,
+			monitor_event_wakes_enabled: true,
+			monitor_event_sources: [ 'delete_post' ],
+			monitor_wake_status: {
+				pending_groups: 1,
+				pending_events: 2,
+				deferred_groups: 1,
+				claimed_groups: 0,
+				expired_groups: 0,
+			},
+		};
+		await mockAutomationRoutes( page, {
+			automations: [ eventWakeMonitor ],
+		} );
+
+		const manager = await goToMonitorManager( page );
+		const card = manager.locator( '.sd-ai-agent-monitor-card' );
+
+		await expect( card ).toContainText( '1 selected source(s)' );
+		await expect( card ).toContainText(
+			'Event wake queue: 1 pending group(s) / 2 event(s), 1 deferred group(s)'
+		);
+
+		await card.getByRole( 'button', { name: 'Edit Monitor' } ).click();
+		const form = manager.locator( '.sd-ai-agent-monitor-form' );
+		await expect(
+			form.getByLabel( 'Allow selected site events to wake this Monitor' )
+		).toBeChecked();
+		await expect( form.getByLabel( 'Post Deleted' ) ).toBeChecked();
 	} );
 
 	test( 'template Monitor saves as a disabled draft', async ( { page } ) => {

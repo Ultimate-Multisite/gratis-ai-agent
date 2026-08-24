@@ -238,4 +238,34 @@ class EventTriggerRegistryTest extends WP_UnitTestCase {
 			$this->assertSame( 'wordpress', $trigger['category'], "Hook '{$hook}' should be in 'wordpress' category" );
 		}
 	}
+
+	/** Monitor wakes use a fixed allowlist rather than the filterable event catalog. */
+	public function test_monitor_wake_sources_are_fixed_and_only_expose_safe_identifiers(): void {
+		$sources = EventTriggerRegistry::get_monitor_wake_sources();
+
+		$this->assertSame(
+			[
+				'transition_post_status',
+				'delete_post',
+				'activated_plugin',
+				'deactivated_plugin',
+				'switch_theme',
+				'add_attachment',
+			],
+			array_column( $sources, 'hook_name' )
+		);
+		$this->assertSame( [ 'post_id' ], $sources[1]['args'] );
+		$this->assertSame( [], $sources[2]['args'] );
+		$this->assertFalse( EventTriggerRegistry::is_monitor_wake_source( 'user_register' ) );
+
+		$summary = EventTriggerRegistry::summarize_monitor_wake( 'delete_post', [ 42, 'unretained-input' ] );
+		$this->assertSame(
+			[
+				'source'      => 'delete_post',
+				'identifiers' => [ 'post_id' => 42 ],
+			],
+			$summary
+		);
+		$this->assertStringNotContainsString( 'unretained-input', (string) wp_json_encode( $summary ) );
+	}
 }

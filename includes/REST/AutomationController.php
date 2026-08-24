@@ -16,8 +16,10 @@ use SdAiAgent\Automations\AutomationRunner;
 use SdAiAgent\Automations\Automations;
 use SdAiAgent\Automations\CalendarReminderRecords;
 use SdAiAgent\Automations\EventAutomations;
+use SdAiAgent\Automations\EventTriggerHandler;
 use SdAiAgent\Automations\EventTriggerRegistry;
 use SdAiAgent\Automations\HumanApprovalGate;
+use SdAiAgent\Automations\MonitorWakeQueue;
 use SdAiAgent\Automations\NotificationDispatcher;
 use WP_Error;
 use WP_REST_Request;
@@ -66,33 +68,42 @@ final class AutomationController {
 					'callback'            => array( $this, 'handle_create_automation' ),
 					'permission_callback' => array( $this, 'check_permission' ),
 					'args'                => array(
-						'name'            => array(
+						'name'                        => array(
 							'required'          => true,
 							'type'              => 'string',
 							'sanitize_callback' => 'sanitize_text_field',
 						),
-						'prompt'          => array(
+						'prompt'                      => array(
 							'required' => true,
 							'type'     => 'string',
 						),
-						'schedule'        => array(
+						'schedule'                    => array(
 							'required'          => false,
 							'type'              => 'string',
 							'default'           => 'daily',
 							'sanitize_callback' => 'sanitize_text_field',
 						),
-						'mode'            => array(
+						'mode'                        => array(
 							'required'          => false,
 							'type'              => 'string',
 							'default'           => 'task',
 							'sanitize_callback' => 'sanitize_key',
 						),
-						'monitor_scratch' => array(
+						'monitor_scratch'             => array(
 							'required'          => false,
 							'type'              => 'string',
 							'sanitize_callback' => 'sanitize_textarea_field',
 						),
-						'enabled'         => array(
+						'monitor_event_wakes_enabled' => array(
+							'required' => false,
+							'type'     => 'boolean',
+						),
+						'monitor_event_sources'       => array(
+							'required' => false,
+							'type'     => 'array',
+							'items'    => array( 'type' => 'string' ),
+						),
+						'enabled'                     => array(
 							'required' => false,
 							'type'     => 'boolean',
 						),
@@ -110,22 +121,31 @@ final class AutomationController {
 					'callback'            => array( $this, 'handle_update_automation' ),
 					'permission_callback' => array( $this, 'check_permission' ),
 					'args'                => array(
-						'id'              => array(
+						'id'                          => array(
 							'required'          => true,
 							'type'              => 'integer',
 							'sanitize_callback' => 'absint',
 						),
-						'mode'            => array(
+						'mode'                        => array(
 							'required'          => false,
 							'type'              => 'string',
 							'sanitize_callback' => 'sanitize_key',
 						),
-						'monitor_scratch' => array(
+						'monitor_scratch'             => array(
 							'required'          => false,
 							'type'              => 'string',
 							'sanitize_callback' => 'sanitize_textarea_field',
 						),
-						'enabled'         => array(
+						'monitor_event_wakes_enabled' => array(
+							'required' => false,
+							'type'     => 'boolean',
+						),
+						'monitor_event_sources'       => array(
+							'required' => false,
+							'type'     => 'array',
+							'items'    => array( 'type' => 'string' ),
+						),
+						'enabled'                     => array(
 							'required' => false,
 							'type'     => 'boolean',
 						),
@@ -191,6 +211,16 @@ final class AutomationController {
 			array(
 				'methods'             => WP_REST_Server::READABLE,
 				'callback'            => array( $this, 'handle_automation_templates' ),
+				'permission_callback' => array( $this, 'check_permission' ),
+			)
+		);
+
+		register_rest_route(
+			RestController::NAMESPACE,
+			'/monitor-wake-sources',
+			array(
+				'methods'             => WP_REST_Server::READABLE,
+				'callback'            => array( $this, 'handle_list_monitor_wake_sources' ),
 				'permission_callback' => array( $this, 'check_permission' ),
 			)
 		);
@@ -402,7 +432,10 @@ final class AutomationController {
 	 * List scheduled automations.
 	 */
 	public function handle_list_automations(): WP_REST_Response {
-		return new WP_REST_Response( Automations::list(), 200 );
+		return new WP_REST_Response(
+			array_map( array( $this, 'with_monitor_wake_status' ), Automations::list() ),
+			200
+		);
 	}
 
 	/**
@@ -422,8 +455,9 @@ final class AutomationController {
 		if ( false === $id ) {
 			return new WP_Error( 'create_failed', __( 'Failed to create automation.', 'superdav-ai-agent' ), array( 'status' => 400 ) );
 		}
+		EventTriggerHandler::attach_monitor_wake_hooks();
 
-		return new WP_REST_Response( Automations::get( $id ), 201 );
+		return new WP_REST_Response( $this->with_monitor_wake_status( Automations::get( $id ) ?? array() ), 201 );
 	}
 
 	/**
@@ -447,8 +481,9 @@ final class AutomationController {
 		if ( ! Automations::update( $id, $data ) ) {
 			return new WP_Error( 'update_failed', __( 'Failed to update automation.', 'superdav-ai-agent' ), array( 'status' => 400 ) );
 		}
+		EventTriggerHandler::attach_monitor_wake_hooks();
 
-		return new WP_REST_Response( Automations::get( $id ), 200 );
+		return new WP_REST_Response( $this->with_monitor_wake_status( Automations::get( $id ) ?? array() ), 200 );
 	}
 
 	/**
@@ -509,6 +544,27 @@ final class AutomationController {
 	 */
 	public function handle_automation_templates(): WP_REST_Response {
 		return new WP_REST_Response( Automations::get_templates(), 200 );
+	}
+
+	/** List the fixed, privacy-safe sources available for explicit Monitor wakes. */
+	public function handle_list_monitor_wake_sources(): WP_REST_Response {
+		return new WP_REST_Response( EventTriggerRegistry::get_monitor_wake_sources(), 200 );
+	}
+
+	/**
+	 * Add compact, non-sensitive queue status to a Monitor response.
+	 *
+	 * @param array<string, mixed> $automation Automation response data.
+	 * @return array<string, mixed> Automation response data with Monitor queue status.
+	 */
+	private function with_monitor_wake_status( array $automation ): array {
+		if ( ! Automations::is_monitor( $automation ) ) {
+			return $automation;
+		}
+
+		$automation['monitor_wake_status'] = MonitorWakeQueue::get_status_for_monitor( (int) ( $automation['id'] ?? 0 ) );
+
+		return $automation;
 	}
 
 	/**
