@@ -994,9 +994,10 @@ class Database {
 
 		require_once ABSPATH . 'wp-admin/includes/upgrade.php';
 		dbDelta( $sql );
-		if ( ! self::ensure_automation_lifecycle_transactional_storage( $automations_table, $automation_logs_table ) ) {
-			return;
-		}
+		// Automation execution fails closed independently through
+		// has_transactional_automation_storage(), so a failed conversion must not
+		// block unrelated schema repairs, seeds, or the version marker.
+		self::ensure_automation_lifecycle_transactional_storage( $automations_table, $automation_logs_table );
 		self::ensure_customer_conversation_review_summary_fulltext_index( $customer_conversation_reviews_table );
 
 		// This defence-in-depth index may be blocked by ambiguous historical

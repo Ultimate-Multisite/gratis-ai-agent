@@ -290,17 +290,23 @@ class AutomationRunner {
 				return $log_data;
 			}
 
-			// Dispatch Slack/Discord notifications after provider work completes.
-			NotificationDispatcher::dispatch( $automation, $log_data );
+			// The run is already terminal and durable. A notification or hook failure
+			// must not change the outcome reported to the initiating request.
+			try {
+				// Dispatch Slack/Discord notifications after provider work completes.
+				NotificationDispatcher::dispatch( $automation, $log_data );
 
-			/**
-			 * Fires after a scheduled automation completes.
-			 *
-			 * @param int   $automation_id The automation ID.
-			 * @param array $log_data      The scrubbed durable log data for this run.
-			 * @param array $automation    The automation definition.
-			 */
-			do_action( 'sd_ai_agent_automation_complete', $automation_id, $log_data, $automation );
+				/**
+				 * Fires after a scheduled automation completes.
+				 *
+				 * @param int   $automation_id The automation ID.
+				 * @param array $log_data      The scrubbed durable log data for this run.
+				 * @param array $automation    The automation definition.
+				 */
+				do_action( 'sd_ai_agent_automation_complete', $automation_id, $log_data, $automation );
+			} catch ( \Throwable ) {
+				// The durable terminal state remains authoritative.
+			}
 
 			return $log_data;
 		} catch ( \Throwable ) {
@@ -414,7 +420,7 @@ class AutomationRunner {
 	 */
 	private static function claim_run_with_lifecycle( array $automation, string $run_id, string $lease_expires_at ): string {
 		$automation_id = (int) ( $automation['id'] ?? 0 );
-		if ( $automation_id <= 0 || ! self::begin_lifecycle_transaction() ) {
+		if ( $automation_id <= 0 || ! Automations::begin_lifecycle_transaction() ) {
 			return 'failed';
 		}
 
@@ -430,17 +436,17 @@ class AutomationRunner {
 			]
 		);
 		if ( false === $log_id ) {
-			self::rollback_lifecycle_transaction();
+			Automations::rollback_lifecycle_transaction();
 			return 'failed';
 		}
 
 		if ( ! Automations::claim_run( $automation_id, $run_id, $lease_expires_at ) ) {
-			self::rollback_lifecycle_transaction();
+			Automations::rollback_lifecycle_transaction();
 			return 'contended';
 		}
 
-		if ( ! self::commit_lifecycle_transaction() ) {
-			self::rollback_lifecycle_transaction();
+		if ( ! Automations::commit_lifecycle_transaction() ) {
+			Automations::rollback_lifecycle_transaction();
 			return 'failed';
 		}
 
@@ -449,14 +455,14 @@ class AutomationRunner {
 
 	/** Transition both claimed lifecycle rows to running together. */
 	private static function mark_owned_run_running( int $automation_id, string $run_id ): bool {
-		if ( ! self::begin_lifecycle_transaction() ) {
+		if ( ! Automations::begin_lifecycle_transaction() ) {
 			return false;
 		}
 
 		$automation_running = Automations::mark_run_running( $automation_id, $run_id );
 		$log_running        = AutomationLogs::mark_run_running( $run_id );
-		if ( ! $automation_running || ! $log_running || ! self::commit_lifecycle_transaction() ) {
-			self::rollback_lifecycle_transaction();
+		if ( ! $automation_running || ! $log_running || ! Automations::commit_lifecycle_transaction() ) {
+			Automations::rollback_lifecycle_transaction();
 			return false;
 		}
 
@@ -476,14 +482,14 @@ class AutomationRunner {
 		$automation_id = (int) ( $automation['id'] ?? 0 );
 		$error         = isset( $data['error_message'] ) && is_scalar( $data['error_message'] ) ? (string) $data['error_message'] : '';
 
-		if ( $automation_id <= 0 || ! self::begin_lifecycle_transaction() ) {
+		if ( $automation_id <= 0 || ! Automations::begin_lifecycle_transaction() ) {
 			return self::build_fallback_result( $automation, $run_id, $status, $error );
 		}
 
 		$log_completed        = AutomationLogs::complete_run( $run_id, $status, $data );
 		$automation_completed = Automations::finish_run( $automation_id, $run_id, $status, $error );
-		if ( ! $log_completed || ! $automation_completed || ! self::commit_lifecycle_transaction() ) {
-			self::rollback_lifecycle_transaction();
+		if ( ! $log_completed || ! $automation_completed || ! Automations::commit_lifecycle_transaction() ) {
+			Automations::rollback_lifecycle_transaction();
 			return self::build_fallback_result( $automation, $run_id, $status, $error );
 		}
 
@@ -506,33 +512,6 @@ class AutomationRunner {
 			&& $run_id === (string) ( $automation['last_run_id'] ?? '' )
 			&& $status === (string) ( $automation['last_run_status'] ?? '' )
 			&& $status === (string) ( $log['lifecycle_status'] ?? '' );
-	}
-
-	/** Begin one short transaction spanning the automation and log lifecycle rows. */
-	private static function begin_lifecycle_transaction(): bool {
-		global $wpdb;
-		/** @var \wpdb $wpdb */
-
-		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Keeps automation and log lifecycle transitions atomic.
-		return false !== $wpdb->query( 'START TRANSACTION' );
-	}
-
-	/** Commit one short transaction spanning the automation and log lifecycle rows. */
-	private static function commit_lifecycle_transaction(): bool {
-		global $wpdb;
-		/** @var \wpdb $wpdb */
-
-		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Keeps automation and log lifecycle transitions atomic.
-		return false !== $wpdb->query( 'COMMIT' );
-	}
-
-	/** Roll back one short transaction spanning the automation and log lifecycle rows. */
-	private static function rollback_lifecycle_transaction(): void {
-		global $wpdb;
-		/** @var \wpdb $wpdb */
-
-		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Restores both durable lifecycle rows after a guarded transition fails.
-		$wpdb->query( 'ROLLBACK' );
 	}
 
 	/**

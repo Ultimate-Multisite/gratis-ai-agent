@@ -441,7 +441,7 @@ class AutomationsTest extends WP_UnitTestCase {
 		$this->assertTrue( Automations::claim_run( $id, $run_id, '2000-01-01 00:00:00' ) );
 		$this->assertTrue( Automations::mark_run_running( $id, $run_id ) );
 		$this->assertTrue( AutomationLogs::mark_run_running( $run_id ) );
-		$this->assertGreaterThanOrEqual( 1, Automations::abandon_expired_runs() );
+		$this->assertSame( 1, Automations::abandon_expired_runs() );
 
 		$row = Automations::get( $id );
 		$this->assertSame( '', $row['active_run_id'] );

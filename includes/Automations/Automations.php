@@ -32,6 +32,14 @@ class Automations {
 	/** @var array<string, true> Advisory locks held by this PHP request. */
 	private static array $execution_locks = [];
 
+	/** @var bool Whether this request currently owns an automation lifecycle transaction. */
+	private static bool $lifecycle_transaction_active = false;
+
+	/** @var bool Whether the lifecycle transaction is isolated by a savepoint. */
+	private static bool $lifecycle_transaction_uses_savepoint = false;
+
+	private const LIFECYCLE_SAVEPOINT = 'sd_ai_agent_automation_lifecycle';
+
 	/**
 	 * Built-in least-privilege tool profiles for scheduled automations.
 	 *
@@ -625,31 +633,72 @@ class Automations {
 		return false !== $result && $result > 0;
 	}
 
-	/** Begin one short cross-table lifecycle transaction. */
-	private static function begin_lifecycle_transaction(): bool {
+	/** Begin one guarded cross-table lifecycle transaction. */
+	public static function begin_lifecycle_transaction(): bool {
 		global $wpdb;
 		/** @var \wpdb $wpdb */
 
-		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Coordinates durable automation and log lifecycle rows.
-		return false !== $wpdb->query( 'START TRANSACTION' );
+		if ( self::$lifecycle_transaction_active ) {
+			return false;
+		}
+
+		// Respect an outer transaction, including PHPUnit's database isolation,
+		// by using a savepoint rather than implicitly committing it.
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Detects an outer transaction before creating the short lifecycle scope.
+		$has_outer_transaction = 1 === (int) $wpdb->get_var( 'SELECT @@in_transaction' );
+		$query                 = $has_outer_transaction ? 'SAVEPOINT ' . self::LIFECYCLE_SAVEPOINT : 'START TRANSACTION';
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.NotPrepared -- Coordinates durable automation and log lifecycle rows without nesting transactions.
+		if ( false === $wpdb->query( $query ) ) {
+			return false;
+		}
+
+		self::$lifecycle_transaction_active         = true;
+		self::$lifecycle_transaction_uses_savepoint = $has_outer_transaction;
+
+		return true;
 	}
 
-	/** Commit one short cross-table lifecycle transaction. */
-	private static function commit_lifecycle_transaction(): bool {
+	/** Commit one guarded cross-table lifecycle transaction. */
+	public static function commit_lifecycle_transaction(): bool {
 		global $wpdb;
 		/** @var \wpdb $wpdb */
 
-		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Coordinates durable automation and log lifecycle rows.
-		return false !== $wpdb->query( 'COMMIT' );
+		if ( ! self::$lifecycle_transaction_active ) {
+			return false;
+		}
+
+		$query = self::$lifecycle_transaction_uses_savepoint ? 'RELEASE SAVEPOINT ' . self::LIFECYCLE_SAVEPOINT : 'COMMIT';
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.NotPrepared -- Coordinates durable automation and log lifecycle rows.
+		$committed = false !== $wpdb->query( $query );
+		if ( $committed ) {
+			self::$lifecycle_transaction_active         = false;
+			self::$lifecycle_transaction_uses_savepoint = false;
+		}
+
+		return $committed;
 	}
 
-	/** Roll back one short cross-table lifecycle transaction. */
-	private static function rollback_lifecycle_transaction(): void {
+	/** Roll back one guarded cross-table lifecycle transaction. */
+	public static function rollback_lifecycle_transaction(): void {
 		global $wpdb;
 		/** @var \wpdb $wpdb */
 
-		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Restores both lifecycle rows when either guarded transition fails.
-		$wpdb->query( 'ROLLBACK' );
+		if ( ! self::$lifecycle_transaction_active ) {
+			return;
+		}
+
+		if ( self::$lifecycle_transaction_uses_savepoint ) {
+			// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.NotPrepared -- Restores the lifecycle scope without rolling back the outer transaction.
+			$wpdb->query( 'ROLLBACK TO SAVEPOINT ' . self::LIFECYCLE_SAVEPOINT );
+			// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.NotPrepared -- Clears the scoped savepoint after rollback.
+			$wpdb->query( 'RELEASE SAVEPOINT ' . self::LIFECYCLE_SAVEPOINT );
+		} else {
+			// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Restores both lifecycle rows when either guarded transition fails.
+			$wpdb->query( 'ROLLBACK' );
+		}
+
+		self::$lifecycle_transaction_active         = false;
+		self::$lifecycle_transaction_uses_savepoint = false;
 	}
 
 	/** Build an opaque database advisory-lock name for one automation row. */

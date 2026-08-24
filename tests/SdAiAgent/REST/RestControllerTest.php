@@ -2132,18 +2132,18 @@ class RestControllerTest extends WP_UnitTestCase {
 			'prompt' => 'Keep an owner.',
 		] );
 		$this->assertStatus( 201, $create );
-		$automation_id = $create->get_data()['id'];
+		$automationId = $create->get_data()['id'];
 
-		$other_admin_id = self::factory()->user->create( [ 'role' => 'administrator' ] );
-		wp_set_current_user( $other_admin_id );
+		$otherAdminId = self::factory()->user->create( [ 'role' => 'administrator' ] );
+		wp_set_current_user( $otherAdminId );
 
-		$request = new WP_REST_Request( 'PATCH', "/sd-ai-agent/v1/automations/{$automation_id}" );
+		$request = new WP_REST_Request( 'PATCH', "/sd-ai-agent/v1/automations/{$automationId}" );
 		$request->set_body( wp_json_encode( [ 'name' => 'Owner Updated Automation' ] ) );
 		$request->set_header( 'Content-Type', 'application/json' );
 		$response = $this->server->dispatch( $request );
 
 		$this->assertStatus( 200, $response );
-		$this->assertSame( $other_admin_id, $response->get_data()['owner_user_id'] );
+		$this->assertSame( $otherAdminId, $response->get_data()['owner_user_id'] );
 	}
 
 	/**
