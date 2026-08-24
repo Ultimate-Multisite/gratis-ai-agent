@@ -12,8 +12,9 @@ declare(strict_types=1);
  *     { "type": "discord", "webhook_url": "https://discord.com/api/webhooks/…", "enabled": true }
  *   ]
  *
- * The dispatcher is called by AutomationRunner after every run (success or error).
- * Channels with `enabled: false` are silently skipped.
+ * The dispatcher is called by AutomationRunner after every task run and after a
+ * Monitor's validated `notify` outcome. Channels with `enabled: false` are
+ * silently skipped.
  *
  * @package SdAiAgent
  * @license GPL-2.0-or-later
@@ -34,6 +35,10 @@ class NotificationDispatcher {
 	 * @param array<string, mixed> $log_data   The log data produced by AutomationRunner::run().
 	 */
 	public static function dispatch( array $automation, array $log_data ): void {
+		if ( Automations::is_monitor( $automation ) && 'notify' !== (string) ( $log_data['monitor_outcome'] ?? '' ) ) {
+			return;
+		}
+
 		$channels = $automation['notification_channels'] ?? [];
 
 		if ( empty( $channels ) || ! is_array( $channels ) ) {

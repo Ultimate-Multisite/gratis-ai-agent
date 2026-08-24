@@ -66,6 +66,7 @@ class AutomationLogs {
 				'trigger_name'      => sanitize_text_field( $data['trigger_name'] ?? '' ),
 				'status'            => $status,
 				'lifecycle_status'  => $lifecycle_status,
+				'monitor_outcome'   => self::sanitize_monitor_outcome( $data['monitor_outcome'] ?? '' ),
 				'reply'             => self::sanitize_reply( $data['reply'] ?? '' ),
 				'tool_calls'        => wp_json_encode( self::summarize_tool_calls( $data['tool_calls'] ?? [] ) ),
 				// @phpstan-ignore-next-line
@@ -80,7 +81,7 @@ class AutomationLogs {
 				'finished_at'       => $finished_at,
 				'created_at'        => $now,
 			],
-			[ '%d', '%s', '%d', '%s', '%s', '%s', '%s', '%s', '%s', '%d', '%d', '%d', '%s', '%s', '%s', '%s', '%s' ]
+			[ '%d', '%s', '%d', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%d', '%d', '%d', '%s', '%s', '%s', '%s', '%s' ]
 		);
 
 		return $result ? (int) $wpdb->insert_id : false;
@@ -130,10 +131,11 @@ class AutomationLogs {
 		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Terminal update is guarded so an expired worker cannot overwrite abandoned evidence.
 		$result = $wpdb->query(
 			$wpdb->prepare(
-				"UPDATE %i SET status = %s, lifecycle_status = %s, reply = %s, tool_calls = %s, prompt_tokens = %d, completion_tokens = %d, duration_ms = %d, error_message = %s, lease_expires_at = NULL, finished_at = %s WHERE run_id = %s AND lifecycle_status IN ('claimed', 'running')",
+				"UPDATE %i SET status = %s, lifecycle_status = %s, monitor_outcome = %s, reply = %s, tool_calls = %s, prompt_tokens = %d, completion_tokens = %d, duration_ms = %d, error_message = %s, lease_expires_at = NULL, finished_at = %s WHERE run_id = %s AND lifecycle_status IN ('claimed', 'running')",
 				self::table_name(),
 				$status,
 				$lifecycle_status,
+				self::sanitize_monitor_outcome( $data['monitor_outcome'] ?? '' ),
 				self::sanitize_reply( $data['reply'] ?? '' ),
 				wp_json_encode( self::summarize_tool_calls( $data['tool_calls'] ?? [] ) ),
 				absint( $data['prompt_tokens'] ?? 0 ),
@@ -377,6 +379,7 @@ class AutomationLogs {
 			'trigger_name'      => $row->trigger_name,
 			'status'            => $row->status,
 			'lifecycle_status'  => $lifecycle_status,
+			'monitor_outcome'   => (string) ( $row->monitor_outcome ?? '' ),
 			'reply'             => $row->reply,
 			'tool_calls'        => json_decode( $row->tool_calls, true ) ?: [],
 			'prompt_tokens'     => (int) $row->prompt_tokens,
@@ -452,6 +455,21 @@ class AutomationLogs {
 	 */
 	private static function sanitize_error( $error ): string {
 		return JobErrorSanitizer::sanitize( is_scalar( $error ) ? (string) $error : '', 500 );
+	}
+
+	/**
+	 * Retain only the fixed, validated Monitor outcome vocabulary in logs.
+	 *
+	 * @param mixed $outcome Candidate outcome.
+	 */
+	private static function sanitize_monitor_outcome( $outcome ): string {
+		if ( ! is_scalar( $outcome ) ) {
+			return '';
+		}
+
+		$outcome = strtolower( trim( (string) $outcome ) );
+
+		return MonitorOutcome::is_valid( $outcome ) ? $outcome : '';
 	}
 
 	/**

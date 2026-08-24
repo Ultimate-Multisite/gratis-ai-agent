@@ -27,6 +27,12 @@ class AutomationRunner {
 	/** Default bounded lease for one scheduled automation execution. */
 	const DEFAULT_LEASE_SECONDS = 3600;
 
+	/** Minimum delay before a newly enabled Monitor may run. */
+	const MONITOR_START_DELAY_SECONDS = MINUTE_IN_SECONDS;
+
+	/** Deterministic per-Monitor schedule spread to avoid synchronized calls. */
+	const MONITOR_JITTER_SECONDS = 900;
+
 	/**
 	 * Register hooks.
 	 */
@@ -61,8 +67,10 @@ class AutomationRunner {
 	 */
 	public static function schedule( int $automation_id, string $schedule ): void {
 		if ( ! wp_next_scheduled( self::CRON_HOOK, [ $automation_id ] ) ) {
-			wp_schedule_event( time(), $schedule, self::CRON_HOOK, [ $automation_id ] );
+			wp_schedule_event( self::get_initial_schedule_timestamp( $automation_id ), $schedule, self::CRON_HOOK, [ $automation_id ] );
 		}
+
+		self::sync_next_run_at( $automation_id );
 	}
 
 	/**
@@ -77,6 +85,28 @@ class AutomationRunner {
 		}
 		// Also clear any recurring schedules.
 		wp_clear_scheduled_hook( self::CRON_HOOK, [ $automation_id ] );
+		self::sync_next_run_at( $automation_id );
+	}
+
+	/**
+	 * Choose a normal immediate start for tasks and a stable spread for Monitors.
+	 */
+	private static function get_initial_schedule_timestamp( int $automation_id ): int {
+		$automation = Automations::get( $automation_id );
+		if ( ! is_array( $automation ) || ! Automations::is_monitor( $automation ) ) {
+			return time();
+		}
+
+		$jitter = (int) ( crc32( (string) $automation_id ) % self::MONITOR_JITTER_SECONDS );
+
+		return time() + self::MONITOR_START_DELAY_SECONDS + $jitter;
+	}
+
+	/** Synchronize the stored next-run timestamp with WordPress cron state. */
+	private static function sync_next_run_at( int $automation_id ): void {
+		$timestamp = wp_next_scheduled( self::CRON_HOOK, [ $automation_id ] );
+
+		Automations::update_next_run_at( $automation_id, false === $timestamp ? null : (int) $timestamp );
 	}
 
 	/**
@@ -126,7 +156,8 @@ class AutomationRunner {
 				$automation,
 				$run_id,
 				'failed',
-				__( 'The automation run could not be recorded before execution.', 'superdav-ai-agent' )
+				__( 'The automation run could not be recorded before execution.', 'superdav-ai-agent' ),
+				self::monitor_outcome_for_lifecycle( $automation, 'failed' )
 			);
 		}
 
@@ -229,64 +260,104 @@ class AutomationRunner {
 			register_shutdown_function( [ __CLASS__, 'handle_run_shutdown' ], $automation_id, $run_id, $execution_lock );
 
 			$start_time = microtime( true );
-
-			// Ensure provider credentials are available only after the claim,
-			// owner validation, and stored tool profile have all passed.
-			ProviderCredentialLoader::load();
-
-			// Build agent loop options.
-			$settings = Settings::instance()->get();
-			$options  = [
-				// @phpstan-ignore-next-line
-				'max_iterations' => $automation['max_iterations'] ?: ( $settings['max_iterations'] ?: 10 ),
-				// @phpstan-ignore-next-line
-				'provider_id'    => $settings['default_provider'] ?? '',
-				// @phpstan-ignore-next-line
-				'model_id'       => $settings['default_model'] ?? '',
-			];
-
-			if ( is_array( $tool_profile ) ) {
-				// AgentLoop applies this through ToolDiscovery's canonical request-
-				// scoped allowlist, covering direct tools, Tier-2 search, ability-
-				// call dispatch, and provider-native tool search.
-				$options['anonymous_policy_active']     = true;
-				$options['anonymous_allowed_abilities'] = $tool_profile;
-			}
-
-			// @phpstan-ignore-next-line
-			$loop   = new AgentLoop( $automation['prompt'], [], [], $options );
-			$result = $loop->run();
-
-			$duration = (int) round( ( microtime( true ) - $start_time ) * 1000 );
-			if ( $result instanceof \WP_Error ) {
-				$terminal_status = 'failed';
+			$is_monitor = Automations::is_monitor( $automation );
+			if ( $is_monitor && ! MonitorOutcome::has_scratch( $automation ) ) {
+				$terminal_status = 'succeeded';
 				$log_data        = self::finish_owned_run(
 					$automation,
 					$run_id,
 					$terminal_status,
 					[
-						'duration_ms'   => $duration,
-						'error_message' => $result->get_error_message(),
+						'duration_ms'     => (int) round( ( microtime( true ) - $start_time ) * 1000 ),
+						'monitor_outcome' => 'quiet',
 					]
 				);
 			} else {
-				$terminal_status = 'succeeded';
-				$token_usage     = isset( $result['token_usage'] ) && is_array( $result['token_usage'] ) ? $result['token_usage'] : [];
-				$log_data        = self::finish_owned_run(
-					$automation,
-					$run_id,
-					$terminal_status,
-					[
-						'reply'             => $result['reply'] ?? '',
-						'tool_calls'        => $result['tool_calls'] ?? [],
-						'prompt_tokens'     => $token_usage['prompt'] ?? 0,
-						'completion_tokens' => $token_usage['completion'] ?? 0,
-						'duration_ms'       => $duration,
-					]
-				);
+				// Ensure provider credentials are available only after the claim,
+				// owner validation, and stored tool profile have all passed.
+				ProviderCredentialLoader::load();
+
+				// Build agent loop options.
+				$settings = Settings::instance()->get();
+				$options  = [
+					// @phpstan-ignore-next-line
+					'max_iterations' => $automation['max_iterations'] ?: ( $settings['max_iterations'] ?: 10 ),
+					// @phpstan-ignore-next-line
+					'provider_id'    => $settings['default_provider'] ?? '',
+					// @phpstan-ignore-next-line
+					'model_id'       => $settings['default_model'] ?? '',
+				];
+
+				if ( is_array( $tool_profile ) ) {
+					// AgentLoop applies this through ToolDiscovery's canonical request-
+					// scoped allowlist, covering direct tools, Tier-2 search, ability-
+					// call dispatch, and provider-native tool search.
+					$options['anonymous_policy_active']     = true;
+					$options['anonymous_allowed_abilities'] = $tool_profile;
+				}
+
+				$prompt = $is_monitor ? MonitorOutcome::build_prompt( $automation ) : (string) $automation['prompt'];
+				// @phpstan-ignore-next-line
+				$loop   = new AgentLoop( $prompt, [], [], $options );
+				$result = $loop->run();
+
+				$duration = (int) round( ( microtime( true ) - $start_time ) * 1000 );
+				if ( $result instanceof \WP_Error ) {
+					$terminal_status = 'failed';
+					$log_data        = self::finish_owned_run(
+						$automation,
+						$run_id,
+						$terminal_status,
+						[
+							'duration_ms'     => $duration,
+							'error_message'   => $result->get_error_message(),
+							'monitor_outcome' => $is_monitor ? 'error' : '',
+						]
+					);
+				} else {
+					$token_usage = isset( $result['token_usage'] ) && is_array( $result['token_usage'] ) ? $result['token_usage'] : [];
+					if ( $is_monitor ) {
+						$reply           = isset( $result['reply'] ) && is_scalar( $result['reply'] ) ? (string) $result['reply'] : '';
+						$monitor_outcome = MonitorOutcome::parse( $reply );
+						$terminal_status = null === $monitor_outcome ? 'failed' : MonitorOutcome::lifecycle_status( $monitor_outcome['outcome'] );
+						$summary         = null === $monitor_outcome ? '' : $monitor_outcome['summary'];
+						$error_message   = null === $monitor_outcome
+							? __( 'The Monitor returned an invalid structured outcome.', 'superdav-ai-agent' )
+							: ( in_array( $monitor_outcome['outcome'], [ 'blocked', 'error' ], true ) ? $summary : '' );
+						$log_data        = self::finish_owned_run(
+							$automation,
+							$run_id,
+							$terminal_status,
+							[
+								'reply'             => $summary,
+								'tool_calls'        => $result['tool_calls'] ?? [],
+								'prompt_tokens'     => $token_usage['prompt'] ?? 0,
+								'completion_tokens' => $token_usage['completion'] ?? 0,
+								'duration_ms'       => $duration,
+								'error_message'     => $error_message,
+								'monitor_outcome'   => null === $monitor_outcome ? 'error' : $monitor_outcome['outcome'],
+							]
+						);
+					} else {
+						$terminal_status = 'succeeded';
+						$log_data        = self::finish_owned_run(
+							$automation,
+							$run_id,
+							$terminal_status,
+							[
+								'reply'             => $result['reply'] ?? '',
+								'tool_calls'        => $result['tool_calls'] ?? [],
+								'prompt_tokens'     => $token_usage['prompt'] ?? 0,
+								'completion_tokens' => $token_usage['completion'] ?? 0,
+								'duration_ms'       => $duration,
+							]
+						);
+					}
+				}
 			}
 
-			if ( ! self::has_authoritative_terminal_state( $automation_id, $run_id, $terminal_status ) ) {
+			$monitor_outcome = isset( $log_data['monitor_outcome'] ) && is_scalar( $log_data['monitor_outcome'] ) ? (string) $log_data['monitor_outcome'] : '';
+			if ( ! self::has_authoritative_terminal_state( $automation_id, $run_id, $terminal_status, $monitor_outcome ) ) {
 				return $log_data;
 			}
 
@@ -322,6 +393,7 @@ class AutomationRunner {
 			if ( null !== $execution_lock ) {
 				Automations::release_execution_lock( $execution_lock );
 			}
+			self::sync_next_run_at( $automation_id );
 			wp_set_current_user( $previous_user_id );
 		}
 	}
@@ -388,7 +460,8 @@ class AutomationRunner {
 	 * @return array<string, mixed>
 	 */
 	private static function record_blocked_delivery( array $automation, string $run_id, string $reason ): array {
-		$log_id = AutomationLogs::create(
+		$monitor_outcome = self::monitor_outcome_for_lifecycle( $automation, 'blocked' );
+		$log_id          = AutomationLogs::create(
 			[
 				'automation_id'    => (int) ( $automation['id'] ?? 0 ),
 				'run_id'           => $run_id,
@@ -396,6 +469,7 @@ class AutomationRunner {
 				'trigger_type'     => 'scheduled',
 				'status'           => 'error',
 				'lifecycle_status' => 'blocked',
+				'monitor_outcome'  => $monitor_outcome,
 				'error_message'    => $reason,
 			]
 		);
@@ -407,7 +481,7 @@ class AutomationRunner {
 			}
 		}
 
-		return self::build_fallback_result( $automation, $run_id, 'blocked', $reason );
+		return self::build_fallback_result( $automation, $run_id, 'blocked', $reason, $monitor_outcome );
 	}
 
 	/**
@@ -479,18 +553,27 @@ class AutomationRunner {
 	 * @return array<string, mixed>
 	 */
 	private static function finish_owned_run( array $automation, string $run_id, string $status, array $data = [] ): array {
-		$automation_id = (int) ( $automation['id'] ?? 0 );
-		$error         = isset( $data['error_message'] ) && is_scalar( $data['error_message'] ) ? (string) $data['error_message'] : '';
+		$automation_id   = (int) ( $automation['id'] ?? 0 );
+		$error           = isset( $data['error_message'] ) && is_scalar( $data['error_message'] ) ? (string) $data['error_message'] : '';
+		$monitor_outcome = isset( $data['monitor_outcome'] ) && is_scalar( $data['monitor_outcome'] ) ? (string) $data['monitor_outcome'] : '';
+		if ( ! MonitorOutcome::is_valid( $monitor_outcome ) ) {
+			$monitor_outcome = self::monitor_outcome_for_lifecycle( $automation, $status );
+		}
+		if ( '' !== $monitor_outcome ) {
+			$data['monitor_outcome'] = $monitor_outcome;
+		}
+
+		$monitor_summary = isset( $data['reply'] ) && is_scalar( $data['reply'] ) ? (string) $data['reply'] : '';
 
 		if ( $automation_id <= 0 || ! Automations::begin_lifecycle_transaction() ) {
-			return self::build_fallback_result( $automation, $run_id, $status, $error );
+			return self::build_fallback_result( $automation, $run_id, $status, $error, $monitor_outcome );
 		}
 
 		$log_completed        = AutomationLogs::complete_run( $run_id, $status, $data );
-		$automation_completed = Automations::finish_run( $automation_id, $run_id, $status, $error );
+		$automation_completed = Automations::finish_run( $automation_id, $run_id, $status, $error, $monitor_outcome, $monitor_summary );
 		if ( ! $log_completed || ! $automation_completed || ! Automations::commit_lifecycle_transaction() ) {
 			Automations::rollback_lifecycle_transaction();
-			return self::build_fallback_result( $automation, $run_id, $status, $error );
+			return self::build_fallback_result( $automation, $run_id, $status, $error, $monitor_outcome );
 		}
 
 		$log = AutomationLogs::get_by_run_id( $run_id );
@@ -498,20 +581,27 @@ class AutomationRunner {
 			return $log;
 		}
 
-		return self::build_fallback_result( $automation, $run_id, $status, $error );
+		return self::build_fallback_result( $automation, $run_id, $status, $error, $monitor_outcome );
 	}
 
 	/** Confirm that both durable rows hold the same terminal run outcome. */
-	private static function has_authoritative_terminal_state( int $automation_id, string $run_id, string $status ): bool {
+	private static function has_authoritative_terminal_state( int $automation_id, string $run_id, string $status, string $monitor_outcome = '' ): bool {
 		$automation = Automations::get( $automation_id );
 		$log        = AutomationLogs::get_by_run_id( $run_id );
 
-		return is_array( $automation )
+		$has_terminal_state = is_array( $automation )
 			&& is_array( $log )
 			&& '' === (string) ( $automation['active_run_id'] ?? '' )
 			&& $run_id === (string) ( $automation['last_run_id'] ?? '' )
 			&& $status === (string) ( $automation['last_run_status'] ?? '' )
 			&& $status === (string) ( $log['lifecycle_status'] ?? '' );
+
+		if ( ! $has_terminal_state || '' === $monitor_outcome ) {
+			return $has_terminal_state;
+		}
+
+		return $monitor_outcome === (string) ( $automation['last_monitor_outcome'] ?? '' )
+			&& $monitor_outcome === (string) ( $log['monitor_outcome'] ?? '' );
 	}
 
 	/**
@@ -520,16 +610,18 @@ class AutomationRunner {
 	 * @param array<string, mixed> $automation Automation definition.
 	 * @param string               $run_id     Correlation UUID for the execution.
 	 * @param string               $status     Lifecycle status.
-	 * @param string               $error      Safe operator-facing error detail.
+	 * @param string               $error            Safe operator-facing error detail.
+	 * @param string               $monitor_outcome  Valid Monitor outcome when known.
 	 * @return array<string, mixed>
 	 */
-	private static function build_fallback_result( array $automation, string $run_id, string $status, string $error ): array {
+	private static function build_fallback_result( array $automation, string $run_id, string $status, string $error, string $monitor_outcome = '' ): array {
 		return [
 			'automation_id'     => (int) ( $automation['id'] ?? 0 ),
 			'run_id'            => $run_id,
 			'owner_user_id'     => (int) ( $automation['owner_user_id'] ?? 0 ),
 			'status'            => 'succeeded' === $status ? 'success' : 'error',
 			'lifecycle_status'  => $status,
+			'monitor_outcome'   => MonitorOutcome::is_valid( $monitor_outcome ) ? $monitor_outcome : '',
 			'reply'             => '',
 			'tool_calls'        => [],
 			'prompt_tokens'     => 0,
@@ -537,6 +629,23 @@ class AutomationRunner {
 			'duration_ms'       => 0,
 			'error_message'     => $error,
 		];
+	}
+
+	/**
+	 * Derive a safe Monitor outcome when execution stops before model parsing.
+	 *
+	 * @param array<string, mixed> $automation Automation definition.
+	 */
+	private static function monitor_outcome_for_lifecycle( array $automation, string $status ): string {
+		if ( ! Automations::is_monitor( $automation ) ) {
+			return '';
+		}
+
+		if ( 'blocked' === $status ) {
+			return 'blocked';
+		}
+
+		return in_array( $status, [ 'failed', 'abandoned' ], true ) ? 'error' : '';
 	}
 
 	/**

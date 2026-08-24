@@ -37,7 +37,7 @@ use SdAiAgent\Tools\CustomTools;
 class Database {
 
 	const DB_VERSION_OPTION                         = 'sd_ai_agent_db_version';
-	const DB_VERSION                                = '19.12.0';
+	const DB_VERSION                                = '19.13.0';
 	const CUSTOMER_CONVERSATION_REVIEW_CLEANUP_HOOK = 'sd_ai_agent_customer_conversation_review_cleanup';
 
 	// ─── Table Name Registry ──────────────────────────────────────────────────
@@ -469,6 +469,8 @@ class Database {
 			name varchar(255) NOT NULL,
 			description text NOT NULL DEFAULT '',
 			prompt longtext NOT NULL,
+			mode varchar(20) NOT NULL DEFAULT 'task',
+			monitor_scratch longtext NOT NULL DEFAULT '',
 			schedule varchar(50) NOT NULL DEFAULT 'daily',
 			cron_expression varchar(100) NOT NULL DEFAULT '',
 			tool_profile varchar(100) NOT NULL DEFAULT '',
@@ -485,11 +487,14 @@ class Database {
 			last_run_id char(36) NOT NULL DEFAULT '',
 			last_run_status varchar(20) NOT NULL DEFAULT '',
 			last_run_error text NOT NULL DEFAULT '',
+			last_monitor_outcome varchar(20) NOT NULL DEFAULT '',
+			last_monitor_summary text NOT NULL DEFAULT '',
 			created_at datetime NOT NULL,
 			updated_at datetime NOT NULL,
 			PRIMARY KEY  (id),
 			KEY enabled (enabled),
 			KEY schedule (schedule),
+			KEY mode_enabled (mode, enabled),
 			KEY owner_user_id (owner_user_id),
 			KEY active_run_id (active_run_id),
 			KEY lease_status (execution_status, lease_expires_at)
@@ -504,6 +509,7 @@ class Database {
 			trigger_name varchar(255) NOT NULL DEFAULT '',
 			status varchar(20) NOT NULL DEFAULT 'success',
 			lifecycle_status varchar(20) NOT NULL DEFAULT '',
+			monitor_outcome varchar(20) NOT NULL DEFAULT '',
 			reply longtext NOT NULL,
 			tool_calls longtext NOT NULL,
 			prompt_tokens bigint(20) unsigned NOT NULL DEFAULT 0,
@@ -518,6 +524,7 @@ class Database {
 			KEY automation_id (automation_id),
 			KEY run_id (run_id),
 			KEY trigger_type (trigger_type),
+			KEY monitor_outcome (monitor_outcome),
 			KEY created_at (created_at),
 			KEY lifecycle_lease (lifecycle_status, lease_expires_at)
 		) ENGINE=InnoDB {$charset};

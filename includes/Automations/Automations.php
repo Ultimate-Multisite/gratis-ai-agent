@@ -17,6 +17,12 @@ class Automations {
 
 	const VALID_SCHEDULES = [ 'hourly', 'twicedaily', 'daily', 'weekly' ];
 
+	const TASK_MODE    = 'task';
+	const MONITOR_MODE = 'monitor';
+
+	/** @var list<string> Supported scheduled automation modes. */
+	const VALID_MODES = [ self::TASK_MODE, self::MONITOR_MODE ];
+
 	/** @var list<string> Durable lifecycle statuses for scheduled automation runs. */
 	const RUN_STATUSES = [ 'idle', 'claimed', 'running', 'succeeded', 'failed', 'blocked', 'abandoned' ];
 
@@ -65,6 +71,99 @@ class Automations {
 		global $wpdb;
 		/** @var \wpdb $wpdb */
 		return $wpdb->prefix . 'sd_ai_agent_automations';
+	}
+
+	/**
+	 * Return whether an automation uses the quiet Monitor execution contract.
+	 *
+	 * @param array<string, mixed> $automation Automation definition.
+	 */
+	public static function is_monitor( array $automation ): bool {
+		return self::MONITOR_MODE === self::get_mode( $automation );
+	}
+
+	/**
+	 * Validate Monitor-specific create or update input before persistence.
+	 *
+	 * @param array<string, mixed>      $data     Request data.
+	 * @param array<string, mixed>|null $existing Existing definition on update.
+	 * @return true|WP_Error
+	 */
+	public static function validate_definition( array $data, ?array $existing = null ): true|WP_Error {
+		$mode = array_key_exists( 'mode', $data ) ? self::sanitize_mode( $data['mode'] ) : self::get_mode( $existing ?? [] );
+		if ( ! in_array( $mode, self::VALID_MODES, true ) ) {
+			return new WP_Error(
+				'sd_ai_agent_automation_invalid_mode',
+				__( 'The automation mode must be either "task" or "monitor".', 'superdav-ai-agent' )
+			);
+		}
+
+		foreach ( array_keys( $data ) as $key ) {
+			if ( is_string( $key ) && str_starts_with( $key, 'monitor_' ) && 'monitor_scratch' !== $key ) {
+				return new WP_Error(
+					'sd_ai_agent_automation_unknown_monitor_field',
+					__( 'This Monitor field is not supported by the current site.', 'superdav-ai-agent' )
+				);
+			}
+		}
+
+		if ( array_key_exists( 'monitor_scratch', $data ) ) {
+			if ( ! is_scalar( $data['monitor_scratch'] ) ) {
+				return new WP_Error(
+					'sd_ai_agent_automation_invalid_monitor_scratch',
+					__( 'The Monitor checklist must be text.', 'superdav-ai-agent' )
+				);
+			}
+
+			if ( strlen( (string) $data['monitor_scratch'] ) > MonitorOutcome::MAX_SCRATCH_LENGTH ) {
+				return new WP_Error(
+					'sd_ai_agent_automation_monitor_scratch_too_long',
+					__( 'The Monitor checklist is too long.', 'superdav-ai-agent' )
+				);
+			}
+
+			if ( self::MONITOR_MODE !== $mode && '' !== trim( (string) $data['monitor_scratch'] ) ) {
+				return new WP_Error(
+					'sd_ai_agent_automation_monitor_scratch_requires_monitor',
+					__( 'A Monitor checklist can only be saved for Monitor automations.', 'superdav-ai-agent' )
+				);
+			}
+		}
+
+		if ( self::MONITOR_MODE === $mode ) {
+			$schedule = array_key_exists( 'schedule', $data ) ? sanitize_key( (string) $data['schedule'] ) : (string) ( $existing['schedule'] ?? 'daily' );
+			if ( ! in_array( $schedule, self::VALID_SCHEDULES, true ) ) {
+				return new WP_Error(
+					'sd_ai_agent_automation_invalid_monitor_schedule',
+					__( 'Monitor cadence must be hourly, twice daily, daily, or weekly.', 'superdav-ai-agent' )
+				);
+			}
+		}
+
+		return true;
+	}
+
+	/**
+	 * Persist the inspectable next WordPress cron timestamp for one automation.
+	 */
+	public static function update_next_run_at( int $id, ?int $timestamp ): void {
+		global $wpdb;
+		/** @var \wpdb $wpdb */
+
+		if ( $id <= 0 ) {
+			return;
+		}
+
+		$wpdb->update(
+			self::table_name(),
+			[
+				'next_run_at' => null === $timestamp ? null : gmdate( 'Y-m-d H:i:s', $timestamp ),
+				'updated_at'  => current_time( 'mysql', true ),
+			],
+			[ 'id' => $id ],
+			[ '%s', '%s' ],
+			[ '%d' ]
+		);
 	}
 
 	/**
@@ -238,7 +337,19 @@ class Automations {
 		global $wpdb;
 		/** @var \wpdb $wpdb */
 
-		$now = current_time( 'mysql', true );
+		$mode = self::sanitize_mode( $data['mode'] ?? self::TASK_MODE );
+		if ( ! in_array( $mode, self::VALID_MODES, true ) ) {
+			return false;
+		}
+
+		$enabled = isset( $data['enabled'] ) ? (int) $data['enabled'] : 0;
+		if ( self::MONITOR_MODE === $mode && ! array_key_exists( 'enabled', $data ) ) {
+			$enabled = 0;
+		}
+
+		$schedule        = sanitize_key( (string) ( $data['schedule'] ?? 'daily' ) );
+		$monitor_scratch = self::MONITOR_MODE === $mode ? MonitorOutcome::sanitize_scratch( $data['monitor_scratch'] ?? '' ) : '';
+		$now             = current_time( 'mysql', true );
 
 		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery -- Custom table query; caching not applicable.
 		$result = $wpdb->insert(
@@ -250,8 +361,10 @@ class Automations {
 				'description'           => sanitize_textarea_field( $data['description'] ?? '' ),
 				// @phpstan-ignore-next-line
 				'prompt'                => wp_kses_post( $data['prompt'] ?? '' ),
+				'mode'                  => $mode,
+				'monitor_scratch'       => $monitor_scratch,
 				// @phpstan-ignore-next-line
-				'schedule'              => sanitize_text_field( $data['schedule'] ?? 'daily' ),
+				'schedule'              => $schedule,
 				// @phpstan-ignore-next-line
 				'cron_expression'       => sanitize_text_field( $data['cron_expression'] ?? '' ),
 				// @phpstan-ignore-next-line
@@ -261,7 +374,7 @@ class Automations {
 				// @phpstan-ignore-next-line
 				'max_iterations'        => absint( $data['max_iterations'] ?? 10 ),
 				// @phpstan-ignore-next-line
-				'enabled'               => isset( $data['enabled'] ) ? (int) $data['enabled'] : 0,
+				'enabled'               => $enabled,
 				'notification_channels' => self::sanitize_notification_channels( $data['notification_channels'] ?? [] ),
 				'last_run_at'           => null,
 				'next_run_at'           => null,
@@ -272,10 +385,12 @@ class Automations {
 				'last_run_id'           => '',
 				'last_run_status'       => '',
 				'last_run_error'        => '',
+				'last_monitor_outcome'  => '',
+				'last_monitor_summary'  => '',
 				'created_at'            => $now,
 				'updated_at'            => $now,
 			],
-			[ '%s', '%s', '%s', '%s', '%s', '%s', '%d', '%d', '%d', '%s', '%s', '%s', '%d', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s' ]
+			[ '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%d', '%d', '%d', '%s', '%s', '%s', '%d', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s' ]
 		);
 
 		if ( ! $result ) {
@@ -285,9 +400,8 @@ class Automations {
 		$id = (int) $wpdb->insert_id;
 
 		// Schedule cron if enabled.
-		if ( ! empty( $data['enabled'] ) ) {
-			// @phpstan-ignore-next-line
-			AutomationRunner::schedule( $id, $data['schedule'] ?? 'daily' );
+		if ( $enabled ) {
+			AutomationRunner::schedule( $id, $schedule );
 		}
 
 		return $id;
@@ -309,8 +423,20 @@ class Automations {
 			return false;
 		}
 
-		$update  = [];
-		$formats = [];
+		$update        = [];
+		$formats       = [];
+		$existing_mode = self::get_mode( $existing );
+		$new_mode      = $existing_mode;
+
+		if ( array_key_exists( 'mode', $data ) ) {
+			$new_mode = self::sanitize_mode( $data['mode'] );
+			if ( ! in_array( $new_mode, self::VALID_MODES, true ) ) {
+				return false;
+			}
+
+			$update['mode'] = $new_mode;
+			$formats[]      = '%s';
+		}
 
 		$string_fields = [ 'name', 'description', 'prompt', 'schedule', 'cron_expression', 'tool_profile' ];
 		foreach ( $string_fields as $field ) {
@@ -337,15 +463,37 @@ class Automations {
 			$formats[]               = '%d';
 		}
 
-		if ( isset( $data['enabled'] ) ) {
+		if ( array_key_exists( 'monitor_scratch', $data ) ) {
+			if ( self::MONITOR_MODE !== $new_mode || ! is_scalar( $data['monitor_scratch'] ) ) {
+				return false;
+			}
+
+			$update['monitor_scratch'] = MonitorOutcome::sanitize_scratch( $data['monitor_scratch'] );
+			$formats[]                 = '%s';
+		}
+
+		if ( array_key_exists( 'enabled', $data ) ) {
 			// @phpstan-ignore-next-line
 			$update['enabled'] = (int) $data['enabled'];
+			$formats[]         = '%d';
+		} elseif ( self::MONITOR_MODE === $new_mode && self::MONITOR_MODE !== $existing_mode ) {
+			// A task becoming a Monitor requires a separately explicit enable.
+			$update['enabled'] = 0;
 			$formats[]         = '%d';
 		}
 
 		if ( isset( $data['notification_channels'] ) ) {
 			$update['notification_channels'] = self::sanitize_notification_channels( $data['notification_channels'] );
 			$formats[]                       = '%s';
+		}
+
+		if ( self::TASK_MODE === $new_mode && self::MONITOR_MODE === $existing_mode ) {
+			$update['monitor_scratch']      = '';
+			$update['last_monitor_outcome'] = '';
+			$update['last_monitor_summary'] = '';
+			$formats[]                      = '%s';
+			$formats[]                      = '%s';
+			$formats[]                      = '%s';
 		}
 
 		if ( empty( $update ) ) {
@@ -365,13 +513,17 @@ class Automations {
 		);
 
 		// Reschedule cron based on new state.
-		$new_enabled  = $data['enabled'] ?? $existing['enabled'];
-		$new_schedule = $data['schedule'] ?? $existing['schedule'];
+		$new_enabled  = array_key_exists( 'enabled', $data ) ? (bool) $data['enabled'] : (bool) $existing['enabled'];
+		$new_schedule = isset( $data['schedule'] ) ? sanitize_key( (string) $data['schedule'] ) : (string) $existing['schedule'];
+		if ( self::MONITOR_MODE === $new_mode && self::MONITOR_MODE !== $existing_mode && ! array_key_exists( 'enabled', $data ) ) {
+			$new_enabled = false;
+		}
 
-		AutomationRunner::unschedule( $id );
-		if ( $new_enabled ) {
-			// @phpstan-ignore-next-line
-			AutomationRunner::schedule( $id, $new_schedule );
+		if ( false !== $result ) {
+			AutomationRunner::unschedule( $id );
+			if ( $new_enabled ) {
+				AutomationRunner::schedule( $id, $new_schedule );
+			}
 		}
 
 		return $result !== false;
@@ -492,10 +644,12 @@ class Automations {
 	 * @param int    $id     Automation ID.
 	 * @param string $run_id Correlation UUID for this delivery.
 	 * @param string $status Terminal lifecycle status.
-	 * @param string $error  Safe operator-facing failure detail.
+	 * @param string $error           Safe operator-facing failure detail.
+	 * @param string $monitor_outcome Valid monitor outcome, if this was a Monitor run.
+	 * @param string $monitor_summary Safe Monitor summary, if this was a Monitor run.
 	 * @return bool True when the owned claim was released.
 	 */
-	public static function finish_run( int $id, string $run_id, string $status, string $error = '' ): bool {
+	public static function finish_run( int $id, string $run_id, string $status, string $error = '', string $monitor_outcome = '', string $monitor_summary = '' ): bool {
 		global $wpdb;
 		/** @var \wpdb $wpdb */
 
@@ -503,19 +657,23 @@ class Automations {
 			return false;
 		}
 
-		$now           = current_time( 'mysql', true );
-		$safe_error    = 'succeeded' === $status ? '' : JobErrorSanitizer::sanitize( $error, 500 );
-		$stored_status = '' !== $safe_error ? $safe_error : ( 'succeeded' === $status ? '' : __( 'Automation execution did not complete.', 'superdav-ai-agent' ) );
+		$now             = current_time( 'mysql', true );
+		$safe_error      = 'succeeded' === $status ? '' : JobErrorSanitizer::sanitize( $error, 500 );
+		$stored_status   = '' !== $safe_error ? $safe_error : ( 'succeeded' === $status ? '' : __( 'Automation execution did not complete.', 'superdav-ai-agent' ) );
+		$monitor_outcome = MonitorOutcome::is_valid( $monitor_outcome ) ? $monitor_outcome : '';
+		$monitor_summary = '' === $monitor_outcome ? '' : MonitorOutcome::sanitize_summary( $monitor_summary );
 
 		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Conditional lifecycle transition prevents an expired worker from clearing a newer run.
 		$result = $wpdb->query(
 			$wpdb->prepare(
-				"UPDATE %i SET execution_status = %s, lease_expires_at = NULL, last_run_id = %s, last_run_status = %s, last_run_error = %s, last_run_at = %s, run_count = run_count + 1, active_run_id = '', updated_at = %s WHERE id = %d AND active_run_id = %s AND execution_status IN ('claimed', 'running')",
+				"UPDATE %i SET execution_status = %s, lease_expires_at = NULL, last_run_id = %s, last_run_status = %s, last_run_error = %s, last_monitor_outcome = %s, last_monitor_summary = %s, last_run_at = %s, run_count = run_count + 1, active_run_id = '', updated_at = %s WHERE id = %d AND active_run_id = %s AND execution_status IN ('claimed', 'running')",
 				self::table_name(),
 				$status,
 				$run_id,
 				$status,
 				$stored_status,
+				$monitor_outcome,
+				$monitor_summary,
 				$now,
 				$now,
 				$id,
@@ -846,6 +1004,8 @@ class Automations {
 			'name'                  => $row->name,
 			'description'           => $row->description,
 			'prompt'                => $row->prompt,
+			'mode'                  => self::get_mode( [ 'mode' => $row->mode ?? self::TASK_MODE ] ),
+			'monitor_scratch'       => (string) ( $row->monitor_scratch ?? '' ),
 			'schedule'              => $row->schedule,
 			'cron_expression'       => $row->cron_expression,
 			'tool_profile'          => $row->tool_profile,
@@ -862,8 +1022,30 @@ class Automations {
 			'last_run_id'           => (string) ( $row->last_run_id ?? '' ),
 			'last_run_status'       => (string) ( $row->last_run_status ?? '' ),
 			'last_run_error'        => (string) ( $row->last_run_error ?? '' ),
+			'last_monitor_outcome'  => (string) ( $row->last_monitor_outcome ?? '' ),
+			'last_monitor_summary'  => (string) ( $row->last_monitor_summary ?? '' ),
 			'created_at'            => $row->created_at,
 			'updated_at'            => $row->updated_at,
 		];
+	}
+
+	/**
+	 * Normalize a mode without silently converting unknown values to task mode.
+	 *
+	 * @param mixed $mode Candidate mode.
+	 */
+	private static function sanitize_mode( $mode ): string {
+		return is_scalar( $mode ) ? strtolower( trim( (string) $mode ) ) : '';
+	}
+
+	/**
+	 * Get a compatible mode from an existing definition or legacy database row.
+	 *
+	 * @param array<string, mixed> $automation Automation definition.
+	 */
+	private static function get_mode( array $automation ): string {
+		$mode = self::sanitize_mode( $automation['mode'] ?? self::TASK_MODE );
+
+		return in_array( $mode, self::VALID_MODES, true ) ? $mode : self::TASK_MODE;
 	}
 }
