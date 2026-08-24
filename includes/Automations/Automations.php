@@ -83,6 +83,16 @@ class Automations {
 	}
 
 	/**
+	 * Provide timing guidance for a Monitor configuration UI.
+	 *
+	 * WP-Cron is traffic-driven, so this stays with the durable Monitor data
+	 * returned by the REST API instead of promising an exact execution time.
+	 */
+	public static function get_monitor_timing_help(): string {
+		return __( 'Monitor schedules use WP-Cron, which is triggered by site traffic and can run late. For more reliable timing, configure a real system cron to trigger wp-cron.php.', 'superdav-ai-agent' );
+	}
+
+	/**
 	 * Validate Monitor-specific create or update input before persistence.
 	 *
 	 * @param array<string, mixed>      $data     Request data.
@@ -337,6 +347,11 @@ class Automations {
 		global $wpdb;
 		/** @var \wpdb $wpdb */
 
+		$validation = self::validate_definition( $data );
+		if ( is_wp_error( $validation ) ) {
+			return false;
+		}
+
 		$mode = self::sanitize_mode( $data['mode'] ?? self::TASK_MODE );
 		if ( ! in_array( $mode, self::VALID_MODES, true ) ) {
 			return false;
@@ -420,6 +435,11 @@ class Automations {
 
 		$existing = self::get( $id );
 		if ( ! $existing ) {
+			return false;
+		}
+
+		$validation = self::validate_definition( $data, $existing );
+		if ( is_wp_error( $validation ) ) {
 			return false;
 		}
 
@@ -699,9 +719,10 @@ class Automations {
 		$reason    = __( 'The automation execution lease expired before completion.', 'superdav-ai-agent' );
 
 		foreach ( self::get_expired_run_candidates() as $candidate ) {
-			$automation_id = (int) $candidate['id'];
-			$run_id        = (string) $candidate['run_id'];
-			$lock_name     = self::acquire_execution_lock( $automation_id );
+			$automation_id   = (int) $candidate['id'];
+			$run_id          = (string) $candidate['run_id'];
+			$monitor_outcome = self::MONITOR_MODE === $candidate['mode'] ? 'error' : '';
+			$lock_name       = self::acquire_execution_lock( $automation_id );
 			if ( null === $lock_name ) {
 				continue;
 			}
@@ -711,8 +732,8 @@ class Automations {
 					continue;
 				}
 
-				$log_abandoned        = AutomationLogs::abandon_run( $automation_id, $run_id, $reason );
-				$automation_abandoned = self::abandon_expired_run( $automation_id, $run_id, $reason );
+				$log_abandoned        = AutomationLogs::abandon_run( $automation_id, $run_id, $reason, $monitor_outcome );
+				$automation_abandoned = self::abandon_expired_run( $automation_id, $run_id, $reason, $monitor_outcome );
 				if ( ! $log_abandoned || ! $automation_abandoned || ! self::commit_lifecycle_transaction() ) {
 					self::rollback_lifecycle_transaction();
 					continue;
@@ -730,7 +751,7 @@ class Automations {
 	/**
 	 * Get bounded candidates whose durable lease has elapsed.
 	 *
-	 * @return list<array{id:int,run_id:string}>
+	 * @return list<array{id:int,run_id:string,mode:string}>
 	 */
 	private static function get_expired_run_candidates(): array {
 		global $wpdb;
@@ -740,7 +761,7 @@ class Automations {
 		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Candidate discovery is followed by a per-row advisory lock and conditional transition.
 		$rows = $wpdb->get_results(
 			$wpdb->prepare(
-				"SELECT id, active_run_id FROM %i WHERE active_run_id != '' AND execution_status IN ('claimed', 'running') AND lease_expires_at IS NOT NULL AND lease_expires_at < %s ORDER BY id ASC LIMIT %d",
+				"SELECT id, active_run_id, mode FROM %i WHERE active_run_id != '' AND execution_status IN ('claimed', 'running') AND lease_expires_at IS NOT NULL AND lease_expires_at < %s ORDER BY id ASC LIMIT %d",
 				self::table_name(),
 				$now,
 				self::STALE_RUN_BATCH_SIZE
@@ -755,6 +776,7 @@ class Automations {
 				$candidates[] = [
 					'id'     => $id,
 					'run_id' => $run_id,
+					'mode'   => self::get_mode( [ 'mode' => $row->mode ?? self::TASK_MODE ] ),
 				];
 			}
 		}
@@ -764,8 +786,13 @@ class Automations {
 
 	/**
 	 * Conditionally abandon one expired owned claim.
+	 *
+	 * @param int    $id              Automation ID.
+	 * @param string $run_id          Correlation UUID for the execution.
+	 * @param string $reason          Safe operator-facing failure reason.
+	 * @param string $monitor_outcome Valid monitor outcome when this was a Monitor.
 	 */
-	private static function abandon_expired_run( int $id, string $run_id, string $reason ): bool {
+	private static function abandon_expired_run( int $id, string $run_id, string $reason, string $monitor_outcome ): bool {
 		global $wpdb;
 		/** @var \wpdb $wpdb */
 
@@ -773,13 +800,15 @@ class Automations {
 			return false;
 		}
 
-		$now = current_time( 'mysql', true );
+		$now             = current_time( 'mysql', true );
+		$monitor_outcome = MonitorOutcome::is_valid( $monitor_outcome ) ? $monitor_outcome : '';
 		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Conditional terminal transition retains the durable owner and prevents stale recovery from overwriting a renewed run.
 		$result = $wpdb->query(
 			$wpdb->prepare(
-				"UPDATE %i SET execution_status = 'abandoned', last_run_id = active_run_id, last_run_status = 'abandoned', last_run_error = %s, last_run_at = %s, run_count = run_count + 1, active_run_id = '', lease_expires_at = NULL, updated_at = %s WHERE id = %d AND active_run_id = %s AND execution_status IN ('claimed', 'running') AND lease_expires_at IS NOT NULL AND lease_expires_at < %s",
+				"UPDATE %i SET execution_status = 'abandoned', last_run_id = active_run_id, last_run_status = 'abandoned', last_run_error = %s, last_monitor_outcome = %s, last_monitor_summary = '', last_run_at = %s, run_count = run_count + 1, active_run_id = '', lease_expires_at = NULL, updated_at = %s WHERE id = %d AND active_run_id = %s AND execution_status IN ('claimed', 'running') AND lease_expires_at IS NOT NULL AND lease_expires_at < %s",
 				self::table_name(),
 				JobErrorSanitizer::sanitize( $reason, 500 ),
+				$monitor_outcome,
 				$now,
 				$now,
 				$id,
@@ -994,6 +1023,7 @@ class Automations {
 	private static function decode_row( object $row ): array {
 		$channels_raw = $row->notification_channels ?? '';
 		$channels     = [];
+		$mode         = self::get_mode( [ 'mode' => $row->mode ?? self::TASK_MODE ] );
 		if ( ! empty( $channels_raw ) ) {
 			$decoded  = json_decode( $channels_raw, true );
 			$channels = is_array( $decoded ) ? $decoded : [];
@@ -1004,8 +1034,9 @@ class Automations {
 			'name'                  => $row->name,
 			'description'           => $row->description,
 			'prompt'                => $row->prompt,
-			'mode'                  => self::get_mode( [ 'mode' => $row->mode ?? self::TASK_MODE ] ),
+			'mode'                  => $mode,
 			'monitor_scratch'       => (string) ( $row->monitor_scratch ?? '' ),
+			'monitor_timing_help'   => self::MONITOR_MODE === $mode ? self::get_monitor_timing_help() : '',
 			'schedule'              => $row->schedule,
 			'cron_expression'       => $row->cron_expression,
 			'tool_profile'          => $row->tool_profile,

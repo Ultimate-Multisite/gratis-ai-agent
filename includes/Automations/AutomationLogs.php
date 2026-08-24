@@ -156,8 +156,13 @@ class AutomationLogs {
 	 * This low-level conditional transition is called inside the matching
 	 * automation-row transaction so a stale recovery never leaves mismatched
 	 * lifecycle evidence across the two durable tables.
+	 *
+	 * @param int    $automation_id   Automation ID.
+	 * @param string $run_id          Correlation UUID for the execution.
+	 * @param string $reason          Safe operator-facing failure reason.
+	 * @param string $monitor_outcome Valid Monitor outcome when this was a Monitor.
 	 */
-	public static function abandon_run( int $automation_id, string $run_id, string $reason ): bool {
+	public static function abandon_run( int $automation_id, string $run_id, string $reason, string $monitor_outcome = '' ): bool {
 		global $wpdb;
 		/** @var \wpdb $wpdb */
 
@@ -165,12 +170,14 @@ class AutomationLogs {
 			return false;
 		}
 
-		$now = current_time( 'mysql', true );
+		$now             = current_time( 'mysql', true );
+		$monitor_outcome = self::sanitize_monitor_outcome( $monitor_outcome );
 		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Conditional stale transition is coordinated transactionally with the owning automation row.
 		$result = $wpdb->query(
 			$wpdb->prepare(
-				"UPDATE %i SET status = 'error', lifecycle_status = 'abandoned', error_message = %s, lease_expires_at = NULL, finished_at = %s WHERE automation_id = %d AND run_id = %s AND lifecycle_status IN ('claimed', 'running') AND lease_expires_at IS NOT NULL AND lease_expires_at < %s",
+				"UPDATE %i SET status = 'error', lifecycle_status = 'abandoned', monitor_outcome = %s, error_message = %s, lease_expires_at = NULL, finished_at = %s WHERE automation_id = %d AND run_id = %s AND lifecycle_status IN ('claimed', 'running') AND lease_expires_at IS NOT NULL AND lease_expires_at < %s",
 				self::table_name(),
+				$monitor_outcome,
 				self::sanitize_error( $reason ),
 				$now,
 				$automation_id,
@@ -202,8 +209,9 @@ class AutomationLogs {
 		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Orphaned durable lifecycle logs are safe to terminalize after their bounded lease expires.
 		$result = $wpdb->query(
 			$wpdb->prepare(
-				"UPDATE %i AS logs LEFT JOIN %i AS automations ON automations.id = logs.automation_id AND automations.active_run_id = logs.run_id AND automations.execution_status IN ('claimed', 'running') SET logs.status = 'error', logs.lifecycle_status = 'abandoned', logs.error_message = %s, logs.lease_expires_at = NULL, logs.finished_at = %s WHERE logs.lifecycle_status IN ('claimed', 'running') AND logs.lease_expires_at IS NOT NULL AND logs.lease_expires_at < %s AND automations.id IS NULL",
+				"UPDATE %i AS logs LEFT JOIN %i AS active_automation ON active_automation.id = logs.automation_id AND active_automation.active_run_id = logs.run_id AND active_automation.execution_status IN ('claimed', 'running') LEFT JOIN %i AS owner_automation ON owner_automation.id = logs.automation_id SET logs.status = 'error', logs.lifecycle_status = 'abandoned', logs.monitor_outcome = CASE WHEN owner_automation.mode = 'monitor' THEN 'error' ELSE logs.monitor_outcome END, logs.error_message = %s, logs.lease_expires_at = NULL, logs.finished_at = %s WHERE logs.lifecycle_status IN ('claimed', 'running') AND logs.lease_expires_at IS NOT NULL AND logs.lease_expires_at < %s AND active_automation.id IS NULL",
 				self::table_name(),
+				Automations::table_name(),
 				Automations::table_name(),
 				$reason,
 				$now,
