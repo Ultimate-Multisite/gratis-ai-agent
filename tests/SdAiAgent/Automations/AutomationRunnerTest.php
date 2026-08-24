@@ -464,4 +464,42 @@ class AutomationRunnerTest extends WP_UnitTestCase {
 			Automations::delete( (int) $monitor_id );
 		}
 	}
+
+	/** A busy Monitor retains its claimed wake for bounded retry before provider work. */
+	public function test_monitor_wake_defers_when_another_run_owns_the_monitor(): void {
+		$owner_id   = self::factory()->user->create( [ 'role' => 'administrator' ] );
+		$monitor_id = Automations::create(
+			[
+				'name'                        => 'Busy wake Monitor',
+				'prompt'                      => 'This must not reach a provider.',
+				'mode'                        => Automations::MONITOR_MODE,
+				'monitor_scratch'             => 'Assess the site.',
+				'monitor_event_wakes_enabled' => true,
+				'monitor_event_sources'       => [ 'delete_post' ],
+				'owner_user_id'               => $owner_id,
+				'enabled'                     => 1,
+			]
+		);
+		$this->assertIsInt( $monitor_id );
+		$this->assertTrue( Automations::claim_run( (int) $monitor_id, 'active-run', '2099-01-01 00:00:00' ) );
+
+		try {
+			$result = AutomationRunner::run_monitor_wake(
+				(int) $monitor_id,
+				[
+					'source'      => 'delete_post',
+					'event_count' => 2,
+					'identifiers' => [ 'post_id' => 42 ],
+				]
+			);
+
+			$this->assertIsArray( $result );
+			$this->assertSame( 'blocked', $result['lifecycle_status'] );
+			$this->assertSame( 'defer', $result['_monitor_wake_disposition'] );
+			$this->assertSame( 'active-run', Automations::get( (int) $monitor_id )['active_run_id'] );
+		} finally {
+			AutomationRunner::unschedule( (int) $monitor_id );
+			Automations::delete( (int) $monitor_id );
+		}
+	}
 }

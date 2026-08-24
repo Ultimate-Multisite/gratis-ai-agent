@@ -271,9 +271,6 @@ class AutomationRunner {
 		}
 
 		if ( 'contended' === $claim_state ) {
-			if ( $is_monitor_wake ) {
-				$wake_disposition = 'complete';
-			}
 			return self::record_blocked_delivery(
 				$automation,
 				$run_id,
