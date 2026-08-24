@@ -4091,11 +4091,12 @@ PROMPT;
 			return $unchanged;
 		}
 
-		$limits = array(
+		$limits             = array(
 			'sd-ai-agent/stock-image'    => 2,
 			'sd-ai-agent/generate-image' => 1,
 		);
-		$used   = array_fill_keys( array_keys( $limits ), 0 );
+		$used               = array_fill_keys( array_keys( $limits ), 0 );
+		$primary_stock_args = null;
 
 		foreach ( $this->history as $history_message ) {
 			foreach ( $history_message->getParts() as $part ) {
@@ -4106,6 +4107,9 @@ PROMPT;
 
 				$ability_name = self::media_ability_name_for_call( $call );
 				if ( null !== $ability_name ) {
+					if ( 'sd-ai-agent/stock-image' === $ability_name && null === $primary_stock_args ) {
+						$primary_stock_args = self::stock_image_args_for_call( $call );
+					}
 					++$used[ $ability_name ];
 				}
 			}
@@ -4132,13 +4136,18 @@ PROMPT;
 				continue;
 			}
 
-			if (
-				'sd-ai-agent/stock-image' === $ability_name
-				&& 1 === $used[ $ability_name ]
-				&& self::is_stock_image_search_call( $call )
-			) {
-				$part = new MessagePart( self::convert_stock_image_search_to_auto_import( $call ) );
-				++$rewritten;
+			if ( 'sd-ai-agent/stock-image' === $ability_name ) {
+				if ( 0 === $used[ $ability_name ] && null === $primary_stock_args ) {
+					$primary_stock_args = self::stock_image_args_for_call( $call );
+				} elseif (
+					1 === $used[ $ability_name ]
+					&& ! self::is_stock_image_candidate_import_call( $call )
+				) {
+					$part = new MessagePart(
+						self::normalize_stock_image_auto_import_fallback( $call, $primary_stock_args ?? array() )
+					);
+					++$rewritten;
+				}
 			}
 
 			++$used[ $ability_name ];
@@ -4239,26 +4248,45 @@ PROMPT;
 		);
 	}
 
-	/** Return whether a direct or dispatcher stock-image call requests search mode. */
-	private static function is_stock_image_search_call( FunctionCall $call ): bool {
+	/** Return the stock-image arguments from a direct or dispatcher call. */
+	private static function stock_image_args_for_call( FunctionCall $call ): array {
 		$args = self::normalize_function_call_args( $call->getArgs() );
 		if ( 'sd-ai-agent/ability-call' === self::normalize_logged_tool_name( (string) $call->getName() ) ) {
-			$args = isset( $args['arguments'] ) && is_array( $args['arguments'] ) ? $args['arguments'] : array();
+			return isset( $args['arguments'] ) && is_array( $args['arguments'] ) ? $args['arguments'] : array();
 		}
 
-		return 'search' === (string) ( $args['action'] ?? '' );
+		return $args;
 	}
 
-	/** Convert the second bounded stock search into the documented automatic-import fallback. */
+	/** Return whether a stock-image call imports a reviewed provider candidate. */
+	private static function is_stock_image_candidate_import_call( FunctionCall $call ): bool {
+		$args = self::stock_image_args_for_call( $call );
+
+		return 'import' === (string) ( $args['action'] ?? '' )
+			&& '' !== (string) ( $args['provider'] ?? '' )
+			&& '' !== (string) ( $args['image_id'] ?? '' );
+	}
+
+	/**
+	 * Normalize the second bounded stock call into the documented automatic-import fallback.
+	 *
+	 * @param FunctionCall         $call             Proposed second stock call.
+	 * @param array<string, mixed> $primaryStockArgs Arguments from the first bounded stock search.
+	 */
 	// phpcs:disable WordPress.NamingConventions.ValidVariableName.VariableNotSnakeCase -- Project variable naming guidance requires camelCase.
-	private static function convert_stock_image_search_to_auto_import( FunctionCall $call ): FunctionCall {
+	private static function normalize_stock_image_auto_import_fallback( FunctionCall $call, array $primaryStockArgs ): FunctionCall {
 		$args         = self::normalize_function_call_args( $call->getArgs() );
 		$isDispatcher = 'sd-ai-agent/ability-call' === self::normalize_logged_tool_name( (string) $call->getName() );
 		$stockArgs    = $isDispatcher && isset( $args['arguments'] ) && is_array( $args['arguments'] )
 			? $args['arguments']
 			: $args;
 
-		unset( $stockArgs['action'], $stockArgs['provider'], $stockArgs['image_id'], $stockArgs['limit'] );
+		unset( $stockArgs['action'], $stockArgs['provider'], $stockArgs['image_id'], $stockArgs['limit'], $stockArgs['min_width'], $stockArgs['min_height'] );
+		foreach ( array( 'keyword', 'usage', 'orientation' ) as $key ) {
+			if ( '' !== (string) ( $primaryStockArgs[ $key ] ?? '' ) ) {
+				$stockArgs[ $key ] = $primaryStockArgs[ $key ];
+			}
+		}
 		$stockArgs['keyword'] = self::shorten_stock_image_keyword( (string) ( $stockArgs['keyword'] ?? '' ) );
 
 		if ( $isDispatcher ) {

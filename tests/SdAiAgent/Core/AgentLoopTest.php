@@ -3762,7 +3762,7 @@ class AgentLoopTest extends WP_UnitTestCase {
 						new FunctionCall(
 							'stock-search-one',
 							'wpab__sd-ai-agent__stock-image',
-							array( 'action' => 'search', 'keyword' => 'wedding couple photography elegant natural light', 'limit' => 12 )
+							array( 'action' => 'search', 'keyword' => 'newlywed couple', 'usage' => 'hero', 'orientation' => 'landscape', 'min_width' => 1200, 'limit' => 12 )
 						)
 					),
 					new MessagePart(
@@ -3786,7 +3786,10 @@ class AgentLoopTest extends WP_UnitTestCase {
 		$this->assertArrayNotHasKey( 'action', $secondArgs );
 		$this->assertArrayNotHasKey( 'provider', $secondArgs );
 		$this->assertArrayNotHasKey( 'limit', $secondArgs );
-		$this->assertSame( 'portrait photography studio', $secondArgs['keyword'] );
+		$this->assertArrayNotHasKey( 'min_width', $secondArgs );
+		$this->assertSame( 'newlywed couple', $secondArgs['keyword'] );
+		$this->assertSame( 'hero', $secondArgs['usage'] );
+		$this->assertSame( 'landscape', $secondArgs['orientation'] );
 
 		$dispatcherLoop = new AgentLoop(
 			'Build a photographer site',
@@ -3810,7 +3813,7 @@ class AgentLoopTest extends WP_UnitTestCase {
 							'wpab__sd-ai-agent__ability-call',
 							array(
 								'ability'   => 'sd-ai-agent/stock-image',
-								'arguments' => array( 'action' => 'search', 'provider' => 'openverse', 'keyword' => 'outdoor family portrait golden hour' ),
+								'arguments' => array( 'keyword' => 'outdoor family portrait golden hour', 'usage' => 'gallery', 'orientation' => 'portrait' ),
 							)
 						)
 					),
@@ -3823,7 +3826,28 @@ class AgentLoopTest extends WP_UnitTestCase {
 		$this->assertSame( 'sd-ai-agent/stock-image', $dispatcherArgs['ability'] );
 		$this->assertArrayNotHasKey( 'action', $dispatcherArgs['arguments'] );
 		$this->assertArrayNotHasKey( 'provider', $dispatcherArgs['arguments'] );
-		$this->assertSame( 'outdoor family portrait', $dispatcherArgs['arguments']['keyword'] );
+		$this->assertSame( 'wedding', $dispatcherArgs['arguments']['keyword'] );
+		$this->assertSame( 'gallery', $dispatcherArgs['arguments']['usage'] );
+		$this->assertSame( 'portrait', $dispatcherArgs['arguments']['orientation'] );
+
+		$candidateImportResult = $method->invoke(
+			$dispatcherLoop,
+			new ModelMessage(
+				array(
+					new MessagePart(
+						new FunctionCall(
+							'candidate-import',
+							'wpab__sd-ai-agent__stock-image',
+							array( 'action' => 'import', 'provider' => 'openverse', 'image_id' => 'reviewed-image', 'keyword' => 'wedding' )
+						)
+					),
+				)
+			)
+		);
+		$candidateImportArgs = $candidateImportResult['message']->getParts()[0]->getFunctionCall()->getArgs();
+		$this->assertSame( 'import', $candidateImportArgs['action'] );
+		$this->assertSame( 'openverse', $candidateImportArgs['provider'] );
+		$this->assertSame( 'reviewed-image', $candidateImportArgs['image_id'] );
 	}
 
 	/**
