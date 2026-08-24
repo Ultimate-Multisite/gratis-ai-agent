@@ -3308,14 +3308,24 @@ final class SessionController {
 		$encoded_history = wp_json_encode( $history );
 		$request_bytes   = is_string( $encoded_history ) ? strlen( $encoded_history ) : 0;
 		$request_tokens  = (int) ceil( $request_bytes / 4 );
+		$provider_id     = (string) ( $paused_state['provider_id'] ?? '' );
+		$model_id        = (string) ( $paused_state['model_id'] ?? '' );
+		$max_bytes       = min(
+			ConversationTrimmer::COMPACT_MAX_BYTES,
+			ConversationTrimmer::get_request_envelope_byte_budget( $provider_id, $model_id )
+		);
+		$max_tokens      = min(
+			ConversationTrimmer::COMPACT_MAX_TOKENS,
+			ConversationTrimmer::get_request_token_budget( $provider_id, $model_id )
+		);
 		if (
-			$request_bytes <= ConversationTrimmer::COMPACT_MAX_BYTES
-			&& $request_tokens <= ConversationTrimmer::COMPACT_MAX_TOKENS
+			$request_bytes <= $max_bytes
+			&& $request_tokens <= $max_tokens
 		) {
 			return $paused_state;
 		}
 
-		$compacted = ConversationTrimmer::compact_serialized_history( array_values( $history ) );
+		$compacted = ConversationTrimmer::compact_serialized_history( array_values( $history ), $max_bytes, $max_tokens );
 		if ( empty( $compacted['messages'] ) ) {
 			return $paused_state;
 		}
@@ -3328,8 +3338,8 @@ final class SessionController {
 			array(
 				'session_id'              => $session_id,
 				'phase'                   => 'recoverable_job_resume',
-				'provider_id'             => (string) ( $paused_state['provider_id'] ?? '' ),
-				'model_id'                => (string) ( $paused_state['model_id'] ?? '' ),
+				'provider_id'             => $provider_id,
+				'model_id'                => $model_id,
 				'history_count'           => count( $history ),
 				'request_bytes_estimate'  => $request_bytes,
 				'request_tokens_estimate' => $request_tokens,

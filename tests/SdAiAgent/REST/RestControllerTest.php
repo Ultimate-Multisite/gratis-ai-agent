@@ -1728,7 +1728,19 @@ class RestControllerTest extends WP_UnitTestCase {
 			]
 		);
 
-		$response = $this->dispatch( 'POST', "/sd-ai-agent/v1/sessions/{$session_id}/resume" );
+		$byte_budget   = static fn(): int => 20000;
+		$safety_margin = static fn(): int => 18000;
+		$token_budget  = static fn(): int => 500;
+		add_filter( 'sd_ai_agent_provider_request_max_bytes', $byte_budget, 10, 3 );
+		add_filter( 'sd_ai_agent_provider_request_safety_margin_bytes', $safety_margin, 10, 4 );
+		add_filter( 'sd_ai_agent_provider_request_max_tokens', $token_budget, 10, 3 );
+		try {
+			$response = $this->dispatch( 'POST', "/sd-ai-agent/v1/sessions/{$session_id}/resume" );
+		} finally {
+			remove_filter( 'sd_ai_agent_provider_request_max_bytes', $byte_budget, 10 );
+			remove_filter( 'sd_ai_agent_provider_request_safety_margin_bytes', $safety_margin, 10 );
+			remove_filter( 'sd_ai_agent_provider_request_max_tokens', $token_budget, 10 );
+		}
 
 		$this->assertStatus( 202, $response );
 		$data = $response->get_data();
@@ -1737,6 +1749,8 @@ class RestControllerTest extends WP_UnitTestCase {
 		$this->assertCount( 1, $job['recovery_state']['history'] );
 		$compacted_json = (string) wp_json_encode( $job['recovery_state']['history'] );
 		$this->assertLessThan( strlen( (string) wp_json_encode( $history ) ), strlen( $compacted_json ) );
+		$this->assertLessThanOrEqual( 2000, strlen( $compacted_json ) );
+		$this->assertLessThanOrEqual( 500, (int) ceil( strlen( $compacted_json ) / 4 ) );
 		$this->assertStringContainsString( 'Home#17', $compacted_json );
 		$this->assertStringContainsString( 'Contact#13', $compacted_json );
 		$this->assertStringNotContainsString( 'SECRET_PAGE_CONTENT', $compacted_json );
