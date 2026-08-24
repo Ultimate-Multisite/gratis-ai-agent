@@ -2068,6 +2068,7 @@ class RestControllerTest extends WP_UnitTestCase {
 		$this->assertStatus( 201, $response );
 		$data = $response->get_data();
 		$this->assertArrayHasKey( 'id', $data );
+		$this->assertSame( $this->admin_id, $data['owner_user_id'] );
 	}
 
 	/**
@@ -2118,6 +2119,51 @@ class RestControllerTest extends WP_UnitTestCase {
 		$this->assertStatus( 200, $response );
 		$data = $response->get_data();
 		$this->assertSame( 'Updated Automation Name', $data['name'] );
+	}
+
+	/**
+	 * Test PATCH /automations/{id} adopts the authenticated administrator as the
+	 * new execution owner.
+	 */
+	public function test_update_automation_captures_current_owner(): void {
+		wp_set_current_user( $this->admin_id );
+		$create = $this->dispatch( 'POST', '/sd-ai-agent/v1/automations', [
+			'name'   => 'Owner Update Automation',
+			'prompt' => 'Keep an owner.',
+		] );
+		$this->assertStatus( 201, $create );
+		$automationId = $create->get_data()['id'];
+
+		$otherAdminId = self::factory()->user->create( [ 'role' => 'administrator' ] );
+		wp_set_current_user( $otherAdminId );
+
+		$request = new WP_REST_Request( 'PATCH', "/sd-ai-agent/v1/automations/{$automationId}" );
+		$request->set_body( wp_json_encode( [ 'name' => 'Owner Updated Automation' ] ) );
+		$request->set_header( 'Content-Type', 'application/json' );
+		$response = $this->server->dispatch( $request );
+
+		$this->assertStatus( 200, $response );
+		$this->assertSame( $otherAdminId, $response->get_data()['owner_user_id'] );
+	}
+
+	/**
+	 * Test an authenticated manual run reports a disabled stale delivery as a
+	 * durable blocked lifecycle instead of entering AgentLoop.
+	 */
+	public function test_run_disabled_automation_is_blocked(): void {
+		wp_set_current_user( $this->admin_id );
+		$create = $this->dispatch( 'POST', '/sd-ai-agent/v1/automations', [
+			'name'   => 'Disabled Run Automation',
+			'prompt' => 'This must not run.',
+		] );
+		$this->assertStatus( 201, $create );
+		$automation_id = $create->get_data()['id'];
+
+		$response = $this->dispatch( 'POST', "/sd-ai-agent/v1/automations/{$automation_id}/run" );
+
+		$this->assertStatus( 200, $response );
+		$this->assertSame( 'blocked', $response->get_data()['lifecycle_status'] );
+		$this->assertNotEmpty( $response->get_data()['run_id'] );
 	}
 
 	/**

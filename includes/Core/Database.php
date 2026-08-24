@@ -37,7 +37,7 @@ use SdAiAgent\Tools\CustomTools;
 class Database {
 
 	const DB_VERSION_OPTION                         = 'sd_ai_agent_db_version';
-	const DB_VERSION                                = '19.10.0';
+	const DB_VERSION                                = '19.12.0';
 	const CUSTOMER_CONVERSATION_REVIEW_CLEANUP_HOOK = 'sd_ai_agent_customer_conversation_review_cleanup';
 
 	// ─── Table Name Registry ──────────────────────────────────────────────────
@@ -103,6 +103,18 @@ class Database {
 		global $wpdb;
 		/** @var \wpdb $wpdb */
 		return $wpdb->prefix . 'sd_ai_agent_automation_logs';
+	}
+
+	/**
+	 * Whether durable automation lifecycle tables support atomic transitions.
+	 *
+	 * Scheduled execution intentionally fails closed when a host cannot provide
+	 * transactional storage. A lease and two correlated rows cannot be made
+	 * crash-safe on a non-transactional table engine.
+	 */
+	public static function has_transactional_automation_storage(): bool {
+		return self::table_uses_innodb( self::automations_table_name() )
+			&& self::table_uses_innodb( self::automation_logs_table_name() );
 	}
 
 	/**
@@ -460,37 +472,55 @@ class Database {
 			schedule varchar(50) NOT NULL DEFAULT 'daily',
 			cron_expression varchar(100) NOT NULL DEFAULT '',
 			tool_profile varchar(100) NOT NULL DEFAULT '',
+			owner_user_id bigint(20) unsigned NOT NULL DEFAULT 0,
 			max_iterations int(11) NOT NULL DEFAULT 10,
 			enabled tinyint(1) NOT NULL DEFAULT 0,
 			notification_channels longtext NOT NULL DEFAULT '',
 			last_run_at datetime DEFAULT NULL,
 			next_run_at datetime DEFAULT NULL,
 			run_count int(11) NOT NULL DEFAULT 0,
+			active_run_id char(36) NOT NULL DEFAULT '',
+			execution_status varchar(20) NOT NULL DEFAULT 'idle',
+			lease_expires_at datetime DEFAULT NULL,
+			last_run_id char(36) NOT NULL DEFAULT '',
+			last_run_status varchar(20) NOT NULL DEFAULT '',
+			last_run_error text NOT NULL DEFAULT '',
 			created_at datetime NOT NULL,
 			updated_at datetime NOT NULL,
 			PRIMARY KEY  (id),
 			KEY enabled (enabled),
-			KEY schedule (schedule)
-		) {$charset};
+			KEY schedule (schedule),
+			KEY owner_user_id (owner_user_id),
+			KEY active_run_id (active_run_id),
+			KEY lease_status (execution_status, lease_expires_at)
+		) ENGINE=InnoDB {$charset};
 
 		CREATE TABLE {$automation_logs_table} (
 			id bigint(20) unsigned NOT NULL AUTO_INCREMENT,
 			automation_id bigint(20) unsigned NOT NULL DEFAULT 0,
+			run_id char(36) NOT NULL DEFAULT '',
+			owner_user_id bigint(20) unsigned NOT NULL DEFAULT 0,
 			trigger_type varchar(20) NOT NULL DEFAULT 'scheduled',
 			trigger_name varchar(255) NOT NULL DEFAULT '',
 			status varchar(20) NOT NULL DEFAULT 'success',
+			lifecycle_status varchar(20) NOT NULL DEFAULT '',
 			reply longtext NOT NULL,
 			tool_calls longtext NOT NULL,
 			prompt_tokens bigint(20) unsigned NOT NULL DEFAULT 0,
 			completion_tokens bigint(20) unsigned NOT NULL DEFAULT 0,
 			duration_ms bigint(20) unsigned NOT NULL DEFAULT 0,
 			error_message text NOT NULL DEFAULT '',
+			lease_expires_at datetime DEFAULT NULL,
+			started_at datetime DEFAULT NULL,
+			finished_at datetime DEFAULT NULL,
 			created_at datetime NOT NULL,
 			PRIMARY KEY  (id),
 			KEY automation_id (automation_id),
+			KEY run_id (run_id),
 			KEY trigger_type (trigger_type),
-			KEY created_at (created_at)
-		) {$charset};
+			KEY created_at (created_at),
+			KEY lifecycle_lease (lifecycle_status, lease_expires_at)
+		) ENGINE=InnoDB {$charset};
 
 		CREATE TABLE {$approval_requests_table} (
 			id bigint(20) unsigned NOT NULL AUTO_INCREMENT,
@@ -964,6 +994,10 @@ class Database {
 
 		require_once ABSPATH . 'wp-admin/includes/upgrade.php';
 		dbDelta( $sql );
+		// Automation execution fails closed independently through
+		// has_transactional_automation_storage(), so a failed conversion must not
+		// block unrelated schema repairs, seeds, or the version marker.
+		self::ensure_automation_lifecycle_transactional_storage( $automations_table, $automation_logs_table );
 		self::ensure_customer_conversation_review_summary_fulltext_index( $customer_conversation_reviews_table );
 
 		// This defence-in-depth index may be blocked by ambiguous historical
@@ -997,6 +1031,52 @@ class Database {
 
 		update_option( self::DB_VERSION_OPTION, self::DB_VERSION, true );
 		self::ensure_customer_conversation_review_cleanup();
+	}
+
+	/**
+	 * Require InnoDB for the two rows that represent one automation lifecycle.
+	 *
+	 * WordPress dbDelta creates fresh tables with the declared engine but does not reliably
+	 * convert historical MyISAM tables. Convert only these lifecycle tables;
+	 * leave unrelated plugin storage untouched. Returning false prevents the DB
+	 * version marker from claiming a successful migration.
+	 */
+	private static function ensure_automation_lifecycle_transactional_storage( string $automations_table, string $automation_logs_table ): bool {
+		global $wpdb;
+		/** @var \wpdb $database */
+		$database = $wpdb;
+
+		foreach ( [ $automations_table, $automation_logs_table ] as $table ) {
+			if ( self::table_uses_innodb( $table ) ) {
+				continue;
+			}
+
+			// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.SchemaChange -- Required migration for atomic, correlated automation lifecycle transitions.
+			if ( false === $database->query( $database->prepare( 'ALTER TABLE %i ENGINE=InnoDB', $table ) ) ) {
+				return false;
+			}
+
+			if ( ! self::table_uses_innodb( $table ) ) {
+				return false;
+			}
+		}
+
+		return true;
+	}
+
+	/**
+	 * Check the storage engine of one internal table without exposing host data.
+	 *
+	 * @phpstan-impure
+	 */
+	private static function table_uses_innodb( string $table ): bool {
+		global $wpdb;
+		/** @var \wpdb $wpdb */
+
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Internal schema introspection for an atomic lifecycle storage prerequisite.
+		$engine = $wpdb->get_var( $wpdb->prepare( 'SHOW TABLE STATUS WHERE Name = %s', $table ), 1 );
+
+		return is_string( $engine ) && 'innodb' === strtolower( $engine );
 	}
 
 	/** Schedule bounded cleanup and safe runtime backfill for review projections. */
