@@ -154,6 +154,20 @@ final class GeneratedThemeCompletionGate {
 			return;
 		}
 
+		// Meta-tool responses retain the real target ability and result. Replay
+		// that nested pair so Tier-2 mutations invalidate the same evidence as
+		// direct Tier-1 calls.
+		if ( 'sd-ai-agent/ability-call' === $name && true === ( $normalized['success'] ?? false ) ) {
+			$target = self::normalize_tool_name( (string) ( $normalized['ability'] ?? $call_args['ability'] ?? '' ) );
+			$args   = $call_args['arguments'] ?? array();
+			$result = $normalized['result'] ?? array();
+			if ( '' !== $target && 'sd-ai-agent/ability-call' !== $target ) {
+				$this->record_tool_call( $target, is_array( $args ) ? $args : array() );
+				$this->record_tool_response( $target, $result );
+			}
+			return;
+		}
+
 		// A failed browser report is evidence too: it must keep completion
 		// incomplete and can require rollback after a fatal render failure.
 		if ( self::CLIENT_ABILITY === $name ) {
@@ -162,6 +176,10 @@ final class GeneratedThemeCompletionGate {
 		}
 
 		if ( ! self::is_successful_response( $normalized ) ) {
+			return;
+		}
+
+		if ( 'sd-ai-agent/create-menu' === $name && true === ( $normalized['reused'] ?? false ) ) {
 			return;
 		}
 
@@ -818,6 +836,7 @@ final class GeneratedThemeCompletionGate {
 			'sd-ai-agent/add-menu-item',
 			'sd-ai-agent/remove-menu-item',
 			'sd-ai-agent/assign-menu-location',
+			'sd-ai-agent/update-template-part',
 			'sd-ai-agent/generate-logo-svg',
 			'sd-ai-agent/update-option',
 			'sd-ai-agent/delete-post',

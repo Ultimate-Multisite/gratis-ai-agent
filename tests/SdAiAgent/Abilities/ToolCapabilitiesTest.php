@@ -416,6 +416,8 @@ class ToolCapabilitiesTest extends WP_UnitTestCase {
 			'sd-ai-agent/add-menu-item',
 			'sd-ai-agent/remove-menu-item',
 			'sd-ai-agent/assign-menu-location',
+			'sd-ai-agent/list-template-parts',
+			'sd-ai-agent/update-template-part',
 			'sd-ai-agent/db-query',
 			'sd-ai-agent/run-php',
 			'sd-ai-agent/file-read',

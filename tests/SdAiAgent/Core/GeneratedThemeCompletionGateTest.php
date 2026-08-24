@@ -101,6 +101,60 @@ class GeneratedThemeCompletionGateTest extends WP_UnitTestCase {
 		$this->assertTrue( $gate->requires_repair() );
 	}
 
+	/** Tier-2 template-part writes invalidate generated-theme evidence. */
+	public function test_wrapped_template_part_mutation_invalidates_passing_report(): void {
+		$gate   = $this->prepare_activated_gate();
+		$inputs = $gate->get_expected_report_inputs();
+		$gate->record_tool_call( GeneratedThemeCompletionGate::CLIENT_ABILITY, $inputs );
+		$gate->record_tool_response( GeneratedThemeCompletionGate::CLIENT_ABILITY, $this->passing_report( $inputs ) );
+
+		$gate->record_tool_call(
+			'sd-ai-agent/ability-call',
+			array(
+				'ability'   => 'sd-ai-agent/update-template-part',
+				'arguments' => array( 'id' => 'theme//footer' ),
+			)
+		);
+		$gate->record_tool_response(
+			'sd-ai-agent/ability-call',
+			array(
+				'success' => true,
+				'ability' => 'sd-ai-agent/update-template-part',
+				'result'  => array( 'success' => true ),
+			)
+		);
+
+		$this->assertFalse( $gate->has_current_passing_report() );
+		$this->assertTrue( $gate->requires_repair() );
+	}
+
+	/** Reusing an assigned menu is a no-op and keeps current evidence valid. */
+	public function test_wrapped_reused_menu_does_not_invalidate_passing_report(): void {
+		$gate   = $this->prepare_activated_gate();
+		$inputs = $gate->get_expected_report_inputs();
+		$gate->record_tool_call( GeneratedThemeCompletionGate::CLIENT_ABILITY, $inputs );
+		$gate->record_tool_response( GeneratedThemeCompletionGate::CLIENT_ABILITY, $this->passing_report( $inputs ) );
+
+		$gate->record_tool_call(
+			'sd-ai-agent/ability-call',
+			array(
+				'ability'   => 'sd-ai-agent/create-menu',
+				'arguments' => array( 'name' => 'Main Menu', 'location' => 'primary' ),
+			)
+		);
+		$gate->record_tool_response(
+			'sd-ai-agent/ability-call',
+			array(
+				'success' => true,
+				'ability' => 'sd-ai-agent/create-menu',
+				'result'  => array( 'reused' => true, 'created' => false ),
+			)
+		);
+
+		$this->assertTrue( $gate->has_current_passing_report() );
+		$this->assertFalse( $gate->requires_repair() );
+	}
+
 	/**
 	 * A report bound to an old fingerprint cannot satisfy the gate.
 	 */

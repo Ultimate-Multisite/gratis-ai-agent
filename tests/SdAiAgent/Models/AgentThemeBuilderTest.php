@@ -295,6 +295,10 @@ class AgentThemeBuilderTest extends WP_UnitTestCase {
 			'anonymous rendered header and footer',
 			'every visible default-theme link group',
 			'default footer navigation',
+			'`sd-ai-agent/list-template-parts` with `area: footer`',
+			'`sd-ai-agent/update-template-part` with that exact hash',
+			'never delete, recreate, or reassign a valid primary menu',
+			'reuse the menu already assigned to the target location',
 			'report that limitation instead of claiming',
 		] as $required ) {
 			$this->assertStringContainsString( $required, $agent->system_prompt );

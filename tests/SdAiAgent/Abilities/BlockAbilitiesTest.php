@@ -1485,4 +1485,143 @@ class BlockAbilitiesTest extends WP_UnitTestCase {
 		$this->assertIsArray( $result );
 		$this->assertArrayNotHasKey( 'affected', $result );
 	}
+
+	/**
+	 * Template-part reads expose content and a hash for guarded writes.
+	 */
+	public function test_list_template_parts_returns_content_hash(): void {
+		$template_id = $this->create_test_template_part( 'qa-footer-list', '<!-- wp:paragraph --><p>Original footer</p><!-- /wp:paragraph -->' );
+		$result      = BlockAbilities::handle_list_template_parts( [ 'area' => 'footer', 'search' => 'qa-footer-list' ] );
+
+		$this->assertSame( get_stylesheet(), $result['active_theme'] );
+		$this->assertSame( 1, $result['total'] );
+		$this->assertSame( $template_id, $result['template_parts'][0]['id'] );
+		$this->assertSame( hash( 'sha256', $result['template_parts'][0]['content'] ), $result['template_parts'][0]['content_hash'] );
+	}
+
+	/**
+	 * Template-part writes create a site-local customization with validated block markup.
+	 */
+	public function test_update_template_part_with_current_hash(): void {
+		$original    = '<!-- wp:paragraph --><p>Original footer</p><!-- /wp:paragraph -->';
+		$replacement = '<!-- wp:paragraph --><p>Updated footer</p><!-- /wp:paragraph -->';
+		$template_id = $this->create_test_template_part( 'qa-footer-update', $original );
+		$result      = BlockAbilities::handle_update_template_part(
+			[
+				'id'                    => $template_id,
+				'content'               => $replacement,
+				'expected_content_hash' => hash( 'sha256', $original ),
+			]
+		);
+
+		$this->assertIsArray( $result );
+		$this->assertTrue( $result['success'] );
+		$this->assertSame( hash( 'sha256', $replacement ), $result['content_hash'] );
+		$this->assertSame( 'template_part', $result['affected']['kind'] );
+		$this->assertSame( $replacement, get_block_template( $template_id, 'wp_template_part' )->content );
+	}
+
+	/**
+	 * Template-part writes reject a stale read hash without changing content.
+	 */
+	public function test_update_template_part_rejects_stale_hash(): void {
+		$original    = '<!-- wp:paragraph --><p>Original footer</p><!-- /wp:paragraph -->';
+		$template_id = $this->create_test_template_part( 'qa-footer-conflict', $original );
+		$result      = BlockAbilities::handle_update_template_part(
+			[
+				'id'                    => $template_id,
+				'content'               => '<!-- wp:paragraph --><p>Replacement</p><!-- /wp:paragraph -->',
+				'expected_content_hash' => str_repeat( '0', 64 ),
+			]
+		);
+
+		$this->assertWPError( $result );
+		$this->assertSame( 'sd_ai_agent_template_part_conflict', $result->get_error_code() );
+		$this->assertSame( $original, get_block_template( $template_id, 'wp_template_part' )->content );
+	}
+
+	/**
+	 * An empty replacement intentionally clears a template part.
+	 */
+	public function test_update_template_part_allows_empty_content(): void {
+		$original    = '<!-- wp:paragraph --><p>Default footer links</p><!-- /wp:paragraph -->';
+		$template_id = $this->create_test_template_part( 'qa-footer-clear', $original );
+		$result      = BlockAbilities::handle_update_template_part(
+			[
+				'id'                    => $template_id,
+				'content'               => '',
+				'expected_content_hash' => hash( 'sha256', $original ),
+			]
+		);
+
+		$this->assertIsArray( $result );
+		$this->assertTrue( $result['success'] );
+		$this->assertSame( hash( 'sha256', '' ), $result['content_hash'] );
+		$this->assertSame( 0, $result['validation']['block_count'] );
+		$this->assertSame( '', get_block_template( $template_id, 'wp_template_part' )->content );
+	}
+
+	/**
+	 * Updating a file-backed part creates a site-local custom override.
+	 */
+	public function test_update_file_backed_template_part_creates_custom_override(): void {
+		$previous_stylesheet = get_stylesheet();
+		switch_theme( 'twentytwentyfive' );
+
+		try {
+			$file_part = null;
+			foreach ( get_block_templates( [ 'area' => 'footer' ], 'wp_template_part' ) as $part ) {
+				if ( get_stylesheet() === (string) $part->theme && 'theme' === (string) $part->source ) {
+					$file_part = $part;
+					break;
+				}
+			}
+			$this->assertNotNull( $file_part );
+
+			$replacement = '<!-- wp:paragraph --><p>Site-local footer</p><!-- /wp:paragraph -->';
+			$result      = BlockAbilities::handle_update_template_part(
+				[
+					'id'                    => $file_part->id,
+					'content'               => $replacement,
+					'expected_content_hash' => hash( 'sha256', (string) $file_part->content ),
+				]
+			);
+
+			$this->assertIsArray( $result );
+			$updated = get_block_template( $file_part->id, 'wp_template_part' );
+			$this->assertSame( 'custom', $updated->source );
+			$this->assertSame( get_stylesheet(), $updated->theme );
+			$this->assertSame( 'footer', $updated->area );
+			$this->assertSame( $replacement, $updated->content );
+			$this->assertSame( hash( 'sha256', $replacement ), $result['content_hash'] );
+		} finally {
+			switch_theme( $previous_stylesheet );
+		}
+	}
+
+	/**
+	 * Create a custom template part for the active test theme.
+	 *
+	 * @param string $slug    Unique template-part slug.
+	 * @param string $content Serialized block markup.
+	 * @return string Template-part ID.
+	 */
+	private function create_test_template_part( string $slug, string $content ): string {
+		$post_id = wp_insert_post(
+			[
+				'post_name'    => $slug,
+				'post_title'   => $slug,
+				'post_content' => $content,
+				'post_status'  => 'publish',
+				'post_type'    => 'wp_template_part',
+			],
+			true
+		);
+		$this->assertNotWPError( $post_id );
+
+		wp_set_object_terms( $post_id, get_stylesheet(), 'wp_theme' );
+		wp_set_object_terms( $post_id, 'footer', 'wp_template_part_area' );
+
+		return get_stylesheet() . '//' . $slug;
+	}
 }

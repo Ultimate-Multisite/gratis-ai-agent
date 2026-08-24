@@ -325,6 +325,98 @@ class BlockAbilities {
 		);
 
 		wp_register_ability(
+			'sd-ai-agent/list-template-parts',
+			[
+				'label'               => __( 'List Template Parts', 'superdav-ai-agent' ),
+				'description'         => __( 'List editable block-theme template parts for the active theme, including their complete content and a concurrency hash. Use this before changing a header or footer.', 'superdav-ai-agent' ),
+				'category'            => 'sd-ai-agent',
+				'input_schema'        => [
+					'type'       => 'object',
+					'properties' => [
+						'area'   => [
+							'type'        => 'string',
+							'description' => 'Optional template-part area such as header or footer.',
+						],
+						'search' => [
+							'type'        => 'string',
+							'description' => 'Optional case-insensitive search across slug, title, and description.',
+						],
+					],
+					'required'   => [],
+				],
+				'output_schema'       => [
+					'type'       => 'object',
+					'properties' => [
+						'template_parts' => [ 'type' => 'array' ],
+						'total'          => [ 'type' => 'integer' ],
+						'active_theme'   => [ 'type' => 'string' ],
+					],
+				],
+				'meta'                => [
+					'mcp'         => [ 'public' => true ],
+					'annotations' => [
+						'readonly'    => true,
+						'destructive' => false,
+						'idempotent'  => true,
+					],
+				],
+				'execute_callback'    => [ __CLASS__, 'handle_list_template_parts' ],
+				'permission_callback' => function () {
+					return ToolCapabilities::current_user_can( 'sd-ai-agent/list-template-parts' );
+				},
+			]
+		);
+
+		wp_register_ability(
+			'sd-ai-agent/update-template-part',
+			[
+				'label'               => __( 'Update Template Part', 'superdav-ai-agent' ),
+				'description'         => __( 'Replace one active block-theme template part after reading it first. Requires the exact content hash returned by list-template-parts and rejects invalid block markup or stale writes.', 'superdav-ai-agent' ),
+				'category'            => 'sd-ai-agent',
+				'input_schema'        => [
+					'type'       => 'object',
+					'properties' => [
+						'id'                    => [
+							'type'        => 'string',
+							'description' => 'Exact template-part ID returned by list-template-parts, for example theme-slug//footer.',
+						],
+						'content'               => [
+							'type'        => 'string',
+							'description' => 'Complete validated serialized block markup for the template part.',
+						],
+						'expected_content_hash' => [
+							'type'        => 'string',
+							'description' => 'Exact SHA-256 content_hash returned by the preceding list-template-parts call.',
+						],
+					],
+					'required'   => [ 'id', 'content', 'expected_content_hash' ],
+				],
+				'output_schema'       => [
+					'type'       => 'object',
+					'properties' => [
+						'success'               => [ 'type' => 'boolean' ],
+						'id'                    => [ 'type' => 'string' ],
+						'wp_id'                 => [ 'type' => 'integer' ],
+						'previous_content_hash' => [ 'type' => 'string' ],
+						'content_hash'          => [ 'type' => 'string' ],
+					],
+				],
+				'meta'                => [
+					'mcp'         => [ 'public' => true ],
+					'annotations' => [
+						'readonly'    => false,
+						'destructive' => false,
+						'idempotent'  => true,
+					],
+				],
+				'execute_callback'    => [ __CLASS__, 'handle_update_template_part' ],
+				'permission_callback' => function () {
+					return ToolCapabilities::current_user_can( 'sd-ai-agent/update-template-part' );
+				},
+			]
+		);
+
+		wp_register_ability(
 			'sd-ai-agent/create-block-content',
 			[
 				'label'               => __( 'Create Block Content', 'superdav-ai-agent' ),
@@ -1616,6 +1708,236 @@ class BlockAbilities {
 			'templates' => $result,
 			'total'     => count( $result ),
 		];
+	}
+
+	/**
+	 * List block-theme template parts from the active theme.
+	 *
+	 * @param array<string,mixed> $input Input with optional area and search.
+	 * @return array<string,mixed>
+	 */
+	public static function handle_list_template_parts( array $input ): array {
+		$area   = sanitize_key( (string) ( $input['area'] ?? '' ) );
+		$search = strtolower( sanitize_text_field( (string) ( $input['search'] ?? '' ) ) );
+		$query  = '' !== $area ? [ 'area' => $area ] : [];
+		$theme  = get_stylesheet();
+		$parts  = get_block_templates( $query, 'wp_template_part' );
+		$result = [];
+
+		foreach ( $parts as $part ) {
+			if ( (string) ( $part->theme ?? '' ) !== $theme ) {
+				continue;
+			}
+
+			$title       = (string) ( $part->title ?? $part->slug );
+			$description = (string) ( $part->description ?? '' );
+			if ( '' !== $search ) {
+				$searchable = strtolower( (string) $part->slug . ' ' . $title . ' ' . $description );
+				if ( false === strpos( $searchable, $search ) ) {
+					continue;
+				}
+			}
+
+			$content  = (string) ( $part->content ?? '' );
+			$result[] = [
+				'id'           => (string) $part->id,
+				'slug'         => (string) $part->slug,
+				'title'        => $title,
+				'description'  => $description,
+				'area'         => (string) ( $part->area ?? '' ),
+				'theme'        => (string) $part->theme,
+				'source'       => (string) ( $part->source ?? '' ),
+				'wp_id'        => (int) ( $part->wp_id ?? 0 ),
+				'content'      => $content,
+				'content_hash' => hash( 'sha256', $content ),
+			];
+		}
+
+		usort(
+			$result,
+			static function ( array $left, array $right ): int {
+				return strcmp( $left['area'] . '/' . $left['slug'], $right['area'] . '/' . $right['slug'] );
+			}
+		);
+
+		return [
+			'template_parts' => $result,
+			'total'          => count( $result ),
+			'active_theme'   => $theme,
+		];
+	}
+
+	/**
+	 * Replace one active-theme template part after a hash-guarded read.
+	 *
+	 * @param array<string,mixed> $input Input with id, content, and expected_content_hash.
+	 * @return array<string,mixed>|\WP_Error
+	 */
+	public static function handle_update_template_part( array $input ) {
+		$id                    = sanitize_text_field( (string) ( $input['id'] ?? '' ) );
+		$content               = (string) ( $input['content'] ?? '' );
+		$expected_content_hash = strtolower( sanitize_text_field( (string) ( $input['expected_content_hash'] ?? '' ) ) );
+
+		if ( '' === $id || ! array_key_exists( 'content', $input ) || '' === $expected_content_hash ) {
+			return new \WP_Error(
+				'sd_ai_agent_template_part_missing_input',
+				__( 'id, content, and expected_content_hash are required.', 'superdav-ai-agent' ),
+				[ 'status' => 400 ]
+			);
+		}
+
+		$lock_name = self::acquire_template_part_lock( $id );
+		if ( null === $lock_name ) {
+			return new \WP_Error(
+				'sd_ai_agent_template_part_busy',
+				__( 'Another request is updating this template part. List it again before retrying.', 'superdav-ai-agent' ),
+				[ 'status' => 409 ]
+			);
+		}
+
+		try {
+			return self::handle_update_template_part_locked( $id, $content, $expected_content_hash );
+		} finally {
+			self::release_template_part_lock( $lock_name );
+		}
+	}
+
+	/**
+	 * Execute a template-part update while its site-scoped advisory lock is held.
+	 *
+	 * @param string $id                    Template-part ID.
+	 * @param string $content               Complete replacement block markup.
+	 * @param string $expected_content_hash Hash from the preceding read.
+	 * @return array<string,mixed>|\WP_Error
+	 */
+	private static function handle_update_template_part_locked( string $id, string $content, string $expected_content_hash ) {
+		$template = get_block_template( $id, 'wp_template_part' );
+		if ( ! $template ) {
+			return new \WP_Error(
+				'sd_ai_agent_template_part_not_found',
+				__( 'The requested template part does not exist.', 'superdav-ai-agent' ),
+				[ 'status' => 404 ]
+			);
+		}
+
+		if ( (string) $template->theme !== get_stylesheet() ) {
+			return new \WP_Error(
+				'sd_ai_agent_template_part_wrong_theme',
+				__( 'Only template parts from the active theme can be updated.', 'superdav-ai-agent' ),
+				[ 'status' => 403 ]
+			);
+		}
+
+		$current_content_hash = hash( 'sha256', (string) $template->content );
+		if ( ! hash_equals( $current_content_hash, $expected_content_hash ) ) {
+			return new \WP_Error(
+				'sd_ai_agent_template_part_conflict',
+				__( 'The template part changed after it was read. List template parts again before retrying.', 'superdav-ai-agent' ),
+				[
+					'status'               => 409,
+					'current_content_hash' => $current_content_hash,
+				]
+			);
+		}
+
+		$validation = '' === $content
+			? [
+				'valid'       => true,
+				'block_count' => 0,
+			]
+			: self::handle_validate_block_content( [ 'content' => $content ] );
+		if ( is_wp_error( $validation ) || empty( $validation['valid'] ) ) {
+			return new \WP_Error(
+				'sd_ai_agent_template_part_invalid_content',
+				__( 'The template part was not updated because its block markup is invalid.', 'superdav-ai-agent' ),
+				[
+					'status'     => 400,
+					'validation' => is_wp_error( $validation ) ? $validation->get_error_message() : $validation,
+				]
+			);
+		}
+
+		if ( ! class_exists( '\WP_REST_Templates_Controller' ) ) {
+			return new \WP_Error(
+				'sd_ai_agent_template_part_update_unavailable',
+				__( 'Template-part updates are unavailable in this WordPress environment.', 'superdav-ai-agent' ),
+				[ 'status' => 501 ]
+			);
+		}
+
+		$latest              = get_block_template( $id, 'wp_template_part' );
+		$latest_content_hash = $latest ? hash( 'sha256', (string) $latest->content ) : '';
+		if ( ! $latest || ! hash_equals( $expected_content_hash, $latest_content_hash ) ) {
+			return new \WP_Error(
+				'sd_ai_agent_template_part_conflict',
+				__( 'The template part changed while the replacement was being validated. List template parts again before retrying.', 'superdav-ai-agent' ),
+				[
+					'status'               => 409,
+					'current_content_hash' => $latest_content_hash,
+				]
+			);
+		}
+
+		$request = new \WP_REST_Request( 'POST', '/wp/v2/template-parts/' . rawurlencode( $id ) );
+		$request->set_param( 'id', $id );
+		$request->set_param( 'content', $content );
+		$controller = new \WP_REST_Templates_Controller( 'wp_template_part' );
+		$response   = $controller->update_item( $request );
+
+		if ( is_wp_error( $response ) ) {
+			return $response;
+		}
+
+		$updated = get_block_template( $id, 'wp_template_part' );
+		if ( ! $updated ) {
+			return new \WP_Error(
+				'sd_ai_agent_template_part_update_failed',
+				__( 'The template part could not be reloaded after the update.', 'superdav-ai-agent' ),
+				[ 'status' => 500 ]
+			);
+		}
+
+		$updated_content = (string) $updated->content;
+
+		return [
+			'success'               => true,
+			'id'                    => (string) $updated->id,
+			'wp_id'                 => (int) $updated->wp_id,
+			'source'                => (string) $updated->source,
+			'previous_content_hash' => $current_content_hash,
+			'content_hash'          => hash( 'sha256', $updated_content ),
+			'validation'            => [
+				'valid'       => true,
+				'block_count' => (int) ( $validation['block_count'] ?? 0 ),
+			],
+			'affected'              => [
+				'kind'   => 'template_part',
+				'id'     => (string) $updated->id,
+				'url'    => home_url( '/' ),
+				'fields' => [ 'post_content' ],
+			],
+		];
+	}
+
+	/** Acquire a site-scoped MySQL advisory lock for one template part. */
+	private static function acquire_template_part_lock( string $id ): ?string {
+		global $wpdb;
+		/** @var \wpdb $wpdb */
+
+		$lock_name = 'sdai_tpl_' . substr( hash( 'sha256', get_current_blog_id() . '|' . $id ), 0, 48 );
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- MySQL advisory locking serializes concurrent template-part writes across requests.
+		$acquired = $wpdb->get_var( $wpdb->prepare( 'SELECT GET_LOCK(%s, %d)', $lock_name, 0 ) );
+
+		return 1 === (int) $acquired ? $lock_name : null;
+	}
+
+	/** Release a template-part advisory lock. */
+	private static function release_template_part_lock( string $lock_name ): void {
+		global $wpdb;
+		/** @var \wpdb $wpdb */
+
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Releases the advisory lock acquired immediately above.
+		$wpdb->get_var( $wpdb->prepare( 'SELECT RELEASE_LOCK(%s)', $lock_name ) );
 	}
 
 	/**

@@ -168,6 +168,31 @@ class MenuAbilitiesTest extends WP_UnitTestCase {
 		$this->assertContains( 'name', $result['affected']['fields'] );
 	}
 
+	/**
+	 * Creating a menu cannot replace or duplicate a menu already assigned to the location.
+	 */
+	public function test_handle_create_menu_reuses_assigned_location(): void {
+		$existing_id = wp_create_nav_menu( 'Existing Primary Menu' );
+		$this->assertIsInt( $existing_id );
+
+		set_theme_mod( 'nav_menu_locations', [ 'primary' => $existing_id ] );
+		$result = MenuAbilities::handle_create_menu(
+			[
+				'name'     => 'Main Menu',
+				'location' => 'primary',
+				'items'    => [ [ 'url' => home_url( '/' ), 'navigation_label' => 'Home' ] ],
+			]
+		);
+
+		$this->assertIsArray( $result );
+		$this->assertSame( $existing_id, $result['menu_id'] );
+		$this->assertFalse( $result['created'] );
+		$this->assertTrue( $result['reused'] );
+		$this->assertSame( 0, $result['items_added'] );
+		$this->assertCount( 1, wp_get_nav_menus() );
+		$this->assertSame( $existing_id, (int) get_nav_menu_locations()['primary'] );
+	}
+
 	// ─── handle_delete_menu ───────────────────────────────────────
 
 	/**
