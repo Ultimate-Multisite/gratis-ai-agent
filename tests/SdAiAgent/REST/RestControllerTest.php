@@ -26,6 +26,7 @@ use SdAiAgent\Core\ConversationTrimmer;
 use SdAiAgent\Core\ActiveJobFailureDiagnostic;
 use SdAiAgent\Core\Database;
 use SdAiAgent\Core\Settings;
+use SdAiAgent\Automations\AutomationRunner;
 use SdAiAgent\Automations\HumanApprovalGate;
 use SdAiAgent\Models\ActiveJobRepository;
 use SdAiAgent\Models\Memory;
@@ -2069,6 +2070,67 @@ class RestControllerTest extends WP_UnitTestCase {
 		$data = $response->get_data();
 		$this->assertArrayHasKey( 'id', $data );
 		$this->assertSame( $this->admin_id, $data['owner_user_id'] );
+		$this->assertSame( 'task', $data['mode'] );
+		$this->assertFalse( $data['enabled'] );
+	}
+
+	/**
+	 * Test POST /automations creates a disabled Monitor with bounded timing help.
+	 */
+	public function test_create_monitor_automation_defaults_to_disabled(): void {
+		wp_set_current_user( $this->admin_id );
+
+		$response = $this->dispatch( 'POST', '/sd-ai-agent/v1/automations', [
+			'name'            => 'REST Monitor',
+			'prompt'          => 'Assess the current state.',
+			'mode'            => 'monitor',
+			'monitor_scratch' => 'Check backup status.',
+		] );
+
+		$this->assertStatus( 201, $response );
+		$data = $response->get_data();
+		$this->assertSame( 'monitor', $data['mode'] );
+		$this->assertFalse( $data['enabled'] );
+		$this->assertSame( 'Check backup status.', $data['monitor_scratch'] );
+		$this->assertStringContainsString( 'WP-Cron', $data['monitor_timing_help'] );
+		$this->assertFalse( wp_next_scheduled( AutomationRunner::CRON_HOOK, [ $data['id'] ] ) );
+	}
+
+	/** A task changed to Monitor remains disabled until the administrator enables it separately. */
+	public function test_update_task_to_monitor_requires_explicit_enable(): void {
+		wp_set_current_user( $this->admin_id );
+		$create = $this->dispatch( 'POST', '/sd-ai-agent/v1/automations', [
+			'name'    => 'Task becoming Monitor',
+			'prompt'  => 'Run ordinary work first.',
+			'enabled' => true,
+		] );
+		$this->assertStatus( 201, $create );
+		$automation_id = $create->get_data()['id'];
+		$this->assertNotFalse( wp_next_scheduled( AutomationRunner::CRON_HOOK, [ $automation_id ] ) );
+
+		$response = $this->dispatch( 'PATCH', "/sd-ai-agent/v1/automations/{$automation_id}", [
+			'mode'            => 'monitor',
+			'monitor_scratch' => 'Check current state.',
+		] );
+
+		$this->assertStatus( 200, $response );
+		$data = $response->get_data();
+		$this->assertSame( 'monitor', $data['mode'] );
+		$this->assertFalse( $data['enabled'] );
+		$this->assertFalse( wp_next_scheduled( AutomationRunner::CRON_HOOK, [ $automation_id ] ) );
+	}
+
+	/** Unknown Monitor modes fail validation instead of silently broadening behaviour. */
+	public function test_create_automation_rejects_unknown_monitor_mode(): void {
+		wp_set_current_user( $this->admin_id );
+
+		$response = $this->dispatch( 'POST', '/sd-ai-agent/v1/automations', [
+			'name'   => 'Unsupported Monitor Mode',
+			'prompt' => 'This must not be created.',
+			'mode'   => 'pulse',
+		] );
+
+		$this->assertStatus( 400, $response );
 	}
 
 	/**

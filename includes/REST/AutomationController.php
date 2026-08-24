@@ -66,20 +66,35 @@ final class AutomationController {
 					'callback'            => array( $this, 'handle_create_automation' ),
 					'permission_callback' => array( $this, 'check_permission' ),
 					'args'                => array(
-						'name'     => array(
+						'name'            => array(
 							'required'          => true,
 							'type'              => 'string',
 							'sanitize_callback' => 'sanitize_text_field',
 						),
-						'prompt'   => array(
+						'prompt'          => array(
 							'required' => true,
 							'type'     => 'string',
 						),
-						'schedule' => array(
+						'schedule'        => array(
 							'required'          => false,
 							'type'              => 'string',
 							'default'           => 'daily',
 							'sanitize_callback' => 'sanitize_text_field',
+						),
+						'mode'            => array(
+							'required'          => false,
+							'type'              => 'string',
+							'default'           => 'task',
+							'sanitize_callback' => 'sanitize_key',
+						),
+						'monitor_scratch' => array(
+							'required'          => false,
+							'type'              => 'string',
+							'sanitize_callback' => 'sanitize_textarea_field',
+						),
+						'enabled'         => array(
+							'required' => false,
+							'type'     => 'boolean',
 						),
 					),
 				),
@@ -95,10 +110,24 @@ final class AutomationController {
 					'callback'            => array( $this, 'handle_update_automation' ),
 					'permission_callback' => array( $this, 'check_permission' ),
 					'args'                => array(
-						'id' => array(
+						'id'              => array(
 							'required'          => true,
 							'type'              => 'integer',
 							'sanitize_callback' => 'absint',
+						),
+						'mode'            => array(
+							'required'          => false,
+							'type'              => 'string',
+							'sanitize_callback' => 'sanitize_key',
+						),
+						'monitor_scratch' => array(
+							'required'          => false,
+							'type'              => 'string',
+							'sanitize_callback' => 'sanitize_textarea_field',
+						),
+						'enabled'         => array(
+							'required' => false,
+							'type'     => 'boolean',
 						),
 					),
 				),
@@ -375,7 +404,13 @@ final class AutomationController {
 	 * Create a scheduled automation.
 	 */
 	public function handle_create_automation( WP_REST_Request $request ): WP_REST_Response|WP_Error {
-		$data                  = $request->get_json_params();
+		$data       = $request->get_json_params();
+		$data       = is_array( $data ) ? $data : array();
+		$validation = Automations::validate_definition( $data );
+		if ( is_wp_error( $validation ) ) {
+			$validation->add_data( array( 'status' => 400 ) );
+			return $validation;
+		}
 		$data['owner_user_id'] = get_current_user_id();
 		$id                    = Automations::create( $data );
 
@@ -390,8 +425,18 @@ final class AutomationController {
 	 * Update a scheduled automation.
 	 */
 	public function handle_update_automation( WP_REST_Request $request ): WP_REST_Response|WP_Error {
-		$id                    = self::get_int_param( $request, 'id' );
-		$data                  = $request->get_json_params();
+		$id       = self::get_int_param( $request, 'id' );
+		$data     = $request->get_json_params();
+		$data     = is_array( $data ) ? $data : array();
+		$existing = Automations::get( $id );
+		if ( null === $existing ) {
+			return new WP_Error( 'not_found', __( 'Automation not found.', 'superdav-ai-agent' ), array( 'status' => 404 ) );
+		}
+		$validation = Automations::validate_definition( $data, $existing );
+		if ( is_wp_error( $validation ) ) {
+			$validation->add_data( array( 'status' => 400 ) );
+			return $validation;
+		}
 		$data['owner_user_id'] = get_current_user_id();
 
 		if ( ! Automations::update( $id, $data ) ) {
