@@ -21,6 +21,7 @@ declare(strict_types=1);
 
 namespace SdAiAgent\Abilities;
 
+use SdAiAgent\Core\Filesystem\FileModGate;
 use SdAiAgent\DesignSystem\ArtifactReleaseManager;
 use SdAiAgent\Services\BlockThemeProjectValidator;
 use WP_Error;
@@ -149,6 +150,11 @@ class ScaffoldBlockThemeAbility extends AbstractAbility {
 		$overwrite = ! empty( $input['overwrite'] );
 
 		$theme_root = self::theme_root();
+		$allowed    = FileModGate::assert_allowed( $theme_root );
+		if ( is_wp_error( $allowed ) ) {
+			return $allowed;
+		}
+
 		// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_is_writable -- Pre-flight check before WP_Filesystem is initialised; mirrors PluginInstaller pattern.
 		if ( ! is_dir( $theme_root ) || ! is_writable( $theme_root ) ) {
 			return new WP_Error(
