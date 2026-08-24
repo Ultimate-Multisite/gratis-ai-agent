@@ -90,6 +90,12 @@ final class AutomationsHandler {
 		MonitorWakeQueue::process_due_wakes();
 	}
 
+	/** Retry retained-evidence cleanup after an in-flight event capture. */
+	#[Action( tag: MonitorWakeQueue::CLEANUP_CRON_HOOK, priority: 10 )]
+	public function clear_monitor_wakes( int $monitor_id ): void {
+		MonitorWakeQueue::retry_clear_for_monitor( $monitor_id );
+	}
+
 	/**
 	 * Execute an event-driven automation run.
 	 *

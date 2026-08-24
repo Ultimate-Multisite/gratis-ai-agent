@@ -253,4 +253,18 @@ final class MonitorWakeQueueTest extends WP_UnitTestCase {
 		$this->assertNotFalse( wp_next_scheduled( MonitorWakeQueue::CRON_HOOK ) );
 		$this->assertNotEmpty( $this->get_wakes( $monitor_id ) );
 	}
+
+	/** The cleanup cron callback removes retained evidence idempotently. */
+	public function test_retry_clear_for_monitor_removes_retained_wakes(): void {
+		$monitor_id = $this->create_event_monitor();
+
+		MonitorWakeQueue::capture( 'delete_post', [ 42 ] );
+		$this->assertNotEmpty( $this->get_wakes( $monitor_id ) );
+
+		MonitorWakeQueue::retry_clear_for_monitor( $monitor_id );
+		MonitorWakeQueue::retry_clear_for_monitor( $monitor_id );
+
+		$this->assertSame( [], $this->get_wakes( $monitor_id ) );
+		$this->assertFalse( wp_next_scheduled( MonitorWakeQueue::CLEANUP_CRON_HOOK, [ $monitor_id ] ) );
+	}
 }

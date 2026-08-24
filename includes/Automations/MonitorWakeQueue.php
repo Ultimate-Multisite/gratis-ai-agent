@@ -18,7 +18,8 @@ if ( ! defined( 'ABSPATH' ) ) {
 
 final class MonitorWakeQueue {
 
-	public const CRON_HOOK = 'sd_ai_agent_process_monitor_wakes';
+	public const CRON_HOOK         = 'sd_ai_agent_process_monitor_wakes';
+	public const CLEANUP_CRON_HOOK = 'sd_ai_agent_clear_monitor_wakes';
 
 	/** Coalesce a burst before one assessment is admitted. */
 	public const COALESCE_WINDOW_SECONDS = MINUTE_IN_SECONDS;
@@ -193,6 +194,7 @@ final class MonitorWakeQueue {
 
 		$lock_name = self::acquire_monitor_lock( $monitor_id, self::CLEANUP_LOCK_TIMEOUT_SECONDS );
 		if ( null === $lock_name ) {
+			self::schedule_cleanup_retry( $monitor_id );
 			return;
 		}
 
@@ -204,12 +206,18 @@ final class MonitorWakeQueue {
 		} finally {
 			self::release_monitor_lock( $lock_name );
 		}
+		wp_clear_scheduled_hook( self::CLEANUP_CRON_HOOK, [ $monitor_id ] );
 
 		if ( Database::has_transactional_monitor_wake_storage() ) {
 			self::schedule_next_due_wake();
 		} else {
 			self::unschedule_processing();
 		}
+	}
+
+	/** Retry consent-revocation cleanup after an in-flight capture releases its lock. */
+	public static function retry_clear_for_monitor( int $monitor_id ): void {
+		self::clear_for_monitor( $monitor_id );
 	}
 
 	/** Restore processing for durable wakes retained while the plugin was inactive. */
@@ -718,6 +726,15 @@ final class MonitorWakeQueue {
 		}
 
 		wp_schedule_single_event( $timestamp, self::CRON_HOOK );
+	}
+
+	/** Schedule one idempotent cleanup retry for retained evidence. */
+	private static function schedule_cleanup_retry( int $monitor_id ): void {
+		if ( $monitor_id <= 0 || wp_next_scheduled( self::CLEANUP_CRON_HOOK, [ $monitor_id ] ) ) {
+			return;
+		}
+
+		wp_schedule_single_event( time() + self::CLEANUP_LOCK_TIMEOUT_SECONDS, self::CLEANUP_CRON_HOOK, [ $monitor_id ] );
 	}
 
 	/** Schedule the next processor invocation for retained or recoverable work. */
