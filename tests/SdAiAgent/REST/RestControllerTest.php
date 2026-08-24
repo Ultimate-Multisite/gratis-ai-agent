@@ -1666,6 +1666,98 @@ class RestControllerTest extends WP_UnitTestCase {
 		$this->assertNull( Database::load_and_clear_paused_state( $session_id ) );
 	}
 
+	/** Oversized exhausted-provider state is compacted before a manual retry. */
+	public function test_resume_recoverable_job_compacts_oversized_provider_retry_state(): void {
+		wp_set_current_user( $this->admin_id );
+
+		$session_id = Database::create_session( [
+			'user_id' => $this->admin_id,
+			'title'   => 'Compact provider retry',
+		] );
+		$history    = [
+			[
+				'role'  => 'user',
+				'parts' => [ [ 'text' => str_repeat( 'Large onboarding context. ', 4000 ) ] ],
+			],
+			[
+				'role'  => 'model',
+				'parts' => [
+					[
+						'functionCall' => [
+							'name' => 'wpab__sd-ai-agent__batch-create-posts',
+							'args' => [
+								'posts' => [
+									[ 'title' => 'Home', 'content' => 'SECRET_PAGE_CONTENT' ],
+									[ 'title' => 'Contact', 'content' => 'SECRET_CONTACT_DETAILS' ],
+								],
+							],
+						],
+					],
+				],
+			],
+			[
+				'role'  => 'user',
+				'parts' => [
+					[
+						'functionResponse' => [
+							'name'     => 'wpab__sd-ai-agent__batch-create-posts',
+							'response' => wp_json_encode(
+								[
+									'results'       => [
+										[ 'post_id' => 17, 'title' => 'Home', 'permalink' => 'https://private.example/home/' ],
+										[ 'post_id' => 13, 'title' => 'Contact', 'permalink' => 'https://private.example/contact/' ],
+									],
+									'created_count' => 2,
+								],
+							),
+						],
+					],
+				],
+			],
+		];
+		Database::save_paused_state(
+			$session_id,
+			[
+				'history'       => $history,
+				'tool_call_log' => [],
+				'message_log'   => [],
+				'token_usage'   => [ 'prompt' => 0, 'completion' => 0 ],
+				'provider_id'   => 'sd-ai-agent-cloud',
+				'model_id'      => 'superdav-chat-pro',
+				'exit_reason'   => 'provider_retry_failed',
+			]
+		);
+
+		$byte_budget   = static fn(): int => 20000;
+		$safety_margin = static fn(): int => 18000;
+		$token_budget  = static fn(): int => 500;
+		add_filter( 'sd_ai_agent_provider_request_max_bytes', $byte_budget, 10, 3 );
+		add_filter( 'sd_ai_agent_provider_request_safety_margin_bytes', $safety_margin, 10, 4 );
+		add_filter( 'sd_ai_agent_provider_request_max_tokens', $token_budget, 10, 3 );
+		try {
+			$response = $this->dispatch( 'POST', "/sd-ai-agent/v1/sessions/{$session_id}/resume" );
+		} finally {
+			remove_filter( 'sd_ai_agent_provider_request_max_bytes', $byte_budget, 10 );
+			remove_filter( 'sd_ai_agent_provider_request_safety_margin_bytes', $safety_margin, 10 );
+			remove_filter( 'sd_ai_agent_provider_request_max_tokens', $token_budget, 10 );
+		}
+
+		$this->assertStatus( 202, $response );
+		$data = $response->get_data();
+		$job  = get_transient( RestController::JOB_PREFIX . $data['job_id'] );
+		$this->assertIsArray( $job );
+		$this->assertCount( 1, $job['recovery_state']['history'] );
+		$compacted_json = (string) wp_json_encode( $job['recovery_state']['history'] );
+		$this->assertLessThan( strlen( (string) wp_json_encode( $history ) ), strlen( $compacted_json ) );
+		$this->assertLessThanOrEqual( 2000, strlen( $compacted_json ) );
+		$this->assertLessThanOrEqual( 500, (int) ceil( strlen( $compacted_json ) / 4 ) );
+		$this->assertStringContainsString( 'Home#17', $compacted_json );
+		$this->assertStringContainsString( 'Contact#13', $compacted_json );
+		$this->assertStringNotContainsString( 'SECRET_PAGE_CONTENT', $compacted_json );
+		$this->assertStringNotContainsString( 'SECRET_CONTACT_DETAILS', $compacted_json );
+		$this->assertStringNotContainsString( 'private.example', $compacted_json );
+	}
+
 	/**
 	 * Test a resume action cannot start without durable recoverable state.
 	 */
