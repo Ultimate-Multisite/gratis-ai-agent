@@ -81,6 +81,38 @@ function _manually_load_plugin() {
 
 tests_add_filter('muplugins_loaded', '_manually_load_plugin');
 
+/**
+ * Register the WordPress 7.2 default ability category in plugin tests.
+ *
+ * The WordPress trunk test bootstrap deliberately unhooks core ability
+ * categories. WordPress 7.2 also defaults abilities without an explicit
+ * category to `uncategorized`, so the missing test category causes otherwise
+ * valid plugin abilities to be rejected during registration.
+ */
+function _sd_ai_agent_register_test_uncategorized_ability_category(): void {
+	if ( ! function_exists( 'wp_register_ability_category' ) ) {
+		return;
+	}
+
+	if ( function_exists( 'wp_has_ability_category' ) && wp_has_ability_category( 'uncategorized' ) ) {
+		return;
+	}
+
+	wp_register_ability_category(
+		'uncategorized',
+		array(
+			'label'       => 'Uncategorized',
+			'description' => 'Abilities without an explicit category.',
+		)
+	);
+}
+
+tests_add_filter(
+	'wp_abilities_api_categories_init',
+	'_sd_ai_agent_register_test_uncategorized_ability_category',
+	2
+);
+
 /*
  * WP 7.0 Abilities API in-memory polyfill (loaded before WP core boots).
  *
