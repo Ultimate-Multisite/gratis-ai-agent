@@ -746,11 +746,11 @@ class ImageSourceFactory {
 
 		$attachment_id = media_handle_sideload( $file_array, $post_id, $title );
 
-		if ( $switched ) {
-			restore_current_blog();
-		}
-
 		if ( is_wp_error( $attachment_id ) ) {
+			if ( $switched ) {
+				restore_current_blog();
+			}
+
 			if ( file_exists( $tmp_file ) ) {
 				unlink( $tmp_file ); // phpcs:ignore WordPress.WP.AlternativeFunctions.unlink_unlink
 			}
@@ -770,6 +770,10 @@ class ImageSourceFactory {
 		}
 
 		$attachment_url = wp_get_attachment_url( $attachment_id );
+
+		if ( $switched ) {
+			restore_current_blog();
+		}
 
 		return [
 			'attachment_id'   => $attachment_id,
