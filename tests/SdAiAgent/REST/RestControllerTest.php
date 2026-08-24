@@ -1724,7 +1724,7 @@ class RestControllerTest extends WP_UnitTestCase {
 				'token_usage'   => [ 'prompt' => 0, 'completion' => 0 ],
 				'provider_id'   => 'sd-ai-agent-cloud',
 				'model_id'      => 'superdav-chat-pro',
-				'exit_reason'   => 'provider_retry_failed',
+				'exit_reason'   => 'sd_ai_agent_provider_retry_failed',
 			]
 		);
 
