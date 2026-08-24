@@ -168,6 +168,86 @@ class MenuAbilitiesTest extends WP_UnitTestCase {
 		$this->assertContains( 'name', $result['affected']['fields'] );
 	}
 
+	/**
+	 * Creating a menu cannot replace or duplicate a menu already assigned to the location.
+	 */
+	public function test_handle_create_menu_reuses_assigned_location(): void {
+		$existing_id = wp_create_nav_menu( 'Existing Primary Menu' );
+		$this->assertIsInt( $existing_id );
+
+		set_theme_mod( 'nav_menu_locations', [ 'primary' => $existing_id ] );
+		$result = MenuAbilities::handle_create_menu(
+			[
+				'name'     => 'Main Menu',
+				'location' => 'primary',
+				'items'    => [ [ 'url' => home_url( '/' ), 'navigation_label' => 'Home' ] ],
+			]
+		);
+
+		$this->assertIsArray( $result );
+		$this->assertSame( $existing_id, $result['menu_id'] );
+		$this->assertFalse( $result['created'] );
+		$this->assertTrue( $result['reused'] );
+		$this->assertSame( 0, $result['items_added'] );
+		$this->assertCount( 1, wp_get_nav_menus() );
+		$this->assertSame( $existing_id, (int) get_nav_menu_locations()['primary'] );
+	}
+
+	/**
+	 * Concurrent writes to any location for the same site and theme are rejected.
+	 */
+	public function test_handle_create_menu_rejects_concurrent_theme_location_write(): void {
+		$second_db = new \wpdb( DB_USER, DB_PASSWORD, DB_NAME, DB_HOST );
+		$scope     = get_current_blog_id() . '|' . get_stylesheet();
+		$lock_name = 'sdai_menu_' . substr( hash( 'sha256', $scope ), 0, 47 );
+
+		try {
+			$acquired = $second_db->get_var( $second_db->prepare( 'SELECT GET_LOCK(%s, %d)', $lock_name, 0 ) );
+			$this->assertSame( 1, (int) $acquired );
+
+			$result = MenuAbilities::handle_create_menu(
+				[
+					'name'     => 'Concurrent Main Menu',
+					'location' => 'primary',
+				]
+			);
+
+			$this->assertWPError( $result );
+			$this->assertSame( 'ai_agent_menu_location_busy', $result->get_error_code() );
+			$this->assertCount( 0, wp_get_nav_menus() );
+		} finally {
+			$second_db->get_var( $second_db->prepare( 'SELECT RELEASE_LOCK(%s)', $lock_name ) );
+			$second_db->close();
+		}
+	}
+
+	/**
+	 * Assign and delete use the same theme-wide lock as menu creation.
+	 */
+	public function test_menu_location_mutations_reject_concurrent_theme_write(): void {
+		$menu_id   = wp_create_nav_menu( 'Existing Menu' );
+		$second_db = new \wpdb( DB_USER, DB_PASSWORD, DB_NAME, DB_HOST );
+		$scope     = get_current_blog_id() . '|' . get_stylesheet();
+		$lock_name = 'sdai_menu_' . substr( hash( 'sha256', $scope ), 0, 47 );
+
+		try {
+			$acquired = $second_db->get_var( $second_db->prepare( 'SELECT GET_LOCK(%s, %d)', $lock_name, 0 ) );
+			$this->assertSame( 1, (int) $acquired );
+
+			$assigned = MenuAbilities::handle_assign_menu_location( [ 'menu_id' => $menu_id, 'location' => 'primary' ] );
+			$deleted  = MenuAbilities::handle_delete_menu( [ 'menu_id' => $menu_id ] );
+
+			$this->assertWPError( $assigned );
+			$this->assertSame( 'ai_agent_menu_location_busy', $assigned->get_error_code() );
+			$this->assertWPError( $deleted );
+			$this->assertSame( 'ai_agent_menu_location_busy', $deleted->get_error_code() );
+			$this->assertNotFalse( wp_get_nav_menu_object( $menu_id ) );
+		} finally {
+			$second_db->get_var( $second_db->prepare( 'SELECT RELEASE_LOCK(%s)', $lock_name ) );
+			$second_db->close();
+		}
+	}
+
 	// ─── handle_delete_menu ───────────────────────────────────────
 
 	/**

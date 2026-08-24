@@ -234,6 +234,10 @@ final class PageCompletionGate {
 			return;
 		}
 
+		if ( 'sd-ai-agent/create-menu' === $name && true === ( $normalized['reused'] ?? false ) ) {
+			return;
+		}
+
 		if ( 'sd-ai-agent/select-landing-page-pattern-family' === $name ) {
 			$this->record_hero_contract( $normalized );
 			return;
@@ -935,6 +939,7 @@ final class PageCompletionGate {
 			'sd-ai-agent/add-menu-item',
 			'sd-ai-agent/remove-menu-item',
 			'sd-ai-agent/assign-menu-location',
+			'sd-ai-agent/update-template-part',
 			'sd-ai-agent/set-site-logo',
 			'sd-ai-agent/generate-logo-svg',
 			'sd-ai-agent/generate-menu-page',

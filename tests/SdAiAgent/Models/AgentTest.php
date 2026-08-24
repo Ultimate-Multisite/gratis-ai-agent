@@ -611,6 +611,8 @@ class AgentTest extends WP_UnitTestCase {
 		$this->assertContains( 'sd-ai-agent/site-loopback-check', $tools );
 		$this->assertContains( 'sd-ai-agent/fetch-url', $tools );
 		$this->assertContains( 'sd-ai-agent/list-block-templates', $tools );
+		$this->assertContains( 'sd-ai-agent/list-template-parts', $tools );
+		$this->assertContains( 'sd-ai-agent/update-template-part', $tools );
 		$this->assertContains( 'sd-ai-agent/update-option', $tools );
 		$this->assertNotContains( 'wp-cli/execute', $tools );
 		$this->assertStringContainsString( 'Do not use the generic `wp-cli/execute` dispatcher for site title, tagline, active-plugin, or theme discovery', $prompt );
@@ -641,6 +643,8 @@ class AgentTest extends WP_UnitTestCase {
 			$this->assertContains( 'sd-ai-agent/assign-menu-location', $options['tier_1_tools'] );
 			$this->assertContains( 'sd-ai-agent/site-loopback-check', $options['tier_1_tools'] );
 			$this->assertContains( 'sd-ai-agent/fetch-url', $options['tier_1_tools'] );
+			$this->assertContains( 'sd-ai-agent/list-template-parts', $options['tier_1_tools'] );
+			$this->assertContains( 'sd-ai-agent/update-template-part', $options['tier_1_tools'] );
 			$this->assertContains( 'sd-ai-agent/update-option', $options['tier_1_tools'] );
 			$this->assertNotContains( 'wp-cli/execute', $options['tier_1_tools'] );
 		} finally {
@@ -669,6 +673,8 @@ class AgentTest extends WP_UnitTestCase {
 			$this->assertContains( 'sd-ai-agent/assign-menu-location', $options['tier_1_tools'] );
 			$this->assertContains( 'sd-ai-agent/site-loopback-check', $options['tier_1_tools'] );
 			$this->assertContains( 'sd-ai-agent/fetch-url', $options['tier_1_tools'] );
+			$this->assertContains( 'sd-ai-agent/list-template-parts', $options['tier_1_tools'] );
+			$this->assertContains( 'sd-ai-agent/update-template-part', $options['tier_1_tools'] );
 			$this->assertNotContains( 'wp-cli/execute', $options['tier_1_tools'] );
 		} finally {
 			Agent::update( $agent->id, [ 'tier_1_tools' => $original_tools ] );
