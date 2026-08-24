@@ -375,8 +375,9 @@ final class AutomationController {
 	 * Create a scheduled automation.
 	 */
 	public function handle_create_automation( WP_REST_Request $request ): WP_REST_Response|WP_Error {
-		$data = $request->get_json_params();
-		$id   = Automations::create( $data );
+		$data                  = $request->get_json_params();
+		$data['owner_user_id'] = get_current_user_id();
+		$id                    = Automations::create( $data );
 
 		if ( false === $id ) {
 			return new WP_Error( 'create_failed', __( 'Failed to create automation.', 'superdav-ai-agent' ), array( 'status' => 400 ) );
@@ -389,8 +390,9 @@ final class AutomationController {
 	 * Update a scheduled automation.
 	 */
 	public function handle_update_automation( WP_REST_Request $request ): WP_REST_Response|WP_Error {
-		$id   = self::get_int_param( $request, 'id' );
-		$data = $request->get_json_params();
+		$id                    = self::get_int_param( $request, 'id' );
+		$data                  = $request->get_json_params();
+		$data['owner_user_id'] = get_current_user_id();
 
 		if ( ! Automations::update( $id, $data ) ) {
 			return new WP_Error( 'update_failed', __( 'Failed to update automation.', 'superdav-ai-agent' ), array( 'status' => 400 ) );

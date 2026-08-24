@@ -171,9 +171,11 @@ class AutomationLogsTest extends WP_UnitTestCase {
 		$log = AutomationLogs::get( $id );
 
 		$expected_keys = [
-			'id', 'automation_id', 'trigger_type', 'trigger_name', 'status',
+			'id', 'automation_id', 'run_id', 'owner_user_id', 'trigger_type',
+			'trigger_name', 'status', 'lifecycle_status',
 			'reply', 'tool_calls', 'prompt_tokens', 'completion_tokens',
-			'duration_ms', 'error_message', 'created_at',
+			'duration_ms', 'error_message', 'lease_expires_at', 'started_at',
+			'finished_at', 'created_at',
 		];
 
 		foreach ( $expected_keys as $key ) {
@@ -193,6 +195,82 @@ class AutomationLogsTest extends WP_UnitTestCase {
 		$this->assertIsInt( $log['prompt_tokens'] );
 		$this->assertIsInt( $log['completion_tokens'] );
 		$this->assertIsInt( $log['duration_ms'] );
+	}
+
+	// -------------------------------------------------------------------------
+	// Durable execution lifecycle
+	// -------------------------------------------------------------------------
+
+	/**
+	 * Test a claimed run transitions through running to a scrubbed terminal log.
+	 */
+	public function test_run_lifecycle_has_correlation_and_scrubbed_tool_summary(): void {
+		$run_id = '11111111-2222-4333-8444-555555555555';
+		$id     = AutomationLogs::create(
+			$this->make_log_data(
+				[
+					'run_id'           => $run_id,
+					'owner_user_id'    => 42,
+					'status'           => 'pending',
+					'lifecycle_status' => 'claimed',
+					'lease_expires_at' => '2099-01-01 00:00:00',
+				]
+			)
+		);
+
+		$this->assertTrue( AutomationLogs::mark_run_running( $run_id ) );
+		$this->assertTrue(
+			AutomationLogs::complete_run(
+				$run_id,
+				'succeeded',
+				[
+					'reply'             => 'Completed safely.',
+					'tool_calls'        => [ [ 'name' => 'sd-ai-agent/site-health-summary', 'arguments' => [ 'secret' => 'hidden' ], 'response' => 'sensitive' ] ],
+					'prompt_tokens'     => 10,
+					'completion_tokens' => 5,
+					'duration_ms'       => 20,
+				]
+			)
+		);
+
+		$log = AutomationLogs::get_by_run_id( $run_id );
+
+		$this->assertNotNull( $log );
+		$this->assertSame( $id, $log['id'] );
+		$this->assertSame( 42, $log['owner_user_id'] );
+		$this->assertSame( 'success', $log['status'] );
+		$this->assertSame( 'succeeded', $log['lifecycle_status'] );
+		$this->assertNotEmpty( $log['started_at'] );
+		$this->assertNotEmpty( $log['finished_at'] );
+		$this->assertSame( 'sd-ai-agent/site-health-summary', $log['tool_calls'][0]['name'] );
+		$this->assertArrayNotHasKey( 'arguments', $log['tool_calls'][0] );
+		$this->assertArrayNotHasKey( 'response', $log['tool_calls'][0] );
+	}
+
+	/**
+	 * Test stale active logs are retained as abandoned rather than disappearing.
+	 */
+	public function test_abandon_expired_runs_retains_terminal_evidence(): void {
+		$run_id = '99999999-2222-4333-8444-555555555555';
+		AutomationLogs::create(
+			$this->make_log_data(
+				[
+					'run_id'           => $run_id,
+					'status'           => 'pending',
+					'lifecycle_status' => 'running',
+					'lease_expires_at' => '2000-01-01 00:00:00',
+				]
+			)
+		);
+
+		$this->assertGreaterThanOrEqual( 1, AutomationLogs::abandon_expired_runs() );
+
+		$log = AutomationLogs::get_by_run_id( $run_id );
+		$this->assertNotNull( $log );
+		$this->assertSame( 'error', $log['status'] );
+		$this->assertSame( 'abandoned', $log['lifecycle_status'] );
+		$this->assertNull( $log['lease_expires_at'] );
+		$this->assertNotEmpty( $log['finished_at'] );
 	}
 
 	// -------------------------------------------------------------------------
