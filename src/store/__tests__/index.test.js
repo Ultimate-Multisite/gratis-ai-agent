@@ -723,6 +723,52 @@ describe( 'actions', () => {
 		} );
 	} );
 
+	test( 'pollJob starts only one poller for the same session and job', async () => {
+		jest.useFakeTimers();
+		apiFetch.mockReset();
+		apiFetch.mockResolvedValue( {
+			status: 'complete',
+			tool_calls: [],
+		} );
+
+		const dispatch = {
+			setCurrentJobId: jest.fn(),
+			setSessionJob: jest.fn(),
+			setSending: jest.fn(),
+			setLiveToolCalls: jest.fn(),
+			drainMessageQueue: jest.fn(),
+		};
+		const select = {
+			getCurrentSessionId: jest.fn( () => 17 ),
+		};
+
+		try {
+			actions.pollJob(
+				'deduplicated-job',
+				17
+			)( {
+				dispatch,
+				select,
+			} );
+			actions.pollJob(
+				'deduplicated-job',
+				17
+			)( {
+				dispatch,
+				select,
+			} );
+			await jest.advanceTimersByTimeAsync( 2000 );
+
+			expect( apiFetch ).toHaveBeenCalledTimes( 1 );
+			expect( apiFetch ).toHaveBeenCalledWith( {
+				path: '/sd-ai-agent/v1/job/deduplicated-job',
+			} );
+		} finally {
+			jest.clearAllTimers();
+			jest.useRealTimers();
+		}
+	} );
+
 	test( 'pollJob executes only server-confirmed mutating client abilities', async () => {
 		jest.useFakeTimers();
 		apiFetch.mockReset();
