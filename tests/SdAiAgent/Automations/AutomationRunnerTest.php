@@ -184,6 +184,42 @@ class AutomationRunnerTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * An authorized Monitor draft check bypasses only the disabled guard while
+	 * preserving the stored disabled state and the absence of a cron schedule.
+	 */
+	public function test_manual_monitor_draft_run_preserves_disabled_state_and_schedule(): void {
+		$owner_id   = self::factory()->user->create( [ 'role' => 'administrator' ] );
+		$monitor_id = (int) Automations::create(
+			[
+				'name'            => 'Manual Monitor Draft',
+				'prompt'          => 'Assess the current site state.',
+				'mode'            => Automations::MONITOR_MODE,
+				'monitor_scratch' => '',
+				'owner_user_id'   => $owner_id,
+				'enabled'         => 0,
+			]
+		);
+
+		$this->assertGreaterThan( 0, $monitor_id );
+		$this->assertFalse( wp_next_scheduled( AutomationRunner::CRON_HOOK, [ $monitor_id ] ) );
+
+		$result  = AutomationRunner::run_manual_monitor_draft( $monitor_id );
+		$monitor = Automations::get( $monitor_id );
+
+		$this->assertIsArray( $result );
+		$this->assertSame( 'succeeded', $result['lifecycle_status'] );
+		$this->assertSame( 'quiet', $result['monitor_outcome'] );
+		$this->assertNotNull( $monitor );
+		$this->assertFalse( $monitor['enabled'] );
+		$this->assertSame( 'quiet', $monitor['last_monitor_outcome'] );
+		$this->assertFalse( wp_next_scheduled( AutomationRunner::CRON_HOOK, [ $monitor_id ] ) );
+
+		$log = AutomationLogs::get_by_run_id( $result['run_id'] );
+		$this->assertNotNull( $log );
+		$this->assertSame( 'manual', $log['trigger_type'] );
+	}
+
+	/**
 	 * Legacy ownerless rows fail closed even when an old cron event is still
 	 * delivered after the schema upgrade.
 	 */

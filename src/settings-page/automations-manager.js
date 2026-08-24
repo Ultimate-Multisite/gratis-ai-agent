@@ -15,6 +15,10 @@ import {
 import { __ } from '@wordpress/i18n';
 import { trash, pencil, plus } from '@wordpress/icons';
 import apiFetch from '@wordpress/api-fetch';
+/**
+ * Internal dependencies
+ */
+import MonitorManager from './monitor-manager';
 
 const CHANNEL_TYPE_OPTIONS = [
 	{ label: __( 'Slack', 'sd-ai-agent' ), value: 'slack' },
@@ -289,15 +293,22 @@ export default function AutomationsManager() {
 		setEditId( null );
 	}, [] );
 
+	const scheduledTasks = automations.filter(
+		( automation ) => automation.mode !== 'monitor'
+	);
+	const taskTemplates = templates.filter(
+		( template ) => template.mode !== 'monitor'
+	);
+
 	return (
 		<div className="sdaa-automations-manager">
 			<div className="sdaa-skill-header">
 				<div>
-					<h3>{ __( 'Scheduled Automations', 'sd-ai-agent' ) }</h3>
+					<h3>{ __( 'Scheduled Tasks', 'superdav-ai-agent' ) }</h3>
 					<p className="description">
 						{ __(
-							'Cron-based AI tasks that run on a schedule.',
-							'sd-ai-agent'
+							'Cron-based AI tasks that do work on every scheduled run.',
+							'superdav-ai-agent'
 						) }
 					</p>
 				</div>
@@ -327,14 +338,14 @@ export default function AutomationsManager() {
 			) }
 
 			{ ! showForm &&
-				templates.length > 0 &&
-				automations.length === 0 && (
+				taskTemplates.length > 0 &&
+				scheduledTasks.length === 0 && (
 					<div style={ { marginBottom: '16px' } }>
 						<h4>
 							{ __( 'Quick Start Templates', 'sd-ai-agent' ) }
 						</h4>
 						<div className="sdaa-skill-cards">
-							{ templates.map( ( tpl, idx ) => (
+							{ taskTemplates.map( ( tpl, idx ) => (
 								<div key={ idx } className="sdaa-skill-card">
 									<div className="sdaa-skill-card-header">
 										<div className="sdaa-skill-card-title">
@@ -552,12 +563,12 @@ export default function AutomationsManager() {
 				</p>
 			) }
 
-			{ loaded && automations.length > 0 && (
+			{ loaded && scheduledTasks.length > 0 && (
 				<div
 					className="sdaa-skill-cards"
 					style={ { marginTop: '16px' } }
 				>
-					{ automations.map( ( auto ) => (
+					{ scheduledTasks.map( ( auto ) => (
 						<div
 							key={ auto.id }
 							className={ `sdaa-skill-card ${
@@ -726,6 +737,8 @@ export default function AutomationsManager() {
 					) ) }
 				</div>
 			) }
+
+			<MonitorManager />
 		</div>
 	);
 }

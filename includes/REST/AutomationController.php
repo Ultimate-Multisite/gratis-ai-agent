@@ -154,10 +154,15 @@ final class AutomationController {
 				'callback'            => array( $this, 'handle_run_automation' ),
 				'permission_callback' => array( $this, 'check_permission' ),
 				'args'                => array(
-					'id' => array(
+					'id'                   => array(
 						'required'          => true,
 						'type'              => 'integer',
 						'sanitize_callback' => 'absint',
+					),
+					'manual_monitor_draft' => array(
+						'required' => false,
+						'type'     => 'boolean',
+						'default'  => false,
 					),
 				),
 			)
@@ -463,8 +468,24 @@ final class AutomationController {
 	 * Manually run a scheduled automation.
 	 */
 	public function handle_run_automation( WP_REST_Request $request ): WP_REST_Response|WP_Error {
-		$id     = self::get_int_param( $request, 'id' );
-		$result = AutomationRunner::run( $id );
+		$id         = self::get_int_param( $request, 'id' );
+		$automation = Automations::get( $id );
+		if ( null === $automation ) {
+			return new WP_Error( 'not_found', __( 'Automation not found.', 'superdav-ai-agent' ), array( 'status' => 404 ) );
+		}
+
+		$manual_monitor_draft = (bool) $request->get_param( 'manual_monitor_draft' );
+		if ( $manual_monitor_draft && ( ! Automations::is_monitor( $automation ) || ! empty( $automation['enabled'] ) ) ) {
+			return new WP_Error(
+				'sd_ai_agent_automation_manual_draft_requires_disabled_monitor',
+				__( 'Check now is available only for a disabled Monitor/Pulse draft.', 'superdav-ai-agent' ),
+				array( 'status' => 400 )
+			);
+		}
+
+		$result = $manual_monitor_draft
+			? AutomationRunner::run_manual_monitor_draft( $id )
+			: AutomationRunner::run( $id );
 
 		if ( null === $result ) {
 			return new WP_Error( 'not_found', __( 'Automation not found.', 'superdav-ai-agent' ), array( 'status' => 404 ) );

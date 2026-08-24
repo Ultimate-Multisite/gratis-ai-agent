@@ -110,12 +110,38 @@ class AutomationRunner {
 	}
 
 	/**
-	 * Run an automation (fired by WP Cron or manually).
+	 * Run an enabled automation (fired by WP Cron or the regular manual action).
 	 *
 	 * @param int $automation_id Automation ID.
 	 * @return array<string, mixed>|null Run result or null when the automation does not exist.
 	 */
 	public static function run( int $automation_id ): ?array {
+		return self::run_internal( $automation_id, false );
+	}
+
+	/**
+	 * Run one disabled Monitor draft without enabling or scheduling it.
+	 *
+	 * This is intentionally a separate entry point so normal cron and manual task
+	 * deliveries retain their disabled-run block. The REST controller exposes it
+	 * only to authorized administrators after confirming the stored definition is
+	 * a disabled Monitor.
+	 *
+	 * @param int $automation_id Monitor automation ID.
+	 * @return array<string, mixed>|null Run result or null when the automation does not exist.
+	 */
+	public static function run_manual_monitor_draft( int $automation_id ): ?array {
+		return self::run_internal( $automation_id, true );
+	}
+
+	/**
+	 * Execute an automation under the normal or narrowly authorized draft contract.
+	 *
+	 * @param int  $automation_id              Automation ID.
+	 * @param bool $allow_manual_monitor_draft Whether this request is the controller-authorized draft path.
+	 * @return array<string, mixed>|null Run result or null when the automation does not exist.
+	 */
+	private static function run_internal( int $automation_id, bool $allow_manual_monitor_draft ): ?array {
 		$automation = Automations::get( $automation_id );
 		if ( ! $automation ) {
 			return null;
@@ -141,7 +167,19 @@ class AutomationRunner {
 			return null;
 		}
 
-		if ( empty( $automation['enabled'] ) ) {
+		$is_manual_monitor_draft = $allow_manual_monitor_draft
+			&& Automations::is_monitor( $automation )
+			&& empty( $automation['enabled'] );
+
+		if ( $allow_manual_monitor_draft && ! $is_manual_monitor_draft ) {
+			return self::record_blocked_delivery(
+				$automation,
+				$run_id,
+				__( 'Only a disabled Monitor draft can use the manual check path.', 'superdav-ai-agent' )
+			);
+		}
+
+		if ( empty( $automation['enabled'] ) && ! $is_manual_monitor_draft ) {
 			return self::record_blocked_delivery(
 				$automation,
 				$run_id,
@@ -150,7 +188,7 @@ class AutomationRunner {
 		}
 
 		$lease_expires_at = self::get_lease_expiration( $automation );
-		$claim_state      = self::claim_run_with_lifecycle( $automation, $run_id, $lease_expires_at );
+		$claim_state      = self::claim_run_with_lifecycle( $automation, $run_id, $lease_expires_at, $is_manual_monitor_draft );
 		if ( 'failed' === $claim_state ) {
 			return self::build_fallback_result(
 				$automation,
@@ -487,12 +525,13 @@ class AutomationRunner {
 	/**
 	 * Atomically persist the claimed log and the matching automation claim.
 	 *
-	 * @param array<string, mixed> $automation       Automation definition.
-	 * @param string               $run_id           Correlation UUID for this delivery.
-	 * @param string               $lease_expires_at UTC MySQL expiration datetime.
+	 * @param array<string, mixed> $automation              Automation definition.
+	 * @param string               $run_id                  Correlation UUID for this delivery.
+	 * @param string               $lease_expires_at        UTC MySQL expiration datetime.
+	 * @param bool                 $is_manual_monitor_draft Whether this is one authorized disabled Monitor check.
 	 * @return 'claimed'|'contended'|'failed'
 	 */
-	private static function claim_run_with_lifecycle( array $automation, string $run_id, string $lease_expires_at ): string {
+	private static function claim_run_with_lifecycle( array $automation, string $run_id, string $lease_expires_at, bool $is_manual_monitor_draft = false ): string {
 		$automation_id = (int) ( $automation['id'] ?? 0 );
 		if ( $automation_id <= 0 || ! Automations::begin_lifecycle_transaction() ) {
 			return 'failed';
@@ -503,7 +542,7 @@ class AutomationRunner {
 				'automation_id'    => $automation_id,
 				'run_id'           => $run_id,
 				'owner_user_id'    => (int) ( $automation['owner_user_id'] ?? 0 ),
-				'trigger_type'     => 'scheduled',
+				'trigger_type'     => $is_manual_monitor_draft ? 'manual' : 'scheduled',
 				'status'           => 'pending',
 				'lifecycle_status' => 'claimed',
 				'lease_expires_at' => $lease_expires_at,
@@ -514,7 +553,10 @@ class AutomationRunner {
 			return 'failed';
 		}
 
-		if ( ! Automations::claim_run( $automation_id, $run_id, $lease_expires_at ) ) {
+		$claimed = $is_manual_monitor_draft
+			? self::claim_manual_monitor_draft_run( $automation_id, $run_id, $lease_expires_at )
+			: Automations::claim_run( $automation_id, $run_id, $lease_expires_at );
+		if ( ! $claimed ) {
 			Automations::rollback_lifecycle_transaction();
 			return 'contended';
 		}
@@ -525,6 +567,38 @@ class AutomationRunner {
 		}
 
 		return 'claimed';
+	}
+
+	/**
+	 * Claim exactly one disabled Monitor draft without mutating its enabled state.
+	 *
+	 * The ordinary model claim intentionally requires enabled=1. This parallel
+	 * predicate is scoped to the controller-authorized draft run and preserves the
+	 * same active-run fence while also proving no recurring schedule was enabled.
+	 *
+	 * @param int    $automation_id    Automation ID.
+	 * @param string $run_id           Correlation UUID for this delivery.
+	 * @param string $lease_expires_at UTC MySQL expiration datetime.
+	 */
+	private static function claim_manual_monitor_draft_run( int $automation_id, string $run_id, string $lease_expires_at ): bool {
+		global $wpdb;
+		/** @var \wpdb $wpdb */
+
+		$now = current_time( 'mysql', true );
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- The lifecycle transaction atomically claims one disabled Monitor draft without changing its enabled state.
+		$result = $wpdb->query(
+			$wpdb->prepare(
+				"UPDATE %i SET active_run_id = %s, execution_status = 'claimed', lease_expires_at = %s, updated_at = %s WHERE id = %d AND enabled = 0 AND mode = %s AND active_run_id = ''",
+				Automations::table_name(),
+				$run_id,
+				$lease_expires_at,
+				$now,
+				$automation_id,
+				Automations::MONITOR_MODE
+			)
+		);
+
+		return false !== $result && $result > 0;
 	}
 
 	/** Transition both claimed lifecycle rows to running together. */
