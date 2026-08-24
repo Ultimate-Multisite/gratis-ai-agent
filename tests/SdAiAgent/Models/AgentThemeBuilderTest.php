@@ -283,6 +283,25 @@ class AgentThemeBuilderTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * First-run setup verifies default navigation in both rendered site regions.
+	 */
+	public function test_setup_assistant_verifies_default_header_and_footer_navigation(): void {
+		Agent::reset_defaults();
+
+		$agent = Agent::get_by_slug( Agent::ONBOARDING_AGENT_SLUG );
+		$this->assertNotNull( $agent );
+
+		foreach ( [
+			'anonymous rendered header and footer',
+			'every visible default-theme link group',
+			'default footer navigation',
+			'report that limitation instead of claiming',
+		] as $required ) {
+			$this->assertStringContainsString( $required, $agent->system_prompt );
+		}
+	}
+
+	/**
 	 * The unified Setup Assistant prompt is vertical-aware.
 	 */
 	public function test_setup_assistant_system_prompt_is_vertical_aware(): void {

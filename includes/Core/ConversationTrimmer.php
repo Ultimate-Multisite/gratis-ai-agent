@@ -376,12 +376,22 @@ class ConversationTrimmer {
 
 		$function_call = $part['functionCall'] ?? $part['function_call'] ?? null;
 		if ( is_array( $function_call ) ) {
+			$mutation_receipt = self::compact_post_mutation_call_receipt( $function_call );
+			if ( '' !== $mutation_receipt ) {
+				return $mutation_receipt;
+			}
+
 			$name = self::compact_tool_name( $function_call['name'] ?? 'tool' );
 			return '[tool call: ' . $name . ']';
 		}
 
 		$function_response = $part['functionResponse'] ?? $part['function_response'] ?? null;
 		if ( is_array( $function_response ) ) {
+			$mutation_receipt = self::compact_post_mutation_response_receipt( $function_response );
+			if ( '' !== $mutation_receipt ) {
+				return $mutation_receipt;
+			}
+
 			$name = self::compact_tool_name( $function_response['name'] ?? 'tool' );
 			return '[tool result omitted: ' . $name . ']';
 		}
@@ -392,6 +402,131 @@ class ConversationTrimmer {
 		}
 
 		return '';
+	}
+
+	/**
+	 * Preserve a bounded, non-content receipt for post-creation calls.
+	 *
+	 * Checkpoint compaction normally omits raw tool arguments. Post titles and
+	 * counts are retained for create calls so a resumed setup run knows which
+	 * pages it already attempted instead of recreating them after a timeout.
+	 *
+	 * @param array<string,mixed> $function_call Serialized function call.
+	 */
+	private static function compact_post_mutation_call_receipt( array $function_call ): string {
+		$name = self::compact_tool_name( $function_call['name'] ?? 'tool' );
+		if ( ! self::is_post_creation_tool( $name ) ) {
+			return '';
+		}
+
+		$args = self::compact_tool_payload_array( $function_call['args'] ?? array() );
+		if ( self::tool_name_has_suffix( $name, 'batch-create-posts' ) ) {
+			$posts  = isset( $args['posts'] ) && is_array( $args['posts'] ) ? $args['posts'] : array();
+			$titles = array();
+			foreach ( array_slice( $posts, 0, 20 ) as $post ) {
+				if ( is_array( $post ) && isset( $post['title'] ) && is_scalar( $post['title'] ) ) {
+					$titles[] = self::compact_receipt_value( (string) $post['title'] );
+				}
+			}
+
+			return sprintf(
+				'[tool call: %s posts=%d titles=%s]',
+				$name,
+				count( $posts ),
+				self::compact_receipt_list( $titles )
+			);
+		}
+
+		$title = isset( $args['title'] ) && is_scalar( $args['title'] )
+			? self::compact_receipt_value( (string) $args['title'] )
+			: 'unknown';
+
+		return sprintf( '[tool call: %s title=%s]', $name, self::compact_receipt_list( array( $title ) ) );
+	}
+
+	/**
+	 * Preserve successful post IDs and titles without copying raw tool output.
+	 *
+	 * @param array<string,mixed> $function_response Serialized function response.
+	 */
+	private static function compact_post_mutation_response_receipt( array $function_response ): string {
+		$name = self::compact_tool_name( $function_response['name'] ?? 'tool' );
+		if ( ! self::is_post_creation_tool( $name ) ) {
+			return '';
+		}
+
+		$response = self::compact_tool_payload_array( $function_response['response'] ?? array() );
+		if ( self::tool_name_has_suffix( $name, 'batch-create-posts' ) ) {
+			$results  = isset( $response['results'] ) && is_array( $response['results'] ) ? $response['results'] : array();
+			$entities = array();
+			foreach ( array_slice( $results, 0, 20 ) as $result ) {
+				if ( ! is_array( $result ) || empty( $result['post_id'] ) ) {
+					continue;
+				}
+
+				$title      = isset( $result['title'] ) && is_scalar( $result['title'] ) ? self::compact_receipt_value( (string) $result['title'] ) : 'post';
+				$entities[] = $title . '#' . absint( $result['post_id'] );
+			}
+
+			return sprintf(
+				'[tool result: %s created=%d posts=%s]',
+				$name,
+				isset( $response['created_count'] ) ? absint( $response['created_count'] ) : count( $entities ),
+				self::compact_receipt_list( $entities )
+			);
+		}
+
+		$post_id = isset( $response['post_id'] ) ? absint( $response['post_id'] ) : 0;
+		return sprintf( '[tool result: %s post_id=%d]', $name, $post_id );
+	}
+
+	/** Whether a compacted tool name creates one or more posts. */
+	private static function is_post_creation_tool( string $name ): bool {
+		return self::tool_name_has_suffix( $name, 'create-post' )
+			|| self::tool_name_has_suffix( $name, 'batch-create-posts' );
+	}
+
+	/** Match direct and dispatcher-safe function names by their ability suffix. */
+	private static function tool_name_has_suffix( string $name, string $suffix ): bool {
+		return str_ends_with( strtolower( $name ), '/' . $suffix )
+			|| str_ends_with( strtolower( $name ), '__' . $suffix );
+	}
+
+	/** Normalize a JSON-or-array tool payload without retaining it beyond the caller. */
+	private static function compact_tool_payload_array( mixed $payload ): array {
+		if ( is_array( $payload ) ) {
+			return $payload;
+		}
+
+		if ( is_string( $payload ) ) {
+			$decoded = json_decode( $payload, true );
+			return is_array( $decoded ) ? $decoded : array();
+		}
+
+		return array();
+	}
+
+	/** Normalize and bound one safe receipt value. */
+	private static function compact_receipt_value( string $value ): string {
+		$value = self::normalize_compact_text( wp_strip_all_tags( $value ) );
+		return strlen( $value ) > 80 ? substr( $value, 0, 79 ) . '…' : $value;
+	}
+
+	/**
+	 * Render bounded receipt values without copying arbitrary JSON payloads.
+	 *
+	 * @param string[] $values Safe receipt values.
+	 */
+	private static function compact_receipt_list( array $values ): string {
+		$non_empty = array();
+		foreach ( $values as $value ) {
+			if ( '' !== $value ) {
+				$non_empty[] = $value;
+			}
+		}
+
+		$encoded = wp_json_encode( $non_empty );
+		return is_string( $encoded ) ? $encoded : '[]';
 	}
 
 	/** Convert serialized roles into compact-context labels. */
