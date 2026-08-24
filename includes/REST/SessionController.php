@@ -3228,6 +3228,8 @@ final class SessionController {
 			);
 		}
 
+		$paused_state = self::compact_oversized_provider_retry_state( $paused_state, $session_id );
+
 		$job_id = wp_generate_uuid4();
 		$token  = wp_generate_password( 40, false );
 		$job    = array(
@@ -3283,6 +3285,60 @@ final class SessionController {
 			),
 			202
 		);
+	}
+
+	/**
+	 * Ensure a manual provider retry makes payload progress instead of resending
+	 * the same oversized single-turn history that already exhausted all retries.
+	 *
+	 * @param array<string, mixed> $paused_state Recoverable loop state.
+	 * @param int                  $session_id   Owning session identifier.
+	 * @return array<string, mixed> State with bounded history when required.
+	 */
+	private static function compact_oversized_provider_retry_state( array $paused_state, int $session_id ): array {
+		if ( 'provider_retry_failed' !== ( $paused_state['exit_reason'] ?? '' ) ) {
+			return $paused_state;
+		}
+
+		$history = $paused_state['history'] ?? array();
+		if ( ! is_array( $history ) || empty( $history ) ) {
+			return $paused_state;
+		}
+
+		$encoded_history = wp_json_encode( $history );
+		$request_bytes   = is_string( $encoded_history ) ? strlen( $encoded_history ) : 0;
+		$request_tokens  = (int) ceil( $request_bytes / 4 );
+		if (
+			$request_bytes <= ConversationTrimmer::COMPACT_MAX_BYTES
+			&& $request_tokens <= ConversationTrimmer::COMPACT_MAX_TOKENS
+		) {
+			return $paused_state;
+		}
+
+		$compacted = ConversationTrimmer::compact_serialized_history( array_values( $history ) );
+		if ( empty( $compacted['messages'] ) ) {
+			return $paused_state;
+		}
+
+		$paused_state['history'] = $compacted['messages'];
+
+		AgentEventLog::log(
+			'recoverable_job_history_compacted',
+			AgentEventLog::SEVERITY_INFO,
+			array(
+				'session_id'              => $session_id,
+				'phase'                   => 'recoverable_job_resume',
+				'provider_id'             => (string) ( $paused_state['provider_id'] ?? '' ),
+				'model_id'                => (string) ( $paused_state['model_id'] ?? '' ),
+				'history_count'           => count( $history ),
+				'request_bytes_estimate'  => $request_bytes,
+				'request_tokens_estimate' => $request_tokens,
+				'payload_reduced'         => true,
+				'recovery_outcome'        => 'compact_provider_retry',
+			)
+		);
+
+		return $paused_state;
 	}
 
 	/**

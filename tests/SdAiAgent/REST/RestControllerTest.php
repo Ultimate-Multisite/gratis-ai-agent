@@ -1666,6 +1666,84 @@ class RestControllerTest extends WP_UnitTestCase {
 		$this->assertNull( Database::load_and_clear_paused_state( $session_id ) );
 	}
 
+	/** Oversized exhausted-provider state is compacted before a manual retry. */
+	public function test_resume_recoverable_job_compacts_oversized_provider_retry_state(): void {
+		wp_set_current_user( $this->admin_id );
+
+		$session_id = Database::create_session( [
+			'user_id' => $this->admin_id,
+			'title'   => 'Compact provider retry',
+		] );
+		$history    = [
+			[
+				'role'  => 'user',
+				'parts' => [ [ 'text' => str_repeat( 'Large onboarding context. ', 4000 ) ] ],
+			],
+			[
+				'role'  => 'model',
+				'parts' => [
+					[
+						'functionCall' => [
+							'name' => 'wpab__sd-ai-agent__batch-create-posts',
+							'args' => [
+								'posts' => [
+									[ 'title' => 'Home', 'content' => 'SECRET_PAGE_CONTENT' ],
+									[ 'title' => 'Contact', 'content' => 'SECRET_CONTACT_DETAILS' ],
+								],
+							],
+						],
+					],
+				],
+			],
+			[
+				'role'  => 'user',
+				'parts' => [
+					[
+						'functionResponse' => [
+							'name'     => 'wpab__sd-ai-agent__batch-create-posts',
+							'response' => wp_json_encode(
+								[
+									'results'       => [
+										[ 'post_id' => 17, 'title' => 'Home', 'permalink' => 'https://private.example/home/' ],
+										[ 'post_id' => 13, 'title' => 'Contact', 'permalink' => 'https://private.example/contact/' ],
+									],
+									'created_count' => 2,
+								],
+							),
+						],
+					],
+				],
+			],
+		];
+		Database::save_paused_state(
+			$session_id,
+			[
+				'history'       => $history,
+				'tool_call_log' => [],
+				'message_log'   => [],
+				'token_usage'   => [ 'prompt' => 0, 'completion' => 0 ],
+				'provider_id'   => 'sd-ai-agent-cloud',
+				'model_id'      => 'superdav-chat-pro',
+				'exit_reason'   => 'provider_retry_failed',
+			]
+		);
+
+		$response = $this->dispatch( 'POST', "/sd-ai-agent/v1/sessions/{$session_id}/resume" );
+
+		$this->assertStatus( 202, $response );
+		$data = $response->get_data();
+		$job  = get_transient( RestController::JOB_PREFIX . $data['job_id'] );
+		$this->assertIsArray( $job );
+		$this->assertCount( 1, $job['recovery_state']['history'] );
+		$compacted_json = (string) wp_json_encode( $job['recovery_state']['history'] );
+		$this->assertLessThan( strlen( (string) wp_json_encode( $history ) ), strlen( $compacted_json ) );
+		$this->assertStringContainsString( 'Home#17', $compacted_json );
+		$this->assertStringContainsString( 'Contact#13', $compacted_json );
+		$this->assertStringNotContainsString( 'SECRET_PAGE_CONTENT', $compacted_json );
+		$this->assertStringNotContainsString( 'SECRET_CONTACT_DETAILS', $compacted_json );
+		$this->assertStringNotContainsString( 'private.example', $compacted_json );
+	}
+
 	/**
 	 * Test a resume action cannot start without durable recoverable state.
 	 */
