@@ -508,8 +508,12 @@ class MenuAbilities {
 			return new WP_Error( 'ai_agent_empty_menu_name', __( 'Menu name is required.', 'superdav-ai-agent' ) );
 		}
 
-		$lock_name = '' !== $location ? self::acquire_menu_location_lock( $location ) : '';
-		if ( '' !== $location && null === $lock_name ) {
+		if ( '' === $location ) {
+			return self::handle_create_menu_locked( $name, $location, $items );
+		}
+
+		$lock_name = self::acquire_menu_location_lock();
+		if ( null === $lock_name ) {
 			return new WP_Error(
 				'ai_agent_menu_location_busy',
 				__( 'Another request is changing this menu location. List menus again before retrying.', 'superdav-ai-agent' ),
@@ -520,9 +524,7 @@ class MenuAbilities {
 		try {
 			return self::handle_create_menu_locked( $name, $location, $items );
 		} finally {
-			if ( is_string( $lock_name ) && '' !== $lock_name ) {
-				self::release_menu_location_lock( $lock_name );
-			}
+			self::release_menu_location_lock( $lock_name );
 		}
 	}
 
@@ -534,7 +536,7 @@ class MenuAbilities {
 	 * @param array<mixed> $items    Optional menu items; non-array entries are ignored.
 	 * @return array<string,mixed>|WP_Error
 	 */
-	private static function handle_create_menu_locked( string $name, string $location, array $items ) {
+	private static function handle_create_menu_locked( string $name, string $location, array $items ): array|WP_Error {
 		if ( ! empty( $location ) ) {
 			$locations        = get_nav_menu_locations();
 			$assigned_menu_id = (int) ( $locations[ $location ] ?? 0 );
@@ -634,12 +636,12 @@ class MenuAbilities {
 		];
 	}
 
-	/** Acquire a site/theme/location-scoped MySQL advisory lock. */
-	private static function acquire_menu_location_lock( string $location ): ?string {
+	/** Acquire a site/theme-scoped MySQL advisory lock. */
+	private static function acquire_menu_location_lock(): ?string {
 		global $wpdb;
 		/** @var \wpdb $wpdb */
 
-		$scope     = get_current_blog_id() . '|' . get_stylesheet() . '|' . $location;
+		$scope     = get_current_blog_id() . '|' . get_stylesheet();
 		$lock_name = 'sdai_menu_' . substr( hash( 'sha256', $scope ), 0, 47 );
 		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- MySQL advisory locking serializes concurrent menu-location creation across requests.
 		$acquired = $wpdb->get_var( $wpdb->prepare( 'SELECT GET_LOCK(%s, %d)', $lock_name, 0 ) );
@@ -663,27 +665,40 @@ class MenuAbilities {
 	 * @return array<string, mixed>|WP_Error
 	 */
 	public static function handle_delete_menu( array $input ) {
-		$menu = self::resolve_menu( $input );
-
-		if ( is_wp_error( $menu ) ) {
-			return $menu;
+		$lock_name = self::acquire_menu_location_lock();
+		if ( null === $lock_name ) {
+			return new WP_Error(
+				'ai_agent_menu_location_busy',
+				__( 'Another request is changing menu locations. List menus again before retrying.', 'superdav-ai-agent' ),
+				[ 'status' => 409 ]
+			);
 		}
 
-		$menu_id   = $menu->term_id;
-		$menu_name = $menu->name;
+		try {
+			$menu = self::resolve_menu( $input );
 
-		$result = wp_delete_nav_menu( $menu_id );
+			if ( is_wp_error( $menu ) ) {
+				return $menu;
+			}
 
-		if ( is_wp_error( $result ) ) {
-			return $result;
+			$menu_id   = $menu->term_id;
+			$menu_name = $menu->name;
+
+			$result = wp_delete_nav_menu( $menu_id );
+
+			if ( is_wp_error( $result ) ) {
+				return $result;
+			}
+
+			return [
+				'menu_id'  => $menu_id,
+				'name'     => $menu_name,
+				'deleted'  => (bool) $result,
+				'affected' => self::build_affected_payload( (int) $menu_id, [ 'deleted' ] ),
+			];
+		} finally {
+			self::release_menu_location_lock( $lock_name );
 		}
-
-		return [
-			'menu_id'  => $menu_id,
-			'name'     => $menu_name,
-			'deleted'  => (bool) $result,
-			'affected' => self::build_affected_payload( (int) $menu_id, [ 'deleted' ] ),
-		];
 	}
 
 	/**
@@ -808,30 +823,43 @@ class MenuAbilities {
 	 * @return array<string, mixed>|WP_Error
 	 */
 	public static function handle_assign_menu_location( array $input ) {
-		$menu = self::resolve_menu( $input );
-
-		if ( is_wp_error( $menu ) ) {
-			return $menu;
+		$lock_name = self::acquire_menu_location_lock();
+		if ( null === $lock_name ) {
+			return new WP_Error(
+				'ai_agent_menu_location_busy',
+				__( 'Another request is changing menu locations. List menus again before retrying.', 'superdav-ai-agent' ),
+				[ 'status' => 409 ]
+			);
 		}
 
-		// @phpstan-ignore-next-line
-		$location = sanitize_text_field( $input['location'] ?? '' );
+		try {
+			$menu = self::resolve_menu( $input );
 
-		if ( empty( $location ) ) {
-			return new WP_Error( 'ai_agent_empty_location', __( 'location is required.', 'superdav-ai-agent' ) );
+			if ( is_wp_error( $menu ) ) {
+				return $menu;
+			}
+
+			// @phpstan-ignore-next-line
+			$location = sanitize_text_field( $input['location'] ?? '' );
+
+			if ( empty( $location ) ) {
+				return new WP_Error( 'ai_agent_empty_location', __( 'location is required.', 'superdav-ai-agent' ) );
+			}
+
+			$locations              = get_nav_menu_locations();
+			$locations[ $location ] = $menu->term_id;
+			set_theme_mod( 'nav_menu_locations', $locations );
+
+			return [
+				'menu_id'  => $menu->term_id,
+				'name'     => $menu->name,
+				'location' => $location,
+				'assigned' => true,
+				'affected' => self::build_affected_payload( (int) $menu->term_id, [ 'location' ] ),
+			];
+		} finally {
+			self::release_menu_location_lock( $lock_name );
 		}
-
-		$locations              = get_nav_menu_locations();
-		$locations[ $location ] = $menu->term_id;
-		set_theme_mod( 'nav_menu_locations', $locations );
-
-		return [
-			'menu_id'  => $menu->term_id,
-			'name'     => $menu->name,
-			'location' => $location,
-			'assigned' => true,
-			'affected' => self::build_affected_payload( (int) $menu->term_id, [ 'location' ] ),
-		];
 	}
 
 	/**

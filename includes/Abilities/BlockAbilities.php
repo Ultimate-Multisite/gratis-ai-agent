@@ -1786,7 +1786,7 @@ class BlockAbilities {
 			);
 		}
 
-		$lock_name = self::acquire_template_part_lock( $id );
+		$lock_name = self::acquire_template_part_lock();
 		if ( null === $lock_name ) {
 			return new \WP_Error(
 				'sd_ai_agent_template_part_busy',
@@ -1919,12 +1919,12 @@ class BlockAbilities {
 		];
 	}
 
-	/** Acquire a site-scoped MySQL advisory lock for one template part. */
-	private static function acquire_template_part_lock( string $id ): ?string {
+	/** Acquire a site/theme-scoped MySQL advisory lock for template-part writes. */
+	private static function acquire_template_part_lock(): ?string {
 		global $wpdb;
 		/** @var \wpdb $wpdb */
 
-		$lock_name = 'sdai_tpl_' . substr( hash( 'sha256', get_current_blog_id() . '|' . $id ), 0, 48 );
+		$lock_name = 'sdai_tpl_' . substr( hash( 'sha256', get_current_blog_id() . '|' . get_stylesheet() ), 0, 48 );
 		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- MySQL advisory locking serializes concurrent template-part writes across requests.
 		$acquired = $wpdb->get_var( $wpdb->prepare( 'SELECT GET_LOCK(%s, %d)', $lock_name, 0 ) );
 

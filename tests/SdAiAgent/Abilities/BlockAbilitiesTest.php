@@ -1541,6 +1541,36 @@ class BlockAbilitiesTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * Concurrent template-part writes for the same site and theme are rejected.
+	 */
+	public function test_update_template_part_rejects_concurrent_theme_write(): void {
+		$original    = '<!-- wp:paragraph --><p>Original footer</p><!-- /wp:paragraph -->';
+		$template_id = $this->create_test_template_part( 'qa-footer-concurrent', $original );
+		$second_db   = new \wpdb( DB_USER, DB_PASSWORD, DB_NAME, DB_HOST );
+		$lock_name   = 'sdai_tpl_' . substr( hash( 'sha256', get_current_blog_id() . '|' . get_stylesheet() ), 0, 48 );
+
+		try {
+			$acquired = $second_db->get_var( $second_db->prepare( 'SELECT GET_LOCK(%s, %d)', $lock_name, 0 ) );
+			$this->assertSame( 1, (int) $acquired );
+
+			$result = BlockAbilities::handle_update_template_part(
+				[
+					'id'                    => $template_id,
+					'content'               => '<!-- wp:paragraph --><p>Replacement</p><!-- /wp:paragraph -->',
+					'expected_content_hash' => hash( 'sha256', $original ),
+				]
+			);
+
+			$this->assertWPError( $result );
+			$this->assertSame( 'sd_ai_agent_template_part_busy', $result->get_error_code() );
+			$this->assertSame( $original, get_block_template( $template_id, 'wp_template_part' )->content );
+		} finally {
+			$second_db->get_var( $second_db->prepare( 'SELECT RELEASE_LOCK(%s)', $lock_name ) );
+			$second_db->close();
+		}
+	}
+
+	/**
 	 * An empty replacement intentionally clears a template part.
 	 */
 	public function test_update_template_part_allows_empty_content(): void {
@@ -1566,6 +1596,7 @@ class BlockAbilitiesTest extends WP_UnitTestCase {
 	 */
 	public function test_update_file_backed_template_part_creates_custom_override(): void {
 		$previous_stylesheet = get_stylesheet();
+		$custom_post_id      = 0;
 		switch_theme( 'twentytwentyfive' );
 
 		try {
@@ -1588,13 +1619,17 @@ class BlockAbilitiesTest extends WP_UnitTestCase {
 			);
 
 			$this->assertIsArray( $result );
-			$updated = get_block_template( $file_part->id, 'wp_template_part' );
+			$updated        = get_block_template( $file_part->id, 'wp_template_part' );
+			$custom_post_id = (int) $updated->wp_id;
 			$this->assertSame( 'custom', $updated->source );
 			$this->assertSame( get_stylesheet(), $updated->theme );
 			$this->assertSame( 'footer', $updated->area );
 			$this->assertSame( $replacement, $updated->content );
 			$this->assertSame( hash( 'sha256', $replacement ), $result['content_hash'] );
 		} finally {
+			if ( $custom_post_id > 0 ) {
+				wp_delete_post( $custom_post_id, true );
+			}
 			switch_theme( $previous_stylesheet );
 		}
 	}
