@@ -17,6 +17,12 @@ import { playDing, playDong, playThinking } from '../../utils/sound-manager';
 import { executeClientAbility } from '../../abilities/registry';
 import { emitReflectionEvents } from '../reflection-emitter';
 
+// A session/job pair must have exactly one polling loop. Multiple mounted chat
+// surfaces can discover or resume the same durable job at nearly the same time;
+// duplicate pollers can execute one browser-tool batch twice and consume the
+// single-use paused state before the first poller receives its response.
+const activePollersByDispatch = new WeakMap();
+
 /**
  * Merge real tool calls with assistant channel messages for live rendering.
  *
@@ -368,6 +374,17 @@ export const actions = {
 	 */
 	pollJob( jobId, sessionId ) {
 		return async ( { dispatch, select } ) => {
+			let activePollers = activePollersByDispatch.get( dispatch );
+			if ( ! activePollers ) {
+				activePollers = new Set();
+				activePollersByDispatch.set( dispatch, activePollers );
+			}
+			const pollerKey = `${ sessionId }:${ jobId }`;
+			if ( activePollers.has( pollerKey ) ) {
+				return;
+			}
+			activePollers.add( pollerKey );
+
 			let attempts = 0;
 			const maxAttempts = 200;
 			// Counts consecutive *transient* network/5xx failures so a dead
@@ -397,6 +414,15 @@ export const actions = {
 					}
 				}
 			} );
+			let pollingStopped = false;
+			const stopPolling = () => {
+				if ( pollingStopped ) {
+					return;
+				}
+				pollingStopped = true;
+				activePollers.delete( pollerKey );
+				unsubscribeVisibility();
+			};
 
 			/**
 			 * Calculate the poll interval based on attempt count and visibility.
@@ -426,7 +452,7 @@ export const actions = {
 				lastStatusComplete = false;
 				attempts++;
 				if ( attempts > maxAttempts ) {
-					unsubscribeVisibility();
+					stopPolling();
 					clearActiveJob( sessionId );
 					// Only append error and update UI for the current session.
 					if ( select.getCurrentSessionId() === sessionId ) {
@@ -540,7 +566,7 @@ export const actions = {
 						const currentJobId = select.getCurrentJobId();
 						if ( currentJobId !== jobId && currentJobId !== null ) {
 							// Different job is now active; stop this poller.
-							unsubscribeVisibility();
+							stopPolling();
 							clearActiveJob( sessionId );
 							return;
 						}
@@ -581,7 +607,7 @@ export const actions = {
 						}
 
 						// Don't clear sending — still waiting.
-						unsubscribeVisibility();
+						stopPolling();
 						clearActiveJob( sessionId );
 						return;
 					}
@@ -603,7 +629,7 @@ export const actions = {
 						}
 
 						// Don't clear sending — still waiting.
-						unsubscribeVisibility();
+						stopPolling();
 						clearActiveJob( sessionId );
 						return;
 					}
@@ -762,7 +788,7 @@ export const actions = {
 								} );
 								dispatch.setSending( false );
 							}
-							unsubscribeVisibility();
+							stopPolling();
 							clearActiveJob( sessionId );
 							dispatch.setCurrentJobId( null );
 							dispatch.setSessionJob( sessionId, null );
@@ -780,7 +806,7 @@ export const actions = {
 							const target = window._sdAiAgentPendingNavigation;
 							delete window._sdAiAgentPendingNavigation;
 							clearActiveJob( sessionId );
-							unsubscribeVisibility();
+							stopPolling();
 							window.location.assign( target );
 							return;
 						}
@@ -799,7 +825,7 @@ export const actions = {
 								);
 							} catch ( _err ) {}
 							clearActiveJob( sessionId );
-							unsubscribeVisibility();
+							stopPolling();
 							window.location.assign( target );
 							return;
 						}
@@ -1166,7 +1192,7 @@ export const actions = {
 							reloadFailed = true;
 						}
 
-						unsubscribeVisibility();
+						stopPolling();
 						clearActiveJob( sessionId );
 						if ( select.getCurrentSessionId() === sessionId ) {
 							dispatch.setPendingConfirmation?.( null );
@@ -1199,7 +1225,7 @@ export const actions = {
 					// cannot keep the user trapped on the sending spinner.
 					consecutiveErrors++;
 					if ( consecutiveErrors >= maxConsecutiveErrors ) {
-						unsubscribeVisibility();
+						stopPolling();
 						clearActiveJob( sessionId );
 						if ( select.getCurrentSessionId() === sessionId ) {
 							let sessionReloaded = false;
@@ -1259,7 +1285,7 @@ export const actions = {
 				}
 
 				// Job finished (complete or error).
-				unsubscribeVisibility();
+				stopPolling();
 				clearActiveJob( sessionId );
 				if ( select.getCurrentSessionId() === sessionId ) {
 					// Play success sound when the job completed without error.
