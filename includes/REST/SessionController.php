@@ -3296,7 +3296,8 @@ final class SessionController {
 	 * @return array<string, mixed> State with bounded history when required.
 	 */
 	private static function compact_oversized_provider_retry_state( array $paused_state, int $session_id ): array {
-		if ( 'provider_retry_failed' !== ( $paused_state['exit_reason'] ?? '' ) ) {
+		$exit_reason = (string) ( $paused_state['exit_reason'] ?? '' );
+		if ( ! in_array( $exit_reason, array( 'provider_retry_failed', 'sd_ai_agent_provider_retry_failed' ), true ) ) {
 			return $paused_state;
 		}
 
