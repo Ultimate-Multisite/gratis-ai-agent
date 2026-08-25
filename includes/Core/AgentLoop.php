@@ -4091,12 +4091,13 @@ PROMPT;
 			return $unchanged;
 		}
 
-		$limits             = array(
+		$limits = array(
 			'sd-ai-agent/stock-image'    => 2,
 			'sd-ai-agent/generate-image' => 1,
 		);
-		$used               = array_fill_keys( array_keys( $limits ), 0 );
-		$primary_stock_args = null;
+		$used   = array_fill_keys( array_keys( $limits ), 0 );
+		// phpcs:disable WordPress.NamingConventions.ValidVariableName.VariableNotSnakeCase -- Project variable naming guidance requires camelCase.
+		$primaryStockArgs = null;
 
 		foreach ( $this->history as $history_message ) {
 			foreach ( $history_message->getParts() as $part ) {
@@ -4107,8 +4108,8 @@ PROMPT;
 
 				$ability_name = self::media_ability_name_for_call( $call );
 				if ( null !== $ability_name ) {
-					if ( 'sd-ai-agent/stock-image' === $ability_name && null === $primary_stock_args ) {
-						$primary_stock_args = self::stock_image_args_for_call( $call );
+					if ( 'sd-ai-agent/stock-image' === $ability_name && null === $primaryStockArgs ) {
+						$primaryStockArgs = self::stock_image_args_for_call( $call );
 					}
 					++$used[ $ability_name ];
 				}
@@ -4137,14 +4138,14 @@ PROMPT;
 			}
 
 			if ( 'sd-ai-agent/stock-image' === $ability_name ) {
-				if ( 0 === $used[ $ability_name ] && null === $primary_stock_args ) {
-					$primary_stock_args = self::stock_image_args_for_call( $call );
+				if ( 0 === $used[ $ability_name ] && null === $primaryStockArgs ) {
+					$primaryStockArgs = self::stock_image_args_for_call( $call );
 				} elseif (
 					1 === $used[ $ability_name ]
 					&& ! self::is_stock_image_candidate_import_call( $call )
 				) {
 					$part = new MessagePart(
-						self::normalize_stock_image_auto_import_fallback( $call, $primary_stock_args ?? array() )
+						self::normalize_stock_image_auto_import_fallback( $call, $primaryStockArgs ?? array() )
 					);
 					++$rewritten;
 				}
@@ -4153,6 +4154,7 @@ PROMPT;
 			++$used[ $ability_name ];
 			$kept[] = $part;
 		}
+		// phpcs:enable WordPress.NamingConventions.ValidVariableName.VariableNotSnakeCase
 
 		$removed = array_filter( $removed );
 		if ( $rewritten > 0 ) {
