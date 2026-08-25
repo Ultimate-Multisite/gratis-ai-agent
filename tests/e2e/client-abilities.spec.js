@@ -506,6 +506,100 @@ test.describe( 'client-abilities — insert-block on editor screen', () => {
 	} );
 } );
 
+test.describe( 'client-abilities — nested block insertion', () => {
+	test.beforeEach( async ( { page } ) => {
+		await loginToWordPress( page );
+	} );
+
+	test( 'nested block insertion preserves the Group parent and index after reload', async ( {
+		page,
+	} ) => {
+		await createDraftAndOpenEditor( page );
+		await skipIfNoAbilitiesApi( page );
+		await waitForAbilitiesRegistered( page );
+
+		const inserted = await page.evaluate( async () => {
+			const blockEditor = wp.data.select( 'core/block-editor' );
+			const blockDispatcher = wp.data.dispatch( 'core/block-editor' );
+			const group = wp.blocks.createBlock( 'core/group', {}, [
+				wp.blocks.createBlock( 'core/paragraph', {
+					content: 'Existing Group child.',
+				} ),
+			] );
+			const list = wp.blocks.createBlock( 'core/list', {}, [
+				wp.blocks.createBlock( 'core/list-item', {
+					content: 'Nested first item.',
+				} ),
+				wp.blocks.createBlock( 'core/list-item', {
+					content: 'Nested second item.',
+				} ),
+			] );
+
+			blockDispatcher.resetBlocks( [ group ] );
+			const result = await wp.abilities.executeAbility(
+				'sd-ai-agent-js/insert-block-markup',
+				{
+					markup: wp.blocks.serialize( [ list ] ),
+					rootClientId: group.clientId,
+					index: 1,
+				}
+			);
+			const insertedGroup = blockEditor.getBlock( group.clientId );
+
+			return {
+				result,
+				children: insertedGroup.innerBlocks.map( ( block ) => ( {
+					name: block.name,
+					children: block.innerBlocks.map( ( child ) => child.name ),
+				} ) ),
+				markup: wp.blocks.serialize( blockEditor.getBlocks() ),
+			};
+		} );
+
+		expect( inserted.result ).toMatchObject( { applied: true } );
+		expect( inserted.children ).toEqual( [
+			{ name: 'core/paragraph', children: [] },
+			{
+				name: 'core/list',
+				children: [ 'core/list-item', 'core/list-item' ],
+			},
+		] );
+		expect( inserted.markup ).toContain( 'Nested first item.' );
+
+		await page.evaluate( async () => {
+			await wp.data.dispatch( 'core/editor' ).savePost();
+		} );
+		await page.reload();
+		await page.waitForLoadState( 'domcontentloaded' );
+		await page.waitForFunction(
+			() =>
+				typeof wp?.data?.select?.( 'core/block-editor' )?.getBlocks ===
+				'function',
+			null,
+			{ timeout: 60_000 }
+		);
+
+		const reloaded = await page.evaluate( () => {
+			const group = wp
+				.data.select( 'core/block-editor' )
+				.getBlocks()
+				.find( ( block ) => block.name === 'core/group' );
+			return {
+				children: group.innerBlocks.map( ( block ) => ( {
+					name: block.name,
+					children: block.innerBlocks.map( ( child ) => child.name ),
+				} ) ),
+				markup: wp.blocks.serialize(
+					wp.data.select( 'core/block-editor' ).getBlocks()
+				),
+			};
+		} );
+
+		expect( reloaded.children ).toEqual( inserted.children );
+		expect( reloaded.markup ).toContain( 'Nested second item.' );
+	} );
+} );
+
 // ---------------------------------------------------------------------------
 // Test suite 5: server-side post reflection in the block editor
 // ---------------------------------------------------------------------------
