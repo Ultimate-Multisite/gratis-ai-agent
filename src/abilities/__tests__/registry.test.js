@@ -32,6 +32,23 @@ function loadRegistry() {
 	return mod;
 }
 
+/**
+ * Load refresh-page and its matching registry module instance.
+ *
+ * @return {{ refreshPage: Object, registry: Object }} Isolated modules.
+ */
+function loadRefreshPageAndRegistry() {
+	let refreshPage;
+	let registry;
+	jest.isolateModules( () => {
+		// eslint-disable-next-line global-require
+		refreshPage = require( '../refresh-page' );
+		// eslint-disable-next-line global-require
+		registry = require( '../registry' );
+	} );
+	return { refreshPage, registry };
+}
+
 describe( 'registry — sd-ai-86a regression', () => {
 	let originalWp;
 
@@ -195,5 +212,20 @@ describe( 'registry — sd-ai-86a regression', () => {
 		// Local execution path still works alongside the WP store entry.
 		await executeClientAbility( 'sd-ai-agent-js/with-api', { x: 1 } );
 		expect( callback ).toHaveBeenCalledWith( { x: 1 } );
+	} );
+
+	test( 'registers refresh-page without an empty required array', async () => {
+		delete global.wp;
+		const { refreshPage, registry } = loadRefreshPageAndRegistry();
+		await refreshPage.registerRefreshPageAbility();
+		const descriptor = ( await registry.snapshotDescriptors() ).find(
+			( candidate ) => candidate.name === 'sd-ai-agent-js/refresh-page'
+		);
+
+		expect( descriptor.input_schema ).toMatchObject( {
+			type: 'object',
+			properties: {},
+		} );
+		expect( descriptor.input_schema ).not.toHaveProperty( 'required' );
 	} );
 } );

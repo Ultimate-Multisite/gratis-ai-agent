@@ -288,7 +288,6 @@ export async function registerEditorAbility() {
 		inputSchema: {
 			type: 'object',
 			properties: {},
-			required: [],
 		},
 		outputSchema: {
 			type: 'object',

@@ -303,7 +303,7 @@ test.describe( 'client-abilities — ability registration', () => {
 		await skipIfNoAbilitiesApi( page );
 	} );
 
-	test( 'navigate-to and insert-block appear in getAbilities()', async ( {
+	test( 'required client abilities expose valid schemas and readonly annotations', async ( {
 		page,
 	} ) => {
 		await waitForAbilitiesRegistered( page );
@@ -326,14 +326,23 @@ test.describe( 'client-abilities — ability registration', () => {
 			}
 		} );
 
-		const names = abilities.map( ( a ) => a.name );
-		expect( names ).toContain( 'sd-ai-agent-js/navigate-to' );
-		expect( names ).toContain( 'sd-ai-agent-js/insert-block' );
+		const byName = new Map(
+			abilities.map( ( ability ) => [ ability.name, ability ] )
+		);
+		for ( const name of [
+			'sd-ai-agent-js/navigate-to',
+			'sd-ai-agent-js/refresh-page',
+			'sd-ai-agent-js/get-editor-selection',
+			'sd-ai-agent-js/insert-block',
+			'sd-ai-agent-js/get-editor-capabilities',
+			'sd-ai-agent-js/capture-screenshot',
+			'sd-ai-agent-js/screenshot-url',
+		] ) {
+			expect( byName.has( name ) ).toBe( true );
+		}
 
 		// Verify expected schema shape for navigate-to.
-		const navigateTo = abilities.find(
-			( a ) => a.name === 'sd-ai-agent-js/navigate-to'
-		);
+		const navigateTo = byName.get( 'sd-ai-agent-js/navigate-to' );
 		expect( navigateTo ).toBeDefined();
 		expect( navigateTo ).toMatchObject( {
 			name: 'sd-ai-agent-js/navigate-to',
@@ -349,9 +358,7 @@ test.describe( 'client-abilities — ability registration', () => {
 		} );
 
 		// Verify expected schema shape for insert-block.
-		const insertBlock = abilities.find(
-			( a ) => a.name === 'sd-ai-agent-js/insert-block'
-		);
+		const insertBlock = byName.get( 'sd-ai-agent-js/insert-block' );
 		expect( insertBlock ).toBeDefined();
 		expect( insertBlock ).toMatchObject( {
 			name: 'sd-ai-agent-js/insert-block',
@@ -365,11 +372,68 @@ test.describe( 'client-abilities — ability registration', () => {
 				blockName: expect.objectContaining( { type: 'string' } ),
 			} ),
 		} );
+		expect( insertBlock.input_schema.required ).toEqual( [ 'blockName' ] );
+		expect( insertBlock.meta.annotations ).toMatchObject( {
+			readonly: false,
+		} );
+
+		for ( const name of [
+			'sd-ai-agent-js/refresh-page',
+			'sd-ai-agent-js/get-editor-selection',
+			'sd-ai-agent-js/get-editor-capabilities',
+			'sd-ai-agent-js/capture-screenshot',
+		] ) {
+			expect( byName.get( name ).input_schema ).not.toHaveProperty(
+				'required'
+			);
+			expect( byName.get( name ).meta.annotations ).toMatchObject( {
+				readonly: true,
+			} );
+		}
+		expect(
+			byName.get( 'sd-ai-agent-js/screenshot-url' ).input_schema.required
+		).toEqual( [ 'url' ] );
 	} );
 } );
 
 // ---------------------------------------------------------------------------
-// Test suite 3: navigate-to execution
+// Test suite 3: public schema validation
+// ---------------------------------------------------------------------------
+
+test.describe( 'client-abilities — public schema validation', () => {
+	test.beforeEach( async ( { page } ) => {
+		await loginToWordPress( page );
+		await goToDashboard( page );
+		await skipIfNoAbilitiesApi( page );
+	} );
+
+	test( 'executeAbility reaches get-editor-selection with empty input', async ( {
+		page,
+	} ) => {
+		await waitForAbilitiesRegistered( page );
+
+		const result = await page.evaluate( async () => {
+			try {
+				return await wp.abilities.executeAbility(
+					'sd-ai-agent-js/get-editor-selection',
+					{}
+				);
+			} catch ( err ) {
+				return { error: err.message };
+			}
+		} );
+
+		expect( result.error ).toBeUndefined();
+		expect( result ).toMatchObject( {
+			available: expect.any( Boolean ),
+			selected: expect.any( Boolean ),
+			count: expect.any( Number ),
+		} );
+	} );
+} );
+
+// ---------------------------------------------------------------------------
+// Test suite 4: navigate-to execution
 // ---------------------------------------------------------------------------
 
 test.describe( 'client-abilities — navigate-to execution', () => {

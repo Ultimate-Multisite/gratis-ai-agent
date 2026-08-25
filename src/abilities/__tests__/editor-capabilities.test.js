@@ -15,6 +15,23 @@ function loadModule() {
 }
 
 /**
+ * Load editor capabilities and its matching registry module instance.
+ *
+ * @return {{ capabilities: Object, registry: Object }} Isolated modules.
+ */
+function loadCapabilitiesAndRegistry() {
+	let capabilities;
+	let registry;
+	jest.isolateModules( () => {
+		// eslint-disable-next-line global-require
+		capabilities = require( '../editor-capabilities' );
+		// eslint-disable-next-line global-require
+		registry = require( '../registry' );
+	} );
+	return { capabilities, registry };
+}
+
+/**
  * Set a minimal Gutenberg editor environment.
  *
  * @param {Object}   root0
@@ -135,5 +152,22 @@ describe( 'get-editor-capabilities', () => {
 			available: false,
 			unavailable_sources: [ 'block_registry', 'editor_settings' ],
 		} );
+	} );
+
+	test( 'registers an optional blockNames schema without required', async () => {
+		const { capabilities, registry } = loadCapabilitiesAndRegistry();
+		await capabilities.registerEditorCapabilitiesAbility();
+		const descriptor = ( await registry.snapshotDescriptors() ).find(
+			( candidate ) =>
+				candidate.name === 'sd-ai-agent-js/get-editor-capabilities'
+		);
+
+		expect( descriptor.input_schema ).toMatchObject( {
+			type: 'object',
+			properties: {
+				blockNames: { type: 'array' },
+			},
+		} );
+		expect( descriptor.input_schema ).not.toHaveProperty( 'required' );
 	} );
 } );

@@ -447,7 +447,6 @@ export async function registerEditorCapabilitiesAbility() {
 					items: { type: 'string' },
 				},
 			},
-			required: [],
 		},
 		outputSchema: {
 			type: 'object',

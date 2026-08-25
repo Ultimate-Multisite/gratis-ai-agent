@@ -123,6 +123,20 @@ describe( 'get-editor-selection', () => {
 		expect( descriptor.output_schema.properties ).toHaveProperty(
 			'fingerprint'
 		);
+		expect( descriptor.input_schema ).toMatchObject( {
+			type: 'object',
+			properties: {},
+		} );
+		expect( descriptor.input_schema ).not.toHaveProperty( 'required' );
+
+		const insertBlockDescriptor = (
+			await registry.snapshotDescriptors()
+		).find(
+			( candidate ) => candidate.name === 'sd-ai-agent-js/insert-block'
+		);
+		expect( insertBlockDescriptor.input_schema.required ).toEqual( [
+			'blockName',
+		] );
 	} );
 
 	test( 'returns a stable fingerprint for the same current selection', async () => {
