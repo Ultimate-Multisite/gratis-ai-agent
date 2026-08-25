@@ -201,6 +201,24 @@ class PageCompletionGateTest extends WP_UnitTestCase {
 		$this->assertTrue( $gate->has_current_passing_report() );
 	}
 
+	/** A failed browser report must reach a repair turn instead of redispatching forever. */
+	public function test_failed_report_does_not_redispatch_until_a_mutation_invalidates_it(): void {
+		$gate = $this->gate( PageCompletionGate::PROFILE_INCREMENTAL );
+		$this->record_page( $gate, 41, self::PAGE_URL, 101 );
+		$inputs = $gate->get_expected_report_inputs();
+
+		$gate->record_tool_call( PageCompletionGate::CLIENT_ABILITY, $inputs );
+		$gate->record_tool_response( PageCompletionGate::CLIENT_ABILITY, array() );
+
+		$this->assertTrue( $gate->get_status()['report_received'] );
+		$this->assertFalse( $gate->should_dispatch_validation() );
+		$this->assertTrue( $gate->requires_repair() );
+
+		$this->record_page( $gate, 41, self::PAGE_URL, 102 );
+		$this->assertFalse( $gate->get_status()['report_received'] );
+		$this->assertTrue( $gate->should_dispatch_validation() );
+	}
+
 	/** Preview approval and public smoke validation never use a mixed render mode. */
 	public function test_preview_phase_defers_unrelated_public_targets_until_public_smoke(): void {
 		$gate = $this->gate( PageCompletionGate::PROFILE_SETUP );

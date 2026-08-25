@@ -906,6 +906,68 @@ describe( 'actions', () => {
 		}
 	} );
 
+	test( 'pollJob allows page-quality validation to exceed the generic client timeout', async () => {
+		jest.useFakeTimers();
+		apiFetch.mockReset();
+		executeClientAbility.mockReset();
+		executeClientAbility.mockImplementation(
+			() =>
+				new Promise( ( resolve ) =>
+					setTimeout( () => resolve( { passed: true } ), 35000 )
+				)
+		);
+		apiFetch.mockImplementation( ( request ) => {
+			if ( request.path === '/sd-ai-agent/v1/job/page-quality-job' ) {
+				return Promise.resolve( {
+					status: 'awaiting_client_tools',
+					pending_client_tool_calls: [
+						{
+							id: 'call-page-quality',
+							name: 'sd-ai-agent-js/validate-page-quality',
+							annotations: { readonly: true },
+							args: { profile: 'setup' },
+						},
+					],
+				} );
+			}
+
+			return Promise.resolve( {} );
+		} );
+
+		const dispatch = {
+			setCurrentJobId: jest.fn(),
+			setSessionJob: jest.fn(),
+		};
+		const select = {
+			getCurrentSessionId: jest.fn( () => 17 ),
+			getCurrentJobId: jest.fn( () => 'page-quality-job' ),
+		};
+
+		try {
+			actions.pollJob( 'page-quality-job', 17 )( { dispatch, select } );
+			await jest.advanceTimersByTimeAsync( 37000 );
+
+			expect( apiFetch ).toHaveBeenCalledWith( {
+				path: '/sd-ai-agent/v1/chat/tool-result',
+				method: 'POST',
+				data: {
+					session_id: 17,
+					job_id: 'page-quality-job',
+					tool_results: [
+						{
+							id: 'call-page-quality',
+							name: 'sd-ai-agent-js/validate-page-quality',
+							result: { passed: true },
+						},
+					],
+				},
+			} );
+		} finally {
+			jest.clearAllTimers();
+			jest.useRealTimers();
+		}
+	} );
+
 	test( 'resumeRecoverableJob starts and polls the replacement job', async () => {
 		apiFetch.mockReset();
 		apiFetch.mockResolvedValue( { job_id: 'resumed-job' } );

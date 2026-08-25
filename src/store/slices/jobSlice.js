@@ -647,6 +647,13 @@ export const actions = {
 
 						const toolResults = await Promise.all(
 							pendingCalls.map( async ( call ) => {
+								const abilityName =
+									call.client_name || call.name;
+								const timeoutMs =
+									abilityName ===
+									'sd-ai-agent-js/validate-page-quality'
+										? 120000
+										: 30000;
 								const isReadonly =
 									call.annotations?.readonly === true;
 								const isUserConfirmed =
@@ -668,15 +675,17 @@ export const actions = {
 								try {
 									const abilityResult = await Promise.race( [
 										executeClientAbility(
-											call.client_name || call.name,
+											abilityName,
 											call.args || {}
 										),
 										new Promise( ( _resolve, reject ) =>
 											setTimeout(
 												reject,
-												30000,
+												timeoutMs,
 												new Error(
-													'Client tool timed out after 30 seconds.'
+													`Client tool timed out after ${
+														timeoutMs / 1000
+													} seconds.`
 												)
 											)
 										),
