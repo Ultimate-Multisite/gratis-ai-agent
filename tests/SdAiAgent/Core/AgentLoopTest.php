@@ -1202,6 +1202,162 @@ class AgentLoopTest extends WP_UnitTestCase {
 		$this->assertNull( Database::load_and_clear_paused_state( $session_id ) );
 	}
 
+	/** A recovered agentic loop keeps later provider calls on compact context. */
+	public function test_large_provider_retry_compaction_stays_active_for_followup_provider_calls(): void {
+		$history = array(
+			new UserMessage( array( new MessagePart( 'Complete the remaining onboarding checks.' ) ) ),
+			new ModelMessage(
+				array(
+					new MessagePart( new FunctionCall( 'call_large_followup', 'wpab__sd-ai-agent__site-info', array() ) ),
+				)
+			),
+			new UserMessage(
+				array(
+					new MessagePart(
+						new FunctionResponse(
+							'call_large_followup',
+							'wpab__sd-ai-agent__site-info',
+							array( 'content' => str_repeat( 'large completed tool output ', 4000 ) )
+						)
+					),
+				)
+			),
+		);
+		$loop    = new ScriptedAgentLoop(
+			'',
+			array(),
+			$history,
+			array(
+				'provider_id' => 'sd-ai-agent-cloud',
+				'model_id'    => 'superdav-chat-pro',
+			),
+			array(
+				new WP_Error( 'sd_ai_agent_test_provider_timeout', 'Managed service unavailable.' ),
+				$this->create_scripted_result( '' ),
+				$this->create_scripted_result( 'Completed after the compact-context follow-up.' ),
+			)
+		);
+
+		$result = $loop->resume_from_checkpoint( 4 );
+
+		$this->assertIsArray( $result );
+		$this->assertSame( 'Completed after the compact-context follow-up.', $result['reply'] );
+		$this->assertCount( 3, $loop->requestSizes );
+		$this->assertSame( array( 6, 1, 6 ), $loop->requestAttemptLimits );
+		$this->assertGreaterThan( ConversationTrimmer::COMPACT_MAX_BYTES, $loop->requestSizes[0] );
+		$this->assertLessThanOrEqual( ConversationTrimmer::COMPACT_MAX_BYTES, $loop->requestSizes[1] );
+		$this->assertLessThanOrEqual( ConversationTrimmer::COMPACT_MAX_BYTES, $loop->requestSizes[2] );
+		$this->assertStringContainsString( 'large completed tool output', (string) wp_json_encode( $result['history'] ) );
+	}
+
+	/** A persisted recovery marker bounds the first request after a browser resume. */
+	public function test_persisted_provider_retry_compaction_bounds_resumed_request(): void {
+		$large_evidence = str_repeat( 'persisted completed tool output ', 4000 );
+		$history        = array(
+			new UserMessage( array( new MessagePart( 'Resume the remaining onboarding checks.' ) ) ),
+			new ModelMessage(
+				array(
+					new MessagePart( new FunctionCall( 'call_persisted_followup', 'wpab__sd-ai-agent__site-info', array() ) ),
+				)
+			),
+			new UserMessage(
+				array(
+					new MessagePart(
+						new FunctionResponse(
+							'call_persisted_followup',
+							'wpab__sd-ai-agent__site-info',
+							array( 'content' => $large_evidence )
+						)
+					),
+				)
+			),
+		);
+		$loop           = new ScriptedAgentLoop(
+			'',
+			array(),
+			$history,
+			array(
+				'provider_id' => 'sd-ai-agent-cloud',
+				'model_id'    => 'superdav-chat-pro',
+				'message_log' => array(
+					array(
+						'type'            => 'provider_retry_compaction',
+						'payload_reduced' => true,
+					),
+				),
+			),
+			array( $this->create_scripted_result( 'Resumed with compact provider context.' ) )
+		);
+
+		$result = $loop->resume_from_checkpoint( 2 );
+
+		$this->assertIsArray( $result );
+		$this->assertSame( 'Resumed with compact provider context.', $result['reply'] );
+		$this->assertCount( 1, $loop->requestSizes );
+		$this->assertLessThanOrEqual( ConversationTrimmer::COMPACT_MAX_BYTES, $loop->requestSizes[0] );
+		$this->assertStringContainsString( $large_evidence, (string) wp_json_encode( $result['history'] ) );
+	}
+
+	/** A failed continued compact request persists the full durable history. */
+	public function test_persisted_provider_retry_compaction_failure_preserves_durable_history(): void {
+		$session_id    = Database::create_session(
+			array(
+				'user_id' => 1,
+				'title'   => 'Continued compact retry failure',
+			)
+		);
+		$large_evidence = str_repeat( 'durable completed tool evidence ', 4000 );
+		$history        = array(
+			new UserMessage( array( new MessagePart( 'Resume the remaining onboarding checks.' ) ) ),
+			new ModelMessage(
+				array(
+					new MessagePart( new FunctionCall( 'call_failed_followup', 'wpab__sd-ai-agent__site-info', array() ) ),
+				)
+			),
+			new UserMessage(
+				array(
+					new MessagePart(
+						new FunctionResponse(
+							'call_failed_followup',
+							'wpab__sd-ai-agent__site-info',
+							array( 'content' => $large_evidence )
+						)
+					),
+				)
+			),
+		);
+		$loop           = new ScriptedAgentLoop(
+			'',
+			array(),
+			$history,
+			array(
+				'session_id'  => $session_id,
+				'provider_id' => 'sd-ai-agent-cloud',
+				'model_id'    => 'superdav-chat-pro',
+				'message_log' => array(
+					array(
+						'type'            => 'provider_retry_compaction',
+						'payload_reduced' => true,
+					),
+				),
+			),
+			array( new WP_Error( 'sd_ai_agent_test_provider_timeout', 'Managed service unavailable.' ) )
+		);
+
+		$result = $loop->resume_from_checkpoint( 2 );
+
+		$this->assertInstanceOf( WP_Error::class, $result );
+		$this->assertSame( 'sd_ai_agent_provider_retry_failed', $result->get_error_code() );
+		$this->assertCount( 1, $loop->requestSizes );
+		$this->assertLessThanOrEqual( ConversationTrimmer::COMPACT_MAX_BYTES, $loop->requestSizes[0] );
+		$error_data = $result->get_error_data();
+		$this->assertIsArray( $error_data );
+		$this->assertStringContainsString( $large_evidence, (string) wp_json_encode( $error_data['history'] ?? array() ) );
+		$paused_state = Database::load_and_clear_paused_state( $session_id );
+		$this->assertIsArray( $paused_state );
+		$this->assertStringContainsString( $large_evidence, (string) wp_json_encode( $paused_state['history'] ) );
+	}
+
 	/** A failed compact retry retains the full original recovery checkpoint. */
 	public function test_large_provider_compact_retry_failure_preserves_original_paused_state(): void {
 		$session_id = Database::create_session(
