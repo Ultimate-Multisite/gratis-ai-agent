@@ -17,6 +17,7 @@ export const MAX_MARKUP_BYTES = 64 * 1024;
 export const MAX_TOP_LEVEL_BLOCKS = 50;
 export const MAX_TOTAL_BLOCKS = 200;
 export const MAX_BLOCK_DEPTH = 20;
+const HISTORY_SETTLEMENT_TIMEOUT = 1_000;
 
 const UNSUPPORTED_BLOCKS = new Set( [ 'core/freeform', 'core/missing' ] );
 
@@ -45,6 +46,92 @@ function isValidBlock( result ) {
  */
 function rejected( reason, errors = [] ) {
 	return { applied: false, reason, errors: errors.slice( 0, 20 ) };
+}
+
+/**
+ * Serialize the current block-editor state without exposing editor internals.
+ *
+ * @param {Object} editor Block editor selector.
+ * @return {string} Current editor serialization.
+ */
+function getEditorSerialization( editor ) {
+	return wp.blocks?.serialize?.( editor.getBlocks?.() || [] ) || '';
+}
+
+/**
+ * Wait for one block-editor store update that proves a history mutation changed content.
+ *
+ * @param {Object} editor Block editor selector.
+ * @param {string} before Serialized content before the history dispatch.
+ * @return {Promise<boolean>} Whether a settled store state differs from before.
+ */
+function waitForHistorySettlement( editor, before ) {
+	return new Promise( ( resolve ) => {
+		if ( typeof wp.data?.subscribe !== 'function' ) {
+			resolve( false );
+			return;
+		}
+
+		let complete = false;
+		let unsubscribe;
+		const finish = ( changed ) => {
+			if ( complete ) {
+				return;
+			}
+			complete = true;
+			if ( timeoutId ) {
+				clearTimeout( timeoutId );
+			}
+			if ( typeof unsubscribe === 'function' ) {
+				unsubscribe();
+			}
+			resolve( changed );
+		};
+		const check = () => {
+			if ( getEditorSerialization( editor ) !== before ) {
+				finish( true );
+			}
+		};
+
+		const timeoutId = setTimeout(
+			() => finish( false ),
+			HISTORY_SETTLEMENT_TIMEOUT
+		);
+		try {
+			unsubscribe = wp.data.subscribe( check, 'core/block-editor' );
+		} catch ( _error ) {
+			finish( false );
+			return;
+		}
+		if ( complete && typeof unsubscribe === 'function' ) {
+			unsubscribe();
+			return;
+		}
+		check();
+	} );
+}
+
+/**
+ * Capture pre-dispatch history state and request one native history action.
+ *
+ * @param {Object} editor     Block editor selector.
+ * @param {Object} dispatcher Editor history dispatcher.
+ * @param {string} direction  Requested history direction.
+ * @return {{before: string, hasHistory: boolean|undefined, dispatchFailed: boolean}} Dispatch evidence.
+ */
+function dispatchEditorHistory( editor, dispatcher, direction ) {
+	const history = wp.data.select( 'core/editor' );
+	const before = getEditorSerialization( editor );
+	const hasHistory =
+		direction === 'undo'
+			? history?.hasEditorUndo?.()
+			: history?.hasEditorRedo?.();
+	try {
+		dispatcher[ direction ]();
+		return { before, hasHistory, dispatchFailed: false };
+	} catch ( _error ) {
+		return { before, hasHistory, dispatchFailed: true };
+	}
 }
 
 /**
@@ -491,9 +578,9 @@ export async function insertBlockMarkup( args = {} ) {
  * Request precisely one native editor undo or redo action.
  *
  * @param {Object} args History arguments.
- * @return {Object} History mutation result.
+ * @return {Promise<Object>} History mutation result.
  */
-export function changeEditorHistory( args = {} ) {
+export async function changeEditorHistory( args = {} ) {
 	if (
 		typeof wp === 'undefined' ||
 		! wp.data?.select ||
@@ -510,18 +597,29 @@ export function changeEditorHistory( args = {} ) {
 	if ( ! editor || typeof dispatcher?.[ direction ] !== 'function' ) {
 		return rejected( 'history_unavailable' );
 	}
-	const before = wp.blocks?.serialize?.( editor.getBlocks?.() || [] ) || '';
-	try {
-		dispatcher[ direction ]();
-	} catch ( _error ) {
+	const historyResult = dispatchEditorHistory(
+		editor,
+		dispatcher,
+		direction
+	);
+	if ( historyResult.dispatchFailed ) {
 		return {
 			applied: 'unknown',
 			direction,
 			reason: 'dispatch_failed',
 		};
 	}
-	const after = wp.blocks?.serialize?.( editor.getBlocks?.() || [] ) || '';
-	return { applied: before !== after, direction };
+	if ( historyResult.hasHistory === false ) {
+		return { applied: false, direction };
+	}
+	if ( await waitForHistorySettlement( editor, historyResult.before ) ) {
+		return { applied: true, direction };
+	}
+	return {
+		applied: 'unknown',
+		direction,
+		reason: 'history_settlement_timeout',
+	};
 }
 
 /**
