@@ -122,6 +122,13 @@ describe( 'full-page screenshot safety', () => {
 			expect( descriptor.output_schema.properties ).toHaveProperty(
 				'truncated'
 			);
+			if ( name === 'sd-ai-agent-js/capture-screenshot' ) {
+				expect( descriptor.input_schema ).not.toHaveProperty(
+					'required'
+				);
+			} else {
+				expect( descriptor.input_schema.required ).toEqual( [ 'url' ] );
+			}
 		}
 	} );
 } );

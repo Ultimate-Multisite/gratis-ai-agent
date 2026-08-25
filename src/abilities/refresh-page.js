@@ -38,7 +38,6 @@ export async function registerRefreshPageAbility() {
 		inputSchema: {
 			type: 'object',
 			properties: {},
-			required: [],
 		},
 		outputSchema: {
 			type: 'object',
