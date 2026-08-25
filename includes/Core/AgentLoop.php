@@ -2454,10 +2454,11 @@ PROMPT;
 			return $this->with_payload_recovery_metadata( $error, $before_bytes, $before_tokens, false, false );
 		}
 
-		$provider_recovery_history = null;
-		$result                    = $this->send_prompt( $provider_id, $model_id );
+		$provider_recovery_history      = null;
+		$provider_recovery_paused_state = null;
+		$result                         = $this->send_prompt( $provider_id, $model_id );
 		if ( is_wp_error( $result ) && 'sd_ai_agent_provider_retry_failed' === $result->get_error_code() ) {
-			$result        = $this->retry_large_provider_failure_with_compacted_history( $result, $provider_id, $model_id, $provider_recovery_history );
+			$result        = $this->retry_large_provider_failure_with_compacted_history( $result, $provider_id, $model_id, $provider_recovery_history, $provider_recovery_paused_state );
 			$before_bytes  = ConversationTrimmer::estimate_total_bytes( $this->history );
 			$before_tokens = ConversationTrimmer::estimate_total_tokens( $this->history );
 		}
@@ -2568,6 +2569,7 @@ PROMPT;
 			}
 
 			$this->restore_provider_recovery_history( $provider_recovery_history );
+			$this->restore_provider_recovery_paused_state( $provider_recovery_paused_state );
 			return $this->with_payload_recovery_metadata( $retry_result, $after_bytes, $after_tokens, true, true );
 		}
 		if ( $this->session_id > 0 ) {
@@ -2587,14 +2589,16 @@ PROMPT;
 	 * for a browser retry needlessly fails an otherwise completed setup run. Use the
 	 * compact copy for one transport attempt while retaining the full durable history.
 	 *
-	 * @param WP_Error            $error            Exhausted provider-retry error.
-	 * @param string              $provider_id      Runtime provider identifier.
-	 * @param string              $model_id         Runtime model identifier.
-	 * @param array<Message>|null $recovery_history Full history restored after the bounded fallback chain.
+	 * @param WP_Error                 $error                 Exhausted provider-retry error.
+	 * @param string                   $provider_id           Runtime provider identifier.
+	 * @param string                   $model_id              Runtime model identifier.
+	 * @param array<Message>|null      $recovery_history      Full history restored after the bounded fallback chain.
+	 * @param array<string,mixed>|null $recovery_paused_state Durable checkpoint restored after the bounded fallback chain fails.
 	 * @param-out array<Message>|null $recovery_history
+	 * @param-out array<string,mixed>|null $recovery_paused_state
 	 * @return GenerativeAiResult|WP_Error Compacted retry result, or the original error when ineligible.
 	 */
-	private function retry_large_provider_failure_with_compacted_history( WP_Error $error, string $provider_id, string $model_id, ?array &$recovery_history ): GenerativeAiResult|WP_Error {
+	private function retry_large_provider_failure_with_compacted_history( WP_Error $error, string $provider_id, string $model_id, ?array &$recovery_history, ?array &$recovery_paused_state ): GenerativeAiResult|WP_Error {
 		$serialized_history = $this->serialize_history();
 		$request_bytes      = ConversationTrimmer::estimate_total_bytes( $this->history );
 		$request_tokens     = ConversationTrimmer::estimate_total_tokens( $this->history );
@@ -2681,6 +2685,7 @@ PROMPT;
 				? $original_paused_state
 				: $compacted_paused_state;
 			if ( is_array( $restored_paused_state ) ) {
+				$recovery_paused_state = $restored_paused_state;
 				Database::save_paused_state( $this->session_id, $restored_paused_state );
 			}
 		}
@@ -2697,6 +2702,20 @@ PROMPT;
 		if ( is_array( $recovery_history ) ) {
 			$this->history = $recovery_history;
 		}
+	}
+
+	/**
+	 * Restore the durable checkpoint after the reduced payload fallback fails.
+	 *
+	 * @param array<string,mixed>|null $recovery_paused_state Checkpoint retained before compact retries.
+	 */
+	private function restore_provider_recovery_paused_state( ?array $recovery_paused_state ): void {
+		if ( $this->session_id <= 0 || ! is_array( $recovery_paused_state ) ) {
+			return;
+		}
+
+		Database::load_and_clear_paused_state( $this->session_id );
+		Database::save_paused_state( $this->session_id, $recovery_paused_state );
 	}
 
 	/** Whether an error represents a local or upstream HTTP 413. */

@@ -1327,6 +1327,58 @@ class AgentLoopTest extends WP_UnitTestCase {
 		$this->assertNull( Database::load_and_clear_paused_state( $session_id ) );
 	}
 
+	/** A failed reduced 413 retry restores the checkpoint from before compaction. */
+	public function test_compact_retry_413_reduction_failure_preserves_original_paused_state(): void {
+		$session_id = Database::create_session(
+			array(
+				'user_id' => 1,
+				'title'   => 'Failed compact and payload recovery',
+			)
+		);
+		$history    = array(
+			new UserMessage( array( new MessagePart( str_repeat( 'original tool evidence ', 5000 ) ) ) ),
+			new ModelMessage( array( new MessagePart( 'The completed work must remain resumable.' ) ) ),
+			new UserMessage( array( new MessagePart( 'Finish the current phase.' ) ) ),
+		);
+		$loop       = new ScriptedAgentLoop(
+			'',
+			array(),
+			$history,
+			array(
+				'session_id'  => $session_id,
+				'provider_id' => 'sd-ai-agent-cloud',
+				'model_id'    => 'superdav-chat-pro',
+			),
+			array(
+				new WP_Error( 'sd_ai_agent_test_provider_timeout', 'Managed service unavailable.' ),
+				new WP_Error(
+					'sd_ai_agent_provider_payload_too_large',
+					'Compacted request rejected.',
+					array(
+						'status_code'             => 413,
+						'request_size_source'     => 'complete_envelope',
+						'request_bytes'           => 131072,
+						'request_tokens_estimate' => 32768,
+					)
+				),
+				new WP_Error( 'sd_ai_agent_test_provider_timeout', 'Reduced request unavailable.' ),
+			)
+		);
+
+		$result = $loop->resume_from_checkpoint( 3 );
+
+		$this->assertInstanceOf( WP_Error::class, $result );
+		$this->assertSame( 'sd_ai_agent_provider_retry_failed', $result->get_error_code() );
+		$this->assertCount( 3, $loop->requestSizes );
+		$this->assertSame( array( 6, 1, 6 ), $loop->requestAttemptLimits );
+		$this->assertLessThan( $loop->requestSizes[0], $loop->requestSizes[1] );
+		$this->assertLessThan( (int) floor( $loop->requestSizes[1] * 0.9 ), $loop->requestSizes[2] );
+		$paused_state = Database::load_and_clear_paused_state( $session_id );
+		$this->assertIsArray( $paused_state );
+		$this->assertStringContainsString( 'original tool evidence', (string) wp_json_encode( $paused_state['history'] ) );
+		$this->assertStringNotContainsString( 'Conversation compacted server-side', (string) wp_json_encode( $paused_state['history'] ) );
+	}
+
 	/**
 	 * Accepted screenshot results survive provider exhaustion and resume from
 	 * their post-results checkpoint without producing another browser-tool pause.
