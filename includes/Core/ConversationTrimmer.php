@@ -43,6 +43,9 @@ class ConversationTrimmer {
 	/** Maximum characters copied from any single message into compact context. */
 	private const COMPACT_MAX_MESSAGE_CHARS = 2000;
 
+	/** Maximum JSON characters retained for callable ability-search schemas. */
+	private const COMPACT_MAX_ABILITY_SCHEMA_RECEIPT_CHARS = 1600;
+
 	/** Marker inserted when older turns are removed by a request-size budget. */
 	private const BUDGET_MARKER_TEXT = '[Earlier conversation turns were compacted to stay within the request safety budget.]';
 
@@ -313,6 +316,7 @@ class ConversationTrimmer {
 			"Source messages: {$source_count}; retained excerpts: {$retained_count}; omitted messages: {$omitted_count}.",
 			'Use this compact context to continue the current task. File attachments, inline image bytes, and raw tool payloads were omitted.',
 			'Bounded inspection receipts are evidence of completed reads. Do not repeat an inspection solely because its raw result was omitted.',
+			'Ability-search receipts retain callable input-schema shapes. Use ability-call directly with those schemas instead of searching for the same ability again.',
 		);
 
 		return implode( "\n", $header ) . "\n\n" . implode( "\n\n", $lines );
@@ -529,7 +533,11 @@ class ConversationTrimmer {
 		}
 
 		$response = self::compact_tool_payload_array( $function_response['response'] ?? array() );
-		$summary  = self::compact_receipt_fields(
+		if ( self::tool_name_has_suffix( $name, 'ability-search' ) ) {
+			return self::compact_ability_search_response_receipt( $name, $response );
+		}
+
+		$summary = self::compact_receipt_fields(
 			$response,
 			array( 'success', 'total', 'count', 'active', 'active_count', 'valid', 'passed', 'query', 'stylesheet', 'code', 'error' )
 		);
@@ -559,6 +567,122 @@ class ConversationTrimmer {
 		}
 
 		return '[inspection result: ' . $name . ' summary=' . self::compact_receipt_json( $summary ) . ']';
+	}
+
+	/**
+	 * Preserve enough of ability-search results to call selected abilities.
+	 *
+	 * Continued provider compaction runs before every later model call. Omitting
+	 * input schemas here means a newly fetched Tier-2 ability becomes unusable on
+	 * the very next turn, causing the model to search again or fall back to the
+	 * Tier-1 site-inspection tools. Retain only the schema's structural shape;
+	 * descriptions, defaults, examples, and output schemas remain omitted.
+	 *
+	 * @param string              $name     Compacted ability-search tool name.
+	 * @param array<string,mixed> $response Ability-search response payload.
+	 */
+	private static function compact_ability_search_response_receipt( string $name, array $response ): string {
+		$query   = isset( $response['query'] ) && is_scalar( $response['query'] )
+			? self::compact_receipt_value( (string) $response['query'] )
+			: '';
+		$results = isset( $response['results'] ) && is_array( $response['results'] )
+			? array_values( $response['results'] )
+			: array();
+		$kept    = array();
+
+		foreach ( array_slice( $results, 0, 10 ) as $result ) {
+			if ( ! is_array( $result ) ) {
+				continue;
+			}
+
+			$ability = self::compact_receipt_fields( $result, array( 'id', 'label' ) );
+			$schema  = self::compact_tool_payload_array( $result['input_schema'] ?? array() );
+			if ( ! empty( $schema ) ) {
+				$ability['input_schema'] = self::compact_schema_shape( $schema );
+			}
+
+			$candidate = array_merge( $kept, array( $ability ) );
+			$payload   = array(
+				'query'     => $query,
+				'abilities' => $candidate,
+				'omitted'   => max( 0, count( $results ) - count( $candidate ) ),
+			);
+			$encoded   = wp_json_encode( $payload );
+			if ( ! is_string( $encoded ) || strlen( $encoded ) > self::COMPACT_MAX_ABILITY_SCHEMA_RECEIPT_CHARS ) {
+				break;
+			}
+
+			$kept = $candidate;
+		}
+
+		$payload = array(
+			'query'     => $query,
+			'abilities' => $kept,
+			'omitted'   => max( 0, count( $results ) - count( $kept ) ),
+		);
+		$encoded = wp_json_encode( $payload );
+
+		return '[inspection result: ' . $name . ' callable_schemas=' . ( is_string( $encoded ) ? $encoded : '{}' ) . ']';
+	}
+
+	/**
+	 * Build a bounded schema shape without descriptions or example/default data.
+	 *
+	 * @param array<string,mixed> $schema Input schema.
+	 * @param int                 $depth  Current nested-schema depth.
+	 * @return array<string,mixed>
+	 */
+	private static function compact_schema_shape( array $schema, int $depth = 0 ): array {
+		$shape = self::compact_receipt_fields(
+			$schema,
+			array( 'type', 'format', 'enum', 'minimum', 'maximum', 'minItems', 'maxItems' )
+		);
+
+		if ( isset( $schema['additionalProperties'] ) && is_bool( $schema['additionalProperties'] ) ) {
+			$shape['additionalProperties'] = $schema['additionalProperties'];
+		}
+
+		if ( $depth >= 2 ) {
+			return $shape;
+		}
+
+		if ( isset( $schema['properties'] ) && is_array( $schema['properties'] ) ) {
+			$properties = array();
+
+			$retained_property_names = array();
+			foreach ( array_slice( $schema['properties'], 0, 12, true ) as $property_name => $property_schema ) {
+				if ( ! is_string( $property_name ) || ! is_array( $property_schema ) ) {
+					continue;
+				}
+
+				$compacted_property_name = self::compact_receipt_value( $property_name );
+
+				$properties[ $compacted_property_name ] = self::compact_schema_shape( $property_schema, $depth + 1 );
+
+				$retained_property_names[ $property_name ] = $compacted_property_name;
+			}
+			if ( ! empty( $properties ) ) {
+				$shape['properties'] = $properties;
+			}
+
+			if ( isset( $schema['required'] ) && is_array( $schema['required'] ) ) {
+				$required = array();
+				foreach ( $schema['required'] as $required_property_name ) {
+					if ( is_string( $required_property_name ) && isset( $retained_property_names[ $required_property_name ] ) ) {
+						$required[] = $retained_property_names[ $required_property_name ];
+					}
+				}
+				if ( ! empty( $required ) ) {
+					$shape['required'] = $required;
+				}
+			}
+		}
+
+		if ( isset( $schema['items'] ) && is_array( $schema['items'] ) ) {
+			$shape['items'] = self::compact_schema_shape( $schema['items'], $depth + 1 );
+		}
+
+		return $shape;
 	}
 
 	/** Whether a tool is a read-only inspection whose bounded result aids continuation. */
