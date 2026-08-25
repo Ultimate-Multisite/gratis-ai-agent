@@ -399,7 +399,7 @@ Reflects the interface decisions made during the chat UI redesign (April 2026).
 
 ## 10. Public Brand Assets
 
-WordPress.org and promotional artwork extends the restrained WordPress admin
+WordPress.org and promotional artwork extend the restrained WordPress admin
 visual language with fixed brand colours: WordPress blue `#2271b1`, dark blue
 `#135e96`, light blue `#b5d9f3`, charcoal `#1d2327`, and white.
 

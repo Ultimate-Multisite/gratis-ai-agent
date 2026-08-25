@@ -128,7 +128,7 @@ Stock-image services run only when requested. They receive the search keyword an
 
 = Which AI providers are supported? =
 
-The included SD AI managed provider is supported. For local models or other compatible provider endpoints, install [Ultimate AI Connector - Compatible Endpoints](https://wordpress.org/plugins/ultimate-ai-connector-compatible-endpoints/) and configure the endpoint in **Settings > Connectors**. Available providers and models depend on the endpoint you configure.
+The included SD AI-managed provider is supported. For local models or other compatible provider endpoints, install [Ultimate AI Connector - Compatible Endpoints](https://wordpress.org/plugins/ultimate-ai-connector-compatible-endpoints/) and configure the endpoint in **Settings > Connectors**. Available providers and models depend on the endpoint you configure.
 
 = How much does it cost to use? =
 
