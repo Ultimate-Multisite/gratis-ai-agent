@@ -329,4 +329,38 @@ class MonitorAutomationTest extends WP_UnitTestCase {
 			}
 		}
 	}
+
+	/** Event wakes require separately selected, strict Monitor sources. */
+	public function test_monitor_event_wakes_require_approved_sources(): void {
+		$missing_sources = Automations::validate_definition(
+			[
+				'mode'                        => Automations::MONITOR_MODE,
+				'monitor_event_wakes_enabled' => true,
+				'monitor_event_sources'       => [],
+			]
+		);
+		$this->assertWPError( $missing_sources );
+		$this->assertSame( 'sd_ai_agent_automation_monitor_event_wakes_requires_source', $missing_sources->get_error_code() );
+
+		$unapproved_source = Automations::validate_definition(
+			[
+				'mode'                  => Automations::MONITOR_MODE,
+				'monitor_event_sources' => [ 'user_register' ],
+			]
+		);
+		$this->assertWPError( $unapproved_source );
+		$this->assertSame( 'sd_ai_agent_automation_monitor_event_source_not_allowed', $unapproved_source->get_error_code() );
+
+		$monitor_id = $this->create_monitor(
+			[
+				'monitor_event_wakes_enabled' => true,
+				'monitor_event_sources'       => [ 'delete_post', 'delete_post', 'add_attachment' ],
+			]
+		);
+		$monitor    = Automations::get( $monitor_id );
+
+		$this->assertNotNull( $monitor );
+		$this->assertTrue( $monitor['monitor_event_wakes_enabled'] );
+		$this->assertSame( [ 'delete_post', 'add_attachment' ], $monitor['monitor_event_sources'] );
+	}
 }

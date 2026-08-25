@@ -184,6 +184,42 @@ class AutomationRunnerTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * An authorized Monitor draft check bypasses only the disabled guard while
+	 * preserving the stored disabled state and the absence of a cron schedule.
+	 */
+	public function test_manual_monitor_draft_run_preserves_disabled_state_and_schedule(): void {
+		$owner_id   = self::factory()->user->create( [ 'role' => 'administrator' ] );
+		$monitor_id = (int) Automations::create(
+			[
+				'name'            => 'Manual Monitor Draft',
+				'prompt'          => 'Assess the current site state.',
+				'mode'            => Automations::MONITOR_MODE,
+				'monitor_scratch' => '',
+				'owner_user_id'   => $owner_id,
+				'enabled'         => 0,
+			]
+		);
+
+		$this->assertGreaterThan( 0, $monitor_id );
+		$this->assertFalse( wp_next_scheduled( AutomationRunner::CRON_HOOK, [ $monitor_id ] ) );
+
+		$result  = AutomationRunner::run_manual_monitor_draft( $monitor_id );
+		$monitor = Automations::get( $monitor_id );
+
+		$this->assertIsArray( $result );
+		$this->assertSame( 'succeeded', $result['lifecycle_status'] );
+		$this->assertSame( 'quiet', $result['monitor_outcome'] );
+		$this->assertNotNull( $monitor );
+		$this->assertFalse( $monitor['enabled'] );
+		$this->assertSame( 'quiet', $monitor['last_monitor_outcome'] );
+		$this->assertFalse( wp_next_scheduled( AutomationRunner::CRON_HOOK, [ $monitor_id ] ) );
+
+		$log = AutomationLogs::get_by_run_id( $result['run_id'] );
+		$this->assertNotNull( $log );
+		$this->assertSame( 'manual', $log['trigger_type'] );
+	}
+
+	/**
 	 * Legacy ownerless rows fail closed even when an old cron event is still
 	 * delivered after the schema upgrade.
 	 */
@@ -387,5 +423,83 @@ class AutomationRunnerTest extends WP_UnitTestCase {
 			0,
 			has_filter( 'cron_schedules', [ AutomationRunner::class, 'add_cron_schedules' ] )
 		);
+	}
+
+	/** A claimed wake loses authority immediately when its source is not selected. */
+	public function test_monitor_wake_with_unselected_source_is_blocked_before_provider_work(): void {
+		$owner_id   = self::factory()->user->create( [ 'role' => 'administrator' ] );
+		$monitor_id = Automations::create(
+			[
+				'name'                        => 'Wake authorization Monitor',
+				'prompt'                      => 'This must not reach a provider.',
+				'mode'                        => Automations::MONITOR_MODE,
+				'monitor_scratch'             => 'Assess the site.',
+				'monitor_event_wakes_enabled' => true,
+				'monitor_event_sources'       => [ 'delete_post' ],
+				'owner_user_id'               => $owner_id,
+				'enabled'                     => 1,
+			]
+		);
+		$this->assertIsInt( $monitor_id );
+
+		try {
+			$result = AutomationRunner::run_monitor_wake(
+				(int) $monitor_id,
+				[
+					'source'      => 'add_attachment',
+					'event_count' => 1,
+					'identifiers' => [ 'attachment_id' => 123 ],
+				],
+				123,
+				'11111111-2222-4333-8444-555555555555'
+			);
+
+			$this->assertIsArray( $result );
+			$this->assertSame( 'blocked', $result['lifecycle_status'] );
+			$this->assertSame( 'complete', $result['_monitor_wake_disposition'] );
+			$this->assertSame( 'event', $result['trigger_type'] );
+			$this->assertSame( 'add_attachment', $result['trigger_name'] );
+		} finally {
+			AutomationRunner::unschedule( (int) $monitor_id );
+			Automations::delete( (int) $monitor_id );
+		}
+	}
+
+	/** A busy Monitor retains its claimed wake for bounded retry before provider work. */
+	public function test_monitor_wake_defers_when_another_run_owns_the_monitor(): void {
+		$owner_id   = self::factory()->user->create( [ 'role' => 'administrator' ] );
+		$monitor_id = Automations::create(
+			[
+				'name'                        => 'Busy wake Monitor',
+				'prompt'                      => 'This must not reach a provider.',
+				'mode'                        => Automations::MONITOR_MODE,
+				'monitor_scratch'             => 'Assess the site.',
+				'monitor_event_wakes_enabled' => true,
+				'monitor_event_sources'       => [ 'delete_post' ],
+				'owner_user_id'               => $owner_id,
+				'enabled'                     => 1,
+			]
+		);
+		$this->assertIsInt( $monitor_id );
+		$this->assertTrue( Automations::claim_run( (int) $monitor_id, 'active-run', '2099-01-01 00:00:00' ) );
+
+		try {
+			$result = AutomationRunner::run_monitor_wake(
+				(int) $monitor_id,
+				[
+					'source'      => 'delete_post',
+					'event_count' => 2,
+					'identifiers' => [ 'post_id' => 42 ],
+				]
+			);
+
+			$this->assertIsArray( $result );
+			$this->assertSame( 'blocked', $result['lifecycle_status'] );
+			$this->assertSame( 'defer', $result['_monitor_wake_disposition'] );
+			$this->assertSame( 'active-run', Automations::get( (int) $monitor_id )['active_run_id'] );
+		} finally {
+			AutomationRunner::unschedule( (int) $monitor_id );
+			Automations::delete( (int) $monitor_id );
+		}
 	}
 }

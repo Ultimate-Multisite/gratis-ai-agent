@@ -981,6 +981,320 @@
 	border-radius: 3px;
 }
 
+/* Monitor/Pulse */
+.sd-ai-agent-monitor-manager {
+	margin-top: 32px;
+	padding-top: 24px;
+	border-top: 1px solid #dcdcde;
+}
+
+.sd-ai-agent-monitor-header {
+	display: flex;
+	align-items: flex-start;
+	justify-content: space-between;
+	gap: 16px;
+	margin-bottom: 16px;
+}
+
+.sd-ai-agent-monitor-header h3 {
+	margin: 0 0 4px;
+	font-size: 14px;
+}
+
+.sd-ai-agent-monitor-header .description {
+	margin: 0;
+	max-width: 680px;
+}
+
+.sd-ai-agent-monitor-form {
+	display: flex;
+	flex-direction: column;
+	gap: 16px;
+	margin-bottom: 16px;
+	padding: 16px;
+	border: 1px solid #c3d1e0;
+	border-radius: 4px;
+	background: #f0f6fc;
+}
+
+.sd-ai-agent-monitor-form .components-notice {
+	margin: 0;
+}
+
+.sd-ai-agent-monitor-form-grid {
+	display: grid;
+	grid-template-columns: repeat(3, minmax(0, 1fr));
+	gap: 12px;
+}
+
+.sd-ai-agent-monitor-event-wakes {
+	padding: 12px;
+	border: 1px solid #dcdcde;
+	border-radius: 4px;
+	background: #fff;
+}
+
+.sd-ai-agent-monitor-event-wake-sources {
+	display: grid;
+	grid-template-columns: repeat(2, minmax(0, 1fr));
+	gap: 8px 16px;
+}
+
+.sd-ai-agent-monitor-event-wake-sources .components-base-control {
+	margin-bottom: 0;
+}
+
+.sd-ai-agent-monitor-channel {
+	display: grid;
+	grid-template-columns: minmax(120px, 0.75fr) minmax(0, 2fr) minmax(105px, 0.75fr) auto;
+	gap: 8px;
+	align-items: end;
+	padding: 12px;
+	border: 1px solid #dcdcde;
+	border-radius: 4px;
+	background: #fff;
+}
+
+.sd-ai-agent-monitor-form-actions,
+.sd-ai-agent-monitor-actions {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 8px;
+}
+
+.sd-ai-agent-monitor-templates {
+	margin-bottom: 16px;
+}
+
+.sd-ai-agent-monitor-templates h4 {
+	margin: 0 0 8px;
+}
+
+.sd-ai-agent-monitor-template {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 16px;
+	padding: 12px;
+	border: 1px solid #dcdcde;
+	border-radius: 4px;
+	background: #fff;
+}
+
+.sd-ai-agent-monitor-template + .sd-ai-agent-monitor-template {
+	margin-top: 8px;
+}
+
+.sd-ai-agent-monitor-template p {
+	margin: 4px 0 0;
+	color: #646970;
+}
+
+.sd-ai-agent-monitor-list {
+	display: flex;
+	flex-direction: column;
+	gap: 12px;
+}
+
+.sd-ai-agent-monitor-card {
+	padding: 16px;
+	border: 1px solid #dcdcde;
+	border-radius: 4px;
+	background: #fff;
+}
+
+.sd-ai-agent-monitor-card--disabled {
+	border-style: dashed;
+	background: #f6f7f7;
+}
+
+.sd-ai-agent-monitor-card-header {
+	display: flex;
+	align-items: flex-start;
+	justify-content: space-between;
+	gap: 16px;
+	margin-bottom: 12px;
+}
+
+.sd-ai-agent-monitor-card-header h4 {
+	margin: 0 0 4px;
+}
+
+.sd-ai-agent-monitor-card-header .description {
+	margin: 0;
+}
+
+.sd-ai-agent-monitor-status {
+	flex: 0 0 auto;
+	padding: 3px 8px;
+	border-radius: 3px;
+	background: #f0f0f1;
+	color: #50575e;
+	font-size: 12px;
+	font-weight: 600;
+}
+
+.sd-ai-agent-monitor-status--quiet {
+	background: #edfaef;
+	color: #1e6129;
+}
+
+.sd-ai-agent-monitor-status--notify {
+	background: #fcf0c8;
+	color: #6b5d14;
+}
+
+.sd-ai-agent-monitor-status--blocked,
+.sd-ai-agent-monitor-status--error {
+	background: #fcf0f1;
+	color: #d63638;
+}
+
+.sd-ai-agent-monitor-status--claimed,
+.sd-ai-agent-monitor-status--running {
+	background: #f0f6fc;
+	color: var(--wp-admin-theme-color, #2271b1);
+}
+
+.sd-ai-agent-monitor-consent {
+	margin: 0 0 12px;
+	padding: 10px 12px;
+	border-left: 4px solid #dba617;
+	background: #fcf9e8;
+}
+
+.sd-ai-agent-monitor-consent p {
+	margin: 4px 0 0;
+}
+
+.sd-ai-agent-monitor-details {
+	display: grid;
+	grid-template-columns: repeat(3, minmax(0, 1fr));
+	gap: 12px;
+	margin: 0 0 12px;
+}
+
+.sd-ai-agent-monitor-details div {
+	min-width: 0;
+}
+
+.sd-ai-agent-monitor-details dt {
+	color: #646970;
+	font-size: 12px;
+	font-weight: 600;
+}
+
+.sd-ai-agent-monitor-details dd {
+	margin: 2px 0 0;
+	overflow-wrap: anywhere;
+}
+
+.sd-ai-agent-monitor-timing,
+.sd-ai-agent-monitor-cost,
+.sd-ai-agent-monitor-event-wake-status,
+.sd-ai-agent-monitor-summary,
+.sd-ai-agent-monitor-error {
+	margin: 8px 0;
+	padding: 8px 10px;
+	border-radius: 3px;
+	font-size: 13px;
+}
+
+.sd-ai-agent-monitor-timing {
+	background: #f0f6fc;
+	color: var(--wp-admin-theme-color, #2271b1);
+}
+
+.sd-ai-agent-monitor-cost {
+	background: #f6f7f7;
+	color: #50575e;
+}
+
+.sd-ai-agent-monitor-event-wake-status {
+	background: #f6f7f7;
+	color: #50575e;
+}
+
+.sd-ai-agent-monitor-summary {
+	background: #edfaef;
+	color: #1e6129;
+}
+
+.sd-ai-agent-monitor-error {
+	background: #fcf0f1;
+	color: #d63638;
+}
+
+.sd-ai-agent-monitor-logs {
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+	margin-top: 12px;
+	padding-top: 12px;
+	border-top: 1px solid #dcdcde;
+}
+
+.sd-ai-agent-monitor-log {
+	display: grid;
+	grid-template-columns: minmax(0, 1fr) auto;
+	gap: 4px 12px;
+	padding: 10px 12px;
+	border: 1px solid #dcdcde;
+	border-radius: 3px;
+	font-size: 12px;
+}
+
+.sd-ai-agent-monitor-log span {
+	color: #646970;
+}
+
+.sd-ai-agent-monitor-log p {
+	grid-column: 1 / -1;
+	margin: 0;
+	color: #d63638;
+}
+
+.sd-ai-agent-monitor-empty {
+	margin: 0;
+	padding: 12px;
+	border: 1px dashed #a7aaad;
+	border-radius: 4px;
+	color: #50575e;
+}
+
+@media screen and (max-width: 782px) {
+	.sd-ai-agent-monitor-form-grid,
+	.sd-ai-agent-monitor-details,
+	.sd-ai-agent-monitor-event-wake-sources {
+		grid-template-columns: repeat(2, minmax(0, 1fr));
+	}
+
+	.sd-ai-agent-monitor-channel {
+		grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+	}
+}
+
+@media screen and (max-width: 600px) {
+	.sd-ai-agent-monitor-header,
+	.sd-ai-agent-monitor-card-header,
+	.sd-ai-agent-monitor-template {
+		flex-direction: column;
+	}
+
+	.sd-ai-agent-monitor-form-grid,
+	.sd-ai-agent-monitor-details,
+	.sd-ai-agent-monitor-channel,
+	.sd-ai-agent-monitor-event-wake-sources {
+		grid-template-columns: minmax(0, 1fr);
+	}
+
+	.sd-ai-agent-monitor-template .components-button {
+		width: 100%;
+		justify-content: center;
+	}
+}
+
 /* ── Abilities Manager (t098) ────────────────────────────────────────────── */
 
 .sdaa-abilities-manager {

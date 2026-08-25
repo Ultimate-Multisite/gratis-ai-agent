@@ -209,6 +209,17 @@ System notices:
 - Hover: `border-color: --wp-admin-theme-color`, `box-shadow: 0 2px 8px rgba(0,0,0,.06)`
 - No transform or scale on hover — keep transitions to colour/border only
 
+### Monitor/Pulse settings
+
+- Keep **Scheduled Tasks** and **Monitor/Pulse** as separate settings surfaces. Tasks perform work on every schedule; a Monitor assesses a checklist and only notifies when attention is needed.
+- A newly saved Monitor, template-derived Monitor, or edited disabled Monitor is visibly a **Disabled draft**. Show the consent explanation before its configuration metadata and never imply that saving, editing, revisiting the page, or checking a draft schedules it.
+- Event wakes are separate consent from recurring monitoring: list only server-provided approved sources, keep the opt-in disabled until at least one source is selected, explain that wakes are coalesced and processed by WP-Cron, and show only compact queue counts rather than event payloads.
+- A disabled card has one primary opt-in action: **Enable monitoring**. **Check now** is a secondary action available only on a disabled draft and must be labelled as a one-off check, not a scheduling shortcut.
+- Show outcome, cadence, owner, tool profile, notification policy, last check, and next expected time in a compact definition list. Explain that WP-Cron timing is traffic-dependent; do not use an expected time as a health or on-time promise.
+- Outcome badges use semantic WordPress admin colours: quiet/success, attention-needed/warning, and blocked/error. Keep the latest summary and error bounded, text-only, and visually distinct from configuration controls.
+- Keep durable log inspection behind an explicit **Inspect logs** action. Delete remains a destructive secondary action with a native confirmation dialog.
+- On compact screens, stack Monitor headers, action rows, form fields, notification-channel controls, and detail metadata into one column without hiding consent or outcome context.
+
 ### SD AI Account Card
 
 - Show the verified linked user's display name, masked email, and a concise “Email verified” status above wallet details.

@@ -47,6 +47,7 @@ class DatabaseSchemaTest extends WP_UnitTestCase {
 		'sd_ai_agent_custom_tools',
 		'sd_ai_agent_automations',
 		'sd_ai_agent_automation_logs',
+		'sd_ai_agent_monitor_wakes',
 		'sd_ai_agent_approval_requests',
 		'sd_ai_agent_calendar_reminders',
 		'sd_ai_agent_event_automations',
@@ -276,9 +277,22 @@ class DatabaseSchemaTest extends WP_UnitTestCase {
 
 		$columns = $this->get_column_names( Database::automations_table_name() );
 
-		foreach ( [ 'id', 'name', 'description', 'prompt', 'schedule', 'enabled', 'last_run_at', 'next_run_at', 'run_count', 'created_at', 'updated_at' ] as $col ) {
+		foreach ( [ 'id', 'name', 'description', 'prompt', 'monitor_event_wakes_enabled', 'monitor_event_sources', 'monitor_wake_cooldown_until', 'monitor_wake_dropped_count', 'monitor_wake_deferred_count', 'schedule', 'enabled', 'last_run_at', 'next_run_at', 'run_count', 'created_at', 'updated_at' ] as $col ) {
 			$this->assertContains( $col, $columns, "Automations table missing column '{$col}'." );
 		}
+	}
+
+	/** Monitor wake rows retain only bounded queue state and a no-replay boundary. */
+	public function test_monitor_wakes_table_has_required_columns(): void {
+		Database::install();
+
+		$columns = $this->get_column_names( Database::monitor_wakes_table_name() );
+
+		foreach ( [ 'id', 'monitor_id', 'source', 'state_key', 'status', 'event_summary', 'event_count', 'dropped_count', 'deferred_count', 'attempt_count', 'available_at', 'lease_expires_at', 'claimed_run_id', 'provider_started_at', 'first_seen_at', 'last_seen_at', 'expires_at', 'created_at', 'updated_at' ] as $col ) {
+			$this->assertContains( $col, $columns, "Monitor wakes table missing column '{$col}'." );
+		}
+
+		$this->assertTrue( Database::has_transactional_monitor_wake_storage() );
 	}
 
 	/**
@@ -704,6 +718,31 @@ class DatabaseSchemaTest extends WP_UnitTestCase {
 			$stored,
 			'install() must update the stored version after running on an outdated schema.'
 		);
+	}
+
+	/** A site on the pre-event-wake version receives queue storage and automation fields on upgrade. */
+	public function test_install_upgrades_pre_event_wake_schema(): void {
+		global $wpdb;
+
+		$table             = Database::monitor_wakes_table_name();
+		$automations_table = Database::automations_table_name();
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.SchemaChange -- Test-only simulation of the schema preceding event wakes.
+		$this->assertNotFalse( $wpdb->query( $wpdb->prepare( 'DROP TABLE IF EXISTS %i', $table ) ) );
+		foreach ( [ 'monitor_event_wakes_enabled', 'monitor_event_sources', 'monitor_wake_cooldown_until', 'monitor_wake_dropped_count', 'monitor_wake_deferred_count' ] as $column ) {
+			// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.SchemaChange -- Test-only simulation of automation columns preceding event wakes.
+			$this->assertNotFalse( $wpdb->query( $wpdb->prepare( 'ALTER TABLE %i DROP COLUMN %i', $automations_table, $column ) ) );
+		}
+		update_option( Database::DB_VERSION_OPTION, '19.14.0' );
+
+		Database::install();
+
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Test-only schema introspection.
+		$this->assertSame( $table, $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $table ) ) );
+		$this->assertContains( 'provider_started_at', $this->get_column_names( $table ) );
+		foreach ( [ 'monitor_event_wakes_enabled', 'monitor_event_sources', 'monitor_wake_cooldown_until', 'monitor_wake_dropped_count', 'monitor_wake_deferred_count' ] as $column ) {
+			$this->assertContains( $column, $this->get_column_names( $automations_table ) );
+		}
+		$this->assertSame( Database::DB_VERSION, get_option( Database::DB_VERSION_OPTION ) );
 	}
 
 	/**

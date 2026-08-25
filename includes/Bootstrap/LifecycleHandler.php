@@ -23,6 +23,7 @@ namespace SdAiAgent\Bootstrap;
 
 use SdAiAgent\Abilities\ToolCapabilities;
 use SdAiAgent\Automations\AutomationRunner;
+use SdAiAgent\Automations\MonitorWakeQueue;
 use SdAiAgent\Core\ActiveJobsCleanupService;
 use SdAiAgent\Core\BlockInventory;
 use SdAiAgent\Core\Database;
@@ -55,6 +56,7 @@ final class LifecycleHandler {
 	public static function activate(): void {
 		Database::install();
 		AutomationRunner::reschedule_all();
+		MonitorWakeQueue::reschedule_pending_wakes();
 		OnboardingManager::on_activation();
 		SkillUpdateChecker::schedule();
 		ActiveJobsCleanupService::schedule();
@@ -72,6 +74,7 @@ final class LifecycleHandler {
 	public static function deactivate(): void {
 		KnowledgeHooks::deactivate();
 		AutomationRunner::unschedule_all();
+		MonitorWakeQueue::unschedule_processing();
 		SiteScanner::unschedule();
 		SkillUpdateChecker::unschedule();
 		ActiveJobsCleanupService::unschedule();

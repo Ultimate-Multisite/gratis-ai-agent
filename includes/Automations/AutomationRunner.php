@@ -110,15 +110,90 @@ class AutomationRunner {
 	}
 
 	/**
-	 * Run an automation (fired by WP Cron or manually).
+	 * Run an enabled automation (fired by WP Cron or the regular manual action).
 	 *
 	 * @param int $automation_id Automation ID.
 	 * @return array<string, mixed>|null Run result or null when the automation does not exist.
 	 */
 	public static function run( int $automation_id ): ?array {
+		return self::run_internal( $automation_id, false );
+	}
+
+	/**
+	 * Run one disabled Monitor draft without enabling or scheduling it.
+	 *
+	 * This is intentionally a separate entry point so normal cron and manual task
+	 * deliveries retain their disabled-run block. The REST controller exposes it
+	 * only to authorized administrators after confirming the stored definition is
+	 * a disabled Monitor.
+	 *
+	 * @param int $automation_id Monitor automation ID.
+	 * @return array<string, mixed>|null Run result or null when the automation does not exist.
+	 */
+	public static function run_manual_monitor_draft( int $automation_id ): ?array {
+		return self::run_internal( $automation_id, true );
+	}
+
+	/**
+	 * Run one coalesced Monitor event wake through the normal ownership, budget,
+	 * tool-profile, lifecycle, outcome, and notification path.
+	 *
+	 * The returned disposition is internal queue metadata. It is `defer` only
+	 * while no model request has started, so retained evidence is never replayed
+	 * after an uncertain provider or tool execution.
+	 *
+	 * @param int                  $automation_id        Monitor automation ID.
+	 * @param array<string, mixed> $wake_context         Sanitized queue context.
+	 * @param int                  $queue_wake_id        Claimed durable queue row ID.
+	 * @param string               $queue_claimed_run_id Durable queue claim ID.
+	 * @return array<string, mixed>|null Run result or null when the Monitor no longer exists.
+	 */
+	public static function run_monitor_wake( int $automation_id, array $wake_context, int $queue_wake_id = 0, string $queue_claimed_run_id = '' ): ?array {
+		$wake_disposition = 'defer';
+		$result           = self::run_internal( $automation_id, false, $wake_context, $wake_disposition, $queue_wake_id, $queue_claimed_run_id );
+		if ( ! is_array( $result ) ) {
+			return $result;
+		}
+
+		$result['_monitor_wake_disposition'] = $wake_disposition;
+
+		return $result;
+	}
+
+	/**
+	 * Execute an automation under the normal or narrowly authorized draft contract.
+	 *
+	 * @param int                  $automation_id              Automation ID.
+	 * @param bool                 $allow_manual_monitor_draft Whether this request is the controller-authorized draft path.
+	 * @param array<string, mixed> $wake_context               Sanitized event metadata for a queue wake.
+	 * @param string|null          $wake_disposition           Safe queue disposition, when this is a queue wake.
+	 * @param int                  $queue_wake_id              Claimed durable queue row ID.
+	 * @param string               $queue_claimed_run_id       Durable queue claim ID.
+	 * @return array<string, mixed>|null Run result or null when the automation does not exist.
+	 */
+	private static function run_internal( int $automation_id, bool $allow_manual_monitor_draft, array $wake_context = [], ?string &$wake_disposition = null, int $queue_wake_id = 0, string $queue_claimed_run_id = '' ): ?array {
+		$is_monitor_wake = null !== $wake_disposition;
+		if ( $is_monitor_wake ) {
+			$wake_disposition = 'defer';
+			$wake_context     = MonitorOutcome::sanitize_wake_context( $wake_context );
+		}
+
 		$automation = Automations::get( $automation_id );
 		if ( ! $automation ) {
+			if ( $is_monitor_wake ) {
+				$wake_disposition = 'complete';
+			}
 			return null;
+		}
+		if ( $is_monitor_wake && ! self::is_authorized_monitor_wake( $automation, $wake_context ) ) {
+			$wake_disposition = 'complete';
+			return self::record_blocked_delivery(
+				$automation,
+				wp_generate_uuid4(),
+				__( 'This Monitor wake is no longer authorized to run.', 'superdav-ai-agent' ),
+				true,
+				$wake_context
+			);
 		}
 
 		$run_id = wp_generate_uuid4();
@@ -126,7 +201,9 @@ class AutomationRunner {
 			return self::record_blocked_delivery(
 				$automation,
 				$run_id,
-				__( 'Automation lifecycle storage is unavailable and must be repaired before this automation can run.', 'superdav-ai-agent' )
+				__( 'Automation lifecycle storage is unavailable and must be repaired before this automation can run.', 'superdav-ai-agent' ),
+				$is_monitor_wake,
+				$wake_context
 			);
 		}
 
@@ -138,10 +215,35 @@ class AutomationRunner {
 		// or delete the automation, so use a fresh definition for this delivery.
 		$automation = Automations::get( $automation_id );
 		if ( ! $automation ) {
+			if ( $is_monitor_wake ) {
+				$wake_disposition = 'complete';
+			}
 			return null;
 		}
+		if ( $is_monitor_wake && ! self::is_authorized_monitor_wake( $automation, $wake_context ) ) {
+			$wake_disposition = 'complete';
+			return self::record_blocked_delivery(
+				$automation,
+				$run_id,
+				__( 'This Monitor wake is no longer authorized to run.', 'superdav-ai-agent' ),
+				true,
+				$wake_context
+			);
+		}
 
-		if ( empty( $automation['enabled'] ) ) {
+		$is_manual_monitor_draft = $allow_manual_monitor_draft
+			&& Automations::is_monitor( $automation )
+			&& empty( $automation['enabled'] );
+
+		if ( $allow_manual_monitor_draft && ! $is_manual_monitor_draft ) {
+			return self::record_blocked_delivery(
+				$automation,
+				$run_id,
+				__( 'Only a disabled Monitor draft can use the manual check path.', 'superdav-ai-agent' )
+			);
+		}
+
+		if ( empty( $automation['enabled'] ) && ! $is_manual_monitor_draft ) {
 			return self::record_blocked_delivery(
 				$automation,
 				$run_id,
@@ -150,7 +252,14 @@ class AutomationRunner {
 		}
 
 		$lease_expires_at = self::get_lease_expiration( $automation );
-		$claim_state      = self::claim_run_with_lifecycle( $automation, $run_id, $lease_expires_at );
+		$claim_state      = self::claim_run_with_lifecycle(
+			$automation,
+			$run_id,
+			$lease_expires_at,
+			$is_manual_monitor_draft,
+			$is_monitor_wake,
+			$wake_context
+		);
 		if ( 'failed' === $claim_state ) {
 			return self::build_fallback_result(
 				$automation,
@@ -165,7 +274,9 @@ class AutomationRunner {
 			return self::record_blocked_delivery(
 				$automation,
 				$run_id,
-				__( 'Another scheduled delivery already owns this automation run.', 'superdav-ai-agent' )
+				__( 'Another scheduled delivery already owns this automation run.', 'superdav-ai-agent' ),
+				$is_monitor_wake,
+				$wake_context
 			);
 		}
 
@@ -262,6 +373,9 @@ class AutomationRunner {
 			$start_time = microtime( true );
 			$is_monitor = Automations::is_monitor( $automation );
 			if ( $is_monitor && ! MonitorOutcome::has_scratch( $automation ) ) {
+				if ( $is_monitor_wake ) {
+					$wake_disposition = 'complete';
+				}
 				$terminal_status = 'succeeded';
 				$log_data        = self::finish_owned_run(
 					$automation,
@@ -296,9 +410,23 @@ class AutomationRunner {
 					$options['anonymous_allowed_abilities'] = $tool_profile;
 				}
 
-				$prompt = $is_monitor ? MonitorOutcome::build_prompt( $automation ) : (string) $automation['prompt'];
+				$prompt = $is_monitor ? MonitorOutcome::build_prompt( $automation, $wake_context ) : (string) $automation['prompt'];
 				// @phpstan-ignore-next-line
-				$loop   = new AgentLoop( $prompt, [], [], $options );
+				$loop = new AgentLoop( $prompt, [], [], $options );
+				if ( $is_monitor_wake && ! MonitorWakeQueue::mark_provider_started( $queue_wake_id, $queue_claimed_run_id ) ) {
+					return self::finish_owned_run(
+						$automation,
+						$run_id,
+						'failed',
+						[
+							'error_message'   => __( 'The Monitor wake could not establish its pre-provider safety boundary.', 'superdav-ai-agent' ),
+							'monitor_outcome' => 'error',
+						]
+					);
+				}
+				if ( $is_monitor_wake ) {
+					$wake_disposition = 'complete';
+				}
 				$result = $loop->run();
 
 				$duration = (int) round( ( microtime( true ) - $start_time ) * 1000 );
@@ -454,19 +582,22 @@ class AutomationRunner {
 	/**
 	 * Persist a terminal blocked delivery that did not acquire an active claim.
 	 *
-	 * @param array<string, mixed> $automation Automation definition.
-	 * @param string               $run_id     Correlation UUID for the execution.
-	 * @param string               $reason     Safe operator-facing block reason.
+	 * @param array<string, mixed> $automation      Automation definition.
+	 * @param string               $run_id          Correlation UUID for the execution.
+	 * @param string               $reason          Safe operator-facing block reason.
+	 * @param bool                 $is_monitor_wake Whether this came from a Monitor event wake.
+	 * @param array<string, mixed> $wake_context    Sanitized Monitor wake context.
 	 * @return array<string, mixed>
 	 */
-	private static function record_blocked_delivery( array $automation, string $run_id, string $reason ): array {
+	private static function record_blocked_delivery( array $automation, string $run_id, string $reason, bool $is_monitor_wake = false, array $wake_context = [] ): array {
 		$monitor_outcome = self::monitor_outcome_for_lifecycle( $automation, 'blocked' );
 		$log_id          = AutomationLogs::create(
 			[
 				'automation_id'    => (int) ( $automation['id'] ?? 0 ),
 				'run_id'           => $run_id,
 				'owner_user_id'    => (int) ( $automation['owner_user_id'] ?? 0 ),
-				'trigger_type'     => 'scheduled',
+				'trigger_type'     => $is_monitor_wake ? 'event' : 'scheduled',
+				'trigger_name'     => $is_monitor_wake ? (string) ( $wake_context['source'] ?? '' ) : '',
 				'status'           => 'error',
 				'lifecycle_status' => 'blocked',
 				'monitor_outcome'  => $monitor_outcome,
@@ -485,25 +616,54 @@ class AutomationRunner {
 	}
 
 	/**
+	 * Confirm a claimed wake still matches the current explicit Monitor consent.
+	 *
+	 * @param array<string, mixed> $automation  Current automation definition.
+	 * @param array<string, mixed> $wake_context Sanitized wake context.
+	 */
+	private static function is_authorized_monitor_wake( array $automation, array $wake_context ): bool {
+		$source = (string) ( $wake_context['source'] ?? '' );
+
+		return Automations::is_monitor( $automation )
+			&& ! empty( $automation['enabled'] )
+			&& Automations::is_monitor_event_wakes_enabled( $automation )
+			&& '' !== $source
+			&& in_array( $source, Automations::get_monitor_event_sources( $automation ), true );
+	}
+
+	/**
 	 * Atomically persist the claimed log and the matching automation claim.
 	 *
-	 * @param array<string, mixed> $automation       Automation definition.
-	 * @param string               $run_id           Correlation UUID for this delivery.
-	 * @param string               $lease_expires_at UTC MySQL expiration datetime.
+	 * @param array<string, mixed> $automation              Automation definition.
+	 * @param string               $run_id                  Correlation UUID for this delivery.
+	 * @param string               $lease_expires_at        UTC MySQL expiration datetime.
+	 * @param bool                 $is_manual_monitor_draft Whether this is one authorized disabled Monitor check.
+	 * @param bool                 $is_monitor_wake         Whether this delivery came from a coalesced event wake.
+	 * @param array<string, mixed> $wake_context            Sanitized event context for a Monitor wake.
 	 * @return 'claimed'|'contended'|'failed'
 	 */
-	private static function claim_run_with_lifecycle( array $automation, string $run_id, string $lease_expires_at ): string {
+	private static function claim_run_with_lifecycle(
+		array $automation,
+		string $run_id,
+		string $lease_expires_at,
+		bool $is_manual_monitor_draft = false,
+		bool $is_monitor_wake = false,
+		array $wake_context = []
+	): string {
 		$automation_id = (int) ( $automation['id'] ?? 0 );
 		if ( $automation_id <= 0 || ! Automations::begin_lifecycle_transaction() ) {
 			return 'failed';
 		}
+		$trigger_type = $is_manual_monitor_draft ? 'manual' : ( $is_monitor_wake ? 'event' : 'scheduled' );
+		$trigger_name = $is_monitor_wake ? (string) ( $wake_context['source'] ?? '' ) : '';
 
 		$log_id = AutomationLogs::create(
 			[
 				'automation_id'    => $automation_id,
 				'run_id'           => $run_id,
 				'owner_user_id'    => (int) ( $automation['owner_user_id'] ?? 0 ),
-				'trigger_type'     => 'scheduled',
+				'trigger_type'     => $trigger_type,
+				'trigger_name'     => $trigger_name,
 				'status'           => 'pending',
 				'lifecycle_status' => 'claimed',
 				'lease_expires_at' => $lease_expires_at,
@@ -514,7 +674,10 @@ class AutomationRunner {
 			return 'failed';
 		}
 
-		if ( ! Automations::claim_run( $automation_id, $run_id, $lease_expires_at ) ) {
+		$claimed = $is_manual_monitor_draft
+			? self::claim_manual_monitor_draft_run( $automation_id, $run_id, $lease_expires_at )
+			: Automations::claim_run( $automation_id, $run_id, $lease_expires_at );
+		if ( ! $claimed ) {
 			Automations::rollback_lifecycle_transaction();
 			return 'contended';
 		}
@@ -525,6 +688,38 @@ class AutomationRunner {
 		}
 
 		return 'claimed';
+	}
+
+	/**
+	 * Claim exactly one disabled Monitor draft without mutating its enabled state.
+	 *
+	 * The ordinary model claim intentionally requires enabled=1. This parallel
+	 * predicate is scoped to the controller-authorized draft run and preserves the
+	 * same active-run fence while also proving no recurring schedule was enabled.
+	 *
+	 * @param int    $automation_id    Automation ID.
+	 * @param string $run_id           Correlation UUID for this delivery.
+	 * @param string $lease_expires_at UTC MySQL expiration datetime.
+	 */
+	private static function claim_manual_monitor_draft_run( int $automation_id, string $run_id, string $lease_expires_at ): bool {
+		global $wpdb;
+		/** @var \wpdb $wpdb */
+
+		$now = current_time( 'mysql', true );
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- The lifecycle transaction atomically claims one disabled Monitor draft without changing its enabled state.
+		$result = $wpdb->query(
+			$wpdb->prepare(
+				"UPDATE %i SET active_run_id = %s, execution_status = 'claimed', lease_expires_at = %s, updated_at = %s WHERE id = %d AND enabled = 0 AND mode = %s AND active_run_id = ''",
+				Automations::table_name(),
+				$run_id,
+				$lease_expires_at,
+				$now,
+				$automation_id,
+				Automations::MONITOR_MODE
+			)
+		);
+
+		return false !== $result && $result > 0;
 	}
 
 	/** Transition both claimed lifecycle rows to running together. */
