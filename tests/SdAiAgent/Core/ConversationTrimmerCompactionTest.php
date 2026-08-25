@@ -16,7 +16,7 @@ use WP_UnitTestCase;
 
 class ConversationTrimmerCompactionTest extends WP_UnitTestCase {
 
-	/** Compacted setup reads retain bounded state without copying raw values. */
+	/** Compacted setup reads retain bounded state and callable ability schemas. */
 	public function test_compact_serialized_history_preserves_inspection_receipts(): void {
 		$messages = [
 			[
@@ -41,7 +41,25 @@ class ConversationTrimmerCompactionTest extends WP_UnitTestCase {
 								'total'   => 2,
 								'count'   => 2,
 								'results' => [
-									[ 'id' => 'sd-ai-agent/delete-post', 'label' => 'Delete Post', 'description' => 'SECRET_DESCRIPTION' ],
+									[
+										'id'           => 'sd-ai-agent/delete-post',
+										'label'        => 'Delete Post',
+										'description'  => 'SECRET_DESCRIPTION',
+										'input_schema' => [
+											'type'       => 'object',
+											'required'   => [ 'post_id' ],
+											'properties' => [
+												'post_id' => [
+													'type'        => 'integer',
+													'description' => 'SECRET_SCHEMA_DESCRIPTION',
+												],
+												'force'   => [
+													'type'    => 'boolean',
+													'default' => 'SECRET_SCHEMA_DEFAULT',
+												],
+											],
+										],
+									],
 									[ 'id' => 'sd-ai-agent/list-media', 'label' => 'List Media', 'input_schema' => 'SECRET_SCHEMA' ],
 								],
 							],
@@ -88,12 +106,20 @@ class ConversationTrimmerCompactionTest extends WP_UnitTestCase {
 		$json   = (string) wp_json_encode( $result['messages'] );
 
 		$this->assertStringContainsString( 'Do not repeat an inspection solely', $json );
+		$this->assertStringContainsString( 'Use ability-call directly', $json );
 		$this->assertStringContainsString( 'scaffold block theme file write', $json );
 		$this->assertStringContainsString( 'delete-post', $json );
+		$this->assertStringContainsString( 'input_schema', $json );
+		$this->assertStringContainsString( 'post_id', $json );
+		$this->assertStringContainsString( 'integer', $json );
+		$this->assertStringContainsString( 'force', $json );
+		$this->assertStringContainsString( 'boolean', $json );
 		$this->assertStringContainsString( 'Sample Page', $json );
 		$this->assertStringContainsString( 'provider_api_key', $json );
 		$this->assertStringNotContainsString( 'SECRET_DESCRIPTION', $json );
 		$this->assertStringNotContainsString( 'SECRET_SCHEMA', $json );
+		$this->assertStringNotContainsString( 'SECRET_SCHEMA_DESCRIPTION', $json );
+		$this->assertStringNotContainsString( 'SECRET_SCHEMA_DEFAULT', $json );
 		$this->assertStringNotContainsString( 'SECRET_CONTENT', $json );
 		$this->assertStringNotContainsString( 'SECRET_OPTION_VALUE', $json );
 		$this->assertStringNotContainsString( 'private.example', $json );
