@@ -217,6 +217,20 @@ PHP;
 	return false !== file_put_contents(rtrim($core_dir, '/') . '/wp-config.php', $config);
 }
 
+/**
+ * Confirm that the shared file cache contains the minimum WordPress PHPUnit
+ * contract before database setup begins.
+ *
+ * @param string $core_dir  WordPress core directory.
+ * @param string $tests_dir WordPress test library directory.
+ * @return bool
+ */
+function sd_ai_agent_setup_has_valid_file_cache(string $core_dir, string $tests_dir): bool
+{
+	return is_file(rtrim($core_dir, '/') . '/wp-settings.php')
+		&& is_file(rtrim($tests_dir, '/') . '/includes/functions.php');
+}
+
 $wp_version  = sd_ai_agent_setup_env('WP_VERSION') ?? 'trunk';
 $version_key = sd_ai_agent_setup_version_slug($wp_version);
 $cache_root  = sd_ai_agent_setup_cache_root();
@@ -242,8 +256,9 @@ if (! is_dir($cache_root) && ! mkdir($cache_root, 0777, true) && ! is_dir($cache
 }
 
 $env = array(
-	'WP_TESTS_DIR' => $tests_dir,
-	'WP_CORE_DIR'  => $core_dir,
+	'WP_PHPUNIT_CACHE_DIR' => $cache_root,
+	'WP_TESTS_DIR'         => $tests_dir,
+	'WP_CORE_DIR'          => $core_dir,
 );
 
 $command = sd_ai_agent_setup_env_prefix($env)
@@ -263,6 +278,14 @@ fwrite(STDOUT, '- Test database:  ' . $db_name . ' @ ' . $db_host . PHP_EOL);
 passthru($command, $exit_code);
 if (0 !== (int) $exit_code) {
 	exit((int) $exit_code);
+}
+
+if (! sd_ai_agent_setup_has_valid_file_cache($core_dir, $tests_dir)) {
+	fwrite(
+		STDERR,
+		'WordPress PHPUnit cache is incomplete after provisioning. Expected wp-settings.php and includes/functions.php; rerun `pnpm run test:php:setup` to rebuild it.' . PHP_EOL
+	);
+	exit(1);
 }
 
 if (! sd_ai_agent_setup_wp_config($core_dir, $db_name, $db_user, $db_pass, $db_host)) {
