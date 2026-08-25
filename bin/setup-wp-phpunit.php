@@ -182,9 +182,9 @@ function sd_ai_agent_setup_database(string $db_name, string $db_user, string $db
 /**
  * Write a standard wp-config.php that WP-CLI can parse in the shared core tree.
  *
- * The legacy WordPress test installer downloads a CI-oriented config file that
- * does not directly load wp-settings.php. WP-CLI rejects that shape, which
- * breaks tests that exercise subprocess isolation through `wp eval-file`.
+ * The WordPress test installer only provisions core files. This setup command
+ * adds a config that directly loads wp-settings.php so WP-CLI can run tests
+ * that exercise subprocess isolation through `wp eval-file`.
  *
  * @param string $core_dir WordPress core directory.
  * @param string $db_name  Database name.
