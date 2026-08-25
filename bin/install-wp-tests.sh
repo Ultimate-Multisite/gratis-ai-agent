@@ -265,7 +265,6 @@ install_wp() {
 		rm -f "$archive_file"
 	fi
 
-	download 'https://raw.githubusercontent.com/marber/wp-config-github-actions/main/wp-config-ci.php' "$CORE_STAGING/wp-config.php"
 	if ! is_valid_core "$CORE_STAGING"; then
 		printf 'WordPress core staging directory is incomplete: %s/wp-settings.php is missing.\n' "$CORE_STAGING" >&2
 		return 1
