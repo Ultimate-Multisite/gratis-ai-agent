@@ -2468,10 +2468,7 @@ PROMPT;
 			return $result;
 		}
 
-		if ( $this->is_local_payload_limit_error( $result ) ) {
-			$this->restore_provider_recovery_history( $provider_recovery_history );
-			return $this->with_payload_recovery_metadata( $result, $before_bytes, $before_tokens, false, false );
-		}
+		$local_payload_rejection  = $this->is_local_payload_limit_error( $result );
 		$source_data              = $result->get_error_data();
 		$complete_envelope_bytes  = is_array( $source_data ) && 'complete_envelope' === ( $source_data['request_size_source'] ?? '' )
 			? max( 0, (int) ( $source_data['request_bytes'] ?? 0 ) )
@@ -2486,15 +2483,17 @@ PROMPT;
 			$complete_envelope_bytes > 0 ? $complete_envelope_bytes : $before_bytes,
 			$complete_envelope_tokens > 0 ? $complete_envelope_tokens : $before_tokens,
 			$byte_budget,
-			false,
+			$local_payload_rejection,
 			false,
 			$complete_envelope_bytes <= 0,
 			'reduced_retry_attempted'
 		);
 
 		// Only a measured, complete request envelope can prove that the one
-		// reduced retry is materially smaller. Do not retry 413s from SDK layers
-		// that did not reach the HTTP preflight hook.
+		// reduced retry is materially smaller. This includes local transport
+		// preflight rejections: history can fit its standalone budget while the
+		// complete system-instruction and tool envelope still exceeds the limit.
+		// Do not retry 413s from SDK layers that did not measure the full request.
 		if ( $complete_envelope_bytes <= 0 ) {
 			$this->restore_provider_recovery_history( $provider_recovery_history );
 			return $this->with_payload_recovery_metadata( $result, $before_bytes, $before_tokens, false, false );
@@ -2522,8 +2521,9 @@ PROMPT;
 		}
 
 		if ( $after_bytes >= $before_bytes ) {
+			$fallback_exhausted = $local_payload_rejection && is_array( $provider_recovery_history );
 			$this->restore_provider_recovery_history( $provider_recovery_history );
-			return $this->with_payload_recovery_metadata( $result, $before_bytes, $before_tokens, false, false );
+			return $this->with_payload_recovery_metadata( $result, $before_bytes, $before_tokens, false, $fallback_exhausted );
 		}
 
 		$this->history       = $reduced;
@@ -2546,7 +2546,8 @@ PROMPT;
 			$this->provider_retry_baseline_envelope_bytes = 0;
 		}
 		if ( is_wp_error( $retry_result ) ) {
-			if ( $this->is_payload_limit_error( $retry_result ) && ! $this->is_local_payload_limit_error( $retry_result ) ) {
+			if ( $this->is_payload_limit_error( $retry_result ) ) {
+				$retry_local_rejection = $this->is_local_payload_limit_error( $retry_result );
 				$retry_error_data      = $retry_result->get_error_data();
 				$retry_envelope_bytes  = is_array( $retry_error_data ) && 'complete_envelope' === ( $retry_error_data['request_size_source'] ?? '' )
 					? max( 0, (int) ( $retry_error_data['request_bytes'] ?? 0 ) )
@@ -2561,7 +2562,7 @@ PROMPT;
 					$retry_envelope_bytes > 0 ? $retry_envelope_bytes : $after_bytes,
 					$retry_envelope_tokens > 0 ? $retry_envelope_tokens : $after_tokens,
 					$byte_budget,
-					false,
+					$retry_local_rejection,
 					true,
 					$retry_envelope_bytes <= 0,
 					'reduced_retry_exhausted'
@@ -2754,7 +2755,7 @@ PROMPT;
 		$data['request_tokens_estimate'] = $request_tokens;
 		$data['fallback_attempted']      = $fallback_attempted;
 		$data['payload_reduced']         = $reduced;
-		if ( $this->is_local_payload_limit_error( $error ) && $this->session_id > 0 ) {
+		if ( $this->is_local_payload_limit_error( $error ) && $this->session_id > 0 && ! $fallback_attempted ) {
 			$data['recovery'] = array(
 				'action'            => 'compact_session',
 				'source_session_id' => $this->session_id,

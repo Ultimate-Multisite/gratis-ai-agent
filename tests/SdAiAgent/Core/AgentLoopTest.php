@@ -1814,12 +1814,16 @@ class AgentLoopTest extends WP_UnitTestCase {
 		$this->assertStringContainsString( $current, (string) wp_json_encode( $data['history'] ) );
 	}
 
-	/** A local transport preflight rejection must not consume the one upstream-413 retry. */
-	public function test_local_transport_payload_rejection_skips_reduced_retry_and_offers_compaction(): void {
-		$loop = new ScriptedAgentLoop(
+	/** A measured local transport preflight rejection receives one reduced retry. */
+	public function test_local_transport_payload_rejection_retries_once_with_reduced_history(): void {
+		$history = array(
+			new UserMessage( array( new MessagePart( str_repeat( 'Completed tool evidence. ', 1200 ) ) ) ),
+			new ModelMessage( array( new MessagePart( 'The completed work remains available.' ) ) ),
+		);
+		$loop    = new ScriptedAgentLoop(
 			'Current request.',
 			array(),
-			array(),
+			$history,
 			array(
 				'provider_id' => 'scripted-provider',
 				'model_id'    => 'scripted-model',
@@ -1832,7 +1836,60 @@ class AgentLoopTest extends WP_UnitTestCase {
 					array(
 						'status_code'         => 413,
 						'local_rejection'     => true,
-						'request_bytes'       => 8192,
+						'request_bytes'       => 131072,
+						'request_size_source' => 'complete_envelope',
+					)
+				),
+				$this->create_scripted_result( 'Recovered after local envelope reduction.' ),
+			)
+		);
+
+		$result = $loop->run();
+
+		$this->assertIsArray( $result );
+		$this->assertSame( 'Recovered after local envelope reduction.', $result['reply'] );
+		$this->assertCount( 2, $loop->requestSizes );
+		$this->assertLessThan( $loop->requestSizes[0], $loop->requestSizes[1] );
+		$recoveries = array_filter(
+			$result['messages'],
+			static fn( array $entry ): bool => 'provider_payload_recovery' === ( $entry['type'] ?? '' )
+		);
+		$this->assertCount( 1, $recoveries );
+	}
+
+	/** A failed measured local retry must not request another compaction loop. */
+	public function test_repeated_local_transport_payload_rejection_stops_after_reduced_retry(): void {
+		$history = array(
+			new UserMessage( array( new MessagePart( str_repeat( 'Completed tool evidence. ', 1200 ) ) ) ),
+			new ModelMessage( array( new MessagePart( 'The completed work remains available.' ) ) ),
+		);
+		$loop    = new ScriptedAgentLoop(
+			'Current request.',
+			array(),
+			$history,
+			array(
+				'provider_id' => 'scripted-provider',
+				'model_id'    => 'scripted-model',
+				'session_id'  => 49,
+			),
+			array(
+				new WP_Error(
+					'sd_ai_agent_provider_payload_budget_exceeded',
+					'Complete request envelope exceeded the local budget.',
+					array(
+						'status_code'         => 413,
+						'local_rejection'     => true,
+						'request_bytes'       => 131072,
+						'request_size_source' => 'complete_envelope',
+					)
+				),
+				new WP_Error(
+					'sd_ai_agent_provider_payload_budget_exceeded',
+					'Reduced request still exceeded the local budget.',
+					array(
+						'status_code'         => 413,
+						'local_rejection'     => true,
+						'request_bytes'       => 78643,
 						'request_size_source' => 'complete_envelope',
 					)
 				),
@@ -1843,12 +1900,13 @@ class AgentLoopTest extends WP_UnitTestCase {
 
 		$this->assertInstanceOf( \WP_Error::class, $result );
 		$this->assertSame( 'sd_ai_agent_provider_payload_budget_exceeded', $result->get_error_code() );
-		$this->assertCount( 1, $loop->requestSizes );
+		$this->assertCount( 2, $loop->requestSizes );
+		$this->assertLessThan( $loop->requestSizes[0], $loop->requestSizes[1] );
 		$data = $result->get_error_data();
 		$this->assertIsArray( $data );
-		$this->assertFalse( $data['fallback_attempted'] );
-		$this->assertSame( 'compact_session', $data['recovery']['action'] );
-		$this->assertSame( 48, $data['recovery']['source_session_id'] );
+		$this->assertTrue( $data['fallback_attempted'] );
+		$this->assertTrue( $data['payload_reduced'] );
+		$this->assertArrayNotHasKey( 'recovery', $data );
 	}
 
 	// -------------------------------------------------------------------------
