@@ -72,6 +72,10 @@ class ScriptedAgentLoop extends AgentLoop {
 	// phpcs:ignore WordPress.NamingConventions.ValidVariableName.PropertyNotSnakeCase -- Project property naming guidance requires camelCase.
 	public array $requestSizes = array();
 
+	/** @var list<int> */
+	// phpcs:ignore WordPress.NamingConventions.ValidVariableName.PropertyNotSnakeCase -- Project property naming guidance requires camelCase.
+	public array $requestAttemptLimits = array();
+
 	/** @var list<array{ability_mode:bool,collection_mode:bool,knowledge_allowed:bool}> */
 	public array $policySnapshots = array();
 
@@ -94,6 +98,10 @@ class ScriptedAgentLoop extends AgentLoop {
 
 	/** Return the next scripted result while recording the outgoing history size. */
 	protected function send_prompt( string $provider_id, string $model_id ): GenerativeAiResult|WP_Error {
+		$attempts_property = new \ReflectionProperty( AgentLoop::class, 'provider_retry_max_attempts' );
+		$attempts_property->setAccessible( true );
+		$this->requestAttemptLimits[] = (int) $attempts_property->getValue( $this );
+
 		$this->policySnapshots[] = array(
 			'ability_mode'     => ToolDiscovery::is_anonymous_ability_mode(),
 			'collection_mode'  => KnowledgeAbilities::is_public_collection_mode(),
@@ -1129,6 +1137,246 @@ class AgentLoopTest extends WP_UnitTestCase {
 		$this->assertIsArray( $data );
 		$retry_entries = array_filter( $data['messages'], static fn( $entry ) => 'provider_retry' === ( $entry['type'] ?? '' ) );
 		$this->assertCount( 2, $retry_entries );
+	}
+
+	/** A large exhausted request compacts and retries without browser recovery. */
+	public function test_large_provider_retry_exhaustion_compacts_and_recovers_automatically(): void {
+		$session_id = Database::create_session(
+			array(
+				'user_id' => 1,
+				'title'   => 'Automatic provider retry compaction',
+			)
+		);
+		$history    = array(
+			new UserMessage( array( new MessagePart( 'Build the complete onboarding site.' ) ) ),
+			new ModelMessage(
+				array(
+					new MessagePart(
+						new FunctionCall(
+							'call_large_result',
+							'wpab__sd-ai-agent__site-info',
+							array()
+						)
+					),
+				)
+			),
+			new UserMessage(
+				array(
+					new MessagePart(
+						new FunctionResponse(
+							'call_large_result',
+							'wpab__sd-ai-agent__site-info',
+							array( 'content' => str_repeat( 'large completed tool output ', 4000 ) )
+						)
+					),
+				)
+			),
+		);
+		$loop       = new ScriptedAgentLoop(
+			'',
+			array(),
+			$history,
+			array(
+				'session_id'  => $session_id,
+				'provider_id' => 'sd-ai-agent-cloud',
+				'model_id'    => 'superdav-chat-pro',
+			),
+			array(
+				new WP_Error( 'sd_ai_agent_test_provider_timeout', 'Managed service unavailable.' ),
+				$this->create_scripted_result( 'Recovered from compact context.' ),
+			)
+		);
+
+		$result = $loop->resume_from_checkpoint( 3 );
+
+		$this->assertIsArray( $result );
+		$this->assertSame( 'Recovered from compact context.', $result['reply'] );
+		$this->assertCount( 2, $loop->requestSizes );
+		$this->assertSame( array( 6, 1 ), $loop->requestAttemptLimits );
+		$this->assertGreaterThan( ConversationTrimmer::COMPACT_MAX_BYTES, $loop->requestSizes[0] );
+		$this->assertLessThanOrEqual( ConversationTrimmer::COMPACT_MAX_BYTES, $loop->requestSizes[1] );
+		$this->assertLessThan( $loop->requestSizes[0], $loop->requestSizes[1] );
+		$this->assertStringContainsString( 'large completed tool output', (string) wp_json_encode( $result['history'] ) );
+		$recovery_entries = array_filter( $result['messages'], static fn( $entry ) => 'provider_retry_compaction' === ( $entry['type'] ?? '' ) );
+		$this->assertCount( 1, $recovery_entries );
+		$this->assertNull( Database::load_and_clear_paused_state( $session_id ) );
+	}
+
+	/** A failed compact retry retains the full original recovery checkpoint. */
+	public function test_large_provider_compact_retry_failure_preserves_original_paused_state(): void {
+		$session_id = Database::create_session(
+			array(
+				'user_id' => 1,
+				'title'   => 'Preserved provider retry checkpoint',
+			)
+		);
+		$history    = array(
+			new UserMessage( array( new MessagePart( 'Finish the onboarding workflow.' ) ) ),
+			new ModelMessage(
+				array(
+					new MessagePart( new FunctionCall( 'call_preserved', 'wpab__sd-ai-agent__site-info', array() ) ),
+				)
+			),
+			new UserMessage(
+				array(
+					new MessagePart(
+						new FunctionResponse(
+							'call_preserved',
+							'wpab__sd-ai-agent__site-info',
+							array( 'content' => str_repeat( 'original checkpoint evidence ', 4000 ) )
+						)
+					),
+				)
+			),
+		);
+		$loop       = new ScriptedAgentLoop(
+			'',
+			array(),
+			$history,
+			array(
+				'session_id'  => $session_id,
+				'provider_id' => 'sd-ai-agent-cloud',
+				'model_id'    => 'superdav-chat-pro',
+			),
+			array(
+				new WP_Error( 'sd_ai_agent_test_provider_timeout', 'Managed service unavailable.' ),
+				new WP_Error(
+					'sd_ai_agent_provider_payload_too_large',
+					'Compacted request rejected.',
+					array( 'status_code' => 413 )
+				),
+			)
+		);
+
+		$result = $loop->resume_from_checkpoint( 3 );
+
+		$this->assertInstanceOf( WP_Error::class, $result );
+		$this->assertSame( 'sd_ai_agent_provider_payload_too_large', $result->get_error_code() );
+		$this->assertCount( 2, $loop->requestSizes );
+		$this->assertSame( array( 6, 1 ), $loop->requestAttemptLimits );
+		$this->assertLessThan( $loop->requestSizes[0], $loop->requestSizes[1] );
+		$paused_state = Database::load_and_clear_paused_state( $session_id );
+		$this->assertIsArray( $paused_state );
+		$this->assertStringContainsString( 'original checkpoint evidence', (string) wp_json_encode( $paused_state['history'] ) );
+		$this->assertStringNotContainsString( 'Conversation compacted server-side', (string) wp_json_encode( $paused_state['history'] ) );
+	}
+
+	/** A successful reduced 413 retry clears the checkpoint restored after compaction. */
+	public function test_compact_retry_413_reduction_success_clears_restored_paused_state(): void {
+		$session_id = Database::create_session(
+			array(
+				'user_id' => 1,
+				'title'   => 'Successful compact and payload recovery',
+			)
+		);
+		$history    = array(
+			new UserMessage( array( new MessagePart( str_repeat( 'older completed context ', 4000 ) ) ) ),
+			new ModelMessage( array( new MessagePart( 'The earlier phase is complete.' ) ) ),
+			new UserMessage( array( new MessagePart( 'Finish the current phase.' ) ) ),
+			new ModelMessage(
+				array(
+					new MessagePart( new FunctionCall( 'call_current_phase', 'wpab__sd-ai-agent__site-info', array() ) ),
+				)
+			),
+			new UserMessage(
+				array(
+					new MessagePart(
+						new FunctionResponse(
+							'call_current_phase',
+							'wpab__sd-ai-agent__site-info',
+							array( 'content' => str_repeat( 'current phase evidence ', 1500 ) )
+						)
+					),
+				)
+			),
+		);
+		$loop       = new ScriptedAgentLoop(
+			'',
+			array(),
+			$history,
+			array(
+				'session_id'  => $session_id,
+				'provider_id' => 'sd-ai-agent-cloud',
+				'model_id'    => 'superdav-chat-pro',
+			),
+			array(
+				new WP_Error( 'sd_ai_agent_test_provider_timeout', 'Managed service unavailable.' ),
+				new WP_Error(
+					'sd_ai_agent_provider_payload_too_large',
+					'Compacted request rejected.',
+					array(
+						'status_code'             => 413,
+						'request_size_source'     => 'complete_envelope',
+						'request_bytes'           => 131072,
+						'request_tokens_estimate' => 32768,
+					)
+				),
+				$this->create_scripted_result( 'Recovered after compact and payload fallbacks.' ),
+			)
+		);
+
+		$result = $loop->resume_from_checkpoint( 3 );
+
+		$this->assertIsArray( $result );
+		$this->assertSame( 'Recovered after compact and payload fallbacks.', $result['reply'] );
+		$this->assertCount( 3, $loop->requestSizes );
+		$this->assertSame( array( 6, 1, 6 ), $loop->requestAttemptLimits );
+		$this->assertLessThan( $loop->requestSizes[0], $loop->requestSizes[1] );
+		$this->assertLessThan( $loop->requestSizes[0], $loop->requestSizes[2] );
+		$this->assertLessThan( (int) floor( $loop->requestSizes[1] * 0.9 ), $loop->requestSizes[2] );
+		$this->assertNull( Database::load_and_clear_paused_state( $session_id ) );
+	}
+
+	/** A failed reduced 413 retry restores the checkpoint from before compaction. */
+	public function test_compact_retry_413_reduction_failure_preserves_original_paused_state(): void {
+		$session_id = Database::create_session(
+			array(
+				'user_id' => 1,
+				'title'   => 'Failed compact and payload recovery',
+			)
+		);
+		$history    = array(
+			new UserMessage( array( new MessagePart( str_repeat( 'original tool evidence ', 5000 ) ) ) ),
+			new ModelMessage( array( new MessagePart( 'The completed work must remain resumable.' ) ) ),
+			new UserMessage( array( new MessagePart( 'Finish the current phase.' ) ) ),
+		);
+		$loop       = new ScriptedAgentLoop(
+			'',
+			array(),
+			$history,
+			array(
+				'session_id'  => $session_id,
+				'provider_id' => 'sd-ai-agent-cloud',
+				'model_id'    => 'superdav-chat-pro',
+			),
+			array(
+				new WP_Error( 'sd_ai_agent_test_provider_timeout', 'Managed service unavailable.' ),
+				new WP_Error(
+					'sd_ai_agent_provider_payload_too_large',
+					'Compacted request rejected.',
+					array(
+						'status_code'             => 413,
+						'request_size_source'     => 'complete_envelope',
+						'request_bytes'           => 131072,
+						'request_tokens_estimate' => 32768,
+					)
+				),
+				new WP_Error( 'sd_ai_agent_test_provider_timeout', 'Reduced request unavailable.' ),
+			)
+		);
+
+		$result = $loop->resume_from_checkpoint( 3 );
+
+		$this->assertInstanceOf( WP_Error::class, $result );
+		$this->assertSame( 'sd_ai_agent_provider_retry_failed', $result->get_error_code() );
+		$this->assertCount( 3, $loop->requestSizes );
+		$this->assertSame( array( 6, 1, 6 ), $loop->requestAttemptLimits );
+		$this->assertLessThan( $loop->requestSizes[0], $loop->requestSizes[1] );
+		$this->assertLessThan( (int) floor( $loop->requestSizes[1] * 0.9 ), $loop->requestSizes[2] );
+		$paused_state = Database::load_and_clear_paused_state( $session_id );
+		$this->assertIsArray( $paused_state );
+		$this->assertStringContainsString( 'original tool evidence', (string) wp_json_encode( $paused_state['history'] ) );
+		$this->assertStringNotContainsString( 'Conversation compacted server-side', (string) wp_json_encode( $paused_state['history'] ) );
 	}
 
 	/**

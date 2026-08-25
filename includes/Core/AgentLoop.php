@@ -2404,7 +2404,7 @@ PROMPT;
 	}
 
 	/**
-	 * Apply local input budgets and make at most one reduced 413 fallback.
+	 * Apply local input budgets and bounded provider-recovery fallbacks.
 	 *
 	 * @return \WordPress\AiClient\Results\DTO\GenerativeAiResult|WP_Error
 	 */
@@ -2454,12 +2454,22 @@ PROMPT;
 			return $this->with_payload_recovery_metadata( $error, $before_bytes, $before_tokens, false, false );
 		}
 
-		$result = $this->send_prompt( $provider_id, $model_id );
+		$provider_recovery_history      = null;
+		$provider_recovery_paused_state = null;
+		$result                         = $this->send_prompt( $provider_id, $model_id );
+		if ( is_wp_error( $result ) && 'sd_ai_agent_provider_retry_failed' === $result->get_error_code() ) {
+			$result        = $this->retry_large_provider_failure_with_compacted_history( $result, $provider_id, $model_id, $provider_recovery_history, $provider_recovery_paused_state );
+			$before_bytes  = ConversationTrimmer::estimate_total_bytes( $this->history );
+			$before_tokens = ConversationTrimmer::estimate_total_tokens( $this->history );
+		}
+
 		if ( ! is_wp_error( $result ) || ! $this->is_payload_limit_error( $result ) ) {
+			$this->restore_provider_recovery_history( $provider_recovery_history );
 			return $result;
 		}
 
 		if ( $this->is_local_payload_limit_error( $result ) ) {
+			$this->restore_provider_recovery_history( $provider_recovery_history );
 			return $this->with_payload_recovery_metadata( $result, $before_bytes, $before_tokens, false, false );
 		}
 		$source_data              = $result->get_error_data();
@@ -2486,6 +2496,7 @@ PROMPT;
 		// reduced retry is materially smaller. Do not retry 413s from SDK layers
 		// that did not reach the HTTP preflight hook.
 		if ( $complete_envelope_bytes <= 0 ) {
+			$this->restore_provider_recovery_history( $provider_recovery_history );
 			return $this->with_payload_recovery_metadata( $result, $before_bytes, $before_tokens, false, false );
 		}
 
@@ -2494,8 +2505,24 @@ PROMPT;
 		$reduced       = ConversationTrimmer::trim_to_budget( $this->history, $target_bytes, $target_tokens );
 		$after_bytes   = ConversationTrimmer::estimate_total_bytes( $reduced );
 		$after_tokens  = ConversationTrimmer::estimate_total_tokens( $reduced );
+		if ( $after_bytes >= $before_bytes && is_array( $provider_recovery_history ) ) {
+			$compacted_reduction = ConversationTrimmer::compact_serialized_history(
+				$this->serialize_history(),
+				$target_bytes,
+				$target_tokens
+			);
+			try {
+				$reduced      = ConversationSerializer::deserialize( $compacted_reduction['messages'] );
+				$reduced      = ConversationTrimmer::validate_tool_pairs( $reduced );
+				$after_bytes  = ConversationTrimmer::estimate_total_bytes( $reduced );
+				$after_tokens = ConversationTrimmer::estimate_total_tokens( $reduced );
+			} catch ( \Throwable $exception ) {
+				$reduced = $this->history;
+			}
+		}
 
 		if ( $after_bytes >= $before_bytes ) {
+			$this->restore_provider_recovery_history( $provider_recovery_history );
 			return $this->with_payload_recovery_metadata( $result, $before_bytes, $before_tokens, false, false );
 		}
 
@@ -2541,10 +2568,154 @@ PROMPT;
 				);
 			}
 
+			$this->restore_provider_recovery_history( $provider_recovery_history );
+			$this->restore_provider_recovery_paused_state( $provider_recovery_paused_state );
 			return $this->with_payload_recovery_metadata( $retry_result, $after_bytes, $after_tokens, true, true );
+		}
+		if ( $this->session_id > 0 ) {
+			Database::load_and_clear_paused_state( $this->session_id );
+		}
+		$this->restore_provider_recovery_history( $provider_recovery_history );
+
+		return $retry_result;
+	}
+
+	/**
+	 * Retry one exhausted large-context request with deterministic compact history.
+	 *
+	 * A long agentic turn can remain below the formal provider payload limit while
+	 * still being expensive enough for an upstream gateway to return repeated 5xx
+	 * responses. The existing manual recovery path compacts that state, but waiting
+	 * for a browser retry needlessly fails an otherwise completed setup run. Use the
+	 * compact copy for one transport attempt while retaining the full durable history.
+	 *
+	 * @param WP_Error                 $error                 Exhausted provider-retry error.
+	 * @param string                   $provider_id           Runtime provider identifier.
+	 * @param string                   $model_id              Runtime model identifier.
+	 * @param array<Message>|null      $recovery_history      Full history restored after the bounded fallback chain.
+	 * @param array<string,mixed>|null $recovery_paused_state Durable checkpoint restored after the bounded fallback chain fails.
+	 * @param-out array<Message>|null $recovery_history
+	 * @param-out array<string,mixed>|null $recovery_paused_state
+	 * @return GenerativeAiResult|WP_Error Compacted retry result, or the original error when ineligible.
+	 */
+	private function retry_large_provider_failure_with_compacted_history( WP_Error $error, string $provider_id, string $model_id, ?array &$recovery_history, ?array &$recovery_paused_state ): GenerativeAiResult|WP_Error {
+		$serialized_history = $this->serialize_history();
+		$request_bytes      = ConversationTrimmer::estimate_total_bytes( $this->history );
+		$request_tokens     = ConversationTrimmer::estimate_total_tokens( $this->history );
+		$max_bytes          = min(
+			ConversationTrimmer::COMPACT_MAX_BYTES,
+			ConversationTrimmer::get_request_envelope_byte_budget( $provider_id, $model_id )
+		);
+		$max_tokens         = min(
+			ConversationTrimmer::COMPACT_MAX_TOKENS,
+			ConversationTrimmer::get_request_token_budget( $provider_id, $model_id )
+		);
+
+		if ( $request_bytes <= $max_bytes && $request_tokens <= $max_tokens ) {
+			return $error;
+		}
+
+		$compacted = ConversationTrimmer::compact_serialized_history( $serialized_history, $max_bytes, $max_tokens );
+		if ( empty( $compacted['messages'] ) ) {
+			return $error;
+		}
+
+		try {
+			$compacted_history = ConversationSerializer::deserialize( $compacted['messages'] );
+			$compacted_history = ConversationTrimmer::validate_tool_pairs( $compacted_history );
+		} catch ( \Throwable $exception ) {
+			return $error;
+		}
+
+		$compacted_bytes  = ConversationTrimmer::estimate_total_bytes( $compacted_history );
+		$compacted_tokens = ConversationTrimmer::estimate_total_tokens( $compacted_history );
+		if (
+			empty( $compacted_history )
+			|| $compacted_bytes >= $request_bytes
+			|| ! ConversationTrimmer::fits_budget( $compacted_history, $max_bytes, $max_tokens )
+		) {
+			return $error;
+		}
+
+		$recovery_history      = $this->history;
+		$original_paused_state = $this->session_id > 0
+			? Database::load_and_clear_paused_state( $this->session_id )
+			: null;
+		$this->history         = $compacted_history;
+		$this->message_log[]   = array(
+			'type'                   => 'provider_retry_compaction',
+			'message'                => __( 'The provider could not complete a large request. Retrying once with compacted conversation history.', 'superdav-ai-agent' ),
+			'request_size_class'     => ProviderTraceLogger::classify_request_size( $request_bytes ),
+			'request_bytes_estimate' => $request_bytes,
+			'compacted_bytes'        => $compacted_bytes,
+			'payload_reduced'        => true,
+			'fallback_attempted'     => true,
+			'sequence'               => $this->next_activity_sequence(),
+		);
+
+		AgentEventLog::log(
+			'provider_retry_history_compacted',
+			AgentEventLog::SEVERITY_INFO,
+			array(
+				'session_id'              => $this->session_id,
+				'phase'                   => $this->get_provider_trace_phase(),
+				'provider_id'             => $provider_id,
+				'model_id'                => $model_id,
+				'history_count'           => count( $serialized_history ),
+				'request_bytes_estimate'  => $request_bytes,
+				'request_tokens_estimate' => $request_tokens,
+				'payload_reduced'         => true,
+				'fallback_attempted'      => true,
+				'recovery_outcome'        => 'automatic_compact_provider_retry',
+			)
+		);
+		$this->fire_progress();
+
+		$original_max_attempts             = $this->provider_retry_max_attempts;
+		$this->provider_retry_max_attempts = 1;
+		try {
+			$retry_result = $this->send_prompt( $provider_id, $model_id );
+		} finally {
+			$this->provider_retry_max_attempts = $original_max_attempts;
+		}
+
+		if ( is_wp_error( $retry_result ) && $this->session_id > 0 ) {
+			$compacted_paused_state = Database::load_and_clear_paused_state( $this->session_id );
+			$restored_paused_state  = is_array( $original_paused_state )
+				? $original_paused_state
+				: $compacted_paused_state;
+			if ( is_array( $restored_paused_state ) ) {
+				$recovery_paused_state = $restored_paused_state;
+				Database::save_paused_state( $this->session_id, $restored_paused_state );
+			}
 		}
 
 		return $retry_result;
+	}
+
+	/**
+	 * Restore full provider history after temporary compact retries finish.
+	 *
+	 * @param array<Message>|null $recovery_history Full history retained before compaction.
+	 */
+	private function restore_provider_recovery_history( ?array $recovery_history ): void {
+		if ( is_array( $recovery_history ) ) {
+			$this->history = $recovery_history;
+		}
+	}
+
+	/**
+	 * Restore the durable checkpoint after the reduced payload fallback fails.
+	 *
+	 * @param array<string,mixed>|null $recovery_paused_state Checkpoint retained before compact retries.
+	 */
+	private function restore_provider_recovery_paused_state( ?array $recovery_paused_state ): void {
+		if ( $this->session_id <= 0 || ! is_array( $recovery_paused_state ) ) {
+			return;
+		}
+
+		Database::load_and_clear_paused_state( $this->session_id );
+		Database::save_paused_state( $this->session_id, $recovery_paused_state );
 	}
 
 	/** Whether an error represents a local or upstream HTTP 413. */
