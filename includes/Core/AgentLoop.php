@@ -2587,10 +2587,11 @@ PROMPT;
 	 * for a browser retry needlessly fails an otherwise completed setup run. Use the
 	 * compact copy for one transport attempt while retaining the full durable history.
 	 *
-	 * @param WP_Error                 $error            Exhausted provider-retry error.
-	 * @param string                   $provider_id      Runtime provider identifier.
-	 * @param string                   $model_id         Runtime model identifier.
-	 * @param array<int, Message>|null $recovery_history Full history restored after the bounded fallback chain.
+	 * @param WP_Error            $error            Exhausted provider-retry error.
+	 * @param string              $provider_id      Runtime provider identifier.
+	 * @param string              $model_id         Runtime model identifier.
+	 * @param array<Message>|null $recovery_history Full history restored after the bounded fallback chain.
+	 * @param-out array<Message>|null $recovery_history
 	 * @return GenerativeAiResult|WP_Error Compacted retry result, or the original error when ineligible.
 	 */
 	private function retry_large_provider_failure_with_compacted_history( WP_Error $error, string $provider_id, string $model_id, ?array &$recovery_history ): GenerativeAiResult|WP_Error {
@@ -2687,7 +2688,11 @@ PROMPT;
 		return $retry_result;
 	}
 
-	/** Restore full provider history after temporary compact retries finish. */
+	/**
+	 * Restore full provider history after temporary compact retries finish.
+	 *
+	 * @param array<Message>|null $recovery_history Full history retained before compaction.
+	 */
 	private function restore_provider_recovery_history( ?array $recovery_history ): void {
 		if ( is_array( $recovery_history ) ) {
 			$this->history = $recovery_history;
