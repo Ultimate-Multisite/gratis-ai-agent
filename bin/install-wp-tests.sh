@@ -256,6 +256,7 @@ install_wp() {
 	create_staging_dir CORE_STAGING "$WP_CORE_DIR"
 
 	if [[ $WP_VERSION == 'nightly' || $WP_VERSION == 'trunk' ]]; then
+		rmdir "$CORE_STAGING"
 		svn export --quiet https://core.svn.wordpress.org/trunk "$CORE_STAGING"
 	else
 		resolve_archive_name
