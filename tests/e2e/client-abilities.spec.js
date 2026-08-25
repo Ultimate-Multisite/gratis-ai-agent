@@ -17,7 +17,7 @@
  *   3. executeAbility navigate-to actually navigates
  *   4. executeAbility insert-block inserts on editor screen
  *   5. insert-block no-ops on non-editor screen
- *   6. snapshotDescriptors returns the expected list
+ *   6. snapshotDescriptors includes the expected descriptors
  *   7. no relevant console errors on any screen
  *
  * Run: pnpm run test:e2e:playwright -- --grep client-abilities
@@ -71,10 +71,8 @@ async function goToDashboard( page ) {
  * false result reliably means the API is not available in this environment
  * — not that it hasn't loaded yet.
  *
- * Used by test.skip() to gracefully degrade when the CI environment runs a
- * WordPress version where @wordpress/core-abilities is not loaded (e.g.
- * the WP 7.0-branch build hasn't shipped the abilities script module yet,
- * or the module is registered but not enqueued by core).
+ * Required coverage uses WordPress 7.0, which loads @wordpress/core-abilities.
+ * Explicitly optional compatibility environments may opt into graceful skips.
  *
  * @param {import('@playwright/test').Page} page
  * @return {Promise<boolean>} True when all required wp.abilities methods exist.
@@ -92,20 +90,34 @@ async function isAbilitiesApiAvailable( page ) {
 }
 
 /**
- * Skip the current test if the abilities API is not available.
+ * Require the abilities API for the current test.
  *
- * Call this at the top of any test body that depends on wp.abilities.
+ * Call this at the top of any test body that depends on wp.abilities. The
+ * default E2E project is a required WordPress 7.0 coverage environment, so an
+ * unavailable API must fail with an actionable error instead of silently
+ * skipping the test. Compatibility jobs may opt into a graceful skip by
+ * setting PLAYWRIGHT_ALLOW_MISSING_ABILITIES_API=1 explicitly.
  * It must run AFTER goToDashboard() or equivalent page navigation so the
  * scripts have loaded.
  *
  * @param {import('@playwright/test').Page} page
  */
-async function skipIfNoAbilitiesApi( page ) {
+async function requireAbilitiesApi( page ) {
 	const available = await isAbilitiesApiAvailable( page );
-	test.skip(
-		! available,
-		'wp.abilities API not available — @wordpress/core-abilities script module not loaded in this WP build'
-	);
+	if (
+		! available &&
+		process.env.PLAYWRIGHT_ALLOW_MISSING_ABILITIES_API === '1'
+	) {
+		test.skip(
+			true,
+			'wp.abilities API not available in this explicitly optional compatibility environment'
+		);
+	}
+
+	expect(
+		available,
+		'wp.abilities API is required for client-ability E2E coverage. Use a WordPress 7.0 runtime that loads @wordpress/core-abilities, or set PLAYWRIGHT_ALLOW_MISSING_ABILITIES_API=1 only for an explicitly optional compatibility environment.'
+	).toBe( true );
 }
 
 /**
@@ -258,7 +270,7 @@ test.describe( 'client-abilities — category registration', () => {
 	test.beforeEach( async ( { page } ) => {
 		await loginToWordPress( page );
 		await goToDashboard( page );
-		await skipIfNoAbilitiesApi( page );
+		await requireAbilitiesApi( page );
 	} );
 
 	test( 'registers on dashboard — category has expected label and description', async ( {
@@ -300,7 +312,7 @@ test.describe( 'client-abilities — ability registration', () => {
 	test.beforeEach( async ( { page } ) => {
 		await loginToWordPress( page );
 		await goToDashboard( page );
-		await skipIfNoAbilitiesApi( page );
+		await requireAbilitiesApi( page );
 	} );
 
 	test( 'required client abilities expose valid schemas and readonly annotations', async ( {
@@ -404,7 +416,7 @@ test.describe( 'client-abilities — public schema validation', () => {
 	test.beforeEach( async ( { page } ) => {
 		await loginToWordPress( page );
 		await goToDashboard( page );
-		await skipIfNoAbilitiesApi( page );
+		await requireAbilitiesApi( page );
 	} );
 
 	test( 'executeAbility reaches get-editor-selection with empty input', async ( {
@@ -440,7 +452,7 @@ test.describe( 'client-abilities — navigate-to execution', () => {
 	test.beforeEach( async ( { page } ) => {
 		await loginToWordPress( page );
 		await goToDashboard( page );
-		await skipIfNoAbilitiesApi( page );
+		await requireAbilitiesApi( page );
 	} );
 
 	test( 'executeAbility navigate-to actually navigates to plugins.php', async ( {
@@ -516,7 +528,7 @@ test.describe( 'client-abilities — insert-block on editor screen', () => {
 		// Check abilities API BEFORE the slow editor wait. On CI the block
 		// editor can take 45-60 s to initialise — skipping early avoids a
 		// 60 s timeout when the abilities API isn't available at all.
-		await skipIfNoAbilitiesApi( page );
+		await requireAbilitiesApi( page );
 
 		// Wait for the block editor to mount — the editor canvas is the signal.
 		// 60 s accommodates slow CI runners where the block editor can take
@@ -579,7 +591,7 @@ test.describe( 'client-abilities — nested block insertion', () => {
 		page,
 	} ) => {
 		await createDraftAndOpenEditor( page );
-		await skipIfNoAbilitiesApi( page );
+		await requireAbilitiesApi( page );
 		await waitForAbilitiesRegistered( page );
 
 		const inserted = await page.evaluate( async () => {
@@ -677,7 +689,7 @@ test.describe( 'client-abilities — editor history', () => {
 		page,
 	} ) => {
 		await createDraftAndOpenEditor( page );
-		await skipIfNoAbilitiesApi( page );
+		await requireAbilitiesApi( page );
 		await waitForAbilitiesRegistered( page );
 
 		const result = await page.evaluate( async () => {
@@ -912,7 +924,7 @@ test.describe( 'client-abilities — insert-block no-op on non-editor screen', (
 	test.beforeEach( async ( { page } ) => {
 		await loginToWordPress( page );
 		await goToDashboard( page );
-		await skipIfNoAbilitiesApi( page );
+		await requireAbilitiesApi( page );
 	} );
 
 	test( 'insert-block returns inserted:false on dashboard without throwing', async ( {
@@ -956,10 +968,10 @@ test.describe( 'client-abilities — snapshotDescriptors', () => {
 	test.beforeEach( async ( { page } ) => {
 		await loginToWordPress( page );
 		await goToDashboard( page );
-		await skipIfNoAbilitiesApi( page );
+		await requireAbilitiesApi( page );
 	} );
 
-	test( 'snapshotDescriptors returns 2 descriptors with expected shape', async ( {
+	test( 'snapshotDescriptors includes required descriptors with expected shape', async ( {
 		page,
 	} ) => {
 		await waitForAbilitiesRegistered( page );
@@ -997,8 +1009,25 @@ test.describe( 'client-abilities — snapshotDescriptors', () => {
 			}
 		} );
 
-		// Must have exactly 2 descriptors.
-		expect( descriptors ).toHaveLength( 2 );
+		// Additional client abilities may be registered without breaking this
+		// coverage, but each expected editor ability must remain discoverable.
+		const names = descriptors.map( ( descriptor ) => descriptor.name );
+		for ( const name of [
+			'sd-ai-agent-js/navigate-to',
+			'sd-ai-agent-js/refresh-page',
+			'sd-ai-agent-js/get-editor-selection',
+			'sd-ai-agent-js/insert-block',
+			'sd-ai-agent-js/get-editor-capabilities',
+			'sd-ai-agent-js/capture-screenshot',
+			'sd-ai-agent-js/screenshot-url',
+			'sd-ai-agent-js/replace-editor-selection',
+			'sd-ai-agent-js/insert-block-markup',
+			'sd-ai-agent-js/change-editor-history',
+			'sd-ai-agent-js/get-canonical-block-examples',
+			'sd-ai-agent-js/validate-page-quality',
+		] ) {
+			expect( names ).toContain( name );
+		}
 
 		// Each descriptor must have the expected shape.
 		for ( const descriptor of descriptors ) {
@@ -1014,11 +1043,6 @@ test.describe( 'client-abilities — snapshotDescriptors', () => {
 			expect( descriptor.label.length ).toBeGreaterThan( 0 );
 			expect( descriptor.description.length ).toBeGreaterThan( 0 );
 		}
-
-		// Verify the two expected ability names are present.
-		const names = descriptors.map( ( d ) => d.name );
-		expect( names ).toContain( 'sd-ai-agent-js/navigate-to' );
-		expect( names ).toContain( 'sd-ai-agent-js/insert-block' );
 	} );
 } );
 
@@ -1061,7 +1085,7 @@ test.describe( 'client-abilities — no relevant console errors', () => {
 
 		await loginToWordPress( page );
 		await goToDashboard( page );
-		await skipIfNoAbilitiesApi( page );
+		await requireAbilitiesApi( page );
 		await waitForAbilitiesRegistered( page );
 
 		assertNoForbiddenErrors(
@@ -1079,7 +1103,7 @@ test.describe( 'client-abilities — no relevant console errors', () => {
 		await page
 			.locator( '.sdaa-unified-admin' )
 			.waitFor( { state: 'visible', timeout: 45_000 } );
-		await skipIfNoAbilitiesApi( page );
+		await requireAbilitiesApi( page );
 		await waitForAbilitiesRegistered( page );
 
 		assertNoForbiddenErrors(
@@ -1098,7 +1122,7 @@ test.describe( 'client-abilities — no relevant console errors', () => {
 		// Check abilities API BEFORE the slow editor wait. On CI the block
 		// editor can take 45-60 s to initialise — skipping early avoids a
 		// 60 s timeout when the abilities API isn't available at all.
-		await skipIfNoAbilitiesApi( page );
+		await requireAbilitiesApi( page );
 
 		// The block editor is notoriously slow to initialise on CI runners,
 		// especially on WP trunk where Gutenberg loads additional script

@@ -1,5 +1,5 @@
 {
-	"core": "WordPress/WordPress#7.0-branch",
+	"core": "WordPress/WordPress#7.0",
 	"phpVersion": "8.2",
 	"port": 8890,
 	"testsPort": 8893,
