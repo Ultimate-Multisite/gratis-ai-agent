@@ -466,6 +466,11 @@ Assistant: %s',
 		$paused_state = Database::load_and_clear_paused_state( $session_id );
 
 		if ( null === $paused_state ) {
+			$in_progress = self::client_tool_resume_in_progress_response( $job_id, $session_id );
+			if ( null !== $in_progress ) {
+				return $in_progress;
+			}
+
 			// Sync the job transient/DB row to a terminal state so the
 			// browser's poll loop stops re-issuing the same pending client
 			// tool call. Without this, a poll → execute → POST → 409 cycle
@@ -589,6 +594,23 @@ Assistant: %s',
 				'sd_ai_agent_invalid_client_tool_results',
 				__( 'tool_results must exactly match the pending client tool calls.', 'superdav-ai-agent' ),
 				array( 'status' => 400 )
+			);
+		}
+
+		if ( ! self::start_client_tool_resume( $job_id, $session_id ) ) {
+			$in_progress = self::client_tool_resume_in_progress_response( $job_id, $session_id );
+			if ( null !== $in_progress ) {
+				return $in_progress;
+			}
+
+			// No worker owns this valid batch. Restore it so a subsequent request
+			// can retry instead of losing the only durable browser-tool result.
+			Database::save_paused_state( $session_id, $paused_state );
+
+			return new WP_Error(
+				'sd_ai_agent_job_not_resumable',
+				__( 'The browser-tool job is no longer available to resume.', 'superdav-ai-agent' ),
+				array( 'status' => 409 )
 			);
 		}
 
@@ -783,6 +805,66 @@ Assistant: %s',
 		}
 
 		return new WP_REST_Response( $response, 200 );
+	}
+
+	/** Claim a paused browser-tool job and make the in-flight state pollable. */
+	private static function start_client_tool_resume( string $job_id, int $session_id ): bool {
+		if ( '' === $job_id ) {
+			// Preserve compatibility with older clients that did not send job_id.
+			return true;
+		}
+
+		if ( ! ActiveJobRepository::claim_client_tool_resume( $job_id, $session_id, get_current_user_id() ) ) {
+			return false;
+		}
+
+		$transient_key = self::JOB_PREFIX . $job_id;
+		$job           = get_transient( $transient_key );
+		if ( is_array( $job ) ) {
+			unset( $job['token'], $job['pending_client_tool_calls'] );
+			$job['status'] = 'processing';
+			set_transient( $transient_key, $job, self::JOB_TTL );
+		}
+
+		return true;
+	}
+
+	/** Acknowledge a duplicate browser batch while its original resume is active. */
+	private static function client_tool_resume_in_progress_response( string $job_id, int $session_id ): ?WP_REST_Response {
+		if ( '' === $job_id ) {
+			return null;
+		}
+
+		$row = ActiveJobRepository::get_by_job_id( $job_id );
+		if (
+			null === $row
+			|| 'processing' !== $row->status
+			|| $row->session_id !== $session_id
+			|| $row->user_id !== get_current_user_id()
+		) {
+			return null;
+		}
+
+		AgentEventLog::log(
+			'client_tools_duplicate_result_accepted',
+			AgentEventLog::SEVERITY_INFO,
+			array(
+				'session_id' => $session_id,
+				'job_id'     => $job_id,
+				'phase'      => 'tool_result_resume',
+				'reason'     => 'result_batch_resume_in_progress',
+			)
+		);
+
+		return new WP_REST_Response(
+			array(
+				'status'           => 'processing',
+				'results_accepted' => true,
+				'session_id'       => $session_id,
+				'job_id'           => $job_id,
+			),
+			202
+		);
 	}
 
 	/**

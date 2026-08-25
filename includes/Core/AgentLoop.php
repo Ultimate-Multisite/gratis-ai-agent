@@ -974,6 +974,9 @@ PROMPT;
 		ProviderCredentialLoader::load();
 
 		AgentEventLog::set_session( $this->session_id );
+		if ( '' !== $this->active_job_id ) {
+			register_shutdown_function( array( $this, 'handle_active_job_shutdown' ) );
+		}
 
 		// Build a tool-response message from the client results.
 		$parts = array();
