@@ -251,6 +251,10 @@ PROMPT;
 	/** @var int Full-envelope bytes from an upstream 413 eligible for one reduced retry. */
 	private int $provider_retry_baseline_envelope_bytes = 0;
 
+	/** @var list<Message>|null Full history retained while the provider receives compact context. */
+	// phpcs:ignore WordPress.NamingConventions.ValidVariableName.PropertyNotSnakeCase -- Project property naming guidance requires camelCase.
+	private ?array $providerPersistenceHistory = null;
+
 	/** @var string Last coarse loop phase for shutdown diagnostics. */
 	private string $last_loop_phase = 'initializing';
 
@@ -2409,10 +2413,12 @@ PROMPT;
 	 * @return \WordPress\AiClient\Results\DTO\GenerativeAiResult|WP_Error
 	 */
 	private function send_prompt_with_payload_recovery(): GenerativeAiResult|WP_Error {
-		$durable_history           = $this->history;
-		$compacted_request_history = $this->continued_provider_compaction_history();
+		$durable_history                       = $this->history;
+		$previous_provider_persistence_history = $this->providerPersistenceHistory;
+		$compacted_request_history             = $this->continued_provider_compaction_history();
 		if ( is_array( $compacted_request_history ) ) {
-			$this->history = $compacted_request_history;
+			$this->history                    = $compacted_request_history;
+			$this->providerPersistenceHistory = $durable_history;
 		}
 
 		try {
@@ -2422,7 +2428,8 @@ PROMPT;
 			// transcript. Keep the full history for checkpoints, UI persistence,
 			// and recovery while subsequent provider calls reuse bounded context.
 			if ( is_array( $compacted_request_history ) ) {
-				$this->history = $durable_history;
+				$this->history                    = $durable_history;
+				$this->providerPersistenceHistory = $previous_provider_persistence_history;
 			}
 		}
 	}
@@ -3366,7 +3373,10 @@ PROMPT;
 	 * @param int                      $elapsed_seconds Total elapsed seconds.
 	 */
 	private function build_provider_retry_failed_error( $error, int $elapsed_seconds ): WP_Error {
-		$message = sprintf(
+		$serialized_history = is_array( $this->providerPersistenceHistory )
+			? ConversationSerializer::serialize( $this->providerPersistenceHistory )
+			: $this->serialize_history();
+		$message            = sprintf(
 			/* translators: 1: attempts, 2: elapsed seconds */
 			__( 'The AI service is temporarily unavailable after %1$d attempts over %2$ds. Please try again shortly.', 'superdav-ai-agent' ),
 			$this->provider_retry_max_attempts,
@@ -3380,7 +3390,7 @@ PROMPT;
 
 		if ( $this->session_id > 0 ) {
 			$paused_state = array(
-				'history'                 => $this->serialize_history(),
+				'history'                 => $serialized_history,
 				'tool_call_log'           => $this->tool_call_log,
 				'message_log'             => $this->message_log,
 				'token_usage'             => $this->token_usage,
@@ -3409,7 +3419,7 @@ PROMPT;
 					'token_usage'     => $this->token_usage,
 					'iterations_used' => $this->iterations_used,
 					'model_id'        => $this->model_id,
-					'history'         => $this->serialize_history(),
+					'history'         => $serialized_history,
 					'elapsed_seconds' => $elapsed_seconds,
 				]
 			)
