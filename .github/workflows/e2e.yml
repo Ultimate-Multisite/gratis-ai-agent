@@ -28,25 +28,26 @@ jobs:
     # limit was exceeded after the per-test timeout increased from 60 s to
     # 90 s in playwright.config.js — setup + test time could exceed 60 min.
     timeout-minutes: 90
-    # WP trunk may fail due to PSR namespace conflicts between our compat
-    # layer and core's native AI Client SDK.
-    continue-on-error: true
+    # This required WordPress 7.0 environment provides the browser Abilities
+    # API that client-abilities.spec.js must exercise. Do not allow failures to
+    # pass as advisory coverage.
+    continue-on-error: false
 
     strategy:
       fail-fast: false
       matrix:
-        # Plugin requires WP 7.0+; only trunk (pre-release 7.x) is relevant.
-        # WP 6.9 was removed — the plugin won't activate on it.
-        wp: ['trunk']
+        # Pin the required browser-ability coverage to WordPress 7.0. The
+        # moving trunk branch does not reliably load @wordpress/core-abilities.
+        wp: ['7.0']
         # 3 shards split 13 spec files into ~4-5 files each. With the 90-min
         # job timeout, each shard has ample headroom even with 2 retries.
         shard: [1, 2, 3]
         include:
-          - wp: 'trunk'
+          - wp: '7.0'
             wp_env_port: '8890'
-            wp_env_override: '{"core":"WordPress/WordPress#master"}'
+            wp_env_override: '{"core":"WordPress/WordPress#7.0"}'
             # 1 worker: shard 1 still showed login and SPA-render timeouts
-            # with 2 workers on GitHub-hosted runners under WP trunk load.
+            # with 2 workers on GitHub-hosted runners under WordPress 7.0 load.
             playwright_workers: '1'
 
     steps:
