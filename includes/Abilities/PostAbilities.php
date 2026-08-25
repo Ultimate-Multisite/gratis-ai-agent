@@ -376,7 +376,7 @@ class PostAbilities {
 			'sd-ai-agent/list-posts',
 			[
 				'label'               => __( 'List Posts', 'superdav-ai-agent' ),
-				'description'         => __( 'Query and list WordPress posts or pages. Filter by post_type, post_status (single string or array), search term, category, tag, date range (date_after/date_before), author, tax_query, and meta_query. Returns id, title, excerpt, status, post_type, date, permalink, featured-image state (has_featured_image, ID, alt text, and thumbnail URL when the current user can access the attachment), and query_args for each match. Default: 10 most recent published posts.', 'superdav-ai-agent' ),
+				'description'         => __( 'Query and list WordPress posts or pages. Filter by post_type, post_status (single string or array), search term, category, tag, date range (date_after/date_before), author, tax_query, and meta_query. Returns id, title, excerpt, status, post_type, date, permalink, featured-image state (has_featured_image plus ID, alt text, and thumbnail URL when the current user can edit the attachment; otherwise, those three fields are empty), and query_args for each match. Default: 10 most recent published posts.', 'superdav-ai-agent' ),
 				'category'            => 'sd-ai-agent',
 				'input_schema'        => [
 					'type'       => 'object',
