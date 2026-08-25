@@ -158,6 +158,55 @@ function isAllowedBlock( editor, settings, name, rootClientId ) {
 }
 
 /**
+ * Determine whether a parsed child is permitted by its parsed parent.
+ *
+ * The editor selector can only validate a client ID already present in the
+ * editor. Parsed descendants have not been inserted yet, so validate their
+ * registered parent, ancestor, and allowed-block constraints directly.
+ *
+ * @param {Object}   settings      Editor settings.
+ * @param {Object}   blockType     Parsed child block type.
+ * @param {Object}   parentType    Parsed parent block type.
+ * @param {string[]} ancestorNames Parsed ancestor block names.
+ * @return {boolean} Whether the parsed child is allowed.
+ */
+function isAllowedNestedBlock(
+	settings,
+	blockType,
+	parentType,
+	ancestorNames
+) {
+	if (
+		Array.isArray( settings?.allowedBlockTypes ) &&
+		! settings.allowedBlockTypes.includes( blockType.name )
+	) {
+		return false;
+	}
+	if (
+		! Array.isArray( settings?.allowedBlockTypes ) &&
+		settings?.allowedBlockTypes !== true
+	) {
+		return false;
+	}
+	if (
+		Array.isArray( blockType.parent ) &&
+		! blockType.parent.includes( parentType?.name )
+	) {
+		return false;
+	}
+	if (
+		Array.isArray( blockType.ancestor ) &&
+		! blockType.ancestor.some( ( name ) => ancestorNames.includes( name ) )
+	) {
+		return false;
+	}
+	return ! (
+		Array.isArray( parentType?.allowedBlocks ) &&
+		! parentType.allowedBlocks.includes( blockType.name )
+	);
+}
+
+/**
  * Count and validate one parsed block tree.
  *
  * @param {Object}   api          Gutenberg blocks API.
@@ -170,7 +219,7 @@ function isAllowedBlock( editor, settings, name, rootClientId ) {
 function validateTree( api, editor, settings, blocks, rootClientId ) {
 	let count = 0;
 	const errors = [];
-	const walk = ( block, depth ) => {
+	const walk = ( block, depth, parentType = null, ancestorNames = [] ) => {
 		count++;
 		if ( depth > MAX_BLOCK_DEPTH ) {
 			errors.push( {
@@ -195,7 +244,10 @@ function validateTree( api, editor, settings, blocks, rootClientId ) {
 			errors.push( { code: 'unregistered_block', block: block.name } );
 			return;
 		}
-		if ( ! isAllowedBlock( editor, settings, block.name, rootClientId ) ) {
+		const isAllowed = parentType
+			? isAllowedNestedBlock( settings, type, parentType, ancestorNames )
+			: isAllowedBlock( editor, settings, block.name, rootClientId );
+		if ( ! isAllowed ) {
 			errors.push( { code: 'disallowed_block', block: block.name } );
 			return;
 		}
@@ -207,7 +259,7 @@ function validateTree( api, editor, settings, blocks, rootClientId ) {
 			errors.push( { code: 'invalid_block', block: block.name } );
 		}
 		for ( const child of block.innerBlocks || [] ) {
-			walk( child, depth + 1 );
+			walk( child, depth + 1, type, [ ...ancestorNames, block.name ] );
 		}
 	};
 	for ( const block of blocks ) {
@@ -307,6 +359,23 @@ function blockHasProtectedState( block ) {
 	}
 
 	return ( block?.innerBlocks || [] ).some( blockHasProtectedState );
+}
+
+/**
+ * Return true when the target insertion root is template locked.
+ *
+ * @param {Object} editor       Block editor selector.
+ * @param {string} rootClientId Target insertion root client ID.
+ * @return {boolean} Whether the insertion root is protected.
+ */
+function hasProtectedInsertionRoot( editor, rootClientId ) {
+	const rootBlock = rootClientId ? editor.getBlock?.( rootClientId ) : null;
+	if ( rootBlock?.attributes?.templateLock || rootBlock?.templateLock ) {
+		return true;
+	}
+	return Boolean(
+		editor.getBlockListSettings?.( rootClientId || '' )?.templateLock
+	);
 }
 
 /**
@@ -469,6 +538,9 @@ export async function insertBlockMarkup( args = {} ) {
 	const index = explicitIndex === undefined ? insertion.index : explicitIndex;
 	if ( ! Number.isInteger( index ) || index < 0 ) {
 		return rejected( 'insertion_point_unavailable' );
+	}
+	if ( hasProtectedInsertionRoot( editor, rootClientId ) ) {
+		return rejected( 'template_locked' );
 	}
 	const parsed = parseCanonicalMarkup( args.markup, editor, rootClientId );
 	if ( ! parsed.blocks ) {

@@ -37,7 +37,7 @@ function setEditor() {
 		getBlockListSettings: () => ( {} ),
 		getBlockInsertionPoint: () => ( { rootClientId: '', index: 1 } ),
 		getSettings: () => ( { allowedBlockTypes: true } ),
-		canInsertBlockType: () => true,
+		canInsertBlockType: jest.fn( () => true ),
 		getBlocks: () => Object.values( state.blocks ),
 	};
 	const dispatcher = {
@@ -252,6 +252,126 @@ describe( 'editor markup mutations', () => {
 			applied: true,
 			clientIds: [ 'new' ],
 		} );
+	} );
+
+	test( 'allows valid nested trees but rejects invalid direct children', () => {
+		const { selector } = setEditor();
+		const { parseCanonicalMarkup } = loadModule();
+		const makeBlock = ( name, innerBlocks = [] ) => ( {
+			clientId: name,
+			name,
+			markup: name,
+			attributes: {},
+			innerBlocks,
+		} );
+		const nestedTrees = {
+			'core/list': () => [
+				makeBlock( 'core/list', [
+					makeBlock( 'core/list-item' ),
+					makeBlock( 'core/list-item' ),
+				] ),
+			],
+			'core/columns': () => [
+				makeBlock( 'core/columns', [
+					makeBlock( 'core/column' ),
+					makeBlock( 'core/column' ),
+				] ),
+			],
+			'core/buttons': () => [
+				makeBlock( 'core/buttons', [
+					makeBlock( 'core/button' ),
+					makeBlock( 'core/button' ),
+				] ),
+			],
+		};
+		const blockTypes = {
+			'core/list': {
+				name: 'core/list',
+				allowedBlocks: [ 'core/list-item' ],
+			},
+			'core/list-item': {
+				name: 'core/list-item',
+				parent: [ 'core/list' ],
+			},
+			'core/columns': {
+				name: 'core/columns',
+				allowedBlocks: [ 'core/column' ],
+			},
+			'core/column': {
+				name: 'core/column',
+				parent: [ 'core/columns' ],
+			},
+			'core/buttons': {
+				name: 'core/buttons',
+				allowedBlocks: [ 'core/button' ],
+			},
+			'core/button': {
+				name: 'core/button',
+				parent: [ 'core/buttons' ],
+			},
+		};
+		const originalSerialize =
+			global.wp.blocks.serialize.getMockImplementation();
+
+		global.wp.blocks.getBlockType.mockImplementation(
+			( name ) => blockTypes[ name ] || null
+		);
+		global.wp.blocks.parse.mockImplementation( ( markup ) => {
+			const name = markup
+				.replace( 'nested-', '' )
+				.replace( 'canonical-', '' );
+			return nestedTrees[ name ]
+				? nestedTrees[ name ]()
+				: [ makeBlock( name ) ];
+		} );
+		global.wp.blocks.serialize.mockImplementation( ( blocks ) => {
+			if ( nestedTrees[ blocks[ 0 ]?.name ] ) {
+				return `canonical-${ blocks[ 0 ].name }`;
+			}
+			return originalSerialize( blocks );
+		} );
+		selector.canInsertBlockType.mockImplementation(
+			( name, rootClientId ) =>
+				rootClientId !== 'group' ||
+				[ 'core/list', 'core/columns', 'core/buttons' ].includes( name )
+		);
+
+		for ( const name of Object.keys( nestedTrees ) ) {
+			expect(
+				parseCanonicalMarkup( `nested-${ name }`, selector, 'group' )
+			).toMatchObject( { blocks: [ { name } ] } );
+		}
+		for ( const name of [
+			'core/list-item',
+			'core/column',
+			'core/button',
+		] ) {
+			expect(
+				parseCanonicalMarkup( name, selector, 'group' )
+			).toMatchObject( {
+				reason: 'validation_failed',
+				errors: [ { code: 'disallowed_block', block: name } ],
+			} );
+		}
+	} );
+
+	test( 'rejects a template-locked insertion destination without writing', async () => {
+		const { selector, dispatcher } = setEditor();
+		const { insertBlockMarkup } = loadModule();
+
+		selector.getBlockListSettings = ( rootClientId ) =>
+			rootClientId === 'locked-group' ? { templateLock: 'all' } : {};
+		await expect(
+			insertBlockMarkup( {
+				markup: 'valid',
+				rootClientId: 'locked-group',
+				index: 1,
+			} )
+		).resolves.toMatchObject( {
+			applied: false,
+			reason: 'template_locked',
+		} );
+		expect( dispatcher.insertBlocks ).not.toHaveBeenCalled();
 	} );
 
 	test( 'reports a no-history undo after one native dispatch', async () => {
