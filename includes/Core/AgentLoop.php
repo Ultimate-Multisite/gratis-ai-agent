@@ -2409,6 +2409,30 @@ PROMPT;
 	 * @return \WordPress\AiClient\Results\DTO\GenerativeAiResult|WP_Error
 	 */
 	private function send_prompt_with_payload_recovery(): GenerativeAiResult|WP_Error {
+		$durable_history           = $this->history;
+		$compacted_request_history = $this->continued_provider_compaction_history();
+		if ( is_array( $compacted_request_history ) ) {
+			$this->history = $compacted_request_history;
+		}
+
+		try {
+			return $this->send_prompt_with_payload_recovery_request();
+		} finally {
+			// Automatic retry compaction is provider context, not the durable chat
+			// transcript. Keep the full history for checkpoints, UI persistence,
+			// and recovery while subsequent provider calls reuse bounded context.
+			if ( is_array( $compacted_request_history ) ) {
+				$this->history = $durable_history;
+			}
+		}
+	}
+
+	/**
+	 * Send one provider request after any continued compact context is applied.
+	 *
+	 * @return \WordPress\AiClient\Results\DTO\GenerativeAiResult|WP_Error
+	 */
+	private function send_prompt_with_payload_recovery_request(): GenerativeAiResult|WP_Error {
 		$provider_id  = $this->resolve_provider_id();
 		$model_id     = $this->resolve_effective_model_id( $provider_id );
 		$byte_budget  = ConversationTrimmer::get_request_envelope_byte_budget( $provider_id, $model_id );
@@ -2579,6 +2603,87 @@ PROMPT;
 		$this->restore_provider_recovery_history( $provider_recovery_history );
 
 		return $retry_result;
+	}
+
+	/**
+	 * Reuse deterministic compact context after an automatic retry needed it.
+	 *
+	 * Long setup runs commonly contain one genuine user turn followed by many
+	 * tool cycles. Ordinary turn-boundary trimming intentionally keeps that turn
+	 * intact, so restoring its full durable transcript after a successful compact
+	 * retry made every later provider call large again. The persisted message log
+	 * records that recovery across browser-tool resumes; use it to rebuild a safe
+	 * provider-only context while leaving the durable history untouched.
+	 *
+	 * @return array<Message>|null Compacted provider history, or null when inactive.
+	 */
+	private function continued_provider_compaction_history(): ?array {
+		$compaction_active = false;
+		foreach ( $this->message_log as $entry ) {
+			if ( 'provider_retry_compaction' === ( $entry['type'] ?? '' ) ) {
+				$compaction_active = true;
+				break;
+			}
+		}
+
+		if ( ! $compaction_active ) {
+			return null;
+		}
+
+		$request_bytes  = ConversationTrimmer::estimate_total_bytes( $this->history );
+		$request_tokens = ConversationTrimmer::estimate_total_tokens( $this->history );
+		if ( $request_bytes <= ConversationTrimmer::COMPACT_MAX_BYTES && $request_tokens <= ConversationTrimmer::COMPACT_MAX_TOKENS ) {
+			return null;
+		}
+
+		$compacted = ConversationTrimmer::compact_serialized_history(
+			$this->serialize_history(),
+			ConversationTrimmer::COMPACT_MAX_BYTES,
+			ConversationTrimmer::COMPACT_MAX_TOKENS
+		);
+		if ( empty( $compacted['messages'] ) ) {
+			return null;
+		}
+
+		try {
+			$compacted_history = ConversationSerializer::deserialize( $compacted['messages'] );
+			$compacted_history = ConversationTrimmer::validate_tool_pairs( $compacted_history );
+		} catch ( \Throwable $exception ) {
+			return null;
+		}
+
+		$compacted_bytes  = ConversationTrimmer::estimate_total_bytes( $compacted_history );
+		$compacted_tokens = ConversationTrimmer::estimate_total_tokens( $compacted_history );
+		if (
+			empty( $compacted_history )
+			|| $compacted_bytes >= $request_bytes
+			|| ! ConversationTrimmer::fits_budget(
+				$compacted_history,
+				ConversationTrimmer::COMPACT_MAX_BYTES,
+				ConversationTrimmer::COMPACT_MAX_TOKENS
+			)
+		) {
+			return null;
+		}
+
+		AgentEventLog::log(
+			'provider_retry_history_compacted',
+			AgentEventLog::SEVERITY_INFO,
+			array(
+				'session_id'              => $this->session_id,
+				'phase'                   => $this->get_provider_trace_phase(),
+				'provider_id'             => $this->resolve_provider_id(),
+				'model_id'                => $this->resolve_effective_model_id( $this->resolve_provider_id() ),
+				'history_count'           => count( $this->history ),
+				'request_bytes_estimate'  => $request_bytes,
+				'request_tokens_estimate' => $request_tokens,
+				'payload_reduced'         => true,
+				'fallback_attempted'      => false,
+				'recovery_outcome'        => 'continued_compact_provider_context',
+			)
+		);
+
+		return $compacted_history;
 	}
 
 	/**
