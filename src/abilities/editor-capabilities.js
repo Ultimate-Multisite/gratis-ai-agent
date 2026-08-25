@@ -273,6 +273,58 @@ function getGlobalCapabilities( settings ) {
 }
 
 /**
+ * Check whether a response fits within the ability output limit.
+ *
+ * @param {Object} response Candidate ability response.
+ * @return {boolean} Whether the serialized response fits the limit.
+ */
+function responseFits( response ) {
+	return getByteLength( JSON.stringify( response ) ) <= MAX_RESPONSE_BYTES;
+}
+
+/**
+ * Remove optional response data until the serialized response is bounded.
+ *
+ * @param {Object} response   Candidate ability response.
+ * @param {number} blockCount Total registered block count.
+ * @return {Object} Response that fits the output limit.
+ */
+function limitResponseSize( response, blockCount ) {
+	if ( responseFits( response ) ) {
+		return response;
+	}
+
+	response.truncated = true;
+	response.unavailable_sources.push( 'response_size_limit' );
+
+	for ( const key of [
+		'block_details',
+		'requested',
+		'unregistered',
+		'disallowed',
+		'block_names',
+	] ) {
+		if ( responseFits( response ) ) {
+			return response;
+		}
+		response[ key ].length = 0;
+	}
+	response.omitted_blocks = blockCount;
+
+	if ( responseFits( response ) ) {
+		return response;
+	}
+
+	response.global = {};
+
+	if ( responseFits( response ) ) {
+		return response;
+	}
+
+	return response;
+}
+
+/**
  * Return a bounded runtime capability manifest for the active editor.
  *
  * @param {Object}   args              Ability arguments.
@@ -329,14 +381,15 @@ export function getEditorCapabilities( args = {} ) {
 		const requested = Array.isArray( args.blockNames )
 			? [
 					...new Set(
-						args.blockNames.filter(
-							( name ) => typeof name === 'string'
-						)
+						args.blockNames
+							.filter( ( name ) => typeof name === 'string' )
+							.map( safeString )
+							.filter( Boolean )
 					),
 			  ].slice( 0, MAX_DETAILED_BLOCKS )
 			: [];
 		const blocksByName = new Map(
-			blocks.map( ( block ) => [ block.name, block ] )
+			blocks.map( ( block ) => [ safeString( block.name ), block ] )
 		);
 		const detailedBlocks = requested
 			.map( ( name ) => blocksByName.get( name ) )
@@ -348,9 +401,11 @@ export function getEditorCapabilities( args = {} ) {
 		const disallowed = detailedBlocks
 			.filter( ( block ) => block.allowed === false )
 			.map( ( block ) => block.name );
-		const summary = blocks
-			.slice( 0, MAX_SUMMARY_BLOCKS )
-			.map( ( block ) => block.name );
+		const summary = [
+			...new Set( blocks.map( ( block ) => safeString( block.name ) ) ),
+		]
+			.filter( Boolean )
+			.slice( 0, MAX_SUMMARY_BLOCKS );
 		const result = {
 			available: true,
 			block_names: summary,
@@ -367,13 +422,7 @@ export function getEditorCapabilities( args = {} ) {
 			unavailable_sources: unavailableSources,
 		};
 
-		if ( getByteLength( JSON.stringify( result ) ) > MAX_RESPONSE_BYTES ) {
-			result.block_details = [];
-			result.truncated = true;
-			result.unavailable_sources.push( 'response_size_limit' );
-		}
-
-		return result;
+		return limitResponseSize( result, blocks.length );
 	} catch ( _error ) {
 		return empty;
 	}
