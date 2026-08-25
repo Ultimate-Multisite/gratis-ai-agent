@@ -18,6 +18,20 @@ class ConversationTrimmerCompactionTest extends WP_UnitTestCase {
 
 	/** Compacted setup reads retain bounded state and callable ability schemas. */
 	public function test_compact_serialized_history_preserves_inspection_receipts(): void {
+		$schema_properties = [
+			'post_id' => [
+				'type'        => 'integer',
+				'description' => 'SECRET_SCHEMA_DESCRIPTION',
+			],
+			'force'   => [
+				'type'    => 'boolean',
+				'default' => 'SECRET_SCHEMA_DEFAULT',
+			],
+		];
+		for ( $index = 1; $index <= 10; ++$index ) {
+			$schema_properties[ 'field_' . $index ] = [ 'type' => 'string' ];
+		}
+
 		$messages = [
 			[
 				'role'  => 'model',
@@ -47,17 +61,8 @@ class ConversationTrimmerCompactionTest extends WP_UnitTestCase {
 										'description'  => 'SECRET_DESCRIPTION',
 										'input_schema' => [
 											'type'       => 'object',
-											'required'   => [ 'post_id' ],
-											'properties' => [
-												'post_id' => [
-													'type'        => 'integer',
-													'description' => 'SECRET_SCHEMA_DESCRIPTION',
-												],
-												'force'   => [
-													'type'    => 'boolean',
-													'default' => 'SECRET_SCHEMA_DEFAULT',
-												],
-											],
+											'required'   => array_keys( $schema_properties ),
+											'properties' => $schema_properties,
 										],
 									],
 									[ 'id' => 'sd-ai-agent/list-media', 'label' => 'List Media', 'input_schema' => 'SECRET_SCHEMA' ],
@@ -104,6 +109,7 @@ class ConversationTrimmerCompactionTest extends WP_UnitTestCase {
 
 		$result = ConversationTrimmer::compact_serialized_history( $messages, 4096, 1024 );
 		$json   = (string) wp_json_encode( $result['messages'] );
+		$text   = (string) $result['messages'][0]['parts'][0]['text'];
 
 		$this->assertStringContainsString( 'Do not repeat an inspection solely', $json );
 		$this->assertStringContainsString( 'Use ability-call directly', $json );
@@ -114,6 +120,7 @@ class ConversationTrimmerCompactionTest extends WP_UnitTestCase {
 		$this->assertStringContainsString( 'integer', $json );
 		$this->assertStringContainsString( 'force', $json );
 		$this->assertStringContainsString( 'boolean', $json );
+		$this->assertStringContainsString( '"required":["post_id","force","field_1","field_2","field_3","field_4","field_5","field_6","field_7","field_8","field_9","field_10"]', $text );
 		$this->assertStringContainsString( 'Sample Page', $json );
 		$this->assertStringContainsString( 'provider_api_key', $json );
 		$this->assertStringNotContainsString( 'SECRET_DESCRIPTION', $json );

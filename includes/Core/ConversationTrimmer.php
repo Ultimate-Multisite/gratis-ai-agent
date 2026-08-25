@@ -635,7 +635,7 @@ class ConversationTrimmer {
 	private static function compact_schema_shape( array $schema, int $depth = 0 ): array {
 		$shape = self::compact_receipt_fields(
 			$schema,
-			array( 'type', 'format', 'required', 'enum', 'minimum', 'maximum', 'minItems', 'maxItems' )
+			array( 'type', 'format', 'enum', 'minimum', 'maximum', 'minItems', 'maxItems' )
 		);
 
 		if ( isset( $schema['additionalProperties'] ) && is_bool( $schema['additionalProperties'] ) ) {
@@ -648,15 +648,33 @@ class ConversationTrimmer {
 
 		if ( isset( $schema['properties'] ) && is_array( $schema['properties'] ) ) {
 			$properties = array();
+
+			$retained_property_names = array();
 			foreach ( array_slice( $schema['properties'], 0, 12, true ) as $property_name => $property_schema ) {
 				if ( ! is_string( $property_name ) || ! is_array( $property_schema ) ) {
 					continue;
 				}
 
-				$properties[ self::compact_receipt_value( $property_name ) ] = self::compact_schema_shape( $property_schema, $depth + 1 );
+				$compacted_property_name = self::compact_receipt_value( $property_name );
+
+				$properties[ $compacted_property_name ] = self::compact_schema_shape( $property_schema, $depth + 1 );
+
+				$retained_property_names[ $property_name ] = $compacted_property_name;
 			}
 			if ( ! empty( $properties ) ) {
 				$shape['properties'] = $properties;
+			}
+
+			if ( isset( $schema['required'] ) && is_array( $schema['required'] ) ) {
+				$required = array();
+				foreach ( $schema['required'] as $required_property_name ) {
+					if ( is_string( $required_property_name ) && isset( $retained_property_names[ $required_property_name ] ) ) {
+						$required[] = $retained_property_names[ $required_property_name ];
+					}
+				}
+				if ( ! empty( $required ) ) {
+					$shape['required'] = $required;
+				}
 			}
 		}
 
