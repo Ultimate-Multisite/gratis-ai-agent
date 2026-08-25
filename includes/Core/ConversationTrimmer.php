@@ -311,7 +311,8 @@ class ConversationTrimmer {
 		$header = array(
 			'Conversation compacted server-side to avoid provider payload limits.',
 			"Source messages: {$source_count}; retained excerpts: {$retained_count}; omitted messages: {$omitted_count}.",
-			'Use this compact context to continue from the user\'s next message. File attachments, inline image bytes, and raw tool payloads were omitted.',
+			'Use this compact context to continue the current task. File attachments, inline image bytes, and raw tool payloads were omitted.',
+			'Bounded inspection receipts are evidence of completed reads. Do not repeat an inspection solely because its raw result was omitted.',
 		);
 
 		return implode( "\n", $header ) . "\n\n" . implode( "\n\n", $lines );
@@ -381,6 +382,11 @@ class ConversationTrimmer {
 				return $mutation_receipt;
 			}
 
+			$inspection_receipt = self::compact_inspection_call_receipt( $function_call );
+			if ( '' !== $inspection_receipt ) {
+				return $inspection_receipt;
+			}
+
 			$name = self::compact_tool_name( $function_call['name'] ?? 'tool' );
 			return '[tool call: ' . $name . ']';
 		}
@@ -390,6 +396,11 @@ class ConversationTrimmer {
 			$mutation_receipt = self::compact_post_mutation_response_receipt( $function_response );
 			if ( '' !== $mutation_receipt ) {
 				return $mutation_receipt;
+			}
+
+			$inspection_receipt = self::compact_inspection_response_receipt( $function_response );
+			if ( '' !== $inspection_receipt ) {
+				return $inspection_receipt;
 			}
 
 			$name = self::compact_tool_name( $function_response['name'] ?? 'tool' );
@@ -484,6 +495,140 @@ class ConversationTrimmer {
 	private static function is_post_creation_tool( string $name ): bool {
 		return self::tool_name_has_suffix( $name, 'create-post' )
 			|| self::tool_name_has_suffix( $name, 'batch-create-posts' );
+	}
+
+	/**
+	 * Preserve bounded query parameters for read-only setup inspections.
+	 *
+	 * @param array<string,mixed> $function_call Serialized function call.
+	 */
+	private static function compact_inspection_call_receipt( array $function_call ): string {
+		$name = self::compact_tool_name( $function_call['name'] ?? 'tool' );
+		if ( ! self::is_compact_inspection_tool( $name ) ) {
+			return '';
+		}
+
+		$args    = self::compact_tool_payload_array( $function_call['args'] ?? array() );
+		$summary = self::compact_receipt_fields(
+			$args,
+			array( 'query', 'search', 'prefix', 'post_type', 'post_status', 'mime_type', 'limit', 'autoload', 'stylesheet', 'area' )
+		);
+
+		return '[inspection call: ' . $name . ' args=' . self::compact_receipt_json( $summary ) . ']';
+	}
+
+	/**
+	 * Preserve bounded, non-content evidence returned by read-only setup inspections.
+	 *
+	 * @param array<string,mixed> $function_response Serialized function response.
+	 */
+	private static function compact_inspection_response_receipt( array $function_response ): string {
+		$name = self::compact_tool_name( $function_response['name'] ?? 'tool' );
+		if ( ! self::is_compact_inspection_tool( $name ) ) {
+			return '';
+		}
+
+		$response = self::compact_tool_payload_array( $function_response['response'] ?? array() );
+		$summary  = self::compact_receipt_fields(
+			$response,
+			array( 'success', 'total', 'count', 'active', 'active_count', 'valid', 'passed', 'query', 'stylesheet', 'code', 'error' )
+		);
+
+		$collection_fields = array(
+			'results'   => array( 'id', 'label', 'name', 'title', 'status', 'post_id', 'success', 'error' ),
+			'posts'     => array( 'id', 'title', 'status', 'post_type' ),
+			'items'     => array( 'id', 'title', 'name', 'mime_type', 'status' ),
+			'themes'    => array( 'slug', 'name', 'active', 'status', 'version' ),
+			'plugins'   => array( 'name', 'active', 'status' ),
+			'menus'     => array( 'id', 'name', 'slug', 'count' ),
+			'options'   => array( 'option_name' ),
+			'templates' => array( 'slug', 'title' ),
+		);
+		foreach ( $collection_fields as $key => $fields ) {
+			if ( ! isset( $response[ $key ] ) || ! is_array( $response[ $key ] ) ) {
+				continue;
+			}
+
+			$entities = array();
+			foreach ( array_slice( $response[ $key ], 0, 10 ) as $entity ) {
+				if ( is_array( $entity ) ) {
+					$entities[] = self::compact_receipt_fields( $entity, $fields );
+				}
+			}
+			$summary[ $key ] = $entities;
+		}
+
+		return '[inspection result: ' . $name . ' summary=' . self::compact_receipt_json( $summary ) . ']';
+	}
+
+	/** Whether a tool is a read-only inspection whose bounded result aids continuation. */
+	private static function is_compact_inspection_tool( string $name ): bool {
+		foreach (
+			array(
+				'ability-search',
+				'get-plugins',
+				'get-themes',
+				'list-block-templates',
+				'list-media',
+				'list-menus',
+				'list-options',
+				'list-posts',
+			) as $suffix
+		) {
+			if ( self::tool_name_has_suffix( $name, $suffix ) ) {
+				return true;
+			}
+		}
+
+		return false;
+	}
+
+	/**
+	 * Select and bound scalar or scalar-list receipt fields.
+	 *
+	 * @param array<string,mixed> $source         Source payload.
+	 * @param string[]            $allowed_fields Fields safe to retain.
+	 * @return array<string,mixed>
+	 */
+	private static function compact_receipt_fields( array $source, array $allowed_fields ): array {
+		$summary = array();
+		foreach ( $allowed_fields as $field ) {
+			if ( ! array_key_exists( $field, $source ) ) {
+				continue;
+			}
+
+			$value = $source[ $field ];
+			if ( is_scalar( $value ) || null === $value ) {
+				$summary[ $field ] = is_string( $value ) ? self::compact_receipt_value( $value ) : $value;
+				continue;
+			}
+
+			if ( is_array( $value ) ) {
+				$items = array();
+				foreach ( array_slice( $value, 0, 10 ) as $item ) {
+					if ( is_scalar( $item ) || null === $item ) {
+						$items[] = is_string( $item ) ? self::compact_receipt_value( $item ) : $item;
+					}
+				}
+				$summary[ $field ] = $items;
+			}
+		}
+
+		return $summary;
+	}
+
+	/**
+	 * Encode one bounded receipt summary.
+	 *
+	 * @param array<string,mixed> $summary Safe receipt fields.
+	 */
+	private static function compact_receipt_json( array $summary ): string {
+		$encoded = wp_json_encode( $summary );
+		if ( ! is_string( $encoded ) ) {
+			return '{}';
+		}
+
+		return strlen( $encoded ) > 1200 ? substr( $encoded, 0, 1199 ) . '…' : $encoded;
 	}
 
 	/** Match direct and dispatcher-safe function names by their ability suffix. */
