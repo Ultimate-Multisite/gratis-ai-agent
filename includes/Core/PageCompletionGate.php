@@ -104,6 +104,8 @@ final class PageCompletionGate {
 
 	private bool $visual_review_passed = false;
 
+	private bool $report_received = false;
+
 	/** @var bool True only for the canonical anonymous check immediately after preview publication. */
 	private bool $public_smoke_only = false;
 
@@ -295,7 +297,11 @@ final class PageCompletionGate {
 
 	/** Whether AgentLoop should dispatch the exact gate-owned browser call. */
 	public function should_dispatch_validation(): bool {
-		return $this->is_required() && ! $this->publish_failed && ! $this->deterministic_report_passed && $this->client_validator_available;
+		return $this->is_required()
+			&& ! $this->publish_failed
+			&& ! $this->deterministic_report_passed
+			&& ! $this->report_received
+			&& $this->client_validator_available;
 	}
 
 	/** Whether an approved private preview is ready for guarded publication. */
@@ -504,6 +510,7 @@ final class PageCompletionGate {
 			'viewports'                   => $inputs['viewports'],
 			'client_validator_present'    => $this->client_validator_available,
 			'deterministic_report_passed' => $this->deterministic_report_passed,
+			'report_received'             => $this->report_received,
 			'visual_review_required'      => $this->requires_visual_review(),
 			'visual_review_passed'        => $this->visual_review_passed,
 			'public_smoke_only'           => $this->public_smoke_only,
@@ -625,6 +632,7 @@ final class PageCompletionGate {
 	 */
 	private function record_quality_report( array $call_args, array $response ): void {
 		$this->last_report                 = $response;
+		$this->report_received             = true;
 		$this->passed                      = false;
 		$this->deterministic_report_passed = false;
 		$this->visual_review_passed        = false;
@@ -888,6 +896,7 @@ final class PageCompletionGate {
 		$this->passed                      = false;
 		$this->deterministic_report_passed = false;
 		$this->visual_review_passed        = false;
+		$this->report_received             = false;
 		$this->last_report                 = array();
 		$this->last_failure                = $reason;
 	}
