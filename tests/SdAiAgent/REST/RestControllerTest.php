@@ -3058,6 +3058,88 @@ class RestControllerTest extends WP_UnitTestCase {
 		$this->assertSame( 'error', $db_row->status );
 	}
 
+	/** A duplicate result POST cannot fail a browser-tool resume still in flight. */
+	public function test_tool_result_retry_during_active_resume_is_acknowledged(): void {
+		wp_set_current_user( $this->admin_id );
+
+		$session_id = Database::create_session( [
+			'user_id' => $this->admin_id,
+			'title'   => 'In-flight client result resume',
+		] );
+		$job_id     = '55555555-6666-7777-8888-999999999999';
+		ActiveJobRepository::create( $session_id, $job_id, $this->admin_id, 'processing' );
+		set_transient(
+			RestController::JOB_PREFIX . $job_id,
+			[ 'status' => 'processing' ],
+			RestController::JOB_TTL
+		);
+
+		$request = new WP_REST_Request( 'POST', '/sd-ai-agent/v1/chat/tool-result' );
+		$request->set_body( wp_json_encode( [
+			'session_id'   => $session_id,
+			'job_id'       => $job_id,
+			'tool_results' => [
+				[
+					'id'     => 'call_screenshot_active',
+					'name'   => 'sd-ai-agent-js/screenshot-url',
+					'result' => [ 'success' => true ],
+				],
+			],
+		] ) );
+		$request->set_header( 'Content-Type', 'application/json' );
+		$response = $this->server->dispatch( $request );
+
+		$this->assertStatus( 202, $response );
+		$this->assertSame( 'processing', $response->get_data()['status'] );
+		$this->assertTrue( $response->get_data()['results_accepted'] );
+
+		$db_row = ActiveJobRepository::get_by_job_id( $job_id );
+		$this->assertNotNull( $db_row );
+		$this->assertSame( 'processing', $db_row->status );
+		$this->assertSame( 'processing', get_transient( RestController::JOB_PREFIX . $job_id )['status'] );
+	}
+
+	/** Browser-tool resumes become recoverable interrupted jobs on PHP shutdown. */
+	public function test_client_tool_resume_claim_enables_interruption_recovery(): void {
+		wp_set_current_user( $this->admin_id );
+
+		$session_id = Database::create_session( [
+			'user_id' => $this->admin_id,
+			'title'   => 'Recoverable client result resume',
+		] );
+		$job_id     = '66666666-7777-8888-9999-000000000000';
+		ActiveJobRepository::create( $session_id, $job_id, $this->admin_id, 'awaiting_client_tools' );
+		set_transient(
+			RestController::JOB_PREFIX . $job_id,
+			[
+				'status'                    => 'awaiting_client_tools',
+				'pending_client_tool_calls' => [ [ 'id' => 'call_active' ] ],
+			],
+			RestController::JOB_TTL
+		);
+
+		$method = new \ReflectionMethod( RestController::class, 'start_client_tool_resume' );
+		$this->assertFalse( $method->invoke( null, $job_id, $session_id + 1 ) );
+		$unclaimed_row = ActiveJobRepository::get_by_job_id( $job_id );
+		$this->assertNotNull( $unclaimed_row );
+		$this->assertSame( 'awaiting_client_tools', $unclaimed_row->status );
+		$this->assertTrue( $method->invoke( null, $job_id, $session_id ) );
+
+		$db_row = ActiveJobRepository::get_by_job_id( $job_id );
+		$this->assertNotNull( $db_row );
+		$this->assertSame( 'processing', $db_row->status );
+		$this->assertSame( '[]', $db_row->pending_tools );
+		$job = get_transient( RestController::JOB_PREFIX . $job_id );
+		$this->assertIsArray( $job );
+		$this->assertSame( 'processing', $job['status'] );
+		$this->assertArrayNotHasKey( 'pending_client_tool_calls', $job );
+
+		$this->assertTrue( ActiveJobRepository::mark_interrupted( $job_id ) );
+		$db_row = ActiveJobRepository::get_by_job_id( $job_id );
+		$this->assertNotNull( $db_row );
+		$this->assertSame( 'interrupted', $db_row->status );
+	}
+
 	/**
 	 * Test POST /chat/tool-result on a 'complete' transient does NOT
 	 * downgrade it to 'error'. A duplicate POST after the original already
