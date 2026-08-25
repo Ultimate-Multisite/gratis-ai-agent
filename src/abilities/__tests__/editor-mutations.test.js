@@ -15,6 +15,9 @@ function setEditor() {
 	const state = {
 		selectedIds: [ 'old' ],
 		onSerialize: null,
+		canUndo: false,
+		canRedo: false,
+		subscribers: [],
 		blocks: {
 			old: {
 				clientId: 'old',
@@ -55,6 +58,15 @@ function setEditor() {
 		undo: jest.fn(),
 		redo: jest.fn(),
 	};
+	const historySelector = {
+		hasEditorUndo: () => state.canUndo,
+		hasEditorRedo: () => state.canRedo,
+	};
+	const notify = () => {
+		for ( const subscriber of state.subscribers ) {
+			subscriber();
+		}
+	};
 	const parse = jest.fn( ( markup ) => {
 		if (
 			markup === 'valid' ||
@@ -74,10 +86,20 @@ function setEditor() {
 	} );
 	global.wp = {
 		data: {
-			select: jest.fn( () => selector ),
+			select: jest.fn( ( storeName ) =>
+				storeName === 'core/editor' ? historySelector : selector
+			),
 			dispatch: jest.fn( ( storeName ) =>
 				storeName === 'core/editor' ? historyDispatcher : dispatcher
 			),
+			subscribe: jest.fn( ( callback ) => {
+				state.subscribers.push( callback );
+				return () => {
+					state.subscribers = state.subscribers.filter(
+						( subscriber ) => subscriber !== callback
+					);
+				};
+			} ),
 		},
 		blocks: {
 			parse,
@@ -91,7 +113,7 @@ function setEditor() {
 			validateBlock: jest.fn( () => [ true, [] ] ),
 		},
 	};
-	return { state, selector, dispatcher, historyDispatcher, parse };
+	return { state, selector, dispatcher, historyDispatcher, notify, parse };
 }
 
 describe( 'editor markup mutations', () => {
@@ -232,11 +254,13 @@ describe( 'editor markup mutations', () => {
 		} );
 	} );
 
-	test( 'runs one native history operation and reports whether it changed blocks', () => {
+	test( 'reports a no-history undo after one native dispatch', async () => {
 		const { historyDispatcher } = setEditor();
 		const { changeEditorHistory } = loadModule();
 
-		expect( changeEditorHistory( { direction: 'undo' } ) ).toEqual( {
+		await expect(
+			changeEditorHistory( { direction: 'undo' } )
+		).resolves.toEqual( {
 			applied: false,
 			direction: 'undo',
 		} );
@@ -245,8 +269,9 @@ describe( 'editor markup mutations', () => {
 		expect( global.wp.data.dispatch ).toHaveBeenCalledWith( 'core/editor' );
 	} );
 
-	test( 'reports a history change and rejects an invalid direction', () => {
+	test( 'reports a settled synchronous history change and rejects an invalid direction', async () => {
 		const { state, historyDispatcher } = setEditor();
+		state.canUndo = true;
 		historyDispatcher.undo.mockImplementation( () => {
 			state.blocks.changed = {
 				clientId: 'changed',
@@ -258,18 +283,79 @@ describe( 'editor markup mutations', () => {
 		} );
 		const { changeEditorHistory } = loadModule();
 
-		expect( changeEditorHistory( { direction: 'undo' } ) ).toEqual( {
+		await expect(
+			changeEditorHistory( { direction: 'undo' } )
+		).resolves.toEqual( {
 			applied: true,
 			direction: 'undo',
 		} );
-		expect(
+		await expect(
 			changeEditorHistory( { direction: 'sideways' } )
-		).toMatchObject( {
+		).resolves.toMatchObject( {
 			applied: false,
 			reason: 'invalid_history_direction',
 		} );
 		expect( historyDispatcher.undo ).toHaveBeenCalledTimes( 1 );
 		expect( historyDispatcher.redo ).not.toHaveBeenCalled();
+	} );
+
+	test( 'waits for delayed undo and redo store settlement before reporting success', async () => {
+		const { state, historyDispatcher, notify } = setEditor();
+		state.canUndo = true;
+		historyDispatcher.undo.mockImplementation( () => {
+			setTimeout( () => {
+				state.blocks = {
+					restored: {
+						clientId: 'restored',
+						name: 'core/paragraph',
+						markup: '<!-- wp:paragraph -->Restored<!-- /wp:paragraph -->',
+						attributes: {},
+						innerBlocks: [],
+					},
+				};
+				state.canUndo = false;
+				state.canRedo = true;
+				notify();
+			}, 0 );
+		} );
+		historyDispatcher.redo.mockImplementation( () => {
+			setTimeout( () => {
+				state.blocks = {
+					redone: {
+						clientId: 'redone',
+						name: 'core/paragraph',
+						markup: '<!-- wp:paragraph -->Redone<!-- /wp:paragraph -->',
+						attributes: {},
+						innerBlocks: [],
+					},
+				};
+				state.canUndo = true;
+				state.canRedo = false;
+				notify();
+			}, 0 );
+		} );
+		const { changeEditorHistory } = loadModule();
+
+		await expect(
+			changeEditorHistory( { direction: 'undo' } )
+		).resolves.toEqual( {
+			applied: true,
+			direction: 'undo',
+		} );
+		expect(
+			global.wp.blocks.serialize( Object.values( state.blocks ) )
+		).toBe( '<!-- wp:paragraph -->Restored<!-- /wp:paragraph -->' );
+		await expect(
+			changeEditorHistory( { direction: 'redo' } )
+		).resolves.toEqual( {
+			applied: true,
+			direction: 'redo',
+		} );
+		expect(
+			global.wp.blocks.serialize( Object.values( state.blocks ) )
+		).toBe( '<!-- wp:paragraph -->Redone<!-- /wp:paragraph -->' );
+		expect( historyDispatcher.undo ).toHaveBeenCalledTimes( 1 );
+		expect( historyDispatcher.redo ).toHaveBeenCalledTimes( 1 );
 	} );
 
 	test( 'returns an uncertain result when an editor dispatch throws', async () => {
@@ -307,7 +393,9 @@ describe( 'editor markup mutations', () => {
 			applied: 'unknown',
 			reason: 'dispatch_failed',
 		} );
-		expect( changeEditorHistory( { direction: 'undo' } ) ).toMatchObject( {
+		await expect(
+			changeEditorHistory( { direction: 'undo' } )
+		).resolves.toMatchObject( {
 			applied: 'unknown',
 			direction: 'undo',
 			reason: 'dispatch_failed',

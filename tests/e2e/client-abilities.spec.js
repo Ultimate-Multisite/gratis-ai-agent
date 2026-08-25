@@ -507,7 +507,79 @@ test.describe( 'client-abilities — insert-block on editor screen', () => {
 } );
 
 // ---------------------------------------------------------------------------
-// Test suite 5: server-side post reflection in the block editor
+// Test suite 5: editor history execution
+// ---------------------------------------------------------------------------
+
+test.describe( 'client-abilities — editor history', () => {
+	test.beforeEach( async ( { page } ) => {
+		await loginToWordPress( page );
+	} );
+
+	test( 'reports settled editor history undo and redo evidence', async ( {
+		page,
+	} ) => {
+		await createDraftAndOpenEditor( page );
+		await skipIfNoAbilitiesApi( page );
+		await waitForAbilitiesRegistered( page );
+
+		const result = await page.evaluate( async () => {
+			const blockEditor = wp.data.select( 'core/block-editor' );
+			const blockDispatcher = wp.data.dispatch( 'core/block-editor' );
+			const initialBlocks = blockEditor.getBlocks();
+			const selected = initialBlocks.find(
+				( block ) => block.name === 'core/paragraph'
+			);
+			if ( ! selected ) {
+				return { error: 'paragraph_unavailable' };
+			}
+
+			const original = wp.blocks.serialize( initialBlocks );
+			const replacement = wp.blocks.createBlock( 'core/paragraph', {
+				content: 'History replacement from Playwright.',
+			} );
+			blockDispatcher.selectBlock( selected.clientId );
+			blockDispatcher.replaceBlocks( [ selected.clientId ], replacement );
+			const replacementMarkup = wp.blocks.serialize(
+				blockEditor.getBlocks()
+			);
+			const undo = await wp.abilities.executeAbility(
+				'sd-ai-agent-js/change-editor-history',
+				{ direction: 'undo' }
+			);
+			const afterUndo = wp.blocks.serialize( blockEditor.getBlocks() );
+			const redo = await wp.abilities.executeAbility(
+				'sd-ai-agent-js/change-editor-history',
+				{ direction: 'redo' }
+			);
+			const afterRedo = wp.blocks.serialize( blockEditor.getBlocks() );
+
+			return {
+				original,
+				replacementMarkup,
+				undo,
+				afterUndo,
+				redo,
+				afterRedo,
+			};
+		} );
+
+		expect( result.error ).toBeUndefined();
+		expect( result.replacementMarkup ).not.toBe( result.original );
+		expect( result.undo ).toMatchObject( {
+			applied: true,
+			direction: 'undo',
+		} );
+		expect( result.afterUndo ).toBe( result.original );
+		expect( result.redo ).toMatchObject( {
+			applied: true,
+			direction: 'redo',
+		} );
+		expect( result.afterRedo ).toBe( result.replacementMarkup );
+	} );
+} );
+
+// ---------------------------------------------------------------------------
+// Test suite 6: server-side post reflection in the block editor
 // ---------------------------------------------------------------------------
 
 test.describe( 'client-abilities — server post reflection', () => {
@@ -675,7 +747,7 @@ test.describe( 'client-abilities — server post reflection', () => {
 } );
 
 // ---------------------------------------------------------------------------
-// Test suite 6: insert-block no-op on non-editor screen
+// Test suite 7: insert-block no-op on non-editor screen
 // ---------------------------------------------------------------------------
 
 test.describe( 'client-abilities — insert-block no-op on non-editor screen', () => {
@@ -719,7 +791,7 @@ test.describe( 'client-abilities — insert-block no-op on non-editor screen', (
 } );
 
 // ---------------------------------------------------------------------------
-// Test suite 7: snapshotDescriptors
+// Test suite 8: snapshotDescriptors
 // ---------------------------------------------------------------------------
 
 test.describe( 'client-abilities — snapshotDescriptors', () => {
@@ -793,7 +865,7 @@ test.describe( 'client-abilities — snapshotDescriptors', () => {
 } );
 
 // ---------------------------------------------------------------------------
-// Test suite 8: No relevant console errors
+// Test suite 9: No relevant console errors
 // ---------------------------------------------------------------------------
 
 test.describe( 'client-abilities — no relevant console errors', () => {
