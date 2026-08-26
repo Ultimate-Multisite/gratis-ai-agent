@@ -267,6 +267,11 @@ final class PagePreviewWorkspace {
 			);
 		}
 
+		$dependencies = self::ensure_autosave_dependencies();
+		if ( is_wp_error( $dependencies ) ) {
+			return $dependencies;
+		}
+
 		$scope = self::claim_context_scope( $post_id );
 		if ( is_wp_error( $scope ) ) {
 			return $scope;
@@ -330,6 +335,26 @@ final class PagePreviewWorkspace {
 		update_metadata( 'post', (int) $autosave_id, self::META_KEY, $metadata );
 
 		return self::build_descriptor( $parent, (int) $autosave_id, $metadata );
+	}
+
+	/** Load the admin-only callback registered by core for REST autosaves. */
+	private static function ensure_autosave_dependencies(): true|WP_Error {
+		if ( function_exists( 'wp_autosave_post_revisioned_meta_fields' ) ) {
+			return true;
+		}
+
+		$admin_post_file = ABSPATH . 'wp-admin/includes/post.php';
+		if ( ! is_readable( $admin_post_file ) ) {
+			return new WP_Error(
+				'sd_ai_agent_preview_autosave_dependency_missing',
+				__( 'WordPress could not load the autosave support required for the private page preview.', 'superdav-ai-agent' ),
+				array( 'status' => 500 )
+			);
+		}
+
+		require_once $admin_post_file;
+
+		return true;
 	}
 
 	/**
