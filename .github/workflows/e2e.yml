@@ -166,10 +166,11 @@ jobs:
       - name: Install required WordPress 7.0-RC2 browser Abilities API build
         # wp-env bootstraps from the stable source tree, then WP-CLI installs
         # the RC2 build where @wordpress/core-abilities is loaded in wp-admin.
+        # `--` keeps wp-env from consuming WP-CLI's `--version` option.
         run: |
-          pnpm exec wp-env run cli wp core update --version=7.0-RC2 --force
-          pnpm exec wp-env run cli wp core update-db
-          pnpm exec wp-env run cli wp core version | grep -x '7.0-RC2'
+          pnpm exec wp-env run cli -- wp core update --version=7.0-RC2 --force
+          pnpm exec wp-env run cli -- wp core update-db
+          pnpm exec wp-env run cli -- wp core version | grep -x '7.0-RC2'
         env:
           WP_ENV_HOME: /tmp/wp-env
 
