@@ -46,6 +46,9 @@ class ConversationTrimmer {
 	/** Maximum JSON characters retained for callable ability-search schemas. */
 	private const COMPACT_MAX_ABILITY_SCHEMA_RECEIPT_CHARS = 1600;
 
+	/** Exact marker at the start of a deterministic compact-context message. */
+	private const COMPACT_CONTEXT_MARKER = 'Conversation compacted server-side to avoid provider payload limits.';
+
 	/** Marker inserted when older turns are removed by a request-size budget. */
 	private const BUDGET_MARKER_TEXT = '[Earlier conversation turns were compacted to stay within the request safety budget.]';
 
@@ -215,7 +218,7 @@ class ConversationTrimmer {
 			}
 		}
 
-		$source_count = count( $normalized );
+		$source_count = 0;
 		$max_bytes    = max( 1024, $max_bytes );
 		$max_tokens   = max( 256, $max_tokens );
 
@@ -224,12 +227,16 @@ class ConversationTrimmer {
 			min( self::COMPACT_MAX_MESSAGE_CHARS, (int) floor( $max_bytes / 4 ) )
 		);
 
+		$available_lines = array();
+		foreach ( $normalized as $message ) {
+			$expanded        = self::serialized_message_to_compact_excerpts( $message, $per_message_chars );
+			$source_count   += $expanded['source_count'];
+			$available_lines = array_merge( $available_lines, $expanded['lines'] );
+		}
+
 		$lines = array();
-		for ( $i = $source_count - 1; $i >= 0; --$i ) {
-			$excerpt = self::serialized_message_to_compact_excerpt( $normalized[ $i ], $per_message_chars );
-			if ( '' === $excerpt ) {
-				continue;
-			}
+		for ( $i = count( $available_lines ) - 1; $i >= 0; --$i ) {
+			$excerpt = $available_lines[ $i ];
 
 			$candidate = $lines;
 			array_unshift( $candidate, $excerpt );
@@ -312,7 +319,7 @@ class ConversationTrimmer {
 		$omitted_count = max( 0, $source_count - $retained_count );
 
 		$header = array(
-			'Conversation compacted server-side to avoid provider payload limits.',
+			self::COMPACT_CONTEXT_MARKER,
 			"Source messages: {$source_count}; retained excerpts: {$retained_count}; omitted messages: {$omitted_count}.",
 			'Use this compact context to continue the current task. File attachments, inline image bytes, and raw tool payloads were omitted.',
 			'Bounded inspection receipts are evidence of completed reads. Do not repeat an inspection solely because its raw result was omitted.',
@@ -320,6 +327,88 @@ class ConversationTrimmer {
 		);
 
 		return implode( "\n", $header ) . "\n\n" . implode( "\n\n", $lines );
+	}
+
+	/**
+	 * Expand an existing deterministic compact seed instead of nesting it.
+	 *
+	 * Provider recovery can compact the same durable history repeatedly. Treating
+	 * an earlier seed as an ordinary user message collapses all of its structured
+	 * receipts into one 2,000-character excerpt, so later compaction loses the
+	 * evidence needed to continue. A strictly recognized seed contributes its
+	 * original excerpts and source count directly, making compaction idempotent.
+	 *
+	 * @param array<string, mixed> $message   Serialized message array.
+	 * @param int                  $max_chars Character limit for each excerpt body.
+	 * @return array{lines:list<string>,source_count:int}
+	 */
+	private static function serialized_message_to_compact_excerpts( array $message, int $max_chars ): array {
+		$parts = isset( $message['parts'] ) && is_array( $message['parts'] ) ? array_values( $message['parts'] ) : array();
+		if (
+			1 === count( $parts )
+			&& is_array( $parts[0] )
+			&& isset( $parts[0]['text'] )
+			&& is_string( $parts[0]['text'] )
+		) {
+			$expanded = self::parse_compact_context_text( $parts[0]['text'], $max_chars );
+			if ( null !== $expanded ) {
+				return $expanded;
+			}
+		}
+
+		$excerpt = self::serialized_message_to_compact_excerpt( $message, $max_chars );
+
+		return array(
+			'lines'        => '' === $excerpt ? array() : array( $excerpt ),
+			'source_count' => 1,
+		);
+	}
+
+	/**
+	 * Parse a compact seed produced by {@see build_compact_context_text()}.
+	 *
+	 * Recognition is deliberately strict so ordinary user prose that happens to
+	 * mention compaction is not reinterpreted as server-produced history.
+	 *
+	 * @param string $text      Candidate compact-context text.
+	 * @param int    $max_chars Character limit for each recovered excerpt.
+	 * @return array{lines:list<string>,source_count:int}|null
+	 */
+	private static function parse_compact_context_text( string $text, int $max_chars ): ?array {
+		$text  = str_replace( array( "\r\n", "\r" ), "\n", $text );
+		$lines = explode( "\n", $text );
+		if (
+			count( $lines ) < 7
+			|| self::COMPACT_CONTEXT_MARKER !== $lines[0]
+			|| ! preg_match( '/^Source messages: (\d+); retained excerpts: (\d+); omitted messages: (\d+)\.$/', $lines[1], $matches )
+			|| 'Use this compact context to continue the current task. File attachments, inline image bytes, and raw tool payloads were omitted.' !== $lines[2]
+			|| 'Bounded inspection receipts are evidence of completed reads. Do not repeat an inspection solely because its raw result was omitted.' !== $lines[3]
+			|| 'Ability-search receipts retain callable input-schema shapes. Use ability-call directly with those schemas instead of searching for the same ability again.' !== $lines[4]
+			|| '' !== $lines[5]
+		) {
+			return null;
+		}
+
+		$body      = implode( "\n", array_slice( $lines, 6 ) );
+		$excerpts  = preg_split( '/\n{2,}/', $body );
+		$excerpts  = is_array( $excerpts ) ? $excerpts : array();
+		$recovered = array();
+		foreach ( $excerpts as $excerpt ) {
+			$excerpt = trim( $excerpt );
+			if ( '' === $excerpt ) {
+				continue;
+			}
+
+			if ( strlen( $excerpt ) > $max_chars ) {
+				$excerpt = substr( $excerpt, 0, max( 0, $max_chars - 1 ) ) . '…';
+			}
+			$recovered[] = $excerpt;
+		}
+
+		return array(
+			'lines'        => $recovered,
+			'source_count' => max( count( $recovered ), (int) $matches[1] ),
+		);
 	}
 
 	/** Convert compact text into a single user-message seed. */

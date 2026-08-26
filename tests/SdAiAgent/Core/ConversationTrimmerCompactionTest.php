@@ -131,4 +131,60 @@ class ConversationTrimmerCompactionTest extends WP_UnitTestCase {
 		$this->assertStringNotContainsString( 'SECRET_OPTION_VALUE', $json );
 		$this->assertStringNotContainsString( 'private.example', $json );
 	}
+
+	/** Re-compacting a deterministic seed preserves its structured receipts. */
+	public function test_compact_serialized_history_expands_existing_compact_seed(): void {
+		$messages = [];
+		for ( $index = 0; $index < 6; ++$index ) {
+			$messages[] = [
+				'role'  => 'user',
+				'parts' => [ [ 'text' => str_repeat( 'Earlier bounded setup context. ', 18 ) ] ],
+			];
+		}
+		$messages[] = [
+			'role'  => 'user',
+			'parts' => [
+				[
+					'functionResponse' => [
+						'name'     => 'wpab__sd-ai-agent__ability-search',
+						'response' => [
+							'query'   => 'select:sd-ai-agent/delete-post',
+							'results' => [
+								[
+									'id'           => 'sd-ai-agent/delete-post',
+									'label'        => 'Delete Post',
+									'input_schema' => [
+										'type'       => 'object',
+										'properties' => [ 'post_id' => [ 'type' => 'integer' ] ],
+										'required'   => [ 'post_id' ],
+									],
+								],
+							],
+						],
+					],
+				],
+			],
+		];
+
+		$first = ConversationTrimmer::compact_serialized_history( $messages, 8192, 2048 );
+		$second_input = array_merge(
+			$first['messages'],
+			[
+				[
+					'role'  => 'model',
+					'parts' => [ [ 'text' => 'Continue from the retained callable schema.' ] ],
+				],
+			]
+		);
+		$second = ConversationTrimmer::compact_serialized_history( $second_input, 8192, 2048 );
+		$text   = (string) $second['messages'][0]['parts'][0]['text'];
+
+		$this->assertSame( 8, $second['meta']['source_message_count'] );
+		$this->assertSame( 1, substr_count( $text, 'Conversation compacted server-side to avoid provider payload limits.' ) );
+		$this->assertStringNotContainsString( 'User: Conversation compacted server-side', $text );
+		$this->assertStringContainsString( 'callable_schemas=', $text );
+		$this->assertStringContainsString( 'sd-ai-agent\/delete-post', $text );
+		$this->assertStringContainsString( '"required":["post_id"]', $text );
+		$this->assertStringContainsString( 'Continue from the retained callable schema.', $text );
+	}
 }
