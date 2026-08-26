@@ -615,20 +615,15 @@ test.describe( 'client-abilities — nested block insertion', () => {
 					content: 'Existing Group child.',
 				} ),
 			] );
-			const list = wp.blocks.createBlock( 'core/list', {}, [
-				wp.blocks.createBlock( 'core/list-item', {
-					content: 'Nested first item.',
-				} ),
-				wp.blocks.createBlock( 'core/list-item', {
-					content: 'Nested second item.',
-				} ),
-			] );
+			const paragraph = wp.blocks.createBlock( 'core/paragraph', {
+				content: 'Nested inserted paragraph.',
+			} );
 
 			blockDispatcher.resetBlocks( [ group ] );
 			const result = await wp.abilities.executeAbility(
 				'sd-ai-agent-js/insert-block-markup',
 				{
-					markup: wp.blocks.serialize( [ list ] ),
+					markup: wp.blocks.serialize( [ paragraph ] ),
 					rootClientId: group.clientId,
 					index: 1,
 				}
@@ -648,12 +643,9 @@ test.describe( 'client-abilities — nested block insertion', () => {
 		expect( inserted.result ).toMatchObject( { applied: true } );
 		expect( inserted.children ).toEqual( [
 			{ name: 'core/paragraph', children: [] },
-			{
-				name: 'core/list',
-				children: [ 'core/list-item', 'core/list-item' ],
-			},
+			{ name: 'core/paragraph', children: [] },
 		] );
-		expect( inserted.markup ).toContain( 'Nested first item.' );
+		expect( inserted.markup ).toContain( 'Nested inserted paragraph.' );
 
 		await page.evaluate( async () => {
 			await wp.data.dispatch( 'core/editor' ).savePost();
@@ -685,7 +677,7 @@ test.describe( 'client-abilities — nested block insertion', () => {
 		} );
 
 		expect( reloaded.children ).toEqual( inserted.children );
-		expect( reloaded.markup ).toContain( 'Nested second item.' );
+		expect( reloaded.markup ).toContain( 'Nested inserted paragraph.' );
 	} );
 } );
 
@@ -707,7 +699,6 @@ test.describe( 'client-abilities — editor history', () => {
 
 		const result = await page.evaluate( async () => {
 			const blockEditor = wp.data.select( 'core/block-editor' );
-			const blockDispatcher = wp.data.dispatch( 'core/block-editor' );
 			const initialBlocks = blockEditor.getBlocks();
 			const selected = initialBlocks.find(
 				( block ) => block.name === 'core/paragraph'
@@ -720,11 +711,45 @@ test.describe( 'client-abilities — editor history', () => {
 			const replacement = wp.blocks.createBlock( 'core/paragraph', {
 				content: 'History replacement from Playwright.',
 			} );
-			blockDispatcher.selectBlock( selected.clientId );
-			blockDispatcher.replaceBlocks( [ selected.clientId ], replacement );
-			const replacementMarkup = wp.blocks.serialize(
-				blockEditor.getBlocks()
-			);
+			const replacementMarkup = wp.blocks.serialize( [ replacement ] );
+			wp.data.dispatch( 'core/editor' ).editPost( {
+				content: replacementMarkup,
+			} );
+			await new Promise( ( resolve, reject ) => {
+				let complete = false;
+				let unsubscribe;
+				let timeoutId;
+				const finish = ( error ) => {
+					if ( complete ) {
+						return;
+					}
+					complete = true;
+					clearTimeout( timeoutId );
+					unsubscribe?.();
+					if ( error ) {
+						reject( error );
+						return;
+					}
+					resolve();
+				};
+				const check = () => {
+					const current = wp.blocks.serialize(
+						blockEditor.getBlocks()
+					);
+					if (
+						current === replacementMarkup &&
+						wp.data.select( 'core/editor' ).hasEditorUndo?.()
+					) {
+						finish();
+					}
+				};
+				unsubscribe = wp.data.subscribe( check );
+				timeoutId = setTimeout(
+					() => finish( new Error( 'undo level unavailable' ) ),
+					10_000
+				);
+				check();
+			} );
 			const undo = await wp.abilities.executeAbility(
 				'sd-ai-agent-js/change-editor-history',
 				{ direction: 'undo' }

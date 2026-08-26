@@ -469,7 +469,7 @@ test.describe( 'Chat Input Interactions', () => {
 		await input.fill( 'Show the agent status' );
 		await input.press( 'Enter' );
 
-		const status = page.locator( '.sdaa-cr-progress-title' );
+		const status = page.locator( '.sdaa-cr-progress-title' ).last();
 		await expect( status ).toHaveText( 'Thinking…', { timeout: 5_000 } );
 		await expect( status ).toHaveText( 'Working…', { timeout: 5_000 } );
 	} );

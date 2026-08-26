@@ -183,9 +183,8 @@ function isAllowedNestedBlock(
 		return false;
 	}
 	if (
-		settings?.allowedBlockTypes !== undefined &&
-		settings?.allowedBlockTypes !== null &&
-		settings.allowedBlockTypes !== true
+		! Array.isArray( settings?.allowedBlockTypes ) &&
+		settings?.allowedBlockTypes !== true
 	) {
 		return false;
 	}
