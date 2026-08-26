@@ -259,7 +259,7 @@ class UnifiedAdminMenu {
 			wp_enqueue_script_module(
 				'sd-ai-agent/abilities-global-bridge',
 				SD_AI_AGENT_URL . 'assets/admin/abilities-global-bridge.js',
-				array( '@wordpress/abilities' ),
+				array( array( 'id' => '@wordpress/abilities' ) ),
 				SD_AI_AGENT_VERSION
 			);
 			wp_enqueue_script_module( '@wordpress/core-abilities' );
