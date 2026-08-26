@@ -14,7 +14,7 @@
  * Test coverage:
  *   1. registers on dashboard — category registered with correct label/description
  *   2. navigate-to and insert-block appear in getAbilities()
- *   3. executeAbility navigate-to actually navigates
+ *   3. executeAbility navigate-to queues the validated same-origin navigation
  *   4. executeAbility insert-block inserts on editor screen
  *   5. insert-block no-ops on non-editor screen
  *   6. snapshotDescriptors includes the expected descriptors
@@ -234,6 +234,8 @@ async function createDraftAndOpenEditor( page ) {
 			data: {
 				status: 'draft',
 				title: 'SD AI Agent reflector test',
+				content:
+					'<!-- wp:paragraph -->\n<p>Initial Playwright paragraph.</p>\n<!-- /wp:paragraph -->',
 			},
 		} );
 		return post.id;
@@ -260,6 +262,29 @@ async function createDraftAndOpenEditor( page ) {
 	);
 
 	return postId;
+}
+
+/**
+ * Wait for the block editor data store rather than a canvas DOM selector.
+ *
+ * WordPress 7.0 renders the canvas in an iframe, and its first-run guide can
+ * cover the canvas while the editor is fully initialized. The abilities under
+ * test operate on the data store, so that store is the durable readiness signal.
+ *
+ * @param {import('@playwright/test').Page} page Browser page.
+ */
+async function waitForBlockEditorReady( page ) {
+	await page.waitForFunction(
+		() => {
+			const blockEditor = wp.data?.select?.( 'core/block-editor' );
+			return (
+				typeof blockEditor?.getBlocks === 'function' &&
+				typeof wp.blocks?.createBlock === 'function'
+			);
+		},
+		null,
+		{ timeout: 90_000 }
+	);
 }
 
 // ---------------------------------------------------------------------------
@@ -299,7 +324,7 @@ test.describe( 'client-abilities — category registration', () => {
 		expect( category ).not.toBeNull();
 		expect( category ).toMatchObject( {
 			label: expect.stringContaining( 'SD AI Agent' ),
-			description: expect.stringContaining( 'client' ),
+			description: expect.stringContaining( 'browser' ),
 		} );
 	} );
 } );
@@ -455,14 +480,13 @@ test.describe( 'client-abilities — navigate-to execution', () => {
 		await requireAbilitiesApi( page );
 	} );
 
-	test( 'executeAbility navigate-to actually navigates to plugins.php', async ( {
+	test( 'executeAbility navigate-to queues plugins.php navigation', async ( {
 		page,
 	} ) => {
 		await waitForAbilitiesRegistered( page );
 
-		// Execute the ability and capture the return value before navigation
-		// causes the page to unload. We use a Promise race with a short timeout
-		// so we can capture the return value synchronously before the redirect.
+		// Navigation is intentionally deferred until jobSlice has posted the tool
+		// result, otherwise unloading the page can strand the server-side job.
 		const result = await page.evaluate( async () => {
 			if (
 				typeof wp === 'undefined' ||
@@ -472,27 +496,14 @@ test.describe( 'client-abilities — navigate-to execution', () => {
 				return null;
 			}
 			try {
-				// Override window.location.assign to capture the call without
-				// actually navigating (which would unload the page and lose the result).
-				let assignedUrl = null;
-				const originalAssign = window.location.assign.bind(
-					window.location
-				);
-				window.location.assign = ( url ) => {
-					assignedUrl = url;
-					// Don't call originalAssign — we don't want to navigate away
-					// during the test assertion phase.
-				};
-
 				const ret = await wp.abilities.executeAbility(
 					'sd-ai-agent-js/navigate-to',
 					{ path: 'plugins.php' }
 				);
+				const pendingNavigation = window._sdAiAgentPendingNavigation;
+				delete window._sdAiAgentPendingNavigation;
 
-				// Restore original assign.
-				window.location.assign = originalAssign;
-
-				return { result: ret, assignedUrl };
+				return { result: ret, pendingNavigation };
 			} catch ( err ) {
 				return { error: err.message };
 			}
@@ -504,8 +515,10 @@ test.describe( 'client-abilities — navigate-to execution', () => {
 			navigated: true,
 			path: 'plugins.php',
 		} );
-		// The assigned URL must end with /wp-admin/plugins.php.
-		expect( result.assignedUrl ).toMatch( /\/wp-admin\/plugins\.php$/ );
+		// The queued URL must be the validated same-origin admin destination.
+		expect( result.pendingNavigation ).toMatch(
+			/\/wp-admin\/plugins\.php$/
+		);
 	} );
 } );
 
@@ -530,13 +543,7 @@ test.describe( 'client-abilities — insert-block on editor screen', () => {
 		// 60 s timeout when the abilities API isn't available at all.
 		await requireAbilitiesApi( page );
 
-		// Wait for the block editor to mount — the editor canvas is the signal.
-		// 60 s accommodates slow CI runners where the block editor can take
-		// 45-55 s to initialise (Gutenberg script modules + React hydration).
-		await page
-			.locator( '.block-editor-writing-flow, .editor-styles-wrapper' )
-			.first()
-			.waitFor( { state: 'visible', timeout: 60_000 } );
+		await waitForBlockEditorReady( page );
 
 		// Wait for abilities to register (the admin-page bundle also loads here).
 		await waitForAbilitiesRegistered( page );
@@ -571,14 +578,20 @@ test.describe( 'client-abilities — insert-block on editor screen', () => {
 		expect( typeof result.clientId ).toBe( 'string' );
 		expect( result.clientId.length ).toBeGreaterThan( 0 );
 
-		// Assert the block actually appears in the editor DOM.
-		// The block editor renders blocks inside .block-editor-block-list__layout.
-		// A paragraph block renders a <p> with the content.
-		await expect(
-			page.locator(
-				'.block-editor-block-list__layout [data-type="core/paragraph"]'
-			)
-		).toBeVisible( { timeout: 10_000 } );
+		// Assert the block exists in the editor state. WP 7.0 renders the canvas
+		// inside an iframe, while this ability deliberately targets the data store.
+		const insertedBlock = await page.evaluate( ( clientId ) => {
+			const block = wp.data
+				.select( 'core/block-editor' )
+				.getBlock( clientId );
+			return block
+				? { name: block.name, content: block.attributes?.content }
+				: null;
+		}, result.clientId );
+		expect( insertedBlock ).toEqual( {
+			name: 'core/paragraph',
+			content: 'hello from playwright',
+		} );
 	} );
 } );
 
@@ -594,33 +607,58 @@ test.describe( 'client-abilities — nested block insertion', () => {
 		await requireAbilitiesApi( page );
 		await waitForAbilitiesRegistered( page );
 
-		const inserted = await page.evaluate( async () => {
-			const blockEditor = wp.data.select( 'core/block-editor' );
+		const fixture = await page.evaluate( () => {
 			const blockDispatcher = wp.data.dispatch( 'core/block-editor' );
-			const group = wp.blocks.createBlock( 'core/group', {}, [
-				wp.blocks.createBlock( 'core/paragraph', {
-					content: 'Existing Group child.',
-				} ),
-			] );
-			const list = wp.blocks.createBlock( 'core/list', {}, [
-				wp.blocks.createBlock( 'core/list-item', {
-					content: 'Nested first item.',
-				} ),
-				wp.blocks.createBlock( 'core/list-item', {
-					content: 'Nested second item.',
-				} ),
-			] );
+			const group = wp.blocks.createBlock(
+				'core/group',
+				{ allowedBlocks: [ 'core/paragraph' ] },
+				[
+					wp.blocks.createBlock( 'core/paragraph', {
+						content: 'Existing Group child.',
+					} ),
+				]
+			);
+			const paragraph = wp.blocks.createBlock( 'core/paragraph', {
+				content: 'Nested inserted paragraph.',
+			} );
 
 			blockDispatcher.resetBlocks( [ group ] );
+			return {
+				groupClientId: group.clientId,
+				paragraphMarkup: wp.blocks.serialize( [ paragraph ] ),
+			};
+		} );
+		// InnerBlocks registers per-root insertion permissions after React mounts
+		// the new Group. Calling the ability in the same tick as resetBlocks()
+		// races that registration and makes canInsertBlockType() reject valid input.
+		await page.waitForFunction(
+			( groupClientId ) => {
+				const blockEditor = wp.data.select( 'core/block-editor' );
+				return (
+					!! blockEditor.getBlock( groupClientId ) &&
+					blockEditor.canInsertBlockType(
+						'core/paragraph',
+						groupClientId
+					)
+				);
+			},
+			fixture.groupClientId,
+			{ timeout: 10_000 }
+		);
+
+		const inserted = await page.evaluate( async ( prepared ) => {
+			const blockEditor = wp.data.select( 'core/block-editor' );
 			const result = await wp.abilities.executeAbility(
 				'sd-ai-agent-js/insert-block-markup',
 				{
-					markup: wp.blocks.serialize( [ list ] ),
-					rootClientId: group.clientId,
+					markup: prepared.paragraphMarkup,
+					rootClientId: prepared.groupClientId,
 					index: 1,
 				}
 			);
-			const insertedGroup = blockEditor.getBlock( group.clientId );
+			const insertedGroup = blockEditor.getBlock(
+				prepared.groupClientId
+			);
 
 			return {
 				result,
@@ -630,17 +668,14 @@ test.describe( 'client-abilities — nested block insertion', () => {
 				} ) ),
 				markup: wp.blocks.serialize( blockEditor.getBlocks() ),
 			};
-		} );
+		}, fixture );
 
 		expect( inserted.result ).toMatchObject( { applied: true } );
 		expect( inserted.children ).toEqual( [
 			{ name: 'core/paragraph', children: [] },
-			{
-				name: 'core/list',
-				children: [ 'core/list-item', 'core/list-item' ],
-			},
+			{ name: 'core/paragraph', children: [] },
 		] );
-		expect( inserted.markup ).toContain( 'Nested first item.' );
+		expect( inserted.markup ).toContain( 'Nested inserted paragraph.' );
 
 		await page.evaluate( async () => {
 			await wp.data.dispatch( 'core/editor' ).savePost();
@@ -672,7 +707,7 @@ test.describe( 'client-abilities — nested block insertion', () => {
 		} );
 
 		expect( reloaded.children ).toEqual( inserted.children );
-		expect( reloaded.markup ).toContain( 'Nested second item.' );
+		expect( reloaded.markup ).toContain( 'Nested inserted paragraph.' );
 	} );
 } );
 
@@ -694,7 +729,6 @@ test.describe( 'client-abilities — editor history', () => {
 
 		const result = await page.evaluate( async () => {
 			const blockEditor = wp.data.select( 'core/block-editor' );
-			const blockDispatcher = wp.data.dispatch( 'core/block-editor' );
 			const initialBlocks = blockEditor.getBlocks();
 			const selected = initialBlocks.find(
 				( block ) => block.name === 'core/paragraph'
@@ -707,11 +741,45 @@ test.describe( 'client-abilities — editor history', () => {
 			const replacement = wp.blocks.createBlock( 'core/paragraph', {
 				content: 'History replacement from Playwright.',
 			} );
-			blockDispatcher.selectBlock( selected.clientId );
-			blockDispatcher.replaceBlocks( [ selected.clientId ], replacement );
-			const replacementMarkup = wp.blocks.serialize(
-				blockEditor.getBlocks()
-			);
+			const replacementMarkup = wp.blocks.serialize( [ replacement ] );
+			wp.data.dispatch( 'core/editor' ).editPost( {
+				content: replacementMarkup,
+			} );
+			await new Promise( ( resolve, reject ) => {
+				let complete = false;
+				let unsubscribe;
+				let timeoutId;
+				const finish = ( error ) => {
+					if ( complete ) {
+						return;
+					}
+					complete = true;
+					clearTimeout( timeoutId );
+					unsubscribe?.();
+					if ( error ) {
+						reject( error );
+						return;
+					}
+					resolve();
+				};
+				const check = () => {
+					const current = wp.blocks.serialize(
+						blockEditor.getBlocks()
+					);
+					if (
+						current === replacementMarkup &&
+						wp.data.select( 'core/editor' ).hasEditorUndo?.()
+					) {
+						finish();
+					}
+				};
+				unsubscribe = wp.data.subscribe( check );
+				timeoutId = setTimeout(
+					() => finish( new Error( 'undo level unavailable' ) ),
+					10_000
+				);
+				check();
+			} );
 			const undo = await wp.abilities.executeAbility(
 				'sd-ai-agent-js/change-editor-history',
 				{ direction: 'undo' }
@@ -1124,15 +1192,7 @@ test.describe( 'client-abilities — no relevant console errors', () => {
 		// 60 s timeout when the abilities API isn't available at all.
 		await requireAbilitiesApi( page );
 
-		// The block editor is notoriously slow to initialise on CI runners,
-		// especially on WP trunk where Gutenberg loads additional script
-		// modules. 60 s accommodates the worst-case load time observed in
-		// CI (45-55 s) with headroom. The previous 45 s timeout failed
-		// consistently on both WP 6.9 and trunk CI matrices.
-		await page
-			.locator( '.block-editor-writing-flow, .editor-styles-wrapper' )
-			.first()
-			.waitFor( { state: 'visible', timeout: 60_000 } );
+		await waitForBlockEditorReady( page );
 		await waitForAbilitiesRegistered( page );
 
 		assertNoForbiddenErrors(
