@@ -124,23 +124,23 @@ class FloatingWidget {
 
 		wp_set_script_translations( 'sd-ai-agent-floating-widget', 'superdav-ai-agent' );
 
-		// WP 7.0+: enqueue the `@wordpress/abilities` script module so our
-		// client-side ability registry (src/abilities/*) can resolve the
-		// bare specifier via the document import map at runtime. Without
-		// this, the dynamic import() in registry.js throws a module
-		// resolution error and the sd-ai-agent-js/* abilities are never
-		// registered. (t165 — fixes the missing enqueue in #815.)
+		// WP 7.0+: expose the `@wordpress/abilities` script-module exports to
+		// our classic bundles through a small module bridge. Script modules do
+		// not create a `wp.abilities` global by themselves.
 		//
 		// Also enqueue `@wordpress/core-abilities` explicitly. Despite the
 		// WP 7.0 dev note claiming core enqueues it on all admin pages, the
-		// module is only *registered* by core — never added to the queue.
-		// Without this enqueue, the REST fetch that populates the
-		// `core/abilities` wp.data store never runs, so
-		// wp.data.select('core/abilities').getAbilities() returns 0 items
-		// even though wp.abilities.getAbilities() returns the full list.
+		// module is only registered by core. Enqueueing it mirrors server
+		// abilities into the same store used by the bridge.
 		// Root-cause investigation: t169 / GH#825.
 		if ( function_exists( 'wp_enqueue_script_module' ) ) {
 			wp_enqueue_script_module( '@wordpress/abilities' );
+			wp_enqueue_script_module(
+				'sd-ai-agent/abilities-global-bridge',
+				SD_AI_AGENT_URL . 'assets/admin/abilities-global-bridge.js',
+				array( array( 'id' => '@wordpress/abilities' ) ),
+				SD_AI_AGENT_VERSION
+			);
 			wp_enqueue_script_module( '@wordpress/core-abilities' );
 		}
 
