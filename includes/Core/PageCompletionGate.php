@@ -442,16 +442,85 @@ final class PageCompletionGate {
 			}
 		}
 
-		$surface = 'preview' === ( $inputs['render_mode'] ?? 'public' )
+		$surface  = 'preview' === ( $inputs['render_mode'] ?? 'public' )
 			? 'The published page is unchanged while repairs are staged in a private WordPress autosave preview.'
 			: 'The approved preview has been published and requires its final canonical anonymous smoke test.';
+		$findings = $this->get_compact_violation_summary();
 
 		return sprintf(
-			'%1$s Rendered page quality is a hard completion gate. Do not invent validator arguments or call %2$s manually: end your repair turn and AgentLoop will dispatch the exact server-owned profile, token, pages, preview descriptor, hero contract, and viewport matrix. Inspect every returned violation, repair the smallest supported page surface, and end the next turn to rerun validation. Do not substitute write success, imported-media success, refresh, or prose review for the current report. Required URLs: %3$s.',
+			'%1$s Rendered page quality is a hard completion gate. The latest server-owned browser report failed. Repair the findings below before ending this turn; do not respond with only a validation-handoff message. After at least one relevant page mutation, end the turn and AgentLoop will dispatch %2$s again with the exact server-owned profile, token, pages, preview descriptor, hero contract, and viewport matrix. Do not invent validator arguments or call it manually. Do not substitute write success, imported-media success, refresh, or prose review for the current report. Required URLs: %3$s.%4$s',
 			$surface,
 			self::CLIENT_ABILITY,
-			implode( ', ', $urls )
+			implode( ', ', $urls ),
+			$findings
 		);
+	}
+
+	/** Return a bounded, deduplicated list of actionable browser findings. */
+	private function get_compact_violation_summary(): string {
+		$violations = is_array( $this->last_report['violations'] ?? null ) ? $this->last_report['violations'] : array();
+		$lines      = array();
+		$seen       = array();
+
+		foreach ( $violations as $violation ) {
+			if ( ! is_array( $violation ) ) {
+				continue;
+			}
+
+			$parts = array_filter(
+				array(
+					self::bounded_finding_text( $violation['code'] ?? '', 80 ),
+					self::bounded_finding_text( $violation['url'] ?? '', 240 ),
+					self::bounded_finding_text( $violation['selector'] ?? '', 160 ),
+					self::bounded_finding_text( $violation['evidence'] ?? '', 240 ),
+					self::bounded_finding_text( $violation['remediation'] ?? '', 300 ),
+				),
+				static fn( string $part ): bool => '' !== $part
+			);
+			$key   = implode( '|', $parts );
+			if ( '' === $key || isset( $seen[ $key ] ) ) {
+				continue;
+			}
+
+			$seen[ $key ] = true;
+			$lines[]      = sprintf(
+				'- [%1$s] %2$s at %3$s%4$s Evidence: %5$s Remediation: %6$s',
+				self::bounded_finding_text( $violation['severity'] ?? 'error', 20 ),
+				self::bounded_finding_text( $violation['code'] ?? 'quality_violation', 80 ),
+				self::bounded_finding_text( $violation['url'] ?? 'unknown URL', 240 ),
+				'' !== self::bounded_finding_text( $violation['selector'] ?? '', 160 )
+					? ' (' . self::bounded_finding_text( $violation['selector'], 160 ) . ')'
+					: '',
+				self::bounded_finding_text( $violation['evidence'] ?? 'No evidence supplied.', 240 ),
+				self::bounded_finding_text( $violation['remediation'] ?? 'Correct the reported defect.', 300 )
+			);
+
+			if ( 12 === count( $lines ) ) {
+				break;
+			}
+		}
+
+		if ( empty( $lines ) ) {
+			return '' !== $this->last_failure ? ' Failure detail: ' . self::bounded_finding_text( $this->last_failure, 400 ) : '';
+		}
+
+		$remaining = count( $seen ) < count( $violations ) ? count( $violations ) - count( $seen ) : 0;
+		if ( $remaining > 0 ) {
+			$lines[] = sprintf( '- %d additional duplicate or lower-priority finding(s) remain in the browser report.', $remaining );
+		}
+
+		return "\nActionable browser findings:\n" . implode( "\n", $lines );
+	}
+
+	/** Normalize one browser finding field without allowing unbounded prompt growth. */
+	private static function bounded_finding_text( mixed $value, int $max_length ): string {
+		if ( ! is_scalar( $value ) && null !== $value ) {
+			return '';
+		}
+
+		$text = preg_replace( '/\s+/', ' ', wp_strip_all_tags( (string) $value ) );
+		$text = is_string( $text ) ? trim( $text ) : '';
+		return mb_substr( $text, 0, $max_length );
 	}
 
 	/** Return the terminal disclosure when quality evidence is incomplete. */
