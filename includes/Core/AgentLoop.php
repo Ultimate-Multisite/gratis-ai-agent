@@ -3799,6 +3799,11 @@ PROMPT;
 			return null;
 		}
 
+		$arguments = $this->extract_text_tool_call_arguments( $text );
+		if ( null === $arguments ) {
+			return __( 'The XML-like tool call contained malformed arguments. Call the tool through the structured tool channel with a valid JSON object instead of writing the call in assistant text.', 'superdav-ai-agent' );
+		}
+
 		$ability_name = $this->resolve_text_tool_call_ability_name( $raw_tool_name );
 		if ( null === $ability_name ) {
 			return sprintf(
@@ -3812,11 +3817,11 @@ PROMPT;
 			array(
 				new MessagePart(
 					new FunctionCall(
-						'text_tool_call_' . substr( md5( $raw_tool_name ), 0, 12 ),
+						'text_tool_call_' . substr( md5( $raw_tool_name . (string) wp_json_encode( $arguments ) ), 0, 12 ),
 						'wpab__sd-ai-agent__ability-call',
 						array(
 							'ability'   => $ability_name,
-							'arguments' => array(),
+							'arguments' => $arguments,
 						)
 					)
 				),
@@ -3882,8 +3887,8 @@ PROMPT;
 	 */
 	private function extract_text_tool_call_name( string $text ): ?string {
 		$patterns = array(
-			'/<tool_call>\s*([^\s<>]+)\s*<\/tool_call>/i',
-			'/<tool>\s*([^\s<>]+)\s*<\/tool>/i',
+			'/<tool_call>\s*([^\s<>(]+)(?:\s*\(.*\))?\s*<\/tool_call>/is',
+			'/<tool>\s*([^\s<>(]+)(?:\s*\(.*\))?\s*<\/tool>/is',
 			'/<function_call\s+name=["\']([^"\'<>]+)["\']\s*\/?\s*>/i',
 		);
 
@@ -3895,6 +3900,57 @@ PROMPT;
 		}
 
 		return null;
+	}
+
+	/**
+	 * Extract JSON arguments from an XML-ish text tool call.
+	 *
+	 * Calls that only contain a tool name retain the legacy empty-arguments
+	 * behaviour. A call that opens an argument list must contain one valid JSON
+	 * object; malformed arguments are rejected rather than executing the ability
+	 * with an empty payload.
+	 *
+	 * @param string $text Assistant text.
+	 * @return array<string,mixed>|null Parsed arguments, or null when malformed.
+	 */
+	private function extract_text_tool_call_arguments( string $text ): ?array {
+		$opening_patterns  = array(
+			'/<tool_call>\s*[^\s<>(]+\s*\(/i',
+			'/<tool>\s*[^\s<>(]+\s*\(/i',
+		);
+		$argument_patterns = array(
+			'/<tool_call>\s*[^\s<>(]+\s*\(\s*(\{.*\})\s*\)\s*<\/tool_call>/is',
+			'/<tool>\s*[^\s<>(]+\s*\(\s*(\{.*\})\s*\)\s*<\/tool>/is',
+		);
+
+		foreach ( $opening_patterns as $index => $opening_pattern ) {
+			if ( ! preg_match( $opening_pattern, $text ) ) {
+				continue;
+			}
+
+			$matches = array();
+			if ( ! preg_match( $argument_patterns[ $index ], $text, $matches ) ) {
+				return null;
+			}
+
+			$arguments = json_decode( (string) $matches[1], true );
+			if ( JSON_ERROR_NONE !== json_last_error() || ! is_array( $arguments ) || array_is_list( $arguments ) ) {
+				return null;
+			}
+
+			$normalized_arguments = array();
+			foreach ( $arguments as $key => $value ) {
+				if ( ! is_string( $key ) ) {
+					return null;
+				}
+
+				$normalized_arguments[ $key ] = $value;
+			}
+
+			return $normalized_arguments;
+		}
+
+		return array();
 	}
 
 	/**
