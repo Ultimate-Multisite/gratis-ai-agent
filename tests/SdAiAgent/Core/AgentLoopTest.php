@@ -376,6 +376,75 @@ class AgentLoopTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * XML-ish text calls with JSON arguments should preserve the payload.
+	 */
+	public function test_intercepts_xml_tool_call_text_with_json_arguments(): void {
+		if ( ! class_exists( 'WordPress\AiClient\Messages\DTO\ModelMessage' ) ) {
+			$this->markTestSkipped( 'WP AI Client message classes are not available.' );
+		}
+
+		if ( ! function_exists( 'wp_has_ability' ) || ! wp_has_ability( 'sd-ai-agent/update-template-part' ) ) {
+			$this->markTestSkipped( 'sd-ai-agent/update-template-part ability is not registered.' );
+		}
+
+		$arguments = array(
+			'id'                    => 'twentytwentyfive//header',
+			'expected_content_hash' => 'abc123',
+			'content'               => '<!-- wp:group {"layout":{"type":"flex"}} /-->',
+		);
+		$loop      = new AgentLoop( 'Repair the header.' );
+		$message   = new \WordPress\AiClient\Messages\DTO\ModelMessage(
+			array(
+				new \WordPress\AiClient\Messages\DTO\MessagePart(
+					'<tool_call>wpab__sd-ai-agent__update-template-part(' . wp_json_encode( $arguments ) . ')</tool_call> Tool call emitted as text.'
+				),
+			)
+		);
+
+		$method = new \ReflectionMethod( AgentLoop::class, 'intercept_text_tool_call' );
+		$method->setAccessible( true );
+		$result = $method->invoke( $loop, $message );
+
+		$this->assertInstanceOf( \WordPress\AiClient\Messages\DTO\Message::class, $result );
+		$call = $result->getParts()[0]->getFunctionCall();
+		$this->assertInstanceOf( \WordPress\AiClient\Tools\DTO\FunctionCall::class, $call );
+		$this->assertSame( 'wpab__sd-ai-agent__ability-call', $call->getName() );
+		$this->assertSame(
+			array(
+				'ability'   => 'sd-ai-agent/update-template-part',
+				'arguments' => $arguments,
+			),
+			$call->getArgs()
+		);
+	}
+
+	/**
+	 * Malformed XML-ish text call arguments should request a structured retry.
+	 */
+	public function test_rejects_malformed_xml_tool_call_text_arguments(): void {
+		if ( ! class_exists( 'WordPress\AiClient\Messages\DTO\ModelMessage' ) ) {
+			$this->markTestSkipped( 'WP AI Client message classes are not available.' );
+		}
+
+		$loop    = new AgentLoop( 'Repair the header.' );
+		$message = new \WordPress\AiClient\Messages\DTO\ModelMessage(
+			array(
+				new \WordPress\AiClient\Messages\DTO\MessagePart(
+					'<tool_call>wpab__sd-ai-agent__update-template-part({"id":})</tool_call>'
+				),
+			)
+		);
+
+		$method = new \ReflectionMethod( AgentLoop::class, 'intercept_text_tool_call' );
+		$method->setAccessible( true );
+		$result = $method->invoke( $loop, $message );
+
+		$this->assertIsString( $result );
+		$this->assertStringContainsString( 'malformed arguments', $result );
+		$this->assertStringContainsString( 'structured tool channel', $result );
+	}
+
+	/**
 	 * Unknown XML-ish tool-call text should produce corrective guidance for another loop turn.
 	 */
 	public function test_unknown_xml_tool_call_text_gets_corrective_prompt(): void {
