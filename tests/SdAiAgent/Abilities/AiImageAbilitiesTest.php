@@ -34,9 +34,9 @@ class AiImageAbilitiesTest extends WP_UnitTestCase {
 			$this->markTestSkipped( 'WP 7.0+ Abilities API is unavailable.' );
 		}
 
-		$previous_settings    = get_option( Settings::OPTION_NAME, null );
-		$previous_credentials = get_option( CredentialResolver::AI_EXPERIMENTS_CREDENTIALS_OPTION, null );
-		$previous_token       = get_option( SuperdavAiProvider::CREDENTIAL_OPTION, null );
+		$previousSettings    = get_option( Settings::OPTION_NAME, null );
+		$previousCredentials = get_option( CredentialResolver::AI_EXPERIMENTS_CREDENTIALS_OPTION, null );
+		$previousToken       = get_option( SuperdavAiProvider::CREDENTIAL_OPTION, null );
 
 		delete_option( Settings::OPTION_NAME );
 		delete_option( CredentialResolver::AI_EXPERIMENTS_CREDENTIALS_OPTION );
@@ -62,20 +62,20 @@ class AiImageAbilitiesTest extends WP_UnitTestCase {
 			$this->assertNotNull( $ability );
 			$this->assertStringContainsString( 'Connectors settings page', $ability->get_description() );
 		} finally {
-			if ( null === $previous_settings ) {
+			if ( null === $previousSettings ) {
 				delete_option( Settings::OPTION_NAME );
 			} else {
-				update_option( Settings::OPTION_NAME, $previous_settings );
+				update_option( Settings::OPTION_NAME, $previousSettings );
 			}
-			if ( null === $previous_credentials ) {
+			if ( null === $previousCredentials ) {
 				delete_option( CredentialResolver::AI_EXPERIMENTS_CREDENTIALS_OPTION );
 			} else {
-				update_option( CredentialResolver::AI_EXPERIMENTS_CREDENTIALS_OPTION, $previous_credentials );
+				update_option( CredentialResolver::AI_EXPERIMENTS_CREDENTIALS_OPTION, $previousCredentials );
 			}
-			if ( null === $previous_token ) {
+			if ( null === $previousToken ) {
 				delete_option( SuperdavAiProvider::CREDENTIAL_OPTION );
 			} else {
-				update_option( SuperdavAiProvider::CREDENTIAL_OPTION, $previous_token );
+				update_option( SuperdavAiProvider::CREDENTIAL_OPTION, $previousToken, false );
 			}
 		}
 	}
