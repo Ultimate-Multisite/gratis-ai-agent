@@ -607,8 +607,7 @@ test.describe( 'client-abilities — nested block insertion', () => {
 		await requireAbilitiesApi( page );
 		await waitForAbilitiesRegistered( page );
 
-		const inserted = await page.evaluate( async () => {
-			const blockEditor = wp.data.select( 'core/block-editor' );
+		const fixture = await page.evaluate( () => {
 			const blockDispatcher = wp.data.dispatch( 'core/block-editor' );
 			const group = wp.blocks.createBlock(
 				'core/group',
@@ -624,15 +623,42 @@ test.describe( 'client-abilities — nested block insertion', () => {
 			} );
 
 			blockDispatcher.resetBlocks( [ group ] );
+			return {
+				groupClientId: group.clientId,
+				paragraphMarkup: wp.blocks.serialize( [ paragraph ] ),
+			};
+		} );
+		// InnerBlocks registers per-root insertion permissions after React mounts
+		// the new Group. Calling the ability in the same tick as resetBlocks()
+		// races that registration and makes canInsertBlockType() reject valid input.
+		await page.waitForFunction(
+			( groupClientId ) => {
+				const blockEditor = wp.data.select( 'core/block-editor' );
+				return (
+					!! blockEditor.getBlock( groupClientId ) &&
+					blockEditor.canInsertBlockType(
+						'core/paragraph',
+						groupClientId
+					)
+				);
+			},
+			fixture.groupClientId,
+			{ timeout: 10_000 }
+		);
+
+		const inserted = await page.evaluate( async ( prepared ) => {
+			const blockEditor = wp.data.select( 'core/block-editor' );
 			const result = await wp.abilities.executeAbility(
 				'sd-ai-agent-js/insert-block-markup',
 				{
-					markup: wp.blocks.serialize( [ paragraph ] ),
-					rootClientId: group.clientId,
+					markup: prepared.paragraphMarkup,
+					rootClientId: prepared.groupClientId,
 					index: 1,
 				}
 			);
-			const insertedGroup = blockEditor.getBlock( group.clientId );
+			const insertedGroup = blockEditor.getBlock(
+				prepared.groupClientId
+			);
 
 			return {
 				result,
@@ -642,7 +668,7 @@ test.describe( 'client-abilities — nested block insertion', () => {
 				} ) ),
 				markup: wp.blocks.serialize( blockEditor.getBlocks() ),
 			};
-		} );
+		}, fixture );
 
 		expect( inserted.result ).toMatchObject( { applied: true } );
 		expect( inserted.children ).toEqual( [
