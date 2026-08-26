@@ -12,6 +12,7 @@ namespace SdAiAgent\Tests\Abilities;
 use SdAiAgent\Abilities\AiImageAbilities;
 use SdAiAgent\Abilities\ImageAbilities\GenerateImageAbility;
 use SdAiAgent\Bootstrap\SuperdavAiProviderHandler;
+use SdAiAgent\Core\CredentialResolver;
 use SdAiAgent\Core\Settings;
 use SdAiAgent\Core\ToolPermissionResolver;
 use SdAiAgent\Infrastructure\AiClient\Superdav\SuperdavAiProvider;
@@ -33,20 +34,50 @@ class AiImageAbilitiesTest extends WP_UnitTestCase {
 			$this->markTestSkipped( 'WP 7.0+ Abilities API is unavailable.' );
 		}
 
-		if ( function_exists( 'wp_unregister_ability' ) ) {
-			wp_unregister_ability( 'sd-ai-agent/generate-image' );
+		$previous_settings    = get_option( Settings::OPTION_NAME, null );
+		$previous_credentials = get_option( CredentialResolver::AI_EXPERIMENTS_CREDENTIALS_OPTION, null );
+		$previous_token       = get_option( SuperdavAiProvider::CREDENTIAL_OPTION, null );
+
+		delete_option( Settings::OPTION_NAME );
+		delete_option( CredentialResolver::AI_EXPERIMENTS_CREDENTIALS_OPTION );
+		delete_option( SuperdavAiProvider::CREDENTIAL_OPTION );
+
+		try {
+			$method = new \ReflectionMethod( GenerateImageAbility::class, 'is_image_generation_supported' );
+			$method->setAccessible( true );
+			$this->assertFalse( $method->invoke( null ), 'Image generation must be unavailable without provider credentials.' );
+
+			if ( function_exists( 'wp_unregister_ability' ) ) {
+				wp_unregister_ability( 'sd-ai-agent/generate-image' );
+			}
+
+			// phpcs:ignore WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedVariableFound -- Standard WordPress test global.
+			global $wp_current_filter;
+			$wp_current_filter[] = 'wp_abilities_api_init';
+			GenerateImageAbility::register();
+			array_pop( $wp_current_filter );
+
+			$ability = wp_get_ability( 'sd-ai-agent/generate-image' );
+
+			$this->assertNotNull( $ability );
+			$this->assertStringContainsString( 'Connectors settings page', $ability->get_description() );
+		} finally {
+			if ( null === $previous_settings ) {
+				delete_option( Settings::OPTION_NAME );
+			} else {
+				update_option( Settings::OPTION_NAME, $previous_settings );
+			}
+			if ( null === $previous_credentials ) {
+				delete_option( CredentialResolver::AI_EXPERIMENTS_CREDENTIALS_OPTION );
+			} else {
+				update_option( CredentialResolver::AI_EXPERIMENTS_CREDENTIALS_OPTION, $previous_credentials );
+			}
+			if ( null === $previous_token ) {
+				delete_option( SuperdavAiProvider::CREDENTIAL_OPTION );
+			} else {
+				update_option( SuperdavAiProvider::CREDENTIAL_OPTION, $previous_token );
+			}
 		}
-
-		// phpcs:ignore WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedVariableFound -- Standard WordPress test global.
-		global $wp_current_filter;
-		$wp_current_filter[] = 'wp_abilities_api_init';
-		GenerateImageAbility::register();
-		array_pop( $wp_current_filter );
-
-		$ability = wp_get_ability( 'sd-ai-agent/generate-image' );
-
-		$this->assertNotNull( $ability );
-		$this->assertStringContainsString( 'Connectors settings page', $ability->get_description() );
 	}
 
 	// ─── handle_generate ──────────────────────────────────────────
