@@ -3938,7 +3938,16 @@ PROMPT;
 				return null;
 			}
 
-			return $arguments;
+			$normalized_arguments = array();
+			foreach ( $arguments as $key => $value ) {
+				if ( ! is_string( $key ) ) {
+					return null;
+				}
+
+				$normalized_arguments[ $key ] = $value;
+			}
+
+			return $normalized_arguments;
 		}
 
 		return array();
