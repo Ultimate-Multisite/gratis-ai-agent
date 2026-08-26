@@ -176,7 +176,7 @@ set_wp_tests_tag() {
 	fi
 
 	download 'https://api.wordpress.org/core/version-check/1.7/' "$latest_file"
-	latest_version="$(grep -o '"version":"[^"]*' "$latest_file" | sed 's/"version":"//' | head -1)"
+	latest_version="$(grep -o '"version":"[^"]*' "$latest_file" | sed -n '1{s/"version":"//;p;}')"
 	if [ -z "$latest_version" ]; then
 		printf 'Latest WordPress version could not be found.\n' >&2
 		return 1
@@ -202,7 +202,7 @@ resolve_archive_name() {
 			latest_version="${WP_VERSION%??}"
 		else
 			version_escaped="${WP_VERSION//./\\.}"
-			latest_version="$(grep -o '"version":"'"$version_escaped"'[^\"]*' "$latest_file" | sed 's/"version":"//' | head -1)"
+			latest_version="$(grep -o '"version":"'"$version_escaped"'[^\"]*' "$latest_file" | sed -n '1{s/"version":"//;p;}')"
 		fi
 
 		if [ -n "$latest_version" ]; then
@@ -217,10 +217,21 @@ resolve_archive_name() {
 	return 0
 }
 
+escape_sed_replacement() {
+	local value="$1"
+
+	printf '%s' "$value" | sed 's/[|&\\]/\\&/g'
+	return 0
+}
+
 write_test_config() {
 	local tests_dir="$1"
 	local core_dir="$WP_CORE_DIR"
 	local ioption=''
+	local db_name_escaped=''
+	local db_user_escaped=''
+	local db_pass_escaped=''
+	local db_host_escaped=''
 
 	if [ -f "$tests_dir/wp-tests-config.php" ]; then
 		return 0
@@ -236,12 +247,16 @@ write_test_config() {
 	while [[ $core_dir == */ ]]; do
 		core_dir="${core_dir%/}"
 	done
+	db_name_escaped="$(escape_sed_replacement "$DB_NAME")"
+	db_user_escaped="$(escape_sed_replacement "$DB_USER")"
+	db_pass_escaped="$(escape_sed_replacement "$DB_PASS")"
+	db_host_escaped="$(escape_sed_replacement "$DB_HOST")"
 	sed "$ioption" "s:dirname( __FILE__ ) . '/src/':'$core_dir/':" "$tests_dir/wp-tests-config.php"
 	sed "$ioption" "s:__DIR__ . '/src/':'$core_dir/':" "$tests_dir/wp-tests-config.php"
-	sed "$ioption" "s/youremptytestdbnamehere/$DB_NAME/" "$tests_dir/wp-tests-config.php"
-	sed "$ioption" "s/yourusernamehere/$DB_USER/" "$tests_dir/wp-tests-config.php"
-	sed "$ioption" "s/yourpasswordhere/$DB_PASS/" "$tests_dir/wp-tests-config.php"
-	sed "$ioption" "s|localhost|${DB_HOST}|" "$tests_dir/wp-tests-config.php"
+	sed "$ioption" "s|youremptytestdbnamehere|$db_name_escaped|" "$tests_dir/wp-tests-config.php"
+	sed "$ioption" "s|yourusernamehere|$db_user_escaped|" "$tests_dir/wp-tests-config.php"
+	sed "$ioption" "s|yourpasswordhere|$db_pass_escaped|" "$tests_dir/wp-tests-config.php"
+	sed "$ioption" "s|localhost|$db_host_escaped|" "$tests_dir/wp-tests-config.php"
 	return 0
 }
 
@@ -329,7 +344,7 @@ install_db() {
 		fi
 	fi
 
-	if mysql --user="$DB_USER" --password="$DB_PASS" "${extra[@]}" --execute='show databases;' | grep -q "^${DB_NAME}$"; then
+	if mysql --user="$DB_USER" --password="$DB_PASS" "${extra[@]}" --execute='show databases;' | grep -F -x -- "$DB_NAME" >/dev/null; then
 		printf 'Reinitializing will delete the existing test database (%s).\n' "$DB_NAME"
 		recreate_db "${extra[@]}"
 	else
