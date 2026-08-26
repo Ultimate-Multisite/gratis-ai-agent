@@ -1726,6 +1726,40 @@ PROMPT;
 	}
 
 	/**
+	 * Record whether a tool round made mutable progress and inject a correction
+	 * after repeated inspection-only rounds.
+	 *
+	 * @param Message $message         Assistant tool-call message.
+	 * @param int     $readonly_rounds Consecutive read-only rounds so far.
+	 * @return array{has_mutating_tools: bool, readonly_rounds: int}
+	 */
+	private function record_tool_progress( Message $message, int $readonly_rounds ): array {
+		$has_mutating_tools = ToolPermissionResolver::message_has_mutating_tools( $message );
+		if ( $has_mutating_tools ) {
+			return array(
+				'has_mutating_tools' => true,
+				'readonly_rounds'    => 0,
+			);
+		}
+
+		++$readonly_rounds;
+		if ( 0 === $readonly_rounds % self::READONLY_INSPECTION_NUDGE_ROUNDS ) {
+			$this->history[] = new UserMessage(
+				array(
+					new MessagePart(
+						__( 'You have spent several consecutive rounds on read-only inspections without making a change. Stop re-checking known state and perform the next concrete mutation required by the user now. If no safe mutation is possible, explain the exact blocker and finish instead of inspecting again.', 'superdav-ai-agent' )
+					),
+				)
+			);
+		}
+
+		return array(
+			'has_mutating_tools' => false,
+			'readonly_rounds'    => $readonly_rounds,
+		);
+	}
+
+	/**
 	 * Inner loop: send prompts, handle tool calls, repeat.
 	 *
 	 * @param int $iterations Max iterations remaining.
@@ -2213,21 +2247,9 @@ PROMPT;
 			$this->log_tool_responses( $truncated_message );
 			$this->readonly_tool_cache->record( $history_message, $truncated_message );
 
-			$has_mutating_tools = ToolPermissionResolver::message_has_mutating_tools( $assistant_message );
-			if ( $has_mutating_tools ) {
-				$readonly_rounds = 0;
-			} else {
-				++$readonly_rounds;
-				if ( 0 === $readonly_rounds % self::READONLY_INSPECTION_NUDGE_ROUNDS ) {
-					$this->history[] = new UserMessage(
-						array(
-							new MessagePart(
-								__( 'You have spent several consecutive rounds on read-only inspections without making a change. Stop re-checking known state and perform the next concrete mutation required by the user now. If no safe mutation is possible, explain the exact blocker and finish instead of inspecting again.', 'superdav-ai-agent' )
-							),
-						)
-					);
-				}
-			}
+			$tool_progress      = $this->record_tool_progress( $assistant_message, $readonly_rounds );
+			$has_mutating_tools = $tool_progress['has_mutating_tools'];
+			$readonly_rounds    = $tool_progress['readonly_rounds'];
 			if ( '' !== $media_budget['guidance'] ) {
 				$this->history[] = new UserMessage( array( new MessagePart( $media_budget['guidance'] ) ) );
 			}
