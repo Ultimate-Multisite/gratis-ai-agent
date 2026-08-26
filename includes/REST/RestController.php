@@ -442,6 +442,11 @@ Assistant: %s',
 	 * @return WP_REST_Response|WP_Error
 	 */
 	public static function handle_tool_result( WP_REST_Request $request ) {
+		// FrankenPHP workers can enter this follow-up request with most of the
+		// previous long-running turn's execution budget already consumed. Renew
+		// it before synchronously resuming the agent loop.
+		set_time_limit( 600 );
+
 		$session_id   = self::get_int_param( $request, 'session_id' );
 		$tool_results = $request->get_param( 'tool_results' );
 		$job_id       = (string) ( $request->get_param( 'job_id' ) ?? '' );
