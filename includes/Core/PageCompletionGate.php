@@ -444,7 +444,9 @@ final class PageCompletionGate {
 
 		$surface  = 'preview' === ( $inputs['render_mode'] ?? 'public' )
 			? 'The published page is unchanged while repairs are staged in a private WordPress autosave preview.'
-			: 'The approved preview has been published and requires its final canonical anonymous smoke test.';
+			: ( $this->public_smoke_only
+				? 'The approved preview has been published and requires its final canonical anonymous smoke test.'
+				: 'Repairs affect the public page and require current anonymous browser validation.' );
 		$findings = $this->get_compact_violation_summary();
 
 		return sprintf(
@@ -469,6 +471,7 @@ final class PageCompletionGate {
 
 			$parts = array_filter(
 				array(
+					self::bounded_finding_text( $violation['severity'] ?? 'error', 20 ),
 					self::bounded_finding_text( $violation['code'] ?? '', 80 ),
 					self::bounded_finding_text( $violation['url'] ?? '', 240 ),
 					self::bounded_finding_text( $violation['selector'] ?? '', 160 ),

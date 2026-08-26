@@ -220,7 +220,7 @@ class PageCompletionGateTest extends WP_UnitTestCase {
 					'url'         => self::PAGE_URL,
 					'selector'    => 'a.wp-block-button__link',
 					'evidence'    => 'Link href is "#".',
-					'severity'    => 'error',
+					'severity'    => 'warning',
 					'remediation' => 'Replace the placeholder link with a real destination.',
 				),
 				array(
@@ -248,6 +248,9 @@ class PageCompletionGateTest extends WP_UnitTestCase {
 		$this->assertStringContainsString( 'Link href is "#".', $guidance );
 		$this->assertStringContainsString( 'Replace the placeholder link with a real destination.', $guidance );
 		$this->assertSame( 1, substr_count( $guidance, '- [error] empty_or_hash_link' ) );
+		$this->assertSame( 1, substr_count( $guidance, '- [warning] empty_or_hash_link' ) );
+		$this->assertStringContainsString( 'Repairs affect the public page', $guidance );
+		$this->assertStringNotContainsString( 'approved preview has been published', $guidance );
 
 		$this->record_page( $gate, 41, self::PAGE_URL, 102 );
 		$this->assertFalse( $gate->get_status()['report_received'] );
