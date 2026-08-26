@@ -36,7 +36,9 @@ function setEditor() {
 		getBlockParents: () => [],
 		getBlockListSettings: () => ( {} ),
 		getBlockInsertionPoint: () => ( { rootClientId: '', index: 1 } ),
-		getSettings: () => ( { allowedBlockTypes: true } ),
+		// WordPress 7.0 omits allowedBlockTypes when all registered blocks are
+		// available, rather than returning the older explicit `true` value.
+		getSettings: () => ( {} ),
 		canInsertBlockType: jest.fn( () => true ),
 		getBlocks: () => Object.values( state.blocks ),
 	};
