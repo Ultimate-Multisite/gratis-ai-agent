@@ -463,7 +463,9 @@ test.describe( 'Chat Input Interactions', () => {
 	test( 'rotates the working status while the agent is processing', async ( {
 		page,
 	} ) => {
-		await interceptStream( page, { processingPolls: 2 } );
+		// Initial job polling runs every second, while status copy rotates after
+		// three seconds. Keep the mock processing beyond the first rotation.
+		await interceptStream( page, { processingPolls: 5 } );
 
 		const input = getMessageInput( page );
 		await input.fill( 'Show the agent status' );

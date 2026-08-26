@@ -610,11 +610,15 @@ test.describe( 'client-abilities — nested block insertion', () => {
 		const inserted = await page.evaluate( async () => {
 			const blockEditor = wp.data.select( 'core/block-editor' );
 			const blockDispatcher = wp.data.dispatch( 'core/block-editor' );
-			const group = wp.blocks.createBlock( 'core/group', {}, [
-				wp.blocks.createBlock( 'core/paragraph', {
-					content: 'Existing Group child.',
-				} ),
-			] );
+			const group = wp.blocks.createBlock(
+				'core/group',
+				{ allowedBlocks: [ 'core/paragraph' ] },
+				[
+					wp.blocks.createBlock( 'core/paragraph', {
+						content: 'Existing Group child.',
+					} ),
+				]
+			);
 			const paragraph = wp.blocks.createBlock( 'core/paragraph', {
 				content: 'Nested inserted paragraph.',
 			} );
