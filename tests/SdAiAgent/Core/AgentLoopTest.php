@@ -4107,6 +4107,117 @@ class AgentLoopTest extends WP_UnitTestCase {
 		$this->assertLessThanOrEqual( AgentLoop::MAX_IDLE_ROUNDS + 1, $result['iterations_used'] );
 	}
 
+	/** Progress tracking distinguishes direct inspections from mutations. */
+	public function test_message_has_mutating_tools_classifies_direct_abilities(): void {
+		if ( ! function_exists( 'wp_get_abilities' ) || ! wp_has_ability( 'sd-ai-agent/list-posts' ) || ! wp_has_ability( 'sd-ai-agent/create-post' ) ) {
+			$this->markTestSkipped( 'Required read and write abilities are not registered.' );
+		}
+		if ( ! class_exists( 'WP_AI_Client_Ability_Function_Resolver' ) ) {
+			$this->markTestSkipped( 'WP_AI_Client_Ability_Function_Resolver not available.' );
+		}
+
+		$inspection = new ModelMessage(
+			array(
+				new MessagePart( new FunctionCall( 'call_inspect', 'wpab__sd-ai-agent__list-posts', array() ) ),
+			)
+		);
+		$mutation   = new ModelMessage(
+			array(
+				new MessagePart(
+					new FunctionCall(
+						'call_mutate',
+						'wpab__sd-ai-agent__create-post',
+						array( 'title' => 'Progress marker' )
+					)
+				),
+			)
+		);
+
+		$this->assertFalse( ToolPermissionResolver::message_has_mutating_tools( $inspection ) );
+		$this->assertTrue( ToolPermissionResolver::message_has_mutating_tools( $mutation ) );
+	}
+
+	/** Progress tracking classifies a meta call by its governed target ability. */
+	public function test_message_has_mutating_tools_classifies_nested_target(): void {
+		if ( ! function_exists( 'wp_get_abilities' ) || ! wp_has_ability( 'sd-ai-agent/list-posts' ) || ! wp_has_ability( 'sd-ai-agent/create-post' ) ) {
+			$this->markTestSkipped( 'Required read and write abilities are not registered.' );
+		}
+		if ( ! class_exists( 'WP_AI_Client_Ability_Function_Resolver' ) ) {
+			$this->markTestSkipped( 'WP_AI_Client_Ability_Function_Resolver not available.' );
+		}
+
+		$inspection = new ModelMessage(
+			array(
+				new MessagePart(
+					new FunctionCall(
+						'call_nested_inspect',
+						'wpab__sd-ai-agent__ability-call',
+						array( 'ability' => 'sd-ai-agent/list-posts' )
+					)
+				),
+			)
+		);
+		$mutation   = new ModelMessage(
+			array(
+				new MessagePart(
+					new FunctionCall(
+						'call_nested_mutate',
+						'wpab__sd-ai-agent__ability-call',
+						array(
+							'ability'   => 'sd-ai-agent/create-post',
+							'arguments' => array( 'title' => 'Progress marker' ),
+						)
+					)
+				),
+			)
+		);
+
+		$this->assertFalse( ToolPermissionResolver::message_has_mutating_tools( $inspection ) );
+		$this->assertTrue( ToolPermissionResolver::message_has_mutating_tools( $mutation ) );
+	}
+
+	/** Alternating inspections trigger a correction and mutation resets the counter. */
+	public function test_record_tool_progress_nudges_and_resets_without_provider(): void {
+		if ( ! function_exists( 'wp_get_abilities' ) || ! wp_has_ability( 'sd-ai-agent/list-posts' ) || ! wp_has_ability( 'sd-ai-agent/create-post' ) ) {
+			$this->markTestSkipped( 'Required read and write abilities are not registered.' );
+		}
+		if ( ! class_exists( 'WP_AI_Client_Ability_Function_Resolver' ) ) {
+			$this->markTestSkipped( 'WP_AI_Client_Ability_Function_Resolver not available.' );
+		}
+
+		$loop       = new AgentLoop( 'Complete the site without repeated inspections.' );
+		$method     = new \ReflectionMethod( AgentLoop::class, 'record_tool_progress' );
+		$inspection = new ModelMessage(
+			array(
+				new MessagePart( new FunctionCall( 'call_inspect', 'wpab__sd-ai-agent__list-posts', array() ) ),
+			)
+		);
+		$mutation   = new ModelMessage(
+			array(
+				new MessagePart( new FunctionCall( 'call_mutate', 'wpab__sd-ai-agent__create-post', array( 'title' => 'Progress marker' ) ) ),
+			)
+		);
+
+		$progress = array(
+			'has_mutating_tools' => false,
+			'readonly_rounds'    => 0,
+		);
+		for ( $round = 1; $round <= AgentLoop::READONLY_INSPECTION_NUDGE_ROUNDS; ++$round ) {
+			$progress = $method->invoke( $loop, $inspection, $progress['readonly_rounds'] );
+			$this->assertFalse( $progress['has_mutating_tools'] );
+			$this->assertSame( $round, $progress['readonly_rounds'] );
+		}
+
+		$serialize = new \ReflectionMethod( AgentLoop::class, 'serialize_history' );
+		$history   = wp_json_encode( $serialize->invoke( $loop ) );
+		$this->assertIsString( $history );
+		$this->assertStringContainsString( 'Stop re-checking known state', $history );
+
+		$progress = $method->invoke( $loop, $mutation, $progress['readonly_rounds'] );
+		$this->assertTrue( $progress['has_mutating_tools'] );
+		$this->assertSame( 0, $progress['readonly_rounds'] );
+	}
+
 	/**
 	 * Empty update-global-styles calls must be blocked before ability dispatch.
 	 */
