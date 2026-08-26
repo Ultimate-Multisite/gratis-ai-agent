@@ -58,6 +58,8 @@ class AgentLoop {
 	 * not killed — only truly stalled loops hit this limit.
 	 */
 	const LOOP_TIMEOUT_SECONDS = 300;
+	/** Consecutive inspection-only rounds before injecting a progress correction. */
+	const READONLY_INSPECTION_NUDGE_ROUNDS = 3;
 
 	/**
 	 * Consecutive no-progress rounds before forced exit.
@@ -1731,6 +1733,7 @@ PROMPT;
 	 */
 	private function run_loop( int $iterations ) {
 		$last_was_tool_call = false;
+		$readonly_rounds    = 0;
 
 		// Wall-clock deadline prevents runaway loops even when round count
 		// and token budget are within limits (e.g. cheap read-only tool
@@ -2209,6 +2212,22 @@ PROMPT;
 			$this->append_tool_response_to_history( $truncated_message );
 			$this->log_tool_responses( $truncated_message );
 			$this->readonly_tool_cache->record( $history_message, $truncated_message );
+
+			$has_mutating_tools = ToolPermissionResolver::message_has_mutating_tools( $assistant_message );
+			if ( $has_mutating_tools ) {
+				$readonly_rounds = 0;
+			} else {
+				++$readonly_rounds;
+				if ( 0 === $readonly_rounds % self::READONLY_INSPECTION_NUDGE_ROUNDS ) {
+					$this->history[] = new UserMessage(
+						array(
+							new MessagePart(
+								__( 'You have spent several consecutive rounds on read-only inspections without making a change. Stop re-checking known state and perform the next concrete mutation required by the user now. If no safe mutation is possible, explain the exact blocker and finish instead of inspecting again.', 'superdav-ai-agent' )
+							),
+						)
+					);
+				}
+			}
 			if ( '' !== $media_budget['guidance'] ) {
 				$this->history[] = new UserMessage( array( new MessagePart( $media_budget['guidance'] ) ) );
 			}
@@ -2236,11 +2255,11 @@ PROMPT;
 				);
 			}
 
-			// Reset the wall-clock deadline after each productive tool call.
-			// This allows genuinely long tasks (many sequential tool calls) to
-			// complete while still killing truly stalled loops that make no
-			// forward progress within a single LOOP_TIMEOUT_SECONDS window.
-			$deadline = microtime( true ) + self::LOOP_TIMEOUT_SECONDS;
+			// Only writes demonstrate forward progress. Repeated inspections must
+			// not renew the deadline indefinitely and outlive PHP's request limit.
+			if ( $has_mutating_tools ) {
+				$deadline = microtime( true ) + self::LOOP_TIMEOUT_SECONDS;
+			}
 
 			// Spin detection: delegate to SpinDetector which encapsulates
 			// the idle-round state (last_tool_signature + idle_rounds counter).

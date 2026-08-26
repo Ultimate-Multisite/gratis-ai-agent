@@ -4107,6 +4107,151 @@ class AgentLoopTest extends WP_UnitTestCase {
 		$this->assertLessThanOrEqual( AgentLoop::MAX_IDLE_ROUNDS + 1, $result['iterations_used'] );
 	}
 
+	/** Progress tracking distinguishes direct inspections from mutations. */
+	public function test_message_has_mutating_tools_classifies_direct_abilities(): void {
+		if ( ! function_exists( 'wp_get_abilities' ) || ! wp_has_ability( 'sd-ai-agent/list-posts' ) || ! wp_has_ability( 'sd-ai-agent/create-post' ) ) {
+			$this->markTestSkipped( 'Required read and write abilities are not registered.' );
+		}
+		if ( ! class_exists( 'WP_AI_Client_Ability_Function_Resolver' ) ) {
+			$this->markTestSkipped( 'WP_AI_Client_Ability_Function_Resolver not available.' );
+		}
+
+		$inspection = new ModelMessage(
+			array(
+				new MessagePart( new FunctionCall( 'call_inspect', 'wpab__sd-ai-agent__list-posts', array() ) ),
+			)
+		);
+		$mutation   = new ModelMessage(
+			array(
+				new MessagePart(
+					new FunctionCall(
+						'call_mutate',
+						'wpab__sd-ai-agent__create-post',
+						array( 'title' => 'Progress marker' )
+					)
+				),
+			)
+		);
+
+		$this->assertFalse( ToolPermissionResolver::message_has_mutating_tools( $inspection ) );
+		$this->assertTrue( ToolPermissionResolver::message_has_mutating_tools( $mutation ) );
+	}
+
+	/** Progress tracking classifies a meta call by its governed target ability. */
+	public function test_message_has_mutating_tools_classifies_nested_target(): void {
+		if ( ! function_exists( 'wp_get_abilities' ) || ! wp_has_ability( 'sd-ai-agent/list-posts' ) || ! wp_has_ability( 'sd-ai-agent/create-post' ) ) {
+			$this->markTestSkipped( 'Required read and write abilities are not registered.' );
+		}
+		if ( ! class_exists( 'WP_AI_Client_Ability_Function_Resolver' ) ) {
+			$this->markTestSkipped( 'WP_AI_Client_Ability_Function_Resolver not available.' );
+		}
+
+		$inspection = new ModelMessage(
+			array(
+				new MessagePart(
+					new FunctionCall(
+						'call_nested_inspect',
+						'wpab__sd-ai-agent__ability-call',
+						array( 'ability' => 'sd-ai-agent/list-posts' )
+					)
+				),
+			)
+		);
+		$mutation   = new ModelMessage(
+			array(
+				new MessagePart(
+					new FunctionCall(
+						'call_nested_mutate',
+						'wpab__sd-ai-agent__ability-call',
+						array(
+							'ability'   => 'sd-ai-agent/create-post',
+							'arguments' => array( 'title' => 'Progress marker' ),
+						)
+					)
+				),
+			)
+		);
+
+		$this->assertFalse( ToolPermissionResolver::message_has_mutating_tools( $inspection ) );
+		$this->assertTrue( ToolPermissionResolver::message_has_mutating_tools( $mutation ) );
+	}
+
+	/** Alternating read-only inspections receive a salient progress correction. */
+	public function test_run_nudges_alternating_readonly_inspection_loop(): void {
+		$this->skip_if_sdk_unavailable();
+		if ( ! class_exists( 'WP_AI_Client_Ability_Function_Resolver' ) ) {
+			$this->markTestSkipped( 'WP_AI_Client_Ability_Function_Resolver not available.' );
+		}
+
+		$call_count    = 0;
+		$captured_body = '';
+		add_filter(
+			'pre_http_request',
+			static function ( $preempt, $args, $url ) use ( &$call_count, &$captured_body ) {
+				if ( false === strpos( $url, 'fake-ai-proxy.test' ) ) {
+					return $preempt;
+				}
+
+				++$call_count;
+				if ( $call_count <= AgentLoop::READONLY_INSPECTION_NUDGE_ROUNDS ) {
+					$body = wp_json_encode(
+						[
+							'id'      => 'chatcmpl-readonly-' . $call_count,
+							'object'  => 'chat.completion',
+							'choices' => [
+								[
+									'index'         => 0,
+									'message'       => [
+										'role'       => 'assistant',
+										'content'    => null,
+										'tool_calls' => [
+											[
+												'id'       => 'call_readonly_' . $call_count,
+												'type'     => 'function',
+												'function' => [
+													'name'      => 'wpab__sd-ai-agent__list-posts',
+													'arguments' => wp_json_encode( [ 'post_type' => 1 === $call_count ? 'page' : ( 2 === $call_count ? 'post' : [ 'page', 'post' ] ) ] ),
+												],
+											],
+										],
+									],
+									'finish_reason' => 'tool_calls',
+								],
+							],
+							'usage'   => [ 'prompt_tokens' => 5, 'completion_tokens' => 5, 'total_tokens' => 10 ],
+						]
+					);
+				} else {
+					$captured_body = is_string( $args['body'] ?? null ) ? $args['body'] : (string) wp_json_encode( $args['body'] ?? [] );
+					$body          = wp_json_encode(
+						[
+							'id'      => 'chatcmpl-readonly-finished',
+							'object'  => 'chat.completion',
+							'choices' => [ [ 'index' => 0, 'message' => [ 'role' => 'assistant', 'content' => 'Finished after the progress correction.' ], 'finish_reason' => 'stop' ] ],
+							'usage'   => [ 'prompt_tokens' => 5, 'completion_tokens' => 5, 'total_tokens' => 10 ],
+						]
+					);
+				}
+
+				return [
+					'headers'  => [ 'content-type' => 'application/json' ],
+					'body'     => $body,
+					'response' => [ 'code' => 200, 'message' => 'OK' ],
+					'cookies'  => [],
+					'filename' => '',
+				];
+			},
+			10,
+			3
+		);
+
+		$result = ( new AgentLoop( 'Complete the site without repeated inspections.', [], [], [ 'max_iterations' => 8 ] ) )->run();
+
+		$this->assertIsArray( $result );
+		$this->assertSame( 'Finished after the progress correction.', $result['reply'] );
+		$this->assertStringContainsString( 'Stop re-checking known state', $captured_body );
+	}
+
 	/**
 	 * Empty update-global-styles calls must be blocked before ability dispatch.
 	 */

@@ -156,6 +156,45 @@ class ToolPermissionResolver {
 	}
 
 	/**
+	 * Whether a tool-call message contains at least one non-read-only ability.
+	 *
+	 * Meta ability calls are classified by their nested target. Unknown registered
+	 * abilities are treated as mutations so an incomplete annotation cannot make a
+	 * potentially destructive call look like a harmless inspection.
+	 *
+	 * @param Message $message Assistant tool-call message.
+	 */
+	public static function message_has_mutating_tools( Message $message ): bool {
+		$all_abilities = function_exists( 'wp_get_abilities' ) ? wp_get_abilities() : array();
+
+		foreach ( $message->getParts() as $part ) {
+			$call = $part->getFunctionCall();
+			if ( ! $call ) {
+				continue;
+			}
+
+			$function_name = (string) $call->getName();
+			if ( ! str_starts_with( $function_name, 'wpab__' ) ) {
+				continue;
+			}
+
+			$ability_name = $function_name;
+			if ( class_exists( 'WP_AI_Client_Ability_Function_Resolver' ) ) {
+				$ability_name = \WP_AI_Client_Ability_Function_Resolver::function_name_to_ability_name( $function_name );
+			}
+
+			$args        = self::normalize_function_call_args( $call->getArgs() );
+			$governed_id = self::get_confirmation_ability_id( $ability_name, $args, $all_abilities );
+			$ability     = $all_abilities[ $governed_id ] ?? null;
+			if ( ! $ability instanceof \WP_Ability || 'read' !== self::classify_ability( $ability ) ) {
+				return true;
+			}
+		}
+
+		return false;
+	}
+
+	/**
 	 * Whether an ability should pause for user confirmation.
 	 *
 	 * @param string                   $ability_name     Ability ID.
