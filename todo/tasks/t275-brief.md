@@ -80,7 +80,7 @@ No upstream — internal consistency task. Block-mcp's shape uses `bound_attribu
 
 ## Acceptance criteria
 
-1. Audit document exists in PR and is committed alongside the fixes.
+1. The bindings-field matrix is retained in the implementation PR history (PR #2581) as the durable audit reference; no committed audit document is required.
 2. Every read path that emits a parsed block dict includes both `bindings` and `bound_attributes` fields.
 3. When a block has zero bindings, `bindings: null` and `bound_attributes: []` (NOT absent, NOT missing).
 4. When a block has bindings, `bindings: { <attr_key>: { source, args } }` and `bound_attributes: [<attr_keys>]`.
