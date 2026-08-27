@@ -3159,8 +3159,8 @@ final class SessionController {
 	/**
 	 * Handle POST /job/{id}/interrupt — inject a user message into a running job.
 	 *
-	 * Sets a flag on the job transient that the agent loop's progress callback
-	 * will pick up on the next poll cycle. The interrupt message is appended to
+	 * Queues a message on the job transient that the agent loop's interrupt
+	 * checker will consume on the next iteration. The interrupt message is appended to
 	 * the session in the database so it persists. The running agent loop will
 	 * see the interrupt on its next iteration and can incorporate the new context.
 	 *
@@ -3204,6 +3204,35 @@ final class SessionController {
 			),
 			200
 		);
+	}
+
+	/**
+	 * Build the callback that consumes queued user interrupts.
+	 *
+	 * @param string $job_id Active job UUID.
+	 * @return \Closure(): ?array
+	 */
+	private static function build_job_interrupt_checker( string $job_id ): \Closure {
+		return static function () use ( $job_id ): ?array {
+			$transient_key = RestController::JOB_PREFIX . $job_id;
+			$job           = get_transient( $transient_key );
+
+			if ( ! is_array( $job ) || 'processing' !== ( $job['status'] ?? '' ) ) {
+				return null;
+			}
+
+			$current_interrupts = $job['interrupts'] ?? array();
+			$interrupts         = is_array( $current_interrupts ) ? array_values( $current_interrupts ) : array();
+			if ( empty( $interrupts ) ) {
+				return null;
+			}
+
+			$interrupt         = array_shift( $interrupts );
+			$job['interrupts'] = $interrupts;
+			set_transient( $transient_key, $job, RestController::JOB_TTL + 60 );
+
+			return is_array( $interrupt ) ? $interrupt : null;
+		};
 	}
 
 	/**
@@ -3699,7 +3728,8 @@ final class SessionController {
 		 * (b) register a shutdown handler that marks the row as 'interrupted'
 		 *     when the PHP process terminates before loop completion.
 		 */
-		$options['active_job_id'] = $job_id;
+		$options['active_job_id']     = $job_id;
+		$options['interrupt_checker'] = self::build_job_interrupt_checker( $job_id );
 
 		// Progress callback: write live tool-call activity and channel messages
 		// to the job transient so the polling frontend can display them incrementally.
