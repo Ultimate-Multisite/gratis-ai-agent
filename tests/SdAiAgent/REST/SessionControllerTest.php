@@ -93,6 +93,44 @@ class SessionControllerTest extends WP_UnitTestCase {
 		$this->assertArrayNotHasKey( 'model_id', $annotated[2] );
 	}
 
+	/** Queued user steering reaches AgentLoop once and in FIFO order. */
+	public function test_job_interrupt_checker_consumes_queued_messages_in_order(): void {
+		$job_id = '00000000-0000-4000-8000-000000000199';
+		set_transient(
+			RestController::JOB_PREFIX . $job_id,
+			[
+				'status'     => 'processing',
+				'user_id'    => $this->admin_id,
+				'interrupts' => [
+					[ 'message' => 'Stop inspecting and mutate.', 'timestamp' => 1 ],
+					[ 'message' => 'Then validate the preview.', 'timestamp' => 2 ],
+				],
+			],
+			RestController::JOB_TTL
+		);
+
+		$method = new \ReflectionMethod(
+			\SdAiAgent\REST\SessionController::class,
+			'build_job_interrupt_checker'
+		);
+		$method->setAccessible( true );
+		/** @var \Closure(): ?array $checker */
+		$checker = $method->invoke( null, $job_id );
+
+		$first = $checker();
+		$this->assertIsArray( $first );
+		$this->assertSame( 'Stop inspecting and mutate.', $first['message'] );
+		$second = $checker();
+		$this->assertIsArray( $second );
+		$this->assertSame( 'Then validate the preview.', $second['message'] );
+		$this->assertNull( $checker() );
+
+		$job = get_transient( RestController::JOB_PREFIX . $job_id );
+		$this->assertIsArray( $job );
+		$this->assertSame( [], $job['interrupts'] );
+		delete_transient( RestController::JOB_PREFIX . $job_id );
+	}
+
 	/** Durable-plan routes remain private session endpoints. */
 	public function test_durable_plan_routes_are_registered(): void {
 		$routes = $this->server->get_routes();
