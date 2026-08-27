@@ -642,86 +642,93 @@ export const actions = {
 						// confirmation dialog (screenshots, DOM reads, etc.).
 						// A mutating client ability executes only when the server
 						// returned `user_confirmed: true` after user approval.
-						const pendingCalls =
-							result.pending_client_tool_calls || [];
-
 						// Restored jobs can begin polling before the asynchronously loaded
 						// browser-ability bundles finish registration. Wait once for the
 						// shared callback pipeline before running the batch, so a valid
 						// saved call cannot become a false "not registered" result.
 						const readinessError =
 							await window.__sdAiAgentAbilitiesRegistering?.catch(
-								( err ) => err.message
+								String
 							);
 
 						const toolResults = await Promise.all(
-							pendingCalls.map( async ( call ) => {
-								const abilityName =
-									call.client_name || call.name;
-								const timeoutMs =
-									abilityName ===
-									'sd-ai-agent-js/validate-page-quality'
-										? 120000
-										: 30000;
+							( result.pending_client_tool_calls || [] ).map(
+								async ( {
+									id,
+									name,
+									client_name: clientName,
+									args = {},
+									annotations,
+									user_confirmed: userConfirmed,
+								} ) => {
+									const abilityName = clientName || name;
+									const timeoutMs =
+										abilityName ===
+										'sd-ai-agent-js/validate-page-quality'
+											? 120000
+											: 30000;
 
-								if (
-									call.annotations?.readonly !== true &&
-									call.user_confirmed !== true
-								) {
-									// Mutating client abilities need an explicit server
-									// confirmation marker before browser execution.
-									return {
-										id: call.id,
-										name: call.name,
-										error: __(
-											'Client-side ability requires explicit user confirmation.',
-											'superdav-ai-agent'
-										),
-									};
-								}
+									if (
+										annotations?.readonly !== true &&
+										userConfirmed !== true
+									) {
+										// Mutating client abilities need an explicit server
+										// confirmation marker before browser execution.
+										return {
+											id,
+											name,
+											error: __(
+												'Confirmation required.',
+												'superdav-ai-agent'
+											),
+										};
+									}
 
-								if ( readinessError ) {
-									return {
-										id: call.id,
-										name: call.name,
-										error: readinessError,
-									};
-								}
+									if ( readinessError ) {
+										return {
+											id,
+											name,
+											error: readinessError,
+										};
+									}
 
-								try {
-									const abilityResult = await Promise.race( [
-										executeClientAbility(
-											abilityName,
-											call.args || {}
-										),
-										new Promise( ( _resolve, reject ) =>
-											setTimeout(
-												reject,
-												timeoutMs,
-												new Error(
-													`Client tool timed out after ${
-														timeoutMs / 1000
-													} seconds.`
-												)
-											)
-										),
-									] );
-									return {
-										id: call.id,
-										name: call.name,
-										result: abilityResult,
-									};
-								} catch ( execErr ) {
-									return {
-										id: call.id,
-										name: call.name,
-										error:
-											execErr instanceof Error
-												? execErr.message
-												: String( execErr ),
-									};
+									try {
+										const abilityResult =
+											await Promise.race( [
+												executeClientAbility(
+													abilityName,
+													args
+												),
+												new Promise(
+													( _resolve, reject ) =>
+														setTimeout(
+															reject,
+															timeoutMs,
+															new Error(
+																`Client tool timed out after ${
+																	timeoutMs /
+																	1000
+																} seconds.`
+															)
+														)
+												),
+											] );
+										return {
+											id,
+											name,
+											result: abilityResult,
+										};
+									} catch ( execErr ) {
+										return {
+											id,
+											name,
+											error: String(
+												execErr?.message ?? execErr
+											),
+										};
+									}
 								}
-							} )
+							)
 						);
 
 						// POST results back to the server so the agent loop

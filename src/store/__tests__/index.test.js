@@ -832,7 +832,7 @@ describe( 'actions', () => {
 						{
 							id: 'call-unconfirmed-insert',
 							name: 'sd-ai-agent-js/insert-block',
-							error: 'Client-side ability requires explicit user confirmation.',
+							error: 'Confirmation required.',
 						},
 					],
 				},
@@ -989,7 +989,7 @@ describe( 'actions', () => {
 						{
 							id: 'failed-readiness-screenshot',
 							name: 'sd-ai-agent-js/screenshot-url',
-							error: 'Client ability registration failed.',
+							error: 'Error: Client ability registration failed.',
 						},
 					],
 				},
