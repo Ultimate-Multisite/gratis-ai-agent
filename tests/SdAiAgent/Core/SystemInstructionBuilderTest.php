@@ -284,6 +284,18 @@ class SystemInstructionBuilderTest extends WP_UnitTestCase {
 			'then invoke it through `sd-ai-agent/ability-call`',
 			$instruction
 		);
+		$this->assertStringContainsString(
+			'Before saying a requested capability is unavailable',
+			$instruction
+		);
+		$this->assertStringContainsString(
+			'`create form`',
+			$instruction
+		);
+		$this->assertStringContainsString(
+			'visible third-party abilities',
+			$instruction
+		);
 	}
 
 	/**
