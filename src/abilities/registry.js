@@ -47,46 +47,47 @@ const CATEGORY_DESCRIPTION = __(
 );
 
 /**
- * Single category-registration Promise shared across all callers in the
- * same module instance, so concurrent ensureRegistered() calls await the
- * same in-flight registration instead of racing.
+ * Window-global key used to share client-ability state between webpack module
+ * instances. Each entry-point bundle has its own module scope, but they all
+ * execute in the same browser page.
+ *
+ * @type {string}
+ */
+const WIN_REGISTRY_KEY = '__sdAiAgentClientAbilityRegistry';
+
+/**
+ * Single category-registration Promise for this module instance. Cross-bundle
+ * category registration is already coordinated by index.js.
  *
  * @type {Promise<void>|null}
  */
 let categoryRegistrationPromise = null;
 
 /**
- * Per-ability deduplication set so the same ability isn't registered
- * twice from a second bundle on the same page (each entry-point bundle
- * has its own module instance).
+ * Return the page-lifetime client-ability registry.
  *
- * @type {Set<string>}
+ * The registration coordinator in index.js is already page-global. Its
+ * callback and descriptor state must be page-global too: otherwise a second
+ * bundle can await the first bundle's registration Promise but still be
+ * unable to execute the ability from its own module-local Map.
+ *
+ * @return {{n: Set<string>, c: Map<string, Function>, d: Map<string, Object>}} Shared browser-page state.
  */
-const registeredAbilityNames = new Set();
+function getPageRegistry() {
+	const page = window;
 
-/**
- * Callback map — name → async function(args) → result.
- *
- * Maintained in parallel to the WP 7.0 registry so jobSlice can invoke
- * abilities by name without relying on wp.abilities.executeAbility() (which
- * may not be available or may not surface the raw return value we need).
- *
- * @type {Map<string, Function>}
- */
-const clientCallbacks = new Map();
+	if ( page[ WIN_REGISTRY_KEY ] ) {
+		return page[ WIN_REGISTRY_KEY ];
+	}
 
-/**
- * Descriptor map — name → serializable descriptor.
- *
- * This mirrors the locally registered callback set so snapshotDescriptors()
- * can still post client abilities to /chat on pages where the WP abilities
- * global/store is unavailable. Without this fallback the server only exposes
- * sd-ai-agent-js/* via ability-search/ability-call stubs, and calling those
- * stubs cannot execute browser actions such as refresh-page.
- *
- * @type {Map<string, Object>}
- */
-const localDescriptors = new Map();
+	page[ WIN_REGISTRY_KEY ] = {
+		n: new Set(),
+		c: new Map(),
+		d: new Map(),
+	};
+
+	return page[ WIN_REGISTRY_KEY ];
+}
 
 /**
  * Detect whether the WP 7.0 abilities API is available on this page.
@@ -165,6 +166,9 @@ export async function registerCategory() {
 
 		if ( ! abilitiesApiAvailable() ) {
 			// API never became available (e.g. not a WP 7.0+ site). Skip silently.
+			// Clear the module value so a later call can retry after the core
+			// script module becomes available.
+			categoryRegistrationPromise = null;
 			return;
 		}
 
@@ -207,10 +211,12 @@ export async function registerClientAbility( def ) {
 	if ( ! def || typeof def.name !== 'string' || def.name === '' ) {
 		return;
 	}
-	if ( registeredAbilityNames.has( def.name ) ) {
+
+	const registry = getPageRegistry();
+	if ( registry.n.has( def.name ) ) {
 		return;
 	}
-	registeredAbilityNames.add( def.name );
+	registry.n.add( def.name );
 
 	// Store the callback so executeClientAbility() can invoke it by name
 	// without going through the WP abilities API (which may not expose the
@@ -227,9 +233,9 @@ export async function registerClientAbility( def ) {
 	// 'Client ability "..." is not registered on this page' even though
 	// the callback function is present in the bundle.
 	if ( typeof def.callback === 'function' ) {
-		clientCallbacks.set( def.name, def.callback );
+		registry.c.set( def.name, def.callback );
 	}
-	localDescriptors.set( def.name, {
+	registry.d.set( def.name, {
 		name: def.name,
 		label: def.label || def.name,
 		description: def.description || '',
@@ -303,12 +309,14 @@ export async function registerClientAbility( def ) {
  * @return {Promise<Array<{name: string, label: string, description: string, input_schema: Object, output_schema: Object, annotations: Object}>>} Promise of client ability descriptors.
  */
 export async function snapshotDescriptors() {
+	const registry = getPageRegistry();
+
 	if (
 		typeof wp === 'undefined' ||
 		! wp.abilities ||
 		typeof wp.abilities.getAbilities !== 'function'
 	) {
-		return Array.from( localDescriptors.values() );
+		return Array.from( registry.d.values() );
 	}
 
 	try {
@@ -332,9 +340,9 @@ export async function snapshotDescriptors() {
 
 		return descriptors.length
 			? descriptors
-			: Array.from( localDescriptors.values() );
+			: Array.from( registry.d.values() );
 	} catch ( _err ) {
-		return Array.from( localDescriptors.values() );
+		return Array.from( registry.d.values() );
 	}
 }
 
@@ -351,7 +359,7 @@ export async function snapshotDescriptors() {
  * @throws {Error} When the ability is not registered in the current page.
  */
 export async function executeClientAbility( name, args ) {
-	const callback = clientCallbacks.get( name );
+	const callback = getPageRegistry().c.get( name );
 	if ( callback ) {
 		return callback( args );
 	}
