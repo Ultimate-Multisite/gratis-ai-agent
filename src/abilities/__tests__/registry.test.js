@@ -18,10 +18,9 @@
  */
 
 /**
- * Each test loads a fresh registry module via jest.isolateModules so the
- * module-scoped `registeredAbilityNames` and `clientCallbacks` Maps start
- * empty. This avoids cross-test bleed while still exercising the real
- * registry code (not a mock).
+ * Each test loads a fresh registry module via jest.isolateModules. The
+ * page-global registry is cleared in beforeEach so tests avoid cross-test
+ * bleed while still exercising the real registry code (not a mock).
  */
 function loadRegistry() {
 	let mod;
@@ -31,6 +30,8 @@ function loadRegistry() {
 	} );
 	return mod;
 }
+
+const WIN_REGISTRY_KEY = '__sdAiAgentClientAbilityRegistry';
 
 /**
  * Load refresh-page and its matching registry module instance.
@@ -54,10 +55,70 @@ describe( 'registry — sd-ai-86a regression', () => {
 
 	beforeEach( () => {
 		originalWp = global.wp;
+		delete window[ WIN_REGISTRY_KEY ];
 	} );
 
 	afterEach( () => {
 		global.wp = originalWp;
+		delete window[ WIN_REGISTRY_KEY ];
+	} );
+
+	test( 'shares callbacks and descriptors between webpack module instances without the WP API', async () => {
+		delete global.wp;
+		const firstBundle = loadRegistry();
+		const secondBundle = loadRegistry();
+		const callback = jest.fn().mockResolvedValue( { shared: true } );
+
+		await firstBundle.registerClientAbility( {
+			name: 'sd-ai-agent-js/cross-bundle',
+			label: 'Cross Bundle',
+			description: 'Registered by another bundle',
+			inputSchema: { type: 'object' },
+			outputSchema: { type: 'object' },
+			annotations: { readonly: true },
+			callback,
+		} );
+
+		await expect(
+			secondBundle.executeClientAbility( 'sd-ai-agent-js/cross-bundle', {
+				from: 'second-bundle',
+			} )
+		).resolves.toEqual( { shared: true } );
+		expect( callback ).toHaveBeenCalledWith( { from: 'second-bundle' } );
+		await expect( secondBundle.snapshotDescriptors() ).resolves.toEqual( [
+			expect.objectContaining( {
+				name: 'sd-ai-agent-js/cross-bundle',
+				annotations: { readonly: true },
+			} ),
+		] );
+	} );
+
+	test( 'deduplicates WP ability registration between webpack module instances', async () => {
+		const registerAbility = jest.fn().mockResolvedValue( undefined );
+		global.wp = {
+			abilities: {
+				registerAbility,
+				registerAbilityCategory: jest
+					.fn()
+					.mockResolvedValue( undefined ),
+			},
+		};
+		const firstBundle = loadRegistry();
+		const secondBundle = loadRegistry();
+		const definition = {
+			name: 'sd-ai-agent-js/deduplicated',
+			label: 'Deduplicated',
+			description: 'Shared registration state',
+			inputSchema: { type: 'object' },
+			outputSchema: { type: 'object' },
+			annotations: { readonly: true },
+			callback: jest.fn(),
+		};
+
+		await firstBundle.registerClientAbility( definition );
+		await secondBundle.registerClientAbility( definition );
+
+		expect( registerAbility ).toHaveBeenCalledTimes( 1 );
 	} );
 
 	test( 'registerClientAbility stores callback locally even when wp.abilities is undefined', async () => {

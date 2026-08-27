@@ -89,6 +89,9 @@ export function ensureRegistered() {
 	// Promise so we don't call wp.abilities.registerAbilityCategory() a
 	// second time (each call can trigger a REST fetch in WP 7.0-RC2).
 	if ( window[ WIN_REGISTRATION_KEY ] ) {
+		// The registry module keeps callback execution state page-global, so a
+		// bundle that reuses this Promise can execute abilities registered by
+		// the bundle that created it even without wp.abilities.executeAbility().
 		registrationPromise = window[ WIN_REGISTRATION_KEY ];
 		return registrationPromise;
 	}
