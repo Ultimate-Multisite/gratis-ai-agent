@@ -3171,39 +3171,73 @@ final class SessionController {
 		// @phpstan-ignore-next-line
 		$job_id  = (string) $request->get_param( 'id' );
 		$message = (string) $request->get_param( 'message' );
-		$job     = get_transient( RestController::JOB_PREFIX . $job_id );
-
-		if ( ! is_array( $job ) || 'processing' !== ( $job['status'] ?? '' ) ) {
+		$lock    = self::acquire_job_mutation_lock( $job_id, 1 );
+		if ( null === $lock ) {
 			return new WP_Error(
-				'sd_ai_agent_invalid_job',
-				__( 'Job not found or not currently processing.', 'superdav-ai-agent' ),
-				array( 'status' => 404 )
+				'sd_ai_agent_job_busy',
+				__( 'The job is processing another update. Please retry shortly.', 'superdav-ai-agent' ),
+				array( 'status' => 409 )
 			);
 		}
 
-		if ( ( $job['user_id'] ?? 0 ) !== get_current_user_id() ) {
-			return new WP_Error( 'sd_ai_agent_forbidden', __( 'Not authorized.', 'superdav-ai-agent' ), array( 'status' => 403 ) );
+		try {
+			$job = get_transient( RestController::JOB_PREFIX . $job_id );
+
+			if ( ! is_array( $job ) || 'processing' !== ( $job['status'] ?? '' ) ) {
+				return new WP_Error(
+					'sd_ai_agent_invalid_job',
+					__( 'Job not found or not currently processing.', 'superdav-ai-agent' ),
+					array( 'status' => 404 )
+				);
+			}
+
+			if ( ( $job['user_id'] ?? 0 ) !== get_current_user_id() ) {
+				return new WP_Error( 'sd_ai_agent_forbidden', __( 'Not authorized.', 'superdav-ai-agent' ), array( 'status' => 403 ) );
+			}
+
+			// Append the interrupt message to the job's pending interrupts.
+			$current_interrupts = $job['interrupts'] ?? array();
+			$interrupts         = is_array( $current_interrupts ) ? $current_interrupts : array();
+			$interrupts[]       = array(
+				'message'   => $message,
+				'timestamp' => time(),
+			);
+			$job['interrupts']  = $interrupts;
+
+			set_transient( RestController::JOB_PREFIX . $job_id, $job, RestController::JOB_TTL );
+
+			return new WP_REST_Response(
+				array(
+					'status'     => 'interrupt_queued',
+					'job_id'     => $job_id,
+					'interrupts' => count( $interrupts ),
+				),
+				200
+			);
+		} finally {
+			self::release_job_mutation_lock( $lock );
 		}
+	}
 
-		// Append the interrupt message to the job's pending interrupts.
-		$current_interrupts = $job['interrupts'] ?? array();
-		$interrupts         = is_array( $current_interrupts ) ? $current_interrupts : array();
-		$interrupts[]       = array(
-			'message'   => $message,
-			'timestamp' => time(),
-		);
-		$job['interrupts']  = $interrupts;
+	/** Acquire a cross-request lock before mutating one active job transient. */
+	private static function acquire_job_mutation_lock( string $job_id, int $timeout = 0 ): ?string {
+		global $wpdb;
+		/** @var \wpdb $wpdb */
 
-		set_transient( RestController::JOB_PREFIX . $job_id, $job, RestController::JOB_TTL );
+		$lock_name = 'sdai_job_' . substr( hash( 'sha256', get_current_blog_id() . '|' . $job_id ), 0, 48 );
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- A database advisory lock serializes concurrent job-transient mutations across PHP requests and web heads.
+		$acquired = $wpdb->get_var( $wpdb->prepare( 'SELECT GET_LOCK(%s, %d)', $lock_name, $timeout ) );
 
-		return new WP_REST_Response(
-			array(
-				'status'     => 'interrupt_queued',
-				'job_id'     => $job_id,
-				'interrupts' => count( $interrupts ),
-			),
-			200
-		);
+		return 1 === (int) $acquired ? $lock_name : null;
+	}
+
+	/** Release an active-job mutation lock. */
+	private static function release_job_mutation_lock( string $lock_name ): void {
+		global $wpdb;
+		/** @var \wpdb $wpdb */
+
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Releases the request-scoped advisory lock acquired immediately above.
+		$wpdb->get_var( $wpdb->prepare( 'SELECT RELEASE_LOCK(%s)', $lock_name ) );
 	}
 
 	/**
@@ -3215,23 +3249,32 @@ final class SessionController {
 	private static function build_job_interrupt_checker( string $job_id ): \Closure {
 		return static function () use ( $job_id ): ?array {
 			$transient_key = RestController::JOB_PREFIX . $job_id;
-			$job           = get_transient( $transient_key );
-
-			if ( ! is_array( $job ) || 'processing' !== ( $job['status'] ?? '' ) ) {
+			$lock          = self::acquire_job_mutation_lock( $job_id, 1 );
+			if ( null === $lock ) {
 				return null;
 			}
 
-			$current_interrupts = $job['interrupts'] ?? array();
-			$interrupts         = is_array( $current_interrupts ) ? array_values( $current_interrupts ) : array();
-			if ( empty( $interrupts ) ) {
-				return null;
+			try {
+				$job = get_transient( $transient_key );
+
+				if ( ! is_array( $job ) || 'processing' !== ( $job['status'] ?? '' ) ) {
+					return null;
+				}
+
+				$current_interrupts = $job['interrupts'] ?? array();
+				$interrupts         = is_array( $current_interrupts ) ? array_values( $current_interrupts ) : array();
+				if ( empty( $interrupts ) ) {
+					return null;
+				}
+
+				$interrupt         = array_shift( $interrupts );
+				$job['interrupts'] = $interrupts;
+				set_transient( $transient_key, $job, RestController::JOB_TTL + 60 );
+
+				return is_array( $interrupt ) ? $interrupt : null;
+			} finally {
+				self::release_job_mutation_lock( $lock );
 			}
-
-			$interrupt         = array_shift( $interrupts );
-			$job['interrupts'] = $interrupts;
-			set_transient( $transient_key, $job, RestController::JOB_TTL + 60 );
-
-			return is_array( $interrupt ) ? $interrupt : null;
 		};
 	}
 
@@ -3735,29 +3778,38 @@ final class SessionController {
 		// to the job transient so the polling frontend can display them incrementally.
 		$progress_job_id              = $job_id;
 		$options['progress_callback'] = static function ( array $tool_call_log, array $message_log = array() ) use ( $progress_job_id ) {
-			$current = get_transient( RestController::JOB_PREFIX . $progress_job_id );
-			if ( is_array( $current ) && 'processing' === ( $current['status'] ?? '' ) ) {
-				$current['tool_calls'] = $tool_call_log;
-				$current['messages']   = $message_log;
-				// Refresh TTL on each update to prevent mid-execution expiration.
-				// Adding 60s buffer ensures the transient outlasts the execution
-				// limit even when the callback fires near the end of the job.
-				set_transient( RestController::JOB_PREFIX . $progress_job_id, $current, RestController::JOB_TTL + 60 );
-			} elseif ( false === $current ) {
-				// Transient expired mid-execution; re-create a minimal entry so
-				// the final job result can still be persisted after completion.
-				// Use the same buffered TTL (+60s) as the primary path to
-				// prevent the recreated transient from expiring again before
-				// the job finishes.
-				set_transient(
-					RestController::JOB_PREFIX . $progress_job_id,
-					array(
-						'status'     => 'processing',
-						'tool_calls' => $tool_call_log,
-						'messages'   => $message_log,
-					),
-					RestController::JOB_TTL + 60
-				);
+			$lock = self::acquire_job_mutation_lock( $progress_job_id );
+			if ( null === $lock ) {
+				return;
+			}
+
+			try {
+				$current = get_transient( RestController::JOB_PREFIX . $progress_job_id );
+				if ( is_array( $current ) && 'processing' === ( $current['status'] ?? '' ) ) {
+					$current['tool_calls'] = $tool_call_log;
+					$current['messages']   = $message_log;
+					// Refresh TTL on each update to prevent mid-execution expiration.
+					// Adding 60s buffer ensures the transient outlasts the execution
+					// limit even when the callback fires near the end of the job.
+					set_transient( RestController::JOB_PREFIX . $progress_job_id, $current, RestController::JOB_TTL + 60 );
+				} elseif ( false === $current ) {
+					// Transient expired mid-execution; re-create a minimal entry so
+					// the final job result can still be persisted after completion.
+					// Use the same buffered TTL (+60s) as the primary path to
+					// prevent the recreated transient from expiring again before
+					// the job finishes.
+					set_transient(
+						RestController::JOB_PREFIX . $progress_job_id,
+						array(
+							'status'     => 'processing',
+							'tool_calls' => $tool_call_log,
+							'messages'   => $message_log,
+						),
+						RestController::JOB_TTL + 60
+					);
+				}
+			} finally {
+				self::release_job_mutation_lock( $lock );
 			}
 		};
 
