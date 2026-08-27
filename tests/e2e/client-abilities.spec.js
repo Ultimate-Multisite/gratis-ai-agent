@@ -516,9 +516,14 @@ test.describe( 'client-abilities — navigate-to execution', () => {
 			path: 'plugins.php',
 		} );
 		// The queued URL must be the validated same-origin admin destination.
-		expect( result.pendingNavigation ).toMatch(
-			/\/wp-admin\/plugins\.php$/
+		const pendingNavigationUrl = new URL(
+			result.pendingNavigation,
+			page.url()
 		);
+		expect( pendingNavigationUrl.origin ).toBe(
+			new URL( page.url() ).origin
+		);
+		expect( pendingNavigationUrl.pathname ).toBe( '/wp-admin/plugins.php' );
 	} );
 } );
 
