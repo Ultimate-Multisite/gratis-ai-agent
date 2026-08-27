@@ -843,6 +843,164 @@ describe( 'actions', () => {
 		}
 	} );
 
+	test( 'pollJob waits for restored client-ability callbacks before executing or posting once', async () => {
+		jest.useFakeTimers();
+		apiFetch.mockReset();
+		executeClientAbility.mockReset();
+		let resolveReadiness;
+		window.__sdAiAgentAbilitiesRegistering = new Promise( ( resolve ) => {
+			resolveReadiness = resolve;
+		} );
+		executeClientAbility.mockResolvedValue( { captured: true } );
+		apiFetch.mockImplementation( ( request ) => {
+			if (
+				request.path === '/sd-ai-agent/v1/job/restored-client-tool-job'
+			) {
+				return Promise.resolve( {
+					status: 'awaiting_client_tools',
+					pending_client_tool_calls: [
+						{
+							id: 'restored-screenshot',
+							name: 'sd-ai-agent-js/screenshot-url',
+							annotations: { readonly: true },
+							args: { url: '/' },
+						},
+					],
+				} );
+			}
+
+			return Promise.resolve( {} );
+		} );
+
+		const dispatch = {
+			setCurrentJobId: jest.fn(),
+			setSessionJob: jest.fn(),
+		};
+		const select = {
+			getCurrentSessionId: jest.fn( () => 17 ),
+			getCurrentJobId: jest.fn( () => 'restored-client-tool-job' ),
+		};
+
+		try {
+			actions.pollJob(
+				'restored-client-tool-job',
+				17
+			)( {
+				dispatch,
+				select,
+			} );
+			await jest.advanceTimersByTimeAsync( 2000 );
+
+			expect( executeClientAbility ).not.toHaveBeenCalled();
+			expect(
+				apiFetch.mock.calls.filter(
+					( [ request ] ) =>
+						request.path === '/sd-ai-agent/v1/chat/tool-result'
+				)
+			).toHaveLength( 0 );
+
+			resolveReadiness();
+			await jest.advanceTimersByTimeAsync( 0 );
+
+			expect( executeClientAbility ).toHaveBeenCalledTimes( 1 );
+			expect( apiFetch ).toHaveBeenCalledWith( {
+				path: '/sd-ai-agent/v1/chat/tool-result',
+				method: 'POST',
+				data: {
+					session_id: 17,
+					job_id: 'restored-client-tool-job',
+					tool_results: [
+						{
+							id: 'restored-screenshot',
+							name: 'sd-ai-agent-js/screenshot-url',
+							result: { captured: true },
+						},
+					],
+				},
+			} );
+		} finally {
+			delete window.__sdAiAgentAbilitiesRegistering;
+			jest.clearAllTimers();
+			jest.useRealTimers();
+		}
+	} );
+
+	test( 'pollJob posts a bounded readiness failure without executing client abilities', async () => {
+		jest.useFakeTimers();
+		apiFetch.mockReset();
+		executeClientAbility.mockReset();
+		let rejectReadiness;
+		window.__sdAiAgentAbilitiesRegistering = new Promise(
+			( _resolve, reject ) => {
+				rejectReadiness = reject;
+			}
+		);
+		apiFetch.mockImplementation( ( request ) => {
+			if (
+				request.path === '/sd-ai-agent/v1/job/readiness-failure-job'
+			) {
+				return Promise.resolve( {
+					status: 'awaiting_client_tools',
+					pending_client_tool_calls: [
+						{
+							id: 'failed-readiness-screenshot',
+							name: 'sd-ai-agent-js/screenshot-url',
+							annotations: { readonly: true },
+							args: { url: '/' },
+						},
+					],
+				} );
+			}
+
+			return Promise.resolve( {} );
+		} );
+
+		const dispatch = {
+			setCurrentJobId: jest.fn(),
+			setSessionJob: jest.fn(),
+		};
+		const select = {
+			getCurrentSessionId: jest.fn( () => 17 ),
+			getCurrentJobId: jest.fn( () => 'readiness-failure-job' ),
+		};
+
+		try {
+			actions.pollJob(
+				'readiness-failure-job',
+				17
+			)( {
+				dispatch,
+				select,
+			} );
+			await jest.advanceTimersByTimeAsync( 2000 );
+			rejectReadiness(
+				new Error( 'Client ability registration failed.' )
+			);
+			await jest.advanceTimersByTimeAsync( 0 );
+
+			expect( executeClientAbility ).not.toHaveBeenCalled();
+			expect( apiFetch ).toHaveBeenCalledWith( {
+				path: '/sd-ai-agent/v1/chat/tool-result',
+				method: 'POST',
+				data: {
+					session_id: 17,
+					job_id: 'readiness-failure-job',
+					tool_results: [
+						{
+							id: 'failed-readiness-screenshot',
+							name: 'sd-ai-agent-js/screenshot-url',
+							error: 'Client ability registration failed.',
+						},
+					],
+				},
+			} );
+		} finally {
+			delete window.__sdAiAgentAbilitiesRegistering;
+			jest.clearAllTimers();
+			jest.useRealTimers();
+		}
+	} );
+
 	test( 'pollJob posts a timeout error when a client ability never resolves', async () => {
 		jest.useFakeTimers();
 		apiFetch.mockReset();

@@ -645,6 +645,15 @@ export const actions = {
 						const pendingCalls =
 							result.pending_client_tool_calls || [];
 
+						// Restored jobs can begin polling before the asynchronously loaded
+						// browser-ability bundles finish registration. Wait once for the
+						// shared callback pipeline before running the batch, so a valid
+						// saved call cannot become a false "not registered" result.
+						const readinessError =
+							await window.__sdAiAgentAbilitiesRegistering?.catch(
+								( err ) => err.message
+							);
+
 						const toolResults = await Promise.all(
 							pendingCalls.map( async ( call ) => {
 								const abilityName =
@@ -654,12 +663,11 @@ export const actions = {
 									'sd-ai-agent-js/validate-page-quality'
 										? 120000
 										: 30000;
-								const isReadonly =
-									call.annotations?.readonly === true;
-								const isUserConfirmed =
-									call.user_confirmed === true;
 
-								if ( ! isReadonly && ! isUserConfirmed ) {
+								if (
+									call.annotations?.readonly !== true &&
+									call.user_confirmed !== true
+								) {
 									// Mutating client abilities need an explicit server
 									// confirmation marker before browser execution.
 									return {
@@ -669,6 +677,14 @@ export const actions = {
 											'Client-side ability requires explicit user confirmation.',
 											'superdav-ai-agent'
 										),
+									};
+								}
+
+								if ( readinessError ) {
+									return {
+										id: call.id,
+										name: call.name,
+										error: readinessError,
 									};
 								}
 
