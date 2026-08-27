@@ -293,6 +293,7 @@ class AgentThemeBuilderTest extends WP_UnitTestCase {
 
 		foreach ( [
 			'anonymous rendered header and footer',
+			'remove or replace every visible default-theme link group in both regions',
 			'every visible default-theme link group',
 			'default footer navigation',
 			'`sd-ai-agent/list-template-parts` with `area: footer`',
@@ -303,6 +304,22 @@ class AgentThemeBuilderTest extends WP_UnitTestCase {
 		] as $required ) {
 			$this->assertStringContainsString( $required, $agent->system_prompt );
 		}
+
+		$navigation_position   = strpos( $agent->system_prompt, 'Inspect the anonymous rendered header and footer' );
+		$page_quality_position = strpos( $agent->system_prompt, 'AgentLoop can dispatch `sd-ai-agent-js/validate-page-quality`' );
+		$visual_review_position = strpos( $agent->system_prompt, 'then call `sd-ai-agent/submit-page-visual-review` only with evidence-backed passing scores' );
+		$memory_position       = strpos( $agent->system_prompt, 'Save the final site brief and chosen design direction' );
+		$success_position      = strpos( $agent->system_prompt, 'Reply with a short success message including the live homepage URL' );
+
+		$this->assertNotFalse( $navigation_position );
+		$this->assertNotFalse( $page_quality_position );
+		$this->assertNotFalse( $visual_review_position );
+		$this->assertNotFalse( $memory_position );
+		$this->assertNotFalse( $success_position );
+		$this->assertLessThan( $page_quality_position, $navigation_position );
+		$this->assertLessThan( $visual_review_position, $page_quality_position );
+		$this->assertLessThan( $memory_position, $visual_review_position );
+		$this->assertLessThan( $success_position, $memory_position );
 	}
 
 	/**
