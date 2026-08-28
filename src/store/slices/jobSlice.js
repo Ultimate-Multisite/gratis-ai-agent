@@ -14,7 +14,6 @@ import {
 	notifyConfirmationNeeded,
 } from '../../utils/notification-manager';
 import { playDing, playDong, playThinking } from '../../utils/sound-manager';
-import { executeClientAbility } from '../../abilities/registry';
 import { emitReflectionEvents } from '../reflection-emitter';
 
 // A session/job pair must have exactly one polling loop. Multiple mounted chat
@@ -22,38 +21,6 @@ import { emitReflectionEvents } from '../reflection-emitter';
 // duplicate pollers can execute one browser-tool batch twice and consume the
 // single-use paused state before the first poller receives its response.
 const activePollersByDispatch = new WeakMap();
-const CLIENT_ABILITY_READINESS_TIMEOUT_MS = 30000;
-
-/**
- * Wait for asynchronously loaded browser abilities without consuming an
- * individual ability's execution allowance.
- *
- * @return {Promise<void>} Resolves once browser abilities are ready.
- */
-function waitForClientAbilityReadiness() {
-	return new Promise( ( resolve, reject ) => {
-		const timeoutId = setTimeout( () => {
-			reject(
-				new Error(
-					`Client ability registration timed out after ${
-						CLIENT_ABILITY_READINESS_TIMEOUT_MS / 1000
-					} seconds.`
-				)
-			);
-		}, CLIENT_ABILITY_READINESS_TIMEOUT_MS );
-
-		Promise.resolve( window.__sdAiAgentAbilitiesRegistering ).then(
-			() => {
-				clearTimeout( timeoutId );
-				resolve();
-			},
-			( error ) => {
-				clearTimeout( timeoutId );
-				reject( error );
-			}
-		);
-	} );
-}
 
 /**
  * Merge real tool calls with assistant channel messages for live rendering.
@@ -678,91 +645,12 @@ export const actions = {
 						// browser-ability bundles finish registration. Wait once for the
 						// shared callback pipeline before running the batch, so a valid
 						// saved call cannot become a false "not registered" result.
-						const pendingClientToolCalls =
-							result.pending_client_tool_calls || [];
-						const readiness = pendingClientToolCalls.some(
-							( {
-								annotations,
-								user_confirmed: userConfirmed,
-							} ) =>
-								annotations?.readonly === true ||
-								userConfirmed === true
-						)
-							? waitForClientAbilityReadiness()
-							: null;
-						const toolResults = await Promise.all(
-							pendingClientToolCalls.map(
-								async ( {
-									id,
-									name,
-									client_name: clientName,
-									args = {},
-									annotations,
-									user_confirmed: userConfirmed,
-								} ) => {
-									const abilityName = clientName || name;
-									const timeoutMs =
-										abilityName ===
-										'sd-ai-agent-js/validate-page-quality'
-											? 120000
-											: 30000;
-
-									if (
-										annotations?.readonly !== true &&
-										userConfirmed !== true
-									) {
-										// Mutating client abilities need an explicit server
-										// confirmation marker before browser execution.
-										return {
-											id,
-											name,
-											error: __(
-												'Confirmation required.',
-												'superdav-ai-agent'
-											),
-										};
-									}
-
-									try {
-										await readiness;
-										const abilityResult =
-											await Promise.race( [
-												executeClientAbility(
-													abilityName,
-													args
-												),
-												new Promise(
-													( _resolve, reject ) =>
-														setTimeout(
-															reject,
-															timeoutMs,
-															new Error(
-																`Client tool timed out after ${
-																	timeoutMs /
-																	1000
-																} seconds.`
-															)
-														)
-												),
-											] );
-										return {
-											id,
-											name,
-											result: abilityResult,
-										};
-									} catch ( execErr ) {
-										return {
-											id,
-											name,
-											error: String(
-												execErr?.message ||
-													execErr ||
-													Error.name
-											),
-										};
-									}
-								}
-							)
+						const { runClientTools } = await import(
+							/* webpackChunkName: "client-tool-runner" */
+							'./client-tool-runner'
+						);
+						const toolResults = await runClientTools(
+							result.pending_client_tool_calls || []
 						);
 
 						// POST results back to the server so the agent loop
