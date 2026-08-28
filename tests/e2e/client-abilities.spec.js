@@ -1146,6 +1146,13 @@ test.describe( 'client-abilities — restored polling', () => {
 			decodeURIComponent( url.toString() ).includes(
 				'sd-ai-agent/v1/chat/tool-result'
 			);
+		const isSessionEndpoint = ( url ) => {
+			const decoded = decodeURIComponent( url.toString() );
+			return (
+				decoded.includes( `sd-ai-agent/v1/sessions/${ sessionId }` ) &&
+				! decoded.includes( `/sessions/${ sessionId }/active-job` )
+			);
+		};
 
 		const handleActiveJobs = async ( route ) => {
 			await route.fulfill( {
@@ -1205,6 +1212,25 @@ test.describe( 'client-abilities — restored polling', () => {
 				body: JSON.stringify( { status: 'processing' } ),
 			} );
 		};
+		const handleSession = async ( route ) => {
+			const messages = toolResultPayloads.length
+				? [
+						{
+							role: 'model',
+							parts: [ { text: terminalReply } ],
+						},
+				  ]
+				: [];
+			await route.fulfill( {
+				status: 200,
+				contentType: 'application/json',
+				body: JSON.stringify( {
+					id: sessionId,
+					messages,
+					tool_calls: [],
+				} ),
+			} );
+		};
 
 		await loginToWordPress( page );
 		await page.goto( '/wp-admin/index.php' );
@@ -1219,6 +1245,7 @@ test.describe( 'client-abilities — restored polling', () => {
 		await page.route( isActiveJobsEndpoint, handleActiveJobs );
 		await page.route( isJobEndpoint, handleJob );
 		await page.route( isToolResultEndpoint, handleToolResult );
+		await page.route( isSessionEndpoint, handleSession );
 
 		try {
 			await page.reload();
@@ -1249,6 +1276,7 @@ test.describe( 'client-abilities — restored polling', () => {
 			await page.unroute( isActiveJobsEndpoint, handleActiveJobs );
 			await page.unroute( isJobEndpoint, handleJob );
 			await page.unroute( isToolResultEndpoint, handleToolResult );
+			await page.unroute( isSessionEndpoint, handleSession );
 		}
 	} );
 } );
