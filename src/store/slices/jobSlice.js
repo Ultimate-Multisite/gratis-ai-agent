@@ -22,6 +22,38 @@ import { emitReflectionEvents } from '../reflection-emitter';
 // duplicate pollers can execute one browser-tool batch twice and consume the
 // single-use paused state before the first poller receives its response.
 const activePollersByDispatch = new WeakMap();
+const CLIENT_ABILITY_READINESS_TIMEOUT_MS = 30000;
+
+/**
+ * Wait for asynchronously loaded browser abilities without consuming an
+ * individual ability's execution allowance.
+ *
+ * @return {Promise<void>} Resolves once browser abilities are ready.
+ */
+function waitForClientAbilityReadiness() {
+	return new Promise( ( resolve, reject ) => {
+		const timeoutId = setTimeout( () => {
+			reject(
+				new Error(
+					`Client ability registration timed out after ${
+						CLIENT_ABILITY_READINESS_TIMEOUT_MS / 1000
+					} seconds.`
+				)
+			);
+		}, CLIENT_ABILITY_READINESS_TIMEOUT_MS );
+
+		Promise.resolve( window.__sdAiAgentAbilitiesRegistering ).then(
+			() => {
+				clearTimeout( timeoutId );
+				resolve();
+			},
+			( error ) => {
+				clearTimeout( timeoutId );
+				reject( error );
+			}
+		);
+	} );
+}
 
 /**
  * Merge real tool calls with assistant channel messages for live rendering.
@@ -646,8 +678,20 @@ export const actions = {
 						// browser-ability bundles finish registration. Wait once for the
 						// shared callback pipeline before running the batch, so a valid
 						// saved call cannot become a false "not registered" result.
+						const pendingClientToolCalls =
+							result.pending_client_tool_calls || [];
+						const readiness = pendingClientToolCalls.some(
+							( {
+								annotations,
+								user_confirmed: userConfirmed,
+							} ) =>
+								annotations?.readonly === true ||
+								userConfirmed === true
+						)
+							? waitForClientAbilityReadiness()
+							: null;
 						const toolResults = await Promise.all(
-							( result.pending_client_tool_calls || [] ).map(
+							pendingClientToolCalls.map(
 								async ( {
 									id,
 									name,
@@ -680,15 +724,12 @@ export const actions = {
 									}
 
 									try {
+										await readiness;
 										const abilityResult =
 											await Promise.race( [
-												Promise.resolve(
-													window.__sdAiAgentAbilitiesRegistering
-												).then( () =>
-													executeClientAbility(
-														abilityName,
-														args
-													)
+												executeClientAbility(
+													abilityName,
+													args
 												),
 												new Promise(
 													( _resolve, reject ) =>

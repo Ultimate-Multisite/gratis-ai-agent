@@ -1055,6 +1055,88 @@ describe( 'actions', () => {
 						{
 							id: 'timed-out-readiness-screenshot',
 							name: 'sd-ai-agent-js/screenshot-url',
+							error: 'Client ability registration timed out after 30 seconds.',
+						},
+					],
+				},
+			} );
+		} finally {
+			delete window.__sdAiAgentAbilitiesRegistering;
+			jest.clearAllTimers();
+			jest.useRealTimers();
+		}
+	} );
+
+	test( 'pollJob gives a restored client ability its full timeout after readiness', async () => {
+		jest.useFakeTimers();
+		apiFetch.mockReset();
+		executeClientAbility.mockReset();
+		let resolveReadiness;
+		window.__sdAiAgentAbilitiesRegistering = new Promise( ( resolve ) => {
+			resolveReadiness = resolve;
+		} );
+		executeClientAbility.mockImplementation(
+			() => new Promise( () => {} )
+		);
+		apiFetch.mockImplementation( ( request ) => {
+			if ( request.path === '/sd-ai-agent/v1/job/readiness-window-job' ) {
+				return Promise.resolve( {
+					status: 'awaiting_client_tools',
+					pending_client_tool_calls: [
+						{
+							id: 'readiness-window-screenshot',
+							name: 'sd-ai-agent-js/screenshot-url',
+							annotations: { readonly: true },
+							args: { url: '/' },
+						},
+					],
+				} );
+			}
+
+			return Promise.resolve( {} );
+		} );
+
+		const dispatch = {
+			setCurrentJobId: jest.fn(),
+			setSessionJob: jest.fn(),
+		};
+		const select = {
+			getCurrentSessionId: jest.fn( () => 17 ),
+			getCurrentJobId: jest.fn( () => 'readiness-window-job' ),
+		};
+
+		try {
+			actions.pollJob(
+				'readiness-window-job',
+				17
+			)( {
+				dispatch,
+				select,
+			} );
+			await jest.advanceTimersByTimeAsync( 29000 );
+			resolveReadiness();
+			await jest.advanceTimersByTimeAsync( 0 );
+			await jest.advanceTimersByTimeAsync( 29000 );
+
+			expect( executeClientAbility ).toHaveBeenCalledTimes( 1 );
+			expect(
+				apiFetch.mock.calls.filter(
+					( [ request ] ) =>
+						request.path === '/sd-ai-agent/v1/chat/tool-result'
+				)
+			).toHaveLength( 0 );
+
+			await jest.advanceTimersByTimeAsync( 1000 );
+			expect( apiFetch ).toHaveBeenCalledWith( {
+				path: '/sd-ai-agent/v1/chat/tool-result',
+				method: 'POST',
+				data: {
+					session_id: 17,
+					job_id: 'readiness-window-job',
+					tool_results: [
+						{
+							id: 'readiness-window-screenshot',
+							name: 'sd-ai-agent-js/screenshot-url',
 							error: 'Client tool timed out after 30 seconds.',
 						},
 					],
