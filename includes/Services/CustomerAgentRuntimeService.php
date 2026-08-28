@@ -93,6 +93,9 @@ class CustomerAgentRuntimeService implements CustomerAgentRuntimeInterface {
 
 	private static ?self $instance = null;
 
+	/** @var array<string,\mysqli> Connections that own request-scoped advisory locks. */
+	private array $integration_lock_connections = array();
+
 	/**
 	 * Optional test seam. Production execution always uses AgentLoop directly.
 	 *
@@ -1194,6 +1197,10 @@ class CustomerAgentRuntimeService implements CustomerAgentRuntimeInterface {
 				array( 'status' => 503 )
 			);
 		}
+		$connection = $this->database_connection_handle( $wpdb );
+		if ( null !== $connection ) {
+			$this->integration_lock_connections[ $lock_name ] = $connection;
+		}
 
 		return $lock_name;
 	}
@@ -1203,8 +1210,40 @@ class CustomerAgentRuntimeService implements CustomerAgentRuntimeInterface {
 		global $wpdb;
 		/** @var \wpdb $wpdb */
 
-		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Releases the request-scoped advisory lock acquired for this integration.
-		$wpdb->get_var( $wpdb->prepare( 'SELECT RELEASE_LOCK(%s)', $lock_name ) );
+		$query      = $wpdb->prepare( 'SELECT RELEASE_LOCK(%s)', $lock_name );
+		$connection = $this->integration_lock_connections[ $lock_name ] ?? null;
+		unset( $this->integration_lock_connections[ $lock_name ] );
+		if ( ! is_string( $query ) ) {
+			return;
+		}
+
+		if ( $connection instanceof \mysqli ) {
+			try {
+				// phpcs:ignore WordPress.DB.RestrictedFunctions.mysql_mysqli_query -- Advisory locks are connection-scoped, so release must use the exact connection that acquired the lock instead of a router-selected wpdb connection.
+				$result = mysqli_query( $connection, $query );
+				if ( $result instanceof \mysqli_result ) {
+					$result->free();
+				}
+			} catch ( \Throwable $exception ) {
+				// The database releases request-owned advisory locks when the connection closes.
+			}
+			return;
+		}
+
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.NotPrepared -- The query was prepared above; fallback supports wpdb drivers that do not expose their connection handle.
+		$wpdb->get_var( $query );
+	}
+
+	/** Return the current driver connection without assuming wpdb property visibility. */
+	private function database_connection_handle( \wpdb $database ): ?\mysqli {
+		try {
+			$property   = new \ReflectionProperty( $database, 'dbh' );
+			$connection = $property->getValue( $database );
+		} catch ( \ReflectionException $exception ) {
+			return null;
+		}
+
+		return $connection instanceof \mysqli ? $connection : null;
 	}
 
 	/** Return the independent opaque tombstone option name for one integration key. */
