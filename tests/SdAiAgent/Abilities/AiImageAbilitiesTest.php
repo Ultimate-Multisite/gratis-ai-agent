@@ -617,6 +617,9 @@ class AiImageAbilitiesTest extends WP_UnitTestCase {
 		$reflection->setAccessible( true );
 		/** @var array<string,mixed>|\WP_Error $import_result */
 		$import_result = $reflection->invoke( $real_ability, $tmp_file, 'Test Provenance Image', 0 );
+		$this->assertTrue( function_exists( 'wp_handle_sideload' ), 'The file-handling dependency must be loaded for non-admin requests.' );
+		$this->assertTrue( function_exists( 'wp_generate_attachment_metadata' ), 'The image metadata dependency must be loaded for non-admin requests.' );
+		$this->assertTrue( function_exists( 'media_handle_sideload' ), 'The media sideload dependency must be loaded for non-admin requests.' );
 
 		if ( is_wp_error( $import_result ) ) {
 			$this->markTestSkipped( 'media_handle_sideload unavailable in this test environment: ' . $import_result->get_error_message() );

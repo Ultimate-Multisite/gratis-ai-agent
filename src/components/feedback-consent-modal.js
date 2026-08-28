@@ -21,7 +21,7 @@ import apiFetch from '@wordpress/api-fetch';
  *
  * Features (t186):
  *   7. Optional messageIndex prop: when set, the payload is scoped to the targeted
- *      message ± 2 surrounding messages rather than the full conversation.
+ *      response's complete user turn rather than the full conversation.
  *   8. "Include full conversation" checkbox, visible only when messageIndex is set.
  *
  * @param {Object}   props                      - Component props.
@@ -36,7 +36,7 @@ import apiFetch from '@wordpress/api-fetch';
  * @param {number}   [props.messageIndex]       - Zero-based index of the specific
  *                                              message that triggered the report.
  *                                              When provided, the payload includes
- *                                              only that message ± 2 context messages
+ *                                              only that response's complete user turn
  *                                              unless the user opts into the full
  *                                              conversation via the checkbox.
  * @param {Function} props.onClose              - Called when the modal should close.
@@ -51,7 +51,7 @@ export default function FeedbackConsentModal( {
 } ) {
 	const [ description, setDescription ] = useState( userDescription );
 	const [ stripToolResults, setStripToolResults ] = useState( false );
-	// When messageIndex is provided, the payload is scoped to that message ± 2.
+	// When messageIndex is provided, the payload is scoped to that response's user turn.
 	// The user can opt out of the scope restriction by checking this box (t186).
 	const [ includeFullConversation, setIncludeFullConversation ] =
 		useState( false );
@@ -306,7 +306,7 @@ export default function FeedbackConsentModal( {
 											}
 										/>
 										{ __(
-											'Include full conversation (by default only the selected response and 2 surrounding messages are sent)',
+											'Include full conversation (by default only the user turn containing the selected response is sent)',
 											'superdav-ai-agent'
 										) }
 									</label>

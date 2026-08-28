@@ -648,9 +648,14 @@ class GenerateImageAbility extends \SdAiAgent\Abilities\AbstractAbility {
 	 * @return array<string,mixed>|\WP_Error
 	 */
 	protected function import_from_temp( string $tmp_file, string $title, int $post_id = 0 ): array|\WP_Error {
+		if ( ! function_exists( 'wp_handle_sideload' ) ) {
+			require_once ABSPATH . 'wp-admin/includes/file.php';
+		}
+		if ( ! function_exists( 'wp_generate_attachment_metadata' ) ) {
+			require_once ABSPATH . 'wp-admin/includes/image.php';
+		}
 		if ( ! function_exists( 'media_handle_sideload' ) ) {
 			require_once ABSPATH . 'wp-admin/includes/media.php';
-			require_once ABSPATH . 'wp-admin/includes/image.php';
 		}
 
 		$finfo    = new \finfo( FILEINFO_MIME_TYPE );

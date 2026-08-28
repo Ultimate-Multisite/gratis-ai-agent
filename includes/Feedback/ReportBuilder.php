@@ -19,10 +19,13 @@ use SdAiAgent\Core\Database;
 class ReportBuilder {
 
 	/**
-	 * Slice the messages array to the targeted message ± 2 surrounding messages.
+	 * Slice messages to the user turn containing the targeted response.
 	 *
-	 * Used to scope thumbs-down reports to a relevant context window rather than
-	 * sending the full conversation (t186).
+	 * A fixed ±2 window can omit the tool call that caused a later assistant
+	 * response, because one agent turn may contain several call/response pairs.
+	 * Start at the preceding human user prompt, retain every later message in
+	 * that turn, and stop before the next user turn.
+	 * This keeps reports bounded while preserving the complete failing workflow.
 	 *
 	 * @param array<int, array<string, mixed>> $messages     Full messages array.
 	 * @param int                              $message_index Zero-based index of the target message.
@@ -30,10 +33,67 @@ class ReportBuilder {
 	 */
 	private static function slice_message_context( array $messages, int $message_index ): array {
 		$total = count( $messages );
-		$start = max( 0, $message_index - 2 );
-		$end   = min( $total - 1, $message_index + 2 );
+		if ( 0 === $total ) {
+			return array();
+		}
+
+		$target = min( $total - 1, max( 0, $message_index ) );
+		$start  = max( 0, $target - 2 );
+		$end    = $total - 1;
+
+		for ( $index = $target; $index >= 0; $index-- ) {
+			if ( self::is_human_user_message( $messages[ $index ] ) ) {
+				$start = $index;
+				break;
+			}
+		}
+
+		for ( $index = $target + 1; $index < $total; $index++ ) {
+			if ( self::is_human_user_message( $messages[ $index ] ) ) {
+				$end = $index - 1;
+				break;
+			}
+		}
 
 		return array_values( array_slice( $messages, $start, $end - $start + 1 ) );
+	}
+
+	/**
+	 * Whether a serialized message is a human prompt rather than a tool response.
+	 *
+	 * SDK function responses also use the `user` role, so the role alone cannot
+	 * identify the boundary between conversation turns.
+	 *
+	 * @param array<string, mixed> $message Serialized session message.
+	 */
+	private static function is_human_user_message( array $message ): bool {
+		if ( 'user' !== ( $message['role'] ?? '' ) ) {
+			return false;
+		}
+
+		$content = $message['parts'] ?? $message['content'] ?? array();
+		if ( is_string( $content ) ) {
+			return '' !== trim( $content );
+		}
+		if ( ! is_array( $content ) ) {
+			return false;
+		}
+
+		foreach ( $content as $part ) {
+			if ( is_string( $part ) && '' !== trim( $part ) ) {
+				return true;
+			}
+			if ( ! is_array( $part ) ) {
+				continue;
+			}
+
+			$text = $part['text'] ?? ( 'text' === ( $part['type'] ?? '' ) ? ( $part['content'] ?? '' ) : '' );
+			if ( is_string( $text ) && '' !== trim( $text ) ) {
+				return true;
+			}
+		}
+
+		return false;
 	}
 
 	/**
@@ -97,9 +157,9 @@ class ReportBuilder {
 	 * @param string $user_description  Optional free-text description from the user.
 	 * @param bool   $strip_tool_results When true, tool result content is redacted but
 	 *                                  tool names/arguments are retained.
-	 * @param int    $message_index     When >= 0, only the targeted message ± 2
-	 *                                  surrounding messages are included. Pass -1 to
-	 *                                  include all messages (default).
+	 * @param int    $message_index     When >= 0, only the user turn containing the
+	 *                                  targeted response is included. Pass -1 to include
+	 *                                  all messages (default).
 	 * @return array<string, mixed>|null Structured payload or null when the session does
 	 *                                  not exist or does not belong to the current user.
 	 */
