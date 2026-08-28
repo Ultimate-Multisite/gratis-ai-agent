@@ -973,9 +973,7 @@ describe( 'actions', () => {
 				select,
 			} );
 			await jest.advanceTimersByTimeAsync( 2000 );
-			rejectReadiness(
-				new Error( 'Client ability registration failed.' )
-			);
+			rejectReadiness( new Error( '' ) );
 			await jest.advanceTimersByTimeAsync( 0 );
 
 			expect( executeClientAbility ).not.toHaveBeenCalled();
@@ -989,7 +987,75 @@ describe( 'actions', () => {
 						{
 							id: 'failed-readiness-screenshot',
 							name: 'sd-ai-agent-js/screenshot-url',
-							error: 'Error: Client ability registration failed.',
+							error: 'Error',
+						},
+					],
+				},
+			} );
+		} finally {
+			delete window.__sdAiAgentAbilitiesRegistering;
+			jest.clearAllTimers();
+			jest.useRealTimers();
+		}
+	} );
+
+	test( 'pollJob times out stalled client-ability registration without executing abilities', async () => {
+		jest.useFakeTimers();
+		apiFetch.mockReset();
+		executeClientAbility.mockReset();
+		window.__sdAiAgentAbilitiesRegistering = new Promise( () => {} );
+		apiFetch.mockImplementation( ( request ) => {
+			if (
+				request.path === '/sd-ai-agent/v1/job/readiness-timeout-job'
+			) {
+				return Promise.resolve( {
+					status: 'awaiting_client_tools',
+					pending_client_tool_calls: [
+						{
+							id: 'timed-out-readiness-screenshot',
+							name: 'sd-ai-agent-js/screenshot-url',
+							annotations: { readonly: true },
+							args: { url: '/' },
+						},
+					],
+				} );
+			}
+
+			return Promise.resolve( {} );
+		} );
+
+		const dispatch = {
+			setCurrentJobId: jest.fn(),
+			setSessionJob: jest.fn(),
+		};
+		const select = {
+			getCurrentSessionId: jest.fn( () => 17 ),
+			getCurrentJobId: jest.fn( () => 'readiness-timeout-job' ),
+		};
+
+		try {
+			actions.pollJob(
+				'readiness-timeout-job',
+				17
+			)( {
+				dispatch,
+				select,
+			} );
+			await jest.advanceTimersByTimeAsync( 2000 );
+			await jest.advanceTimersByTimeAsync( 30_000 );
+
+			expect( executeClientAbility ).not.toHaveBeenCalled();
+			expect( apiFetch ).toHaveBeenCalledWith( {
+				path: '/sd-ai-agent/v1/chat/tool-result',
+				method: 'POST',
+				data: {
+					session_id: 17,
+					job_id: 'readiness-timeout-job',
+					tool_results: [
+						{
+							id: 'timed-out-readiness-screenshot',
+							name: 'sd-ai-agent-js/screenshot-url',
+							error: 'Client tool timed out after 30 seconds.',
 						},
 					],
 				},

@@ -56,9 +56,9 @@ async function goToDashboard( page ) {
 	await page.waitForLoadState( 'domcontentloaded' );
 	// Wait for the launcher button — it renders once React has mounted and the
 	// floating-widget bundle has executed (triggering ensureRegistered()).
-	// The redesign (#1157) renamed .sdaa-fab to .sdaa-w-launcher.
+	// The redesign (#1157) renamed .sdaa-fab to .sd-ai-agent-w-launcher.
 	await page
-		.locator( '.sdaa-w-launcher' )
+		.locator( '.sd-ai-agent-w-launcher' )
 		.waitFor( { state: 'visible', timeout: 30_000 } );
 }
 
@@ -1222,16 +1222,18 @@ test.describe( 'client-abilities — restored polling', () => {
 
 		try {
 			await page.reload();
-			await page
-				.locator( '.sdaa-w-launcher' )
-				.waitFor( { state: 'visible', timeout: 30_000 } );
-			await requireAbilitiesApi( page );
 			await waitForAbilitiesRegistered( page );
+			await requireAbilitiesApi( page );
 			await expect.poll( () => toolResultPayloads.length ).toBe( 1 );
 			await expect( page.getByText( terminalReply ) ).toBeVisible();
 
 			expect( jobPollCount ).toBe( 2 );
 			expect( toolResultPayloads[ 0 ]?.tool_results ).toHaveLength( 2 );
+			expect(
+				toolResultPayloads[ 0 ].tool_results.map(
+					( result ) => result.error
+				)
+			).toEqual( [ undefined, undefined ] );
 			expect(
 				toolResultPayloads[ 0 ].tool_results.map(
 					( result ) => result.id

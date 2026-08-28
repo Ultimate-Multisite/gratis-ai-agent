@@ -16,6 +16,7 @@ import { AiIcon } from '../chat-redesign/icons';
 import useDrag from './use-drag';
 
 const LAUNCHER_POSITION_STORAGE_KEY = 'aiAgentWidgetLauncherPosition';
+const LAUNCHER_CLASS_NAME = 'sd-ai-agent-w-launcher';
 
 /**
  * @param {Object}   root0              Component props.
@@ -78,7 +79,7 @@ export default function WidgetLauncher( { onActivate, label: labelOverride } ) {
 	return (
 		<button
 			type="button"
-			className="sdaa-w-launcher"
+			className={ LAUNCHER_CLASS_NAME }
 			data-drag-target="true"
 			style={ positionStyle }
 			onMouseDown={ handleMouseDown }
@@ -90,16 +91,18 @@ export default function WidgetLauncher( { onActivate, label: labelOverride } ) {
 				<img
 					src={ branding.logoUrl }
 					alt=""
-					className="sdaa-w-launcher-logo"
+					className={ `${ LAUNCHER_CLASS_NAME }-logo` }
 					aria-hidden="true"
 				/>
 			) : (
 				<AiIcon thinking={ isRunning } size={ 24 } />
 			) }
-			{ isRunning && <span className="sdaa-w-launcher-pulse" /> }
+			{ isRunning && (
+				<span className={ `${ LAUNCHER_CLASS_NAME }-pulse` } />
+			) }
 			{ alertCount > 0 && (
 				<span
-					className="sdaa-w-launcher-badge"
+					className={ `${ LAUNCHER_CLASS_NAME }-badge` }
 					aria-label={ sprintf(
 						/* translators: %d: number of alerts */
 						__( '%d alert(s)', 'sd-ai-agent' ),

@@ -646,11 +646,6 @@ export const actions = {
 						// browser-ability bundles finish registration. Wait once for the
 						// shared callback pipeline before running the batch, so a valid
 						// saved call cannot become a false "not registered" result.
-						const readinessError =
-							await window.__sdAiAgentAbilitiesRegistering?.catch(
-								String
-							);
-
 						const toolResults = await Promise.all(
 							( result.pending_client_tool_calls || [] ).map(
 								async ( {
@@ -684,20 +679,16 @@ export const actions = {
 										};
 									}
 
-									if ( readinessError ) {
-										return {
-											id,
-											name,
-											error: readinessError,
-										};
-									}
-
 									try {
 										const abilityResult =
 											await Promise.race( [
-												executeClientAbility(
-													abilityName,
-													args
+												Promise.resolve(
+													window.__sdAiAgentAbilitiesRegistering
+												).then( () =>
+													executeClientAbility(
+														abilityName,
+														args
+													)
 												),
 												new Promise(
 													( _resolve, reject ) =>
@@ -723,7 +714,9 @@ export const actions = {
 											id,
 											name,
 											error: String(
-												execErr?.message ?? execErr
+												execErr?.message ||
+													execErr ||
+													Error.name
 											),
 										};
 									}
