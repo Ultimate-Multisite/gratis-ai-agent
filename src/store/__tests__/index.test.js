@@ -73,6 +73,7 @@ const {
 } = require( '../slices/active-job-failure-diagnostic' );
 const apiFetch = require( '@wordpress/api-fetch' );
 const { executeClientAbility } = require( '../../abilities/registry' );
+const clientToolRunner = require( '../slices/client-tool-runner' );
 
 // ─── Default state ────────────────────────────────────────────────────────────
 
@@ -838,6 +839,67 @@ describe( 'actions', () => {
 				},
 			} );
 		} finally {
+			jest.clearAllTimers();
+			jest.useRealTimers();
+		}
+	} );
+
+	test( 'pollJob posts normalized failures when the client tool runner rejects', async () => {
+		jest.useFakeTimers();
+		apiFetch.mockReset();
+		const runnerError = new Error( 'Client tool runner failed to load.' );
+		const runClientTools = jest
+			.spyOn( clientToolRunner, 'runClientTools' )
+			.mockRejectedValueOnce( runnerError );
+		apiFetch.mockImplementation( ( request ) => {
+			if ( request.path === '/sd-ai-agent/v1/job/runner-failure-job' ) {
+				return Promise.resolve( {
+					status: 'awaiting_client_tools',
+					pending_client_tool_calls: [
+						{
+							id: 'runner-failure-screenshot',
+							name: 'sd-ai-agent-js/screenshot-url',
+							annotations: { readonly: true },
+							args: { url: '/' },
+						},
+					],
+				} );
+			}
+
+			return Promise.resolve( { status: 'processing' } );
+		} );
+
+		const dispatch = {
+			setCurrentJobId: jest.fn(),
+			setSessionJob: jest.fn(),
+		};
+		const select = {
+			getCurrentSessionId: jest.fn( () => 17 ),
+			getCurrentJobId: jest.fn( () => 'runner-failure-job' ),
+		};
+
+		try {
+			actions.pollJob( 'runner-failure-job', 17 )( { dispatch, select } );
+			await jest.advanceTimersByTimeAsync( 2000 );
+
+			expect( runClientTools ).toHaveBeenCalledTimes( 1 );
+			expect( apiFetch ).toHaveBeenCalledWith( {
+				path: '/sd-ai-agent/v1/chat/tool-result',
+				method: 'POST',
+				data: {
+					session_id: 17,
+					job_id: 'runner-failure-job',
+					tool_results: [
+						{
+							id: 'runner-failure-screenshot',
+							name: 'sd-ai-agent-js/screenshot-url',
+							error: runnerError.message,
+						},
+					],
+				},
+			} );
+		} finally {
+			runClientTools.mockRestore();
 			jest.clearAllTimers();
 			jest.useRealTimers();
 		}

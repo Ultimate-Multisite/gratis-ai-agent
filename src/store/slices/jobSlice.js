@@ -645,13 +645,27 @@ export const actions = {
 						// browser-ability bundles finish registration. Wait once for the
 						// shared callback pipeline before running the batch, so a valid
 						// saved call cannot become a false "not registered" result.
-						const { runClientTools } = await import(
-							/* webpackChunkName: "client-tool-runner" */
-							'./client-tool-runner'
-						);
-						const toolResults = await runClientTools(
-							result.pending_client_tool_calls || []
-						);
+						const pendingClientToolCalls =
+							result.pending_client_tool_calls || [];
+						let toolResults;
+						try {
+							const { runClientTools } = await import(
+								/* webpackChunkName: "client-tool-runner" */
+								'./client-tool-runner'
+							);
+							toolResults = await runClientTools(
+								pendingClientToolCalls
+							);
+						} catch ( runnerError ) {
+							const error = String(
+								runnerError?.message ||
+									runnerError ||
+									Error.name
+							);
+							toolResults = pendingClientToolCalls.map(
+								( { id, name } ) => ( { id, name, error } )
+							);
+						}
 
 						// POST results back to the server so the agent loop
 						// can continue with the screenshot/DOM data.
