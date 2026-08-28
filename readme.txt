@@ -4,7 +4,7 @@ Tags: ai, chatbot, assistant, automation, connector
 Requires at least: 7.0
 Tested up to: 7.1
 Requires PHP: 8.2
-Stable tag: 1.22.4
+Stable tag: 1.22.5
 License: GPL-2.0-or-later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -165,6 +165,10 @@ SD AI Agent uses the native WordPress AI Client SDK and Abilities API. These API
 3. Provider and safety settings, including confirmation controls for consequential actions.
 
 == Changelog ==
+
+= 1.22.5 =
+Version 1.22.5 - Released on 2026-08-28
+- Improved: Cumulative reliability fixes for client tools, job recovery, provider integration, and editor workflows.
 
 = 1.22.4 =
 Version 1.22.4 - Released on 2026-08-19
