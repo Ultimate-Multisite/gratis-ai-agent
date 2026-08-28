@@ -1225,6 +1225,11 @@ test.describe( 'client-abilities — restored polling', () => {
 			await waitForAbilitiesRegistered( page );
 			await requireAbilitiesApi( page );
 			await expect.poll( () => toolResultPayloads.length ).toBe( 1 );
+			// A backgrounded CI page uses the intentional 15-second polling
+			// interval, so wait for the terminal poll before checking the UI.
+			await expect
+				.poll( () => jobPollCount, { timeout: 20_000 } )
+				.toBe( 2 );
 			await expect( page.getByText( terminalReply ) ).toBeVisible();
 
 			expect( jobPollCount ).toBe( 2 );
