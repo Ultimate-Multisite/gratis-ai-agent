@@ -49,6 +49,26 @@ final class CustomerConversationReviewRepository {
 	}
 
 	/**
+	 * Return whether both optional review-projection tables are available.
+	 *
+	 * Customer delivery must continue while a rolling deployment has installed the
+	 * runtime tables but has not yet installed this display-only projection.
+	 */
+	public static function is_storage_available(): bool {
+		global $wpdb;
+
+		foreach ( array( self::table_name(), self::turns_table_name() ) as $table_name ) {
+			// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Detects whether an optional display-only projection is available during a rolling schema upgrade.
+			$table = $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $table_name ) );
+			if ( $table_name !== $table ) {
+				return false;
+			}
+		}
+
+		return true;
+	}
+
+	/**
 	 * Create an anonymous public-embed review shell after visitor consent.
 	 *
 	 * The review identifier is stored only in the signed-session transient. It is

@@ -838,9 +838,12 @@ class CustomerAgentRuntimeService implements CustomerAgentRuntimeInterface {
 		$purged = CustomerAgentRuntimeRepository::purge_conversation( (string) $conversation['conversation_id'] );
 		if ( ! $purged['deleted'] ) {
 			return new WP_Error(
-				'sd_ai_agent_customer_agent_storage_failed',
+				'sd_ai_agent_customer_agent_conversation_cleanup_failed',
 				__( 'The customer-agent runtime could not close the conversation.', 'superdav-ai-agent' ),
-				array( 'status' => 500 )
+				array(
+					'status' => 500,
+					'phase'  => (string) ( $purged['phase'] ?? 'source_cleanup_unknown' ),
+				)
 			);
 		}
 

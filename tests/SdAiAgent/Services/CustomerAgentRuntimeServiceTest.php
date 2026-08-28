@@ -614,6 +614,21 @@ class CustomerAgentRuntimeServiceTest extends WP_UnitTestCase {
 		$this->assertFalse( $missing['recovered'] );
 	}
 
+	/** The managed-profile contract processes, inspects, and closes an isolated answer. */
+	public function test_isolated_answer_completes_and_closes_on_current_schema(): void {
+		$job = $this->service->enqueue_turn( self::INTEGRATION, 'customer-session-isolated-answer', 'message-isolated-answer', 'Please help.' );
+		$this->assertNotInstanceOf( WP_Error::class, $job );
+		$this->service->process_job( $job['job_id'] );
+
+		$status = $this->service->inspect_job( self::INTEGRATION, 'customer-session-isolated-answer', $job['job_id'] );
+		$this->assertNotInstanceOf( WP_Error::class, $status );
+		$this->assertSame( 'complete', $status['status'] );
+
+		$closed = $this->service->close_conversation( self::INTEGRATION, 'customer-session-isolated-answer' );
+		$this->assertNotInstanceOf( WP_Error::class, $closed );
+		$this->assertSame( 'closed', $closed['status'] );
+	}
+
 	/**
 	 * @param array<string,array<string,mixed>> $integrations Existing registrations.
 	 * @return array<string,array<string,mixed>>

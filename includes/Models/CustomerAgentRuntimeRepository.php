@@ -335,7 +335,7 @@ class CustomerAgentRuntimeRepository {
 	/**
 	 * Return every job identifier that belongs to a conversation, then purge it.
 	 *
-	 * @return array{deleted:bool,job_ids:list<string>}
+	 * @return array{deleted:bool,job_ids:list<string>,phase:string}
 	 */
 	public static function purge_conversation( string $conversation_id ): array {
 		global $wpdb;
@@ -348,6 +348,7 @@ class CustomerAgentRuntimeRepository {
 			return array(
 				'deleted' => false,
 				'job_ids' => array(),
+				'phase'   => 'source_cleanup_begin',
 			);
 		}
 
@@ -364,6 +365,7 @@ class CustomerAgentRuntimeRepository {
 			return array(
 				'deleted' => false,
 				'job_ids' => array(),
+				'phase'   => 'source_cleanup_lookup',
 			);
 		}
 		$job_ids = array();
@@ -375,12 +377,14 @@ class CustomerAgentRuntimeRepository {
 
 		// A runtime close must also remove its separate display-safe review
 		// projection. This never exposes the private runtime row to reviewers.
-		if ( ! CustomerConversationReviewRepository::delete_by_runtime_conversation( $conversation_id ) ) {
+		$review_storage_available = CustomerConversationReviewRepository::is_storage_available();
+		if ( $review_storage_available && ! CustomerConversationReviewRepository::delete_by_runtime_conversation( $conversation_id ) ) {
 			// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Reverts source deletion when the review projection cannot be deleted.
 			$wpdb->query( 'ROLLBACK' );
 			return array(
 				'deleted' => false,
 				'job_ids' => array(),
+				'phase'   => 'review_projection_cleanup',
 			);
 		}
 		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Purging a private runtime record requires an atomic direct delete.
@@ -393,12 +397,14 @@ class CustomerAgentRuntimeRepository {
 			return array(
 				'deleted' => false,
 				'job_ids' => array(),
+				'phase'   => 'source_cleanup_commit',
 			);
 		}
 
 		return array(
 			'deleted' => true,
 			'job_ids' => $job_ids,
+			'phase'   => 'complete',
 		);
 	}
 
