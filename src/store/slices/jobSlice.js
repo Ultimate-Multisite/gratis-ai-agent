@@ -14,7 +14,6 @@ import {
 	notifyConfirmationNeeded,
 } from '../../utils/notification-manager';
 import { playDing, playDong, playThinking } from '../../utils/sound-manager';
-import { executeClientAbility } from '../../abilities/registry';
 import { emitReflectionEvents } from '../reflection-emitter';
 
 // A session/job pair must have exactly one polling loop. Multiple mounted chat
@@ -642,71 +641,31 @@ export const actions = {
 						// confirmation dialog (screenshots, DOM reads, etc.).
 						// A mutating client ability executes only when the server
 						// returned `user_confirmed: true` after user approval.
-						const pendingCalls =
+						// Restored jobs can begin polling before the asynchronously loaded
+						// browser-ability bundles finish registration. Wait once for the
+						// shared callback pipeline before running the batch, so a valid
+						// saved call cannot become a false "not registered" result.
+						const pendingClientToolCalls =
 							result.pending_client_tool_calls || [];
-
-						const toolResults = await Promise.all(
-							pendingCalls.map( async ( call ) => {
-								const abilityName =
-									call.client_name || call.name;
-								const timeoutMs =
-									abilityName ===
-									'sd-ai-agent-js/validate-page-quality'
-										? 120000
-										: 30000;
-								const isReadonly =
-									call.annotations?.readonly === true;
-								const isUserConfirmed =
-									call.user_confirmed === true;
-
-								if ( ! isReadonly && ! isUserConfirmed ) {
-									// Mutating client abilities need an explicit server
-									// confirmation marker before browser execution.
-									return {
-										id: call.id,
-										name: call.name,
-										error: __(
-											'Client-side ability requires explicit user confirmation.',
-											'superdav-ai-agent'
-										),
-									};
-								}
-
-								try {
-									const abilityResult = await Promise.race( [
-										executeClientAbility(
-											abilityName,
-											call.args || {}
-										),
-										new Promise( ( _resolve, reject ) =>
-											setTimeout(
-												reject,
-												timeoutMs,
-												new Error(
-													`Client tool timed out after ${
-														timeoutMs / 1000
-													} seconds.`
-												)
-											)
-										),
-									] );
-									return {
-										id: call.id,
-										name: call.name,
-										result: abilityResult,
-									};
-								} catch ( execErr ) {
-									return {
-										id: call.id,
-										name: call.name,
-										error:
-											execErr instanceof Error
-												? execErr.message
-												: String( execErr ),
-									};
-								}
-							} )
-						);
+						let toolResults;
+						try {
+							const { runClientTools } = await import(
+								/* webpackChunkName: "client-tool-runner" */
+								'./client-tool-runner'
+							);
+							toolResults = await runClientTools(
+								pendingClientToolCalls
+							);
+						} catch ( runnerError ) {
+							const error = String(
+								runnerError?.message ||
+									runnerError ||
+									Error.name
+							);
+							toolResults = pendingClientToolCalls.map(
+								( { id, name } ) => ( { id, name, error } )
+							);
+						}
 
 						// POST results back to the server so the agent loop
 						// can continue with the screenshot/DOM data.

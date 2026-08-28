@@ -56,9 +56,9 @@ async function goToDashboard( page ) {
 	await page.waitForLoadState( 'domcontentloaded' );
 	// Wait for the launcher button — it renders once React has mounted and the
 	// floating-widget bundle has executed (triggering ensureRegistered()).
-	// The redesign (#1157) renamed .sdaa-fab to .sdaa-w-launcher.
+	// The redesign (#1157) renamed .sdaa-fab to .sd-ai-agent-w-launcher.
 	await page
-		.locator( '.sdaa-w-launcher' )
+		.locator( '.sd-ai-agent-w-launcher' )
 		.waitFor( { state: 'visible', timeout: 30_000 } );
 }
 
@@ -1120,7 +1120,169 @@ test.describe( 'client-abilities — snapshotDescriptors', () => {
 } );
 
 // ---------------------------------------------------------------------------
-// Test suite 9: No relevant console errors
+// Test suite 9: Restored polling
+// ---------------------------------------------------------------------------
+
+test.describe( 'client-abilities — restored polling', () => {
+	test( 'restores a refreshed job, executes each client call once, and persists one terminal response', async ( {
+		page,
+	} ) => {
+		const jobId = 'e2e-restored-client-abilities-job';
+		const sessionId = 101;
+		const terminalReply =
+			'Restored client abilities completed exactly once after refresh.';
+		const toolResultPayloads = [];
+		let jobPollCount = 0;
+
+		const isActiveJobsEndpoint = ( url ) =>
+			decodeURIComponent( url.toString() ).includes(
+				'sd-ai-agent/v1/sessions/active-jobs'
+			);
+		const isJobEndpoint = ( url ) =>
+			decodeURIComponent( url.toString() ).includes(
+				`sd-ai-agent/v1/job/${ jobId }`
+			);
+		const isToolResultEndpoint = ( url ) =>
+			decodeURIComponent( url.toString() ).includes(
+				'sd-ai-agent/v1/chat/tool-result'
+			);
+		const isSessionEndpoint = ( url ) => {
+			const decoded = decodeURIComponent( url.toString() );
+			return (
+				decoded.includes( `sd-ai-agent/v1/sessions/${ sessionId }` ) &&
+				! decoded.includes( `/sessions/${ sessionId }/active-job` )
+			);
+		};
+
+		const handleActiveJobs = async ( route ) => {
+			await route.fulfill( {
+				status: 200,
+				contentType: 'application/json',
+				body: JSON.stringify( [ { job_id: jobId, session_id: sessionId } ] ),
+			} );
+		};
+		const handleJob = async ( route ) => {
+			jobPollCount++;
+			const body =
+				toolResultPayloads.length === 0
+					? {
+							status: 'awaiting_client_tools',
+							pending_client_tool_calls: [
+								{
+									id: 'restored-screenshot-url',
+									name: 'sd-ai-agent-js/screenshot-url',
+									annotations: { readonly: true },
+									// An invalid URL produces a fast, structured browser result.
+									args: { url: '' },
+								},
+								{
+									id: 'restored-page-quality',
+									name: 'sd-ai-agent-js/validate-page-quality',
+									annotations: { readonly: true },
+									// Empty targets exercise the real callback without loading iframes.
+									args: {
+										profile: 'incremental',
+										quality_token: 'restored-e2e-token',
+										render_mode: 'public',
+										visual_review_required: false,
+										pages: [],
+										hero_contract: {},
+										viewports: [],
+									},
+								},
+							],
+						}
+					: {
+							status: 'complete',
+							session_id: sessionId,
+							reply: terminalReply,
+						};
+
+			await route.fulfill( {
+				status: 200,
+				contentType: 'application/json',
+				body: JSON.stringify( body ),
+			} );
+		};
+		const handleToolResult = async ( route ) => {
+			toolResultPayloads.push( route.request().postDataJSON() );
+			await route.fulfill( {
+				status: 200,
+				contentType: 'application/json',
+				body: JSON.stringify( { status: 'processing' } ),
+			} );
+		};
+		const handleSession = async ( route ) => {
+			const messages = toolResultPayloads.length
+				? [
+						{
+							role: 'model',
+							parts: [ { text: terminalReply } ],
+						},
+				  ]
+				: [];
+			await route.fulfill( {
+				status: 200,
+				contentType: 'application/json',
+				body: JSON.stringify( {
+					id: sessionId,
+					messages,
+					tool_calls: [],
+				} ),
+			} );
+		};
+
+		await loginToWordPress( page );
+		await page.goto( '/wp-admin/index.php' );
+		await page.waitForLoadState( 'domcontentloaded' );
+		await page.evaluate( ( restore ) => {
+			sessionStorage.setItem(
+				'sdAiAgent_refreshRestore',
+				JSON.stringify( restore )
+			);
+		}, { sessionId, open: true, minimized: false } );
+
+		await page.route( isActiveJobsEndpoint, handleActiveJobs );
+		await page.route( isJobEndpoint, handleJob );
+		await page.route( isToolResultEndpoint, handleToolResult );
+		await page.route( isSessionEndpoint, handleSession );
+
+		try {
+			await page.reload();
+			await waitForAbilitiesRegistered( page );
+			await requireAbilitiesApi( page );
+			await expect.poll( () => toolResultPayloads.length ).toBe( 1 );
+			// A backgrounded CI page uses the intentional 15-second polling
+			// interval, so wait for the terminal poll before checking the UI.
+			await expect
+				.poll( () => jobPollCount, { timeout: 20_000 } )
+				.toBe( 2 );
+			await expect( page.getByText( terminalReply ) ).toBeVisible();
+
+			expect( jobPollCount ).toBe( 2 );
+			expect( toolResultPayloads[ 0 ]?.tool_results ).toHaveLength( 2 );
+			expect(
+				toolResultPayloads[ 0 ].tool_results.map(
+					( result ) => result.error
+				)
+			).toEqual( [ undefined, undefined ] );
+			expect(
+				toolResultPayloads[ 0 ].tool_results.map(
+					( result ) => result.id
+				)
+			).toEqual( [ 'restored-screenshot-url', 'restored-page-quality' ] );
+			expect( page.getByText( terminalReply ) ).toHaveCount( 1 );
+		} finally {
+			await page.unroute( isActiveJobsEndpoint, handleActiveJobs );
+			await page.unroute( isJobEndpoint, handleJob );
+			await page.unroute( isToolResultEndpoint, handleToolResult );
+			await page.unroute( isSessionEndpoint, handleSession );
+		}
+	} );
+} );
+
+// ---------------------------------------------------------------------------
+// Test suite 10: No relevant console errors
 // ---------------------------------------------------------------------------
 
 test.describe( 'client-abilities — no relevant console errors', () => {

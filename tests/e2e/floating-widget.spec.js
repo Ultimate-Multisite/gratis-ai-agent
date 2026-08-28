@@ -5,7 +5,7 @@
  * Requires a running wp-env environment with the plugin active.
  *
  * The chat widget was redesigned in #1157. Class names changed:
- *   .sdaa-fab         → .sdaa-w-launcher  (WidgetLauncher)
+ *   .sdaa-fab         → .sd-ai-agent-w-launcher  (WidgetLauncher)
  *   .sdaa-floating-panel → .sdaa-w-panel  (WidgetPanel)
  *   .sdaa-chat-panel  → .sdaa-w-body-wrap (panel body area)
  *   .sdaa-input       → .sdaa-w-input-textarea
