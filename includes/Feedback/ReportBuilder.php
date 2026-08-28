@@ -23,8 +23,8 @@ class ReportBuilder {
 	 *
 	 * A fixed ±2 window can omit the tool call that caused a later assistant
 	 * response, because one agent turn may contain several call/response pairs.
-	 * Start at the preceding human user prompt, retain up to two messages after
-	 * the target for an in-progress response, and stop before the next user turn.
+	 * Start at the preceding human user prompt, retain every later message in
+	 * that turn, and stop before the next user turn.
 	 * This keeps reports bounded while preserving the complete failing workflow.
 	 *
 	 * @param array<int, array<string, mixed>> $messages     Full messages array.
@@ -39,7 +39,7 @@ class ReportBuilder {
 
 		$target = min( $total - 1, max( 0, $message_index ) );
 		$start  = max( 0, $target - 2 );
-		$end    = min( $total - 1, $target + 2 );
+		$end    = $total - 1;
 
 		for ( $index = $target; $index >= 0; $index-- ) {
 			if ( self::is_human_user_message( $messages[ $index ] ) ) {
@@ -48,7 +48,7 @@ class ReportBuilder {
 			}
 		}
 
-		for ( $index = $target + 1; $index <= $end; $index++ ) {
+		for ( $index = $target + 1; $index < $total; $index++ ) {
 			if ( self::is_human_user_message( $messages[ $index ] ) ) {
 				$end = $index - 1;
 				break;
