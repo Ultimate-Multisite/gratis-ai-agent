@@ -39,9 +39,12 @@ use SdAiAgent\Core\ConversationSerializer;
 use SdAiAgent\Core\ConversationTrimmer;
 use SdAiAgent\Core\Database;
 use SdAiAgent\Core\ProviderCredentialLoader;
+use SdAiAgent\Core\ProviderTraceLogger;
 use SdAiAgent\Core\Settings;
+use SdAiAgent\Core\SuperdavJourneyBudgetContext;
 use SdAiAgent\Core\SystemInstructionBuilder;
 use SdAiAgent\Core\ToolPermissionResolver;
+use SdAiAgent\Infrastructure\AiClient\Superdav\SuperdavAiProvider;
 use SdAiAgent\Models\ActiveJobRepository;
 use SdAiAgent\Tools\ToolDiscovery;
 use WordPress\AiClient\Messages\DTO\Message;
@@ -191,7 +194,11 @@ class AgentLoopTest extends WP_UnitTestCase {
 
 		delete_option( 'openai_compat_endpoint_url' );
 		delete_option( 'openai_compat_api_key' );
+		delete_option( SuperdavAiProvider::CREDENTIAL_OPTION );
 		delete_option( Settings::OPTION_NAME );
+		SuperdavJourneyBudgetContext::deactivate();
+		ProviderTraceLogger::clear_runtime_context();
+		remove_all_filters( 'sd_ai_agent_cloud_base_url' );
 
 		// Remove any lingering pre_http_request filters added by tests.
 		remove_all_filters( 'pre_http_request' );
@@ -1086,6 +1093,46 @@ class AgentLoopTest extends WP_UnitTestCase {
 		$this->assertSame( [ 0 ], $delays->getValue( $overridden ) );
 		$this->assertFalse( $jitter->getValue( $overridden ) );
 		$this->assertSame( 0, $resolve->invoke( $overridden, 1, null ) );
+	}
+
+	/** An invalid active QA context fails before any managed request is sent. */
+	public function test_invalid_managed_journey_context_fails_locally_without_forwarding(): void {
+		$qa_user_id = self::factory()->user->create( array( 'user_email' => SuperdavJourneyBudgetContext::QA_EMAIL ) );
+		$session_id = Database::create_session( array( 'user_id' => $qa_user_id, 'title' => 'Invalid managed journey' ) );
+		update_option(
+			SuperdavJourneyBudgetContext::OPTION_NAME,
+			array(
+				'journey_id' => 'not-a-uuid',
+				'run_marker' => SuperdavJourneyBudgetContext::RUN_MARKER,
+				'qa_user_id' => $qa_user_id,
+				'expires_at' => gmdate( 'Y-m-d\\TH:i:s\\Z', time() + HOUR_IN_SECONDS ),
+			),
+			false
+		);
+
+		$call_count = 0;
+		add_filter(
+			'pre_http_request',
+			static function ( $preempt, $args, $url ) use ( &$call_count ) {
+				if ( false !== strpos( $url, 'fake-ai-proxy.test' ) ) {
+					++$call_count;
+				}
+				return $preempt;
+			},
+			10,
+			3
+		);
+
+		$options                = $this->no_sleep_retry_options( 2 );
+		$options['provider_id'] = SuperdavAiProvider::PROVIDER_ID;
+		$options['model_id']    = SuperdavAiProvider::DEFAULT_MODEL_ID;
+		$options['session_id']  = $session_id;
+		$result                 = ( new AgentLoop( 'Do not forward this request.', array(), array(), $options ) )->run();
+
+		$this->assertInstanceOf( WP_Error::class, $result );
+		$this->assertSame( 'sd_ai_agent_journey_context_invalid', $result->get_error_code() );
+		$this->assertSame( 0, $call_count );
+		$this->assertSame( array( 'journey_id' => '', 'idempotency_key' => '' ), ProviderTraceLogger::get_runtime_managed_request_attribution() );
 	}
 
 	/**

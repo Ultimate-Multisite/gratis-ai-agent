@@ -32,6 +32,8 @@ final class SuperdavAiProvider extends AbstractApiProvider {
 	public const STRONG_MODEL_ID            = 'superdav-chat-strong';
 	public const IMAGE_MODEL_ID             = 'superdav-image';
 	public const SESSION_ATTRIBUTION_HEADER = 'X-Superdav-Session-ID';
+	public const JOURNEY_ATTRIBUTION_HEADER = 'X-Superdav-Journey-ID';
+	public const IDEMPOTENCY_HEADER         = 'Idempotency-Key';
 
 	/**
 	 * Reasoning effort hints for managed Superdav model aliases.
@@ -65,6 +67,29 @@ final class SuperdavAiProvider extends AbstractApiProvider {
 		}
 
 		return $headers;
+	}
+
+	/**
+	 * Add active r002 reservation headers to a managed chat-completion request.
+	 *
+	 * @param array<string, string|list<string>> $headers Existing request headers.
+	 * @return array<string, string|list<string>> Headers with safe managed attribution.
+	 */
+	public static function with_managed_chat_attribution( array $headers ): array {
+		$headers     = self::with_session_attribution( $headers );
+		$attribution = ProviderTraceLogger::get_runtime_managed_request_attribution();
+
+		if ( self::is_valid_request_identifier( $attribution['journey_id'] ) && self::is_valid_request_identifier( $attribution['idempotency_key'] ) ) {
+			$headers[ self::JOURNEY_ATTRIBUTION_HEADER ] = $attribution['journey_id'];
+			$headers[ self::IDEMPOTENCY_HEADER ]         = $attribution['idempotency_key'];
+		}
+
+		return $headers;
+	}
+
+	/** Validate opaque UUID attribution without accepting arbitrary headers. */
+	private static function is_valid_request_identifier( string $identifier ): bool {
+		return 1 === preg_match( '/^[a-f0-9]{8}-[a-f0-9]{4}-[1-5][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i', $identifier );
 	}
 
 	/**

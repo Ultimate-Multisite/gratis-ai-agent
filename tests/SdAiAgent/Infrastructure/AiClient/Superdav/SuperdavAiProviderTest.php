@@ -14,6 +14,7 @@ use SdAiAgent\Bootstrap\SuperdavAiProviderHandler;
 use SdAiAgent\Core\ModelCapabilityRegistry;
 use SdAiAgent\Core\ProviderCredentialLoader;
 use SdAiAgent\Core\ProviderTraceLogger;
+use SdAiAgent\Core\SuperdavJourneyBudgetContext;
 use SdAiAgent\Infrastructure\AiClient\Superdav\SuperdavAiImageGenerationModel;
 use SdAiAgent\Infrastructure\AiClient\Superdav\SuperdavAiModelMetadataDirectory;
 use SdAiAgent\Infrastructure\AiClient\Superdav\SuperdavAiProvider;
@@ -52,6 +53,7 @@ final class SuperdavAiProviderTest extends WP_UnitTestCase {
 	 */
 	public function tear_down(): void {
 		delete_option( SuperdavAiProvider::CREDENTIAL_OPTION );
+		SuperdavJourneyBudgetContext::deactivate();
 		ModelCapabilityRegistry::forget( 'example-model' );
 		remove_all_filters( 'sd_ai_agent_cloud_base_url' );
 		remove_all_filters( 'sd_ai_agent_superdav_default_model' );
@@ -265,6 +267,58 @@ final class SuperdavAiProviderTest extends WP_UnitTestCase {
 			array( 'model' => 'example-model' )
 		);
 		$this->assertNull( $unattributed_request->getHeaderAsString( SuperdavAiProvider::SESSION_ATTRIBUTION_HEADER ) );
+	}
+
+	/** A valid reserved QA session receives journey and idempotency headers. */
+	public function test_text_generation_request_includes_validated_journey_attribution(): void {
+		$this->skip_if_sdk_unavailable();
+		$user_id    = self::factory()->user->create( array( 'user_email' => SuperdavJourneyBudgetContext::QA_EMAIL ) );
+		$session_id = \SdAiAgent\Core\Database::create_session( array( 'user_id' => $user_id, 'title' => 'Reserved QA session' ) );
+		$journey_id = '123e4567-e89b-42d3-a456-426614174000';
+		$expiry     = gmdate( 'Y-m-d\\TH:i:s\\Z', time() + HOUR_IN_SECONDS );
+
+		$this->assertTrue( SuperdavJourneyBudgetContext::activate( $journey_id, $user_id, $expiry ) );
+		$this->assertSame( $journey_id, SuperdavJourneyBudgetContext::resolve_for_session( (int) $session_id ) );
+
+		$model  = new SuperdavAiTextGenerationModel(
+			new ModelMetadata( 'example-model', 'Example Model', array(), array() ),
+			SuperdavAiProvider::metadata()
+		);
+		$method = new \ReflectionMethod( $model, 'createRequest' );
+		$method->setAccessible( true );
+		$idempotency_key = '123e4567-e89b-42d3-a456-426614174001';
+		ProviderTraceLogger::set_runtime_context( SuperdavAiProvider::PROVIDER_ID, 'example-model', (int) $session_id, 0, $journey_id, $idempotency_key );
+		$request       = $method->invoke( $model, HttpMethodEnum::POST(), 'chat/completions', array(), array( 'model' => 'example-model' ) );
+		$retry_request = $method->invoke( $model, HttpMethodEnum::POST(), 'chat/completions', array(), array( 'model' => 'example-model' ) );
+
+		$this->assertSame( $journey_id, $request->getHeaderAsString( SuperdavAiProvider::JOURNEY_ATTRIBUTION_HEADER ) );
+		$this->assertSame( $idempotency_key, $request->getHeaderAsString( SuperdavAiProvider::IDEMPOTENCY_HEADER ) );
+		$this->assertSame( $journey_id, $retry_request->getHeaderAsString( SuperdavAiProvider::JOURNEY_ATTRIBUTION_HEADER ) );
+		$this->assertSame( $idempotency_key, $retry_request->getHeaderAsString( SuperdavAiProvider::IDEMPOTENCY_HEADER ) );
+
+		ProviderTraceLogger::clear_runtime_context();
+		$cleared_request = $method->invoke( $model, HttpMethodEnum::POST(), 'chat/completions', array(), array( 'model' => 'example-model' ) );
+		$this->assertNull( $cleared_request->getHeaderAsString( SuperdavAiProvider::JOURNEY_ATTRIBUTION_HEADER ) );
+		$this->assertNull( $cleared_request->getHeaderAsString( SuperdavAiProvider::IDEMPOTENCY_HEADER ) );
+	}
+
+	/** Invalid runtime attribution and non-chat requests cannot receive journey headers. */
+	public function test_journey_attribution_is_rejected_for_invalid_identifiers_and_non_chat_requests(): void {
+		$this->skip_if_sdk_unavailable();
+		$model  = new SuperdavAiTextGenerationModel(
+			new ModelMetadata( 'example-model', 'Example Model', array(), array() ),
+			SuperdavAiProvider::metadata()
+		);
+		$method = new \ReflectionMethod( $model, 'createRequest' );
+		$method->setAccessible( true );
+		ProviderTraceLogger::set_runtime_context( SuperdavAiProvider::PROVIDER_ID, 'example-model', 0, 0, 'not-a-journey', 'not-an-idempotency-key' );
+
+		$invalid = $method->invoke( $model, HttpMethodEnum::POST(), 'chat/completions', array(), array( 'model' => 'example-model' ) );
+		$this->assertNull( $invalid->getHeaderAsString( SuperdavAiProvider::JOURNEY_ATTRIBUTION_HEADER ) );
+		$this->assertNull( $invalid->getHeaderAsString( SuperdavAiProvider::IDEMPOTENCY_HEADER ) );
+
+		$non_chat = $method->invoke( $model, HttpMethodEnum::POST(), 'models', array(), null );
+		$this->assertNull( $non_chat->getHeaderAsString( SuperdavAiProvider::JOURNEY_ATTRIBUTION_HEADER ) );
 	}
 
 	/**
@@ -742,6 +796,30 @@ final class SuperdavAiProviderTest extends WP_UnitTestCase {
 		$this->assertSame( 'namespace', $params['tools'][1]['type'] );
 		$this->assertSame( 'wp_abilities_example_plugin', $params['tools'][1]['name'] );
 		$this->assertTrue( $params['tools'][1]['tools'][0]['defer_loading'] );
+	}
+
+	/** Managed Responses inference carries the active journey reservation. */
+	public function test_responses_tool_search_request_includes_managed_journey_attribution(): void {
+		$this->skip_if_sdk_unavailable();
+
+		$model  = new SuperdavAiResponsesToolSearchTextGenerationModel(
+			new ModelMetadata( 'gpt-5.5', 'GPT-5.5', array( CapabilityEnum::textGeneration() ), array() ),
+			SuperdavAiProvider::metadata()
+		);
+		$method = new \ReflectionMethod( $model, 'createRequest' );
+		$method->setAccessible( true );
+
+		$journey_id     = '123e4567-e89b-42d3-a456-426614174000';
+		$idempotency_key = '123e4567-e89b-42d3-a456-426614174001';
+		ProviderTraceLogger::set_runtime_context( SuperdavAiProvider::PROVIDER_ID, 'gpt-5.5', 42, 0, $journey_id, $idempotency_key );
+
+		$request = $method->invoke( $model, HttpMethodEnum::POST(), '/responses', array(), array( 'model' => 'gpt-5.5' ) );
+		$this->assertSame( $journey_id, $request->getHeaderAsString( SuperdavAiProvider::JOURNEY_ATTRIBUTION_HEADER ) );
+		$this->assertSame( $idempotency_key, $request->getHeaderAsString( SuperdavAiProvider::IDEMPOTENCY_HEADER ) );
+
+		$non_inference_request = $method->invoke( $model, HttpMethodEnum::GET(), '/models', array(), null );
+		$this->assertNull( $non_inference_request->getHeaderAsString( SuperdavAiProvider::JOURNEY_ATTRIBUTION_HEADER ) );
+		$this->assertNull( $non_inference_request->getHeaderAsString( SuperdavAiProvider::IDEMPOTENCY_HEADER ) );
 	}
 
 	/**

@@ -78,7 +78,11 @@ final class SuperdavAiTextGenerationModel extends AbstractOpenAiCompatibleTextGe
 			}
 		}
 
-		return new Request( $method, SuperdavAiProvider::url( $path ), SuperdavAiProvider::with_session_attribution( $headers ), $data, $this->getRequestOptions() );
+		$request_headers = 'chat/completions' === trim( $path, '/' )
+			? SuperdavAiProvider::with_managed_chat_attribution( $headers )
+			: SuperdavAiProvider::with_session_attribution( $headers );
+
+		return new Request( $method, SuperdavAiProvider::url( $path ), $request_headers, $data, $this->getRequestOptions() );
 	}
 
 	/**
