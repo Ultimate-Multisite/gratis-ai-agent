@@ -2944,6 +2944,20 @@ PROMPT;
 			);
 		}
 
+		$journey_id      = '';
+		$idempotency_key = '';
+		if ( SuperdavAiProvider::PROVIDER_ID === $provider_id ) {
+			$journey_context = SuperdavJourneyBudgetContext::resolve_for_session( $this->session_id );
+			if ( is_wp_error( $journey_context ) ) {
+				return $journey_context;
+			}
+
+			if ( is_string( $journey_context ) ) {
+				$journey_id      = $journey_context;
+				$idempotency_key = wp_generate_uuid4();
+			}
+		}
+
 		try {
 			$registry = \WordPress\AiClient\AiClient::defaultRegistry();
 			if ( ! $registry->hasProvider( $provider_id ) ) {
@@ -3043,7 +3057,9 @@ PROMPT;
 				$provider_id,
 				$model_id,
 				$this->session_id,
-				$this->provider_retry_baseline_envelope_bytes
+				$this->provider_retry_baseline_envelope_bytes,
+				$journey_id,
+				$idempotency_key
 			);
 			try {
 				$result = $builder->generate_text_result();
