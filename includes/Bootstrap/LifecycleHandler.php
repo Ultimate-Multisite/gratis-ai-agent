@@ -30,6 +30,7 @@ use SdAiAgent\Core\Database;
 use SdAiAgent\Core\OnboardingManager;
 use SdAiAgent\Core\SkillUpdateChecker;
 use SdAiAgent\Core\SiteScanner;
+use SdAiAgent\Core\SessionTrashCleanupService;
 use SdAiAgent\Core\SuperdavSiteConnectionService;
 use SdAiAgent\Knowledge\KnowledgeHooks;
 
@@ -60,6 +61,7 @@ final class LifecycleHandler {
 		OnboardingManager::on_activation();
 		SkillUpdateChecker::schedule();
 		ActiveJobsCleanupService::schedule();
+		SessionTrashCleanupService::schedule();
 		ToolCapabilities::register_capabilities( ToolCapabilities::all_ability_ids() );
 		self::maybe_provision_superdav_site_connection();
 	}
@@ -78,6 +80,7 @@ final class LifecycleHandler {
 		SiteScanner::unschedule();
 		SkillUpdateChecker::unschedule();
 		ActiveJobsCleanupService::unschedule();
+		SessionTrashCleanupService::unschedule();
 		BlockInventory::unschedule();
 	}
 

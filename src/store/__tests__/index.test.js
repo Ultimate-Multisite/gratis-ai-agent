@@ -333,6 +333,49 @@ describe( 'actions', () => {
 		expect( typeof actions.fetchSessions() ).toBe( 'function' );
 	} );
 
+	test( 'Trash bulk actions call their endpoints and refresh sessions', async () => {
+		apiFetch.mockReset();
+		apiFetch.mockResolvedValue( { updated: 2 } );
+		const dispatch = {
+			fetchSessions: jest.fn(),
+			clearCurrentSession: jest.fn(),
+		};
+		const select = { getCurrentSessionId: jest.fn( () => null ) };
+
+		await actions.bulkSessionAction(
+			[ 4, 5 ],
+			'restore'
+		)( {
+			dispatch,
+			select,
+		} );
+		expect( apiFetch ).toHaveBeenLastCalledWith( {
+			path: '/sd-ai-agent/v1/sessions/bulk',
+			method: 'POST',
+			data: { ids: [ 4, 5 ], action: 'restore' },
+		} );
+
+		await actions.bulkSessionAction(
+			[ 4, 5 ],
+			'delete'
+		)( {
+			dispatch,
+			select,
+		} );
+		expect( apiFetch ).toHaveBeenLastCalledWith( {
+			path: '/sd-ai-agent/v1/sessions/bulk',
+			method: 'POST',
+			data: { ids: [ 4, 5 ], action: 'delete' },
+		} );
+
+		await actions.emptySessionTrash()( { dispatch, select } );
+		expect( apiFetch ).toHaveBeenLastCalledWith( {
+			path: '/sd-ai-agent/v1/sessions/trash',
+			method: 'DELETE',
+		} );
+		expect( dispatch.fetchSessions ).toHaveBeenCalledTimes( 3 );
+	} );
+
 	test( 'sendMessage returns a thunk function', () => {
 		expect( typeof actions.sendMessage( 'hello' ) ).toBe( 'function' );
 	} );

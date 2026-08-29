@@ -444,6 +444,13 @@ class DatabaseSchemaTest extends WP_UnitTestCase {
 		}
 	}
 
+	/** Sessions table stores a stable timestamp for Trash retention cleanup. */
+	public function test_sessions_table_has_trash_timestamp_column(): void {
+		Database::install();
+
+		$this->assertContains( 'trashed_at', $this->get_column_names( Database::table_name() ) );
+	}
+
 	/**
 	 * Active jobs table has the zombie-cleanup columns introduced in DB 19.4.0.
 	 *

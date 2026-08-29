@@ -102,6 +102,12 @@ Use `@wordpress/components` for every interactive element. Do not reach for raw 
 - Keep transcript detail text-only, bounded, and visibly separate from its summary. Use pagination to load earlier retained messages instead of rendering an unbounded conversation at once.
 - Deletion and purge controls are destructive secondary buttons. Require a native confirmation dialog or WordPress modal before calling the API, and clearly state that retained content cannot be restored.
 
+### Conversation Trash
+- Show selection controls only while the Trash filter is active; keep normal conversation rows uncluttered.
+- Group **Restore** and **Delete permanently** as bulk actions, disable them until at least one conversation is selected, and provide a separate **Empty Trash** action for the whole filtered Trash.
+- Require one clear confirmation for each permanent bulk deletion or Empty Trash action. Restoring conversations does not require confirmation.
+- Automatic cleanup is opt-in. A retention value of `0` means trashed conversations remain until manually deleted.
+
 ### Buttons
 
 **Primary action** (send, save, confirm):

@@ -887,6 +887,12 @@ final class SessionController {
 		$ids    = array_map( 'absint', $request->get_param( 'ids' ) );
 		$action = $request->get_param( 'action' );
 
+		if ( 'delete' === $action ) {
+			$count = $this->database->bulk_delete_trashed_sessions( $ids, get_current_user_id() );
+
+			return new WP_REST_Response( array( 'deleted' => $count ), 200 );
+		}
+
 		$data = array();
 		switch ( $action ) {
 			case 'archive':
