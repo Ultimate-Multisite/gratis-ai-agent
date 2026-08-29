@@ -21,7 +21,7 @@ final class SuperdavJourneyBudgetContextTest extends WP_UnitTestCase {
 		$other_user_id = self::factory()->user->create( array( 'user_email' => 'other@example.com' ) );
 		$qa_session    = Database::create_session( array( 'user_id' => $qa_user_id, 'title' => 'QA' ) );
 		$other_session = Database::create_session( array( 'user_id' => $other_user_id, 'title' => 'Other' ) );
-		$journey_id    = '123e4567-e89b-42d3-a456-426614174000';
+		$journey_id    = 'journey_123e4567-e89b-42d3-a456-426614174000';
 
 		$this->assertTrue( SuperdavJourneyBudgetContext::activate( $journey_id, $qa_user_id, gmdate( 'Y-m-d\\TH:i:s\\Z', time() + HOUR_IN_SECONDS ) ) );
 		$this->assertSame( $journey_id, SuperdavJourneyBudgetContext::resolve_for_session( (int) $qa_session ) );
@@ -32,10 +32,11 @@ final class SuperdavJourneyBudgetContextTest extends WP_UnitTestCase {
 	public function test_activate_rejects_invalid_or_non_qa_contexts_and_is_idempotent(): void {
 		$qa_user_id    = self::factory()->user->create( array( 'user_email' => SuperdavJourneyBudgetContext::QA_EMAIL ) );
 		$other_user_id = self::factory()->user->create( array( 'user_email' => 'other@example.com' ) );
-		$journey_id    = '123e4567-e89b-42d3-a456-426614174000';
+		$journey_id    = 'journey_123e4567-e89b-42d3-a456-426614174000';
 		$future        = gmdate( 'Y-m-d\\TH:i:s\\Z', time() + HOUR_IN_SECONDS );
 
 		$this->assertFalse( SuperdavJourneyBudgetContext::activate( 'not-a-uuid', $qa_user_id, $future ) );
+		$this->assertFalse( SuperdavJourneyBudgetContext::activate( '123e4567-e89b-42d3-a456-426614174000', $qa_user_id, $future ) );
 		$this->assertFalse( SuperdavJourneyBudgetContext::activate( $journey_id, $other_user_id, $future ) );
 		$this->assertFalse( SuperdavJourneyBudgetContext::activate( $journey_id, $qa_user_id, gmdate( 'Y-m-d\\TH:i:s\\Z', time() - HOUR_IN_SECONDS ) ) );
 		$this->assertTrue( SuperdavJourneyBudgetContext::activate( $journey_id, $qa_user_id, $future ) );
@@ -52,7 +53,7 @@ final class SuperdavJourneyBudgetContextTest extends WP_UnitTestCase {
 		update_option(
 			SuperdavJourneyBudgetContext::OPTION_NAME,
 			array(
-				'journey_id' => '123e4567-e89b-42d3-a456-426614174000',
+				'journey_id' => 'journey_123e4567-e89b-42d3-a456-426614174000',
 				'run_marker' => SuperdavJourneyBudgetContext::RUN_MARKER,
 				'qa_user_id' => $qa_user_id,
 				'expires_at' => gmdate( 'Y-m-d\\TH:i:s\\Z', time() - HOUR_IN_SECONDS ),
@@ -79,7 +80,7 @@ final class SuperdavJourneyBudgetContextTest extends WP_UnitTestCase {
 		update_option(
 			SuperdavJourneyBudgetContext::OPTION_NAME,
 			array(
-				'journey_id' => '123e4567-e89b-42d3-a456-426614174000',
+				'journey_id' => 'journey_123e4567-e89b-42d3-a456-426614174000',
 				'run_marker' => 'another-run',
 				'qa_user_id' => $qa_user_id,
 				'expires_at' => gmdate( 'Y-m-d\\TH:i:s\\Z', time() + HOUR_IN_SECONDS ),

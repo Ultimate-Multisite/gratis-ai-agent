@@ -129,12 +129,12 @@ class ProviderTraceLogger {
 	 * @param string $model_id                     Runtime-selected model ID.
 	 * @param int    $session_id                   Owning chat session, if any.
 	 * @param int    $retry_baseline_request_bytes Full-envelope bytes from an upstream 413 retry baseline.
-	 * @param string $journey_id                   Validated managed journey UUID, if active.
+	 * @param string $journey_id                   Validated managed journey ID, if active.
 	 * @param string $idempotency_key              Stable logical-request UUID, if active.
 	 */
 	public static function set_runtime_context( string $provider_id, string $model_id, int $session_id = 0, int $retry_baseline_request_bytes = 0, string $journey_id = '', string $idempotency_key = '' ): void {
-		$has_valid_managed_attribution = self::is_valid_managed_request_identifier( $journey_id )
-			&& self::is_valid_managed_request_identifier( $idempotency_key );
+		$has_valid_managed_attribution = SuperdavManagedRequestIdentifiers::is_journey_id( $journey_id )
+			&& SuperdavManagedRequestIdentifiers::is_idempotency_key( $idempotency_key );
 		self::$runtimeContext          = array(
 			'provider_id'                  => sanitize_key( $provider_id ),
 			'model_id'                     => sanitize_text_field( $model_id ),
@@ -165,11 +165,6 @@ class ProviderTraceLogger {
 			'journey_id'      => self::$runtimeContext['journey_id'],
 			'idempotency_key' => self::$runtimeContext['idempotency_key'],
 		);
-	}
-
-	/** Validate opaque UUID request attribution before retaining it at runtime. */
-	private static function is_valid_managed_request_identifier( string $identifier ): bool {
-		return 1 === preg_match( '/^[a-f0-9]{8}-[a-f0-9]{4}-[1-5][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i', $identifier );
 	}
 
 	/** Clear runtime provider attribution after a synchronous request. */

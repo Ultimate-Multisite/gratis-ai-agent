@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace SdAiAgent\Infrastructure\AiClient\Superdav;
 
 use SdAiAgent\Core\ProviderTraceLogger;
+use SdAiAgent\Core\SuperdavManagedRequestIdentifiers;
 use WordPress\AiClient\Providers\ApiBasedImplementation\AbstractApiProvider;
 use WordPress\AiClient\Providers\Contracts\ModelMetadataDirectoryInterface;
 use WordPress\AiClient\Providers\Contracts\ProviderAvailabilityInterface;
@@ -79,17 +80,12 @@ final class SuperdavAiProvider extends AbstractApiProvider {
 		$headers     = self::with_session_attribution( $headers );
 		$attribution = ProviderTraceLogger::get_runtime_managed_request_attribution();
 
-		if ( self::is_valid_request_identifier( $attribution['journey_id'] ) && self::is_valid_request_identifier( $attribution['idempotency_key'] ) ) {
+		if ( SuperdavManagedRequestIdentifiers::is_journey_id( $attribution['journey_id'] ) && SuperdavManagedRequestIdentifiers::is_idempotency_key( $attribution['idempotency_key'] ) ) {
 			$headers[ self::JOURNEY_ATTRIBUTION_HEADER ] = $attribution['journey_id'];
 			$headers[ self::IDEMPOTENCY_HEADER ]         = $attribution['idempotency_key'];
 		}
 
 		return $headers;
-	}
-
-	/** Validate opaque UUID attribution without accepting arbitrary headers. */
-	private static function is_valid_request_identifier( string $identifier ): bool {
-		return 1 === preg_match( '/^[a-f0-9]{8}-[a-f0-9]{4}-[1-5][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i', $identifier );
 	}
 
 	/**
