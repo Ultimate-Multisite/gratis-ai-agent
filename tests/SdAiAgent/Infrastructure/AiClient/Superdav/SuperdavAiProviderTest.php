@@ -798,6 +798,30 @@ final class SuperdavAiProviderTest extends WP_UnitTestCase {
 		$this->assertTrue( $params['tools'][1]['tools'][0]['defer_loading'] );
 	}
 
+	/** Managed Responses inference carries the active journey reservation. */
+	public function test_responses_tool_search_request_includes_managed_journey_attribution(): void {
+		$this->skip_if_sdk_unavailable();
+
+		$model  = new SuperdavAiResponsesToolSearchTextGenerationModel(
+			new ModelMetadata( 'gpt-5.5', 'GPT-5.5', array( CapabilityEnum::textGeneration() ), array() ),
+			SuperdavAiProvider::metadata()
+		);
+		$method = new \ReflectionMethod( $model, 'createRequest' );
+		$method->setAccessible( true );
+
+		$journey_id     = '123e4567-e89b-42d3-a456-426614174000';
+		$idempotency_key = '123e4567-e89b-42d3-a456-426614174001';
+		ProviderTraceLogger::set_runtime_context( SuperdavAiProvider::PROVIDER_ID, 'gpt-5.5', 42, 0, $journey_id, $idempotency_key );
+
+		$request = $method->invoke( $model, HttpMethodEnum::POST(), '/responses', array(), array( 'model' => 'gpt-5.5' ) );
+		$this->assertSame( $journey_id, $request->getHeaderAsString( SuperdavAiProvider::JOURNEY_ATTRIBUTION_HEADER ) );
+		$this->assertSame( $idempotency_key, $request->getHeaderAsString( SuperdavAiProvider::IDEMPOTENCY_HEADER ) );
+
+		$non_inference_request = $method->invoke( $model, HttpMethodEnum::GET(), '/models', array(), null );
+		$this->assertNull( $non_inference_request->getHeaderAsString( SuperdavAiProvider::JOURNEY_ATTRIBUTION_HEADER ) );
+		$this->assertNull( $non_inference_request->getHeaderAsString( SuperdavAiProvider::IDEMPOTENCY_HEADER ) );
+	}
+
 	/**
 	 * Responses function_call output items map back to SDK FunctionCall parts.
 	 */
