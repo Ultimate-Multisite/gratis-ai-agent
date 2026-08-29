@@ -274,7 +274,7 @@ final class SuperdavAiProviderTest extends WP_UnitTestCase {
 		$this->skip_if_sdk_unavailable();
 		$user_id    = self::factory()->user->create( array( 'user_email' => SuperdavJourneyBudgetContext::QA_EMAIL ) );
 		$session_id = \SdAiAgent\Core\Database::create_session( array( 'user_id' => $user_id, 'title' => 'Reserved QA session' ) );
-		$journey_id = '123e4567-e89b-42d3-a456-426614174000';
+		$journey_id = 'journey_123e4567-e89b-42d3-a456-426614174000';
 		$expiry     = gmdate( 'Y-m-d\\TH:i:s\\Z', time() + HOUR_IN_SECONDS );
 
 		$this->assertTrue( SuperdavJourneyBudgetContext::activate( $journey_id, $user_id, $expiry ) );
@@ -316,6 +316,18 @@ final class SuperdavAiProviderTest extends WP_UnitTestCase {
 		$invalid = $method->invoke( $model, HttpMethodEnum::POST(), 'chat/completions', array(), array( 'model' => 'example-model' ) );
 		$this->assertNull( $invalid->getHeaderAsString( SuperdavAiProvider::JOURNEY_ATTRIBUTION_HEADER ) );
 		$this->assertNull( $invalid->getHeaderAsString( SuperdavAiProvider::IDEMPOTENCY_HEADER ) );
+
+		ProviderTraceLogger::set_runtime_context(
+			SuperdavAiProvider::PROVIDER_ID,
+			'example-model',
+			0,
+			0,
+			'123e4567-e89b-42d3-a456-426614174000',
+			'123e4567-e89b-42d3-a456-426614174001'
+		);
+		$unprefixed = $method->invoke( $model, HttpMethodEnum::POST(), 'chat/completions', array(), array( 'model' => 'example-model' ) );
+		$this->assertNull( $unprefixed->getHeaderAsString( SuperdavAiProvider::JOURNEY_ATTRIBUTION_HEADER ) );
+		$this->assertNull( $unprefixed->getHeaderAsString( SuperdavAiProvider::IDEMPOTENCY_HEADER ) );
 
 		$non_chat = $method->invoke( $model, HttpMethodEnum::POST(), 'models', array(), null );
 		$this->assertNull( $non_chat->getHeaderAsString( SuperdavAiProvider::JOURNEY_ATTRIBUTION_HEADER ) );
@@ -809,7 +821,7 @@ final class SuperdavAiProviderTest extends WP_UnitTestCase {
 		$method = new \ReflectionMethod( $model, 'createRequest' );
 		$method->setAccessible( true );
 
-		$journey_id     = '123e4567-e89b-42d3-a456-426614174000';
+		$journey_id     = 'journey_123e4567-e89b-42d3-a456-426614174000';
 		$idempotency_key = '123e4567-e89b-42d3-a456-426614174001';
 		ProviderTraceLogger::set_runtime_context( SuperdavAiProvider::PROVIDER_ID, 'gpt-5.5', 42, 0, $journey_id, $idempotency_key );
 

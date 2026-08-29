@@ -24,7 +24,7 @@ final class SuperdavJourneyBudgetContext {
 	public static function activate( string $journey_id, int $qa_user_id, string $expires_at ): bool {
 		$user = $qa_user_id > 0 ? get_userdata( $qa_user_id ) : false;
 		if (
-			! self::is_valid_journey_id( $journey_id )
+			! SuperdavManagedRequestIdentifiers::is_journey_id( $journey_id )
 			|| ! $user instanceof \WP_User
 			|| self::QA_EMAIL !== $user->user_email
 			|| ! self::is_valid_utc_expiry( $expires_at )
@@ -86,7 +86,7 @@ final class SuperdavJourneyBudgetContext {
 			|| ! is_string( $expires_at )
 			|| self::RUN_MARKER !== $run_marker
 			|| $user_id !== $qa_user_id
-			|| ! self::is_valid_journey_id( $journey_id )
+			|| ! SuperdavManagedRequestIdentifiers::is_journey_id( $journey_id )
 			|| ! self::is_valid_utc_expiry( $expires_at )
 			|| strtotime( $expires_at ) <= time()
 		) {
@@ -98,11 +98,6 @@ final class SuperdavJourneyBudgetContext {
 		}
 
 		return strtolower( $journey_id );
-	}
-
-	/** Validate a UUID-shaped opaque journey identifier. */
-	private static function is_valid_journey_id( string $journey_id ): bool {
-		return 1 === preg_match( '/^[a-f0-9]{8}-[a-f0-9]{4}-[1-5][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i', $journey_id );
 	}
 
 	/** Validate the canonical UTC expiry representation. */
