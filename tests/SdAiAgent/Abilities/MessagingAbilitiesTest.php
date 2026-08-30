@@ -169,4 +169,46 @@ class MessagingAbilitiesTest extends WP_UnitTestCase {
 		$this->assertInstanceOf( WP_Error::class, $result );
 		$this->assertSame( 'telegram_invalid_provider_response', $result->get_error_code() );
 	}
+
+	/**
+	 * Telegram message identifiers must retain the documented integer type.
+	 *
+	 * @dataProvider provide_invalid_telegram_message_ids
+	 *
+	 * @param mixed $message_id Invalid Telegram message identifier.
+	 */
+	public function test_telegram_rejects_invalid_message_id_type( mixed $message_id ): void {
+		Settings::instance()->set_telegram_provider( [ 'provider' => 'bot_api', 'bot_token' => '123:telegram-secret' ] );
+		add_filter(
+			'pre_http_request',
+			static function () use ( $message_id ): array {
+				return [
+					'response' => [ 'code' => 200, 'message' => 'OK' ],
+					'body'     => (string) wp_json_encode(
+						[
+							'ok'     => true,
+							'result' => [ 'message_id' => $message_id ],
+						]
+					),
+				];
+			}
+		);
+
+		$result = MessagingAbilities::handle_telegram_send( [ 'chat_ids' => [ '@validchannel' ], 'message' => 'Hello' ] );
+
+		$this->assertInstanceOf( WP_Error::class, $result );
+		$this->assertSame( 'telegram_invalid_provider_response', $result->get_error_code() );
+	}
+
+	/**
+	 * Invalid Telegram message identifier fixtures.
+	 *
+	 * @return array<string, array{0: mixed}>
+	 */
+	public function provide_invalid_telegram_message_ids(): array {
+		return [
+			'numeric string' => [ '42' ],
+			'array'          => [ [ 42 ] ],
+		];
+	}
 }

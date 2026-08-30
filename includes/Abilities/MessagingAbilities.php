@@ -209,7 +209,8 @@ class MessagingAbilities {
 				return $result;
 			}
 
-			if ( true !== ( $result['body']['ok'] ?? null ) || ! isset( $result['body']['result']['message_id'] ) ) {
+			$message_id = $result['body']['result']['message_id'] ?? null;
+			if ( true !== ( $result['body']['ok'] ?? null ) || ! is_int( $message_id ) ) {
 				return new WP_Error(
 					'telegram_invalid_provider_response',
 					__( 'Telegram returned an invalid response.', 'superdav-ai-agent' ),
@@ -222,7 +223,7 @@ class MessagingAbilities {
 
 			$results[] = [
 				'chat_id'    => self::redact_chat_id( $chat_id ),
-				'message_id' => absint( $result['body']['result']['message_id'] ?? 0 ),
+				'message_id' => $message_id,
 				'http_code'  => $result['http_code'],
 			];
 		}
