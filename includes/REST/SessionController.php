@@ -896,14 +896,14 @@ final class SessionController {
 				return new WP_Error( 'sd_ai_agent_invalid_session_ids', __( 'Session IDs must be positive integers.', 'superdav-ai-agent' ), array( 'status' => 400 ) );
 			}
 
-			$ids   = array_map( 'absint', $rawIds );
+			$ids   = array_map( static fn( mixed $id ): int => absint( $id ), $rawIds );
 			$count = $this->database->bulk_delete_trashed_sessions( $ids, get_current_user_id() );
 
 			return new WP_REST_Response( array( 'deleted' => $count ), 200 );
 		}
 
 		// @phpstan-ignore-next-line
-		$ids = array_map( 'absint', $rawIds );
+		$ids = array_map( static fn( mixed $id ): int => absint( $id ), $rawIds );
 		// phpcs:enable WordPress.NamingConventions.ValidVariableName.VariableNotSnakeCase
 
 		$data = array();
