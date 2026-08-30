@@ -11,9 +11,23 @@ import { showFallbackToast } from './fallback-toast';
 
 const reflectorLoaders = {
 	post: () =>
-		import( /* webpackChunkName: "reflector-post" */ './post' ).then(
-			( module ) => module.reflectPost
-		),
+		Promise.all( [
+			import(
+				/* webpackChunkName: "reflector-editor-post" */ './editor-post'
+			)
+				.then( ( module ) => module.reflectEditorPost )
+				.catch( () => () => undefined ),
+			import( /* webpackChunkName: "reflector-post" */ './post' ).then(
+				( module ) => module.reflectPost
+			),
+		] ).then( ( [ reflectEditorPost, reflectPost ] ) => async ( event ) => {
+			try {
+				await reflectEditorPost( event );
+			} catch ( _error ) {
+				// The public-page reflector remains useful if editor APIs fail.
+			}
+			return reflectPost( event );
+		} ),
 	global_styles: () =>
 		import(
 			/* webpackChunkName: "reflector-global-styles" */ './global-styles'

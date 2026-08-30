@@ -59,6 +59,7 @@ use SdAiAgent\REST\AutomationController;
 use SdAiAgent\REST\BannerController;
 use SdAiAgent\REST\BlockValidatorController;
 use SdAiAgent\REST\ConnectorsController;
+use SdAiAgent\REST\CustomerConversationController;
 use SdAiAgent\REST\ChangesController;
 use SdAiAgent\REST\FeedbackController;
 use SdAiAgent\REST\KnowledgeController;
@@ -135,6 +136,7 @@ use XWP\DI\Decorators\Module;
 		SessionController::class,
 		SettingsController::class,
 		ConnectorsController::class,
+		CustomerConversationController::class,
 		WebhookController::class,
 	),
 	extendable: true,

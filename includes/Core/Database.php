@@ -23,6 +23,7 @@ namespace SdAiAgent\Core;
 
 use SdAiAgent\Knowledge\KnowledgeDatabase;
 use SdAiAgent\Models\Agent;
+use SdAiAgent\Models\CustomerConversationReviewRepository;
 use SdAiAgent\Models\ConversationTemplate;
 use SdAiAgent\Models\ProviderTrace;
 use SdAiAgent\Models\Skill;
@@ -35,8 +36,9 @@ use SdAiAgent\Tools\CustomTools;
 
 class Database {
 
-	const DB_VERSION_OPTION = 'sd_ai_agent_db_version';
-	const DB_VERSION        = '19.9.1';
+	const DB_VERSION_OPTION                         = 'sd_ai_agent_db_version';
+	const DB_VERSION                                = '19.16.0';
+	const CUSTOMER_CONVERSATION_REVIEW_CLEANUP_HOOK = 'sd_ai_agent_customer_conversation_review_cleanup';
 
 	// ─── Table Name Registry ──────────────────────────────────────────────────
 
@@ -101,6 +103,35 @@ class Database {
 		global $wpdb;
 		/** @var \wpdb $wpdb */
 		return $wpdb->prefix . 'sd_ai_agent_automation_logs';
+	}
+
+	/**
+	 * Get the durable coalesced Monitor event-wake table name.
+	 */
+	public static function monitor_wakes_table_name(): string {
+		global $wpdb;
+		/** @var \wpdb $wpdb */
+		return $wpdb->prefix . 'sd_ai_agent_monitor_wakes';
+	}
+
+	/**
+	 * Whether durable automation lifecycle tables support atomic transitions.
+	 *
+	 * Scheduled execution intentionally fails closed when a host cannot provide
+	 * transactional storage. A lease and two correlated rows cannot be made
+	 * crash-safe on a non-transactional table engine.
+	 */
+	public static function has_transactional_automation_storage(): bool {
+		return self::table_uses_innodb( self::automations_table_name() )
+			&& self::table_uses_innodb( self::automation_logs_table_name() );
+	}
+
+	/**
+	 * Return whether the monitor-wake queue can make atomic claim transitions.
+	 */
+	public static function has_transactional_monitor_wake_storage(): bool {
+		return self::has_transactional_automation_storage()
+			&& self::table_uses_innodb( self::monitor_wakes_table_name() );
 	}
 
 	/**
@@ -271,6 +302,24 @@ class Database {
 	}
 
 	/**
+	 * Get the privacy-safe customer conversation review projection table name.
+	 */
+	public static function customer_conversation_reviews_table_name(): string {
+		global $wpdb;
+		/** @var \wpdb $wpdb */
+		return $wpdb->prefix . 'sd_ai_agent_customer_conversation_reviews';
+	}
+
+	/**
+	 * Get the privacy-safe customer conversation review turns table name.
+	 */
+	public static function customer_conversation_review_turns_table_name(): string {
+		global $wpdb;
+		/** @var \wpdb $wpdb */
+		return $wpdb->prefix . 'sd_ai_agent_customer_conversation_review_turns';
+	}
+
+	/**
 	 * Get the skill usage table name.
 	 *
 	 * Tracks which skills are loaded per session/model and records
@@ -306,37 +355,41 @@ class Database {
 		$installed_version = get_option( self::DB_VERSION_OPTION );
 
 		if ( $installed_version === self::DB_VERSION ) {
+			self::ensure_customer_conversation_review_cleanup();
 			return;
 		}
 
-		$table                              = self::table_name();
-		$usage_table                        = self::usage_table_name();
-		$memories_table                     = self::memories_table_name();
-		$skills_table                       = self::skills_table_name();
-		$custom_tools_table                 = self::custom_tools_table_name();
-		$automations_table                  = self::automations_table_name();
-		$automation_logs_table              = self::automation_logs_table_name();
-		$approval_requests_table            = self::approval_requests_table_name();
-		$calendar_reminders_table           = self::calendar_reminders_table_name();
-		$event_automations_table            = self::event_automations_table_name();
-		$conversation_templates_table       = self::conversation_templates_table_name();
-		$git_tracked_files_table            = self::git_tracked_files_table_name();
-		$changes_log_table                  = self::changes_log_table_name();
-		$modified_files_table               = self::modified_files_table_name();
-		$agents_table                       = self::agents_table_name();
-		$shared_sessions_table              = self::shared_sessions_table_name();
-		$benchmark_runs_table               = self::benchmark_runs_table_name();
-		$benchmark_results_table            = self::benchmark_results_table_name();
-		$provider_trace_table               = self::provider_trace_table_name();
-		$generated_plugins_table            = self::generated_plugins_table_name();
-		$active_jobs_table                  = self::active_jobs_table_name();
-		$durable_plans_table                = self::durable_plans_table_name();
-		$durable_plan_steps_table           = self::durable_plan_steps_table_name();
-		$customer_agent_conversations_table = self::customer_agent_conversations_table_name();
-		$customer_agent_jobs_table          = self::customer_agent_jobs_table_name();
-		$skill_usage_table                  = self::skill_usage_table_name();
-		$contact_mappings_table             = self::contact_mappings_table_name();
-		$charset                            = $wpdb->get_charset_collate();
+		$table                                    = self::table_name();
+		$usage_table                              = self::usage_table_name();
+		$memories_table                           = self::memories_table_name();
+		$skills_table                             = self::skills_table_name();
+		$custom_tools_table                       = self::custom_tools_table_name();
+		$automations_table                        = self::automations_table_name();
+		$automation_logs_table                    = self::automation_logs_table_name();
+		$monitor_wakes_table                      = self::monitor_wakes_table_name();
+		$approval_requests_table                  = self::approval_requests_table_name();
+		$calendar_reminders_table                 = self::calendar_reminders_table_name();
+		$event_automations_table                  = self::event_automations_table_name();
+		$conversation_templates_table             = self::conversation_templates_table_name();
+		$git_tracked_files_table                  = self::git_tracked_files_table_name();
+		$changes_log_table                        = self::changes_log_table_name();
+		$modified_files_table                     = self::modified_files_table_name();
+		$agents_table                             = self::agents_table_name();
+		$shared_sessions_table                    = self::shared_sessions_table_name();
+		$benchmark_runs_table                     = self::benchmark_runs_table_name();
+		$benchmark_results_table                  = self::benchmark_results_table_name();
+		$provider_trace_table                     = self::provider_trace_table_name();
+		$generated_plugins_table                  = self::generated_plugins_table_name();
+		$active_jobs_table                        = self::active_jobs_table_name();
+		$durable_plans_table                      = self::durable_plans_table_name();
+		$durable_plan_steps_table                 = self::durable_plan_steps_table_name();
+		$customer_agent_conversations_table       = self::customer_agent_conversations_table_name();
+		$customer_agent_jobs_table                = self::customer_agent_jobs_table_name();
+		$customer_conversation_reviews_table      = self::customer_conversation_reviews_table_name();
+		$customer_conversation_review_turns_table = self::customer_conversation_review_turns_table_name();
+		$skill_usage_table                        = self::skill_usage_table_name();
+		$contact_mappings_table                   = self::contact_mappings_table_name();
+		$charset                                  = $wpdb->get_charset_collate();
 
 		// Knowledge tables.
 		$sql = KnowledgeDatabase::get_schema( $charset );
@@ -358,12 +411,14 @@ class Database {
 			pinned tinyint(1) NOT NULL DEFAULT 0,
 			folder varchar(100) NOT NULL DEFAULT '',
 			paused_state longtext DEFAULT NULL,
+			trashed_at datetime DEFAULT NULL,
 			created_at datetime NOT NULL,
 			updated_at datetime NOT NULL,
 			PRIMARY KEY  (id),
 			KEY user_id (user_id),
 			KEY updated_at (updated_at),
-			KEY status_user (user_id, status, updated_at)
+			KEY status_user (user_id, status, updated_at),
+			KEY status_trashed (status, trashed_at)
 		) {$charset};
 
 		CREATE TABLE {$usage_table} (
@@ -434,40 +489,97 @@ class Database {
 			name varchar(255) NOT NULL,
 			description text NOT NULL DEFAULT '',
 			prompt longtext NOT NULL,
+			mode varchar(20) NOT NULL DEFAULT 'task',
+			monitor_scratch longtext NOT NULL DEFAULT '',
+			monitor_event_wakes_enabled tinyint(1) NOT NULL DEFAULT 0,
+			monitor_event_sources longtext NOT NULL DEFAULT '',
+			monitor_wake_cooldown_until datetime DEFAULT NULL,
+			monitor_wake_dropped_count int(11) unsigned NOT NULL DEFAULT 0,
+			monitor_wake_deferred_count int(11) unsigned NOT NULL DEFAULT 0,
 			schedule varchar(50) NOT NULL DEFAULT 'daily',
 			cron_expression varchar(100) NOT NULL DEFAULT '',
 			tool_profile varchar(100) NOT NULL DEFAULT '',
+			owner_user_id bigint(20) unsigned NOT NULL DEFAULT 0,
 			max_iterations int(11) NOT NULL DEFAULT 10,
 			enabled tinyint(1) NOT NULL DEFAULT 0,
 			notification_channels longtext NOT NULL DEFAULT '',
 			last_run_at datetime DEFAULT NULL,
 			next_run_at datetime DEFAULT NULL,
 			run_count int(11) NOT NULL DEFAULT 0,
+			active_run_id char(36) NOT NULL DEFAULT '',
+			execution_status varchar(20) NOT NULL DEFAULT 'idle',
+			lease_expires_at datetime DEFAULT NULL,
+			last_run_id char(36) NOT NULL DEFAULT '',
+			last_run_status varchar(20) NOT NULL DEFAULT '',
+			last_run_error text NOT NULL DEFAULT '',
+			last_monitor_outcome varchar(20) NOT NULL DEFAULT '',
+			last_monitor_summary text NOT NULL DEFAULT '',
 			created_at datetime NOT NULL,
 			updated_at datetime NOT NULL,
 			PRIMARY KEY  (id),
 			KEY enabled (enabled),
-			KEY schedule (schedule)
-		) {$charset};
+			KEY schedule (schedule),
+			KEY mode_enabled (mode, enabled),
+			KEY owner_user_id (owner_user_id),
+			KEY active_run_id (active_run_id),
+			KEY lease_status (execution_status, lease_expires_at)
+		) ENGINE=InnoDB {$charset};
 
 		CREATE TABLE {$automation_logs_table} (
 			id bigint(20) unsigned NOT NULL AUTO_INCREMENT,
 			automation_id bigint(20) unsigned NOT NULL DEFAULT 0,
+			run_id char(36) NOT NULL DEFAULT '',
+			owner_user_id bigint(20) unsigned NOT NULL DEFAULT 0,
 			trigger_type varchar(20) NOT NULL DEFAULT 'scheduled',
 			trigger_name varchar(255) NOT NULL DEFAULT '',
 			status varchar(20) NOT NULL DEFAULT 'success',
+			lifecycle_status varchar(20) NOT NULL DEFAULT '',
+			monitor_outcome varchar(20) NOT NULL DEFAULT '',
 			reply longtext NOT NULL,
 			tool_calls longtext NOT NULL,
 			prompt_tokens bigint(20) unsigned NOT NULL DEFAULT 0,
 			completion_tokens bigint(20) unsigned NOT NULL DEFAULT 0,
 			duration_ms bigint(20) unsigned NOT NULL DEFAULT 0,
 			error_message text NOT NULL DEFAULT '',
+			lease_expires_at datetime DEFAULT NULL,
+			started_at datetime DEFAULT NULL,
+			finished_at datetime DEFAULT NULL,
 			created_at datetime NOT NULL,
 			PRIMARY KEY  (id),
 			KEY automation_id (automation_id),
+			KEY run_id (run_id),
 			KEY trigger_type (trigger_type),
-			KEY created_at (created_at)
-		) {$charset};
+			KEY monitor_outcome (monitor_outcome),
+			KEY created_at (created_at),
+			KEY lifecycle_lease (lifecycle_status, lease_expires_at)
+		) ENGINE=InnoDB {$charset};
+
+		CREATE TABLE {$monitor_wakes_table} (
+			id bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+			monitor_id bigint(20) unsigned NOT NULL,
+			source varchar(100) NOT NULL,
+			state_key varchar(64) NOT NULL DEFAULT 'pending',
+			status varchar(20) NOT NULL DEFAULT 'pending',
+			event_summary longtext NOT NULL,
+			event_count int(11) unsigned NOT NULL DEFAULT 0,
+			dropped_count int(11) unsigned NOT NULL DEFAULT 0,
+			deferred_count int(11) unsigned NOT NULL DEFAULT 0,
+			attempt_count int(11) unsigned NOT NULL DEFAULT 0,
+			available_at datetime NOT NULL,
+			lease_expires_at datetime DEFAULT NULL,
+			claimed_run_id char(36) NOT NULL DEFAULT '',
+			provider_started_at datetime DEFAULT NULL,
+			first_seen_at datetime NOT NULL,
+			last_seen_at datetime NOT NULL,
+			expires_at datetime NOT NULL,
+			created_at datetime NOT NULL,
+			updated_at datetime NOT NULL,
+			PRIMARY KEY  (id),
+			UNIQUE KEY monitor_source_state (monitor_id, source, state_key),
+			KEY due_wakes (status, available_at),
+			KEY monitor_id (monitor_id),
+			KEY expires_at (expires_at)
+		) ENGINE=InnoDB {$charset};
 
 		CREATE TABLE {$approval_requests_table} (
 			id bigint(20) unsigned NOT NULL AUTO_INCREMENT,
@@ -565,7 +677,7 @@ class Database {
 			tracked_at datetime NOT NULL,
 			modified_at datetime DEFAULT NULL,
 			PRIMARY KEY  (id),
-			UNIQUE KEY file_path (file_path(255)),
+			UNIQUE KEY package_file (package_slug(191), file_path(255)),
 			KEY package_slug (package_slug),
 			KEY file_type (file_type),
 			KEY status (status)
@@ -858,6 +970,53 @@ class Database {
 			KEY expires_at (expires_at)
 		) {$charset};
 
+		CREATE TABLE {$customer_conversation_reviews_table} (
+			id bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+			review_id varchar(36) NOT NULL,
+			runtime_conversation_id varchar(36) NULL,
+			source varchar(32) NOT NULL,
+			agent_id bigint(20) unsigned NOT NULL DEFAULT 0,
+			status varchar(30) NOT NULL DEFAULT 'queued',
+			summary varchar(500) NOT NULL DEFAULT '',
+			turn_count int(10) unsigned NOT NULL DEFAULT 0,
+			provider_id varchar(100) NOT NULL DEFAULT '',
+			model_id varchar(100) NOT NULL DEFAULT '',
+			iterations_used int(10) unsigned NOT NULL DEFAULT 0,
+			prompt_tokens bigint(20) unsigned NOT NULL DEFAULT 0,
+			completion_tokens bigint(20) unsigned NOT NULL DEFAULT 0,
+			handoff_intent varchar(50) NOT NULL DEFAULT '',
+			error_code varchar(100) NOT NULL DEFAULT '',
+			expires_at datetime NOT NULL,
+			created_at datetime NOT NULL,
+			updated_at datetime NOT NULL,
+			deleted_at datetime NULL,
+			PRIMARY KEY  (id),
+			UNIQUE KEY review_id (review_id),
+			UNIQUE KEY runtime_conversation_id (runtime_conversation_id),
+			KEY source_status_updated (source, status, updated_at),
+			KEY agent_updated (agent_id, updated_at),
+			KEY expires_at (expires_at),
+			KEY review_visible_updated (deleted_at, updated_at),
+			KEY review_visible_source_status_updated (deleted_at, source, status, updated_at),
+			KEY review_visible_created (deleted_at, created_at),
+			FULLTEXT KEY review_summary (summary)
+		) {$charset};
+
+		CREATE TABLE {$customer_conversation_review_turns_table} (
+			id bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+			review_id varchar(36) NOT NULL,
+			source_event_id varchar(64) NOT NULL,
+			role varchar(16) NOT NULL,
+			event_status varchar(30) NOT NULL DEFAULT 'queued',
+			content longtext NOT NULL,
+			created_at datetime NOT NULL,
+			updated_at datetime NOT NULL,
+			PRIMARY KEY  (id),
+			UNIQUE KEY review_event_role (review_id, source_event_id, role),
+			KEY review_created (review_id, created_at, id),
+			KEY review_event_status (review_id, event_status, created_at, id)
+		) {$charset};
+
 		CREATE TABLE {$skill_usage_table} (
 			id bigint(20) unsigned NOT NULL AUTO_INCREMENT,
 			skill_id bigint(20) unsigned NOT NULL,
@@ -894,6 +1053,13 @@ class Database {
 
 		require_once ABSPATH . 'wp-admin/includes/upgrade.php';
 		dbDelta( $sql );
+		self::backfill_session_trash_timestamps();
+		// Automation execution fails closed independently through
+		// has_transactional_automation_storage(), so a failed conversion must not
+		// block unrelated schema repairs, seeds, or the version marker.
+		self::ensure_automation_lifecycle_transactional_storage( $automations_table, $automation_logs_table );
+		self::ensure_monitor_wake_transactional_storage( $monitor_wakes_table );
+		self::ensure_customer_conversation_review_summary_fulltext_index( $customer_conversation_reviews_table );
 
 		// This defence-in-depth index may be blocked by ambiguous historical
 		// duplicates. Fail soft so unrelated schema repairs, seeds, and the version
@@ -901,6 +1067,8 @@ class Database {
 		self::ensure_managed_profile_key_unique_index( $agents_table );
 
 		self::ensure_calendar_reminder_dedupe_index( $calendar_reminders_table );
+
+		self::ensure_git_tracked_files_package_index( $git_tracked_files_table );
 
 		// Add FULLTEXT index on memories table if not present.
 		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.InterpolatedNotPrepared, PluginCheck.Security.DirectDB.UnescapedDBParameter -- Custom table query; table name from internal method.
@@ -923,6 +1091,116 @@ class Database {
 		Agent::seed_defaults();
 
 		update_option( self::DB_VERSION_OPTION, self::DB_VERSION, true );
+		self::ensure_customer_conversation_review_cleanup();
+	}
+
+	/** Backfill the dedicated Trash-entry timestamp for pre-19.16.0 rows. */
+	private static function backfill_session_trash_timestamps(): void {
+		global $wpdb;
+		/** @var \wpdb $wpdb */
+
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- One-time schema migration for the custom sessions table.
+		$wpdb->query(
+			$wpdb->prepare(
+				"UPDATE %i SET trashed_at = updated_at WHERE status = 'trash' AND trashed_at IS NULL",
+				self::table_name()
+			)
+		);
+	}
+
+	/**
+	 * Require InnoDB for the two rows that represent one automation lifecycle.
+	 *
+	 * WordPress dbDelta creates fresh tables with the declared engine but does not reliably
+	 * convert historical MyISAM tables. Convert only these lifecycle tables;
+	 * leave unrelated plugin storage untouched. Returning false prevents the DB
+	 * version marker from claiming a successful migration.
+	 */
+	private static function ensure_automation_lifecycle_transactional_storage( string $automations_table, string $automation_logs_table ): bool {
+		global $wpdb;
+		/** @var \wpdb $database */
+		$database = $wpdb;
+
+		foreach ( [ $automations_table, $automation_logs_table ] as $table ) {
+			if ( self::table_uses_innodb( $table ) ) {
+				continue;
+			}
+
+			// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.SchemaChange -- Required migration for atomic, correlated automation lifecycle transitions.
+			if ( false === $database->query( $database->prepare( 'ALTER TABLE %i ENGINE=InnoDB', $table ) ) ) {
+				return false;
+			}
+
+			if ( ! self::table_uses_innodb( $table ) ) {
+				return false;
+			}
+		}
+
+		return true;
+	}
+
+	/**
+	 * Require InnoDB for durable Monitor event-wake coalescing and claims.
+	 */
+	private static function ensure_monitor_wake_transactional_storage( string $monitor_wakes_table ): bool {
+		global $wpdb;
+		/** @var \wpdb $wpdb */
+
+		if ( self::table_uses_innodb( $monitor_wakes_table ) ) {
+			return true;
+		}
+
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.SchemaChange -- Required migration for atomic Monitor event-wake claims.
+		if ( false === $wpdb->query( $wpdb->prepare( 'ALTER TABLE %i ENGINE=InnoDB', $monitor_wakes_table ) ) ) {
+			return false;
+		}
+
+		return self::table_uses_innodb( $monitor_wakes_table );
+	}
+
+	/**
+	 * Check the storage engine of one internal table without exposing host data.
+	 *
+	 * @phpstan-impure
+	 */
+	private static function table_uses_innodb( string $table ): bool {
+		global $wpdb;
+		/** @var \wpdb $wpdb */
+
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Internal schema introspection for an atomic lifecycle storage prerequisite.
+		$engine = $wpdb->get_var( $wpdb->prepare( 'SHOW TABLE STATUS WHERE Name = %s', $table ), 1 );
+
+		return is_string( $engine ) && 'innodb' === strtolower( $engine );
+	}
+
+	/** Schedule bounded cleanup and safe runtime backfill for review projections. */
+	private static function ensure_customer_conversation_review_cleanup(): void {
+		add_action( self::CUSTOMER_CONVERSATION_REVIEW_CLEANUP_HOOK, array( self::class, 'run_customer_conversation_review_cleanup' ) );
+
+		if ( ! wp_next_scheduled( self::CUSTOMER_CONVERSATION_REVIEW_CLEANUP_HOOK ) ) {
+			wp_schedule_event( time() + HOUR_IN_SECONDS, 'hourly', self::CUSTOMER_CONVERSATION_REVIEW_CLEANUP_HOOK );
+		}
+	}
+
+	/** Ensure the review-summary search index exists after dbDelta upgrades. */
+	private static function ensure_customer_conversation_review_summary_fulltext_index( string $table ): void {
+		global $wpdb;
+		/** @var \wpdb $wpdb */
+
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.InterpolatedNotPrepared, PluginCheck.Security.DirectDB.UnescapedDBParameter -- Internal schema introspection for the fixed review projection table.
+		$index_exists = $wpdb->get_var( "SHOW INDEX FROM {$table} WHERE Key_name = 'review_summary'" );
+		if ( null !== $index_exists ) {
+			return;
+		}
+
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.SchemaChange, WordPress.DB.PreparedSQL.InterpolatedNotPrepared, PluginCheck.Security.DirectDB.UnescapedDBParameter -- Adds the required full-text index to the fixed review projection table.
+		$wpdb->query( "ALTER TABLE {$table} ADD FULLTEXT KEY review_summary (summary)" );
+	}
+
+	/** Run one bounded, retry-safe review retention and backfill pass. */
+	public static function run_customer_conversation_review_cleanup(): void {
+		CustomerConversationReviewRepository::purge_expired_reviews();
+		CustomerConversationReviewRepository::reconcile_runtime_reviews();
 	}
 
 	/**
@@ -944,6 +1222,40 @@ class Database {
 
 		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.SchemaChange, WordPress.DB.PreparedSQL.InterpolatedNotPrepared, PluginCheck.Security.DirectDB.UnescapedDBParameter -- Required schema repair for the calendar reminder dedupe index.
 		$wpdb->query( "ALTER TABLE {$table} ADD UNIQUE KEY reminder_dedupe (calendar_id, event_id, attendee_email, reminder_date)" );
+	}
+
+	/**
+	 * Scope tracked relative paths to their owning plugin or theme package.
+	 *
+	 * The legacy file_path-only key made ordinary names such as style.css collide
+	 * across every theme. Besides losing snapshots, wpdb printed those duplicate
+	 * errors into REST responses in debug mode and corrupted client-tool result
+	 * acknowledgements. dbDelta adds the replacement key but does not reliably
+	 * remove obsolete indexes, so repair both sides explicitly.
+	 */
+	private static function ensure_git_tracked_files_package_index( string $table ): bool {
+		global $wpdb;
+		/** @var \wpdb $wpdb */
+
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- Internal schema introspection during a versioned upgrade.
+		$legacy_index = $wpdb->get_var( "SHOW INDEX FROM {$table} WHERE Key_name = 'file_path'" );
+		if ( null !== $legacy_index ) {
+			// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.SchemaChange, WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- Removes the globally-scoped legacy uniqueness constraint.
+			if ( false === $wpdb->query( "ALTER TABLE {$table} DROP INDEX file_path" ) ) {
+				return false;
+			}
+		}
+
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- Internal schema introspection during a versioned upgrade.
+		$package_index = $wpdb->get_var( "SHOW INDEX FROM {$table} WHERE Key_name = 'package_file' AND Non_unique = 0" );
+		if ( null !== $package_index ) {
+			return true;
+		}
+
+		// Prefix lengths remain below InnoDB's utf8mb4 index-byte limit while
+		// retaining enough package/path identity for WordPress-managed files.
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.SchemaChange, WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- Adds the package-scoped uniqueness constraint required by GitTracker.
+		return false !== $wpdb->query( "ALTER TABLE {$table} ADD UNIQUE KEY package_file (package_slug(191), file_path(255))" );
 	}
 
 	/**
@@ -1053,6 +1365,27 @@ class Database {
 	 */
 	public static function empty_trash( int $user_id ): int {
 		return SessionRepository::empty_trash( $user_id );
+	}
+
+	/**
+	 * Permanently delete selected trashed sessions owned by a user.
+	 *
+	 * @param array<int|string, mixed> $session_ids Session IDs to delete.
+	 * @param int                      $user_id     User ID for ownership check.
+	 * @return int Number of rows deleted.
+	 */
+	public static function bulk_delete_trashed_sessions( array $session_ids, int $user_id ): int {
+		return SessionRepository::bulk_delete_trashed( $session_ids, $user_id );
+	}
+
+	/**
+	 * Permanently delete trashed sessions older than the retention period.
+	 *
+	 * @param int $retention_days Number of days to retain trashed sessions.
+	 * @return int Number of rows deleted.
+	 */
+	public static function delete_expired_trash( int $retention_days ): int {
+		return SessionRepository::delete_expired_trash( $retention_days );
 	}
 
 	/**

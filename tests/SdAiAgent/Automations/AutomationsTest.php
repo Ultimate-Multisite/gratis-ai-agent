@@ -9,7 +9,9 @@
 
 namespace SdAiAgent\Tests\Automations;
 
+use SdAiAgent\Automations\AutomationLogs;
 use SdAiAgent\Automations\Automations;
+use SdAiAgent\Core\Database;
 use WP_UnitTestCase;
 
 /**
@@ -156,8 +158,10 @@ class AutomationsTest extends WP_UnitTestCase {
 
 		$expected_keys = [
 			'id', 'name', 'description', 'prompt', 'schedule', 'cron_expression',
-			'tool_profile', 'max_iterations', 'enabled', 'last_run_at', 'next_run_at',
-			'run_count', 'created_at', 'updated_at',
+			'tool_profile', 'owner_user_id', 'max_iterations', 'enabled', 'last_run_at',
+			'next_run_at', 'run_count', 'active_run_id', 'execution_status',
+			'lease_expires_at', 'last_run_id', 'last_run_status', 'last_run_error',
+			'created_at', 'updated_at',
 		];
 
 		foreach ( $expected_keys as $key ) {
@@ -364,6 +368,130 @@ class AutomationsTest extends WP_UnitTestCase {
 
 		$row = Automations::get( $id );
 		$this->assertSame( 3, $row['run_count'] );
+	}
+
+	// -------------------------------------------------------------------------
+	// Durable execution lifecycle
+	// -------------------------------------------------------------------------
+
+	/**
+	 * Test create retains explicit owner and idle execution metadata.
+	 */
+	public function test_create_stores_owner_and_idle_execution_metadata(): void {
+		$id = Automations::create( $this->make_automation_data( [ 'owner_user_id' => 42 ] ) );
+
+		$row = Automations::get( $id );
+
+		$this->assertSame( 42, $row['owner_user_id'] );
+		$this->assertSame( 'idle', $row['execution_status'] );
+		$this->assertSame( '', $row['active_run_id'] );
+		$this->assertSame( '', $row['last_run_id'] );
+	}
+
+	/**
+	 * Correlated automation and log transitions require transactional storage.
+	 */
+	public function test_lifecycle_storage_uses_a_transactional_engine(): void {
+		$this->assertTrue( Database::has_transactional_automation_storage() );
+	}
+
+	/**
+	 * The cross-request execution fence must outlive the maximum recoverable
+	 * lease, including on hosts with a short default MySQL idle timeout.
+	 */
+	public function test_execution_fence_session_outlives_maximum_lease(): void {
+		global $wpdb;
+		/** @var \wpdb $wpdb */
+
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Test-only capture and restoration of the current MySQL session setting.
+		$original_wait_timeout = (int) $wpdb->get_var( 'SELECT @@SESSION.wait_timeout' );
+		$automation_id         = (int) Automations::create( $this->make_automation_data() );
+		$lock_name             = Automations::acquire_execution_lock( $automation_id );
+
+		$this->assertNotNull( $lock_name );
+		try {
+			// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Test-only assertion of the execution-fence session lifetime.
+			$wait_timeout = (int) $wpdb->get_var( 'SELECT @@SESSION.wait_timeout' );
+			$this->assertGreaterThanOrEqual( DAY_IN_SECONDS + HOUR_IN_SECONDS, $wait_timeout );
+		} finally {
+			Automations::release_execution_lock( (string) $lock_name );
+			// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Restore the test connection's original session setting.
+			$wpdb->query( $wpdb->prepare( 'SET SESSION wait_timeout = %d', $original_wait_timeout ) );
+		}
+	}
+
+	/**
+	 * Test only one concurrent delivery can atomically claim an enabled row.
+	 */
+	public function test_claim_run_allows_only_one_delivery(): void {
+		$id = Automations::create( $this->make_automation_data( [ 'enabled' => 1 ] ) );
+
+		$this->assertTrue( Automations::claim_run( $id, 'run-one', '2099-01-01 00:00:00' ) );
+		$this->assertFalse( Automations::claim_run( $id, 'run-two', '2099-01-01 00:00:00' ) );
+
+		$row = Automations::get( $id );
+		$this->assertSame( 'run-one', $row['active_run_id'] );
+		$this->assertSame( 'claimed', $row['execution_status'] );
+
+		$this->assertTrue( Automations::finish_run( $id, 'run-one', 'succeeded' ) );
+		$row = Automations::get( $id );
+		$this->assertSame( '', $row['active_run_id'] );
+		$this->assertSame( 'succeeded', $row['last_run_status'] );
+	}
+
+	/**
+	 * Test an expired claim becomes an inspectable abandoned lifecycle state.
+	 */
+	public function test_abandon_expired_runs_releases_stale_claim(): void {
+		$id     = Automations::create( $this->make_automation_data( [ 'enabled' => 1 ] ) );
+		$run_id = 'expired-run';
+
+		$this->assertNotFalse(
+			AutomationLogs::create(
+				[
+					'automation_id'    => $id,
+					'run_id'           => $run_id,
+					'status'           => 'pending',
+					'lifecycle_status' => 'claimed',
+					'lease_expires_at' => '2000-01-01 00:00:00',
+				]
+			)
+		);
+		$this->assertTrue( Automations::claim_run( $id, $run_id, '2000-01-01 00:00:00' ) );
+		$this->assertTrue( Automations::mark_run_running( $id, $run_id ) );
+		$this->assertTrue( AutomationLogs::mark_run_running( $run_id ) );
+		$this->assertSame( 1, Automations::abandon_expired_runs() );
+
+		$row = Automations::get( $id );
+		$this->assertSame( '', $row['active_run_id'] );
+		$this->assertSame( 'abandoned', $row['execution_status'] );
+		$this->assertSame( $run_id, $row['last_run_id'] );
+
+		$log = AutomationLogs::get_by_run_id( $run_id );
+		$this->assertNotNull( $log );
+		$this->assertSame( 'abandoned', $log['lifecycle_status'] );
+	}
+
+	/**
+	 * Test a built-in stored profile resolves to a constrained ability list.
+	 */
+	public function test_resolve_tool_profile_returns_builtin_allowlist(): void {
+		$abilities = Automations::resolve_tool_profile( [ 'tool_profile' => 'site-health' ] );
+
+		$this->assertIsArray( $abilities );
+		$this->assertContains( 'sd-ai-agent/site-health-summary', $abilities );
+		$this->assertContains( 'sd-ai-agent/ability-search', $abilities );
+		$this->assertContains( 'sd-ai-agent/ability-call', $abilities );
+	}
+
+	/**
+	 * Test an unknown non-empty profile fails closed instead of enabling all tools.
+	 */
+	public function test_resolve_tool_profile_rejects_unknown_profile(): void {
+		$result = Automations::resolve_tool_profile( [ 'tool_profile' => 'unknown-profile' ] );
+
+		$this->assertTrue( is_wp_error( $result ) );
+		$this->assertSame( 'sd_ai_agent_automation_unknown_tool_profile', $result->get_error_code() );
 	}
 
 	// -------------------------------------------------------------------------

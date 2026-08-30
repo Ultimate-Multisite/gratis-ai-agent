@@ -22,6 +22,7 @@ use SdAiAgent\Bootstrap\CustomerAgentRuntimeHandler;
 use SdAiAgent\Core\Database;
 use SdAiAgent\Knowledge\KnowledgeDatabase;
 use SdAiAgent\Models\Agent;
+use SdAiAgent\Models\CustomerConversationReviewRepository;
 use WP_UnitTestCase;
 use XWP\DI\Decorators\Action;
 
@@ -46,6 +47,7 @@ class DatabaseSchemaTest extends WP_UnitTestCase {
 		'sd_ai_agent_custom_tools',
 		'sd_ai_agent_automations',
 		'sd_ai_agent_automation_logs',
+		'sd_ai_agent_monitor_wakes',
 		'sd_ai_agent_approval_requests',
 		'sd_ai_agent_calendar_reminders',
 		'sd_ai_agent_event_automations',
@@ -69,6 +71,8 @@ class DatabaseSchemaTest extends WP_UnitTestCase {
 		'sd_ai_agent_durable_plan_steps',
 		'sd_ai_agent_customer_agent_conversations',
 		'sd_ai_agent_customer_agent_jobs',
+		'sd_ai_agent_customer_conversation_reviews',
+		'sd_ai_agent_customer_conversation_review_turns',
 		'sd_ai_agent_skill_usage',
 		'sd_ai_agent_contact_mappings',
 	];
@@ -185,6 +189,30 @@ class DatabaseSchemaTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * Git tracking scopes common relative paths (such as style.css) to the
+	 * owning plugin or theme rather than enforcing site-wide uniqueness.
+	 */
+	public function test_git_tracked_files_uses_package_scoped_unique_index(): void {
+		global $wpdb;
+
+		Database::install();
+
+		$table = Database::git_tracked_files_table_name();
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- Test-only schema introspection.
+		$package_index = $wpdb->get_results( "SHOW INDEX FROM {$table} WHERE Key_name = 'package_file' AND Non_unique = 0", ARRAY_A );
+		usort(
+			$package_index,
+			static fn( array $left, array $right ): int => (int) $left['Seq_in_index'] <=> (int) $right['Seq_in_index']
+		);
+
+		$this->assertSame( [ 'package_slug', 'file_path' ], array_column( $package_index, 'Column_name' ) );
+
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- Test-only schema introspection.
+		$legacy_index = $wpdb->get_var( "SHOW INDEX FROM {$table} WHERE Key_name = 'file_path'" );
+		$this->assertNull( $legacy_index, 'The legacy globally unique file_path index must be removed.' );
+	}
+
+	/**
 	 * Skill usage telemetry table has the required columns and indexes.
 	 */
 	public function test_skill_usage_table_has_required_columns_and_indexes(): void {
@@ -249,9 +277,22 @@ class DatabaseSchemaTest extends WP_UnitTestCase {
 
 		$columns = $this->get_column_names( Database::automations_table_name() );
 
-		foreach ( [ 'id', 'name', 'description', 'prompt', 'schedule', 'enabled', 'last_run_at', 'next_run_at', 'run_count', 'created_at', 'updated_at' ] as $col ) {
+		foreach ( [ 'id', 'name', 'description', 'prompt', 'monitor_event_wakes_enabled', 'monitor_event_sources', 'monitor_wake_cooldown_until', 'monitor_wake_dropped_count', 'monitor_wake_deferred_count', 'schedule', 'enabled', 'last_run_at', 'next_run_at', 'run_count', 'created_at', 'updated_at' ] as $col ) {
 			$this->assertContains( $col, $columns, "Automations table missing column '{$col}'." );
 		}
+	}
+
+	/** Monitor wake rows retain only bounded queue state and a no-replay boundary. */
+	public function test_monitor_wakes_table_has_required_columns(): void {
+		Database::install();
+
+		$columns = $this->get_column_names( Database::monitor_wakes_table_name() );
+
+		foreach ( [ 'id', 'monitor_id', 'source', 'state_key', 'status', 'event_summary', 'event_count', 'dropped_count', 'deferred_count', 'attempt_count', 'available_at', 'lease_expires_at', 'claimed_run_id', 'provider_started_at', 'first_seen_at', 'last_seen_at', 'expires_at', 'created_at', 'updated_at' ] as $col ) {
+			$this->assertContains( $col, $columns, "Monitor wakes table missing column '{$col}'." );
+		}
+
+		$this->assertTrue( Database::has_transactional_monitor_wake_storage() );
 	}
 
 	/**
@@ -403,6 +444,13 @@ class DatabaseSchemaTest extends WP_UnitTestCase {
 		}
 	}
 
+	/** Sessions table stores a stable timestamp for Trash retention cleanup. */
+	public function test_sessions_table_has_trash_timestamp_column(): void {
+		Database::install();
+
+		$this->assertContains( 'trashed_at', $this->get_column_names( Database::table_name() ) );
+	}
+
 	/**
 	 * Active jobs table has the zombie-cleanup columns introduced in DB 19.4.0.
 	 *
@@ -462,6 +510,29 @@ class DatabaseSchemaTest extends WP_UnitTestCase {
 		foreach ( [ 'job_id', 'conversation_id', 'external_message_hash', 'status', 'request_payload', 'result_payload', 'error_code', 'deadline_at', 'expires_at' ] as $column ) {
 			$this->assertContains( $column, $job_columns, "Customer-agent job table missing column '{$column}'." );
 		}
+	}
+
+	/** Customer review projection tables exclude runtime profile identifiers. */
+	public function test_customer_conversation_review_tables_have_safe_columns_and_indexes(): void {
+		global $wpdb;
+
+		Database::install();
+
+		$review_columns = $this->get_column_names( CustomerConversationReviewRepository::table_name() );
+		foreach ( [ 'review_id', 'runtime_conversation_id', 'source', 'agent_id', 'summary', 'turn_count', 'expires_at', 'deleted_at' ] as $column ) {
+			$this->assertContains( $column, $review_columns, "Customer conversation review table missing column '{$column}'." );
+		}
+		$this->assertNotContains( 'profile_id', $review_columns, 'Review projections must not retain runtime profile identifiers.' );
+		$this->assertNotContains( 'transcript', $review_columns, 'Review transcripts must remain normalized in the bounded turns table.' );
+
+		$turn_columns = $this->get_column_names( CustomerConversationReviewRepository::turns_table_name() );
+		foreach ( [ 'review_id', 'source_event_id', 'role', 'event_status', 'content', 'created_at' ] as $column ) {
+			$this->assertContains( $column, $turn_columns, "Customer conversation review turns table missing column '{$column}'." );
+		}
+
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Test-only schema index introspection.
+		$summary_index = $wpdb->get_row( $wpdb->prepare( 'SHOW INDEX FROM %i WHERE Key_name = %s', CustomerConversationReviewRepository::table_name(), 'review_summary' ) );
+		$this->assertNotNull( $summary_index, 'Customer conversation review summaries require a FULLTEXT search index.' );
 	}
 
 	/** Managed customer-agent metadata is explicit and indexed for lifecycle lookup. */
@@ -654,6 +725,31 @@ class DatabaseSchemaTest extends WP_UnitTestCase {
 			$stored,
 			'install() must update the stored version after running on an outdated schema.'
 		);
+	}
+
+	/** A site on the pre-event-wake version receives queue storage and automation fields on upgrade. */
+	public function test_install_upgrades_pre_event_wake_schema(): void {
+		global $wpdb;
+
+		$table             = Database::monitor_wakes_table_name();
+		$automations_table = Database::automations_table_name();
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.SchemaChange -- Test-only simulation of the schema preceding event wakes.
+		$this->assertNotFalse( $wpdb->query( $wpdb->prepare( 'DROP TABLE IF EXISTS %i', $table ) ) );
+		foreach ( [ 'monitor_event_wakes_enabled', 'monitor_event_sources', 'monitor_wake_cooldown_until', 'monitor_wake_dropped_count', 'monitor_wake_deferred_count' ] as $column ) {
+			// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.SchemaChange -- Test-only simulation of automation columns preceding event wakes.
+			$this->assertNotFalse( $wpdb->query( $wpdb->prepare( 'ALTER TABLE %i DROP COLUMN %i', $automations_table, $column ) ) );
+		}
+		update_option( Database::DB_VERSION_OPTION, '19.14.0' );
+
+		Database::install();
+
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Test-only schema introspection.
+		$this->assertSame( $table, $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $table ) ) );
+		$this->assertContains( 'provider_started_at', $this->get_column_names( $table ) );
+		foreach ( [ 'monitor_event_wakes_enabled', 'monitor_event_sources', 'monitor_wake_cooldown_until', 'monitor_wake_dropped_count', 'monitor_wake_deferred_count' ] as $column ) {
+			$this->assertContains( $column, $this->get_column_names( $automations_table ) );
+		}
+		$this->assertSame( Database::DB_VERSION, get_option( Database::DB_VERSION_OPTION ) );
 	}
 
 	/**

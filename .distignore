@@ -144,10 +144,6 @@
 /VERSION
 /verify-output.txt
 
-# Temporary issue-specific dev notes (root *.md files). Listed individually
-# so future ISSUE_*.md scratch notes get added here, not silently shipped.
-/ISSUE_1497_FIX.md
-
 # Editor / agent runtime scratch directories — contain node_modules and
 # session state that must never reach the GitHub release or WP.org zip.
 /.opencode

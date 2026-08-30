@@ -144,9 +144,9 @@ async function goToAdminDashboard( page ) {
 	// The launcher (FAB) renders after FloatingWidget mounts and fetchSettings()
 	// resolves. Without this wait, tests that immediately click the launcher can
 	// time out when the CI runner is under load.
-	// The redesign (#1157) renamed .sdaa-fab to .sdaa-w-launcher.
+	// The redesign (#1157) renamed .sdaa-fab to .sd-ai-agent-w-launcher.
 	await page
-		.locator( '.sdaa-w-launcher' )
+		.locator( '.sd-ai-agent-w-launcher' )
 		.waitFor( { state: 'visible', timeout: 15_000 } )
 		.catch( () => {} ); // Non-fatal: some tests may not need the launcher.
 }
@@ -155,13 +155,13 @@ async function goToAdminDashboard( page ) {
  * Wait for the floating action button (launcher) to be visible.
  *
  * The redesign (#1157) replaced the legacy .sdaa-fab class with
- * .sdaa-w-launcher in the new WidgetLauncher component.
+ * .sd-ai-agent-w-launcher in the new WidgetLauncher component.
  *
  * @param {import('@playwright/test').Page} page - Playwright page object.
  * @return {import('@playwright/test').Locator} The launcher locator.
  */
 function getFloatingButton( page ) {
-	return page.locator( '.sdaa-w-launcher' );
+	return page.locator( '.sd-ai-agent-w-launcher' );
 }
 
 /**

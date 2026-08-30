@@ -93,6 +93,44 @@ class SessionControllerTest extends WP_UnitTestCase {
 		$this->assertArrayNotHasKey( 'model_id', $annotated[2] );
 	}
 
+	/** Queued user steering reaches AgentLoop once and in FIFO order. */
+	public function test_job_interrupt_checker_consumes_queued_messages_in_order(): void {
+		$job_id = '00000000-0000-4000-8000-000000000199';
+		set_transient(
+			RestController::JOB_PREFIX . $job_id,
+			[
+				'status'     => 'processing',
+				'user_id'    => $this->admin_id,
+				'interrupts' => [
+					[ 'message' => 'Stop inspecting and mutate.', 'timestamp' => 1 ],
+					[ 'message' => 'Then validate the preview.', 'timestamp' => 2 ],
+				],
+			],
+			RestController::JOB_TTL
+		);
+
+		$method = new \ReflectionMethod(
+			\SdAiAgent\REST\SessionController::class,
+			'build_job_interrupt_checker'
+		);
+		$method->setAccessible( true );
+		/** @var \Closure(): ?array $checker */
+		$checker = $method->invoke( null, $job_id );
+
+		$first = $checker();
+		$this->assertIsArray( $first );
+		$this->assertSame( 'Stop inspecting and mutate.', $first['message'] );
+		$second = $checker();
+		$this->assertIsArray( $second );
+		$this->assertSame( 'Then validate the preview.', $second['message'] );
+		$this->assertNull( $checker() );
+
+		$job = get_transient( RestController::JOB_PREFIX . $job_id );
+		$this->assertIsArray( $job );
+		$this->assertSame( [], $job['interrupts'] );
+		delete_transient( RestController::JOB_PREFIX . $job_id );
+	}
+
 	/** Durable-plan routes remain private session endpoints. */
 	public function test_durable_plan_routes_are_registered(): void {
 		$routes = $this->server->get_routes();
@@ -483,6 +521,47 @@ class SessionControllerTest extends WP_UnitTestCase {
 			$this->assertSame( $case['plan_status'], $updated['status'] );
 			$this->assertSame( $case['step_status'], $updated['steps'][0]['status'] );
 		}
+	}
+
+	/** Completed job and persisted-session display projections hide textual reasoning. */
+	public function test_job_and_session_display_responses_scrub_textual_thinking(): void {
+		$session_id = $this->create_session();
+		$messages   = [
+			[
+				'role'  => 'assistant',
+				'parts' => [
+					[ 'text' => 'Saved answer.<thinking>Persisted private reasoning.</thinking>' ],
+				],
+			],
+		];
+		$this->assertTrue( Database::append_to_session( $session_id, $messages ) );
+
+		$session_response = $this->dispatch( 'GET', "/sd-ai-agent/v1/sessions/{$session_id}" );
+		$this->assert_status( 200, $session_response );
+		$this->assertSame( 'Saved answer.', $session_response->get_data()['messages'][0]['parts'][0]['text'] );
+
+		$job_id = '00000000-0000-4000-8000-000000000103';
+		$this->assertNotFalse( ActiveJobRepository::create( $session_id, $job_id, $this->admin_id, 'processing' ) );
+		set_transient(
+			RestController::JOB_PREFIX . $job_id,
+			[
+				'status'   => 'complete',
+				'user_id'  => $this->admin_id,
+				'result'   => [
+					'reply'      => "Completed answer.<thinking>\nDo not expose this.\n</thinking>",
+					'history'    => $messages,
+					'messages'   => [ [ 'type' => 'preamble', 'text' => '<thinking>Live private reasoning.</thinking>' ] ],
+					'tool_calls' => [],
+				],
+			],
+			RestController::JOB_TTL
+		);
+
+		$job_response = $this->dispatch( 'GET', "/sd-ai-agent/v1/job/{$job_id}" );
+		$this->assert_status( 200, $job_response );
+		$this->assertSame( 'Completed answer.', $job_response->get_data()['reply'] );
+		$this->assertSame( 'Saved answer.', $job_response->get_data()['history'][0]['parts'][0]['text'] );
+		$this->assertSame( '', $job_response->get_data()['messages'][0]['text'] );
 	}
 
 	/**

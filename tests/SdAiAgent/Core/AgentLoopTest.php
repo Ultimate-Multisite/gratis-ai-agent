@@ -39,9 +39,12 @@ use SdAiAgent\Core\ConversationSerializer;
 use SdAiAgent\Core\ConversationTrimmer;
 use SdAiAgent\Core\Database;
 use SdAiAgent\Core\ProviderCredentialLoader;
+use SdAiAgent\Core\ProviderTraceLogger;
 use SdAiAgent\Core\Settings;
+use SdAiAgent\Core\SuperdavJourneyBudgetContext;
 use SdAiAgent\Core\SystemInstructionBuilder;
 use SdAiAgent\Core\ToolPermissionResolver;
+use SdAiAgent\Infrastructure\AiClient\Superdav\SuperdavAiProvider;
 use SdAiAgent\Models\ActiveJobRepository;
 use SdAiAgent\Tools\ToolDiscovery;
 use WordPress\AiClient\Messages\DTO\Message;
@@ -72,6 +75,10 @@ class ScriptedAgentLoop extends AgentLoop {
 	// phpcs:ignore WordPress.NamingConventions.ValidVariableName.PropertyNotSnakeCase -- Project property naming guidance requires camelCase.
 	public array $requestSizes = array();
 
+	/** @var list<int> */
+	// phpcs:ignore WordPress.NamingConventions.ValidVariableName.PropertyNotSnakeCase -- Project property naming guidance requires camelCase.
+	public array $requestAttemptLimits = array();
+
 	/** @var list<array{ability_mode:bool,collection_mode:bool,knowledge_allowed:bool}> */
 	public array $policySnapshots = array();
 
@@ -94,6 +101,10 @@ class ScriptedAgentLoop extends AgentLoop {
 
 	/** Return the next scripted result while recording the outgoing history size. */
 	protected function send_prompt( string $provider_id, string $model_id ): GenerativeAiResult|WP_Error {
+		$attempts_property = new \ReflectionProperty( AgentLoop::class, 'provider_retry_max_attempts' );
+		$attempts_property->setAccessible( true );
+		$this->requestAttemptLimits[] = (int) $attempts_property->getValue( $this );
+
 		$this->policySnapshots[] = array(
 			'ability_mode'     => ToolDiscovery::is_anonymous_ability_mode(),
 			'collection_mode'  => KnowledgeAbilities::is_public_collection_mode(),
@@ -183,7 +194,11 @@ class AgentLoopTest extends WP_UnitTestCase {
 
 		delete_option( 'openai_compat_endpoint_url' );
 		delete_option( 'openai_compat_api_key' );
+		delete_option( SuperdavAiProvider::CREDENTIAL_OPTION );
 		delete_option( Settings::OPTION_NAME );
+		SuperdavJourneyBudgetContext::deactivate();
+		ProviderTraceLogger::clear_runtime_context();
+		remove_all_filters( 'sd_ai_agent_cloud_base_url' );
 
 		// Remove any lingering pre_http_request filters added by tests.
 		remove_all_filters( 'pre_http_request' );
@@ -365,6 +380,75 @@ class AgentLoopTest extends WP_UnitTestCase {
 			),
 			$call->getArgs()
 		);
+	}
+
+	/**
+	 * XML-ish text calls with JSON arguments should preserve the payload.
+	 */
+	public function test_intercepts_xml_tool_call_text_with_json_arguments(): void {
+		if ( ! class_exists( 'WordPress\AiClient\Messages\DTO\ModelMessage' ) ) {
+			$this->markTestSkipped( 'WP AI Client message classes are not available.' );
+		}
+
+		if ( ! function_exists( 'wp_has_ability' ) || ! wp_has_ability( 'sd-ai-agent/update-template-part' ) ) {
+			$this->markTestSkipped( 'sd-ai-agent/update-template-part ability is not registered.' );
+		}
+
+		$arguments = array(
+			'id'                    => 'twentytwentyfive//header',
+			'expected_content_hash' => 'abc123',
+			'content'               => '<!-- wp:group {"layout":{"type":"flex"}} /-->',
+		);
+		$loop      = new AgentLoop( 'Repair the header.' );
+		$message   = new \WordPress\AiClient\Messages\DTO\ModelMessage(
+			array(
+				new \WordPress\AiClient\Messages\DTO\MessagePart(
+					'<tool_call>wpab__sd-ai-agent__update-template-part(' . wp_json_encode( $arguments ) . ')</tool_call> Tool call emitted as text.'
+				),
+			)
+		);
+
+		$method = new \ReflectionMethod( AgentLoop::class, 'intercept_text_tool_call' );
+		$method->setAccessible( true );
+		$result = $method->invoke( $loop, $message );
+
+		$this->assertInstanceOf( \WordPress\AiClient\Messages\DTO\Message::class, $result );
+		$call = $result->getParts()[0]->getFunctionCall();
+		$this->assertInstanceOf( \WordPress\AiClient\Tools\DTO\FunctionCall::class, $call );
+		$this->assertSame( 'wpab__sd-ai-agent__ability-call', $call->getName() );
+		$this->assertSame(
+			array(
+				'ability'   => 'sd-ai-agent/update-template-part',
+				'arguments' => $arguments,
+			),
+			$call->getArgs()
+		);
+	}
+
+	/**
+	 * Malformed XML-ish text call arguments should request a structured retry.
+	 */
+	public function test_rejects_malformed_xml_tool_call_text_arguments(): void {
+		if ( ! class_exists( 'WordPress\AiClient\Messages\DTO\ModelMessage' ) ) {
+			$this->markTestSkipped( 'WP AI Client message classes are not available.' );
+		}
+
+		$loop    = new AgentLoop( 'Repair the header.' );
+		$message = new \WordPress\AiClient\Messages\DTO\ModelMessage(
+			array(
+				new \WordPress\AiClient\Messages\DTO\MessagePart(
+					'<tool_call>wpab__sd-ai-agent__update-template-part({"id":})</tool_call>'
+				),
+			)
+		);
+
+		$method = new \ReflectionMethod( AgentLoop::class, 'intercept_text_tool_call' );
+		$method->setAccessible( true );
+		$result = $method->invoke( $loop, $message );
+
+		$this->assertIsString( $result );
+		$this->assertStringContainsString( 'malformed arguments', $result );
+		$this->assertStringContainsString( 'structured tool channel', $result );
 	}
 
 	/**
@@ -1011,6 +1095,46 @@ class AgentLoopTest extends WP_UnitTestCase {
 		$this->assertSame( 0, $resolve->invoke( $overridden, 1, null ) );
 	}
 
+	/** An invalid active QA context fails before any managed request is sent. */
+	public function test_invalid_managed_journey_context_fails_locally_without_forwarding(): void {
+		$qa_user_id = self::factory()->user->create( array( 'user_email' => SuperdavJourneyBudgetContext::QA_EMAIL ) );
+		$session_id = Database::create_session( array( 'user_id' => $qa_user_id, 'title' => 'Invalid managed journey' ) );
+		update_option(
+			SuperdavJourneyBudgetContext::OPTION_NAME,
+			array(
+				'journey_id' => 'not-a-uuid',
+				'run_marker' => SuperdavJourneyBudgetContext::RUN_MARKER,
+				'qa_user_id' => $qa_user_id,
+				'expires_at' => gmdate( 'Y-m-d\\TH:i:s\\Z', time() + HOUR_IN_SECONDS ),
+			),
+			false
+		);
+
+		$call_count = 0;
+		add_filter(
+			'pre_http_request',
+			static function ( $preempt, $args, $url ) use ( &$call_count ) {
+				if ( false !== strpos( $url, 'fake-ai-proxy.test' ) ) {
+					++$call_count;
+				}
+				return $preempt;
+			},
+			10,
+			3
+		);
+
+		$options                = $this->no_sleep_retry_options( 2 );
+		$options['provider_id'] = SuperdavAiProvider::PROVIDER_ID;
+		$options['model_id']    = SuperdavAiProvider::DEFAULT_MODEL_ID;
+		$options['session_id']  = $session_id;
+		$result                 = ( new AgentLoop( 'Do not forward this request.', array(), array(), $options ) )->run();
+
+		$this->assertInstanceOf( WP_Error::class, $result );
+		$this->assertSame( 'sd_ai_agent_journey_context_invalid', $result->get_error_code() );
+		$this->assertSame( 0, $call_count );
+		$this->assertSame( array( 'journey_id' => '', 'idempotency_key' => '' ), ProviderTraceLogger::get_runtime_managed_request_attribution() );
+	}
+
 	/**
 	 * Longer retry waits heartbeat the active continuation instead of leaving
 	 * the accepted client-result job looking stale.
@@ -1129,6 +1253,402 @@ class AgentLoopTest extends WP_UnitTestCase {
 		$this->assertIsArray( $data );
 		$retry_entries = array_filter( $data['messages'], static fn( $entry ) => 'provider_retry' === ( $entry['type'] ?? '' ) );
 		$this->assertCount( 2, $retry_entries );
+	}
+
+	/** A large exhausted request compacts and retries without browser recovery. */
+	public function test_large_provider_retry_exhaustion_compacts_and_recovers_automatically(): void {
+		$session_id = Database::create_session(
+			array(
+				'user_id' => 1,
+				'title'   => 'Automatic provider retry compaction',
+			)
+		);
+		$history    = array(
+			new UserMessage( array( new MessagePart( 'Build the complete onboarding site.' ) ) ),
+			new ModelMessage(
+				array(
+					new MessagePart(
+						new FunctionCall(
+							'call_large_result',
+							'wpab__sd-ai-agent__site-info',
+							array()
+						)
+					),
+				)
+			),
+			new UserMessage(
+				array(
+					new MessagePart(
+						new FunctionResponse(
+							'call_large_result',
+							'wpab__sd-ai-agent__site-info',
+							array( 'content' => str_repeat( 'large completed tool output ', 4000 ) )
+						)
+					),
+				)
+			),
+		);
+		$loop       = new ScriptedAgentLoop(
+			'',
+			array(),
+			$history,
+			array(
+				'session_id'  => $session_id,
+				'provider_id' => 'sd-ai-agent-cloud',
+				'model_id'    => 'superdav-chat-pro',
+			),
+			array(
+				new WP_Error( 'sd_ai_agent_test_provider_timeout', 'Managed service unavailable.' ),
+				$this->create_scripted_result( 'Recovered from compact context.' ),
+			)
+		);
+
+		$result = $loop->resume_from_checkpoint( 3 );
+
+		$this->assertIsArray( $result );
+		$this->assertSame( 'Recovered from compact context.', $result['reply'] );
+		$this->assertCount( 2, $loop->requestSizes );
+		$this->assertSame( array( 6, 1 ), $loop->requestAttemptLimits );
+		$this->assertGreaterThan( ConversationTrimmer::COMPACT_MAX_BYTES, $loop->requestSizes[0] );
+		$this->assertLessThanOrEqual( ConversationTrimmer::COMPACT_MAX_BYTES, $loop->requestSizes[1] );
+		$this->assertLessThan( $loop->requestSizes[0], $loop->requestSizes[1] );
+		$this->assertStringContainsString( 'large completed tool output', (string) wp_json_encode( $result['history'] ) );
+		$recovery_entries = array_filter( $result['messages'], static fn( $entry ) => 'provider_retry_compaction' === ( $entry['type'] ?? '' ) );
+		$this->assertCount( 1, $recovery_entries );
+		$this->assertNull( Database::load_and_clear_paused_state( $session_id ) );
+	}
+
+	/** A recovered agentic loop keeps later provider calls on compact context. */
+	public function test_large_provider_retry_compaction_stays_active_for_followup_provider_calls(): void {
+		$history = array(
+			new UserMessage( array( new MessagePart( 'Complete the remaining onboarding checks.' ) ) ),
+			new ModelMessage(
+				array(
+					new MessagePart( new FunctionCall( 'call_large_followup', 'wpab__sd-ai-agent__site-info', array() ) ),
+				)
+			),
+			new UserMessage(
+				array(
+					new MessagePart(
+						new FunctionResponse(
+							'call_large_followup',
+							'wpab__sd-ai-agent__site-info',
+							array( 'content' => str_repeat( 'large completed tool output ', 4000 ) )
+						)
+					),
+				)
+			),
+		);
+		$loop    = new ScriptedAgentLoop(
+			'',
+			array(),
+			$history,
+			array(
+				'provider_id' => 'sd-ai-agent-cloud',
+				'model_id'    => 'superdav-chat-pro',
+			),
+			array(
+				new WP_Error( 'sd_ai_agent_test_provider_timeout', 'Managed service unavailable.' ),
+				$this->create_scripted_result( '' ),
+				$this->create_scripted_result( 'Completed after the compact-context follow-up.' ),
+			)
+		);
+
+		$result = $loop->resume_from_checkpoint( 4 );
+
+		$this->assertIsArray( $result );
+		$this->assertSame( 'Completed after the compact-context follow-up.', $result['reply'] );
+		$this->assertCount( 3, $loop->requestSizes );
+		$this->assertSame( array( 6, 1, 6 ), $loop->requestAttemptLimits );
+		$this->assertGreaterThan( ConversationTrimmer::COMPACT_MAX_BYTES, $loop->requestSizes[0] );
+		$this->assertLessThanOrEqual( ConversationTrimmer::COMPACT_MAX_BYTES, $loop->requestSizes[1] );
+		$this->assertLessThanOrEqual( ConversationTrimmer::COMPACT_MAX_BYTES, $loop->requestSizes[2] );
+		$this->assertStringContainsString( 'large completed tool output', (string) wp_json_encode( $result['history'] ) );
+	}
+
+	/** A persisted recovery marker bounds the first request after a browser resume. */
+	public function test_persisted_provider_retry_compaction_bounds_resumed_request(): void {
+		$large_evidence = str_repeat( 'persisted completed tool output ', 4000 );
+		$history        = array(
+			new UserMessage( array( new MessagePart( 'Resume the remaining onboarding checks.' ) ) ),
+			new ModelMessage(
+				array(
+					new MessagePart( new FunctionCall( 'call_persisted_followup', 'wpab__sd-ai-agent__site-info', array() ) ),
+				)
+			),
+			new UserMessage(
+				array(
+					new MessagePart(
+						new FunctionResponse(
+							'call_persisted_followup',
+							'wpab__sd-ai-agent__site-info',
+							array( 'content' => $large_evidence )
+						)
+					),
+				)
+			),
+		);
+		$loop           = new ScriptedAgentLoop(
+			'',
+			array(),
+			$history,
+			array(
+				'provider_id' => 'sd-ai-agent-cloud',
+				'model_id'    => 'superdav-chat-pro',
+				'message_log' => array(
+					array(
+						'type'            => 'provider_retry_compaction',
+						'payload_reduced' => true,
+					),
+				),
+			),
+			array( $this->create_scripted_result( 'Resumed with compact provider context.' ) )
+		);
+
+		$result = $loop->resume_from_checkpoint( 2 );
+
+		$this->assertIsArray( $result );
+		$this->assertSame( 'Resumed with compact provider context.', $result['reply'] );
+		$this->assertCount( 1, $loop->requestSizes );
+		$this->assertLessThanOrEqual( ConversationTrimmer::COMPACT_MAX_BYTES, $loop->requestSizes[0] );
+		$this->assertStringContainsString( $large_evidence, (string) wp_json_encode( $result['history'] ) );
+	}
+
+	/** A failed continued compact request persists the full durable history. */
+	public function test_persisted_provider_retry_compaction_failure_preserves_durable_history(): void {
+		$session_id    = Database::create_session(
+			array(
+				'user_id' => 1,
+				'title'   => 'Continued compact retry failure',
+			)
+		);
+		$large_evidence = str_repeat( 'durable completed tool evidence ', 4000 );
+		$history        = array(
+			new UserMessage( array( new MessagePart( 'Resume the remaining onboarding checks.' ) ) ),
+			new ModelMessage(
+				array(
+					new MessagePart( new FunctionCall( 'call_failed_followup', 'wpab__sd-ai-agent__site-info', array() ) ),
+				)
+			),
+			new UserMessage(
+				array(
+					new MessagePart(
+						new FunctionResponse(
+							'call_failed_followup',
+							'wpab__sd-ai-agent__site-info',
+							array( 'content' => $large_evidence )
+						)
+					),
+				)
+			),
+		);
+		$loop           = new ScriptedAgentLoop(
+			'',
+			array(),
+			$history,
+			array(
+				'session_id'  => $session_id,
+				'provider_id' => 'sd-ai-agent-cloud',
+				'model_id'    => 'superdav-chat-pro',
+				'message_log' => array(
+					array(
+						'type'            => 'provider_retry_compaction',
+						'payload_reduced' => true,
+					),
+				),
+			),
+			array( new WP_Error( 'sd_ai_agent_test_provider_timeout', 'Managed service unavailable.' ) )
+		);
+
+		$result = $loop->resume_from_checkpoint( 2 );
+
+		$this->assertInstanceOf( WP_Error::class, $result );
+		$this->assertSame( 'sd_ai_agent_provider_retry_failed', $result->get_error_code() );
+		$this->assertCount( 1, $loop->requestSizes );
+		$this->assertLessThanOrEqual( ConversationTrimmer::COMPACT_MAX_BYTES, $loop->requestSizes[0] );
+		$error_data = $result->get_error_data();
+		$this->assertIsArray( $error_data );
+		$this->assertStringContainsString( $large_evidence, (string) wp_json_encode( $error_data['history'] ?? array() ) );
+		$paused_state = Database::load_and_clear_paused_state( $session_id );
+		$this->assertIsArray( $paused_state );
+		$this->assertStringContainsString( $large_evidence, (string) wp_json_encode( $paused_state['history'] ) );
+	}
+
+	/** A failed compact retry retains the full original recovery checkpoint. */
+	public function test_large_provider_compact_retry_failure_preserves_original_paused_state(): void {
+		$session_id = Database::create_session(
+			array(
+				'user_id' => 1,
+				'title'   => 'Preserved provider retry checkpoint',
+			)
+		);
+		$history    = array(
+			new UserMessage( array( new MessagePart( 'Finish the onboarding workflow.' ) ) ),
+			new ModelMessage(
+				array(
+					new MessagePart( new FunctionCall( 'call_preserved', 'wpab__sd-ai-agent__site-info', array() ) ),
+				)
+			),
+			new UserMessage(
+				array(
+					new MessagePart(
+						new FunctionResponse(
+							'call_preserved',
+							'wpab__sd-ai-agent__site-info',
+							array( 'content' => str_repeat( 'original checkpoint evidence ', 4000 ) )
+						)
+					),
+				)
+			),
+		);
+		$loop       = new ScriptedAgentLoop(
+			'',
+			array(),
+			$history,
+			array(
+				'session_id'  => $session_id,
+				'provider_id' => 'sd-ai-agent-cloud',
+				'model_id'    => 'superdav-chat-pro',
+			),
+			array(
+				new WP_Error( 'sd_ai_agent_test_provider_timeout', 'Managed service unavailable.' ),
+				new WP_Error(
+					'sd_ai_agent_provider_payload_too_large',
+					'Compacted request rejected.',
+					array( 'status_code' => 413 )
+				),
+			)
+		);
+
+		$result = $loop->resume_from_checkpoint( 3 );
+
+		$this->assertInstanceOf( WP_Error::class, $result );
+		$this->assertSame( 'sd_ai_agent_provider_payload_too_large', $result->get_error_code() );
+		$this->assertCount( 2, $loop->requestSizes );
+		$this->assertSame( array( 6, 1 ), $loop->requestAttemptLimits );
+		$this->assertLessThan( $loop->requestSizes[0], $loop->requestSizes[1] );
+		$paused_state = Database::load_and_clear_paused_state( $session_id );
+		$this->assertIsArray( $paused_state );
+		$this->assertStringContainsString( 'original checkpoint evidence', (string) wp_json_encode( $paused_state['history'] ) );
+		$this->assertStringNotContainsString( 'Conversation compacted server-side', (string) wp_json_encode( $paused_state['history'] ) );
+	}
+
+	/** A successful reduced 413 retry clears the checkpoint restored after compaction. */
+	public function test_compact_retry_413_reduction_success_clears_restored_paused_state(): void {
+		$session_id = Database::create_session(
+			array(
+				'user_id' => 1,
+				'title'   => 'Successful compact and payload recovery',
+			)
+		);
+		$history    = array(
+			new UserMessage( array( new MessagePart( str_repeat( 'older completed context ', 4000 ) ) ) ),
+			new ModelMessage( array( new MessagePart( 'The earlier phase is complete.' ) ) ),
+			new UserMessage( array( new MessagePart( 'Finish the current phase.' ) ) ),
+			new ModelMessage(
+				array(
+					new MessagePart( new FunctionCall( 'call_current_phase', 'wpab__sd-ai-agent__site-info', array() ) ),
+				)
+			),
+			new UserMessage(
+				array(
+					new MessagePart(
+						new FunctionResponse(
+							'call_current_phase',
+							'wpab__sd-ai-agent__site-info',
+							array( 'content' => str_repeat( 'current phase evidence ', 1500 ) )
+						)
+					),
+				)
+			),
+		);
+		$loop       = new ScriptedAgentLoop(
+			'',
+			array(),
+			$history,
+			array(
+				'session_id'  => $session_id,
+				'provider_id' => 'sd-ai-agent-cloud',
+				'model_id'    => 'superdav-chat-pro',
+			),
+			array(
+				new WP_Error( 'sd_ai_agent_test_provider_timeout', 'Managed service unavailable.' ),
+				new WP_Error(
+					'sd_ai_agent_provider_payload_too_large',
+					'Compacted request rejected.',
+					array(
+						'status_code'             => 413,
+						'request_size_source'     => 'complete_envelope',
+						'request_bytes'           => 131072,
+						'request_tokens_estimate' => 32768,
+					)
+				),
+				$this->create_scripted_result( 'Recovered after compact and payload fallbacks.' ),
+			)
+		);
+
+		$result = $loop->resume_from_checkpoint( 3 );
+
+		$this->assertIsArray( $result );
+		$this->assertSame( 'Recovered after compact and payload fallbacks.', $result['reply'] );
+		$this->assertCount( 3, $loop->requestSizes );
+		$this->assertSame( array( 6, 1, 6 ), $loop->requestAttemptLimits );
+		$this->assertLessThan( $loop->requestSizes[0], $loop->requestSizes[1] );
+		$this->assertLessThan( $loop->requestSizes[0], $loop->requestSizes[2] );
+		$this->assertLessThan( (int) floor( $loop->requestSizes[1] * 0.9 ), $loop->requestSizes[2] );
+		$this->assertNull( Database::load_and_clear_paused_state( $session_id ) );
+	}
+
+	/** A failed reduced 413 retry restores the checkpoint from before compaction. */
+	public function test_compact_retry_413_reduction_failure_preserves_original_paused_state(): void {
+		$session_id = Database::create_session(
+			array(
+				'user_id' => 1,
+				'title'   => 'Failed compact and payload recovery',
+			)
+		);
+		$history    = array(
+			new UserMessage( array( new MessagePart( str_repeat( 'original tool evidence ', 5000 ) ) ) ),
+			new ModelMessage( array( new MessagePart( 'The completed work must remain resumable.' ) ) ),
+			new UserMessage( array( new MessagePart( 'Finish the current phase.' ) ) ),
+		);
+		$loop       = new ScriptedAgentLoop(
+			'',
+			array(),
+			$history,
+			array(
+				'session_id'  => $session_id,
+				'provider_id' => 'sd-ai-agent-cloud',
+				'model_id'    => 'superdav-chat-pro',
+			),
+			array(
+				new WP_Error( 'sd_ai_agent_test_provider_timeout', 'Managed service unavailable.' ),
+				new WP_Error(
+					'sd_ai_agent_provider_payload_too_large',
+					'Compacted request rejected.',
+					array(
+						'status_code'             => 413,
+						'request_size_source'     => 'complete_envelope',
+						'request_bytes'           => 131072,
+						'request_tokens_estimate' => 32768,
+					)
+				),
+				new WP_Error( 'sd_ai_agent_test_provider_timeout', 'Reduced request unavailable.' ),
+			)
+		);
+
+		$result = $loop->resume_from_checkpoint( 3 );
+
+		$this->assertInstanceOf( WP_Error::class, $result );
+		$this->assertSame( 'sd_ai_agent_provider_retry_failed', $result->get_error_code() );
+		$this->assertCount( 3, $loop->requestSizes );
+		$this->assertSame( array( 6, 1, 6 ), $loop->requestAttemptLimits );
+		$this->assertLessThan( $loop->requestSizes[0], $loop->requestSizes[1] );
+		$this->assertLessThan( (int) floor( $loop->requestSizes[1] * 0.9 ), $loop->requestSizes[2] );
+		$paused_state = Database::load_and_clear_paused_state( $session_id );
+		$this->assertIsArray( $paused_state );
+		$this->assertStringContainsString( 'original tool evidence', (string) wp_json_encode( $paused_state['history'] ) );
+		$this->assertStringNotContainsString( 'Conversation compacted server-side', (string) wp_json_encode( $paused_state['history'] ) );
 	}
 
 	/**
@@ -1566,12 +2086,16 @@ class AgentLoopTest extends WP_UnitTestCase {
 		$this->assertStringContainsString( $current, (string) wp_json_encode( $data['history'] ) );
 	}
 
-	/** A local transport preflight rejection must not consume the one upstream-413 retry. */
-	public function test_local_transport_payload_rejection_skips_reduced_retry_and_offers_compaction(): void {
-		$loop = new ScriptedAgentLoop(
+	/** A measured local transport preflight rejection receives one reduced retry. */
+	public function test_local_transport_payload_rejection_retries_once_with_reduced_history(): void {
+		$history = array(
+			new UserMessage( array( new MessagePart( str_repeat( 'Completed tool evidence. ', 1200 ) ) ) ),
+			new ModelMessage( array( new MessagePart( 'The completed work remains available.' ) ) ),
+		);
+		$loop    = new ScriptedAgentLoop(
 			'Current request.',
 			array(),
-			array(),
+			$history,
 			array(
 				'provider_id' => 'scripted-provider',
 				'model_id'    => 'scripted-model',
@@ -1584,7 +2108,60 @@ class AgentLoopTest extends WP_UnitTestCase {
 					array(
 						'status_code'         => 413,
 						'local_rejection'     => true,
-						'request_bytes'       => 8192,
+						'request_bytes'       => 131072,
+						'request_size_source' => 'complete_envelope',
+					)
+				),
+				$this->create_scripted_result( 'Recovered after local envelope reduction.' ),
+			)
+		);
+
+		$result = $loop->run();
+
+		$this->assertIsArray( $result );
+		$this->assertSame( 'Recovered after local envelope reduction.', $result['reply'] );
+		$this->assertCount( 2, $loop->requestSizes );
+		$this->assertLessThan( $loop->requestSizes[0], $loop->requestSizes[1] );
+		$recoveries = array_filter(
+			$result['messages'],
+			static fn( array $entry ): bool => 'provider_payload_recovery' === ( $entry['type'] ?? '' )
+		);
+		$this->assertCount( 1, $recoveries );
+	}
+
+	/** A failed measured local retry must not request another compaction loop. */
+	public function test_repeated_local_transport_payload_rejection_stops_after_reduced_retry(): void {
+		$history = array(
+			new UserMessage( array( new MessagePart( str_repeat( 'Completed tool evidence. ', 1200 ) ) ) ),
+			new ModelMessage( array( new MessagePart( 'The completed work remains available.' ) ) ),
+		);
+		$loop    = new ScriptedAgentLoop(
+			'Current request.',
+			array(),
+			$history,
+			array(
+				'provider_id' => 'scripted-provider',
+				'model_id'    => 'scripted-model',
+				'session_id'  => 49,
+			),
+			array(
+				new WP_Error(
+					'sd_ai_agent_provider_payload_budget_exceeded',
+					'Complete request envelope exceeded the local budget.',
+					array(
+						'status_code'         => 413,
+						'local_rejection'     => true,
+						'request_bytes'       => 131072,
+						'request_size_source' => 'complete_envelope',
+					)
+				),
+				new WP_Error(
+					'sd_ai_agent_provider_payload_budget_exceeded',
+					'Reduced request still exceeded the local budget.',
+					array(
+						'status_code'         => 413,
+						'local_rejection'     => true,
+						'request_bytes'       => 78643,
 						'request_size_source' => 'complete_envelope',
 					)
 				),
@@ -1595,12 +2172,13 @@ class AgentLoopTest extends WP_UnitTestCase {
 
 		$this->assertInstanceOf( \WP_Error::class, $result );
 		$this->assertSame( 'sd_ai_agent_provider_payload_budget_exceeded', $result->get_error_code() );
-		$this->assertCount( 1, $loop->requestSizes );
+		$this->assertCount( 2, $loop->requestSizes );
+		$this->assertLessThan( $loop->requestSizes[0], $loop->requestSizes[1] );
 		$data = $result->get_error_data();
 		$this->assertIsArray( $data );
-		$this->assertFalse( $data['fallback_attempted'] );
-		$this->assertSame( 'compact_session', $data['recovery']['action'] );
-		$this->assertSame( 48, $data['recovery']['source_session_id'] );
+		$this->assertTrue( $data['fallback_attempted'] );
+		$this->assertTrue( $data['payload_reduced'] );
+		$this->assertArrayNotHasKey( 'recovery', $data );
 	}
 
 	// -------------------------------------------------------------------------
@@ -2095,9 +2673,9 @@ class AgentLoopTest extends WP_UnitTestCase {
 
 	/**
 	 * Test run() triggers the graceful fallback when max iterations are exhausted
-	 * with only tool calls. The fallback send_prompt() also returns a tool call
-	 * (no text), so toText() throws and reply is empty — but the result is still
-	 * a success array, not a WP_Error.
+	 * with only tool calls. If the fallback provider response is another tool call,
+	 * the loop must replace it with an honest terminal response rather than
+	 * persisting an unexecuted call and showing an empty reply.
 	 */
 	public function test_run_exhausts_max_iterations(): void {
 		$this->skip_if_sdk_unavailable();
@@ -2152,13 +2730,14 @@ class AgentLoopTest extends WP_UnitTestCase {
 		$loop   = new AgentLoop( 'Loop forever', [], [], [ 'max_iterations' => 2 ] );
 		$result = $loop->run();
 
-		// The graceful fallback fires after the loop exhausts. The fallback
-		// send_prompt() also returns a tool call (no text), so toText() throws
-		// and reply is ''. The result is a success array, not a WP_Error.
+		// The graceful fallback fires after the loop exhausts. The mocked provider
+		// still returns a tool call, so the deterministic terminal response must win.
 		$this->assertIsArray( $result );
 		$this->assertArrayHasKey( 'reply', $result );
 		$this->assertArrayHasKey( 'tool_calls', $result );
 		$this->assertArrayHasKey( 'iterations_used', $result );
+		$this->assertStringContainsString( 'tool-call limit', $result['reply'] );
+		$this->assertSame( 'max_iterations', $result['exit_reason'] );
 		// 2 loop iterations + 1 fallback call = 3.
 		$this->assertSame( 3, $result['iterations_used'] );
 	}
@@ -3644,6 +4223,117 @@ class AgentLoopTest extends WP_UnitTestCase {
 		$this->assertLessThanOrEqual( AgentLoop::MAX_IDLE_ROUNDS + 1, $result['iterations_used'] );
 	}
 
+	/** Progress tracking distinguishes direct inspections from mutations. */
+	public function test_message_has_mutating_tools_classifies_direct_abilities(): void {
+		if ( ! function_exists( 'wp_get_abilities' ) || ! wp_has_ability( 'sd-ai-agent/list-posts' ) || ! wp_has_ability( 'sd-ai-agent/create-post' ) ) {
+			$this->markTestSkipped( 'Required read and write abilities are not registered.' );
+		}
+		if ( ! class_exists( 'WP_AI_Client_Ability_Function_Resolver' ) ) {
+			$this->markTestSkipped( 'WP_AI_Client_Ability_Function_Resolver not available.' );
+		}
+
+		$inspection = new ModelMessage(
+			array(
+				new MessagePart( new FunctionCall( 'call_inspect', 'wpab__sd-ai-agent__list-posts', array() ) ),
+			)
+		);
+		$mutation   = new ModelMessage(
+			array(
+				new MessagePart(
+					new FunctionCall(
+						'call_mutate',
+						'wpab__sd-ai-agent__create-post',
+						array( 'title' => 'Progress marker' )
+					)
+				),
+			)
+		);
+
+		$this->assertFalse( ToolPermissionResolver::message_has_mutating_tools( $inspection ) );
+		$this->assertTrue( ToolPermissionResolver::message_has_mutating_tools( $mutation ) );
+	}
+
+	/** Progress tracking classifies a meta call by its governed target ability. */
+	public function test_message_has_mutating_tools_classifies_nested_target(): void {
+		if ( ! function_exists( 'wp_get_abilities' ) || ! wp_has_ability( 'sd-ai-agent/list-posts' ) || ! wp_has_ability( 'sd-ai-agent/create-post' ) ) {
+			$this->markTestSkipped( 'Required read and write abilities are not registered.' );
+		}
+		if ( ! class_exists( 'WP_AI_Client_Ability_Function_Resolver' ) ) {
+			$this->markTestSkipped( 'WP_AI_Client_Ability_Function_Resolver not available.' );
+		}
+
+		$inspection = new ModelMessage(
+			array(
+				new MessagePart(
+					new FunctionCall(
+						'call_nested_inspect',
+						'wpab__sd-ai-agent__ability-call',
+						array( 'ability' => 'sd-ai-agent/list-posts' )
+					)
+				),
+			)
+		);
+		$mutation   = new ModelMessage(
+			array(
+				new MessagePart(
+					new FunctionCall(
+						'call_nested_mutate',
+						'wpab__sd-ai-agent__ability-call',
+						array(
+							'ability'   => 'sd-ai-agent/create-post',
+							'arguments' => array( 'title' => 'Progress marker' ),
+						)
+					)
+				),
+			)
+		);
+
+		$this->assertFalse( ToolPermissionResolver::message_has_mutating_tools( $inspection ) );
+		$this->assertTrue( ToolPermissionResolver::message_has_mutating_tools( $mutation ) );
+	}
+
+	/** Alternating inspections trigger a correction and mutation resets the counter. */
+	public function test_record_tool_progress_nudges_and_resets_without_provider(): void {
+		if ( ! function_exists( 'wp_get_abilities' ) || ! wp_has_ability( 'sd-ai-agent/list-posts' ) || ! wp_has_ability( 'sd-ai-agent/create-post' ) ) {
+			$this->markTestSkipped( 'Required read and write abilities are not registered.' );
+		}
+		if ( ! class_exists( 'WP_AI_Client_Ability_Function_Resolver' ) ) {
+			$this->markTestSkipped( 'WP_AI_Client_Ability_Function_Resolver not available.' );
+		}
+
+		$loop       = new AgentLoop( 'Complete the site without repeated inspections.' );
+		$method     = new \ReflectionMethod( AgentLoop::class, 'record_tool_progress' );
+		$inspection = new ModelMessage(
+			array(
+				new MessagePart( new FunctionCall( 'call_inspect', 'wpab__sd-ai-agent__list-posts', array() ) ),
+			)
+		);
+		$mutation   = new ModelMessage(
+			array(
+				new MessagePart( new FunctionCall( 'call_mutate', 'wpab__sd-ai-agent__create-post', array( 'title' => 'Progress marker' ) ) ),
+			)
+		);
+
+		$progress = array(
+			'has_mutating_tools' => false,
+			'readonly_rounds'    => 0,
+		);
+		for ( $round = 1; $round <= AgentLoop::READONLY_INSPECTION_NUDGE_ROUNDS; ++$round ) {
+			$progress = $method->invoke( $loop, $inspection, $progress['readonly_rounds'] );
+			$this->assertFalse( $progress['has_mutating_tools'] );
+			$this->assertSame( $round, $progress['readonly_rounds'] );
+		}
+
+		$serialize = new \ReflectionMethod( AgentLoop::class, 'serialize_history' );
+		$history   = wp_json_encode( $serialize->invoke( $loop ) );
+		$this->assertIsString( $history );
+		$this->assertStringContainsString( 'Stop re-checking known state', $history );
+
+		$progress = $method->invoke( $loop, $mutation, $progress['readonly_rounds'] );
+		$this->assertTrue( $progress['has_mutating_tools'] );
+		$this->assertSame( 0, $progress['readonly_rounds'] );
+	}
+
 	/**
 	 * Empty update-global-styles calls must be blocked before ability dispatch.
 	 */
@@ -3738,6 +4428,270 @@ class AgentLoopTest extends WP_UnitTestCase {
 			$this->assertStringContainsString( 'sd_ai_agent_empty_global_styles_update_guarded', (string) $response['response'] );
 			$this->assertStringNotContainsString( 'Either styles or settings is required.', (string) $response['response'] );
 		}
+	}
+
+	/**
+	 * The second bounded stock call must import automatically instead of spending
+	 * the final stock slot on another candidate search.
+	 */
+	public function test_onboarding_media_budget_normalizes_second_stock_search(): void {
+		if ( ! class_exists( FunctionCall::class ) ) {
+			$this->markTestSkipped( 'WP AI Client message classes are not available.' );
+		}
+
+		$method = new \ReflectionMethod( AgentLoop::class, 'enforce_onboarding_media_budget' );
+		$method->setAccessible( true );
+
+		$loop   = new AgentLoop( 'Build a photographer site', array(), array(), array( 'agent_slug' => 'onboarding' ) );
+		$result = $method->invoke(
+			$loop,
+			new ModelMessage(
+				array(
+					new MessagePart(
+						new FunctionCall(
+							'stock-search-one',
+							'wpab__sd-ai-agent__stock-image',
+							array( 'action' => 'search', 'keyword' => 'newlywed couple', 'usage' => 'hero', 'orientation' => 'landscape', 'min_width' => 1200, 'limit' => 12 )
+						)
+					),
+					new MessagePart(
+						new FunctionCall(
+							'stock-search-two',
+							'wpab__sd-ai-agent__stock-image',
+							array( 'action' => 'search', 'provider' => 'openverse', 'keyword' => 'portrait photography studio natural light', 'limit' => 12 )
+						)
+					),
+				)
+			)
+		);
+
+		$this->assertIsArray( $result );
+		$this->assertSame( array(), $result['removed'] );
+		$parts = $result['message']->getParts();
+		$this->assertCount( 2, $parts );
+		$firstArgs  = $parts[0]->getFunctionCall()->getArgs();
+		$secondArgs = $parts[1]->getFunctionCall()->getArgs();
+		$this->assertSame( 'search', $firstArgs['action'] );
+		$this->assertArrayNotHasKey( 'action', $secondArgs );
+		$this->assertArrayNotHasKey( 'provider', $secondArgs );
+		$this->assertArrayNotHasKey( 'limit', $secondArgs );
+		$this->assertArrayNotHasKey( 'min_width', $secondArgs );
+		$this->assertSame( 'newlywed couple', $secondArgs['keyword'] );
+		$this->assertSame( 'hero', $secondArgs['usage'] );
+		$this->assertSame( 'landscape', $secondArgs['orientation'] );
+
+		$dispatcherLoop = new AgentLoop(
+			'Build a photographer site',
+			array(),
+			array(
+				new ModelMessage(
+					array(
+						new MessagePart( new FunctionCall( 'prior-stock-search', 'wpab__sd-ai-agent__stock-image', array( 'action' => 'search', 'keyword' => 'wedding' ) ) ),
+					)
+				),
+			),
+			array( 'agent_slug' => 'onboarding' )
+		);
+		$dispatcherResult = $method->invoke(
+			$dispatcherLoop,
+			new ModelMessage(
+				array(
+					new MessagePart(
+						new FunctionCall(
+							'dispatcher-stock-search',
+							'wpab__sd-ai-agent__ability-call',
+							array(
+								'ability'   => 'sd-ai-agent/stock-image',
+								'arguments' => array( 'keyword' => 'outdoor family portrait golden hour', 'usage' => 'gallery', 'orientation' => 'portrait' ),
+							)
+						)
+					),
+				)
+			)
+		);
+
+		$dispatcherCall = $dispatcherResult['message']->getParts()[0]->getFunctionCall();
+		$dispatcherArgs = $dispatcherCall->getArgs();
+		$this->assertSame( 'sd-ai-agent/stock-image', $dispatcherArgs['ability'] );
+		$this->assertArrayNotHasKey( 'action', $dispatcherArgs['arguments'] );
+		$this->assertArrayNotHasKey( 'provider', $dispatcherArgs['arguments'] );
+		$this->assertSame( 'wedding', $dispatcherArgs['arguments']['keyword'] );
+		$this->assertSame( 'gallery', $dispatcherArgs['arguments']['usage'] );
+		$this->assertSame( 'portrait', $dispatcherArgs['arguments']['orientation'] );
+
+		$candidateImportResult = $method->invoke(
+			$dispatcherLoop,
+			new ModelMessage(
+				array(
+					new MessagePart(
+						new FunctionCall(
+							'candidate-import',
+							'wpab__sd-ai-agent__stock-image',
+							array( 'action' => 'import', 'provider' => 'openverse', 'image_id' => 'reviewed-image', 'keyword' => 'wedding' )
+						)
+					),
+				)
+			)
+		);
+		$candidateImportArgs = $candidateImportResult['message']->getParts()[0]->getFunctionCall()->getArgs();
+		$this->assertSame( 'import', $candidateImportArgs['action'] );
+		$this->assertSame( 'openverse', $candidateImportArgs['provider'] );
+		$this->assertSame( 'reviewed-image', $candidateImportArgs['image_id'] );
+	}
+
+	/**
+	 * Setup Assistant media acquisition must stay bounded across direct and
+	 * dispatcher calls, including several calls emitted in one model turn.
+	 */
+	public function test_onboarding_media_budget_removes_excess_calls(): void {
+		if ( ! class_exists( FunctionCall::class ) ) {
+			$this->markTestSkipped( 'WP AI Client message classes are not available.' );
+		}
+
+		$history = array(
+			new ModelMessage(
+				array(
+					new MessagePart( new FunctionCall( 'stock-one', 'wpab__sd-ai-agent__stock-image', array( 'keyword' => 'wedding' ) ) ),
+				)
+			),
+			new ModelMessage(
+				array(
+					new MessagePart(
+						new FunctionCall(
+							'stock-two',
+							'wpab__sd-ai-agent__ability-call',
+							array(
+								'ability'   => 'sd-ai-agent/stock-image',
+								'arguments' => array( 'keyword' => 'family' ),
+							)
+						)
+					),
+				)
+			),
+		);
+		$loop    = new AgentLoop( 'Build a photographer site', array(), $history, array( 'agent_slug' => 'onboarding' ) );
+		$message = new ModelMessage(
+			array(
+				new MessagePart( new FunctionCall( 'stock-three', 'wpab__sd-ai-agent__stock-image', array( 'keyword' => 'portrait' ) ) ),
+				new MessagePart( new FunctionCall( 'generate-one', 'wpab__sd-ai-agent__generate-image', array( 'prompt' => 'portrait' ) ) ),
+				new MessagePart( new FunctionCall( 'generate-two', 'wpab__sd-ai-agent__generate-image', array( 'prompt' => 'wedding' ) ) ),
+				new MessagePart( new FunctionCall( 'other-tool', 'wpab__sd-ai-agent__list-posts', array() ) ),
+			)
+		);
+
+		$method = new \ReflectionMethod( AgentLoop::class, 'enforce_onboarding_media_budget' );
+		$method->setAccessible( true );
+		$result = $method->invoke( $loop, $message );
+
+		$this->assertIsArray( $result );
+		$this->assertSame(
+			array(
+				'sd-ai-agent/stock-image'    => 1,
+				'sd-ai-agent/generate-image' => 1,
+			),
+			$result['removed']
+		);
+		$this->assertStringContainsString( 'media budget is exhausted', $result['guidance'] );
+		$this->assertStringContainsString( 'stock-image (2 calls total)', $result['guidance'] );
+		$this->assertStringContainsString( 'generate-image (1 call total)', $result['guidance'] );
+
+		$kept_names = array();
+		foreach ( $result['message']->getParts() as $part ) {
+			$call = $part->getFunctionCall();
+			if ( $call ) {
+				$kept_names[] = $call->getName();
+			}
+		}
+		$this->assertSame(
+			array( 'wpab__sd-ai-agent__generate-image', 'wpab__sd-ai-agent__list-posts' ),
+			$kept_names
+		);
+
+		$exhausted_history   = array_merge(
+			$history,
+			array(
+				new ModelMessage(
+					array(
+						new MessagePart( new FunctionCall( 'generate-used', 'wpab__sd-ai-agent__generate-image', array( 'prompt' => 'portrait' ) ) ),
+					)
+				),
+			)
+		);
+		$exhausted_loop      = new AgentLoop( 'Build a photographer site', array(), $exhausted_history, array( 'agent_slug' => 'onboarding' ) );
+		$fully_blocked       = new ModelMessage(
+			array(
+				new MessagePart( new FunctionCall( 'stock-four', 'wpab__sd-ai-agent__stock-image', array( 'keyword' => 'event' ) ) ),
+				new MessagePart( new FunctionCall( 'generate-three', 'wpab__sd-ai-agent__generate-image', array( 'prompt' => 'event' ) ) ),
+			)
+		);
+		$fully_blocked_result = $method->invoke( $exhausted_loop, $fully_blocked );
+
+		$fully_blocked_parts = $fully_blocked_result['message']->getParts();
+		if ( ! is_array( $fully_blocked_parts ) ) {
+			$this->fail( 'Expected guarded message parts to be an array.' );
+		}
+		$this->assertCount( 1, $fully_blocked_parts );
+		$this->assertNull( $fully_blocked_parts[0]->getFunctionCall() );
+		$this->assertStringContainsString(
+			'Media acquisition call blocked',
+			$fully_blocked_parts[0]->getText()
+		);
+		$stock_only_result = $method->invoke(
+			$loop,
+			new ModelMessage(
+				array(
+					new MessagePart( new FunctionCall( 'stock-five', 'wpab__sd-ai-agent__stock-image', array( 'keyword' => 'studio' ) ) ),
+				)
+			)
+		);
+		$this->assertStringContainsString( 'generate-image (1 call remaining)', $stock_only_result['guidance'] );
+
+		$generation_history = array(
+			new ModelMessage(
+				array(
+					new MessagePart( new FunctionCall( 'generate-first', 'wpab__sd-ai-agent__generate-image', array( 'prompt' => 'studio' ) ) ),
+				)
+			),
+		);
+		$generation_loop    = new AgentLoop( 'Build a photographer site', array(), $generation_history, array( 'agent_slug' => 'onboarding' ) );
+		$generation_result  = $method->invoke(
+			$generation_loop,
+			new ModelMessage(
+				array(
+					new MessagePart( new FunctionCall( 'generate-fourth', 'wpab__sd-ai-agent__generate-image', array( 'prompt' => 'event' ) ) ),
+				)
+			)
+		);
+		$this->assertStringContainsString( 'stock-image (2 calls remaining)', $generation_result['guidance'] );
+
+		$terminal_history = array(
+			new UserMessage( array( new MessagePart( 'Earlier media work.' ) ) ),
+			new ModelMessage( array( new MessagePart( new FunctionCall( 'prior-stock-one', 'wpab__sd-ai-agent__stock-image', array() ) ) ) ),
+			new UserMessage( array( new MessagePart( new FunctionResponse( 'prior-stock-one', 'wpab__sd-ai-agent__stock-image', array( 'ok' => true ) ) ) ) ),
+			new ModelMessage( array( new MessagePart( new FunctionCall( 'prior-stock-two', 'wpab__sd-ai-agent__stock-image', array() ) ) ) ),
+			new UserMessage( array( new MessagePart( new FunctionResponse( 'prior-stock-two', 'wpab__sd-ai-agent__stock-image', array( 'ok' => true ) ) ) ) ),
+			new ModelMessage( array( new MessagePart( new FunctionCall( 'prior-generate', 'wpab__sd-ai-agent__generate-image', array() ) ) ) ),
+			new UserMessage( array( new MessagePart( new FunctionResponse( 'prior-generate', 'wpab__sd-ai-agent__generate-image', array( 'ok' => true ) ) ) ) ),
+		);
+		$terminal_loop = new ScriptedAgentLoop(
+			'Finish the photographer site',
+			array(),
+			$terminal_history,
+			array(
+				'agent_slug'    => 'onboarding',
+				'max_iterations' => 1,
+			),
+			array(
+				$this->create_scripted_result(
+					'',
+					new FunctionCall( 'stock-final', 'wpab__sd-ai-agent__stock-image', array( 'keyword' => 'final' ) )
+				),
+			)
+		);
+		$terminal_result = $terminal_loop->run();
+
+		$this->assertIsArray( $terminal_result );
+		$this->assertStringContainsString( 'media budget is exhausted', $terminal_result['reply'] );
 	}
 
 	/**

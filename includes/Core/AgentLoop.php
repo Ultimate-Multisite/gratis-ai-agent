@@ -58,6 +58,8 @@ class AgentLoop {
 	 * not killed — only truly stalled loops hit this limit.
 	 */
 	const LOOP_TIMEOUT_SECONDS = 300;
+	/** Consecutive inspection-only rounds before injecting a progress correction. */
+	const READONLY_INSPECTION_NUDGE_ROUNDS = 3;
 
 	/**
 	 * Consecutive no-progress rounds before forced exit.
@@ -250,6 +252,10 @@ PROMPT;
 
 	/** @var int Full-envelope bytes from an upstream 413 eligible for one reduced retry. */
 	private int $provider_retry_baseline_envelope_bytes = 0;
+
+	/** @var list<Message>|null Full history retained while the provider receives compact context. */
+	// phpcs:ignore WordPress.NamingConventions.ValidVariableName.PropertyNotSnakeCase -- Project property naming guidance requires camelCase.
+	private ?array $providerPersistenceHistory = null;
 
 	/** @var string Last coarse loop phase for shutdown diagnostics. */
 	private string $last_loop_phase = 'initializing';
@@ -970,6 +976,9 @@ PROMPT;
 		ProviderCredentialLoader::load();
 
 		AgentEventLog::set_session( $this->session_id );
+		if ( '' !== $this->active_job_id ) {
+			register_shutdown_function( array( $this, 'handle_active_job_shutdown' ) );
+		}
 
 		// Build a tool-response message from the client results.
 		$parts = array();
@@ -1717,6 +1726,40 @@ PROMPT;
 	}
 
 	/**
+	 * Record whether a tool round made mutable progress and inject a correction
+	 * after repeated inspection-only rounds.
+	 *
+	 * @param Message $message         Assistant tool-call message.
+	 * @param int     $readonly_rounds Consecutive read-only rounds so far.
+	 * @return array{has_mutating_tools: bool, readonly_rounds: int}
+	 */
+	private function record_tool_progress( Message $message, int $readonly_rounds ): array {
+		$has_mutating_tools = ToolPermissionResolver::message_has_mutating_tools( $message );
+		if ( $has_mutating_tools ) {
+			return array(
+				'has_mutating_tools' => true,
+				'readonly_rounds'    => 0,
+			);
+		}
+
+		++$readonly_rounds;
+		if ( 0 === $readonly_rounds % self::READONLY_INSPECTION_NUDGE_ROUNDS ) {
+			$this->history[] = new UserMessage(
+				array(
+					new MessagePart(
+						__( 'You have spent several consecutive rounds on read-only inspections without making a change. Stop re-checking known state and perform the next concrete mutation required by the user now. If no safe mutation is possible, explain the exact blocker and finish instead of inspecting again.', 'superdav-ai-agent' )
+					),
+				)
+			);
+		}
+
+		return array(
+			'has_mutating_tools' => false,
+			'readonly_rounds'    => $readonly_rounds,
+		);
+	}
+
+	/**
 	 * Inner loop: send prompts, handle tool calls, repeat.
 	 *
 	 * @param int $iterations Max iterations remaining.
@@ -1724,6 +1767,7 @@ PROMPT;
 	 */
 	private function run_loop( int $iterations ) {
 		$last_was_tool_call = false;
+		$readonly_rounds    = 0;
 
 		// Wall-clock deadline prevents runaway loops even when round count
 		// and token budget are within limits (e.g. cheap read-only tool
@@ -1920,6 +1964,9 @@ PROMPT;
 				continue;
 			}
 
+			$media_budget      = $this->enforce_onboarding_media_budget( $assistant_message );
+			$assistant_message = $media_budget['message'];
+
 			$history_message          = $assistant_message;
 			$history_before_assistant = $this->history;
 			$reuse_plan               = $this->readonly_tool_cache->reuse( $assistant_message );
@@ -1934,15 +1981,28 @@ PROMPT;
 
 			// Check if the model wants to call tools.
 			if ( ! $this->message_has_function_calls( $assistant_message ) ) {
+				$guarded_terminal_reply = '';
+				if ( '' !== $media_budget['guidance'] ) {
+					if ( $iterations > 0 ) {
+						$this->history[]       = new UserMessage( array( new MessagePart( $media_budget['guidance'] ) ) );
+						$this->last_loop_phase = 'onboarding_media_budget_guarded';
+						continue;
+					}
+
+					$guarded_terminal_reply = $media_budget['guidance'];
+				}
+
 				// No tool calls — we're done.
 				$last_was_tool_call    = false;
-				$reply                 = '';
+				$reply                 = $guarded_terminal_reply;
 				$this->last_loop_phase = 'final_response_received';
 
-				try {
-					$reply = $result->toText();
-				} catch ( \RuntimeException $e ) {
-					$reply = '';
+				if ( '' === $reply ) {
+					try {
+						$reply = $result->toText();
+					} catch ( \RuntimeException $e ) {
+						$reply = '';
+					}
 				}
 
 				// If a prior create/update saved invalid block markup, do not let the
@@ -2186,6 +2246,13 @@ PROMPT;
 			$this->append_tool_response_to_history( $truncated_message );
 			$this->log_tool_responses( $truncated_message );
 			$this->readonly_tool_cache->record( $history_message, $truncated_message );
+
+			$tool_progress      = $this->record_tool_progress( $assistant_message, $readonly_rounds );
+			$has_mutating_tools = $tool_progress['has_mutating_tools'];
+			$readonly_rounds    = $tool_progress['readonly_rounds'];
+			if ( '' !== $media_budget['guidance'] ) {
+				$this->history[] = new UserMessage( array( new MessagePart( $media_budget['guidance'] ) ) );
+			}
 			$this->last_loop_phase = 'tool_response_recorded';
 			$this->save_active_job_checkpoint( self::CHECKPOINT_TOOL_RESPONSE_RECORDED, $iterations );
 
@@ -2210,11 +2277,11 @@ PROMPT;
 				);
 			}
 
-			// Reset the wall-clock deadline after each productive tool call.
-			// This allows genuinely long tasks (many sequential tool calls) to
-			// complete while still killing truly stalled loops that make no
-			// forward progress within a single LOOP_TIMEOUT_SECONDS window.
-			$deadline = microtime( true ) + self::LOOP_TIMEOUT_SECONDS;
+			// Only writes demonstrate forward progress. Repeated inspections must
+			// not renew the deadline indefinitely and outlive PHP's request limit.
+			if ( $has_mutating_tools ) {
+				$deadline = microtime( true ) + self::LOOP_TIMEOUT_SECONDS;
+			}
 
 			// Spin detection: delegate to SpinDetector which encapsulates
 			// the idle-round state (last_tool_signature + idle_rounds counter).
@@ -2274,7 +2341,6 @@ PROMPT;
 			}
 
 			$fallback_message = $fallback_result->toMessage();
-			$this->append_assistant_message_to_history( $fallback_message );
 			$this->accumulate_tokens( $fallback_result );
 
 			$reply = '';
@@ -2283,6 +2349,17 @@ PROMPT;
 			} catch ( \RuntimeException $e ) {
 				$reply = '';
 			}
+
+			// The summarization request is outside the executable tool budget. Some
+			// providers still return another function call because tools remain in
+			// the conversation history. Never persist that call as if it were going
+			// to run, and never complete the job with an empty customer response.
+			if ( $this->message_has_function_calls( $fallback_message ) || '' === trim( $reply ) ) {
+				$reply            = __( 'I reached the tool-call limit before I could finish. Some requested work may be incomplete, so please review the current site before retrying.', 'superdav-ai-agent' );
+				$fallback_message = new ModelMessage( array( new MessagePart( $reply ) ) );
+			}
+
+			$this->append_assistant_message_to_history( $fallback_message );
 
 			// Post-process the reply to inject real permalinks from create-post responses.
 			$reply = $this->inject_real_permalinks( $reply );
@@ -2299,6 +2376,7 @@ PROMPT;
 						'token_usage'     => $this->token_usage,
 						'iterations_used' => $this->iterations_used,
 						'model_id'        => $this->model_id,
+						'exit_reason'     => 'max_iterations',
 					)
 				)
 			);
@@ -2374,11 +2452,38 @@ PROMPT;
 	}
 
 	/**
-	 * Apply local input budgets and make at most one reduced 413 fallback.
+	 * Apply local input budgets and bounded provider-recovery fallbacks.
 	 *
 	 * @return \WordPress\AiClient\Results\DTO\GenerativeAiResult|WP_Error
 	 */
 	private function send_prompt_with_payload_recovery(): GenerativeAiResult|WP_Error {
+		$durable_history                       = $this->history;
+		$previous_provider_persistence_history = $this->providerPersistenceHistory;
+		$compacted_request_history             = $this->continued_provider_compaction_history();
+		if ( is_array( $compacted_request_history ) ) {
+			$this->history                    = $compacted_request_history;
+			$this->providerPersistenceHistory = $durable_history;
+		}
+
+		try {
+			return $this->send_prompt_with_payload_recovery_request();
+		} finally {
+			// Automatic retry compaction is provider context, not the durable chat
+			// transcript. Keep the full history for checkpoints, UI persistence,
+			// and recovery while subsequent provider calls reuse bounded context.
+			if ( is_array( $compacted_request_history ) ) {
+				$this->history                    = $durable_history;
+				$this->providerPersistenceHistory = $previous_provider_persistence_history;
+			}
+		}
+	}
+
+	/**
+	 * Send one provider request after any continued compact context is applied.
+	 *
+	 * @return \WordPress\AiClient\Results\DTO\GenerativeAiResult|WP_Error
+	 */
+	private function send_prompt_with_payload_recovery_request(): GenerativeAiResult|WP_Error {
 		$provider_id  = $this->resolve_provider_id();
 		$model_id     = $this->resolve_effective_model_id( $provider_id );
 		$byte_budget  = ConversationTrimmer::get_request_envelope_byte_budget( $provider_id, $model_id );
@@ -2424,14 +2529,21 @@ PROMPT;
 			return $this->with_payload_recovery_metadata( $error, $before_bytes, $before_tokens, false, false );
 		}
 
-		$result = $this->send_prompt( $provider_id, $model_id );
+		$provider_recovery_history      = null;
+		$provider_recovery_paused_state = null;
+		$result                         = $this->send_prompt( $provider_id, $model_id );
+		if ( is_wp_error( $result ) && 'sd_ai_agent_provider_retry_failed' === $result->get_error_code() ) {
+			$result        = $this->retry_large_provider_failure_with_compacted_history( $result, $provider_id, $model_id, $provider_recovery_history, $provider_recovery_paused_state );
+			$before_bytes  = ConversationTrimmer::estimate_total_bytes( $this->history );
+			$before_tokens = ConversationTrimmer::estimate_total_tokens( $this->history );
+		}
+
 		if ( ! is_wp_error( $result ) || ! $this->is_payload_limit_error( $result ) ) {
+			$this->restore_provider_recovery_history( $provider_recovery_history );
 			return $result;
 		}
 
-		if ( $this->is_local_payload_limit_error( $result ) ) {
-			return $this->with_payload_recovery_metadata( $result, $before_bytes, $before_tokens, false, false );
-		}
+		$local_payload_rejection  = $this->is_local_payload_limit_error( $result );
 		$source_data              = $result->get_error_data();
 		$complete_envelope_bytes  = is_array( $source_data ) && 'complete_envelope' === ( $source_data['request_size_source'] ?? '' )
 			? max( 0, (int) ( $source_data['request_bytes'] ?? 0 ) )
@@ -2446,16 +2558,19 @@ PROMPT;
 			$complete_envelope_bytes > 0 ? $complete_envelope_bytes : $before_bytes,
 			$complete_envelope_tokens > 0 ? $complete_envelope_tokens : $before_tokens,
 			$byte_budget,
-			false,
+			$local_payload_rejection,
 			false,
 			$complete_envelope_bytes <= 0,
 			'reduced_retry_attempted'
 		);
 
 		// Only a measured, complete request envelope can prove that the one
-		// reduced retry is materially smaller. Do not retry 413s from SDK layers
-		// that did not reach the HTTP preflight hook.
+		// reduced retry is materially smaller. This includes local transport
+		// preflight rejections: history can fit its standalone budget while the
+		// complete system-instruction and tool envelope still exceeds the limit.
+		// Do not retry 413s from SDK layers that did not measure the full request.
 		if ( $complete_envelope_bytes <= 0 ) {
+			$this->restore_provider_recovery_history( $provider_recovery_history );
 			return $this->with_payload_recovery_metadata( $result, $before_bytes, $before_tokens, false, false );
 		}
 
@@ -2464,9 +2579,26 @@ PROMPT;
 		$reduced       = ConversationTrimmer::trim_to_budget( $this->history, $target_bytes, $target_tokens );
 		$after_bytes   = ConversationTrimmer::estimate_total_bytes( $reduced );
 		$after_tokens  = ConversationTrimmer::estimate_total_tokens( $reduced );
+		if ( $after_bytes >= $before_bytes && is_array( $provider_recovery_history ) ) {
+			$compacted_reduction = ConversationTrimmer::compact_serialized_history(
+				$this->serialize_history(),
+				$target_bytes,
+				$target_tokens
+			);
+			try {
+				$reduced      = ConversationSerializer::deserialize( $compacted_reduction['messages'] );
+				$reduced      = ConversationTrimmer::validate_tool_pairs( $reduced );
+				$after_bytes  = ConversationTrimmer::estimate_total_bytes( $reduced );
+				$after_tokens = ConversationTrimmer::estimate_total_tokens( $reduced );
+			} catch ( \Throwable $exception ) {
+				$reduced = $this->history;
+			}
+		}
 
 		if ( $after_bytes >= $before_bytes ) {
-			return $this->with_payload_recovery_metadata( $result, $before_bytes, $before_tokens, false, false );
+			$fallback_exhausted = $local_payload_rejection && is_array( $provider_recovery_history );
+			$this->restore_provider_recovery_history( $provider_recovery_history );
+			return $this->with_payload_recovery_metadata( $result, $before_bytes, $before_tokens, false, $fallback_exhausted );
 		}
 
 		$this->history       = $reduced;
@@ -2489,7 +2621,8 @@ PROMPT;
 			$this->provider_retry_baseline_envelope_bytes = 0;
 		}
 		if ( is_wp_error( $retry_result ) ) {
-			if ( $this->is_payload_limit_error( $retry_result ) && ! $this->is_local_payload_limit_error( $retry_result ) ) {
+			if ( $this->is_payload_limit_error( $retry_result ) ) {
+				$retry_local_rejection = $this->is_local_payload_limit_error( $retry_result );
 				$retry_error_data      = $retry_result->get_error_data();
 				$retry_envelope_bytes  = is_array( $retry_error_data ) && 'complete_envelope' === ( $retry_error_data['request_size_source'] ?? '' )
 					? max( 0, (int) ( $retry_error_data['request_bytes'] ?? 0 ) )
@@ -2504,17 +2637,242 @@ PROMPT;
 					$retry_envelope_bytes > 0 ? $retry_envelope_bytes : $after_bytes,
 					$retry_envelope_tokens > 0 ? $retry_envelope_tokens : $after_tokens,
 					$byte_budget,
-					false,
+					$retry_local_rejection,
 					true,
 					$retry_envelope_bytes <= 0,
 					'reduced_retry_exhausted'
 				);
 			}
 
+			$this->restore_provider_recovery_history( $provider_recovery_history );
+			$this->restore_provider_recovery_paused_state( $provider_recovery_paused_state );
 			return $this->with_payload_recovery_metadata( $retry_result, $after_bytes, $after_tokens, true, true );
+		}
+		if ( $this->session_id > 0 ) {
+			Database::load_and_clear_paused_state( $this->session_id );
+		}
+		$this->restore_provider_recovery_history( $provider_recovery_history );
+
+		return $retry_result;
+	}
+
+	/**
+	 * Reuse deterministic compact context after an automatic retry needed it.
+	 *
+	 * Long setup runs commonly contain one genuine user turn followed by many
+	 * tool cycles. Ordinary turn-boundary trimming intentionally keeps that turn
+	 * intact, so restoring its full durable transcript after a successful compact
+	 * retry made every later provider call large again. The persisted message log
+	 * records that recovery across browser-tool resumes; use it to rebuild a safe
+	 * provider-only context while leaving the durable history untouched.
+	 *
+	 * @return array<Message>|null Compacted provider history, or null when inactive.
+	 */
+	private function continued_provider_compaction_history(): ?array {
+		$compaction_active = false;
+		foreach ( $this->message_log as $entry ) {
+			if ( 'provider_retry_compaction' === ( $entry['type'] ?? '' ) ) {
+				$compaction_active = true;
+				break;
+			}
+		}
+
+		if ( ! $compaction_active ) {
+			return null;
+		}
+
+		$request_bytes  = ConversationTrimmer::estimate_total_bytes( $this->history );
+		$request_tokens = ConversationTrimmer::estimate_total_tokens( $this->history );
+		if ( $request_bytes <= ConversationTrimmer::COMPACT_MAX_BYTES && $request_tokens <= ConversationTrimmer::COMPACT_MAX_TOKENS ) {
+			return null;
+		}
+
+		$compacted = ConversationTrimmer::compact_serialized_history(
+			$this->serialize_history(),
+			ConversationTrimmer::COMPACT_MAX_BYTES,
+			ConversationTrimmer::COMPACT_MAX_TOKENS
+		);
+		if ( empty( $compacted['messages'] ) ) {
+			return null;
+		}
+
+		try {
+			$compacted_history = ConversationSerializer::deserialize( $compacted['messages'] );
+			$compacted_history = ConversationTrimmer::validate_tool_pairs( $compacted_history );
+		} catch ( \Throwable $exception ) {
+			return null;
+		}
+
+		$compacted_bytes  = ConversationTrimmer::estimate_total_bytes( $compacted_history );
+		$compacted_tokens = ConversationTrimmer::estimate_total_tokens( $compacted_history );
+		if (
+			empty( $compacted_history )
+			|| $compacted_bytes >= $request_bytes
+			|| ! ConversationTrimmer::fits_budget(
+				$compacted_history,
+				ConversationTrimmer::COMPACT_MAX_BYTES,
+				ConversationTrimmer::COMPACT_MAX_TOKENS
+			)
+		) {
+			return null;
+		}
+
+		AgentEventLog::log(
+			'provider_retry_history_compacted',
+			AgentEventLog::SEVERITY_INFO,
+			array(
+				'session_id'              => $this->session_id,
+				'phase'                   => $this->get_provider_trace_phase(),
+				'provider_id'             => $this->resolve_provider_id(),
+				'model_id'                => $this->resolve_effective_model_id( $this->resolve_provider_id() ),
+				'history_count'           => count( $this->history ),
+				'request_bytes_estimate'  => $request_bytes,
+				'request_tokens_estimate' => $request_tokens,
+				'payload_reduced'         => true,
+				'fallback_attempted'      => false,
+				'recovery_outcome'        => 'continued_compact_provider_context',
+			)
+		);
+
+		return $compacted_history;
+	}
+
+	/**
+	 * Retry one exhausted large-context request with deterministic compact history.
+	 *
+	 * A long agentic turn can remain below the formal provider payload limit while
+	 * still being expensive enough for an upstream gateway to return repeated 5xx
+	 * responses. The existing manual recovery path compacts that state, but waiting
+	 * for a browser retry needlessly fails an otherwise completed setup run. Use the
+	 * compact copy for one transport attempt while retaining the full durable history.
+	 *
+	 * @param WP_Error                 $error                 Exhausted provider-retry error.
+	 * @param string                   $provider_id           Runtime provider identifier.
+	 * @param string                   $model_id              Runtime model identifier.
+	 * @param array<Message>|null      $recovery_history      Full history restored after the bounded fallback chain.
+	 * @param array<string,mixed>|null $recovery_paused_state Durable checkpoint restored after the bounded fallback chain fails.
+	 * @param-out array<Message>|null $recovery_history
+	 * @param-out array<string,mixed>|null $recovery_paused_state
+	 * @return GenerativeAiResult|WP_Error Compacted retry result, or the original error when ineligible.
+	 */
+	private function retry_large_provider_failure_with_compacted_history( WP_Error $error, string $provider_id, string $model_id, ?array &$recovery_history, ?array &$recovery_paused_state ): GenerativeAiResult|WP_Error {
+		$serialized_history = $this->serialize_history();
+		$request_bytes      = ConversationTrimmer::estimate_total_bytes( $this->history );
+		$request_tokens     = ConversationTrimmer::estimate_total_tokens( $this->history );
+		$max_bytes          = min(
+			ConversationTrimmer::COMPACT_MAX_BYTES,
+			ConversationTrimmer::get_request_envelope_byte_budget( $provider_id, $model_id )
+		);
+		$max_tokens         = min(
+			ConversationTrimmer::COMPACT_MAX_TOKENS,
+			ConversationTrimmer::get_request_token_budget( $provider_id, $model_id )
+		);
+
+		if ( $request_bytes <= $max_bytes && $request_tokens <= $max_tokens ) {
+			return $error;
+		}
+
+		$compacted = ConversationTrimmer::compact_serialized_history( $serialized_history, $max_bytes, $max_tokens );
+		if ( empty( $compacted['messages'] ) ) {
+			return $error;
+		}
+
+		try {
+			$compacted_history = ConversationSerializer::deserialize( $compacted['messages'] );
+			$compacted_history = ConversationTrimmer::validate_tool_pairs( $compacted_history );
+		} catch ( \Throwable $exception ) {
+			return $error;
+		}
+
+		$compacted_bytes  = ConversationTrimmer::estimate_total_bytes( $compacted_history );
+		$compacted_tokens = ConversationTrimmer::estimate_total_tokens( $compacted_history );
+		if (
+			empty( $compacted_history )
+			|| $compacted_bytes >= $request_bytes
+			|| ! ConversationTrimmer::fits_budget( $compacted_history, $max_bytes, $max_tokens )
+		) {
+			return $error;
+		}
+
+		$recovery_history      = $this->history;
+		$original_paused_state = $this->session_id > 0
+			? Database::load_and_clear_paused_state( $this->session_id )
+			: null;
+		$this->history         = $compacted_history;
+		$this->message_log[]   = array(
+			'type'                   => 'provider_retry_compaction',
+			'message'                => __( 'The provider could not complete a large request. Retrying once with compacted conversation history.', 'superdav-ai-agent' ),
+			'request_size_class'     => ProviderTraceLogger::classify_request_size( $request_bytes ),
+			'request_bytes_estimate' => $request_bytes,
+			'compacted_bytes'        => $compacted_bytes,
+			'payload_reduced'        => true,
+			'fallback_attempted'     => true,
+			'sequence'               => $this->next_activity_sequence(),
+		);
+
+		AgentEventLog::log(
+			'provider_retry_history_compacted',
+			AgentEventLog::SEVERITY_INFO,
+			array(
+				'session_id'              => $this->session_id,
+				'phase'                   => $this->get_provider_trace_phase(),
+				'provider_id'             => $provider_id,
+				'model_id'                => $model_id,
+				'history_count'           => count( $serialized_history ),
+				'request_bytes_estimate'  => $request_bytes,
+				'request_tokens_estimate' => $request_tokens,
+				'payload_reduced'         => true,
+				'fallback_attempted'      => true,
+				'recovery_outcome'        => 'automatic_compact_provider_retry',
+			)
+		);
+		$this->fire_progress();
+
+		$original_max_attempts             = $this->provider_retry_max_attempts;
+		$this->provider_retry_max_attempts = 1;
+		try {
+			$retry_result = $this->send_prompt( $provider_id, $model_id );
+		} finally {
+			$this->provider_retry_max_attempts = $original_max_attempts;
+		}
+
+		if ( is_wp_error( $retry_result ) && $this->session_id > 0 ) {
+			$compacted_paused_state = Database::load_and_clear_paused_state( $this->session_id );
+			$restored_paused_state  = is_array( $original_paused_state )
+				? $original_paused_state
+				: $compacted_paused_state;
+			if ( is_array( $restored_paused_state ) ) {
+				$recovery_paused_state = $restored_paused_state;
+				Database::save_paused_state( $this->session_id, $restored_paused_state );
+			}
 		}
 
 		return $retry_result;
+	}
+
+	/**
+	 * Restore full provider history after temporary compact retries finish.
+	 *
+	 * @param array<Message>|null $recovery_history Full history retained before compaction.
+	 */
+	private function restore_provider_recovery_history( ?array $recovery_history ): void {
+		if ( is_array( $recovery_history ) ) {
+			$this->history = $recovery_history;
+		}
+	}
+
+	/**
+	 * Restore the durable checkpoint after the reduced payload fallback fails.
+	 *
+	 * @param array<string,mixed>|null $recovery_paused_state Checkpoint retained before compact retries.
+	 */
+	private function restore_provider_recovery_paused_state( ?array $recovery_paused_state ): void {
+		if ( $this->session_id <= 0 || ! is_array( $recovery_paused_state ) ) {
+			return;
+		}
+
+		Database::load_and_clear_paused_state( $this->session_id );
+		Database::save_paused_state( $this->session_id, $recovery_paused_state );
 	}
 
 	/** Whether an error represents a local or upstream HTTP 413. */
@@ -2553,7 +2911,7 @@ PROMPT;
 		$data['request_tokens_estimate'] = $request_tokens;
 		$data['fallback_attempted']      = $fallback_attempted;
 		$data['payload_reduced']         = $reduced;
-		if ( $this->is_local_payload_limit_error( $error ) && $this->session_id > 0 ) {
+		if ( $this->is_local_payload_limit_error( $error ) && $this->session_id > 0 && ! $fallback_attempted ) {
 			$data['recovery'] = array(
 				'action'            => 'compact_session',
 				'source_session_id' => $this->session_id,
@@ -2584,6 +2942,20 @@ PROMPT;
 					esc_url( UnifiedAdminMenu::getConnectorsUrl() )
 				)
 			);
+		}
+
+		$journey_id      = '';
+		$idempotency_key = '';
+		if ( SuperdavAiProvider::PROVIDER_ID === $provider_id ) {
+			$journey_context = SuperdavJourneyBudgetContext::resolve_for_session( $this->session_id );
+			if ( is_wp_error( $journey_context ) ) {
+				return $journey_context;
+			}
+
+			if ( is_string( $journey_context ) ) {
+				$journey_id      = $journey_context;
+				$idempotency_key = wp_generate_uuid4();
+			}
 		}
 
 		try {
@@ -2685,7 +3057,9 @@ PROMPT;
 				$provider_id,
 				$model_id,
 				$this->session_id,
-				$this->provider_retry_baseline_envelope_bytes
+				$this->provider_retry_baseline_envelope_bytes,
+				$journey_id,
+				$idempotency_key
 			);
 			try {
 				$result = $builder->generate_text_result();
@@ -3059,7 +3433,10 @@ PROMPT;
 	 * @param int                      $elapsed_seconds Total elapsed seconds.
 	 */
 	private function build_provider_retry_failed_error( $error, int $elapsed_seconds ): WP_Error {
-		$message = sprintf(
+		$serialized_history = is_array( $this->providerPersistenceHistory )
+			? ConversationSerializer::serialize( $this->providerPersistenceHistory )
+			: $this->serialize_history();
+		$message            = sprintf(
 			/* translators: 1: attempts, 2: elapsed seconds */
 			__( 'The AI service is temporarily unavailable after %1$d attempts over %2$ds. Please try again shortly.', 'superdav-ai-agent' ),
 			$this->provider_retry_max_attempts,
@@ -3073,7 +3450,7 @@ PROMPT;
 
 		if ( $this->session_id > 0 ) {
 			$paused_state = array(
-				'history'                 => $this->serialize_history(),
+				'history'                 => $serialized_history,
 				'tool_call_log'           => $this->tool_call_log,
 				'message_log'             => $this->message_log,
 				'token_usage'             => $this->token_usage,
@@ -3102,7 +3479,7 @@ PROMPT;
 					'token_usage'     => $this->token_usage,
 					'iterations_used' => $this->iterations_used,
 					'model_id'        => $this->model_id,
-					'history'         => $this->serialize_history(),
+					'history'         => $serialized_history,
 					'elapsed_seconds' => $elapsed_seconds,
 				]
 			)
@@ -3438,6 +3815,11 @@ PROMPT;
 			return null;
 		}
 
+		$arguments = $this->extract_text_tool_call_arguments( $text );
+		if ( null === $arguments ) {
+			return __( 'The XML-like tool call contained malformed arguments. Call the tool through the structured tool channel with a valid JSON object instead of writing the call in assistant text.', 'superdav-ai-agent' );
+		}
+
 		$ability_name = $this->resolve_text_tool_call_ability_name( $raw_tool_name );
 		if ( null === $ability_name ) {
 			return sprintf(
@@ -3451,11 +3833,11 @@ PROMPT;
 			array(
 				new MessagePart(
 					new FunctionCall(
-						'text_tool_call_' . substr( md5( $raw_tool_name ), 0, 12 ),
+						'text_tool_call_' . substr( md5( $raw_tool_name . (string) wp_json_encode( $arguments ) ), 0, 12 ),
 						'wpab__sd-ai-agent__ability-call',
 						array(
 							'ability'   => $ability_name,
-							'arguments' => array(),
+							'arguments' => $arguments,
 						)
 					)
 				),
@@ -3521,8 +3903,8 @@ PROMPT;
 	 */
 	private function extract_text_tool_call_name( string $text ): ?string {
 		$patterns = array(
-			'/<tool_call>\s*([^\s<>]+)\s*<\/tool_call>/i',
-			'/<tool>\s*([^\s<>]+)\s*<\/tool>/i',
+			'/<tool_call>\s*([^\s<>(]+)(?:\s*\(.*\))?\s*<\/tool_call>/is',
+			'/<tool>\s*([^\s<>(]+)(?:\s*\(.*\))?\s*<\/tool>/is',
 			'/<function_call\s+name=["\']([^"\'<>]+)["\']\s*\/?\s*>/i',
 		);
 
@@ -3534,6 +3916,57 @@ PROMPT;
 		}
 
 		return null;
+	}
+
+	/**
+	 * Extract JSON arguments from an XML-ish text tool call.
+	 *
+	 * Calls that only contain a tool name retain the legacy empty-arguments
+	 * behaviour. A call that opens an argument list must contain one valid JSON
+	 * object; malformed arguments are rejected rather than executing the ability
+	 * with an empty payload.
+	 *
+	 * @param string $text Assistant text.
+	 * @return array<string,mixed>|null Parsed arguments, or null when malformed.
+	 */
+	private function extract_text_tool_call_arguments( string $text ): ?array {
+		$opening_patterns  = array(
+			'/<tool_call>\s*[^\s<>(]+\s*\(/i',
+			'/<tool>\s*[^\s<>(]+\s*\(/i',
+		);
+		$argument_patterns = array(
+			'/<tool_call>\s*[^\s<>(]+\s*\(\s*(\{.*\})\s*\)\s*<\/tool_call>/is',
+			'/<tool>\s*[^\s<>(]+\s*\(\s*(\{.*\})\s*\)\s*<\/tool>/is',
+		);
+
+		foreach ( $opening_patterns as $index => $opening_pattern ) {
+			if ( ! preg_match( $opening_pattern, $text ) ) {
+				continue;
+			}
+
+			$matches = array();
+			if ( ! preg_match( $argument_patterns[ $index ], $text, $matches ) ) {
+				return null;
+			}
+
+			$arguments = json_decode( (string) $matches[1], true );
+			if ( JSON_ERROR_NONE !== json_last_error() || ! is_array( $arguments ) || array_is_list( $arguments ) ) {
+				return null;
+			}
+
+			$normalized_arguments = array();
+			foreach ( $arguments as $key => $value ) {
+				if ( ! is_string( $key ) ) {
+					return null;
+				}
+
+				$normalized_arguments[ $key ] = $value;
+			}
+
+			return $normalized_arguments;
+		}
+
+		return array();
 	}
 
 	/**
@@ -4037,6 +4470,266 @@ PROMPT;
 		);
 
 		return new ModelMessage( $deduped );
+	}
+
+	/**
+	 * Enforce the Setup Assistant's per-run media acquisition budget.
+	 *
+	 * Prompt instructions remain useful guidance, but providers can emit several
+	 * parallel image calls in one turn or retry after a failed generation. Count
+	 * admitted calls in durable history so resumed browser-tool loops preserve the
+	 * same budget, and remove excess calls before they can execute.
+	 *
+	 * @param Message $message Assistant message returned by the provider.
+	 * @return array{message:Message,guidance:string,removed:array<string,int>}
+	 */
+	private function enforce_onboarding_media_budget( Message $message ): array {
+		$unchanged = array(
+			'message'  => $message,
+			'guidance' => '',
+			'removed'  => array(),
+		);
+
+		if ( 'onboarding' !== $this->agent_slug ) {
+			return $unchanged;
+		}
+
+		$limits = array(
+			'sd-ai-agent/stock-image'    => 2,
+			'sd-ai-agent/generate-image' => 1,
+		);
+		$used   = array_fill_keys( array_keys( $limits ), 0 );
+		// phpcs:disable WordPress.NamingConventions.ValidVariableName.VariableNotSnakeCase -- Project variable naming guidance requires camelCase.
+		$primaryStockArgs = null;
+
+		foreach ( $this->history as $history_message ) {
+			foreach ( $history_message->getParts() as $part ) {
+				$call = $part->getFunctionCall();
+				if ( ! $call ) {
+					continue;
+				}
+
+				$ability_name = self::media_ability_name_for_call( $call );
+				if ( null !== $ability_name ) {
+					if ( 'sd-ai-agent/stock-image' === $ability_name && null === $primaryStockArgs ) {
+						$primaryStockArgs = self::stock_image_args_for_call( $call );
+					}
+					++$used[ $ability_name ];
+				}
+			}
+		}
+
+		$kept      = array();
+		$removed   = array_fill_keys( array_keys( $limits ), 0 );
+		$rewritten = 0;
+		foreach ( $message->getParts() as $part ) {
+			$call = $part->getFunctionCall();
+			if ( ! $call ) {
+				$kept[] = $part;
+				continue;
+			}
+
+			$ability_name = self::media_ability_name_for_call( $call );
+			if ( null === $ability_name ) {
+				$kept[] = $part;
+				continue;
+			}
+
+			if ( $used[ $ability_name ] >= $limits[ $ability_name ] ) {
+				++$removed[ $ability_name ];
+				continue;
+			}
+
+			if ( 'sd-ai-agent/stock-image' === $ability_name ) {
+				if ( 0 === $used[ $ability_name ] && null === $primaryStockArgs ) {
+					$primaryStockArgs = self::stock_image_args_for_call( $call );
+				} elseif (
+					1 === $used[ $ability_name ]
+					&& ! self::is_stock_image_candidate_import_call( $call )
+				) {
+					$part = new MessagePart(
+						self::normalize_stock_image_auto_import_fallback( $call, $primaryStockArgs ?? array() )
+					);
+					++$rewritten;
+				}
+			}
+
+			++$used[ $ability_name ];
+			$kept[] = $part;
+		}
+		// phpcs:enable WordPress.NamingConventions.ValidVariableName.VariableNotSnakeCase
+
+		$removed = array_filter( $removed );
+		if ( $rewritten > 0 ) {
+			$this->message_log[] = array(
+				'type'     => 'guardrail',
+				'reason'   => 'onboarding_stock_fallback_normalized',
+				'count'    => $rewritten,
+				'sequence' => $this->next_activity_sequence(),
+			);
+			AgentEventLog::log(
+				'onboarding_stock_fallback_normalized',
+				AgentEventLog::SEVERITY_INFO,
+				array(
+					'session_id'  => $this->session_id,
+					'count'       => $rewritten,
+					'model_id'    => (string) $this->model_id,
+					'provider_id' => (string) $this->provider_id,
+				)
+			);
+		}
+		if ( empty( $removed ) ) {
+			return $rewritten > 0
+				? array(
+					'message'  => new ModelMessage( $kept ),
+					'guidance' => '',
+					'removed'  => array(),
+				)
+				: $unchanged;
+		}
+		if ( empty( $kept ) ) {
+			$kept[] = new MessagePart( __( 'Media acquisition call blocked by the Setup Assistant budget.', 'superdav-ai-agent' ) );
+		}
+
+		$removed_count       = array_sum( $removed );
+		$this->message_log[] = array(
+			'type'     => 'guardrail',
+			'reason'   => 'onboarding_media_budget_guarded',
+			'count'    => $removed_count,
+			'sequence' => $this->next_activity_sequence(),
+		);
+		AgentEventLog::log(
+			'onboarding_media_budget_guarded',
+			AgentEventLog::SEVERITY_WARNING,
+			array(
+				'session_id'       => $this->session_id,
+				'stock_removed'    => $removed['sd-ai-agent/stock-image'] ?? 0,
+				'generate_removed' => $removed['sd-ai-agent/generate-image'] ?? 0,
+				'model_id'         => (string) $this->model_id,
+				'provider_id'      => (string) $this->provider_id,
+			)
+		);
+
+		$exhausted_abilities = array();
+		$available_abilities = array();
+		foreach ( $limits as $ability_name => $limit ) {
+			if ( $used[ $ability_name ] >= $limit ) {
+				$exhausted_abilities[] = sprintf(
+					/* translators: 1: media ability name, 2: total permitted calls. */
+					_n( '%1$s (%2$d call total)', '%1$s (%2$d calls total)', $limit, 'superdav-ai-agent' ),
+					str_replace( 'sd-ai-agent/', '', $ability_name ),
+					$limit
+				);
+			} else {
+				$remaining             = $limit - $used[ $ability_name ];
+				$available_abilities[] = sprintf(
+					/* translators: 1: media ability name, 2: number of calls remaining. */
+					_n( '%1$s (%2$d call remaining)', '%1$s (%2$d calls remaining)', $remaining, 'superdav-ai-agent' ),
+					str_replace( 'sd-ai-agent/', '', $ability_name ),
+					$remaining
+				);
+			}
+		}
+
+		$guidance = sprintf(
+			/* translators: %s: comma-separated list of exhausted media abilities. */
+			__( 'The Setup Assistant media budget is exhausted for: %s.', 'superdav-ai-agent' ),
+			implode( ', ', $exhausted_abilities )
+		);
+		if ( ! empty( $available_abilities ) ) {
+			$guidance .= ' ' . sprintf(
+				/* translators: %s: comma-separated list of remaining media abilities. */
+				__( 'You may still use: %s. Do not use URL-fetch or upload fallbacks.', 'superdav-ai-agent' ),
+				implode( ', ', $available_abilities )
+			);
+		} else {
+			$guidance .= ' ' . __( 'Continue without more image sourcing and do not use URL-fetch or upload fallbacks. If required primary media is unavailable, report that blocker and do not publish a weak text-only homepage.', 'superdav-ai-agent' );
+		}
+
+		return array(
+			'message'  => new ModelMessage( $kept ),
+			'guidance' => $guidance,
+			'removed'  => $removed,
+		);
+	}
+
+	/** Return the stock-image arguments from a direct or dispatcher call. */
+	private static function stock_image_args_for_call( FunctionCall $call ): array {
+		$args = self::normalize_function_call_args( $call->getArgs() );
+		if ( 'sd-ai-agent/ability-call' === self::normalize_logged_tool_name( (string) $call->getName() ) ) {
+			return isset( $args['arguments'] ) && is_array( $args['arguments'] ) ? $args['arguments'] : array();
+		}
+
+		return $args;
+	}
+
+	/** Return whether a stock-image call imports a reviewed provider candidate. */
+	private static function is_stock_image_candidate_import_call( FunctionCall $call ): bool {
+		$args = self::stock_image_args_for_call( $call );
+
+		return 'import' === (string) ( $args['action'] ?? '' )
+			&& '' !== (string) ( $args['provider'] ?? '' )
+			&& '' !== (string) ( $args['image_id'] ?? '' );
+	}
+
+	/**
+	 * Normalize the second bounded stock call into the documented automatic-import fallback.
+	 *
+	 * @param FunctionCall         $call             Proposed second stock call.
+	 * @param array<string, mixed> $primaryStockArgs Arguments from the first bounded stock search.
+	 */
+	// phpcs:disable WordPress.NamingConventions.ValidVariableName.VariableNotSnakeCase -- Project variable naming guidance requires camelCase.
+	private static function normalize_stock_image_auto_import_fallback( FunctionCall $call, array $primaryStockArgs ): FunctionCall {
+		$args         = self::normalize_function_call_args( $call->getArgs() );
+		$isDispatcher = 'sd-ai-agent/ability-call' === self::normalize_logged_tool_name( (string) $call->getName() );
+		$stockArgs    = $isDispatcher && isset( $args['arguments'] ) && is_array( $args['arguments'] )
+			? $args['arguments']
+			: $args;
+
+		unset( $stockArgs['action'], $stockArgs['provider'], $stockArgs['image_id'], $stockArgs['limit'], $stockArgs['min_width'], $stockArgs['min_height'] );
+		foreach ( array( 'keyword', 'usage', 'orientation' ) as $key ) {
+			if ( '' !== (string) ( $primaryStockArgs[ $key ] ?? '' ) ) {
+				$stockArgs[ $key ] = $primaryStockArgs[ $key ];
+			}
+		}
+		$stockArgs['keyword'] = self::shorten_stock_image_keyword( (string) ( $stockArgs['keyword'] ?? '' ) );
+
+		if ( $isDispatcher ) {
+			$args['arguments'] = $stockArgs;
+		} else {
+			$args = $stockArgs;
+		}
+
+		return new FunctionCall( (string) $call->getId(), (string) $call->getName(), $args );
+	}
+	// phpcs:enable WordPress.NamingConventions.ValidVariableName.VariableNotSnakeCase
+
+	/** Keep automatic-import fallback searches concrete instead of over-specific. */
+	private static function shorten_stock_image_keyword( string $keyword ): string {
+		$words = preg_split( '/\s+/', trim( $keyword ) );
+		if ( ! is_array( $words ) ) {
+			return trim( $keyword );
+		}
+
+		return implode( ' ', array_slice( array_filter( $words ), 0, 3 ) );
+	}
+
+	/** Return the bounded media ability represented by a direct or dispatcher call. */
+	private static function media_ability_name_for_call( FunctionCall $call ): ?string {
+		$tool_name = self::normalize_logged_tool_name( (string) $call->getName() );
+		if ( in_array( $tool_name, array( 'sd-ai-agent/stock-image', 'sd-ai-agent/generate-image' ), true ) ) {
+			return $tool_name;
+		}
+
+		if ( 'sd-ai-agent/ability-call' !== $tool_name ) {
+			return null;
+		}
+
+		$args         = self::normalize_function_call_args( $call->getArgs() );
+		$ability_name = (string) ( $args['ability'] ?? '' );
+		return in_array( $ability_name, array( 'sd-ai-agent/stock-image', 'sd-ai-agent/generate-image' ), true )
+			? $ability_name
+			: null;
 	}
 
 	/**

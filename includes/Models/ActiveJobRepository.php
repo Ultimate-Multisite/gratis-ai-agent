@@ -106,6 +106,33 @@ class ActiveJobRepository {
 	}
 
 	/**
+	 * Atomically claim a browser-tool pause for synchronous loop resumption.
+	 *
+	 * The processing status lets the shutdown handler convert a timed-out PHP
+	 * request into an interrupted job that the polling endpoint can auto-resume.
+	 * It also prevents a duplicate browser result POST from claiming the same
+	 * paused batch while the first request is still running.
+	 */
+	public static function claim_client_tool_resume( string $job_id, int $session_id, int $user_id ): bool {
+		global $wpdb;
+		/** @var \wpdb $wpdb */
+
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Conditional status transition is the browser-result worker claim.
+		$result = $wpdb->query(
+			$wpdb->prepare(
+				"UPDATE %i SET status = 'processing', pending_tools = '[]', updated_at = %s WHERE job_id = %s AND session_id = %d AND user_id = %d AND status = 'awaiting_client_tools'",
+				self::table_name(),
+				current_time( 'mysql', true ),
+				$job_id,
+				$session_id,
+				$user_id
+			)
+		);
+
+		return false !== $result && $result > 0;
+	}
+
+	/**
 	 * Atomically return a durable confirmation pause to the queue for one new claim.
 	 *
 	 * A stale confirmation must never overwrite a worker that has already

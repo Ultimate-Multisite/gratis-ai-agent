@@ -515,6 +515,16 @@ export default function SettingsApp() {
 		);
 	}
 
+	const publicChatReviewRetentionDays =
+		local.public_chat_review_retention_days || 7;
+	const publicChatReviewDisclosure =
+		local.public_chat_review_disclosure || '';
+	const chatTrashRetentionDays = local.chat_trash_retention_days || 0;
+	const updatePublicChatReviewRetention = ( value ) =>
+		updateField( 'public_chat_review_retention_days', value || 1 );
+	const updatePublicChatReviewDisclosure = ( value ) =>
+		updateField( 'public_chat_review_disclosure', value );
+
 	// Build provider/model options.
 	const providerOptions = [
 		{ label: __( '(default)', 'sd-ai-agent' ), value: '' },
@@ -685,6 +695,109 @@ export default function SettingsApp() {
 															}
 															__nextHasNoMarginBottom
 														/>
+													</td>
+												</tr>
+												<tr>
+													<th scope="row">
+														{ __(
+															'Conversation Trash',
+															'superdav-ai-agent'
+														) }
+													</th>
+													<td>
+														<RangeControl
+															label={ __(
+																'Automatically empty Trash after this many days',
+																'superdav-ai-agent'
+															) }
+															value={
+																chatTrashRetentionDays
+															}
+															initialPosition={
+																0
+															}
+															min={ 0 }
+															max={ 365 }
+															onChange={ (
+																value
+															) =>
+																updateField(
+																	'chat_trash_retention_days',
+																	value || 0
+																)
+															}
+															help={ __(
+																'Set to 0 to keep trashed conversations until you delete them manually.',
+																'superdav-ai-agent'
+															) }
+														/>
+													</td>
+												</tr>
+												<tr>
+													<th scope="row">
+														{ __(
+															'Anonymous Chat Review',
+															'superdav-ai-agent'
+														) }
+													</th>
+													<td>
+														<ToggleControl
+															label={ __(
+																'Allow visitors to opt in to anonymous chat review',
+																'superdav-ai-agent'
+															) }
+															checked={
+																!! local.public_chat_review_recording_enabled
+															}
+															onChange={ ( v ) =>
+																updateField(
+																	'public_chat_review_recording_enabled',
+																	v
+																)
+															}
+															help={ __(
+																'Visitors must explicitly consent before an anonymous public-chat transcript is retained for administrator review.',
+																'superdav-ai-agent'
+															) }
+															__nextHasNoMarginBottom
+														/>
+														{ local.public_chat_review_recording_enabled && (
+															<div className="sdaa-settings-public-review-controls">
+																<RangeControl
+																	label={ __(
+																		'Retention period (days)',
+																		'superdav-ai-agent'
+																	) }
+																	value={
+																		publicChatReviewRetentionDays
+																	}
+																	initialPosition={
+																		7
+																	}
+																	min={ 1 }
+																	max={ 90 }
+																	onChange={
+																		updatePublicChatReviewRetention
+																	}
+																/>
+																<TextareaControl
+																	label={ __(
+																		'Visitor disclosure',
+																		'superdav-ai-agent'
+																	) }
+																	value={
+																		publicChatReviewDisclosure
+																	}
+																	onChange={
+																		updatePublicChatReviewDisclosure
+																	}
+																	help={ __(
+																		'Leave blank to use the retention-aware default disclosure. The visitor sees this before starting chat.',
+																		'superdav-ai-agent'
+																	) }
+																/>
+															</div>
+														) }
 													</td>
 												</tr>
 												<tr>

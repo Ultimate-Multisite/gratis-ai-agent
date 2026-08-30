@@ -200,6 +200,47 @@
 	position: relative;
 }
 
+.sd-ai-agent-trash-actions {
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+	padding: 0 10px 10px;
+	border-bottom: 1px solid var(--sdaa-border-subtle);
+}
+
+.sd-ai-agent-trash-selection,
+.sd-ai-agent-trash-action-buttons {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+}
+
+.sd-ai-agent-trash-selection {
+	justify-content: space-between;
+	font-size: 11px;
+	color: var(--sdaa-text-muted);
+}
+
+.sd-ai-agent-trash-selection .components-base-control__field,
+.sd-ai-agent-session-select .components-base-control__field {
+	margin-bottom: 0;
+}
+
+.sd-ai-agent-trash-action-buttons .components-button {
+	flex: 1;
+	justify-content: center;
+	min-height: 30px;
+	padding: 0 8px;
+	font-size: 11px;
+}
+
+.sd-ai-agent-empty-trash.components-button {
+	align-self: flex-start;
+	min-height: 24px;
+	padding: 0;
+	font-size: 11px;
+}
+
 .sdaa-cr-search-field {
 	position: relative;
 	width: 100%;
@@ -271,10 +312,41 @@ input[type="text"].sdaa-cr-search-input {
 	gap: 6px;
 	padding: 6px 8px;
 	border-radius: var(--sdaa-radius-sm);
-	cursor: pointer;
 	margin-bottom: 1px;
 	position: relative;
 	border: 1px solid transparent;
+}
+
+.sdaa-cr-session-row.sd-ai-agent-is-selected,
+.sdaa-cr-session-row.sd-ai-agent-is-selected:hover {
+	background: var(--sdaa-surface-active);
+	border-color: var(--sdaa-bubble-user-border);
+}
+
+.sdaa-cr-session-row-main.components-button {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	flex: 1;
+	min-width: 0;
+	height: auto;
+	padding: 0;
+	border: 0;
+	background: transparent;
+	box-shadow: none;
+	text-align: left;
+}
+
+.sdaa-cr-session-row-main.components-button:focus:not(:disabled) {
+	box-shadow: 0 0 0 1px var(--sdaa-primary);
+}
+
+.sd-ai-agent-session-select {
+	flex-shrink: 0;
+}
+
+.sd-ai-agent-session-select .components-checkbox-control__input-container {
+	margin-right: 0;
 }
 
 .sdaa-cr-session-row:hover {
@@ -1215,9 +1287,20 @@ input[type="text"].sdaa-cr-search-input {
 	border: 1px solid var(--sdaa-border-subtle);
 	border-radius: var(--sdaa-radius-pill);
 	padding: 2px 8px;
+	font-family: inherit;
 	font-size: 11.5px;
 	color: var(--sdaa-text-secondary);
 	background: #fff;
+	cursor: pointer;
+}
+
+.sdaa-cr-progress-stat:hover {
+	filter: brightness(0.98);
+}
+
+.sdaa-cr-progress-stat:focus-visible {
+	outline: 2px solid var(--sdaa-primary);
+	outline-offset: 2px;
 }
 
 .sdaa-cr-progress-stat.is-complete {
@@ -1234,6 +1317,23 @@ input[type="text"].sdaa-cr-search-input {
 	border-color: #f1b0b7;
 	color: var(--sdaa-error);
 	background: var(--sdaa-error-surface);
+}
+
+.sd-ai-agent-progress-stat--recovered {
+	border-color: #d8eddb;
+	color: var(--sdaa-success);
+}
+
+.sd-ai-agent-progress-details {
+	display: grid;
+	gap: 8px;
+	padding-top: 2px;
+}
+
+.sd-ai-agent-progress-details-label {
+	color: var(--sdaa-text-secondary);
+	font-size: 12px;
+	font-weight: 600;
 }
 
 .sdaa-cr-progress-steps {
@@ -1273,10 +1373,25 @@ input[type="text"].sdaa-cr-search-input {
 	background: var(--sdaa-warning);
 }
 
+.sd-ai-agent-progress-step-details {
+	display: flex;
+	align-items: baseline;
+	gap: 7px;
+	min-width: 0;
+}
+
 .sdaa-cr-progress-step-label {
 	overflow: hidden;
 	text-overflow: ellipsis;
 	white-space: nowrap;
+}
+
+.sd-ai-agent-progress-step-tool-name {
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	color: var(--sdaa-text-muted);
+	font-size: 11px;
 }
 
 .sdaa-cr-progress-step-status {

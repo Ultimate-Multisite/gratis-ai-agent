@@ -189,6 +189,8 @@ class ToolCapabilities {
 		'sd-ai-agent/get-block-type'                     => 'edit_posts',
 		'sd-ai-agent/list-block-patterns'                => 'edit_posts',
 		'sd-ai-agent/list-block-templates'               => 'edit_posts',
+		'sd-ai-agent/list-template-parts'                => 'edit_theme_options',
+		'sd-ai-agent/update-template-part'               => 'edit_theme_options',
 		'sd-ai-agent/create-block-content'               => 'edit_posts',
 		'sd-ai-agent/get-page-blocks'                    => 'edit_posts',
 		'sd-ai-agent/get-site-block-usage'               => 'edit_posts',

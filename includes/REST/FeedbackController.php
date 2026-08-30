@@ -46,8 +46,8 @@ final class FeedbackController extends XWP_REST_Controller {
 	/**
 	 * Handle GET /feedback/preview — return the sanitized payload for modal preview.
 	 *
-	 * When message_index >= 0, only the targeted message +/- 2 surrounding messages
-	 * are included (thumbs-down scoped context, t186).
+	 * When message_index >= 0, only the user turn containing the targeted response
+	 * is included (thumbs-down scoped context, t186).
 	 *
 	 * @param WP_REST_Request $request REST request.
 	 * @return WP_REST_Response|WP_Error
@@ -103,8 +103,8 @@ final class FeedbackController extends XWP_REST_Controller {
 	/**
 	 * Handle POST /feedback/send — build, sanitize, and forward the report.
 	 *
-	 * When message_index >= 0, only the targeted message +/- 2 surrounding messages
-	 * are included in the report (thumbs-down scoped context, t186).
+	 * When message_index >= 0, only the user turn containing the targeted response
+	 * is included in the report (thumbs-down scoped context, t186).
 	 *
 	 * @param WP_REST_Request $request REST request.
 	 * @return WP_REST_Response|WP_Error

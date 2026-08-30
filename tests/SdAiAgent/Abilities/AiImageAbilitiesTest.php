@@ -11,9 +11,12 @@ namespace SdAiAgent\Tests\Abilities;
 
 use SdAiAgent\Abilities\AiImageAbilities;
 use SdAiAgent\Abilities\ImageAbilities\GenerateImageAbility;
+use SdAiAgent\Bootstrap\SuperdavAiProviderHandler;
+use SdAiAgent\Core\CredentialResolver;
 use SdAiAgent\Core\Settings;
 use SdAiAgent\Core\ToolPermissionResolver;
 use SdAiAgent\Infrastructure\AiClient\Superdav\SuperdavAiProvider;
+use WordPress\AiClient\AiClient;
 use WordPress\AiClient\Providers\Models\DTO\ModelConfig;
 use WP_UnitTestCase;
 
@@ -21,6 +24,61 @@ use WP_UnitTestCase;
  * Test AiImageAbilities handler methods.
  */
 class AiImageAbilitiesTest extends WP_UnitTestCase {
+
+	/**
+	 * Image generation remains discoverable so a missing provider produces an
+	 * actionable prerequisite message rather than an absent tool.
+	 */
+	public function test_generate_image_registers_without_a_configured_provider(): void {
+		if ( ! function_exists( 'wp_register_ability' ) || ! function_exists( 'wp_get_ability' ) ) {
+			$this->markTestSkipped( 'WP 7.0+ Abilities API is unavailable.' );
+		}
+
+		$previousSettings    = get_option( Settings::OPTION_NAME, null );
+		$previousCredentials = get_option( CredentialResolver::AI_EXPERIMENTS_CREDENTIALS_OPTION, null );
+		$previousToken       = get_option( SuperdavAiProvider::CREDENTIAL_OPTION, null );
+
+		delete_option( Settings::OPTION_NAME );
+		delete_option( CredentialResolver::AI_EXPERIMENTS_CREDENTIALS_OPTION );
+		delete_option( SuperdavAiProvider::CREDENTIAL_OPTION );
+
+		try {
+			$method = new \ReflectionMethod( GenerateImageAbility::class, 'is_image_generation_supported' );
+			$method->setAccessible( true );
+			$this->assertFalse( $method->invoke( null ), 'Image generation must be unavailable without provider credentials.' );
+
+			if ( function_exists( 'wp_unregister_ability' ) ) {
+				wp_unregister_ability( 'sd-ai-agent/generate-image' );
+			}
+
+			// phpcs:ignore WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedVariableFound -- Standard WordPress test global.
+			global $wp_current_filter;
+			$wp_current_filter[] = 'wp_abilities_api_init';
+			GenerateImageAbility::register();
+			array_pop( $wp_current_filter );
+
+			$ability = wp_get_ability( 'sd-ai-agent/generate-image' );
+
+			$this->assertNotNull( $ability );
+			$this->assertStringContainsString( 'Connectors settings page', $ability->get_description() );
+		} finally {
+			if ( null === $previousSettings ) {
+				delete_option( Settings::OPTION_NAME );
+			} else {
+				update_option( Settings::OPTION_NAME, $previousSettings );
+			}
+			if ( null === $previousCredentials ) {
+				delete_option( CredentialResolver::AI_EXPERIMENTS_CREDENTIALS_OPTION );
+			} else {
+				update_option( CredentialResolver::AI_EXPERIMENTS_CREDENTIALS_OPTION, $previousCredentials );
+			}
+			if ( null === $previousToken ) {
+				delete_option( SuperdavAiProvider::CREDENTIAL_OPTION );
+			} else {
+				update_option( SuperdavAiProvider::CREDENTIAL_OPTION, $previousToken, false );
+			}
+		}
+	}
 
 	// ─── handle_generate ──────────────────────────────────────────
 
@@ -158,6 +216,112 @@ class AiImageAbilitiesTest extends WP_UnitTestCase {
 		$this->assertFalse( $meta['annotations']['destructive'] );
 		$this->assertSame( 'write', ToolPermissionResolver::classify_ability( $ability ) );
 		$this->assertFalse( ToolPermissionResolver::ability_needs_confirmation( 'sd-ai-agent/generate-image', $ability, [] ) );
+	}
+
+	/**
+	 * A stale managed token should be refreshed before image support is rejected.
+	 *
+	 * @runInSeparateProcess
+	 * @preserveGlobalState disabled
+	 */
+	public function test_generate_image_recovers_stale_superdav_model_discovery(): void {
+		if ( ! class_exists( AiClient::class ) ) {
+			$this->markTestSkipped( 'WordPress AI Client SDK is unavailable.' );
+		}
+
+		$previous_token   = get_option( SuperdavAiProvider::CREDENTIAL_OPTION, null );
+		$base_url         = 'https://image-service.example/v1';
+		$models_url       = $base_url . '/models';
+		$registration_url = $base_url . '/site/installations';
+		$model_hits        = 0;
+		$registration_hits = 0;
+
+		$base_url_filter = static fn(): string => $base_url;
+		$http_filter     = static function ( mixed $preempt, array $parsed_args, string $url ) use ( $models_url, $registration_url, &$model_hits, &$registration_hits ): mixed {
+			if ( $registration_url === $url ) {
+				++$registration_hits;
+
+				return array(
+					'response' => array(
+						'code'    => 201,
+						'message' => 'Created',
+					),
+					'body'     => wp_json_encode( array( 'site_token' => 'sdaist_refreshed_image_token' ) ),
+				);
+			}
+
+			if ( $models_url !== $url ) {
+				return $preempt;
+			}
+
+			++$model_hits;
+			$headers       = (array) ( $parsed_args['headers'] ?? array() );
+			$authorization = '';
+			foreach ( $headers as $name => $value ) {
+				if ( 'authorization' === strtolower( (string) $name ) ) {
+					$authorization = is_array( $value ) ? (string) reset( $value ) : (string) $value;
+					break;
+				}
+			}
+
+			if ( 'Bearer sdaist_refreshed_image_token' !== $authorization ) {
+				return array(
+					'response' => array(
+						'code'    => 401,
+						'message' => 'Unauthorized',
+					),
+					'body'     => wp_json_encode( array( 'error' => array( 'message' => 'Invalid site token.' ) ) ),
+				);
+			}
+
+			return array(
+				'response' => array(
+					'code'    => 200,
+					'message' => 'OK',
+				),
+				'body'     => wp_json_encode(
+					array(
+						'data' => array(
+							array(
+								'id'           => SuperdavAiProvider::IMAGE_MODEL_ID,
+								'capabilities' => array( 'image_generation' ),
+							),
+						),
+					)
+				),
+			);
+		};
+
+		add_filter( 'sd_ai_agent_cloud_base_url', $base_url_filter );
+		add_filter( 'pre_http_request', $http_filter, 10, 3 );
+		update_option( SuperdavAiProvider::CREDENTIAL_OPTION, 'sdaist_stale_image_token', false );
+		( new SuperdavAiProviderHandler() )->register_provider();
+
+		$directory = SuperdavAiProvider::modelMetadataDirectory();
+		if ( method_exists( $directory, 'invalidateCaches' ) ) {
+			$directory->invalidateCaches();
+		}
+
+		try {
+			$method = new \ReflectionMethod( GenerateImageAbility::class, 'is_image_generation_supported' );
+			$method->setAccessible( true );
+
+			$this->assertTrue( $method->invoke( null ) );
+			$this->assertSame( 3, $model_hits );
+			$this->assertSame( 1, $registration_hits );
+			$this->assertSame( 'sdaist_refreshed_image_token', get_option( SuperdavAiProvider::CREDENTIAL_OPTION, '' ) );
+		} finally {
+			remove_filter( 'sd_ai_agent_cloud_base_url', $base_url_filter );
+			remove_filter( 'pre_http_request', $http_filter, 10 );
+			if ( method_exists( $directory, 'invalidateCaches' ) ) {
+				$directory->invalidateCaches();
+			}
+			if ( null === $previous_token ) {
+				delete_option( SuperdavAiProvider::CREDENTIAL_OPTION );
+			} else {
+				update_option( SuperdavAiProvider::CREDENTIAL_OPTION, $previous_token, false );
+			}
+		}
 	}
 
 	/**
@@ -408,7 +572,8 @@ class AiImageAbilitiesTest extends WP_UnitTestCase {
 			->onlyMethods( [ 'generate_and_import' ] )
 			->getMock();
 
-		$ability->method( 'generate_and_import' )
+		$ability->expects( $this->once() )
+			->method( 'generate_and_import' )
 			->willReturn( new \WP_Error( 'generation_failed', 'Mock failure.' ) );
 
 		/** @var array<string,mixed>|\WP_Error $result */
@@ -452,6 +617,9 @@ class AiImageAbilitiesTest extends WP_UnitTestCase {
 		$reflection->setAccessible( true );
 		/** @var array<string,mixed>|\WP_Error $import_result */
 		$import_result = $reflection->invoke( $real_ability, $tmp_file, 'Test Provenance Image', 0 );
+		$this->assertTrue( function_exists( 'wp_handle_sideload' ), 'The file-handling dependency must be loaded for non-admin requests.' );
+		$this->assertTrue( function_exists( 'wp_generate_attachment_metadata' ), 'The image metadata dependency must be loaded for non-admin requests.' );
+		$this->assertTrue( function_exists( 'media_handle_sideload' ), 'The media sideload dependency must be loaded for non-admin requests.' );
 
 		if ( is_wp_error( $import_result ) ) {
 			$this->markTestSkipped( 'media_handle_sideload unavailable in this test environment: ' . $import_result->get_error_message() );

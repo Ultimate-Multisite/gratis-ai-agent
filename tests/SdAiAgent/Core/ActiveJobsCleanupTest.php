@@ -34,14 +34,19 @@ use WP_UnitTestCase;
 class ActiveJobsCleanupTest extends WP_UnitTestCase {
 
 	/**
+	 * Remove rows left by an interrupted earlier run before each test.
+	 */
+	public function set_up(): void {
+		parent::set_up();
+
+		$this->delete_test_rows();
+	}
+
+	/**
 	 * Remove all test rows and unschedule cron events after each test.
 	 */
 	public function tear_down(): void {
-		global $wpdb;
-		/** @var \wpdb $wpdb */
-
-		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Test cleanup.
-		$wpdb->query( 'DELETE FROM ' . ActiveJobRepository::table_name() . " WHERE job_id LIKE 'test-%'" );
+		$this->delete_test_rows();
 		ActiveJobsCleanupService::unschedule();
 		remove_all_actions( 'sd_ai_agent_stale_jobs_reaped' );
 		remove_all_actions( 'sd_ai_agent_terminal_job_diagnostics_pruned' );
@@ -49,6 +54,17 @@ class ActiveJobsCleanupTest extends WP_UnitTestCase {
 		remove_all_filters( 'sd_ai_agent_job_diagnostic_retention_days' );
 
 		parent::tear_down();
+	}
+
+	/**
+	 * Delete active-jobs fixtures owned by this test class.
+	 */
+	private function delete_test_rows(): void {
+		global $wpdb;
+		/** @var \wpdb $wpdb */
+
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Test fixture isolation.
+		$wpdb->query( 'DELETE FROM ' . ActiveJobRepository::table_name() . " WHERE job_id LIKE 'test-%'" );
 	}
 
 	// ── Helpers ──────────────────────────────────────────────────────────

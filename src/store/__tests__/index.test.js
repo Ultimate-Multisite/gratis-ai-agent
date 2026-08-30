@@ -73,6 +73,7 @@ const {
 } = require( '../slices/active-job-failure-diagnostic' );
 const apiFetch = require( '@wordpress/api-fetch' );
 const { executeClientAbility } = require( '../../abilities/registry' );
+const clientToolRunner = require( '../slices/client-tool-runner' );
 
 // ─── Default state ────────────────────────────────────────────────────────────
 
@@ -330,6 +331,49 @@ describe( 'actions', () => {
 
 	test( 'fetchSessions returns a thunk function', () => {
 		expect( typeof actions.fetchSessions() ).toBe( 'function' );
+	} );
+
+	test( 'Trash bulk actions call their endpoints and refresh sessions', async () => {
+		apiFetch.mockReset();
+		apiFetch.mockResolvedValue( { updated: 2 } );
+		const dispatch = {
+			fetchSessions: jest.fn(),
+			clearCurrentSession: jest.fn(),
+		};
+		const select = { getCurrentSessionId: jest.fn( () => null ) };
+
+		await actions.bulkSessionAction(
+			[ 4, 5 ],
+			'restore'
+		)( {
+			dispatch,
+			select,
+		} );
+		expect( apiFetch ).toHaveBeenLastCalledWith( {
+			path: '/sd-ai-agent/v1/sessions/bulk',
+			method: 'POST',
+			data: { ids: [ 4, 5 ], action: 'restore' },
+		} );
+
+		await actions.bulkSessionAction(
+			[ 4, 5 ],
+			'delete'
+		)( {
+			dispatch,
+			select,
+		} );
+		expect( apiFetch ).toHaveBeenLastCalledWith( {
+			path: '/sd-ai-agent/v1/sessions/bulk',
+			method: 'POST',
+			data: { ids: [ 4, 5 ], action: 'delete' },
+		} );
+
+		await actions.emptySessionTrash()( { dispatch, select } );
+		expect( apiFetch ).toHaveBeenLastCalledWith( {
+			path: '/sd-ai-agent/v1/sessions/trash',
+			method: 'DELETE',
+		} );
+		expect( dispatch.fetchSessions ).toHaveBeenCalledTimes( 3 );
 	} );
 
 	test( 'sendMessage returns a thunk function', () => {
@@ -723,6 +767,52 @@ describe( 'actions', () => {
 		} );
 	} );
 
+	test( 'pollJob starts only one poller for the same session and job', async () => {
+		jest.useFakeTimers();
+		apiFetch.mockReset();
+		apiFetch.mockResolvedValue( {
+			status: 'complete',
+			tool_calls: [],
+		} );
+
+		const dispatch = {
+			setCurrentJobId: jest.fn(),
+			setSessionJob: jest.fn(),
+			setSending: jest.fn(),
+			setLiveToolCalls: jest.fn(),
+			drainMessageQueue: jest.fn(),
+		};
+		const select = {
+			getCurrentSessionId: jest.fn( () => 17 ),
+		};
+
+		try {
+			actions.pollJob(
+				'deduplicated-job',
+				17
+			)( {
+				dispatch,
+				select,
+			} );
+			actions.pollJob(
+				'deduplicated-job',
+				17
+			)( {
+				dispatch,
+				select,
+			} );
+			await jest.advanceTimersByTimeAsync( 2000 );
+
+			expect( apiFetch ).toHaveBeenCalledTimes( 1 );
+			expect( apiFetch ).toHaveBeenCalledWith( {
+				path: '/sd-ai-agent/v1/job/deduplicated-job',
+			} );
+		} finally {
+			jest.clearAllTimers();
+			jest.useRealTimers();
+		}
+	} );
+
 	test( 'pollJob executes only server-confirmed mutating client abilities', async () => {
 		jest.useFakeTimers();
 		apiFetch.mockReset();
@@ -786,12 +876,379 @@ describe( 'actions', () => {
 						{
 							id: 'call-unconfirmed-insert',
 							name: 'sd-ai-agent-js/insert-block',
-							error: 'Client-side ability requires explicit user confirmation.',
+							error: 'Confirmation required.',
 						},
 					],
 				},
 			} );
 		} finally {
+			jest.clearAllTimers();
+			jest.useRealTimers();
+		}
+	} );
+
+	test( 'pollJob posts normalized failures when the client tool runner rejects', async () => {
+		jest.useFakeTimers();
+		apiFetch.mockReset();
+		const runnerError = new Error( 'Client tool runner failed to load.' );
+		const runClientTools = jest
+			.spyOn( clientToolRunner, 'runClientTools' )
+			.mockRejectedValueOnce( runnerError );
+		apiFetch.mockImplementation( ( request ) => {
+			if ( request.path === '/sd-ai-agent/v1/job/runner-failure-job' ) {
+				return Promise.resolve( {
+					status: 'awaiting_client_tools',
+					pending_client_tool_calls: [
+						{
+							id: 'runner-failure-screenshot',
+							name: 'sd-ai-agent-js/screenshot-url',
+							annotations: { readonly: true },
+							args: { url: '/' },
+						},
+					],
+				} );
+			}
+
+			return Promise.resolve( { status: 'processing' } );
+		} );
+
+		const dispatch = {
+			setCurrentJobId: jest.fn(),
+			setSessionJob: jest.fn(),
+		};
+		const select = {
+			getCurrentSessionId: jest.fn( () => 17 ),
+			getCurrentJobId: jest.fn( () => 'runner-failure-job' ),
+		};
+
+		try {
+			actions.pollJob( 'runner-failure-job', 17 )( { dispatch, select } );
+			await jest.advanceTimersByTimeAsync( 2000 );
+
+			expect( runClientTools ).toHaveBeenCalledTimes( 1 );
+			expect( apiFetch ).toHaveBeenCalledWith( {
+				path: '/sd-ai-agent/v1/chat/tool-result',
+				method: 'POST',
+				data: {
+					session_id: 17,
+					job_id: 'runner-failure-job',
+					tool_results: [
+						{
+							id: 'runner-failure-screenshot',
+							name: 'sd-ai-agent-js/screenshot-url',
+							error: runnerError.message,
+						},
+					],
+				},
+			} );
+		} finally {
+			runClientTools.mockRestore();
+			jest.clearAllTimers();
+			jest.useRealTimers();
+		}
+	} );
+
+	test( 'pollJob waits for restored client-ability callbacks before executing or posting once', async () => {
+		jest.useFakeTimers();
+		apiFetch.mockReset();
+		executeClientAbility.mockReset();
+		let resolveReadiness;
+		window.__sdAiAgentAbilitiesRegistering = new Promise( ( resolve ) => {
+			resolveReadiness = resolve;
+		} );
+		executeClientAbility.mockResolvedValue( { captured: true } );
+		apiFetch.mockImplementation( ( request ) => {
+			if (
+				request.path === '/sd-ai-agent/v1/job/restored-client-tool-job'
+			) {
+				return Promise.resolve( {
+					status: 'awaiting_client_tools',
+					pending_client_tool_calls: [
+						{
+							id: 'restored-screenshot',
+							name: 'sd-ai-agent-js/screenshot-url',
+							annotations: { readonly: true },
+							args: { url: '/' },
+						},
+					],
+				} );
+			}
+
+			return Promise.resolve( {} );
+		} );
+
+		const dispatch = {
+			setCurrentJobId: jest.fn(),
+			setSessionJob: jest.fn(),
+		};
+		const select = {
+			getCurrentSessionId: jest.fn( () => 17 ),
+			getCurrentJobId: jest.fn( () => 'restored-client-tool-job' ),
+		};
+
+		try {
+			actions.pollJob(
+				'restored-client-tool-job',
+				17
+			)( {
+				dispatch,
+				select,
+			} );
+			await jest.advanceTimersByTimeAsync( 2000 );
+
+			expect( executeClientAbility ).not.toHaveBeenCalled();
+			expect(
+				apiFetch.mock.calls.filter(
+					( [ request ] ) =>
+						request.path === '/sd-ai-agent/v1/chat/tool-result'
+				)
+			).toHaveLength( 0 );
+
+			resolveReadiness();
+			await jest.advanceTimersByTimeAsync( 0 );
+
+			expect( executeClientAbility ).toHaveBeenCalledTimes( 1 );
+			expect( apiFetch ).toHaveBeenCalledWith( {
+				path: '/sd-ai-agent/v1/chat/tool-result',
+				method: 'POST',
+				data: {
+					session_id: 17,
+					job_id: 'restored-client-tool-job',
+					tool_results: [
+						{
+							id: 'restored-screenshot',
+							name: 'sd-ai-agent-js/screenshot-url',
+							result: { captured: true },
+						},
+					],
+				},
+			} );
+		} finally {
+			delete window.__sdAiAgentAbilitiesRegistering;
+			jest.clearAllTimers();
+			jest.useRealTimers();
+		}
+	} );
+
+	test( 'pollJob posts a bounded readiness failure without executing client abilities', async () => {
+		jest.useFakeTimers();
+		apiFetch.mockReset();
+		executeClientAbility.mockReset();
+		let rejectReadiness;
+		window.__sdAiAgentAbilitiesRegistering = new Promise(
+			( _resolve, reject ) => {
+				rejectReadiness = reject;
+			}
+		);
+		apiFetch.mockImplementation( ( request ) => {
+			if (
+				request.path === '/sd-ai-agent/v1/job/readiness-failure-job'
+			) {
+				return Promise.resolve( {
+					status: 'awaiting_client_tools',
+					pending_client_tool_calls: [
+						{
+							id: 'failed-readiness-screenshot',
+							name: 'sd-ai-agent-js/screenshot-url',
+							annotations: { readonly: true },
+							args: { url: '/' },
+						},
+					],
+				} );
+			}
+
+			return Promise.resolve( {} );
+		} );
+
+		const dispatch = {
+			setCurrentJobId: jest.fn(),
+			setSessionJob: jest.fn(),
+		};
+		const select = {
+			getCurrentSessionId: jest.fn( () => 17 ),
+			getCurrentJobId: jest.fn( () => 'readiness-failure-job' ),
+		};
+
+		try {
+			actions.pollJob(
+				'readiness-failure-job',
+				17
+			)( {
+				dispatch,
+				select,
+			} );
+			await jest.advanceTimersByTimeAsync( 2000 );
+			rejectReadiness( new Error( '' ) );
+			await jest.advanceTimersByTimeAsync( 0 );
+
+			expect( executeClientAbility ).not.toHaveBeenCalled();
+			expect( apiFetch ).toHaveBeenCalledWith( {
+				path: '/sd-ai-agent/v1/chat/tool-result',
+				method: 'POST',
+				data: {
+					session_id: 17,
+					job_id: 'readiness-failure-job',
+					tool_results: [
+						{
+							id: 'failed-readiness-screenshot',
+							name: 'sd-ai-agent-js/screenshot-url',
+							error: 'Error',
+						},
+					],
+				},
+			} );
+		} finally {
+			delete window.__sdAiAgentAbilitiesRegistering;
+			jest.clearAllTimers();
+			jest.useRealTimers();
+		}
+	} );
+
+	test( 'pollJob times out stalled client-ability registration without executing abilities', async () => {
+		jest.useFakeTimers();
+		apiFetch.mockReset();
+		executeClientAbility.mockReset();
+		window.__sdAiAgentAbilitiesRegistering = new Promise( () => {} );
+		apiFetch.mockImplementation( ( request ) => {
+			if (
+				request.path === '/sd-ai-agent/v1/job/readiness-timeout-job'
+			) {
+				return Promise.resolve( {
+					status: 'awaiting_client_tools',
+					pending_client_tool_calls: [
+						{
+							id: 'timed-out-readiness-screenshot',
+							name: 'sd-ai-agent-js/screenshot-url',
+							annotations: { readonly: true },
+							args: { url: '/' },
+						},
+					],
+				} );
+			}
+
+			return Promise.resolve( {} );
+		} );
+
+		const dispatch = {
+			setCurrentJobId: jest.fn(),
+			setSessionJob: jest.fn(),
+		};
+		const select = {
+			getCurrentSessionId: jest.fn( () => 17 ),
+			getCurrentJobId: jest.fn( () => 'readiness-timeout-job' ),
+		};
+
+		try {
+			actions.pollJob(
+				'readiness-timeout-job',
+				17
+			)( {
+				dispatch,
+				select,
+			} );
+			await jest.advanceTimersByTimeAsync( 2000 );
+			await jest.advanceTimersByTimeAsync( 30_000 );
+
+			expect( executeClientAbility ).not.toHaveBeenCalled();
+			expect( apiFetch ).toHaveBeenCalledWith( {
+				path: '/sd-ai-agent/v1/chat/tool-result',
+				method: 'POST',
+				data: {
+					session_id: 17,
+					job_id: 'readiness-timeout-job',
+					tool_results: [
+						{
+							id: 'timed-out-readiness-screenshot',
+							name: 'sd-ai-agent-js/screenshot-url',
+							error: 'Client ability registration timed out after 30 seconds.',
+						},
+					],
+				},
+			} );
+		} finally {
+			delete window.__sdAiAgentAbilitiesRegistering;
+			jest.clearAllTimers();
+			jest.useRealTimers();
+		}
+	} );
+
+	test( 'pollJob gives a restored client ability its full timeout after readiness', async () => {
+		jest.useFakeTimers();
+		apiFetch.mockReset();
+		executeClientAbility.mockReset();
+		let resolveReadiness;
+		window.__sdAiAgentAbilitiesRegistering = new Promise( ( resolve ) => {
+			resolveReadiness = resolve;
+		} );
+		executeClientAbility.mockImplementation(
+			() => new Promise( () => {} )
+		);
+		apiFetch.mockImplementation( ( request ) => {
+			if ( request.path === '/sd-ai-agent/v1/job/readiness-window-job' ) {
+				return Promise.resolve( {
+					status: 'awaiting_client_tools',
+					pending_client_tool_calls: [
+						{
+							id: 'readiness-window-screenshot',
+							name: 'sd-ai-agent-js/screenshot-url',
+							annotations: { readonly: true },
+							args: { url: '/' },
+						},
+					],
+				} );
+			}
+
+			return Promise.resolve( {} );
+		} );
+
+		const dispatch = {
+			setCurrentJobId: jest.fn(),
+			setSessionJob: jest.fn(),
+		};
+		const select = {
+			getCurrentSessionId: jest.fn( () => 17 ),
+			getCurrentJobId: jest.fn( () => 'readiness-window-job' ),
+		};
+
+		try {
+			actions.pollJob(
+				'readiness-window-job',
+				17
+			)( {
+				dispatch,
+				select,
+			} );
+			await jest.advanceTimersByTimeAsync( 29000 );
+			resolveReadiness();
+			await jest.advanceTimersByTimeAsync( 0 );
+			await jest.advanceTimersByTimeAsync( 29000 );
+
+			expect( executeClientAbility ).toHaveBeenCalledTimes( 1 );
+			expect(
+				apiFetch.mock.calls.filter(
+					( [ request ] ) =>
+						request.path === '/sd-ai-agent/v1/chat/tool-result'
+				)
+			).toHaveLength( 0 );
+
+			await jest.advanceTimersByTimeAsync( 1000 );
+			expect( apiFetch ).toHaveBeenCalledWith( {
+				path: '/sd-ai-agent/v1/chat/tool-result',
+				method: 'POST',
+				data: {
+					session_id: 17,
+					job_id: 'readiness-window-job',
+					tool_results: [
+						{
+							id: 'readiness-window-screenshot',
+							name: 'sd-ai-agent-js/screenshot-url',
+							error: 'Client tool timed out after 30 seconds.',
+						},
+					],
+				},
+			} );
+		} finally {
+			delete window.__sdAiAgentAbilitiesRegistering;
 			jest.clearAllTimers();
 			jest.useRealTimers();
 		}
@@ -850,6 +1307,68 @@ describe( 'actions', () => {
 							id: 'call-screenshot',
 							name: 'sd-ai-agent-js/capture-screenshot',
 							error: 'Client tool timed out after 30 seconds.',
+						},
+					],
+				},
+			} );
+		} finally {
+			jest.clearAllTimers();
+			jest.useRealTimers();
+		}
+	} );
+
+	test( 'pollJob allows page-quality validation to exceed the generic client timeout', async () => {
+		jest.useFakeTimers();
+		apiFetch.mockReset();
+		executeClientAbility.mockReset();
+		executeClientAbility.mockImplementation(
+			() =>
+				new Promise( ( resolve ) =>
+					setTimeout( () => resolve( { passed: true } ), 35000 )
+				)
+		);
+		apiFetch.mockImplementation( ( request ) => {
+			if ( request.path === '/sd-ai-agent/v1/job/page-quality-job' ) {
+				return Promise.resolve( {
+					status: 'awaiting_client_tools',
+					pending_client_tool_calls: [
+						{
+							id: 'call-page-quality',
+							name: 'sd-ai-agent-js/validate-page-quality',
+							annotations: { readonly: true },
+							args: { profile: 'setup' },
+						},
+					],
+				} );
+			}
+
+			return Promise.resolve( {} );
+		} );
+
+		const dispatch = {
+			setCurrentJobId: jest.fn(),
+			setSessionJob: jest.fn(),
+		};
+		const select = {
+			getCurrentSessionId: jest.fn( () => 17 ),
+			getCurrentJobId: jest.fn( () => 'page-quality-job' ),
+		};
+
+		try {
+			actions.pollJob( 'page-quality-job', 17 )( { dispatch, select } );
+			await jest.advanceTimersByTimeAsync( 37000 );
+
+			expect( apiFetch ).toHaveBeenCalledWith( {
+				path: '/sd-ai-agent/v1/chat/tool-result',
+				method: 'POST',
+				data: {
+					session_id: 17,
+					job_id: 'page-quality-job',
+					tool_results: [
+						{
+							id: 'call-page-quality',
+							name: 'sd-ai-agent-js/validate-page-quality',
+							result: { passed: true },
 						},
 					],
 				},

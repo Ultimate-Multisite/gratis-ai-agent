@@ -29,6 +29,26 @@ if ( ! defined( 'ABSPATH' ) ) {
 class FileModGate {
 
 	/**
+	 * Whether the current request may mutate shared plugin or theme code.
+	 *
+	 * Plugin and theme directories are shared across sites in multisite. Limit
+	 * broad code mutations to the primary network's main site so a customer
+	 * subsite or isolated customer network cannot change code for other tenants.
+	 *
+	 * @return bool True when shared code mutations are allowed.
+	 */
+	public static function shared_code_modifications_allowed(): bool {
+		$allowed = ! is_multisite() || ( is_main_network() && is_main_site() );
+
+		/**
+		 * Filter whether the current request may mutate shared plugin/theme code.
+		 *
+		 * @param bool $allowed Whether shared code mutations are allowed.
+		 */
+		return (bool) apply_filters( 'sd_ai_agent_allow_shared_code_modifications', $allowed );
+	}
+
+	/**
 	 * Resolve the file modification context for a given path.
 	 *
 	 * Determines whether a path falls under plugin_files, theme_files, or
@@ -85,6 +105,14 @@ class FileModGate {
 	 */
 	public static function assert_allowed( string $path ) {
 		$context = self::context_for_path( $path );
+
+		if ( in_array( $context, [ 'plugin_files', 'theme_files' ], true ) && ! self::shared_code_modifications_allowed() ) {
+			return new WP_Error(
+				'sd_ai_agent_shared_code_mod_not_allowed',
+				'Shared plugin and theme files cannot be modified from a customer site.',
+				[ 'status' => 403 ]
+			);
+		}
 
 		if ( ! wp_is_file_mod_allowed( $context ) ) {
 			return new WP_Error(

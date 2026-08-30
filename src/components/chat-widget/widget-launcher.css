@@ -34,7 +34,7 @@
 		ui-monospace, sfmono-regular, "SF Mono", Menlo, Consolas, monospace;
 }
 
-.sdaa-w-launcher {
+.sd-ai-agent-w-launcher {
 	position: fixed;
 	right: 36px;
 	bottom: 28px;
@@ -55,25 +55,25 @@
 	transition: transform var(--sdaa-w-duration), background var(--sdaa-w-duration);
 }
 
-.sdaa-w-launcher:hover {
+.sd-ai-agent-w-launcher:hover {
 	background: var(--sdaa-w-primary-dark);
 	transform: translateY(-1px);
 }
 
-.sdaa-w-launcher svg {
+.sd-ai-agent-w-launcher svg {
 	width: 24px;
 	height: 24px;
 	fill: currentcolor;
 }
 
-.sdaa-w-launcher-logo {
+.sd-ai-agent-w-launcher-logo {
 	width: 26px;
 	height: 26px;
 	border-radius: 3px;
 	object-fit: contain;
 }
 
-.sdaa-w-launcher-pulse {
+.sd-ai-agent-w-launcher-pulse {
 	position: absolute;
 	top: -2px;
 	right: -2px;
@@ -85,7 +85,7 @@
 	animation: sdaa-w-pulse 1.5s ease-in-out infinite;
 }
 
-.sdaa-w-launcher-badge {
+.sd-ai-agent-w-launcher-badge {
 	position: absolute;
 	top: -4px;
 	right: -4px;
@@ -118,14 +118,14 @@
 }
 
 @media (max-width: 500px) {
-	.sdaa-w-launcher {
+	.sd-ai-agent-w-launcher {
 		right: 16px;
 		bottom: 16px;
 		width: 44px;
 		height: 44px;
 	}
 
-	.sdaa-w-launcher svg {
+	.sd-ai-agent-w-launcher svg {
 		width: 20px;
 		height: 20px;
 	}

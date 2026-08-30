@@ -97,6 +97,17 @@ Never set a custom font family. The plugin must feel native to the admin environ
 ### General rule
 Use `@wordpress/components` for every interactive element. Do not reach for raw `<button>` or `<input>` elements unless unavoidable (e.g. hidden file inputs). Using WordPress components ensures keyboard accessibility, focus management, and visual consistency come for free.
 
+### Privacy review screens
+- Use a compact filterable summary list with an explicit detail selection; never place transcript text, profile identifiers, tokens, hashes, tool data, or raw provider payloads in list rows.
+- Keep transcript detail text-only, bounded, and visibly separate from its summary. Use pagination to load earlier retained messages instead of rendering an unbounded conversation at once.
+- Deletion and purge controls are destructive secondary buttons. Require a native confirmation dialog or WordPress modal before calling the API, and clearly state that retained content cannot be restored.
+
+### Conversation Trash
+- Show selection controls only while the Trash filter is active; keep normal conversation rows uncluttered.
+- Group **Restore** and **Delete permanently** as bulk actions, disable them until at least one conversation is selected, and provide a separate **Empty Trash** action for the whole filtered Trash.
+- Require one clear confirmation for each permanent bulk deletion or Empty Trash action. Restoring conversations does not require confirmation.
+- Automatic cleanup is opt-in. A retention value of `0` means trashed conversations remain until manually deleted.
+
 ### Buttons
 
 **Primary action** (send, save, confirm):
@@ -204,6 +215,17 @@ System notices:
 - Hover: `border-color: --wp-admin-theme-color`, `box-shadow: 0 2px 8px rgba(0,0,0,.06)`
 - No transform or scale on hover — keep transitions to colour/border only
 
+### Monitor/Pulse settings
+
+- Keep **Scheduled Tasks** and **Monitor/Pulse** as separate settings surfaces. Tasks perform work on every schedule; a Monitor assesses a checklist and only notifies when attention is needed.
+- A newly saved Monitor, template-derived Monitor, or edited disabled Monitor is visibly a **Disabled draft**. Show the consent explanation before its configuration metadata and never imply that saving, editing, revisiting the page, or checking a draft schedules it.
+- Event wakes are separate consent from recurring monitoring: list only server-provided approved sources, keep the opt-in disabled until at least one source is selected, explain that wakes are coalesced and processed by WP-Cron, and show only compact queue counts rather than event payloads.
+- A disabled card has one primary opt-in action: **Enable monitoring**. **Check now** is a secondary action available only on a disabled draft and must be labelled as a one-off check, not a scheduling shortcut.
+- Show outcome, cadence, owner, tool profile, notification policy, last check, and next expected time in a compact definition list. Explain that WP-Cron timing is traffic-dependent; do not use an expected time as a health or on-time promise.
+- Outcome badges use semantic WordPress admin colours: quiet/success, attention-needed/warning, and blocked/error. Keep the latest summary and error bounded, text-only, and visually distinct from configuration controls.
+- Keep durable log inspection behind an explicit **Inspect logs** action. Delete remains a destructive secondary action with a native confirmation dialog.
+- On compact screens, stack Monitor headers, action rows, form fields, notification-channel controls, and detail metadata into one column without hiding consent or outcome context.
+
 ### SD AI Account Card
 
 - Show the verified linked user's display name, masked email, and a concise “Email verified” status above wallet details.
@@ -256,6 +278,13 @@ Base unit: **4px**
 - Row order (left to right): templates icon → upload icon → textarea → mic icon → send/stop icon
 - All icon buttons: 32×32px, consistent spacing (`gap: 5px`)
 - Textarea grows with content; `resize: none`
+
+**Block-editor context:**
+- In the Gutenberg editor, place a compact selected-block chip and editor-mutation status immediately above the composer frame.
+- Keep selection state presentation-only: store block IDs-derived labels and counts, never selected markup or block attributes, and never attach selection content to a chat request automatically.
+- The chip may show two block labels before collapsing the remainder into a count. Its icon-only clear action must clear selection without changing block content and must retain a tooltip, accessible label, and visible keyboard focus.
+- Announce mutation progress and outcomes with one polite atomic live region. Confirm success only when the tool result explicitly reports `applied: true`; stale, rejected, unavailable, and uncertain results require truthful next-step copy.
+- On compact screens, let the chip and mutation copy occupy full rows. In forced-colour mode preserve explicit borders and focus outlines; under reduced-motion preferences stop spinner animation while retaining the textual progress label.
 
 ### Border Radius Scale
 
@@ -382,3 +411,20 @@ When instructing an AI agent to build or modify UI in this plugin, include this 
 Design system for sd-ai-agent WordPress plugin.
 Reflects the interface decisions made during the chat UI redesign (April 2026).
 -->
+
+---
+
+## 10. Public Brand Assets
+
+WordPress.org and promotional artwork extend the restrained WordPress admin
+visual language with fixed brand colours: WordPress blue `#2271b1`, dark blue
+`#135e96`, light blue `#b5d9f3`, charcoal `#1d2327`, and white.
+
+- Use the full **SD AI Agent** wordmark with the blue `AI` sparkle treatment.
+- Keep typography bold, system-native, and immediately legible at half size.
+- Prefer flat colour, generous clear space, and restrained sparkle details;
+  avoid gradients, neon effects, robot imagery, and unsupported exclusivity
+  claims such as “the first”.
+- Use **A native AI agent for WordPress.** as the public positioning line.
+- Keep `.wordpress-org/assets/banner-source.svg` as the editable banner master
+  and export both required `1544x500` and `772x250` PNG files from it.

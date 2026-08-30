@@ -17,6 +17,7 @@ namespace SdAiAgent\Bootstrap;
 use SdAiAgent\Core\ActiveJobsCleanupService;
 use SdAiAgent\Core\OnboardingManager;
 use SdAiAgent\Core\Settings;
+use SdAiAgent\Core\SessionTrashCleanupService;
 use SdAiAgent\Core\SkillUpdateChecker;
 use SdAiAgent\Core\SiteScanner;
 use XWP\DI\Decorators\Action;
@@ -30,6 +31,7 @@ if ( ! defined( 'ABSPATH' ) ) {
  * Wires the smart-onboarding flow and background site-scanner cron job.
  *
  * CTX_GLOBAL is required because the handler spans multiple contexts:
+ * - `init` schedules recurring maintenance on any request context.
  * - `admin_init` fires in CTX_ADMIN.
  * - The site-scanner cron hook fires in CTX_CRON.
  */
@@ -39,6 +41,16 @@ if ( ! defined( 'ABSPATH' ) ) {
 	strategy: Handler::INIT_IMMEDIATELY,
 )]
 final class OnboardingHandler {
+
+	/** Ensure the daily Trash cleanup is scheduled on existing installations. */
+	#[Action( tag: 'init', priority: 10 )]
+	public function schedule_session_trash_cleanup(): void {
+		if ( wp_installing() ) {
+			return;
+		}
+
+		SessionTrashCleanupService::schedule();
+	}
 
 	/**
 	 * Run the background site-scanner cron job.
@@ -70,6 +82,12 @@ final class OnboardingHandler {
 	#[Action( tag: ActiveJobsCleanupService::CRON_HOOK, priority: 10 )]
 	public function run_active_jobs_cleanup(): void {
 		ActiveJobsCleanupService::run();
+	}
+
+	/** Run the daily expired chat Trash cleanup. */
+	#[Action( tag: SessionTrashCleanupService::CRON_HOOK, priority: 10 )]
+	public function run_session_trash_cleanup(): void {
+		SessionTrashCleanupService::run();
 	}
 
 	/**

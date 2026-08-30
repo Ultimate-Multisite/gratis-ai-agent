@@ -119,6 +119,53 @@
 	white-space: pre-wrap;
 }
 
+.sdaa-embed__recording-choice {
+	margin: 0 0 12px;
+	padding: 12px;
+	border: 1px solid var(--sdaa-embed-border);
+	border-radius: 12px;
+	background: var(--sdaa-embed-surface);
+	line-height: 1.45;
+}
+
+.sdaa-embed__recording-choice p {
+	margin: 0;
+}
+
+.sdaa-embed__recording-choice-note {
+	margin-top: 8px !important;
+	color: var(--sdaa-embed-muted);
+	font-size: 13px;
+}
+
+.sdaa-embed__recording-actions {
+	display: flex;
+	margin-top: 12px;
+	gap: 8px;
+}
+
+.sdaa-embed__recording-actions button {
+	flex: 1;
+	padding: 8px 10px;
+	border: 1px solid var(--sdaa-embed-border);
+	border-radius: 999px;
+	background: var(--sdaa-embed-surface);
+	color: var(--sdaa-embed-text);
+	cursor: pointer;
+	font: inherit;
+}
+
+.sdaa-embed__recording-actions .sdaa-embed__recording-accept {
+	border-color: var(--sdaa-embed-primary);
+	background: var(--sdaa-embed-primary);
+	color: #fff;
+}
+
+.sdaa-embed__recording-actions button:disabled {
+	cursor: wait;
+	opacity: 0.65;
+}
+
 .sdaa-embed__message--assistant p,
 .sdaa-embed__message--assistant ul,
 .sdaa-embed__message--assistant ol,

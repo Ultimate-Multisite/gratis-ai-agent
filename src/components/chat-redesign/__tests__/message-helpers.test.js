@@ -5,8 +5,8 @@
  * - pairToolCalls() pairs calls with responses by id and ignores preamble entries.
  * - pairToolCalls() falls back to one item per entry when no call types exist,
  *   while still skipping preamble entries.
- * - buildRunningItems() preserves original emission order across preamble and
- *   call entries, suppresses whitespace-only preambles, and assigns stable keys.
+ * - buildRunningItems() exposes deterministic tool entries while excluding
+ *   provider-generated preamble text.
  * - getRunningToolName() ignores preamble entries when deciding what is in
  *   flight.
  * - extractText() concatenates only text parts.
@@ -22,6 +22,7 @@ import {
 	extractText,
 	getFriendlyToolLabel,
 	getRunningToolName,
+	getToolCallDisplayName,
 	pairToolCalls,
 	parseSuggestions,
 	sanitizeProgressText,
@@ -125,7 +126,7 @@ describe( 'buildRunningItems', () => {
 		expect( buildRunningItems( [] ) ).toEqual( [] );
 	} );
 
-	test( 'preserves emission order across preamble and call entries', () => {
+	test( 'renders tool cards while excluding model preambles', () => {
 		const log = [
 			{ type: 'preamble', text: 'First, let me look that up.' },
 			{ type: 'call', id: 'a', name: 'tool_a', args: {} },
@@ -134,21 +135,20 @@ describe( 'buildRunningItems', () => {
 			{ type: 'call', id: 'b', name: 'tool_b', args: {} },
 		];
 		const items = buildRunningItems( log );
-		expect( items.map( ( i ) => i.kind ) ).toEqual( [
-			'preamble',
-			'pair',
-			'preamble',
-			'pair',
-		] );
-		expect( items[ 0 ].text ).toBe( 'First, let me look that up.' );
-		expect( items[ 1 ].call.id ).toBe( 'a' );
-		expect( items[ 1 ].response.response ).toEqual( { ok: true } );
-		expect( items[ 2 ].text ).toBe( 'Now updating the page.' );
-		expect( items[ 3 ].call.id ).toBe( 'b' );
-		expect( items[ 3 ].response ).toBeNull();
+		expect( items.map( ( i ) => i.kind ) ).toEqual( [ 'pair', 'pair' ] );
+		expect( items[ 0 ].call.id ).toBe( 'a' );
+		expect( items[ 0 ].response.response ).toEqual( { ok: true } );
+		expect( items[ 1 ].call.id ).toBe( 'b' );
+		expect( items[ 1 ].response ).toBeNull();
+		expect( JSON.stringify( items ) ).not.toContain(
+			'First, let me look that up.'
+		);
+		expect( JSON.stringify( items ) ).not.toContain(
+			'Now updating the page.'
+		);
 	} );
 
-	test( 'strips thinking tags from preamble narration', () => {
+	test( 'excludes thinking preambles entirely', () => {
 		const items = buildRunningItems( [
 			{
 				type: 'preamble',
@@ -156,11 +156,10 @@ describe( 'buildRunningItems', () => {
 			},
 		] );
 
-		expect( items ).toHaveLength( 1 );
-		expect( items[ 0 ].text ).toBe( 'Planning templates' );
+		expect( items ).toEqual( [] );
 	} );
 
-	test( 'suppresses whitespace-only preambles', () => {
+	test( 'suppresses preambles while keeping tool cards', () => {
 		const log = [
 			{ type: 'preamble', text: '  \n  ' },
 			{ type: 'preamble', text: '' },
@@ -171,14 +170,14 @@ describe( 'buildRunningItems', () => {
 		expect( items[ 0 ].kind ).toBe( 'pair' );
 	} );
 
-	test( 'assigns stable keys derived from call ids', () => {
+	test( 'assigns stable keys derived from call ids without preambles', () => {
 		const log = [
 			{ type: 'preamble', text: 'A' },
 			{ type: 'call', id: 'call-xyz', name: 'tool_a', args: {} },
 		];
 		const items = buildRunningItems( log );
-		expect( items[ 0 ].key ).toBe( 'preamble-0' );
-		expect( items[ 1 ].key ).toBe( 'call-xyz' );
+		expect( items ).toHaveLength( 1 );
+		expect( items[ 0 ].key ).toBe( 'call-xyz' );
 	} );
 
 	test( 'still works when responses arrive out of order', () => {
@@ -192,6 +191,37 @@ describe( 'buildRunningItems', () => {
 		expect( items ).toHaveLength( 2 );
 		expect( items[ 0 ].response.response ).toEqual( { ok: 'a' } );
 		expect( items[ 1 ].response.response ).toEqual( { ok: 'b' } );
+	} );
+} );
+
+describe( 'tool call display names', () => {
+	test( 'uses the nested target for ability-call dispatches', () => {
+		expect(
+			getToolCallDisplayName( {
+				name: 'wpab__sd-ai-agent__ability-call',
+				args: { ability: 'sd-ai-agent/update-post' },
+			} )
+		).toBe( 'sd-ai-agent/update-post' );
+	} );
+
+	test( 'reads nested targets from JSON-encoded dispatcher arguments', () => {
+		expect(
+			getToolCallDisplayName( {
+				name: 'sd-ai-agent/ability-call',
+				args: '{"ability":"sd-ai-agent/get-theme-json"}',
+			} )
+		).toBe( 'sd-ai-agent/get-theme-json' );
+	} );
+
+	test( 'keeps direct abilities and incomplete dispatches identifiable', () => {
+		expect(
+			getToolCallDisplayName( {
+				name: 'wpab__sd-ai-agent__memory-list',
+			} )
+		).toBe( 'sd-ai-agent/memory-list' );
+		expect(
+			getToolCallDisplayName( { name: 'sd-ai-agent/ability-call' } )
+		).toBe( 'sd-ai-agent/ability-call' );
 	} );
 } );
 
@@ -209,6 +239,18 @@ describe( 'getRunningToolName', () => {
 			{ type: 'call', id: 'a', name: 'wpab__sd-ai-agent__memory-list' },
 		];
 		expect( getRunningToolName( log ) ).toBe( 'sd-ai-agent/memory-list' );
+	} );
+
+	test( 'returns the nested ability while a dispatcher call is running', () => {
+		const log = [
+			{
+				type: 'call',
+				id: 'a',
+				name: 'wpab__sd-ai-agent__ability-call',
+				args: { ability: 'sd-ai-agent/update-post' },
+			},
+		];
+		expect( getRunningToolName( log ) ).toBe( 'sd-ai-agent/update-post' );
 	} );
 
 	test( 'returns null when every call has a response', () => {
@@ -240,10 +282,31 @@ describe( 'friendly tool progress summaries', () => {
 		expect( text ).toContain( 'checking colour contrast' );
 	} );
 
-	test( 'strips reasoning tags while keeping their visible narration', () => {
+	test( 'removes complete and unfinished reasoning blocks', () => {
 		expect(
-			sanitizeProgressText( '<thinking>Planning templates</thinking>' )
-		).toBe( 'Planning templates' );
+			sanitizeProgressText(
+				'Visible<thinking>Planning templates</thinking> text'
+			)
+		).toBe( 'Visible text' );
+		expect( sanitizeProgressText( 'Visible<thinking>Private plan' ) ).toBe(
+			'Visible'
+		);
+	} );
+
+	test( 'shows the nested ability and action for dispatcher calls', () => {
+		const summary = buildToolProgressSummary( [
+			{
+				type: 'call',
+				id: 'update',
+				name: 'wpab__sd-ai-agent__ability-call',
+				args: { ability: 'sd-ai-agent/update-post' },
+			},
+		] );
+
+		expect( summary.currentLabel ).toBe( 'Updating content' );
+		expect( summary.recentSteps[ 0 ].toolName ).toBe(
+			'sd-ai-agent/update-post'
+		);
 	} );
 
 	test( 'summarizes completed, failed, and running steps', () => {
@@ -283,14 +346,44 @@ describe( 'friendly tool progress summaries', () => {
 		expect( summary.totalCount ).toBe( 3 );
 		expect( summary.completedCount ).toBe( 1 );
 		expect( summary.failedCount ).toBe( 1 );
+		expect( summary.recoveredCount ).toBe( 0 );
+		expect( summary.attentionCount ).toBe( 1 );
 		expect( summary.runningCount ).toBe( 1 );
 		expect( summary.currentLabel ).toBe( 'Generating an image' );
-		expect( summary.latestThought ).not.toContain( 'sd-ai-agent/' );
+		expect( summary.latestThought ).toBe( '' );
 		expect( summary.recentSteps.map( ( step ) => step.label ) ).toEqual( [
 			'Preparing design tokens',
 			'Checking colour contrast',
 			'Generating an image',
 		] );
+		expect( summary.recentSteps.map( ( step ) => step.toolName ) ).toEqual(
+			[
+				'sd-ai-agent/compile-design-tokens',
+				'sd-ai-agent/validate-palette-contrast',
+				'sd-ai-agent/generate-image',
+			]
+		);
+	} );
+
+	test( 'marks failures followed by a successful tool call as recovered', () => {
+		const summary = buildToolProgressSummary( [
+			{ type: 'call', id: 'first', name: 'sd-ai-agent/get-post' },
+			{
+				type: 'response',
+				id: 'first',
+				response: { error: 'The first request timed out.' },
+			},
+			{ type: 'call', id: 'retry', name: 'sd-ai-agent/get-post' },
+			{
+				type: 'response',
+				id: 'retry',
+				response: { success: true },
+			},
+		] );
+
+		expect( summary.failedCount ).toBe( 1 );
+		expect( summary.recoveredCount ).toBe( 1 );
+		expect( summary.attentionCount ).toBe( 0 );
 	} );
 } );
 

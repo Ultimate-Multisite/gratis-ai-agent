@@ -376,7 +376,7 @@ class PostAbilities {
 			'sd-ai-agent/list-posts',
 			[
 				'label'               => __( 'List Posts', 'superdav-ai-agent' ),
-				'description'         => __( 'Query and list WordPress posts or pages. Filter by post_type, post_status (single string or array), search term, category, tag, date range (date_after/date_before), author, tax_query, and meta_query. Returns id, title, excerpt, status, post_type, date, permalink, featured_image_url, and query_args for each match. Default: 10 most recent published posts.', 'superdav-ai-agent' ),
+				'description'         => __( 'Query and list WordPress posts or pages. Filter by post_type, post_status (single string or array), search term, category, tag, date range (date_after/date_before), author, tax_query, and meta_query. Returns id, title, excerpt, status, post_type, date, permalink, featured-image state (has_featured_image plus ID, alt text, and thumbnail URL when the current user can edit the attachment; otherwise, those three fields are empty), and query_args for each match. Default: 10 most recent published posts.', 'superdav-ai-agent' ),
 				'category'            => 'sd-ai-agent',
 				'input_schema'        => [
 					'type'       => 'object',
@@ -508,6 +508,9 @@ class PostAbilities {
 									'date'               => [ 'type' => 'string' ],
 									'modified'           => [ 'type' => 'string' ],
 									'permalink'          => [ 'type' => 'string' ],
+									'has_featured_image' => [ 'type' => 'boolean' ],
+									'featured_image_id'  => [ 'type' => 'integer' ],
+									'featured_image_alt' => [ 'type' => 'string' ],
 									'featured_image_url' => [ 'type' => 'string' ],
 									'categories'         => [ 'type' => 'array' ],
 									'tags'               => [ 'type' => 'array' ],
@@ -802,12 +805,7 @@ class PostAbilities {
 				continue;
 			}
 
-			$thumbnail_url = '';
-			$thumbnail_id  = get_post_thumbnail_id( $post->ID );
-			if ( $thumbnail_id ) {
-				$image_src     = wp_get_attachment_image_src( $thumbnail_id, 'medium' );
-				$thumbnail_url = $image_src ? $image_src[0] : '';
-			}
+			$featured_image = self::get_listed_featured_image_context( $post->ID );
 
 			$categories = wp_get_post_categories( $post->ID, [ 'fields' => 'names' ] );
 			$tags       = wp_get_post_tags( $post->ID, [ 'fields' => 'names' ] );
@@ -826,7 +824,10 @@ class PostAbilities {
 				'date'               => $post->post_date,
 				'modified'           => $post->post_modified,
 				'permalink'          => get_permalink( $post->ID ) ?: '',
-				'featured_image_url' => $thumbnail_url,
+				'has_featured_image' => $featured_image['has_featured_image'],
+				'featured_image_id'  => $featured_image['featured_image_id'],
+				'featured_image_alt' => $featured_image['featured_image_alt'],
+				'featured_image_url' => $featured_image['featured_image_url'],
 				'categories'         => is_wp_error( $categories ) ? [] : $categories,
 				'tags'               => is_wp_error( $tags ) ? [] : $tags,
 			];
@@ -844,6 +845,40 @@ class PostAbilities {
 			'per_page'   => $per_page,
 			'query_args' => $sanitized,
 		];
+	}
+
+	/**
+	 * Return featured-image context safe to expose from list-posts.
+	 *
+	 * The existence state is useful when auditing site content. Attachment
+	 * metadata and URLs are returned only to users who can edit that attachment,
+	 * so a post's thumbnail cannot expose private media from another user.
+	 *
+	 * @param int $post_id Post ID.
+	 * @return array{has_featured_image: bool, featured_image_id: int, featured_image_alt: string, featured_image_url: string}
+	 */
+	private static function get_listed_featured_image_context( int $post_id ): array {
+		$thumbnail_id = (int) get_post_thumbnail_id( $post_id );
+		$has_image    = $thumbnail_id > 0 && wp_attachment_is_image( $thumbnail_id );
+
+		$context = [
+			'has_featured_image' => $has_image,
+			'featured_image_id'  => 0,
+			'featured_image_alt' => '',
+			'featured_image_url' => '',
+		];
+
+		if ( ! $has_image || ! current_user_can( 'edit_post', $thumbnail_id ) ) {
+			return $context;
+		}
+
+		$image_src = wp_get_attachment_image_src( $thumbnail_id, 'medium' );
+
+		$context['featured_image_id']  = $thumbnail_id;
+		$context['featured_image_alt'] = sanitize_text_field( (string) get_post_meta( $thumbnail_id, '_wp_attachment_image_alt', true ) );
+		$context['featured_image_url'] = $image_src ? $image_src[0] : '';
+
+		return $context;
 	}
 
 	/**

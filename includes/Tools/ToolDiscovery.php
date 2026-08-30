@@ -112,6 +112,8 @@ class ToolDiscovery {
 		// block, and validate the result instead of replacing a whole template body
 		// through generic REST/WP-CLI fallbacks.
 		'sd-ai-agent/list-block-templates',
+		'sd-ai-agent/list-template-parts',
+		'sd-ai-agent/update-template-part',
 		'sd-ai-agent/get-page-blocks',
 		'sd-ai-agent/update-blocks',
 		'sd-ai-agent/validate-block-content',

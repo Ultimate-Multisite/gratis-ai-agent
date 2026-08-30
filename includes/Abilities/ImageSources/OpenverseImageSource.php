@@ -68,7 +68,8 @@ class OpenverseImageSource implements ImageSourceInterface {
 	public function search( string $keyword, int $per_page = 10, array $filters = [] ): array|\WP_Error {
 		$query_args = [
 			'q'         => $keyword,
-			'page_size' => min( $per_page, 50 ),
+			// Anonymous Openverse requests reject page sizes above 20 with HTTP 401.
+			'page_size' => min( $per_page, 20 ),
 			'mature'    => 'false',
 		];
 

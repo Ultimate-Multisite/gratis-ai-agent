@@ -20,6 +20,7 @@ namespace SdAiAgent\Bootstrap;
 
 use SdAiAgent\Automations\AutomationRunner;
 use SdAiAgent\Automations\EventTriggerHandler;
+use SdAiAgent\Automations\MonitorWakeQueue;
 use XWP\DI\Decorators\Action;
 use XWP\DI\Decorators\Filter;
 use XWP\DI\Decorators\Handler;
@@ -75,6 +76,24 @@ final class AutomationsHandler {
 	#[Action( tag: 'init', priority: 99 )]
 	public function attach_event_hooks(): void {
 		EventTriggerHandler::attach_hooks();
+	}
+
+	/** Attach strict, explicitly opted-in Monitor event wake hooks. */
+	#[Action( tag: 'init', priority: 99 )]
+	public function attach_monitor_wake_hooks(): void {
+		EventTriggerHandler::attach_monitor_wake_hooks();
+	}
+
+	/** Process a bounded batch of durable coalesced Monitor event wakes. */
+	#[Action( tag: MonitorWakeQueue::CRON_HOOK, priority: 10 )]
+	public function process_monitor_wakes(): void {
+		MonitorWakeQueue::process_due_wakes();
+	}
+
+	/** Retry retained-evidence cleanup after an in-flight event capture. */
+	#[Action( tag: MonitorWakeQueue::CLEANUP_CRON_HOOK, priority: 10 )]
+	public function clear_monitor_wakes( int $monitor_id ): void {
+		MonitorWakeQueue::retry_clear_for_monitor( $monitor_id );
 	}
 
 	/**

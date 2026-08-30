@@ -10,18 +10,7 @@ import { useState } from '@wordpress/element';
 import { __ } from '@wordpress/i18n';
 import { Icon, check, chevronDown, undo, caution } from '@wordpress/icons';
 import DesignPreviewGallery from '../design-preview-gallery';
-
-/**
- *
- * @param {*} name
- */
-function formatName( name ) {
-	let display = name || '';
-	if ( display.startsWith( 'wpab__' ) ) {
-		display = display.substring( 6 );
-	}
-	return display.replace( /__/g, '/' );
-}
+import { getToolCallDisplayName, normalizeToolName } from './message-helpers';
 
 /**
  *
@@ -39,6 +28,29 @@ function formatValue( value ) {
 	} catch {
 		return String( value );
 	}
+}
+
+/**
+ * Return the result produced by the displayed ability.
+ *
+ * The ability-call dispatcher wraps successful target output in `result`.
+ * Direct abilities return that same payload at the top level.
+ *
+ * @param {*} call     Tool call.
+ * @param {*} response Tool response.
+ * @return {*} Displayed ability response payload.
+ */
+function getAbilityResponse( call, response ) {
+	const result = response?.response;
+	if (
+		getToolCallDisplayName( call ) !== normalizeToolName( call?.name ) &&
+		result?.success === true &&
+		result.result &&
+		typeof result.result === 'object'
+	) {
+		return result.result;
+	}
+	return result;
 }
 
 /**
@@ -92,7 +104,7 @@ function deriveStatus( call, response ) {
 	if ( ! response ) {
 		return 'running';
 	}
-	const r = response.response;
+	const r = getAbilityResponse( call, response );
 	if ( r && typeof r === 'object' ) {
 		if ( r.success === false || r.error ) {
 			return 'error';
@@ -113,7 +125,7 @@ function deriveSummary( call, response ) {
 	if ( ! response ) {
 		return '';
 	}
-	const r = response.response;
+	const r = getAbilityResponse( call, response );
 	if ( r && typeof r === 'object' ) {
 		if ( r.summary ) {
 			return formatValue( r.summary );
@@ -142,16 +154,15 @@ function deriveSummary( call, response ) {
  * @return {Array|null} Array of design preview objects, or null if not a preview tool call.
  */
 function extractDesignPreviews( call, response ) {
-	const rawName = ( call.name || '' ).toLowerCase();
+	const displayName = getToolCallDisplayName( call ).toLowerCase();
 	const isPreviewTool =
-		rawName === 'sd-ai-agent/render-design-previews' ||
-		rawName.includes( 'render-design-previews' ) ||
-		rawName.includes( 'render__design__previews' );
+		displayName === 'sd-ai-agent/render-design-previews' ||
+		displayName.endsWith( '/render-design-previews' );
 
 	if ( ! isPreviewTool ) {
 		return null;
 	}
-	const r = response && response.response;
+	const r = getAbilityResponse( call, response );
 	if (
 		r &&
 		Array.isArray( r.design_previews ) &&
@@ -172,8 +183,9 @@ function extractDesignPreviews( call, response ) {
  */
 export function ToolResultHighlights( { call, response } ) {
 	const designPreviews = extractDesignPreviews( call, response );
-	const previewMessage = response?.response?.message
-		? formatValue( response.response.message )
+	const abilityResponse = getAbilityResponse( call, response );
+	const previewMessage = abilityResponse?.message
+		? formatValue( abilityResponse.message )
 		: null;
 
 	if ( ! designPreviews ) {
@@ -191,11 +203,12 @@ export function ToolResultHighlights( { call, response } ) {
 /**
  * Return itemized update-blocks errors from a structured tool response.
  *
+ * @param {*} call     Tool call entry.
  * @param {*} response Tool response pair entry.
  * @return {Array} Itemized validation errors.
  */
-function extractItemizedErrors( response ) {
-	const result = response?.response;
+function extractItemizedErrors( call, response ) {
+	const result = getAbilityResponse( call, response );
 	const errors = result?.errors || result?.details?.errors;
 	return Array.isArray( errors ) ? errors : [];
 }
@@ -207,9 +220,9 @@ function extractItemizedErrors( response ) {
 function isMutating( call ) {
 	// Heuristic: any tool whose name hints at creating/updating/deleting
 	// is considered mutating. The store doesn't carry this flag natively.
-	const n = ( call.name || '' ).toLowerCase();
+	const name = getToolCallDisplayName( call ).toLowerCase();
 	return /create|update|delete|install|activate|deactivate|switch|set|move|publish|draft|revert|bulk|import/.test(
-		n
+		name
 	);
 }
 
@@ -230,7 +243,7 @@ export default function ToolCard( {
 	const status = deriveStatus( call, response );
 	const [ open, setOpen ] = useState( defaultOpen );
 
-	const name = formatName( call.name );
+	const name = getToolCallDisplayName( call );
 	const summary = deriveSummary( call, response );
 	const args = formatValue( call.args );
 	const result = response ? formatValue( response.response ) : '';
@@ -238,10 +251,11 @@ export default function ToolCard( {
 
 	// Extract design previews when this is a render-design-previews tool call.
 	const designPreviews = extractDesignPreviews( call, response );
-	const itemizedErrors = extractItemizedErrors( response );
+	const abilityResponse = getAbilityResponse( call, response );
+	const itemizedErrors = extractItemizedErrors( call, response );
 	const recoveryHints =
-		response?.response?.recovery_hints ||
-		response?.response?.details?.recovery_hints;
+		abilityResponse?.recovery_hints ||
+		abilityResponse?.details?.recovery_hints;
 	const hasRecoveryHints =
 		Array.isArray( recoveryHints ) && recoveryHints.length > 0;
 	const hasValidationFeedback = itemizedErrors.length > 0 || hasRecoveryHints;

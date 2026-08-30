@@ -158,6 +158,31 @@ class CustomerAgentRuntimeRepository {
 	}
 
 	/**
+	 * Return the most recently updated job for one private runtime conversation.
+	 *
+	 * The review projection uses this server-side metadata only during bounded
+	 * migration; it never returns the source job or its private payloads.
+	 *
+	 * @return array<string,mixed>|null
+	 */
+	public static function get_latest_job_for_conversation( string $conversation_id ): ?array {
+		global $wpdb;
+		/** @var \wpdb $wpdb */
+
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Bounded server-side migration metadata lookup for one opaque runtime conversation.
+		$row = $wpdb->get_row(
+			$wpdb->prepare(
+				'SELECT job_id, conversation_id, status, provider_id, model_id, iterations_used, prompt_tokens, completion_tokens, error_code, expires_at, created_at, updated_at FROM %i WHERE conversation_id = %s ORDER BY updated_at DESC, id DESC LIMIT 1',
+				self::jobs_table_name(),
+				$conversation_id
+			),
+			ARRAY_A
+		);
+
+		return self::normalise_row( $row );
+	}
+
+	/**
 	 * Find a job through the idempotency tuple.
 	 *
 	 * @return array<string,mixed>|null
@@ -316,6 +341,16 @@ class CustomerAgentRuntimeRepository {
 		global $wpdb;
 		/** @var \wpdb $wpdb */
 
+		// The source rows and their review projection must disappear together so a
+		// failed review delete can never leave customer content reviewable.
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Coordinates a source-scoped privacy deletion across related plugin tables.
+		if ( false === $wpdb->query( 'START TRANSACTION' ) ) {
+			return array(
+				'deleted' => false,
+				'job_ids' => array(),
+			);
+		}
+
 		$raw_ids = $wpdb->get_col(
 			$wpdb->prepare(
 				'SELECT job_id FROM %i WHERE conversation_id = %s',
@@ -323,6 +358,14 @@ class CustomerAgentRuntimeRepository {
 				$conversation_id
 			)
 		);
+		if ( ! is_array( $raw_ids ) || '' !== $wpdb->last_error ) {
+			// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Reverts a purge whose source-job lookup failed.
+			$wpdb->query( 'ROLLBACK' );
+			return array(
+				'deleted' => false,
+				'job_ids' => array(),
+			);
+		}
 		$job_ids = array();
 		foreach ( $raw_ids as $raw_id ) {
 			if ( is_string( $raw_id ) && '' !== $raw_id ) {
@@ -330,13 +373,31 @@ class CustomerAgentRuntimeRepository {
 			}
 		}
 
+		// A runtime close must also remove its separate display-safe review
+		// projection. This never exposes the private runtime row to reviewers.
+		if ( ! CustomerConversationReviewRepository::delete_by_runtime_conversation( $conversation_id ) ) {
+			// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Reverts source deletion when the review projection cannot be deleted.
+			$wpdb->query( 'ROLLBACK' );
+			return array(
+				'deleted' => false,
+				'job_ids' => array(),
+			);
+		}
 		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Purging a private runtime record requires an atomic direct delete.
-		$wpdb->delete( self::jobs_table_name(), array( 'conversation_id' => $conversation_id ), array( '%s' ) );
+		$jobs_deleted = $wpdb->delete( self::jobs_table_name(), array( 'conversation_id' => $conversation_id ), array( '%s' ) );
 		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Purging a private runtime record requires an atomic direct delete.
 		$deleted = $wpdb->delete( self::conversations_table_name(), array( 'conversation_id' => $conversation_id ), array( '%s' ) );
+		if ( false === $jobs_deleted || false === $deleted || false === $wpdb->query( 'COMMIT' ) ) {
+			// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Reverts a failed source-scoped runtime purge.
+			$wpdb->query( 'ROLLBACK' );
+			return array(
+				'deleted' => false,
+				'job_ids' => array(),
+			);
+		}
 
 		return array(
-			'deleted' => false !== $deleted,
+			'deleted' => true,
 			'job_ids' => $job_ids,
 		);
 	}
@@ -370,7 +431,7 @@ class CustomerAgentRuntimeRepository {
 				$integration_hash
 			)
 		);
-		if ( '' !== $wpdb->last_error ) {
+		if ( self::last_database_query_failed() ) {
 			// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Reverts a purge whose job ownership read failed.
 			$wpdb->query( 'ROLLBACK' );
 			return array(
@@ -385,6 +446,28 @@ class CustomerAgentRuntimeRepository {
 				$job_ids[] = $raw_id;
 			}
 		}
+		$raw_conversation_ids = $wpdb->get_col(
+			$wpdb->prepare(
+				'SELECT conversation_id FROM %i WHERE integration_hash = %s',
+				self::conversations_table_name(),
+				$integration_hash
+			)
+		);
+		if ( self::last_database_query_failed() ) {
+			// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Reverts a purge whose conversation ownership read failed.
+			$wpdb->query( 'ROLLBACK' );
+			return array(
+				'purged'        => false,
+				'conversations' => 0,
+				'job_ids'       => array(),
+			);
+		}
+		$conversation_ids = array();
+		foreach ( $raw_conversation_ids as $raw_conversation_id ) {
+			if ( is_string( $raw_conversation_id ) && '' !== $raw_conversation_id ) {
+				$conversation_ids[] = $raw_conversation_id;
+			}
+		}
 
 		$conversation_count = $wpdb->get_var(
 			$wpdb->prepare(
@@ -395,6 +478,15 @@ class CustomerAgentRuntimeRepository {
 		);
 		if ( null === $conversation_count ) {
 			// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Reverts a purge whose conversation ownership read failed.
+			$wpdb->query( 'ROLLBACK' );
+			return array(
+				'purged'        => false,
+				'conversations' => 0,
+				'job_ids'       => array(),
+			);
+		}
+		if ( ! CustomerConversationReviewRepository::delete_by_runtime_conversations( $conversation_ids ) ) {
+			// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Reverts a purge whose review projection deletion failed.
 			$wpdb->query( 'ROLLBACK' );
 			return array(
 				'purged'        => false,
@@ -421,6 +513,18 @@ class CustomerAgentRuntimeRepository {
 			'conversations' => (int) $conversation_count,
 			'job_ids'       => $job_ids,
 		);
+	}
+
+	/**
+	 * Return whether the latest wpdb request failed.
+	 *
+	 * @phpstan-impure Reads mutable wpdb query state.
+	 */
+	private static function last_database_query_failed(): bool {
+		global $wpdb;
+		/** @var \wpdb $wpdb */
+
+		return '' !== $wpdb->last_error;
 	}
 
 	/**

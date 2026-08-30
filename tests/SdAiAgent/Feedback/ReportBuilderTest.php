@@ -34,15 +34,52 @@ class ReportBuilderTest extends WP_UnitTestCase {
 	public function test_targeted_report_scopes_tool_calls_to_message_context(): void {
 		$sessionId = $this->create_session_with_tool_history();
 
-		$report  = ReportBuilder::build( $sessionId, 'thumbs_down', '', false, 5 );
-		$summary = ReportBuilder::build_summary( $sessionId, false, 5 );
+		$report  = ReportBuilder::build( $sessionId, 'thumbs_down', '', false, 1 );
+		$summary = ReportBuilder::build_summary( $sessionId, false, 1 );
 
 		$this->assertNotNull( $report );
 		$this->assertNotNull( $summary );
-		$this->assertSame( array( 'target-call', 'target-call' ), array_column( $report['session_data']['tool_calls'], 'id' ) );
+		$this->assertSame( array( 'before-call', 'before-call' ), array_column( $report['session_data']['tool_calls'], 'id' ) );
 		$this->assertSame( array( 'call', 'response' ), array_column( $report['session_data']['tool_calls'], 'type' ) );
 		$this->assertSame( 2, $report['session_data']['tool_call_count'] );
 		$this->assertSame( 2, $summary['tool_call_count'] );
+	}
+
+	/**
+	 * Targeted reports retain every tool exchange from the selected user turn.
+	 */
+	public function test_targeted_report_includes_complete_user_turn(): void {
+		$sessionId = $this->create_session_with_tool_history();
+
+		$report = ReportBuilder::build( $sessionId, 'thumbs_down', '', false, 7 );
+
+		$this->assertNotNull( $report );
+		$this->assertSame( 7, $report['session_data']['message_count'] );
+		$this->assertSame(
+			array( 'target-call', 'target-call', 'after-call', 'after-call' ),
+			array_column( $report['session_data']['tool_calls'], 'id' )
+		);
+		$this->assertSame( 'Final answer', $report['session_data']['messages'][6]['parts'][0]['text'] );
+	}
+
+	/**
+	 * Scoped reports never include the next human conversation turn.
+	 */
+	public function test_targeted_report_stops_before_next_user_turn(): void {
+		$sessionId = $this->create_session_with_tool_history();
+		$session   = Database::get_session( $sessionId );
+		$this->assertNotFalse( $session );
+
+		$messages   = json_decode( (string) $session->messages, true );
+		$messages[] = array( 'role' => 'user', 'parts' => array( array( 'type' => 'text', 'text' => 'Next task' ) ) );
+		$messages[] = array( 'role' => 'model', 'parts' => array( array( 'type' => 'text', 'text' => 'Next answer' ) ) );
+		$this->assertTrue( Database::update_session( $sessionId, array( 'messages' => wp_json_encode( $messages ) ) ) );
+
+		$report = ReportBuilder::build( $sessionId, 'thumbs_down', '', false, 10 );
+
+		$this->assertNotNull( $report );
+		$this->assertSame( 7, $report['session_data']['message_count'] );
+		$this->assertSame( 'Target task', $report['session_data']['messages'][0]['parts'][0]['text'] );
 	}
 
 	/**
@@ -109,6 +146,7 @@ class ReportBuilderTest extends WP_UnitTestCase {
 			array( 'role' => 'model', 'parts' => array( array( 'type' => 'text', 'text' => 'Target answer' ) ) ),
 			$this->function_message( 'model', 'functionCall', 'after-call' ),
 			$this->function_message( 'user', 'functionResponse', 'after-call' ),
+			array( 'role' => 'model', 'parts' => array( array( 'type' => 'text', 'text' => 'Final answer' ) ) ),
 		);
 
 		$toolCalls = array(

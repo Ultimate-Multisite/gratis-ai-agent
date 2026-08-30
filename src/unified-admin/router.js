@@ -21,6 +21,11 @@ const AbilitiesRoute = lazy( () =>
 const ChangesRoute = lazy( () =>
 	import( /* webpackChunkName: "route-changes" */ './routes/changes' )
 );
+const CustomerConversationsRoute = lazy( () =>
+	import(
+		/* webpackChunkName: "route-customer-conversations" */ './routes/customer-conversations'
+	)
+);
 const SettingsRoute = lazy( () =>
 	import( /* webpackChunkName: "route-settings" */ './routes/settings' )
 );
@@ -71,6 +76,9 @@ export default function Router( { route } ) {
 
 		case 'changes':
 			return <ChangesRoute />;
+
+		case 'customer-conversations':
+			return <CustomerConversationsRoute />;
 
 		case 'connectors':
 			redirectConnectors();

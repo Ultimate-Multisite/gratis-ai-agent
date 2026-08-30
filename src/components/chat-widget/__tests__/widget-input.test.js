@@ -21,6 +21,9 @@ jest.mock( '../../slash-command-menu', () => () => null );
 jest.mock( '../../feedback-consent-modal', () => () => null );
 jest.mock( '../../chat-redesign/ModelPicker', () => () => null );
 jest.mock( '../../chat-redesign/AgentPicker', () => () => null );
+jest.mock( '../editor-selection-status', () => () => (
+	<div data-testid="editor-selection-status" />
+) );
 jest.mock( '../../chat-redesign/icons', () => ( {
 	Paperclip: () => null,
 	Microphone: () => null,
@@ -73,6 +76,22 @@ function composerState( overrides = {} ) {
 }
 
 describe( 'WidgetInput', () => {
+	test( 'places editor context immediately above the composer frame', async () => {
+		useChatComposer.mockReturnValue( composerState( { sending: false } ) );
+		const container = document.createElement( 'div' );
+		const root = createRoot( container );
+		await act( async () => root.render( createElement( WidgetInput ) ) );
+
+		const context = container.querySelector(
+			'[data-testid="editor-selection-status"]'
+		);
+		const frame = container.querySelector( '.sdaa-w-input-frame' );
+		expect( context ).not.toBeNull();
+		expect( context.nextElementSibling ).toBe( frame );
+
+		await act( async () => root.unmount() );
+	} );
+
 	test( 'keeps pointer controls for queue and stop while sending', async () => {
 		const composer = composerState();
 		useChatComposer.mockReturnValue( composer );

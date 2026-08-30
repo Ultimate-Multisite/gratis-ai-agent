@@ -26,6 +26,19 @@ Then run the suite from any checkout:
 pnpm run test:php
 ```
 
+### Shared-cache safety
+
+Setup serializes provisioning for each cache root and WordPress version. Each
+process extracts into its own staging directory, validates both
+`wp-settings.php` and `includes/functions.php`, then atomically publishes the
+complete core and test-library directories. A second worktree using the same
+cache waits for the active setup instead of reusing its staging files.
+
+If setup is interrupted, rerun the same setup command. An existing cache that
+lacks either sentinel is treated as incomplete and rebuilt. Database creation
+runs only after the file cache has been validated, so a database failure does
+not invalidate a completed shared cache.
+
 Useful overrides:
 
 ```bash

@@ -23,12 +23,14 @@ namespace SdAiAgent\Bootstrap;
 
 use SdAiAgent\Abilities\ToolCapabilities;
 use SdAiAgent\Automations\AutomationRunner;
+use SdAiAgent\Automations\MonitorWakeQueue;
 use SdAiAgent\Core\ActiveJobsCleanupService;
 use SdAiAgent\Core\BlockInventory;
 use SdAiAgent\Core\Database;
 use SdAiAgent\Core\OnboardingManager;
 use SdAiAgent\Core\SkillUpdateChecker;
 use SdAiAgent\Core\SiteScanner;
+use SdAiAgent\Core\SessionTrashCleanupService;
 use SdAiAgent\Core\SuperdavSiteConnectionService;
 use SdAiAgent\Knowledge\KnowledgeHooks;
 
@@ -55,9 +57,11 @@ final class LifecycleHandler {
 	public static function activate(): void {
 		Database::install();
 		AutomationRunner::reschedule_all();
+		MonitorWakeQueue::reschedule_pending_wakes();
 		OnboardingManager::on_activation();
 		SkillUpdateChecker::schedule();
 		ActiveJobsCleanupService::schedule();
+		SessionTrashCleanupService::schedule();
 		ToolCapabilities::register_capabilities( ToolCapabilities::all_ability_ids() );
 		self::maybe_provision_superdav_site_connection();
 	}
@@ -72,9 +76,11 @@ final class LifecycleHandler {
 	public static function deactivate(): void {
 		KnowledgeHooks::deactivate();
 		AutomationRunner::unschedule_all();
+		MonitorWakeQueue::unschedule_processing();
 		SiteScanner::unschedule();
 		SkillUpdateChecker::unschedule();
 		ActiveJobsCleanupService::unschedule();
+		SessionTrashCleanupService::unschedule();
 		BlockInventory::unschedule();
 	}
 

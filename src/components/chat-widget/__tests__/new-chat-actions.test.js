@@ -44,6 +44,7 @@ jest.mock( '../../use-speech-recognition', () => () => ( {
 jest.mock( '../../feedback-consent-modal', () => () => null );
 jest.mock( '../../chat-redesign/ModelPicker', () => () => null );
 jest.mock( '../../chat-redesign/AgentPicker', () => () => null );
+jest.mock( '../editor-selection-status', () => () => null );
 jest.mock( '../../chat-redesign/icons', () => ( {
 	AiIcon: () => null,
 	Microphone: () => null,

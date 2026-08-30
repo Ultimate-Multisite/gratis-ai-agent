@@ -27,6 +27,47 @@ jest.mock(
 );
 
 describe( 'ToolCard', () => {
+	test( 'shows the nested ability instead of the ability-call dispatcher', () => {
+		const html = renderToStaticMarkup(
+			createElement( ToolCard, {
+				call: {
+					id: 'tool-dispatch',
+					name: 'wpab__sd-ai-agent__ability-call',
+					args: {
+						ability: 'sd-ai-agent/update-post',
+						arguments: { post_id: 42 },
+					},
+				},
+				response: null,
+			} )
+		);
+
+		expect( html ).toContain( 'sd-ai-agent/update-post' );
+		expect( html ).not.toContain( 'sd-ai-agent/ability-call</code>' );
+	} );
+
+	test( 'shows an error status when a nested ability response fails', () => {
+		const html = renderToStaticMarkup(
+			createElement( ToolCard, {
+				call: {
+					id: 'tool-dispatch-error',
+					name: 'wpab__sd-ai-agent__ability-call',
+					args: { ability: 'sd-ai-agent/update-post' },
+				},
+				response: {
+					id: 'tool-dispatch-error',
+					response: {
+						success: true,
+						result: { success: false, error: 'Validation failed.' },
+					},
+				},
+			} )
+		);
+
+		expect( html ).toContain( 'sdaa-cr-tool-status is-error' );
+		expect( html ).not.toContain( 'sdaa-cr-tool-status is-ok' );
+	} );
+
 	test( 'stringifies object-shaped response summaries before rendering', () => {
 		const html = renderToStaticMarkup(
 			createElement( ToolCard, {
@@ -117,6 +158,38 @@ describe( 'ToolCard', () => {
 			'Re-run get-page-blocks with the current revision.'
 		);
 		expect( html ).not.toContain( 'Validation errors' );
+	} );
+
+	test( 'recognizes design previews invoked through ability-call', () => {
+		const html = renderToStaticMarkup(
+			createElement( ToolResultHighlights, {
+				call: {
+					id: 'tool-dispatch-preview',
+					name: 'sd-ai-agent/ability-call',
+					args: {
+						ability: 'sd-ai-agent/render-design-previews',
+					},
+				},
+				response: {
+					id: 'tool-dispatch-preview',
+					response: {
+						ability: 'sd-ai-agent/render-design-previews',
+						success: true,
+						result: {
+							design_previews: [
+								{
+									name: 'Design 1',
+									html_url:
+										'https://example.test/design-1.html',
+								},
+							],
+						},
+					},
+				},
+			} )
+		);
+
+		expect( html ).toContain( 'Design preview gallery' );
 	} );
 
 	test( 'renders design previews as standalone result highlights', () => {

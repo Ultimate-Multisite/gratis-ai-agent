@@ -19,6 +19,7 @@ use SdAiAgent\Abilities\UserManagementAbilities;
 use SdAiAgent\Abilities\WordPressAdvancedAbilities;
 use SdAiAgent\Abilities\WpCliAbilities;
 use SdAiAgent\Abilities\WpRestAbilities;
+use SdAiAgent\Core\Filesystem\FileModGate;
 use SdAiAgent\PluginBuilder\PluginSandbox;
 use XWP\DI\Decorators\Action;
 use XWP\DI\Decorators\Handler;
@@ -71,7 +72,7 @@ final class AbilitiesHandler {
 	 * Register the advanced-only block-theme scaffolder ability.
 	 */
 	private function register_scaffold_block_theme(): void {
-		if ( ! function_exists( 'wp_register_ability' ) ) {
+		if ( ! function_exists( 'wp_register_ability' ) || ! FileModGate::shared_code_modifications_allowed() ) {
 			return;
 		}
 

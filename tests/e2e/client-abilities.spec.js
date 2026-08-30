@@ -14,10 +14,10 @@
  * Test coverage:
  *   1. registers on dashboard — category registered with correct label/description
  *   2. navigate-to and insert-block appear in getAbilities()
- *   3. executeAbility navigate-to actually navigates
+ *   3. executeAbility navigate-to queues the validated same-origin navigation
  *   4. executeAbility insert-block inserts on editor screen
  *   5. insert-block no-ops on non-editor screen
- *   6. snapshotDescriptors returns the expected list
+ *   6. snapshotDescriptors includes the expected descriptors
  *   7. no relevant console errors on any screen
  *
  * Run: pnpm run test:e2e:playwright -- --grep client-abilities
@@ -56,9 +56,9 @@ async function goToDashboard( page ) {
 	await page.waitForLoadState( 'domcontentloaded' );
 	// Wait for the launcher button — it renders once React has mounted and the
 	// floating-widget bundle has executed (triggering ensureRegistered()).
-	// The redesign (#1157) renamed .sdaa-fab to .sdaa-w-launcher.
+	// The redesign (#1157) renamed .sdaa-fab to .sd-ai-agent-w-launcher.
 	await page
-		.locator( '.sdaa-w-launcher' )
+		.locator( '.sd-ai-agent-w-launcher' )
 		.waitFor( { state: 'visible', timeout: 30_000 } );
 }
 
@@ -71,10 +71,8 @@ async function goToDashboard( page ) {
  * false result reliably means the API is not available in this environment
  * — not that it hasn't loaded yet.
  *
- * Used by test.skip() to gracefully degrade when the CI environment runs a
- * WordPress version where @wordpress/core-abilities is not loaded (e.g.
- * the WP 7.0-branch build hasn't shipped the abilities script module yet,
- * or the module is registered but not enqueued by core).
+ * Required coverage uses WordPress 7.0, which loads @wordpress/core-abilities.
+ * Explicitly optional compatibility environments may opt into graceful skips.
  *
  * @param {import('@playwright/test').Page} page
  * @return {Promise<boolean>} True when all required wp.abilities methods exist.
@@ -92,20 +90,34 @@ async function isAbilitiesApiAvailable( page ) {
 }
 
 /**
- * Skip the current test if the abilities API is not available.
+ * Require the abilities API for the current test.
  *
- * Call this at the top of any test body that depends on wp.abilities.
+ * Call this at the top of any test body that depends on wp.abilities. The
+ * default E2E project is a required WordPress 7.0 coverage environment, so an
+ * unavailable API must fail with an actionable error instead of silently
+ * skipping the test. Compatibility jobs may opt into a graceful skip by
+ * setting PLAYWRIGHT_ALLOW_MISSING_ABILITIES_API=1 explicitly.
  * It must run AFTER goToDashboard() or equivalent page navigation so the
  * scripts have loaded.
  *
  * @param {import('@playwright/test').Page} page
  */
-async function skipIfNoAbilitiesApi( page ) {
+async function requireAbilitiesApi( page ) {
 	const available = await isAbilitiesApiAvailable( page );
-	test.skip(
-		! available,
-		'wp.abilities API not available — @wordpress/core-abilities script module not loaded in this WP build'
-	);
+	if (
+		! available &&
+		process.env.PLAYWRIGHT_ALLOW_MISSING_ABILITIES_API === '1'
+	) {
+		test.skip(
+			true,
+			'wp.abilities API not available in this explicitly optional compatibility environment'
+		);
+	}
+
+	expect(
+		available,
+		'wp.abilities API is required for client-ability E2E coverage. Use a WordPress 7.0 runtime that loads @wordpress/core-abilities, or set PLAYWRIGHT_ALLOW_MISSING_ABILITIES_API=1 only for an explicitly optional compatibility environment.'
+	).toBe( true );
 }
 
 /**
@@ -156,7 +168,9 @@ async function waitForAbilitiesRegistered( page, timeout = 45_000 ) {
 					// attach a side-effect that sets a flag when resolved.
 					if ( ! window.__sdAbilitiesResolved ) {
 						result.then( ( abilities ) => {
-							window.__sdAbilitiesResolved = Array.isArray( abilities )
+							window.__sdAbilitiesResolved = Array.isArray(
+								abilities
+							)
 								? abilities.filter( ( a ) =>
 										a?.name?.startsWith( 'sd-ai-agent-js/' )
 								  ).length >= 2
@@ -185,7 +199,7 @@ async function waitForAbilitiesRegistered( page, timeout = 45_000 ) {
  * Collect console errors and page errors during a test.
  *
  * @param {import('@playwright/test').Page} page
- * @return {{ consoleErrors: string[], pageErrors: string[] }}
+ * @return {{ consoleErrors: string[], pageErrors: string[] }} Captured errors.
  */
 function collectErrors( page ) {
 	const consoleErrors = [];
@@ -204,6 +218,75 @@ function collectErrors( page ) {
 	return { consoleErrors, pageErrors };
 }
 
+/**
+ * Create a draft through the authenticated REST client and open it in Gutenberg.
+ *
+ * @param {import('@playwright/test').Page} page Browser page.
+ * @return {Promise<number>} Draft post ID.
+ */
+async function createDraftAndOpenEditor( page ) {
+	await page.goto( '/wp-admin/index.php' );
+	await page.waitForLoadState( 'domcontentloaded' );
+	const postId = await page.evaluate( async () => {
+		const post = await wp.apiFetch( {
+			path: '/wp/v2/posts',
+			method: 'POST',
+			data: {
+				status: 'draft',
+				title: 'SD AI Agent reflector test',
+				content:
+					'<!-- wp:paragraph -->\n<p>Initial Playwright paragraph.</p>\n<!-- /wp:paragraph -->',
+			},
+		} );
+		return post.id;
+	} );
+
+	await page.goto( `/wp-admin/post.php?post=${ postId }&action=edit` );
+	await page.waitForLoadState( 'domcontentloaded' );
+	// The editor canvas can remain visually hidden while Gutenberg finishes
+	// loading on shared CI runners. The reflection tests need its data stores,
+	// not a visible canvas, so wait for those real runtime dependencies instead.
+	await page.waitForFunction(
+		() => {
+			const editor = wp.data?.select?.( 'core/editor' );
+			const blockEditor = wp.data?.select?.( 'core/block-editor' );
+			return (
+				typeof editor?.getCurrentPostId === 'function' &&
+				typeof editor?.isEditedPostDirty === 'function' &&
+				typeof blockEditor?.getBlocks === 'function' &&
+				typeof window.sdAiAgentReflection?.emit === 'function'
+			);
+		},
+		null,
+		{ timeout: 90_000 }
+	);
+
+	return postId;
+}
+
+/**
+ * Wait for the block editor data store rather than a canvas DOM selector.
+ *
+ * WordPress 7.0 renders the canvas in an iframe, and its first-run guide can
+ * cover the canvas while the editor is fully initialized. The abilities under
+ * test operate on the data store, so that store is the durable readiness signal.
+ *
+ * @param {import('@playwright/test').Page} page Browser page.
+ */
+async function waitForBlockEditorReady( page ) {
+	await page.waitForFunction(
+		() => {
+			const blockEditor = wp.data?.select?.( 'core/block-editor' );
+			return (
+				typeof blockEditor?.getBlocks === 'function' &&
+				typeof wp.blocks?.createBlock === 'function'
+			);
+		},
+		null,
+		{ timeout: 90_000 }
+	);
+}
+
 // ---------------------------------------------------------------------------
 // Test suite 1: Category registration
 // ---------------------------------------------------------------------------
@@ -212,7 +295,7 @@ test.describe( 'client-abilities — category registration', () => {
 	test.beforeEach( async ( { page } ) => {
 		await loginToWordPress( page );
 		await goToDashboard( page );
-		await skipIfNoAbilitiesApi( page );
+		await requireAbilitiesApi( page );
 	} );
 
 	test( 'registers on dashboard — category has expected label and description', async ( {
@@ -241,7 +324,7 @@ test.describe( 'client-abilities — category registration', () => {
 		expect( category ).not.toBeNull();
 		expect( category ).toMatchObject( {
 			label: expect.stringContaining( 'SD AI Agent' ),
-			description: expect.stringContaining( 'client' ),
+			description: expect.stringContaining( 'browser' ),
 		} );
 	} );
 } );
@@ -254,10 +337,10 @@ test.describe( 'client-abilities — ability registration', () => {
 	test.beforeEach( async ( { page } ) => {
 		await loginToWordPress( page );
 		await goToDashboard( page );
-		await skipIfNoAbilitiesApi( page );
+		await requireAbilitiesApi( page );
 	} );
 
-	test( 'navigate-to and insert-block appear in getAbilities()', async ( {
+	test( 'required client abilities expose valid schemas and readonly annotations', async ( {
 		page,
 	} ) => {
 		await waitForAbilitiesRegistered( page );
@@ -280,14 +363,23 @@ test.describe( 'client-abilities — ability registration', () => {
 			}
 		} );
 
-		const names = abilities.map( ( a ) => a.name );
-		expect( names ).toContain( 'sd-ai-agent-js/navigate-to' );
-		expect( names ).toContain( 'sd-ai-agent-js/insert-block' );
+		const byName = new Map(
+			abilities.map( ( ability ) => [ ability.name, ability ] )
+		);
+		for ( const name of [
+			'sd-ai-agent-js/navigate-to',
+			'sd-ai-agent-js/refresh-page',
+			'sd-ai-agent-js/get-editor-selection',
+			'sd-ai-agent-js/insert-block',
+			'sd-ai-agent-js/get-editor-capabilities',
+			'sd-ai-agent-js/capture-screenshot',
+			'sd-ai-agent-js/screenshot-url',
+		] ) {
+			expect( byName.has( name ) ).toBe( true );
+		}
 
 		// Verify expected schema shape for navigate-to.
-		const navigateTo = abilities.find(
-			( a ) => a.name === 'sd-ai-agent-js/navigate-to'
-		);
+		const navigateTo = byName.get( 'sd-ai-agent-js/navigate-to' );
 		expect( navigateTo ).toBeDefined();
 		expect( navigateTo ).toMatchObject( {
 			name: 'sd-ai-agent-js/navigate-to',
@@ -303,9 +395,7 @@ test.describe( 'client-abilities — ability registration', () => {
 		} );
 
 		// Verify expected schema shape for insert-block.
-		const insertBlock = abilities.find(
-			( a ) => a.name === 'sd-ai-agent-js/insert-block'
-		);
+		const insertBlock = byName.get( 'sd-ai-agent-js/insert-block' );
 		expect( insertBlock ).toBeDefined();
 		expect( insertBlock ).toMatchObject( {
 			name: 'sd-ai-agent-js/insert-block',
@@ -319,28 +409,84 @@ test.describe( 'client-abilities — ability registration', () => {
 				blockName: expect.objectContaining( { type: 'string' } ),
 			} ),
 		} );
+		expect( insertBlock.input_schema.required ).toEqual( [ 'blockName' ] );
+		expect( insertBlock.meta.annotations ).toMatchObject( {
+			readonly: false,
+		} );
+
+		for ( const name of [
+			'sd-ai-agent-js/refresh-page',
+			'sd-ai-agent-js/get-editor-selection',
+			'sd-ai-agent-js/get-editor-capabilities',
+			'sd-ai-agent-js/capture-screenshot',
+		] ) {
+			expect( byName.get( name ).input_schema ).not.toHaveProperty(
+				'required'
+			);
+			expect( byName.get( name ).meta.annotations ).toMatchObject( {
+				readonly: true,
+			} );
+		}
+		expect(
+			byName.get( 'sd-ai-agent-js/screenshot-url' ).input_schema.required
+		).toEqual( [ 'url' ] );
 	} );
 } );
 
 // ---------------------------------------------------------------------------
-// Test suite 3: navigate-to execution
+// Test suite 3: public schema validation
+// ---------------------------------------------------------------------------
+
+test.describe( 'client-abilities — public schema validation', () => {
+	test.beforeEach( async ( { page } ) => {
+		await loginToWordPress( page );
+		await goToDashboard( page );
+		await requireAbilitiesApi( page );
+	} );
+
+	test( 'executeAbility reaches get-editor-selection with empty input', async ( {
+		page,
+	} ) => {
+		await waitForAbilitiesRegistered( page );
+
+		const result = await page.evaluate( async () => {
+			try {
+				return await wp.abilities.executeAbility(
+					'sd-ai-agent-js/get-editor-selection',
+					{}
+				);
+			} catch ( err ) {
+				return { error: err.message };
+			}
+		} );
+
+		expect( result.error ).toBeUndefined();
+		expect( result ).toMatchObject( {
+			available: expect.any( Boolean ),
+			selected: expect.any( Boolean ),
+			count: expect.any( Number ),
+		} );
+	} );
+} );
+
+// ---------------------------------------------------------------------------
+// Test suite 4: navigate-to execution
 // ---------------------------------------------------------------------------
 
 test.describe( 'client-abilities — navigate-to execution', () => {
 	test.beforeEach( async ( { page } ) => {
 		await loginToWordPress( page );
 		await goToDashboard( page );
-		await skipIfNoAbilitiesApi( page );
+		await requireAbilitiesApi( page );
 	} );
 
-	test( 'executeAbility navigate-to actually navigates to plugins.php', async ( {
+	test( 'executeAbility navigate-to queues plugins.php navigation', async ( {
 		page,
 	} ) => {
 		await waitForAbilitiesRegistered( page );
 
-		// Execute the ability and capture the return value before navigation
-		// causes the page to unload. We use a Promise race with a short timeout
-		// so we can capture the return value synchronously before the redirect.
+		// Navigation is intentionally deferred until jobSlice has posted the tool
+		// result, otherwise unloading the page can strand the server-side job.
 		const result = await page.evaluate( async () => {
 			if (
 				typeof wp === 'undefined' ||
@@ -350,27 +496,14 @@ test.describe( 'client-abilities — navigate-to execution', () => {
 				return null;
 			}
 			try {
-				// Override window.location.assign to capture the call without
-				// actually navigating (which would unload the page and lose the result).
-				let assignedUrl = null;
-				const originalAssign = window.location.assign.bind(
-					window.location
-				);
-				window.location.assign = ( url ) => {
-					assignedUrl = url;
-					// Don't call originalAssign — we don't want to navigate away
-					// during the test assertion phase.
-				};
-
 				const ret = await wp.abilities.executeAbility(
 					'sd-ai-agent-js/navigate-to',
 					{ path: 'plugins.php' }
 				);
+				const pendingNavigation = window._sdAiAgentPendingNavigation;
+				delete window._sdAiAgentPendingNavigation;
 
-				// Restore original assign.
-				window.location.assign = originalAssign;
-
-				return { result: ret, assignedUrl };
+				return { result: ret, pendingNavigation };
 			} catch ( err ) {
 				return { error: err.message };
 			}
@@ -382,8 +515,15 @@ test.describe( 'client-abilities — navigate-to execution', () => {
 			navigated: true,
 			path: 'plugins.php',
 		} );
-		// The assigned URL must end with /wp-admin/plugins.php.
-		expect( result.assignedUrl ).toMatch( /\/wp-admin\/plugins\.php$/ );
+		// The queued URL must be the validated same-origin admin destination.
+		const pendingNavigationUrl = new URL(
+			result.pendingNavigation,
+			page.url()
+		);
+		expect( pendingNavigationUrl.origin ).toBe(
+			new URL( page.url() ).origin
+		);
+		expect( pendingNavigationUrl.pathname ).toBe( '/wp-admin/plugins.php' );
 	} );
 } );
 
@@ -406,15 +546,9 @@ test.describe( 'client-abilities — insert-block on editor screen', () => {
 		// Check abilities API BEFORE the slow editor wait. On CI the block
 		// editor can take 45-60 s to initialise — skipping early avoids a
 		// 60 s timeout when the abilities API isn't available at all.
-		await skipIfNoAbilitiesApi( page );
+		await requireAbilitiesApi( page );
 
-		// Wait for the block editor to mount — the editor canvas is the signal.
-		// 60 s accommodates slow CI runners where the block editor can take
-		// 45-55 s to initialise (Gutenberg script modules + React hydration).
-		await page
-			.locator( '.block-editor-writing-flow, .editor-styles-wrapper' )
-			.first()
-			.waitFor( { state: 'visible', timeout: 60_000 } );
+		await waitForBlockEditorReady( page );
 
 		// Wait for abilities to register (the admin-page bundle also loads here).
 		await waitForAbilitiesRegistered( page );
@@ -449,26 +583,421 @@ test.describe( 'client-abilities — insert-block on editor screen', () => {
 		expect( typeof result.clientId ).toBe( 'string' );
 		expect( result.clientId.length ).toBeGreaterThan( 0 );
 
-		// Assert the block actually appears in the editor DOM.
-		// The block editor renders blocks inside .block-editor-block-list__layout.
-		// A paragraph block renders a <p> with the content.
-		await expect(
-			page.locator(
-				'.block-editor-block-list__layout [data-type="core/paragraph"]'
-			)
-		).toBeVisible( { timeout: 10_000 } );
+		// Assert the block exists in the editor state. WP 7.0 renders the canvas
+		// inside an iframe, while this ability deliberately targets the data store.
+		const insertedBlock = await page.evaluate( ( clientId ) => {
+			const block = wp.data
+				.select( 'core/block-editor' )
+				.getBlock( clientId );
+			return block
+				? { name: block.name, content: block.attributes?.content }
+				: null;
+		}, result.clientId );
+		expect( insertedBlock ).toEqual( {
+			name: 'core/paragraph',
+			content: 'hello from playwright',
+		} );
+	} );
+} );
+
+test.describe( 'client-abilities — nested block insertion', () => {
+	test.beforeEach( async ( { page } ) => {
+		await loginToWordPress( page );
+	} );
+
+	test( 'nested block insertion preserves the Group parent and index after reload', async ( {
+		page,
+	} ) => {
+		await createDraftAndOpenEditor( page );
+		await requireAbilitiesApi( page );
+		await waitForAbilitiesRegistered( page );
+
+		const fixture = await page.evaluate( () => {
+			const blockDispatcher = wp.data.dispatch( 'core/block-editor' );
+			const group = wp.blocks.createBlock(
+				'core/group',
+				{ allowedBlocks: [ 'core/paragraph' ] },
+				[
+					wp.blocks.createBlock( 'core/paragraph', {
+						content: 'Existing Group child.',
+					} ),
+				]
+			);
+			const paragraph = wp.blocks.createBlock( 'core/paragraph', {
+				content: 'Nested inserted paragraph.',
+			} );
+
+			blockDispatcher.resetBlocks( [ group ] );
+			return {
+				groupClientId: group.clientId,
+				paragraphMarkup: wp.blocks.serialize( [ paragraph ] ),
+			};
+		} );
+		// InnerBlocks registers per-root insertion permissions after React mounts
+		// the new Group. Calling the ability in the same tick as resetBlocks()
+		// races that registration and makes canInsertBlockType() reject valid input.
+		await page.waitForFunction(
+			( groupClientId ) => {
+				const blockEditor = wp.data.select( 'core/block-editor' );
+				return (
+					!! blockEditor.getBlock( groupClientId ) &&
+					blockEditor.canInsertBlockType(
+						'core/paragraph',
+						groupClientId
+					)
+				);
+			},
+			fixture.groupClientId,
+			{ timeout: 10_000 }
+		);
+
+		const inserted = await page.evaluate( async ( prepared ) => {
+			const blockEditor = wp.data.select( 'core/block-editor' );
+			const result = await wp.abilities.executeAbility(
+				'sd-ai-agent-js/insert-block-markup',
+				{
+					markup: prepared.paragraphMarkup,
+					rootClientId: prepared.groupClientId,
+					index: 1,
+				}
+			);
+			const insertedGroup = blockEditor.getBlock(
+				prepared.groupClientId
+			);
+
+			return {
+				result,
+				children: insertedGroup.innerBlocks.map( ( block ) => ( {
+					name: block.name,
+					children: block.innerBlocks.map( ( child ) => child.name ),
+				} ) ),
+				markup: wp.blocks.serialize( blockEditor.getBlocks() ),
+			};
+		}, fixture );
+
+		expect( inserted.result ).toMatchObject( { applied: true } );
+		expect( inserted.children ).toEqual( [
+			{ name: 'core/paragraph', children: [] },
+			{ name: 'core/paragraph', children: [] },
+		] );
+		expect( inserted.markup ).toContain( 'Nested inserted paragraph.' );
+
+		await page.evaluate( async () => {
+			await wp.data.dispatch( 'core/editor' ).savePost();
+		} );
+		await page.reload();
+		await page.waitForLoadState( 'domcontentloaded' );
+		await page.waitForFunction(
+			() =>
+				typeof wp?.data?.select?.( 'core/block-editor' )?.getBlocks ===
+				'function',
+			null,
+			{ timeout: 60_000 }
+		);
+
+		const reloaded = await page.evaluate( () => {
+			const group = wp
+				.data.select( 'core/block-editor' )
+				.getBlocks()
+				.find( ( block ) => block.name === 'core/group' );
+			return {
+				children: group.innerBlocks.map( ( block ) => ( {
+					name: block.name,
+					children: block.innerBlocks.map( ( child ) => child.name ),
+				} ) ),
+				markup: wp.blocks.serialize(
+					wp.data.select( 'core/block-editor' ).getBlocks()
+				),
+			};
+		} );
+
+		expect( reloaded.children ).toEqual( inserted.children );
+		expect( reloaded.markup ).toContain( 'Nested inserted paragraph.' );
 	} );
 } );
 
 // ---------------------------------------------------------------------------
-// Test suite 5: insert-block no-op on non-editor screen
+// Test suite 5: editor history execution
+// ---------------------------------------------------------------------------
+
+test.describe( 'client-abilities — editor history', () => {
+	test.beforeEach( async ( { page } ) => {
+		await loginToWordPress( page );
+	} );
+
+	test( 'reports settled editor history undo and redo evidence', async ( {
+		page,
+	} ) => {
+		await createDraftAndOpenEditor( page );
+		await requireAbilitiesApi( page );
+		await waitForAbilitiesRegistered( page );
+
+		const result = await page.evaluate( async () => {
+			const blockEditor = wp.data.select( 'core/block-editor' );
+			const initialBlocks = blockEditor.getBlocks();
+			const selected = initialBlocks.find(
+				( block ) => block.name === 'core/paragraph'
+			);
+			if ( ! selected ) {
+				return { error: 'paragraph_unavailable' };
+			}
+
+			const original = wp.blocks.serialize( initialBlocks );
+			const replacement = wp.blocks.createBlock( 'core/paragraph', {
+				content: 'History replacement from Playwright.',
+			} );
+			const replacementMarkup = wp.blocks.serialize( [ replacement ] );
+			wp.data.dispatch( 'core/editor' ).editPost( {
+				content: replacementMarkup,
+			} );
+			await new Promise( ( resolve, reject ) => {
+				let complete = false;
+				let unsubscribe;
+				let timeoutId;
+				const finish = ( error ) => {
+					if ( complete ) {
+						return;
+					}
+					complete = true;
+					clearTimeout( timeoutId );
+					unsubscribe?.();
+					if ( error ) {
+						reject( error );
+						return;
+					}
+					resolve();
+				};
+				const check = () => {
+					const current = wp.blocks.serialize(
+						blockEditor.getBlocks()
+					);
+					if (
+						current === replacementMarkup &&
+						wp.data.select( 'core/editor' ).hasEditorUndo?.()
+					) {
+						finish();
+					}
+				};
+				unsubscribe = wp.data.subscribe( check );
+				timeoutId = setTimeout(
+					() => finish( new Error( 'undo level unavailable' ) ),
+					10_000
+				);
+				check();
+			} );
+			const undo = await wp.abilities.executeAbility(
+				'sd-ai-agent-js/change-editor-history',
+				{ direction: 'undo' }
+			);
+			const afterUndo = wp.blocks.serialize( blockEditor.getBlocks() );
+			const redo = await wp.abilities.executeAbility(
+				'sd-ai-agent-js/change-editor-history',
+				{ direction: 'redo' }
+			);
+			const afterRedo = wp.blocks.serialize( blockEditor.getBlocks() );
+
+			return {
+				original,
+				replacementMarkup,
+				undo,
+				afterUndo,
+				redo,
+				afterRedo,
+			};
+		} );
+
+		expect( result.error ).toBeUndefined();
+		expect( result.replacementMarkup ).not.toBe( result.original );
+		expect( result.undo ).toMatchObject( {
+			applied: true,
+			direction: 'undo',
+		} );
+		expect( result.afterUndo ).toBe( result.original );
+		expect( result.redo ).toMatchObject( {
+			applied: true,
+			direction: 'redo',
+		} );
+		expect( result.afterRedo ).toBe( result.replacementMarkup );
+	} );
+} );
+
+// ---------------------------------------------------------------------------
+// Test suite 6: server-side post reflection in the block editor
+// ---------------------------------------------------------------------------
+
+test.describe( 'client-abilities — server post reflection', () => {
+	test.beforeEach( async ( { page } ) => {
+		await loginToWordPress( page );
+	} );
+
+	test( 'synchronizes a server mutation into a clean editor without making it dirty', async ( {
+		page,
+	} ) => {
+		const postId = await createDraftAndOpenEditor( page );
+
+		const markup =
+			'<!-- wp:paragraph -->\n<p>Reflected server revision.</p>\n<!-- /wp:paragraph -->';
+		await page.evaluate(
+			async ( { serverMarkup, currentPostId } ) => {
+				await wp.apiFetch( {
+					path: `/wp/v2/posts/${ currentPostId }`,
+					method: 'POST',
+					data: { content: serverMarkup },
+				} );
+				window.sdAiAgentReflection.emit( {
+					type: 'tool-applied',
+					tool: 'sd-ai-agent/update-post',
+					affected: {
+						kind: 'post',
+						post_id: currentPostId,
+						fields: [ 'post_content' ],
+					},
+				} );
+			},
+			{ serverMarkup: markup, currentPostId: postId }
+		);
+
+		await page.waitForFunction(
+			( serverMarkup ) => {
+				const editor = wp.data.select( 'core/editor' );
+				const blocks = wp.data
+					.select( 'core/block-editor' )
+					.getBlocks();
+				return (
+					wp.blocks.serialize( blocks ) === serverMarkup &&
+					editor.isEditedPostDirty() === false
+				);
+			},
+			markup,
+			{ timeout: 15_000 }
+		);
+	} );
+
+	test( 'keeps successive server mutations reflected and the editor clean', async ( {
+		page,
+	} ) => {
+		const postId = await createDraftAndOpenEditor( page );
+		const revisions = [
+			{
+				tool: 'sd-ai-agent/update-post',
+				markup:
+					'<!-- wp:heading -->\n<h2>Updated heading.</h2>\n<!-- /wp:heading -->',
+			},
+			{
+				tool: 'sd-ai-agent/edit-block-tree',
+				markup:
+					'<!-- wp:list -->\n<ul class="wp-block-list"><li>Updated nested item.</li></ul>\n<!-- /wp:list -->',
+			},
+			{
+				tool: 'sd-ai-agent/append-post-content',
+				markup:
+					'<!-- wp:paragraph -->\n<p>Appended server paragraph.</p>\n<!-- /wp:paragraph -->',
+			},
+		];
+
+		for ( const revision of revisions ) {
+			await page.evaluate(
+				async ( { currentPostId, serverMarkup, tool } ) => {
+					await wp.apiFetch( {
+						path: `/wp/v2/posts/${ currentPostId }`,
+						method: 'POST',
+						data: { content: serverMarkup },
+					} );
+					window.sdAiAgentReflection.emit( {
+						type: 'tool-applied',
+						tool,
+						affected: {
+							kind: 'post',
+							post_id: currentPostId,
+							fields: [ 'post_content' ],
+						},
+					} );
+				},
+				{
+					currentPostId: postId,
+					serverMarkup: revision.markup,
+					tool: revision.tool,
+				}
+			);
+
+			await page.waitForFunction(
+				( serverMarkup ) => {
+					const editor = wp.data.select( 'core/editor' );
+					const blocks = wp.data
+						.select( 'core/block-editor' )
+						.getBlocks();
+					const normalizedMarkup = wp.blocks.serialize(
+						wp.blocks.parse( serverMarkup )
+					);
+					return (
+						wp.blocks.serialize( blocks ) === normalizedMarkup &&
+						editor.isEditedPostDirty() === false
+					);
+				},
+				revision.markup,
+				{ timeout: 15_000 }
+			);
+		}
+	} );
+
+	test( 'preserves a dirty local editor after a server mutation event', async ( {
+		page,
+	} ) => {
+		const postId = await createDraftAndOpenEditor( page );
+
+		const localMarkup =
+			'<!-- wp:paragraph -->\n<p>Local unsaved revision.</p>\n<!-- /wp:paragraph -->';
+		const serverMarkup =
+			'<!-- wp:paragraph -->\n<p>Server revision.</p>\n<!-- /wp:paragraph -->';
+		await page.evaluate(
+			async ( { localContent, serverContent, currentPostId } ) => {
+				wp.data.dispatch( 'core/editor' ).editPost( {
+					content: localContent,
+				} );
+				await wp.apiFetch( {
+					path: `/wp/v2/posts/${ currentPostId }`,
+					method: 'POST',
+					data: { content: serverContent },
+				} );
+				window.sdAiAgentReflection.emit( {
+					type: 'tool-applied',
+					tool: 'sd-ai-agent/edit-block-tree',
+					affected: {
+						kind: 'post',
+						post_id: currentPostId,
+						fields: [ 'post_content' ],
+					},
+				} );
+			},
+			{
+				localContent: localMarkup,
+				serverContent: serverMarkup,
+				currentPostId: postId,
+			}
+		);
+
+		await page.waitForTimeout( 500 );
+		const state = await page.evaluate( () => ( {
+			content: wp.blocks.serialize(
+				wp.data.select( 'core/block-editor' ).getBlocks()
+			),
+			dirty: wp.data.select( 'core/editor' ).isEditedPostDirty(),
+		} ) );
+
+		expect( state.content ).toBe( localMarkup );
+		expect( state.dirty ).toBe( true );
+	} );
+} );
+
+// ---------------------------------------------------------------------------
+// Test suite 7: insert-block no-op on non-editor screen
 // ---------------------------------------------------------------------------
 
 test.describe( 'client-abilities — insert-block no-op on non-editor screen', () => {
 	test.beforeEach( async ( { page } ) => {
 		await loginToWordPress( page );
 		await goToDashboard( page );
-		await skipIfNoAbilitiesApi( page );
+		await requireAbilitiesApi( page );
 	} );
 
 	test( 'insert-block returns inserted:false on dashboard without throwing', async ( {
@@ -505,17 +1034,17 @@ test.describe( 'client-abilities — insert-block no-op on non-editor screen', (
 } );
 
 // ---------------------------------------------------------------------------
-// Test suite 6: snapshotDescriptors
+// Test suite 8: snapshotDescriptors
 // ---------------------------------------------------------------------------
 
 test.describe( 'client-abilities — snapshotDescriptors', () => {
 	test.beforeEach( async ( { page } ) => {
 		await loginToWordPress( page );
 		await goToDashboard( page );
-		await skipIfNoAbilitiesApi( page );
+		await requireAbilitiesApi( page );
 	} );
 
-	test( 'snapshotDescriptors returns 2 descriptors with expected shape', async ( {
+	test( 'snapshotDescriptors includes required descriptors with expected shape', async ( {
 		page,
 	} ) => {
 		await waitForAbilitiesRegistered( page );
@@ -531,7 +1060,8 @@ test.describe( 'client-abilities — snapshotDescriptors', () => {
 				return [];
 			}
 			try {
-				const allAbilities = ( await wp.abilities.getAbilities() ) || [];
+				const allAbilities =
+					( await wp.abilities.getAbilities() ) || [];
 				return allAbilities
 					.filter(
 						( ability ) =>
@@ -552,8 +1082,25 @@ test.describe( 'client-abilities — snapshotDescriptors', () => {
 			}
 		} );
 
-		// Must have exactly 2 descriptors.
-		expect( descriptors ).toHaveLength( 2 );
+		// Additional client abilities may be registered without breaking this
+		// coverage, but each expected editor ability must remain discoverable.
+		const names = descriptors.map( ( descriptor ) => descriptor.name );
+		for ( const name of [
+			'sd-ai-agent-js/navigate-to',
+			'sd-ai-agent-js/refresh-page',
+			'sd-ai-agent-js/get-editor-selection',
+			'sd-ai-agent-js/insert-block',
+			'sd-ai-agent-js/get-editor-capabilities',
+			'sd-ai-agent-js/capture-screenshot',
+			'sd-ai-agent-js/screenshot-url',
+			'sd-ai-agent-js/replace-editor-selection',
+			'sd-ai-agent-js/insert-block-markup',
+			'sd-ai-agent-js/change-editor-history',
+			'sd-ai-agent-js/get-canonical-block-examples',
+			'sd-ai-agent-js/validate-page-quality',
+		] ) {
+			expect( names ).toContain( name );
+		}
 
 		// Each descriptor must have the expected shape.
 		for ( const descriptor of descriptors ) {
@@ -569,16 +1116,173 @@ test.describe( 'client-abilities — snapshotDescriptors', () => {
 			expect( descriptor.label.length ).toBeGreaterThan( 0 );
 			expect( descriptor.description.length ).toBeGreaterThan( 0 );
 		}
-
-		// Verify the two expected ability names are present.
-		const names = descriptors.map( ( d ) => d.name );
-		expect( names ).toContain( 'sd-ai-agent-js/navigate-to' );
-		expect( names ).toContain( 'sd-ai-agent-js/insert-block' );
 	} );
 } );
 
 // ---------------------------------------------------------------------------
-// Test suite 7: No relevant console errors
+// Test suite 9: Restored polling
+// ---------------------------------------------------------------------------
+
+test.describe( 'client-abilities — restored polling', () => {
+	test( 'restores a refreshed job, executes each client call once, and persists one terminal response', async ( {
+		page,
+	} ) => {
+		const jobId = 'e2e-restored-client-abilities-job';
+		const sessionId = 101;
+		const terminalReply =
+			'Restored client abilities completed exactly once after refresh.';
+		const toolResultPayloads = [];
+		let jobPollCount = 0;
+
+		const isActiveJobsEndpoint = ( url ) =>
+			decodeURIComponent( url.toString() ).includes(
+				'sd-ai-agent/v1/sessions/active-jobs'
+			);
+		const isJobEndpoint = ( url ) =>
+			decodeURIComponent( url.toString() ).includes(
+				`sd-ai-agent/v1/job/${ jobId }`
+			);
+		const isToolResultEndpoint = ( url ) =>
+			decodeURIComponent( url.toString() ).includes(
+				'sd-ai-agent/v1/chat/tool-result'
+			);
+		const isSessionEndpoint = ( url ) => {
+			const decoded = decodeURIComponent( url.toString() );
+			return (
+				decoded.includes( `sd-ai-agent/v1/sessions/${ sessionId }` ) &&
+				! decoded.includes( `/sessions/${ sessionId }/active-job` )
+			);
+		};
+
+		const handleActiveJobs = async ( route ) => {
+			await route.fulfill( {
+				status: 200,
+				contentType: 'application/json',
+				body: JSON.stringify( [ { job_id: jobId, session_id: sessionId } ] ),
+			} );
+		};
+		const handleJob = async ( route ) => {
+			jobPollCount++;
+			const body =
+				toolResultPayloads.length === 0
+					? {
+							status: 'awaiting_client_tools',
+							pending_client_tool_calls: [
+								{
+									id: 'restored-screenshot-url',
+									name: 'sd-ai-agent-js/screenshot-url',
+									annotations: { readonly: true },
+									// An invalid URL produces a fast, structured browser result.
+									args: { url: '' },
+								},
+								{
+									id: 'restored-page-quality',
+									name: 'sd-ai-agent-js/validate-page-quality',
+									annotations: { readonly: true },
+									// Empty targets exercise the real callback without loading iframes.
+									args: {
+										profile: 'incremental',
+										quality_token: 'restored-e2e-token',
+										render_mode: 'public',
+										visual_review_required: false,
+										pages: [],
+										hero_contract: {},
+										viewports: [],
+									},
+								},
+							],
+						}
+					: {
+							status: 'complete',
+							session_id: sessionId,
+							reply: terminalReply,
+						};
+
+			await route.fulfill( {
+				status: 200,
+				contentType: 'application/json',
+				body: JSON.stringify( body ),
+			} );
+		};
+		const handleToolResult = async ( route ) => {
+			toolResultPayloads.push( route.request().postDataJSON() );
+			await route.fulfill( {
+				status: 200,
+				contentType: 'application/json',
+				body: JSON.stringify( { status: 'processing' } ),
+			} );
+		};
+		const handleSession = async ( route ) => {
+			const messages = toolResultPayloads.length
+				? [
+						{
+							role: 'model',
+							parts: [ { text: terminalReply } ],
+						},
+				  ]
+				: [];
+			await route.fulfill( {
+				status: 200,
+				contentType: 'application/json',
+				body: JSON.stringify( {
+					id: sessionId,
+					messages,
+					tool_calls: [],
+				} ),
+			} );
+		};
+
+		await loginToWordPress( page );
+		await page.goto( '/wp-admin/index.php' );
+		await page.waitForLoadState( 'domcontentloaded' );
+		await page.evaluate( ( restore ) => {
+			sessionStorage.setItem(
+				'sdAiAgent_refreshRestore',
+				JSON.stringify( restore )
+			);
+		}, { sessionId, open: true, minimized: false } );
+
+		await page.route( isActiveJobsEndpoint, handleActiveJobs );
+		await page.route( isJobEndpoint, handleJob );
+		await page.route( isToolResultEndpoint, handleToolResult );
+		await page.route( isSessionEndpoint, handleSession );
+
+		try {
+			await page.reload();
+			await waitForAbilitiesRegistered( page );
+			await requireAbilitiesApi( page );
+			await expect.poll( () => toolResultPayloads.length ).toBe( 1 );
+			// A backgrounded CI page uses the intentional 15-second polling
+			// interval, so wait for the terminal poll before checking the UI.
+			await expect
+				.poll( () => jobPollCount, { timeout: 20_000 } )
+				.toBe( 2 );
+			await expect( page.getByText( terminalReply ) ).toBeVisible();
+
+			expect( jobPollCount ).toBe( 2 );
+			expect( toolResultPayloads[ 0 ]?.tool_results ).toHaveLength( 2 );
+			expect(
+				toolResultPayloads[ 0 ].tool_results.map(
+					( result ) => result.error
+				)
+			).toEqual( [ undefined, undefined ] );
+			expect(
+				toolResultPayloads[ 0 ].tool_results.map(
+					( result ) => result.id
+				)
+			).toEqual( [ 'restored-screenshot-url', 'restored-page-quality' ] );
+			expect( page.getByText( terminalReply ) ).toHaveCount( 1 );
+		} finally {
+			await page.unroute( isActiveJobsEndpoint, handleActiveJobs );
+			await page.unroute( isJobEndpoint, handleJob );
+			await page.unroute( isToolResultEndpoint, handleToolResult );
+			await page.unroute( isSessionEndpoint, handleSession );
+		}
+	} );
+} );
+
+// ---------------------------------------------------------------------------
+// Test suite 10: No relevant console errors
 // ---------------------------------------------------------------------------
 
 test.describe( 'client-abilities — no relevant console errors', () => {
@@ -616,7 +1320,7 @@ test.describe( 'client-abilities — no relevant console errors', () => {
 
 		await loginToWordPress( page );
 		await goToDashboard( page );
-		await skipIfNoAbilitiesApi( page );
+		await requireAbilitiesApi( page );
 		await waitForAbilitiesRegistered( page );
 
 		assertNoForbiddenErrors(
@@ -634,7 +1338,7 @@ test.describe( 'client-abilities — no relevant console errors', () => {
 		await page
 			.locator( '.sdaa-unified-admin' )
 			.waitFor( { state: 'visible', timeout: 45_000 } );
-		await skipIfNoAbilitiesApi( page );
+		await requireAbilitiesApi( page );
 		await waitForAbilitiesRegistered( page );
 
 		assertNoForbiddenErrors(
@@ -653,17 +1357,9 @@ test.describe( 'client-abilities — no relevant console errors', () => {
 		// Check abilities API BEFORE the slow editor wait. On CI the block
 		// editor can take 45-60 s to initialise — skipping early avoids a
 		// 60 s timeout when the abilities API isn't available at all.
-		await skipIfNoAbilitiesApi( page );
+		await requireAbilitiesApi( page );
 
-		// The block editor is notoriously slow to initialise on CI runners,
-		// especially on WP trunk where Gutenberg loads additional script
-		// modules. 60 s accommodates the worst-case load time observed in
-		// CI (45-55 s) with headroom. The previous 45 s timeout failed
-		// consistently on both WP 6.9 and trunk CI matrices.
-		await page
-			.locator( '.block-editor-writing-flow, .editor-styles-wrapper' )
-			.first()
-			.waitFor( { state: 'visible', timeout: 60_000 } );
+		await waitForBlockEditorReady( page );
 		await waitForAbilitiesRegistered( page );
 
 		assertNoForbiddenErrors(

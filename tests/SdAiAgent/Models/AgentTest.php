@@ -611,11 +611,13 @@ class AgentTest extends WP_UnitTestCase {
 		$this->assertContains( 'sd-ai-agent/site-loopback-check', $tools );
 		$this->assertContains( 'sd-ai-agent/fetch-url', $tools );
 		$this->assertContains( 'sd-ai-agent/list-block-templates', $tools );
+		$this->assertContains( 'sd-ai-agent/list-template-parts', $tools );
+		$this->assertContains( 'sd-ai-agent/update-template-part', $tools );
 		$this->assertContains( 'sd-ai-agent/update-option', $tools );
 		$this->assertNotContains( 'wp-cli/execute', $tools );
 		$this->assertStringContainsString( 'Do not use the generic `wp-cli/execute` dispatcher for site title, tagline, active-plugin, or theme discovery', $prompt );
-		$this->assertStringContainsString( 'Treat `success: false` or an `error` as a failed search or import. After `action: import`, also treat `attachment_id: 0` or an empty `url` as a failed acquisition', $prompt );
-		$this->assertStringContainsString( 'immediately use `sd-ai-agent/generate-image`', $prompt );
+		$this->assertStringContainsString( 'Treat `success: false`, an `error`, `attachment_id: 0`, or an empty `url` as failed acquisition', $prompt );
+		$this->assertStringContainsString( 'If both stock calls fail, use `sd-ai-agent/generate-image` once', $prompt );
 		$this->assertStringContainsString( 'do not publish a homepage that requires primary media as weak/text-only', $prompt );
 	}
 
@@ -633,7 +635,7 @@ class AgentTest extends WP_UnitTestCase {
 
 		try {
 			$options = Agent::get_loop_options( $agent->id );
-			$this->assertSame( 60, $options['max_iterations'] );
+			$this->assertSame( 100, $options['max_iterations'] );
 			$this->assertContains( 'sd-ai-agent/get-option', $options['tier_1_tools'] );
 			$this->assertContains( 'sd-ai-agent/create-menu', $options['tier_1_tools'] );
 			$this->assertContains( 'sd-ai-agent/add-menu-item', $options['tier_1_tools'] );
@@ -641,6 +643,8 @@ class AgentTest extends WP_UnitTestCase {
 			$this->assertContains( 'sd-ai-agent/assign-menu-location', $options['tier_1_tools'] );
 			$this->assertContains( 'sd-ai-agent/site-loopback-check', $options['tier_1_tools'] );
 			$this->assertContains( 'sd-ai-agent/fetch-url', $options['tier_1_tools'] );
+			$this->assertContains( 'sd-ai-agent/list-template-parts', $options['tier_1_tools'] );
+			$this->assertContains( 'sd-ai-agent/update-template-part', $options['tier_1_tools'] );
 			$this->assertContains( 'sd-ai-agent/update-option', $options['tier_1_tools'] );
 			$this->assertNotContains( 'wp-cli/execute', $options['tier_1_tools'] );
 		} finally {
@@ -669,6 +673,8 @@ class AgentTest extends WP_UnitTestCase {
 			$this->assertContains( 'sd-ai-agent/assign-menu-location', $options['tier_1_tools'] );
 			$this->assertContains( 'sd-ai-agent/site-loopback-check', $options['tier_1_tools'] );
 			$this->assertContains( 'sd-ai-agent/fetch-url', $options['tier_1_tools'] );
+			$this->assertContains( 'sd-ai-agent/list-template-parts', $options['tier_1_tools'] );
+			$this->assertContains( 'sd-ai-agent/update-template-part', $options['tier_1_tools'] );
 			$this->assertNotContains( 'wp-cli/execute', $options['tier_1_tools'] );
 		} finally {
 			Agent::update( $agent->id, [ 'tier_1_tools' => $original_tools ] );

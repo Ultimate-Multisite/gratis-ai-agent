@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace SdAiAgent\Infrastructure\AiClient\Superdav;
 
 use SdAiAgent\Core\ProviderTraceLogger;
+use SdAiAgent\Core\SuperdavManagedRequestIdentifiers;
 use WordPress\AiClient\Providers\ApiBasedImplementation\AbstractApiProvider;
 use WordPress\AiClient\Providers\Contracts\ModelMetadataDirectoryInterface;
 use WordPress\AiClient\Providers\Contracts\ProviderAvailabilityInterface;
@@ -32,6 +33,8 @@ final class SuperdavAiProvider extends AbstractApiProvider {
 	public const STRONG_MODEL_ID            = 'superdav-chat-strong';
 	public const IMAGE_MODEL_ID             = 'superdav-image';
 	public const SESSION_ATTRIBUTION_HEADER = 'X-Superdav-Session-ID';
+	public const JOURNEY_ATTRIBUTION_HEADER = 'X-Superdav-Journey-ID';
+	public const IDEMPOTENCY_HEADER         = 'Idempotency-Key';
 
 	/**
 	 * Reasoning effort hints for managed Superdav model aliases.
@@ -62,6 +65,24 @@ final class SuperdavAiProvider extends AbstractApiProvider {
 		$session_id = ProviderTraceLogger::get_runtime_session_id();
 		if ( $session_id > 0 ) {
 			$headers[ self::SESSION_ATTRIBUTION_HEADER ] = (string) $session_id;
+		}
+
+		return $headers;
+	}
+
+	/**
+	 * Add active r002 reservation headers to a managed chat-completion request.
+	 *
+	 * @param array<string, string|list<string>> $headers Existing request headers.
+	 * @return array<string, string|list<string>> Headers with safe managed attribution.
+	 */
+	public static function with_managed_chat_attribution( array $headers ): array {
+		$headers     = self::with_session_attribution( $headers );
+		$attribution = ProviderTraceLogger::get_runtime_managed_request_attribution();
+
+		if ( SuperdavManagedRequestIdentifiers::is_journey_id( $attribution['journey_id'] ) && SuperdavManagedRequestIdentifiers::is_idempotency_key( $attribution['idempotency_key'] ) ) {
+			$headers[ self::JOURNEY_ATTRIBUTION_HEADER ] = $attribution['journey_id'];
+			$headers[ self::IDEMPOTENCY_HEADER ]         = $attribution['idempotency_key'];
 		}
 
 		return $headers;

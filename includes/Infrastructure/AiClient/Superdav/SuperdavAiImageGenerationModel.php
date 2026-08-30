@@ -69,7 +69,32 @@ final class SuperdavAiImageGenerationModel extends AbstractOpenAiCompatibleImage
 	 */
 	protected function prepareGenerateImageParams( array $prompt ): array {
 		$params = parent::prepareGenerateImageParams( $prompt );
-		unset( $params['response_format'] );
+
+		// The public ability accepts common DALL-E-style hints, while the
+		// managed alias currently targets GPT Image. Drop or translate the
+		// incompatible values instead of forwarding a request that the managed
+		// gateway must reject. Unsupported options are intentionally graceful
+		// no-ops in the generate-image ability contract.
+		unset( $params['response_format'], $params['style'] );
+
+		$quality = strtolower( trim( (string) ( $params['quality'] ?? '' ) ) );
+		if ( 'hd' === $quality ) {
+			$quality = 'high';
+		}
+		if ( in_array( $quality, array( 'low', 'medium', 'high', 'auto' ), true ) ) {
+			$params['quality'] = $quality;
+		} else {
+			unset( $params['quality'] );
+		}
+
+		$size_map = array(
+			'1792x1024' => '1536x1024',
+			'1024x1792' => '1024x1536',
+		);
+		$size     = (string) ( $params['size'] ?? '' );
+		if ( isset( $size_map[ $size ] ) ) {
+			$params['size'] = $size_map[ $size ];
+		}
 
 		return $params;
 	}

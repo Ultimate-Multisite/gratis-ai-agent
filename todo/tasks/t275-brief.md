@@ -73,7 +73,7 @@ No upstream — internal consistency task. Block-mcp's shape uses `bound_attribu
 
 ## Files to modify / create
 
-- **Audit output:** `tools/audit/bindings-field-audit.md` — the matrix from Step 1, kept in the PR commit history for reference.
+- **Audit output:** bindings-field matrix from Step 1, retained in the implementation PR history for reference.
 - **Modify:** any read-path file that diverges from the canonical shape. Likely candidates: `BlockAbilities.php` (review-block, parse-block-content), the dry-run output paths for `update-blocks` / `edit-block-tree`.
 - **Modify:** affected ability `description` strings to mention `bindings` + `bound_attributes`.
 - **New:** `tests/SdAiAgent/Bootstrap/BindingsFieldConsistencyTest.php` — the regression guard.

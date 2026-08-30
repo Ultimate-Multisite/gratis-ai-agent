@@ -20,6 +20,7 @@ use SdAiAgent\Core\JobErrorSanitizer;
 use SdAiAgent\Knowledge\KnowledgeDatabase;
 use SdAiAgent\Models\ActiveJobRepository;
 use SdAiAgent\Models\Agent;
+use SdAiAgent\Models\CustomerConversationReviewRepository;
 use SdAiAgent\Models\CustomerAgentRuntimeRepository;
 use WP_Error;
 use WordPress\AiClient\Messages\DTO\Message;
@@ -91,6 +92,9 @@ class CustomerAgentRuntimeService implements CustomerAgentRuntimeInterface {
 	private const INTEGRATION_LOCK_TIMEOUT_SECONDS = 10;
 
 	private static ?self $instance = null;
+
+	/** @var array<string,\mysqli> Connections that own request-scoped advisory locks. */
+	private array $integration_lock_connections = array();
 
 	/**
 	 * Optional test seam. Production execution always uses AgentLoop directly.
@@ -691,6 +695,10 @@ class CustomerAgentRuntimeService implements CustomerAgentRuntimeInterface {
 			);
 		}
 
+		// Review recording is a separate, fail-open display projection. Its write
+		// must never prevent a constrained customer request from being delivered.
+		$this->record_runtime_review_on_enqueue( $conversation['row'], $profile, $job_id, $message, $expires_at );
+
 		$queued = CustomerAgentRuntimeRepository::get_job( $job_id );
 		if ( null === $queued ) {
 			return new WP_Error(
@@ -761,6 +769,7 @@ class CustomerAgentRuntimeService implements CustomerAgentRuntimeInterface {
 
 		$now = current_time( 'mysql', true );
 		if ( CustomerAgentRuntimeRepository::mark_cancelled( $job_id, $now ) ) {
+			$this->record_runtime_review_status( $owned_job, 'cancelled' );
 			ActiveJobRepository::record_failure(
 				$job_id,
 				'error',
@@ -1000,14 +1009,25 @@ class CustomerAgentRuntimeService implements CustomerAgentRuntimeInterface {
 			return;
 		}
 
-		$history_json = wp_json_encode( $history );
+		$review_expires_at = $this->future_mysql_time( self::RETENTION_SECONDS );
+		$history_json      = wp_json_encode( $history );
 		if ( is_string( $history_json ) ) {
 			CustomerAgentRuntimeRepository::update_runtime_history(
 				(string) $job['conversation_id'],
 				$history_json,
-				$this->future_mysql_time( self::RETENTION_SECONDS )
+				$review_expires_at
 			);
 		}
+		$this->record_runtime_review_completion(
+			$job,
+			$response,
+			$profile['provider_id'],
+			(string) ( $result['model_id'] ?? $profile['model_id'] ),
+			(int) ( $result['iterations_used'] ?? 0 ),
+			(int) ( $tokens['prompt'] ?? 0 ),
+			(int) ( $tokens['completion'] ?? 0 ),
+			$review_expires_at
+		);
 		ActiveJobRepository::update_status( $job_id, 'complete' );
 		$completed_job = CustomerAgentRuntimeRepository::get_job( $job_id );
 		if ( null !== $completed_job ) {
@@ -1177,6 +1197,10 @@ class CustomerAgentRuntimeService implements CustomerAgentRuntimeInterface {
 				array( 'status' => 503 )
 			);
 		}
+		$connection = $this->database_connection_handle( $wpdb );
+		if ( null !== $connection ) {
+			$this->integration_lock_connections[ $lock_name ] = $connection;
+		}
 
 		return $lock_name;
 	}
@@ -1186,8 +1210,40 @@ class CustomerAgentRuntimeService implements CustomerAgentRuntimeInterface {
 		global $wpdb;
 		/** @var \wpdb $wpdb */
 
-		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Releases the request-scoped advisory lock acquired for this integration.
-		$wpdb->get_var( $wpdb->prepare( 'SELECT RELEASE_LOCK(%s)', $lock_name ) );
+		$query      = $wpdb->prepare( 'SELECT RELEASE_LOCK(%s)', $lock_name );
+		$connection = $this->integration_lock_connections[ $lock_name ] ?? null;
+		unset( $this->integration_lock_connections[ $lock_name ] );
+		if ( ! is_string( $query ) ) {
+			return;
+		}
+
+		if ( $connection instanceof \mysqli ) {
+			try {
+				// phpcs:ignore WordPress.DB.RestrictedFunctions.mysql_mysqli_query -- Advisory locks are connection-scoped, so release must use the exact connection that acquired the lock instead of a router-selected wpdb connection.
+				$result = mysqli_query( $connection, $query );
+				if ( $result instanceof \mysqli_result ) {
+					$result->free();
+				}
+			} catch ( \Throwable $exception ) {
+				// The database releases request-owned advisory locks when the connection closes.
+			}
+			return;
+		}
+
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.NotPrepared -- The query was prepared above; fallback supports wpdb drivers that do not expose their connection handle.
+		$wpdb->get_var( $query );
+	}
+
+	/** Return the current driver connection without assuming wpdb property visibility. */
+	private function database_connection_handle( \wpdb $database ): ?\mysqli {
+		try {
+			$property   = new \ReflectionProperty( $database, 'dbh' );
+			$connection = $property->getValue( $database );
+		} catch ( \ReflectionException $exception ) {
+			return null;
+		}
+
+		return $connection instanceof \mysqli ? $connection : null;
 	}
 
 	/** Return the independent opaque tombstone option name for one integration key. */
@@ -1761,6 +1817,7 @@ class CustomerAgentRuntimeService implements CustomerAgentRuntimeInterface {
 		$job_id  = (string) $job['job_id'];
 		$message = __( 'The customer-agent request timed out before a reply was available.', 'superdav-ai-agent' );
 		if ( CustomerAgentRuntimeRepository::mark_timed_out( $job_id, current_time( 'mysql', true ), 'sd_ai_agent_customer_agent_timeout', $message ) ) {
+			$this->record_runtime_review_status( $job, 'failed', 'sd_ai_agent_customer_agent_timeout' );
 			ActiveJobRepository::record_failure(
 				$job_id,
 				'error',
@@ -1788,6 +1845,7 @@ class CustomerAgentRuntimeService implements CustomerAgentRuntimeInterface {
 		$message                               = $this->customer_safe_error_message( $detail );
 		$diagnostic_context['last_safe_phase'] = 'customer_agent_runtime';
 		if ( CustomerAgentRuntimeRepository::mark_failed( $job_id, current_time( 'mysql', true ), $error_code, $message ) ) {
+			$this->record_runtime_review_status( $job, 'failed', $error_code );
 			ActiveJobRepository::record_failure(
 				$job_id,
 				'error',
@@ -1821,6 +1879,99 @@ class CustomerAgentRuntimeService implements CustomerAgentRuntimeInterface {
 			'created'         => $created,
 			'expires_at'      => (string) $job['expires_at'],
 		);
+	}
+
+	/**
+	 * Create the isolated review projection for a newly queued customer turn.
+	 *
+	 * @param array<string,mixed> $conversation Durable runtime conversation row.
+	 * @param array<string,mixed> $profile      Resolved constrained profile.
+	 */
+	private function record_runtime_review_on_enqueue( array $conversation, array $profile, string $job_id, string $message, string $expires_at ): void {
+		try {
+			$profile_key     = (string) ( $profile['profile_key'] ?? '' );
+			$agent           = '' !== $profile_key ? Agent::get_by_managed_profile_key( $profile_key ) : null;
+			$agent_id        = null !== $agent ? (int) $agent->id : 0;
+			$conversation_id = (string) ( $conversation['conversation_id'] ?? '' );
+			CustomerConversationReviewRepository::create_runtime_review(
+				wp_generate_uuid4(),
+				$conversation_id,
+				(string) ( $profile['provider_id'] ?? '' ),
+				(string) ( $profile['model_id'] ?? '' ),
+				$expires_at,
+				$agent_id
+			);
+			CustomerConversationReviewRepository::append_runtime_turn(
+				$conversation_id,
+				$job_id,
+				'user',
+				$message,
+				'queued',
+				array(
+					'provider_id' => (string) ( $profile['provider_id'] ?? '' ),
+					'model_id'    => (string) ( $profile['model_id'] ?? '' ),
+					'expires_at'  => $expires_at,
+				)
+			);
+		} catch ( \Throwable $exception ) {
+			// Review persistence is intentionally non-blocking for customer traffic.
+		}
+	}
+
+	/**
+	 * Write the completed display projection after the runtime conditional update wins.
+	 *
+	 * @param array<string,mixed>                                                 $job      Durable runtime job row.
+	 * @param array{reply:string,handoff:array{intent:string,reason:string}|null} $response Safe response data.
+	 */
+	private function record_runtime_review_completion( array $job, array $response, string $provider_id, string $model_id, int $iterations_used, int $prompt_tokens, int $completion_tokens, string $expires_at ): void {
+		$handoff_intent = is_array( $response['handoff'] ?? null ) && is_string( $response['handoff']['intent'] ?? null )
+			? $response['handoff']['intent']
+			: '';
+
+		try {
+			CustomerConversationReviewRepository::append_runtime_turn(
+				(string) ( $job['conversation_id'] ?? '' ),
+				(string) ( $job['job_id'] ?? '' ),
+				'assistant',
+				(string) ( $response['reply'] ?? '' ),
+				'complete',
+				array(
+					'provider_id'       => $provider_id,
+					'model_id'          => $model_id,
+					'iterations_used'   => $iterations_used,
+					'prompt_tokens'     => $prompt_tokens,
+					'completion_tokens' => $completion_tokens,
+					'handoff_intent'    => $handoff_intent,
+					'expires_at'        => $expires_at,
+				)
+			);
+		} catch ( \Throwable $exception ) {
+			// Review persistence is intentionally non-blocking for customer traffic.
+		}
+	}
+
+	/**
+	 * Persist a safe terminal review status without retaining exception detail.
+	 *
+	 * @param array<string,mixed> $job Durable runtime job row.
+	 */
+	private function record_runtime_review_status( array $job, string $status, string $error_code = '' ): void {
+		try {
+			CustomerConversationReviewRepository::update_runtime_review_status(
+				(string) ( $job['conversation_id'] ?? '' ),
+				(string) ( $job['job_id'] ?? '' ),
+				$status,
+				array(
+					'provider_id' => (string) ( $job['provider_id'] ?? '' ),
+					'model_id'    => (string) ( $job['model_id'] ?? '' ),
+					'error_code'  => $error_code,
+					'expires_at'  => (string) ( $job['expires_at'] ?? '' ),
+				)
+			);
+		} catch ( \Throwable $exception ) {
+			// Review persistence is intentionally non-blocking for customer traffic.
+		}
 	}
 
 	/**

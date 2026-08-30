@@ -14,16 +14,20 @@ import {
 	notifyConfirmationNeeded,
 } from '../../utils/notification-manager';
 import { playDing, playDong, playThinking } from '../../utils/sound-manager';
-import { executeClientAbility } from '../../abilities/registry';
 import { emitReflectionEvents } from '../reflection-emitter';
+
+// A session/job pair must have exactly one polling loop. Multiple mounted chat
+// surfaces can discover or resume the same durable job at nearly the same time;
+// duplicate pollers can execute one browser-tool batch twice and consume the
+// single-use paused state before the first poller receives its response.
+const activePollersByDispatch = new WeakMap();
 
 /**
  * Merge real tool calls with assistant channel messages for live rendering.
  *
- * Backend `tool_calls` now contains only real tool invocations/results. Text
- * preambles, retry notices, and guardrail messages arrive separately in
- * `messages`; the live running UI still needs both streams interleaved by the
- * monotonic `sequence` field.
+ * Backend `tool_calls` contains real tool invocations/results. Model preambles
+ * must never be rendered as progress because providers can emit reasoning as
+ * ordinary content text. Deterministic tool activity remains visible.
  *
  * @param {Array} toolCalls Tool call/result entries.
  * @param {Array} messages  Assistant channel or event entries.
@@ -31,7 +35,9 @@ import { emitReflectionEvents } from '../reflection-emitter';
  */
 function mergeActivityForDisplay( toolCalls, messages ) {
 	const callEntries = Array.isArray( toolCalls ) ? toolCalls : [];
-	const messageEntries = Array.isArray( messages ) ? messages : [];
+	const messageEntries = Array.isArray( messages )
+		? messages.filter( ( entry ) => entry?.type !== 'preamble' )
+		: [];
 
 	if ( ! messageEntries.length ) {
 		return callEntries;
@@ -367,6 +373,17 @@ export const actions = {
 	 */
 	pollJob( jobId, sessionId ) {
 		return async ( { dispatch, select } ) => {
+			let activePollers = activePollersByDispatch.get( dispatch );
+			if ( ! activePollers ) {
+				activePollers = new Set();
+				activePollersByDispatch.set( dispatch, activePollers );
+			}
+			const pollerKey = `${ sessionId }:${ jobId }`;
+			if ( activePollers.has( pollerKey ) ) {
+				return;
+			}
+			activePollers.add( pollerKey );
+
 			let attempts = 0;
 			const maxAttempts = 200;
 			// Counts consecutive *transient* network/5xx failures so a dead
@@ -396,6 +413,15 @@ export const actions = {
 					}
 				}
 			} );
+			let pollingStopped = false;
+			const stopPolling = () => {
+				if ( pollingStopped ) {
+					return;
+				}
+				pollingStopped = true;
+				activePollers.delete( pollerKey );
+				unsubscribeVisibility();
+			};
 
 			/**
 			 * Calculate the poll interval based on attempt count and visibility.
@@ -425,7 +451,7 @@ export const actions = {
 				lastStatusComplete = false;
 				attempts++;
 				if ( attempts > maxAttempts ) {
-					unsubscribeVisibility();
+					stopPolling();
 					clearActiveJob( sessionId );
 					// Only append error and update UI for the current session.
 					if ( select.getCurrentSessionId() === sessionId ) {
@@ -539,7 +565,7 @@ export const actions = {
 						const currentJobId = select.getCurrentJobId();
 						if ( currentJobId !== jobId && currentJobId !== null ) {
 							// Different job is now active; stop this poller.
-							unsubscribeVisibility();
+							stopPolling();
 							clearActiveJob( sessionId );
 							return;
 						}
@@ -580,7 +606,7 @@ export const actions = {
 						}
 
 						// Don't clear sending — still waiting.
-						unsubscribeVisibility();
+						stopPolling();
 						clearActiveJob( sessionId );
 						return;
 					}
@@ -602,7 +628,7 @@ export const actions = {
 						}
 
 						// Don't clear sending — still waiting.
-						unsubscribeVisibility();
+						stopPolling();
 						clearActiveJob( sessionId );
 						return;
 					}
@@ -615,62 +641,31 @@ export const actions = {
 						// confirmation dialog (screenshots, DOM reads, etc.).
 						// A mutating client ability executes only when the server
 						// returned `user_confirmed: true` after user approval.
-						const pendingCalls =
+						// Restored jobs can begin polling before the asynchronously loaded
+						// browser-ability bundles finish registration. Wait once for the
+						// shared callback pipeline before running the batch, so a valid
+						// saved call cannot become a false "not registered" result.
+						const pendingClientToolCalls =
 							result.pending_client_tool_calls || [];
-
-						const toolResults = await Promise.all(
-							pendingCalls.map( async ( call ) => {
-								const isReadonly =
-									call.annotations?.readonly === true;
-								const isUserConfirmed =
-									call.user_confirmed === true;
-
-								if ( ! isReadonly && ! isUserConfirmed ) {
-									// Mutating client abilities need an explicit server
-									// confirmation marker before browser execution.
-									return {
-										id: call.id,
-										name: call.name,
-										error: __(
-											'Client-side ability requires explicit user confirmation.',
-											'superdav-ai-agent'
-										),
-									};
-								}
-
-								try {
-									const abilityResult = await Promise.race( [
-										executeClientAbility(
-											call.client_name || call.name,
-											call.args || {}
-										),
-										new Promise( ( _resolve, reject ) =>
-											setTimeout(
-												reject,
-												30000,
-												new Error(
-													'Client tool timed out after 30 seconds.'
-												)
-											)
-										),
-									] );
-									return {
-										id: call.id,
-										name: call.name,
-										result: abilityResult,
-									};
-								} catch ( execErr ) {
-									return {
-										id: call.id,
-										name: call.name,
-										error:
-											execErr instanceof Error
-												? execErr.message
-												: String( execErr ),
-									};
-								}
-							} )
-						);
+						let toolResults;
+						try {
+							const { runClientTools } = await import(
+								/* webpackChunkName: "client-tool-runner" */
+								'./client-tool-runner'
+							);
+							toolResults = await runClientTools(
+								pendingClientToolCalls
+							);
+						} catch ( runnerError ) {
+							const error = String(
+								runnerError?.message ||
+									runnerError ||
+									Error.name
+							);
+							toolResults = pendingClientToolCalls.map(
+								( { id, name } ) => ( { id, name, error } )
+							);
+						}
 
 						// POST results back to the server so the agent loop
 						// can continue with the screenshot/DOM data.
@@ -761,7 +756,7 @@ export const actions = {
 								} );
 								dispatch.setSending( false );
 							}
-							unsubscribeVisibility();
+							stopPolling();
 							clearActiveJob( sessionId );
 							dispatch.setCurrentJobId( null );
 							dispatch.setSessionJob( sessionId, null );
@@ -779,7 +774,7 @@ export const actions = {
 							const target = window._sdAiAgentPendingNavigation;
 							delete window._sdAiAgentPendingNavigation;
 							clearActiveJob( sessionId );
-							unsubscribeVisibility();
+							stopPolling();
 							window.location.assign( target );
 							return;
 						}
@@ -798,7 +793,7 @@ export const actions = {
 								);
 							} catch ( _err ) {}
 							clearActiveJob( sessionId );
-							unsubscribeVisibility();
+							stopPolling();
 							window.location.assign( target );
 							return;
 						}
@@ -1165,7 +1160,7 @@ export const actions = {
 							reloadFailed = true;
 						}
 
-						unsubscribeVisibility();
+						stopPolling();
 						clearActiveJob( sessionId );
 						if ( select.getCurrentSessionId() === sessionId ) {
 							dispatch.setPendingConfirmation?.( null );
@@ -1198,7 +1193,7 @@ export const actions = {
 					// cannot keep the user trapped on the sending spinner.
 					consecutiveErrors++;
 					if ( consecutiveErrors >= maxConsecutiveErrors ) {
-						unsubscribeVisibility();
+						stopPolling();
 						clearActiveJob( sessionId );
 						if ( select.getCurrentSessionId() === sessionId ) {
 							let sessionReloaded = false;
@@ -1258,7 +1253,7 @@ export const actions = {
 				}
 
 				// Job finished (complete or error).
-				unsubscribeVisibility();
+				stopPolling();
 				clearActiveJob( sessionId );
 				if ( select.getCurrentSessionId() === sessionId ) {
 					// Play success sound when the job completed without error.

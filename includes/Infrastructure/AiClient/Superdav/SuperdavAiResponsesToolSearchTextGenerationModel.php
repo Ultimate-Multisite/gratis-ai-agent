@@ -84,7 +84,11 @@ final class SuperdavAiResponsesToolSearchTextGenerationModel extends AbstractApi
 	 * @return Request
 	 */
 	protected function createRequest( HttpMethodEnum $method, string $path, array $headers = array(), mixed $data = null ): Request {
-		return new Request( $method, SuperdavAiProvider::url( $path ), SuperdavAiProvider::with_session_attribution( $headers ), $data, $this->getRequestOptions() );
+		$request_headers = 'responses' === trim( $path, '/' )
+			? SuperdavAiProvider::with_managed_chat_attribution( $headers )
+			: SuperdavAiProvider::with_session_attribution( $headers );
+
+		return new Request( $method, SuperdavAiProvider::url( $path ), $request_headers, $data, $this->getRequestOptions() );
 	}
 
 	/**

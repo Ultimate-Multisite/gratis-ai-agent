@@ -221,6 +221,184 @@ class PostMutationHealthCheckTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * A public health-route rejection is not evidence that WordPress is broken.
+	 */
+	public function test_verify_or_revert_ignores_public_health_route_rejection(): void {
+		add_filter(
+			'pre_http_request',
+			function () {
+				return [
+					'headers'       => [ 'content-type' => 'application/json' ],
+					'body'          => '{"code":"sd_ai_agent_health_forbidden"}',
+					'response'      => [ 'code' => 403 ],
+					'cookies'       => [],
+					'http_response' => null,
+				];
+			},
+			10
+		);
+
+		$undoCalled = false;
+		$undo       = function () use ( &$undoCalled ) {
+			$undoCalled = true;
+			return true;
+		};
+
+		$health_check = new PostMutationHealthCheck();
+		$result       = $health_check->verify_or_revert( $undo, 'Test operation' );
+
+		$this->assertNull( $result );
+		$this->assertFalse( $undoCalled, 'A rejected public probe must not trigger rollback' );
+	}
+
+	/**
+	 * A cached URL returning 403 remains unreachable rather than broken.
+	 */
+	public function test_cached_health_url_rejecting_request_is_unreachable(): void {
+		set_transient( 'sd_ai_agent_health_url', 'https://example.test/health', HOUR_IN_SECONDS );
+
+		add_filter(
+			'pre_http_request',
+			function ( $preempt, $args ) {
+				$this->assertSame( 0, $args['redirection'] );
+				return [
+					'headers'       => [ 'content-type' => 'application/json' ],
+					'body'          => '{"code":"sd_ai_agent_health_forbidden"}',
+					'response'      => [ 'code' => 403 ],
+					'cookies'       => [],
+					'http_response' => null,
+				];
+			},
+			10,
+			2
+		);
+
+		$health_check = new PostMutationHealthCheck();
+		$this->assertSame( 'unreachable', $health_check->get_status() );
+	}
+
+	/**
+	 * Redirects cannot be followed or accepted even when their body has the token.
+	 */
+	public function test_redirect_with_success_token_is_unreachable(): void {
+		add_filter(
+			'pre_http_request',
+			function ( $preempt, $args ) {
+				$this->assertSame( 0, $args['redirection'] );
+				return [
+					'headers'       => [ 'location' => 'https://example.test/health' ],
+					'body'          => '{"success":true}',
+					'response'      => [ 'code' => 302 ],
+					'cookies'       => [],
+					'http_response' => null,
+				];
+			},
+			10,
+			2
+		);
+
+		$health_check = new PostMutationHealthCheck();
+		$this->assertSame( 'unreachable', $health_check->get_status() );
+		$this->assertFalse( get_transient( 'sd_ai_agent_health_url' ) );
+	}
+
+	/**
+	 * An unreachable cached URL must not hide a broken fallback candidate.
+	 */
+	public function test_unreachable_cached_health_url_retries_fallback_candidates(): void {
+		set_transient( 'sd_ai_agent_health_url', 'https://cached.example.test/health', HOUR_IN_SECONDS );
+
+		add_filter(
+			'pre_http_request',
+			function ( $preempt, $args, $url ) {
+				$this->assertSame( 0, $args['redirection'] );
+
+				if ( 'https://cached.example.test/health' === $url ) {
+					return [
+						'headers'       => [],
+						'body'          => '',
+						'response'      => [ 'code' => 403 ],
+						'cookies'       => [],
+						'http_response' => null,
+					];
+				}
+
+				return [
+					'headers'       => [],
+					'body'          => '',
+					'response'      => [ 'code' => str_contains( $url, '127.0.0.1' ) ? 500 : 403 ],
+					'cookies'       => [],
+					'http_response' => null,
+				];
+			},
+			10,
+			3
+		);
+
+		$health_check = new PostMutationHealthCheck();
+		$this->assertSame( 'broken', $health_check->get_status() );
+		$this->assertFalse( get_transient( 'sd_ai_agent_health_url' ) );
+	}
+
+	/**
+	 * A transport failure from a cached URL must not hide a broken fallback candidate.
+	 */
+	public function test_failed_cached_health_url_retries_fallback_candidates(): void {
+		set_transient( 'sd_ai_agent_health_url', 'https://cached.example.test/health', HOUR_IN_SECONDS );
+
+		add_filter(
+			'pre_http_request',
+			function ( $preempt, $args, $url ) {
+				$this->assertSame( 0, $args['redirection'] );
+
+				if ( 'https://cached.example.test/health' === $url ) {
+					return new WP_Error( 'connection_failed', 'Could not connect' );
+				}
+
+				return [
+					'headers'       => [],
+					'body'          => '',
+					'response'      => [ 'code' => str_contains( $url, '127.0.0.1' ) ? 500 : 403 ],
+					'cookies'       => [],
+					'http_response' => null,
+				];
+			},
+			10,
+			3
+		);
+
+		$health_check = new PostMutationHealthCheck();
+		$this->assertSame( 'broken', $health_check->get_status() );
+		$this->assertFalse( get_transient( 'sd_ai_agent_health_url' ) );
+	}
+
+	/**
+	 * A server error remains broken even when its body contains the success token.
+	 */
+	public function test_server_error_with_success_token_is_broken(): void {
+		set_transient( 'sd_ai_agent_health_url', 'https://example.test/health', HOUR_IN_SECONDS );
+
+		add_filter(
+			'pre_http_request',
+			function ( $preempt, $args ) {
+				$this->assertSame( 0, $args['redirection'] );
+				return [
+					'headers'       => [ 'content-type' => 'application/json' ],
+					'body'          => '{"success":true}',
+					'response'      => [ 'code' => 500 ],
+					'cookies'       => [],
+					'http_response' => null,
+				];
+			},
+			10,
+			2
+		);
+
+		$health_check = new PostMutationHealthCheck();
+		$this->assertSame( 'broken', $health_check->get_status() );
+	}
+
+	/**
 	 * Test verify_or_revert() returns WP_Error when undo fails.
 	 */
 	public function test_verify_or_revert_includes_undo_error(): void {

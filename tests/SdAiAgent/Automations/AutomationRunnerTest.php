@@ -10,15 +10,16 @@
 namespace SdAiAgent\Tests\Automations;
 
 use SdAiAgent\Automations\AutomationRunner;
+use SdAiAgent\Automations\AutomationLogs;
 use SdAiAgent\Automations\Automations;
 use WP_UnitTestCase;
 
 /**
  * Test AutomationRunner scheduling functionality.
  *
- * Note: Tests for AutomationRunner::run() are not included here because they
- * require a live AI provider. Those are covered by E2E tests. This suite
- * focuses on cron scheduling, unscheduling, and the custom schedule filter.
+ * Provider-dependent success paths are covered by E2E tests. This suite also
+ * covers local no-provider lifecycle guards, cron scheduling, unscheduling,
+ * and the custom schedule filter.
  */
 class AutomationRunnerTest extends WP_UnitTestCase {
 
@@ -162,6 +163,210 @@ class AutomationRunnerTest extends WP_UnitTestCase {
 	}
 
 	// -------------------------------------------------------------------------
+	// Durable execution lifecycle
+	// -------------------------------------------------------------------------
+
+	/**
+	 * A stale cron delivery for a disabled automation is recorded as blocked
+	 * before any provider or tool work can begin.
+	 */
+	public function test_run_blocks_disabled_automation_with_durable_log(): void {
+		$result = AutomationRunner::run( $this->automation_id );
+
+		$this->assertIsArray( $result );
+		$this->assertSame( 'blocked', $result['lifecycle_status'] );
+		$this->assertSame( 'error', $result['status'] );
+		$this->assertNotEmpty( $result['run_id'] );
+
+		$log = AutomationLogs::get_by_run_id( $result['run_id'] );
+		$this->assertNotNull( $log );
+		$this->assertSame( 'blocked', $log['lifecycle_status'] );
+	}
+
+	/**
+	 * An authorized Monitor draft check bypasses only the disabled guard while
+	 * preserving the stored disabled state and the absence of a cron schedule.
+	 */
+	public function test_manual_monitor_draft_run_preserves_disabled_state_and_schedule(): void {
+		$owner_id   = self::factory()->user->create( [ 'role' => 'administrator' ] );
+		$monitor_id = (int) Automations::create(
+			[
+				'name'            => 'Manual Monitor Draft',
+				'prompt'          => 'Assess the current site state.',
+				'mode'            => Automations::MONITOR_MODE,
+				'monitor_scratch' => '',
+				'owner_user_id'   => $owner_id,
+				'enabled'         => 0,
+			]
+		);
+
+		$this->assertGreaterThan( 0, $monitor_id );
+		$this->assertFalse( wp_next_scheduled( AutomationRunner::CRON_HOOK, [ $monitor_id ] ) );
+
+		$result  = AutomationRunner::run_manual_monitor_draft( $monitor_id );
+		$monitor = Automations::get( $monitor_id );
+
+		$this->assertIsArray( $result );
+		$this->assertSame( 'succeeded', $result['lifecycle_status'] );
+		$this->assertSame( 'quiet', $result['monitor_outcome'] );
+		$this->assertNotNull( $monitor );
+		$this->assertFalse( $monitor['enabled'] );
+		$this->assertSame( 'quiet', $monitor['last_monitor_outcome'] );
+		$this->assertFalse( wp_next_scheduled( AutomationRunner::CRON_HOOK, [ $monitor_id ] ) );
+
+		$log = AutomationLogs::get_by_run_id( $result['run_id'] );
+		$this->assertNotNull( $log );
+		$this->assertSame( 'manual', $log['trigger_type'] );
+	}
+
+	/**
+	 * Legacy ownerless rows fail closed even when an old cron event is still
+	 * delivered after the schema upgrade.
+	 */
+	public function test_run_blocks_ownerless_automation_without_provider_work(): void {
+		Automations::update( $this->automation_id, [ 'enabled' => 1 ] );
+
+		$result = AutomationRunner::run( $this->automation_id );
+
+		$this->assertIsArray( $result );
+		$this->assertSame( 'blocked', $result['lifecycle_status'] );
+
+		$automation = Automations::get( $this->automation_id );
+		$this->assertSame( 'blocked', $automation['execution_status'] );
+		$this->assertSame( $result['run_id'], $automation['last_run_id'] );
+		$this->assertSame( '', $automation['active_run_id'] );
+	}
+
+	/**
+	 * A deleted or revoked owner cannot be replaced by cron user zero or an
+	 * administrator when a stale event is delivered.
+	 */
+	public function test_run_blocks_revoked_owner_without_provider_work(): void {
+		$owner_id = self::factory()->user->create( [ 'role' => 'subscriber' ] );
+
+		Automations::update(
+			$this->automation_id,
+			[
+				'enabled'       => 1,
+				'owner_user_id' => $owner_id,
+			]
+		);
+
+		$result = AutomationRunner::run( $this->automation_id );
+
+		$this->assertIsArray( $result );
+		$this->assertSame( 'blocked', $result['lifecycle_status'] );
+
+		$log = AutomationLogs::get_by_run_id( $result['run_id'] );
+		$this->assertNotNull( $log );
+		$this->assertSame( $owner_id, $log['owner_user_id'] );
+	}
+
+	/**
+	 * A duplicate delivery cannot pass the durable claim and therefore reaches
+	 * neither owner switching, credential loading, nor provider execution.
+	 */
+	public function test_run_blocks_second_delivery_before_provider_work(): void {
+		$owner_id = self::factory()->user->create( [ 'role' => 'administrator' ] );
+
+		Automations::update(
+			$this->automation_id,
+			[
+				'enabled'       => 1,
+				'owner_user_id' => $owner_id,
+			]
+		);
+		$this->assertTrue( Automations::claim_run( $this->automation_id, 'active-run', '2099-01-01 00:00:00' ) );
+
+		$result = AutomationRunner::run( $this->automation_id );
+
+		$this->assertIsArray( $result );
+		$this->assertSame( 'blocked', $result['lifecycle_status'] );
+
+		$automation = Automations::get( $this->automation_id );
+		$this->assertSame( 'active-run', $automation['active_run_id'] );
+		$this->assertSame( 'claimed', $automation['execution_status'] );
+	}
+
+	/**
+	 * A lease is diagnostic, not permission to overlap a still-live worker. An
+	 * expired claim held by the execution fence remains owned until that worker
+	 * exits; the next recovery pass then transitions both durable rows together.
+	 */
+	public function test_run_keeps_an_expired_claim_held_by_execution_fence(): void {
+		$run_id = '33333333-2222-4333-8444-555555555555';
+
+		Automations::update( $this->automation_id, [ 'enabled' => 1 ] );
+		$this->assertNotFalse(
+			AutomationLogs::create(
+				[
+					'automation_id'    => $this->automation_id,
+					'run_id'           => $run_id,
+					'status'           => 'pending',
+					'lifecycle_status' => 'claimed',
+					'lease_expires_at' => '2000-01-01 00:00:00',
+				]
+			)
+		);
+		$this->assertTrue( Automations::claim_run( $this->automation_id, $run_id, '2000-01-01 00:00:00' ) );
+
+		$execution_lock = Automations::acquire_execution_lock( $this->automation_id );
+		$this->assertNotNull( $execution_lock );
+
+		try {
+			$result = AutomationRunner::run( $this->automation_id );
+
+			$this->assertIsArray( $result );
+			$this->assertSame( 'blocked', $result['lifecycle_status'] );
+
+			$automation = Automations::get( $this->automation_id );
+			$log        = AutomationLogs::get_by_run_id( $run_id );
+			$this->assertSame( $run_id, $automation['active_run_id'] );
+			$this->assertSame( 'claimed', $automation['execution_status'] );
+			$this->assertNotNull( $log );
+			$this->assertSame( 'claimed', $log['lifecycle_status'] );
+		} finally {
+			Automations::release_execution_lock( (string) $execution_lock );
+		}
+
+		// A later delivery can now recover the expired pair. Disabling it keeps
+		// the test on the no-provider stale-event path after recovery.
+		Automations::update( $this->automation_id, [ 'enabled' => 0 ] );
+		AutomationRunner::run( $this->automation_id );
+
+		$automation = Automations::get( $this->automation_id );
+		$log        = AutomationLogs::get_by_run_id( $run_id );
+		$this->assertSame( 'abandoned', $automation['execution_status'] );
+		$this->assertSame( $run_id, $automation['last_run_id'] );
+		$this->assertNotNull( $log );
+		$this->assertSame( 'abandoned', $log['lifecycle_status'] );
+	}
+
+	/**
+	 * A non-empty unknown profile is blocked after the authorized owner is
+	 * restored and the request user context is then returned to its caller.
+	 */
+	public function test_run_restores_context_after_blocked_tool_profile(): void {
+		$owner_id = self::factory()->user->create( [ 'role' => 'administrator' ] );
+		$previous = get_current_user_id();
+
+		Automations::update(
+			$this->automation_id,
+			[
+				'enabled'       => 1,
+				'owner_user_id' => $owner_id,
+				'tool_profile'  => 'unconfigured-profile',
+			]
+		);
+
+		$result = AutomationRunner::run( $this->automation_id );
+
+		$this->assertIsArray( $result );
+		$this->assertSame( 'blocked', $result['lifecycle_status'] );
+		$this->assertSame( $previous, get_current_user_id() );
+	}
+
+	// -------------------------------------------------------------------------
 	// reschedule_all / unschedule_all
 	// -------------------------------------------------------------------------
 
@@ -218,5 +423,83 @@ class AutomationRunnerTest extends WP_UnitTestCase {
 			0,
 			has_filter( 'cron_schedules', [ AutomationRunner::class, 'add_cron_schedules' ] )
 		);
+	}
+
+	/** A claimed wake loses authority immediately when its source is not selected. */
+	public function test_monitor_wake_with_unselected_source_is_blocked_before_provider_work(): void {
+		$owner_id   = self::factory()->user->create( [ 'role' => 'administrator' ] );
+		$monitor_id = Automations::create(
+			[
+				'name'                        => 'Wake authorization Monitor',
+				'prompt'                      => 'This must not reach a provider.',
+				'mode'                        => Automations::MONITOR_MODE,
+				'monitor_scratch'             => 'Assess the site.',
+				'monitor_event_wakes_enabled' => true,
+				'monitor_event_sources'       => [ 'delete_post' ],
+				'owner_user_id'               => $owner_id,
+				'enabled'                     => 1,
+			]
+		);
+		$this->assertIsInt( $monitor_id );
+
+		try {
+			$result = AutomationRunner::run_monitor_wake(
+				(int) $monitor_id,
+				[
+					'source'      => 'add_attachment',
+					'event_count' => 1,
+					'identifiers' => [ 'attachment_id' => 123 ],
+				],
+				123,
+				'11111111-2222-4333-8444-555555555555'
+			);
+
+			$this->assertIsArray( $result );
+			$this->assertSame( 'blocked', $result['lifecycle_status'] );
+			$this->assertSame( 'complete', $result['_monitor_wake_disposition'] );
+			$this->assertSame( 'event', $result['trigger_type'] );
+			$this->assertSame( 'add_attachment', $result['trigger_name'] );
+		} finally {
+			AutomationRunner::unschedule( (int) $monitor_id );
+			Automations::delete( (int) $monitor_id );
+		}
+	}
+
+	/** A busy Monitor retains its claimed wake for bounded retry before provider work. */
+	public function test_monitor_wake_defers_when_another_run_owns_the_monitor(): void {
+		$owner_id   = self::factory()->user->create( [ 'role' => 'administrator' ] );
+		$monitor_id = Automations::create(
+			[
+				'name'                        => 'Busy wake Monitor',
+				'prompt'                      => 'This must not reach a provider.',
+				'mode'                        => Automations::MONITOR_MODE,
+				'monitor_scratch'             => 'Assess the site.',
+				'monitor_event_wakes_enabled' => true,
+				'monitor_event_sources'       => [ 'delete_post' ],
+				'owner_user_id'               => $owner_id,
+				'enabled'                     => 1,
+			]
+		);
+		$this->assertIsInt( $monitor_id );
+		$this->assertTrue( Automations::claim_run( (int) $monitor_id, 'active-run', '2099-01-01 00:00:00' ) );
+
+		try {
+			$result = AutomationRunner::run_monitor_wake(
+				(int) $monitor_id,
+				[
+					'source'      => 'delete_post',
+					'event_count' => 2,
+					'identifiers' => [ 'post_id' => 42 ],
+				]
+			);
+
+			$this->assertIsArray( $result );
+			$this->assertSame( 'blocked', $result['lifecycle_status'] );
+			$this->assertSame( 'defer', $result['_monitor_wake_disposition'] );
+			$this->assertSame( 'active-run', Automations::get( (int) $monitor_id )['active_run_id'] );
+		} finally {
+			AutomationRunner::unschedule( (int) $monitor_id );
+			Automations::delete( (int) $monitor_id );
+		}
 	}
 }

@@ -20,6 +20,8 @@ namespace SdAiAgent\Abilities\ImageAbilities;
 
 use SdAiAgent\Abilities\ToolCapabilities;
 use SdAiAgent\Core\Net\SafeHttpClient;
+use SdAiAgent\Core\ProviderCredentialLoader;
+use SdAiAgent\Core\ProviderModelDiscovery;
 use SdAiAgent\Core\Settings;
 use SdAiAgent\Infrastructure\AiClient\Superdav\SuperdavAiProvider;
 use WordPress\AiClient\Providers\Models\DTO\ModelConfig;
@@ -39,20 +41,18 @@ if ( ! defined( 'ABSPATH' ) ) {
  */
 class GenerateImageAbility extends \SdAiAgent\Abilities\AbstractAbility {
 
+	/** Maximum seconds an image-provider request may occupy the background worker. */
+	private const IMAGE_REQUEST_TIMEOUT_SECONDS = 90;
+
 	/**
 	 * Register this ability.
 	 *
-	 * Only registers when an image-capable AI provider is actually configured.
-	 * Without one, exposing the ability would mislead the model into calling a
-	 * tool that can only return an error.
+	 * The ability remains discoverable when no image-capable provider is
+	 * configured. This lets the agent call it and receive the actionable setup
+	 * error instead of silently omitting image generation from the tool catalog.
 	 */
 	public static function register(): void {
 		if ( ! function_exists( 'wp_register_ability' ) ) {
-			return;
-		}
-
-		if ( ! function_exists( 'wp_ai_client_prompt' )
-			|| ! wp_ai_client_prompt()->is_supported_for_image_generation() ) {
 			return;
 		}
 
@@ -60,7 +60,7 @@ class GenerateImageAbility extends \SdAiAgent\Abilities\AbstractAbility {
 			'sd-ai-agent/generate-image',
 			[
 				'label'         => __( 'Generate Image', 'superdav-ai-agent' ),
-				'description'   => __( 'Generate unique AI images from a text prompt and import them into the media library. Supports size, style, quality, and multiple variations. Use for brand-specific imagery, concept illustrations, pattern backgrounds, and product visualisations — not for generic photography (use stock-image instead).', 'superdav-ai-agent' ),
+				'description'   => __( 'Generate unique AI images from a text prompt and import them into the media library. Supports size, style, quality, and multiple variations. Requires an image-capable provider configured on the Connectors settings page. Use for brand-specific imagery, concept illustrations, pattern backgrounds, and product visualisations — not for generic photography (use stock-image instead).', 'superdav-ai-agent' ),
 				'ability_class' => self::class,
 			]
 		);
@@ -77,7 +77,7 @@ class GenerateImageAbility extends \SdAiAgent\Abilities\AbstractAbility {
 	 * {@inheritdoc}
 	 */
 	protected function description(): string {
-		return __( 'Generate unique AI images from a text prompt and import them into the media library. Supports size, style, quality, and multiple variations. Use for brand-specific imagery, concept illustrations, pattern backgrounds, and product visualisations — not for generic photography (use stock-image instead).', 'superdav-ai-agent' );
+		return __( 'Generate unique AI images from a text prompt and import them into the media library. Supports size, style, quality, and multiple variations. Requires an image-capable provider configured on the Connectors settings page. Use for brand-specific imagery, concept illustrations, pattern backgrounds, and product visualisations — not for generic photography (use stock-image instead).', 'superdav-ai-agent' );
 	}
 
 	/**
@@ -282,10 +282,9 @@ class GenerateImageAbility extends \SdAiAgent\Abilities\AbstractAbility {
 
 			if ( is_wp_error( $result ) ) {
 				$last_error = $result;
-				// No provider → stop immediately; retrying variations won't help.
-				if ( 'provider_unavailable' === $result->get_error_code() ) {
-					break;
-				}
+				// Repeating a failed provider request for each variation can outlive
+				// the background worker request and leave chat stuck in "Running".
+				break;
 			} else {
 				$attachments[] = [
 					'attachment_id' => $result['attachment_id'],
@@ -304,7 +303,7 @@ class GenerateImageAbility extends \SdAiAgent\Abilities\AbstractAbility {
 			$error_message = 'All image generation attempts failed.';
 			if ( $last_error instanceof WP_Error ) {
 				$error_message = 'provider_unavailable' === $last_error->get_error_code()
-					? 'AI image generation is not available. Configure an image-capable provider in Settings > AI.'
+					? 'AI image generation is not available. Configure an image-capable provider on the Connectors settings page.'
 					: $last_error->get_error_message();
 			}
 
@@ -351,15 +350,25 @@ class GenerateImageAbility extends \SdAiAgent\Abilities\AbstractAbility {
 		int $post_id,
 		array $options = []
 	): array|\WP_Error {
-		if ( ! function_exists( 'wp_ai_client_prompt' )
-			|| ! wp_ai_client_prompt()->is_supported_for_image_generation() ) {
-			return new WP_Error(
-				'provider_unavailable',
-				'AI image generation is not available. Configure an image-capable provider in Settings > AI.'
-			);
-		}
+		// Bound both model discovery and generation for every SDK provider. This
+		// lets the agent continue with stock imagery or report the prerequisite
+		// instead of consuming the entire background-worker window.
+		$timeout_filter = static fn (): int => self::IMAGE_REQUEST_TIMEOUT_SECONDS;
+		add_filter( 'wp_ai_client_default_request_timeout', $timeout_filter, 999 );
+		try {
+			if ( ! self::is_image_generation_supported() ) {
+				return new WP_Error(
+					'provider_unavailable',
+					'AI image generation is not available. Configure an image-capable provider on the Connectors settings page.'
+				);
+			}
 
-		$file = $this->create_image_prompt_builder( $prompt, $options )->generate_image();
+			$file = $this->create_image_prompt_builder( $prompt, $options )->generate_image();
+		} catch ( \Throwable $e ) {
+			return new WP_Error( 'generation_failed', 'Image generation failed. The image provider did not respond within the allowed time.' );
+		} finally {
+			remove_filter( 'wp_ai_client_default_request_timeout', $timeout_filter, 999 );
+		}
 
 		if ( is_wp_error( $file ) ) {
 			return new WP_Error(
@@ -398,6 +407,41 @@ class GenerateImageAbility extends \SdAiAgent\Abilities\AbstractAbility {
 			'attachment_id' => $attachment_id,
 			'url'           => $result['url'],
 		];
+	}
+
+	/**
+	 * Check image support and recover stale managed Superdav model discovery.
+	 *
+	 * The SDK converts model-directory exceptions into a false support result.
+	 * That previously made the image ability disappear when the managed site
+	 * token had expired, even though the existing provider-list path could
+	 * refresh the token. Reuse that bounded discovery recovery before treating
+	 * the configured provider as unavailable.
+	 */
+	private static function is_image_generation_supported(): bool {
+		if ( ! function_exists( 'wp_ai_client_prompt' ) ) {
+			return false;
+		}
+
+		ProviderCredentialLoader::load();
+		if ( wp_ai_client_prompt()->is_supported_for_image_generation() ) {
+			return true;
+		}
+
+		try {
+			$registry = \WordPress\AiClient\AiClient::defaultRegistry();
+			if ( ! $registry->hasProvider( SuperdavAiProvider::PROVIDER_ID )
+				|| null === $registry->getProviderRequestAuthentication( SuperdavAiProvider::PROVIDER_ID )
+			) {
+				return false;
+			}
+
+			ProviderModelDiscovery::discover( SuperdavAiProvider::PROVIDER_ID, SuperdavAiProvider::class );
+		} catch ( \Throwable ) {
+			return false;
+		}
+
+		return wp_ai_client_prompt()->is_supported_for_image_generation();
 	}
 
 	/**
@@ -604,9 +648,14 @@ class GenerateImageAbility extends \SdAiAgent\Abilities\AbstractAbility {
 	 * @return array<string,mixed>|\WP_Error
 	 */
 	protected function import_from_temp( string $tmp_file, string $title, int $post_id = 0 ): array|\WP_Error {
+		if ( ! function_exists( 'wp_handle_sideload' ) ) {
+			require_once ABSPATH . 'wp-admin/includes/file.php';
+		}
+		if ( ! function_exists( 'wp_generate_attachment_metadata' ) ) {
+			require_once ABSPATH . 'wp-admin/includes/image.php';
+		}
 		if ( ! function_exists( 'media_handle_sideload' ) ) {
 			require_once ABSPATH . 'wp-admin/includes/media.php';
-			require_once ABSPATH . 'wp-admin/includes/image.php';
 		}
 
 		$finfo    = new \finfo( FILEINFO_MIME_TYPE );

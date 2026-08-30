@@ -388,7 +388,7 @@ class ImageSourceFactory {
 		$usage  = sanitize_key( $usage );
 
 		$role_minimums = array(
-			'hero'      => array( 1920, 900 ),
+			'hero'      => array( 1024, 576 ),
 			'gallery'   => array( 1200, 800 ),
 			'content'   => array( 1200, 675 ),
 			'thumbnail' => array( 600, 400 ),
@@ -746,11 +746,11 @@ class ImageSourceFactory {
 
 		$attachment_id = media_handle_sideload( $file_array, $post_id, $title );
 
-		if ( $switched ) {
-			restore_current_blog();
-		}
-
 		if ( is_wp_error( $attachment_id ) ) {
+			if ( $switched ) {
+				restore_current_blog();
+			}
+
 			if ( file_exists( $tmp_file ) ) {
 				unlink( $tmp_file ); // phpcs:ignore WordPress.WP.AlternativeFunctions.unlink_unlink
 			}
@@ -770,6 +770,10 @@ class ImageSourceFactory {
 		}
 
 		$attachment_url = wp_get_attachment_url( $attachment_id );
+
+		if ( $switched ) {
+			restore_current_blog();
+		}
 
 		return [
 			'attachment_id'   => $attachment_id,

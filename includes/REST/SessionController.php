@@ -26,6 +26,7 @@ use SdAiAgent\Core\Settings;
 use SdAiAgent\Core\ToolPermissionResolver;
 use SdAiAgent\Models\ActiveJobRepository;
 use SdAiAgent\Models\Agent;
+use SdAiAgent\Models\CustomerConversationReviewRepository;
 use SdAiAgent\Models\DTO\ActiveJobRow;
 use SdAiAgent\Models\DurablePlanRepository;
 use WP_Error;
@@ -519,6 +520,13 @@ final class SessionController {
 				'methods'             => WP_REST_Server::CREATABLE,
 				'callback'            => array( $this, 'handle_public_chat_session' ),
 				'permission_callback' => '__return_true',
+				'args'                => array(
+					'recording_consent' => array(
+						'required' => false,
+						'type'     => 'boolean',
+						'default'  => false,
+					),
+				),
 			)
 		);
 
@@ -817,6 +825,11 @@ final class SessionController {
 					'embed_id'    => sanitize_key( (string) $this->settings->get( 'public_chat_embed_id' ) ),
 					'agent_id'    => (int) $config['agent_id'],
 					'collections' => $config['collections'],
+					'recording'   => array(
+						'enabled'        => $enabled && ! empty( $config['review_recording_enabled'] ),
+						'retention_days' => $enabled && ! empty( $config['review_recording_enabled'] ) ? (int) $config['review_retention_days'] : 0,
+						'disclosure'     => $enabled && ! empty( $config['review_recording_enabled'] ) ? (string) $config['review_disclosure'] : '',
+					),
 				),
 				200
 			),
@@ -870,9 +883,28 @@ final class SessionController {
 	 * @return WP_REST_Response|WP_Error
 	 */
 	public function handle_bulk_sessions( WP_REST_Request $request ) {
-		// @phpstan-ignore-next-line
-		$ids    = array_map( 'absint', $request->get_param( 'ids' ) );
+		// phpcs:disable WordPress.NamingConventions.ValidVariableName.VariableNotSnakeCase -- Repository convention uses camelCase PHP locals.
+		$rawIds = $request->get_param( 'ids' );
 		$action = $request->get_param( 'action' );
+
+		if ( 'delete' === $action ) {
+			$hasInvalidId = ! is_array( $rawIds ) || array_filter(
+				$rawIds,
+				static fn( $id ): bool => ! ( is_int( $id ) || ( is_string( $id ) && ctype_digit( $id ) ) ) || absint( $id ) <= 0
+			);
+			if ( $hasInvalidId ) {
+				return new WP_Error( 'sd_ai_agent_invalid_session_ids', __( 'Session IDs must be positive integers.', 'superdav-ai-agent' ), array( 'status' => 400 ) );
+			}
+
+			$ids   = array_map( static fn( mixed $id ): int => absint( $id ), $rawIds );
+			$count = $this->database->bulk_delete_trashed_sessions( $ids, get_current_user_id() );
+
+			return new WP_REST_Response( array( 'deleted' => $count ), 200 );
+		}
+
+		// @phpstan-ignore-next-line
+		$ids = array_map( static fn( mixed $id ): int => absint( $id ), $rawIds );
+		// phpcs:enable WordPress.NamingConventions.ValidVariableName.VariableNotSnakeCase
 
 		$data = array();
 		switch ( $action ) {
@@ -1413,7 +1445,9 @@ final class SessionController {
 			$response['tool_calls'] = $job['tool_calls'];
 		}
 		if ( ! empty( $job['messages'] ) ) {
-			$response['messages'] = $job['messages'];
+			$response['messages'] = is_array( $job['messages'] )
+				? ConversationDisplaySanitizer::sanitize_activity_messages( $job['messages'] )
+				: array();
 		}
 
 		if ( 'awaiting_confirmation' === $job['status'] && isset( $job['pending_tools'] ) ) {
@@ -1430,14 +1464,14 @@ final class SessionController {
 
 		if ( 'complete' === $job['status'] && isset( $job['result'] ) ) {
 			// @phpstan-ignore-next-line
-			$response['reply'] = $job['result']['reply'] ?? '';
+			$response['reply'] = ConversationDisplaySanitizer::sanitize_display_text( (string) ( $job['result']['reply'] ?? '' ) );
 			// @phpstan-ignore-next-line
 			$history             = $job['result']['history'] ?? array();
 			$response['history'] = is_array( $history ) ? ConversationDisplaySanitizer::sanitize_messages( $history ) : array();
 			// @phpstan-ignore-next-line
 			$response['tool_calls'] = $job['result']['tool_calls'] ?? array();
 			// @phpstan-ignore-next-line
-			$response['messages'] = $job['result']['messages'] ?? array();
+			$response['messages'] = ConversationDisplaySanitizer::sanitize_activity_messages( (array) ( $job['result']['messages'] ?? array() ) );
 			// @phpstan-ignore-next-line
 			$response['session_id'] = $job['result']['session_id'] ?? null;
 			// @phpstan-ignore-next-line
@@ -2161,7 +2195,7 @@ final class SessionController {
 	/**
 	 * Get sanitized public chat settings.
 	 *
-	 * @return array{enabled: bool, origins: list<string>, provider_id: string, model_id: string, agent_id: int, collections: list<string>, abilities: list<string>, iterations: int, message_length: int, rate_limit: int}
+	 * @return array{enabled: bool, origins: list<string>, provider_id: string, model_id: string, agent_id: int, collections: list<string>, abilities: list<string>, iterations: int, message_length: int, rate_limit: int, review_recording_enabled: bool, review_retention_days: int, review_disclosure: string}
 	 */
 	private function get_public_chat_settings(): array {
 		$settings = Settings::instance()->get();
@@ -2174,17 +2208,30 @@ final class SessionController {
 		$origins = $settings['public_chat_allowed_origins'] ?? array();
 		$origins = is_array( $origins ) ? $this->sanitize_public_chat_string_list( $origins, 'sanitize_text_field' ) : array();
 
+		$review_retention_days = max( 1, min( 90, (int) ( $settings['public_chat_review_retention_days'] ?? 7 ) ) );
+		$review_disclosure     = sanitize_textarea_field( (string) ( $settings['public_chat_review_disclosure'] ?? '' ) );
+		if ( '' === $review_disclosure ) {
+			$review_disclosure = sprintf(
+				/* translators: %d: maximum number of days an opted-in anonymous chat is retained. */
+				__( 'This conversation may be recorded for quality review and retained for up to %d days.', 'superdav-ai-agent' ),
+				$review_retention_days
+			);
+		}
+
 		return array(
-			'enabled'        => (bool) ( $settings['public_chat_enabled'] ?? false ),
-			'origins'        => $origins,
-			'provider_id'    => sanitize_text_field( (string) ( $settings['public_chat_provider_id'] ?? '' ) ),
-			'model_id'       => sanitize_text_field( (string) ( $settings['public_chat_model_id'] ?? '' ) ),
-			'agent_id'       => absint( $settings['public_chat_agent_id'] ?? 0 ),
-			'collections'    => $collections,
-			'abilities'      => $allowed,
-			'iterations'     => max( 1, min( 8, (int) ( $settings['public_chat_max_iterations'] ?? 4 ) ) ),
-			'message_length' => max( 1, min( 8000, (int) ( $settings['public_chat_message_max_length'] ?? 2000 ) ) ),
-			'rate_limit'     => max( 1, min( 60, (int) ( $settings['public_chat_rate_limit_per_min'] ?? 10 ) ) ),
+			'enabled'                  => (bool) ( $settings['public_chat_enabled'] ?? false ),
+			'origins'                  => $origins,
+			'provider_id'              => sanitize_text_field( (string) ( $settings['public_chat_provider_id'] ?? '' ) ),
+			'model_id'                 => sanitize_text_field( (string) ( $settings['public_chat_model_id'] ?? '' ) ),
+			'agent_id'                 => absint( $settings['public_chat_agent_id'] ?? 0 ),
+			'collections'              => $collections,
+			'abilities'                => $allowed,
+			'iterations'               => max( 1, min( 8, (int) ( $settings['public_chat_max_iterations'] ?? 4 ) ) ),
+			'message_length'           => max( 1, min( 8000, (int) ( $settings['public_chat_message_max_length'] ?? 2000 ) ) ),
+			'rate_limit'               => max( 1, min( 60, (int) ( $settings['public_chat_rate_limit_per_min'] ?? 10 ) ) ),
+			'review_recording_enabled' => (bool) ( $settings['public_chat_review_recording_enabled'] ?? false ),
+			'review_retention_days'    => $review_retention_days,
+			'review_disclosure'        => $review_disclosure,
 		);
 	}
 
@@ -2358,15 +2405,36 @@ final class SessionController {
 		if ( true !== $available ) {
 			return $available;
 		}
-		$config = $this->get_public_chat_settings();
-		$origin = $this->get_public_chat_request_origin( $request );
+		$config            = $this->get_public_chat_settings();
+		$origin            = $this->get_public_chat_request_origin( $request );
+		$consent           = $request->get_param( 'recording_consent' );
+		$recording_consent = true === $consent || 1 === $consent || '1' === $consent || 'true' === $consent;
 
 		$session_uuid = wp_generate_uuid4();
 		$token        = $this->create_public_chat_token( $session_uuid );
+		$review_id    = '';
+		if ( ! empty( $config['review_recording_enabled'] ) && $recording_consent ) {
+			$candidate_review_id = wp_generate_uuid4();
+			$review_expires_at   = gmdate( 'Y-m-d H:i:s', time() + ( DAY_IN_SECONDS * (int) $config['review_retention_days'] ) );
+			try {
+				if ( CustomerConversationReviewRepository::create_public_review(
+					$candidate_review_id,
+					(int) $config['agent_id'],
+					(string) $config['provider_id'],
+					(string) $config['model_id'],
+					$review_expires_at
+				) ) {
+					$review_id = $candidate_review_id;
+				}
+			} catch ( \Throwable $exception ) {
+				// Review recording is deliberately fail-open for the public chat flow.
+			}
+		}
 		set_transient(
 			$this->public_chat_session_key( $session_uuid ),
 			array(
 				'history'    => array(),
+				'review_id'  => $review_id,
 				'created_at' => time(),
 			),
 			self::PUBLIC_CHAT_SESSION_TTL
@@ -2422,11 +2490,14 @@ final class SessionController {
 		$job_id    = wp_generate_uuid4();
 		$job_token = wp_generate_password( 40, false );
 		$history   = isset( $session['history'] ) && is_array( $session['history'] ) ? $session['history'] : array();
+		$review_id = isset( $session['review_id'] ) && is_string( $session['review_id'] ) ? $session['review_id'] : '';
 
 		$job = array(
+			'job_id'              => $job_id,
 			'public_chat'         => true,
 			'public_session_uuid' => $session_uuid,
 			'public_token_hash'   => hash( 'sha256', $token ),
+			'public_review_id'    => $review_id,
 			'status'              => 'processing',
 			'token'               => $job_token,
 			'user_id'             => 0,
@@ -2450,6 +2521,16 @@ final class SessionController {
 				'anonymous_allowed_collections' => $config['collections'],
 				'anonymous_policy_active'       => true,
 			),
+		);
+		$this->record_public_chat_review_turn(
+			$job,
+			'user',
+			$message,
+			'processing',
+			array(
+				'provider_id' => (string) $config['provider_id'],
+				'model_id'    => (string) $config['model_id'],
+			)
 		);
 
 		set_transient( RestController::JOB_PREFIX . $job_id, $job, RestController::JOB_TTL );
@@ -2511,11 +2592,13 @@ final class SessionController {
 			$response['tool_calls'] = $job['tool_calls'];
 		}
 		if ( ! empty( $job['messages'] ) ) {
-			$response['messages'] = $job['messages'];
+			$response['messages'] = is_array( $job['messages'] )
+				? ConversationDisplaySanitizer::sanitize_activity_messages( $job['messages'] )
+				: array();
 		}
 
 		if ( 'complete' === ( $job['status'] ?? '' ) && isset( $job['result'] ) && is_array( $job['result'] ) ) {
-			$response['reply']           = $job['result']['reply'] ?? '';
+			$response['reply']           = ConversationDisplaySanitizer::sanitize_display_text( (string) ( $job['result']['reply'] ?? '' ) );
 			$response['history']         = isset( $job['result']['history'] ) && is_array( $job['result']['history'] ) ? ConversationDisplaySanitizer::sanitize_messages( $job['result']['history'] ) : array();
 			$response['tool_calls']      = $job['result']['tool_calls'] ?? array();
 			$response['iterations_used'] = $job['result']['iterations_used'] ?? 0;
@@ -2529,6 +2612,71 @@ final class SessionController {
 		}
 
 		return $this->add_public_chat_cors( new WP_REST_Response( $response, 200 ), $origin, $config['origins'] );
+	}
+
+	/**
+	 * Persist one already-safe public-chat turn without exposing the review ID.
+	 *
+	 * The job and metadata contain only server-side public-chat state and safe
+	 * provider/model/usage fields.
+	 *
+	 * @param array<string,mixed> $job      Public transient job.
+	 * @param string              $role     Safe speaker role.
+	 * @param string              $content  Safe turn content.
+	 * @param string              $status   Public turn status.
+	 * @param array<string,mixed> $metadata Safe provider, model, and usage fields.
+	 */
+	private function record_public_chat_review_turn( array $job, string $role, string $content, string $status, array $metadata = array() ): void {
+		if ( ! $this->public_chat_review_recording_enabled() ) {
+			return;
+		}
+
+		$review_id = isset( $job['public_review_id'] ) && is_string( $job['public_review_id'] ) ? $job['public_review_id'] : '';
+		$job_id    = isset( $job['job_id'] ) && is_string( $job['job_id'] ) ? $job['job_id'] : '';
+		if ( '' === $review_id || '' === $job_id ) {
+			return;
+		}
+
+		try {
+			CustomerConversationReviewRepository::append_public_turn( $review_id, $job_id, $role, $content, $status, $metadata );
+		} catch ( \Throwable $exception ) {
+			// Review persistence remains non-blocking for anonymous customer traffic.
+		}
+	}
+
+	/**
+	 * Persist a scrubbed public-chat terminal state without error detail.
+	 *
+	 * @param array<string,mixed> $job Public transient job.
+	 */
+	private function record_public_chat_review_status( array $job, string $status, string $error_code = '' ): void {
+		if ( ! $this->public_chat_review_recording_enabled() ) {
+			return;
+		}
+
+		$review_id = isset( $job['public_review_id'] ) && is_string( $job['public_review_id'] ) ? $job['public_review_id'] : '';
+		$job_id    = isset( $job['job_id'] ) && is_string( $job['job_id'] ) ? $job['job_id'] : '';
+		if ( '' === $review_id || '' === $job_id ) {
+			return;
+		}
+
+		try {
+			CustomerConversationReviewRepository::update_public_review_status(
+				$review_id,
+				$job_id,
+				$status,
+				array( 'error_code' => $error_code )
+			);
+		} catch ( \Throwable $exception ) {
+			// Review persistence remains non-blocking for anonymous customer traffic.
+		}
+	}
+
+	/** Stop new anonymous review writes as soon as site recording is disabled. */
+	private function public_chat_review_recording_enabled(): bool {
+		$config = $this->get_public_chat_settings();
+
+		return ! empty( $config['review_recording_enabled'] );
 	}
 
 	/** Public chat system instruction. */
@@ -3030,8 +3178,8 @@ final class SessionController {
 	/**
 	 * Handle POST /job/{id}/interrupt — inject a user message into a running job.
 	 *
-	 * Sets a flag on the job transient that the agent loop's progress callback
-	 * will pick up on the next poll cycle. The interrupt message is appended to
+	 * Queues a message on the job transient that the agent loop's interrupt
+	 * checker will consume on the next iteration. The interrupt message is appended to
 	 * the session in the database so it persists. The running agent loop will
 	 * see the interrupt on its next iteration and can incorporate the new context.
 	 *
@@ -3042,39 +3190,111 @@ final class SessionController {
 		// @phpstan-ignore-next-line
 		$job_id  = (string) $request->get_param( 'id' );
 		$message = (string) $request->get_param( 'message' );
-		$job     = get_transient( RestController::JOB_PREFIX . $job_id );
-
-		if ( ! is_array( $job ) || 'processing' !== ( $job['status'] ?? '' ) ) {
+		$lock    = self::acquire_job_mutation_lock( $job_id, 1 );
+		if ( null === $lock ) {
 			return new WP_Error(
-				'sd_ai_agent_invalid_job',
-				__( 'Job not found or not currently processing.', 'superdav-ai-agent' ),
-				array( 'status' => 404 )
+				'sd_ai_agent_job_busy',
+				__( 'The job is processing another update. Please retry shortly.', 'superdav-ai-agent' ),
+				array( 'status' => 409 )
 			);
 		}
 
-		if ( ( $job['user_id'] ?? 0 ) !== get_current_user_id() ) {
-			return new WP_Error( 'sd_ai_agent_forbidden', __( 'Not authorized.', 'superdav-ai-agent' ), array( 'status' => 403 ) );
+		try {
+			$job = get_transient( RestController::JOB_PREFIX . $job_id );
+
+			if ( ! is_array( $job ) || 'processing' !== ( $job['status'] ?? '' ) ) {
+				return new WP_Error(
+					'sd_ai_agent_invalid_job',
+					__( 'Job not found or not currently processing.', 'superdav-ai-agent' ),
+					array( 'status' => 404 )
+				);
+			}
+
+			if ( ( $job['user_id'] ?? 0 ) !== get_current_user_id() ) {
+				return new WP_Error( 'sd_ai_agent_forbidden', __( 'Not authorized.', 'superdav-ai-agent' ), array( 'status' => 403 ) );
+			}
+
+			// Append the interrupt message to the job's pending interrupts.
+			$current_interrupts = $job['interrupts'] ?? array();
+			$interrupts         = is_array( $current_interrupts ) ? $current_interrupts : array();
+			$interrupts[]       = array(
+				'message'   => $message,
+				'timestamp' => time(),
+			);
+			$job['interrupts']  = $interrupts;
+
+			set_transient( RestController::JOB_PREFIX . $job_id, $job, RestController::JOB_TTL );
+
+			return new WP_REST_Response(
+				array(
+					'status'     => 'interrupt_queued',
+					'job_id'     => $job_id,
+					'interrupts' => count( $interrupts ),
+				),
+				200
+			);
+		} finally {
+			self::release_job_mutation_lock( $lock );
 		}
+	}
 
-		// Append the interrupt message to the job's pending interrupts.
-		$current_interrupts = $job['interrupts'] ?? array();
-		$interrupts         = is_array( $current_interrupts ) ? $current_interrupts : array();
-		$interrupts[]       = array(
-			'message'   => $message,
-			'timestamp' => time(),
-		);
-		$job['interrupts']  = $interrupts;
+	/** Acquire a cross-request lock before mutating one active job transient. */
+	private static function acquire_job_mutation_lock( string $job_id, int $timeout = 0 ): ?string {
+		global $wpdb;
+		/** @var \wpdb $wpdb */
 
-		set_transient( RestController::JOB_PREFIX . $job_id, $job, RestController::JOB_TTL );
+		$lock_name = 'sdai_job_' . substr( hash( 'sha256', get_current_blog_id() . '|' . $job_id ), 0, 48 );
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- A database advisory lock serializes concurrent job-transient mutations across PHP requests and web heads.
+		$acquired = $wpdb->get_var( $wpdb->prepare( 'SELECT GET_LOCK(%s, %d)', $lock_name, $timeout ) );
 
-		return new WP_REST_Response(
-			array(
-				'status'     => 'interrupt_queued',
-				'job_id'     => $job_id,
-				'interrupts' => count( $interrupts ),
-			),
-			200
-		);
+		return 1 === (int) $acquired ? $lock_name : null;
+	}
+
+	/** Release an active-job mutation lock. */
+	private static function release_job_mutation_lock( string $lock_name ): void {
+		global $wpdb;
+		/** @var \wpdb $wpdb */
+
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Releases the request-scoped advisory lock acquired immediately above.
+		$wpdb->get_var( $wpdb->prepare( 'SELECT RELEASE_LOCK(%s)', $lock_name ) );
+	}
+
+	/**
+	 * Build the callback that consumes queued user interrupts.
+	 *
+	 * @param string $job_id Active job UUID.
+	 * @return \Closure(): ?array
+	 */
+	private static function build_job_interrupt_checker( string $job_id ): \Closure {
+		return static function () use ( $job_id ): ?array {
+			$transient_key = RestController::JOB_PREFIX . $job_id;
+			$lock          = self::acquire_job_mutation_lock( $job_id, 1 );
+			if ( null === $lock ) {
+				return null;
+			}
+
+			try {
+				$job = get_transient( $transient_key );
+
+				if ( ! is_array( $job ) || 'processing' !== ( $job['status'] ?? '' ) ) {
+					return null;
+				}
+
+				$current_interrupts = $job['interrupts'] ?? array();
+				$interrupts         = is_array( $current_interrupts ) ? array_values( $current_interrupts ) : array();
+				if ( empty( $interrupts ) ) {
+					return null;
+				}
+
+				$interrupt         = array_shift( $interrupts );
+				$job['interrupts'] = $interrupts;
+				set_transient( $transient_key, $job, RestController::JOB_TTL + 60 );
+
+				return is_array( $interrupt ) ? $interrupt : null;
+			} finally {
+				self::release_job_mutation_lock( $lock );
+			}
+		};
 	}
 
 	/**
@@ -3098,6 +3318,8 @@ final class SessionController {
 				array( 'status' => 409 )
 			);
 		}
+
+		$paused_state = self::compact_oversized_provider_retry_state( $paused_state, $session_id );
 
 		$job_id = wp_generate_uuid4();
 		$token  = wp_generate_password( 40, false );
@@ -3154,6 +3376,71 @@ final class SessionController {
 			),
 			202
 		);
+	}
+
+	/**
+	 * Ensure a manual provider retry makes payload progress instead of resending
+	 * the same oversized single-turn history that already exhausted all retries.
+	 *
+	 * @param array<string, mixed> $paused_state Recoverable loop state.
+	 * @param int                  $session_id   Owning session identifier.
+	 * @return array<string, mixed> State with bounded history when required.
+	 */
+	private static function compact_oversized_provider_retry_state( array $paused_state, int $session_id ): array {
+		$exit_reason = (string) ( $paused_state['exit_reason'] ?? '' );
+		if ( ! in_array( $exit_reason, array( 'provider_retry_failed', 'sd_ai_agent_provider_retry_failed' ), true ) ) {
+			return $paused_state;
+		}
+
+		$history = $paused_state['history'] ?? array();
+		if ( ! is_array( $history ) || empty( $history ) ) {
+			return $paused_state;
+		}
+
+		$encoded_history = wp_json_encode( $history );
+		$request_bytes   = is_string( $encoded_history ) ? strlen( $encoded_history ) : 0;
+		$request_tokens  = (int) ceil( $request_bytes / 4 );
+		$provider_id     = (string) ( $paused_state['provider_id'] ?? '' );
+		$model_id        = (string) ( $paused_state['model_id'] ?? '' );
+		$max_bytes       = min(
+			ConversationTrimmer::COMPACT_MAX_BYTES,
+			ConversationTrimmer::get_request_envelope_byte_budget( $provider_id, $model_id )
+		);
+		$max_tokens      = min(
+			ConversationTrimmer::COMPACT_MAX_TOKENS,
+			ConversationTrimmer::get_request_token_budget( $provider_id, $model_id )
+		);
+		if (
+			$request_bytes <= $max_bytes
+			&& $request_tokens <= $max_tokens
+		) {
+			return $paused_state;
+		}
+
+		$compacted = ConversationTrimmer::compact_serialized_history( array_values( $history ), $max_bytes, $max_tokens );
+		if ( empty( $compacted['messages'] ) ) {
+			return $paused_state;
+		}
+
+		$paused_state['history'] = $compacted['messages'];
+
+		AgentEventLog::log(
+			'recoverable_job_history_compacted',
+			AgentEventLog::SEVERITY_INFO,
+			array(
+				'session_id'              => $session_id,
+				'phase'                   => 'recoverable_job_resume',
+				'provider_id'             => $provider_id,
+				'model_id'                => $model_id,
+				'history_count'           => count( $history ),
+				'request_bytes_estimate'  => $request_bytes,
+				'request_tokens_estimate' => $request_tokens,
+				'payload_reduced'         => true,
+				'recovery_outcome'        => 'compact_provider_retry',
+			)
+		);
+
+		return $paused_state;
 	}
 
 	/**
@@ -3503,35 +3790,45 @@ final class SessionController {
 		 * (b) register a shutdown handler that marks the row as 'interrupted'
 		 *     when the PHP process terminates before loop completion.
 		 */
-		$options['active_job_id'] = $job_id;
+		$options['active_job_id']     = $job_id;
+		$options['interrupt_checker'] = self::build_job_interrupt_checker( $job_id );
 
 		// Progress callback: write live tool-call activity and channel messages
 		// to the job transient so the polling frontend can display them incrementally.
 		$progress_job_id              = $job_id;
 		$options['progress_callback'] = static function ( array $tool_call_log, array $message_log = array() ) use ( $progress_job_id ) {
-			$current = get_transient( RestController::JOB_PREFIX . $progress_job_id );
-			if ( is_array( $current ) && 'processing' === ( $current['status'] ?? '' ) ) {
-				$current['tool_calls'] = $tool_call_log;
-				$current['messages']   = $message_log;
-				// Refresh TTL on each update to prevent mid-execution expiration.
-				// Adding 60s buffer ensures the transient outlasts the execution
-				// limit even when the callback fires near the end of the job.
-				set_transient( RestController::JOB_PREFIX . $progress_job_id, $current, RestController::JOB_TTL + 60 );
-			} elseif ( false === $current ) {
-				// Transient expired mid-execution; re-create a minimal entry so
-				// the final job result can still be persisted after completion.
-				// Use the same buffered TTL (+60s) as the primary path to
-				// prevent the recreated transient from expiring again before
-				// the job finishes.
-				set_transient(
-					RestController::JOB_PREFIX . $progress_job_id,
-					array(
-						'status'     => 'processing',
-						'tool_calls' => $tool_call_log,
-						'messages'   => $message_log,
-					),
-					RestController::JOB_TTL + 60
-				);
+			$lock = self::acquire_job_mutation_lock( $progress_job_id );
+			if ( null === $lock ) {
+				return;
+			}
+
+			try {
+				$current = get_transient( RestController::JOB_PREFIX . $progress_job_id );
+				if ( is_array( $current ) && 'processing' === ( $current['status'] ?? '' ) ) {
+					$current['tool_calls'] = $tool_call_log;
+					$current['messages']   = $message_log;
+					// Refresh TTL on each update to prevent mid-execution expiration.
+					// Adding 60s buffer ensures the transient outlasts the execution
+					// limit even when the callback fires near the end of the job.
+					set_transient( RestController::JOB_PREFIX . $progress_job_id, $current, RestController::JOB_TTL + 60 );
+				} elseif ( false === $current ) {
+					// Transient expired mid-execution; re-create a minimal entry so
+					// the final job result can still be persisted after completion.
+					// Use the same buffered TTL (+60s) as the primary path to
+					// prevent the recreated transient from expiring again before
+					// the job finishes.
+					set_transient(
+						RestController::JOB_PREFIX . $progress_job_id,
+						array(
+							'status'     => 'processing',
+							'tool_calls' => $tool_call_log,
+							'messages'   => $message_log,
+						),
+						RestController::JOB_TTL + 60
+					);
+				}
+			} finally {
+				self::release_job_mutation_lock( $lock );
 			}
 		};
 
@@ -3630,6 +3927,7 @@ final class SessionController {
 					'model_id'        => (string) ( $options['model_id'] ?? $params['model_id'] ?? '' ),
 				)
 			);
+			$this->record_public_chat_review_status( $job, 'failed', (string) $diagnostic['reason'] );
 
 			if ( $session_id && ! $is_durable_plan_phase ) {
 				$recovery_error = new WP_Error(
@@ -3682,12 +3980,13 @@ final class SessionController {
 			if ( '' === $failure_data['model_id'] ) {
 				$failure_data['model_id'] = (string) ( $options['model_id'] ?? $params['model_id'] ?? '' );
 			}
-			$diagnostic        = $this->persist_active_job_failure(
+			$diagnostic = $this->persist_active_job_failure(
 				$job_id,
 				$job,
 				ActiveJobFailureDiagnostic::reason_from_error( $result, $failure_data['provider_id'] ),
 				$failure_data
 			);
+			$this->record_public_chat_review_status( $job, 'failed', (string) $diagnostic['reason'] );
 			$job['tool_calls'] = $error_data['tool_calls'] ?? ( $job['tool_calls'] ?? array() );
 			$job['messages']   = $error_data['messages'] ?? ( $job['messages'] ?? array() );
 			$payload_recovery  = $this->normalize_payload_recovery( $error_data['recovery'] ?? null, $session_id );
@@ -3799,14 +4098,31 @@ final class SessionController {
 			$job['result'] = $result;
 
 			if ( ! empty( $job['public_chat'] ) && ! empty( $job['public_session_uuid'] ) ) {
-				$public_history = isset( $result['history'] ) && is_array( $result['history'] ) ? $result['history'] : array();
+				$public_history               = isset( $result['history'] ) && is_array( $result['history'] ) ? $result['history'] : array();
+				$public_session               = get_transient( $this->public_chat_session_key( (string) $job['public_session_uuid'] ) );
+				$public_session               = is_array( $public_session ) ? $public_session : array();
+				$public_session['history']    = $public_history;
+				$public_session['updated_at'] = time();
 				set_transient(
 					$this->public_chat_session_key( (string) $job['public_session_uuid'] ),
-					array(
-						'history'    => $public_history,
-						'updated_at' => time(),
-					),
+					$public_session,
 					self::PUBLIC_CHAT_SESSION_TTL
+				);
+				$token_usage = isset( $result['token_usage'] ) && is_array( $result['token_usage'] ) ? $result['token_usage'] : array();
+				$handoff     = isset( $result['handoff'] ) && is_array( $result['handoff'] ) ? $result['handoff'] : array();
+				$this->record_public_chat_review_turn(
+					$job,
+					'assistant',
+					(string) ( $result['reply'] ?? '' ),
+					'complete',
+					array(
+						'provider_id'       => (string) ( $options['provider_id'] ?? $params['provider_id'] ?? '' ),
+						'model_id'          => (string) ( $options['model_id'] ?? $params['model_id'] ?? '' ),
+						'iterations_used'   => (int) ( $result['iterations_used'] ?? 0 ),
+						'prompt_tokens'     => (int) ( $token_usage['prompt'] ?? 0 ),
+						'completion_tokens' => (int) ( $token_usage['completion'] ?? 0 ),
+						'handoff_intent'    => (string) ( $handoff['intent'] ?? '' ),
+					)
 				);
 			}
 

@@ -261,6 +261,68 @@ class AgentThemeBuilderTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * First-run setup keeps image fallback bounded and preserves newly created pages.
+	 */
+	public function test_setup_assistant_system_prompt_bounds_fallback_and_preserves_pages(): void {
+		Agent::reset_defaults();
+
+		$agent = Agent::get_by_slug( Agent::ONBOARDING_AGENT_SLUG );
+		$this->assertNotNull( $agent );
+
+		foreach ( [
+			'two `stock-image` calls total and one `generate-image` call total',
+			'one broad, concrete depicted subject or state of two or three words',
+			'`newlywed couple`',
+			'Omit `min_width` and `min_height`',
+			'copying the exact same broad `keyword`, `usage`, and `orientation` values',
+			'Never use the fetch-url or upload-media-from-url tools as an image-sourcing fallback',
+			'Never delete one of those posts',
+		] as $required ) {
+			$this->assertStringContainsString( $required, $agent->system_prompt );
+		}
+	}
+
+	/**
+	 * First-run setup verifies default navigation in both rendered site regions.
+	 */
+	public function test_setup_assistant_verifies_default_header_and_footer_navigation(): void {
+		Agent::reset_defaults();
+
+		$agent = Agent::get_by_slug( Agent::ONBOARDING_AGENT_SLUG );
+		$this->assertNotNull( $agent );
+
+		foreach ( [
+			'anonymous rendered header and footer',
+			'remove or replace every visible default-theme link group in both regions',
+			'every visible default-theme link group',
+			'default footer navigation',
+			'`sd-ai-agent/list-template-parts` with `area: footer`',
+			'`sd-ai-agent/update-template-part` with that exact hash',
+			'never delete, recreate, or reassign a valid primary menu',
+			'reuse the menu already assigned to the target location',
+			'report that limitation instead of claiming',
+		] as $required ) {
+			$this->assertStringContainsString( $required, $agent->system_prompt );
+		}
+
+		$navigation_position   = strpos( $agent->system_prompt, 'Inspect the anonymous rendered header and footer' );
+		$page_quality_position = strpos( $agent->system_prompt, 'AgentLoop can dispatch `sd-ai-agent-js/validate-page-quality`' );
+		$visual_review_position = strpos( $agent->system_prompt, 'then call `sd-ai-agent/submit-page-visual-review` only with evidence-backed passing scores' );
+		$memory_position       = strpos( $agent->system_prompt, 'Save the final site brief and chosen design direction' );
+		$success_position      = strpos( $agent->system_prompt, 'Reply with a short success message including the live homepage URL' );
+
+		$this->assertNotFalse( $navigation_position );
+		$this->assertNotFalse( $page_quality_position );
+		$this->assertNotFalse( $visual_review_position );
+		$this->assertNotFalse( $memory_position );
+		$this->assertNotFalse( $success_position );
+		$this->assertLessThan( $page_quality_position, $navigation_position );
+		$this->assertLessThan( $visual_review_position, $page_quality_position );
+		$this->assertLessThan( $memory_position, $visual_review_position );
+		$this->assertLessThan( $success_position, $memory_position );
+	}
+
+	/**
 	 * The unified Setup Assistant prompt is vertical-aware.
 	 */
 	public function test_setup_assistant_system_prompt_is_vertical_aware(): void {

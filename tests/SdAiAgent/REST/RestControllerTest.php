@@ -26,6 +26,7 @@ use SdAiAgent\Core\ConversationTrimmer;
 use SdAiAgent\Core\ActiveJobFailureDiagnostic;
 use SdAiAgent\Core\Database;
 use SdAiAgent\Core\Settings;
+use SdAiAgent\Automations\AutomationRunner;
 use SdAiAgent\Automations\HumanApprovalGate;
 use SdAiAgent\Models\ActiveJobRepository;
 use SdAiAgent\Models\Memory;
@@ -168,6 +169,9 @@ class RestControllerTest extends WP_UnitTestCase {
 			'/sd-ai-agent/v1/public-chat/session',
 			'/sd-ai-agent/v1/public-chat/run',
 			'/sd-ai-agent/v1/public-chat/job/(?P<id>[a-f0-9-]+)',
+			'/sd-ai-agent/v1/customer-conversations',
+			'/sd-ai-agent/v1/customer-conversations/(?P<id>[a-f0-9-]+)',
+			'/sd-ai-agent/v1/customer-conversations/purge',
 			'/sd-ai-agent/v1/job/(?P<id>[a-f0-9-]+)',
 			'/sd-ai-agent/v1/process',
 			'/sd-ai-agent/v1/abilities',
@@ -229,6 +233,27 @@ class RestControllerTest extends WP_UnitTestCase {
 		$response = $this->dispatch( 'GET', '/sd-ai-agent/v1/abilities' );
 		$this->assertStatus( 200, $response );
 		$this->assertIsArray( $response->get_data() );
+	}
+
+	/** Customer conversation review routes remain limited to administrators. */
+	public function test_customer_conversation_reviews_require_manage_options(): void {
+		wp_set_current_user( 0 );
+		$this->assertStatus(
+			401,
+			$this->dispatch( 'GET', '/sd-ai-agent/v1/customer-conversations' )
+		);
+
+		wp_set_current_user( $this->subscriber_id );
+		$this->assertStatus(
+			403,
+			$this->dispatch( 'GET', '/sd-ai-agent/v1/customer-conversations' )
+		);
+
+		wp_set_current_user( $this->admin_id );
+		$this->assertStatus(
+			200,
+			$this->dispatch( 'GET', '/sd-ai-agent/v1/customer-conversations' )
+		);
 	}
 
 	// ─── /providers ──────────────────────────────────────────────────────────
@@ -858,6 +883,46 @@ class RestControllerTest extends WP_UnitTestCase {
 		$data = $response->get_data();
 		$this->assertArrayHasKey( 'updated', $data );
 		$this->assertSame( 2, $data['updated'] );
+	}
+
+	/**
+	 * Test POST /sessions/bulk permanently deletes only owned trashed sessions.
+	 */
+	public function test_bulk_sessions_delete_only_removes_owned_trashed_sessions(): void {
+		wp_set_current_user( $this->admin_id );
+
+		$trashed_id = Database::create_session( [ 'user_id' => $this->admin_id, 'title' => 'Delete me' ] );
+		$active_id  = Database::create_session( [ 'user_id' => $this->admin_id, 'title' => 'Keep active' ] );
+		$foreign_id = Database::create_session( [ 'user_id' => $this->subscriber_id, 'title' => 'Keep foreign' ] );
+		Database::update_session( $trashed_id, [ 'status' => 'trash' ] );
+		Database::update_session( $foreign_id, [ 'status' => 'trash' ] );
+
+		$response = $this->dispatch( 'POST', '/sd-ai-agent/v1/sessions/bulk', [
+			'ids'    => [ $trashed_id, $active_id, $foreign_id ],
+			'action' => 'delete',
+		] );
+
+		$this->assertStatus( 200, $response );
+		$this->assertSame( 1, $response->get_data()['deleted'] );
+		$this->assertNull( Database::get_session( $trashed_id ) );
+		$this->assertNotNull( Database::get_session( $active_id ) );
+		$this->assertNotNull( Database::get_session( $foreign_id ) );
+	}
+
+	/** Nested session IDs are rejected instead of being coerced by absint(). */
+	public function test_bulk_sessions_delete_rejects_nested_session_ids(): void {
+		wp_set_current_user( $this->admin_id );
+
+		$trashedId = Database::create_session( [ 'user_id' => $this->admin_id, 'title' => 'Keep me' ] );
+		Database::update_session( $trashedId, [ 'status' => 'trash' ] );
+
+		$response = $this->dispatch( 'POST', '/sd-ai-agent/v1/sessions/bulk', [
+			'ids'    => [ [ $trashedId ] ],
+			'action' => 'delete',
+		] );
+
+		$this->assertStatus( 400, $response );
+		$this->assertNotNull( Database::get_session( $trashedId ) );
 	}
 
 	/**
@@ -1641,6 +1706,98 @@ class RestControllerTest extends WP_UnitTestCase {
 		$this->assertNull( Database::load_and_clear_paused_state( $session_id ) );
 	}
 
+	/** Oversized exhausted-provider state is compacted before a manual retry. */
+	public function test_resume_recoverable_job_compacts_oversized_provider_retry_state(): void {
+		wp_set_current_user( $this->admin_id );
+
+		$session_id = Database::create_session( [
+			'user_id' => $this->admin_id,
+			'title'   => 'Compact provider retry',
+		] );
+		$history    = [
+			[
+				'role'  => 'user',
+				'parts' => [ [ 'text' => str_repeat( 'Large onboarding context. ', 4000 ) ] ],
+			],
+			[
+				'role'  => 'model',
+				'parts' => [
+					[
+						'functionCall' => [
+							'name' => 'wpab__sd-ai-agent__batch-create-posts',
+							'args' => [
+								'posts' => [
+									[ 'title' => 'Home', 'content' => 'SECRET_PAGE_CONTENT' ],
+									[ 'title' => 'Contact', 'content' => 'SECRET_CONTACT_DETAILS' ],
+								],
+							],
+						],
+					],
+				],
+			],
+			[
+				'role'  => 'user',
+				'parts' => [
+					[
+						'functionResponse' => [
+							'name'     => 'wpab__sd-ai-agent__batch-create-posts',
+							'response' => wp_json_encode(
+								[
+									'results'       => [
+										[ 'post_id' => 17, 'title' => 'Home', 'permalink' => 'https://private.example/home/' ],
+										[ 'post_id' => 13, 'title' => 'Contact', 'permalink' => 'https://private.example/contact/' ],
+									],
+									'created_count' => 2,
+								],
+							),
+						],
+					],
+				],
+			],
+		];
+		Database::save_paused_state(
+			$session_id,
+			[
+				'history'       => $history,
+				'tool_call_log' => [],
+				'message_log'   => [],
+				'token_usage'   => [ 'prompt' => 0, 'completion' => 0 ],
+				'provider_id'   => 'sd-ai-agent-cloud',
+				'model_id'      => 'superdav-chat-pro',
+				'exit_reason'   => 'sd_ai_agent_provider_retry_failed',
+			]
+		);
+
+		$byte_budget   = static fn(): int => 20000;
+		$safety_margin = static fn(): int => 18000;
+		$token_budget  = static fn(): int => 500;
+		add_filter( 'sd_ai_agent_provider_request_max_bytes', $byte_budget, 10, 3 );
+		add_filter( 'sd_ai_agent_provider_request_safety_margin_bytes', $safety_margin, 10, 4 );
+		add_filter( 'sd_ai_agent_provider_request_max_tokens', $token_budget, 10, 3 );
+		try {
+			$response = $this->dispatch( 'POST', "/sd-ai-agent/v1/sessions/{$session_id}/resume" );
+		} finally {
+			remove_filter( 'sd_ai_agent_provider_request_max_bytes', $byte_budget, 10 );
+			remove_filter( 'sd_ai_agent_provider_request_safety_margin_bytes', $safety_margin, 10 );
+			remove_filter( 'sd_ai_agent_provider_request_max_tokens', $token_budget, 10 );
+		}
+
+		$this->assertStatus( 202, $response );
+		$data = $response->get_data();
+		$job  = get_transient( RestController::JOB_PREFIX . $data['job_id'] );
+		$this->assertIsArray( $job );
+		$this->assertCount( 1, $job['recovery_state']['history'] );
+		$compacted_json = (string) wp_json_encode( $job['recovery_state']['history'] );
+		$this->assertLessThan( strlen( (string) wp_json_encode( $history ) ), strlen( $compacted_json ) );
+		$this->assertLessThanOrEqual( 2000, strlen( $compacted_json ) );
+		$this->assertLessThanOrEqual( 500, (int) ceil( strlen( $compacted_json ) / 4 ) );
+		$this->assertStringContainsString( 'Home#17', $compacted_json );
+		$this->assertStringContainsString( 'Contact#13', $compacted_json );
+		$this->assertStringNotContainsString( 'SECRET_PAGE_CONTENT', $compacted_json );
+		$this->assertStringNotContainsString( 'SECRET_CONTACT_DETAILS', $compacted_json );
+		$this->assertStringNotContainsString( 'private.example', $compacted_json );
+	}
+
 	/**
 	 * Test a resume action cannot start without durable recoverable state.
 	 */
@@ -2044,6 +2201,68 @@ class RestControllerTest extends WP_UnitTestCase {
 		$this->assertStatus( 201, $response );
 		$data = $response->get_data();
 		$this->assertArrayHasKey( 'id', $data );
+		$this->assertSame( $this->admin_id, $data['owner_user_id'] );
+		$this->assertSame( 'task', $data['mode'] );
+		$this->assertFalse( $data['enabled'] );
+	}
+
+	/**
+	 * Test POST /automations creates a disabled Monitor with bounded timing help.
+	 */
+	public function test_create_monitor_automation_defaults_to_disabled(): void {
+		wp_set_current_user( $this->admin_id );
+
+		$response = $this->dispatch( 'POST', '/sd-ai-agent/v1/automations', [
+			'name'            => 'REST Monitor',
+			'prompt'          => 'Assess the current state.',
+			'mode'            => 'monitor',
+			'monitor_scratch' => 'Check backup status.',
+		] );
+
+		$this->assertStatus( 201, $response );
+		$data = $response->get_data();
+		$this->assertSame( 'monitor', $data['mode'] );
+		$this->assertFalse( $data['enabled'] );
+		$this->assertSame( 'Check backup status.', $data['monitor_scratch'] );
+		$this->assertStringContainsString( 'WP-Cron', $data['monitor_timing_help'] );
+		$this->assertFalse( wp_next_scheduled( AutomationRunner::CRON_HOOK, [ $data['id'] ] ) );
+	}
+
+	/** A task changed to Monitor remains disabled until the administrator enables it separately. */
+	public function test_update_task_to_monitor_requires_explicit_enable(): void {
+		wp_set_current_user( $this->admin_id );
+		$create = $this->dispatch( 'POST', '/sd-ai-agent/v1/automations', [
+			'name'    => 'Task becoming Monitor',
+			'prompt'  => 'Run ordinary work first.',
+			'enabled' => true,
+		] );
+		$this->assertStatus( 201, $create );
+		$automation_id = $create->get_data()['id'];
+		$this->assertNotFalse( wp_next_scheduled( AutomationRunner::CRON_HOOK, [ $automation_id ] ) );
+
+		$response = $this->dispatch( 'PATCH', "/sd-ai-agent/v1/automations/{$automation_id}", [
+			'mode'            => 'monitor',
+			'monitor_scratch' => 'Check current state.',
+		] );
+
+		$this->assertStatus( 200, $response );
+		$data = $response->get_data();
+		$this->assertSame( 'monitor', $data['mode'] );
+		$this->assertFalse( $data['enabled'] );
+		$this->assertFalse( wp_next_scheduled( AutomationRunner::CRON_HOOK, [ $automation_id ] ) );
+	}
+
+	/** Unknown Monitor modes fail validation instead of silently broadening behaviour. */
+	public function test_create_automation_rejects_unknown_monitor_mode(): void {
+		wp_set_current_user( $this->admin_id );
+
+		$response = $this->dispatch( 'POST', '/sd-ai-agent/v1/automations', [
+			'name'   => 'Unsupported Monitor Mode',
+			'prompt' => 'This must not be created.',
+			'mode'   => 'pulse',
+		] );
+
+		$this->assertStatus( 400, $response );
 	}
 
 	/**
@@ -2094,6 +2313,51 @@ class RestControllerTest extends WP_UnitTestCase {
 		$this->assertStatus( 200, $response );
 		$data = $response->get_data();
 		$this->assertSame( 'Updated Automation Name', $data['name'] );
+	}
+
+	/**
+	 * Test PATCH /automations/{id} adopts the authenticated administrator as the
+	 * new execution owner.
+	 */
+	public function test_update_automation_captures_current_owner(): void {
+		wp_set_current_user( $this->admin_id );
+		$create = $this->dispatch( 'POST', '/sd-ai-agent/v1/automations', [
+			'name'   => 'Owner Update Automation',
+			'prompt' => 'Keep an owner.',
+		] );
+		$this->assertStatus( 201, $create );
+		$automationId = $create->get_data()['id'];
+
+		$otherAdminId = self::factory()->user->create( [ 'role' => 'administrator' ] );
+		wp_set_current_user( $otherAdminId );
+
+		$request = new WP_REST_Request( 'PATCH', "/sd-ai-agent/v1/automations/{$automationId}" );
+		$request->set_body( wp_json_encode( [ 'name' => 'Owner Updated Automation' ] ) );
+		$request->set_header( 'Content-Type', 'application/json' );
+		$response = $this->server->dispatch( $request );
+
+		$this->assertStatus( 200, $response );
+		$this->assertSame( $otherAdminId, $response->get_data()['owner_user_id'] );
+	}
+
+	/**
+	 * Test an authenticated manual run reports a disabled stale delivery as a
+	 * durable blocked lifecycle instead of entering AgentLoop.
+	 */
+	public function test_run_disabled_automation_is_blocked(): void {
+		wp_set_current_user( $this->admin_id );
+		$create = $this->dispatch( 'POST', '/sd-ai-agent/v1/automations', [
+			'name'   => 'Disabled Run Automation',
+			'prompt' => 'This must not run.',
+		] );
+		$this->assertStatus( 201, $create );
+		$automation_id = $create->get_data()['id'];
+
+		$response = $this->dispatch( 'POST', "/sd-ai-agent/v1/automations/{$automation_id}/run" );
+
+		$this->assertStatus( 200, $response );
+		$this->assertSame( 'blocked', $response->get_data()['lifecycle_status'] );
+		$this->assertNotEmpty( $response->get_data()['run_id'] );
 	}
 
 	/**
@@ -2624,6 +2888,89 @@ class RestControllerTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * A retry of an already-consumed batch must acknowledge success while
+	 * preserving the newer client-tool pause reached by the original POST.
+	 */
+	public function test_tool_result_retry_accepts_processed_batch_without_consuming_newer_pause(): void {
+		wp_set_current_user( $this->admin_id );
+
+		$session_id = Database::create_session( [
+			'user_id' => $this->admin_id,
+			'title'   => 'Idempotent client result retry',
+		] );
+		$old_call   = [
+			'id'   => 'call-old-completion',
+			'name' => 'sd-ai-agent-js/validate-theme-completion',
+		];
+		$new_call   = [
+			'id'          => 'call-current-completion',
+			'name'        => 'sd-ai-agent-js/validate-theme-completion',
+			'args'        => [ 'stylesheet' => 'generated-current' ],
+			'annotations' => [ 'readonly' => true ],
+		];
+		$paused_state = [
+			'history'                   => [],
+			'iterations_remaining'      => 3,
+			'pending_client_tool_calls' => [ $new_call ],
+			'tool_call_log'             => [
+				[ 'type' => 'call', 'id' => $old_call['id'], 'name' => 'wpab__sd-ai-agent-js__validate-theme-completion', 'sequence' => 1 ],
+				[ 'type' => 'response', 'id' => $old_call['id'], 'name' => $old_call['name'], 'response' => [ 'passed' => false ], 'source' => 'client', 'sequence' => 2 ],
+				[ 'type' => 'call', 'id' => $new_call['id'], 'name' => 'wpab__sd-ai-agent-js__validate-theme-completion', 'sequence' => 3 ],
+			],
+		];
+		Database::save_paused_state( $session_id, $paused_state );
+
+		$job_id = '44444444-5555-6666-7777-888888888888';
+		ActiveJobRepository::create( $session_id, $job_id, $this->admin_id, 'awaiting_client_tools' );
+		ActiveJobRepository::update_status(
+			$job_id,
+			'awaiting_client_tools',
+			[ 'pending_tools' => wp_json_encode( [ $new_call ] ) ]
+		);
+		set_transient(
+			RestController::JOB_PREFIX . $job_id,
+			[
+				'status'                    => 'awaiting_client_tools',
+				'pending_client_tool_calls' => [ $new_call ],
+			],
+			RestController::JOB_TTL
+		);
+
+		$request = new WP_REST_Request( 'POST', '/sd-ai-agent/v1/chat/tool-result' );
+		$request->set_body( wp_json_encode( [
+			'session_id'   => $session_id,
+			'job_id'       => $job_id,
+			'tool_results' => [
+				[
+					'id'     => $old_call['id'],
+					'name'   => $old_call['name'],
+					'result' => [ 'passed' => false, 'violations' => [ [ 'code' => 'focus' ] ] ],
+				],
+			],
+		] ) );
+		$request->set_header( 'Content-Type', 'application/json' );
+		$response = $this->server->dispatch( $request );
+
+		$this->assertStatus( 202, $response );
+		$data = $response->get_data();
+		$this->assertSame( 'already_processed', $data['status'] );
+		$this->assertTrue( $data['results_accepted'] );
+
+		$session_after = Database::get_session( $session_id );
+		$this->assertNotNull( $session_after );
+		$this->assertSame( $paused_state, json_decode( (string) $session_after->paused_state, true ) );
+
+		$transient_after = get_transient( RestController::JOB_PREFIX . $job_id );
+		$this->assertIsArray( $transient_after );
+		$this->assertSame( [ $new_call ], $transient_after['pending_client_tool_calls'] );
+
+		$db_row = ActiveJobRepository::get_by_job_id( $job_id );
+		$this->assertNotNull( $db_row );
+		$this->assertSame( 'awaiting_client_tools', $db_row->status );
+		$this->assertSame( [ $new_call ], json_decode( $db_row->pending_tools, true ) );
+	}
+
+	/**
 	 * Test POST /chat/tool-result cannot consume another user's paused state.
 	 *
 	 * The permission callback must verify access to the supplied session_id before
@@ -2749,6 +3096,88 @@ class RestControllerTest extends WP_UnitTestCase {
 		$db_row = ActiveJobRepository::get_by_job_id( $job_id );
 		$this->assertNotNull( $db_row );
 		$this->assertSame( 'error', $db_row->status );
+	}
+
+	/** A duplicate result POST cannot fail a browser-tool resume still in flight. */
+	public function test_tool_result_retry_during_active_resume_is_acknowledged(): void {
+		wp_set_current_user( $this->admin_id );
+
+		$session_id = Database::create_session( [
+			'user_id' => $this->admin_id,
+			'title'   => 'In-flight client result resume',
+		] );
+		$job_id     = '55555555-6666-7777-8888-999999999999';
+		ActiveJobRepository::create( $session_id, $job_id, $this->admin_id, 'processing' );
+		set_transient(
+			RestController::JOB_PREFIX . $job_id,
+			[ 'status' => 'processing' ],
+			RestController::JOB_TTL
+		);
+
+		$request = new WP_REST_Request( 'POST', '/sd-ai-agent/v1/chat/tool-result' );
+		$request->set_body( wp_json_encode( [
+			'session_id'   => $session_id,
+			'job_id'       => $job_id,
+			'tool_results' => [
+				[
+					'id'     => 'call_screenshot_active',
+					'name'   => 'sd-ai-agent-js/screenshot-url',
+					'result' => [ 'success' => true ],
+				],
+			],
+		] ) );
+		$request->set_header( 'Content-Type', 'application/json' );
+		$response = $this->server->dispatch( $request );
+
+		$this->assertStatus( 202, $response );
+		$this->assertSame( 'processing', $response->get_data()['status'] );
+		$this->assertTrue( $response->get_data()['results_accepted'] );
+
+		$db_row = ActiveJobRepository::get_by_job_id( $job_id );
+		$this->assertNotNull( $db_row );
+		$this->assertSame( 'processing', $db_row->status );
+		$this->assertSame( 'processing', get_transient( RestController::JOB_PREFIX . $job_id )['status'] );
+	}
+
+	/** Browser-tool resumes become recoverable interrupted jobs on PHP shutdown. */
+	public function test_client_tool_resume_claim_enables_interruption_recovery(): void {
+		wp_set_current_user( $this->admin_id );
+
+		$session_id = Database::create_session( [
+			'user_id' => $this->admin_id,
+			'title'   => 'Recoverable client result resume',
+		] );
+		$job_id     = '66666666-7777-8888-9999-000000000000';
+		ActiveJobRepository::create( $session_id, $job_id, $this->admin_id, 'awaiting_client_tools' );
+		set_transient(
+			RestController::JOB_PREFIX . $job_id,
+			[
+				'status'                    => 'awaiting_client_tools',
+				'pending_client_tool_calls' => [ [ 'id' => 'call_active' ] ],
+			],
+			RestController::JOB_TTL
+		);
+
+		$method = new \ReflectionMethod( RestController::class, 'start_client_tool_resume' );
+		$this->assertFalse( $method->invoke( null, $job_id, $session_id + 1 ) );
+		$unclaimed_row = ActiveJobRepository::get_by_job_id( $job_id );
+		$this->assertNotNull( $unclaimed_row );
+		$this->assertSame( 'awaiting_client_tools', $unclaimed_row->status );
+		$this->assertTrue( $method->invoke( null, $job_id, $session_id ) );
+
+		$db_row = ActiveJobRepository::get_by_job_id( $job_id );
+		$this->assertNotNull( $db_row );
+		$this->assertSame( 'processing', $db_row->status );
+		$this->assertSame( '[]', $db_row->pending_tools );
+		$job = get_transient( RestController::JOB_PREFIX . $job_id );
+		$this->assertIsArray( $job );
+		$this->assertSame( 'processing', $job['status'] );
+		$this->assertArrayNotHasKey( 'pending_client_tool_calls', $job );
+
+		$this->assertTrue( ActiveJobRepository::mark_interrupted( $job_id ) );
+		$db_row = ActiveJobRepository::get_by_job_id( $job_id );
+		$this->assertNotNull( $db_row );
+		$this->assertSame( 'interrupted', $db_row->status );
 	}
 
 	/**

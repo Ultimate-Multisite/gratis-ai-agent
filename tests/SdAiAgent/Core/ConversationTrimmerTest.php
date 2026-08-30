@@ -345,6 +345,62 @@ class ConversationTrimmerTest extends WP_UnitTestCase {
 		$this->assertStringNotContainsString( 'SECRET_TOOL_RESPONSE_SHOULD_NOT_COPY', $json );
 	}
 
+	/**
+	 * Compacted recovery checkpoints retain safe post-creation receipts.
+	 */
+	public function test_compact_serialized_history_preserves_post_creation_receipts(): void {
+		$messages = [
+			[
+				'role'  => 'model',
+				'parts' => [
+					[
+						'functionCall' => [
+							'name' => 'wpab__sd-ai-agent__batch-create-posts',
+							'args' => [
+								'posts' => [
+									[ 'title' => 'Home', 'content' => 'SECRET_PAGE_CONTENT' ],
+									[ 'title' => 'Contact', 'content' => 'SECRET_CONTACT_DETAILS' ],
+								],
+							],
+						],
+					],
+				],
+			],
+			[
+				'role'  => 'user',
+				'parts' => [
+					[
+						'functionResponse' => [
+							'name'     => 'wpab__sd-ai-agent__batch-create-posts',
+							'response' => wp_json_encode(
+								[
+									'results'       => [
+										[ 'post_id' => 10, 'title' => 'Home', 'permalink' => 'https://private.example/home/' ],
+										[ 'post_id' => 14, 'title' => 'Contact', 'permalink' => 'https://private.example/contact/' ],
+									],
+									'created_count' => 2,
+									'secret'        => 'SECRET_TOOL_RESPONSE',
+								]
+							),
+						],
+					],
+				],
+			],
+		];
+
+		$result = ConversationTrimmer::compact_serialized_history( $messages, 2048, 512 );
+		$json   = (string) wp_json_encode( $result['messages'] );
+
+		$this->assertStringContainsString( 'titles=[\"Home\",\"Contact\"]', $json );
+		$this->assertStringContainsString( 'created=2', $json );
+		$this->assertStringContainsString( 'Home#10', $json );
+		$this->assertStringContainsString( 'Contact#14', $json );
+		$this->assertStringNotContainsString( 'SECRET_PAGE_CONTENT', $json );
+		$this->assertStringNotContainsString( 'SECRET_CONTACT_DETAILS', $json );
+		$this->assertStringNotContainsString( 'SECRET_TOOL_RESPONSE', $json );
+		$this->assertStringNotContainsString( 'private.example', $json );
+	}
+
 	// ── Tool-response pairing tests ──────────────────────────────────────
 
 	/**

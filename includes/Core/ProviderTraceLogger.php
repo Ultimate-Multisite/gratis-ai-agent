@@ -41,6 +41,8 @@ class ProviderTraceLogger {
 	 *     provider_id:string,
 	 *     model_id:string,
 	 *     session_id:int,
+	 *     journey_id:string,
+	 *     idempotency_key:string,
 	 *     retry_baseline_request_bytes:int,
 	 *     request_bytes:int,
 	 *     request_tokens_estimate:int,
@@ -54,6 +56,8 @@ class ProviderTraceLogger {
 		'provider_id'                  => '',
 		'model_id'                     => '',
 		'session_id'                   => 0,
+		'journey_id'                   => '',
+		'idempotency_key'              => '',
 		'retry_baseline_request_bytes' => 0,
 		'request_bytes'                => 0,
 		'request_tokens_estimate'      => 0,
@@ -125,12 +129,18 @@ class ProviderTraceLogger {
 	 * @param string $model_id                     Runtime-selected model ID.
 	 * @param int    $session_id                   Owning chat session, if any.
 	 * @param int    $retry_baseline_request_bytes Full-envelope bytes from an upstream 413 retry baseline.
+	 * @param string $journey_id                   Validated managed journey ID, if active.
+	 * @param string $idempotency_key              Stable logical-request UUID, if active.
 	 */
-	public static function set_runtime_context( string $provider_id, string $model_id, int $session_id = 0, int $retry_baseline_request_bytes = 0 ): void {
-		self::$runtimeContext = array(
+	public static function set_runtime_context( string $provider_id, string $model_id, int $session_id = 0, int $retry_baseline_request_bytes = 0, string $journey_id = '', string $idempotency_key = '' ): void {
+		$has_valid_managed_attribution = SuperdavManagedRequestIdentifiers::is_journey_id( $journey_id )
+			&& SuperdavManagedRequestIdentifiers::is_idempotency_key( $idempotency_key );
+		self::$runtimeContext          = array(
 			'provider_id'                  => sanitize_key( $provider_id ),
 			'model_id'                     => sanitize_text_field( $model_id ),
 			'session_id'                   => max( 0, $session_id ),
+			'journey_id'                   => $has_valid_managed_attribution ? strtolower( $journey_id ) : '',
+			'idempotency_key'              => $has_valid_managed_attribution ? strtolower( $idempotency_key ) : '',
 			'retry_baseline_request_bytes' => max( 0, $retry_baseline_request_bytes ),
 			'request_bytes'                => 0,
 			'request_tokens_estimate'      => 0,
@@ -145,12 +155,26 @@ class ProviderTraceLogger {
 		return self::$runtimeContext['session_id'];
 	}
 
+	/**
+	 * Return non-secret managed request attribution for the synchronous request.
+	 *
+	 * @return array{journey_id:string, idempotency_key:string}
+	 */
+	public static function get_runtime_managed_request_attribution(): array {
+		return array(
+			'journey_id'      => self::$runtimeContext['journey_id'],
+			'idempotency_key' => self::$runtimeContext['idempotency_key'],
+		);
+	}
+
 	/** Clear runtime provider attribution after a synchronous request. */
 	public static function clear_runtime_context(): void {
 		self::$runtimeContext = array(
 			'provider_id'                  => '',
 			'model_id'                     => '',
 			'session_id'                   => 0,
+			'journey_id'                   => '',
+			'idempotency_key'              => '',
 			'retry_baseline_request_bytes' => 0,
 			'request_bytes'                => 0,
 			'request_tokens_estimate'      => 0,

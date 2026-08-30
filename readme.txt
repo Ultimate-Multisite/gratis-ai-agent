@@ -2,17 +2,17 @@
 Contributors: superdav42
 Tags: ai, chatbot, assistant, automation, connector
 Requires at least: 7.0
-Tested up to: 7.0
+Tested up to: 7.1
 Requires PHP: 8.2
-Stable tag: 1.22.0
+Stable tag: 1.22.4
 License: GPL-2.0-or-later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
-Your AI teammate for WordPress. Fix, publish, optimise, and run your existing site from one assistant — using the AI provider you choose.
+A native AI agent for WordPress. Fix, publish, optimise, and run your site from WordPress admin — with the AI provider you choose.
 
 == Description ==
 
-SD AI Agent is an AI teammate for the WordPress site you already run. Ask it to improve a page, draft content, review SEO opportunities, prepare media, answer questions with site context, or run routine admin work from inside WordPress using natural language.
+SD AI Agent is a native AI agent for the WordPress site you already run. Ask it to improve a page, draft content, review SEO opportunities, prepare media, answer questions with site context, or run routine admin work from inside WordPress using natural language.
 
 You stay in control: choose the included SD AI-managed service or your own compatible WordPress AI provider, decide which tools the agent can use, and require confirmation before consequential actions run.
 
@@ -27,7 +27,7 @@ You stay in control: choose the included SD AI-managed service or your own compa
 
 = Work where you already work =
 
-Open the full workspace at **Tools > SD AI Agent** for longer jobs with folders, search, history, and exports. Use the compact admin widget when you want quick help while editing another WordPress screen.
+Open **AI Agent > Chat** for longer jobs with folders, search, history, and exports. Use the compact admin widget when you want quick help while editing another WordPress screen.
 
 = Bring context to every conversation =
 
@@ -44,10 +44,10 @@ You need WordPress 7.0 or later and PHP 8.2 or later. Use the included SD AI man
 == Installation ==
 
 1. Install and activate SD AI Agent from the WordPress Plugins screen.
-2. Go to **Settings > AI Credentials**. Use the included SD AI managed service, or configure a connector for your preferred AI provider with its required credentials.
-3. Visit **Tools > SD AI Agent Settings** to choose your provider and model.
-4. Review the available abilities and choose a tool profile that fits the access you want to grant.
-5. Open **Tools > SD AI Agent** and start with a focused task, such as improving a draft or finding information from your site.
+2. Go to **Settings > Connectors**. Connect the included SD AI managed service, or configure a compatible connector for your preferred AI provider.
+3. Visit **AI Agent > Settings** to choose your default provider and model.
+4. Open **AI Agent > Abilities** to review the available tools and access controls.
+5. Open **AI Agent > Chat** and start with a focused task, such as improving a draft or finding information from your site.
 
 = Requirements =
 
@@ -66,7 +66,7 @@ The included SD AI provider can register the site and provide AI responses when 
 
 = AI providers (chat completions) =
 
-These are contacted only when configured in **Settings > AI Credentials** and selected for a response. Requests send the conversation messages, system prompt, attached files if any, and tool definitions to the chosen provider.
+These are contacted only when configured in **Settings > Connectors** and selected for a response. Requests send the conversation messages, system prompt, attached files if any, and tool definitions to the chosen provider.
 
 * **OpenAI** (api.openai.com) — Provides AI chat completions for OpenAI models. Terms: https://openai.com/policies/terms-of-use/ Privacy: https://openai.com/policies/privacy-policy/
 
@@ -74,7 +74,7 @@ These are contacted only when configured in **Settings > AI Credentials** and se
 
 * **Google AI / Gemini** (generativelanguage.googleapis.com) — Provides AI chat completions for Gemini models. Terms: https://policies.google.com/terms Privacy: https://policies.google.com/privacy
 
-**Other compatible providers.** If you install a separate connector, SD AI Agent uses that connector's configured endpoint and data handling. Some connectors may route requests through regional or cloud services such as Google Vertex AI (`*.aiplatform.googleapis.com`). Review the connector's own terms and privacy policy.
+**Other compatible providers.** Install [Ultimate AI Connector - Compatible Endpoints](https://wordpress.org/plugins/ultimate-ai-connector-compatible-endpoints/) to connect local models or other compatible provider endpoints. SD AI Agent uses the endpoint and data handling configured in that connector. Some endpoints may route requests through regional or cloud services such as Google Vertex AI (`*.aiplatform.googleapis.com`). Review the endpoint provider's terms and privacy policy.
 
 = Internet search providers =
 
@@ -128,19 +128,19 @@ Stock-image services run only when requested. They receive the search keyword an
 
 = Which AI providers are supported? =
 
-Any provider that has a connector plugin for the WordPress AI Client SDK. This currently includes OpenAI (GPT-4o, GPT-4.1), Anthropic (Claude Opus 4, Sonnet 4, Haiku 4), and any OpenAI-compatible API (Ollama, Azure OpenAI, Groq, Together AI, etc.).
+The included SD AI-managed provider is supported. For local models or other compatible provider endpoints, install [Ultimate AI Connector - Compatible Endpoints](https://wordpress.org/plugins/ultimate-ai-connector-compatible-endpoints/) and configure the endpoint in **Settings > Connectors**. Available providers and models depend on the endpoint you configure.
 
 = How much does it cost to use? =
 
-The plugin itself is free. You pay only for the API usage from your chosen provider at their published rates. There is no markup, subscription, or usage fee from SD AI Agent. The Usage tab in settings tracks your token consumption and estimated costs.
+The plugin is free and open source. The managed SD AI service uses account credits, while third-party providers apply their own pricing and terms. To use a local model or another compatible provider, connect its endpoint with [Ultimate AI Connector - Compatible Endpoints](https://wordpress.org/plugins/ultimate-ai-connector-compatible-endpoints/). The **Usage** tab records token usage and estimated provider costs when pricing data is available.
 
 = Is my data sent to a third party? =
 
-Your conversations go directly from your WordPress site to your configured AI provider. Nothing is routed through any intermediary server. The plugin stores conversation history, memories, and knowledge locally in your WordPress database.
+Content submitted for generation is sent to the service you select. SD AI requests are routed through the managed SD AI service; connector-based requests use the endpoint and data handling defined by that connector. Conversation history, memories, and knowledge are stored locally in your WordPress database.
 
 = Can I use a local AI model? =
 
-Yes. If you run a local model through Ollama or any OpenAI-compatible server, configure it as a provider through the WordPress Connectors API and SD AI Agent will use it. All inference happens on your hardware with zero API costs.
+Yes. Install [Ultimate AI Connector - Compatible Endpoints](https://wordpress.org/plugins/ultimate-ai-connector-compatible-endpoints/), add your local model server or other compatible provider endpoint in **Settings > Connectors**, and then select its registered model in SD AI Agent. Availability, hardware requirements, and any hosting costs depend on the endpoint and inference service you choose.
 
 = What can the agent actually do? =
 
@@ -165,6 +165,20 @@ SD AI Agent uses the native WordPress AI Client SDK and Abilities API. These API
 3. Provider and safety settings, including confirmation controls for consequential actions.
 
 == Changelog ==
+
+= 1.22.4 =
+Version 1.22.4 - Released on 2026-08-19
+- Improved: WordPress compatibility metadata now reflects testing through WordPress 7.1.
+
+= 1.22.3 - Released on 2026-08-17 =
+* Improved: Clarify plugin documentation and local model endpoint compatibility.
+
+= 1.22.2 - Released on 2026-08-17 =
+* Fixed: Generate images with the included SD AI service when common style, quality, or landscape and portrait options are requested.
+
+= 1.22.1 - Released on 2026-08-17 =
+* Fixed: Recover available SD AI image models when model discovery is temporarily unavailable.
+* Improved: Show nested abilities, exact tool calls, and featured images in agent progress and post listings; make client-tool result retries safe.
 
 = 1.22.0 - Released on 2026-08-16 =
 * New: Use verified SD account sign-in and account actions, apply account coupons, and review credit usage for each chat session.

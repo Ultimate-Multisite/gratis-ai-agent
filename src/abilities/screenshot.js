@@ -565,7 +565,6 @@ export async function registerCaptureScreenshotAbility() {
 					description: FULL_PAGE_CAPTURE_GUIDANCE,
 				},
 			},
-			required: [],
 		},
 		outputSchema: {
 			type: 'object',

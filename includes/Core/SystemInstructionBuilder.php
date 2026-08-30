@@ -334,6 +334,8 @@ class SystemInstructionBuilder {
 			. 'Active first-party direct tools this turn: ' . $direct_list . ".\n"
 			. 'If any prompt, memory, or manifest text mentions another `sd-ai-agent/<ability>` name, do not emit its direct `wpab__...` tool call. '
 			. 'Use `sd-ai-agent/ability-search` to fetch its schema, then invoke it through `sd-ai-agent/ability-call`. '
+			. 'Before saying a requested capability is unavailable because it is not a direct tool, run a keyword `sd-ai-agent/ability-search` using the user\'s task words (for example, `create form`). '
+			. 'This can discover visible third-party abilities; after search returns a matching schema, invoke that ability through `sd-ai-agent/ability-call`. '
 			. 'For any ability listed in the catalog below, you MUST call `sd-ai-agent/ability-call` with `{"ability":"<name>","arguments":{...}}`; never write `<tool_call>wpab__...` or the ability name as text in the reply.';
 	}
 
@@ -518,7 +520,9 @@ class SystemInstructionBuilder {
 	 */
 	public static function build_advanced_companion_section(): string {
 		return "## Advanced Companion\n\n"
-			. 'Your active ability manifest is authoritative. If a requested action needs an ability that is not available, or a tool returns the `sd_ai_agent_advanced_plugin_required` error, explain that the capability is provided by Superdav AI Agent Advanced. '
+			. 'Your active ability manifest is authoritative. Treat questions such as “Is Advanced enabled?” or “Can you generate plugins?” as read-only capability-status questions: answer directly from that manifest without calling site-inspection tools such as list-options, list-posts, or get-plugins. '
+			. 'Plugin generation is available in the current session only when `sd-ai-agent/generate-plugin` appears in the active ability manifest or direct tool list. If it is present, say that plugin generation is available; if it is absent, say that plugin generation is not currently available and requires SD AI Agent Advanced. Do not infer availability from installed plugin files, options, or source-checkout contents. '
+			. 'If another requested action needs an ability that is not available, or a tool returns the `sd_ai_agent_advanced_plugin_required` error, explain that the capability is provided by SD AI Agent Advanced. '
 			. 'Do not attempt to download, install, activate, or update Advanced automatically. Direct the site administrator to https://sdaiagent.com/advanced/ for the direct ZIP download and manual installation instructions.';
 	}
 

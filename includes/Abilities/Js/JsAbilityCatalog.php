@@ -86,6 +86,212 @@ class JsAbilityCatalog {
 				'screens'       => array( 'all' ),
 			),
 			array(
+				'name'          => 'sd-ai-agent-js/get-editor-selection',
+				'label'         => 'Get Editor Selection',
+				'description'   => 'Return a bounded, current snapshot of explicitly selected Gutenberg blocks without changing editor state.',
+				'category'      => 'sd-ai-agent-js',
+				'input_schema'  => array(
+					'type'       => 'object',
+					'properties' => array(),
+					'required'   => array(),
+				),
+				'output_schema' => array(
+					'type'       => 'object',
+					'properties' => array(
+						'available'     => array( 'type' => 'boolean' ),
+						'selected'      => array( 'type' => 'boolean' ),
+						'count'         => array( 'type' => 'integer' ),
+						'originalCount' => array( 'type' => 'integer' ),
+						'blocks'        => array(
+							'type'  => 'array',
+							'items' => array( 'type' => 'object' ),
+						),
+						'markup'        => array( 'type' => 'string' ),
+						'fingerprint'   => array( 'type' => 'string' ),
+						'truncated'     => array( 'type' => 'boolean' ),
+						'reason'        => array( 'type' => 'string' ),
+					),
+				),
+				'annotations'   => array(
+					'readonly' => true,
+				),
+				'screens'       => array( 'editor' ),
+			),
+			array(
+				'name'          => 'sd-ai-agent-js/replace-editor-selection',
+				'label'         => 'Replace Editor Selection',
+				'description'   => 'Replace exactly the selected Gutenberg blocks only when the supplied ordered IDs and fingerprint still match.',
+				'category'      => 'sd-ai-agent-js',
+				'input_schema'  => array(
+					'type'       => 'object',
+					'properties' => array(
+						'markup'              => array( 'type' => 'string' ),
+						'expectedFingerprint' => array( 'type' => 'string' ),
+						'expectedClientIds'   => array(
+							'type'  => 'array',
+							'items' => array( 'type' => 'string' ),
+						),
+					),
+					'required'   => array( 'markup', 'expectedFingerprint', 'expectedClientIds' ),
+				),
+				'output_schema' => self::editor_mutation_output_schema(),
+				'annotations'   => array(
+					'readonly' => false,
+				),
+				'screens'       => array( 'editor' ),
+			),
+			array(
+				'name'          => 'sd-ai-agent-js/insert-block-markup',
+				'label'         => 'Insert Block Markup',
+				'description'   => 'Insert validated canonical Gutenberg markup once at an explicit editor location or the current insertion point.',
+				'category'      => 'sd-ai-agent-js',
+				'input_schema'  => array(
+					'type'       => 'object',
+					'properties' => array(
+						'markup'       => array( 'type' => 'string' ),
+						'rootClientId' => array(
+							'type'        => 'string',
+							'description' => 'Supply rootClientId and index together; omit both to use the current insertion point.',
+						),
+						'index'        => array(
+							'type'        => 'integer',
+							'description' => 'Supply rootClientId and index together; omit both to use the current insertion point.',
+						),
+					),
+					'required'   => array( 'markup' ),
+				),
+				'output_schema' => self::editor_mutation_output_schema(),
+				'annotations'   => array(
+					'readonly' => false,
+				),
+				'screens'       => array( 'editor' ),
+			),
+			array(
+				'name'          => 'sd-ai-agent-js/change-editor-history',
+				'label'         => 'Change Editor History',
+				'description'   => 'Request one native Gutenberg editor undo or redo operation.',
+				'category'      => 'sd-ai-agent-js',
+				'input_schema'  => array(
+					'type'       => 'object',
+					'properties' => array(
+						'direction' => array(
+							'type' => 'string',
+							'enum' => array( 'undo', 'redo' ),
+						),
+					),
+					'required'   => array( 'direction' ),
+				),
+				'output_schema' => array(
+					'type'       => 'object',
+					'properties' => array(
+						'applied'   => array( 'type' => array( 'boolean', 'string' ) ),
+						'direction' => array( 'type' => 'string' ),
+						'reason'    => array( 'type' => 'string' ),
+					),
+				),
+				'annotations'   => array(
+					'readonly' => false,
+				),
+				'screens'       => array( 'editor' ),
+			),
+			array(
+				'name'          => 'sd-ai-agent-js/get-editor-capabilities',
+				'label'         => 'Get Editor Capabilities',
+				'description'   => 'Return a bounded, current manifest of installed Gutenberg blocks and active editor/theme capabilities without changing editor state.',
+				'category'      => 'sd-ai-agent-js',
+				'input_schema'  => array(
+					'type'       => 'object',
+					'properties' => array(
+						'blockNames' => array(
+							'type'  => 'array',
+							'items' => array( 'type' => 'string' ),
+						),
+					),
+					'required'   => array(),
+				),
+				'output_schema' => array(
+					'type'       => 'object',
+					'properties' => array(
+						'available'           => array( 'type' => 'boolean' ),
+						'block_names'         => array(
+							'type'  => 'array',
+							'items' => array( 'type' => 'string' ),
+						),
+						'block_details'       => array(
+							'type'  => 'array',
+							'items' => array( 'type' => 'object' ),
+						),
+						'global'              => array( 'type' => 'object' ),
+						'requested'           => array(
+							'type'  => 'array',
+							'items' => array( 'type' => 'string' ),
+						),
+						'unregistered'        => array(
+							'type'  => 'array',
+							'items' => array( 'type' => 'string' ),
+						),
+						'disallowed'          => array(
+							'type'  => 'array',
+							'items' => array( 'type' => 'string' ),
+						),
+						'omitted_blocks'      => array( 'type' => 'integer' ),
+						'truncated'           => array( 'type' => 'boolean' ),
+						'unavailable_sources' => array(
+							'type'  => 'array',
+							'items' => array( 'type' => 'string' ),
+						),
+					),
+				),
+				'annotations'   => array(
+					'readonly' => true,
+				),
+				'screens'       => array( 'editor' ),
+			),
+			array(
+				'name'          => 'sd-ai-agent-js/get-canonical-block-examples',
+				'label'         => 'Get Canonical Block Examples',
+				'description'   => 'Generate bounded, validated canonical Gutenberg markup from currently installed block registrations without changing editor state.',
+				'category'      => 'sd-ai-agent-js',
+				'input_schema'  => array(
+					'type'       => 'object',
+					'properties' => array(
+						'blockNames' => array(
+							'type'        => 'array',
+							'minItems'    => 1,
+							'maxItems'    => 20,
+							'uniqueItems' => true,
+							'items'       => array(
+								'type'      => 'string',
+								'maxLength' => 200,
+							),
+						),
+					),
+					'required'   => array( 'blockNames' ),
+				),
+				'output_schema' => array(
+					'type'       => 'object',
+					'properties' => array(
+						'available' => array( 'type' => 'boolean' ),
+						'requested' => array(
+							'type'  => 'array',
+							'items' => array( 'type' => 'string' ),
+						),
+						'examples'  => array(
+							'type'  => 'array',
+							'items' => array( 'type' => 'object' ),
+						),
+						'warnings'  => array(
+							'type'  => 'array',
+							'items' => array( 'type' => 'string' ),
+						),
+					),
+				),
+				'annotations'   => array(
+					'readonly' => true,
+				),
+				'screens'       => array( 'editor' ),
+			),
+			array(
 				'name'          => 'sd-ai-agent-js/insert-block',
 				'label'         => 'Insert Block',
 				'description'   => 'Insert a Gutenberg block into the active block editor. Only available on editor screens.',
@@ -330,6 +536,27 @@ class JsAbilityCatalog {
 					'readonly' => true,
 				),
 				'screens'       => array( 'all' ),
+			),
+		);
+	}
+
+	/** @return array<string,mixed> */
+	private static function editor_mutation_output_schema(): array {
+		return array(
+			'type'       => 'object',
+			'properties' => array(
+				'applied'     => array( 'type' => array( 'boolean', 'string' ) ),
+				'reason'      => array( 'type' => 'string' ),
+				'markup'      => array( 'type' => 'string' ),
+				'clientIds'   => array(
+					'type'  => 'array',
+					'items' => array( 'type' => 'string' ),
+				),
+				'fingerprint' => array( 'type' => 'string' ),
+				'errors'      => array(
+					'type'  => 'array',
+					'items' => array( 'type' => 'object' ),
+				),
 			),
 		);
 	}

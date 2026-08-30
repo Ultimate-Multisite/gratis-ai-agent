@@ -43,6 +43,12 @@ class ConversationTrimmer {
 	/** Maximum characters copied from any single message into compact context. */
 	private const COMPACT_MAX_MESSAGE_CHARS = 2000;
 
+	/** Maximum JSON characters retained for callable ability-search schemas. */
+	private const COMPACT_MAX_ABILITY_SCHEMA_RECEIPT_CHARS = 1600;
+
+	/** Exact marker at the start of a deterministic compact-context message. */
+	private const COMPACT_CONTEXT_MARKER = 'Conversation compacted server-side to avoid provider payload limits.';
+
 	/** Marker inserted when older turns are removed by a request-size budget. */
 	private const BUDGET_MARKER_TEXT = '[Earlier conversation turns were compacted to stay within the request safety budget.]';
 
@@ -212,7 +218,7 @@ class ConversationTrimmer {
 			}
 		}
 
-		$source_count = count( $normalized );
+		$source_count = 0;
 		$max_bytes    = max( 1024, $max_bytes );
 		$max_tokens   = max( 256, $max_tokens );
 
@@ -221,12 +227,16 @@ class ConversationTrimmer {
 			min( self::COMPACT_MAX_MESSAGE_CHARS, (int) floor( $max_bytes / 4 ) )
 		);
 
+		$available_lines = array();
+		foreach ( $normalized as $message ) {
+			$expanded        = self::serialized_message_to_compact_excerpts( $message, $per_message_chars );
+			$source_count   += $expanded['source_count'];
+			$available_lines = array_merge( $available_lines, $expanded['lines'] );
+		}
+
 		$lines = array();
-		for ( $i = $source_count - 1; $i >= 0; --$i ) {
-			$excerpt = self::serialized_message_to_compact_excerpt( $normalized[ $i ], $per_message_chars );
-			if ( '' === $excerpt ) {
-				continue;
-			}
+		for ( $i = count( $available_lines ) - 1; $i >= 0; --$i ) {
+			$excerpt = $available_lines[ $i ];
 
 			$candidate = $lines;
 			array_unshift( $candidate, $excerpt );
@@ -309,12 +319,96 @@ class ConversationTrimmer {
 		$omitted_count = max( 0, $source_count - $retained_count );
 
 		$header = array(
-			'Conversation compacted server-side to avoid provider payload limits.',
+			self::COMPACT_CONTEXT_MARKER,
 			"Source messages: {$source_count}; retained excerpts: {$retained_count}; omitted messages: {$omitted_count}.",
-			'Use this compact context to continue from the user\'s next message. File attachments, inline image bytes, and raw tool payloads were omitted.',
+			'Use this compact context to continue the current task. File attachments, inline image bytes, and raw tool payloads were omitted.',
+			'Bounded inspection receipts are evidence of completed reads. Do not repeat an inspection solely because its raw result was omitted.',
+			'Ability-search receipts retain callable input-schema shapes. Use ability-call directly with those schemas instead of searching for the same ability again.',
 		);
 
 		return implode( "\n", $header ) . "\n\n" . implode( "\n\n", $lines );
+	}
+
+	/**
+	 * Expand an existing deterministic compact seed instead of nesting it.
+	 *
+	 * Provider recovery can compact the same durable history repeatedly. Treating
+	 * an earlier seed as an ordinary user message collapses all of its structured
+	 * receipts into one 2,000-character excerpt, so later compaction loses the
+	 * evidence needed to continue. A strictly recognized seed contributes its
+	 * original excerpts and source count directly, making compaction idempotent.
+	 *
+	 * @param array<string, mixed> $message   Serialized message array.
+	 * @param int                  $max_chars Character limit for each excerpt body.
+	 * @return array{lines:list<string>,source_count:int}
+	 */
+	private static function serialized_message_to_compact_excerpts( array $message, int $max_chars ): array {
+		$parts = isset( $message['parts'] ) && is_array( $message['parts'] ) ? array_values( $message['parts'] ) : array();
+		if (
+			1 === count( $parts )
+			&& is_array( $parts[0] )
+			&& isset( $parts[0]['text'] )
+			&& is_string( $parts[0]['text'] )
+		) {
+			$expanded = self::parse_compact_context_text( $parts[0]['text'], $max_chars );
+			if ( null !== $expanded ) {
+				return $expanded;
+			}
+		}
+
+		$excerpt = self::serialized_message_to_compact_excerpt( $message, $max_chars );
+
+		return array(
+			'lines'        => '' === $excerpt ? array() : array( $excerpt ),
+			'source_count' => 1,
+		);
+	}
+
+	/**
+	 * Parse a compact seed produced by {@see build_compact_context_text()}.
+	 *
+	 * Recognition is deliberately strict so ordinary user prose that happens to
+	 * mention compaction is not reinterpreted as server-produced history.
+	 *
+	 * @param string $text      Candidate compact-context text.
+	 * @param int    $max_chars Character limit for each recovered excerpt.
+	 * @return array{lines:list<string>,source_count:int}|null
+	 */
+	private static function parse_compact_context_text( string $text, int $max_chars ): ?array {
+		$text  = str_replace( array( "\r\n", "\r" ), "\n", $text );
+		$lines = explode( "\n", $text );
+		if (
+			count( $lines ) < 7
+			|| self::COMPACT_CONTEXT_MARKER !== $lines[0]
+			|| ! preg_match( '/^Source messages: (\d+); retained excerpts: (\d+); omitted messages: (\d+)\.$/', $lines[1], $matches )
+			|| 'Use this compact context to continue the current task. File attachments, inline image bytes, and raw tool payloads were omitted.' !== $lines[2]
+			|| 'Bounded inspection receipts are evidence of completed reads. Do not repeat an inspection solely because its raw result was omitted.' !== $lines[3]
+			|| 'Ability-search receipts retain callable input-schema shapes. Use ability-call directly with those schemas instead of searching for the same ability again.' !== $lines[4]
+			|| '' !== $lines[5]
+		) {
+			return null;
+		}
+
+		$body      = implode( "\n", array_slice( $lines, 6 ) );
+		$excerpts  = preg_split( '/\n{2,}/', $body );
+		$excerpts  = is_array( $excerpts ) ? $excerpts : array();
+		$recovered = array();
+		foreach ( $excerpts as $excerpt ) {
+			$excerpt = trim( $excerpt );
+			if ( '' === $excerpt ) {
+				continue;
+			}
+
+			if ( strlen( $excerpt ) > $max_chars ) {
+				$excerpt = substr( $excerpt, 0, max( 0, $max_chars - 1 ) ) . '…';
+			}
+			$recovered[] = $excerpt;
+		}
+
+		return array(
+			'lines'        => $recovered,
+			'source_count' => max( count( $recovered ), (int) $matches[1] ),
+		);
 	}
 
 	/** Convert compact text into a single user-message seed. */
@@ -376,12 +470,32 @@ class ConversationTrimmer {
 
 		$function_call = $part['functionCall'] ?? $part['function_call'] ?? null;
 		if ( is_array( $function_call ) ) {
+			$mutation_receipt = self::compact_post_mutation_call_receipt( $function_call );
+			if ( '' !== $mutation_receipt ) {
+				return $mutation_receipt;
+			}
+
+			$inspection_receipt = self::compact_inspection_call_receipt( $function_call );
+			if ( '' !== $inspection_receipt ) {
+				return $inspection_receipt;
+			}
+
 			$name = self::compact_tool_name( $function_call['name'] ?? 'tool' );
 			return '[tool call: ' . $name . ']';
 		}
 
 		$function_response = $part['functionResponse'] ?? $part['function_response'] ?? null;
 		if ( is_array( $function_response ) ) {
+			$mutation_receipt = self::compact_post_mutation_response_receipt( $function_response );
+			if ( '' !== $mutation_receipt ) {
+				return $mutation_receipt;
+			}
+
+			$inspection_receipt = self::compact_inspection_response_receipt( $function_response );
+			if ( '' !== $inspection_receipt ) {
+				return $inspection_receipt;
+			}
+
 			$name = self::compact_tool_name( $function_response['name'] ?? 'tool' );
 			return '[tool result omitted: ' . $name . ']';
 		}
@@ -392,6 +506,385 @@ class ConversationTrimmer {
 		}
 
 		return '';
+	}
+
+	/**
+	 * Preserve a bounded, non-content receipt for post-creation calls.
+	 *
+	 * Checkpoint compaction normally omits raw tool arguments. Post titles and
+	 * counts are retained for create calls so a resumed setup run knows which
+	 * pages it already attempted instead of recreating them after a timeout.
+	 *
+	 * @param array<string,mixed> $function_call Serialized function call.
+	 */
+	private static function compact_post_mutation_call_receipt( array $function_call ): string {
+		$name = self::compact_tool_name( $function_call['name'] ?? 'tool' );
+		if ( ! self::is_post_creation_tool( $name ) ) {
+			return '';
+		}
+
+		$args = self::compact_tool_payload_array( $function_call['args'] ?? array() );
+		if ( self::tool_name_has_suffix( $name, 'batch-create-posts' ) ) {
+			$posts  = isset( $args['posts'] ) && is_array( $args['posts'] ) ? $args['posts'] : array();
+			$titles = array();
+			foreach ( array_slice( $posts, 0, 20 ) as $post ) {
+				if ( is_array( $post ) && isset( $post['title'] ) && is_scalar( $post['title'] ) ) {
+					$titles[] = self::compact_receipt_value( (string) $post['title'] );
+				}
+			}
+
+			return sprintf(
+				'[tool call: %s posts=%d titles=%s]',
+				$name,
+				count( $posts ),
+				self::compact_receipt_list( $titles )
+			);
+		}
+
+		$title = isset( $args['title'] ) && is_scalar( $args['title'] )
+			? self::compact_receipt_value( (string) $args['title'] )
+			: 'unknown';
+
+		return sprintf( '[tool call: %s title=%s]', $name, self::compact_receipt_list( array( $title ) ) );
+	}
+
+	/**
+	 * Preserve successful post IDs and titles without copying raw tool output.
+	 *
+	 * @param array<string,mixed> $function_response Serialized function response.
+	 */
+	private static function compact_post_mutation_response_receipt( array $function_response ): string {
+		$name = self::compact_tool_name( $function_response['name'] ?? 'tool' );
+		if ( ! self::is_post_creation_tool( $name ) ) {
+			return '';
+		}
+
+		$response = self::compact_tool_payload_array( $function_response['response'] ?? array() );
+		if ( self::tool_name_has_suffix( $name, 'batch-create-posts' ) ) {
+			$results  = isset( $response['results'] ) && is_array( $response['results'] ) ? $response['results'] : array();
+			$entities = array();
+			foreach ( array_slice( $results, 0, 20 ) as $result ) {
+				if ( ! is_array( $result ) || empty( $result['post_id'] ) ) {
+					continue;
+				}
+
+				$title      = isset( $result['title'] ) && is_scalar( $result['title'] ) ? self::compact_receipt_value( (string) $result['title'] ) : 'post';
+				$entities[] = $title . '#' . absint( $result['post_id'] );
+			}
+
+			return sprintf(
+				'[tool result: %s created=%d posts=%s]',
+				$name,
+				isset( $response['created_count'] ) ? absint( $response['created_count'] ) : count( $entities ),
+				self::compact_receipt_list( $entities )
+			);
+		}
+
+		$post_id = isset( $response['post_id'] ) ? absint( $response['post_id'] ) : 0;
+		return sprintf( '[tool result: %s post_id=%d]', $name, $post_id );
+	}
+
+	/** Whether a compacted tool name creates one or more posts. */
+	private static function is_post_creation_tool( string $name ): bool {
+		return self::tool_name_has_suffix( $name, 'create-post' )
+			|| self::tool_name_has_suffix( $name, 'batch-create-posts' );
+	}
+
+	/**
+	 * Preserve bounded query parameters for read-only setup inspections.
+	 *
+	 * @param array<string,mixed> $function_call Serialized function call.
+	 */
+	private static function compact_inspection_call_receipt( array $function_call ): string {
+		$name = self::compact_tool_name( $function_call['name'] ?? 'tool' );
+		if ( ! self::is_compact_inspection_tool( $name ) ) {
+			return '';
+		}
+
+		$args    = self::compact_tool_payload_array( $function_call['args'] ?? array() );
+		$summary = self::compact_receipt_fields(
+			$args,
+			array( 'query', 'search', 'prefix', 'post_type', 'post_status', 'mime_type', 'limit', 'autoload', 'stylesheet', 'area' )
+		);
+
+		return '[inspection call: ' . $name . ' args=' . self::compact_receipt_json( $summary ) . ']';
+	}
+
+	/**
+	 * Preserve bounded, non-content evidence returned by read-only setup inspections.
+	 *
+	 * @param array<string,mixed> $function_response Serialized function response.
+	 */
+	private static function compact_inspection_response_receipt( array $function_response ): string {
+		$name = self::compact_tool_name( $function_response['name'] ?? 'tool' );
+		if ( ! self::is_compact_inspection_tool( $name ) ) {
+			return '';
+		}
+
+		$response = self::compact_tool_payload_array( $function_response['response'] ?? array() );
+		if ( self::tool_name_has_suffix( $name, 'ability-search' ) ) {
+			return self::compact_ability_search_response_receipt( $name, $response );
+		}
+
+		$summary = self::compact_receipt_fields(
+			$response,
+			array( 'success', 'total', 'count', 'active', 'active_count', 'valid', 'passed', 'query', 'stylesheet', 'code', 'error' )
+		);
+
+		$collection_fields = array(
+			'results'   => array( 'id', 'label', 'name', 'title', 'status', 'post_id', 'success', 'error' ),
+			'posts'     => array( 'id', 'title', 'status', 'post_type' ),
+			'items'     => array( 'id', 'title', 'name', 'mime_type', 'status' ),
+			'themes'    => array( 'slug', 'name', 'active', 'status', 'version' ),
+			'plugins'   => array( 'name', 'active', 'status' ),
+			'menus'     => array( 'id', 'name', 'slug', 'count' ),
+			'options'   => array( 'option_name' ),
+			'templates' => array( 'slug', 'title' ),
+		);
+		foreach ( $collection_fields as $key => $fields ) {
+			if ( ! isset( $response[ $key ] ) || ! is_array( $response[ $key ] ) ) {
+				continue;
+			}
+
+			$entities = array();
+			foreach ( array_slice( $response[ $key ], 0, 10 ) as $entity ) {
+				if ( is_array( $entity ) ) {
+					$entities[] = self::compact_receipt_fields( $entity, $fields );
+				}
+			}
+			$summary[ $key ] = $entities;
+		}
+
+		return '[inspection result: ' . $name . ' summary=' . self::compact_receipt_json( $summary ) . ']';
+	}
+
+	/**
+	 * Preserve enough of ability-search results to call selected abilities.
+	 *
+	 * Continued provider compaction runs before every later model call. Omitting
+	 * input schemas here means a newly fetched Tier-2 ability becomes unusable on
+	 * the very next turn, causing the model to search again or fall back to the
+	 * Tier-1 site-inspection tools. Retain only the schema's structural shape;
+	 * descriptions, defaults, examples, and output schemas remain omitted.
+	 *
+	 * @param string              $name     Compacted ability-search tool name.
+	 * @param array<string,mixed> $response Ability-search response payload.
+	 */
+	private static function compact_ability_search_response_receipt( string $name, array $response ): string {
+		$query   = isset( $response['query'] ) && is_scalar( $response['query'] )
+			? self::compact_receipt_value( (string) $response['query'] )
+			: '';
+		$results = isset( $response['results'] ) && is_array( $response['results'] )
+			? array_values( $response['results'] )
+			: array();
+		$kept    = array();
+
+		foreach ( array_slice( $results, 0, 10 ) as $result ) {
+			if ( ! is_array( $result ) ) {
+				continue;
+			}
+
+			$ability = self::compact_receipt_fields( $result, array( 'id', 'label' ) );
+			$schema  = self::compact_tool_payload_array( $result['input_schema'] ?? array() );
+			if ( ! empty( $schema ) ) {
+				$ability['input_schema'] = self::compact_schema_shape( $schema );
+			}
+
+			$candidate = array_merge( $kept, array( $ability ) );
+			$payload   = array(
+				'query'     => $query,
+				'abilities' => $candidate,
+				'omitted'   => max( 0, count( $results ) - count( $candidate ) ),
+			);
+			$encoded   = wp_json_encode( $payload );
+			if ( ! is_string( $encoded ) || strlen( $encoded ) > self::COMPACT_MAX_ABILITY_SCHEMA_RECEIPT_CHARS ) {
+				break;
+			}
+
+			$kept = $candidate;
+		}
+
+		$payload = array(
+			'query'     => $query,
+			'abilities' => $kept,
+			'omitted'   => max( 0, count( $results ) - count( $kept ) ),
+		);
+		$encoded = wp_json_encode( $payload );
+
+		return '[inspection result: ' . $name . ' callable_schemas=' . ( is_string( $encoded ) ? $encoded : '{}' ) . ']';
+	}
+
+	/**
+	 * Build a bounded schema shape without descriptions or example/default data.
+	 *
+	 * @param array<string,mixed> $schema Input schema.
+	 * @param int                 $depth  Current nested-schema depth.
+	 * @return array<string,mixed>
+	 */
+	private static function compact_schema_shape( array $schema, int $depth = 0 ): array {
+		$shape = self::compact_receipt_fields(
+			$schema,
+			array( 'type', 'format', 'enum', 'minimum', 'maximum', 'minItems', 'maxItems' )
+		);
+
+		if ( isset( $schema['additionalProperties'] ) && is_bool( $schema['additionalProperties'] ) ) {
+			$shape['additionalProperties'] = $schema['additionalProperties'];
+		}
+
+		if ( $depth >= 2 ) {
+			return $shape;
+		}
+
+		if ( isset( $schema['properties'] ) && is_array( $schema['properties'] ) ) {
+			$properties = array();
+
+			$retained_property_names = array();
+			foreach ( array_slice( $schema['properties'], 0, 12, true ) as $property_name => $property_schema ) {
+				if ( ! is_string( $property_name ) || ! is_array( $property_schema ) ) {
+					continue;
+				}
+
+				$compacted_property_name = self::compact_receipt_value( $property_name );
+
+				$properties[ $compacted_property_name ] = self::compact_schema_shape( $property_schema, $depth + 1 );
+
+				$retained_property_names[ $property_name ] = $compacted_property_name;
+			}
+			if ( ! empty( $properties ) ) {
+				$shape['properties'] = $properties;
+			}
+
+			if ( isset( $schema['required'] ) && is_array( $schema['required'] ) ) {
+				$required = array();
+				foreach ( $schema['required'] as $required_property_name ) {
+					if ( is_string( $required_property_name ) && isset( $retained_property_names[ $required_property_name ] ) ) {
+						$required[] = $retained_property_names[ $required_property_name ];
+					}
+				}
+				if ( ! empty( $required ) ) {
+					$shape['required'] = $required;
+				}
+			}
+		}
+
+		if ( isset( $schema['items'] ) && is_array( $schema['items'] ) ) {
+			$shape['items'] = self::compact_schema_shape( $schema['items'], $depth + 1 );
+		}
+
+		return $shape;
+	}
+
+	/** Whether a tool is a read-only inspection whose bounded result aids continuation. */
+	private static function is_compact_inspection_tool( string $name ): bool {
+		foreach (
+			array(
+				'ability-search',
+				'get-plugins',
+				'get-themes',
+				'list-block-templates',
+				'list-media',
+				'list-menus',
+				'list-options',
+				'list-posts',
+			) as $suffix
+		) {
+			if ( self::tool_name_has_suffix( $name, $suffix ) ) {
+				return true;
+			}
+		}
+
+		return false;
+	}
+
+	/**
+	 * Select and bound scalar or scalar-list receipt fields.
+	 *
+	 * @param array<string,mixed> $source         Source payload.
+	 * @param string[]            $allowed_fields Fields safe to retain.
+	 * @return array<string,mixed>
+	 */
+	private static function compact_receipt_fields( array $source, array $allowed_fields ): array {
+		$summary = array();
+		foreach ( $allowed_fields as $field ) {
+			if ( ! array_key_exists( $field, $source ) ) {
+				continue;
+			}
+
+			$value = $source[ $field ];
+			if ( is_scalar( $value ) || null === $value ) {
+				$summary[ $field ] = is_string( $value ) ? self::compact_receipt_value( $value ) : $value;
+				continue;
+			}
+
+			if ( is_array( $value ) ) {
+				$items = array();
+				foreach ( array_slice( $value, 0, 10 ) as $item ) {
+					if ( is_scalar( $item ) || null === $item ) {
+						$items[] = is_string( $item ) ? self::compact_receipt_value( $item ) : $item;
+					}
+				}
+				$summary[ $field ] = $items;
+			}
+		}
+
+		return $summary;
+	}
+
+	/**
+	 * Encode one bounded receipt summary.
+	 *
+	 * @param array<string,mixed> $summary Safe receipt fields.
+	 */
+	private static function compact_receipt_json( array $summary ): string {
+		$encoded = wp_json_encode( $summary );
+		if ( ! is_string( $encoded ) ) {
+			return '{}';
+		}
+
+		return strlen( $encoded ) > 1200 ? substr( $encoded, 0, 1199 ) . '…' : $encoded;
+	}
+
+	/** Match direct and dispatcher-safe function names by their ability suffix. */
+	private static function tool_name_has_suffix( string $name, string $suffix ): bool {
+		return str_ends_with( strtolower( $name ), '/' . $suffix )
+			|| str_ends_with( strtolower( $name ), '__' . $suffix );
+	}
+
+	/** Normalize a JSON-or-array tool payload without retaining it beyond the caller. */
+	private static function compact_tool_payload_array( mixed $payload ): array {
+		if ( is_array( $payload ) ) {
+			return $payload;
+		}
+
+		if ( is_string( $payload ) ) {
+			$decoded = json_decode( $payload, true );
+			return is_array( $decoded ) ? $decoded : array();
+		}
+
+		return array();
+	}
+
+	/** Normalize and bound one safe receipt value. */
+	private static function compact_receipt_value( string $value ): string {
+		$value = self::normalize_compact_text( wp_strip_all_tags( $value ) );
+		return strlen( $value ) > 80 ? substr( $value, 0, 79 ) . '…' : $value;
+	}
+
+	/**
+	 * Render bounded receipt values without copying arbitrary JSON payloads.
+	 *
+	 * @param string[] $values Safe receipt values.
+	 */
+	private static function compact_receipt_list( array $values ): string {
+		$non_empty = array();
+		foreach ( $values as $value ) {
+			if ( '' !== $value ) {
+				$non_empty[] = $value;
+			}
+		}
+
+		$encoded = wp_json_encode( $non_empty );
+		return is_string( $encoded ) ? $encoded : '[]';
 	}
 
 	/** Convert serialized roles into compact-context labels. */

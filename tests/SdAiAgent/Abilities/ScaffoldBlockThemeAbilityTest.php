@@ -43,6 +43,26 @@ class ScaffoldBlockThemeAbilityTest extends WP_UnitTestCase {
 		parent::tearDown();
 	}
 
+	// ── tenant safety ─────────────────────────────────────────────────────
+
+	/** Customer sites cannot scaffold shared themes. */
+	public function test_scaffold_rejects_shared_theme_mutation_when_tenant_gate_is_closed(): void {
+		$slug    = $this->unique_slug( 'tenant-denied' );
+		$ability = new ScaffoldBlockThemeAbility( 'sd-ai-agent/scaffold-block-theme' );
+		$deny    = static fn(): bool => false;
+
+		add_filter( 'sd_ai_agent_allow_shared_code_modifications', $deny );
+		try {
+			$result = $ability->run( [ 'slug' => $slug, 'name' => 'Tenant Denied Theme' ] );
+		} finally {
+			remove_filter( 'sd_ai_agent_allow_shared_code_modifications', $deny );
+		}
+
+		$this->assertWPError( $result );
+		$this->assertSame( 'sd_ai_agent_shared_code_mod_not_allowed', $result->get_error_code() );
+		$this->assertDirectoryDoesNotExist( trailingslashit( get_theme_root() ) . $slug );
+	}
+
 	// ── version coercion ──────────────────────────────────────────────────
 
 	/**

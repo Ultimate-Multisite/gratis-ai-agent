@@ -212,6 +212,8 @@ class ToolDiscoveryTest extends WP_UnitTestCase {
 		$tier_1 = ToolDiscovery::tier_1_for_run();
 
 		$this->assertContains( 'sd-ai-agent/list-block-templates', $tier_1 );
+		$this->assertContains( 'sd-ai-agent/list-template-parts', $tier_1 );
+		$this->assertContains( 'sd-ai-agent/update-template-part', $tier_1 );
 		$this->assertContains( 'sd-ai-agent/get-page-blocks', $tier_1 );
 		$this->assertContains( 'sd-ai-agent/update-blocks', $tier_1 );
 		$this->assertContains( 'sd-ai-agent/validate-block-content', $tier_1 );

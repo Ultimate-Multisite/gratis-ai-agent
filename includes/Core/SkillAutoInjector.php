@@ -219,6 +219,8 @@ class SkillAutoInjector {
 		'sd-ai-agent/markdown-to-blocks'     => 'gutenberg-blocks',
 		'sd-ai-agent/list-block-types'       => 'gutenberg-blocks',
 		'sd-ai-agent/list-block-templates'   => 'gutenberg-blocks',
+		'sd-ai-agent/list-template-parts'    => 'wp-block-themes',
+		'sd-ai-agent/update-template-part'   => 'wp-block-themes',
 		'sd-ai-agent/list-block-patterns'    => 'gutenberg-blocks',
 		'sd-ai-agent/get-block-type'         => 'gutenberg-blocks',
 		'sd-ai-agent/get-theme-json'         => 'wp-block-themes',

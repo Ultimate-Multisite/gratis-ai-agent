@@ -65,7 +65,13 @@ class AgentLoopClientToolsTest extends WP_UnitTestCase {
 		$names = array_column( $descriptors, 'name' );
 		$this->assertContains( 'sd-ai-agent-js/navigate-to', $names );
 		$this->assertContains( 'sd-ai-agent-js/refresh-page', $names );
+		$this->assertContains( 'sd-ai-agent-js/get-editor-selection', $names );
+		$this->assertContains( 'sd-ai-agent-js/get-editor-capabilities', $names );
+		$this->assertContains( 'sd-ai-agent-js/get-canonical-block-examples', $names );
 		$this->assertContains( 'sd-ai-agent-js/insert-block', $names );
+		$this->assertContains( 'sd-ai-agent-js/replace-editor-selection', $names );
+		$this->assertContains( 'sd-ai-agent-js/insert-block-markup', $names );
+		$this->assertContains( 'sd-ai-agent-js/change-editor-history', $names );
 		$this->assertContains( 'sd-ai-agent-js/validate-page-quality', $names );
 		$this->assertContains( 'sd-ai-agent-js/validate-theme-completion', $names );
 	}
@@ -76,7 +82,13 @@ class AgentLoopClientToolsTest extends WP_UnitTestCase {
 	public function test_catalog_has_method(): void {
 		$this->assertTrue( JsAbilityCatalog::has( 'sd-ai-agent-js/navigate-to' ) );
 		$this->assertTrue( JsAbilityCatalog::has( 'sd-ai-agent-js/refresh-page' ) );
+		$this->assertTrue( JsAbilityCatalog::has( 'sd-ai-agent-js/get-editor-selection' ) );
+		$this->assertTrue( JsAbilityCatalog::has( 'sd-ai-agent-js/get-editor-capabilities' ) );
+		$this->assertTrue( JsAbilityCatalog::has( 'sd-ai-agent-js/get-canonical-block-examples' ) );
 		$this->assertTrue( JsAbilityCatalog::has( 'sd-ai-agent-js/insert-block' ) );
+		$this->assertTrue( JsAbilityCatalog::has( 'sd-ai-agent-js/replace-editor-selection' ) );
+		$this->assertTrue( JsAbilityCatalog::has( 'sd-ai-agent-js/insert-block-markup' ) );
+		$this->assertTrue( JsAbilityCatalog::has( 'sd-ai-agent-js/change-editor-history' ) );
 		$this->assertTrue( JsAbilityCatalog::has( 'sd-ai-agent-js/validate-page-quality' ) );
 		$this->assertTrue( JsAbilityCatalog::has( 'sd-ai-agent-js/validate-theme-completion' ) );
 		$this->assertFalse( JsAbilityCatalog::has( 'sd-ai-agent-js/unknown-ability' ) );
@@ -92,7 +104,13 @@ class AgentLoopClientToolsTest extends WP_UnitTestCase {
 		$this->assertIsArray( $map );
 		$this->assertArrayHasKey( 'sd-ai-agent-js/navigate-to', $map );
 		$this->assertArrayHasKey( 'sd-ai-agent-js/refresh-page', $map );
+		$this->assertArrayHasKey( 'sd-ai-agent-js/get-editor-selection', $map );
+		$this->assertArrayHasKey( 'sd-ai-agent-js/get-editor-capabilities', $map );
+		$this->assertArrayHasKey( 'sd-ai-agent-js/get-canonical-block-examples', $map );
 		$this->assertArrayHasKey( 'sd-ai-agent-js/insert-block', $map );
+		$this->assertArrayHasKey( 'sd-ai-agent-js/replace-editor-selection', $map );
+		$this->assertArrayHasKey( 'sd-ai-agent-js/insert-block-markup', $map );
+		$this->assertArrayHasKey( 'sd-ai-agent-js/change-editor-history', $map );
 		$this->assertArrayHasKey( 'sd-ai-agent-js/validate-page-quality', $map );
 		$this->assertArrayHasKey( 'sd-ai-agent-js/validate-theme-completion', $map );
 
@@ -103,6 +121,41 @@ class AgentLoopClientToolsTest extends WP_UnitTestCase {
 		$navigate = $map['sd-ai-agent-js/navigate-to'];
 		$this->assertSame( 'sd-ai-agent-js', $navigate['category'] );
 		$this->assertTrue( $navigate['annotations']['readonly'] );
+
+		$selection = $map['sd-ai-agent-js/get-editor-selection'];
+		$this->assertSame( 'sd-ai-agent-js', $selection['category'] );
+		$this->assertTrue( $selection['annotations']['readonly'] );
+		$this->assertSame( array( 'editor' ), $selection['screens'] );
+		$this->assertArrayHasKey( 'fingerprint', $selection['output_schema']['properties'] );
+		$this->assertArrayHasKey( 'truncated', $selection['output_schema']['properties'] );
+
+		$capabilities = $map['sd-ai-agent-js/get-editor-capabilities'];
+		$this->assertSame( 'sd-ai-agent-js', $capabilities['category'] );
+		$this->assertTrue( $capabilities['annotations']['readonly'] );
+		$this->assertSame( array( 'editor' ), $capabilities['screens'] );
+		$this->assertArrayHasKey( 'blockNames', $capabilities['input_schema']['properties'] );
+		$this->assertArrayHasKey( 'unavailable_sources', $capabilities['output_schema']['properties'] );
+
+		$examples = $map['sd-ai-agent-js/get-canonical-block-examples'];
+		$this->assertSame( 'sd-ai-agent-js', $examples['category'] );
+		$this->assertTrue( $examples['annotations']['readonly'] );
+		$this->assertSame( array( 'editor' ), $examples['screens'] );
+		$this->assertSame( array( 'blockNames' ), $examples['input_schema']['required'] );
+		$this->assertArrayHasKey( 'examples', $examples['output_schema']['properties'] );
+
+		foreach ( array( 'sd-ai-agent-js/replace-editor-selection', 'sd-ai-agent-js/insert-block-markup', 'sd-ai-agent-js/change-editor-history' ) as $name ) {
+			$this->assertSame( 'sd-ai-agent-js', $map[ $name ]['category'] );
+			$this->assertFalse( $map[ $name ]['annotations']['readonly'] );
+			$this->assertSame( array( 'editor' ), $map[ $name ]['screens'] );
+		}
+
+		$this->assertSame(
+			$map['sd-ai-agent-js/replace-editor-selection']['output_schema'],
+			$map['sd-ai-agent-js/insert-block-markup']['output_schema']
+		);
+		foreach ( array( 'applied', 'reason', 'markup', 'clientIds', 'fingerprint', 'errors' ) as $property ) {
+			$this->assertArrayHasKey( $property, $map['sd-ai-agent-js/insert-block-markup']['output_schema']['properties'] );
+		}
 	}
 
 	/**
@@ -270,6 +323,51 @@ class AgentLoopClientToolsTest extends WP_UnitTestCase {
 		$this->assertFalse( $partition['client'][0]['annotations']['readonly'] );
 	}
 
+	/** Client metadata cannot downgrade any editor markup mutation. */
+	public function test_client_descriptors_keep_editor_markup_mutations_mutating(): void {
+		$router = ClientAbilityRouter::from_raw(
+			array(
+				array(
+					'name'        => 'sd-ai-agent-js/replace-editor-selection',
+					'annotations' => array( 'readonly' => true ),
+				),
+				array(
+					'name'        => 'sd-ai-agent-js/insert-block-markup',
+					'annotations' => array( 'readonly' => true ),
+				),
+				array(
+					'name'        => 'sd-ai-agent-js/change-editor-history',
+					'annotations' => array( 'readonly' => true ),
+				),
+			)
+		);
+
+		$descriptors = $router->get_descriptors();
+		$this->assertCount( 3, $descriptors );
+
+		foreach ( $descriptors as $descriptor ) {
+			$this->assertFalse( $descriptor['annotations']['readonly'] );
+		}
+	}
+
+	/** Client-provided metadata cannot make the selection reader appear mutable. */
+	public function test_client_descriptors_use_canonical_selection_reader_annotations(): void {
+		$router = ClientAbilityRouter::from_raw(
+			array(
+				array(
+					'name'        => 'sd-ai-agent-js/get-editor-selection',
+					'label'       => 'Spoofed editor selection reader',
+					'input_schema' => array(),
+					'annotations' => array( 'readonly' => false ),
+				),
+			)
+		);
+		$descriptors = $router->get_descriptors();
+
+		$this->assertCount( 1, $descriptors );
+		$this->assertTrue( $descriptors[0]['annotations']['readonly'] );
+	}
+
 	// ── partition_tool_calls tests ────────────────────────────────────────
 
 	/**
@@ -426,10 +524,34 @@ class AgentLoopClientToolsTest extends WP_UnitTestCase {
 		);
 
 		$this->assertTrue( ClientAbilityRouter::matches_pending_results( $expected, $valid ) );
+		$this->assertTrue( ClientAbilityRouter::matches_pending_results( $expected, array_reverse( $valid ) ) );
 		$this->assertFalse( ClientAbilityRouter::matches_pending_results( $expected, array( array( 'id' => 'call-one', 'name' => 'sd-ai-agent-js/refresh-page', 'result' => array() ), array( 'id' => 'call-two', 'name' => 'sd-ai-agent-js/navigate-to', 'error' => 'Denied.' ) ) ) );
 		$this->assertFalse( ClientAbilityRouter::matches_pending_results( $expected, array( array( 'id' => 'unknown', 'name' => 'sd-ai-agent-js/navigate-to', 'result' => array() ), $valid[1] ) ) );
 		$this->assertFalse( ClientAbilityRouter::matches_pending_results( $expected, array( $valid[0], $valid[0] ) ) );
 		$this->assertFalse( ClientAbilityRouter::matches_pending_results( $expected, array( $valid[0] ) ) );
+	}
+
+	/**
+	 * Retries of a consumed client batch match its contiguous activity-log
+	 * response group, even when persisted payloads were transformed.
+	 */
+	public function test_processed_client_result_matcher_recognizes_only_the_complete_historical_batch(): void {
+		$activity = array(
+			array( 'type' => 'call', 'id' => 'old-one', 'name' => 'wpab__sd-ai-agent-js__screenshot-url' ),
+			array( 'type' => 'call', 'id' => 'old-two', 'name' => 'wpab__sd-ai-agent-js__validate-theme-completion' ),
+			array( 'type' => 'response', 'id' => 'old-one', 'name' => 'sd-ai-agent-js/screenshot-url', 'response' => array( 'attached_to_model' => true ), 'source' => 'client' ),
+			array( 'type' => 'response', 'id' => 'old-two', 'name' => 'sd-ai-agent-js/validate-theme-completion', 'response' => array( 'passed' => false ), 'source' => 'client' ),
+			array( 'type' => 'call', 'id' => 'current', 'name' => 'wpab__sd-ai-agent-js__validate-theme-completion' ),
+		);
+		$retry = array(
+			array( 'id' => 'old-two', 'name' => 'sd-ai-agent-js/validate-theme-completion', 'result' => array( 'passed' => false, 'violations' => array() ) ),
+			array( 'id' => 'old-one', 'name' => 'sd-ai-agent-js/screenshot-url', 'result' => array( 'image' => 'data:image/jpeg;base64,old-browser-payload' ) ),
+		);
+
+		$this->assertTrue( ClientAbilityRouter::matches_processed_results( $activity, $retry ) );
+		$this->assertFalse( ClientAbilityRouter::matches_processed_results( $activity, array( $retry[0] ) ) );
+		$this->assertFalse( ClientAbilityRouter::matches_processed_results( $activity, array( array( 'id' => 'old-one', 'name' => 'sd-ai-agent-js/validate-theme-completion', 'result' => array() ), $retry[0] ) ) );
+		$this->assertFalse( ClientAbilityRouter::matches_processed_results( $activity, array( array( 'id' => 'current', 'name' => 'sd-ai-agent-js/validate-theme-completion', 'result' => array() ) ) ) );
 	}
 
 	/**

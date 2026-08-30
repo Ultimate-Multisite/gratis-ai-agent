@@ -34,6 +34,12 @@ class FileMutationAbilities {
 			return;
 		}
 
+		// These broad paths can address any wp-content subtree, including another
+		// tenant's uploads. Customer media changes use scoped media abilities.
+		if ( ! FileModGate::shared_code_modifications_allowed() ) {
+			return;
+		}
+
 		wp_register_ability(
 			'sd-ai-agent/file-write',
 			[
@@ -111,6 +117,17 @@ class FileWriteAbility extends AbstractFileAbility {
 		$path    = $input['path'] ?? '';
 		$content = $input['content'] ?? '';
 
+		// @phpstan-ignore-next-line
+		$full_path = $this->resolve_path( $path );
+		if ( is_wp_error( $full_path ) ) {
+			return $full_path;
+		}
+
+		$mod_allowed = FileModGate::assert_allowed( $full_path );
+		if ( is_wp_error( $mod_allowed ) ) {
+			return $mod_allowed;
+		}
+
 		// Check if this ability is in 'propose' mode.
 		// @phpstan-ignore-next-line
 		$permission = $this->get_tool_permission();
@@ -133,18 +150,6 @@ class FileWriteAbility extends AbstractFileAbility {
 				'file_path'    => $path,
 				'diff_preview' => $diff,
 			];
-		}
-
-		// @phpstan-ignore-next-line
-		$full_path = $this->resolve_path( $path );
-		if ( is_wp_error( $full_path ) ) {
-			return $full_path;
-		}
-
-		// Check if file modifications are allowed for this path.
-		$mod_allowed = FileModGate::assert_allowed( $full_path );
-		if ( is_wp_error( $mod_allowed ) ) {
-			return $mod_allowed;
 		}
 
 		// Validate PHP syntax before writing.
@@ -374,17 +379,23 @@ class FileEditAbility extends AbstractFileAbility {
 			}
 		}
 
+		// Resolve and authorize before proposal generation reads existing content.
+		// @phpstan-ignore-next-line
+		$full_path = $this->resolve_path( $path );
+		if ( is_wp_error( $full_path ) ) {
+			return $full_path;
+		}
+
+		$mod_allowed = FileModGate::assert_allowed( $full_path );
+		if ( is_wp_error( $mod_allowed ) ) {
+			return $mod_allowed;
+		}
+
 		// Check if this ability is in 'propose' mode.
 		// @phpstan-ignore-next-line
 		$permission = $this->get_tool_permission();
 		if ( 'propose' === $permission && ! isset( $input['_diff_only'] ) ) {
 			// For proposal mode, we need to compute the diff by applying edits to the current content.
-			// @phpstan-ignore-next-line
-			$full_path = $this->resolve_path( $path );
-			if ( is_wp_error( $full_path ) ) {
-				return $full_path;
-			}
-
 			if ( ! file_exists( $full_path ) ) {
 				// @phpstan-ignore-next-line
 				return new WP_Error( 'sd_ai_agent_file_not_found', sprintf( 'File not found: %s', $path ) );
@@ -428,18 +439,6 @@ class FileEditAbility extends AbstractFileAbility {
 				'file_path'    => $path,
 				'diff_preview' => $diff,
 			];
-		}
-
-		// @phpstan-ignore-next-line
-		$full_path = $this->resolve_path( $path );
-		if ( is_wp_error( $full_path ) ) {
-			return $full_path;
-		}
-
-		// Check if file modifications are allowed for this path.
-		$mod_allowed = FileModGate::assert_allowed( $full_path );
-		if ( is_wp_error( $mod_allowed ) ) {
-			return $mod_allowed;
 		}
 
 		if ( ! file_exists( $full_path ) ) {

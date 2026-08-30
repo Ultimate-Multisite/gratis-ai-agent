@@ -303,7 +303,7 @@ class StockImageAbility extends \SdAiAgent\Abilities\AbstractAbility {
 				'title'         => '',
 				'source'        => '',
 				'attribution'   => '',
-				'error'         => 'No free stock image source is available. Configure Openverse or Pixabay.',
+				'error'         => 'No free stock image source is available. Enable access to Openverse (no API key required) or configure a Pixabay API key.',
 			];
 			if ( $can_generate ) {
 				$response['tip'] = $generate_tip;

@@ -201,6 +201,70 @@ class PageCompletionGateTest extends WP_UnitTestCase {
 		$this->assertTrue( $gate->has_current_passing_report() );
 	}
 
+	/** A failed browser report must reach a repair turn instead of redispatching forever. */
+	public function test_failed_report_does_not_redispatch_until_a_mutation_invalidates_it(): void {
+		$gate = $this->gate( PageCompletionGate::PROFILE_INCREMENTAL );
+		$this->record_page( $gate, 41, self::PAGE_URL, 101 );
+		$inputs = $gate->get_expected_report_inputs();
+		$report = array(
+			'success'       => true,
+			'complete'      => true,
+			'passed'        => false,
+			'profile'       => $inputs['profile'],
+			'quality_token' => $inputs['quality_token'],
+			'render_mode'   => $inputs['render_mode'],
+			'reports'       => array(),
+			'violations'    => array(
+				array(
+					'code'        => 'empty_or_hash_link',
+					'url'         => self::PAGE_URL,
+					'selector'    => 'a.wp-block-button__link',
+					'evidence'    => 'Link href is "#".',
+					'severity'    => 'warning',
+					'remediation' => 'Replace the placeholder link with a real destination.',
+				),
+				array(
+					'code'        => 'empty_or_hash_link',
+					'url'         => self::PAGE_URL,
+					'selector'    => 'a.wp-block-button__link',
+					'evidence'    => 'Link href is "#".',
+					'severity'    => 'error',
+					'remediation' => 'Replace the placeholder link with a real destination.',
+				),
+				array(
+					'code'        => 'empty_or_hash_link',
+					'url'         => self::PAGE_URL,
+					'selector'    => 'a.wp-block-button__link',
+					'evidence'    => 'Link href is "#".',
+					'severity'    => 'warning',
+					'remediation' => 'Replace the placeholder link with a real destination.',
+				),
+			),
+			'warnings'      => array(),
+			'screenshots'   => array(),
+		);
+
+		$gate->record_tool_call( PageCompletionGate::CLIENT_ABILITY, $inputs );
+		$gate->record_tool_response( PageCompletionGate::CLIENT_ABILITY, $report );
+
+		$this->assertTrue( $gate->get_status()['report_received'] );
+		$this->assertFalse( $gate->should_dispatch_validation() );
+		$this->assertTrue( $gate->requires_repair() );
+		$guidance = $gate->get_repair_guidance();
+		$this->assertStringContainsString( 'Repair the findings below before ending this turn', $guidance );
+		$this->assertStringContainsString( 'empty_or_hash_link', $guidance );
+		$this->assertStringContainsString( 'Link href is "#".', $guidance );
+		$this->assertStringContainsString( 'Replace the placeholder link with a real destination.', $guidance );
+		$this->assertSame( 1, substr_count( $guidance, '- [error] empty_or_hash_link' ) );
+		$this->assertSame( 1, substr_count( $guidance, '- [warning] empty_or_hash_link' ) );
+		$this->assertStringContainsString( 'Repairs affect the public page', $guidance );
+		$this->assertStringNotContainsString( 'approved preview has been published', $guidance );
+
+		$this->record_page( $gate, 41, self::PAGE_URL, 102 );
+		$this->assertFalse( $gate->get_status()['report_received'] );
+		$this->assertTrue( $gate->should_dispatch_validation() );
+	}
+
 	/** Preview approval and public smoke validation never use a mixed render mode. */
 	public function test_preview_phase_defers_unrelated_public_targets_until_public_smoke(): void {
 		$gate = $this->gate( PageCompletionGate::PROFILE_SETUP );

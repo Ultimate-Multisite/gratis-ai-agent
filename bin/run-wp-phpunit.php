@@ -112,6 +112,16 @@ if (is_dir($polyfills)) {
 	putenv('WP_TESTS_PHPUNIT_POLYFILLS_PATH=' . $polyfills);
 }
 
+if (! is_file($core_dir . '/wp-settings.php')) {
+	fwrite(
+		STDERR,
+		"WordPress core cache is incomplete at {$core_dir}/wp-settings.php." . PHP_EOL
+		. 'Run `pnpm run test:php:setup` to rebuild the shared cache.' . PHP_EOL
+		. 'Shared cache root: ' . $cache_root . PHP_EOL
+	);
+	exit(1);
+}
+
 if (! is_file($tests_dir . '/includes/functions.php')) {
 	fwrite(
 		STDERR,
