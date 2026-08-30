@@ -175,7 +175,8 @@ class SessionRepository {
 
 		$table              = Database::table_name();
 		$data['updated_at'] = current_time( 'mysql', true );
-		$sets_trash         = array_key_exists( 'status', $data ) && 'trash' === $data['status'];
+		unset( $data['trashed_at'] );
+		$sets_trash = array_key_exists( 'status', $data ) && 'trash' === $data['status'];
 		if ( array_key_exists( 'status', $data ) && ! $sets_trash ) {
 			$data['trashed_at'] = null;
 		}
@@ -328,6 +329,7 @@ class SessionRepository {
 		/** @var \wpdb $wpdb */
 
 		$data['updated_at'] = current_time( 'mysql', true );
+		unset( $data['trashed_at'] );
 		if ( array_key_exists( 'status', $data ) ) {
 			$status = (string) $data['status'];
 			unset( $data['status'] );

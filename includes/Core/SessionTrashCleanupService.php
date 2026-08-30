@@ -39,12 +39,13 @@ final class SessionTrashCleanupService {
 
 	/** Permanently delete expired trashed sessions when retention is enabled. */
 	public static function run(): void {
-		$retention_days = (int) Settings::instance()->get( 'chat_trash_retention_days' );
-		if ( $retention_days <= 0 ) {
+		// phpcs:disable WordPress.NamingConventions.ValidVariableName.VariableNotSnakeCase -- Repository convention uses camelCase PHP locals.
+		$retentionDays = (int) Settings::instance()->get( 'chat_trash_retention_days' );
+		if ( $retentionDays <= 0 ) {
 			return;
 		}
 
-		$deleted = Database::delete_expired_trash( $retention_days );
+		$deleted = Database::delete_expired_trash( $retentionDays );
 		if ( $deleted > 0 ) {
 			/**
 			 * Fires after expired trashed chat sessions are permanently deleted.
@@ -53,5 +54,6 @@ final class SessionTrashCleanupService {
 			 */
 			do_action( 'sd_ai_agent_session_trash_cleaned', $deleted );
 		}
+		// phpcs:enable WordPress.NamingConventions.ValidVariableName.VariableNotSnakeCase
 	}
 }

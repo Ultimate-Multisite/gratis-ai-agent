@@ -883,15 +883,28 @@ final class SessionController {
 	 * @return WP_REST_Response|WP_Error
 	 */
 	public function handle_bulk_sessions( WP_REST_Request $request ) {
-		// @phpstan-ignore-next-line
-		$ids    = array_map( 'absint', $request->get_param( 'ids' ) );
+		// phpcs:disable WordPress.NamingConventions.ValidVariableName.VariableNotSnakeCase -- Repository convention uses camelCase PHP locals.
+		$rawIds = $request->get_param( 'ids' );
 		$action = $request->get_param( 'action' );
 
 		if ( 'delete' === $action ) {
+			$hasInvalidId = ! is_array( $rawIds ) || array_filter(
+				$rawIds,
+				static fn( $id ): bool => ! ( is_int( $id ) || ( is_string( $id ) && ctype_digit( $id ) ) ) || absint( $id ) <= 0
+			);
+			if ( $hasInvalidId ) {
+				return new WP_Error( 'sd_ai_agent_invalid_session_ids', __( 'Session IDs must be positive integers.', 'superdav-ai-agent' ), array( 'status' => 400 ) );
+			}
+
+			$ids   = array_map( 'absint', $rawIds );
 			$count = $this->database->bulk_delete_trashed_sessions( $ids, get_current_user_id() );
 
 			return new WP_REST_Response( array( 'deleted' => $count ), 200 );
 		}
+
+		// @phpstan-ignore-next-line
+		$ids = array_map( 'absint', $rawIds );
+		// phpcs:enable WordPress.NamingConventions.ValidVariableName.VariableNotSnakeCase
 
 		$data = array();
 		switch ( $action ) {

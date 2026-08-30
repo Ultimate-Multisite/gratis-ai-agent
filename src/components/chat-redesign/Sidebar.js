@@ -143,12 +143,12 @@ function SessionRow( {
 	return (
 		<div
 			className={ `sdaa-cr-session-row${ isActive ? ' is-active' : '' }${
-				selected ? ' is-selected' : ''
+				selected ? ' sd-ai-agent-is-selected' : ''
 			}` }
 		>
 			{ selectable && (
 				<CheckboxControl
-					className="sdaa-cr-session-select"
+					className="sd-ai-agent-session-select"
 					label={ sprintf(
 						/* translators: %s: conversation title. */
 						__( 'Select %s', 'superdav-ai-agent' ),
@@ -183,7 +183,7 @@ function SessionRow( {
 				<Button
 					className="sdaa-cr-icon-btn is-small"
 					onClick={ () => setShowMenu( ( v ) => ! v ) }
-					label={ __( 'Session options', 'sd-ai-agent' ) }
+					label={ __( 'Session options', 'superdav-ai-agent' ) }
 					showTooltip
 					aria-haspopup="menu"
 					aria-expanded={ showMenu }
@@ -449,8 +449,8 @@ export default function Sidebar( { collapsed, onToggleCollapse } ) {
 			</div>
 
 			{ sessionFilter === 'trash' && (
-				<div className="sdaa-cr-trash-actions">
-					<div className="sdaa-cr-trash-selection">
+				<div className="sd-ai-agent-trash-actions">
+					<div className="sd-ai-agent-trash-selection">
 						<CheckboxControl
 							label={ __( 'Select all', 'superdav-ai-agent' ) }
 							checked={
@@ -468,7 +468,7 @@ export default function Sidebar( { collapsed, onToggleCollapse } ) {
 							) }
 						</span>
 					</div>
-					<div className="sdaa-cr-trash-action-buttons">
+					<div className="sd-ai-agent-trash-action-buttons">
 						<Button
 							variant="secondary"
 							onClick={ handleBulkRestore }
@@ -486,7 +486,7 @@ export default function Sidebar( { collapsed, onToggleCollapse } ) {
 						</Button>
 					</div>
 					<Button
-						className="sdaa-cr-empty-trash"
+						className="sd-ai-agent-empty-trash"
 						variant="tertiary"
 						isDestructive
 						onClick={ handleEmptyTrash }

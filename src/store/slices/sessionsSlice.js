@@ -786,11 +786,18 @@ export const actions = {
 	 * @return {Function} Redux thunk.
 	 */
 	emptySessionTrash() {
-		return async ( { dispatch } ) => {
+		return async ( { dispatch, select } ) => {
+			const currentSessionId = select.getCurrentSessionId();
+			const currentSessionWasTrashed = select
+				.getSessions()
+				.some( ( session ) => session.id === currentSessionId );
 			await apiFetch( {
 				path: '/sd-ai-agent/v1/sessions/trash',
 				method: 'DELETE',
 			} );
+			if ( currentSessionWasTrashed ) {
+				dispatch.clearCurrentSession();
+			}
 			dispatch.fetchSessions();
 		};
 	},

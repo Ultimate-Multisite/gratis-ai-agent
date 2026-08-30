@@ -909,6 +909,22 @@ class RestControllerTest extends WP_UnitTestCase {
 		$this->assertNotNull( Database::get_session( $foreign_id ) );
 	}
 
+	/** Nested session IDs are rejected instead of being coerced by absint(). */
+	public function test_bulk_sessions_delete_rejects_nested_session_ids(): void {
+		wp_set_current_user( $this->admin_id );
+
+		$trashedId = Database::create_session( [ 'user_id' => $this->admin_id, 'title' => 'Keep me' ] );
+		Database::update_session( $trashedId, [ 'status' => 'trash' ] );
+
+		$response = $this->dispatch( 'POST', '/sd-ai-agent/v1/sessions/bulk', [
+			'ids'    => [ [ $trashedId ] ],
+			'action' => 'delete',
+		] );
+
+		$this->assertStatus( 400, $response );
+		$this->assertNotNull( Database::get_session( $trashedId ) );
+	}
+
 	/**
 	 * Test POST /sessions/bulk with invalid action returns 400.
 	 */
