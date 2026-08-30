@@ -175,9 +175,17 @@ class SessionRepository {
 
 		$table              = Database::table_name();
 		$data['updated_at'] = current_time( 'mysql', true );
-		$allowed_fields     = [ 'status', 'pinned', 'folder', 'updated_at' ];
+		unset( $data['trashed_at'] );
+		$sets_trash = array_key_exists( 'status', $data ) && 'trash' === $data['status'];
+		if ( array_key_exists( 'status', $data ) && ! $sets_trash ) {
+			$data['trashed_at'] = null;
+		}
+		$allowed_fields = [ 'status', 'pinned', 'folder', 'trashed_at', 'updated_at' ];
 
 		$set_parts = [];
+		if ( $sets_trash ) {
+			$set_parts[] = $wpdb->prepare( 'trashed_at = COALESCE(trashed_at, %s)', $data['updated_at'] );
+		}
 
 		foreach ( $data as $key => $value ) {
 			if ( ! in_array( $key, $allowed_fields, true ) ) {
@@ -186,6 +194,10 @@ class SessionRepository {
 
 			if ( 'pinned' === $key ) {
 				$set_parts[] = $wpdb->prepare( '%i = %d', $key, $value );
+				continue;
+			}
+			if ( null === $value ) {
+				$set_parts[] = $wpdb->prepare( '%i = NULL', $key );
 				continue;
 			}
 
@@ -237,6 +249,75 @@ class SessionRepository {
 	}
 
 	/**
+	 * Permanently delete selected trashed sessions owned by a user.
+	 *
+	 * @param array<int|string, mixed> $session_ids Session IDs to delete.
+	 * @param int                      $user_id     User ID for ownership check.
+	 * @return int Number of rows deleted.
+	 */
+	public static function bulk_delete_trashed( array $session_ids, int $user_id ): int {
+		global $wpdb;
+		/** @var \wpdb $wpdb */
+
+		$session_ids = array_values(
+			array_filter(
+				array_map(
+					static function ( $session_id ): int {
+						return absint( $session_id );
+					},
+					$session_ids
+				)
+			)
+		);
+		if ( empty( $session_ids ) ) {
+			return 0;
+		}
+
+		$table        = Database::table_name();
+		$placeholders = implode( ',', array_fill( 0, count( $session_ids ), '%d' ) );
+		$values       = array_merge( array( $table ), $session_ids, array( $user_id ) );
+
+		// phpcs:disable WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.PreparedSQLPlaceholders.ReplacementsWrongNumber -- Custom table query; IDs are normalized integers and the placeholder count is built from the same ID list.
+		$result = $wpdb->query(
+			$wpdb->prepare(
+				"DELETE FROM %i WHERE id IN ({$placeholders}) AND user_id = %d AND status = 'trash'",
+				...$values
+			)
+		);
+		// phpcs:enable WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.PreparedSQLPlaceholders.ReplacementsWrongNumber
+
+		return $result !== false ? (int) $result : 0;
+	}
+
+	/**
+	 * Permanently delete trashed sessions older than the retention period.
+	 *
+	 * The dedicated trashed_at timestamp is stable even if other session fields
+	 * change after the session enters Trash.
+	 *
+	 * @param int $retention_days Number of days to retain trashed sessions.
+	 * @return int Number of rows deleted.
+	 */
+	public static function delete_expired_trash( int $retention_days ): int {
+		global $wpdb;
+		/** @var \wpdb $wpdb */
+
+		$retention_days = max( 1, min( 365, $retention_days ) );
+		$cutoff         = gmdate( 'Y-m-d H:i:s', time() - ( $retention_days * DAY_IN_SECONDS ) );
+
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Custom table maintenance query; caching is not applicable.
+		$result = $wpdb->query(
+			$wpdb->prepare(
+				"DELETE FROM %i WHERE status = 'trash' AND trashed_at < %s",
+				Database::table_name(),
+				$cutoff
+			)
+		);
+
+		return $result !== false ? (int) $result : 0;
+	}
+
+	/**
 	 * Update session fields.
 	 *
 	 * @param int                  $session_id Session ID.
@@ -248,6 +329,46 @@ class SessionRepository {
 		/** @var \wpdb $wpdb */
 
 		$data['updated_at'] = current_time( 'mysql', true );
+		unset( $data['trashed_at'] );
+		if ( array_key_exists( 'status', $data ) ) {
+			$status = (string) $data['status'];
+			unset( $data['status'] );
+
+			if ( 'trash' === $status ) {
+				// Keep the first Trash-entry timestamp while the row remains trashed.
+				// trashed_at is assigned before status so the CASE sees the prior state.
+				// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Atomic custom-table status transition avoids a read/write race.
+				$status_result = $wpdb->query(
+					$wpdb->prepare(
+						"UPDATE %i SET trashed_at = CASE WHEN status = 'trash' THEN COALESCE(trashed_at, %s) ELSE %s END, status = %s, updated_at = %s WHERE id = %d",
+						Database::table_name(),
+						$data['updated_at'],
+						$data['updated_at'],
+						$status,
+						$data['updated_at'],
+						$session_id
+					)
+				);
+			} else {
+				// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Atomic custom-table status transition clears the Trash timestamp on restore/archive.
+				$status_result = $wpdb->query(
+					$wpdb->prepare(
+						'UPDATE %i SET trashed_at = NULL, status = %s, updated_at = %s WHERE id = %d',
+						Database::table_name(),
+						$status,
+						$data['updated_at'],
+						$session_id
+					)
+				);
+			}
+
+			if ( false === $status_result ) {
+				return false;
+			}
+			if ( 1 === count( $data ) ) {
+				return true;
+			}
+		}
 
 		$formats = [];
 		foreach ( $data as $key => $value ) {

@@ -74,6 +74,7 @@ class SettingsTest extends WP_UnitTestCase {
 		$this->assertArrayHasKey( 'provider_request_max_tokens', $defaults );
 		$this->assertArrayHasKey( 'show_tool_call_details', $defaults );
 		$this->assertArrayHasKey( 'show_on_frontend', $defaults );
+		$this->assertArrayHasKey( 'chat_trash_retention_days', $defaults );
 	}
 
 	/**
@@ -93,6 +94,7 @@ class SettingsTest extends WP_UnitTestCase {
 		$this->assertSame( ConversationTrimmer::DEFAULT_MAX_REQUEST_TOKENS, $defaults['provider_request_max_tokens'] );
 		$this->assertFalse( $defaults['show_tool_call_details'] );
 		$this->assertTrue( $defaults['show_on_frontend'] );
+		$this->assertSame( 0, $defaults['chat_trash_retention_days'] );
 	}
 
 	/**
@@ -142,6 +144,15 @@ class SettingsTest extends WP_UnitTestCase {
 
 		$settings = Settings::instance()->get();
 		$this->assertArrayNotHasKey( 'unknown_key', $settings );
+	}
+
+	/** Chat Trash retention accepts the disabled sentinel and clamps high values. */
+	public function test_update_sanitizes_chat_trash_retention_days(): void {
+		Settings::instance()->update( [ 'chat_trash_retention_days' => -10 ] );
+		$this->assertSame( 0, Settings::instance()->get( 'chat_trash_retention_days' ) );
+
+		Settings::instance()->update( [ 'chat_trash_retention_days' => 500 ] );
+		$this->assertSame( 365, Settings::instance()->get( 'chat_trash_retention_days' ) );
 	}
 
 	/**

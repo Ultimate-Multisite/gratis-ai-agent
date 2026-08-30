@@ -886,6 +886,46 @@ class RestControllerTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * Test POST /sessions/bulk permanently deletes only owned trashed sessions.
+	 */
+	public function test_bulk_sessions_delete_only_removes_owned_trashed_sessions(): void {
+		wp_set_current_user( $this->admin_id );
+
+		$trashed_id = Database::create_session( [ 'user_id' => $this->admin_id, 'title' => 'Delete me' ] );
+		$active_id  = Database::create_session( [ 'user_id' => $this->admin_id, 'title' => 'Keep active' ] );
+		$foreign_id = Database::create_session( [ 'user_id' => $this->subscriber_id, 'title' => 'Keep foreign' ] );
+		Database::update_session( $trashed_id, [ 'status' => 'trash' ] );
+		Database::update_session( $foreign_id, [ 'status' => 'trash' ] );
+
+		$response = $this->dispatch( 'POST', '/sd-ai-agent/v1/sessions/bulk', [
+			'ids'    => [ $trashed_id, $active_id, $foreign_id ],
+			'action' => 'delete',
+		] );
+
+		$this->assertStatus( 200, $response );
+		$this->assertSame( 1, $response->get_data()['deleted'] );
+		$this->assertNull( Database::get_session( $trashed_id ) );
+		$this->assertNotNull( Database::get_session( $active_id ) );
+		$this->assertNotNull( Database::get_session( $foreign_id ) );
+	}
+
+	/** Nested session IDs are rejected instead of being coerced by absint(). */
+	public function test_bulk_sessions_delete_rejects_nested_session_ids(): void {
+		wp_set_current_user( $this->admin_id );
+
+		$trashedId = Database::create_session( [ 'user_id' => $this->admin_id, 'title' => 'Keep me' ] );
+		Database::update_session( $trashedId, [ 'status' => 'trash' ] );
+
+		$response = $this->dispatch( 'POST', '/sd-ai-agent/v1/sessions/bulk', [
+			'ids'    => [ [ $trashedId ] ],
+			'action' => 'delete',
+		] );
+
+		$this->assertStatus( 400, $response );
+		$this->assertNotNull( Database::get_session( $trashedId ) );
+	}
+
+	/**
 	 * Test POST /sessions/bulk with invalid action returns 400.
 	 */
 	public function test_bulk_sessions_invalid_action(): void {

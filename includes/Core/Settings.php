@@ -433,6 +433,9 @@ class Settings {
 			'public_chat_review_recording_enabled' => false,
 			'public_chat_review_retention_days'    => 7,
 			'public_chat_review_disclosure'        => '',
+			// 0 disables automatic cleanup; positive values retain trashed chats
+			// for that many days before the daily cleanup permanently deletes them.
+			'chat_trash_retention_days'            => 0,
 			'image_generation_size'                => '1024x1024',
 			'image_generation_quality'             => 'standard',
 			'image_generation_style'               => 'vivid',
@@ -1220,6 +1223,9 @@ class Settings {
 		if ( array_key_exists( 'public_chat_review_disclosure', $data ) ) {
 			$disclosure                            = sanitize_textarea_field( (string) $data['public_chat_review_disclosure'] );
 			$data['public_chat_review_disclosure'] = function_exists( 'mb_substr' ) ? mb_substr( $disclosure, 0, 500 ) : substr( $disclosure, 0, 500 );
+		}
+		if ( array_key_exists( 'chat_trash_retention_days', $data ) ) {
+			$data['chat_trash_retention_days'] = max( 0, min( 365, (int) $data['chat_trash_retention_days'] ) );
 		}
 
 		// @phpstan-ignore-next-line

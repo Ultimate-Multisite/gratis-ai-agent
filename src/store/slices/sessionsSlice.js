@@ -757,6 +757,52 @@ export const actions = {
 	},
 
 	/**
+	 * Apply a bulk action to selected sessions.
+	 *
+	 * @param {number[]} sessionIds - Session identifiers.
+	 * @param {string}   action     - REST bulk action.
+	 * @return {Function} Redux thunk.
+	 */
+	bulkSessionAction( sessionIds, action ) {
+		return async ( { dispatch, select } ) => {
+			await apiFetch( {
+				path: '/sd-ai-agent/v1/sessions/bulk',
+				method: 'POST',
+				data: { ids: sessionIds, action },
+			} );
+			if (
+				action === 'delete' &&
+				sessionIds.includes( select.getCurrentSessionId() )
+			) {
+				dispatch.clearCurrentSession();
+			}
+			dispatch.fetchSessions();
+		};
+	},
+
+	/**
+	 * Permanently delete every session in the current user's Trash.
+	 *
+	 * @return {Function} Redux thunk.
+	 */
+	emptySessionTrash() {
+		return async ( { dispatch, select } ) => {
+			const currentSessionId = select.getCurrentSessionId();
+			const currentSessionWasTrashed = select
+				.getSessions()
+				.some( ( session ) => session.id === currentSessionId );
+			await apiFetch( {
+				path: '/sd-ai-agent/v1/sessions/trash',
+				method: 'DELETE',
+			} );
+			if ( currentSessionWasTrashed ) {
+				dispatch.clearCurrentSession();
+			}
+			dispatch.fetchSessions();
+		};
+	},
+
+	/**
 	 * Move a session to a folder (or remove from folder when folder is empty string).
 	 *
 	 * @param {number} sessionId - Session identifier.

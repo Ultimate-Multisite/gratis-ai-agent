@@ -7,7 +7,8 @@
 
 import { useState, useCallback, useRef, useEffect } from '@wordpress/element';
 import { useSelect, useDispatch } from '@wordpress/data';
-import { __ } from '@wordpress/i18n';
+import { __, _n, sprintf } from '@wordpress/i18n';
+import { Button, CheckboxControl } from '@wordpress/components';
 import {
 	Icon,
 	plus,
@@ -77,13 +78,24 @@ function relativeTime( dateStr ) {
 
 /**
  *
- * @param {Object} root0
- * @param {*}      root0.session
- * @param {*}      root0.isActive
- * @param {*}      root0.job
- * @param {*}      root0.onPick
+ * @param {Object}   root0
+ * @param {*}        root0.session
+ * @param {*}        root0.isActive
+ * @param {*}        root0.job
+ * @param {*}        root0.onPick
+ * @param {boolean}  root0.selectable
+ * @param {boolean}  root0.selected
+ * @param {Function} root0.onToggleSelected
  */
-function SessionRow( { session, isActive, job, onPick } ) {
+function SessionRow( {
+	session,
+	isActive,
+	job,
+	onPick,
+	selectable = false,
+	selected = false,
+	onToggleSelected,
+} ) {
 	const [ showMenu, setShowMenu ] = useState( false );
 	const isPinned = parseInt( session.pinned, 10 ) === 1;
 	const isRunning = !! job && job.status === 'processing';
@@ -130,45 +142,54 @@ function SessionRow( { session, isActive, job, onPick } ) {
 
 	return (
 		<div
-			className={ `sdaa-cr-session-row${ isActive ? ' is-active' : '' }` }
-			onClick={ () => onPick( session.id ) }
-			onKeyDown={ ( e ) => {
-				if ( e.key === 'Enter' || e.key === ' ' ) {
-					e.preventDefault();
-					onPick( session.id );
-				}
-			} }
-			role="button"
-			tabIndex={ 0 }
-			aria-current={ isActive ? 'true' : undefined }
+			className={ `sdaa-cr-session-row${ isActive ? ' is-active' : '' }${
+				selected ? ' sd-ai-agent-is-selected' : ''
+			}` }
 		>
-			<span className="sdaa-cr-session-row-icon">{ leadIcon }</span>
-			<div className="sdaa-cr-session-row-body">
-				<div className="sdaa-cr-session-row-title">
-					{ title || __( 'Untitled', 'sd-ai-agent' ) }
-				</div>
-				<div
-					className={ `sdaa-cr-session-row-meta${
-						metaIsRunning ? ' is-running' : ''
-					}` }
-				>
-					{ metaLabel }
-				</div>
-			</div>
+			{ selectable && (
+				<CheckboxControl
+					className="sd-ai-agent-session-select"
+					label={ sprintf(
+						/* translators: %s: conversation title. */
+						__( 'Select %s', 'superdav-ai-agent' ),
+						title || __( 'Untitled', 'superdav-ai-agent' )
+					) }
+					hideLabelFromVision
+					checked={ selected }
+					onChange={ () => onToggleSelected( session.id ) }
+					__nextHasNoMarginBottom
+				/>
+			) }
+			<Button
+				className="sdaa-cr-session-row-main"
+				onClick={ () => onPick( session.id ) }
+				aria-current={ isActive ? 'true' : undefined }
+			>
+				<span className="sdaa-cr-session-row-icon">{ leadIcon }</span>
+				<span className="sdaa-cr-session-row-body">
+					<span className="sdaa-cr-session-row-title">
+						{ title || __( 'Untitled', 'sd-ai-agent' ) }
+					</span>
+					<span
+						className={ `sdaa-cr-session-row-meta${
+							metaIsRunning ? ' is-running' : ''
+						}` }
+					>
+						{ metaLabel }
+					</span>
+				</span>
+			</Button>
 			<div className="sdaa-cr-session-row-actions">
-				<button
-					type="button"
+				<Button
 					className="sdaa-cr-icon-btn is-small"
-					onClick={ ( e ) => {
-						e.stopPropagation();
-						setShowMenu( ( v ) => ! v );
-					} }
-					aria-label={ __( 'Session options', 'sd-ai-agent' ) }
+					onClick={ () => setShowMenu( ( v ) => ! v ) }
+					label={ __( 'Session options', 'superdav-ai-agent' ) }
+					showTooltip
 					aria-haspopup="menu"
 					aria-expanded={ showMenu }
 				>
 					<Icon icon={ moreVertical } size={ 16 } />
-				</button>
+				</Button>
 				{ showMenu && (
 					<div className="sdaa-cr-context-menu">
 						<SessionContextMenu
@@ -203,6 +224,8 @@ export default function Sidebar( { collapsed, onToggleCollapse } ) {
 		setSessionSearch,
 		setSessionFilter,
 		openSession,
+		bulkSessionAction,
+		emptySessionTrash,
 	} = useDispatch( STORE_NAME );
 	const {
 		sessions,
@@ -223,6 +246,7 @@ export default function Sidebar( { collapsed, onToggleCollapse } ) {
 
 	const searchTimer = useRef( null );
 	const [ localQuery, setLocalQuery ] = useState( sessionSearch || '' );
+	const [ selectedIds, setSelectedIds ] = useState( [] );
 
 	useEffect( () => {
 		fetchSessions();
@@ -233,6 +257,19 @@ export default function Sidebar( { collapsed, onToggleCollapse } ) {
 	useEffect( () => {
 		fetchSharedSessions();
 	}, [ fetchSharedSessions ] );
+
+	useEffect( () => {
+		const visibleIds = new Set( sessions.map( ( session ) => session.id ) );
+		setSelectedIds( ( current ) =>
+			current.filter( ( id ) => visibleIds.has( id ) )
+		);
+	}, [ sessions ] );
+
+	useEffect( () => {
+		if ( sessionFilter !== 'trash' ) {
+			setSelectedIds( [] );
+		}
+	}, [ sessionFilter ] );
 
 	const handleSearchChange = useCallback(
 		( e ) => {
@@ -263,6 +300,62 @@ export default function Sidebar( { collapsed, onToggleCollapse } ) {
 		},
 		[ openSession, onToggleCollapse ]
 	);
+
+	const handleToggleSelected = useCallback( ( id ) => {
+		setSelectedIds( ( current ) =>
+			current.includes( id )
+				? current.filter( ( selectedId ) => selectedId !== id )
+				: [ ...current, id ]
+		);
+	}, [] );
+
+	const handleSelectAll = useCallback( () => {
+		setSelectedIds( ( current ) =>
+			current.length === sessions.length
+				? []
+				: sessions.map( ( session ) => session.id )
+		);
+	}, [ sessions ] );
+
+	const handleBulkRestore = useCallback( async () => {
+		await bulkSessionAction( selectedIds, 'restore' );
+		setSelectedIds( [] );
+	}, [ bulkSessionAction, selectedIds ] );
+
+	const handleBulkDelete = useCallback( async () => {
+		const count = selectedIds.length;
+		// eslint-disable-next-line no-alert
+		const confirmed = window.confirm(
+			sprintf(
+				/* translators: %d: number of selected conversations. */
+				_n(
+					'Permanently delete %d conversation? This cannot be undone.',
+					'Permanently delete %d conversations? This cannot be undone.',
+					count,
+					'superdav-ai-agent'
+				),
+				count
+			)
+		);
+		if ( confirmed ) {
+			await bulkSessionAction( selectedIds, 'delete' );
+			setSelectedIds( [] );
+		}
+	}, [ bulkSessionAction, selectedIds ] );
+
+	const handleEmptyTrash = useCallback( async () => {
+		// eslint-disable-next-line no-alert
+		const confirmed = window.confirm(
+			__(
+				'Permanently delete all conversations in Trash? This cannot be undone.',
+				'superdav-ai-agent'
+			)
+		);
+		if ( confirmed ) {
+			await emptySessionTrash();
+			setSelectedIds( [] );
+		}
+	}, [ emptySessionTrash ] );
 
 	if ( collapsed ) {
 		return null;
@@ -355,6 +448,55 @@ export default function Sidebar( { collapsed, onToggleCollapse } ) {
 				</div>
 			</div>
 
+			{ sessionFilter === 'trash' && (
+				<div className="sd-ai-agent-trash-actions">
+					<div className="sd-ai-agent-trash-selection">
+						<CheckboxControl
+							label={ __( 'Select all', 'superdav-ai-agent' ) }
+							checked={
+								total > 0 && selectedIds.length === total
+							}
+							onChange={ handleSelectAll }
+							disabled={ total === 0 }
+							__nextHasNoMarginBottom
+						/>
+						<span aria-live="polite">
+							{ sprintf(
+								/* translators: %d: number of selected conversations. */
+								__( '%d selected', 'superdav-ai-agent' ),
+								selectedIds.length
+							) }
+						</span>
+					</div>
+					<div className="sd-ai-agent-trash-action-buttons">
+						<Button
+							variant="secondary"
+							onClick={ handleBulkRestore }
+							disabled={ selectedIds.length === 0 }
+						>
+							{ __( 'Restore', 'superdav-ai-agent' ) }
+						</Button>
+						<Button
+							variant="secondary"
+							isDestructive
+							onClick={ handleBulkDelete }
+							disabled={ selectedIds.length === 0 }
+						>
+							{ __( 'Delete permanently', 'superdav-ai-agent' ) }
+						</Button>
+					</div>
+					<Button
+						className="sd-ai-agent-empty-trash"
+						variant="tertiary"
+						isDestructive
+						onClick={ handleEmptyTrash }
+						disabled={ total === 0 }
+					>
+						{ __( 'Empty Trash', 'superdav-ai-agent' ) }
+					</Button>
+				</div>
+			) }
+
 			<div className="sdaa-cr-sidebar-list">
 				{ total === 0 && (
 					<div className="sdaa-cr-session-empty">
@@ -373,6 +515,9 @@ export default function Sidebar( { collapsed, onToggleCollapse } ) {
 						isActive={ currentSessionId === s.id }
 						job={ sessionJobs[ s.id ] || null }
 						onPick={ handlePickSession }
+						selectable={ sessionFilter === 'trash' }
+						selected={ selectedIds.includes( s.id ) }
+						onToggleSelected={ handleToggleSelected }
 					/>
 				) ) }
 			</div>

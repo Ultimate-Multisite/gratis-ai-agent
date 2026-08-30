@@ -37,7 +37,7 @@ use SdAiAgent\Tools\CustomTools;
 class Database {
 
 	const DB_VERSION_OPTION                         = 'sd_ai_agent_db_version';
-	const DB_VERSION                                = '19.15.0';
+	const DB_VERSION                                = '19.16.0';
 	const CUSTOMER_CONVERSATION_REVIEW_CLEANUP_HOOK = 'sd_ai_agent_customer_conversation_review_cleanup';
 
 	// ─── Table Name Registry ──────────────────────────────────────────────────
@@ -411,12 +411,14 @@ class Database {
 			pinned tinyint(1) NOT NULL DEFAULT 0,
 			folder varchar(100) NOT NULL DEFAULT '',
 			paused_state longtext DEFAULT NULL,
+			trashed_at datetime DEFAULT NULL,
 			created_at datetime NOT NULL,
 			updated_at datetime NOT NULL,
 			PRIMARY KEY  (id),
 			KEY user_id (user_id),
 			KEY updated_at (updated_at),
-			KEY status_user (user_id, status, updated_at)
+			KEY status_user (user_id, status, updated_at),
+			KEY status_trashed (status, trashed_at)
 		) {$charset};
 
 		CREATE TABLE {$usage_table} (
@@ -1051,6 +1053,7 @@ class Database {
 
 		require_once ABSPATH . 'wp-admin/includes/upgrade.php';
 		dbDelta( $sql );
+		self::backfill_session_trash_timestamps();
 		// Automation execution fails closed independently through
 		// has_transactional_automation_storage(), so a failed conversion must not
 		// block unrelated schema repairs, seeds, or the version marker.
@@ -1089,6 +1092,20 @@ class Database {
 
 		update_option( self::DB_VERSION_OPTION, self::DB_VERSION, true );
 		self::ensure_customer_conversation_review_cleanup();
+	}
+
+	/** Backfill the dedicated Trash-entry timestamp for pre-19.16.0 rows. */
+	private static function backfill_session_trash_timestamps(): void {
+		global $wpdb;
+		/** @var \wpdb $wpdb */
+
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- One-time schema migration for the custom sessions table.
+		$wpdb->query(
+			$wpdb->prepare(
+				"UPDATE %i SET trashed_at = updated_at WHERE status = 'trash' AND trashed_at IS NULL",
+				self::table_name()
+			)
+		);
 	}
 
 	/**
@@ -1348,6 +1365,27 @@ class Database {
 	 */
 	public static function empty_trash( int $user_id ): int {
 		return SessionRepository::empty_trash( $user_id );
+	}
+
+	/**
+	 * Permanently delete selected trashed sessions owned by a user.
+	 *
+	 * @param array<int|string, mixed> $session_ids Session IDs to delete.
+	 * @param int                      $user_id     User ID for ownership check.
+	 * @return int Number of rows deleted.
+	 */
+	public static function bulk_delete_trashed_sessions( array $session_ids, int $user_id ): int {
+		return SessionRepository::bulk_delete_trashed( $session_ids, $user_id );
+	}
+
+	/**
+	 * Permanently delete trashed sessions older than the retention period.
+	 *
+	 * @param int $retention_days Number of days to retain trashed sessions.
+	 * @return int Number of rows deleted.
+	 */
+	public static function delete_expired_trash( int $retention_days ): int {
+		return SessionRepository::delete_expired_trash( $retention_days );
 	}
 
 	/**

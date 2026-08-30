@@ -518,6 +518,7 @@ export default function SettingsApp() {
 		local.public_chat_review_retention_days || 7;
 	const publicChatReviewDisclosure =
 		local.public_chat_review_disclosure || '';
+	const chatTrashRetentionDays = local.chat_trash_retention_days || 0;
 	const updatePublicChatReviewRetention = ( value ) =>
 		updateField( 'public_chat_review_retention_days', value || 1 );
 	const updatePublicChatReviewDisclosure = ( value ) =>
@@ -692,6 +693,42 @@ export default function SettingsApp() {
 																handleDefaultProviderChange
 															}
 															__nextHasNoMarginBottom
+														/>
+													</td>
+												</tr>
+												<tr>
+													<th scope="row">
+														{ __(
+															'Conversation Trash',
+															'superdav-ai-agent'
+														) }
+													</th>
+													<td>
+														<RangeControl
+															label={ __(
+																'Automatically empty Trash after this many days',
+																'superdav-ai-agent'
+															) }
+															value={
+																chatTrashRetentionDays
+															}
+															initialPosition={
+																0
+															}
+															min={ 0 }
+															max={ 365 }
+															onChange={ (
+																value
+															) =>
+																updateField(
+																	'chat_trash_retention_days',
+																	value || 0
+																)
+															}
+															help={ __(
+																'Set to 0 to keep trashed conversations until you delete them manually.',
+																'superdav-ai-agent'
+															) }
 														/>
 													</td>
 												</tr>
