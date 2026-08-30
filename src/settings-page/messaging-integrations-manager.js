@@ -10,7 +10,7 @@ const EMPTY_WHATSAPP = {
 	configured: false,
 	access_token: '',
 	phone_number_id: '',
-	api_version: 'v25.0',
+	api_version: 'v26.0',
 	test_recipient: '',
 };
 
@@ -41,7 +41,7 @@ export default function MessagingIntegrationsManager() {
 			setWhatsapp( ( current ) => ( {
 				...current,
 				...whatsappStatus,
-				api_version: whatsappStatus.api_version || 'v25.0',
+				api_version: whatsappStatus.api_version || 'v26.0',
 			} ) );
 			setTelegram( ( current ) => ( {
 				...current,
@@ -158,11 +158,11 @@ export default function MessagingIntegrationsManager() {
 			<p className="description">
 				{ whatsapp.configured
 					? __(
-							'Configured. Leave the token blank to keep the saved token.',
+							'Configured. Leave the token blank to keep the saved token. Free-form text messages require an open 24-hour customer service window.',
 							'superdav-ai-agent'
 					  )
 					: __(
-							'Configure a Meta access token and WhatsApp phone number ID.',
+							'Configure a Meta access token and WhatsApp phone number ID. Free-form text messages require an open 24-hour customer service window.',
 							'superdav-ai-agent'
 					  ) }
 			</p>

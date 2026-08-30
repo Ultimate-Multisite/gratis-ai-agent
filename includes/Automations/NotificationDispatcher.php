@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 /**
- * Notification Dispatcher — sends automation results to Slack and Discord webhooks.
+ * Notification Dispatcher — sends automation results to configured channels.
  *
  * Each automation can have zero or more notification channels configured as a JSON
  * array of objects:
@@ -22,6 +22,7 @@ declare(strict_types=1);
 namespace SdAiAgent\Automations;
 
 use SdAiAgent\Abilities\MessagingAbilities;
+use WP_Error;
 
 if ( ! defined( 'ABSPATH' ) ) {
 	exit;
@@ -71,24 +72,26 @@ class NotificationDispatcher {
 				case 'whatsapp':
 					$recipient = sanitize_text_field( (string) ( $channel['recipient'] ?? '' ) );
 					if ( '' !== $recipient ) {
-						MessagingAbilities::handle_whatsapp_send(
+						$result = MessagingAbilities::handle_whatsapp_send(
 							[
 								'recipients' => [ $recipient ],
 								'message'    => self::build_text_payload( $automation, $log_data ),
 							]
 							);
+						self::log_messaging_error( 'whatsapp', $result );
 					}
 					break;
 
 				case 'telegram':
 					$recipient = sanitize_text_field( (string) ( $channel['recipient'] ?? '' ) );
 					if ( '' !== $recipient ) {
-						MessagingAbilities::handle_telegram_send(
+						$result = MessagingAbilities::handle_telegram_send(
 							[
 								'chat_ids' => [ $recipient ],
 								'message'  => self::build_text_payload( $automation, $log_data ),
 							]
 							);
+						self::log_messaging_error( 'telegram', $result );
 					}
 					break;
 
@@ -243,9 +246,24 @@ class NotificationDispatcher {
 			(string) ( $log_data['reply'] ?? $log_data['error_message'] ?? '' )
 		);
 
-		return strlen( $text ) > MessagingAbilities::MAX_MESSAGE_LENGTH
-			? substr( $text, 0, MessagingAbilities::MAX_MESSAGE_LENGTH - 1 ) . '…'
+		return mb_strlen( $text, 'UTF-8' ) > MessagingAbilities::MAX_MESSAGE_LENGTH
+			? mb_substr( $text, 0, MessagingAbilities::MAX_MESSAGE_LENGTH - 1, 'UTF-8' ) . '…'
 			: $text;
+	}
+
+	/**
+	 * Log a messaging failure without exposing credentials, recipients, or content.
+	 *
+	 * @param string                        $provider Messaging provider name.
+	 * @param array<string, mixed>|WP_Error $result  Messaging ability result.
+	 */
+	private static function log_messaging_error( string $provider, $result ): void {
+		if ( ! is_wp_error( $result ) || ! defined( 'WP_DEBUG' ) || ! WP_DEBUG ) {
+			return;
+		}
+
+		// phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- Safe provider/error-code-only notification logging.
+		error_log( sprintf( 'SdAiAgent NotificationDispatcher: %s error (%s).', sanitize_key( $provider ), sanitize_key( (string) $result->get_error_code() ) ) );
 	}
 
 	/**

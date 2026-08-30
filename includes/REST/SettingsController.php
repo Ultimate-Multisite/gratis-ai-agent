@@ -1263,10 +1263,13 @@ final class SettingsController {
 
 		$existing        = $this->settings->get_whatsapp_provider();
 		$access_token    = sanitize_text_field( (string) ( $params['access_token'] ?? '' ) );
-		$phone_number_id = sanitize_text_field( (string) ( $params['phone_number_id'] ?? $existing['phone_number_id'] ?? '' ) );
+		$phone_number_id = sanitize_text_field( (string) ( $params['phone_number_id'] ?? '' ) );
 		$api_version     = sanitize_text_field( (string) ( $params['api_version'] ?? $existing['api_version'] ?? MessagingAbilities::WHATSAPP_API_VERSION ) );
 		if ( '' === $access_token ) {
 			$access_token = (string) ( $existing['access_token'] ?? '' );
+		}
+		if ( '' === $phone_number_id ) {
+			$phone_number_id = (string) ( $existing['phone_number_id'] ?? '' );
 		}
 
 		$api_version = MessagingAbilities::normalise_graph_api_version( $api_version );

@@ -508,6 +508,14 @@ export default function AutomationsManager() {
 										placeholder={ getChannelPlaceholder(
 											channel.type
 										) }
+										help={
+											channel.type === 'whatsapp'
+												? __(
+														'WhatsApp free-form text requires an open 24-hour customer service window.',
+														'superdav-ai-agent'
+												  )
+												: undefined
+										}
 										style={ { flex: 1, minWidth: '220px' } }
 										__nextHasNoMarginBottom
 									/>

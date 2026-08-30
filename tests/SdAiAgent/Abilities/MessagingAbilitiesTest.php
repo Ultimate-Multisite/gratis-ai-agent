@@ -50,16 +50,18 @@ class MessagingAbilitiesTest extends WP_UnitTestCase {
 				'provider'        => 'meta_cloud',
 				'access_token'    => 'meta-secret-token',
 				'phone_number_id' => '1234567890',
-				'api_version'     => 'v25.0',
+				'api_version'     => MessagingAbilities::WHATSAPP_API_VERSION,
 			]
 		);
-		$captured_url  = '';
-		$captured_args = [];
+		$captured_url     = '';
+		$captured_args    = [];
+		$captured_payload = [];
 		add_filter(
 			'pre_http_request',
-			static function ( mixed $preempt, array $args, string $url ) use ( &$captured_url, &$captured_args ): array {
-				$captured_url  = $url;
-				$captured_args = $args;
+			static function ( mixed $preempt, array $args, string $url ) use ( &$captured_url, &$captured_args, &$captured_payload ): array {
+				$captured_url     = $url;
+				$captured_args    = $args;
+				$captured_payload = json_decode( (string) $args['body'], true );
 				return [
 					'response' => [ 'code' => 200, 'message' => 'OK' ],
 					'body'     => '{"messages":[{"id":"wamid.123"}]}',
@@ -72,10 +74,14 @@ class MessagingAbilitiesTest extends WP_UnitTestCase {
 		$result = MessagingAbilities::handle_whatsapp_send( [ 'recipients' => [ '+15551234567' ], 'message' => 'Hello' ] );
 
 		$this->assertIsArray( $result );
-		$this->assertSame( 'https://graph.facebook.com/v25.0/1234567890/messages', $captured_url );
+		$this->assertSame( 'https://graph.facebook.com/' . MessagingAbilities::WHATSAPP_API_VERSION . '/1234567890/messages', $captured_url );
 		$this->assertSame( 'Bearer meta-secret-token', $captured_args['headers']['Authorization'] ?? '' );
+		$this->assertSame( 'individual', $captured_payload['recipient_type'] ?? '' );
+		$this->assertSame( '+15551234567', $captured_payload['to'] ?? '' );
 		$this->assertSame( '+*******4567', $result['sent'][0]['recipient'] ?? '' );
 		$this->assertSame( 'wamid.123', $result['sent'][0]['message_id'] ?? '' );
+		$this->assertSame( 'accepted', $result['sent'][0]['status'] ?? '' );
+		$this->assertFalse( $result['delivery_confirmed'] ?? true );
 		$this->assertStringNotContainsString( 'meta-secret-token', wp_json_encode( $result ) ?: '' );
 	}
 
@@ -107,7 +113,7 @@ class MessagingAbilitiesTest extends WP_UnitTestCase {
 		$result = MessagingAbilities::handle_telegram_send( [ 'chat_ids' => [ '-1001234567890' ], 'message' => 'Hello' ] );
 
 		$this->assertIsArray( $result );
-		$this->assertSame( 'https://api.telegram.org/bot123%3Atelegram-secret/sendMessage', $captured_url );
+		$this->assertSame( 'https://api.telegram.org/bot123:telegram-secret/sendMessage', $captured_url );
 		$this->assertSame( '-1001234567890', $captured_body['chat_id'] ?? '' );
 		$this->assertSame( '***7890', $result['sent'][0]['chat_id'] ?? '' );
 		$this->assertSame( 42, $result['sent'][0]['message_id'] ?? 0 );
@@ -128,5 +134,39 @@ class MessagingAbilitiesTest extends WP_UnitTestCase {
 		$this->assertInstanceOf( WP_Error::class, $result );
 		$this->assertSame( 'telegram_provider_error', $result->get_error_code() );
 		$this->assertStringNotContainsString( 'telegram-secret', $result->get_error_message() );
+	}
+
+	/** Provider limits count Unicode characters rather than UTF-8 bytes. */
+	public function test_message_length_validation_counts_unicode_characters(): void {
+		$within_limit = MessagingAbilities::handle_telegram_send(
+			[ 'chat_ids' => [ '@validchannel' ], 'message' => str_repeat( '🙂', MessagingAbilities::MAX_MESSAGE_LENGTH ) ]
+		);
+		$too_long     = MessagingAbilities::handle_telegram_send(
+			[ 'chat_ids' => [ '@validchannel' ], 'message' => str_repeat( '🙂', MessagingAbilities::MAX_MESSAGE_LENGTH + 1 ) ]
+		);
+
+		$this->assertInstanceOf( WP_Error::class, $within_limit );
+		$this->assertSame( 'telegram_not_configured', $within_limit->get_error_code() );
+		$this->assertInstanceOf( WP_Error::class, $too_long );
+		$this->assertSame( 'telegram_message_too_long', $too_long->get_error_code() );
+	}
+
+	/** Telegram success requires the documented ok/result response shape. */
+	public function test_telegram_rejects_invalid_success_response(): void {
+		Settings::instance()->set_telegram_provider( [ 'provider' => 'bot_api', 'bot_token' => '123:telegram-secret' ] );
+		add_filter(
+			'pre_http_request',
+			static function (): array {
+				return [
+					'response' => [ 'code' => 200, 'message' => 'OK' ],
+					'body'     => '{"ok":false}',
+				];
+			}
+		);
+
+		$result = MessagingAbilities::handle_telegram_send( [ 'chat_ids' => [ '@validchannel' ], 'message' => 'Hello' ] );
+
+		$this->assertInstanceOf( WP_Error::class, $result );
+		$this->assertSame( 'telegram_invalid_provider_response', $result->get_error_code() );
 	}
 }

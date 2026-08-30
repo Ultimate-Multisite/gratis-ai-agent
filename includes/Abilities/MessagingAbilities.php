@@ -19,14 +19,14 @@ if ( ! defined( 'ABSPATH' ) ) {
 
 class MessagingAbilities {
 
-	/** Maximum text length supported by both provider APIs. */
+	/** Maximum text length, in Unicode characters, supported by both APIs. */
 	public const MAX_MESSAGE_LENGTH = 4096;
 
 	/** Meta Graph API origin used by WhatsApp Cloud API. */
 	public const WHATSAPP_API_BASE_URL = 'https://graph.facebook.com';
 
 	/** Graph API version used for WhatsApp Cloud API requests. */
-	public const WHATSAPP_API_VERSION = 'v25.0';
+	public const WHATSAPP_API_VERSION = 'v26.0';
 
 	/** Telegram Bot API origin. */
 	public const TELEGRAM_API_BASE_URL = 'https://api.telegram.org';
@@ -42,7 +42,7 @@ class MessagingAbilities {
 		self::register_send_ability(
 			'sd-ai-agent/whatsapp-send',
 			__( 'Send WhatsApp Message', 'superdav-ai-agent' ),
-			__( 'Send a WhatsApp text message to one or more E.164 phone numbers through the configured Meta Cloud API account.', 'superdav-ai-agent' ),
+			__( 'Send a WhatsApp service text message to one or more E.164 phone numbers through the configured Meta Cloud API account. Free-form text requires an open 24-hour customer service window.', 'superdav-ai-agent' ),
 			'recipients',
 			'Recipient phone numbers in E.164 format, for example +15551234567.',
 			[ __CLASS__, 'handle_whatsapp_send' ]
@@ -136,7 +136,8 @@ class MessagingAbilities {
 		foreach ( $validation['recipients'] as $recipient ) {
 			$payload = [
 				'messaging_product' => 'whatsapp',
-				'to'                => ltrim( $recipient, '+' ),
+				'recipient_type'    => 'individual',
+				'to'                => $recipient,
 				'type'              => 'text',
 				'text'              => [ 'body' => $validation['message'] ],
 			];
@@ -145,17 +146,31 @@ class MessagingAbilities {
 				return $result;
 			}
 
+			$message_id = sanitize_text_field( (string) ( $result['body']['messages'][0]['id'] ?? '' ) );
+			if ( '' === $message_id ) {
+				return new WP_Error(
+					'whatsapp_invalid_provider_response',
+					__( 'WhatsApp returned an invalid response.', 'superdav-ai-agent' ),
+					[
+						'status'    => 502,
+						'http_code' => $result['http_code'],
+					]
+				);
+			}
+
 			$results[] = [
 				'recipient'  => SmsAbilities::redact_phone_number( $recipient ),
-				'message_id' => sanitize_text_field( (string) ( $result['body']['messages'][0]['id'] ?? '' ) ),
+				'message_id' => $message_id,
 				'http_code'  => $result['http_code'],
+				'status'     => 'accepted',
 			];
 		}
 
 		return [
-			'success'  => true,
-			'provider' => 'meta_cloud',
-			'sent'     => $results,
+			'success'            => true,
+			'provider'           => 'meta_cloud',
+			'delivery_confirmed' => false,
+			'sent'               => $results,
 		];
 	}
 
@@ -176,8 +191,9 @@ class MessagingAbilities {
 			return new WP_Error( 'telegram_not_configured', __( 'Telegram Bot API is not configured.', 'superdav-ai-agent' ), [ 'status' => 400 ] );
 		}
 
-		$url     = self::TELEGRAM_API_BASE_URL . '/bot' . rawurlencode( (string) $config['bot_token'] ) . '/sendMessage';
-		$results = [];
+		$encoded_token = str_replace( '%3A', ':', rawurlencode( (string) $config['bot_token'] ) );
+		$url           = self::TELEGRAM_API_BASE_URL . '/bot' . $encoded_token . '/sendMessage';
+		$results       = [];
 
 		foreach ( $validation['recipients'] as $chat_id ) {
 			$result = self::post_json(
@@ -191,6 +207,17 @@ class MessagingAbilities {
 			);
 			if ( is_wp_error( $result ) ) {
 				return $result;
+			}
+
+			if ( true !== ( $result['body']['ok'] ?? null ) || ! isset( $result['body']['result']['message_id'] ) ) {
+				return new WP_Error(
+					'telegram_invalid_provider_response',
+					__( 'Telegram returned an invalid response.', 'superdav-ai-agent' ),
+					[
+						'status'    => 502,
+						'http_code' => $result['http_code'],
+					]
+				);
 			}
 
 			$results[] = [
@@ -236,7 +263,7 @@ class MessagingAbilities {
 			return new WP_Error( $error_prefix . '_empty_message', __( 'message is required.', 'superdav-ai-agent' ), [ 'status' => 400 ] );
 		}
 
-		if ( strlen( $message ) > self::MAX_MESSAGE_LENGTH ) {
+		if ( mb_strlen( $message, 'UTF-8' ) > self::MAX_MESSAGE_LENGTH ) {
 			return new WP_Error( $error_prefix . '_message_too_long', sprintf( 'message must be %d characters or fewer.', self::MAX_MESSAGE_LENGTH ), [ 'status' => 400 ] );
 		}
 
@@ -268,7 +295,7 @@ class MessagingAbilities {
 	public static function normalise_graph_api_version( string $version ) {
 		$version = strtolower( trim( $version ) );
 		if ( 1 !== preg_match( '/^v[0-9]{1,2}\.[0-9]$/', $version ) ) {
-			return new WP_Error( 'whatsapp_invalid_api_version', __( 'api_version must use the Meta Graph API format, for example v25.0.', 'superdav-ai-agent' ), [ 'status' => 400 ] );
+			return new WP_Error( 'whatsapp_invalid_api_version', __( 'api_version must use the Meta Graph API format, for example v26.0.', 'superdav-ai-agent' ), [ 'status' => 400 ] );
 		}
 		return $version;
 	}

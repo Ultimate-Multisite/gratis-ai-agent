@@ -115,6 +115,13 @@ class OptionsAbilities {
 		// Plugin/theme file editing gate.
 		'disallow_file_edit',
 		'disallow_file_mods',
+		// Integration credentials must be changed only through capability-gated
+		// provider settings routes, never through generic option tools.
+		'sd_ai_agent_gsc_credentials',
+		'sd_ai_agent_google_calendar_credentials',
+		'sd_ai_agent_sms_provider',
+		'sd_ai_agent_whatsapp_provider',
+		'sd_ai_agent_telegram_provider',
 	];
 
 	/**

@@ -96,6 +96,7 @@ class OptionsAbilitiesTest extends WP_UnitTestCase {
 
 		foreach ( $expected as $name ) {
 			$this->assertTrue( OptionsAbilities::is_secret_option_name( $name ) );
+			$this->assertFalse( OptionsAbilities::is_write_allowed_option( $name ) );
 		}
 	}
 

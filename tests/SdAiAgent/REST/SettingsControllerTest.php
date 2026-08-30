@@ -1114,6 +1114,18 @@ final class SettingsControllerTest extends WP_UnitTestCase {
 		$this->assertSame( '********7890', $whatsapp_response->get_data()['phone_number_id_redacted'] ?? '' );
 		$this->assertTrue( $telegram_response->get_data()['has_bot_token'] ?? false );
 
+		$whatsapp_update = $controller->handle_set_whatsapp_provider(
+			$this->json_request(
+				[
+					'access_token'    => '',
+					'phone_number_id' => '',
+					'api_version'     => MessagingAbilities::WHATSAPP_API_VERSION,
+				]
+			)
+		);
+		$this->assertSame( 200, $whatsapp_update->get_status() );
+		$this->assertSame( '1234567890', $settings->get_whatsapp_provider()['phone_number_id'] ?? '' );
+
 		$controller->handle_delete_whatsapp_provider();
 		$controller->handle_delete_telegram_provider();
 		$this->assertFalse( $settings->has_whatsapp_provider() );
