@@ -121,12 +121,12 @@ final class AdvancedPluginManager {
 	/**
 	 * Enable or disable WordPress automatic updates for Advanced.
 	 *
-	 * @param bool|null $update Existing automatic-update decision.
-	 * @param mixed     $item   WordPress plugin update item.
-	 * @return bool|null Automatic-update decision.
+	 * @param mixed $update Existing automatic-update decision.
+	 * @param mixed $item   WordPress plugin update item.
+	 * @return mixed Automatic-update decision.
 	 */
 	#[Filter( tag: 'auto_update_plugin', priority: 10, args: 2 )]
-	public function filter_auto_update( ?bool $update, mixed $item ): ?bool {
+	public function filter_auto_update( mixed $update, mixed $item ): mixed {
 		$plugin = is_object( $item ) && isset( $item->plugin ) && is_string( $item->plugin ) ? $item->plugin : '';
 		if ( self::PLUGIN_BASENAME !== $plugin ) {
 			return $update;

@@ -455,7 +455,7 @@ final class SuperdavSiteConnectionService {
 		$endpoint = $this->configured_endpoint( 'SD_AI_AGENT_ADVANCED_PLUGIN_METADATA_ENDPOINT', self::ADVANCED_PLUGIN_METADATA_ENDPOINT_PATH );
 		$endpoint = apply_filters( 'sd_ai_agent_advanced_plugin_metadata_endpoint', $endpoint );
 
-		return is_string( $endpoint ) ? esc_url_raw( $endpoint ) : '';
+		return $this->sanitize_account_url( $endpoint );
 	}
 
 	/** Return the authenticated package download endpoint for Advanced. */
@@ -463,7 +463,7 @@ final class SuperdavSiteConnectionService {
 		$endpoint = $this->configured_endpoint( 'SD_AI_AGENT_ADVANCED_PLUGIN_DOWNLOAD_ENDPOINT', self::ADVANCED_PLUGIN_DOWNLOAD_ENDPOINT_PATH );
 		$endpoint = apply_filters( 'sd_ai_agent_advanced_plugin_download_endpoint', $endpoint );
 
-		return is_string( $endpoint ) ? esc_url_raw( $endpoint ) : '';
+		return $this->sanitize_account_url( $endpoint );
 	}
 
 	/**
@@ -514,7 +514,7 @@ final class SuperdavSiteConnectionService {
 			|| 1 !== preg_match( '/^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$/', $body['version'] )
 			|| 1 !== preg_match( '/^[a-f0-9]{64}$/', $body['package_sha256'] )
 			|| '' === $download_endpoint
-			|| $download_endpoint !== esc_url_raw( $body['download_url'] )
+			|| $download_endpoint !== $this->sanitize_account_url( $body['download_url'] )
 		) {
 			return new WP_Error( 'sd_ai_agent_advanced_package_invalid', __( 'The SD AI Agent Advanced package response was invalid.', 'superdav-ai-agent' ), array( 'status' => 502 ) );
 		}
