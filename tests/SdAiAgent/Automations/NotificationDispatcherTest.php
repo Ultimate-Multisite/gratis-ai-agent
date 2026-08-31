@@ -10,6 +10,7 @@
 namespace SdAiAgent\Tests\Automations;
 
 use SdAiAgent\Automations\NotificationDispatcher;
+use SdAiAgent\Core\Settings;
 use WP_UnitTestCase;
 
 /**
@@ -151,7 +152,7 @@ class NotificationDispatcherTest extends WP_UnitTestCase {
 	 * Test test() returns failure for unknown channel type.
 	 */
 	public function test_test_unknown_type_returns_failure(): void {
-		$result = NotificationDispatcher::test( 'telegram', 'https://example.com/webhook' );
+		$result = NotificationDispatcher::test( 'signal', 'https://example.com/webhook' );
 
 		$this->assertIsArray( $result );
 		$this->assertArrayHasKey( 'success', $result );
@@ -159,6 +160,39 @@ class NotificationDispatcherTest extends WP_UnitTestCase {
 		$this->assertArrayHasKey( 'message', $result );
 		$this->assertFalse( $result['success'] );
 		$this->assertSame( 0, $result['http_code'] );
+	}
+
+	/** Telegram automation notifications use the globally configured bot. */
+	public function test_dispatch_sends_telegram_notification(): void {
+		Settings::instance()->set_telegram_provider( [ 'provider' => 'bot_api', 'bot_token' => '123:test-token' ] );
+		$captured_body = [];
+		add_filter(
+			'pre_http_request',
+			static function ( mixed $preempt, array $args ) use ( &$captured_body ): array {
+				$captured_body = json_decode( (string) $args['body'], true );
+				return [
+					'response' => [ 'code' => 200, 'message' => 'OK' ],
+					'body'     => '{"ok":true,"result":{"message_id":7}}',
+				];
+			},
+			10,
+			2
+		);
+
+		NotificationDispatcher::dispatch(
+			$this->make_automation(
+				[
+					'notification_channels' => [
+						[ 'type' => 'telegram', 'recipient' => '@validchannel', 'enabled' => true ],
+					],
+				]
+			),
+			$this->make_log_data()
+		);
+
+		$this->assertSame( '@validchannel', $captured_body['chat_id'] ?? '' );
+		$this->assertStringContainsString( 'The task completed successfully.', $captured_body['text'] ?? '' );
+		Settings::instance()->set_telegram_provider( [] );
 	}
 
 	/**

@@ -119,6 +119,25 @@ class AutomationsTest extends WP_UnitTestCase {
 		$this->assertNotEmpty( $row['updated_at'] );
 	}
 
+	/** WhatsApp and Telegram notification destinations survive sanitization. */
+	public function test_create_stores_messaging_notification_channels(): void {
+		$id  = Automations::create(
+			$this->make_automation_data(
+				[
+					'notification_channels' => [
+						[ 'type' => 'whatsapp', 'recipient' => '+15551234567', 'enabled' => true ],
+						[ 'type' => 'telegram', 'recipient' => '@validchannel', 'enabled' => true ],
+					],
+				]
+			)
+		);
+		$row = Automations::get( $id );
+
+		$this->assertSame( '+15551234567', $row['notification_channels'][0]['recipient'] ?? '' );
+		$this->assertSame( '@validchannel', $row['notification_channels'][1]['recipient'] ?? '' );
+		$this->assertArrayNotHasKey( 'webhook_url', $row['notification_channels'][0] );
+	}
+
 	// -------------------------------------------------------------------------
 	// get
 	// -------------------------------------------------------------------------

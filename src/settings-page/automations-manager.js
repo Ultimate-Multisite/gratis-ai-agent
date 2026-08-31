@@ -23,13 +23,40 @@ import MonitorManager from './monitor-manager';
 const CHANNEL_TYPE_OPTIONS = [
 	{ label: __( 'Slack', 'sd-ai-agent' ), value: 'slack' },
 	{ label: __( 'Discord', 'sd-ai-agent' ), value: 'discord' },
+	{ label: __( 'WhatsApp', 'superdav-ai-agent' ), value: 'whatsapp' },
+	{ label: __( 'Telegram', 'superdav-ai-agent' ), value: 'telegram' },
 ];
 
 /**
  *
  */
 function emptyChannel() {
-	return { type: 'slack', webhook_url: '', enabled: true };
+	return { type: 'slack', webhook_url: '', recipient: '', enabled: true };
+}
+
+const isMessagingChannel = ( type ) =>
+	[ 'whatsapp', 'telegram' ].includes( type );
+
+const getChannelFieldLabel = ( type ) =>
+	isMessagingChannel( type )
+		? __( 'Recipient', 'superdav-ai-agent' )
+		: __( 'Webhook URL', 'superdav-ai-agent' );
+
+/**
+ *
+ * @param {string} type Channel type.
+ */
+function getChannelPlaceholder( type ) {
+	switch ( type ) {
+		case 'whatsapp':
+			return '+15551234567';
+		case 'telegram':
+			return '@channel or numeric chat ID';
+		case 'slack':
+			return 'https://hooks.slack.com/…';
+		default:
+			return 'https://discord.com/api/webhooks/…';
+	}
 }
 
 const SCHEDULE_OPTIONS = [
@@ -176,7 +203,10 @@ export default function AutomationsManager() {
 	const handleTestChannel = useCallback(
 		async ( idx ) => {
 			const channel = form.notification_channels[ idx ];
-			if ( ! channel?.webhook_url ) {
+			const destination = isMessagingChannel( channel?.type )
+				? channel?.recipient
+				: channel?.webhook_url;
+			if ( ! destination ) {
 				return;
 			}
 			setTestingChannel( idx );
@@ -186,7 +216,9 @@ export default function AutomationsManager() {
 					method: 'POST',
 					data: {
 						type: channel.type,
-						webhook_url: channel.webhook_url,
+						...( isMessagingChannel( channel.type )
+							? { recipient: channel.recipient }
+							: { webhook_url: channel.webhook_url } ),
 					},
 				} );
 				setNotice( {
@@ -428,8 +460,8 @@ export default function AutomationsManager() {
 						id="sdaa-notification-channels"
 						label={ __( 'Notification Channels', 'sd-ai-agent' ) }
 						help={ __(
-							'Send Slack or Discord messages after each run.',
-							'sd-ai-agent'
+							'Send Slack, Discord, WhatsApp, or Telegram messages after each run.',
+							'superdav-ai-agent'
 						) }
 						__nextHasNoMarginBottom
 					>
@@ -463,24 +495,37 @@ export default function AutomationsManager() {
 									<TextControl
 										label={
 											idx === 0
-												? __(
-														'Webhook URL',
-														'sd-ai-agent'
+												? getChannelFieldLabel(
+														channel.type
 												  )
 												: undefined
 										}
-										value={ channel.webhook_url }
+										value={
+											isMessagingChannel( channel.type )
+												? channel.recipient
+												: channel.webhook_url
+										}
 										onChange={ ( v ) =>
 											updateChannel(
 												idx,
-												'webhook_url',
+												isMessagingChannel(
+													channel.type
+												)
+													? 'recipient'
+													: 'webhook_url',
 												v
 											)
 										}
-										placeholder={
-											'slack' === channel.type
-												? 'https://hooks.slack.com/…'
-												: 'https://discord.com/api/webhooks/…'
+										placeholder={ getChannelPlaceholder(
+											channel.type
+										) }
+										help={
+											channel.type === 'whatsapp'
+												? __(
+														'WhatsApp free-form text requires an open 24-hour customer service window.',
+														'superdav-ai-agent'
+												  )
+												: undefined
 										}
 										style={ { flex: 1, minWidth: '220px' } }
 										__nextHasNoMarginBottom
@@ -500,7 +545,11 @@ export default function AutomationsManager() {
 											handleTestChannel( idx )
 										}
 										disabled={
-											! channel.webhook_url ||
+											! ( isMessagingChannel(
+												channel.type
+											)
+												? channel.recipient
+												: channel.webhook_url ) ||
 											testingChannel === idx
 										}
 									>

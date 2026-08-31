@@ -37,6 +37,7 @@ import UsageDashboard from './usage-dashboard';
 import CustomToolsManager from './custom-tools-manager';
 import AutomationsManager from './automations-manager';
 import CalendarSmsManager from './calendar-sms-manager';
+import MessagingIntegrationsManager from './messaging-integrations-manager';
 import EventsManager from './events-manager';
 import RolePermissionsManager from './role-permissions-manager';
 import AgentBuilder from './agent-builder';
@@ -1870,6 +1871,21 @@ export default function SettingsApp() {
 							case 'automations':
 								return (
 									<div className="sdaa-settings-section">
+										<h3 className="sdaa-settings-section-title">
+											{ __(
+												'Messaging Integrations',
+												'superdav-ai-agent'
+											) }
+										</h3>
+										<ErrorBoundary
+											label={ __(
+												'Messaging integrations manager',
+												'superdav-ai-agent'
+											) }
+										>
+											<MessagingIntegrationsManager />
+										</ErrorBoundary>
+
 										<h3 className="sdaa-settings-section-title">
 											{ __(
 												'Calendar SMS Reminders',

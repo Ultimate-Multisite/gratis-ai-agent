@@ -419,9 +419,14 @@ final class AutomationController {
 						'sanitize_callback' => 'sanitize_text_field',
 					),
 					'webhook_url' => array(
-						'required'          => true,
+						'required'          => false,
 						'type'              => 'string',
 						'sanitize_callback' => 'esc_url_raw',
+					),
+					'recipient'   => array(
+						'required'          => false,
+						'type'              => 'string',
+						'sanitize_callback' => 'sanitize_text_field',
 					),
 				),
 			)
@@ -700,11 +705,12 @@ final class AutomationController {
 	 * @return WP_REST_Response
 	 */
 	public function handle_test_notification( WP_REST_Request $request ): WP_REST_Response {
-		$type        = $request->get_param( 'type' );
-		$webhook_url = $request->get_param( 'webhook_url' );
+		$type        = sanitize_key( (string) $request->get_param( 'type' ) );
+		$destination = in_array( $type, [ 'whatsapp', 'telegram' ], true )
+			? sanitize_text_field( (string) $request->get_param( 'recipient' ) )
+			: esc_url_raw( (string) $request->get_param( 'webhook_url' ) );
 
-		// @phpstan-ignore-next-line
-		$result = NotificationDispatcher::test( $type, $webhook_url );
+		$result = NotificationDispatcher::test( $type, $destination );
 
 		return new WP_REST_Response( $result, $result['success'] ? 200 : 422 );
 	}

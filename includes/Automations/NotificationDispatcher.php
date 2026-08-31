@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 /**
- * Notification Dispatcher — sends automation results to Slack and Discord webhooks.
+ * Notification Dispatcher — sends automation results to configured channels.
  *
  * Each automation can have zero or more notification channels configured as a JSON
  * array of objects:
@@ -21,6 +21,9 @@ declare(strict_types=1);
  */
 
 namespace SdAiAgent\Automations;
+
+use SdAiAgent\Abilities\MessagingAbilities;
+use WP_Error;
 
 if ( ! defined( 'ABSPATH' ) ) {
 	exit;
@@ -47,26 +50,54 @@ class NotificationDispatcher {
 
 		foreach ( $channels as $channel ) {
 			// @phpstan-ignore-next-line
-			if ( empty( $channel['enabled'] ) || empty( $channel['webhook_url'] ) ) {
+			if ( empty( $channel['enabled'] ) ) {
 				continue;
 			}
 
 			// @phpstan-ignore-next-line
 			$type = sanitize_text_field( $channel['type'] ?? '' );
 			// @phpstan-ignore-next-line
-			$webhook_url = esc_url_raw( $channel['webhook_url'] );
-
-			if ( empty( $webhook_url ) ) {
-				continue;
-			}
-
 			switch ( $type ) {
 				case 'slack':
+					$webhook_url = esc_url_raw( (string) ( $channel['webhook_url'] ?? '' ) );
+					if ( '' === $webhook_url ) {
+						break;
+					}
 					self::post_webhook( $webhook_url, self::build_slack_payload( $automation, $log_data ) );
 					break;
 
 				case 'discord':
+					$webhook_url = esc_url_raw( (string) ( $channel['webhook_url'] ?? '' ) );
+					if ( '' === $webhook_url ) {
+						break;
+					}
 					self::post_webhook( $webhook_url, self::build_discord_payload( $automation, $log_data ) );
+					break;
+
+				case 'whatsapp':
+					$recipient = sanitize_text_field( (string) ( $channel['recipient'] ?? '' ) );
+					if ( '' !== $recipient ) {
+						$result = MessagingAbilities::handle_whatsapp_send(
+							[
+								'recipients' => [ $recipient ],
+								'message'    => self::build_text_payload( $automation, $log_data ),
+							]
+							);
+						self::log_messaging_error( 'whatsapp', $result );
+					}
+					break;
+
+				case 'telegram':
+					$recipient = sanitize_text_field( (string) ( $channel['recipient'] ?? '' ) );
+					if ( '' !== $recipient ) {
+						$result = MessagingAbilities::handle_telegram_send(
+							[
+								'chat_ids' => [ $recipient ],
+								'message'  => self::build_text_payload( $automation, $log_data ),
+							]
+							);
+						self::log_messaging_error( 'telegram', $result );
+					}
 					break;
 
 				default:
@@ -83,11 +114,11 @@ class NotificationDispatcher {
 	 * before saving. Unlike dispatch(), this uses blocking=true so the response
 	 * code can be checked and returned.
 	 *
-	 * @param string $type        'slack' or 'discord'.
-	 * @param string $webhook_url Webhook URL to test.
+	 * @param string $type        Notification channel type.
+	 * @param string $destination Webhook URL, phone number, or Telegram chat ID.
 	 * @return array{success: bool, http_code: int, message: string}
 	 */
-	public static function test( string $type, string $webhook_url ): array {
+	public static function test( string $type, string $destination ): array {
 		$automation = [
 			'name'     => __( 'Test Notification', 'superdav-ai-agent' ),
 			'schedule' => 'manual',
@@ -102,6 +133,28 @@ class NotificationDispatcher {
 			'error_message'     => '',
 		];
 
+		if ( 'whatsapp' === $type ) {
+			return self::ability_test_result(
+				MessagingAbilities::handle_whatsapp_send(
+				[
+					'recipients' => [ $destination ],
+					'message'    => (string) $log_data['reply'],
+				]
+				)
+				);
+		}
+
+		if ( 'telegram' === $type ) {
+			return self::ability_test_result(
+				MessagingAbilities::handle_telegram_send(
+				[
+					'chat_ids' => [ $destination ],
+					'message'  => (string) $log_data['reply'],
+				]
+				)
+				);
+		}
+
 		if ( 'slack' === $type ) {
 			$payload = self::build_slack_payload( $automation, $log_data );
 		} elseif ( 'discord' === $type ) {
@@ -110,7 +163,7 @@ class NotificationDispatcher {
 			return [
 				'success'   => false,
 				'http_code' => 0,
-				'message'   => __( 'Unknown channel type. Use "slack" or "discord".', 'superdav-ai-agent' ),
+				'message'   => __( 'Unknown notification channel type.', 'superdav-ai-agent' ),
 			];
 		}
 
@@ -124,7 +177,7 @@ class NotificationDispatcher {
 		}
 
 		$response = wp_remote_post(
-			$webhook_url,
+			$destination,
 			[
 				'timeout'     => 15,
 				'blocking'    => true,
@@ -158,6 +211,64 @@ class NotificationDispatcher {
 					$http_code
 				),
 		];
+	}
+
+	/**
+	 * Normalize a messaging ability result for the notification test endpoint.
+	 *
+	 * @param array<string, mixed>|\WP_Error $result Ability result.
+	 * @return array{success: bool, http_code: int, message: string}
+	 */
+	private static function ability_test_result( $result ): array {
+		if ( is_wp_error( $result ) ) {
+			$data = $result->get_error_data();
+			return [
+				'success'   => false,
+				'http_code' => is_array( $data ) ? absint( $data['http_code'] ?? 0 ) : 0,
+				'message'   => $result->get_error_message(),
+			];
+		}
+
+		return [
+			'success'   => true,
+			'http_code' => absint( $result['sent'][0]['http_code'] ?? 200 ),
+			'message'   => __( 'Test notification sent successfully.', 'superdav-ai-agent' ),
+		];
+	}
+
+	/**
+	 * Build a compact plain-text automation result for messaging channels.
+	 *
+	 * @param array<string, mixed> $automation Automation definition.
+	 * @param array<string, mixed> $log_data   Automation run log.
+	 */
+	private static function build_text_payload( array $automation, array $log_data ): string {
+		$text = sprintf(
+			/* translators: 1: automation name, 2: completion status, 3: response text. */
+			__( 'Automation: %1$s\nStatus: %2$s\n\n%3$s', 'superdav-ai-agent' ),
+			(string) ( $automation['name'] ?? '' ),
+			(string) ( $log_data['status'] ?? 'unknown' ),
+			(string) ( $log_data['reply'] ?? $log_data['error_message'] ?? '' )
+		);
+
+		return mb_strlen( $text, 'UTF-8' ) > MessagingAbilities::MAX_MESSAGE_LENGTH
+			? mb_substr( $text, 0, MessagingAbilities::MAX_MESSAGE_LENGTH - 1, 'UTF-8' ) . '…'
+			: $text;
+	}
+
+	/**
+	 * Log a messaging failure without exposing credentials, recipients, or content.
+	 *
+	 * @param string                        $provider Messaging provider name.
+	 * @param array<string, mixed>|WP_Error $result  Messaging ability result.
+	 */
+	private static function log_messaging_error( string $provider, $result ): void {
+		if ( ! is_wp_error( $result ) || ! defined( 'WP_DEBUG' ) || ! WP_DEBUG ) {
+			return;
+		}
+
+		// phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- Safe provider/error-code-only notification logging.
+		error_log( sprintf( 'SdAiAgent NotificationDispatcher: %s error (%s).', sanitize_key( $provider ), sanitize_key( (string) $result->get_error_code() ) ) );
 	}
 
 	/**

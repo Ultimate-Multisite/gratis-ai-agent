@@ -51,6 +51,12 @@ class Settings {
 	 */
 	const SMS_PROVIDER_OPTION = 'sd_ai_agent_sms_provider';
 
+	/** WhatsApp Cloud API credentials, stored outside general settings. */
+	const WHATSAPP_PROVIDER_OPTION = 'sd_ai_agent_whatsapp_provider';
+
+	/** Telegram Bot API credentials, stored outside general settings. */
+	const TELEGRAM_PROVIDER_OPTION = 'sd_ai_agent_telegram_provider';
+
 	/**
 	 * Option name that records the most recent saved default-model value
 	 * which was rejected by {@see resolve_default_provider_and_model()}
@@ -685,6 +691,66 @@ class Settings {
 		return 'textbee' === ( $config['provider'] ?? '' )
 			&& ! empty( $config['api_key'] )
 			&& ! empty( $config['device_id'] );
+	}
+
+	/**
+	 * Get the stored WhatsApp Cloud API configuration.
+	 *
+	 * @return array<string, mixed>
+	 */
+	public function get_whatsapp_provider(): array {
+		$config = get_option( self::WHATSAPP_PROVIDER_OPTION, array() );
+		/** @var array<string, mixed> $result */
+		$result = is_array( $config ) ? $config : array();
+		return $result;
+	}
+
+	/**
+	 * Persist or clear WhatsApp Cloud API configuration.
+	 *
+	 * @param array<string, mixed> $config Provider configuration.
+	 */
+	public function set_whatsapp_provider( array $config ): bool {
+		return empty( $config )
+			? delete_option( self::WHATSAPP_PROVIDER_OPTION )
+			: update_option( self::WHATSAPP_PROVIDER_OPTION, $config );
+	}
+
+	/** Check whether WhatsApp Cloud API credentials are configured. */
+	public function has_whatsapp_provider(): bool {
+		$config = $this->get_whatsapp_provider();
+		return 'meta_cloud' === ( $config['provider'] ?? '' )
+			&& ! empty( $config['access_token'] )
+			&& ! empty( $config['phone_number_id'] );
+	}
+
+	/**
+	 * Get the stored Telegram Bot API configuration.
+	 *
+	 * @return array<string, mixed>
+	 */
+	public function get_telegram_provider(): array {
+		$config = get_option( self::TELEGRAM_PROVIDER_OPTION, array() );
+		/** @var array<string, mixed> $result */
+		$result = is_array( $config ) ? $config : array();
+		return $result;
+	}
+
+	/**
+	 * Persist or clear Telegram Bot API configuration.
+	 *
+	 * @param array<string, mixed> $config Provider configuration.
+	 */
+	public function set_telegram_provider( array $config ): bool {
+		return empty( $config )
+			? delete_option( self::TELEGRAM_PROVIDER_OPTION )
+			: update_option( self::TELEGRAM_PROVIDER_OPTION, $config );
+	}
+
+	/** Check whether Telegram Bot API credentials are configured. */
+	public function has_telegram_provider(): bool {
+		$config = $this->get_telegram_provider();
+		return 'bot_api' === ( $config['provider'] ?? '' ) && ! empty( $config['bot_token'] );
 	}
 
 	/**

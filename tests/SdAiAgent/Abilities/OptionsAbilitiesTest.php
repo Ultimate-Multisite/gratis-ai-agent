@@ -84,6 +84,22 @@ class OptionsAbilitiesTest extends WP_UnitTestCase {
 		}
 	}
 
+	/** Plugin integration credential options are never agent-readable. */
+	public function test_default_read_blocklist_covers_integration_credentials(): void {
+		$expected = [
+			'sd_ai_agent_gsc_credentials',
+			'sd_ai_agent_google_calendar_credentials',
+			'sd_ai_agent_sms_provider',
+			'sd_ai_agent_whatsapp_provider',
+			'sd_ai_agent_telegram_provider',
+		];
+
+		foreach ( $expected as $name ) {
+			$this->assertTrue( OptionsAbilities::is_secret_option_name( $name ) );
+			$this->assertFalse( OptionsAbilities::is_write_allowed_option( $name ) );
+		}
+	}
+
 	/**
 	 * Non-secret options remain readable.
 	 */
