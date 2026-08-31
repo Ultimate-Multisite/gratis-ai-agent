@@ -233,6 +233,8 @@ System notices:
 - Use **Link a different user** as a secondary action. Relinking must open the managed confirmation flow rather than accepting identity details in WordPress.
 - **Open account portal**, **Manage payment methods**, and **Add credits** are buttons that request a fresh one-time URL when clicked; do not render, inspect, or persist action tickets in the settings page.
 - Open account actions in a separate tab when the browser permits, clear `window.opener`, and show one neutral retry notice if URL minting fails.
+- Keep Advanced installation inside the SD AI account surface rather than linking to a manual-download card elsewhere. Disable **Install and activate** until a verified account is linked and WordPress allows plugin changes.
+- After activation, replace the install action with concise version status and an **Automatic updates** toggle. Keep download credentials and storage paths out of browser state.
 - Keep the account tab and each account card padded on every viewport: use the 2xl spacing token on desktop, the xl token on compact screens, and never let card content touch the settings panel edge.
 
 ### Tooltips

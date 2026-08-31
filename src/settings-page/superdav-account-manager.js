@@ -8,6 +8,7 @@ import {
 	Notice,
 	Spinner,
 	TextControl,
+	ToggleControl,
 } from '@wordpress/components';
 import { __, sprintf } from '@wordpress/i18n';
 import apiFetch from '@wordpress/api-fetch';
@@ -404,6 +405,8 @@ export default function SuperdavAccountManager() {
 	const [ redemptionNotice, setRedemptionNotice ] = useState( null );
 	const [ actionNotice, setActionNotice ] = useState( null );
 	const [ openingAction, setOpeningAction ] = useState( '' );
+	const [ advancedNotice, setAdvancedNotice ] = useState( null );
+	const [ advancedAction, setAdvancedAction ] = useState( '' );
 	const [ error, setError ] = useState( '' );
 	const [ hasLoadedAccount, setHasLoadedAccount ] = useState( false );
 
@@ -558,6 +561,91 @@ export default function SuperdavAccountManager() {
 		[ couponCode, redeeming ]
 	);
 
+	const installAdvanced = useCallback( async () => {
+		if ( advancedAction ) {
+			return;
+		}
+
+		setAdvancedAction( 'install' );
+		setAdvancedNotice( null );
+		try {
+			const result = await apiFetch( {
+				path: '/sd-ai-agent/v1/superdav-account/advanced-plugin/install',
+				method: 'POST',
+			} );
+			setAccount( ( current ) => ( {
+				...current,
+				advanced_plugin: result,
+			} ) );
+			setAdvancedNotice( {
+				status: 'success',
+				message: __(
+					'SD AI Agent Advanced is installed, active, and set to update automatically.',
+					'superdav-ai-agent'
+				),
+			} );
+		} catch ( err ) {
+			setAdvancedNotice( {
+				status: 'error',
+				message:
+					err?.message ||
+					__(
+						'SD AI Agent Advanced could not be installed.',
+						'superdav-ai-agent'
+					),
+			} );
+		} finally {
+			setAdvancedAction( '' );
+		}
+	}, [ advancedAction ] );
+
+	const setAdvancedAutoUpdates = useCallback(
+		async ( enabled ) => {
+			if ( advancedAction ) {
+				return;
+			}
+
+			setAdvancedAction( 'auto-updates' );
+			setAdvancedNotice( null );
+			try {
+				const result = await apiFetch( {
+					path: '/sd-ai-agent/v1/superdav-account/advanced-plugin/auto-updates',
+					method: 'POST',
+					data: { enabled },
+				} );
+				setAccount( ( current ) => ( {
+					...current,
+					advanced_plugin: result,
+				} ) );
+				setAdvancedNotice( {
+					status: 'success',
+					message: enabled
+						? __(
+								'Automatic updates are enabled for Advanced.',
+								'superdav-ai-agent'
+						  )
+						: __(
+								'Automatic updates are disabled for Advanced.',
+								'superdav-ai-agent'
+						  ),
+				} );
+			} catch ( err ) {
+				setAdvancedNotice( {
+					status: 'error',
+					message:
+						err?.message ||
+						__(
+							'Unable to change automatic updates for Advanced.',
+							'superdav-ai-agent'
+						),
+				} );
+			} finally {
+				setAdvancedAction( '' );
+			}
+		},
+		[ advancedAction ]
+	);
+
 	useEffect( () => {
 		loadAccount();
 	}, [ loadAccount ] );
@@ -576,6 +664,28 @@ export default function SuperdavAccountManager() {
 	const paymentMethodsAvailable = !! account?.payment_methods_available;
 	const linkAccountAvailable = !! account?.link_account_available;
 	const linkedUser = account?.linked_user || null;
+	const advancedPlugin = account?.advanced_plugin || {};
+	let advancedStatusLabel = __( 'Not installed', 'superdav-ai-agent' );
+	if ( advancedPlugin.bundled ) {
+		advancedStatusLabel = __(
+			'Loaded from this development repository',
+			'superdav-ai-agent'
+		);
+	} else if ( advancedPlugin.active ) {
+		advancedStatusLabel = sprintf(
+			/* translators: %s: installed plugin version. */
+			__( 'Active — version %s', 'superdav-ai-agent' ),
+			advancedPlugin.version || '—'
+		);
+	} else if ( advancedPlugin.installed ) {
+		advancedStatusLabel = __(
+			'Installed but inactive',
+			'superdav-ai-agent'
+		);
+	}
+	const advancedActionLabel = advancedPlugin.installed
+		? __( 'Activate Advanced', 'superdav-ai-agent' )
+		: __( 'Install and activate', 'superdav-ai-agent' );
 	const hasAccountActions =
 		purchaseCreditsAvailable ||
 		paymentMethodsAvailable ||
@@ -756,6 +866,14 @@ export default function SuperdavAccountManager() {
 					{ actionNotice.message }
 				</Notice>
 			) }
+			{ advancedNotice && (
+				<Notice
+					status={ advancedNotice.status }
+					isDismissible={ false }
+				>
+					{ advancedNotice.message }
+				</Notice>
+			) }
 
 			{ hasLoadedAccount &&
 				( ! configured ? (
@@ -814,6 +932,81 @@ export default function SuperdavAccountManager() {
 										  ) }
 								</Button>
 							) }
+						</section>
+
+						<section className="sd-ai-agent-superdav-advanced-plugin">
+							<div>
+								<h4>
+									{ __(
+										'SD AI Agent Advanced',
+										'superdav-ai-agent'
+									) }
+								</h4>
+								<p className="description">
+									{ __(
+										'Add self-hosted code, filesystem, database, WP-CLI, REST dispatcher, and plugin-builder tools.',
+										'superdav-ai-agent'
+									) }
+								</p>
+								<strong className="sd-ai-agent-superdav-advanced-status">
+									{ advancedStatusLabel }
+								</strong>
+								{ ! linkedUser && ! advancedPlugin.bundled && (
+									<p className="description">
+										{ __(
+											'Connect a verified SD AI account to this site to install Advanced.',
+											'superdav-ai-agent'
+										) }
+									</p>
+								) }
+								{ ! advancedPlugin.file_mods_allowed &&
+									! advancedPlugin.bundled && (
+										<p className="description">
+											{ __(
+												'Plugin installation is disabled by this site configuration.',
+												'superdav-ai-agent'
+											) }
+										</p>
+									) }
+							</div>
+							<div className="sd-ai-agent-superdav-advanced-actions">
+								{ advancedPlugin.active &&
+									! advancedPlugin.bundled && (
+										<ToggleControl
+											label={ __(
+												'Automatic updates',
+												'superdav-ai-agent'
+											) }
+											checked={
+												!! advancedPlugin.auto_updates_enabled
+											}
+											onChange={ setAdvancedAutoUpdates }
+											disabled={
+												!! advancedAction ||
+												! advancedPlugin.can_manage
+											}
+											__nextHasNoMarginBottom
+										/>
+									) }
+								{ ! advancedPlugin.active &&
+									! advancedPlugin.bundled && (
+										<Button
+											variant="primary"
+											onClick={ installAdvanced }
+											isBusy={
+												advancedAction === 'install'
+											}
+											disabled={
+												!! advancedAction ||
+												! linkedUser ||
+												! advancedPlugin.can_manage ||
+												! advancedPlugin.file_mods_allowed
+											}
+										>
+											{ advancedActionLabel }
+										</Button>
+									) }
+							</div>
 						</section>
 
 						<section

@@ -111,18 +111,35 @@ jobs:
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
         with:
-          name: superdav-ai-agent-release-zips
-          path: |
-            build/superdav-ai-agent-${{ env.VERSION }}.zip
-            build/superdav-ai-agent-advanced-${{ env.VERSION }}.zip
+          name: superdav-ai-agent-core-release-zip
+          path: build/superdav-ai-agent-${{ env.VERSION }}.zip
           retention-days: 7
+
+      - name: Publish Advanced to authenticated package storage
+        if: ${{ env.IS_PRERELEASE != 'true' }}
+        env:
+          SUPERDAV_ADVANCED_PLUGIN_PUBLISH_TOKEN: ${{ secrets.SUPERDAV_ADVANCED_PLUGIN_PUBLISH_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ -z "${SUPERDAV_ADVANCED_PLUGIN_PUBLISH_TOKEN}" ]; then
+            echo "::error::SUPERDAV_ADVANCED_PLUGIN_PUBLISH_TOKEN is required to publish Advanced."
+            exit 1
+          fi
+
+          curl --fail --show-error --silent \
+            --retry 3 \
+            --request PUT \
+            --header "Authorization: Bearer ${SUPERDAV_ADVANCED_PLUGIN_PUBLISH_TOKEN}" \
+            --header "Content-Type: application/zip" \
+            --data-binary "@build/superdav-ai-agent-advanced-${VERSION}.zip" \
+            --output /dev/null \
+            "https://api.sdaiagent.com/v1/admin/packages/superdav-ai-agent-advanced/${VERSION}"
 
       - name: Create GitHub release
         uses: softprops/action-gh-release@v2
         with:
           files: |
             build/superdav-ai-agent-${{ env.VERSION }}.zip
-            build/superdav-ai-agent-advanced-${{ env.VERSION }}.zip
           name: Superdav AI Agent v${{ env.VERSION }}
           draft: false
           prerelease: ${{ env.IS_PRERELEASE == 'true' }}
@@ -132,15 +149,13 @@ jobs:
             ## Downloads
 
             - `superdav-ai-agent-${{ env.VERSION }}.zip` — core plugin. This is the WordPress.org package and is also attached here for direct GitHub installs.
-            - `superdav-ai-agent-advanced-${{ env.VERSION }}.zip` — advanced companion plugin for self-hosted administrator/developer tools. This package is attached to the GitHub release only and is not deployed to WordPress.org SVN.
+            - SD AI Agent Advanced — stable packages are published to authenticated SD AI package storage. Connect a verified SD AI account in the plugin settings to install it.
 
             ## WordPress.org
 
             Stable `v*.*.*` releases publish only the core `superdav-ai-agent` package to the WordPress.org SVN trunk and tag. Pre-release tags create GitHub release assets but skip SVN deployment.
 
-            ## WooCommerce Marketplace
-
-            This repository does not publish either package to the WooCommerce Marketplace. The advanced companion ZIP remains a GitHub release asset only unless a separate marketplace deployment workflow is added later with explicit product targets and credentials.
+            The Advanced package is not attached publicly to this GitHub release and does not require a WooCommerce purchase.
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
@@ -150,13 +165,15 @@ jobs:
           {
             echo "## Release channels"
             echo ""
-            echo "- GitHub release: core and advanced ZIP assets uploaded."
+            echo "- GitHub release: core ZIP uploaded."
             if [ "${IS_PRERELEASE}" = "true" ]; then
               echo "- WordPress.org SVN: skipped for pre-release tag."
+              echo "- Advanced package: authenticated publishing skipped for pre-release tag."
             else
               echo "- WordPress.org SVN: core package deploy runs in the dependent job."
+              echo "- Advanced package: published to authenticated SD AI package storage."
             fi
-            echo "- WooCommerce Marketplace: not configured for this repository; no marketplace upload is attempted."
+            echo "- WooCommerce Marketplace: not used."
           } >> "$GITHUB_STEP_SUMMARY"
 
   deploy-to-wporg:
@@ -175,7 +192,7 @@ jobs:
       - name: Download build artifact
         uses: actions/download-artifact@v4
         with:
-          name: superdav-ai-agent-release-zips
+          name: superdav-ai-agent-core-release-zip
           path: build/
 
       - name: Extract core build artifact
@@ -295,6 +312,6 @@ jobs:
             echo "## WordPress.org deployment"
             echo ""
             echo "- Core package: deployed to WordPress.org SVN trunk and tag ${VERSION}."
-            echo "- Advanced companion package: not deployed to WordPress.org SVN."
-            echo "- WooCommerce Marketplace: not configured for this repository; no marketplace upload is attempted."
+            echo "- Advanced companion package: distributed through authenticated SD AI package storage, not WordPress.org SVN."
+            echo "- WooCommerce Marketplace: not used."
           } >> "$GITHUB_STEP_SUMMARY"
