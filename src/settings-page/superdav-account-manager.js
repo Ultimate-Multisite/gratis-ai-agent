@@ -951,14 +951,6 @@ export default function SuperdavAccountManager() {
 								<strong className="sd-ai-agent-superdav-advanced-status">
 									{ advancedStatusLabel }
 								</strong>
-								{ ! linkedUser && ! advancedPlugin.bundled && (
-									<p className="description">
-										{ __(
-											'Connect a verified SD AI account to this site to install Advanced.',
-											'superdav-ai-agent'
-										) }
-									</p>
-								) }
 								{ ! advancedPlugin.file_mods_allowed &&
 									! advancedPlugin.bundled && (
 										<p className="description">
@@ -998,7 +990,6 @@ export default function SuperdavAccountManager() {
 											}
 											disabled={
 												!! advancedAction ||
-												! linkedUser ||
 												! advancedPlugin.can_manage ||
 												! advancedPlugin.file_mods_allowed
 											}
