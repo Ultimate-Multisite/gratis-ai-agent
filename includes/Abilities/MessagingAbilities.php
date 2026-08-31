@@ -143,12 +143,12 @@ class MessagingAbilities {
 			];
 			$result  = self::post_json( $url, $payload, [ 'Authorization' => 'Bearer ' . (string) $config['access_token'] ], 'whatsapp' );
 			if ( is_wp_error( $result ) ) {
-				return $result;
+				return self::with_partial_delivery_data( $result, $results, $recipient );
 			}
 
 			$message_id = sanitize_text_field( (string) ( $result['body']['messages'][0]['id'] ?? '' ) );
 			if ( '' === $message_id ) {
-				return new WP_Error(
+				$error = new WP_Error(
 					'whatsapp_invalid_provider_response',
 					__( 'WhatsApp returned an invalid response.', 'superdav-ai-agent' ),
 					[
@@ -156,6 +156,8 @@ class MessagingAbilities {
 						'http_code' => $result['http_code'],
 					]
 				);
+
+				return self::with_partial_delivery_data( $error, $results, $recipient );
 			}
 
 			$results[] = [
@@ -172,6 +174,28 @@ class MessagingAbilities {
 			'delivery_confirmed' => false,
 			'sent'               => $results,
 		];
+	}
+
+	/**
+	 * Preserve completed recipients when a later WhatsApp request fails.
+	 *
+	 * @param WP_Error                   $error            Provider error.
+	 * @param list<array<string, mixed>> $sent             Completed deliveries.
+	 * @param string                     $failed_recipient Failed recipient.
+	 */
+	private static function with_partial_delivery_data( WP_Error $error, array $sent, string $failed_recipient ): WP_Error {
+		$error_data           = $error->get_error_data();
+		$error_data           = is_array( $error_data ) ? $error_data : [];
+		$error_data['sent']   = $sent;
+		$error_data['failed'] = [
+			[
+				'recipient' => SmsAbilities::redact_phone_number( $failed_recipient ),
+				'status'    => 'failed',
+			],
+		];
+		$error->add_data( $error_data );
+
+		return $error;
 	}
 
 	/**
