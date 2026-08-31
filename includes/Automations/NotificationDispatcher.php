@@ -50,7 +50,7 @@ class NotificationDispatcher {
 
 		foreach ( $channels as $channel ) {
 			// @phpstan-ignore-next-line
-			if ( empty( $channel['enabled'] ) ) {
+			if ( ! ( $channel['enabled'] ?? true ) ) {
 				continue;
 			}
 
@@ -243,12 +243,14 @@ class NotificationDispatcher {
 	 * @param array<string, mixed> $log_data   Automation run log.
 	 */
 	private static function build_text_payload( array $automation, array $log_data ): string {
-		$text = sprintf(
+		$reply         = (string) ( $log_data['reply'] ?? '' );
+		$response_text = '' !== $reply ? $reply : (string) ( $log_data['error_message'] ?? '' );
+		$text          = sprintf(
 			/* translators: 1: automation name, 2: completion status, 3: response text. */
 			__( 'Automation: %1$s\nStatus: %2$s\n\n%3$s', 'superdav-ai-agent' ),
 			(string) ( $automation['name'] ?? '' ),
 			(string) ( $log_data['status'] ?? 'unknown' ),
-			(string) ( $log_data['reply'] ?? $log_data['error_message'] ?? '' )
+			$response_text
 		);
 
 		return mb_strlen( $text, 'UTF-8' ) > MessagingAbilities::MAX_MESSAGE_LENGTH

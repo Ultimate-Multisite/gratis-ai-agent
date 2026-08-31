@@ -133,7 +133,7 @@ class MessagingAbilities {
 		$url             = self::WHATSAPP_API_BASE_URL . '/' . rawurlencode( $version ) . '/' . rawurlencode( $phone_number_id ) . '/messages';
 		$results         = [];
 
-		foreach ( $validation['recipients'] as $recipient ) {
+		foreach ( $validation['recipients'] as $recipient_index => $recipient ) {
 			$payload = [
 				'messaging_product' => 'whatsapp',
 				'recipient_type'    => 'individual',
@@ -143,12 +143,12 @@ class MessagingAbilities {
 			];
 			$result  = self::post_json( $url, $payload, [ 'Authorization' => 'Bearer ' . (string) $config['access_token'] ], 'whatsapp' );
 			if ( is_wp_error( $result ) ) {
-				return $result;
+				return self::with_partial_delivery_data( $result, $results, array_slice( $validation['recipients'], $recipient_index ) );
 			}
 
 			$message_id = sanitize_text_field( (string) ( $result['body']['messages'][0]['id'] ?? '' ) );
 			if ( '' === $message_id ) {
-				return new WP_Error(
+				$error = new WP_Error(
 					'whatsapp_invalid_provider_response',
 					__( 'WhatsApp returned an invalid response.', 'superdav-ai-agent' ),
 					[
@@ -156,6 +156,8 @@ class MessagingAbilities {
 						'http_code' => $result['http_code'],
 					]
 				);
+
+				return self::with_partial_delivery_data( $error, $results, array_slice( $validation['recipients'], $recipient_index ) );
 			}
 
 			$results[] = [
@@ -172,6 +174,32 @@ class MessagingAbilities {
 			'delivery_confirmed' => false,
 			'sent'               => $results,
 		];
+	}
+
+	/**
+	 * Preserve completed and unconfirmed recipients when a WhatsApp request fails.
+	 *
+	 * A failed request may have been processed by the provider, so the current and
+	 * later recipients remain unconfirmed rather than being marked retryable.
+	 *
+	 * @param WP_Error                   $error                 Provider error.
+	 * @param list<array<string, mixed>> $sent                  Completed deliveries.
+	 * @param array<string>              $unconfirmed_recipients Current and later recipients.
+	 */
+	private static function with_partial_delivery_data( WP_Error $error, array $sent, array $unconfirmed_recipients ): WP_Error {
+		$error_data                = $error->get_error_data();
+		$error_data                = is_array( $error_data ) ? $error_data : [];
+		$error_data['sent']        = $sent;
+		$error_data['unconfirmed'] = array_map(
+			static fn( string $recipient ): array => [
+				'recipient' => SmsAbilities::redact_phone_number( $recipient ),
+				'status'    => 'unknown',
+			],
+			$unconfirmed_recipients
+		);
+		$error->add_data( $error_data );
+
+		return $error;
 	}
 
 	/**

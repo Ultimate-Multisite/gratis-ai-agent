@@ -444,7 +444,7 @@ the abort text itself as the task outcome:
 - **Build**: Webpack via `@wordpress/scripts` with entry points defined in `webpack.config.js`
 
 ### Naming Conventions
-- **Variables**: camelCase in both JS and PHP
+- **Variables**: camelCase in JS; snake_case in PHP, matching the active WordPress PHPCS ruleset
 - **Functions/Methods**: snake_case in PHP, camelCase in JS
 - **Classes**: PascalCase (e.g., `AgentLoop`, `MemoryAbilities`)
 - **Components**: PascalCase (e.g., `ChatPanel`, `MessageList`)

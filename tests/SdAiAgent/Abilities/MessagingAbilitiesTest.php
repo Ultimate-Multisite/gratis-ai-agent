@@ -85,6 +85,72 @@ class MessagingAbilitiesTest extends WP_UnitTestCase {
 		$this->assertStringNotContainsString( 'meta-secret-token', wp_json_encode( $result ) ?: '' );
 	}
 
+	/** Uncertain WhatsApp requests retain all unconfirmed recipients without enabling retries. */
+	public function test_whatsapp_transport_error_marks_remaining_recipients_unknown(): void {
+		Settings::instance()->set_whatsapp_provider(
+			[
+				'provider'        => 'meta_cloud',
+				'access_token'    => 'meta-secret-token',
+				'phone_number_id' => '1234567890',
+				'api_version'     => MessagingAbilities::WHATSAPP_API_VERSION,
+			]
+		);
+		$requestCount = 0;
+		add_filter(
+			'pre_http_request',
+			static function () use ( &$requestCount ): array|WP_Error {
+				++$requestCount;
+				if ( 1 === $requestCount ) {
+					return [
+						'response' => [ 'code' => 200, 'message' => 'OK' ],
+						'body'     => '{"messages":[{"id":"wamid.123"}]}',
+					];
+				}
+
+				return new WP_Error( 'http_request_failed', 'Connection timed out' );
+			}
+		);
+
+		$result = MessagingAbilities::handle_whatsapp_send( [ 'recipients' => [ '+15551234567', '+15557654321', '+15559876543' ], 'message' => 'Hello' ] );
+
+		$this->assertInstanceOf( WP_Error::class, $result );
+		$this->assertSame( 2, $requestCount );
+		$errorData = $result->get_error_data();
+		$this->assertSame( '+*******4567', $errorData['sent'][0]['recipient'] ?? '' );
+		$this->assertSame( '+*******4321', $errorData['unconfirmed'][0]['recipient'] ?? '' );
+		$this->assertSame( '+*******6543', $errorData['unconfirmed'][1]['recipient'] ?? '' );
+		$this->assertSame( 'unknown', $errorData['unconfirmed'][0]['status'] ?? '' );
+		$this->assertStringNotContainsString( '+15557654321', wp_json_encode( $errorData ) ?: '' );
+		$this->assertStringNotContainsString( '+15559876543', wp_json_encode( $errorData ) ?: '' );
+	}
+
+	/** A successful response without a provider message ID is an unknown delivery state. */
+	public function test_whatsapp_missing_message_id_marks_recipient_unknown(): void {
+		Settings::instance()->set_whatsapp_provider(
+			[
+				'provider'        => 'meta_cloud',
+				'access_token'    => 'meta-secret-token',
+				'phone_number_id' => '1234567890',
+				'api_version'     => MessagingAbilities::WHATSAPP_API_VERSION,
+			]
+		);
+		add_filter(
+			'pre_http_request',
+			static function (): array {
+				return [
+					'response' => [ 'code' => 200, 'message' => 'OK' ],
+					'body'     => '{"messages":[]}',
+				];
+			}
+		);
+
+		$result = MessagingAbilities::handle_whatsapp_send( [ 'recipients' => [ '+15551234567' ], 'message' => 'Hello' ] );
+
+		$this->assertInstanceOf( WP_Error::class, $result );
+		$this->assertSame( 'whatsapp_invalid_provider_response', $result->get_error_code() );
+		$this->assertSame( 'unknown', $result->get_error_data()['unconfirmed'][0]['status'] ?? '' );
+	}
+
 	public function test_telegram_rejects_invalid_chat_id(): void {
 		$result = MessagingAbilities::handle_telegram_send( [ 'chat_ids' => [ 'not a chat' ], 'message' => 'Hello' ] );
 
