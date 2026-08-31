@@ -127,53 +127,6 @@
 	gap: 8px;
 }
 
-/* Advanced companion */
-.sd-ai-agent-advanced-companion-card {
-	align-items: center;
-	background: linear-gradient(135deg, #f0f6fc, #fff);
-	border: 1px solid #72aee6;
-	border-radius: 4px;
-	display: flex;
-	gap: 24px;
-	justify-content: space-between;
-	padding: 20px;
-}
-
-.sd-ai-agent-advanced-companion-card h3,
-.sd-ai-agent-advanced-companion-card p {
-	margin: 0;
-}
-
-.sd-ai-agent-advanced-companion-card h3 {
-	font-size: 16px;
-	margin-bottom: 4px;
-}
-
-.sd-ai-agent-advanced-companion-card p:not(.sd-ai-agent-advanced-companion-card__eyebrow) {
-	max-width: 620px;
-}
-
-.sd-ai-agent-advanced-companion-card__eyebrow {
-	color: #135e96;
-	font-size: 12px;
-	font-weight: 600;
-	letter-spacing: 0.04em;
-	margin-bottom: 6px !important;
-	text-transform: uppercase;
-}
-
-.sd-ai-agent-advanced-companion-card .button {
-	flex: 0 0 auto;
-}
-
-@media screen and (max-width: 600px) {
-	.sd-ai-agent-advanced-companion-card {
-		align-items: flex-start;
-		flex-direction: column;
-		gap: 16px;
-	}
-}
-
 /* YOLO mode section */
 .sdaa-settings-yolo-section {
 	display: flex;
@@ -555,6 +508,7 @@
 
 .sd-ai-agent-superdav-account-overview,
 .sd-ai-agent-superdav-linked-user,
+.sd-ai-agent-superdav-advanced-plugin,
 .sd-ai-agent-superdav-session-usage,
 .sd-ai-agent-superdav-credit-activity {
 	box-sizing: border-box;
@@ -569,6 +523,28 @@
 	align-items: center;
 	justify-content: space-between;
 	gap: 16px;
+}
+
+.sd-ai-agent-superdav-advanced-plugin {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 24px;
+}
+
+.sd-ai-agent-superdav-advanced-plugin h4 {
+	margin: 0 0 8px;
+}
+
+.sd-ai-agent-superdav-advanced-status {
+	display: block;
+	margin-top: 12px;
+}
+
+.sd-ai-agent-superdav-advanced-actions {
+	display: flex;
+	flex: 0 0 auto;
+	align-items: center;
 }
 
 .sd-ai-agent-superdav-linked-user h4 {
@@ -848,12 +824,14 @@
 
 	.sd-ai-agent-superdav-account-overview,
 	.sd-ai-agent-superdav-linked-user,
+	.sd-ai-agent-superdav-advanced-plugin,
 	.sd-ai-agent-superdav-session-usage,
 	.sd-ai-agent-superdav-credit-activity {
 		padding: 16px;
 	}
 
-	.sd-ai-agent-superdav-linked-user {
+	.sd-ai-agent-superdav-linked-user,
+	.sd-ai-agent-superdav-advanced-plugin {
 		align-items: flex-start;
 		flex-direction: column;
 	}

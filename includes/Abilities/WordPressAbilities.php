@@ -33,7 +33,7 @@ class WordPressAbilities {
 			'sd_ai_agent_advanced_plugin_required',
 			sprintf(
 				/* translators: %s: ability name */
-				__( 'The %s ability is provided by SD AI Agent Advanced. Download it from https://sdaiagent.com/advanced/, upload it via Plugins > Add New > Upload Plugin, install it, then activate the installed plugin.', 'superdav-ai-agent' ),
+				__( 'The %s ability is provided by SD AI Agent Advanced. Connect a verified SD AI account in the SD AI account settings, then choose Install and activate.', 'superdav-ai-agent' ),
 				$ability_name
 			)
 		);

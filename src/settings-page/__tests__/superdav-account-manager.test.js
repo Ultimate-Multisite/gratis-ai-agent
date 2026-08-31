@@ -52,6 +52,18 @@ jest.mock( '@wordpress/components', () => {
 					onChange: ( event ) => onChange( event.target.value ),
 				} )
 			),
+		ToggleControl: ( { label, checked, onChange, disabled } ) =>
+			React.createElement(
+				'label',
+				null,
+				label,
+				React.createElement( 'input', {
+					type: 'checkbox',
+					checked,
+					disabled,
+					onChange: ( event ) => onChange( event.target.checked ),
+				} )
+			),
 	};
 } );
 
@@ -375,6 +387,56 @@ describe( 'SuperdavAccountManager', () => {
 
 		expect( findButton( 'Connect account to site' ) ).toBeDefined();
 		expect( findButton( 'Link a different user' ) ).toBeUndefined();
+	} );
+
+	test( 'installs Advanced from the connected account and enables automatic updates', async () => {
+		apiFetch
+			.mockResolvedValueOnce( {
+				configured: true,
+				linked_user: {
+					display_name: 'Verified Customer',
+					masked_email: 'v***@example.test',
+					email_verified: true,
+				},
+				advanced_plugin: {
+					installed: false,
+					active: false,
+					bundled: false,
+					can_manage: true,
+					file_mods_allowed: true,
+				},
+			} )
+			.mockResolvedValueOnce( {
+				installed: true,
+				active: true,
+				bundled: false,
+				version: '1.22.4',
+				auto_updates_enabled: true,
+				can_manage: true,
+				file_mods_allowed: true,
+			} );
+
+		await act( async () => {
+			root.render( createElement( SuperdavAccountManager, {} ) );
+		} );
+		await act( async () => {
+			await Promise.resolve();
+		} );
+
+		await act( async () => {
+			findButton( 'Install and activate' ).click();
+			await Promise.resolve();
+		} );
+
+		expect( apiFetch ).toHaveBeenLastCalledWith( {
+			path: '/sd-ai-agent/v1/superdav-account/advanced-plugin/install',
+			method: 'POST',
+		} );
+		expect( container.textContent ).toContain( 'Active — version 1.22.4' );
+		expect( container.textContent ).toContain( 'Automatic updates' );
+		expect(
+			container.querySelector( 'input[type="checkbox"]' ).checked
+		).toBe( true );
 	} );
 
 	test( 'redeems a coupon, disables submission while pending, and updates the balance', async () => {

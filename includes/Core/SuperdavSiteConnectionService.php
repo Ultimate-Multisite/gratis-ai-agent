@@ -31,6 +31,8 @@ final class SuperdavSiteConnectionService {
 	private const ACCOUNT_STATUS_ENDPOINT_PATH            = 'site/account';
 	private const ACCOUNT_ACTION_ENDPOINT_PATH            = 'site/account/action';
 	private const ACCOUNT_COUPON_REDEMPTION_ENDPOINT_PATH = 'site/account/redeem-coupon';
+	private const ADVANCED_PLUGIN_METADATA_ENDPOINT_PATH  = 'site/packages/superdav-ai-agent-advanced';
+	private const ADVANCED_PLUGIN_DOWNLOAD_ENDPOINT_PATH  = 'site/packages/superdav-ai-agent-advanced/download';
 
 	/**
 	 * Maximum number of newest-first credit activity rows retained for display.
@@ -422,6 +424,106 @@ final class SuperdavSiteConnectionService {
 	 */
 	public function has_remote_registration_endpoint(): bool {
 		return '' !== $this->get_registration_endpoint();
+	}
+
+	/**
+	 * Add the private site bearer token to one server-to-server package request.
+	 *
+	 * This callback is also passed to Plugin Update Checker. It must never be
+	 * used for browser responses or URLs.
+	 *
+	 * @param array<string, mixed> $request_args WordPress HTTP request arguments.
+	 * @return array<string, mixed> Request arguments with site authorization.
+	 * @phpstan-param array{timeout?:float,redirection?:int,headers?:array<string,string>|string,stream?:bool,filename?:string,...} $request_args
+	 * @phpstan-return array{timeout?:float,redirection?:int,headers?:array<string,string>|string,stream?:bool,filename?:string,...}
+	 */
+	public function add_package_authorization( array $request_args ): array {
+		$token = $this->get_stored_token();
+		if ( '' === $token ) {
+			return $request_args;
+		}
+
+		$headers                  = isset( $request_args['headers'] ) && is_array( $request_args['headers'] ) ? $request_args['headers'] : array();
+		$headers['Authorization'] = 'Bearer ' . $token;
+		$request_args['headers']  = $headers;
+
+		return $request_args;
+	}
+
+	/** Return the authenticated PUC metadata endpoint for Advanced. */
+	public function get_advanced_plugin_metadata_endpoint(): string {
+		$endpoint = $this->configured_endpoint( 'SD_AI_AGENT_ADVANCED_PLUGIN_METADATA_ENDPOINT', self::ADVANCED_PLUGIN_METADATA_ENDPOINT_PATH );
+		$endpoint = apply_filters( 'sd_ai_agent_advanced_plugin_metadata_endpoint', $endpoint );
+
+		return is_string( $endpoint ) ? esc_url_raw( $endpoint ) : '';
+	}
+
+	/** Return the authenticated package download endpoint for Advanced. */
+	public function get_advanced_plugin_download_endpoint(): string {
+		$endpoint = $this->configured_endpoint( 'SD_AI_AGENT_ADVANCED_PLUGIN_DOWNLOAD_ENDPOINT', self::ADVANCED_PLUGIN_DOWNLOAD_ENDPOINT_PATH );
+		$endpoint = apply_filters( 'sd_ai_agent_advanced_plugin_download_endpoint', $endpoint );
+
+		return is_string( $endpoint ) ? esc_url_raw( $endpoint ) : '';
+	}
+
+	/**
+	 * Fetch and validate the Advanced package metadata used for installation.
+	 *
+	 * @return array{version:string,download_url:string,package_sha256:string}|WP_Error
+	 */
+	public function request_advanced_plugin_metadata(): array|WP_Error {
+		$endpoint = $this->get_advanced_plugin_metadata_endpoint();
+		if ( '' === $endpoint || '' === $this->get_stored_token() ) {
+			return new WP_Error( 'sd_ai_agent_advanced_connection_required', __( 'Connect SD AI before installing Advanced.', 'superdav-ai-agent' ), array( 'status' => 412 ) );
+		}
+
+		$response = wp_remote_get(
+			$endpoint,
+			$this->add_package_authorization(
+				array(
+					'timeout'     => 15.0,
+					'redirection' => 0,
+					'headers'     => array( 'Accept' => 'application/json' ),
+				)
+			)
+		);
+
+		if ( is_wp_error( $response ) ) {
+			return new WP_Error( 'sd_ai_agent_advanced_package_unavailable', __( 'SD AI Agent Advanced is temporarily unavailable.', 'superdav-ai-agent' ), array( 'status' => 503 ) );
+		}
+
+		$status = (int) wp_remote_retrieve_response_code( $response );
+		if ( 401 === $status ) {
+			return new WP_Error( 'sd_ai_agent_advanced_connection_expired', __( 'Reconnect SD AI before installing Advanced.', 'superdav-ai-agent' ), array( 'status' => 401 ) );
+		}
+		if ( 403 === $status ) {
+			return new WP_Error( 'sd_ai_agent_advanced_account_link_required', __( 'Connect a verified SD AI account to this site before installing Advanced.', 'superdav-ai-agent' ), array( 'status' => 403 ) );
+		}
+		if ( $status < 200 || $status >= 300 ) {
+			return new WP_Error( 'sd_ai_agent_advanced_package_unavailable', __( 'SD AI Agent Advanced is temporarily unavailable.', 'superdav-ai-agent' ), array( 'status' => 503 ) );
+		}
+
+		$body              = json_decode( wp_remote_retrieve_body( $response ), true );
+		$download_endpoint = $this->get_advanced_plugin_download_endpoint();
+		if ( ! is_array( $body )
+			|| 'superdav-ai-agent-advanced' !== ( $body['slug'] ?? null )
+			|| ! isset( $body['version'], $body['download_url'], $body['package_sha256'] )
+			|| ! is_string( $body['version'] )
+			|| ! is_string( $body['download_url'] )
+			|| ! is_string( $body['package_sha256'] )
+			|| 1 !== preg_match( '/^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$/', $body['version'] )
+			|| 1 !== preg_match( '/^[a-f0-9]{64}$/', $body['package_sha256'] )
+			|| '' === $download_endpoint
+			|| $download_endpoint !== esc_url_raw( $body['download_url'] )
+		) {
+			return new WP_Error( 'sd_ai_agent_advanced_package_invalid', __( 'The SD AI Agent Advanced package response was invalid.', 'superdav-ai-agent' ), array( 'status' => 502 ) );
+		}
+
+		return array(
+			'version'        => $body['version'],
+			'download_url'   => $download_endpoint,
+			'package_sha256' => $body['package_sha256'],
+		);
 	}
 
 	/**
