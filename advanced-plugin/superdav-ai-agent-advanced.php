@@ -10,7 +10,7 @@
  * Requires at least: 7.0
  * Requires PHP: 8.2
  * Requires Plugins: superdav-ai-agent
- * Update URI:  https://api.sdaiagent.com/v1/site/packages/superdav-ai-agent-advanced
+ * Update URI:  https://sdaiagent.com/?sdai_update_action=get_metadata&sdai_update_slug=superdav-ai-agent-advanced
  * Text Domain: superdav-ai-agent-advanced
  *
  * @package SdAiAgentAdvanced

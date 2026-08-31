@@ -51,7 +51,7 @@ final class AdvancedPluginManager {
 	}
 
 	/**
-	 * Download the exact public package and verify its service checksum.
+	 * Download the exact public package and verify its update-server checksum.
 	 *
 	 * @param false|string|WP_Error $reply      Prior short-circuit value.
 	 * @param string                $package    Requested package URL.
@@ -63,10 +63,8 @@ final class AdvancedPluginManager {
 	public function verified_package_download( false|string|WP_Error $reply, string $package, mixed $upgrader, array $hook_extra ): false|string|WP_Error {
 		unset( $upgrader, $hook_extra );
 
-		$package_path = wp_parse_url( $package, PHP_URL_PATH );
 		if ( false !== $reply
-			|| ! is_string( $package_path )
-			|| 1 !== preg_match( '#/superdav-ai-agent-advanced-\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?\.zip$#', $package_path )
+			|| ! $this->is_advanced_package_url( $package )
 		) {
 			return $reply;
 		}
@@ -240,6 +238,23 @@ final class AdvancedPluginManager {
 
 	private function auto_updates_enabled(): bool {
 		return true === (bool) get_option( self::AUTO_UPDATE_OPTION, true );
+	}
+
+	/** Determine whether a URL is the public Advanced download endpoint. */
+	private function is_advanced_package_url( string $url ): bool {
+		$endpoint = $this->connection->get_advanced_plugin_metadata_endpoint();
+		$query    = array();
+		parse_str( (string) wp_parse_url( $url, PHP_URL_QUERY ), $query );
+
+		return '' !== $endpoint
+			&& wp_parse_url( $endpoint, PHP_URL_SCHEME ) === wp_parse_url( $url, PHP_URL_SCHEME )
+			&& wp_parse_url( $endpoint, PHP_URL_HOST ) === wp_parse_url( $url, PHP_URL_HOST )
+			&& wp_parse_url( $endpoint, PHP_URL_PORT ) === wp_parse_url( $url, PHP_URL_PORT )
+			&& wp_parse_url( $endpoint, PHP_URL_PATH ) === wp_parse_url( $url, PHP_URL_PATH )
+			&& array(
+				'sdai_update_action' => 'download',
+				'sdai_update_slug'   => 'superdav-ai-agent-advanced',
+			) === $query;
 	}
 
 	private function plugin_file(): string {

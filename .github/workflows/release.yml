@@ -115,7 +115,7 @@ jobs:
           path: build/superdav-ai-agent-${{ env.VERSION }}.zip
           retention-days: 7
 
-      - name: Publish Advanced to public web storage
+      - name: Publish Advanced to the WordPress update server
         if: ${{ env.IS_PRERELEASE != 'true' }}
         env:
           SUPERDAV_ADVANCED_PLUGIN_PUBLISH_TOKEN: ${{ secrets.SUPERDAV_ADVANCED_PLUGIN_PUBLISH_TOKEN }}
@@ -133,7 +133,7 @@ jobs:
             --header "Content-Type: application/zip" \
             --data-binary "@build/superdav-ai-agent-advanced-${VERSION}.zip" \
             --output /dev/null \
-            "https://api.sdaiagent.com/v1/admin/packages/superdav-ai-agent-advanced/${VERSION}"
+            "https://sdaiagent.com/wp-json/superdav-ai-service/v1/packages/superdav-ai-agent-advanced/${VERSION}"
 
       - name: Create GitHub release
         uses: softprops/action-gh-release@v2
@@ -149,13 +149,13 @@ jobs:
             ## Downloads
 
             - `superdav-ai-agent-${{ env.VERSION }}.zip` — core plugin. This is the WordPress.org package and is also attached here for direct GitHub installs.
-            - SD AI Agent Advanced — stable packages are published as free downloads on the SD AI web server. Install it from the SD AI account settings.
+            - SD AI Agent Advanced — stable packages are published as free downloads through the SD AI WordPress update server. Install it from the SD AI account settings.
 
             ## WordPress.org
 
             Stable `v*.*.*` releases publish only the core `superdav-ai-agent` package to the WordPress.org SVN trunk and tag. Pre-release tags create GitHub release assets but skip SVN deployment.
 
-            The Advanced package is free, served by the SD AI web server, and does not require a WooCommerce purchase or linked account.
+            The Advanced package is free, served by the SD AI WordPress update server, and does not require a WooCommerce purchase or linked account.
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
@@ -168,10 +168,10 @@ jobs:
             echo "- GitHub release: core ZIP uploaded."
             if [ "${IS_PRERELEASE}" = "true" ]; then
               echo "- WordPress.org SVN: skipped for pre-release tag."
-              echo "- Advanced package: public web publishing skipped for pre-release tag."
+              echo "- Advanced package: WordPress update-server publishing skipped for pre-release tag."
             else
               echo "- WordPress.org SVN: core package deploy runs in the dependent job."
-              echo "- Advanced package: published to the public SD AI web server."
+              echo "- Advanced package: published to the SD AI WordPress update server."
             fi
             echo "- WooCommerce Marketplace: not used."
           } >> "$GITHUB_STEP_SUMMARY"
@@ -312,6 +312,6 @@ jobs:
             echo "## WordPress.org deployment"
             echo ""
             echo "- Core package: deployed to WordPress.org SVN trunk and tag ${VERSION}."
-            echo "- Advanced companion package: distributed as a free download from the SD AI web server, not WordPress.org SVN."
+            echo "- Advanced companion package: distributed as a free download through the SD AI WordPress update server, not WordPress.org SVN."
             echo "- WooCommerce Marketplace: not used."
           } >> "$GITHUB_STEP_SUMMARY"

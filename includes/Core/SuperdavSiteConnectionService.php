@@ -31,7 +31,7 @@ final class SuperdavSiteConnectionService {
 	private const ACCOUNT_STATUS_ENDPOINT_PATH            = 'site/account';
 	private const ACCOUNT_ACTION_ENDPOINT_PATH            = 'site/account/action';
 	private const ACCOUNT_COUPON_REDEMPTION_ENDPOINT_PATH = 'site/account/redeem-coupon';
-	private const ADVANCED_PLUGIN_METADATA_ENDPOINT_PATH  = 'site/packages/superdav-ai-agent-advanced';
+	private const ADVANCED_PLUGIN_METADATA_ENDPOINT       = 'https://sdaiagent.com/?sdai_update_action=get_metadata&sdai_update_slug=superdav-ai-agent-advanced';
 
 	/**
 	 * Maximum number of newest-first credit activity rows retained for display.
@@ -427,7 +427,9 @@ final class SuperdavSiteConnectionService {
 
 	/** Return the public PUC metadata endpoint for Advanced. */
 	public function get_advanced_plugin_metadata_endpoint(): string {
-		$endpoint = $this->configured_endpoint( 'SD_AI_AGENT_ADVANCED_PLUGIN_METADATA_ENDPOINT', self::ADVANCED_PLUGIN_METADATA_ENDPOINT_PATH );
+		$endpoint = defined( 'SD_AI_AGENT_ADVANCED_PLUGIN_METADATA_ENDPOINT' ) && is_string( SD_AI_AGENT_ADVANCED_PLUGIN_METADATA_ENDPOINT )
+			? SD_AI_AGENT_ADVANCED_PLUGIN_METADATA_ENDPOINT
+			: self::ADVANCED_PLUGIN_METADATA_ENDPOINT;
 		$endpoint = apply_filters( 'sd_ai_agent_advanced_plugin_metadata_endpoint', $endpoint );
 
 		return $this->sanitize_account_url( $endpoint );
@@ -462,10 +464,11 @@ final class SuperdavSiteConnectionService {
 			return new WP_Error( 'sd_ai_agent_advanced_package_unavailable', __( 'SD AI Agent Advanced is temporarily unavailable.', 'superdav-ai-agent' ), array( 'status' => 503 ) );
 		}
 
-		$body          = json_decode( wp_remote_retrieve_body( $response ), true );
-		$download_url  = is_array( $body ) ? $this->sanitize_account_url( $body['download_url'] ?? '' ) : '';
-		$version       = is_array( $body ) && isset( $body['version'] ) && is_string( $body['version'] ) ? $body['version'] : '';
-		$expected_path = '' !== $version ? '/packages/superdav-ai-agent-advanced-' . $version . '.zip' : '';
+		$body           = json_decode( wp_remote_retrieve_body( $response ), true );
+		$download_url   = is_array( $body ) ? $this->sanitize_account_url( $body['download_url'] ?? '' ) : '';
+		$version        = is_array( $body ) && isset( $body['version'] ) && is_string( $body['version'] ) ? $body['version'] : '';
+		$download_query = array();
+		parse_str( (string) wp_parse_url( $download_url, PHP_URL_QUERY ), $download_query );
 		if ( ! is_array( $body )
 			|| 'superdav-ai-agent-advanced' !== ( $body['slug'] ?? null )
 			|| ! isset( $body['version'], $body['download_url'], $body['package_sha256'] )
@@ -478,7 +481,11 @@ final class SuperdavSiteConnectionService {
 			|| wp_parse_url( $endpoint, PHP_URL_SCHEME ) !== wp_parse_url( $download_url, PHP_URL_SCHEME )
 			|| wp_parse_url( $endpoint, PHP_URL_HOST ) !== wp_parse_url( $download_url, PHP_URL_HOST )
 			|| wp_parse_url( $endpoint, PHP_URL_PORT ) !== wp_parse_url( $download_url, PHP_URL_PORT )
-			|| $expected_path !== wp_parse_url( $download_url, PHP_URL_PATH )
+			|| wp_parse_url( $endpoint, PHP_URL_PATH ) !== wp_parse_url( $download_url, PHP_URL_PATH )
+			|| array(
+				'sdai_update_action' => 'download',
+				'sdai_update_slug'   => 'superdav-ai-agent-advanced',
+			) !== $download_query
 		) {
 			return new WP_Error( 'sd_ai_agent_advanced_package_invalid', __( 'The SD AI Agent Advanced package response was invalid.', 'superdav-ai-agent' ), array( 'status' => 502 ) );
 		}
