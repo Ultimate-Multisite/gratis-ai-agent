@@ -76,7 +76,7 @@ final class AdvancedPluginManager {
 			return $metadata;
 		}
 		if ( $package !== $metadata['download_url'] ) {
-			return $reply;
+			return new WP_Error( 'sd_ai_agent_advanced_download_mismatch', __( 'SD AI Agent Advanced package metadata changed before download.', 'superdav-ai-agent' ) );
 		}
 
 		if ( ! function_exists( 'wp_tempnam' ) ) {
