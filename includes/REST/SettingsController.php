@@ -656,7 +656,7 @@ final class SettingsController {
 		return new WP_REST_Response( $this->add_local_chat_session_details( $status ), 200 );
 	}
 
-	/** Install and activate the authenticated Advanced package. */
+	/** Install and activate the public Advanced package. */
 	public function handle_install_advanced_plugin(): WP_REST_Response|WP_Error {
 		$status = $this->advanced_plugin_manager()->install_and_activate();
 		if ( $status instanceof WP_Error ) {

@@ -389,15 +389,11 @@ describe( 'SuperdavAccountManager', () => {
 		expect( findButton( 'Link a different user' ) ).toBeUndefined();
 	} );
 
-	test( 'installs Advanced from the connected account and enables automatic updates', async () => {
+	test( 'installs free Advanced without a linked user and enables automatic updates', async () => {
 		apiFetch
 			.mockResolvedValueOnce( {
 				configured: true,
-				linked_user: {
-					display_name: 'Verified Customer',
-					masked_email: 'v***@example.test',
-					email_verified: true,
-				},
+				linked_user: null,
 				advanced_plugin: {
 					installed: false,
 					active: false,

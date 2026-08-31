@@ -42,20 +42,16 @@ final class AdvancedPluginManager {
 			return;
 		}
 
-		$update_checker = PucFactory::buildUpdateChecker(
+		PucFactory::buildUpdateChecker(
 			$endpoint,
 			$plugin_file,
 			'superdav-ai-agent-advanced',
 			12
 		);
-
-		if ( method_exists( $update_checker, 'addHttpRequestArgFilter' ) ) {
-			$update_checker->addHttpRequestArgFilter( array( $this->connection, 'add_package_authorization' ) );
-		}
 	}
 
 	/**
-	 * Download the exact authenticated package and verify its service checksum.
+	 * Download the exact public package and verify its update-server checksum.
 	 *
 	 * @param false|string|WP_Error $reply      Prior short-circuit value.
 	 * @param string                $package    Requested package URL.
@@ -64,16 +60,21 @@ final class AdvancedPluginManager {
 	 * @return false|string|WP_Error Verified temporary ZIP path or prior value.
 	 */
 	#[Filter( tag: 'upgrader_pre_download', priority: 10, args: 4 )]
-	public function authenticated_package_download( false|string|WP_Error $reply, string $package, mixed $upgrader, array $hook_extra ): false|string|WP_Error {
+	public function verified_package_download( false|string|WP_Error $reply, string $package, mixed $upgrader, array $hook_extra ): false|string|WP_Error {
 		unset( $upgrader, $hook_extra );
 
-		if ( false !== $reply || $package !== $this->connection->get_advanced_plugin_download_endpoint() ) {
+		if ( false !== $reply
+			|| ! $this->is_advanced_package_url( $package )
+		) {
 			return $reply;
 		}
 
 		$metadata = $this->connection->request_advanced_plugin_metadata();
 		if ( $metadata instanceof WP_Error ) {
 			return $metadata;
+		}
+		if ( $package !== $metadata['download_url'] ) {
+			return new WP_Error( 'sd_ai_agent_advanced_download_mismatch', __( 'SD AI Agent Advanced package metadata changed before download.', 'superdav-ai-agent' ) );
 		}
 
 		if ( ! function_exists( 'wp_tempnam' ) ) {
@@ -87,14 +88,12 @@ final class AdvancedPluginManager {
 
 		$response = wp_remote_get(
 			$metadata['download_url'],
-			$this->connection->add_package_authorization(
-				array(
-					'timeout'     => 300.0,
-					'redirection' => 0,
-					'stream'      => true,
-					'filename'    => $temporary_file,
-					'headers'     => array( 'Accept' => 'application/zip, application/octet-stream' ),
-				)
+			array(
+				'timeout'     => 300.0,
+				'redirection' => 0,
+				'stream'      => true,
+				'filename'    => $temporary_file,
+				'headers'     => array( 'Accept' => 'application/zip, application/octet-stream' ),
 			)
 		);
 
@@ -141,12 +140,10 @@ final class AdvancedPluginManager {
 	 * @return array<string, bool|string|null>
 	 */
 	public function get_status(): array {
-		$installed      = file_exists( $this->plugin_file() );
-		$active         = $installed && $this->is_active();
-		$bundled        = $this->is_bundled_copy();
-		$account_status = $this->connection->get_status();
-		$linked_account = isset( $account_status['linked_user'] ) && is_array( $account_status['linked_user'] );
-		$plugin_data    = $installed ? $this->plugin_data() : array();
+		$installed   = file_exists( $this->plugin_file() );
+		$active      = $installed && $this->is_active();
+		$bundled     = $this->is_bundled_copy();
+		$plugin_data = $installed ? $this->plugin_data() : array();
 
 		return array(
 			'installed'            => $installed,
@@ -154,7 +151,6 @@ final class AdvancedPluginManager {
 			'bundled'              => $bundled,
 			'version'              => isset( $plugin_data['Version'] ) && is_string( $plugin_data['Version'] ) ? $plugin_data['Version'] : null,
 			'auto_updates_enabled' => $this->auto_updates_enabled(),
-			'account_linked'       => $linked_account,
 			'file_mods_allowed'    => $this->file_mods_allowed(),
 			'can_manage'           => self::current_user_can_manage() && ! $bundled,
 		);
@@ -183,12 +179,7 @@ final class AdvancedPluginManager {
 
 			$skin     = new \Automatic_Upgrader_Skin();
 			$upgrader = new \Plugin_Upgrader( $skin );
-			add_filter( 'upgrader_pre_download', array( $this, 'authenticated_package_download' ), 10, 4 );
-			try {
-				$result = $upgrader->install( $metadata['download_url'] );
-			} finally {
-				remove_filter( 'upgrader_pre_download', array( $this, 'authenticated_package_download' ), 10 );
-			}
+			$result   = $upgrader->install( $metadata['download_url'] );
 			if ( $result instanceof WP_Error ) {
 				return $result;
 			}
@@ -247,6 +238,23 @@ final class AdvancedPluginManager {
 
 	private function auto_updates_enabled(): bool {
 		return true === (bool) get_option( self::AUTO_UPDATE_OPTION, true );
+	}
+
+	/** Determine whether a URL is the public Advanced download endpoint. */
+	private function is_advanced_package_url( string $url ): bool {
+		$endpoint = $this->connection->get_advanced_plugin_metadata_endpoint();
+		$query    = array();
+		parse_str( (string) wp_parse_url( $url, PHP_URL_QUERY ), $query );
+
+		return '' !== $endpoint
+			&& wp_parse_url( $endpoint, PHP_URL_SCHEME ) === wp_parse_url( $url, PHP_URL_SCHEME )
+			&& wp_parse_url( $endpoint, PHP_URL_HOST ) === wp_parse_url( $url, PHP_URL_HOST )
+			&& wp_parse_url( $endpoint, PHP_URL_PORT ) === wp_parse_url( $url, PHP_URL_PORT )
+			&& wp_parse_url( $endpoint, PHP_URL_PATH ) === wp_parse_url( $url, PHP_URL_PATH )
+			&& array(
+				'sdai_update_action' => 'download',
+				'sdai_update_slug'   => 'superdav-ai-agent-advanced',
+			) === $query;
 	}
 
 	private function plugin_file(): string {
