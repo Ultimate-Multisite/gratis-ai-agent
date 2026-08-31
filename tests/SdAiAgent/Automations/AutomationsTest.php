@@ -138,6 +138,22 @@ class AutomationsTest extends WP_UnitTestCase {
 		$this->assertArrayNotHasKey( 'webhook_url', $row['notification_channels'][0] );
 	}
 
+	/** Notification channels without an enabled value remain enabled after storage. */
+	public function test_create_defaults_notification_channel_enabled_to_true(): void {
+		$id  = Automations::create(
+			$this->make_automation_data(
+				[
+					'notification_channels' => [
+						[ 'type' => 'telegram', 'recipient' => '@validchannel' ],
+					],
+				]
+			)
+		);
+		$row = Automations::get( $id );
+
+		$this->assertTrue( $row['notification_channels'][0]['enabled'] ?? false );
+	}
+
 	// -------------------------------------------------------------------------
 	// get
 	// -------------------------------------------------------------------------

@@ -424,7 +424,7 @@ class Automations {
 			}
 			$clean_channel = [
 				'type'    => $type,
-				'enabled' => ! empty( $channel['enabled'] ),
+				'enabled' => ! array_key_exists( 'enabled', $channel ) || ! empty( $channel['enabled'] ),
 			];
 			if ( in_array( $type, [ 'slack', 'discord' ], true ) ) {
 				$clean_channel['webhook_url'] = esc_url_raw( $channel['webhook_url'] ?? '' );
