@@ -870,7 +870,7 @@ class BlockAbilities {
 					'mcp'         => [ 'public' => true ],
 					'annotations' => [
 						'readonly'    => false,
-						'destructive' => true,
+						'destructive' => false,
 						'idempotent'  => false,
 					],
 				],
@@ -997,7 +997,7 @@ class BlockAbilities {
 					'mcp'         => [ 'public' => true ],
 					'annotations' => [
 						'readonly'    => false,
-						'destructive' => true,
+						'destructive' => false,
 						'idempotent'  => false,
 					],
 				],
@@ -1067,7 +1067,7 @@ class BlockAbilities {
 					'mcp'         => [ 'public' => true ],
 					'annotations' => [
 						'readonly'    => false,
-						'destructive' => true,
+						'destructive' => false,
 						'idempotent'  => false,
 					],
 				],
@@ -1155,7 +1155,7 @@ class BlockAbilities {
 					'mcp'         => [ 'public' => true ],
 					'annotations' => [
 						'readonly'    => false,
-						'destructive' => true,
+						'destructive' => false,
 						'idempotent'  => false,
 					],
 				],
@@ -1218,7 +1218,7 @@ class BlockAbilities {
 					'mcp'         => [ 'public' => true ],
 					'annotations' => [
 						'readonly'    => false,
-						'destructive' => true,
+						'destructive' => false,
 						'idempotent'  => false,
 					],
 				],
@@ -1311,7 +1311,7 @@ class BlockAbilities {
 					'mcp'         => [ 'public' => true ],
 					'annotations' => [
 						'readonly'    => false,
-						'destructive' => true,
+						'destructive' => false,
 						'idempotent'  => false,
 					],
 				],
