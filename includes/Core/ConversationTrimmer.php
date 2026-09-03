@@ -480,6 +480,11 @@ class ConversationTrimmer {
 				return $inspection_receipt;
 			}
 
+			$resource_receipt = self::compact_resource_call_receipt( $function_call );
+			if ( '' !== $resource_receipt ) {
+				return $resource_receipt;
+			}
+
 			$name = self::compact_tool_name( $function_call['name'] ?? 'tool' );
 			return '[tool call: ' . $name . ']';
 		}
@@ -494,6 +499,11 @@ class ConversationTrimmer {
 			$inspection_receipt = self::compact_inspection_response_receipt( $function_response );
 			if ( '' !== $inspection_receipt ) {
 				return $inspection_receipt;
+			}
+
+			$resource_receipt = self::compact_resource_response_receipt( $function_response );
+			if ( '' !== $resource_receipt ) {
+				return $resource_receipt;
 			}
 
 			$name = self::compact_tool_name( $function_response['name'] ?? 'tool' );
@@ -518,12 +528,10 @@ class ConversationTrimmer {
 	 * @param array<string,mixed> $function_call Serialized function call.
 	 */
 	private static function compact_post_mutation_call_receipt( array $function_call ): string {
-		$name = self::compact_tool_name( $function_call['name'] ?? 'tool' );
+		[ $name, $args ] = self::compact_call_identity( $function_call );
 		if ( ! self::is_post_creation_tool( $name ) ) {
 			return '';
 		}
-
-		$args = self::compact_tool_payload_array( $function_call['args'] ?? array() );
 		if ( self::tool_name_has_suffix( $name, 'batch-create-posts' ) ) {
 			$posts  = isset( $args['posts'] ) && is_array( $args['posts'] ) ? $args['posts'] : array();
 			$titles = array();
@@ -554,12 +562,10 @@ class ConversationTrimmer {
 	 * @param array<string,mixed> $function_response Serialized function response.
 	 */
 	private static function compact_post_mutation_response_receipt( array $function_response ): string {
-		$name = self::compact_tool_name( $function_response['name'] ?? 'tool' );
+		[ $name, $response ] = self::compact_response_identity( $function_response );
 		if ( ! self::is_post_creation_tool( $name ) ) {
 			return '';
 		}
-
-		$response = self::compact_tool_payload_array( $function_response['response'] ?? array() );
 		if ( self::tool_name_has_suffix( $name, 'batch-create-posts' ) ) {
 			$results  = isset( $response['results'] ) && is_array( $response['results'] ) ? $response['results'] : array();
 			$entities = array();
@@ -588,6 +594,43 @@ class ConversationTrimmer {
 	private static function is_post_creation_tool( string $name ): bool {
 		return self::tool_name_has_suffix( $name, 'create-post' )
 			|| self::tool_name_has_suffix( $name, 'batch-create-posts' );
+	}
+
+	/** Preserve the stable identifiers returned by media and form creation tools. */
+	private static function compact_resource_response_receipt( array $function_response ): string {
+		[ $name, $response ] = self::compact_response_identity( $function_response );
+		if ( ! self::is_compact_resource_tool( $name ) ) {
+			return '';
+		}
+
+		$summary = self::compact_receipt_fields(
+			$response,
+			array( 'success', 'attachment_id', 'title', 'alt', 'source', 'attribution', 'provider', 'form_id', 'shortcode', 'error' )
+		);
+
+		return '[tool result: ' . $name . ' resource=' . self::compact_receipt_json( $summary ) . ']';
+	}
+
+	/** Preserve bounded intent for media and form creation calls. */
+	private static function compact_resource_call_receipt( array $function_call ): string {
+		[ $name, $args ] = self::compact_call_identity( $function_call );
+		if ( ! self::is_compact_resource_tool( $name ) ) {
+			return '';
+		}
+
+		$summary = self::compact_receipt_fields(
+			$args,
+			array( 'action', 'keyword', 'usage', 'orientation', 'title', 'recipient_email' )
+		);
+
+		return '[tool call: ' . $name . ' args=' . self::compact_receipt_json( $summary ) . ']';
+	}
+
+	/** Whether a tool creates a reusable media or form resource. */
+	private static function is_compact_resource_tool( string $name ): bool {
+		return self::tool_name_has_suffix( $name, 'stock-image' )
+			|| self::tool_name_has_suffix( $name, 'generate-image' )
+			|| self::tool_name_has_suffix( $name, 'create-contact-form' );
 	}
 
 	/**
@@ -848,6 +891,42 @@ class ConversationTrimmer {
 	private static function tool_name_has_suffix( string $name, string $suffix ): bool {
 		return str_ends_with( strtolower( $name ), '/' . $suffix )
 			|| str_ends_with( strtolower( $name ), '__' . $suffix );
+	}
+
+	/**
+	 * Resolve a direct tool call or an ability-call dispatcher envelope.
+	 *
+	 * @return array{0:string,1:array<string,mixed>}
+	 */
+	private static function compact_call_identity( array $function_call ): array {
+		$name = self::compact_tool_name( $function_call['name'] ?? 'tool' );
+		$args = self::compact_tool_payload_array( $function_call['args'] ?? array() );
+		if ( self::tool_name_has_suffix( $name, 'ability-call' ) && isset( $args['ability'] ) && is_scalar( $args['ability'] ) ) {
+			$name = self::compact_tool_name( $args['ability'] );
+			$args = self::compact_tool_payload_array( $args['arguments'] ?? array() );
+		}
+
+		return array( $name, $args );
+	}
+
+	/**
+	 * Resolve a direct tool result or an ability-call dispatcher envelope.
+	 *
+	 * @return array{0:string,1:array<string,mixed>}
+	 */
+	private static function compact_response_identity( array $function_response ): array {
+		$name     = self::compact_tool_name( $function_response['name'] ?? 'tool' );
+		$response = self::compact_tool_payload_array( $function_response['response'] ?? array() );
+		if ( self::tool_name_has_suffix( $name, 'ability-call' ) && isset( $response['ability'] ) && is_scalar( $response['ability'] ) ) {
+			$name   = self::compact_tool_name( $response['ability'] );
+			$result = self::compact_tool_payload_array( $response['result'] ?? array() );
+			if ( isset( $response['success'] ) && ! isset( $result['success'] ) ) {
+				$result['success'] = (bool) $response['success'];
+			}
+			$response = $result;
+		}
+
+		return array( $name, $response );
 	}
 
 	/** Normalize a JSON-or-array tool payload without retaining it beyond the caller. */

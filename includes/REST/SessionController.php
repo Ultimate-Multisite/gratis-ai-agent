@@ -15,6 +15,7 @@ use SdAiAgent\Abilities\Js\JsAbilityCatalog;
 use SdAiAgent\Core\AgentLoop;
 use SdAiAgent\Core\AgentEventLog;
 use SdAiAgent\Core\ActiveJobFailureDiagnostic;
+use SdAiAgent\Core\BackgroundJobDispatcher;
 use SdAiAgent\Core\ConversationDisplaySanitizer;
 use SdAiAgent\Core\ConversationSerializer;
 use SdAiAgent\Core\ConversationTrimmer;
@@ -1742,20 +1743,7 @@ final class SessionController {
 		}
 
 		set_transient( RestController::JOB_PREFIX . $job_id, $job, RestController::JOB_TTL );
-		wp_remote_post(
-			rest_url( RestController::NAMESPACE . '/process' ),
-			array(
-				'timeout'  => 0.01,
-				'blocking' => false,
-				'body'     => (string) wp_json_encode(
-					array(
-						'job_id' => $job_id,
-						'token'  => $token,
-					)
-				),
-				'headers'  => array( 'Content-Type' => 'application/json' ),
-			)
-		);
+		BackgroundJobDispatcher::dispatch( $job_id, $token );
 
 		return $this->checkpoint_resume_outcome( true, false, 'resumed', $metadata, $phase );
 	}
@@ -2536,22 +2524,7 @@ final class SessionController {
 		set_transient( RestController::JOB_PREFIX . $job_id, $job, RestController::JOB_TTL );
 		ActiveJobRepository::create( 0, $job_id, 0 );
 
-		wp_remote_post(
-			rest_url( RestController::NAMESPACE . '/process' ),
-			array(
-				'timeout'  => 0.01,
-				'blocking' => false,
-				'body'     => (string) wp_json_encode(
-					array(
-						'job_id' => $job_id,
-						'token'  => $job_token,
-					)
-				),
-				'headers'  => array(
-					'Content-Type' => 'application/json',
-				),
-			)
-		);
+		BackgroundJobDispatcher::dispatch( $job_id, $job_token );
 
 		return $this->add_public_chat_cors(
 			new WP_REST_Response(
@@ -3354,20 +3327,7 @@ final class SessionController {
 		set_transient( RestController::JOB_PREFIX . $job_id, $job, RestController::JOB_TTL );
 		ActiveJobRepository::create( $session_id, $job_id, get_current_user_id() );
 
-		wp_remote_post(
-			rest_url( RestController::NAMESPACE . '/process' ),
-			array(
-				'timeout'  => 0.01,
-				'blocking' => false,
-				'body'     => (string) wp_json_encode(
-					array(
-						'job_id' => $job_id,
-						'token'  => $token,
-					)
-				),
-				'headers'  => array( 'Content-Type' => 'application/json' ),
-			)
-		);
+		BackgroundJobDispatcher::dispatch( $job_id, $token );
 
 		return new WP_REST_Response(
 			array(
@@ -3478,23 +3438,7 @@ final class SessionController {
 			ActiveJobRepository::update_status( $job_id, 'processing' );
 		}
 
-		// Spawn background worker.
-		wp_remote_post(
-			rest_url( RestController::NAMESPACE . '/process' ),
-			array(
-				'timeout'  => 0.01,
-				'blocking' => false,
-				'body'     => (string) wp_json_encode(
-					[
-						'job_id' => $job_id,
-						'token'  => $token,
-					]
-				),
-				'headers'  => array(
-					'Content-Type' => 'application/json',
-				),
-			)
-		);
+		BackgroundJobDispatcher::dispatch( $job_id, $token );
 
 		return new WP_REST_Response(
 			array(
@@ -3572,23 +3516,7 @@ final class SessionController {
 			$durable_plan_requested ? 'queued' : 'processing'
 		);
 
-		// Spawn background worker via non-blocking loopback.
-		wp_remote_post(
-			rest_url( RestController::NAMESPACE . '/process' ),
-			array(
-				'timeout'  => 0.01,
-				'blocking' => false,
-				'body'     => (string) wp_json_encode(
-					[
-						'job_id' => $job_id,
-						'token'  => $token,
-					]
-				),
-				'headers'  => array(
-					'Content-Type' => 'application/json',
-				),
-			)
-		);
+		BackgroundJobDispatcher::dispatch( $job_id, $token );
 
 		return new WP_REST_Response(
 			array(
@@ -4662,20 +4590,7 @@ final class SessionController {
 			return new WP_Error( 'sd_ai_agent_plan_enqueue_failed', __( 'The durable plan phase could not be queued.', 'superdav-ai-agent' ), [ 'status' => 500 ] );
 		}
 
-		wp_remote_post(
-			rest_url( RestController::NAMESPACE . '/process' ),
-			array(
-				'timeout'  => 0.01,
-				'blocking' => false,
-				'body'     => (string) wp_json_encode(
-					array(
-						'job_id' => $job_id,
-						'token'  => $token,
-					)
-				),
-				'headers'  => array( 'Content-Type' => 'application/json' ),
-			)
-		);
+		BackgroundJobDispatcher::dispatch( $job_id, $token );
 
 		return array(
 			'status' => 'processing',

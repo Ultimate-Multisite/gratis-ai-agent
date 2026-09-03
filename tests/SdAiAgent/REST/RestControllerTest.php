@@ -2842,6 +2842,64 @@ class RestControllerTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * A browser-tool continuation that requests a mutating server tool must stay
+	 * paused for confirmation instead of being finalized as an empty success.
+	 */
+	public function test_client_tool_resume_preserves_followup_confirmation(): void {
+		wp_set_current_user( $this->admin_id );
+
+		$session_id = Database::create_session( [
+			'user_id' => $this->admin_id,
+			'title'   => 'Browser validation follow-up confirmation',
+		] );
+		$job_id    = '55555555-6666-7777-8888-999999999999';
+		$pending   = [
+			[
+				'name' => 'wpab__sd-ai-agent__update-template-part',
+				'args' => [ 'slug' => 'header' ],
+			],
+		];
+		$result    = [
+			'awaiting_confirmation'       => true,
+			'pending_tools'               => $pending,
+			'history'                     => [ [ 'role' => 'user', 'parts' => [ [ 'text' => 'Repair the header.' ] ] ] ],
+			'tool_call_log'               => [ [ 'type' => 'call', 'name' => $pending[0]['name'], 'args' => $pending[0]['args'] ] ],
+			'message_log'                 => [ [ 'type' => 'event', 'reason' => 'confirmation_required' ] ],
+			'token_usage'                 => [ 'prompt' => 12, 'completion' => 3 ],
+			'approved_once_abilities'     => [ 'sd-ai-agent/update-template-part' ],
+			'confirmation_message'        => [ 'role' => 'model', 'parts' => [] ],
+			'confirmation_history_before' => [],
+			'mutation_policy_context'     => [ 'requires_clarification' => false ],
+			'iterations_remaining'        => 73,
+		];
+
+		ActiveJobRepository::create( $session_id, $job_id, $this->admin_id, 'processing' );
+		set_transient(
+			RestController::JOB_PREFIX . $job_id,
+			[
+				'status' => 'processing',
+				'params' => [ 'session_id' => $session_id, 'agent_id' => 1 ],
+			],
+			RestController::JOB_TTL
+		);
+
+		$method = new \ReflectionMethod( RestController::class, 'update_job_after_resume' );
+		$method->invoke( null, $job_id, 'awaiting_confirmation', $result, $session_id );
+
+		$job = get_transient( RestController::JOB_PREFIX . $job_id );
+		$this->assertIsArray( $job );
+		$this->assertSame( 'awaiting_confirmation', $job['status'] );
+		$this->assertSame( $pending, $job['pending_tools'] );
+		$this->assertSame( 73, $job['confirmation_state']['iterations_remaining'] );
+		$this->assertSame( [ 'session_id' => $session_id, 'agent_id' => 1 ], $job['params'] );
+
+		$row = ActiveJobRepository::get_by_job_id( $job_id );
+		$this->assertNotNull( $row );
+		$this->assertSame( 'awaiting_confirmation', $row->status );
+		$this->assertSame( $pending, json_decode( $row->pending_tools, true ) );
+	}
+
+	/**
 	 * Invalid browser batches are rejected before resume and preserve the paused
 	 * state so the exact pending calls can still be submitted.
 	 */

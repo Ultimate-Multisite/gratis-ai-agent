@@ -1305,6 +1305,9 @@ class PostAbilities {
 
 		// @phpstan-ignore-next-line
 		$page_template = sanitize_text_field( $input['page_template'] ?? '' );
+		if ( 'page' === $post_type && '' === $page_template && self::content_has_h1( $content ) ) {
+			$page_template = self::find_no_title_page_template();
+		}
 
 		$post_id = wp_insert_post( $post_data, true );
 
@@ -1456,6 +1459,36 @@ class PostAbilities {
 			'error_count'   => $error_count,
 			'affected'      => $affected,
 		];
+	}
+
+	/**
+	 * Return whether page content owns the primary heading.
+	 *
+	 * @param string $content Sanitized post content.
+	 * @return bool
+	 */
+	private static function content_has_h1( string $content ): bool {
+		return 1 === preg_match( '/<h1(?:\s|>)/i', $content )
+			|| 1 === preg_match( '/<!--\s+wp:heading\s+\{[^}]*"level"\s*:\s*1[^}]*\}/i', $content );
+	}
+
+	/**
+	 * Find an active-theme page template explicitly intended to suppress titles.
+	 *
+	 * This prevents a composed page hero from gaining a second H1 through the
+	 * surrounding theme template. Explicit caller choices always take priority.
+	 *
+	 * @return string Empty when the active theme exposes no unambiguous option.
+	 */
+	private static function find_no_title_page_template(): string {
+		foreach ( wp_get_theme()->get_page_templates() as $template => $label ) {
+			if ( false !== stripos( (string) $template, 'no-title' )
+				|| 1 === preg_match( '/\bno[\s-]+title\b/i', (string) $label ) ) {
+				return sanitize_text_field( (string) $template );
+			}
+		}
+
+		return '';
 	}
 
 	/**

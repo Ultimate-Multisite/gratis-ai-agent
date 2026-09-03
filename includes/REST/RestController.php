@@ -722,6 +722,23 @@ Assistant: %s',
 
 		/** @var array<string, mixed> $result */
 
+		// A browser-side validation result can lead the resumed model to request
+		// a mutating PHP ability. Preserve that confirmation pause instead of
+		// treating the unfinished function-call turn as a completed job.
+		if ( ! empty( $result['awaiting_confirmation'] ) ) {
+			self::update_job_after_resume( $job_id, 'awaiting_confirmation', $result, $session_id );
+
+			return new WP_REST_Response(
+				array(
+					'status'                => 'awaiting_confirmation',
+					'awaiting_confirmation' => true,
+					'pending_tools'         => $result['pending_tools'] ?? array(),
+					'session_id'            => $session_id,
+				),
+				200
+			);
+		}
+
 		// Handle another client-side pause (chained JS tool calls).
 		if ( ! empty( $result['pending_client_tool_calls'] ) ) {
 			// Sync the job transient so the browser's next poll sees
@@ -883,7 +900,7 @@ Assistant: %s',
 	 * the DB fallback row) to match the actual post-resume state.
 	 *
 	 * @param string               $job_id     Job UUID supplied by the browser. No-op when empty.
-	 * @param string               $new_status 'awaiting_client_tools' (chained pause) or 'complete'.
+	 * @param string               $new_status 'awaiting_confirmation', 'awaiting_client_tools', or 'complete'.
 	 * @param array<string, mixed> $result     Raw loop result from resume_after_client_tools().
 	 * @param int                  $session_id Session ID used to populate result['session_id'].
 	 */
@@ -899,6 +916,48 @@ Assistant: %s',
 
 		$transient_key = self::JOB_PREFIX . $job_id;
 		$job           = get_transient( $transient_key );
+
+		if ( 'awaiting_confirmation' === $new_status ) {
+			/** @var list<array<string, mixed>> $pending_tools */
+			$pending_tools = (array) ( $result['pending_tools'] ?? array() );
+			/** @var list<array<string, mixed>> $tool_calls */
+			$tool_calls = (array) ( $result['tool_call_log'] ?? array() );
+			/** @var list<array<string, mixed>> $messages */
+			$messages = (array) ( $result['message_log'] ?? array() );
+
+			if ( is_array( $job ) ) {
+				unset( $job['token'], $job['pending_client_tool_calls'] );
+				$job['status']             = 'awaiting_confirmation';
+				$job['pending_tools']      = $pending_tools;
+				$job['tool_calls']         = $tool_calls;
+				$job['messages']           = $messages;
+				$job['confirmation_state'] = array(
+					'history'                     => $result['history'] ?? array(),
+					'tool_call_log'               => $tool_calls,
+					'message_log'                 => $messages,
+					'token_usage'                 => $result['token_usage'] ?? array(
+						'prompt'     => 0,
+						'completion' => 0,
+					),
+					'approved_once_abilities'     => $result['approved_once_abilities'] ?? array(),
+					'confirmation_message'        => $result['confirmation_message'] ?? array(),
+					'confirmation_history_before' => $result['confirmation_history_before'] ?? null,
+					'mutation_policy_context'     => $result['mutation_policy_context'] ?? array(),
+					'iterations_remaining'        => $result['iterations_remaining'] ?? 100,
+				);
+				set_transient( $transient_key, $job, self::JOB_TTL );
+			}
+
+			ActiveJobRepository::update_status(
+				$job_id,
+				'awaiting_confirmation',
+				array(
+					'pending_tools' => wp_json_encode( $pending_tools ),
+					'tool_calls'    => wp_json_encode( $tool_calls ),
+				)
+			);
+			return;
+		}
 
 		if ( 'awaiting_client_tools' === $new_status ) {
 			/** @var list<array<string, mixed>> $pending_calls */
