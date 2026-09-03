@@ -81,8 +81,12 @@ final class SuperdavAiTranscriptionClient {
 			return $this->error( 'sd_ai_agent_invalid_transcription_prompt', __( 'The transcription prompt is invalid.', 'superdav-ai-agent' ), 400 );
 		}
 
-		$boundary = 'sd-ai-agent-' . bin2hex( random_bytes( 16 ) );
-		$body     = $this->build_multipart_body( $audio, $language, $prompt, $boundary );
+		try {
+			$boundary = 'sd-ai-agent-' . bin2hex( random_bytes( 16 ) );
+		} catch ( \Random\RandomException ) {
+			return $this->unavailable_error();
+		}
+		$body = $this->build_multipart_body( $audio, $language, $prompt, $boundary );
 		if ( strlen( $body ) > self::MAX_REQUEST_BYTES ) {
 			return $this->error( 'sd_ai_agent_audio_too_large', __( 'The audio recording exceeds the supported size limit.', 'superdav-ai-agent' ), 413 );
 		}

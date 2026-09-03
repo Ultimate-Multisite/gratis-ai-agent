@@ -145,7 +145,7 @@ final class SpeechController extends XWP_REST_Controller {
 			}
 
 			$detected_mime = $this->detect_mime_type( $temporary_path );
-			if ( ! in_array( $detected_mime, array( 'audio/wav', 'audio/x-wav', 'audio/wave', 'audio/vnd.wave' ), true ) ) {
+			if ( '' !== $detected_mime && ! in_array( $detected_mime, array( 'audio/wav', 'audio/x-wav', 'audio/wave', 'audio/vnd.wave' ), true ) ) {
 				return $this->invalid_audio_error();
 			}
 
