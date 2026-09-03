@@ -1,165 +1,160 @@
 /**
  * WordPress dependencies
  */
-import { useState, useRef, useCallback, useEffect } from '@wordpress/element';
+import apiFetch from '@wordpress/api-fetch';
+import { useCallback, useEffect, useRef, useState } from '@wordpress/element';
+
+import useAudioRecorder from './use-audio-recorder';
 
 /**
- * Whether the browser supports the Web Speech API SpeechRecognition interface.
+ * Whether the browser can capture audio for managed transcription.
  *
  * @type {boolean}
  */
 export const isSpeechRecognitionSupported =
-	typeof window !== 'undefined' &&
-	( 'SpeechRecognition' in window || 'webkitSpeechRecognition' in window );
+	typeof navigator !== 'undefined' &&
+	!! navigator.mediaDevices?.getUserMedia &&
+	typeof MediaRecorder !== 'undefined';
 
 /**
- * The SpeechRecognition constructor, if available.
+ * Record one user-initiated turn and send it to the authenticated speech API.
  *
- * @type {Function|null}
- */
-const getSpeechRecognition = () => {
-	if ( typeof window === 'undefined' ) {
-		return null;
-	}
-	return window.SpeechRecognition || window.webkitSpeechRecognition || null;
-};
-
-/**
- * Custom hook for push-to-talk speech recognition via the browser Web Speech API.
- *
- * Returns an object with:
- *   - isListening {boolean}  — true while the mic is active.
- *   - isSupported {boolean}  — false when the browser lacks SpeechRecognition.
- *   - transcript  {string}   — the latest interim/final transcript text.
- *   - error       {string|null} — last error message, or null.
- *   - startListening  {Function} — begin recording.
- *   - stopListening   {Function} — stop recording.
- *   - toggleListening {Function} — toggle start/stop.
- *   - resetTranscript {Function} — clear the transcript.
- *
- * @param {Object}   [options]                     - Configuration options.
- * @param {string}   [options.lang='']             - BCP-47 language tag (e.g. 'en-US').
- *                                                 Empty string uses the browser default.
- * @param {boolean}  [options.continuous=false]    - Keep listening after a pause.
- * @param {boolean}  [options.interimResults=true] - Emit interim (in-progress) results.
- * @param {Function} [options.onResult]            - Called with the transcript string on
- *                                                 each result event.
- * @param {Function} [options.onEnd]               - Called when recognition ends.
- * @return {Object} Speech recognition state and controls.
+ * @param {Object}   options          Configuration.
+ * @param {string}   options.lang     Initial BCP-47 language hint.
+ * @param {Function} options.onResult Called once with final text and language.
+ * @param {Function} options.onEnd    Called after a completed or failed turn.
+ * @return {Object} Speech recording state and controls.
  */
 export default function useSpeechRecognition( {
 	lang = '',
-	continuous = false,
-	interimResults = true,
 	onResult,
 	onEnd,
 } = {} ) {
-	const isSupported = isSpeechRecognitionSupported;
-
 	const [ isListening, setIsListening ] = useState( false );
 	const [ transcript, setTranscript ] = useState( '' );
 	const [ error, setError ] = useState( null );
+	const [ capabilities, setCapabilities ] = useState( null );
+	const requestRef = useRef( null );
+	const generationRef = useRef( 0 );
 
-	const recognitionRef = useRef( null );
-	// Track whether the stop was intentional (user action) vs automatic (end of speech).
-	const intentionalStopRef = useRef( false );
+	const transcribe = useCallback(
+		async ( { blob, mimeType } ) => {
+			const generation = generationRef.current;
+			const controller = new AbortController();
+			requestRef.current = controller;
+			const body = new FormData();
+			body.append(
+				'audio',
+				blob,
+				`recording.${ mimeType.split( '/' )[ 1 ] }`
+			);
+			if ( lang ) {
+				body.append( 'language', lang );
+			}
 
-	// Cleanup on unmount.
+			try {
+				const result = await apiFetch( {
+					body,
+					method: 'POST',
+					path: '/sd-ai-agent/v1/speech/transcriptions',
+					signal: controller.signal,
+				} );
+				if ( generation !== generationRef.current ) {
+					return;
+				}
+				const finalTranscript = result?.text?.trim();
+				if ( finalTranscript ) {
+					setTranscript( finalTranscript );
+					onResult?.( finalTranscript, result.language || '' );
+				}
+			} catch ( caughtError ) {
+				if (
+					caughtError?.name !== 'AbortError' &&
+					generation === generationRef.current
+				) {
+					setError(
+						caughtError?.message ||
+							'Unable to transcribe the recording.'
+					);
+				}
+			} finally {
+				if ( generation === generationRef.current ) {
+					setIsListening( false );
+					onEnd?.();
+				}
+			}
+		},
+		[ lang, onEnd, onResult ]
+	);
+
+	const {
+		cancel,
+		error: recorderError,
+		start,
+		status,
+		stop,
+	} = useAudioRecorder( {
+		acceptedMimeTypes: capabilities?.accepted_mime_types || [],
+		maxBytes: capabilities?.max_recording_bytes || 0,
+		maxDurationMs: capabilities?.max_recording_duration_ms || 0,
+		onComplete: transcribe,
+	} );
+
 	useEffect( () => {
 		return () => {
-			if ( recognitionRef.current ) {
-				intentionalStopRef.current = true;
-				recognitionRef.current.abort();
-			}
+			generationRef.current += 1;
+			requestRef.current?.abort();
+			cancel();
 		};
-	}, [] );
+	}, [ cancel ] );
 
-	const startListening = useCallback( () => {
-		if ( ! isSupported || isListening ) {
+	const startListening = useCallback( async () => {
+		if ( ! isSpeechRecognitionSupported || isListening ) {
 			return;
 		}
-
-		const SpeechRecognition = getSpeechRecognition();
-		if ( ! SpeechRecognition ) {
-			return;
-		}
-
 		setError( null );
 		setTranscript( '' );
-		intentionalStopRef.current = false;
-
-		const recognition = new SpeechRecognition();
-		recognition.lang = lang;
-		recognition.continuous = continuous;
-		recognition.interimResults = interimResults;
-
-		recognition.onstart = () => {
+		try {
+			const nextCapabilities =
+				capabilities ||
+				( await apiFetch( {
+					path: '/sd-ai-agent/v1/speech/capabilities',
+				} ) );
+			setCapabilities( nextCapabilities );
 			setIsListening( true );
-		};
-
-		recognition.onresult = ( event ) => {
-			let fullTranscript = '';
-			for ( let i = 0; i < event.results.length; i++ ) {
-				fullTranscript += event.results[ i ][ 0 ].transcript;
-			}
-			setTranscript( fullTranscript );
-			if ( onResult ) {
-				onResult( fullTranscript );
-			}
-		};
-
-		recognition.onerror = ( event ) => {
-			// 'aborted' fires when we call abort() intentionally — not a real error.
-			if ( event.error !== 'aborted' ) {
-				setError( event.error );
-			}
-			setIsListening( false );
-		};
-
-		recognition.onend = () => {
-			setIsListening( false );
-			if ( onEnd ) {
-				onEnd();
-			}
-		};
-
-		recognitionRef.current = recognition;
-		recognition.start();
-	}, [
-		isSupported,
-		isListening,
-		lang,
-		continuous,
-		interimResults,
-		onResult,
-		onEnd,
-	] );
+			start( {
+				acceptedMimeTypes: nextCapabilities.accepted_mime_types || [],
+				maxBytes: nextCapabilities.max_recording_bytes || 0,
+				maxDurationMs: nextCapabilities.max_recording_duration_ms || 0,
+			} );
+		} catch ( caughtError ) {
+			setError(
+				caughtError?.message || 'Speech services are unavailable.'
+			);
+		}
+	}, [ capabilities, isListening, start ] );
 
 	const stopListening = useCallback( () => {
-		if ( recognitionRef.current ) {
-			intentionalStopRef.current = true;
-			recognitionRef.current.stop();
-		}
+		stop();
 		setIsListening( false );
-	}, [] );
+	}, [ stop ] );
 
 	const toggleListening = useCallback( () => {
 		if ( isListening ) {
 			stopListening();
-		} else {
-			startListening();
+			return;
 		}
+		startListening();
 	}, [ isListening, startListening, stopListening ] );
 
-	const resetTranscript = useCallback( () => {
-		setTranscript( '' );
-	}, [] );
+	const resetTranscript = useCallback( () => setTranscript( '' ), [] );
 
 	return {
 		isListening,
-		isSupported,
+		isSupported: isSpeechRecognitionSupported,
 		transcript,
-		error,
+		error: error || recorderError,
+		status,
 		startListening,
 		stopListening,
 		toggleListening,
