@@ -20,11 +20,15 @@ import AgentPicker from './AgentPicker';
 /**
  * Render the full-size chat composer.
  *
- * @param {Object}  root0
- * @param {boolean} root0.isSimpleMode Whether customer/simple UI mode is active.
+ * @param {Object}  root0                   Component properties.
+ * @param {boolean} root0.isSimpleMode      Whether customer/simple UI mode is active.
+ * @param {Object}  root0.voiceConversation Managed voice coordinator.
  * @return {JSX.Element} Main-chat composer.
  */
-export default function InputArea( { isSimpleMode = false } = {} ) {
+export default function InputArea( {
+	isSimpleMode = false,
+	voiceConversation,
+} = {} ) {
 	const composer = useChatComposer( {
 		isSimpleMode,
 		maxTextareaHeight: 200,
@@ -32,6 +36,7 @@ export default function InputArea( { isSimpleMode = false } = {} ) {
 			'Ask the agent to do something, or type / for commands…',
 			'superdav-ai-agent'
 		),
+		voiceConversation,
 	} );
 	const sendLabel = composer.sending
 		? __( 'Queue message', 'superdav-ai-agent' )
@@ -39,6 +44,11 @@ export default function InputArea( { isSimpleMode = false } = {} ) {
 
 	return (
 		<div className="sdaa-cr-input-area">
+			{ composer.speechPhase !== 'idle' && composer.speechStatus && (
+				<span className="sd-ai-agent-voice-status" aria-live="polite">
+					{ composer.speechStatus }
+				</span>
+			) }
 			{ ! isSimpleMode && composer.showSlash && (
 				<SlashCommandMenu
 					filter={ composer.text }
@@ -65,12 +75,12 @@ export default function InputArea( { isSimpleMode = false } = {} ) {
 						  ) }
 				</div>
 			) }
-			{ composer.attachmentError && (
+			{ ( composer.attachmentError || composer.speechError ) && (
 				<div
 					className="sd-ai-agent-composer-attachment-error"
 					role="alert"
 				>
-					{ composer.attachmentError }
+					{ composer.attachmentError || composer.speechError }
 				</div>
 			) }
 			<div className="sdaa-cr-input-inner">
@@ -187,6 +197,7 @@ export default function InputArea( { isSimpleMode = false } = {} ) {
 										composer.isListening ? ' is-active' : ''
 									}` }
 									onClick={ composer.toggleListening }
+									disabled={ composer.micDisabled }
 									aria-label={
 										composer.isListening
 											? __(

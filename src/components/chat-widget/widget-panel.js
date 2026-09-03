@@ -14,6 +14,7 @@ import ErrorBoundary from '../error-boundary';
 import ToolConfirmationDialog from '../tool-confirmation-dialog';
 import ProposalPanel from '../proposal-panel';
 import useChangesCount from '../use-changes-count';
+import useVoiceConversation from '../use-voice-conversation';
 import ChangesDrawer from '../chat-redesign/ChangesDrawer';
 import { isCustomerSimpleMode } from '../../utils/chat-ui-mode';
 // chat-redesign base styles (.sdaa-cr-*) are only needed by panel
@@ -66,6 +67,7 @@ export default function WidgetPanel( {
 	}, [] );
 
 	const [ showChanges, setShowChanges ] = useState( false );
+	const voiceConversation = useVoiceConversation();
 
 	// Auto-confirm pending tool calls when YOLO is on.
 	useEffect( () => {
@@ -187,6 +189,7 @@ export default function WidgetPanel( {
 				}
 			>
 				<WidgetHeader
+					voiceConversation={ voiceConversation }
 					isMinimized={ isMinimized }
 					onToggleMinimize={ toggleMinimize }
 					isSimpleMode={ isSimpleMode }
@@ -246,7 +249,9 @@ export default function WidgetPanel( {
 							{ showEmpty ? (
 								<WidgetEmpty />
 							) : (
-								<WidgetMessageList />
+								<WidgetMessageList
+									voiceConversation={ voiceConversation }
+								/>
 							) }
 						</ErrorBoundary>
 						{ ! isSimpleMode && showChanges && (
@@ -265,7 +270,10 @@ export default function WidgetPanel( {
 					<ErrorBoundary
 						label={ __( 'Message input', 'sd-ai-agent' ) }
 					>
-						<WidgetInput isSimpleMode={ isSimpleMode } />
+						<WidgetInput
+							isSimpleMode={ isSimpleMode }
+							voiceConversation={ voiceConversation }
+						/>
 					</ErrorBoundary>
 				) }
 

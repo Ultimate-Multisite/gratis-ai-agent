@@ -16,6 +16,32 @@ export const isTTSSupported =
 	typeof Audio !== 'undefined' &&
 	typeof URL !== 'undefined' &&
 	typeof URL.createObjectURL === 'function';
+const isBrowserFallbackSupported =
+	typeof globalThis.speechSynthesis !== 'undefined' &&
+	typeof globalThis.SpeechSynthesisUtterance !== 'undefined';
+
+/**
+ * Load the managed speech contract for preference controls.
+ *
+ * @return {Object|null} Managed speech capabilities.
+ */
+export function useSpeechCapabilities() {
+	const [ capabilities, setCapabilities ] = useState( null );
+	useEffect( () => {
+		let active = true;
+		loadSpeechCapabilities()
+			.then( ( result ) => {
+				if ( active ) {
+					setCapabilities( result );
+				}
+			} )
+			.catch( () => undefined );
+		return () => {
+			active = false;
+		};
+	}, [] );
+	return capabilities;
+}
 
 /**
  * Load managed voices in the legacy selector shape used by settings.
@@ -23,49 +49,33 @@ export const isTTSSupported =
  * @return {Object[]} Managed voice options.
  */
 export function useAvailableVoices() {
-	const [ voices, setVoices ] = useState( [] );
-	useEffect( () => {
-		let active = true;
-		loadSpeechCapabilities()
-			.then( ( capabilities ) => {
-				if ( ! active ) {
-					return;
-				}
-				setVoices(
-					capabilities.text_to_speech.voices.map( ( voice ) => ( {
-						lang: voice.locales[ 0 ] || '',
-						name: voice.name,
-						voiceURI: voice.id,
-					} ) )
-				);
-			} )
-			.catch( () => {
-				if ( active ) {
-					setVoices( [] );
-				}
-			} );
-		return () => {
-			active = false;
-		};
-	}, [] );
-	return voices;
+	const capabilities = useSpeechCapabilities();
+	return (
+		capabilities?.text_to_speech?.voices.map( ( voice ) => ( {
+			lang: voice.locales[ 0 ] || '',
+			name: voice.name,
+			voiceURI: voice.id,
+		} ) ) || []
+	);
 }
 
 /**
  * Speak text through the authenticated managed synthesis route.
  *
- * @param {Object}   options           Configuration.
- * @param {string}   options.lang      Initial BCP-47 language hint.
- * @param {Function} options.onEnd     Called after playback finishes.
- * @param {Function} options.onError   Called after synthesis/playback fails.
- * @param {Function} options.onStart   Called when managed playback starts.
- * @param {number}   options.rate      Requested playback speed.
- * @param {string}   options.sessionId Optional managed session identifier.
- * @param {string}   options.voice     Preferred managed voice identifier.
- * @param {string}   options.voiceURI  Legacy preferred voice identifier.
+ * @param {Object}   options                      Configuration.
+ * @param {boolean}  options.allowBrowserFallback Allow explicit browser fallback.
+ * @param {string}   options.lang                 Initial BCP-47 language hint.
+ * @param {Function} options.onEnd                Called after playback finishes.
+ * @param {Function} options.onError              Called after synthesis/playback fails.
+ * @param {Function} options.onStart              Called when managed playback starts.
+ * @param {number}   options.rate                 Requested playback speed.
+ * @param {string}   options.sessionId            Optional managed session identifier.
+ * @param {string}   options.voice                Preferred managed voice identifier.
+ * @param {string}   options.voiceURI             Legacy preferred voice identifier.
  * @return {Object} Managed speech controls and state.
  */
 export default function useTextToSpeech( {
+	allowBrowserFallback = false,
 	lang = '',
 	onEnd,
 	onError,
@@ -81,6 +91,8 @@ export default function useTextToSpeech( {
 	const abortRef = useRef( null );
 	const audioRef = useRef( null );
 	const generationRef = useRef( 0 );
+	const nativeRef = useRef( null );
+	const nativeResolveRef = useRef( null );
 	const objectUrlRef = useRef( '' );
 	const playbackResolveRef = useRef( null );
 
@@ -102,13 +114,27 @@ export default function useTextToSpeech( {
 		playbackResolveRef.current = null;
 	}, [] );
 
+	const releaseNative = useCallback( ( settlePlayback = true ) => {
+		if ( nativeRef.current ) {
+			nativeRef.current.onend = null;
+			nativeRef.current.onerror = null;
+			globalThis.speechSynthesis.cancel();
+			nativeRef.current = null;
+		}
+		if ( settlePlayback && nativeResolveRef.current ) {
+			nativeResolveRef.current();
+		}
+		nativeResolveRef.current = null;
+	}, [] );
+
 	const cancel = useCallback( () => {
 		generationRef.current += 1;
 		abortRef.current?.abort();
 		abortRef.current = null;
 		releaseAudio();
+		releaseNative();
 		setIsSpeaking( false );
-	}, [ releaseAudio ] );
+	}, [ releaseAudio, releaseNative ] );
 
 	useEffect( () => cancel, [ cancel ] );
 
@@ -140,6 +166,33 @@ export default function useTextToSpeech( {
 		[ releaseAudio ]
 	);
 
+	const playBrowserFallback = useCallback(
+		( text, generation, language, speed ) =>
+			new Promise( ( resolve, reject ) => {
+				if ( generation !== generationRef.current ) {
+					resolve();
+					return;
+				}
+				const utterance = new globalThis.SpeechSynthesisUtterance(
+					text
+				);
+				utterance.lang = language;
+				utterance.rate = Math.min( 10, Math.max( 0.1, speed ) );
+				nativeRef.current = utterance;
+				nativeResolveRef.current = resolve;
+				utterance.onend = () => {
+					releaseNative( false );
+					resolve();
+				};
+				utterance.onerror = () => {
+					releaseNative( false );
+					reject( new Error( 'Unable to play browser speech.' ) );
+				};
+				globalThis.speechSynthesis.speak( utterance );
+			} ),
+		[ releaseNative ]
+	);
+
 	const speak = useCallback(
 		async ( text, turnOptions = {} ) => {
 			const speechText = toSpeakableText( String( text || '' ) );
@@ -149,6 +202,13 @@ export default function useTextToSpeech( {
 
 			cancel();
 			const generation = generationRef.current;
+			const fallbackLanguage =
+				turnOptions.lang ||
+				lang ||
+				globalThis.navigator?.language ||
+				'';
+			const fallbackSpeed = Number( turnOptions.rate ?? rate ) || 1;
+			let playbackStarted = false;
 			setError( null );
 			setIsSpeaking( true );
 
@@ -195,8 +255,6 @@ export default function useTextToSpeech( {
 					speechText,
 					synthesis.max_input_characters
 				);
-				let playbackStarted = false;
-
 				for ( const chunk of chunks ) {
 					if ( generation !== generationRef.current ) {
 						return false;
@@ -234,12 +292,34 @@ export default function useTextToSpeech( {
 				}
 				return true;
 			} catch ( caughtError ) {
+				let failure = caughtError;
 				if (
+					allowBrowserFallback &&
+					isBrowserFallbackSupported &&
+					! playbackStarted &&
 					caughtError?.name !== 'AbortError' &&
 					generation === generationRef.current
 				) {
+					try {
+						playbackStarted = true;
+						onStart?.();
+						await playBrowserFallback(
+							speechText,
+							generation,
+							fallbackLanguage,
+							fallbackSpeed
+						);
+						return true;
+					} catch ( fallbackError ) {
+						failure = fallbackError;
+					}
+				}
+				if (
+					failure?.name !== 'AbortError' &&
+					generation === generationRef.current
+				) {
 					const message =
-						caughtError?.message || 'Unable to synthesize speech.';
+						failure?.message || 'Unable to synthesize speech.';
 					setError( message );
 					onError?.( message );
 				}
@@ -248,12 +328,14 @@ export default function useTextToSpeech( {
 				if ( generation === generationRef.current ) {
 					abortRef.current = null;
 					releaseAudio();
+					releaseNative();
 					setIsSpeaking( false );
 					onEnd?.();
 				}
 			}
 		},
 		[
+			allowBrowserFallback,
 			cancel,
 			capabilities,
 			lang,
@@ -261,8 +343,10 @@ export default function useTextToSpeech( {
 			onError,
 			onStart,
 			playBlob,
+			playBrowserFallback,
 			rate,
 			releaseAudio,
+			releaseNative,
 			sessionId,
 			voice,
 			voiceURI,
