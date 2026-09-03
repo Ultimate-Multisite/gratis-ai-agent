@@ -65,6 +65,9 @@ final class SuperdavAiModelMetadataDirectory extends AbstractOpenAiCompatibleMod
 				: $item['id'];
 
 			$capabilities = self::supported_capabilities( $item );
+			if ( null === $capabilities ) {
+				continue;
+			}
 
 			$models[] = new ModelMetadata(
 				$item['id'],
@@ -85,11 +88,31 @@ final class SuperdavAiModelMetadataDirectory extends AbstractOpenAiCompatibleMod
 	 * @return list<SupportedOption>
 	 */
 	private static function supported_options( array $capabilities ): array {
+		if ( self::has_capability( $capabilities, CapabilityEnum::textToSpeechConversion() ) ) {
+			return self::text_to_speech_supported_options();
+		}
+
 		if ( self::has_capability( $capabilities, CapabilityEnum::imageGeneration() ) ) {
 			return self::image_supported_options();
 		}
 
 		return self::text_supported_options();
+	}
+
+	/**
+	 * Managed text-to-speech options matching the service capability contract.
+	 *
+	 * @return list<SupportedOption>
+	 */
+	private static function text_to_speech_supported_options(): array {
+		return array(
+			new SupportedOption( OptionEnum::inputModalities(), array( array( ModalityEnum::text() ) ) ),
+			new SupportedOption( OptionEnum::outputModalities(), array( array( ModalityEnum::audio() ) ) ),
+			new SupportedOption( OptionEnum::outputFileType(), array( FileTypeEnum::inline() ) ),
+			new SupportedOption( OptionEnum::outputMimeType(), array_keys( SuperdavAiTextToSpeechConversionModel::MIME_TYPE_TO_RESPONSE_FORMAT ) ),
+			new SupportedOption( OptionEnum::outputSpeechVoice(), SuperdavAiTextToSpeechConversionModel::SUPPORTED_VOICES ),
+			new SupportedOption( OptionEnum::customOptions() ),
+		);
 	}
 
 	/**
@@ -168,15 +191,17 @@ final class SuperdavAiModelMetadataDirectory extends AbstractOpenAiCompatibleMod
 	 * Parse provider-advertised capability flags into SDK capability enums.
 	 *
 	 * @param array<string, mixed> $item Model item from `/v1/models`.
-	 * @return list<CapabilityEnum>
+	 * @return list<CapabilityEnum>|null Known capabilities, or null for explicitly unsupported models.
 	 */
-	private static function supported_capabilities( array $item ): array {
-		$values = array();
+	private static function supported_capabilities( array $item ): ?array {
+		$values                    = array();
+		$has_explicit_capabilities = false;
 
 		foreach ( array( 'capabilities', 'supported_capabilities' ) as $key ) {
 			if ( ! isset( $item[ $key ] ) || ! is_array( $item[ $key ] ) ) {
 				continue;
 			}
+			$has_explicit_capabilities = true;
 			foreach ( $item[ $key ] as $capability_key => $capability_value ) {
 				if ( is_string( $capability_key ) && true === $capability_value ) {
 					$values[] = $capability_key;
@@ -189,12 +214,22 @@ final class SuperdavAiModelMetadataDirectory extends AbstractOpenAiCompatibleMod
 		}
 
 		foreach ( $item as $key => $value ) {
-			if ( is_string( $key ) && str_starts_with( $key, 'supports_' ) && true === $value ) {
-				$values[] = substr( $key, strlen( 'supports_' ) );
+			if ( ! is_string( $key ) || ! str_starts_with( $key, 'supports_' ) ) {
+				continue;
+			}
+
+			$capability = str_replace( '-', '_', strtolower( substr( $key, strlen( 'supports_' ) ) ) );
+			if ( 'tool_calling' === $capability ) {
+				continue;
+			}
+
+			$has_explicit_capabilities = true;
+			if ( true === $value ) {
+				$values[] = $capability;
 			}
 		}
 
-		if ( array() === $values ) {
+		if ( ! $has_explicit_capabilities ) {
 			return array( CapabilityEnum::textGeneration() );
 		}
 
@@ -206,6 +241,6 @@ final class SuperdavAiModelMetadataDirectory extends AbstractOpenAiCompatibleMod
 			}
 		}
 
-		return array() === $capabilities ? array( CapabilityEnum::textGeneration() ) : $capabilities;
+		return array() === $capabilities ? null : $capabilities;
 	}
 }

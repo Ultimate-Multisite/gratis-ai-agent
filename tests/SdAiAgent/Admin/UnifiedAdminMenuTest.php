@@ -34,6 +34,13 @@ class UnifiedAdminMenuTest extends WP_UnitTestCase {
 		$this->admin_id = self::factory()->user->create( [ 'role' => 'administrator' ] );
 	}
 
+	public function tear_down(): void {
+		remove_all_filters( 'locale' );
+		wp_dequeue_script( 'sd-ai-agent-unified-admin' );
+		wp_deregister_script( 'sd-ai-agent-unified-admin' );
+		parent::tear_down();
+	}
+
 	// ─── Constants ────────────────────────────────────────────────────────────
 
 	/**
@@ -351,6 +358,27 @@ class UnifiedAdminMenuTest extends WP_UnitTestCase {
 		remove_all_filters( 'sd_ai_agent_build_dir' );
 
 		$this->assertFalse( wp_script_is( 'sd-ai-agent-unified-admin', 'enqueued' ) );
+	}
+
+	/** The unified admin receives separate normalized user and site speech hints. */
+	public function test_enqueue_assets_localizes_speech_locale_hints(): void {
+		wp_set_current_user( $this->admin_id );
+		update_user_meta( $this->admin_id, 'locale', 'fr_FR' );
+		add_filter( 'locale', static fn(): string => 'pt_BR' );
+		$fixture_dir = dirname( __DIR__, 2 ) . '/fixtures/assets';
+		add_filter( 'sd_ai_agent_build_dir', static fn() => $fixture_dir );
+
+		UnifiedAdminMenu::enqueueAssets( 'toplevel_page_' . UnifiedAdminMenu::SLUG );
+		remove_all_filters( 'sd_ai_agent_build_dir' );
+
+		$script_data = (string) wp_scripts()->get_data( 'sd-ai-agent-unified-admin', 'data' );
+		$matched     = preg_match( '/var sdAiAgentData = (\{[^\n]+\});/', $script_data, $matches );
+		$this->assertSame( 1, $matched );
+		$data = json_decode( $matches[1], true );
+		$this->assertIsArray( $data );
+		$this->assertSame( 'fr-FR', $data['speechLocales']['user_locale'] );
+		$this->assertSame( 'pt-BR', $data['speechLocales']['site_locale'] );
+		$this->assertSame( 'fr-FR', $data['speechLocales']['initial_locale'] );
 	}
 
 	// ─── render ───────────────────────────────────────────────────────────────

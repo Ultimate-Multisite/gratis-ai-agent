@@ -53,6 +53,9 @@ namespace WordPress\AiClient\Messages\Enums {
 		/** @return bool */
 		public function isUser(): bool { return false; }
 
+		/** @return self */
+		public static function model(): self { return new self(); }
+
 		/**
 		 * Allow casting to string.
 		 *
@@ -530,6 +533,18 @@ namespace WordPress\AiClient\Providers\Models\DTO {
 
 		/** @param array<string, mixed> $customOptions Custom provider options. */
 		public function setCustomOptions( array $customOptions ): void {}
+
+		/** @return string|null */
+		public function getOutputMimeType(): ?string { return null; }
+
+		/** @param string $outputMimeType Output MIME type. */
+		public function setOutputMimeType( string $outputMimeType ): void {}
+
+		/** @return string|null */
+		public function getOutputSpeechVoice(): ?string { return null; }
+
+		/** @param string $outputSpeechVoice Output speech voice. */
+		public function setOutputSpeechVoice( string $outputSpeechVoice ): void {}
 	}
 }
 
@@ -654,11 +669,22 @@ namespace WordPress\AiClient\Providers\Models\TextGeneration\Contracts {
 	}
 }
 
+namespace WordPress\AiClient\Providers\Models\TextToSpeechConversion\Contracts {
+
+	interface TextToSpeechConversionModelInterface {
+		/**
+		 * @param list<\WordPress\AiClient\Messages\DTO\Message> $prompt Prompt messages.
+		 * @return \WordPress\AiClient\Results\DTO\GenerativeAiResult
+		 */
+		public function convertTextToSpeechResult( array $prompt ): \WordPress\AiClient\Results\DTO\GenerativeAiResult;
+	}
+}
+
 namespace WordPress\AiClient\Providers\Http\Contracts {
 
 	interface HttpTransporterInterface {
 		/** @return \WordPress\AiClient\Providers\Http\DTO\Response */
-		public function send( \WordPress\AiClient\Providers\Http\DTO\Request $request ): \WordPress\AiClient\Providers\Http\DTO\Response;
+		public function send( \WordPress\AiClient\Providers\Http\DTO\Request $request, ?\WordPress\AiClient\Providers\Http\DTO\RequestOptions $options = null ): \WordPress\AiClient\Providers\Http\DTO\Response;
 	}
 
 	interface RequestAuthenticationInterface {
@@ -680,6 +706,9 @@ namespace WordPress\AiClient\Providers\Http\Enums {
 	}
 
 	class HttpMethodEnum {
+		/** @return self */
+		public static function GET(): self { return new self(); }
+
 		/** @return self */
 		public static function POST(): self { return new self(); }
 	}
@@ -707,6 +736,16 @@ namespace WordPress\AiClient\Providers\Http\DTO {
 		/** @param float|null $timeout Timeout in seconds. */
 		public function setTimeout( ?float $timeout ): void {}
 
+		/** @param float|null $timeout Connection timeout in seconds. */
+		public function setConnectTimeout( ?float $timeout ): void {}
+
+		public function getConnectTimeout(): ?float { return null; }
+
+		/** @param int|null $max_redirects Maximum redirect count. */
+		public function setMaxRedirects( ?int $max_redirects ): void {}
+
+		public function getMaxRedirects(): ?int { return null; }
+
 		/**
 		 * @param array<string, mixed> $array Request options.
 		 * @return self
@@ -717,6 +756,16 @@ namespace WordPress\AiClient\Providers\Http\DTO {
 	class Response {
 		/** @return array<string, mixed>|null */
 		public function getData(): ?array { return null; }
+
+		/** @return string|null */
+		public function getBody(): ?string { return null; }
+
+		/** @return string|null */
+		public function getHeaderAsString( string $name ): ?string { return null; }
+
+		public function getStatusCode(): int { return 200; }
+
+		public function isSuccessful(): bool { return true; }
 	}
 
 	class ApiKeyRequestAuthentication implements \WordPress\AiClient\Providers\Http\Contracts\RequestAuthenticationInterface {
@@ -750,6 +799,9 @@ namespace WordPress\AiClient\Providers\Http\Exception {
 	class ResponseException extends \Exception {
 		/** @return self */
 		public static function fromMissingData( string $apiName, string $fieldName ): self { return new self(); }
+
+		/** @return self */
+		public static function fromInvalidData( string $apiName, string $fieldName, string $message ): self { return new self(); }
 	}
 }
 
@@ -757,6 +809,15 @@ namespace WordPress\AiClient\Providers\Http\Util {
 
 	class ResponseUtil {
 		public static function throwIfNotSuccessful( \WordPress\AiClient\Providers\Http\DTO\Response $response ): void {}
+	}
+}
+
+namespace WordPress\AiClient\Providers\ApiBasedImplementation\Contracts {
+
+	interface ApiBasedModelInterface extends \WordPress\AiClient\Providers\Models\Contracts\ModelInterface {
+		public function setRequestOptions( \WordPress\AiClient\Providers\Http\DTO\RequestOptions $request_options ): void;
+
+		public function getRequestOptions(): ?\WordPress\AiClient\Providers\Http\DTO\RequestOptions;
 	}
 }
 
@@ -795,7 +856,7 @@ namespace WordPress\AiClient\Providers\ApiBasedImplementation {
 		public static function url( string $path = '' ): string { return $path; }
 	}
 
-	abstract class AbstractApiBasedModel implements \WordPress\AiClient\Providers\Models\Contracts\ModelInterface {
+	abstract class AbstractApiBasedModel implements \WordPress\AiClient\Providers\ApiBasedImplementation\Contracts\ApiBasedModelInterface {
 		/**
 		 * @param \WordPress\AiClient\Providers\Models\DTO\ModelMetadata $metadata Model metadata.
 		 * @param \WordPress\AiClient\Providers\DTO\ProviderMetadata $providerMetadata Provider metadata.
@@ -820,7 +881,7 @@ namespace WordPress\AiClient\Providers\ApiBasedImplementation {
 		/** @return \WordPress\AiClient\Providers\Http\Contracts\HttpTransporterInterface */
 		public function getHttpTransporter(): \WordPress\AiClient\Providers\Http\Contracts\HttpTransporterInterface {
 			return new class() implements \WordPress\AiClient\Providers\Http\Contracts\HttpTransporterInterface {
-				public function send( \WordPress\AiClient\Providers\Http\DTO\Request $request ): \WordPress\AiClient\Providers\Http\DTO\Response { return new \WordPress\AiClient\Providers\Http\DTO\Response(); }
+				public function send( \WordPress\AiClient\Providers\Http\DTO\Request $request, ?\WordPress\AiClient\Providers\Http\DTO\RequestOptions $options = null ): \WordPress\AiClient\Providers\Http\DTO\Response { return new \WordPress\AiClient\Providers\Http\DTO\Response(); }
 			};
 		}
 
@@ -886,7 +947,7 @@ namespace WordPress\AiClient\Providers\OpenAiCompatibleImplementation {
 		/** @return \WordPress\AiClient\Providers\Http\Contracts\HttpTransporterInterface */
 		public function getHttpTransporter(): \WordPress\AiClient\Providers\Http\Contracts\HttpTransporterInterface {
 			return new class() implements \WordPress\AiClient\Providers\Http\Contracts\HttpTransporterInterface {
-				public function send( \WordPress\AiClient\Providers\Http\DTO\Request $request ): \WordPress\AiClient\Providers\Http\DTO\Response { return new \WordPress\AiClient\Providers\Http\DTO\Response(); }
+				public function send( \WordPress\AiClient\Providers\Http\DTO\Request $request, ?\WordPress\AiClient\Providers\Http\DTO\RequestOptions $options = null ): \WordPress\AiClient\Providers\Http\DTO\Response { return new \WordPress\AiClient\Providers\Http\DTO\Response(); }
 			};
 		}
 
@@ -941,7 +1002,7 @@ namespace WordPress\AiClient\Providers\OpenAiCompatibleImplementation {
 		/** @return \WordPress\AiClient\Providers\Http\Contracts\HttpTransporterInterface */
 		public function getHttpTransporter(): \WordPress\AiClient\Providers\Http\Contracts\HttpTransporterInterface {
 			return new class() implements \WordPress\AiClient\Providers\Http\Contracts\HttpTransporterInterface {
-				public function send( \WordPress\AiClient\Providers\Http\DTO\Request $request ): \WordPress\AiClient\Providers\Http\DTO\Response { return new \WordPress\AiClient\Providers\Http\DTO\Response(); }
+				public function send( \WordPress\AiClient\Providers\Http\DTO\Request $request, ?\WordPress\AiClient\Providers\Http\DTO\RequestOptions $options = null ): \WordPress\AiClient\Providers\Http\DTO\Response { return new \WordPress\AiClient\Providers\Http\DTO\Response(); }
 			};
 		}
 
@@ -992,10 +1053,17 @@ namespace WordPress\AiClient {
 		 * @param string $model_id
 		 * @return mixed
 		 */
-		public function getProviderModel( string $provider_id, string $model_id ): mixed { return null; }
+		public function getProviderModel( string $provider_id, string $model_id, ?\WordPress\AiClient\Providers\Models\DTO\ModelConfig $model_config = null ): mixed { return null; }
 
 		/** @param string $provider_id */
 		public function getProviderRequestAuthentication( string $provider_id ): mixed { return null; }
+
+		/** @return \WordPress\AiClient\Providers\Http\Contracts\HttpTransporterInterface */
+		public function getHttpTransporter(): \WordPress\AiClient\Providers\Http\Contracts\HttpTransporterInterface {
+			return new class() implements \WordPress\AiClient\Providers\Http\Contracts\HttpTransporterInterface {
+				public function send( \WordPress\AiClient\Providers\Http\DTO\Request $request, ?\WordPress\AiClient\Providers\Http\DTO\RequestOptions $options = null ): \WordPress\AiClient\Providers\Http\DTO\Response { return new \WordPress\AiClient\Providers\Http\DTO\Response(); }
+			};
+		}
 
 		/**
 		 * @param string $provider_id

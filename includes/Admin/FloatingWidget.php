@@ -17,6 +17,7 @@ use SdAiAgent\Core\Features;
 use SdAiAgent\Core\OnboardingManager;
 use SdAiAgent\Core\RolePermissions;
 use SdAiAgent\Core\Settings;
+use SdAiAgent\Core\SpeechLocaleResolver;
 
 if ( ! defined( 'ABSPATH' ) ) {
 	exit;
@@ -167,6 +168,7 @@ class FloatingWidget {
 		}
 
 		$onboarding_complete = OnboardingManager::is_complete();
+		$speech_locales      = ( new SpeechLocaleResolver() )->resolve();
 		$is_frontend         = 'frontend' === $context;
 		$force_onboarding    = false;
 		$viewed_post_id      = 0;
@@ -193,6 +195,7 @@ class FloatingWidget {
 			'sdAiAgentData',
 			[
 				'currentUserId'       => get_current_user_id(),
+				'speechLocales'       => $speech_locales,
 				'context'             => $context,
 				'isFrontend'          => $is_frontend,
 				'frontendOnboarding'  => ( $is_frontend && ( ! $onboarding_complete || $force_onboarding ) ) ? '1' : '',

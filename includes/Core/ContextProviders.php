@@ -229,18 +229,25 @@ class ContextProviders {
 	 * @return array<string, mixed>
 	 */
 	public static function provide_user_context( array $page_context ): array {
-		$user = wp_get_current_user();
+		$user    = wp_get_current_user();
+		$locales = ( new SpeechLocaleResolver() )->resolve();
 
 		if ( ! $user || ! $user->exists() ) {
 			return [];
 		}
 
-		return [
+		$data = [
 			'Name'  => $user->display_name,
 			'Login' => $user->user_login,
 			'Email' => $user->user_email,
 			'Roles' => implode( ', ', $user->roles ),
 		];
+		if ( '' !== $locales['user_locale'] ) {
+			$data['Preferred User Language'] = $locales['user_locale'];
+			$data['Language Guidance']       = 'Treat the preferred language as an initial hint. Follow the language the user actually uses when it differs.';
+		}
+
+		return $data;
 	}
 
 	/**
@@ -252,7 +259,8 @@ class ContextProviders {
 	public static function provide_site_context( array $page_context ): array {
 		global $wp_version;
 
-		$theme = wp_get_theme();
+		$theme   = wp_get_theme();
+		$locales = ( new SpeechLocaleResolver() )->resolve();
 		// @phpstan-ignore-next-line
 		$plugin_count = count( get_option( 'active_plugins', [] ) );
 
@@ -263,6 +271,9 @@ class ContextProviders {
 			'Theme'          => $theme->get( 'Name' ) . ' ' . $theme->get( 'Version' ),
 			'Active Plugins' => (string) $plugin_count,
 		];
+		if ( '' !== $locales['site_locale'] ) {
+			$data['Site Language'] = $locales['site_locale'];
+		}
 
 		if ( is_multisite() ) {
 			$is_subdomain      = function_exists( 'is_subdomain_install' ) && is_subdomain_install();
