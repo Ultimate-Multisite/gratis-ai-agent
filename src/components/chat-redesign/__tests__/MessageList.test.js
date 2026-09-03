@@ -23,6 +23,7 @@ jest.mock( '@wordpress/i18n', () => ( {
 jest.mock( '../../../store', () => 'sd-ai-agent' );
 
 jest.mock( '../../feedback-consent-modal', () => () => null );
+jest.mock( '../../automatic-feedback-prompt', () => () => null );
 
 jest.mock( '../../use-text-to-speech', () => () => ( {
 	speak: jest.fn(),

@@ -187,8 +187,8 @@ export const initialState = {
 	// { reason: string, attempted_steps: string[] } or null.
 	inabilityReported: null,
 
-	// Feedback banner (t183) — set when the AI exits due to spin/timeout/max_iterations.
-	// { exitReason: string } or null.
+	// Completed-job feedback prompt (t183) — set for explicit tool/runtime failures.
+	// { reason?: string, exitReason?: string, eventId?: string } or null.
 	feedbackBanner: null,
 
 	// Message queue — messages typed while the agent is processing.
@@ -406,9 +406,9 @@ export const actions = {
 	},
 
 	/**
-	 * Set or clear the feedback banner (t183).
-	 * Set to an object { exitReason } when the AI exits due to
-	 * spin_detected, timeout, or max_iterations; set to null to dismiss.
+	 * Set or clear the completed-job feedback prompt (t183).
+	 * Set to failure metadata after an explicit tool/runtime failure; set to
+	 * null when the user responds or a new job starts.
 	 *
 	 * @param {Object|null} data - Banner data or null.
 	 * @return {Object} Redux action.
@@ -1685,8 +1685,7 @@ export const selectors = {
 	},
 
 	/**
-	 * Get feedback banner data (t183).
-	 * Returns { exitReason } when the AI exited due to spin/timeout/max_iterations, or null.
+	 * Get completed-job feedback prompt data (t183).
 	 *
 	 * @param {import('../../types').StoreState} state
 	 * @return {Object|null} Feedback banner data or null.

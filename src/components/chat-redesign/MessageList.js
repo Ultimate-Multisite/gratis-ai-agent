@@ -13,6 +13,7 @@ import { __ } from '@wordpress/i18n';
 
 import STORE_NAME from '../../store';
 import ActionCard from '../action-card';
+import AutomaticFeedbackPrompt from '../automatic-feedback-prompt';
 import CompactConversationActionCard from '../compact-conversation-action-card';
 import FeedbackConsentModal from '../feedback-consent-modal';
 import useTextToSpeech from '../use-text-to-speech';
@@ -48,6 +49,7 @@ export default function MessageList() {
 		pendingActionCard,
 		providers,
 		showToolCallDetails,
+		feedbackBanner,
 	} = useSelect( ( sel ) => {
 		const store = sel( STORE_NAME );
 		const settings = store.getSettings();
@@ -71,6 +73,7 @@ export default function MessageList() {
 			pendingActionCard: store.getPendingActionCard(),
 			providers: store.getProviders(),
 			showToolCallDetails: settings?.show_tool_call_details === true,
+			feedbackBanner: store.getFeedbackBanner?.() || null,
 		};
 	}, [] );
 
@@ -230,6 +233,13 @@ export default function MessageList() {
 								onCancel={ () => setPendingActionCard( null ) }
 							/>
 						) }
+
+					{ ! sending && (
+						<AutomaticFeedbackPrompt
+							sessionId={ currentSessionId }
+							failure={ feedbackBanner }
+						/>
+					) }
 				</div>
 			</div>
 

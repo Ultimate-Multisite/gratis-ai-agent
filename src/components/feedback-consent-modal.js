@@ -8,8 +8,8 @@ import apiFetch from '@wordpress/api-fetch';
 /**
  * Feedback consent modal.
  *
- * Shown when the user invokes /report-issue, clicks a thumbs-down button, or
- * when the auto-prompt banner fires on spin_detected / timeout / max_iterations.
+ * Shown when the user invokes /report-issue or clicks a thumbs-down button.
+ * Detected completed-job failures use the separate four-choice inline prompt.
  *
  * Features (t182):
  *   1. Summary stats: message count, tool call count, environment keys.

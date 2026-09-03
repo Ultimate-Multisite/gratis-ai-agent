@@ -206,6 +206,7 @@ System notices:
 - Account-action notices (billing, connection, setup) should use `Surface Active` with `Border Accent`, `role="status"`, friendly action-oriented copy, and a single primary button-style link CTA when an action URL is available.
 - Avoid framing customer account actions as errors; do not surface provider phrases such as “rejected” or “insufficient” in the chat UI when a clearer next step is available.
 - Background-job failure cards use fixed, customer-safe copy with one next step, an optional safe last-completed phase, and a correlation ID for support. Never show provider errors, prompts, tool payloads, paths, or stack traces; only show a retry button when retry is the prescribed action.
+- After a completed job has an explicit tool or runtime failure, show a compact warning-surface reporting prompt with **No**, **No, never**, **Yes**, and **Yes, always** choices. Explain the sanitized diagnostic payload in supporting text, keep **Yes, always** as the single primary action, and stack the copy and actions on compact screens.
 
 ### Cards (suggestion / template)
 
