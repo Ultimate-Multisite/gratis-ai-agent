@@ -32,6 +32,7 @@ final class SuperdavAiProvider extends AbstractApiProvider {
 	public const DEFAULT_MODEL_ID           = 'superdav-chat-pro';
 	public const STRONG_MODEL_ID            = 'superdav-chat-strong';
 	public const IMAGE_MODEL_ID             = 'superdav-image';
+	public const TEXT_TO_SPEECH_MODEL_ID    = 'superdav-tts';
 	public const SESSION_ATTRIBUTION_HEADER = 'X-Superdav-Session-ID';
 	public const JOURNEY_ATTRIBUTION_HEADER = 'X-Superdav-Journey-ID';
 	public const IDEMPOTENCY_HEADER         = 'Idempotency-Key';

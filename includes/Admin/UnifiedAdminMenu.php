@@ -15,6 +15,7 @@ namespace SdAiAgent\Admin;
 
 use SdAiAgent\Core\Features;
 use SdAiAgent\Core\InstructionsAddendum;
+use SdAiAgent\Core\SpeechLocaleResolver;
 use SdAiAgent\Core\WordPressPaths;
 
 if ( ! defined( 'ABSPATH' ) ) {
@@ -308,7 +309,8 @@ class UnifiedAdminMenu {
 			wp_set_script_translations( 'sd-ai-agent-admin-page', 'superdav-ai-agent' );
 		}
 
-		$current_user = wp_get_current_user();
+		$current_user   = wp_get_current_user();
+		$speech_locales = ( new SpeechLocaleResolver() )->resolve();
 
 		wp_localize_script(
 			'sd-ai-agent-unified-admin',
@@ -319,6 +321,7 @@ class UnifiedAdminMenu {
 				'restNamespace'        => 'sd-ai-agent/v1',
 				'ajaxUrl'              => admin_url( 'admin-ajax.php' ),
 				'nonce'                => wp_create_nonce( 'wp_rest' ),
+				'speechLocales'        => $speech_locales,
 				'initialRoute'         => self::getCurrentRoute(),
 				'menuItems'            => self::getMenuItems(),
 				'connectorsUrl'        => self::getConnectorsUrl(),

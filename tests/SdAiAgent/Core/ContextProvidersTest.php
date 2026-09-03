@@ -35,6 +35,7 @@ class ContextProvidersTest extends WP_UnitTestCase {
 	 */
 	public function tear_down(): void {
 		$this->reset_static_state();
+		remove_all_filters( 'locale' );
 		parent::tear_down();
 	}
 
@@ -335,6 +336,7 @@ class ContextProvidersTest extends WP_UnitTestCase {
 				'role'         => 'administrator',
 			]
 		);
+		update_user_meta( $user_id, 'locale', 'fr_FR' );
 		wp_set_current_user( $user_id );
 
 		$result = ContextProviders::provide_user_context( [] );
@@ -344,6 +346,17 @@ class ContextProvidersTest extends WP_UnitTestCase {
 		$this->assertArrayHasKey( 'Email', $result );
 		$this->assertArrayHasKey( 'Roles', $result );
 		$this->assertSame( 'Test User', $result['Name'] );
+		$this->assertSame( 'fr-FR', $result['Preferred User Language'] );
+		$this->assertStringContainsString( 'language the user actually uses', $result['Language Guidance'] );
+	}
+
+	/** Site context exposes only the normalized site-language hint. */
+	public function test_provide_site_context_includes_site_language(): void {
+		add_filter( 'locale', static fn(): string => 'pt_BR' );
+
+		$result = ContextProviders::provide_site_context( array() );
+
+		$this->assertSame( 'pt-BR', $result['Site Language'] );
 	}
 
 	// ── provide_post_context ─────────────────────────────────────────────────

@@ -58,6 +58,7 @@ class FloatingWidgetTest extends WP_UnitTestCase {
 	public function tear_down(): void {
 		parent::tear_down();
 		delete_option( Settings::OPTION_NAME );
+		remove_all_filters( 'locale' );
 		wp_dequeue_script( 'sd-ai-agent-floating-widget' );
 		wp_deregister_script( 'sd-ai-agent-floating-widget' );
 	}
@@ -219,6 +220,24 @@ class FloatingWidgetTest extends WP_UnitTestCase {
 
 		$data = $this->get_localized_widget_data();
 		$this->assertSame( '', $data['settingsPageUrl'] );
+	}
+
+	/** The widget receives separate normalized user and site speech hints. */
+	public function test_enqueue_assets_frontend_localizes_speech_locale_hints(): void {
+		wp_set_current_user( $this->editor_id );
+		update_user_meta( $this->editor_id, 'locale', 'fr_FR' );
+		add_filter( 'locale', static fn(): string => 'pt_BR' );
+		Settings::instance()->update( [ 'show_on_frontend' => true ] );
+		$fixture_dir = dirname( __DIR__, 2 ) . '/fixtures/assets';
+		add_filter( 'sd_ai_agent_build_dir', static fn() => $fixture_dir );
+
+		FloatingWidget::enqueue_assets_frontend();
+		remove_all_filters( 'sd_ai_agent_build_dir' );
+
+		$data = $this->get_localized_widget_data();
+		$this->assertSame( 'fr-FR', $data['speechLocales']['user_locale'] );
+		$this->assertSame( 'pt-BR', $data['speechLocales']['site_locale'] );
+		$this->assertSame( 'fr-FR', $data['speechLocales']['initial_locale'] );
 	}
 
 	/**
