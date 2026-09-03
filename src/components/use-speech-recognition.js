@@ -3,6 +3,7 @@
  */
 import apiFetch from '@wordpress/api-fetch';
 import { useCallback, useEffect, useRef, useState } from '@wordpress/element';
+import { __ } from '@wordpress/i18n';
 
 import { loadSpeechCapabilities, recordingToWav } from '../utils/speech';
 import useAudioRecorder from './use-audio-recorder';
@@ -101,7 +102,10 @@ export default function useSpeechRecognition( {
 				) {
 					setError(
 						caughtError?.message ||
-							'Unable to transcribe the recording.'
+							__(
+								'Unable to transcribe the recording.',
+								'superdav-ai-agent'
+							)
 					);
 				}
 			} finally {
@@ -129,6 +133,37 @@ export default function useSpeechRecognition( {
 			( capabilities?.transcription?.max_duration_seconds || 0 ) * 1000,
 		onComplete: transcribe,
 	} );
+	const transcriptionCapabilities = capabilities?.transcription;
+	const hasManagedTranscription = Boolean(
+		isSpeechRecognitionSupported &&
+			capabilities?.available &&
+			Array.isArray(
+				transcriptionCapabilities?.accepted_input_mime_types
+			) &&
+			transcriptionCapabilities.accepted_input_mime_types.includes(
+				'audio/wav'
+			) &&
+			Number( transcriptionCapabilities.max_bytes ) > 44 &&
+			Number( transcriptionCapabilities.max_duration_seconds ) > 0
+	);
+
+	useEffect( () => {
+		if ( ! isSpeechRecognitionSupported ) {
+			return undefined;
+		}
+		let active = true;
+		loadSpeechCapabilities()
+			.then( ( result ) => {
+				if ( active ) {
+					capabilitiesRef.current = result;
+					setCapabilities( result );
+				}
+			} )
+			.catch( () => undefined );
+		return () => {
+			active = false;
+		};
+	}, [] );
 
 	useEffect( () => {
 		return () => {
@@ -189,19 +224,26 @@ export default function useSpeechRecognition( {
 				transcription.max_bytes > 44
 					? Math.floor( ( transcription.max_bytes - 44 ) / 32 )
 					: 0;
+			const durationLimits = [
+				( transcription.max_duration_seconds || 0 ) * 1000,
+				wavDurationLimit,
+			].filter( ( limit ) => limit > 0 );
 			return await start( {
 				acceptedMimeTypes:
 					transcription.accepted_input_mime_types || [],
 				maxBytes: transcription.max_bytes || 0,
-				maxDurationMs: Math.min(
-					( transcription.max_duration_seconds || 0 ) * 1000,
-					wavDurationLimit
-				),
+				maxDurationMs: durationLimits.length
+					? Math.min( ...durationLimits )
+					: 0,
 			} );
 		} catch ( caughtError ) {
 			if ( generation === generationRef.current ) {
 				setError(
-					caughtError?.message || 'Speech services are unavailable.'
+					caughtError?.message ||
+						__(
+							'Speech services are unavailable.',
+							'superdav-ai-agent'
+						)
 				);
 			}
 			return false;
@@ -254,7 +296,7 @@ export default function useSpeechRecognition( {
 		detectedLanguage,
 		isListening,
 		isTranscribing,
-		isSupported: isSpeechRecognitionSupported,
+		isSupported: hasManagedTranscription,
 		transcript,
 		error: error || recorderError,
 		status,

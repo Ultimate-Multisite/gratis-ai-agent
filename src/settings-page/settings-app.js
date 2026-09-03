@@ -23,6 +23,7 @@ import {
 	isBrowserFallbackSupported,
 	isTTSSupported,
 } from '../components/use-text-to-speech';
+import { isSpeechRecognitionSupported } from '../components/use-speech-recognition';
 import { isSoundSupported } from '../utils/sound-manager';
 
 /**
@@ -125,6 +126,34 @@ export default function SettingsApp() {
 		speechCapabilities?.text_to_speech?.speed?.minimum ?? 0.5;
 	const maximumSpeechSpeed =
 		speechCapabilities?.text_to_speech?.speed?.maximum ?? 2;
+	const transcriptionCapabilities = speechCapabilities?.transcription;
+	const canUseVoiceConversation = Boolean(
+		isSpeechRecognitionSupported &&
+			speechCapabilities?.available &&
+			Array.isArray(
+				transcriptionCapabilities?.accepted_input_mime_types
+			) &&
+			transcriptionCapabilities.accepted_input_mime_types.includes(
+				'audio/wav'
+			) &&
+			Number( transcriptionCapabilities.max_bytes ) > 44 &&
+			Number( transcriptionCapabilities.max_duration_seconds ) > 0
+	);
+
+	useEffect( () => {
+		if (
+			voiceConversationEnabled &&
+			( ! isSpeechRecognitionSupported ||
+				( speechCapabilities && ! canUseVoiceConversation ) )
+		) {
+			setVoiceConversationEnabled( false );
+		}
+	}, [
+		canUseVoiceConversation,
+		setVoiceConversationEnabled,
+		speechCapabilities,
+		voiceConversationEnabled,
+	] );
 
 	const { createNotice, removeNotice } = useDispatch( 'core/notices' );
 	const snackbarNotices = useSelect( ( select ) =>
@@ -1552,33 +1581,43 @@ export default function SettingsApp() {
 															/>
 														</td>
 													</tr>
-													<tr>
-														<th scope="row">
-															{ __(
-																'Voice mode',
-																'superdav-ai-agent'
-															) }
-														</th>
-														<td>
-															<ToggleControl
-																label={ __(
-																	'Send each recorded turn and read the response aloud',
+													{ canUseVoiceConversation && (
+														<tr>
+															<th scope="row">
+																{ __(
+																	'Voice mode',
 																	'superdav-ai-agent'
 																) }
-																checked={
-																	voiceConversationEnabled
-																}
-																onChange={
-																	setVoiceConversationEnabled
-																}
-																help={ __(
-																	'Microphone access still starts only when you press the microphone button.',
-																	'superdav-ai-agent'
-																) }
-																__nextHasNoMarginBottom
-															/>
-														</td>
-													</tr>
+															</th>
+															<td>
+																<ToggleControl
+																	label={ __(
+																		'Send each recorded turn and read the response aloud',
+																		'superdav-ai-agent'
+																	) }
+																	checked={
+																		voiceConversationEnabled
+																	}
+																	onChange={ (
+																		enabled
+																	) => {
+																		if (
+																			canUseVoiceConversation
+																		) {
+																			setVoiceConversationEnabled(
+																				enabled
+																			);
+																		}
+																	} }
+																	help={ __(
+																		'Microphone access still starts only when you press the microphone button.',
+																		'superdav-ai-agent'
+																	) }
+																	__nextHasNoMarginBottom
+																/>
+															</td>
+														</tr>
+													) }
 													<tr>
 														<th scope="row">
 															{ __(

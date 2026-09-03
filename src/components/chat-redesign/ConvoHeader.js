@@ -10,7 +10,6 @@ import { Icon, moreHorizontal, sidebar as sidebarIcon } from '@wordpress/icons';
 
 import STORE_NAME from '../../store';
 import { getBranding } from '../../utils/branding';
-import { isTTSSupported } from '../use-text-to-speech';
 import SessionContextMenu from '../session-context-menu';
 import { AiIcon, Microphone, Speaker, SpeakerMuted } from './icons';
 
@@ -171,7 +170,7 @@ export default function ConvoHeader( {
 						</button>
 					</span>
 				) }
-				{ isTTSSupported && (
+				{ voiceConversation.isSpeechSupported && (
 					<button
 						type="button"
 						className={ `sdaa-cr-icon-btn sdaa-tts-btn${

@@ -26,6 +26,7 @@ jest.mock( '../use-speech-recognition', () => jest.fn() );
 jest.mock( '../use-text-to-speech', () => jest.fn() );
 
 let coordinator;
+let coordinators;
 
 /**
  * @param {Object} props         Harness properties.
@@ -34,6 +35,7 @@ let coordinator;
  */
 function VoiceHarness( { surface } ) {
 	coordinator = useVoiceConversation( { surface } );
+	coordinators[ surface || 'main' ] = coordinator;
 	return null;
 }
 
@@ -45,6 +47,7 @@ describe( 'useVoiceConversation', () => {
 	let store;
 
 	beforeEach( () => {
+		coordinators = {};
 		container = document.createElement( 'div' );
 		document.body.appendChild( container );
 		root = createRoot( container );
@@ -118,6 +121,42 @@ describe( 'useVoiceConversation', () => {
 		).toBeLessThan(
 			currentRecognition.startListening.mock.invocationCallOrder[ 0 ]
 		);
+	} );
+
+	test( 'barge-in cancels playback owned by another chat surface', async () => {
+		const widgetContainer = document.createElement( 'div' );
+		document.body.appendChild( widgetContainer );
+		const widgetRoot = createRoot( widgetContainer );
+		let finishPlayback;
+		currentSpeech.speak.mockReturnValue(
+			new Promise( ( resolve ) => {
+				finishPlayback = resolve;
+			} )
+		);
+
+		await act( async () => root.render( <VoiceHarness surface="main" /> ) );
+		await act( async () =>
+			widgetRoot.render( <VoiceHarness surface="widget" /> )
+		);
+		currentSpeech.cancel.mockClear();
+		currentRecognition.startListening.mockClear();
+
+		act( () => {
+			coordinators.main.readAloud( 'Playing response' );
+		} );
+		await act( async () => coordinators.widget.startListening() );
+
+		expect( currentSpeech.cancel ).toHaveBeenCalledTimes( 1 );
+		expect( currentRecognition.startListening ).toHaveBeenCalledTimes( 1 );
+		expect(
+			currentSpeech.cancel.mock.invocationCallOrder[ 0 ]
+		).toBeLessThan(
+			currentRecognition.startListening.mock.invocationCallOrder[ 0 ]
+		);
+
+		await act( async () => finishPlayback( false ) );
+		act( () => widgetRoot.unmount() );
+		widgetContainer.remove();
 	} );
 
 	test( 'waits for the new model response before starting playback', async () => {

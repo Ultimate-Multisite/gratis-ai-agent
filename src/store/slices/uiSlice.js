@@ -5,20 +5,13 @@
 
 import apiFetch from '@wordpress/api-fetch';
 
-const CURRENT_USER_ID = globalThis.sdAiAgentData?.currentUserId || 0;
+const currentUserId = globalThis.sdAiAgentData?.currentUserId || 0;
 const speechStorageKey = ( preference ) =>
-	`sdAiAgent:${ CURRENT_USER_ID }:speech:${ preference }`;
+	`sdAiAgent:${ currentUserId }:speech:${ preference }`;
 
-const readSpeechPreference = ( preference, legacyKey, fallback = '' ) => {
+const readSpeechPreference = ( preference, fallback = '' ) => {
 	const key = speechStorageKey( preference );
-	let value = localStorage.getItem( key );
-	if ( value === null && legacyKey ) {
-		value = localStorage.getItem( legacyKey );
-		if ( value !== null ) {
-			localStorage.setItem( key, value );
-			localStorage.removeItem( legacyKey );
-		}
-	}
+	const value = localStorage.getItem( key );
 	return value ?? fallback;
 };
 
@@ -51,15 +44,10 @@ export const initialState = {
 	isBootstrapSession: false,
 
 	// Managed speech preferences are isolated by authenticated WordPress user.
-	ttsEnabled:
-		readSpeechPreference( 'readAloud', 'sdAiAgentTtsEnabled' ) === 'true',
-	ttsVoiceURI: readSpeechPreference( 'voiceId', 'sdAiAgentTtsVoiceURI' ),
-	ttsRate: parseFloat(
-		readSpeechPreference( 'speed', 'sdAiAgentTtsRate', '1' )
-	),
-	ttsPitch: parseFloat(
-		readSpeechPreference( 'legacyPitch', 'sdAiAgentTtsPitch', '1' )
-	),
+	ttsEnabled: readSpeechPreference( 'readAloud' ) === 'true',
+	ttsVoiceURI: readSpeechPreference( 'voiceId' ),
+	ttsRate: parseFloat( readSpeechPreference( 'speed', '1' ) ),
+	ttsPitch: parseFloat( readSpeechPreference( 'legacyPitch', '1' ) ),
 	voiceConversationEnabled: readSpeechPreference( 'voiceMode' ) === 'true',
 	speechFallbackEnabled: readSpeechPreference( 'browserFallback' ) === 'true',
 

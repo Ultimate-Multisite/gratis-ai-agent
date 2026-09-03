@@ -16,7 +16,7 @@ import { extractText } from './chat-redesign/message-helpers';
 import useSpeechRecognition from './use-speech-recognition';
 import useTextToSpeech from './use-text-to-speech';
 
-let playbackOwner = null;
+let activePlayback = null;
 
 const latestModelResponse = ( messages ) => {
 	for ( let index = messages.length - 1; index >= 0; index-- ) {
@@ -147,8 +147,8 @@ export default function useVoiceConversation( { surface = 'main' } = {} ) {
 	} );
 
 	const stopSpeaking = useCallback( () => {
-		if ( playbackOwner === ownerRef.current ) {
-			playbackOwner = null;
+		if ( activePlayback?.owner === ownerRef.current ) {
+			activePlayback = null;
 		}
 		cancelSpeech();
 		setPhase( 'idle' );
@@ -156,24 +156,35 @@ export default function useVoiceConversation( { surface = 'main' } = {} ) {
 
 	const readAloud = useCallback(
 		async ( text, options = {} ) => {
-			if ( playbackOwner && playbackOwner !== ownerRef.current ) {
+			if ( activePlayback && activePlayback.owner !== ownerRef.current ) {
 				setPhase( 'idle' );
 				return false;
 			}
-			playbackOwner = ownerRef.current;
+			const owner = ownerRef.current;
+			activePlayback = {
+				cancel: () => {
+					cancelSpeech();
+					setPhase( 'idle' );
+				},
+				owner,
+			};
 			setPhase( 'speaking' );
 			const completed = await speak( text, options );
-			if ( playbackOwner === ownerRef.current ) {
-				playbackOwner = null;
+			if ( activePlayback?.owner === owner ) {
+				activePlayback = null;
 				setPhase( completed ? 'idle' : 'error' );
 			}
 			return completed;
 		},
-		[ speak ]
+		[ cancelSpeech, speak ]
 	);
 
 	const startListening = useCallback( async () => {
-		if ( isSpeaking ) {
+		if ( activePlayback && activePlayback.owner !== ownerRef.current ) {
+			const cancelOwnerPlayback = activePlayback.cancel;
+			activePlayback = null;
+			cancelOwnerPlayback();
+		} else if ( activePlayback || isSpeaking ) {
 			stopSpeaking();
 		}
 		setPhase( 'loading_capabilities' );
@@ -307,8 +318,8 @@ export default function useVoiceConversation( { surface = 'main' } = {} ) {
 			);
 			window.removeEventListener( 'pagehide', stopForPageChange );
 			stopForPageChange();
-			if ( playbackOwner === owner ) {
-				playbackOwner = null;
+			if ( activePlayback?.owner === owner ) {
+				activePlayback = null;
 			}
 		};
 	}, [ cancelRecognition, stopSpeaking ] );

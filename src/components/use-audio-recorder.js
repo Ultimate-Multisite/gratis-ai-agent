@@ -2,6 +2,7 @@
  * WordPress dependencies
  */
 import { useCallback, useEffect, useRef, useState } from '@wordpress/element';
+import { __ } from '@wordpress/i18n';
 
 const DEFAULT_CONSTRAINTS = {
 	audio: {
@@ -23,12 +24,14 @@ const recorderError = ( error ) => {
 		error?.name === 'NotAllowedError' ||
 		error?.name === 'SecurityError'
 	) {
-		return 'Microphone permission was denied.';
+		return __( 'Microphone permission was denied.', 'superdav-ai-agent' );
 	}
 	if ( error?.name === 'NotFoundError' ) {
-		return 'No microphone is available.';
+		return __( 'No microphone is available.', 'superdav-ai-agent' );
 	}
-	return error?.message || 'Unable to record audio.';
+	return (
+		error?.message || __( 'Unable to record audio.', 'superdav-ai-agent' )
+	);
 };
 
 /**
@@ -100,7 +103,12 @@ export default function useAudioRecorder( {
 			const durationLimit =
 				capabilityOverrides.maxDurationMs ?? maxDurationMs;
 			if ( activeRef.current || typeof MediaRecorder === 'undefined' ) {
-				setError( 'Audio recording is not supported by this browser.' );
+				setError(
+					__(
+						'Audio recording is not supported by this browser.',
+						'superdav-ai-agent'
+					)
+				);
 				setStatus( 'error' );
 				return false;
 			}
@@ -113,7 +121,12 @@ export default function useAudioRecorder( {
 				MediaRecorder.isTypeSupported?.( candidate )
 			);
 			if ( ! mimeType ) {
-				setError( 'No supported audio format is available.' );
+				setError(
+					__(
+						'No supported audio format is available.',
+						'superdav-ai-agent'
+					)
+				);
 				setStatus( 'error' );
 				return false;
 			}
@@ -166,7 +179,12 @@ export default function useAudioRecorder( {
 					turn.chunks = [];
 					cleanupTurn( turn );
 					if ( generation === generationRef.current ) {
-						setError( 'The audio recorder failed.' );
+						setError(
+							__(
+								'The audio recorder failed.',
+								'superdav-ai-agent'
+							)
+						);
 						setStatus( 'error' );
 					}
 				};
@@ -181,7 +199,12 @@ export default function useAudioRecorder( {
 						return;
 					}
 					if ( turn.limitReached ) {
-						setError( 'The recording reached the service limit.' );
+						setError(
+							__(
+								'The recording reached the service limit.',
+								'superdav-ai-agent'
+							)
+						);
 						setStatus( 'error' );
 						return;
 					}
@@ -189,7 +212,12 @@ export default function useAudioRecorder( {
 						type: recorder.mimeType || mimeType,
 					} );
 					if ( ! blob.size ) {
-						setError( 'The recording did not contain audio.' );
+						setError(
+							__(
+								'The recording did not contain audio.',
+								'superdav-ai-agent'
+							)
+						);
 						setStatus( 'error' );
 						return;
 					}

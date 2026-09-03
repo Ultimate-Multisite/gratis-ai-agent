@@ -76,12 +76,20 @@ export default function WidgetInput( {
 						  ) }
 				</div>
 			) }
-			{ ( composer.attachmentError || composer.speechError ) && (
+			{ composer.attachmentError && (
 				<div
 					className="sd-ai-agent-composer-attachment-error"
 					role="alert"
 				>
-					{ composer.attachmentError || composer.speechError }
+					{ composer.attachmentError }
+				</div>
+			) }
+			{ composer.speechError && (
+				<div
+					className="sd-ai-agent-composer-attachment-error"
+					role="alert"
+				>
+					{ composer.speechError }
 				</div>
 			) }
 			<ConnectedEditorSelectionStatus />

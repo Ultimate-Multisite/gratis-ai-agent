@@ -615,12 +615,22 @@ test.describe( 'TTS Auto-Speak on AI Responses', () => {
 		}
 		await expect( ttsBtn ).toHaveClass( /is-active/ );
 
-		await interceptStream( page );
+		await interceptStream( page, { processingPolls: 1 } );
+		const assistantBubbleLocator = page.locator( '.sdaa-cr-msg-assistant' );
+		const initialBubbleCount = await assistantBubbleLocator.count();
 		const input = page
 			.locator( '.sdaa-cr .sdaa-cr-input-textarea' )
 			.first();
 		await input.fill( 'Read this response' );
 		await input.press( 'Enter' );
+		await page.waitForFunction(
+			( count ) =>
+				document.querySelectorAll( '.sdaa-cr-msg-assistant' ).length >
+				count,
+			initialBubbleCount,
+			{ timeout: 30_000 }
+		);
+		await expect( input ).toBeEnabled( { timeout: 15_000 } );
 		await expect( ttsBtn ).toHaveAttribute(
 			'aria-label',
 			'Stop reading aloud',

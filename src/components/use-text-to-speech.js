@@ -3,6 +3,7 @@
  */
 import apiFetch from '@wordpress/api-fetch';
 import { useCallback, useEffect, useRef, useState } from '@wordpress/element';
+import { __ } from '@wordpress/i18n';
 
 import {
 	base64ToBlob,
@@ -133,6 +134,23 @@ export default function useTextToSpeech( {
 		setIsSpeaking( false );
 	}, [ releaseAudio, releaseNative ] );
 
+	useEffect( () => {
+		if ( ! isTTSSupported ) {
+			return undefined;
+		}
+		let active = true;
+		loadSpeechCapabilities()
+			.then( ( result ) => {
+				if ( active ) {
+					setCapabilities( result );
+				}
+			} )
+			.catch( () => undefined );
+		return () => {
+			active = false;
+		};
+	}, [] );
+
 	useEffect( () => cancel, [ cancel ] );
 
 	const playBlob = useCallback(
@@ -153,7 +171,14 @@ export default function useTextToSpeech( {
 				};
 				audio.onerror = () => {
 					releaseAudio( false );
-					reject( new Error( 'Unable to play synthesized speech.' ) );
+					reject(
+						new Error(
+							__(
+								'Unable to play synthesized speech.',
+								'superdav-ai-agent'
+							)
+						)
+					);
 				};
 				audio.play().catch( ( caughtError ) => {
 					releaseAudio( false );
@@ -183,7 +208,14 @@ export default function useTextToSpeech( {
 				};
 				utterance.onerror = () => {
 					releaseNative( false );
-					reject( new Error( 'Unable to play browser speech.' ) );
+					reject(
+						new Error(
+							__(
+								'Unable to play browser speech.',
+								'superdav-ai-agent'
+							)
+						)
+					);
 				};
 				globalThis.speechSynthesis.speak( utterance );
 			} ),
@@ -215,7 +247,12 @@ export default function useTextToSpeech( {
 
 			try {
 				if ( ! isTTSSupported ) {
-					throw new Error( 'Managed audio playback is unavailable.' );
+					throw new Error(
+						__(
+							'Managed audio playback is unavailable.',
+							'superdav-ai-agent'
+						)
+					);
 				}
 				const nextCapabilities =
 					capabilities || ( await loadSpeechCapabilities() );
@@ -285,7 +322,10 @@ export default function useTextToSpeech( {
 					const blob = base64ToBlob( result.audio, result.mime_type );
 					if ( blob.size > synthesis.max_response_bytes ) {
 						throw new Error(
-							'The synthesized audio is too large.'
+							__(
+								'The synthesized audio is too large.',
+								'superdav-ai-agent'
+							)
 						);
 					}
 					if ( ! playbackStarted ) {
@@ -323,7 +363,11 @@ export default function useTextToSpeech( {
 					generation === generationRef.current
 				) {
 					const message =
-						failure?.message || 'Unable to synthesize speech.';
+						failure?.message ||
+						__(
+							'Unable to synthesize speech.',
+							'superdav-ai-agent'
+						);
 					setError( message );
 					onError?.( message );
 				}
@@ -357,13 +401,25 @@ export default function useTextToSpeech( {
 		]
 	);
 
+	const synthesisCapabilities = capabilities?.text_to_speech;
+	const hasManagedSynthesis = Boolean(
+		isTTSSupported &&
+			capabilities?.available &&
+			Array.isArray( synthesisCapabilities?.voices ) &&
+			synthesisCapabilities.voices.length > 0 &&
+			Array.isArray( synthesisCapabilities.output_mime_types ) &&
+			synthesisCapabilities.output_mime_types.length > 0 &&
+			Number( synthesisCapabilities.max_input_characters ) > 0 &&
+			Number( synthesisCapabilities.max_response_bytes ) > 0
+	);
+
 	return {
 		cancel,
 		capabilities,
 		error,
 		isSpeaking,
 		isSupported:
-			isTTSSupported ||
+			hasManagedSynthesis ||
 			( allowBrowserFallback && isBrowserFallbackSupported ),
 		speak,
 	};
