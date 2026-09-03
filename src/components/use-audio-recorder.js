@@ -11,6 +11,13 @@ const DEFAULT_CONSTRAINTS = {
 	},
 };
 
+const BROWSER_RECORDING_MIME_TYPES = [
+	'audio/webm;codecs=opus',
+	'audio/webm',
+	'audio/ogg;codecs=opus',
+	'audio/mp4',
+];
+
 const recorderError = ( error ) => {
 	if (
 		error?.name === 'NotAllowedError' ||
@@ -42,37 +49,48 @@ export default function useAudioRecorder( {
 } = {} ) {
 	const [ status, setStatus ] = useState( 'idle' );
 	const [ error, setError ] = useState( null );
-	const streamRef = useRef( null );
-	const recorderRef = useRef( null );
-	const chunksRef = useRef( [] );
-	const timeoutRef = useRef( null );
-	const limitReachedRef = useRef( false );
+	const activeRef = useRef( false );
+	const generationRef = useRef( 0 );
+	const turnRef = useRef( null );
 
-	const cleanup = useCallback( () => {
-		if ( timeoutRef.current ) {
-			clearTimeout( timeoutRef.current );
-			timeoutRef.current = null;
+	const cleanupTurn = useCallback( ( turn ) => {
+		if ( turn?.timeout ) {
+			clearTimeout( turn.timeout );
+			turn.timeout = null;
 		}
-		streamRef.current?.getTracks().forEach( ( track ) => track.stop() );
-		streamRef.current = null;
-		recorderRef.current = null;
+		turn?.stream?.getTracks().forEach( ( track ) => track.stop() );
+		if ( turnRef.current === turn ) {
+			turnRef.current = null;
+			activeRef.current = false;
+		}
 	}, [] );
 
 	const stop = useCallback( () => {
-		const recorder = recorderRef.current;
+		const recorder = turnRef.current?.recorder;
 		if ( recorder && recorder.state !== 'inactive' ) {
 			setStatus( 'stopping' );
 			recorder.stop();
 			return;
 		}
-		cleanup();
+		cleanupTurn( turnRef.current );
 		setStatus( 'idle' );
-	}, [ cleanup ] );
+	}, [ cleanupTurn ] );
 
 	const cancel = useCallback( () => {
-		chunksRef.current = [];
-		stop();
-	}, [ stop ] );
+		generationRef.current += 1;
+		activeRef.current = false;
+		const turn = turnRef.current;
+		if ( turn ) {
+			turn.cancelled = true;
+			turn.chunks = [];
+			if ( turn.recorder.state !== 'inactive' ) {
+				turn.recorder.stop();
+			} else {
+				cleanupTurn( turn );
+			}
+		}
+		setStatus( 'idle' );
+	}, [ cleanupTurn ] );
 
 	const start = useCallback(
 		async ( capabilityOverrides = {} ) => {
@@ -81,93 +99,144 @@ export default function useAudioRecorder( {
 			const byteLimit = capabilityOverrides.maxBytes ?? maxBytes;
 			const durationLimit =
 				capabilityOverrides.maxDurationMs ?? maxDurationMs;
-			if ( status !== 'idle' || typeof MediaRecorder === 'undefined' ) {
+			if ( activeRef.current || typeof MediaRecorder === 'undefined' ) {
 				setError( 'Audio recording is not supported by this browser.' );
 				setStatus( 'error' );
-				return;
+				return false;
 			}
-			const mimeType = supportedMimeTypes.find( ( candidate ) =>
-				MediaRecorder.isTypeSupported( candidate )
+			const candidates = supportedMimeTypes.some( ( candidate ) =>
+				candidate.toLowerCase().startsWith( 'audio/wav' )
+			)
+				? [ ...supportedMimeTypes, ...BROWSER_RECORDING_MIME_TYPES ]
+				: supportedMimeTypes;
+			const mimeType = candidates.find( ( candidate ) =>
+				MediaRecorder.isTypeSupported?.( candidate )
 			);
 			if ( ! mimeType ) {
 				setError( 'No supported audio format is available.' );
 				setStatus( 'error' );
-				return;
+				return false;
 			}
 
+			const generation = generationRef.current + 1;
+			generationRef.current = generation;
+			activeRef.current = true;
 			setError( null );
 			setStatus( 'requesting_permission' );
-			limitReachedRef.current = false;
-			chunksRef.current = [];
+			let stream = null;
 			try {
-				const stream =
+				stream =
 					await navigator.mediaDevices.getUserMedia(
 						DEFAULT_CONSTRAINTS
 					);
-				streamRef.current = stream;
+				if (
+					generation !== generationRef.current ||
+					! activeRef.current
+				) {
+					stream.getTracks().forEach( ( track ) => track.stop() );
+					return false;
+				}
 				const recorder = new MediaRecorder( stream, { mimeType } );
-				recorderRef.current = recorder;
+				const turn = {
+					cancelled: false,
+					chunks: [],
+					generation,
+					limitReached: false,
+					recorder,
+					stream,
+					timeout: null,
+					totalBytes: 0,
+				};
+				turnRef.current = turn;
 				recorder.ondataavailable = ( event ) => {
-					if ( ! event.data?.size ) {
+					if ( turn.cancelled || ! event.data?.size ) {
 						return;
 					}
-					chunksRef.current.push( event.data );
-					if (
-						byteLimit > 0 &&
-						chunksRef.current.reduce(
-							( total, chunk ) => total + chunk.size,
-							0
-						) >= byteLimit
-					) {
-						limitReachedRef.current = true;
-						stop();
+					turn.chunks.push( event.data );
+					turn.totalBytes += event.data.size;
+					if ( byteLimit > 0 && turn.totalBytes > byteLimit ) {
+						turn.limitReached = true;
+						if ( recorder.state !== 'inactive' ) {
+							recorder.stop();
+						}
 					}
 				};
 				recorder.onerror = () => {
-					setError( 'The audio recorder failed.' );
-					chunksRef.current = [];
-					cleanup();
-					setStatus( 'error' );
+					turn.cancelled = true;
+					turn.chunks = [];
+					cleanupTurn( turn );
+					if ( generation === generationRef.current ) {
+						setError( 'The audio recorder failed.' );
+						setStatus( 'error' );
+					}
 				};
 				recorder.onstop = () => {
-					const chunks = chunksRef.current;
-					chunksRef.current = [];
-					const blob = new Blob( chunks, { type: mimeType } );
-					cleanup();
-					if ( limitReachedRef.current ) {
+					const chunks = turn.chunks;
+					turn.chunks = [];
+					cleanupTurn( turn );
+					if (
+						turn.cancelled ||
+						generation !== generationRef.current
+					) {
+						return;
+					}
+					if ( turn.limitReached ) {
 						setError( 'The recording reached the service limit.' );
+						setStatus( 'error' );
+						return;
+					}
+					const blob = new Blob( chunks, {
+						type: recorder.mimeType || mimeType,
+					} );
+					if ( ! blob.size ) {
+						setError( 'The recording did not contain audio.' );
 						setStatus( 'error' );
 						return;
 					}
 					setStatus( 'idle' );
 					onComplete?.( { blob, mimeType } );
 				};
-				recorder.start();
+				recorder.start( 250 );
 				setStatus( 'recording' );
 				if ( durationLimit > 0 ) {
-					timeoutRef.current = setTimeout( () => {
-						limitReachedRef.current = true;
-						stop();
+					turn.timeout = setTimeout( () => {
+						turn.limitReached = true;
+						if ( recorder.state !== 'inactive' ) {
+							recorder.stop();
+						}
 					}, durationLimit );
 				}
+				return true;
 			} catch ( caughtError ) {
-				cleanup();
-				setError( recorderError( caughtError ) );
-				setStatus( 'error' );
+				stream?.getTracks().forEach( ( track ) => track.stop() );
+				if ( generation === generationRef.current ) {
+					activeRef.current = false;
+					setError( recorderError( caughtError ) );
+					setStatus( 'error' );
+				}
+				return false;
 			}
 		},
-		[
-			acceptedMimeTypes,
-			cleanup,
-			maxBytes,
-			maxDurationMs,
-			onComplete,
-			status,
-			stop,
-		]
+		[ acceptedMimeTypes, cleanupTurn, maxBytes, maxDurationMs, onComplete ]
 	);
 
-	useEffect( () => cleanup, [ cleanup ] );
+	useEffect(
+		() => () => {
+			generationRef.current += 1;
+			activeRef.current = false;
+			const turn = turnRef.current;
+			if ( turn ) {
+				turn.cancelled = true;
+				turn.chunks = [];
+				if ( turn.recorder.state !== 'inactive' ) {
+					turn.recorder.stop();
+				} else {
+					cleanupTurn( turn );
+				}
+			}
+		},
+		[ cleanupTurn ]
+	);
 
 	return { cancel, error, start, status, stop };
 }
