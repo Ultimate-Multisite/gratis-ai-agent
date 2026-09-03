@@ -88,7 +88,7 @@ export default function WidgetHeader( {
 	onToggleMinimize,
 	onDragHandleMouseDown,
 	isSimpleMode = false,
-	voiceConversation,
+	voiceConversation = {},
 } ) {
 	const {
 		setFloatingOpen,
@@ -119,7 +119,7 @@ export default function WidgetHeader( {
 			currentSessionId: store.getCurrentSessionId(),
 			sessionJobs: store.getSessionJobs(),
 			activeModelName: model?.name || model?.id || '',
-			ttsEnabled: store.isTtsEnabled(),
+			ttsEnabled: store.isTtsEnabled?.() || false,
 		};
 	}, [] );
 
@@ -175,7 +175,7 @@ export default function WidgetHeader( {
 			: __( 'Ready', 'sd-ai-agent' );
 	} )();
 	const displayedStatusLabel =
-		voiceConversation.phase === 'idle'
+		( voiceConversation.phase || 'idle' ) === 'idle'
 			? statusLabel
 			: voiceConversation.statusLabel;
 	let readAloudLabel = ttsEnabled

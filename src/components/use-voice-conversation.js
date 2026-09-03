@@ -81,14 +81,14 @@ export default function useVoiceConversation( { surface = 'main' } = {} ) {
 	} = useSelect( ( select ) => {
 		const store = select( STORE_NAME );
 		return {
-			currentSessionId: store.getCurrentSessionId(),
-			messages: store.getCurrentSessionMessages(),
-			readAloudEnabled: store.isTtsEnabled(),
-			sending: store.isSending(),
+			currentSessionId: store.getCurrentSessionId?.() || null,
+			messages: store.getCurrentSessionMessages?.() || [],
+			readAloudEnabled: store.isTtsEnabled?.() || false,
+			sending: store.isSending?.() || false,
 			speechFallbackEnabled: store.isSpeechFallbackEnabled?.() || false,
-			speed: store.getTtsRate(),
+			speed: store.getTtsRate?.() || 1,
 			streamError: store.hasStreamError?.() || false,
-			voiceId: store.getTtsVoiceURI(),
+			voiceId: store.getTtsVoiceURI?.() || '',
 			voiceModeEnabled: store.isVoiceConversationEnabled?.() || false,
 		};
 	}, [] );
