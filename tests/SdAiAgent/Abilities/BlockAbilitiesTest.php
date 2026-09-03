@@ -10,6 +10,7 @@
 namespace SdAiAgent\Tests\Abilities;
 
 use SdAiAgent\Abilities\BlockAbilities;
+use SdAiAgent\Core\ToolPermissionResolver;
 use WP_UnitTestCase;
 
 /**
@@ -25,6 +26,44 @@ class BlockAbilitiesTest extends WP_UnitTestCase {
 		// Create an admin user and set as current user for capability checks.
 		$admin_id = self::factory()->user->create( [ 'role' => 'administrator' ] );
 		wp_set_current_user( $admin_id );
+	}
+
+	/**
+	 * Reversible block mutations should auto-execute under the default tool policy.
+	 */
+	public function test_reversible_block_mutations_are_non_destructive_for_default_tool_policy(): void {
+		if ( ! function_exists( 'wp_get_ability' ) || ! function_exists( 'wp_register_ability' ) ) {
+			$this->markTestSkipped( 'WP 7.0+ Abilities API is not available.' );
+		}
+
+		if ( null === wp_get_ability( 'sd-ai-agent/edit-block-tree' ) ) {
+			// wp_register_ability() must run during the Abilities API init hook.
+			// phpcs:ignore WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedVariableFound -- Standard WordPress test global.
+			global $wp_current_filter;
+			$wp_current_filter[] = 'wp_abilities_api_init';
+			try {
+				BlockAbilities::register_abilities();
+			} finally {
+				array_pop( $wp_current_filter );
+			}
+		}
+
+		$reversible_block_abilities = [
+			'sd-ai-agent/edit-block-tree',
+			'sd-ai-agent/update-blocks',
+			'sd-ai-agent/rewrite-post-blocks',
+			'sd-ai-agent/insert-pattern',
+			'sd-ai-agent/revert-to-revision',
+			'sd-ai-agent/replace-block-range',
+		];
+
+		foreach ( $reversible_block_abilities as $ability_id ) {
+			$ability = wp_get_ability( $ability_id );
+
+			$this->assertInstanceOf( \WP_Ability::class, $ability, $ability_id );
+			$this->assertSame( 'write', ToolPermissionResolver::classify_ability( $ability ), $ability_id );
+			$this->assertFalse( ToolPermissionResolver::ability_needs_confirmation( $ability_id, $ability, [] ), $ability_id );
+		}
 	}
 
 	// ─── markdown-to-blocks ───────────────────────────────────────
