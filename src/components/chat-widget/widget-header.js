@@ -19,7 +19,6 @@ import {
 
 import STORE_NAME from '../../store';
 import { getBranding } from '../../utils/branding';
-import { isTTSSupported } from '../use-text-to-speech';
 import {
 	AiIcon,
 	Microphone,
@@ -361,7 +360,7 @@ export default function WidgetHeader( {
 			) }
 
 			<div className="sdaa-w-head-actions">
-				{ ! isMinimized && isTTSSupported && (
+				{ ! isMinimized && voiceConversation.isSpeechSupported && (
 					<button
 						type="button"
 						className={ `sdaa-w-icon-btn${

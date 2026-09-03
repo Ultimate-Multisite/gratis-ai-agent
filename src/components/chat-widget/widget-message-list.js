@@ -182,7 +182,7 @@ export default function WidgetMessageList( { voiceConversation } ) {
 			<div
 				className="sdaa-w-body"
 				ref={ containerRef }
-				aria-live={ voiceConversation.isSpeaking ? 'off' : 'polite' }
+				aria-live={ voiceConversation?.isSpeaking ? 'off' : 'polite' }
 			>
 				<div className="sdaa-w-body-inner">
 					<MessageRows

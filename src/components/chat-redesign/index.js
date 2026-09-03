@@ -59,7 +59,7 @@ export default function ChatRedesign( { uiMode = getChatUiMode() } = {} ) {
 		}
 	} );
 	const [ showChanges, setShowChanges ] = useState( false );
-	const voiceConversation = useVoiceConversation();
+	const voiceConversation = useVoiceConversation( { surface: 'main' } );
 
 	const {
 		currentSessionId,

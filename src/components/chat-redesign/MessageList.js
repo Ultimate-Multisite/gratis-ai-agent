@@ -119,7 +119,7 @@ export default function MessageList( { voiceConversation } ) {
 			<div
 				className="sdaa-cr-messages"
 				ref={ containerRef }
-				aria-live={ voiceConversation.isSpeaking ? 'off' : 'polite' }
+				aria-live={ voiceConversation?.isSpeaking ? 'off' : 'polite' }
 			>
 				<div className="sdaa-cr-messages-inner">
 					{ visible.length === 0 && ! sending && (

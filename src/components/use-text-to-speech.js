@@ -7,18 +7,15 @@ import { useCallback, useEffect, useRef, useState } from '@wordpress/element';
 import {
 	base64ToBlob,
 	chunkSpeechText,
+	isBrowserSpeechSynthesisSupported,
+	isManagedAudioPlaybackSupported,
 	loadSpeechCapabilities,
 	toSpeakableText,
 } from '../utils/speech';
 
 /** Whether managed audio playback is available in this browser. */
-export const isTTSSupported =
-	typeof Audio !== 'undefined' &&
-	typeof URL !== 'undefined' &&
-	typeof URL.createObjectURL === 'function';
-const isBrowserFallbackSupported =
-	typeof globalThis.speechSynthesis !== 'undefined' &&
-	typeof globalThis.SpeechSynthesisUtterance !== 'undefined';
+export const isTTSSupported = isManagedAudioPlaybackSupported;
+export const isBrowserFallbackSupported = isBrowserSpeechSynthesisSupported;
 
 /**
  * Load the managed speech contract for preference controls.
@@ -196,7 +193,11 @@ export default function useTextToSpeech( {
 	const speak = useCallback(
 		async ( text, turnOptions = {} ) => {
 			const speechText = toSpeakableText( String( text || '' ) );
-			if ( ! isTTSSupported || ! speechText ) {
+			if (
+				! speechText ||
+				( ! isTTSSupported &&
+					( ! allowBrowserFallback || ! isBrowserFallbackSupported ) )
+			) {
 				return false;
 			}
 
@@ -213,6 +214,9 @@ export default function useTextToSpeech( {
 			setIsSpeaking( true );
 
 			try {
+				if ( ! isTTSSupported ) {
+					throw new Error( 'Managed audio playback is unavailable.' );
+				}
 				const nextCapabilities =
 					capabilities || ( await loadSpeechCapabilities() );
 				if ( generation !== generationRef.current ) {
@@ -358,7 +362,9 @@ export default function useTextToSpeech( {
 		capabilities,
 		error,
 		isSpeaking,
-		isSupported: isTTSSupported,
+		isSupported:
+			isTTSSupported ||
+			( allowBrowserFallback && isBrowserFallbackSupported ),
 		speak,
 	};
 }

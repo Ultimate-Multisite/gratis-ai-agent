@@ -5,6 +5,15 @@ import apiFetch from '@wordpress/api-fetch';
 
 let capabilitiesRequest = null;
 
+export const isManagedAudioPlaybackSupported =
+	typeof Audio !== 'undefined' &&
+	typeof URL !== 'undefined' &&
+	typeof URL.createObjectURL === 'function';
+
+export const isBrowserSpeechSynthesisSupported =
+	typeof globalThis.speechSynthesis !== 'undefined' &&
+	typeof globalThis.SpeechSynthesisUtterance !== 'undefined';
+
 /**
  * Load the authenticated speech contract once for the current page lifecycle.
  *
@@ -73,12 +82,14 @@ export const chunkSpeechText = ( text, limit ) => {
 	while ( remaining.length ) {
 		let end = Math.min( limit, remaining.length );
 		if ( end < remaining.length ) {
-			const boundary = remaining
-				.slice( 0, end )
-				.join( '' )
-				.search( /[.!?]\s[^.!?]*$/ );
-			if ( boundary > 0 ) {
-				end = boundary + 2;
+			for ( let index = end - 2; index > 0; index-- ) {
+				if (
+					/[.!?]/.test( remaining[ index ] ) &&
+					/\s/.test( remaining[ index + 1 ] )
+				) {
+					end = index + 2;
+					break;
+				}
 			}
 		}
 		chunks.push( remaining.slice( 0, end ).join( '' ).trim() );
@@ -184,13 +195,6 @@ export const encodeAudioBufferToWav = ( audioBuffer, maxBytes = 0 ) => {
  * @return {Promise<Blob>} Strict PCM WAV payload.
  */
 export const recordingToWav = async ( recording, maxBytes = 0 ) => {
-	if ( recording.type.toLowerCase().startsWith( 'audio/wav' ) ) {
-		if ( maxBytes > 0 && recording.size > maxBytes ) {
-			throw new Error( 'The recording reached the service limit.' );
-		}
-		return recording;
-	}
-
 	const AudioContextClass =
 		globalThis.AudioContext || globalThis.webkitAudioContext;
 	if ( ! AudioContextClass ) {

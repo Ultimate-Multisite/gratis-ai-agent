@@ -20,6 +20,7 @@ import apiFetch from '@wordpress/api-fetch';
 import {
 	useAvailableVoices,
 	useSpeechCapabilities,
+	isBrowserFallbackSupported,
 	isTTSSupported,
 } from '../components/use-text-to-speech';
 import { isSoundSupported } from '../utils/sound-manager';
@@ -1434,29 +1435,31 @@ export default function SettingsApp() {
 												'superdav-ai-agent'
 											) }
 										</h3>
-										{ ! isTTSSupported && (
-											<p className="description">
-												{ __(
-													'Text-to-speech is not supported in this browser.',
-													'sd-ai-agent'
-												) }
-											</p>
-										) }
-										{ isTTSSupported && (
+										{ ! isTTSSupported &&
+											! isBrowserFallbackSupported && (
+												<p className="description">
+													{ __(
+														'Text-to-speech is not supported in this browser.',
+														'superdav-ai-agent'
+													) }
+												</p>
+											) }
+										{ ( isTTSSupported ||
+											isBrowserFallbackSupported ) && (
 											<table className="form-table sdaa-form-table">
 												<tbody>
 													<tr>
 														<th scope="row">
 															{ __(
 																'Text-to-Speech',
-																'sd-ai-agent'
+																'superdav-ai-agent'
 															) }
 														</th>
 														<td>
 															<ToggleControl
 																label={ __(
 																	'Read AI responses aloud automatically',
-																	'sd-ai-agent'
+																	'superdav-ai-agent'
 																) }
 																checked={
 																	ttsEnabled
@@ -1478,7 +1481,7 @@ export default function SettingsApp() {
 																<label htmlFor="sd-tts-voice">
 																	{ __(
 																		'Voice',
-																		'sd-ai-agent'
+																		'superdav-ai-agent'
 																	) }
 																</label>
 															</th>
@@ -1510,7 +1513,7 @@ export default function SettingsApp() {
 																	}
 																	help={ __(
 																		'Select the voice used for speech synthesis.',
-																		'sd-ai-agent'
+																		'superdav-ai-agent'
 																	) }
 																	__nextHasNoMarginBottom
 																/>
@@ -1522,7 +1525,7 @@ export default function SettingsApp() {
 															<label htmlFor="sd-tts-rate">
 																{ __(
 																	'Speech Rate',
-																	'sd-ai-agent'
+																	'superdav-ai-agent'
 																) }
 															</label>
 														</th>
@@ -1544,7 +1547,7 @@ export default function SettingsApp() {
 																step={ 0.1 }
 																help={ __(
 																	'Speed of speech. 1 is normal speed.',
-																	'sd-ai-agent'
+																	'superdav-ai-agent'
 																) }
 															/>
 														</td>

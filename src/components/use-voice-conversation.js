@@ -1,7 +1,13 @@
 /**
  * WordPress dependencies
  */
-import { useCallback, useEffect, useRef, useState } from '@wordpress/element';
+import {
+	useCallback,
+	useEffect,
+	useMemo,
+	useRef,
+	useState,
+} from '@wordpress/element';
 import { useDispatch, useSelect } from '@wordpress/data';
 import { __ } from '@wordpress/i18n';
 
@@ -11,6 +17,20 @@ import useSpeechRecognition from './use-speech-recognition';
 import useTextToSpeech from './use-text-to-speech';
 
 let playbackOwner = null;
+
+const latestModelResponse = ( messages ) => {
+	for ( let index = messages.length - 1; index >= 0; index-- ) {
+		const message = messages[ index ];
+		if ( message?.role === 'model' ) {
+			const text = extractText( message );
+			return {
+				identity: `${ index }:${ message.id || '' }:${ text }`,
+				text,
+			};
+		}
+	}
+	return { identity: '', text: '' };
+};
 
 const STATUS_LABELS = {
 	error: __( 'Voice turn stopped', 'superdav-ai-agent' ),
@@ -35,11 +55,14 @@ const STATUS_LABELS = {
  * Microphone capture starts only from startListening(), which UI controls must
  * call directly from a user gesture. Completing playback never reopens it.
  *
+ * @param {Object} options         Coordinator options.
+ * @param {string} options.surface Surface identity: main or widget.
  * @return {Object} Voice state and controls for one chat surface.
  */
-export default function useVoiceConversation() {
+export default function useVoiceConversation( { surface = 'main' } = {} ) {
+	const awaitingResponseRef = useRef( false );
+	const responseBaselineRef = useRef( '' );
 	const ownerRef = useRef( Symbol( 'voice-conversation' ) );
-	const previousSendingRef = useRef( false );
 	const voiceTurnRef = useRef( false );
 	const [ pendingTranscript, setPendingTranscript ] = useState( null );
 	const [ phase, setPhase ] = useState( 'idle' );
@@ -52,6 +75,7 @@ export default function useVoiceConversation() {
 		sending,
 		speechFallbackEnabled,
 		speed,
+		streamError,
 		voiceId,
 		voiceModeEnabled,
 	} = useSelect( ( select ) => {
@@ -61,10 +85,11 @@ export default function useVoiceConversation() {
 			messages: store.getCurrentSessionMessages(),
 			readAloudEnabled: store.isTtsEnabled(),
 			sending: store.isSending(),
-			speechFallbackEnabled: store.isSpeechFallbackEnabled(),
+			speechFallbackEnabled: store.isSpeechFallbackEnabled?.() || false,
 			speed: store.getTtsRate(),
+			streamError: store.hasStreamError?.() || false,
 			voiceId: store.getTtsVoiceURI(),
-			voiceModeEnabled: store.isVoiceConversationEnabled(),
+			voiceModeEnabled: store.isVoiceConversationEnabled?.() || false,
 		};
 	}, [] );
 	const voiceModeRef = useRef( voiceModeEnabled );
@@ -180,7 +205,7 @@ export default function useVoiceConversation() {
 
 	const toggleVoiceMode = useCallback( () => {
 		const enabled = ! voiceModeEnabled;
-		setVoiceConversationEnabled( enabled );
+		setVoiceConversationEnabled?.( enabled );
 		if ( ! enabled ) {
 			voiceTurnRef.current = false;
 			cancelRecognition();
@@ -195,28 +220,48 @@ export default function useVoiceConversation() {
 
 	useEffect( () => {
 		if ( sending ) {
-			previousSendingRef.current = true;
-			if ( voiceTurnRef.current ) {
+			if ( ! awaitingResponseRef.current ) {
+				responseBaselineRef.current =
+					latestModelResponse( messages ).identity;
+				awaitingResponseRef.current = true;
+			}
+			if ( voiceTurnRef.current || readAloudEnabled ) {
 				setPhase( 'thinking' );
 			}
 			return;
 		}
-		if ( ! previousSendingRef.current ) {
+		if ( ! awaitingResponseRef.current ) {
 			return;
 		}
-		previousSendingRef.current = false;
-		const latestResponse = [ ...messages ]
-			.reverse()
-			.find( ( message ) => message?.role === 'model' );
-		const text = latestResponse ? extractText( latestResponse ) : '';
+		const latestResponse = latestModelResponse( messages );
+		if (
+			! latestResponse.text ||
+			latestResponse.identity === responseBaselineRef.current
+		) {
+			setPhase( 'thinking' );
+			return;
+		}
+		awaitingResponseRef.current = false;
 		const shouldSpeak = voiceTurnRef.current || readAloudEnabled;
 		voiceTurnRef.current = false;
-		if ( shouldSpeak && text ) {
-			readAloud( text );
+		const mainSurfacePresent =
+			typeof document !== 'undefined' &&
+			document.querySelector( '.sdaa-cr' );
+		const observesPlayback = surface !== 'widget' || ! mainSurfacePresent;
+		if ( shouldSpeak && observesPlayback ) {
+			readAloud( latestResponse.text );
 		} else {
 			setPhase( 'idle' );
 		}
-	}, [ messages, readAloud, readAloudEnabled, sending ] );
+	}, [ messages, readAloud, readAloudEnabled, sending, surface ] );
+
+	useEffect( () => {
+		if ( streamError ) {
+			awaitingResponseRef.current = false;
+			voiceTurnRef.current = false;
+			setPhase( 'error' );
+		}
+	}, [ streamError ] );
 
 	useEffect( () => {
 		if ( isTranscribing ) {
@@ -238,7 +283,8 @@ export default function useVoiceConversation() {
 		cancelRecognition();
 		stopSpeaking();
 		voiceTurnRef.current = false;
-		previousSendingRef.current = sending;
+		awaitingResponseRef.current = false;
+		responseBaselineRef.current = latestModelResponse( messages ).identity;
 	}, [ currentSessionId ] ); // eslint-disable-line react-hooks/exhaustive-deps
 
 	useEffect( () => {
@@ -267,21 +313,42 @@ export default function useVoiceConversation() {
 		};
 	}, [ cancelRecognition, stopSpeaking ] );
 
-	return {
-		consumeTranscript,
-		error: recognitionError || speechError,
-		isListening,
-		isSpeaking,
-		isSupported: recognitionSupported && speechSupported,
-		pendingTranscript,
-		phase,
-		readAloud,
-		startListening,
-		statusLabel: STATUS_LABELS[ phase ] || STATUS_LABELS.idle,
-		stopListening,
-		stopSpeaking,
-		toggleListening,
-		toggleVoiceMode,
-		voiceModeEnabled,
-	};
+	return useMemo(
+		() => ( {
+			consumeTranscript,
+			error: recognitionError || speechError,
+			isListening,
+			isSpeaking,
+			isSpeechSupported: speechSupported,
+			isSupported: recognitionSupported && speechSupported,
+			pendingTranscript,
+			phase,
+			readAloud,
+			startListening,
+			statusLabel: STATUS_LABELS[ phase ] || STATUS_LABELS.idle,
+			stopListening,
+			stopSpeaking,
+			toggleListening,
+			toggleVoiceMode,
+			voiceModeEnabled,
+		} ),
+		[
+			consumeTranscript,
+			isListening,
+			isSpeaking,
+			pendingTranscript,
+			phase,
+			readAloud,
+			recognitionError,
+			recognitionSupported,
+			speechError,
+			speechSupported,
+			startListening,
+			stopListening,
+			stopSpeaking,
+			toggleListening,
+			toggleVoiceMode,
+			voiceModeEnabled,
+		]
+	);
 }

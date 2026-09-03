@@ -288,6 +288,17 @@ Base unit: **4px**
 - Announce mutation progress and outcomes with one polite atomic live region. Confirm success only when the tool result explicitly reports `applied: true`; stale, rejected, unavailable, and uncertain results require truthful next-step copy.
 - On compact screens, let the chip and mutation copy occupy full rows. In forced-colour mode preserve explicit borders and focus outlines; under reduced-motion preferences stop spinner animation while retaining the textual progress label.
 
+### Managed Voice Conversation
+
+- Keep push-to-talk as the default. Voice mode is an explicit, user-scoped opt-in that submits a completed transcript and reads the corresponding response aloud.
+- Serialize each turn as `idle → listening → transcribing → sending → thinking → speaking → idle`. Never reopen the microphone after playback; every capture must begin from a fresh keyboard or pointer gesture on the microphone control.
+- Use the same coordinator and controls in the main chat and floating widget. Both surfaces expose keyboard-accessible microphone, read-aloud/stop, and voice-mode buttons with equivalent labels, pressed states, disabled states, and visible status text.
+- Deliberate barge-in is allowed: pressing the microphone while audio is playing stops playback, revokes its object URL, and only then requests microphone access.
+- Announce concise state changes through one polite live region. While audio is reading an assistant response, set the message list live region to `off` so screen readers do not announce the same content twice.
+- Stop capture, transcription, synthesis, and playback on failure, conversation changes, page hiding, or unmount. Do not retain audio blobs, transcript payloads, object URLs, or media tracks after the active turn.
+- Populate voice and speed controls from authenticated speech capabilities. Browser speech fallback remains disabled unless the current user explicitly enables it.
+- Preserve responsive parity: status copy may wrap above the composer, while icon controls retain the mobile touch-target rules and visible keyboard focus used by other chat actions.
+
 ### Border Radius Scale
 
 | Size | Value | Use |
