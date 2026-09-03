@@ -71,6 +71,7 @@ use SdAiAgent\REST\RestController;
 use SdAiAgent\REST\SessionController;
 use SdAiAgent\REST\SettingsController;
 use SdAiAgent\REST\SkillController;
+use SdAiAgent\REST\SpeechController;
 use SdAiAgent\REST\ToolController;
 use SdAiAgent\REST\TraceController;
 use SdAiAgent\REST\WebhookController;
@@ -137,6 +138,7 @@ use XWP\DI\Decorators\Module;
 		KnowledgeController::class,
 		SessionController::class,
 		SettingsController::class,
+		SpeechController::class,
 		ConnectorsController::class,
 		CustomerConversationController::class,
 		WebhookController::class,
