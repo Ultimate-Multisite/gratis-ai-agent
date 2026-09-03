@@ -53,6 +53,9 @@ namespace WordPress\AiClient\Messages\Enums {
 		/** @return bool */
 		public function isUser(): bool { return false; }
 
+		/** @return self */
+		public static function model(): self { return new self(); }
+
 		/**
 		 * Allow casting to string.
 		 *
@@ -530,6 +533,18 @@ namespace WordPress\AiClient\Providers\Models\DTO {
 
 		/** @param array<string, mixed> $customOptions Custom provider options. */
 		public function setCustomOptions( array $customOptions ): void {}
+
+		/** @return string|null */
+		public function getOutputMimeType(): ?string { return null; }
+
+		/** @param string $outputMimeType Output MIME type. */
+		public function setOutputMimeType( string $outputMimeType ): void {}
+
+		/** @return string|null */
+		public function getOutputSpeechVoice(): ?string { return null; }
+
+		/** @param string $outputSpeechVoice Output speech voice. */
+		public function setOutputSpeechVoice( string $outputSpeechVoice ): void {}
 	}
 }
 
@@ -654,6 +669,17 @@ namespace WordPress\AiClient\Providers\Models\TextGeneration\Contracts {
 	}
 }
 
+namespace WordPress\AiClient\Providers\Models\TextToSpeechConversion\Contracts {
+
+	interface TextToSpeechConversionModelInterface {
+		/**
+		 * @param list<\WordPress\AiClient\Messages\DTO\Message> $prompt Prompt messages.
+		 * @return \WordPress\AiClient\Results\DTO\GenerativeAiResult
+		 */
+		public function convertTextToSpeechResult( array $prompt ): \WordPress\AiClient\Results\DTO\GenerativeAiResult;
+	}
+}
+
 namespace WordPress\AiClient\Providers\Http\Contracts {
 
 	interface HttpTransporterInterface {
@@ -717,6 +743,12 @@ namespace WordPress\AiClient\Providers\Http\DTO {
 	class Response {
 		/** @return array<string, mixed>|null */
 		public function getData(): ?array { return null; }
+
+		/** @return string|null */
+		public function getBody(): ?string { return null; }
+
+		/** @return string|null */
+		public function getHeaderAsString( string $name ): ?string { return null; }
 	}
 
 	class ApiKeyRequestAuthentication implements \WordPress\AiClient\Providers\Http\Contracts\RequestAuthenticationInterface {
@@ -750,6 +782,9 @@ namespace WordPress\AiClient\Providers\Http\Exception {
 	class ResponseException extends \Exception {
 		/** @return self */
 		public static function fromMissingData( string $apiName, string $fieldName ): self { return new self(); }
+
+		/** @return self */
+		public static function fromInvalidData( string $apiName, string $fieldName, string $message ): self { return new self(); }
 	}
 }
 

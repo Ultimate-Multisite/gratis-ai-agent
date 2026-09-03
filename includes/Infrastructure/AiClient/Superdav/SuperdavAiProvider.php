@@ -141,6 +141,10 @@ final class SuperdavAiProvider extends AbstractApiProvider {
 	 */
 	protected static function createModel( ModelMetadata $model_metadata, ProviderMetadata $provider_metadata ): ModelInterface {
 		foreach ( $model_metadata->getSupportedCapabilities() as $capability ) {
+			if ( $capability->equals( CapabilityEnum::textToSpeechConversion() ) ) {
+				return new SuperdavAiTextToSpeechConversionModel( $model_metadata, $provider_metadata );
+			}
+
 			if ( $capability->equals( CapabilityEnum::imageGeneration() ) ) {
 				return new SuperdavAiImageGenerationModel( $model_metadata, $provider_metadata );
 			}
@@ -216,7 +220,7 @@ final class SuperdavAiProvider extends AbstractApiProvider {
 			ProviderTypeEnum::cloud(),
 			null,
 			RequestAuthenticationMethod::apiKey(),
-			'OpenAI-compatible AI service hosted for SD AI Agent.'
+			'OpenAI-compatible text, image, and speech synthesis service hosted for SD AI Agent.'
 		);
 	}
 
