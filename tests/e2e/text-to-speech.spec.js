@@ -178,7 +178,9 @@ async function injectTtsMock( page ) {
  */
 async function interceptStream( page, options = {} ) {
 	const { processingPolls = 0 } = options;
+	const syntheticJobId = 'e2e-tts-job-1';
 	let jobPollCount = 0;
+	let jobCompleted = false;
 
 	// Track the session_id created by the store before POST /run fires.
 	let capturedSessionId = null;
@@ -189,52 +191,61 @@ async function interceptStream( page, options = {} ) {
 	// Use a predicate function instead of a regex because wp-env uses plain
 	// permalinks (?rest_route=%2F...) where slashes are URL-encoded.
 	await page.route(
-		( url ) => decodeURIComponent( url.toString() ).includes( 'sd-ai-agent/v1/run' ),
+		( url ) =>
+			decodeURIComponent( url.toString() ).includes(
+				'sd-ai-agent/v1/run'
+			),
 		async ( route ) => {
-		try {
-			const postBody = route.request().postDataJSON();
-			if ( postBody?.session_id ) {
-				capturedSessionId = postBody.session_id;
+			try {
+				const postBody = route.request().postDataJSON();
+				if ( postBody?.session_id ) {
+					capturedSessionId = postBody.session_id;
+				}
+			} catch {
+				// Ignore parse failures — capturedSessionId stays null, triggering
+				// the local-append fallback path in pollJob.
 			}
-		} catch {
-			// Ignore parse failures — capturedSessionId stays null, triggering
-			// the local-append fallback path in pollJob.
+			await route.fulfill( {
+				status: 202,
+				contentType: 'application/json',
+				body: JSON.stringify( {
+					job_id: syntheticJobId,
+					status: 'processing',
+				} ),
+			} );
 		}
-		await route.fulfill( {
-			status: 202,
-			contentType: 'application/json',
-			body: JSON.stringify( {
-				job_id: 'e2e-tts-job-1',
-				status: 'processing',
-			} ),
-		} );
-	} );
+	);
 
-	// Intercept GET /job/:id — return 'processing' for the first
-	// `processingPolls` polls, then 'complete' with session_id so the store
-	// reloads the session (intercepted below to include the AI reply).
+	// Intercept only our synthetic job. A restored job from another test may be
+	// polling concurrently; hijacking it can inject this test's response before
+	// the new turn completes and make that response the speech baseline.
 	await page.route(
-		( url ) => decodeURIComponent( url.toString() ).includes( 'sd-ai-agent/v1/job/' ),
+		( url ) =>
+			decodeURIComponent( url.toString() ).includes(
+				`sd-ai-agent/v1/job/${ syntheticJobId }`
+			),
 		async ( route ) => {
-		jobPollCount += 1;
-		if ( jobPollCount <= processingPolls ) {
+			jobPollCount += 1;
+			if ( jobPollCount <= processingPolls ) {
+				await route.fulfill( {
+					status: 200,
+					contentType: 'application/json',
+					body: JSON.stringify( { status: 'processing' } ),
+				} );
+				return;
+			}
+			jobCompleted = true;
 			await route.fulfill( {
 				status: 200,
 				contentType: 'application/json',
-				body: JSON.stringify( { status: 'processing' } ),
+				body: JSON.stringify( {
+					status: 'complete',
+					session_id: capturedSessionId,
+					reply: 'Hello from the AI!',
+				} ),
 			} );
-			return;
 		}
-		await route.fulfill( {
-			status: 200,
-			contentType: 'application/json',
-			body: JSON.stringify( {
-				status: 'complete',
-				session_id: capturedSessionId,
-				reply: 'Hello from the AI!',
-			} ),
-		} );
-	} );
+	);
 
 	// Intercept GET /sessions/:id — return a synthetic session that already
 	// contains both the user message and the AI reply. Without this, the store
@@ -252,7 +263,16 @@ async function interceptStream( page, options = {} ) {
 			);
 		},
 		async ( route ) => {
-			if ( capturedSessionId === null ) {
+			// Let the real session load proceed until the synthetic job reports
+			// complete. Returning the model reply during initial session creation
+			// makes it predate the completion transition that triggers read-aloud.
+			const decodedUrl = decodeURIComponent( route.request().url() );
+			const targetsCapturedSession =
+				capturedSessionId !== null &&
+				decodedUrl.includes(
+					`sd-ai-agent/v1/sessions/${ capturedSessionId }`
+				);
+			if ( ! targetsCapturedSession || ! jobCompleted ) {
 				await route.continue();
 				return;
 			}
