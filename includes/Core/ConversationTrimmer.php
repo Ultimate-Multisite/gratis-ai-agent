@@ -967,7 +967,7 @@ class ConversationTrimmer {
 	}
 
 	/**
-	 * @param array $payload Tool payload.
+	 * @param array<string|int,mixed> $payload Tool payload.
 	 * @return array<string,mixed> String-keyed payload.
 	 */
 	private static function string_keyed_payload( array $payload ): array {
