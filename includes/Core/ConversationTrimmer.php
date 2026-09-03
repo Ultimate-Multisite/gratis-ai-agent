@@ -597,6 +597,9 @@ class ConversationTrimmer {
 	}
 
 	/** Preserve the stable identifiers returned by media and form creation tools. */
+	/**
+	 * @param array<string,mixed> $function_response Serialized function response.
+	 */
 	private static function compact_resource_response_receipt( array $function_response ): string {
 		[ $name, $response ] = self::compact_response_identity( $function_response );
 		if ( ! self::is_compact_resource_tool( $name ) ) {
@@ -612,6 +615,9 @@ class ConversationTrimmer {
 	}
 
 	/** Preserve bounded intent for media and form creation calls. */
+	/**
+	 * @param array<string,mixed> $function_call Serialized function call.
+	 */
 	private static function compact_resource_call_receipt( array $function_call ): string {
 		[ $name, $args ] = self::compact_call_identity( $function_call );
 		if ( ! self::is_compact_resource_tool( $name ) ) {
@@ -898,6 +904,10 @@ class ConversationTrimmer {
 	 *
 	 * @return array{0:string,1:array<string,mixed>}
 	 */
+	/**
+	 * @param array<string,mixed> $function_call Serialized function call.
+	 * @return array{0:string,1:array<string,mixed>}
+	 */
 	private static function compact_call_identity( array $function_call ): array {
 		$name = self::compact_tool_name( $function_call['name'] ?? 'tool' );
 		$args = self::compact_tool_payload_array( $function_call['args'] ?? array() );
@@ -912,6 +922,10 @@ class ConversationTrimmer {
 	/**
 	 * Resolve a direct tool result or an ability-call dispatcher envelope.
 	 *
+	 * @return array{0:string,1:array<string,mixed>}
+	 */
+	/**
+	 * @param array<string,mixed> $function_response Serialized function response.
 	 * @return array{0:string,1:array<string,mixed>}
 	 */
 	private static function compact_response_identity( array $function_response ): array {
@@ -929,18 +943,41 @@ class ConversationTrimmer {
 		return array( $name, $response );
 	}
 
-	/** Normalize a JSON-or-array tool payload without retaining it beyond the caller. */
+	/**
+	 * Normalize a JSON-or-array tool payload without retaining it beyond the caller.
+	 *
+	 * @return array<string,mixed>
+	 */
 	private static function compact_tool_payload_array( mixed $payload ): array {
 		if ( is_array( $payload ) ) {
-			return $payload;
+			/** @var array<string,mixed> $normalized */
+			$normalized = self::string_keyed_payload( $payload );
+			return $normalized;
 		}
 
 		if ( is_string( $payload ) ) {
 			$decoded = json_decode( $payload, true );
-			return is_array( $decoded ) ? $decoded : array();
+			if ( is_array( $decoded ) ) {
+				return self::string_keyed_payload( $decoded );
+			}
+			return array();
 		}
 
 		return array();
+	}
+
+	/**
+	 * @param array $payload Tool payload.
+	 * @return array<string,mixed> String-keyed payload.
+	 */
+	private static function string_keyed_payload( array $payload ): array {
+		$normalized = array();
+		foreach ( $payload as $key => $value ) {
+			if ( is_string( $key ) ) {
+				$normalized[ $key ] = $value;
+			}
+		}
+		return $normalized;
 	}
 
 	/** Normalize and bound one safe receipt value. */

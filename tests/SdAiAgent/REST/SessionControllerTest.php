@@ -41,11 +41,15 @@ class SessionControllerTest extends WP_UnitTestCase {
 		};
 		add_filter( 'pre_http_request', $intercept );
 
-		switch_to_blog( $tenant_id );
+		if ( is_multisite() ) {
+			switch_to_blog( $tenant_id );
+		}
 		BackgroundJobDispatcher::dispatch( $job_id, 'test-token' );
 		BackgroundJobDispatcher::dispatch( $job_id, 'test-token' );
 		$this->assertSame( $tenant_id, get_current_blog_id() );
-		restore_current_blog();
+		if ( is_multisite() ) {
+			restore_current_blog();
+		}
 		remove_filter( 'pre_http_request', $intercept );
 
 		$this->assertNotFalse( wp_next_scheduled( BackgroundJobDispatcher::HOOK, $args ) );
