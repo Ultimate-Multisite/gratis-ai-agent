@@ -299,6 +299,13 @@ Base unit: **4px**
 - Populate voice and speed controls from authenticated speech capabilities. Browser speech fallback remains disabled unless the current user explicitly enables it.
 - Preserve responsive parity: status copy may wrap above the composer, while icon controls retain the mobile touch-target rules and visible keyboard focus used by other chat actions.
 
+**Public static embed:**
+- Public speech is a separate site opt-in and uses raw dependency-free controls rather than WordPress components. Keep typed chat unchanged when it is off or unavailable.
+- Show the configured disclosure and an explicit acknowledgement before revealing push-to-talk or voice-mode controls. Never prompt for microphone access during script load, configuration, session creation, or restored preferences.
+- Push-to-talk, read-aloud/stop, and optional voice mode use clear text labels, pressed states, visible focus, and the shared Listening, Transcribing, Thinking, Speaking, and fallback status region.
+- Voice mode may auto-submit a completed transcript and auto-play only its associated assistant reply. Playback returns to idle; a new recording always requires a fresh keyboard or pointer gesture.
+- Closing or hiding the embed stops capture/playback, aborts public chat and speech requests, clears timers, and revokes object URLs. Do not retain audio or standalone transcripts in browser or WordPress storage.
+
 ### Border Radius Scale
 
 | Size | Value | Use |

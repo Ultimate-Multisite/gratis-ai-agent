@@ -13,6 +13,11 @@ import {
 	CREDIT_EXHAUSTED_REASON,
 	PURCHASE_CREDITS_ACTION,
 } from '../utils/superdav-credit-notice';
+import {
+	base64ToBlob,
+	recordingToWav,
+	selectRecordingMimeType,
+} from '../utils/speech-core';
 
 const DEFAULTS = {
 	apiBase: '',
@@ -33,6 +38,10 @@ const STRINGS = {
 	open: 'Open docs chat',
 	close: 'Close',
 	thinking: 'Thinking…',
+	listening: 'Listening…',
+	transcribing: 'Transcribing…',
+	speaking: 'Speaking…',
+	speechFallback: 'Speech is unavailable. You can continue with typed chat.',
 };
 
 const TRAILING_URL_PUNCTUATION = /[.,;:!?'")\]]+$/;
@@ -485,12 +494,14 @@ export function renderAccountActionNotice( item, notice ) {
  */
 export function createPublicClient( config ) {
 	const request = async ( path, options = {} ) => {
+		const isFormData =
+			typeof FormData !== 'undefined' && options.body instanceof FormData;
 		const response = await fetch( endpoint( config.apiBase, path ), {
 			...options,
 			credentials: 'omit',
 			headers: {
 				Accept: 'application/json',
-				'Content-Type': 'application/json',
+				...( isFormData ? {} : { 'Content-Type': 'application/json' } ),
 				...( options.headers || {} ),
 			},
 		} );
@@ -503,28 +514,54 @@ export function createPublicClient( config ) {
 
 	return {
 		config: () => request( '/public-chat/config', { method: 'GET' } ),
-		session: ( recordingConsent = false ) =>
+		session: ( recordingConsent = false, locale = '' ) =>
 			request( '/public-chat/session', {
 				method: 'POST',
 				body: JSON.stringify( {
 					recording_consent: recordingConsent,
+					embed_id: config.embedId,
+					locale,
 				} ),
 			} ),
-		send: ( message, sessionToken ) =>
+		send: ( message, sessionToken, signal ) =>
 			request( '/public-chat/run', {
 				method: 'POST',
 				body: JSON.stringify( {
 					message,
 					token: sessionToken,
 				} ),
+				signal,
 			} ),
-		poll: ( jobId, sessionToken ) =>
-			request(
-				`/public-chat/job/${ encodeURIComponent(
-					jobId
-				) }?token=${ encodeURIComponent( sessionToken ) }`,
-				{ method: 'GET' }
-			),
+		poll: ( jobId, sessionToken, signal ) =>
+			request( `/public-chat/job/${ encodeURIComponent( jobId ) }`, {
+				method: 'GET',
+				headers: { Authorization: `Bearer ${ sessionToken }` },
+				signal,
+			} ),
+		transcribe: ( recording, sessionToken, language, signal ) => {
+			const body = new FormData();
+			body.append( 'audio', recording, 'recording.wav' );
+			body.append( 'token', sessionToken );
+			body.append( 'embed_id', config.embedId );
+			if ( language ) {
+				body.append( 'language', language );
+			}
+			return request( '/public-chat/speech/transcriptions', {
+				method: 'POST',
+				body,
+				signal,
+			} );
+		},
+		synthesize: ( grant, sessionToken, signal ) =>
+			request( '/public-chat/speech/synthesis', {
+				method: 'POST',
+				body: JSON.stringify( {
+					embed_id: config.embedId,
+					grant,
+					token: sessionToken,
+				} ),
+				signal,
+			} ),
 	};
 }
 
@@ -551,8 +588,15 @@ export function mountEmbed( config ) {
 				<button class="sdaa-embed__close" type="button">${ STRINGS.close }</button>
 			</header>
 			<div class="sdaa-embed__messages"></div>
+			<div class="sd-ai-agent-embed-speech-disclosure" hidden></div>
+			<label class="sd-ai-agent-embed-voice-mode" hidden>
+				<input type="checkbox" />
+				<span>Voice conversation</span>
+			</label>
+			<div class="sd-ai-agent-embed-speech-status" role="status" aria-live="polite"></div>
 			<form class="sdaa-embed__form">
 				<textarea class="sdaa-embed__input" rows="1" autocomplete="off" placeholder="${ STRINGS.placeholder }"></textarea>
+				<button class="sd-ai-agent-embed-microphone" type="button" hidden aria-pressed="false">Use microphone</button>
 				<button class="sdaa-embed__send" type="submit">${ STRINGS.send }</button>
 			</form>
 		</section>`;
@@ -569,13 +613,200 @@ export function mountEmbed( config ) {
 	const form = root.querySelector( '.sdaa-embed__form' );
 	const input = root.querySelector( '.sdaa-embed__input' );
 	const sendButton = form.querySelector( '.sdaa-embed__send' );
+	const microphoneButton = form.querySelector(
+		'.sd-ai-agent-embed-microphone'
+	);
+	const speechDisclosure = root.querySelector(
+		'.sd-ai-agent-embed-speech-disclosure'
+	);
+	const speechStatus = root.querySelector(
+		'.sd-ai-agent-embed-speech-status'
+	);
+	const voiceModeControl = root.querySelector(
+		'.sd-ai-agent-embed-voice-mode'
+	);
+	const voiceModeInput = voiceModeControl.querySelector( 'input' );
 	let sessionToken = '';
+	let serverSpeech = null;
+	let pendingSpeechConfig = null;
+	let speechLocale = config.locale || globalThis.navigator?.language || '';
+	let microphoneConsent = false;
+	let recorderTurn = null;
+	let playback = null;
+	let chatAbort = null;
+	let speechAbort = null;
+	const activeTimers = new Set();
 	input.disabled = true;
 	sendButton.disabled = true;
 
 	const autosizeInput = () => {
 		input.style.height = 'auto';
 		input.style.height = `${ input.scrollHeight }px`;
+	};
+
+	const speechLabel = ( key, fallback ) =>
+		serverSpeech?.labels?.[ key ] || fallback;
+
+	const setSpeechStatus = ( value = '' ) => {
+		speechStatus.textContent = value;
+	};
+
+	const clearTimers = () => {
+		activeTimers.forEach( ( timer ) => clearTimeout( timer ) );
+		activeTimers.clear();
+	};
+
+	const wait = ( milliseconds, signal ) =>
+		new Promise( ( resolve, reject ) => {
+			const timer = setTimeout( () => {
+				activeTimers.delete( timer );
+				resolve();
+			}, milliseconds );
+			activeTimers.add( timer );
+			signal?.addEventListener(
+				'abort',
+				() => {
+					clearTimeout( timer );
+					activeTimers.delete( timer );
+					reject( new DOMException( 'Aborted', 'AbortError' ) );
+				},
+				{ once: true }
+			);
+		} );
+
+	const releasePlayback = () => {
+		if ( ! playback ) {
+			return;
+		}
+		playback.audio.onended = null;
+		playback.audio.onerror = null;
+		playback.audio.pause();
+		playback.audio.removeAttribute( 'src' );
+		URL.revokeObjectURL( playback.url );
+		if ( playback.button ) {
+			playback.button.disabled = true;
+			playback.button.textContent = speechLabel(
+				'read_aloud',
+				'Read aloud'
+			);
+			playback.button.setAttribute( 'aria-pressed', 'false' );
+		}
+		playback = null;
+		setSpeechStatus();
+	};
+
+	const stopPlayback = () => {
+		speechAbort?.abort();
+		speechAbort = null;
+		releasePlayback();
+	};
+
+	const releaseRecorder = ( turn, discard = false ) => {
+		if ( ! turn ) {
+			return;
+		}
+		if ( turn.timeout ) {
+			clearTimeout( turn.timeout );
+			activeTimers.delete( turn.timeout );
+			turn.timeout = null;
+		}
+		turn.stream?.getTracks().forEach( ( track ) => track.stop() );
+		if ( discard ) {
+			turn.cancelled = true;
+			turn.chunks = [];
+		}
+		if ( recorderTurn === turn ) {
+			recorderTurn = null;
+			microphoneButton.setAttribute( 'aria-pressed', 'false' );
+			microphoneButton.textContent = speechLabel(
+				'listen',
+				'Use microphone'
+			);
+		}
+	};
+
+	const cancelRecorder = () => {
+		const turn = recorderTurn;
+		if ( ! turn ) {
+			return;
+		}
+		turn.cancelled = true;
+		turn.chunks = [];
+		if ( turn.recorder.state !== 'inactive' ) {
+			turn.recorder.stop();
+		} else {
+			releaseRecorder( turn, true );
+		}
+		setSpeechStatus();
+	};
+
+	const stopAll = () => {
+		chatAbort?.abort();
+		chatAbort = null;
+		stopPlayback();
+		cancelRecorder();
+		clearTimers();
+	};
+
+	const playGrant = async ( grant, button ) => {
+		if ( playback ) {
+			stopPlayback();
+			return;
+		}
+		if ( ! grant || ! sessionToken ) {
+			return;
+		}
+
+		speechAbort?.abort();
+		speechAbort = new AbortController();
+		button.disabled = true;
+		setSpeechStatus( speechLabel( 'speaking', STRINGS.speaking ) );
+		try {
+			const result = await client.synthesize(
+				grant,
+				sessionToken,
+				speechAbort.signal
+			);
+			const blob = base64ToBlob( result.audio, result.mime_type );
+			const url = URL.createObjectURL( blob );
+			const audio = new Audio( url );
+			playback = { audio, button, url };
+			button.disabled = false;
+			button.textContent = speechLabel( 'stop', 'Stop' );
+			button.setAttribute( 'aria-pressed', 'true' );
+			audio.onended = releasePlayback;
+			audio.onerror = () => {
+				releasePlayback();
+				setSpeechStatus(
+					speechLabel( 'fallback', STRINGS.speechFallback )
+				);
+			};
+			await audio.play();
+		} catch ( error ) {
+			if ( error?.name !== 'AbortError' ) {
+				setSpeechStatus(
+					speechLabel( 'fallback', STRINGS.speechFallback )
+				);
+			}
+			button.disabled = true;
+			releasePlayback();
+		} finally {
+			speechAbort = null;
+		}
+	};
+
+	const addReadAloudControl = ( item, grant ) => {
+		if ( ! serverSpeech?.enabled || ! grant ) {
+			return null;
+		}
+		const button = document.createElement( 'button' );
+		button.type = 'button';
+		button.className = 'sd-ai-agent-embed-read-aloud';
+		button.textContent = speechLabel( 'read_aloud', 'Read aloud' );
+		button.setAttribute( 'aria-pressed', 'false' );
+		button.addEventListener( 'click', () => playGrant( grant, button ) );
+		item.appendChild( button );
+		return button;
 	};
 
 	const setMessageContent = ( item, role, text ) => {
@@ -597,6 +828,187 @@ export function mountEmbed( config ) {
 		return item;
 	};
 
+	const finishRecording = async ( turn ) => {
+		const chunks = turn.chunks;
+		turn.chunks = [];
+		releaseRecorder( turn );
+		if ( turn.cancelled || ! chunks.length ) {
+			return;
+		}
+
+		setSpeechStatus( speechLabel( 'transcribing', STRINGS.transcribing ) );
+		speechAbort?.abort();
+		speechAbort = new AbortController();
+		try {
+			const recording = new Blob( chunks, { type: turn.mimeType } );
+			const wav = await recordingToWav(
+				recording,
+				Number( serverSpeech.max_audio_bytes )
+			);
+			const result = await client.transcribe(
+				wav,
+				sessionToken,
+				speechLocale,
+				speechAbort.signal
+			);
+			if ( result?.language ) {
+				speechLocale = result.language;
+			}
+			input.value = result?.text || '';
+			autosizeInput();
+			if ( input.value && voiceModeInput.checked ) {
+				form.requestSubmit?.();
+			} else {
+				input.focus();
+			}
+			setSpeechStatus();
+		} catch ( error ) {
+			if ( error?.name !== 'AbortError' ) {
+				setSpeechStatus(
+					error?.message ||
+						speechLabel( 'fallback', STRINGS.speechFallback )
+				);
+			}
+		} finally {
+			speechAbort = null;
+		}
+	};
+
+	const startRecording = async () => {
+		if ( recorderTurn ) {
+			if ( recorderTurn.recorder.state !== 'inactive' ) {
+				recorderTurn.recorder.stop();
+			}
+			return;
+		}
+		if (
+			! microphoneConsent ||
+			! serverSpeech?.enabled ||
+			! sessionToken
+		) {
+			return;
+		}
+		stopPlayback();
+		const mimeType = selectRecordingMimeType(
+			serverSpeech.capture_mime_types
+		);
+		if ( ! mimeType ) {
+			setSpeechStatus(
+				speechLabel( 'fallback', STRINGS.speechFallback )
+			);
+			return;
+		}
+
+		setSpeechStatus( speechLabel( 'listening', STRINGS.listening ) );
+		try {
+			const stream = await navigator.mediaDevices.getUserMedia( {
+				audio: {
+					autoGainControl: true,
+					echoCancellation: true,
+					noiseSuppression: true,
+				},
+			} );
+			const recorder = new MediaRecorder( stream, { mimeType } );
+			const turn = {
+				cancelled: false,
+				chunks: [],
+				mimeType,
+				recorder,
+				stream,
+				timeout: null,
+				totalBytes: 0,
+			};
+			recorderTurn = turn;
+			microphoneButton.setAttribute( 'aria-pressed', 'true' );
+			microphoneButton.textContent = speechLabel( 'stop', 'Stop' );
+			recorder.ondataavailable = ( event ) => {
+				if ( turn.cancelled || ! event.data?.size ) {
+					return;
+				}
+				turn.chunks.push( event.data );
+				turn.totalBytes += event.data.size;
+				if (
+					turn.totalBytes > Number( serverSpeech.max_audio_bytes ) &&
+					recorder.state !== 'inactive'
+				) {
+					turn.cancelled = true;
+					recorder.stop();
+					setSpeechStatus(
+						speechLabel( 'fallback', STRINGS.speechFallback )
+					);
+				}
+			};
+			recorder.onerror = () => {
+				releaseRecorder( turn, true );
+				setSpeechStatus(
+					speechLabel( 'fallback', STRINGS.speechFallback )
+				);
+			};
+			recorder.onstop = () => finishRecording( turn );
+			recorder.start( 250 );
+			turn.timeout = setTimeout(
+				() => {
+					activeTimers.delete( turn.timeout );
+					turn.timeout = null;
+					if ( recorder.state !== 'inactive' ) {
+						recorder.stop();
+					}
+				},
+				Number( serverSpeech.max_recording_duration_seconds ) * 1000
+			);
+			activeTimers.add( turn.timeout );
+		} catch ( error ) {
+			setSpeechStatus(
+				error?.name === 'NotAllowedError'
+					? 'Microphone permission was denied. You can continue with typed chat.'
+					: speechLabel( 'fallback', STRINGS.speechFallback )
+			);
+		}
+	};
+
+	const configureSpeech = ( speech ) => {
+		serverSpeech = speech?.enabled ? speech : null;
+		const supported = Boolean(
+			serverSpeech &&
+				navigator.mediaDevices?.getUserMedia &&
+				typeof MediaRecorder !== 'undefined' &&
+				( globalThis.AudioContext || globalThis.webkitAudioContext ) &&
+				selectRecordingMimeType( serverSpeech.capture_mime_types )
+		);
+		if ( ! supported ) {
+			return;
+		}
+
+		speechDisclosure.hidden = false;
+		const disclosure = document.createElement( 'p' );
+		disclosure.textContent = serverSpeech.disclosure;
+		const consentButton = document.createElement( 'button' );
+		consentButton.type = 'button';
+		consentButton.className = 'sd-ai-agent-embed-speech-consent';
+		consentButton.textContent = speechLabel(
+			'continue',
+			'Allow microphone'
+		);
+		consentButton.addEventListener( 'click', () => {
+			microphoneConsent = true;
+			consentButton.remove();
+			microphoneButton.hidden = false;
+			if ( serverSpeech.voice_conversation_enabled ) {
+				voiceModeControl.hidden = false;
+				voiceModeControl.querySelector( 'span' ).textContent =
+					speechLabel( 'voice_mode', 'Voice conversation' );
+			}
+			startRecording();
+		} );
+		speechDisclosure.append( disclosure, consentButton );
+		microphoneButton.textContent = speechLabel(
+			'listen',
+			'Use microphone'
+		);
+	};
+
+	microphoneButton.addEventListener( 'click', startRecording );
+
 	autosizeInput();
 
 	const setUnavailable = ( message = STRINGS.unavailable ) => {
@@ -608,7 +1020,10 @@ export function mountEmbed( config ) {
 
 	const startSession = async ( recordingConsent, choice ) => {
 		try {
-			const session = await client.session( recordingConsent );
+			const session = await client.session(
+				recordingConsent,
+				speechLocale
+			);
 			sessionToken = session?.token || '';
 			if ( ! sessionToken ) {
 				setUnavailable();
@@ -619,6 +1034,7 @@ export function mountEmbed( config ) {
 			input.disabled = false;
 			sendButton.disabled = false;
 			addMessage( 'assistant', config.greeting );
+			configureSpeech( pendingSpeechConfig );
 			if ( ! panel.hidden ) {
 				input.focus();
 			}
@@ -683,6 +1099,7 @@ export function mountEmbed( config ) {
 				return;
 			}
 
+			pendingSpeechConfig = serverConfig?.speech || null;
 			if ( serverConfig?.recording?.enabled ) {
 				addRecordingChoice( serverConfig.recording );
 				return;
@@ -698,10 +1115,13 @@ export function mountEmbed( config ) {
 		launcher.setAttribute( 'aria-expanded', expanded ? 'true' : 'false' );
 		if ( expanded ) {
 			input.focus();
+		} else {
+			stopAll();
 		}
 	} );
 
 	close.addEventListener( 'click', () => {
+		stopAll();
 		panel.hidden = true;
 		launcher.setAttribute( 'aria-expanded', 'false' );
 	} );
@@ -733,8 +1153,17 @@ export function mountEmbed( config ) {
 		autosizeInput();
 		addMessage( 'user', message );
 		const pending = addMessage( 'assistant', STRINGS.thinking );
+		if ( voiceModeInput.checked ) {
+			setSpeechStatus( speechLabel( 'thinking', STRINGS.thinking ) );
+		}
+		chatAbort?.abort();
+		chatAbort = new AbortController();
 		try {
-			const run = await client.send( message, sessionToken );
+			const run = await client.send(
+				message,
+				sessionToken,
+				chatAbort.signal
+			);
 			let status = run;
 			for ( let attempt = 0; attempt < 60; attempt += 1 ) {
 				if (
@@ -743,8 +1172,12 @@ export function mountEmbed( config ) {
 				) {
 					break;
 				}
-				await new Promise( ( resolve ) => setTimeout( resolve, 1500 ) );
-				status = await client.poll( run.job_id, sessionToken );
+				await wait( 1500, chatAbort.signal );
+				status = await client.poll(
+					run.job_id,
+					sessionToken,
+					chatAbort.signal
+				);
 			}
 			if ( status.status !== 'complete' ) {
 				if ( status?.diagnostic?.reason === CREDIT_EXHAUSTED_REASON ) {
@@ -765,12 +1198,39 @@ export function mountEmbed( config ) {
 				'assistant',
 				status.reply || STRINGS.unavailable
 			);
+			const readAloud = addReadAloudControl(
+				pending,
+				status?.speech?.synthesis_grant
+			);
+			if ( voiceModeInput.checked && readAloud ) {
+				await playGrant( status.speech.synthesis_grant, readAloud );
+			} else {
+				setSpeechStatus();
+			}
 		} catch ( error ) {
+			if ( error?.name === 'AbortError' ) {
+				pending.remove();
+				return;
+			}
 			setMessageContent(
 				pending,
 				'assistant',
 				error.message || STRINGS.unavailable
 			);
+			setSpeechStatus(
+				voiceModeInput.checked
+					? speechLabel( 'fallback', STRINGS.speechFallback )
+					: ''
+			);
+		} finally {
+			chatAbort = null;
+		}
+	} );
+
+	window.addEventListener( 'pagehide', stopAll );
+	document.addEventListener( 'visibilitychange', () => {
+		if ( document.hidden ) {
+			stopAll();
 		}
 	} );
 

@@ -64,6 +64,10 @@ class PublicChatControllerTest extends WP_UnitTestCase {
 	private function dispatch( string $method, string $route, array $params = array(), string $origin = 'https://docs.example.test' ) {
 		$request = new WP_REST_Request( $method, $route );
 		$request->set_header( 'Origin', $origin );
+		if ( 'GET' === $method && isset( $params['token'] ) ) {
+			$request->set_header( 'Authorization', 'Bearer ' . (string) $params['token'] );
+			unset( $params['token'] );
+		}
 		if ( in_array( $method, array( 'POST', 'PATCH', 'PUT' ), true ) ) {
 			$request->set_header( 'Content-Type', 'application/json' );
 			$request->set_body( wp_json_encode( $params ) );
@@ -107,6 +111,11 @@ class PublicChatControllerTest extends WP_UnitTestCase {
 		$response = $this->dispatch( 'GET', '/sd-ai-agent/v1/public-chat/config' );
 		$this->assertSame( 200, $response->get_status() );
 		$this->assertFalse( $response->get_data()['enabled'] );
+		$this->assertFalse( $response->get_data()['speech']['enabled'] );
+		$this->assertSame( 0, $response->get_data()['speech']['max_audio_bytes'] );
+		$this->assertSame( 0, $response->get_data()['speech']['max_recording_duration_seconds'] );
+		$this->assertSame( 0, $response->get_data()['speech']['max_tts_characters'] );
+		$this->assertArrayNotHasKey( 'voice', $response->get_data()['speech'] );
 
 		$this->enable_public_chat();
 		$response = $this->dispatch( 'GET', '/sd-ai-agent/v1/public-chat/config', array(), 'https://evil.example.test' );

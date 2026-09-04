@@ -6,6 +6,30 @@ The widget can start a chat from a public page, but tool execution still passes
 through the same per-tool capability layer and core-capability layer used by the
 admin chat UI.
 
+## Public static embed boundary
+
+The static docs embed is intentionally separate from the authenticated frontend
+widget. It sends no WordPress cookies and receives no WordPress REST nonce or
+managed-service credential. Public chat and public speech are independently
+disabled by default. Every speech request must pass the configured origin,
+embed ID, active opaque session token, speech-specific rate/concurrency limits,
+and per-session/site spend budgets before managed service work begins.
+
+Anonymous transcription accepts only one strict temporary PCM WAV under the
+configured byte and duration ceilings. It creates no attachment and stores no
+audio or standalone transcript. Anonymous synthesis accepts no text; the server
+resolves a short-lived one-use grant bound to the completed assistant reply,
+session, embed, origin, voice, locale, and text hash. The client receives only
+bounded inline audio. Public job polling carries the session token in the
+standard `Authorization: Bearer` header, never the URL.
+
+The embed keeps speech progressive: disclosure precedes the first microphone
+prompt, capture starts only from a visitor gesture, typed chat remains usable on
+every speech failure, and close/page-hide cleanup aborts requests and releases
+tracks, timers, playback, and object URLs. Voice-conversation mode may auto-send
+and auto-read one turn but never reopens the microphone without another gesture.
+See `docs/embed-widget.md` for the operator contract and retention details.
+
 ## Recommendation
 
 The frontend widget should require `RolePermissions::current_user_has_chat_access()`

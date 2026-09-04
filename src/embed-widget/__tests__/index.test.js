@@ -149,7 +149,11 @@ describe( 'embed widget', () => {
 			url.endsWith( '/public-chat/session' )
 		);
 		expect( sessionRequest[ 1 ].body ).toBe(
-			JSON.stringify( { recording_consent: false } )
+			JSON.stringify( {
+				recording_consent: false,
+				embed_id: '',
+				locale: 'en',
+			} )
 		);
 	} );
 
@@ -189,7 +193,11 @@ describe( 'embed widget', () => {
 			url.endsWith( '/public-chat/session' )
 		);
 		expect( sessionRequest[ 1 ].body ).toBe(
-			JSON.stringify( { recording_consent: true } )
+			JSON.stringify( {
+				recording_consent: true,
+				embed_id: '',
+				locale: 'en',
+			} )
 		);
 		expect(
 			root.querySelector( '.sdaa-embed__recording-choice' )
@@ -341,5 +349,290 @@ describe( 'embed widget', () => {
 		expect( container.textContent ).toContain( 'wp_config_value' );
 		expect( container.textContent ).toContain( 'some_snake_case' );
 		expect( container.textContent ).toContain( 'word*star*word' );
+	} );
+
+	test( 'keeps public polling tokens out of the URL', async () => {
+		const client = module.createPublicClient( {
+			apiBase: 'https://example.test/wp-json/sd-ai-agent/v1',
+		} );
+
+		await client.poll( 'job-id', 'session-token' );
+
+		expect( global.fetch ).toHaveBeenLastCalledWith(
+			'https://example.test/wp-json/sd-ai-agent/v1/public-chat/job/job-id',
+			expect.objectContaining( {
+				credentials: 'omit',
+				headers: expect.objectContaining( {
+					Authorization: 'Bearer session-token',
+				} ),
+			} )
+		);
+		expect( global.fetch.mock.calls.at( -1 )[ 0 ] ).not.toContain(
+			'session-token'
+		);
+	} );
+
+	test( 'shows disclosure before requesting the microphone and releases capture on close', async () => {
+		const mediaDevicesDescriptor = Object.getOwnPropertyDescriptor(
+			navigator,
+			'mediaDevices'
+		);
+		const OriginalMediaRecorder = global.MediaRecorder;
+		const OriginalAudioContext = global.AudioContext;
+		const track = { stop: jest.fn() };
+		const getUserMedia = jest.fn().mockResolvedValue( {
+			getTracks: () => [ track ],
+		} );
+		class MockMediaRecorder {
+			constructor() {
+				this.state = 'inactive';
+			}
+
+			start() {
+				this.state = 'recording';
+			}
+
+			stop() {
+				this.state = 'inactive';
+				this.onstop?.();
+			}
+		}
+		MockMediaRecorder.isTypeSupported = jest.fn().mockReturnValue( true );
+
+		Object.defineProperty( navigator, 'mediaDevices', {
+			configurable: true,
+			value: { getUserMedia },
+		} );
+		global.MediaRecorder = MockMediaRecorder;
+		global.AudioContext = jest.fn();
+		global.fetch = jest.fn( ( url ) =>
+			Promise.resolve( {
+				ok: true,
+				json: () =>
+					Promise.resolve(
+						url.endsWith( '/public-chat/config' )
+							? {
+									enabled: true,
+									speech: {
+										enabled: true,
+										capture_mime_types: [ 'audio/webm' ],
+										disclosure:
+											'Audio is sent for transcription.',
+										max_audio_bytes: 1000,
+										max_recording_duration_seconds: 10,
+										voice_conversation_enabled: false,
+									},
+							  }
+							: { token: 'public-token' }
+					),
+			} )
+		);
+
+		try {
+			const root = module.mountEmbed( {
+				...module.resolveConfig( null, {} ),
+				apiBase: 'https://example.test/wp-json/sd-ai-agent/v1',
+				mount: '#mount',
+			} );
+			await flushRequests();
+
+			const disclosure = root.querySelector(
+				'.sd-ai-agent-embed-speech-disclosure'
+			);
+			const consent = root.querySelector(
+				'.sd-ai-agent-embed-speech-consent'
+			);
+			expect( disclosure.hidden ).toBe( false );
+			expect( disclosure.textContent ).toContain(
+				'Audio is sent for transcription.'
+			);
+			expect( getUserMedia ).not.toHaveBeenCalled();
+
+			consent.click();
+			await flushRequests();
+			expect( getUserMedia ).toHaveBeenCalledTimes( 1 );
+			expect(
+				root.querySelector( '.sd-ai-agent-embed-microphone' ).hidden
+			).toBe( false );
+
+			root.querySelector( '.sdaa-embed__close' ).click();
+			expect( track.stop ).toHaveBeenCalledTimes( 1 );
+		} finally {
+			if ( mediaDevicesDescriptor ) {
+				Object.defineProperty(
+					navigator,
+					'mediaDevices',
+					mediaDevicesDescriptor
+				);
+			} else {
+				delete navigator.mediaDevices;
+			}
+			global.MediaRecorder = OriginalMediaRecorder;
+			global.AudioContext = OriginalAudioContext;
+		}
+	} );
+
+	test( 'returns voice mode to idle after playback and requires a fresh microphone gesture', async () => {
+		const mediaDevicesDescriptor = Object.getOwnPropertyDescriptor(
+			navigator,
+			'mediaDevices'
+		);
+		const createObjectUrlDescriptor = Object.getOwnPropertyDescriptor(
+			URL,
+			'createObjectURL'
+		);
+		const revokeObjectUrlDescriptor = Object.getOwnPropertyDescriptor(
+			URL,
+			'revokeObjectURL'
+		);
+		const OriginalMediaRecorder = global.MediaRecorder;
+		const OriginalAudioContext = global.AudioContext;
+		const OriginalAudio = global.Audio;
+		const tracks = [];
+		const getUserMedia = jest.fn().mockImplementation( () => {
+			const track = { stop: jest.fn() };
+			tracks.push( track );
+			return Promise.resolve( { getTracks: () => [ track ] } );
+		} );
+		class MockMediaRecorder {
+			constructor() {
+				this.state = 'inactive';
+			}
+
+			start() {
+				this.state = 'recording';
+			}
+
+			stop() {
+				this.state = 'inactive';
+				this.onstop?.();
+			}
+		}
+		MockMediaRecorder.isTypeSupported = jest.fn().mockReturnValue( true );
+		const audio = {
+			pause: jest.fn(),
+			play: jest.fn().mockResolvedValue( undefined ),
+			removeAttribute: jest.fn(),
+		};
+		const createObjectURL = jest.fn().mockReturnValue( 'blob:reply' );
+		const revokeObjectURL = jest.fn();
+
+		Object.defineProperty( navigator, 'mediaDevices', {
+			configurable: true,
+			value: { getUserMedia },
+		} );
+		Object.defineProperty( URL, 'createObjectURL', {
+			configurable: true,
+			value: createObjectURL,
+		} );
+		Object.defineProperty( URL, 'revokeObjectURL', {
+			configurable: true,
+			value: revokeObjectURL,
+		} );
+		global.MediaRecorder = MockMediaRecorder;
+		global.AudioContext = jest.fn();
+		global.Audio = jest.fn( () => audio );
+		global.fetch = jest.fn( ( url ) => {
+			let data;
+			if ( url.endsWith( '/public-chat/config' ) ) {
+				data = {
+					enabled: true,
+					speech: {
+						enabled: true,
+						capture_mime_types: [ 'audio/webm' ],
+						disclosure: 'Audio is sent for transcription.',
+						max_audio_bytes: 1000,
+						max_recording_duration_seconds: 10,
+						voice_conversation_enabled: true,
+					},
+				};
+			} else if ( url.endsWith( '/public-chat/session' ) ) {
+				data = { token: 'public-token' };
+			} else if ( url.endsWith( '/public-chat/run' ) ) {
+				data = {
+					reply: 'Spoken reply.',
+					speech: { synthesis_grant: 'reply-grant' },
+					status: 'complete',
+				};
+			} else {
+				data = { audio: 'YQ==', mime_type: 'audio/mpeg' };
+			}
+
+			return Promise.resolve( {
+				ok: true,
+				json: () => Promise.resolve( data ),
+			} );
+		} );
+
+		try {
+			const root = module.mountEmbed( {
+				...module.resolveConfig( null, {} ),
+				apiBase: 'https://example.test/wp-json/sd-ai-agent/v1',
+				mount: '#mount',
+			} );
+			root.querySelector( '.sdaa-embed__launcher' ).click();
+			await flushRequests();
+			root.querySelector( '.sd-ai-agent-embed-speech-consent' ).click();
+			await flushRequests();
+			expect( getUserMedia ).toHaveBeenCalledTimes( 1 );
+
+			const voiceMode = root.querySelector(
+				'.sd-ai-agent-embed-voice-mode input'
+			);
+			voiceMode.checked = true;
+			root.querySelector( '.sd-ai-agent-embed-microphone' ).click();
+			await flushRequests();
+
+			const input = root.querySelector( '.sdaa-embed__input' );
+			input.value = 'Typed voice-mode turn';
+			root.querySelector( '.sdaa-embed__form' ).dispatchEvent(
+				new Event( 'submit', { bubbles: true, cancelable: true } )
+			);
+			await flushRequests();
+			expect( audio.play ).toHaveBeenCalledTimes( 1 );
+			expect( getUserMedia ).toHaveBeenCalledTimes( 1 );
+
+			audio.onended();
+			await flushRequests();
+			expect( revokeObjectURL ).toHaveBeenCalledWith( 'blob:reply' );
+			expect( getUserMedia ).toHaveBeenCalledTimes( 1 );
+
+			root.querySelector( '.sdaa-embed__close' ).click();
+			expect( tracks ).toHaveLength( 1 );
+			expect(
+				tracks.every( ( track ) => track.stop.mock.calls.length > 0 )
+			).toBe( true );
+		} finally {
+			if ( mediaDevicesDescriptor ) {
+				Object.defineProperty(
+					navigator,
+					'mediaDevices',
+					mediaDevicesDescriptor
+				);
+			} else {
+				delete navigator.mediaDevices;
+			}
+			if ( createObjectUrlDescriptor ) {
+				Object.defineProperty(
+					URL,
+					'createObjectURL',
+					createObjectUrlDescriptor
+				);
+			} else {
+				delete URL.createObjectURL;
+			}
+			if ( revokeObjectUrlDescriptor ) {
+				Object.defineProperty(
+					URL,
+					'revokeObjectURL',
+					revokeObjectUrlDescriptor
+				);
+			} else {
+				delete URL.revokeObjectURL;
+			}
+			global.MediaRecorder = OriginalMediaRecorder;
+			global.AudioContext = OriginalAudioContext;
+			global.Audio = OriginalAudio;
+		}
 	} );
 } );
