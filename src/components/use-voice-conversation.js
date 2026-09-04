@@ -147,13 +147,18 @@ export default function useVoiceConversation( { surface = 'main' } = {} ) {
 		voice: voiceId,
 	} );
 
-	const stopSpeaking = useCallback( () => {
-		if ( activePlayback?.owner === ownerRef.current ) {
-			activePlayback = null;
-		}
-		cancelSpeech();
-		setPhase( 'idle' );
-	}, [ cancelSpeech ] );
+	const stopSpeaking = useCallback(
+		( { resetPhase = true } = {} ) => {
+			if ( activePlayback?.owner === ownerRef.current ) {
+				activePlayback = null;
+			}
+			cancelSpeech();
+			if ( resetPhase ) {
+				setPhase( 'idle' );
+			}
+		},
+		[ cancelSpeech ]
+	);
 
 	const readAloud = useCallback(
 		async ( text, options = {} ) => {
@@ -162,16 +167,17 @@ export default function useVoiceConversation( { surface = 'main' } = {} ) {
 				return false;
 			}
 			const owner = ownerRef.current;
-			activePlayback = {
+			const playback = {
 				cancel: () => {
 					cancelSpeech();
 					setPhase( 'idle' );
 				},
 				owner,
 			};
+			activePlayback = playback;
 			setPhase( 'speaking' );
 			const completed = await speak( text, options );
-			if ( activePlayback?.owner === owner ) {
+			if ( activePlayback === playback ) {
 				activePlayback = null;
 				setPhase( completed ? 'idle' : 'error' );
 			}
@@ -298,7 +304,7 @@ export default function useVoiceConversation( { surface = 'main' } = {} ) {
 			! previousSessionId && currentSessionId && sending
 		);
 		cancelRecognition();
-		stopSpeaking();
+		stopSpeaking( { resetPhase: ! createdSessionForPendingTurn } );
 		if ( createdSessionForPendingTurn ) {
 			awaitingResponseRef.current = true;
 			return;

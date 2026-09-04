@@ -8,11 +8,30 @@ import apiFetch from '@wordpress/api-fetch';
 const currentUserId = globalThis.sdAiAgentData?.currentUserId || 0;
 const speechStorageKey = ( preference ) =>
 	`sdAiAgent:${ currentUserId }:speech:${ preference }`;
+const legacySpeechStorageKeys = {
+	legacyPitch: 'sdAiAgentTtsPitch',
+	readAloud: 'sdAiAgentTtsEnabled',
+	speed: 'sdAiAgentTtsRate',
+	voiceId: 'sdAiAgentTtsVoiceURI',
+};
 
 const readSpeechPreference = ( preference, fallback = '' ) => {
 	const key = speechStorageKey( preference );
 	const value = localStorage.getItem( key );
-	return value ?? fallback;
+	if ( value !== null ) {
+		return value;
+	}
+	const legacyKey = legacySpeechStorageKeys[ preference ];
+	if ( ! currentUserId || ! legacyKey ) {
+		return fallback;
+	}
+	const legacyValue = localStorage.getItem( legacyKey );
+	if ( legacyValue === null ) {
+		return fallback;
+	}
+	localStorage.setItem( key, legacyValue );
+	localStorage.removeItem( legacyKey );
+	return legacyValue;
 };
 
 const writeSpeechPreference = ( preference, value ) => {
