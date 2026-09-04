@@ -74,8 +74,8 @@ class WikimediaImageSource implements ImageSourceInterface {
 		);
 	}
 
-	public function get_image( string $image_id ): array|\WP_Error {
-		$args     = array(
+	public function get_image( string $image_id, int $width = 0, int $height = 0 ): array|\WP_Error {
+		$args = array(
 			'action'        => 'query',
 			'format'        => 'json',
 			'formatversion' => 2,
@@ -83,6 +83,12 @@ class WikimediaImageSource implements ImageSourceInterface {
 			'prop'          => 'imageinfo',
 			'iiprop'        => 'url|size|extmetadata',
 		);
+		if ( $width > 0 ) {
+			$args['iiurlwidth'] = $width;
+		}
+		if ( $height > 0 ) {
+			$args['iiurlheight'] = $height;
+		}
 		$response = SafeHttpClient::instance()->safe_remote_get( add_query_arg( $args, self::API ), array( 'timeout' => 30 ) );
 		if ( is_wp_error( $response ) || 200 !== wp_remote_retrieve_response_code( $response ) ) {
 			return new WP_Error( 'wikimedia_error', 'Failed to retrieve Wikimedia image.' ); }
@@ -90,22 +96,26 @@ class WikimediaImageSource implements ImageSourceInterface {
 		$info = $page['imageinfo'][0] ?? array();
 		if ( empty( $info['url'] ) ) {
 			return new WP_Error( 'wikimedia_error', 'No Wikimedia image URL available.' ); }
+		$meta        = $info['extmetadata'] ?? array();
+		$license     = (string) ( $meta['LicenseShortName']['value'] ?? 'CC BY-SA' );
+		$author      = wp_strip_all_tags( (string) ( $meta['Artist']['value'] ?? '' ) );
+		$license_url = (string) ( $meta['LicenseUrl']['value'] ?? 'https://creativecommons.org/licenses/' );
 		return array(
-			'url'         => $info['url'],
+			'url'         => (string) ( $info['thumburl'] ?? $info['url'] ),
 			'width'       => (int) ( $info['width'] ?? 0 ),
 			'height'      => (int) ( $info['height'] ?? 0 ),
 			'title'       => $image_id,
-			'author'      => '',
+			'author'      => $author,
 			'author_url'  => '',
-			'license'     => 'CC BY-SA',
-			'license_url' => 'https://creativecommons.org/licenses/',
-			'attribution' => 'Wikimedia Commons',
+			'license'     => $license,
+			'license_url' => $license_url,
+			'attribution' => trim( $author . ' / ' . $license ),
 			'source'      => 'wikimedia',
 		);
 	}
 
 	public function download( string $image_id, int $width = 0, int $height = 0 ): string|\WP_Error {
-		$image = $this->get_image( $image_id );
+		$image = $this->get_image( $image_id, $width, $height );
 		if ( is_wp_error( $image ) ) {
 			return $image; }
 		return SafeHttpClient::instance()->safe_download_url( (string) $image['url'], 60 );
