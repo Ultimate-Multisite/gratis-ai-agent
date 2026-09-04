@@ -15,7 +15,11 @@ use SdAiAgent\Abilities\BlockAbilities;
 use SdAiAgent\Abilities\KnowledgeAbilities;
 use SdAiAgent\Core\AbilityRegistry;
 use SdAiAgent\Core\AbilityFunctionResolver;
+use SdAiAgent\Core\ConversationTrimmer;
 use SdAiAgent\Core\IdenticalFailureTracker;
+use WordPress\AiClient\Messages\DTO\MessagePart;
+use WordPress\AiClient\Messages\DTO\ModelMessage;
+use WordPress\AiClient\Messages\DTO\UserMessage;
 use WordPress\AiClient\Tools\DTO\FunctionCall;
 use WP_UnitTestCase;
 
@@ -126,6 +130,28 @@ class AbilityFunctionResolverTest extends WP_UnitTestCase {
 		$this->assertSame( array( 'query' ), $payload['missing_required_fields'] );
 		$this->assertSame( array( 'query' => '<string — Search keywords. Required.>' ), $payload['example_arguments'] );
 		$this->assertStringContainsString( 'Do not retry with empty arguments', $payload['hint'] );
+	}
+
+	public function test_idless_function_call_response_remains_in_gemini_history(): void {
+		$this->skip_if_resolver_unavailable();
+
+		$ability = $this->register_schema_thrower_ability();
+		$this->assertNotNull( $ability );
+
+		$function_name = \WP_AI_Client_Ability_Function_Resolver::ability_name_to_function_name( 'test-plugin/schema-thrower' );
+		$call          = new FunctionCall( null, $function_name, array( 'query' => 'trigger callback validation exception' ) );
+		$resolver      = new AbilityFunctionResolver( $ability );
+		$response      = $resolver->execute_ability( $call );
+
+		$this->assertNull( $call->getId() );
+		$this->assertSame( '', $response->getId() );
+
+		$history = array(
+			new ModelMessage( array( new MessagePart( $call ) ) ),
+			new UserMessage( array( new MessagePart( $response ) ) ),
+		);
+
+		$this->assertCount( 2, ConversationTrimmer::validate_tool_pairs( $history ) );
 	}
 
 	public function test_public_knowledge_search_hydrates_empty_args_from_customer_query(): void {
