@@ -50,6 +50,7 @@ class ImageSourceFactory {
 		// Register sources in priority order.
 		self::$sources = [
 			'openverse' => new OpenverseImageSource(),
+			'wikimedia' => new WikimediaImageSource(),
 			'pixabay'   => new PixabayImageSource(),
 			'generate'  => new AiGenerateSource(),
 		];
