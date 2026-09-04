@@ -108,6 +108,10 @@ class RestControllerTest extends WP_UnitTestCase {
 	 */
 	private function dispatch( string $method, string $route, array $params = [] ) {
 		$request = new WP_REST_Request( $method, $route );
+		if ( 'GET' === $method && str_contains( $route, '/public-chat/job/' ) && isset( $params['token'] ) ) {
+			$request->set_header( 'Authorization', 'Bearer ' . (string) $params['token'] );
+			unset( $params['token'] );
+		}
 
 		if ( in_array( $method, [ 'POST', 'PATCH', 'PUT' ], true ) ) {
 			// Use JSON body — WP REST parses it for both get_param() (route arg

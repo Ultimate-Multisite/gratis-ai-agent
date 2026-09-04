@@ -23,6 +23,7 @@ use SdAiAgent\Core\CostCalculator;
 use SdAiAgent\Core\Database;
 use SdAiAgent\Core\DurablePlanRunner;
 use SdAiAgent\Core\Export;
+use SdAiAgent\Core\PublicChatSecurity;
 use SdAiAgent\Core\Settings;
 use SdAiAgent\Core\ToolPermissionResolver;
 use SdAiAgent\Models\ActiveJobRepository;
@@ -65,12 +66,6 @@ final class SessionController {
 	/** Maximum automatic resume attempts for a crashed background job. */
 	private const JOB_AUTO_RESUME_MAX_ATTEMPTS = 2;
 
-	/** Public anonymous chat session TTL in seconds. */
-	private const PUBLIC_CHAT_SESSION_TTL = DAY_IN_SECONDS;
-
-	/** Public anonymous chat HMAC purpose string. */
-	private const PUBLIC_CHAT_TOKEN_PURPOSE = 'public_chat_session_v1';
-
 	/**
 	 * Per-message transport attribution that does not alter conversation meaning.
 	 *
@@ -87,16 +82,19 @@ final class SessionController {
 
 	/** @var Settings Injected settings dependency. */
 	private Settings $settings;
+	private PublicChatSecurity $public_chat_security;
 
 	/**
 	 * Constructor — receives injected dependencies from the DI container.
 	 *
-	 * @param Database      $database  Injected Database service.
-	 * @param Settings|null $settings Injected Settings service.
+	 * @param Database                $database             Injected Database service.
+	 * @param Settings|null           $settings             Injected Settings service.
+	 * @param PublicChatSecurity|null $public_chat_security Shared public authorization service.
 	 */
-	public function __construct( Database $database, ?Settings $settings = null ) {
-		$this->database = $database;
-		$this->settings = $settings ?? Settings::instance();
+	public function __construct( Database $database, ?Settings $settings = null, ?PublicChatSecurity $public_chat_security = null ) {
+		$this->database             = $database;
+		$this->settings             = $settings ?? Settings::instance();
+		$this->public_chat_security = $public_chat_security ?? new PublicChatSecurity( $this->settings );
 	}
 
 	/**
@@ -527,6 +525,16 @@ final class SessionController {
 						'type'     => 'boolean',
 						'default'  => false,
 					),
+					'embed_id'          => array(
+						'required'          => false,
+						'type'              => 'string',
+						'sanitize_callback' => 'sanitize_key',
+					),
+					'locale'            => array(
+						'required'          => false,
+						'type'              => 'string',
+						'sanitize_callback' => 'sanitize_text_field',
+					),
 				),
 			)
 		);
@@ -561,12 +569,7 @@ final class SessionController {
 				'callback'            => array( $this, 'handle_public_chat_job_status' ),
 				'permission_callback' => '__return_true',
 				'args'                => array(
-					'id'    => array(
-						'required'          => true,
-						'type'              => 'string',
-						'sanitize_callback' => 'sanitize_text_field',
-					),
-					'token' => array(
+					'id' => array(
 						'required'          => true,
 						'type'              => 'string',
 						'sanitize_callback' => 'sanitize_text_field',
@@ -815,9 +818,11 @@ final class SessionController {
 	 * @return WP_REST_Response
 	 */
 	public function handle_public_chat_config( WP_REST_Request $request ): WP_REST_Response {
-		$config  = $this->get_public_chat_settings();
-		$origin  = $this->get_public_chat_request_origin( $request );
-		$enabled = ! empty( $config['enabled'] ) && ! empty( $config['collections'] ) && $this->public_origin_is_allowed( $origin, $config['origins'] );
+		$config         = $this->get_public_chat_settings();
+		$origin         = $this->get_public_chat_request_origin( $request );
+		$enabled        = ! empty( $config['enabled'] ) && ! empty( $config['collections'] ) && $this->public_origin_is_allowed( $origin, $config['origins'] );
+		$speech_enabled = $enabled && ! empty( $config['speech_enabled'] );
+		$this->public_chat_security->record_speech_metric( 'availability', $speech_enabled ? 'available' : 'unavailable', 200, microtime( true ) );
 
 		return $this->add_public_chat_cors(
 			new WP_REST_Response(
@@ -830,6 +835,29 @@ final class SessionController {
 						'enabled'        => $enabled && ! empty( $config['review_recording_enabled'] ),
 						'retention_days' => $enabled && ! empty( $config['review_recording_enabled'] ) ? (int) $config['review_retention_days'] : 0,
 						'disclosure'     => $enabled && ! empty( $config['review_recording_enabled'] ) ? (string) $config['review_disclosure'] : '',
+					),
+					'speech'      => array(
+						'enabled'                        => $speech_enabled,
+						'upload_mime_type'               => 'audio/wav',
+						'capture_mime_types'             => array( 'audio/webm;codecs=opus', 'audio/webm', 'audio/ogg;codecs=opus', 'audio/mp4' ),
+						'output_mime_types'              => array( 'audio/mpeg' ),
+						'max_audio_bytes'                => $speech_enabled ? (int) $config['speech_max_audio_bytes'] : 0,
+						'max_recording_duration_seconds' => $speech_enabled ? (int) $config['speech_max_recording_seconds'] : 0,
+						'max_tts_characters'             => $speech_enabled ? (int) $config['speech_max_tts_characters'] : 0,
+						'voice_conversation_enabled'     => $speech_enabled && ! empty( $config['speech_voice_mode_enabled'] ),
+						'disclosure'                     => $speech_enabled ? (string) $config['speech_disclosure'] : '',
+						'labels'                         => array(
+							'listen'       => __( 'Use microphone', 'superdav-ai-agent' ),
+							'stop'         => __( 'Stop', 'superdav-ai-agent' ),
+							'listening'    => __( 'Listening…', 'superdav-ai-agent' ),
+							'transcribing' => __( 'Transcribing…', 'superdav-ai-agent' ),
+							'thinking'     => __( 'Thinking…', 'superdav-ai-agent' ),
+							'speaking'     => __( 'Speaking…', 'superdav-ai-agent' ),
+							'read_aloud'   => __( 'Read aloud', 'superdav-ai-agent' ),
+							'voice_mode'   => __( 'Voice conversation', 'superdav-ai-agent' ),
+							'continue'     => __( 'Allow microphone', 'superdav-ai-agent' ),
+							'fallback'     => __( 'Speech is unavailable. You can continue with typed chat.', 'superdav-ai-agent' ),
+						),
 					),
 				),
 				200
@@ -2183,96 +2211,42 @@ final class SessionController {
 	/**
 	 * Get sanitized public chat settings.
 	 *
-	 * @return array{enabled: bool, origins: list<string>, provider_id: string, model_id: string, agent_id: int, collections: list<string>, abilities: list<string>, iterations: int, message_length: int, rate_limit: int, review_recording_enabled: bool, review_retention_days: int, review_disclosure: string}
+	 * @return array{
+	 *     enabled:bool,
+	 *     origins:list<string>,
+	 *     provider_id:string,
+	 *     model_id:string,
+	 *     agent_id:int,
+	 *     embed_id:string,
+	 *     collections:list<string>,
+	 *     abilities:list<string>,
+	 *     iterations:int,
+	 *     message_length:int,
+	 *     rate_limit:int,
+	 *     review_recording_enabled:bool,
+	 *     review_retention_days:int,
+	 *     review_disclosure:string,
+	 *     speech_enabled:bool,
+	 *     speech_voice:string,
+	 *     speech_max_recording_seconds:int,
+	 *     speech_max_audio_bytes:int,
+	 *     speech_max_tts_characters:int,
+	 *     speech_voice_mode_enabled:bool,
+	 *     speech_disclosure:string
+	 * }
 	 */
 	private function get_public_chat_settings(): array {
-		$settings = Settings::instance()->get();
-		$allowed  = $settings['public_chat_allowed_abilities'] ?? array( 'sd-ai-agent/knowledge-search' );
-		$allowed  = is_array( $allowed ) ? $this->sanitize_public_chat_string_list( $allowed, 'sanitize_text_field' ) : array();
-
-		$collections = $settings['public_chat_collection_ids'] ?? array();
-		$collections = is_array( $collections ) ? $this->sanitize_public_chat_string_list( $collections, 'sanitize_key' ) : array();
-
-		$origins = $settings['public_chat_allowed_origins'] ?? array();
-		$origins = is_array( $origins ) ? $this->sanitize_public_chat_string_list( $origins, 'sanitize_text_field' ) : array();
-
-		$review_retention_days = max( 1, min( 90, (int) ( $settings['public_chat_review_retention_days'] ?? 7 ) ) );
-		$review_disclosure     = sanitize_textarea_field( (string) ( $settings['public_chat_review_disclosure'] ?? '' ) );
-		if ( '' === $review_disclosure ) {
-			$review_disclosure = sprintf(
-				/* translators: %d: maximum number of days an opted-in anonymous chat is retained. */
-				__( 'This conversation may be recorded for quality review and retained for up to %d days.', 'superdav-ai-agent' ),
-				$review_retention_days
-			);
-		}
-
-		return array(
-			'enabled'                  => (bool) ( $settings['public_chat_enabled'] ?? false ),
-			'origins'                  => $origins,
-			'provider_id'              => sanitize_text_field( (string) ( $settings['public_chat_provider_id'] ?? '' ) ),
-			'model_id'                 => sanitize_text_field( (string) ( $settings['public_chat_model_id'] ?? '' ) ),
-			'agent_id'                 => absint( $settings['public_chat_agent_id'] ?? 0 ),
-			'collections'              => $collections,
-			'abilities'                => $allowed,
-			'iterations'               => max( 1, min( 8, (int) ( $settings['public_chat_max_iterations'] ?? 4 ) ) ),
-			'message_length'           => max( 1, min( 8000, (int) ( $settings['public_chat_message_max_length'] ?? 2000 ) ) ),
-			'rate_limit'               => max( 1, min( 60, (int) ( $settings['public_chat_rate_limit_per_min'] ?? 10 ) ) ),
-			'review_recording_enabled' => (bool) ( $settings['public_chat_review_recording_enabled'] ?? false ),
-			'review_retention_days'    => $review_retention_days,
-			'review_disclosure'        => $review_disclosure,
-		);
-	}
-
-	/**
-	 * Sanitize a mixed public-chat list to non-empty strings.
-	 *
-	 * @param array<int|string, mixed> $values   Raw values.
-	 * @param callable(string):string  $sanitize Sanitizer callback.
-	 * @return list<string>
-	 */
-	private function sanitize_public_chat_string_list( array $values, callable $sanitize ): array {
-		$clean = array();
-		foreach ( $values as $value ) {
-			if ( ! is_scalar( $value ) ) {
-				continue;
-			}
-			$item = $sanitize( (string) $value );
-			if ( '' !== $item ) {
-				$clean[] = $item;
-			}
-		}
-
-		return $clean;
+		return $this->public_chat_security->settings();
 	}
 
 	/** Validate public chat is enabled and the request origin is allowed. */
 	private function check_public_chat_available( WP_REST_Request $request ): true|WP_Error {
-		$config = $this->get_public_chat_settings();
-		if ( empty( $config['enabled'] ) ) {
-			return new WP_Error( 'sd_ai_agent_public_chat_disabled', __( 'Public chat is not enabled.', 'superdav-ai-agent' ), array( 'status' => 404 ) );
-		}
-
-		if ( empty( $config['collections'] ) ) {
-			return new WP_Error( 'sd_ai_agent_public_chat_unconfigured', __( 'Public chat has no documentation collection configured.', 'superdav-ai-agent' ), array( 'status' => 503 ) );
-		}
-
-		$origin = $this->get_public_chat_request_origin( $request );
-
-		if ( ! $this->public_origin_is_allowed( $origin, $config['origins'] ) ) {
-			return new WP_Error( 'sd_ai_agent_public_chat_origin_forbidden', __( 'This origin is not allowed to use public chat.', 'superdav-ai-agent' ), array( 'status' => 403 ) );
-		}
-
-		return true;
+		return $this->public_chat_security->check_available( $request );
 	}
 
 	/** Resolve the public-chat request origin or referer. */
 	private function get_public_chat_request_origin( WP_REST_Request $request ): string {
-		$origin = (string) $request->get_header( 'origin' );
-		if ( '' === $origin ) {
-			$origin = (string) $request->get_header( 'referer' );
-		}
-
-		return $origin;
+		return $this->public_chat_security->request_origin( $request );
 	}
 
 	/**
@@ -2284,13 +2258,7 @@ final class SessionController {
 	 */
 	// phpcs:ignore Squiz.Commenting.FunctionComment.IncorrectTypeHint -- list<string> is valid PHPStan but not a native PHP type.
 	private function add_public_chat_cors( WP_REST_Response $response, string $origin, array $allowed_origins ): WP_REST_Response {
-		if ( $this->public_origin_is_allowed( $origin, $allowed_origins ) ) {
-			$response->header( 'Access-Control-Allow-Origin', $origin );
-			$response->header( 'Access-Control-Allow-Credentials', 'false' );
-			$response->header( 'Vary', 'Origin' );
-		}
-
-		return $response;
+		return $this->public_chat_security->add_cors( $response, $origin, $allowed_origins );
 	}
 
 	/**
@@ -2301,90 +2269,22 @@ final class SessionController {
 	 */
 	// phpcs:ignore Squiz.Commenting.FunctionComment.IncorrectTypeHint -- list<string> is valid PHPStan but not a native PHP type.
 	private function public_origin_is_allowed( string $origin, array $allowed_origins ): bool {
-		if ( '' === $origin ) {
-			return empty( $allowed_origins );
-		}
-
-		$origin_host = wp_parse_url( $origin, PHP_URL_HOST );
-		$origin_host = is_string( $origin_host ) ? strtolower( $origin_host ) : '';
-		if ( '' === $origin_host ) {
-			return false;
-		}
-
-		if ( empty( $allowed_origins ) ) {
-			$home_host = wp_parse_url( home_url(), PHP_URL_HOST );
-			return is_string( $home_host ) && strtolower( $home_host ) === $origin_host;
-		}
-
-		foreach ( $allowed_origins as $allowed ) {
-			$allowed_host = wp_parse_url( (string) $allowed, PHP_URL_HOST );
-			$allowed_host = is_string( $allowed_host ) ? strtolower( $allowed_host ) : strtolower( (string) $allowed );
-			if ( $origin_host === $allowed_host ) {
-				return true;
-			}
-		}
-
-		return false;
+		return $this->public_chat_security->origin_is_allowed( $origin, $allowed_origins );
 	}
 
 	/** Create a signed opaque public session token. */
-	private function create_public_chat_token( string $session_uuid ): string {
-		$payload = wp_json_encode(
-			array(
-				'sid' => $session_uuid,
-				'exp' => time() + self::PUBLIC_CHAT_SESSION_TTL,
-			)
-		);
-		$payload = false === $payload ? '{}' : $payload;
-		// phpcs:ignore WordPress.PHP.DiscouragedPHPFunctions.obfuscation_base64_encode -- URL-safe token payload encoding, signed by HMAC below.
-		$body = rtrim( strtr( base64_encode( $payload ), '+/', '-_' ), '=' );
-		$sig  = hash_hmac( 'sha256', self::PUBLIC_CHAT_TOKEN_PURPOSE . '|' . $body, wp_salt( 'auth' ) );
-
-		return $body . '.' . $sig;
-	}
-
-	/** Validate and parse a signed public session token. */
-	private function parse_public_chat_token( string $token ): array|WP_Error {
-		$parts = explode( '.', $token, 2 );
-		if ( 2 !== count( $parts ) ) {
-			return new WP_Error( 'sd_ai_agent_public_chat_invalid_token', __( 'Invalid public chat token.', 'superdav-ai-agent' ), array( 'status' => 403 ) );
-		}
-
-		[ $body, $sig ] = $parts;
-		$expected       = hash_hmac( 'sha256', self::PUBLIC_CHAT_TOKEN_PURPOSE . '|' . $body, wp_salt( 'auth' ) );
-		if ( ! hash_equals( $expected, $sig ) ) {
-			return new WP_Error( 'sd_ai_agent_public_chat_invalid_token', __( 'Invalid public chat token.', 'superdav-ai-agent' ), array( 'status' => 403 ) );
-		}
-
-		// phpcs:ignore WordPress.PHP.DiscouragedPHPFunctions.obfuscation_base64_decode -- Decoding the signed URL-safe token payload.
-		$decoded = base64_decode( strtr( $body, '-_', '+/' ), true );
-		$data    = is_string( $decoded ) ? json_decode( $decoded, true ) : null;
-		if ( ! is_array( $data ) || empty( $data['sid'] ) || ! is_string( $data['sid'] ) || empty( $data['exp'] ) || (int) $data['exp'] < time() ) {
-			return new WP_Error( 'sd_ai_agent_public_chat_invalid_token', __( 'Invalid public chat token.', 'superdav-ai-agent' ), array( 'status' => 403 ) );
-		}
-
-		return array(
-			'sid' => sanitize_key( $data['sid'] ),
-			'exp' => (int) $data['exp'],
-		);
+	private function create_public_chat_token( string $session_uuid, string $embed_id, string $origin ): string {
+		return $this->public_chat_security->create_token( $session_uuid, $embed_id, $origin );
 	}
 
 	/** Public session transient key. */
 	private function public_chat_session_key( string $session_uuid ): string {
-		return 'sd_ai_agent_public_chat_' . md5( $session_uuid );
+		return $this->public_chat_security->session_key( $session_uuid );
 	}
 
 	/** Consume a public-chat rate-limit token. */
 	private function check_public_chat_rate_limit( string $session_uuid, int $limit ): true|WP_Error {
-		$ip  = sanitize_text_field( wp_unslash( (string) ( $_SERVER['REMOTE_ADDR'] ?? '0.0.0.0' ) ) );
-		$key = 'sd_ai_agent_public_chat_rate_' . md5( $session_uuid . '|' . $ip . '|' . gmdate( 'YmdHi' ) );
-		$hit = (int) get_transient( $key );
-		if ( $hit >= $limit ) {
-			return new WP_Error( 'sd_ai_agent_public_chat_rate_limited', __( 'Too many public chat messages. Please wait before trying again.', 'superdav-ai-agent' ), array( 'status' => 429 ) );
-		}
-
-		set_transient( $key, $hit + 1, MINUTE_IN_SECONDS + 5 );
-		return true;
+		return $this->public_chat_security->check_rate_limit( $session_uuid, $limit );
 	}
 
 	/** Create an anonymous public chat token/session. */
@@ -2397,9 +2297,18 @@ final class SessionController {
 		$origin            = $this->get_public_chat_request_origin( $request );
 		$consent           = $request->get_param( 'recording_consent' );
 		$recording_consent = true === $consent || 1 === $consent || '1' === $consent || 'true' === $consent;
+		$embed_id          = sanitize_key( self::get_string_param( $request, 'embed_id' ) );
+		$embed_id          = '' !== $embed_id ? $embed_id : (string) $config['embed_id'];
+		if ( '' === $embed_id || $embed_id !== $config['embed_id'] ) {
+			return new WP_Error( 'sd_ai_agent_public_chat_invalid_embed', __( 'The public chat embed is invalid.', 'superdav-ai-agent' ), array( 'status' => 403 ) );
+		}
+		$locale = $this->public_chat_security->normalize_locale( $request->get_param( 'locale' ) );
+		if ( $locale instanceof WP_Error ) {
+			return $locale;
+		}
 
 		$session_uuid = wp_generate_uuid4();
-		$token        = $this->create_public_chat_token( $session_uuid );
+		$token        = $this->create_public_chat_token( $session_uuid, $embed_id, $origin );
 		$review_id    = '';
 		if ( ! empty( $config['review_recording_enabled'] ) && $recording_consent ) {
 			$candidate_review_id = wp_generate_uuid4();
@@ -2421,18 +2330,21 @@ final class SessionController {
 		set_transient(
 			$this->public_chat_session_key( $session_uuid ),
 			array(
-				'history'    => array(),
-				'review_id'  => $review_id,
-				'created_at' => time(),
+				'history'       => array(),
+				'review_id'     => $review_id,
+				'embed_id'      => $embed_id,
+				'origin_hash'   => $this->public_chat_security->origin_binding( $origin ),
+				'speech_locale' => null === $locale ? '' : $locale,
+				'created_at'    => time(),
 			),
-			self::PUBLIC_CHAT_SESSION_TTL
+			PublicChatSecurity::SESSION_TTL
 		);
 
 		return $this->add_public_chat_cors(
 			new WP_REST_Response(
 				array(
 					'token'      => $token,
-					'expires_in' => self::PUBLIC_CHAT_SESSION_TTL,
+					'expires_in' => PublicChatSecurity::SESSION_TTL,
 				),
 				201
 			),
@@ -2448,19 +2360,15 @@ final class SessionController {
 			return $available;
 		}
 
-		$config = $this->get_public_chat_settings();
-		$origin = $this->get_public_chat_request_origin( $request );
-		$token  = self::get_string_param( $request, 'token' );
-		$parsed = $this->parse_public_chat_token( $token );
-		if ( is_wp_error( $parsed ) ) {
-			return $parsed;
+		$config     = $this->get_public_chat_settings();
+		$origin     = $this->get_public_chat_request_origin( $request );
+		$token      = self::get_string_param( $request, 'token' );
+		$authorized = $this->public_chat_security->authorize_session( $request, $token );
+		if ( $authorized instanceof WP_Error ) {
+			return $authorized;
 		}
-
-		$session_uuid = (string) $parsed['sid'];
-		$session      = get_transient( $this->public_chat_session_key( $session_uuid ) );
-		if ( ! is_array( $session ) ) {
-			return new WP_Error( 'sd_ai_agent_public_chat_session_expired', __( 'Public chat session expired.', 'superdav-ai-agent' ), array( 'status' => 403 ) );
-		}
+		$session_uuid = $authorized['session_uuid'];
+		$session      = $authorized['session'];
 
 		$rate = $this->check_public_chat_rate_limit( $session_uuid, (int) $config['rate_limit'] );
 		if ( true !== $rate ) {
@@ -2548,15 +2456,22 @@ final class SessionController {
 		$config = $this->get_public_chat_settings();
 		$origin = $this->get_public_chat_request_origin( $request );
 
-		$token  = self::get_string_param( $request, 'token' );
-		$parsed = $this->parse_public_chat_token( $token );
-		if ( is_wp_error( $parsed ) ) {
-			return $parsed;
+		$authorization = trim( (string) $request->get_header( 'authorization' ) );
+		$matches       = array();
+		$token         = 1 === preg_match( '/^Bearer\s+(\S+)$/i', $authorization, $matches )
+			? sanitize_text_field( (string) $matches[1] )
+			: '';
+		if ( '' === $token ) {
+			return new WP_Error( 'sd_ai_agent_public_chat_invalid_token', __( 'Invalid public chat token.', 'superdav-ai-agent' ), array( 'status' => 403 ) );
+		}
+		$authorized = $this->public_chat_security->authorize_session( $request, $token );
+		if ( $authorized instanceof WP_Error ) {
+			return $authorized;
 		}
 
 		$job_id = self::get_string_param( $request, 'id' );
 		$job    = get_transient( RestController::JOB_PREFIX . $job_id );
-		if ( ! is_array( $job ) || empty( $job['public_chat'] ) || ( $job['public_session_uuid'] ?? '' ) !== $parsed['sid'] || ( $job['public_token_hash'] ?? '' ) !== hash( 'sha256', $token ) ) {
+		if ( ! is_array( $job ) || empty( $job['public_chat'] ) || ( $job['public_session_uuid'] ?? '' ) !== $authorized['session_uuid'] || ( $job['public_token_hash'] ?? '' ) !== $authorized['token_hash'] ) {
 			return new WP_Error( 'sd_ai_agent_public_chat_job_not_found', __( 'Public chat job not found.', 'superdav-ai-agent' ), array( 'status' => 404 ) );
 		}
 
@@ -2575,6 +2490,13 @@ final class SessionController {
 			$response['history']         = isset( $job['result']['history'] ) && is_array( $job['result']['history'] ) ? ConversationDisplaySanitizer::sanitize_messages( $job['result']['history'] ) : array();
 			$response['tool_calls']      = $job['result']['tool_calls'] ?? array();
 			$response['iterations_used'] = $job['result']['iterations_used'] ?? 0;
+			$grant                       = $this->public_chat_security->issue_synthesis_grant( $authorized['session_uuid'], $token, $origin, (string) $response['reply'] );
+			if ( null !== $grant ) {
+				$response['speech'] = array(
+					'synthesis_grant' => $grant['grant'],
+					'expires_in'      => $grant['expires_in'],
+				);
+			}
 			delete_transient( RestController::JOB_PREFIX . $job_id );
 			ActiveJobRepository::delete( $job_id );
 		} elseif ( 'error' === ( $job['status'] ?? '' ) ) {
@@ -4034,7 +3956,7 @@ final class SessionController {
 				set_transient(
 					$this->public_chat_session_key( (string) $job['public_session_uuid'] ),
 					$public_session,
-					self::PUBLIC_CHAT_SESSION_TTL
+					PublicChatSecurity::SESSION_TTL
 				);
 				$token_usage = isset( $result['token_usage'] ) && is_array( $result['token_usage'] ) ? $result['token_usage'] : array();
 				$handoff     = isset( $result['handoff'] ) && is_array( $result['handoff'] ) ? $result['handoff'] : array();

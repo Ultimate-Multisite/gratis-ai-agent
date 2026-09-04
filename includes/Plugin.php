@@ -67,6 +67,7 @@ use SdAiAgent\REST\KnowledgeController;
 use SdAiAgent\REST\InstructionsController;
 use SdAiAgent\REST\McpController;
 use SdAiAgent\REST\MemoryController;
+use SdAiAgent\REST\PublicSpeechController;
 use SdAiAgent\REST\RestController;
 use SdAiAgent\REST\SessionController;
 use SdAiAgent\REST\SettingsController;
@@ -139,6 +140,7 @@ use XWP\DI\Decorators\Module;
 		SessionController::class,
 		SettingsController::class,
 		SpeechController::class,
+		PublicSpeechController::class,
 		ConnectorsController::class,
 		CustomerConversationController::class,
 		WebhookController::class,

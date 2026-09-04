@@ -42,52 +42,77 @@ class PublicChatSetupAbilities {
 				'input_schema'        => array(
 					'type'       => 'object',
 					'properties' => array(
-						'action'             => array(
+						'action'                       => array(
 							'type'        => 'string',
 							'description' => 'Action to perform: status, configure, disable, or snippet.',
 							'enum'        => array( 'status', 'configure', 'disable', 'snippet' ),
 						),
-						'enabled'            => array(
+						'enabled'                      => array(
 							'type'        => 'boolean',
 							'description' => 'Whether public chat should be enabled during configure. Defaults to the currently saved state when omitted.',
 						),
-						'origins'            => array(
+						'origins'                      => array(
 							'type'        => 'array',
 							'description' => 'Allowed public docs/front-end origins such as https://docs.example.com. Empty means same-origin only.',
 							'items'       => array( 'type' => 'string' ),
 						),
-						'collection_slugs'   => array(
+						'collection_slugs'             => array(
 							'type'        => 'array',
 							'description' => 'Existing knowledge collection slugs allowed for anonymous docs answers.',
 							'items'       => array( 'type' => 'string' ),
 						),
-						'provider_id'        => array(
+						'provider_id'                  => array(
 							'type'        => 'string',
 							'description' => 'Optional provider ID to force for public chat. Omit to use the saved public/default provider.',
 						),
-						'model_id'           => array(
+						'model_id'                     => array(
 							'type'        => 'string',
 							'description' => 'Optional model ID to force for public chat. Omit to use the saved public/default model.',
 						),
-						'agent_id'           => array(
+						'agent_id'                     => array(
 							'type'        => 'integer',
 							'description' => 'Optional fixed public agent ID. Defaults to the saved value or 0.',
 						),
-						'embed_id'           => array(
+						'embed_id'                     => array(
 							'type'        => 'string',
 							'description' => 'Public embed identifier. Defaults to docs.',
 						),
-						'rate_limit_per_min' => array(
+						'rate_limit_per_min'           => array(
 							'type'        => 'integer',
 							'description' => 'Per-session/IP public message limit per minute, 1–60.',
 						),
-						'message_max_length' => array(
+						'message_max_length'           => array(
 							'type'        => 'integer',
 							'description' => 'Maximum customer message length, 1–8000 characters.',
 						),
-						'max_iterations'     => array(
+						'max_iterations'               => array(
 							'type'        => 'integer',
 							'description' => 'Maximum tool-calling iterations for public chat, 1–8.',
+						),
+						'speech_enabled'               => array(
+							'type'        => 'boolean',
+							'description' => 'Whether bounded public embed speech is enabled. Defaults to false.',
+						),
+						'speech_voice'                 => array(
+							'type'        => 'string',
+							'description' => 'Server-selected managed voice ID, or auto.',
+							'enum'        => array( 'auto', 'alloy' ),
+						),
+						'speech_max_recording_seconds' => array(
+							'type'        => 'integer',
+							'description' => 'Maximum visitor recording duration, 1–60 seconds.',
+						),
+						'speech_max_tts_characters'    => array(
+							'type'        => 'integer',
+							'description' => 'Maximum associated assistant-response characters read aloud, 1–1000.',
+						),
+						'speech_voice_mode_enabled'    => array(
+							'type'        => 'boolean',
+							'description' => 'Whether visitors may explicitly enable turn-based voice conversation mode.',
+						),
+						'speech_disclosure'            => array(
+							'type'        => 'string',
+							'description' => 'Localizable microphone disclosure shown before the first permission request.',
 						),
 					),
 					'required'   => array( 'action' ),
@@ -223,14 +248,30 @@ class PublicChatSetupAbilities {
 		}
 
 		$int_fields = array(
-			'rate_limit_per_min' => array( 'public_chat_rate_limit_per_min', 1, 60 ),
-			'message_max_length' => array( 'public_chat_message_max_length', 1, 8000 ),
-			'max_iterations'     => array( 'public_chat_max_iterations', 1, 8 ),
+			'rate_limit_per_min'           => array( 'public_chat_rate_limit_per_min', 1, 60 ),
+			'message_max_length'           => array( 'public_chat_message_max_length', 1, 8000 ),
+			'max_iterations'               => array( 'public_chat_max_iterations', 1, 8 ),
+			'speech_max_recording_seconds' => array( 'public_chat_speech_max_recording_seconds', 1, 60 ),
+			'speech_max_tts_characters'    => array( 'public_chat_speech_max_tts_characters', 1, 1000 ),
 		);
 		foreach ( $int_fields as $input_key => $spec ) {
 			if ( array_key_exists( $input_key, $input ) ) {
 				$updates[ $spec[0] ] = max( (int) $spec[1], min( (int) $spec[2], (int) $input[ $input_key ] ) );
 			}
+		}
+
+		foreach ( array( 'speech_enabled', 'speech_voice_mode_enabled' ) as $boolean_key ) {
+			if ( array_key_exists( $boolean_key, $input ) ) {
+				$updates[ 'public_chat_' . $boolean_key ] = (bool) $input[ $boolean_key ];
+			}
+		}
+		if ( array_key_exists( 'speech_voice', $input ) ) {
+			$voice                               = sanitize_key( (string) $input['speech_voice'] );
+			$updates['public_chat_speech_voice'] = in_array( $voice, array( 'auto', 'alloy' ), true ) ? $voice : 'auto';
+		}
+		if ( array_key_exists( 'speech_disclosure', $input ) ) {
+			$disclosure                               = sanitize_textarea_field( (string) $input['speech_disclosure'] );
+			$updates['public_chat_speech_disclosure'] = function_exists( 'mb_substr' ) ? mb_substr( $disclosure, 0, 500 ) : substr( $disclosure, 0, 500 );
 		}
 
 		$settings->update( $updates );
@@ -270,17 +311,23 @@ class PublicChatSetupAbilities {
 		$all = $settings->get();
 
 		return array(
-			'public_chat_enabled'            => (bool) ( $all['public_chat_enabled'] ?? false ),
-			'public_chat_embed_id'           => sanitize_key( (string) ( $all['public_chat_embed_id'] ?? 'docs' ) ),
-			'public_chat_allowed_origins'    => self::sanitize_string_list( $all['public_chat_allowed_origins'] ?? array(), 'sanitize_text_field' ),
-			'public_chat_provider_id'        => sanitize_text_field( (string) ( $all['public_chat_provider_id'] ?? '' ) ),
-			'public_chat_model_id'           => sanitize_text_field( (string) ( $all['public_chat_model_id'] ?? '' ) ),
-			'public_chat_agent_id'           => absint( $all['public_chat_agent_id'] ?? 0 ),
-			'public_chat_collection_ids'     => self::sanitize_string_list( $all['public_chat_collection_ids'] ?? array(), 'sanitize_key' ),
-			'public_chat_allowed_abilities'  => self::sanitize_string_list( $all['public_chat_allowed_abilities'] ?? self::SAFE_PUBLIC_ABILITIES, 'sanitize_text_field' ),
-			'public_chat_max_iterations'     => max( 1, min( 8, (int) ( $all['public_chat_max_iterations'] ?? 4 ) ) ),
-			'public_chat_message_max_length' => max( 1, min( 8000, (int) ( $all['public_chat_message_max_length'] ?? 2000 ) ) ),
-			'public_chat_rate_limit_per_min' => max( 1, min( 60, (int) ( $all['public_chat_rate_limit_per_min'] ?? 10 ) ) ),
+			'public_chat_enabled'                      => (bool) ( $all['public_chat_enabled'] ?? false ),
+			'public_chat_embed_id'                     => sanitize_key( (string) ( $all['public_chat_embed_id'] ?? 'docs' ) ),
+			'public_chat_allowed_origins'              => self::sanitize_string_list( $all['public_chat_allowed_origins'] ?? array(), 'sanitize_text_field' ),
+			'public_chat_provider_id'                  => sanitize_text_field( (string) ( $all['public_chat_provider_id'] ?? '' ) ),
+			'public_chat_model_id'                     => sanitize_text_field( (string) ( $all['public_chat_model_id'] ?? '' ) ),
+			'public_chat_agent_id'                     => absint( $all['public_chat_agent_id'] ?? 0 ),
+			'public_chat_collection_ids'               => self::sanitize_string_list( $all['public_chat_collection_ids'] ?? array(), 'sanitize_key' ),
+			'public_chat_allowed_abilities'            => self::sanitize_string_list( $all['public_chat_allowed_abilities'] ?? self::SAFE_PUBLIC_ABILITIES, 'sanitize_text_field' ),
+			'public_chat_max_iterations'               => max( 1, min( 8, (int) ( $all['public_chat_max_iterations'] ?? 4 ) ) ),
+			'public_chat_message_max_length'           => max( 1, min( 8000, (int) ( $all['public_chat_message_max_length'] ?? 2000 ) ) ),
+			'public_chat_rate_limit_per_min'           => max( 1, min( 60, (int) ( $all['public_chat_rate_limit_per_min'] ?? 10 ) ) ),
+			'public_chat_speech_enabled'               => (bool) ( $all['public_chat_speech_enabled'] ?? false ),
+			'public_chat_speech_voice'                 => sanitize_key( (string) ( $all['public_chat_speech_voice'] ?? 'auto' ) ),
+			'public_chat_speech_max_recording_seconds' => max( 1, min( 60, (int) ( $all['public_chat_speech_max_recording_seconds'] ?? 30 ) ) ),
+			'public_chat_speech_max_tts_characters'    => max( 1, min( 1000, (int) ( $all['public_chat_speech_max_tts_characters'] ?? 1000 ) ) ),
+			'public_chat_speech_voice_mode_enabled'    => (bool) ( $all['public_chat_speech_voice_mode_enabled'] ?? false ),
+			'public_chat_speech_disclosure'            => sanitize_textarea_field( (string) ( $all['public_chat_speech_disclosure'] ?? '' ) ),
 		);
 	}
 
@@ -313,6 +360,8 @@ class PublicChatSetupAbilities {
 			'uses_public_token_flow'       => true,
 			'uses_customer_simple_ui'      => true,
 			'sends_credentials_from_embed' => false,
+			'public_speech_opt_in'         => ! empty( $public_settings['public_chat_speech_enabled'] ),
+			'public_speech_session_bound'  => true,
 		);
 	}
 
@@ -351,6 +400,9 @@ class PublicChatSetupAbilities {
 		if ( self::SAFE_PUBLIC_ABILITIES !== ( $public_settings['public_chat_allowed_abilities'] ?? array() ) ) {
 			$warnings[] = __( 'The setup tool forces the anonymous ability allowlist back to knowledge-search only.', 'superdav-ai-agent' );
 		}
+		if ( ! empty( $public_settings['public_chat_speech_voice_mode_enabled'] ) && empty( $public_settings['public_chat_speech_enabled'] ) ) {
+			$warnings[] = __( 'Voice conversation mode is configured but public speech remains disabled.', 'superdav-ai-agent' );
+		}
 
 		return $warnings;
 	}
@@ -372,6 +424,10 @@ class PublicChatSetupAbilities {
 		$steps[] = __( 'Build the plugin assets with pnpm run build and copy build/embed-widget.js plus build/style-embed-widget.css to the docs site.', 'superdav-ai-agent' );
 		$steps[] = __( 'Embed the returned snippet on the customer/docs frontend.', 'superdav-ai-agent' );
 		$steps[] = __( 'Run a logged-out browser smoke test with a real docs question and confirm only public-chat endpoints are called.', 'superdav-ai-agent' );
+		if ( ! empty( $public_settings['public_chat_speech_enabled'] ) ) {
+			$steps[] = __( 'Confirm the microphone disclosure appears before the browser permission prompt, then verify one bounded transcription and one granted assistant playback.', 'superdav-ai-agent' );
+			$steps[] = __( 'Verify arbitrary synthesis text, replayed grants, extra uploads, and non-allowlisted origins are rejected before managed service spend.', 'superdav-ai-agent' );
+		}
 
 		if ( ! empty( $public_settings['public_chat_allowed_origins'] ) ) {
 			$steps[] = __( 'Verify a non-allowlisted Origin receives sd_ai_agent_public_chat_origin_forbidden from /public-chat/session.', 'superdav-ai-agent' );

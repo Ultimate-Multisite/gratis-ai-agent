@@ -392,82 +392,90 @@ class Settings {
 	 */
 	public function get_defaults(): array {
 		return array(
-			'default_provider'                     => '',
-			'default_model'                        => '',
-			'max_iterations'                       => 100,
-			'greeting_message'                     => '',
-			'system_prompt'                        => '',
-			'auto_memory'                          => true,
-			'tool_permissions'                     => array(),
-			'temperature'                          => 0.2,
+			'default_provider'                         => '',
+			'default_model'                            => '',
+			'max_iterations'                           => 100,
+			'greeting_message'                         => '',
+			'system_prompt'                            => '',
+			'auto_memory'                              => true,
+			'tool_permissions'                         => array(),
+			'temperature'                              => 0.2,
 			// 0 = auto-resolve per model via Settings::get_max_output_tokens_for_model().
 			// A user-saved positive value overrides the per-model default (clamped to
 			// MAX_OUTPUT_TOKENS_CEILING at request time). See AgentLoop::send_prompt().
-			'max_output_tokens'                    => self::MAX_OUTPUT_TOKENS_AUTO,
-			'context_window_default'               => 128000,
-			'onboarding_complete'                  => false,
-			'knowledge_enabled'                    => true,
-			'knowledge_auto_index'                 => true,
-			'max_history_turns'                    => 20,
+			'max_output_tokens'                        => self::MAX_OUTPUT_TOKENS_AUTO,
+			'context_window_default'                   => 128000,
+			'onboarding_complete'                      => false,
+			'knowledge_enabled'                        => true,
+			'knowledge_auto_index'                     => true,
+			'max_history_turns'                        => 20,
 			// Local input guards. The byte limit is enforced against the final
 			// serialized HTTP body; the token limit bounds retained conversation
 			// history before the provider builder runs.
-			'provider_request_max_bytes'           => ConversationTrimmer::DEFAULT_MAX_REQUEST_BYTES,
-			'provider_request_max_tokens'          => ConversationTrimmer::DEFAULT_MAX_REQUEST_TOKENS,
-			'suggestion_count'                     => 3,
-			'yolo_mode'                            => false,
-			'show_tool_call_details'               => false,
-			'show_on_frontend'                     => true,
-			'public_chat_embed_id'                 => 'docs',
-			'keyboard_shortcut'                    => 'alt+a',
+			'provider_request_max_bytes'               => ConversationTrimmer::DEFAULT_MAX_REQUEST_BYTES,
+			'provider_request_max_tokens'              => ConversationTrimmer::DEFAULT_MAX_REQUEST_TOKENS,
+			'suggestion_count'                         => 3,
+			'yolo_mode'                                => false,
+			'show_tool_call_details'                   => false,
+			'show_on_frontend'                         => true,
+			'public_chat_embed_id'                     => 'docs',
+			'keyboard_shortcut'                        => 'alt+a',
 			// Public docs/customer chat is opt-in and uses a server-controlled,
 			// anonymous-safe execution profile. Browser requests cannot override
 			// provider/model/agent/tool choices in this mode.
-			'public_chat_enabled'                  => false,
-			'public_chat_allowed_origins'          => array(),
-			'public_chat_provider_id'              => '',
-			'public_chat_model_id'                 => '',
-			'public_chat_agent_id'                 => 0,
-			'public_chat_collection_ids'           => array(),
-			'public_chat_allowed_abilities'        => array( 'sd-ai-agent/knowledge-search' ),
-			'public_chat_max_iterations'           => 4,
-			'public_chat_message_max_length'       => 2000,
-			'public_chat_rate_limit_per_min'       => 10,
+			'public_chat_enabled'                      => false,
+			'public_chat_allowed_origins'              => array(),
+			'public_chat_provider_id'                  => '',
+			'public_chat_model_id'                     => '',
+			'public_chat_agent_id'                     => 0,
+			'public_chat_collection_ids'               => array(),
+			'public_chat_allowed_abilities'            => array( 'sd-ai-agent/knowledge-search' ),
+			'public_chat_max_iterations'               => 4,
+			'public_chat_message_max_length'           => 2000,
+			'public_chat_rate_limit_per_min'           => 10,
+			// Public speech is separately opt-in and has stricter fixed abuse budgets
+			// in PublicChatSecurity in addition to these operator-facing ceilings.
+			'public_chat_speech_enabled'               => false,
+			'public_chat_speech_voice'                 => 'auto',
+			'public_chat_speech_max_recording_seconds' => 30,
+			'public_chat_speech_max_tts_characters'    => 1000,
+			'public_chat_speech_voice_mode_enabled'    => false,
+			'public_chat_speech_disclosure'            => '',
 			// Anonymous transcript review is a separate, explicit collection choice.
 			// It is disabled by default so existing public embeds never start retaining
 			// visitor content merely because this plugin is upgraded.
-			'public_chat_review_recording_enabled' => false,
-			'public_chat_review_retention_days'    => 7,
-			'public_chat_review_disclosure'        => '',
+			'public_chat_review_recording_enabled'     => false,
+			'public_chat_review_retention_days'        => 7,
+			'public_chat_review_disclosure'            => '',
 			// 0 disables automatic cleanup; positive values retain trashed chats
 			// for that many days before the daily cleanup permanently deletes them.
-			'chat_trash_retention_days'            => 0,
-			'image_generation_size'                => '1024x1024',
-			'image_generation_quality'             => 'standard',
-			'image_generation_style'               => 'vivid',
+			'chat_trash_retention_days'                => 0,
+			'image_generation_size'                    => '1024x1024',
+			'image_generation_quality'                 => 'standard',
+			'image_generation_style'                   => 'vivid',
 			// White-label / branding settings (t075).
-			'agent_name'                           => '',
-			'brand_primary_color'                  => '',
-			'brand_text_color'                     => '',
-			'brand_logo_url'                       => '',
+			'agent_name'                               => '',
+			'brand_primary_color'                      => '',
+			'brand_text_color'                         => '',
+			'brand_logo_url'                           => '',
 			// Spending limits / budget caps (t110).
-			'budget_daily_cap'                     => 0.0,
-			'budget_monthly_cap'                   => 0.0,
-			'budget_warning_threshold'             => 80,
-			'budget_exceeded_action'               => 'pause',
+			'budget_daily_cap'                         => 0.0,
+			'budget_monthly_cap'                       => 0.0,
+			'budget_warning_threshold'                 => 80,
+			'budget_exceeded_action'                   => 'pause',
 			// Provider trace / debug mode (GH#830).
-			'provider_trace_enabled'               => false,
-			'provider_trace_max_rows'              => 200,
+			'provider_trace_enabled'                   => false,
+			'provider_trace_max_rows'                  => 200,
 			// Prompt caching — provider-side KV-cache opt-in (sd-ai-bjv).
 			// When true, the HttpTraceHandler injects provider-specific
 			// cache markers into outgoing LLM requests (only Anthropic
 			// requires explicit markers today; OpenAI/DeepSeek/etc. cache
 			// automatically). Safe to leave on — workers without cache
 			// support ignore the markers.
-			'prompt_caching_enabled'               => true,
+			'prompt_caching_enabled'                   => true,
 			// Skill auto-update settings (t218).
-			'skill_auto_update'                    => true,
-			'skill_manifest_url'                   => '',
+			'skill_auto_update'                        => true,
+			'skill_manifest_url'                       => '',
 			// Third-party ability visibility mode (sd-ai-3ns / #1405, sd-ai-u21 / #1407).
 			// Controls which abilities are exposed to AI surfaces by AbilityVisibility.
 			// 'legacy'  — opt-out behaviour: everything except ai_hidden is public.
@@ -476,13 +484,13 @@ class Settings {
 			// 'auto'    — full tiered-trust model: namespace allowlist + heuristics.
 			// Default since 1.12.0.
 			// 'strict'  — only meta.mcp.public === true passes. Future use.
-			'third_party_mode'                     => 'auto',
+			'third_party_mode'                         => 'auto',
 
 			// Third-party namespace visibility decisions (sd-ai-0zq / #1406).
 			// Maps namespace slugs to visibility decisions: 'allow', 'block', or 'pending'.
 			// Used by ThirdPartyAbilityNoticeHandler to override the heuristic for
 			// unclassified abilities. Format: { 'namespace-slug': 'allow|block|pending' }
-			'third_party_namespace_decisions'      => array(),
+			'third_party_namespace_decisions'          => array(),
 		);
 	}
 
@@ -1289,6 +1297,26 @@ class Settings {
 		if ( array_key_exists( 'public_chat_review_disclosure', $data ) ) {
 			$disclosure                            = sanitize_textarea_field( (string) $data['public_chat_review_disclosure'] );
 			$data['public_chat_review_disclosure'] = function_exists( 'mb_substr' ) ? mb_substr( $disclosure, 0, 500 ) : substr( $disclosure, 0, 500 );
+		}
+		foreach ( array( 'public_chat_speech_enabled', 'public_chat_speech_voice_mode_enabled' ) as $boolean_key ) {
+			if ( array_key_exists( $boolean_key, $data ) ) {
+				$value                = $data[ $boolean_key ];
+				$data[ $boolean_key ] = true === $value || 1 === $value || '1' === $value || 'true' === $value;
+			}
+		}
+		if ( array_key_exists( 'public_chat_speech_voice', $data ) ) {
+			$voice                            = sanitize_key( (string) $data['public_chat_speech_voice'] );
+			$data['public_chat_speech_voice'] = in_array( $voice, array( 'auto', 'alloy' ), true ) ? $voice : 'auto';
+		}
+		if ( array_key_exists( 'public_chat_speech_max_recording_seconds', $data ) ) {
+			$data['public_chat_speech_max_recording_seconds'] = max( 1, min( 60, (int) $data['public_chat_speech_max_recording_seconds'] ) );
+		}
+		if ( array_key_exists( 'public_chat_speech_max_tts_characters', $data ) ) {
+			$data['public_chat_speech_max_tts_characters'] = max( 1, min( 1000, (int) $data['public_chat_speech_max_tts_characters'] ) );
+		}
+		if ( array_key_exists( 'public_chat_speech_disclosure', $data ) ) {
+			$disclosure                            = sanitize_textarea_field( (string) $data['public_chat_speech_disclosure'] );
+			$data['public_chat_speech_disclosure'] = function_exists( 'mb_substr' ) ? mb_substr( $disclosure, 0, 500 ) : substr( $disclosure, 0, 500 );
 		}
 		if ( array_key_exists( 'chat_trash_retention_days', $data ) ) {
 			$data['chat_trash_retention_days'] = max( 0, min( 365, (int) $data['chat_trash_retention_days'] ) );

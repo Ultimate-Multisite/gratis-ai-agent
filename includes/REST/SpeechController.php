@@ -86,7 +86,21 @@ final class SpeechController extends XWP_REST_Controller {
 		guard: 'check_chat_permission',
 	)]
 	public function handle_transcription( WP_REST_Request $request ): WP_REST_Response|WP_Error {
-		$temporary_path = '';
+		return $this->handle_bounded_transcription(
+			$request,
+			SuperdavAiTranscriptionClient::MAX_AUDIO_BYTES,
+			SuperdavAiTranscriptionClient::MAX_DURATION_SECONDS
+		);
+	}
+
+	/**
+	 * Transcribe one upload under caller-supplied ceilings no broader than the
+	 * authenticated service contract.
+	 */
+	public function handle_bounded_transcription( WP_REST_Request $request, int $max_bytes, int $max_duration_seconds, ?callable $before_transcription = null ): WP_REST_Response|WP_Error {
+		$max_bytes            = max( 1, min( SuperdavAiTranscriptionClient::MAX_AUDIO_BYTES, $max_bytes ) );
+		$max_duration_seconds = max( 1, min( SuperdavAiTranscriptionClient::MAX_DURATION_SECONDS, $max_duration_seconds ) );
+		$temporary_path       = '';
 		try {
 			$files = $request->get_file_params();
 			if ( 1 !== count( $files ) || ! isset( $files[ self::UPLOAD_FIELD ] ) || ! is_array( $files[ self::UPLOAD_FIELD ] ) ) {
@@ -140,7 +154,7 @@ final class SpeechController extends XWP_REST_Controller {
 			if ( false === $file_size || $file_size <= 0 ) {
 				return $this->invalid_audio_error();
 			}
-			if ( $file_size > SuperdavAiTranscriptionClient::MAX_AUDIO_BYTES ) {
+			if ( $file_size > $max_bytes ) {
 				return $this->audio_too_large_error();
 			}
 
@@ -158,7 +172,7 @@ final class SpeechController extends XWP_REST_Controller {
 			if ( null === $duration ) {
 				return $this->invalid_audio_error();
 			}
-			if ( $duration > SuperdavAiTranscriptionClient::MAX_DURATION_SECONDS ) {
+			if ( $duration > $max_duration_seconds ) {
 				return $this->audio_too_long_error();
 			}
 
@@ -171,11 +185,17 @@ final class SpeechController extends XWP_REST_Controller {
 			if ( $capabilities instanceof WP_Error ) {
 				return $capabilities;
 			}
-			if ( $file_size > $capabilities['transcription']['max_bytes'] ) {
+			if ( $file_size > min( $max_bytes, $capabilities['transcription']['max_bytes'] ) ) {
 				return $this->audio_too_large_error();
 			}
-			if ( $duration > $capabilities['transcription']['max_duration_seconds'] ) {
+			if ( $duration > min( $max_duration_seconds, $capabilities['transcription']['max_duration_seconds'] ) ) {
 				return $this->audio_too_long_error();
+			}
+			if ( null !== $before_transcription ) {
+				$allowed = $before_transcription( $file_size, $duration );
+				if ( true !== $allowed ) {
+					return $allowed instanceof WP_Error ? $allowed : $this->speech_unavailable_error();
+				}
 			}
 
 			ProviderTraceLogger::set_runtime_context( SuperdavAiProvider::PROVIDER_ID, SuperdavAiTranscriptionClient::MODEL_ID, $session_id );
@@ -204,12 +224,18 @@ final class SpeechController extends XWP_REST_Controller {
 		guard: 'check_chat_permission',
 	)]
 	public function handle_synthesis( WP_REST_Request $request ): WP_REST_Response|WP_Error {
-		$fields = $request->get_json_params();
+		return $this->handle_bounded_synthesis( $request, self::MAX_SYNTHESIS_CHARACTERS );
+	}
+
+	/** Convert one validated text turn under a stricter caller-supplied ceiling. */
+	public function handle_bounded_synthesis( WP_REST_Request $request, int $max_characters ): WP_REST_Response|WP_Error {
+		$max_characters = max( 1, min( self::MAX_SYNTHESIS_CHARACTERS, $max_characters ) );
+		$fields         = $request->get_json_params();
 		if ( ! is_array( $fields ) || array_diff( array_keys( $fields ), array( 'text', 'voice', 'language', 'format', 'mime_type', 'speed', 'session_id' ) ) ) {
 			return $this->invalid_synthesis_error();
 		}
 
-		$text = $this->required_speakable_text( $fields['text'] ?? null );
+		$text = $this->required_speakable_text( $fields['text'] ?? null, $max_characters );
 		if ( $text instanceof WP_Error ) {
 			return $text;
 		}
@@ -532,14 +558,14 @@ final class SpeechController extends XWP_REST_Controller {
 		return $value;
 	}
 
-	private function required_speakable_text( mixed $value ): string|WP_Error {
-		if ( ! is_string( $value ) || 1 !== preg_match( '//u', $value ) || $this->unicode_length( $value ) > self::MAX_SYNTHESIS_CHARACTERS * 4 ) {
+	private function required_speakable_text( mixed $value, int $maximum ): string|WP_Error {
+		if ( ! is_string( $value ) || 1 !== preg_match( '//u', $value ) || $this->unicode_length( $value ) > $maximum * 4 ) {
 			return $this->invalid_synthesis_error();
 		}
 
 		$text = html_entity_decode( wp_strip_all_tags( strip_shortcodes( $value ) ), ENT_QUOTES | ENT_HTML5, 'UTF-8' );
 		$text = preg_replace( '/\s+/u', ' ', trim( $text ) );
-		if ( ! is_string( $text ) || '' === $text || 1 !== preg_match( '/[\p{L}\p{N}]/u', $text ) || $this->unicode_length( $text ) > self::MAX_SYNTHESIS_CHARACTERS ) {
+		if ( ! is_string( $text ) || '' === $text || 1 !== preg_match( '/[\p{L}\p{N}]/u', $text ) || $this->unicode_length( $text ) > $maximum ) {
 			return $this->invalid_synthesis_error();
 		}
 
