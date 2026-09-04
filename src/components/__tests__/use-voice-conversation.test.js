@@ -196,6 +196,37 @@ describe( 'useVoiceConversation', () => {
 		);
 	} );
 
+	test( 'preserves response tracking when the first turn creates a session', async () => {
+		store.getCurrentSessionId = () => null;
+		store.isTtsEnabled = () => true;
+		await act( async () => root.render( <VoiceHarness /> ) );
+
+		store.isSending = () => true;
+		store.getCurrentSessionMessages = () => [
+			{ parts: [ { text: 'First message' } ], role: 'user' },
+		];
+		await act( async () => root.render( <VoiceHarness /> ) );
+
+		store.getCurrentSessionId = () => 'session-1';
+		await act( async () => root.render( <VoiceHarness /> ) );
+
+		store.isSending = () => false;
+		store.getCurrentSessionMessages = () => [
+			{ parts: [ { text: 'First message' } ], role: 'user' },
+			{
+				id: 'first-response',
+				parts: [ { text: 'First response' } ],
+				role: 'model',
+			},
+		];
+		await act( async () => root.render( <VoiceHarness /> ) );
+
+		expect( currentSpeech.speak ).toHaveBeenCalledWith(
+			'First response',
+			{}
+		);
+	} );
+
 	test( 'lets the main chat own automatic playback when both surfaces exist', async () => {
 		const mainSurface = document.createElement( 'div' );
 		mainSurface.className = 'sdaa-cr';

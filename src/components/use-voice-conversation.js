@@ -93,6 +93,7 @@ export default function useVoiceConversation( { surface = 'main' } = {} ) {
 		};
 	}, [] );
 	const voiceModeRef = useRef( voiceModeEnabled );
+	const previousSessionIdRef = useRef( currentSessionId );
 
 	useEffect( () => {
 		voiceModeRef.current = voiceModeEnabled;
@@ -291,8 +292,17 @@ export default function useVoiceConversation( { surface = 'main' } = {} ) {
 	}, [ recognitionError, speechError ] );
 
 	useEffect( () => {
+		const previousSessionId = previousSessionIdRef.current;
+		previousSessionIdRef.current = currentSessionId;
+		const createdSessionForPendingTurn = Boolean(
+			! previousSessionId && currentSessionId && sending
+		);
 		cancelRecognition();
 		stopSpeaking();
+		if ( createdSessionForPendingTurn ) {
+			awaitingResponseRef.current = true;
+			return;
+		}
 		voiceTurnRef.current = false;
 		awaitingResponseRef.current = false;
 		responseBaselineRef.current = latestModelResponse( messages ).identity;
