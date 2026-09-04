@@ -48,10 +48,12 @@ class WikimediaImageSource implements ImageSourceInterface {
 			$url  = (string) ( $info['url'] ?? '' );
 			if ( '' === $url || empty( $info['width'] ) || empty( $info['height'] ) ) {
 				continue; }
-			$meta    = $info['extmetadata'] ?? array();
-			$license = (string) ( $meta['LicenseShortName']['value'] ?? 'CC BY-SA' );
-			$author  = wp_strip_all_tags( (string) ( $meta['Artist']['value'] ?? '' ) );
-			$hits[]  = array(
+			$meta        = $info['extmetadata'] ?? array();
+			$license     = (string) ( $meta['LicenseShortName']['value'] ?? '' );
+			$author      = wp_strip_all_tags( (string) ( $meta['Artist']['value'] ?? '' ) );
+			$license_url = (string) ( $meta['LicenseUrl']['value'] ?? '' );
+			$attribution = wp_strip_all_tags( (string) ( $meta['Attribution']['value'] ?? '' ) );
+			$hits[]      = array(
 				'id'          => (string) ( $page['title'] ?? '' ),
 				'preview'     => (string) ( $info['thumburl'] ?? $url ),
 				'medium'      => (string) ( $info['thumburl'] ?? $url ),
@@ -62,9 +64,9 @@ class WikimediaImageSource implements ImageSourceInterface {
 				'author'      => $author,
 				'author_url'  => '',
 				'license'     => $license,
-				'license_url' => 'https://creativecommons.org/licenses/',
+				'license_url' => $license_url,
 				'source'      => 'wikimedia',
-				'attribution' => trim( $author . ' / ' . $license ),
+				'attribution' => '' !== $attribution ? $attribution : trim( $author . ' / ' . $license ),
 			);
 		}
 		return array(
@@ -97,9 +99,10 @@ class WikimediaImageSource implements ImageSourceInterface {
 		if ( empty( $info['url'] ) ) {
 			return new WP_Error( 'wikimedia_error', 'No Wikimedia image URL available.' ); }
 		$meta        = $info['extmetadata'] ?? array();
-		$license     = (string) ( $meta['LicenseShortName']['value'] ?? 'CC BY-SA' );
+		$license     = (string) ( $meta['LicenseShortName']['value'] ?? '' );
 		$author      = wp_strip_all_tags( (string) ( $meta['Artist']['value'] ?? '' ) );
-		$license_url = (string) ( $meta['LicenseUrl']['value'] ?? 'https://creativecommons.org/licenses/' );
+		$license_url = (string) ( $meta['LicenseUrl']['value'] ?? '' );
+		$attribution = wp_strip_all_tags( (string) ( $meta['Attribution']['value'] ?? '' ) );
 		return array(
 			'url'         => (string) ( $info['thumburl'] ?? $info['url'] ),
 			'width'       => (int) ( $info['width'] ?? 0 ),
@@ -109,7 +112,7 @@ class WikimediaImageSource implements ImageSourceInterface {
 			'author_url'  => '',
 			'license'     => $license,
 			'license_url' => $license_url,
-			'attribution' => trim( $author . ' / ' . $license ),
+			'attribution' => '' !== $attribution ? $attribution : trim( $author . ' / ' . $license ),
 			'source'      => 'wikimedia',
 		);
 	}
