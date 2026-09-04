@@ -1453,6 +1453,14 @@ input[type="text"].sdaa-cr-search-input {
 	position: relative;
 }
 
+.sd-ai-agent-voice-status {
+	display: block;
+	max-width: 780px;
+	margin: 0 auto 6px;
+	color: var(--sdaa-text-secondary);
+	font-size: 12px;
+}
+
 .sdaa-cr-input-inner {
 	max-width: 780px;
 	margin: 0 auto;

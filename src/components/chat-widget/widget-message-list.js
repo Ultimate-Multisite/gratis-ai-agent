@@ -89,9 +89,11 @@ function ClientToolRetryActionCard( { toolNames = [], onConfirm, onCancel } ) {
 /**
  * Render the floating widget's message list and surface-specific actions.
  *
+ * @param {Object} root0                   Voice-aware component properties.
+ * @param {Object} root0.voiceConversation Managed voice coordinator.
  * @return {JSX.Element} Floating widget message list.
  */
-export default function WidgetMessageList() {
+export default function WidgetMessageList( { voiceConversation } ) {
 	const {
 		messages,
 		sending,
@@ -177,7 +179,11 @@ export default function WidgetMessageList() {
 
 	return (
 		<>
-			<div className="sdaa-w-body" ref={ containerRef }>
+			<div
+				className="sdaa-w-body"
+				ref={ containerRef }
+				aria-live={ voiceConversation?.isSpeaking ? 'off' : 'polite' }
+			>
 				<div className="sdaa-w-body-inner">
 					<MessageRows
 						items={ visible }

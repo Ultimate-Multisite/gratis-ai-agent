@@ -19,7 +19,12 @@ import {
 
 import STORE_NAME from '../../store';
 import { getBranding } from '../../utils/branding';
-import { AiIcon } from '../chat-redesign/icons';
+import {
+	AiIcon,
+	Microphone,
+	Speaker,
+	SpeakerMuted,
+} from '../chat-redesign/icons';
 
 /**
  *
@@ -76,35 +81,47 @@ function relativeTime( dateStr ) {
  * @param {*}       root0.onToggleMinimize
  * @param {*}       root0.onDragHandleMouseDown
  * @param {boolean} root0.isSimpleMode
+ * @param {Object}  root0.voiceConversation
  */
 export default function WidgetHeader( {
 	isMinimized,
 	onToggleMinimize,
 	onDragHandleMouseDown,
 	isSimpleMode = false,
+	voiceConversation = {},
 } ) {
-	const { setFloatingOpen, clearCurrentSession, openSession, fetchSessions } =
-		useDispatch( STORE_NAME );
+	const {
+		setFloatingOpen,
+		clearCurrentSession,
+		openSession,
+		fetchSessions,
+		setTtsEnabled,
+	} = useDispatch( STORE_NAME );
 
-	const { sessions, currentSessionId, sessionJobs, activeModelName } =
-		useSelect( ( sel ) => {
-			const store = sel( STORE_NAME );
-			const providers = store.getProviders() || [];
-			const providerId = store.getSelectedProviderId();
-			const modelId = store.getSelectedModelId();
-			const provider =
-				providers.find( ( p ) => p.id === providerId ) ||
-				providers[ 0 ];
-			const model =
-				provider?.models?.find( ( m ) => m.id === modelId ) ||
-				provider?.models?.[ 0 ];
-			return {
-				sessions: store.getSessions(),
-				currentSessionId: store.getCurrentSessionId(),
-				sessionJobs: store.getSessionJobs(),
-				activeModelName: model?.name || model?.id || '',
-			};
-		}, [] );
+	const {
+		sessions,
+		currentSessionId,
+		sessionJobs,
+		activeModelName,
+		ttsEnabled,
+	} = useSelect( ( sel ) => {
+		const store = sel( STORE_NAME );
+		const providers = store.getProviders() || [];
+		const providerId = store.getSelectedProviderId();
+		const modelId = store.getSelectedModelId();
+		const provider =
+			providers.find( ( p ) => p.id === providerId ) || providers[ 0 ];
+		const model =
+			provider?.models?.find( ( m ) => m.id === modelId ) ||
+			provider?.models?.[ 0 ];
+		return {
+			sessions: store.getSessions(),
+			currentSessionId: store.getCurrentSessionId(),
+			sessionJobs: store.getSessionJobs(),
+			activeModelName: model?.name || model?.id || '',
+			ttsEnabled: store.isTtsEnabled?.() || false,
+		};
+	}, [] );
 
 	const [ drawerOpen, setDrawerOpen ] = useState( false );
 	const drawerRef = useRef( null );
@@ -157,6 +174,19 @@ export default function WidgetHeader( {
 			? `${ __( 'Ready', 'sd-ai-agent' ) } · ${ activeModelName }`
 			: __( 'Ready', 'sd-ai-agent' );
 	} )();
+	const displayedStatusLabel =
+		( voiceConversation.phase || 'idle' ) === 'idle'
+			? statusLabel
+			: voiceConversation.statusLabel;
+	let readAloudLabel = ttsEnabled
+		? __( 'Disable read aloud', 'superdav-ai-agent' )
+		: __( 'Read responses aloud', 'superdav-ai-agent' );
+	if ( voiceConversation.isSpeaking ) {
+		readAloudLabel = __( 'Stop reading aloud', 'superdav-ai-agent' );
+	}
+	const voiceModeLabel = voiceConversation.voiceModeEnabled
+		? __( 'Disable voice mode', 'superdav-ai-agent' )
+		: __( 'Enable voice mode', 'superdav-ai-agent' );
 
 	const handlePickSession = useCallback(
 		( id ) => {
@@ -242,7 +272,7 @@ export default function WidgetHeader( {
 						>
 							<span className="sdaa-w-head-status-dot" />
 							<span className="sdaa-w-head-status-text">
-								{ statusLabel }
+								{ displayedStatusLabel }
 							</span>
 						</span>
 					</span>
@@ -330,6 +360,48 @@ export default function WidgetHeader( {
 			) }
 
 			<div className="sdaa-w-head-actions">
+				{ ! isMinimized && voiceConversation.isSpeechSupported && (
+					<button
+						type="button"
+						className={ `sdaa-w-icon-btn${
+							ttsEnabled || voiceConversation.isSpeaking
+								? ' is-active'
+								: ''
+						}` }
+						onMouseDown={ ( event ) => event.stopPropagation() }
+						onClick={
+							voiceConversation.isSpeaking
+								? voiceConversation.stopSpeaking
+								: () => setTtsEnabled( ! ttsEnabled )
+						}
+						aria-label={ readAloudLabel }
+						aria-pressed={
+							ttsEnabled || voiceConversation.isSpeaking
+						}
+					>
+						{ ttsEnabled || voiceConversation.isSpeaking ? (
+							<Speaker />
+						) : (
+							<SpeakerMuted />
+						) }
+					</button>
+				) }
+				{ ! isMinimized && voiceConversation.isSupported && (
+					<button
+						type="button"
+						className={ `sdaa-w-icon-btn${
+							voiceConversation.voiceModeEnabled
+								? ' is-active'
+								: ''
+						}` }
+						onMouseDown={ ( event ) => event.stopPropagation() }
+						onClick={ voiceConversation.toggleVoiceMode }
+						aria-label={ voiceModeLabel }
+						aria-pressed={ voiceConversation.voiceModeEnabled }
+					>
+						<Microphone />
+					</button>
+				) }
 				<button
 					type="button"
 					className="sdaa-w-icon-btn"

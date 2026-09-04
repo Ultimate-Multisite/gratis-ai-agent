@@ -10,9 +10,8 @@ import { Icon, moreHorizontal, sidebar as sidebarIcon } from '@wordpress/icons';
 
 import STORE_NAME from '../../store';
 import { getBranding } from '../../utils/branding';
-import { isTTSSupported } from '../use-text-to-speech';
 import SessionContextMenu from '../session-context-menu';
-import { AiIcon, Speaker, SpeakerMuted } from './icons';
+import { AiIcon, Microphone, Speaker, SpeakerMuted } from './icons';
 
 /**
  *
@@ -22,6 +21,7 @@ import { AiIcon, Speaker, SpeakerMuted } from './icons';
  * @param {*}       root0.changesCount
  * @param {*}       root0.onShowChanges
  * @param {boolean} root0.isSimpleMode
+ * @param {Object}  root0.voiceConversation Managed voice coordinator.
  */
 export default function ConvoHeader( {
 	sidebarCollapsed,
@@ -29,6 +29,7 @@ export default function ConvoHeader( {
 	changesCount,
 	onShowChanges,
 	isSimpleMode = false,
+	voiceConversation,
 } ) {
 	const { renameSession, setTtsEnabled } = useDispatch( STORE_NAME );
 	const { session, isRunning, ttsEnabled } = useSelect( ( sel ) => {
@@ -60,6 +61,15 @@ export default function ConvoHeader( {
 	const title = isSimpleMode
 		? branding.agentName || __( 'SD AI Agent', 'sd-ai-agent' )
 		: session?.title || __( 'New conversation', 'sd-ai-agent' );
+	let readAloudLabel = ttsEnabled
+		? __( 'Disable read aloud', 'superdav-ai-agent' )
+		: __( 'Read responses aloud', 'superdav-ai-agent' );
+	if ( voiceConversation.isSpeaking ) {
+		readAloudLabel = __( 'Stop reading aloud', 'superdav-ai-agent' );
+	}
+	const voiceModeLabel = voiceConversation.voiceModeEnabled
+		? __( 'Disable voice mode', 'superdav-ai-agent' )
+		: __( 'Enable voice mode', 'superdav-ai-agent' );
 
 	const startRename = useCallback( () => {
 		if ( ! session ) {
@@ -160,21 +170,44 @@ export default function ConvoHeader( {
 						</button>
 					</span>
 				) }
-				{ isTTSSupported && (
+				{ voiceConversation.isSpeechSupported && (
 					<button
 						type="button"
 						className={ `sdaa-cr-icon-btn sdaa-tts-btn${
-							ttsEnabled ? ' is-active' : ''
+							ttsEnabled || voiceConversation.isSpeaking
+								? ' is-active'
+								: ''
 						}` }
-						onClick={ () => setTtsEnabled( ! ttsEnabled ) }
-						aria-label={
-							ttsEnabled
-								? __( 'Disable read aloud', 'sd-ai-agent' )
-								: __( 'Read responses aloud', 'sd-ai-agent' )
+						onClick={
+							voiceConversation.isSpeaking
+								? voiceConversation.stopSpeaking
+								: () => setTtsEnabled( ! ttsEnabled )
 						}
-						aria-pressed={ ttsEnabled }
+						aria-label={ readAloudLabel }
+						aria-pressed={
+							ttsEnabled || voiceConversation.isSpeaking
+						}
 					>
-						{ ttsEnabled ? <Speaker /> : <SpeakerMuted /> }
+						{ ttsEnabled || voiceConversation.isSpeaking ? (
+							<Speaker />
+						) : (
+							<SpeakerMuted />
+						) }
+					</button>
+				) }
+				{ voiceConversation.isSupported && (
+					<button
+						type="button"
+						className={ `sdaa-cr-icon-btn sd-ai-agent-voice-mode-btn${
+							voiceConversation.voiceModeEnabled
+								? ' is-active'
+								: ''
+						}` }
+						onClick={ voiceConversation.toggleVoiceMode }
+						aria-label={ voiceModeLabel }
+						aria-pressed={ voiceConversation.voiceModeEnabled }
+					>
+						<Microphone />
 					</button>
 				) }
 				{ ! isSimpleMode && (

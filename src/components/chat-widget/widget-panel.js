@@ -5,7 +5,13 @@
  * FloatingPanel so the surrounding feature set is unchanged.
  */
 
-import { useState, useEffect, useCallback } from '@wordpress/element';
+import {
+	lazy,
+	Suspense,
+	useState,
+	useEffect,
+	useCallback,
+} from '@wordpress/element';
 import { useSelect, useDispatch } from '@wordpress/data';
 import { __, _n } from '@wordpress/i18n';
 
@@ -30,6 +36,24 @@ import useResize from './use-resize';
 
 const PANEL_POSITION_STORAGE_KEY = 'aiAgentWidgetPanelPosition';
 const PANEL_SIZE_STORAGE_KEY = 'aiAgentWidgetPanelSize';
+const WidgetVoiceController = lazy( () =>
+	import( './widget-voice-controller' )
+);
+const inactiveVoiceConversation = {
+	consumeTranscript: undefined,
+	error: '',
+	isListening: false,
+	isSpeaking: false,
+	isSpeechSupported: false,
+	isSupported: false,
+	pendingTranscript: null,
+	phase: 'idle',
+	statusLabel: '',
+	stopSpeaking: undefined,
+	toggleListening: undefined,
+	toggleVoiceMode: undefined,
+	voiceModeEnabled: false,
+};
 
 /**
  * @param {Object}      root0                        Component props.
@@ -66,6 +90,9 @@ export default function WidgetPanel( {
 	}, [] );
 
 	const [ showChanges, setShowChanges ] = useState( false );
+	const [ voiceConversation, setVoiceConversation ] = useState(
+		inactiveVoiceConversation
+	);
 
 	// Auto-confirm pending tool calls when YOLO is on.
 	useEffect( () => {
@@ -170,6 +197,9 @@ export default function WidgetPanel( {
 
 	return (
 		<>
+			<Suspense fallback={ null }>
+				<WidgetVoiceController onChange={ setVoiceConversation } />
+			</Suspense>
 			<div
 				className={ `sdaa-w-panel${
 					isMinimized ? ' is-minimized' : ''
@@ -187,6 +217,7 @@ export default function WidgetPanel( {
 				}
 			>
 				<WidgetHeader
+					voiceConversation={ voiceConversation }
 					isMinimized={ isMinimized }
 					onToggleMinimize={ toggleMinimize }
 					isSimpleMode={ isSimpleMode }
@@ -246,7 +277,9 @@ export default function WidgetPanel( {
 							{ showEmpty ? (
 								<WidgetEmpty />
 							) : (
-								<WidgetMessageList />
+								<WidgetMessageList
+									voiceConversation={ voiceConversation }
+								/>
 							) }
 						</ErrorBoundary>
 						{ ! isSimpleMode && showChanges && (
@@ -265,7 +298,10 @@ export default function WidgetPanel( {
 					<ErrorBoundary
 						label={ __( 'Message input', 'sd-ai-agent' ) }
 					>
-						<WidgetInput isSimpleMode={ isSimpleMode } />
+						<WidgetInput
+							isSimpleMode={ isSimpleMode }
+							voiceConversation={ voiceConversation }
+						/>
 					</ErrorBoundary>
 				) }
 

@@ -8,7 +8,6 @@ import { __, sprintf } from '@wordpress/i18n';
 import apiFetch from '@wordpress/api-fetch';
 
 import STORE_NAME from '../../store';
-import useSpeechRecognition from '../use-speech-recognition';
 
 const MAX_FILE_SIZE = 10 * 1024 * 1024;
 const REMEMBER_PREFIX = '/remember ';
@@ -49,12 +48,14 @@ function readAsDataUrl( file ) {
  * @param {boolean} root0.isSimpleMode       Whether customer/simple mode is active.
  * @param {number}  root0.maxTextareaHeight  Maximum auto-grow height in pixels.
  * @param {string}  root0.defaultPlaceholder Surface-specific idle placeholder.
+ * @param {Object}  root0.voiceConversation  Shared managed voice coordinator.
  * @return {Object} Shared composer state and event handlers.
  */
 export default function useChatComposer( {
 	isSimpleMode = false,
 	maxTextareaHeight = 200,
 	defaultPlaceholder,
+	voiceConversation,
 } ) {
 	const {
 		sendMessage,
@@ -97,6 +98,8 @@ export default function useChatComposer( {
 	const textareaRef = useRef( null );
 	const fileInputRef = useRef( null );
 	const attachmentGenerationRef = useRef( 0 );
+	const pendingSpeechTranscript = voiceConversation?.pendingTranscript;
+	const consumeSpeechTranscript = voiceConversation?.consumeTranscript;
 
 	const focusTextarea = useCallback( () => {
 		setTimeout(
@@ -105,19 +108,16 @@ export default function useChatComposer( {
 		);
 	}, [] );
 
-	const handleSpeechResult = useCallback( ( transcript ) => {
+	useEffect( () => {
+		const pending = pendingSpeechTranscript;
+		if ( ! pending ) {
+			return;
+		}
 		setText( ( previous ) =>
-			previous ? previous + ' ' + transcript : transcript
+			previous ? `${ previous } ${ pending.text }` : pending.text
 		);
-	}, [] );
-	const {
-		isListening,
-		isSupported: micSupported,
-		toggleListening,
-	} = useSpeechRecognition( {
-		interimResults: true,
-		onResult: handleSpeechResult,
-	} );
+		consumeSpeechTranscript( pending.id );
+	}, [ consumeSpeechTranscript, pendingSpeechTranscript ] );
 
 	useEffect( () => {
 		const element = textareaRef.current;
@@ -439,9 +439,23 @@ export default function useChatComposer( {
 		sending,
 		queueCount,
 		currentSessionId,
-		isListening,
-		micSupported,
-		toggleListening,
+		isListening: voiceConversation?.isListening || false,
+		isSpeaking: voiceConversation?.isSpeaking || false,
+		micDisabled: ! [
+			'idle',
+			'error',
+			'listening',
+			'recording',
+			'requesting_permission',
+			'speaking',
+		].includes( voiceConversation?.phase ),
+		micSupported: voiceConversation?.isSupported || false,
+		speechPhase: voiceConversation?.phase || 'idle',
+		speechError: voiceConversation?.error || '',
+		speechStatus: voiceConversation?.statusLabel || '',
+		stopSpeaking: voiceConversation?.stopSpeaking,
+		toggleListening: voiceConversation?.toggleListening,
+		voiceModeEnabled: voiceConversation?.voiceModeEnabled || false,
 		canSend: !! text.trim() || attachments.length > 0,
 		placeholder,
 		processFiles,

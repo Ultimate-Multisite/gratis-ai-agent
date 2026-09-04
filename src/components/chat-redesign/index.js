@@ -15,6 +15,7 @@ import ErrorBoundary from '../error-boundary';
 import ToolConfirmationDialog from '../tool-confirmation-dialog';
 import ActionCard from '../action-card';
 import useChangesCount from '../use-changes-count';
+import useVoiceConversation from '../use-voice-conversation';
 import { getChatUiMode, isCustomerSimpleMode } from '../../utils/chat-ui-mode';
 import Sidebar from './Sidebar';
 import ConvoHeader from './ConvoHeader';
@@ -58,6 +59,7 @@ export default function ChatRedesign( { uiMode = getChatUiMode() } = {} ) {
 		}
 	} );
 	const [ showChanges, setShowChanges ] = useState( false );
+	const voiceConversation = useVoiceConversation( { surface: 'main' } );
 
 	const {
 		currentSessionId,
@@ -245,6 +247,7 @@ export default function ChatRedesign( { uiMode = getChatUiMode() } = {} ) {
 
 				<section className="sdaa-cr-convo">
 					<ConvoHeader
+						voiceConversation={ voiceConversation }
 						sidebarCollapsed={ sidebarCollapsed }
 						onExpandSidebar={ () => setSidebarCollapsed( false ) }
 						changesCount={ changesCount }
@@ -269,7 +272,7 @@ export default function ChatRedesign( { uiMode = getChatUiMode() } = {} ) {
 					<ErrorBoundary
 						label={ __( 'Message list', 'superdav-ai-agent' ) }
 					>
-						<MessageList />
+						<MessageList voiceConversation={ voiceConversation } />
 					</ErrorBoundary>
 
 					{ pendingActionCard?.type === 'retry_client_tools' &&
@@ -310,7 +313,10 @@ export default function ChatRedesign( { uiMode = getChatUiMode() } = {} ) {
 					<ErrorBoundary
 						label={ __( 'Message input', 'superdav-ai-agent' ) }
 					>
-						<InputArea isSimpleMode={ isSimpleMode } />
+						<InputArea
+							isSimpleMode={ isSimpleMode }
+							voiceConversation={ voiceConversation }
+						/>
 					</ErrorBoundary>
 				</section>
 			</div>

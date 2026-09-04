@@ -1,13 +1,12 @@
 /**
- * E2E tests for the text-to-speech (TTS) feature.
+ * E2E tests for managed text-to-speech.
  *
  * Tests the TTS toggle button in the chat header, the TTS settings tab,
  * and the auto-speak behaviour on AI responses.
  *
- * The Web Speech API (SpeechSynthesis) is not available in headless Chromium,
- * so each test injects a minimal mock via page.addInitScript() before
- * navigating. The mock records calls to speak() and cancel() so tests can
- * assert on TTS behaviour without requiring real audio output.
+ * Tests intercept the authenticated capabilities and synthesis routes and use
+ * a controlled HTMLAudioElement fake. Browser Web Speech is not the primary
+ * path under test.
  *
  * Run: pnpm run test:e2e:playwright
  */
@@ -24,17 +23,7 @@ const {
 // ---------------------------------------------------------------------------
 
 /**
- * Inject a minimal SpeechSynthesis mock into the page before navigation.
- *
- * The mock exposes:
- *   - window.speechSynthesis.speak(utterance)  — records the utterance text
- *   - window.speechSynthesis.cancel()          — records a cancel call
- *   - window.__ttsMockCalls                    — array of recorded calls
- *   - window.__ttsMockVoices                   — voices returned by getVoices()
- *
- * Calling speak() fires utterance.onstart synchronously so the React hook
- * transitions isSpeaking → true immediately, then fires utterance.onend
- * after a short delay so the hook transitions back to false.
+ * Intercept managed speech routes and inject a controlled Audio fake.
  *
  * @param {import('@playwright/test').Page} page - Playwright page object.
  */
@@ -42,77 +31,37 @@ async function injectTtsMock( page ) {
 	await page.addInitScript( () => {
 		const calls = [];
 		window.__ttsMockCalls = calls;
+		window.Audio = class {
+			constructor( source ) {
+				this.source = source;
+				this.timer = null;
+			}
 
-		const mockVoice = {
-			name: 'Mock Voice',
-			lang: 'en-US',
-			voiceURI: 'mock-voice-uri',
-			localService: true,
-			default: true,
+			play() {
+				calls.push( { type: 'play', source: this.source } );
+				this.timer = setTimeout( () => this.onended?.(), 5000 );
+				return Promise.resolve();
+			}
+
+			pause() {
+				calls.push( { type: 'pause' } );
+				clearTimeout( this.timer );
+			}
+
+			removeAttribute() {}
 		};
-		window.__ttsMockVoices = [ mockVoice ];
 
-		const synthesis = {
-			speaking: false,
-			pending: false,
-			paused: false,
-			_voicesChangedListeners: [],
-			getVoices() {
-				return window.__ttsMockVoices;
-			},
-			speak( utterance ) {
-				calls.push( { type: 'speak', text: utterance.text } );
-				synthesis.speaking = true;
-				if ( typeof utterance.onstart === 'function' ) {
-					utterance.onstart();
-				}
-				// Simulate speech ending after a short delay.
-				setTimeout( () => {
-					synthesis.speaking = false;
-					if ( typeof utterance.onend === 'function' ) {
-						utterance.onend();
-					}
-				}, 50 );
-			},
-			cancel() {
-				calls.push( { type: 'cancel' } );
-				synthesis.speaking = false;
-			},
-			pause() {},
-			resume() {},
-			addEventListener( event, listener ) {
-				if ( event === 'voiceschanged' ) {
-					synthesis._voicesChangedListeners.push( listener );
-				}
-			},
-			removeEventListener( event, listener ) {
-				if ( event === 'voiceschanged' ) {
-					synthesis._voicesChangedListeners =
-						synthesis._voicesChangedListeners.filter(
-							( l ) => l !== listener
-						);
-				}
-			},
+		const revokeObjectUrl = URL.revokeObjectURL.bind( URL );
+		URL.revokeObjectURL = ( url ) => {
+			calls.push( { type: 'revoke', url } );
+			revokeObjectUrl( url );
 		};
 
 		Object.defineProperty( window, 'speechSynthesis', {
-			value: synthesis,
-			writable: false,
+			value: undefined,
+			writable: true,
 			configurable: true,
 		} );
-
-		// SpeechSynthesisUtterance mock.
-		window.SpeechSynthesisUtterance = class {
-			constructor( text ) {
-				this.text = text;
-				this.rate = 1;
-				this.pitch = 1;
-				this.voice = null;
-				this.onstart = null;
-				this.onend = null;
-				this.onerror = null;
-			}
-		};
 
 		// Stub the WP 7.0 abilities API so ensureClientAbilitiesRegistered()
 		// (called by the store's streamMessage thunk before POST /run) resolves
@@ -148,6 +97,59 @@ async function injectTtsMock( page ) {
 			enumerable: true,
 		} );
 	} );
+
+	await page.route(
+		( url ) =>
+			decodeURIComponent( url.toString() ).includes(
+				'sd-ai-agent/v1/speech/capabilities'
+			),
+		async ( route ) => {
+			await route.fulfill( {
+				status: 200,
+				contentType: 'application/json',
+				body: JSON.stringify( {
+					available: true,
+					locales: { initial_locale: 'en-US' },
+					text_to_speech: {
+						max_input_characters: 1200,
+						max_response_bytes: 1024,
+						output_formats: [ 'mp3' ],
+						output_mime_types: [ 'audio/mpeg' ],
+						speed: { minimum: 0.5, maximum: 2 },
+						voices: [
+							{
+								id: 'managed-voice',
+								name: 'Managed Voice',
+								locales: [ 'en-US' ],
+							},
+						],
+					},
+					transcription: {
+						accepted_input_mime_types: [ 'audio/wav' ],
+						max_bytes: 1024,
+						max_duration_seconds: 10,
+					},
+				} ),
+			} );
+		}
+	);
+	await page.route(
+		( url ) =>
+			decodeURIComponent( url.toString() ).includes(
+				'sd-ai-agent/v1/speech/synthesis'
+			),
+		async ( route ) => {
+			await route.fulfill( {
+				status: 200,
+				contentType: 'application/json',
+				body: JSON.stringify( {
+					audio: 'UklGRg==',
+					mime_type: 'audio/mpeg',
+					request_id: 'e2e-speech',
+				} ),
+			} );
+		}
+	);
 }
 
 /**
@@ -176,7 +178,9 @@ async function injectTtsMock( page ) {
  */
 async function interceptStream( page, options = {} ) {
 	const { processingPolls = 0 } = options;
+	const syntheticJobId = 'e2e-tts-job-1';
 	let jobPollCount = 0;
+	let jobCompleted = false;
 
 	// Track the session_id created by the store before POST /run fires.
 	let capturedSessionId = null;
@@ -187,52 +191,61 @@ async function interceptStream( page, options = {} ) {
 	// Use a predicate function instead of a regex because wp-env uses plain
 	// permalinks (?rest_route=%2F...) where slashes are URL-encoded.
 	await page.route(
-		( url ) => decodeURIComponent( url.toString() ).includes( 'sd-ai-agent/v1/run' ),
+		( url ) =>
+			decodeURIComponent( url.toString() ).includes(
+				'sd-ai-agent/v1/run'
+			),
 		async ( route ) => {
-		try {
-			const postBody = route.request().postDataJSON();
-			if ( postBody?.session_id ) {
-				capturedSessionId = postBody.session_id;
+			try {
+				const postBody = route.request().postDataJSON();
+				if ( postBody?.session_id ) {
+					capturedSessionId = postBody.session_id;
+				}
+			} catch {
+				// Ignore parse failures — capturedSessionId stays null, triggering
+				// the local-append fallback path in pollJob.
 			}
-		} catch {
-			// Ignore parse failures — capturedSessionId stays null, triggering
-			// the local-append fallback path in pollJob.
+			await route.fulfill( {
+				status: 202,
+				contentType: 'application/json',
+				body: JSON.stringify( {
+					job_id: syntheticJobId,
+					status: 'processing',
+				} ),
+			} );
 		}
-		await route.fulfill( {
-			status: 202,
-			contentType: 'application/json',
-			body: JSON.stringify( {
-				job_id: 'e2e-tts-job-1',
-				status: 'processing',
-			} ),
-		} );
-	} );
+	);
 
-	// Intercept GET /job/:id — return 'processing' for the first
-	// `processingPolls` polls, then 'complete' with session_id so the store
-	// reloads the session (intercepted below to include the AI reply).
+	// Intercept only our synthetic job. A restored job from another test may be
+	// polling concurrently; hijacking it can inject this test's response before
+	// the new turn completes and make that response the speech baseline.
 	await page.route(
-		( url ) => decodeURIComponent( url.toString() ).includes( 'sd-ai-agent/v1/job/' ),
+		( url ) =>
+			decodeURIComponent( url.toString() ).includes(
+				`sd-ai-agent/v1/job/${ syntheticJobId }`
+			),
 		async ( route ) => {
-		jobPollCount += 1;
-		if ( jobPollCount <= processingPolls ) {
+			jobPollCount += 1;
+			if ( jobPollCount <= processingPolls ) {
+				await route.fulfill( {
+					status: 200,
+					contentType: 'application/json',
+					body: JSON.stringify( { status: 'processing' } ),
+				} );
+				return;
+			}
+			jobCompleted = true;
 			await route.fulfill( {
 				status: 200,
 				contentType: 'application/json',
-				body: JSON.stringify( { status: 'processing' } ),
+				body: JSON.stringify( {
+					status: 'complete',
+					session_id: capturedSessionId,
+					reply: 'Hello from the AI!',
+				} ),
 			} );
-			return;
 		}
-		await route.fulfill( {
-			status: 200,
-			contentType: 'application/json',
-			body: JSON.stringify( {
-				status: 'complete',
-				session_id: capturedSessionId,
-				reply: 'Hello from the AI!',
-			} ),
-		} );
-	} );
+	);
 
 	// Intercept GET /sessions/:id — return a synthetic session that already
 	// contains both the user message and the AI reply. Without this, the store
@@ -250,7 +263,16 @@ async function interceptStream( page, options = {} ) {
 			);
 		},
 		async ( route ) => {
-			if ( capturedSessionId === null ) {
+			// Let the real session load proceed until the synthetic job reports
+			// complete. Returning the model reply during initial session creation
+			// makes it predate the completion transition that triggers read-aloud.
+			const decodedUrl = decodeURIComponent( route.request().url() );
+			const targetsCapturedSession =
+				capturedSessionId !== null &&
+				decodedUrl.includes(
+					`sd-ai-agent/v1/sessions/${ capturedSessionId }`
+				);
+			if ( ! targetsCapturedSession || ! jobCompleted ) {
 				await route.continue();
 				return;
 			}
@@ -401,13 +423,11 @@ test.describe( 'TTS Settings Tab', () => {
 			.waitFor( { state: 'hidden', timeout: 15_000 } );
 	} );
 
-	test( 'Text-to-Speech settings are present in the General tab', async ( {
+	test( 'Managed voice settings are present in the General tab', async ( {
 		page,
 	} ) => {
-		// TTS settings are rendered under a "Text-to-Speech" section heading
-		// inside the General tab — there is no dedicated TTS tab.
 		const ttsHeading = page.getByRole( 'heading', {
-			name: /text-to-speech/i,
+			name: /managed voice/i,
 		} );
 		await expect( ttsHeading ).toBeVisible();
 	} );
@@ -461,7 +481,7 @@ test.describe( 'TTS Auto-Speak on AI Responses', () => {
 		await goToAgentPage( page );
 	} );
 
-	test( 'speechSynthesis.speak is called when TTS is enabled and AI responds', async ( {
+	test( 'managed audio plays when read-aloud is enabled and AI responds', async ( {
 		page,
 	} ) => {
 		// Enable TTS via the header toggle. The admin page uses ChatRedesign
@@ -539,14 +559,14 @@ test.describe( 'TTS Auto-Speak on AI Responses', () => {
 					const calls = await page.evaluate(
 						() => window.__ttsMockCalls
 					);
-					return calls.filter( ( c ) => c.type === 'speak' ).length;
+					return calls.filter( ( c ) => c.type === 'play' ).length;
 				},
 				{ timeout: 20_000 }
 			)
 			.toBeGreaterThanOrEqual( 1 );
 	} );
 
-	test( 'speechSynthesis.speak is NOT called when TTS is disabled', async ( {
+	test( 'managed audio does not play when read-aloud is disabled', async ( {
 		page,
 	} ) => {
 		// Ensure TTS is disabled. Scope to the ChatRedesign root (.sdaa-cr).
@@ -595,14 +615,13 @@ test.describe( 'TTS Auto-Speak on AI Responses', () => {
 
 		// Verify that speak() was NOT called.
 		const calls = await page.evaluate( () => window.__ttsMockCalls );
-		const speakCalls = calls.filter( ( c ) => c.type === 'speak' );
+		const speakCalls = calls.filter( ( c ) => c.type === 'play' );
 		expect( speakCalls.length ).toBe( 0 );
 	} );
 
-	test( 'disabling TTS mid-conversation calls speechSynthesis.cancel', async ( {
+	test( 'the active read-aloud control stops audio and revokes its URL', async ( {
 		page,
 	} ) => {
-		// Enable TTS. Scope to the ChatRedesign root (.sdaa-cr).
 		const ttsBtn = page
 			.locator( '.sdaa-cr .sdaa-tts-btn' )
 			.first();
@@ -616,13 +635,31 @@ test.describe( 'TTS Auto-Speak on AI Responses', () => {
 		}
 		await expect( ttsBtn ).toHaveClass( /is-active/ );
 
-		// Disable TTS — the store effect calls cancel() when ttsEnabled → false.
+		await interceptStream( page, { processingPolls: 1 } );
+		const assistantBubbleLocator = page.locator( '.sdaa-cr-msg-assistant' );
+		const initialBubbleCount = await assistantBubbleLocator.count();
+		const input = page
+			.locator( '.sdaa-cr .sdaa-cr-input-textarea' )
+			.first();
+		await input.fill( 'Read this response' );
+		await input.press( 'Enter' );
+		await page.waitForFunction(
+			( count ) =>
+				document.querySelectorAll( '.sdaa-cr-msg-assistant' ).length >
+				count,
+			initialBubbleCount,
+			{ timeout: 30_000 }
+		);
+		await expect( input ).toBeEnabled( { timeout: 15_000 } );
+		await expect( ttsBtn ).toHaveAttribute(
+			'aria-label',
+			'Stop reading aloud',
+			{ timeout: 30_000 }
+		);
 		await ttsBtn.click();
-		await expect( ttsBtn ).not.toHaveClass( /is-active/ );
 
-		// Verify cancel() was called.
 		const calls = await page.evaluate( () => window.__ttsMockCalls );
-		const cancelCalls = calls.filter( ( c ) => c.type === 'cancel' );
-		expect( cancelCalls.length ).toBeGreaterThanOrEqual( 1 );
+		expect( calls.some( ( call ) => call.type === 'pause' ) ).toBe( true );
+		expect( calls.some( ( call ) => call.type === 'revoke' ) ).toBe( true );
 	} );
 } );

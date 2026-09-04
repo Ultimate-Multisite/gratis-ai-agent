@@ -19,8 +19,11 @@ import { __ } from '@wordpress/i18n';
 import apiFetch from '@wordpress/api-fetch';
 import {
 	useAvailableVoices,
+	useSpeechCapabilities,
+	isBrowserFallbackSupported,
 	isTTSSupported,
 } from '../components/use-text-to-speech';
+import { isSpeechRecognitionSupported } from '../components/use-speech-recognition';
 import { isSoundSupported } from '../utils/sound-manager';
 
 /**
@@ -77,7 +80,8 @@ export default function SettingsApp() {
 		setTtsEnabled,
 		setTtsVoiceURI,
 		setTtsRate,
-		setTtsPitch,
+		setVoiceConversationEnabled,
+		setSpeechFallbackEnabled,
 		setSoundSuccessEnabled,
 		setSoundErrorEnabled,
 		setSoundThinkingEnabled,
@@ -90,7 +94,8 @@ export default function SettingsApp() {
 		ttsEnabled,
 		ttsVoiceURI,
 		ttsRate,
-		ttsPitch,
+		voiceConversationEnabled,
+		speechFallbackEnabled,
 		soundSuccessEnabled,
 		soundErrorEnabled,
 		soundThinkingEnabled,
@@ -103,7 +108,10 @@ export default function SettingsApp() {
 			ttsEnabled: select( STORE_NAME ).isTtsEnabled(),
 			ttsVoiceURI: select( STORE_NAME ).getTtsVoiceURI(),
 			ttsRate: select( STORE_NAME ).getTtsRate(),
-			ttsPitch: select( STORE_NAME ).getTtsPitch(),
+			voiceConversationEnabled:
+				select( STORE_NAME ).isVoiceConversationEnabled(),
+			speechFallbackEnabled:
+				select( STORE_NAME ).isSpeechFallbackEnabled(),
 			soundSuccessEnabled: select( STORE_NAME ).isSoundSuccessEnabled(),
 			soundErrorEnabled: select( STORE_NAME ).isSoundErrorEnabled(),
 			soundThinkingEnabled: select( STORE_NAME ).isSoundThinkingEnabled(),
@@ -113,6 +121,39 @@ export default function SettingsApp() {
 
 	// Available TTS voices (loaded asynchronously in some browsers).
 	const ttsVoices = useAvailableVoices();
+	const speechCapabilities = useSpeechCapabilities();
+	const minimumSpeechSpeed =
+		speechCapabilities?.text_to_speech?.speed?.minimum ?? 0.5;
+	const maximumSpeechSpeed =
+		speechCapabilities?.text_to_speech?.speed?.maximum ?? 2;
+	const transcriptionCapabilities = speechCapabilities?.transcription;
+	const canUseVoiceConversation = Boolean(
+		isSpeechRecognitionSupported &&
+			speechCapabilities?.available &&
+			Array.isArray(
+				transcriptionCapabilities?.accepted_input_mime_types
+			) &&
+			transcriptionCapabilities.accepted_input_mime_types.includes(
+				'audio/wav'
+			) &&
+			Number( transcriptionCapabilities.max_bytes ) > 44 &&
+			Number( transcriptionCapabilities.max_duration_seconds ) > 0
+	);
+
+	useEffect( () => {
+		if (
+			voiceConversationEnabled &&
+			( ! isSpeechRecognitionSupported ||
+				( speechCapabilities && ! canUseVoiceConversation ) )
+		) {
+			setVoiceConversationEnabled( false );
+		}
+	}, [
+		canUseVoiceConversation,
+		setVoiceConversationEnabled,
+		speechCapabilities,
+		voiceConversationEnabled,
+	] );
 
 	const { createNotice, removeNotice } = useDispatch( 'core/notices' );
 	const snackbarNotices = useSelect( ( select ) =>
@@ -1419,33 +1460,35 @@ export default function SettingsApp() {
 
 										<h3 className="sdaa-settings-section-title">
 											{ __(
-												'Text-to-Speech',
-												'sd-ai-agent'
+												'Managed voice',
+												'superdav-ai-agent'
 											) }
 										</h3>
-										{ ! isTTSSupported && (
-											<p className="description">
-												{ __(
-													'Text-to-speech is not supported in this browser.',
-													'sd-ai-agent'
-												) }
-											</p>
-										) }
-										{ isTTSSupported && (
+										{ ! isTTSSupported &&
+											! isBrowserFallbackSupported && (
+												<p className="description">
+													{ __(
+														'Text-to-speech is not supported in this browser.',
+														'superdav-ai-agent'
+													) }
+												</p>
+											) }
+										{ ( isTTSSupported ||
+											isBrowserFallbackSupported ) && (
 											<table className="form-table sdaa-form-table">
 												<tbody>
 													<tr>
 														<th scope="row">
 															{ __(
 																'Text-to-Speech',
-																'sd-ai-agent'
+																'superdav-ai-agent'
 															) }
 														</th>
 														<td>
 															<ToggleControl
 																label={ __(
 																	'Read AI responses aloud automatically',
-																	'sd-ai-agent'
+																	'superdav-ai-agent'
 																) }
 																checked={
 																	ttsEnabled
@@ -1467,7 +1510,7 @@ export default function SettingsApp() {
 																<label htmlFor="sd-tts-voice">
 																	{ __(
 																		'Voice',
-																		'sd-ai-agent'
+																		'superdav-ai-agent'
 																	) }
 																</label>
 															</th>
@@ -1480,8 +1523,8 @@ export default function SettingsApp() {
 																	options={ [
 																		{
 																			label: __(
-																				'(Browser default)',
-																				'sd-ai-agent'
+																				'(Service default)',
+																				'superdav-ai-agent'
 																			),
 																			value: '',
 																		},
@@ -1499,7 +1542,7 @@ export default function SettingsApp() {
 																	}
 																	help={ __(
 																		'Select the voice used for speech synthesis.',
-																		'sd-ai-agent'
+																		'superdav-ai-agent'
 																	) }
 																	__nextHasNoMarginBottom
 																/>
@@ -1511,7 +1554,7 @@ export default function SettingsApp() {
 															<label htmlFor="sd-tts-rate">
 																{ __(
 																	'Speech Rate',
-																	'sd-ai-agent'
+																	'superdav-ai-agent'
 																) }
 															</label>
 														</th>
@@ -1524,41 +1567,77 @@ export default function SettingsApp() {
 																onChange={
 																	setTtsRate
 																}
-																min={ 0.5 }
-																max={ 2 }
+																min={
+																	minimumSpeechSpeed
+																}
+																max={
+																	maximumSpeechSpeed
+																}
 																step={ 0.1 }
 																help={ __(
 																	'Speed of speech. 1 is normal speed.',
-																	'sd-ai-agent'
+																	'superdav-ai-agent'
 																) }
 															/>
 														</td>
 													</tr>
+													{ canUseVoiceConversation && (
+														<tr>
+															<th scope="row">
+																{ __(
+																	'Voice mode',
+																	'superdav-ai-agent'
+																) }
+															</th>
+															<td>
+																<ToggleControl
+																	label={ __(
+																		'Send each recorded turn and read the response aloud',
+																		'superdav-ai-agent'
+																	) }
+																	checked={
+																		voiceConversationEnabled
+																	}
+																	onChange={ (
+																		enabled
+																	) => {
+																		if (
+																			canUseVoiceConversation
+																		) {
+																			setVoiceConversationEnabled(
+																				enabled
+																			);
+																		}
+																	} }
+																	help={ __(
+																		'Microphone access still starts only when you press the microphone button.',
+																		'superdav-ai-agent'
+																	) }
+																	__nextHasNoMarginBottom
+																/>
+															</td>
+														</tr>
+													) }
 													<tr>
 														<th scope="row">
-															<label htmlFor="sd-tts-pitch">
-																{ __(
-																	'Pitch',
-																	'sd-ai-agent'
-																) }
-															</label>
+															{ __(
+																'Fallback',
+																'superdav-ai-agent'
+															) }
 														</th>
 														<td>
-															<RangeControl
-																id="sd-tts-pitch"
-																value={
-																	ttsPitch
+															<ToggleControl
+																label={ __(
+																	'Allow browser speech when the managed service is unavailable',
+																	'superdav-ai-agent'
+																) }
+																checked={
+																	speechFallbackEnabled
 																}
 																onChange={
-																	setTtsPitch
+																	setSpeechFallbackEnabled
 																}
-																min={ 0 }
-																max={ 2 }
-																step={ 0.1 }
-																help={ __(
-																	'Pitch of speech. 1 is normal pitch.',
-																	'sd-ai-agent'
-																) }
+																__nextHasNoMarginBottom
 															/>
 														</td>
 													</tr>

@@ -8,14 +8,13 @@
  */
 
 import { useSelect, useDispatch } from '@wordpress/data';
-import { useEffect, useMemo, useRef, useState } from '@wordpress/element';
+import { useMemo, useState } from '@wordpress/element';
 import { __ } from '@wordpress/i18n';
 
 import STORE_NAME from '../../store';
 import ActionCard from '../action-card';
 import CompactConversationActionCard from '../compact-conversation-action-card';
 import FeedbackConsentModal from '../feedback-consent-modal';
-import useTextToSpeech from '../use-text-to-speech';
 import MessageRows from '../chat-messages/message-rows';
 import {
 	getRunningJobPresentation,
@@ -24,15 +23,16 @@ import {
 import useCompactConversationAction from '../chat-messages/use-compact-conversation-action';
 import useMessageListScroll from '../chat-messages/use-message-list-scroll';
 import useRunningStatus from '../chat-messages/use-running-status';
-import { extractText } from './message-helpers';
 import { RunningMessage } from './message-items';
 
 /**
  * Render the main chat's message list and surface-specific actions.
  *
+ * @param {Object} root0                   Voice-aware component properties.
+ * @param {Object} root0.voiceConversation Managed voice coordinator.
  * @return {JSX.Element} Main chat message list.
  */
-export default function MessageList() {
+export default function MessageList( { voiceConversation } ) {
 	const {
 		messages,
 		sending,
@@ -40,10 +40,6 @@ export default function MessageList() {
 		liveToolCalls,
 		sessionJobs,
 		greeting,
-		ttsEnabled,
-		ttsVoiceURI,
-		ttsRate,
-		ttsPitch,
 		hasStreamError,
 		pendingActionCard,
 		providers,
@@ -63,10 +59,6 @@ export default function MessageList() {
 					'Ask the agent to make a change, write a post, or audit your site.',
 					'superdav-ai-agent'
 				),
-			ttsEnabled: store.isTtsEnabled(),
-			ttsVoiceURI: store.getTtsVoiceURI(),
-			ttsRate: store.getTtsRate(),
-			ttsPitch: store.getTtsPitch(),
 			hasStreamError: store.hasStreamError(),
 			pendingActionCard: store.getPendingActionCard(),
 			providers: store.getProviders(),
@@ -108,43 +100,6 @@ export default function MessageList() {
 	} );
 	const runningStatus = useRunningStatus( sending && running.isFallback );
 
-	const { speak, cancel } = useTextToSpeech( {
-		voiceURI: ttsVoiceURI,
-		rate: ttsRate,
-		pitch: ttsPitch,
-	} );
-	const lastSpokenIndexRef = useRef( -1 );
-
-	useEffect( () => {
-		if ( ! ttsEnabled || sending ) {
-			return;
-		}
-
-		const lastIndex = messages.length - 1;
-		const lastMessage = messages[ lastIndex ];
-		if (
-			lastIndex < 0 ||
-			lastMessage?.role !== 'model' ||
-			lastIndex === lastSpokenIndexRef.current
-		) {
-			return;
-		}
-
-		const text = extractText( lastMessage );
-		if ( ! text ) {
-			return;
-		}
-
-		lastSpokenIndexRef.current = lastIndex;
-		speak( text );
-	}, [ messages, ttsEnabled, sending, speak ] );
-
-	useEffect( () => {
-		if ( ! ttsEnabled ) {
-			cancel();
-		}
-	}, [ ttsEnabled, cancel ] );
-
 	const confirmJobFailureAction = () => {
 		if ( pendingActionCard?.type === 'resume_recoverable_job' ) {
 			resumeRecoverableJob();
@@ -161,7 +116,11 @@ export default function MessageList() {
 
 	return (
 		<>
-			<div className="sdaa-cr-messages" ref={ containerRef }>
+			<div
+				className="sdaa-cr-messages"
+				ref={ containerRef }
+				aria-live={ voiceConversation?.isSpeaking ? 'off' : 'polite' }
+			>
 				<div className="sdaa-cr-messages-inner">
 					{ visible.length === 0 && ! sending && (
 						<div className="sdaa-cr-empty">{ greeting }</div>

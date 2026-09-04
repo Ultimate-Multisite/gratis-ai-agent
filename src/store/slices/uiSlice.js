@@ -5,6 +5,20 @@
 
 import apiFetch from '@wordpress/api-fetch';
 
+const currentUserId = globalThis.sdAiAgentData?.currentUserId || 0;
+const speechStorageKey = ( preference ) =>
+	`sdAiAgent:${ currentUserId }:speech:${ preference }`;
+
+const readSpeechPreference = ( preference, fallback = '' ) => {
+	const key = speechStorageKey( preference );
+	const value = localStorage.getItem( key );
+	return value ?? fallback;
+};
+
+const writeSpeechPreference = ( preference, value ) => {
+	localStorage.setItem( speechStorageKey( preference ), String( value ) );
+};
+
 export const initialState = {
 	floatingOpen: false,
 	floatingMinimized: false,
@@ -29,11 +43,13 @@ export const initialState = {
 	// appearing while the agent is actively exploring the site.
 	isBootstrapSession: false,
 
-	// Text-to-speech (t084) — persisted to localStorage.
-	ttsEnabled: localStorage.getItem( 'sdAiAgentTtsEnabled' ) === 'true',
-	ttsVoiceURI: localStorage.getItem( 'sdAiAgentTtsVoiceURI' ) || '',
-	ttsRate: parseFloat( localStorage.getItem( 'sdAiAgentTtsRate' ) || '1' ),
-	ttsPitch: parseFloat( localStorage.getItem( 'sdAiAgentTtsPitch' ) || '1' ),
+	// Managed speech preferences are isolated by authenticated WordPress user.
+	ttsEnabled: readSpeechPreference( 'readAloud' ) === 'true',
+	ttsVoiceURI: readSpeechPreference( 'voiceId' ),
+	ttsRate: parseFloat( readSpeechPreference( 'speed', '1' ) ),
+	ttsPitch: parseFloat( readSpeechPreference( 'legacyPitch', '1' ) ),
+	voiceConversationEnabled: readSpeechPreference( 'voiceMode' ) === 'true',
+	speechFallbackEnabled: readSpeechPreference( 'browserFallback' ) === 'true',
 
 	// Sound notifications — persisted to localStorage.
 	soundSuccessEnabled:
@@ -100,10 +116,7 @@ export const actions = {
 	 * @return {Object} Redux action.
 	 */
 	setTtsEnabled( enabled ) {
-		localStorage.setItem(
-			'sdAiAgentTtsEnabled',
-			enabled ? 'true' : 'false'
-		);
+		writeSpeechPreference( 'readAloud', enabled ? 'true' : 'false' );
 		return { type: 'SET_TTS_ENABLED', enabled };
 	},
 
@@ -114,7 +127,7 @@ export const actions = {
 	 * @return {Object} Redux action.
 	 */
 	setTtsVoiceURI( voiceURI ) {
-		localStorage.setItem( 'sdAiAgentTtsVoiceURI', voiceURI );
+		writeSpeechPreference( 'voiceId', voiceURI );
 		return { type: 'SET_TTS_VOICE_URI', voiceURI };
 	},
 
@@ -125,7 +138,7 @@ export const actions = {
 	 * @return {Object} Redux action.
 	 */
 	setTtsRate( rate ) {
-		localStorage.setItem( 'sdAiAgentTtsRate', String( rate ) );
+		writeSpeechPreference( 'speed', rate );
 		return { type: 'SET_TTS_RATE', rate };
 	},
 
@@ -136,8 +149,18 @@ export const actions = {
 	 * @return {Object} Redux action.
 	 */
 	setTtsPitch( pitch ) {
-		localStorage.setItem( 'sdAiAgentTtsPitch', String( pitch ) );
+		writeSpeechPreference( 'legacyPitch', pitch );
 		return { type: 'SET_TTS_PITCH', pitch };
+	},
+
+	setVoiceConversationEnabled( enabled ) {
+		writeSpeechPreference( 'voiceMode', enabled ? 'true' : 'false' );
+		return { type: 'SET_VOICE_CONVERSATION_ENABLED', enabled };
+	},
+
+	setSpeechFallbackEnabled( enabled ) {
+		writeSpeechPreference( 'browserFallback', enabled ? 'true' : 'false' );
+		return { type: 'SET_SPEECH_FALLBACK_ENABLED', enabled };
 	},
 
 	// ─── Sound notifications ──────────────────────────────────────
@@ -355,6 +378,14 @@ export const selectors = {
 		return state.ttsPitch;
 	},
 
+	isVoiceConversationEnabled( state ) {
+		return state.voiceConversationEnabled;
+	},
+
+	isSpeechFallbackEnabled( state ) {
+		return state.speechFallbackEnabled;
+	},
+
 	// Sound notifications
 
 	/**
@@ -409,6 +440,10 @@ export function reducer( state, action ) {
 			return { ...state, ttsRate: action.rate };
 		case 'SET_TTS_PITCH':
 			return { ...state, ttsPitch: action.pitch };
+		case 'SET_VOICE_CONVERSATION_ENABLED':
+			return { ...state, voiceConversationEnabled: action.enabled };
+		case 'SET_SPEECH_FALLBACK_ENABLED':
+			return { ...state, speechFallbackEnabled: action.enabled };
 		case 'SET_SOUND_SUCCESS_ENABLED':
 			return { ...state, soundSuccessEnabled: action.enabled };
 		case 'SET_SOUND_ERROR_ENABLED':
