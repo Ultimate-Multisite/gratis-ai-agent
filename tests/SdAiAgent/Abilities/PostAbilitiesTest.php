@@ -48,6 +48,7 @@ class PostAbilitiesTest extends WP_UnitTestCase {
 	public function register_test_page_templates( array $post_templates ): array {
 		$post_templates['templates/full-width.php'] = 'Full Width';
 		$post_templates['templates/landing.php']    = 'Landing';
+		$post_templates['templates/no-title.php']   = 'Page (Full Width, No Title)';
 
 		return $post_templates;
 	}
@@ -380,6 +381,20 @@ class PostAbilitiesTest extends WP_UnitTestCase {
 
 		$this->assertIsArray( $result );
 		$this->assertSame( 'templates/full-width.php', get_page_template_slug( $result['post_id'] ) );
+	}
+
+	/**
+	 * A page whose content owns the H1 uses an available no-title template.
+	 */
+	public function test_handle_create_post_selects_no_title_template_for_content_h1() {
+		$result = PostAbilities::handle_create_post( [
+			'title'     => 'Landing Page',
+			'post_type' => 'page',
+			'content'   => '<!-- wp:heading {"level":1} --><h1 class="wp-block-heading">Hero heading</h1><!-- /wp:heading -->',
+		] );
+
+		$this->assertIsArray( $result );
+		$this->assertSame( 'templates/no-title.php', get_page_template_slug( $result['post_id'] ) );
 	}
 
 	/**

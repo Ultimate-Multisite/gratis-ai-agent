@@ -11,6 +11,7 @@ declare(strict_types=1);
 
 namespace SdAiAgent\Tests\REST;
 
+use SdAiAgent\Core\BackgroundJobDispatcher;
 use SdAiAgent\Core\Database;
 use SdAiAgent\Core\DurablePlanRunner;
 use SdAiAgent\Models\ActiveJobRepository;
@@ -27,6 +28,34 @@ class SessionControllerTest extends WP_UnitTestCase {
 	private int $admin_id;
 
 	private int $other_admin_id;
+
+	/** Jobs are queued once on the main site and preserve blog context. */
+	public function test_background_dispatcher_queues_job_on_main_site_once(): void {
+		$tenant_id = is_multisite() ? self::factory()->blog->create() : get_current_blog_id();
+		$job_id    = '11111111-2222-3333-4444-555555555555';
+		$args      = array( $tenant_id, $job_id );
+		$requests  = 0;
+		$intercept = static function ( $preempt ) use ( &$requests ) {
+			++$requests;
+			return $preempt;
+		};
+		add_filter( 'pre_http_request', $intercept );
+
+		if ( is_multisite() ) {
+			switch_to_blog( $tenant_id );
+		}
+		BackgroundJobDispatcher::dispatch( $job_id, 'test-token' );
+		BackgroundJobDispatcher::dispatch( $job_id, 'test-token' );
+		$this->assertSame( $tenant_id, get_current_blog_id() );
+		if ( is_multisite() ) {
+			restore_current_blog();
+		}
+		remove_filter( 'pre_http_request', $intercept );
+
+		$this->assertNotFalse( wp_next_scheduled( BackgroundJobDispatcher::HOOK, $args ) );
+		$this->assertSame( 0, $requests, 'An already queued event must not fall back to an HTTP loopback.' );
+		wp_clear_scheduled_hook( BackgroundJobDispatcher::HOOK, $args );
+	}
 
 	public function set_up(): void {
 		// REST registration must happen before parent::set_up() snapshots hooks.

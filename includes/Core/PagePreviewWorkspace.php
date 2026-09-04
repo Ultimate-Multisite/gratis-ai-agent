@@ -70,7 +70,26 @@ final class PagePreviewWorkspace {
 			&& get_current_user_id() > 0
 			&& 'page' === $post->post_type
 			&& 'publish' === $post->post_status
+			&& ! self::is_unchanged_cloned_starter( $post )
 			&& '' !== self::context_id();
+	}
+
+	/** Whether a page still exactly matches disposable content copied at provisioning. */
+	private static function is_unchanged_cloned_starter( WP_Post $post ): bool {
+		$expected = (string) get_post_meta( $post->ID, '_sd_ai_agent_cloned_starter_fingerprint', true );
+		if ( '' === $expected ) {
+			return false;
+		}
+
+		$payload = wp_json_encode(
+			array(
+				'title'   => $post->post_title,
+				'content' => $post->post_content,
+				'excerpt' => $post->post_excerpt,
+			)
+		);
+
+		return is_string( $payload ) && hash_equals( $expected, hash( 'sha256', $payload ) );
 	}
 
 	/** Whether this request can stage mutations for the supplied parent page. */

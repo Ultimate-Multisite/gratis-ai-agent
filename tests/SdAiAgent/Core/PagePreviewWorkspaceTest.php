@@ -33,6 +33,32 @@ class PagePreviewWorkspaceTest extends WP_UnitTestCase {
 		parent::tear_down();
 	}
 
+	/** An untouched provisioned starter can be replaced directly exactly once. */
+	public function test_unchanged_cloned_starter_bypasses_preview_until_first_edit(): void {
+		$post_id = self::factory()->post->create(
+			array(
+				'post_type'    => 'page',
+				'post_status'  => 'publish',
+				'post_title'   => 'Starter Home',
+				'post_content' => 'Starter content',
+			)
+		);
+		$post    = get_post( $post_id );
+		$payload = wp_json_encode(
+			array(
+				'title'   => $post->post_title,
+				'content' => $post->post_content,
+				'excerpt' => $post->post_excerpt,
+			)
+		);
+		update_post_meta( $post_id, '_sd_ai_agent_cloned_starter_fingerprint', hash( 'sha256', (string) $payload ) );
+
+		$this->assertFalse( PagePreviewWorkspace::governs( $post ) );
+
+		wp_update_post( array( 'ID' => $post_id, 'post_content' => 'Customer content' ) );
+		$this->assertTrue( PagePreviewWorkspace::governs( get_post( $post_id ) ) );
+	}
+
 	/** A staged update renders from an autosave while the public parent is unchanged. */
 	public function test_stage_and_commit_existing_published_page(): void {
 		$post_id = self::factory()->post->create(
