@@ -70,11 +70,13 @@ class FloatingWidget {
 	 * Only loads for logged-in users with configured chat access.
 	 */
 	public static function enqueue_assets_frontend(): void {
-		$settings = Settings::instance()->get();
+		$settings         = Settings::instance()->get();
+		$force_onboarding = isset( $_GET['sd_ai_agent_onboarding'] ) // phpcs:ignore WordPress.Security.NonceVerification.Recommended
+			&& '1' === sanitize_text_field( wp_unslash( $_GET['sd_ai_agent_onboarding'] ) ); // phpcs:ignore WordPress.Security.NonceVerification.Recommended
 
 		// Only when the frontend display setting is enabled.
 		// @phpstan-ignore-next-line
-		if ( empty( $settings['show_on_frontend'] ) ) {
+		if ( empty( $settings['show_on_frontend'] ) && ! $force_onboarding ) {
 			return;
 		}
 
