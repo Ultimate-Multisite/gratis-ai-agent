@@ -100,8 +100,11 @@ final class SuperdavAiProviderHandler {
 		$base_host    = strtolower( (string) ( $base_parts['host'] ?? '' ) );
 		$request_host = strtolower( (string) ( $request_parts['host'] ?? '' ) );
 		$filter_host  = strtolower( trim( $host, '.' ) );
-		if ( ! in_array( $base_host, array( '127.0.0.1', 'localhost' ), true )
-			|| $request_host !== $base_host
+		// Production routes api.sdaiagent.com to the local managed edge (127.0.0.1).
+		// WordPress therefore classifies the public hostname as local and rejects it
+		// before the SDK can send the request. The configured exact host is safe to
+		// allow here; the path and scheme checks below still constrain the exception.
+		if ( $request_host !== $base_host
 			|| $filter_host !== $base_host
 		) {
 			return false;
