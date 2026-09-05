@@ -375,6 +375,16 @@ final class SettingsControllerTest extends WP_UnitTestCase {
 									'effective_at'      => 'invalid',
 								),
 							),
+							'speech' => array(
+								'enabled'             => true,
+								'entitled'            => true,
+								'cohort'              => 'staged',
+								'supported_surfaces'  => array( 'authenticated', 'public' ),
+								'languages'           => array( 'en-US' ),
+								'voices'              => array( 'alloy' ),
+								'rollback_categories' => array( 'feature_disabled', 'temporary_unavailable' ),
+								'account_id'          => 'must-not-be-exposed',
+							),
 							'access_token'       => 'must-not-be-exposed',
 						)
 					),
@@ -433,6 +443,18 @@ final class SettingsControllerTest extends WP_UnitTestCase {
 		$this->assertSame( 125000, $data['chat_sessions'][0]['cost_usd_micros'] );
 		$this->assertSame( SuperdavAiProvider::DEFAULT_MODEL_ID, $data['chat_sessions'][0]['models'][0]['model_id'] );
 		$this->assertArrayNotHasKey( 'upstream_request_id', $data['chat_sessions'][0]['models'][0] );
+		$this->assertSame(
+			array(
+				'enabled'             => true,
+				'entitled'            => true,
+				'cohort'              => 'staged',
+				'supported_surfaces'  => array( 'authenticated', 'public' ),
+				'languages'           => array( 'en-US' ),
+				'voices'              => array( 'alloy' ),
+				'rollback_categories' => array( 'feature_disabled', 'temporary_unavailable' ),
+			),
+			$data['speech']
+		);
 		$this->assertArrayNotHasKey( 'usage', $data );
 		$this->assertArrayNotHasKey( 'verification', $data );
 		$this->assertArrayNotHasKey( 'refreshed_at', $data );

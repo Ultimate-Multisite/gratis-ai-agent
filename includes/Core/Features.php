@@ -312,6 +312,17 @@ final class Features {
 	const RUN_PHP = 'run_php';
 
 	/**
+	 * Feature: managed speech capture and playback.
+	 *
+	 * This local rollback switch prevents new managed speech operations without
+	 * affecting typed chat. It intentionally defaults to enabled so older site
+	 * configuration continues to work unless the site owner opts out.
+	 *
+	 * Constant: SD_AI_AGENT_FEATURE_SPEECH
+	 */
+	const SPEECH = 'speech';
+
+	/**
 	 * Map of feature name → backing constant name.
 	 *
 	 * @var array<string, string>
@@ -330,6 +341,7 @@ final class Features {
 		self::BENCHMARK               => 'SD_AI_AGENT_FEATURE_BENCHMARK',
 		self::USER_MANAGEMENT         => 'SD_AI_AGENT_FEATURE_USER_MANAGEMENT',
 		self::RUN_PHP                 => 'SD_AI_AGENT_FEATURE_RUN_PHP',
+		self::SPEECH                  => 'SD_AI_AGENT_FEATURE_SPEECH',
 	);
 
 	/**

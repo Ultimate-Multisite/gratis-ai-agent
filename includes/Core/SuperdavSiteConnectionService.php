@@ -115,6 +115,9 @@ final class SuperdavSiteConnectionService {
 		if ( isset( $metadata['chat_sessions'] ) && is_array( $metadata['chat_sessions'] ) ) {
 			$status['chat_sessions'] = $this->sanitize_chat_session_metadata( $metadata['chat_sessions'] );
 		}
+		if ( isset( $metadata['speech'] ) && is_array( $metadata['speech'] ) ) {
+			$status['speech'] = $this->sanitize_speech_metadata( $metadata['speech'] );
+		}
 
 		$status['linked_user'] = isset( $metadata['linked_user'] ) && is_array( $metadata['linked_user'] )
 			? $this->sanitize_linked_user_metadata( $metadata['linked_user'] )
@@ -197,7 +200,8 @@ final class SuperdavSiteConnectionService {
 			$metadata['verification'],
 			$metadata['wallet'],
 			$metadata['credit_activity'],
-			$metadata['chat_sessions']
+			$metadata['chat_sessions'],
+			$metadata['speech']
 		);
 		$metadata = array_merge( $metadata, $this->sanitize_remote_metadata( $body ) );
 		update_option( self::TOKEN_METADATA_OPTION, $metadata, false );
@@ -822,6 +826,41 @@ final class SuperdavSiteConnectionService {
 			$safe['linked_user'] = $this->sanitize_linked_user_metadata( $metadata['linked_user'] );
 		}
 
+		if ( isset( $metadata['speech'] ) && is_array( $metadata['speech'] ) ) {
+			$safe['speech'] = $this->sanitize_speech_metadata( $metadata['speech'] );
+		}
+
+		return $safe;
+	}
+
+	/**
+	 * Keep only the service-advertised, non-billing speech rollout contract.
+	 *
+	 * @param array<string, mixed> $speech Remote speech metadata.
+	 * @return array<string, bool|list<string>|string>
+	 */
+	private function sanitize_speech_metadata( array $speech ): array {
+		$safe = array();
+		foreach ( array( 'enabled', 'entitled', 'remote_processing', 'retention_disclosed' ) as $key ) {
+			if ( isset( $speech[ $key ] ) && is_bool( $speech[ $key ] ) ) {
+				$safe[ $key ] = $speech[ $key ];
+			}
+		}
+		if ( isset( $speech['cohort'] ) && is_string( $speech['cohort'] ) ) {
+			$cohort = sanitize_key( $speech['cohort'] );
+			if ( in_array( $cohort, array( 'general', 'staged', 'disabled' ), true ) ) {
+				$safe['cohort'] = $cohort;
+			}
+		}
+		foreach ( array( 'supported_surfaces', 'languages', 'voices', 'rollback_categories' ) as $key ) {
+			if ( isset( $speech[ $key ] ) && is_array( $speech[ $key ] ) ) {
+				$values       = array_filter(
+					array_slice( $speech[ $key ], 0, 20 ),
+					static fn( mixed $value ): bool => is_string( $value ) && '' !== sanitize_key( $value )
+				);
+				$safe[ $key ] = array_values( array_unique( $values ) );
+			}
+		}
 		return $safe;
 	}
 

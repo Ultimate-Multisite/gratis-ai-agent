@@ -112,6 +112,7 @@ class PublicChatControllerTest extends WP_UnitTestCase {
 		$this->assertSame( 200, $response->get_status() );
 		$this->assertFalse( $response->get_data()['enabled'] );
 		$this->assertFalse( $response->get_data()['speech']['enabled'] );
+		$this->assertFalse( $response->get_data()['speech']['availability']['available'] );
 		$this->assertSame( 0, $response->get_data()['speech']['max_audio_bytes'] );
 		$this->assertSame( 0, $response->get_data()['speech']['max_recording_duration_seconds'] );
 		$this->assertSame( 0, $response->get_data()['speech']['max_tts_characters'] );

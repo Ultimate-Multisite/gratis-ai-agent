@@ -5,8 +5,10 @@ declare(strict_types=1);
 namespace SdAiAgent\REST;
 
 use SdAiAgent\Core\Database;
+use SdAiAgent\Core\Features;
 use SdAiAgent\Core\ProviderCredentialLoader;
 use SdAiAgent\Core\ProviderTraceLogger;
+use SdAiAgent\Core\SpeechAvailability;
 use SdAiAgent\Core\SpeechLocaleResolver;
 use SdAiAgent\Infrastructure\AiClient\Superdav\SuperdavAiProvider;
 use SdAiAgent\Infrastructure\AiClient\Superdav\SuperdavAiTextToSpeechConversionModel;
@@ -71,11 +73,16 @@ final class SpeechController extends XWP_REST_Controller {
 	)]
 	public function handle_capabilities( WP_REST_Request $request ): WP_REST_Response|WP_Error {
 		unset( $request );
+		$availability = $this->availability();
+		if ( ! $availability->is_available() ) {
+			return new WP_REST_Response( array( 'availability' => $availability->to_array() ), 200 );
+		}
 		$capabilities = $this->get_sanitized_capabilities();
 		if ( $capabilities instanceof WP_Error ) {
 			return $capabilities;
 		}
 
+		$capabilities['availability'] = $availability->to_array();
 		return new WP_REST_Response( $capabilities, 200 );
 	}
 
@@ -98,6 +105,9 @@ final class SpeechController extends XWP_REST_Controller {
 	 * authenticated service contract.
 	 */
 	public function handle_bounded_transcription( WP_REST_Request $request, int $max_bytes, int $max_duration_seconds, ?callable $before_transcription = null ): WP_REST_Response|WP_Error {
+		if ( ! $this->availability()->is_available() ) {
+			return $this->speech_unavailable_error();
+		}
 		$max_bytes            = max( 1, min( SuperdavAiTranscriptionClient::MAX_AUDIO_BYTES, $max_bytes ) );
 		$max_duration_seconds = max( 1, min( SuperdavAiTranscriptionClient::MAX_DURATION_SECONDS, $max_duration_seconds ) );
 		$temporary_path       = '';
@@ -198,7 +208,15 @@ final class SpeechController extends XWP_REST_Controller {
 				}
 			}
 
-			ProviderTraceLogger::set_runtime_context( SuperdavAiProvider::PROVIDER_ID, SuperdavAiTranscriptionClient::MODEL_ID, $session_id );
+			ProviderTraceLogger::set_runtime_context(
+				SuperdavAiProvider::PROVIDER_ID,
+				SuperdavAiTranscriptionClient::MODEL_ID,
+				$session_id,
+				0,
+				'',
+				'',
+				'speech'
+			);
 			try {
 				$result = $this->speech_client->transcribe( $audio, $language, $prompt );
 			} finally {
@@ -229,6 +247,9 @@ final class SpeechController extends XWP_REST_Controller {
 
 	/** Convert one validated text turn under a stricter caller-supplied ceiling. */
 	public function handle_bounded_synthesis( WP_REST_Request $request, int $max_characters ): WP_REST_Response|WP_Error {
+		if ( ! $this->availability()->is_available() ) {
+			return $this->speech_unavailable_error();
+		}
 		$max_characters = max( 1, min( self::MAX_SYNTHESIS_CHARACTERS, $max_characters ) );
 		$fields         = $request->get_json_params();
 		if ( ! is_array( $fields ) || array_diff( array_keys( $fields ), array( 'text', 'voice', 'language', 'format', 'mime_type', 'speed', 'session_id' ) ) ) {
@@ -323,7 +344,15 @@ final class SpeechController extends XWP_REST_Controller {
 			$request_options->setMaxRedirects( 0 );
 			$model->setRequestOptions( $request_options );
 
-			ProviderTraceLogger::set_runtime_context( SuperdavAiProvider::PROVIDER_ID, (string) $tts['model'], $session_id );
+			ProviderTraceLogger::set_runtime_context(
+				SuperdavAiProvider::PROVIDER_ID,
+				(string) $tts['model'],
+				$session_id,
+				0,
+				'',
+				'',
+				'speech'
+			);
 			$result = $model->convertTextToSpeechResult( array( new UserMessage( array( new MessagePart( $text ) ) ) ) );
 		} catch ( ResponseException ) {
 			return $this->malformed_response_error();
@@ -454,6 +483,11 @@ final class SpeechController extends XWP_REST_Controller {
 			'locales'        => $this->locale_resolver->resolve(),
 			'request_id'     => $this->sanitize_request_id( $remote['request_id'] ?? null ),
 		);
+	}
+
+	/** Return the local rollback decision shared by all managed speech routes. */
+	private function availability(): SpeechAvailability {
+		return SpeechAvailability::for_conditions( Features::is_enabled( Features::SPEECH ) );
 	}
 
 	/**

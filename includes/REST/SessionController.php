@@ -821,7 +821,14 @@ final class SessionController {
 		$config         = $this->get_public_chat_settings();
 		$origin         = $this->get_public_chat_request_origin( $request );
 		$enabled        = ! empty( $config['enabled'] ) && ! empty( $config['collections'] ) && $this->public_origin_is_allowed( $origin, $config['origins'] );
-		$speech_enabled = $enabled && ! empty( $config['speech_enabled'] );
+		$availability   = \SdAiAgent\Core\SpeechAvailability::for_conditions(
+			\SdAiAgent\Core\Features::is_enabled( \SdAiAgent\Core\Features::SPEECH ),
+			true,
+			true,
+			true,
+			$enabled && ! empty( $config['speech_enabled'] )
+		);
+		$speech_enabled = $availability->is_available();
 		$this->public_chat_security->record_speech_metric( 'availability', $speech_enabled ? 'available' : 'unavailable', 200, microtime( true ) );
 
 		return $this->add_public_chat_cors(
@@ -838,6 +845,7 @@ final class SessionController {
 					),
 					'speech'      => array(
 						'enabled'                        => $speech_enabled,
+						'availability'                   => $availability->to_array(),
 						'upload_mime_type'               => 'audio/wav',
 						'capture_mime_types'             => array( 'audio/webm;codecs=opus', 'audio/webm', 'audio/ogg;codecs=opus', 'audio/mp4' ),
 						'output_mime_types'              => array( 'audio/mpeg' ),

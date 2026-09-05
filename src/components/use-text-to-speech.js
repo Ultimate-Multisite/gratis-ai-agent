@@ -225,11 +225,7 @@ export default function useTextToSpeech( {
 	const speak = useCallback(
 		async ( text, turnOptions = {} ) => {
 			const speechText = toSpeakableText( String( text || '' ) );
-			if (
-				! speechText ||
-				( ! isTTSSupported &&
-					( ! allowBrowserFallback || ! isBrowserFallbackSupported ) )
-			) {
+			if ( ! speechText ) {
 				return false;
 			}
 
@@ -247,12 +243,21 @@ export default function useTextToSpeech( {
 
 			try {
 				if ( ! isTTSSupported ) {
-					throw new Error(
-						__(
-							'Managed audio playback is unavailable.',
-							'superdav-ai-agent'
-						)
+					if (
+						! allowBrowserFallback ||
+						! isBrowserFallbackSupported
+					) {
+						return false;
+					}
+					playbackStarted = true;
+					onStart?.();
+					await playBrowserFallback(
+						speechText,
+						generation,
+						fallbackLanguage,
+						fallbackSpeed
 					);
+					return true;
 				}
 				const nextCapabilities =
 					capabilities || ( await loadSpeechCapabilities() );
@@ -260,6 +265,23 @@ export default function useTextToSpeech( {
 					return false;
 				}
 				setCapabilities( nextCapabilities );
+				if ( false === nextCapabilities?.availability?.available ) {
+					if (
+						! allowBrowserFallback ||
+						! isBrowserFallbackSupported
+					) {
+						return false;
+					}
+					playbackStarted = true;
+					onStart?.();
+					await playBrowserFallback(
+						speechText,
+						generation,
+						fallbackLanguage,
+						fallbackSpeed
+					);
+					return true;
+				}
 				const synthesis = nextCapabilities.text_to_speech;
 				const requestedLanguage =
 					turnOptions.lang ||
@@ -336,28 +358,7 @@ export default function useTextToSpeech( {
 				}
 				return true;
 			} catch ( caughtError ) {
-				let failure = caughtError;
-				if (
-					allowBrowserFallback &&
-					isBrowserFallbackSupported &&
-					! playbackStarted &&
-					caughtError?.name !== 'AbortError' &&
-					generation === generationRef.current
-				) {
-					try {
-						playbackStarted = true;
-						onStart?.();
-						await playBrowserFallback(
-							speechText,
-							generation,
-							fallbackLanguage,
-							fallbackSpeed
-						);
-						return true;
-					} catch ( fallbackError ) {
-						failure = fallbackError;
-					}
-				}
+				const failure = caughtError;
 				if (
 					failure?.name !== 'AbortError' &&
 					generation === generationRef.current
@@ -420,7 +421,10 @@ export default function useTextToSpeech( {
 		isSpeaking,
 		isSupported:
 			hasManagedSynthesis ||
-			( allowBrowserFallback && isBrowserFallbackSupported ),
+			( allowBrowserFallback &&
+				isBrowserFallbackSupported &&
+				( ! isTTSSupported ||
+					false === capabilities?.availability?.available ) ),
 		speak,
 	};
 }
