@@ -41,6 +41,7 @@ use SdAiAgent\Bootstrap\HttpTraceHandler;
 use SdAiAgent\Bootstrap\ModelCapabilityHandler;
 use SdAiAgent\Bootstrap\KnowledgeHooksHandler;
 use SdAiAgent\Bootstrap\OnboardingHandler;
+use SdAiAgent\Bootstrap\PublicSpeechCorsHandler;
 use SdAiAgent\Bootstrap\SuperdavAiProviderHandler;
 use SdAiAgent\Bootstrap\ToolDiscoveryHandler;
 use SdAiAgent\Core\AdvancedPluginManager;
@@ -123,6 +124,7 @@ use XWP\DI\Decorators\Module;
 		CustomerAgentRuntimeHandler::class,
 		CachePolicy::class,
 		FrontendAssetsHandler::class,
+		PublicSpeechCorsHandler::class,
 		MemoryController::class,
 		SkillController::class,
 		BannerController::class,

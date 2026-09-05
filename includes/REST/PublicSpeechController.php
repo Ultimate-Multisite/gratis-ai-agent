@@ -33,8 +33,6 @@ final class PublicSpeechController extends XWP_REST_Controller {
 	public function __construct( ?PublicChatSecurity $security = null, ?SpeechController $speech = null ) {
 		$this->security = $security ?? new PublicChatSecurity();
 		$this->speech   = $speech ?? new SpeechController();
-
-		add_filter( 'rest_post_dispatch', array( $this, 'add_cors_to_speech_response' ), 10, 3 );
 	}
 
 	/** Public routes perform their complete authorization inside each handler. */
@@ -155,17 +153,6 @@ final class PublicSpeechController extends XWP_REST_Controller {
 		$this->record_metric( 'synthesis', $result, $started_at );
 
 		return $result;
-	}
-
-	/** Add allowlisted CORS headers after WordPress converts public speech errors to responses. */
-	public function add_cors_to_speech_response( WP_REST_Response $response, WP_REST_Server $server, WP_REST_Request $request ): WP_REST_Response {
-		if ( ! in_array( $request->get_route(), array( '/sd-ai-agent/v1/public-chat/speech/transcriptions', '/sd-ai-agent/v1/public-chat/speech/synthesis' ), true ) ) {
-			return $response;
-		}
-
-		$config = $this->security->settings();
-
-		return $this->security->add_cors( $response, $this->security->request_origin( $request ), $config['origins'] );
 	}
 
 	/** Process one public synthesis after the telemetry timer starts. */
