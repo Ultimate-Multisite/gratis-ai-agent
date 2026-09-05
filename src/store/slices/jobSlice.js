@@ -15,6 +15,7 @@ import {
 } from '../../utils/notification-manager';
 import { playDing, playDong, playThinking } from '../../utils/sound-manager';
 import { emitReflectionEvents } from '../reflection-emitter';
+import { toolCallsContainFailure } from '../../utils/feedback-reporting';
 
 // A session/job pair must have exactly one polling loop. Multiple mounted chat
 // surfaces can discover or resume the same durable job at nearly the same time;
@@ -221,6 +222,7 @@ export const actions = {
 			}
 
 			dispatch.setSending( true );
+			dispatch.setFeedbackBanner?.( null );
 			try {
 				const result = await apiFetch( {
 					path: `/sd-ai-agent/v1/sessions/${ sessionId }/resume`,
@@ -286,6 +288,7 @@ export const actions = {
 			dispatch.setPendingToolResultRetry( null );
 			dispatch.setPendingActionCard( null );
 			dispatch.setSending( true );
+			dispatch.setFeedbackBanner?.( null );
 
 			let postSucceeded = false;
 			let lastErr = null;
@@ -458,6 +461,10 @@ export const actions = {
 						dispatch.appendMessage( {
 							role: 'system',
 							parts: [ { text: 'Error: Request timed out.' } ],
+						} );
+						dispatch.setFeedbackBanner?.( {
+							reason: 'timeout',
+							eventId: jobId,
 						} );
 						dispatch.setSending( false );
 					}
@@ -754,6 +761,10 @@ export const actions = {
 										},
 									],
 								} );
+								dispatch.setFeedbackBanner?.( {
+									reason: 'client_tool_submission_error',
+									eventId: jobId,
+								} );
 								dispatch.setSending( false );
 							}
 							stopPolling();
@@ -950,6 +961,16 @@ export const actions = {
 							if ( ! isCreditNotice && ! failureDiagnostic ) {
 								dispatch.setStreamError( true, sessionId );
 							}
+							if ( ! isCreditNotice ) {
+								dispatch.setFeedbackBanner?.( {
+									reason:
+										result.exit_reason ||
+										result.reason ||
+										failureDiagnostic?.reason ||
+										'job_error',
+									eventId: jobId,
+								} );
+							}
 							// WP_Error max_iterations — show feedback banner (t183).
 							const errMsg = `${ rawErrorMessage } ${
 								result.reason || ''
@@ -1100,6 +1121,16 @@ export const actions = {
 							);
 						}
 
+						if (
+							toolCallsContainFailure( resultToolCalls ) &&
+							select.getCurrentSessionId() === sessionId
+						) {
+							dispatch.setFeedbackBanner?.( {
+								reason: 'tool_call_error',
+								eventId: jobId,
+							} );
+						}
+
 						const FEEDBACK_EXIT_REASONS = [
 							'spin_detected',
 							'timeout',
@@ -1178,6 +1209,10 @@ export const actions = {
 										},
 									],
 								} );
+								dispatch.setFeedbackBanner?.( {
+									reason: 'job_result_retrieval_error',
+									eventId: jobId,
+								} );
 							}
 							dispatch.setSending( false );
 							dispatch.setLiveToolCalls( [] );
@@ -1237,6 +1272,10 @@ export const actions = {
 								],
 							} );
 							dispatch.setStreamError( true, sessionId );
+							dispatch.setFeedbackBanner?.( {
+								reason: 'server_connection_error',
+								eventId: jobId,
+							} );
 							dispatch.setSending( false );
 							dispatch.setLiveToolCalls( [] );
 						}

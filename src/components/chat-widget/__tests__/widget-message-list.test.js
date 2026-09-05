@@ -21,6 +21,7 @@ jest.mock( '@wordpress/i18n', () => ( {
 
 jest.mock( '../../../store', () => 'sd-ai-agent' );
 jest.mock( '../../feedback-consent-modal', () => () => null );
+jest.mock( '../../automatic-feedback-prompt', () => () => null );
 jest.mock( '../../chat-redesign/message-items', () => ( {
 	AssistantMessage: () => null,
 	RunningMessage: () => null,

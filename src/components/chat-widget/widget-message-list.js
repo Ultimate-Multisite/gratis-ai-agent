@@ -11,6 +11,7 @@ import { useMemo, useState } from '@wordpress/element';
 import { __ } from '@wordpress/i18n';
 
 import STORE_NAME from '../../store';
+import AutomaticFeedbackPrompt from '../automatic-feedback-prompt';
 import CompactConversationActionCard from '../compact-conversation-action-card';
 import RecoverableJobActionCard from '../recoverable-job-action-card';
 import FeedbackConsentModal from '../feedback-consent-modal';
@@ -105,6 +106,7 @@ export default function WidgetMessageList( { voiceConversation } ) {
 		pendingToolResultRetry,
 		providers,
 		showToolCallDetails,
+		feedbackBanner,
 	} = useSelect( ( sel ) => {
 		const store = sel( STORE_NAME );
 		const settings = store.getSettings();
@@ -119,6 +121,7 @@ export default function WidgetMessageList( { voiceConversation } ) {
 			pendingToolResultRetry: store.getPendingToolResultRetry?.(),
 			providers: store.getProviders(),
 			showToolCallDetails: settings?.show_tool_call_details === true,
+			feedbackBanner: store.getFeedbackBanner?.() || null,
 		};
 	}, [] );
 
@@ -251,6 +254,13 @@ export default function WidgetMessageList( { voiceConversation } ) {
 								onCancel={ () => setPendingActionCard( null ) }
 							/>
 						) }
+
+					{ ! sending && (
+						<AutomaticFeedbackPrompt
+							sessionId={ currentSessionId }
+							failure={ feedbackBanner }
+						/>
+					) }
 				</div>
 			</div>
 

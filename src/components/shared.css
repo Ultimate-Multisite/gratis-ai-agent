@@ -842,17 +842,57 @@
 	font-size: 13px;
 }
 
-.sdaa-feedback-banner__text {
+.sd-ai-agent-feedback-prompt {
+	margin: 12px 16px;
+}
+
+.sd-ai-agent-feedback-prompt__content {
+	display: flex;
+	align-items: flex-start;
+	justify-content: space-between;
+	gap: 12px;
+	background: #fff8e5;
+	border-left: 4px solid #dba617;
+	border-radius: 4px;
+	padding: 10px 12px;
+	font-size: 13px;
+}
+
+.sd-ai-agent-feedback-prompt__copy {
+	display: flex;
+	flex: 1;
+	flex-direction: column;
+	gap: 4px;
+}
+
+.sd-ai-agent-feedback-prompt__text {
 	margin: 0;
 	color: #1d2327;
 	flex: 1;
 }
 
-.sdaa-feedback-banner__actions {
+.sd-ai-agent-feedback-prompt__privacy,
+.sd-ai-agent-feedback-prompt__error {
+	margin: 0;
+	font-size: 12px;
+	line-height: 1.4;
+}
+
+.sd-ai-agent-feedback-prompt__privacy {
+	color: #646970;
+}
+
+.sd-ai-agent-feedback-prompt__error {
+	color: #d63638;
+}
+
+.sd-ai-agent-feedback-prompt__actions {
 	display: flex;
 	align-items: center;
 	gap: 8px;
 	flex-shrink: 0;
+	flex-wrap: wrap;
+	justify-content: flex-end;
 }
 
 .sdaa-feedback-banner__send-btn {
@@ -866,6 +906,17 @@
 	font-size: 12px !important;
 	color: #646970 !important;
 	text-decoration: none !important;
+}
+
+@media (max-width: 600px) {
+	.sd-ai-agent-feedback-prompt__content {
+		flex-direction: column;
+	}
+
+	.sd-ai-agent-feedback-prompt__actions {
+		justify-content: flex-start;
+		width: 100%;
+	}
 }
 
 /* ── Boot error screen ─────────────────────────────────────────────────────── */

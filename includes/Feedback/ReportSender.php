@@ -10,7 +10,8 @@ declare(strict_types=1);
  * normal plugin operation).
  *
  * The endpoint is fixed — no API key is required. User consent is collected
- * per submission via the feedback-consent modal before this method is called.
+ * through the manual feedback modal or the completed-job failure prompt. The
+ * prompt can also retain a user-scoped choice to report future failures.
  *
  * @package SdAiAgent\Feedback
  * @license GPL-2.0-or-later
