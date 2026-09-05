@@ -5,18 +5,22 @@
 import { createElement } from '@wordpress/element';
 import { createRoot } from 'react-dom/client';
 import { act } from 'react';
-import { useDispatch, useSelect } from '@wordpress/data';
-
-import ChatRedesign from '../index';
-import InputArea from '../InputArea';
-import WidgetHeader from '../../chat-widget/widget-header';
 
 global.IS_REACT_ACT_ENVIRONMENT = true;
 
-jest.mock( '@wordpress/data', () => ( {
-	useDispatch: jest.fn(),
-	useSelect: jest.fn(),
+const useDispatch = jest.fn();
+const useSelect = jest.fn();
+const wordpressData = jest.requireActual( '@wordpress/data' );
+
+jest.doMock( '@wordpress/data', () => ( {
+	...wordpressData,
+	useDispatch,
+	useSelect,
 } ) );
+
+const ChatRedesign = require( '../index' ).default;
+const InputArea = require( '../InputArea' ).default;
+const WidgetHeader = require( '../../chat-widget/widget-header' ).default;
 
 jest.mock( '@wordpress/i18n', () => ( {
 	__: ( str ) => str,
@@ -35,19 +39,60 @@ jest.mock( '@wordpress/icons', () => ( {
 	sidebar: 'sidebar',
 } ) );
 
+jest.mock( '@wordpress/components', () => {
+	const React = require( 'react' );
+	return {
+		Button: ( { children, label, disabled, onClick, className } ) =>
+			React.createElement(
+				'button',
+				{
+					type: 'button',
+					className,
+					'aria-label': label,
+					disabled,
+					onClick,
+				},
+				children
+			),
+		CheckboxControl: ( { label, checked, disabled, onChange } ) =>
+			React.createElement( 'input', {
+				type: 'checkbox',
+				'aria-label': label,
+				checked,
+				disabled,
+				onChange: ( event ) => onChange( event.target.checked ),
+			} ),
+	};
+} );
+
 jest.mock( '@wordpress/api-fetch', () => jest.fn() );
 jest.mock( '../../../store', () => 'sd-ai-agent' );
 jest.mock( '../../../utils/branding', () => ( {
 	getBranding: () => ( { agentName: 'Docs Assistant' } ),
 } ) );
 jest.mock( '../../use-speech-recognition', () => () => ( {
+	cancelListening: jest.fn(),
+	detectedLanguage: '',
+	error: null,
 	isListening: false,
 	isSupported: false,
+	isTranscribing: false,
+	startListening: jest.fn(),
+	status: 'idle',
+	stopListening: jest.fn(),
 	toggleListening: jest.fn(),
 } ) );
-jest.mock( '../../use-text-to-speech', () => ( {
-	isTTSSupported: false,
-} ) );
+jest.mock( '../../use-text-to-speech', () => {
+	const useTextToSpeech = () => ( {
+		cancel: jest.fn(),
+		isSpeaking: false,
+		isSupported: false,
+		speak: jest.fn(),
+	} );
+	useTextToSpeech.isTTSSupported = false;
+
+	return useTextToSpeech;
+} );
 jest.mock(
 	'../../slash-command-menu',
 	() => () =>
