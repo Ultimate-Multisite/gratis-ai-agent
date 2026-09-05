@@ -147,7 +147,14 @@ final class PublicChatSecurity {
 		if ( empty( $config['collections'] ) ) {
 			return new WP_Error( 'sd_ai_agent_public_chat_unconfigured', __( 'Public chat has no documentation collection configured.', 'superdav-ai-agent' ), array( 'status' => 503 ) );
 		}
-		if ( $require_speech && empty( $config['speech_enabled'] ) ) {
+		$availability = SpeechAvailability::for_conditions(
+			Features::is_enabled( Features::SPEECH ),
+			true,
+			true,
+			true,
+			! empty( $config['speech_enabled'] )
+		);
+		if ( $require_speech && ! $availability->is_available() ) {
 			return new WP_Error( 'sd_ai_agent_public_speech_disabled', __( 'Public speech is not enabled.', 'superdav-ai-agent' ), array( 'status' => 404 ) );
 		}
 

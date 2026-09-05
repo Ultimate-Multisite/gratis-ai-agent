@@ -48,7 +48,8 @@ class ProviderTraceLogger {
 	 *     request_tokens_estimate:int,
 	 *     request_provider_limit_bytes:int,
 	 *     request_budget_bytes:int,
-	 *     request_safety_margin_bytes:int
+	 *     request_safety_margin_bytes:int,
+	 *     operation:string
 	 * }
 	 */
 	// phpcs:ignore WordPress.NamingConventions.ValidVariableName.PropertyNotSnakeCase -- Project property naming guidance requires camelCase.
@@ -64,6 +65,7 @@ class ProviderTraceLogger {
 		'request_provider_limit_bytes' => 0,
 		'request_budget_bytes'         => 0,
 		'request_safety_margin_bytes'  => 0,
+		'operation'                    => '',
 	);
 
 	/**
@@ -131,8 +133,9 @@ class ProviderTraceLogger {
 	 * @param int    $retry_baseline_request_bytes Full-envelope bytes from an upstream 413 retry baseline.
 	 * @param string $journey_id                   Validated managed journey ID, if active.
 	 * @param string $idempotency_key              Stable logical-request UUID, if active.
+	 * @param string $operation                    Content-sensitive operation category, if any.
 	 */
-	public static function set_runtime_context( string $provider_id, string $model_id, int $session_id = 0, int $retry_baseline_request_bytes = 0, string $journey_id = '', string $idempotency_key = '' ): void {
+	public static function set_runtime_context( string $provider_id, string $model_id, int $session_id = 0, int $retry_baseline_request_bytes = 0, string $journey_id = '', string $idempotency_key = '', string $operation = '' ): void {
 		$has_valid_managed_attribution = SuperdavManagedRequestIdentifiers::is_journey_id( $journey_id )
 			&& SuperdavManagedRequestIdentifiers::is_idempotency_key( $idempotency_key );
 		self::$runtimeContext          = array(
@@ -147,6 +150,7 @@ class ProviderTraceLogger {
 			'request_provider_limit_bytes' => 0,
 			'request_budget_bytes'         => 0,
 			'request_safety_margin_bytes'  => 0,
+			'operation'                    => 'speech' === $operation ? 'speech' : '',
 		);
 	}
 
@@ -181,6 +185,7 @@ class ProviderTraceLogger {
 			'request_provider_limit_bytes' => 0,
 			'request_budget_bytes'         => 0,
 			'request_safety_margin_bytes'  => 0,
+			'operation'                    => '',
 		);
 	}
 
@@ -253,6 +258,13 @@ class ProviderTraceLogger {
 			self::$runtimeContext['request_provider_limit_bytes'] = $provider_limit_bytes;
 			self::$runtimeContext['request_budget_bytes']         = $byte_budget;
 			self::$runtimeContext['request_safety_margin_bytes']  = $safety_margin_bytes;
+		}
+
+		// Speech HTTP bodies contain transcripts, synthesis text, or audio. Even
+		// explicit provider tracing must never persist those payloads or raw
+		// upstream responses. Scalar request-size enforcement above remains active.
+		if ( 'speech' === self::$runtimeContext['operation'] ) {
+			return $response;
 		}
 
 		$fallback_attempted = $has_context && self::$runtimeContext['retry_baseline_request_bytes'] > 0;

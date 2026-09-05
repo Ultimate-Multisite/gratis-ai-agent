@@ -109,6 +109,14 @@ class FeaturesTest extends WP_UnitTestCase {
 		$this->assertTrue( Features::is_enabled( 'this_feature_does_not_exist' ) );
 	}
 
+	/** Managed speech is a core rollback flag and defaults to enabled. */
+	public function test_speech_feature_is_a_core_default_enabled_flag(): void {
+		$this->assertArrayHasKey( Features::SPEECH, Features::all() );
+		if ( ! defined( 'SD_AI_AGENT_FEATURE_SPEECH' ) ) {
+			$this->assertTrue( Features::is_enabled( Features::SPEECH ) );
+		}
+	}
+
 	/**
 	 * Smoke test: the constant-name mapping covered by the data provider must
 	 * remain stable for wp-config.php overrides, REST/UI feature snapshots, and

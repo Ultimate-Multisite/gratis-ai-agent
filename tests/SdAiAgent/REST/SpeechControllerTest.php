@@ -105,6 +105,7 @@ final class SpeechControllerTest extends WP_UnitTestCase {
 
 		$this->assertInstanceOf( WP_REST_Response::class, $response );
 		$data = $response->get_data();
+		$this->assertSame( array( 'available' => true, 'reason' => 'available' ), $data['availability'] );
 		$this->assertSame( 'superdav-tts', $data['text_to_speech']['model'] );
 		$this->assertSame( SpeechController::MAX_SYNTHESIS_CHARACTERS, $data['text_to_speech']['max_input_characters'] );
 		$this->assertSame( 'superdav-transcribe', $data['transcription']['model'] );
