@@ -160,6 +160,27 @@ final class SuperdavAiProviderTest extends WP_UnitTestCase {
 		$this->assertTrue(
 			$handler->allow_configured_loopback_host( true, 'unrelated.example', 'https://unrelated.example/models' )
 		);
+
+		add_filter(
+			'sd_ai_agent_cloud_base_url',
+			static fn(): string => 'https://api.sdaiagent.com/v1'
+		);
+
+		$this->assertTrue(
+			$handler->allow_configured_loopback_host( false, 'api.sdaiagent.com', 'https://api.sdaiagent.com/v1/models' )
+		);
+		$this->assertFalse(
+			$handler->allow_configured_loopback_host( false, 'unrelated.example', 'https://api.sdaiagent.com/v1/models' )
+		);
+		$this->assertFalse(
+			$handler->allow_configured_loopback_host( false, 'api.sdaiagent.com', 'http://api.sdaiagent.com/v1/models' )
+		);
+		$this->assertFalse(
+			$handler->allow_configured_loopback_host( false, 'api.sdaiagent.com', 'https://api.sdaiagent.com:443/v1/models' )
+		);
+		$this->assertFalse(
+			$handler->allow_configured_loopback_host( false, 'api.sdaiagent.com', 'https://api.sdaiagent.com/admin' )
+		);
 	}
 
 	/**
