@@ -1239,8 +1239,6 @@ class ConversationTrimmer {
 				}
 				++$call_end;
 			}
-			$tool_call_ids = array_values( array_unique( $tool_call_ids ) );
-
 			// Collect the tool-response messages that follow the entire call cluster.
 			$response_ids   = [];
 			$response_start = $call_end;
@@ -1258,10 +1256,10 @@ class ConversationTrimmer {
 				}
 			}
 
-			// Check if ALL tool_call IDs have matching responses.
-			$missing = array_diff( $tool_call_ids, $response_ids );
-
-			if ( empty( $missing ) ) {
+			// Check if every tool call has its own matching response. Counts matter
+			// because older Gemini models may omit IDs from parallel calls, causing
+			// multiple calls and responses to share the empty-string compatibility ID.
+			if ( self::has_matching_tool_responses( $tool_call_ids, $response_ids ) ) {
 				// All tool calls have responses — keep the entire split cycle.
 				for ( $j = $call_start; $j < $call_end; $j++ ) {
 					$result[] = $history[ $j ];
@@ -1277,6 +1275,26 @@ class ConversationTrimmer {
 		}
 
 		return self::strip_orphan_tool_responses( $result );
+	}
+
+	/**
+	 * Determine whether each tool call ID has a distinct matching response ID.
+	 *
+	 * @param string[] $tool_call_ids Tool call IDs, including duplicate empty IDs.
+	 * @param string[] $response_ids  Tool response IDs, including duplicate empty IDs.
+	 */
+	private static function has_matching_tool_responses( array $tool_call_ids, array $response_ids ): bool {
+		$response_counts = array_count_values( $response_ids );
+
+		foreach ( $tool_call_ids as $tool_call_id ) {
+			if ( empty( $response_counts[ $tool_call_id ] ) ) {
+				return false;
+			}
+
+			--$response_counts[ $tool_call_id ];
+		}
+
+		return true;
 	}
 
 	/**

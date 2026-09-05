@@ -21,6 +21,7 @@ use WordPress\AiClient\Messages\DTO\MessagePart;
 use WordPress\AiClient\Messages\DTO\ModelMessage;
 use WordPress\AiClient\Messages\DTO\UserMessage;
 use WordPress\AiClient\Tools\DTO\FunctionCall;
+use WordPress\AiClient\Tools\DTO\FunctionResponse;
 use WP_UnitTestCase;
 
 final class ThrowingValidationAbility extends \WP_Ability {
@@ -132,6 +133,9 @@ class AbilityFunctionResolverTest extends WP_UnitTestCase {
 		$this->assertStringContainsString( 'Do not retry with empty arguments', $payload['hint'] );
 	}
 
+	/**
+	 * Test that an idless Gemini call and response survive history validation.
+	 */
 	public function test_idless_function_call_response_remains_in_gemini_history(): void {
 		$this->skip_if_resolver_unavailable();
 
@@ -151,7 +155,36 @@ class AbilityFunctionResolverTest extends WP_UnitTestCase {
 			new UserMessage( array( new MessagePart( $response ) ) ),
 		);
 
-		$this->assertCount( 2, ConversationTrimmer::validate_tool_pairs( $history ) );
+		$validated = ConversationTrimmer::validate_tool_pairs( $history );
+		$this->assertCount( 2, $validated );
+		$this->assertSame( $history[0], $validated[0] );
+		$this->assertSame( $history[1], $validated[1] );
+	}
+
+	/**
+	 * Test parallel idless calls require one response per call.
+	 */
+	public function test_parallel_idless_calls_require_distinct_responses(): void {
+		$first_user_message = new UserMessage( array( new MessagePart( 'Do two things' ) ) );
+		$first_call         = new FunctionCall( null, 'tool-a', array() );
+		$second_call        = new FunctionCall( null, 'tool-b', array() );
+		$call_message       = new ModelMessage(
+			array(
+				new MessagePart( $first_call ),
+				new MessagePart( $second_call ),
+			)
+		);
+		$response_message = new UserMessage(
+			array( new MessagePart( new FunctionResponse( '', 'tool-a', '{"success":true}' ) ) )
+		);
+		$next_user_message = new UserMessage( array( new MessagePart( 'What happened?' ) ) );
+		$history           = array( $first_user_message, $call_message, $response_message, $next_user_message );
+
+		$validated = ConversationTrimmer::validate_tool_pairs( $history );
+
+		$this->assertCount( 2, $validated );
+		$this->assertSame( $first_user_message, $validated[0] );
+		$this->assertSame( $next_user_message, $validated[1] );
 	}
 
 	public function test_public_knowledge_search_hydrates_empty_args_from_customer_query(): void {
