@@ -15,8 +15,13 @@ use SdAiAgent\Abilities\BlockAbilities;
 use SdAiAgent\Abilities\KnowledgeAbilities;
 use SdAiAgent\Core\AbilityRegistry;
 use SdAiAgent\Core\AbilityFunctionResolver;
+use SdAiAgent\Core\ConversationTrimmer;
 use SdAiAgent\Core\IdenticalFailureTracker;
+use WordPress\AiClient\Messages\DTO\MessagePart;
+use WordPress\AiClient\Messages\DTO\ModelMessage;
+use WordPress\AiClient\Messages\DTO\UserMessage;
 use WordPress\AiClient\Tools\DTO\FunctionCall;
+use WordPress\AiClient\Tools\DTO\FunctionResponse;
 use WP_UnitTestCase;
 
 final class ThrowingValidationAbility extends \WP_Ability {
@@ -126,6 +131,60 @@ class AbilityFunctionResolverTest extends WP_UnitTestCase {
 		$this->assertSame( array( 'query' ), $payload['missing_required_fields'] );
 		$this->assertSame( array( 'query' => '<string — Search keywords. Required.>' ), $payload['example_arguments'] );
 		$this->assertStringContainsString( 'Do not retry with empty arguments', $payload['hint'] );
+	}
+
+	/**
+	 * Test that an idless Gemini call and response survive history validation.
+	 */
+	public function test_idless_function_call_response_remains_in_gemini_history(): void {
+		$this->skip_if_resolver_unavailable();
+
+		$ability = $this->register_schema_thrower_ability();
+		$this->assertNotNull( $ability );
+
+		$function_name = \WP_AI_Client_Ability_Function_Resolver::ability_name_to_function_name( 'test-plugin/schema-thrower' );
+		$call          = new FunctionCall( null, $function_name, array( 'query' => 'trigger callback validation exception' ) );
+		$resolver      = new AbilityFunctionResolver( $ability );
+		$response      = $resolver->execute_ability( $call );
+
+		$this->assertNull( $call->getId() );
+		$this->assertSame( '', $response->getId() );
+
+		$history = array(
+			new ModelMessage( array( new MessagePart( $call ) ) ),
+			new UserMessage( array( new MessagePart( $response ) ) ),
+		);
+
+		$validated = ConversationTrimmer::validate_tool_pairs( $history );
+		$this->assertCount( 2, $validated );
+		$this->assertSame( $history[0], $validated[0] );
+		$this->assertSame( $history[1], $validated[1] );
+	}
+
+	/**
+	 * Test parallel idless calls require one response per call.
+	 */
+	public function test_parallel_idless_calls_require_distinct_responses(): void {
+		$first_user_message = new UserMessage( array( new MessagePart( 'Do two things' ) ) );
+		$first_call         = new FunctionCall( null, 'tool-a', array() );
+		$second_call        = new FunctionCall( null, 'tool-b', array() );
+		$call_message       = new ModelMessage(
+			array(
+				new MessagePart( $first_call ),
+				new MessagePart( $second_call ),
+			)
+		);
+		$response_message = new UserMessage(
+			array( new MessagePart( new FunctionResponse( '', 'tool-a', '{"success":true}' ) ) )
+		);
+		$next_user_message = new UserMessage( array( new MessagePart( 'What happened?' ) ) );
+		$history           = array( $first_user_message, $call_message, $response_message, $next_user_message );
+
+		$validated = ConversationTrimmer::validate_tool_pairs( $history );
+
+		$this->assertCount( 2, $validated );
+		$this->assertSame( $first_user_message, $validated[0] );
+		$this->assertSame( $next_user_message, $validated[1] );
 	}
 
 	public function test_public_knowledge_search_hydrates_empty_args_from_customer_query(): void {

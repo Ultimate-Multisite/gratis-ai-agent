@@ -61,7 +61,10 @@ class AbilityFunctionResolver extends \WP_AI_Client_Ability_Function_Resolver {
 	 */
 	public function execute_ability( FunctionCall $call ): FunctionResponse {
 		$function_name = $call->getName() ?? 'unknown';
-		$function_id   = $call->getId() ?? 'unknown';
+		// Older Gemini models omit function call IDs. Keep an empty internal ID
+		// so the response pairs with the idless call in conversation history;
+		// the Google provider omits empty IDs when serializing the next request.
+		$function_id = $call->getId() ?? '';
 
 		if ( ! $this->is_ability_call( $call ) ) {
 			return new FunctionResponse(
