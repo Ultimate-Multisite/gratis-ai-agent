@@ -340,7 +340,10 @@ describe( 'actions', () => {
 			fetchSessions: jest.fn(),
 			clearCurrentSession: jest.fn(),
 		};
-		const select = { getCurrentSessionId: jest.fn( () => null ) };
+		const select = {
+			getCurrentSessionId: jest.fn( () => 4 ),
+			getSessions: jest.fn( () => [ { id: 4 } ] ),
+		};
 
 		await actions.bulkSessionAction(
 			[ 4, 5 ],
@@ -368,12 +371,18 @@ describe( 'actions', () => {
 			data: { ids: [ 4, 5 ], action: 'delete' },
 		} );
 
+		dispatch.clearCurrentSession.mockClear();
 		await actions.emptySessionTrash()( { dispatch, select } );
 		expect( apiFetch ).toHaveBeenLastCalledWith( {
 			path: '/sd-ai-agent/v1/sessions/trash',
 			method: 'DELETE',
 		} );
-		expect( dispatch.fetchSessions ).toHaveBeenCalledTimes( 3 );
+		expect( dispatch.clearCurrentSession ).toHaveBeenCalledTimes( 1 );
+
+		select.getCurrentSessionId.mockReturnValue( 9 );
+		await actions.emptySessionTrash()( { dispatch, select } );
+		expect( dispatch.clearCurrentSession ).toHaveBeenCalledTimes( 1 );
+		expect( dispatch.fetchSessions ).toHaveBeenCalledTimes( 4 );
 	} );
 
 	test( 'sendMessage returns a thunk function', () => {
