@@ -83,6 +83,9 @@ class SystemInstructionBuilderTest extends WP_UnitTestCase {
 			$instruction,
 			'System instruction should include honesty principle about claiming completion'
 		);
+		$this->assertStringContainsString( 'Launch-quality website checks (MANDATORY)', $instruction );
+		$this->assertStringContainsString( 'placeholder label/link', $instruction );
+		$this->assertStringContainsString( 'same-domain From address', $instruction );
 	}
 
 	/**

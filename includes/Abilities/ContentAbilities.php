@@ -640,13 +640,15 @@ class ContentAbilities {
 	 */
 	private static function create_contact_form_7_form( string $cf7_class, string $title, string $recipient_email, string $submit_label ): array {
 		$form_markup = self::build_contact_form_7_markup( $submit_label );
+		$sender      = self::contact_form_sender_address();
 		$mail        = [
 			'subject'            => sprintf(
 				/* translators: %s: contact form title */
 				__( '%s submission', 'superdav-ai-agent' ),
 				$title
 			),
-			'sender'             => '[your-name] <[your-email]>',
+			// Keep the visitor address in Reply-To; using it as From fails DMARC/SPF.
+			'sender'             => $sender,
 			'body'               => "From: [your-name] <[your-email]>\nSubject: [your-subject]\n\nMessage:\n[your-message]",
 			'recipient'          => $recipient_email,
 			'additional_headers' => 'Reply-To: [your-email]',
@@ -706,6 +708,22 @@ class ContentAbilities {
 			'form_id'   => $form_id,
 			'message'   => __( 'Contact Form 7 form created; insert the shortcode block into page content.', 'superdav-ai-agent' ),
 		];
+	}
+
+	/**
+	 * Return a same-site sender address for generated forms.
+	 *
+	 * @return string Sender in Contact Form 7's "Name <address>" format.
+	 */
+	private static function contact_form_sender_address(): string {
+		$host = (string) wp_parse_url( home_url( '/' ), PHP_URL_HOST );
+		$host = strtolower( preg_replace( '/[^a-z0-9.-]/i', '', $host ) ?? '' );
+		if ( '' === $host ) {
+			$host = 'localhost';
+		}
+		$name = wp_specialchars_decode( get_bloginfo( 'name' ), ENT_QUOTES );
+		$name = '' !== $name ? $name : __( 'Website', 'superdav-ai-agent' );
+		return sprintf( '%s <wordpress@%s>', $name, $host );
 	}
 
 	/**
