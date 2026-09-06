@@ -87,7 +87,7 @@ final class SettingsController {
 			array(
 				'methods'             => WP_REST_Server::READABLE,
 				'callback'            => array( $this, 'handle_providers' ),
-				'permission_callback' => array( $this, 'check_permission' ),
+				'permission_callback' => array( $this, 'check_chat_permission' ),
 			)
 		);
 
@@ -121,7 +121,7 @@ final class SettingsController {
 				array(
 					'methods'             => WP_REST_Server::READABLE,
 					'callback'            => array( $this, 'handle_get_settings' ),
-					'permission_callback' => array( $this, 'check_permission' ),
+					'permission_callback' => array( $this, 'check_chat_permission' ),
 				),
 				array(
 					'methods'             => WP_REST_Server::CREATABLE,
@@ -564,6 +564,13 @@ final class SettingsController {
 	 */
 	public function handle_get_settings(): WP_REST_Response {
 		$settings = $this->settings->get();
+		if ( ! is_array( $settings ) ) {
+			$settings = array();
+		}
+
+		if ( ! current_user_can( 'manage_options' ) ) {
+			return new WP_REST_Response( $this->chat_settings( $settings ), 200 );
+		}
 
 		// Include built-in defaults so the UI can show them as placeholders.
 		// @phpstan-ignore-next-line
@@ -610,6 +617,31 @@ final class SettingsController {
 		$settings['_features'] = Features::all();
 
 		return new WP_REST_Response( $settings, 200 );
+	}
+
+	/**
+	 * Return only presentation settings needed by authenticated chat clients.
+	 *
+	 * @param array<string, mixed> $settings Full plugin settings.
+	 * @return array<string, mixed>
+	 */
+	private function chat_settings( array $settings ): array {
+		$allowed_keys  = array_flip(
+			array(
+				'keyboard_shortcut',
+				'greeting_message',
+				'show_token_costs',
+				'show_tool_call_details',
+				'context_window_default',
+			)
+		);
+		$chat_settings = array_intersect_key( $settings, $allowed_keys );
+
+		$chat_settings['_defaults'] = array(
+			'greeting_message' => __( 'Send a message to start a conversation.', 'superdav-ai-agent' ),
+		);
+
+		return $chat_settings;
 	}
 
 	/**
@@ -1598,7 +1630,11 @@ final class SettingsController {
 			return new WP_REST_Response( $providers, 200 );
 		}
 
-		$this->maybe_auto_provision_superdav_provider();
+		// Provisioning mutates site credentials and remains administrator-only.
+		// Chat-enabled non-admins may discover already configured providers.
+		if ( current_user_can( 'manage_options' ) ) {
+			$this->maybe_auto_provision_superdav_provider();
+		}
 		ProviderCredentialLoader::load();
 
 		foreach ( $provider_ids as $provider_id ) {
@@ -1659,7 +1695,9 @@ final class SettingsController {
 
 				if ( SuperdavAiProvider::PROVIDER_ID === $provider_id ) {
 					$provider_response['default_model'] = SuperdavAiProvider::default_model_id();
-					$provider_response['status']        = ( new SuperdavSiteConnectionService() )->get_status();
+					if ( current_user_can( 'manage_options' ) ) {
+						$provider_response['status'] = ( new SuperdavSiteConnectionService() )->get_status();
+					}
 				}
 
 				$providers[] = $provider_response;

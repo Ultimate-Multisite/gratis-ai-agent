@@ -23,6 +23,8 @@ class RolePermissionsTest extends WP_UnitTestCase {
 	public function tear_down(): void {
 		parent::tear_down();
 		delete_option( RolePermissions::OPTION_NAME );
+		remove_role( 'seller' );
+		remove_all_filters( 'sd_ai_agent_explicit_ability_allowlist_roles' );
 	}
 
 	// ── constants ─────────────────────────────────────────────────────────
@@ -313,6 +315,53 @@ class RolePermissionsTest extends WP_UnitTestCase {
 		wp_set_current_user( $editor_id );
 
 		$this->assertFalse( RolePermissions::current_user_has_chat_access() );
+	}
+
+	/** Seller access fails closed until a non-empty ability allowlist is saved. */
+	public function test_seller_requires_explicit_non_empty_allowlist(): void {
+		add_role( 'seller', 'Seller', array( 'read' => true ) );
+		$seller_id = $this->factory->user->create( [ 'role' => 'seller' ] );
+		wp_set_current_user( $seller_id );
+
+		$this->assertFalse( RolePermissions::current_user_has_chat_access() );
+		$this->assertSame( [], RolePermissions::get_allowed_abilities_for_current_user() );
+
+		RolePermissions::update(
+			[
+				'seller' => [
+					'chat_access'       => true,
+					'allowed_abilities' => [ 'sd-ai-agent/report-inability' ],
+				],
+			]
+		);
+
+		$this->assertTrue( RolePermissions::current_user_has_chat_access() );
+		$this->assertSame(
+			[ 'sd-ai-agent/report-inability' ],
+			RolePermissions::get_allowed_abilities_for_current_user()
+		);
+	}
+
+	/** A permissive secondary role cannot bypass the seller restriction. */
+	public function test_seller_restriction_overrides_permissive_secondary_role(): void {
+		add_role( 'seller', 'Seller', array( 'read' => true ) );
+		$seller_id = $this->factory->user->create( [ 'role' => 'seller' ] );
+		$user      = get_user_by( 'id', $seller_id );
+		$this->assertInstanceOf( \WP_User::class, $user );
+		$user->add_role( 'editor' );
+		wp_set_current_user( $seller_id );
+
+		RolePermissions::update(
+			[
+				'seller' => [
+					'chat_access'       => true,
+					'allowed_abilities' => [],
+				],
+			]
+		);
+
+		$this->assertFalse( RolePermissions::current_user_has_chat_access() );
+		$this->assertSame( [], RolePermissions::get_allowed_abilities_for_current_user() );
 	}
 
 	// ── get_allowed_abilities_for_current_user ────────────────────────────

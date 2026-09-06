@@ -50,4 +50,22 @@ describe( 'ChatWidget deferred panel', () => {
 
 		await act( async () => root.unmount() );
 	} );
+
+	test( 'loads the embedded panel even when floating state is closed', async () => {
+		useSelect.mockImplementation( ( callback ) =>
+			callback( () => ( { isFloatingOpen: () => false } ) )
+		);
+		const container = document.createElement( 'div' );
+		const root = createRoot( container );
+
+		await act( async () => {
+			root.render( createElement( ChatWidget, { embedded: true } ) );
+			await Promise.resolve();
+		} );
+
+		expect( container.querySelector( 'button' )?.textContent ).toBe(
+			'Retry opening AI Agent'
+		);
+		await act( async () => root.unmount() );
+	} );
 } );
