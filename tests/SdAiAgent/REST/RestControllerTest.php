@@ -25,6 +25,7 @@ use SdAiAgent\Core\AgentLoop;
 use SdAiAgent\Core\ConversationTrimmer;
 use SdAiAgent\Core\ActiveJobFailureDiagnostic;
 use SdAiAgent\Core\Database;
+use SdAiAgent\Core\RolePermissions;
 use SdAiAgent\Core\Settings;
 use SdAiAgent\Automations\AutomationRunner;
 use SdAiAgent\Automations\HumanApprovalGate;
@@ -92,6 +93,8 @@ class RestControllerTest extends WP_UnitTestCase {
 		$wp_rest_server = null;
 		remove_all_filters( 'sd_ai_agent_provider_request_max_bytes' );
 		remove_all_filters( 'sd_ai_agent_provider_request_safety_margin_bytes' );
+		delete_option( RolePermissions::OPTION_NAME );
+		remove_role( 'seller' );
 
 		parent::tear_down();
 	}
@@ -123,6 +126,21 @@ class RestControllerTest extends WP_UnitTestCase {
 		}
 
 		return $this->server->dispatch( $request );
+	}
+
+	/** Create a seller with the minimum explicit chat allowlist. */
+	private function create_chat_seller(): int {
+		add_role( 'seller', 'Seller', array( 'read' => true ) );
+		RolePermissions::update(
+			array(
+				'seller' => array(
+					'chat_access'       => true,
+					'allowed_abilities' => array( 'sd-ai-agent/report-inability' ),
+				),
+			)
+		);
+
+		return self::factory()->user->create( array( 'role' => 'seller' ) );
 	}
 
 	/**
@@ -281,6 +299,15 @@ class RestControllerTest extends WP_UnitTestCase {
 		$this->assertIsArray( $response->get_data() );
 	}
 
+	/** A configured seller may discover models without receiving admin access. */
+	public function test_providers_allows_configured_seller(): void {
+		wp_set_current_user( $this->create_chat_seller() );
+		$response = $this->dispatch( 'GET', '/sd-ai-agent/v1/providers' );
+
+		$this->assertStatus( 200, $response );
+		$this->assertIsArray( $response->get_data() );
+	}
+
 	// ─── /settings ───────────────────────────────────────────────────────────
 
 	/**
@@ -314,6 +341,31 @@ class RestControllerTest extends WP_UnitTestCase {
 		wp_set_current_user( 0 );
 		$response = $this->dispatch( 'GET', '/sd-ai-agent/v1/settings' );
 		$this->assertStatus( 401, $response );
+	}
+
+	/** Seller settings responses expose presentation values only. */
+	public function test_get_settings_returns_sanitized_chat_settings_for_seller(): void {
+		Settings::instance()->update(
+			array(
+				'keyboard_shortcut'      => 'alt+v',
+				'greeting_message'       => 'Welcome vendor',
+				'system_prompt'          => 'Private administrator instruction',
+				'brave_search_api_key'   => 'private-search-key',
+				'show_tool_call_details' => true,
+			)
+		);
+		wp_set_current_user( $this->create_chat_seller() );
+
+		$response = $this->dispatch( 'GET', '/sd-ai-agent/v1/settings' );
+		$this->assertStatus( 200, $response );
+		$data = $response->get_data();
+		$this->assertIsArray( $data );
+		$this->assertSame( 'alt+v', $data['keyboard_shortcut'] ?? '' );
+		$this->assertSame( 'Welcome vendor', $data['greeting_message'] ?? '' );
+		$this->assertArrayNotHasKey( 'system_prompt', $data );
+		$this->assertArrayNotHasKey( 'brave_search_api_key', $data );
+		$this->assertArrayNotHasKey( '_features', $data );
+		$this->assertArrayNotHasKey( '_gsc_credentials', $data );
 	}
 
 	// ─── /memory ─────────────────────────────────────────────────────────────
@@ -1040,6 +1092,76 @@ class RestControllerTest extends WP_UnitTestCase {
 		$this->assertArrayHasKey( 'status', $data );
 		$this->assertSame( 'processing', $data['status'] );
 		$this->assertNotEmpty( $data['job_id'] );
+	}
+
+	/** Seller sessions and jobs remain isolated from other sellers. */
+	public function test_seller_chat_routes_require_session_and_job_ownership(): void {
+		$owner_id   = $this->create_chat_seller();
+		$other_id   = self::factory()->user->create( array( 'role' => 'seller' ) );
+		$session_id = Database::create_session(
+			array(
+				'user_id' => $owner_id,
+				'title'   => 'Vendor private session',
+			)
+		);
+		$this->assertIsInt( $session_id );
+
+		wp_set_current_user( $owner_id );
+		$this->assertStatus( 200, $this->dispatch( 'GET', "/sd-ai-agent/v1/sessions/{$session_id}" ) );
+
+		wp_set_current_user( $other_id );
+		$this->assertStatus( 403, $this->dispatch( 'GET', "/sd-ai-agent/v1/sessions/{$session_id}" ) );
+		$this->assertStatus(
+			403,
+			$this->dispatch(
+				'POST',
+				'/sd-ai-agent/v1/run',
+				array(
+					'message'    => 'Continue another vendor session',
+					'session_id' => $session_id,
+				)
+			)
+		);
+
+		$job_id = 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee';
+		set_transient(
+			RestController::JOB_PREFIX . $job_id,
+			array( 'status' => 'processing', 'user_id' => $owner_id ),
+			RestController::JOB_TTL
+		);
+		$this->assertStatus( 403, $this->dispatch( 'GET', "/sd-ai-agent/v1/job/{$job_id}" ) );
+
+		wp_set_current_user( $owner_id );
+		$this->assertStatus( 200, $this->dispatch( 'GET', "/sd-ai-agent/v1/job/{$job_id}" ) );
+
+		wp_set_current_user( $this->admin_id );
+		$this->assertStatus( 200, $this->dispatch( 'GET', "/sd-ai-agent/v1/job/{$job_id}" ) );
+		delete_transient( RestController::JOB_PREFIX . $job_id );
+	}
+
+	/** Non-admin chat users cannot persist site-wide tool approval settings. */
+	public function test_seller_cannot_persist_always_allow_from_tool_confirmation(): void {
+		$seller_id = $this->create_chat_seller();
+		$job_id    = 'ffffffff-eeee-4ddd-8ccc-bbbbbbbbbbbb';
+		set_transient(
+			RestController::JOB_PREFIX . $job_id,
+			array(
+				'status'        => 'awaiting_confirmation',
+				'user_id'       => $seller_id,
+				'pending_tools' => array( array( 'ability' => 'sd-ai-agent/report-inability' ) ),
+			),
+			RestController::JOB_TTL
+		);
+		wp_set_current_user( $seller_id );
+
+		$response = $this->dispatch(
+			'POST',
+			"/sd-ai-agent/v1/job/{$job_id}/confirm",
+			array( 'always_allow' => true )
+		);
+
+		$this->assertStatus( 403, $response );
+		delete_transient( RestController::JOB_PREFIX . $job_id );
 	}
 
 	/** Public chat is disabled for anonymous visitors by default. */
@@ -1951,6 +2073,7 @@ class RestControllerTest extends WP_UnitTestCase {
 		$method->invokeArgs( $controller, [ $session_id, $error, $error_data, $params, $options, &$job ] );
 
 		$session  = Database::get_session( $session_id );
+		$this->assertNotNull( $session );
 		$messages = json_decode( (string) $session->messages, true );
 		$paused   = json_decode( (string) $session->paused_state, true );
 
@@ -2026,6 +2149,7 @@ class RestControllerTest extends WP_UnitTestCase {
 		$method->invokeArgs( $controller, [ $session_id, $error, $error_data, $params, $options, &$job ] );
 
 		$session       = Database::get_session( $session_id );
+		$this->assertNotNull( $session );
 		$messages      = json_decode( (string) $session->messages, true );
 		$stored_calls  = json_decode( (string) $session->tool_calls, true );
 		$this->assertIsArray( $messages );
@@ -2094,6 +2218,7 @@ class RestControllerTest extends WP_UnitTestCase {
 		$method->invokeArgs( $controller, [ $session_id, $error, $error_data, $params, $options, &$job ] );
 
 		$session  = Database::get_session( $session_id );
+		$this->assertNotNull( $session );
 		$messages = json_decode( (string) $session->messages, true );
 
 		$this->assertCount( 3, $messages );

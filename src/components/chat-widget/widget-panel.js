@@ -59,10 +59,12 @@ const inactiveVoiceConversation = {
  * @param {Object}      root0                        Component props.
  * @param {string|null} root0.frontendOnboardingMode Frontend onboarding layout mode.
  * @param {string}      root0.uiMode                 Chat UI mode.
+ * @param {boolean}     root0.embedded               Whether the panel is embedded in a page.
  */
 export default function WidgetPanel( {
 	frontendOnboardingMode = null,
 	uiMode = 'admin',
+	embedded = false,
 } ) {
 	const isSimpleMode = isCustomerSimpleMode( uiMode );
 	const { confirmToolCall, rejectToolCall, setFloatingMinimized } =
@@ -169,7 +171,7 @@ export default function WidgetPanel( {
 	const showEmpty = messageCount === 0 && ! sending;
 
 	const panelStyle = {};
-	if ( position && ! frontendOnboardingMode ) {
+	if ( position && ! frontendOnboardingMode && ! embedded ) {
 		// Bottom-anchored so minimizing keeps the pill visually at the
 		// bottom of its previous rect (the input row sits where it was).
 		panelStyle.left = `${ position.x }px`;
@@ -177,7 +179,7 @@ export default function WidgetPanel( {
 		panelStyle.right = 'auto';
 		panelStyle.top = 'auto';
 	}
-	if ( size && ! isMinimized && ! frontendOnboardingMode ) {
+	if ( size && ! isMinimized && ! frontendOnboardingMode && ! embedded ) {
 		panelStyle.width = `${ size.w }px`;
 		panelStyle.height = `${ size.h }px`;
 	}
@@ -207,7 +209,7 @@ export default function WidgetPanel( {
 					isResizing ? ' is-resizing' : ''
 				}${ onboardingClass }${
 					isSimpleMode ? ' is-customer-simple' : ''
-				}` }
+				}${ embedded ? ' is-embedded' : '' }` }
 				style={ panelStyle }
 				role="presentation"
 				data-drag-target="true"
@@ -221,8 +223,9 @@ export default function WidgetPanel( {
 					isMinimized={ isMinimized }
 					onToggleMinimize={ toggleMinimize }
 					isSimpleMode={ isSimpleMode }
+					embedded={ embedded }
 					onDragHandleMouseDown={
-						frontendOnboardingMode
+						frontendOnboardingMode || embedded
 							? undefined
 							: handlePanelDragStart
 					}
@@ -305,7 +308,7 @@ export default function WidgetPanel( {
 					</ErrorBoundary>
 				) }
 
-				{ ! isMinimized && ! frontendOnboardingMode && (
+				{ ! isMinimized && ! frontendOnboardingMode && ! embedded && (
 					<>
 						<div
 							className="sdaa-w-resize-handle sdaa-w-resize-handle--right"

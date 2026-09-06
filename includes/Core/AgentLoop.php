@@ -4153,6 +4153,10 @@ PROMPT;
 			return array();
 		}
 
+		$role_allowed = ToolDiscovery::is_anonymous_ability_mode() || ! is_user_logged_in()
+			? null
+			: RolePermissions::get_allowed_abilities_for_current_user();
+
 		// Explicit per-instance override (e.g. from tests or CLI --abilities).
 		// When set, bypass the auto-discovery layer and return exactly what was asked for.
 		if ( ! empty( $this->abilities ) ) {
@@ -4168,23 +4172,28 @@ PROMPT;
 			}
 			// Append client ability stubs even in explicit-abilities mode.
 			return $this->deduplicate_by_function_name(
-				array_merge( $resolved, $this->client_router->build_stubs() )
+				self::filter_abilities_by_role(
+					array_merge( $resolved, $this->client_router->build_stubs() ),
+					$role_allowed
+				)
 			);
 		}
 
 		if ( $this->should_use_native_tool_search() ) {
 			return $this->deduplicate_by_function_name(
-				array_merge(
-					ToolDiscovery::visible_ai_chat_abilities(),
-					$this->client_router->build_stubs()
+				self::filter_abilities_by_role(
+					array_merge(
+						ToolDiscovery::visible_ai_chat_abilities(),
+						$this->client_router->build_stubs()
+					),
+					$role_allowed
 				)
 			);
 		}
 
 		$tier_1 = ToolDiscovery::tier_1_for_run( $this->agent_tier_1_tools );
 
-		$role_allowed = ToolDiscovery::is_anonymous_ability_mode() ? null : RolePermissions::get_allowed_abilities_for_current_user();
-		$perms        = $this->tool_permissions;
+		$perms = $this->tool_permissions;
 
 		$resolved = array();
 		foreach ( array_merge( $tier_1, $this->approved_once_abilities ) as $name ) {
@@ -4209,7 +4218,30 @@ PROMPT;
 
 		// Append synthetic stubs for validated client-side abilities.
 		return $this->deduplicate_by_function_name(
-			array_merge( $resolved, $this->client_router->build_stubs() )
+			self::filter_abilities_by_role(
+				array_merge( $resolved, $this->client_router->build_stubs() ),
+				$role_allowed
+			)
+		);
+	}
+
+	/**
+	 * Apply role restrictions to direct and browser-side ability stubs.
+	 *
+	 * @param \WP_Ability[] $abilities    Candidate abilities.
+	 * @param string[]|null $role_allowed Null when unrestricted.
+	 * @return \WP_Ability[]
+	 */
+	private static function filter_abilities_by_role( array $abilities, ?array $role_allowed ): array {
+		if ( null === $role_allowed ) {
+			return $abilities;
+		}
+
+		return array_values(
+			array_filter(
+				$abilities,
+				static fn( \WP_Ability $ability ): bool => in_array( $ability->get_name(), $role_allowed, true )
+			)
 		);
 	}
 

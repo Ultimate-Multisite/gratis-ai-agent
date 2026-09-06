@@ -81,6 +81,7 @@ function relativeTime( dateStr ) {
  * @param {*}       root0.onToggleMinimize
  * @param {*}       root0.onDragHandleMouseDown
  * @param {boolean} root0.isSimpleMode
+ * @param {boolean} root0.embedded
  * @param {Object}  root0.voiceConversation
  */
 export default function WidgetHeader( {
@@ -88,6 +89,7 @@ export default function WidgetHeader( {
 	onToggleMinimize,
 	onDragHandleMouseDown,
 	isSimpleMode = false,
+	embedded = false,
 	voiceConversation = {},
 } ) {
 	const {
@@ -402,36 +404,40 @@ export default function WidgetHeader( {
 						<Microphone />
 					</button>
 				) }
-				<button
-					type="button"
-					className="sdaa-w-icon-btn"
-					onClick={ onToggleMinimize }
-					aria-label={
-						isMinimized
-							? __( 'Expand', 'sd-ai-agent' )
-							: __( 'Minimize', 'sd-ai-agent' )
-					}
-					title={
-						isMinimized
-							? __( 'Expand', 'sd-ai-agent' )
-							: __( 'Minimize', 'sd-ai-agent' )
-					}
-				>
-					<MinimizeIcon />
-				</button>
-				<button
-					type="button"
-					className="sdaa-w-icon-btn"
-					data-dismiss-only="true"
-					onClick={ ( e ) => {
-						e.stopPropagation();
-						setFloatingOpen( false );
-					} }
-					aria-label={ __( 'Close', 'sd-ai-agent' ) }
-					title={ __( 'Close', 'sd-ai-agent' ) }
-				>
-					<Icon icon={ close } size={ 16 } />
-				</button>
+				{ ! embedded && (
+					<>
+						<button
+							type="button"
+							className="sdaa-w-icon-btn"
+							onClick={ onToggleMinimize }
+							aria-label={
+								isMinimized
+									? __( 'Expand', 'sd-ai-agent' )
+									: __( 'Minimize', 'sd-ai-agent' )
+							}
+							title={
+								isMinimized
+									? __( 'Expand', 'sd-ai-agent' )
+									: __( 'Minimize', 'sd-ai-agent' )
+							}
+						>
+							<MinimizeIcon />
+						</button>
+						<button
+							type="button"
+							className="sdaa-w-icon-btn"
+							data-dismiss-only="true"
+							onClick={ ( e ) => {
+								e.stopPropagation();
+								setFloatingOpen( false );
+							} }
+							aria-label={ __( 'Close', 'sd-ai-agent' ) }
+							title={ __( 'Close', 'sd-ai-agent' ) }
+						>
+							<Icon icon={ close } size={ 16 } />
+						</button>
+					</>
+				) }
 			</div>
 		</div>
 	);

@@ -69,14 +69,14 @@ class FloatingWidget {
 	 *
 	 * Only loads for logged-in users with configured chat access.
 	 */
-	public static function enqueue_assets_frontend(): void {
+	public static function enqueue_assets_frontend( bool $force_display = false, string $display_mode = 'floating', string $chat_ui_mode = 'admin' ): void {
 		$settings         = Settings::instance()->get();
 		$force_onboarding = isset( $_GET['sd_ai_agent_onboarding'] ) // phpcs:ignore WordPress.Security.NonceVerification.Recommended
 			&& '1' === sanitize_text_field( wp_unslash( $_GET['sd_ai_agent_onboarding'] ) ); // phpcs:ignore WordPress.Security.NonceVerification.Recommended
 
 		// Only when the frontend display setting is enabled.
 		// @phpstan-ignore-next-line
-		if ( empty( $settings['show_on_frontend'] ) && ! $force_onboarding ) {
+		if ( empty( $settings['show_on_frontend'] ) && ! $force_onboarding && ! $force_display ) {
 			return;
 		}
 
@@ -89,15 +89,17 @@ class FloatingWidget {
 		// The floating widget UI (FAB + panel) renders independently of the AI
 		// client. The REST API handles provider availability at message-send time.
 
-		self::enqueue_widget_assets( 'frontend' );
+		self::enqueue_widget_assets( 'frontend', $display_mode, $chat_ui_mode );
 	}
 
 	/**
 	 * Shared asset enqueueing logic for both admin and frontend contexts.
 	 *
-	 * @param string $context Either 'admin' or 'frontend'.
+	 * @param string $context       Either 'admin' or 'frontend'.
+	 * @param string $display_mode  Either 'floating' or 'embedded'.
+	 * @param string $chat_ui_mode  Chat control mode exposed to the client.
 	 */
-	private static function enqueue_widget_assets( string $context = 'admin' ): void {
+	private static function enqueue_widget_assets( string $context = 'admin', string $display_mode = 'floating', string $chat_ui_mode = 'admin' ): void {
 		$build_dir  = (string) apply_filters( 'sd_ai_agent_build_dir', SD_AI_AGENT_DIR . '/build' );
 		$asset_file = $build_dir . '/floating-widget.asset.php';
 
@@ -207,6 +209,8 @@ class FloatingWidget {
 				'viewedPostId'        => $viewed_post_id,
 				'viewedPostType'      => $viewed_post_type,
 				'viewedTitle'         => $viewed_title,
+				'displayMode'         => 'embedded' === $display_mode ? 'embedded' : 'floating',
+				'chatUiMode'          => sanitize_key( $chat_ui_mode ),
 			]
 		);
 	}
