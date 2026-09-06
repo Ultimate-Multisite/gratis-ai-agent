@@ -3584,14 +3584,13 @@ class AgentLoopTest extends WP_UnitTestCase {
 	}
 
 	/**
-	 * Test one-time confirmed abilities are merged into the resolver tool set.
+	 * System runs without a logged-in user retain explicitly approved abilities.
 	 */
 	public function test_resolve_abilities_includes_approved_once_abilities(): void {
 		if ( ! function_exists( 'wp_get_abilities' ) ) {
 			$this->markTestSkipped( 'Abilities API not available.' );
 		}
-
-		wp_set_current_user( self::factory()->user->create( array( 'role' => 'administrator' ) ) );
+		wp_set_current_user( 0 );
 
 		$loop = new AgentLoop(
 			'Test prompt',

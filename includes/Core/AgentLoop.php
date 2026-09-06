@@ -4153,7 +4153,9 @@ PROMPT;
 			return array();
 		}
 
-		$role_allowed = ToolDiscovery::is_anonymous_ability_mode() ? null : RolePermissions::get_allowed_abilities_for_current_user();
+		$role_allowed = ToolDiscovery::is_anonymous_ability_mode() || ! is_user_logged_in()
+			? null
+			: RolePermissions::get_allowed_abilities_for_current_user();
 
 		// Explicit per-instance override (e.g. from tests or CLI --abilities).
 		// When set, bypass the auto-discovery layer and return exactly what was asked for.

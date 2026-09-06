@@ -71,7 +71,7 @@ trait PermissionTrait {
 	 * @param WP_REST_Request $request The request object.
 	 * @return bool|WP_Error
 	 */
-	public function check_chat_run_permission( WP_REST_Request $request ) {
+	public function check_chat_run_permission( WP_REST_Request $request ): bool|WP_Error {
 		$chat_permission = $this->check_chat_permission();
 		if ( true !== $chat_permission ) {
 			return $chat_permission;
@@ -103,7 +103,7 @@ trait PermissionTrait {
 	 * @param WP_REST_Request $request The request object.
 	 * @return bool|WP_Error
 	 */
-	public function check_chat_job_permission( WP_REST_Request $request ) {
+	public function check_chat_job_permission( WP_REST_Request $request ): bool|WP_Error {
 		$chat_permission = $this->check_chat_permission();
 		if ( true !== $chat_permission ) {
 			return $chat_permission;
