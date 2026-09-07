@@ -595,6 +595,28 @@ export default function SuperdavAccountManager() {
 			'superdav-ai-agent'
 		);
 	}
+	const advancedStatusMessage = {
+		incompatible: __(
+			'Advanced is incompatible with this core version. Update it from the Plugins screen before using Advanced tools.',
+			'superdav-ai-agent'
+		),
+		metadata_unavailable: __(
+			'Advanced update information is temporarily unavailable. Check for updates from the Plugins screen.',
+			'superdav-ai-agent'
+		),
+		update_failed: __(
+			'The last Advanced update failed. Retry it from the Plugins screen.',
+			'superdav-ai-agent'
+		),
+		update_available: sprintf(
+			/* translators: %s: latest Advanced plugin version. */
+			__(
+				'Version %s is available. Update Advanced from the Plugins screen.',
+				'superdav-ai-agent'
+			),
+			advancedPlugin.latest_version || '—'
+		),
+	}[ advancedPlugin.status ];
 	const hasAccountActions =
 		purchaseCreditsAvailable ||
 		paymentMethodsAvailable ||
@@ -851,6 +873,11 @@ export default function SuperdavAccountManager() {
 								<strong className="sd-ai-agent-superdav-advanced-status">
 									{ advancedStatusLabel }
 								</strong>
+								{ advancedStatusMessage && (
+									<p className="description">
+										{ advancedStatusMessage }
+									</p>
+								) }
 								{ ! advancedPlugin.bundled &&
 									! advancedPlugin.installed && (
 										<p className="description">

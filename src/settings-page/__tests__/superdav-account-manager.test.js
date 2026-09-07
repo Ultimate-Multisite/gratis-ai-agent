@@ -417,6 +417,34 @@ describe( 'SuperdavAccountManager', () => {
 		expect( apiFetch ).toHaveBeenCalledTimes( 1 );
 	} );
 
+	test( 'shows version drift with the WordPress-managed update action', async () => {
+		apiFetch.mockResolvedValueOnce( {
+			configured: true,
+			advanced_plugin: {
+				installed: true,
+				active: true,
+				bundled: false,
+				version: '1.20.0',
+				latest_version: '1.23.0',
+				status: 'incompatible',
+				update_available: true,
+			},
+		} );
+
+		await act( async () => {
+			root.render( createElement( SuperdavAccountManager, {} ) );
+		} );
+		await act( async () => {
+			await Promise.resolve();
+		} );
+
+		expect( container.textContent ).toContain(
+			'Advanced is incompatible with this core version.'
+		);
+		expect( container.textContent ).toContain( 'Plugins screen' );
+		expect( findButton( 'Update Advanced' ) ).toBeUndefined();
+	} );
+
 	test( 'redeems a coupon, disables submission while pending, and updates the balance', async () => {
 		let resolveRedemption;
 		apiFetch
