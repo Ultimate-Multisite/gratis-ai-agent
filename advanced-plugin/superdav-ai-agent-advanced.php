@@ -3,7 +3,7 @@
  * Plugin Name: SD AI Agent Advanced
  * Plugin URI:  https://github.com/Ultimate-Multisite/superdav-ai-agent
  * Description: Advanced companion plugin for SD AI Agent with self-hosted code, filesystem, database, WP-CLI, REST dispatcher, and plugin-builder tools.
- * Version:     1.22.4
+ * Version:     1.23.0
  * Author:      superdav42
  * Author URI:  https://github.com/superdav42
  * License:     GPL-2.0-or-later
@@ -27,13 +27,22 @@ if ( defined( 'SD_AI_AGENT_ADVANCED_LOADED' ) ) {
 }
 
 define( 'SD_AI_AGENT_ADVANCED_LOADED', true );
-define( 'SD_AI_AGENT_ADVANCED_VERSION', '1.22.4' );
+define( 'SD_AI_AGENT_ADVANCED_VERSION', '1.23.0' );
 define( 'SD_AI_AGENT_ADVANCED_DIR', __DIR__ );
 define( 'SD_AI_AGENT_ADVANCED_URL', plugin_dir_url( __FILE__ ) );
 
 require_once SD_AI_AGENT_ADVANCED_DIR . '/includes/Autoloader.php';
 
 \SdAiAgentAdvanced\Autoloader::register( SD_AI_AGENT_ADVANCED_DIR );
+
+$sd_ai_agent_advanced_updater = SD_AI_AGENT_ADVANCED_DIR . '/vendor/plugin-update-checker/plugin-update-checker.php';
+if ( ! is_readable( $sd_ai_agent_advanced_updater ) && defined( 'SD_AI_AGENT_DIR' ) ) {
+	$sd_ai_agent_advanced_updater = SD_AI_AGENT_DIR . '/vendor/yahnis-elsts/plugin-update-checker/plugin-update-checker.php';
+}
+if ( is_readable( $sd_ai_agent_advanced_updater ) ) {
+	require_once $sd_ai_agent_advanced_updater;
+}
+unset( $sd_ai_agent_advanced_updater );
 
 // When both plugins are network active, WordPress can load the advanced plugin
 // before the core plugin. Defer the dependency notice until all normal plugins

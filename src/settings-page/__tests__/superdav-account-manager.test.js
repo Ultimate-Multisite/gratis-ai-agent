@@ -389,28 +389,16 @@ describe( 'SuperdavAccountManager', () => {
 		expect( findButton( 'Link a different user' ) ).toBeUndefined();
 	} );
 
-	test( 'installs free Advanced without a linked user and enables automatic updates', async () => {
-		apiFetch
-			.mockResolvedValueOnce( {
-				configured: true,
-				linked_user: null,
-				advanced_plugin: {
-					installed: false,
-					active: false,
-					bundled: false,
-					can_manage: true,
-					file_mods_allowed: true,
-				},
-			} )
-			.mockResolvedValueOnce( {
-				installed: true,
-				active: true,
+	test( 'shows manual installation guidance for the separate Advanced package', async () => {
+		apiFetch.mockResolvedValueOnce( {
+			configured: true,
+			linked_user: null,
+			advanced_plugin: {
+				installed: false,
+				active: false,
 				bundled: false,
-				version: '1.22.4',
-				auto_updates_enabled: true,
-				can_manage: true,
-				file_mods_allowed: true,
-			} );
+			},
+		} );
 
 		await act( async () => {
 			root.render( createElement( SuperdavAccountManager, {} ) );
@@ -419,20 +407,14 @@ describe( 'SuperdavAccountManager', () => {
 			await Promise.resolve();
 		} );
 
-		await act( async () => {
-			findButton( 'Install and activate' ).click();
-			await Promise.resolve();
-		} );
-
-		expect( apiFetch ).toHaveBeenLastCalledWith( {
-			path: '/sd-ai-agent/v1/superdav-account/advanced-plugin/install',
-			method: 'POST',
-		} );
-		expect( container.textContent ).toContain( 'Active — version 1.22.4' );
-		expect( container.textContent ).toContain( 'Automatic updates' );
+		expect( container.textContent ).toContain(
+			'Download the Advanced ZIP from the latest SD AI Agent GitHub release'
+		);
+		expect( findButton( 'Install and activate' ) ).toBeUndefined();
 		expect(
-			container.querySelector( 'input[type="checkbox"]' ).checked
-		).toBe( true );
+			container.querySelector( 'input[type="checkbox"]' )
+		).toBeNull();
+		expect( apiFetch ).toHaveBeenCalledTimes( 1 );
 	} );
 
 	test( 'redeems a coupon, disables submission while pending, and updates the balance', async () => {

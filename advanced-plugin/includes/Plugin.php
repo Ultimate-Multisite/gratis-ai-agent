@@ -12,6 +12,7 @@ use SdAiAgent\Bootstrap\GitTrackingHandler;
 use SdAiAgentAdvanced\Bootstrap\AbilitiesHandler;
 use SdAiAgentAdvanced\Bootstrap\CliHandler;
 use SdAiAgentAdvanced\Bootstrap\CustomToolCliHandler;
+use SdAiAgentAdvanced\Core\AdvancedPluginUpdater;
 use SdAiAgentAdvanced\REST\PluginDownloadController;
 use XWP\DI\Decorators\Module;
 
@@ -28,6 +29,7 @@ use XWP\DI\Decorators\Module;
 		CliHandler::class,
 		CustomToolCliHandler::class,
 		GitTrackingHandler::class,
+		AdvancedPluginUpdater::class,
 		PluginDownloadController::class,
 	),
 )]

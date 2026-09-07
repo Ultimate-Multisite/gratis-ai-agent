@@ -183,32 +183,6 @@ final class SettingsController {
 			)
 		);
 
-		register_rest_route(
-			RestController::NAMESPACE,
-			'/superdav-account/advanced-plugin/install',
-			array(
-				'methods'             => WP_REST_Server::CREATABLE,
-				'callback'            => array( $this, 'handle_install_advanced_plugin' ),
-				'permission_callback' => array( AdvancedPluginManager::class, 'current_user_can_manage' ),
-			)
-		);
-
-		register_rest_route(
-			RestController::NAMESPACE,
-			'/superdav-account/advanced-plugin/auto-updates',
-			array(
-				'methods'             => WP_REST_Server::CREATABLE,
-				'callback'            => array( $this, 'handle_advanced_plugin_auto_updates' ),
-				'permission_callback' => array( AdvancedPluginManager::class, 'current_user_can_manage' ),
-				'args'                => array(
-					'enabled' => array(
-						'required' => true,
-						'type'     => 'boolean',
-					),
-				),
-			)
-		);
-
 		// Role permissions endpoints — only registered when access control feature is enabled.
 		if ( Features::is_enabled( Features::ACCESS_CONTROL ) ) {
 			register_rest_route(
@@ -688,31 +662,6 @@ final class SettingsController {
 		return new WP_REST_Response( $this->add_local_chat_session_details( $status ), 200 );
 	}
 
-	/** Install and activate the public Advanced package. */
-	public function handle_install_advanced_plugin(): WP_REST_Response|WP_Error {
-		$status = $this->advanced_plugin_manager()->install_and_activate();
-		if ( $status instanceof WP_Error ) {
-			return $status;
-		}
-
-		return new WP_REST_Response( $status, 200 );
-	}
-
-	/** Persist the Advanced automatic-update preference. */
-	public function handle_advanced_plugin_auto_updates( WP_REST_Request $request ): WP_REST_Response|WP_Error {
-		$enabled = $request->get_param( 'enabled' );
-		if ( ! is_bool( $enabled ) && ! is_int( $enabled ) && ! is_string( $enabled ) ) {
-			return new WP_Error( 'sd_ai_agent_advanced_auto_updates_invalid', __( 'Choose whether automatic updates should be enabled.', 'superdav-ai-agent' ), array( 'status' => 400 ) );
-		}
-
-		$status = $this->advanced_plugin_manager()->set_auto_updates_enabled( rest_sanitize_boolean( $enabled ) );
-		if ( $status instanceof WP_Error ) {
-			return $status;
-		}
-
-		return new WP_REST_Response( $status, 200 );
-	}
-
 	/**
 	 * Mint one fresh, action-specific browser URL without exposing the site token.
 	 *
@@ -800,9 +749,9 @@ final class SettingsController {
 		return $status;
 	}
 
-	/** Build the package manager outside DI so existing controller tests remain stable. */
+	/** Build the local status reader outside DI so existing controller tests remain stable. */
 	private function advanced_plugin_manager(): AdvancedPluginManager {
-		return new AdvancedPluginManager( new SuperdavSiteConnectionService() );
+		return new AdvancedPluginManager();
 	}
 
 	/**

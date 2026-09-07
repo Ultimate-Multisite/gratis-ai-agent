@@ -45,7 +45,6 @@ use SdAiAgent\Bootstrap\OnboardingHandler;
 use SdAiAgent\Bootstrap\PublicSpeechCorsHandler;
 use SdAiAgent\Bootstrap\SuperdavAiProviderHandler;
 use SdAiAgent\Bootstrap\ToolDiscoveryHandler;
-use SdAiAgent\Core\AdvancedPluginManager;
 use SdAiAgent\Contracts\BudgetCheckerInterface;
 use SdAiAgent\Contracts\SessionRepositoryInterface;
 use SdAiAgent\Contracts\SettingsProviderInterface;
@@ -103,7 +102,6 @@ use XWP\DI\Decorators\Module;
 		UsageInstructionsFilter::class,
 		RequestTimeoutFilter::class,
 		SuperdavAiProviderHandler::class,
-		AdvancedPluginManager::class,
 		CliHandler::class,
 		AbilitiesHandler::class,
 		WooCommerceIntegrationHandler::class,
