@@ -896,6 +896,69 @@ describe( 'actions', () => {
 		}
 	} );
 
+	test( 'serializes concurrent screenshot-url calls while preserving their result order', async () => {
+		jest.useFakeTimers();
+		executeClientAbility.mockReset();
+		window.__sdAiAgentAbilitiesRegistering = Promise.resolve();
+		const resolvers = [];
+		let activeScreenshots = 0;
+		let maximumActiveScreenshots = 0;
+		executeClientAbility.mockImplementation( ( name, args ) => {
+			if ( name !== 'sd-ai-agent-js/screenshot-url' ) {
+				return Promise.resolve( { name, args } );
+			}
+			activeScreenshots++;
+			maximumActiveScreenshots = Math.max(
+				maximumActiveScreenshots,
+				activeScreenshots
+			);
+			return new Promise( ( resolve ) => {
+				resolvers.push( () => {
+					activeScreenshots--;
+					resolve( { screenshot: args.url } );
+				} );
+			} );
+		} );
+
+		const resultPromise = clientToolRunner.runClientTools( [
+			...Array.from( { length: 4 }, ( _unused, index ) => ( {
+				id: `screenshot-${ index }`,
+				name: 'sd-ai-agent-js/screenshot-url',
+				annotations: { readonly: true },
+				args: { url: `/dashboard-${ index }/` },
+			} ) ),
+		] );
+
+		try {
+			await jest.advanceTimersByTimeAsync( 0 );
+			expect( maximumActiveScreenshots ).toBe( 1 );
+			for ( let index = 0; index < 4; index++ ) {
+				resolvers.shift()();
+				// Allow the queue to start only the next screenshot.
+				// eslint-disable-next-line no-await-in-loop
+				await jest.advanceTimersByTimeAsync( 0 );
+			}
+
+			await expect( resultPromise ).resolves.toEqual(
+				expect.arrayContaining( [
+					expect.objectContaining( {
+						id: 'screenshot-0',
+						result: { screenshot: '/dashboard-0/' },
+					} ),
+					expect.objectContaining( {
+						id: 'screenshot-3',
+						result: { screenshot: '/dashboard-3/' },
+					} ),
+				] )
+			);
+			expect( maximumActiveScreenshots ).toBe( 1 );
+		} finally {
+			delete window.__sdAiAgentAbilitiesRegistering;
+			jest.clearAllTimers();
+			jest.useRealTimers();
+		}
+	} );
+
 	test( 'pollJob posts normalized failures when the client tool runner rejects', async () => {
 		jest.useFakeTimers();
 		apiFetch.mockReset();
