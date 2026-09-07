@@ -17,6 +17,7 @@ const ACTIVE_JOB_FAILURE_REASONS = [
 	'local_payload_guard',
 	'upstream_payload_rejection',
 	'provider_timeout',
+	'gateway_rejection',
 	'credit_exhausted',
 	'worker_terminated',
 	'approval_wait',
@@ -121,6 +122,11 @@ export function getActiveJobFailureMessage( diagnostic ) {
 		case 'provider_timeout':
 			return __(
 				'The AI provider timed out before finishing. Retry the request shortly.',
+				'superdav-ai-agent'
+			);
+		case 'gateway_rejection':
+			return __(
+				'The AI request was rejected by an upstream security gateway. Verify that the provider endpoint is allowed by your hosting or network policy, then retry. If it continues, contact support with the correlation ID.',
 				'superdav-ai-agent'
 			);
 		case 'credit_exhausted':

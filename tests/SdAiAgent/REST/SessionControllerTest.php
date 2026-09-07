@@ -12,6 +12,7 @@ declare(strict_types=1);
 namespace SdAiAgent\Tests\REST;
 
 use SdAiAgent\Core\BackgroundJobDispatcher;
+use SdAiAgent\Core\ActiveJobFailureDiagnostic;
 use SdAiAgent\Core\Database;
 use SdAiAgent\Core\DurablePlanRunner;
 use SdAiAgent\Models\ActiveJobRepository;
@@ -550,6 +551,51 @@ class SessionControllerTest extends WP_UnitTestCase {
 			$this->assertSame( $case['plan_status'], $updated['status'] );
 			$this->assertSame( $case['step_status'], $updated['steps'][0]['status'] );
 		}
+	}
+
+	public function test_gateway_failure_job_status_returns_only_the_allowlisted_diagnostic(): void {
+		$session_id = $this->create_session();
+		$job_id     = '00000000-0000-4000-8000-000000000104';
+		$this->assertNotFalse( ActiveJobRepository::create( $session_id, $job_id, $this->admin_id, 'processing' ) );
+		ActiveJobRepository::record_failure(
+			$job_id,
+			'error',
+			ActiveJobFailureDiagnostic::REASON_GATEWAY_REJECTION,
+			array(
+				'last_safe_phase' => 'before_provider_call',
+				'provider_id'     => 'sd-ai-agent-cloud',
+				'model_id'        => 'managed-model',
+				'status_code'     => 403,
+				'failure_class'   => 'gateway_rejection',
+				'failure_source'  => 'http',
+				'attempts'        => 1,
+				'response_body'   => '<html>Imunify360 PRIVATE_PROVIDER_RESPONSE</html>',
+				'prompt'          => 'PRIVATE_PROMPT_CONTENT',
+				'authorization'   => 'Bearer PRIVATE_TOKEN',
+				'trace'           => '/private/path.php:99',
+			)
+		);
+
+		$response = $this->dispatch( 'GET', "/sd-ai-agent/v1/job/{$job_id}" );
+		$this->assert_status( 200, $response );
+		$data = $response->get_data();
+
+		$this->assertSame( 'error', $data['status'] );
+		$this->assertSame( ActiveJobFailureDiagnostic::REASON_GATEWAY_REJECTION, $data['diagnostic']['reason'] );
+		$this->assertSame( 403, $data['diagnostic']['status_code'] );
+		$this->assertSame( 'gateway_rejection', $data['diagnostic']['failure_class'] );
+		$this->assertSame( 'http', $data['diagnostic']['failure_source'] );
+		$this->assertSame( 1, $data['diagnostic']['attempts'] );
+		$this->assertSame( 'contact_support', $data['diagnostic']['next_action'] );
+		$this->assertFalse( $data['diagnostic']['retryable'] );
+		$this->assertStringContainsString( 'security gateway', $data['message'] );
+		$this->assertStringNotContainsString( 'disable', strtolower( $data['message'] ) );
+		$payload = (string) wp_json_encode( $data );
+		$this->assertStringNotContainsString( 'PRIVATE_PROVIDER_RESPONSE', $payload );
+		$this->assertStringNotContainsString( 'PRIVATE_PROMPT_CONTENT', $payload );
+		$this->assertStringNotContainsString( 'PRIVATE_TOKEN', $payload );
+		$this->assertStringNotContainsString( '/private/path.php', $payload );
+		$this->assertNull( ActiveJobRepository::get_by_job_id( $job_id ) );
 	}
 
 	/** Completed job and persisted-session display projections hide textual reasoning. */

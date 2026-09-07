@@ -69,6 +69,7 @@ const {
 const { buildFailedJobActivityMessage } = require( '../slices/jobSlice' );
 const {
 	buildActiveJobFailureCard,
+	getActiveJobFailureMessage,
 	normalizeActiveJobFailureDiagnostic,
 } = require( '../slices/active-job-failure-diagnostic' );
 const apiFetch = require( '@wordpress/api-fetch' );
@@ -774,6 +775,28 @@ describe( 'actions', () => {
 			next_action: 'contact_support',
 			correlation_id: '',
 		} );
+	} );
+
+	test( 'gateway rejection uses a safe support action without security-disable guidance', () => {
+		const diagnostic = normalizeActiveJobFailureDiagnostic( {
+			reason: 'gateway_rejection',
+			next_action: 'contact_support',
+			message: 'PRIVATE_PROVIDER_MESSAGE',
+			response_body: '<html>Imunify360 PRIVATE_PROVIDER_RESPONSE</html>',
+			prompt: 'PRIVATE_PROMPT_CONTENT',
+		} );
+
+		expect( diagnostic ).toEqual( {
+			reason: 'gateway_rejection',
+			last_safe_phase: '',
+			retryable: false,
+			next_action: 'contact_support',
+			correlation_id: '',
+		} );
+		const message = getActiveJobFailureMessage( diagnostic );
+		expect( message ).toContain( 'security gateway' );
+		expect( message ).not.toContain( 'disable' );
+		expect( message ).not.toContain( 'PRIVATE_PROVIDER' );
 	} );
 
 	test( 'pollJob starts only one poller for the same session and job', async () => {

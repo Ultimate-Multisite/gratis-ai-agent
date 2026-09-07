@@ -18,6 +18,12 @@ final class ProviderErrorClassifier {
 	/** Retryable upstream/network statuses. */
 	public const RETRYABLE_STATUS_CODES = array( 408, 429, 500, 502, 503, 504 );
 
+	/** Stable, prompt-free class for an upstream security-gateway rejection. */
+	public const FAILURE_CLASS_GATEWAY_REJECTION = 'gateway_rejection';
+
+	/** Maximum transient error evidence inspected for gateway classification. */
+	private const GATEWAY_EVIDENCE_MAX_BYTES = 8192;
+
 	/**
 	 * Extract an HTTP status code from provider errors produced by SDK layers.
 	 *
@@ -70,6 +76,10 @@ final class ProviderErrorClassifier {
 	public static function is_retryable( $error, int $status_code = 0 ): bool {
 		if ( 0 === $status_code ) {
 			$status_code = self::extract_status_code( $error );
+		}
+
+		if ( self::is_gateway_rejection( $error, $status_code ) ) {
+			return false;
 		}
 
 		if ( in_array( $status_code, self::RETRYABLE_STATUS_CODES, true ) ) {
@@ -154,6 +164,10 @@ final class ProviderErrorClassifier {
 			$status_code = self::extract_status_code( $error );
 		}
 
+		if ( self::is_gateway_rejection( $error, $status_code ) ) {
+			return 'provider_gateway_rejection';
+		}
+
 		if ( 429 === $status_code ) {
 			return 'provider_rate_limited';
 		}
@@ -182,6 +196,81 @@ final class ProviderErrorClassifier {
 		}
 
 		return 'provider_error';
+	}
+
+	/**
+	 * Return the bounded gateway-rejection class, if transient error evidence
+	 * identifies a known upstream security gateway.
+	 *
+	 * Provider messages may contain request content. This method uses them only
+	 * while the error is in memory; callers must persist only the returned token.
+	 *
+	 * @param WP_Error|\Throwable|null $error       Provider error.
+	 * @param int                      $status_code HTTP status code, or 0 when unavailable.
+	 * @return string Safe failure class, or an empty string when unclassified.
+	 */
+	public static function get_safe_failure_class( $error, int $status_code = 0 ): string {
+		if ( self::is_gateway_rejection( $error, $status_code ) ) {
+			return self::FAILURE_CLASS_GATEWAY_REJECTION;
+		}
+
+		return '';
+	}
+
+	/**
+	 * Determine whether a provider error identifies a security-gateway block.
+	 *
+	 * @param WP_Error|\Throwable|null $error       Provider error.
+	 * @param int                      $status_code HTTP status code, or 0 when unavailable.
+	 * @return bool Whether the error is a recognized gateway rejection.
+	 */
+	public static function is_gateway_rejection( $error, int $status_code = 0 ): bool {
+		if ( $error instanceof WP_Error ) {
+			$data = $error->get_error_data();
+			if ( is_array( $data ) && self::FAILURE_CLASS_GATEWAY_REJECTION === ( $data['failure_class'] ?? '' ) ) {
+				return true;
+			}
+		}
+
+		if ( 0 === $status_code ) {
+			$status_code = self::extract_status_code( $error );
+		}
+
+		return self::has_gateway_rejection_evidence( $status_code, self::get_message( $error ) );
+	}
+
+	/**
+	 * Classify a raw HTTP response body without retaining it.
+	 *
+	 * @param int    $status_code   HTTP status code.
+	 * @param string $response_body Transient response body.
+	 * @return bool Whether the body identifies a recognized gateway rejection.
+	 */
+	public static function is_gateway_rejection_response( int $status_code, string $response_body ): bool {
+		return self::has_gateway_rejection_evidence( $status_code, $response_body );
+	}
+
+	/**
+	 * Inspect bounded transient evidence for a recognized WAF/gateway marker.
+	 *
+	 * The vendor-specific Imunify360 marker remains useful even when an SDK lost
+	 * the HTTP status. Broader WAF phrases require a 4xx/5xx status so a provider
+	 * cannot cause a false classification merely by echoing request text.
+	 */
+	private static function has_gateway_rejection_evidence( int $status_code, string $evidence ): bool {
+		$evidence = strtolower( substr( $evidence, 0, self::GATEWAY_EVIDENCE_MAX_BYTES ) );
+		if ( str_contains( $evidence, 'imunify360' ) ) {
+			return true;
+		}
+
+		if ( $status_code < 400 || $status_code > 599 ) {
+			return false;
+		}
+
+		return (bool) preg_match(
+			'/\b(?:web\s+application\s+firewall|security\s+gateway|waf\s+(?:block|denied)|blocked\s+by\s+(?:a\s+)?(?:waf|firewall)|access\s+denied\s+by\s+(?:a\s+)?(?:waf|firewall))\b/i',
+			$evidence
+		);
 	}
 
 	/**

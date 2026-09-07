@@ -34,6 +34,9 @@ final class ActiveJobFailureDiagnostic {
 	/** Failure caused by an upstream provider timeout. */
 	public const REASON_PROVIDER_TIMEOUT = 'provider_timeout';
 
+	/** Failure caused by an upstream security gateway or WAF rejection. */
+	public const REASON_GATEWAY_REJECTION = 'gateway_rejection';
+
 	/** The managed Superdav provider requires additional account credit. */
 	public const REASON_CREDIT_EXHAUSTED = 'credit_exhausted';
 
@@ -60,6 +63,7 @@ final class ActiveJobFailureDiagnostic {
 		self::REASON_LOCAL_PAYLOAD_GUARD,
 		self::REASON_UPSTREAM_PAYLOAD_REJECTION,
 		self::REASON_PROVIDER_TIMEOUT,
+		self::REASON_GATEWAY_REJECTION,
 		self::REASON_CREDIT_EXHAUSTED,
 		self::REASON_WORKER_TERMINATED,
 		self::REASON_APPROVAL_WAIT,
@@ -86,7 +90,11 @@ final class ActiveJobFailureDiagnostic {
 		return array(
 			'version'            => self::VERSION,
 			'reason'             => $reason,
+			'status_code'        => self::sanitize_status_code( (int) ( $context['status_code'] ?? 0 ) ),
+			'failure_class'      => self::sanitize_failure_class( (string) ( $context['failure_class'] ?? '' ), $reason ),
+			'failure_source'     => self::sanitize_failure_source( (string) ( $context['failure_source'] ?? '' ) ),
 			'last_safe_phase'    => self::sanitize_phase( (string) ( $context['last_safe_phase'] ?? '' ) ),
+			'attempts'           => min( 10, max( 0, (int) ( $context['attempts'] ?? 0 ) ) ),
 			'resume_count'       => max( 0, (int) ( $context['resume_count'] ?? 0 ) ),
 			'provider_id'        => self::sanitize_identifier( (string) ( $context['provider_id'] ?? '' ) ),
 			'model_id'           => self::sanitize_identifier( (string) ( $context['model_id'] ?? '' ) ),
@@ -135,9 +143,9 @@ final class ActiveJobFailureDiagnostic {
 	/**
 	 * Classify a provider or loop WP_Error without retaining its message.
 	 *
-	 * Error messages are inspected only to recognize a timeout when an upstream
-	 * library does not supply a stable code. They are never returned, persisted,
-	 * or added to the diagnostic context.
+	 * Error messages are inspected only for bounded classifications when an
+	 * upstream library does not supply a stable code. They are never returned,
+	 * persisted, or added to the diagnostic context.
 	 *
 	 * @param \WP_Error $error Provider or loop error.
 	 * @return string Normalized diagnostic reason.
@@ -147,11 +155,19 @@ final class ActiveJobFailureDiagnostic {
 		$data        = $error->get_error_data();
 		$data        = is_array( $data ) ? $data : array();
 		$provider_id = sanitize_key( $provider_id );
+		$status_code = (int) ( $data['status_code'] ?? ProviderErrorClassifier::extract_status_code( $error ) );
+
+		if (
+			ProviderErrorClassifier::FAILURE_CLASS_GATEWAY_REJECTION === ( $data['failure_class'] ?? '' ) ||
+			ProviderErrorClassifier::is_gateway_rejection( $error, $status_code )
+		) {
+			return self::REASON_GATEWAY_REJECTION;
+		}
 
 		// HTTP 402 only gets the managed-credit recovery path for the provider
 		// that owns that account. Other providers may use 402 for unrelated
 		// billing states and must remain safely classified as unknown.
-		if ( 'sd-ai-agent-cloud' === $provider_id && 402 === (int) ( $data['status_code'] ?? 0 ) ) {
+		if ( 'sd-ai-agent-cloud' === $provider_id && 402 === $status_code ) {
 			return self::REASON_CREDIT_EXHAUSTED;
 		}
 
@@ -162,13 +178,13 @@ final class ActiveJobFailureDiagnostic {
 			return self::REASON_LOCAL_PAYLOAD_GUARD;
 		}
 
-		if ( 'sd_ai_agent_provider_payload_too_large' === $code || 413 === (int) ( $data['status_code'] ?? 0 ) ) {
+		if ( 'sd_ai_agent_provider_payload_too_large' === $code || 413 === $status_code ) {
 			return self::REASON_UPSTREAM_PAYLOAD_REJECTION;
 		}
 
 		if (
 			in_array( $code, array( 'sd_ai_agent_provider_timeout', 'sd_ai_agent_provider_retry_failed', 'timeout', 'timed_out', 'deadline_exceeded' ), true ) ||
-			in_array( (int) ( $data['status_code'] ?? 0 ), array( 408, 504, 524 ), true )
+			in_array( $status_code, array( 408, 504, 524 ), true )
 		) {
 			return self::REASON_PROVIDER_TIMEOUT;
 		}
@@ -185,13 +201,17 @@ final class ActiveJobFailureDiagnostic {
 	 * Extract allowlisted diagnostic context from a WP_Error data payload.
 	 *
 	 * @param array<string, mixed> $data Error data.
-	 * @return array<string, string>
+	 * @return array<string, int|string>
 	 */
 	public static function context_from_error_data( array $data ): array {
 		$context = array(
 			'provider_id'        => (string) ( $data['provider_id'] ?? '' ),
 			'model_id'           => (string) ( $data['model_id'] ?? '' ),
 			'request_size_class' => (string) ( $data['request_size_class'] ?? '' ),
+			'status_code'        => (int) ( $data['status_code'] ?? 0 ),
+			'failure_class'      => (string) ( $data['failure_class'] ?? '' ),
+			'failure_source'     => (string) ( $data['failure_source'] ?? '' ),
+			'attempts'           => (int) ( $data['attempts'] ?? 0 ),
 		);
 
 		if ( '' === $context['request_size_class'] ) {
@@ -213,7 +233,11 @@ final class ActiveJobFailureDiagnostic {
 	public static function to_rest( array $diagnostic ): array {
 		return array(
 			'reason'             => (string) $diagnostic['reason'],
+			'status_code'        => (int) $diagnostic['status_code'],
+			'failure_class'      => (string) $diagnostic['failure_class'],
+			'failure_source'     => (string) $diagnostic['failure_source'],
 			'last_safe_phase'    => (string) $diagnostic['last_safe_phase'],
+			'attempts'           => (int) $diagnostic['attempts'],
 			'resume_count'       => (int) $diagnostic['resume_count'],
 			'provider_id'        => (string) $diagnostic['provider_id'],
 			'model_id'           => (string) $diagnostic['model_id'],
@@ -232,6 +256,7 @@ final class ActiveJobFailureDiagnostic {
 			self::REASON_LOCAL_PAYLOAD_GUARD => __( 'This request is too large to send safely. Compact the conversation, shorten the latest message, or remove large attachments before retrying.', 'superdav-ai-agent' ),
 			self::REASON_UPSTREAM_PAYLOAD_REJECTION => __( 'The selected AI provider rejected this request because it exceeds its payload limit. Start a smaller continuation and retry.', 'superdav-ai-agent' ),
 			self::REASON_PROVIDER_TIMEOUT => __( 'The AI provider timed out before finishing. Retry the request shortly.', 'superdav-ai-agent' ),
+			self::REASON_GATEWAY_REJECTION => __( 'The AI request was rejected by an upstream security gateway. Verify that the provider endpoint is allowed by your hosting or network policy, then retry. If it continues, contact support with the correlation ID.', 'superdav-ai-agent' ),
 			self::REASON_CREDIT_EXHAUSTED => __( 'Your Superdav account needs more credits to continue. Purchase credits in your account settings.', 'superdav-ai-agent' ),
 			self::REASON_WORKER_TERMINATED => __( 'The background worker stopped before the job could finish. Retry the job or start a continuation from the saved conversation.', 'superdav-ai-agent' ),
 			self::REASON_APPROVAL_WAIT => __( 'This job is waiting for approval before it can continue.', 'superdav-ai-agent' ),
@@ -256,7 +281,9 @@ final class ActiveJobFailureDiagnostic {
 				'session_id'         => max( 0, $session_id ),
 				'code'               => (string) $diagnostic['reason'],
 				'reason'             => (string) $diagnostic['reason'],
+				'status_code'        => (int) $diagnostic['status_code'],
 				'phase'              => (string) $diagnostic['last_safe_phase'],
+				'attempts'           => (int) $diagnostic['attempts'],
 				'resume_count'       => (int) $diagnostic['resume_count'],
 				'provider_id'        => (string) $diagnostic['provider_id'],
 				'model_id'           => (string) $diagnostic['model_id'],
@@ -296,6 +323,7 @@ final class ActiveJobFailureDiagnostic {
 			self::REASON_UPSTREAM_PAYLOAD_REJECTION => 'compact',
 			self::REASON_PROVIDER_TIMEOUT,
 			self::REASON_WORKER_TERMINATED => 'retry',
+			self::REASON_GATEWAY_REJECTION => 'contact_support',
 			self::REASON_CREDIT_EXHAUSTED => 'purchase_credits',
 			self::REASON_APPROVAL_WAIT => 'approve_review',
 			self::REASON_APPROVAL_EXPIRED,
@@ -310,6 +338,32 @@ final class ActiveJobFailureDiagnostic {
 		$phase = sanitize_key( $phase );
 
 		return substr( $phase, 0, 60 );
+	}
+
+	/** Keep a provider status code to a valid HTTP error range. */
+	private static function sanitize_status_code( int $status_code ): int {
+		return $status_code >= 400 && $status_code <= 599 ? $status_code : 0;
+	}
+
+	/** Keep a failure class to the diagnostic's explicit allowlist. */
+	private static function sanitize_failure_class( string $failure_class, string $reason ): string {
+		$failure_class = sanitize_key( $failure_class );
+
+		if (
+			self::REASON_GATEWAY_REJECTION === $reason ||
+			ProviderErrorClassifier::FAILURE_CLASS_GATEWAY_REJECTION === $failure_class
+		) {
+			return ProviderErrorClassifier::FAILURE_CLASS_GATEWAY_REJECTION;
+		}
+
+		return '';
+	}
+
+	/** Keep a failure source to a small set of provider-boundary tokens. */
+	private static function sanitize_failure_source( string $failure_source ): string {
+		$failure_source = sanitize_key( $failure_source );
+
+		return in_array( $failure_source, array( 'http', 'transport' ), true ) ? $failure_source : '';
 	}
 
 	/** Keep provider and model identifiers free of free-text request content. */
