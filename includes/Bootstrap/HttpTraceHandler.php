@@ -24,7 +24,6 @@ use SdAiAgent\Core\ProviderTraceLogger;
 use SdAiAgent\Core\Settings;
 use SdAiAgent\Infrastructure\Schema\EmptyJsonObject;
 use SdAiAgent\Infrastructure\Schema\SchemaNormalizer;
-use SdAiAgent\Models\ProviderTrace;
 use XWP\DI\Decorators\Filter;
 use XWP\DI\Decorators\Handler;
 
@@ -40,10 +39,9 @@ if ( ! defined( 'ABSPATH' ) ) {
  * calls can originate from admin (manual runs), REST (webhook triggers), CLI,
  * and cron (scheduled tasks).
  *
- * The trace callbacks are no-ops when WP_DEBUG is not active; the cache
- * marker injection is always active (cache hints are a runtime cost
- * optimisation, not a debug feature) but is gated on the
- * `prompt_caching_enabled` setting so operators can opt out.
+	 * Full request/response traces remain debug-only. For an active provider
+	 * request, the callbacks also carry bounded runtime metadata in production;
+	 * the cache-marker injection remains gated on `prompt_caching_enabled`.
  */
 #[Handler(
 	container: 'sd-ai-agent',
@@ -65,9 +63,9 @@ final class HttpTraceHandler {
 	/**
 	 * Capture outgoing request details before the HTTP call is made.
 	 *
-	 * Returns `$preempt` unchanged — this filter is used only for its
-	 * side-effect of recording in-flight request metadata. No-op when
-	 * WP_DEBUG is not active.
+	 * Returns `$preempt` unchanged. The logger stays a no-op for unrelated
+	 * traffic, preserves full traces behind debug mode, and retains only bounded
+	 * runtime metrics for an active provider request outside debug mode.
 	 *
 	 * @param false|array<string,mixed>|\WP_Error $preempt     A preemptive return value. Default false.
 	 * @param array<string,mixed>                 $parsed_args HTTP request arguments.
@@ -76,18 +74,15 @@ final class HttpTraceHandler {
 	 */
 	#[Filter( tag: 'pre_http_request', priority: 10 )]
 	public function on_pre_http_request( mixed $preempt, array $parsed_args, string $url ): mixed {
-		if ( ! ProviderTrace::is_debug_mode() ) {
-			return $preempt;
-		}
 		return ProviderTraceLogger::on_pre_http_request( $preempt, $parsed_args, $url );
 	}
 
 	/**
 	 * Capture response details and write a trace record.
 	 *
-	 * Returns `$response` unchanged — this filter is used only for its
-	 * side-effect of persisting the completed trace row. No-op when
-	 * WP_DEBUG is not active.
+	 * Returns `$response` unchanged. Full trace persistence remains debug-only,
+	 * while an active provider request can retain only bounded failure metadata
+	 * for a safe terminal diagnostic in production.
 	 *
 	 * @param array<string,mixed> $response    HTTP response array.
 	 * @param array<string,mixed> $parsed_args HTTP request arguments.
@@ -96,9 +91,6 @@ final class HttpTraceHandler {
 	 */
 	#[Filter( tag: 'http_response', priority: 10 )]
 	public function on_http_response( array $response, array $parsed_args, string $url ): array {
-		if ( ! ProviderTrace::is_debug_mode() ) {
-			return $response;
-		}
 		return ProviderTraceLogger::on_http_response( $response, $parsed_args, $url );
 	}
 

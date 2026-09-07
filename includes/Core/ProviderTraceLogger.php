@@ -49,7 +49,13 @@ class ProviderTraceLogger {
 	 *     request_provider_limit_bytes:int,
 	 *     request_budget_bytes:int,
 	 *     request_safety_margin_bytes:int,
-	 *     operation:string
+	 *     operation:string,
+	 *     attempt:int,
+	 *     phase:string,
+	 *     correlation_id:string,
+	 *     failure_status_code:int,
+	 *     failure_class:string,
+	 *     failure_source:string
 	 * }
 	 */
 	// phpcs:ignore WordPress.NamingConventions.ValidVariableName.PropertyNotSnakeCase -- Project property naming guidance requires camelCase.
@@ -66,6 +72,12 @@ class ProviderTraceLogger {
 		'request_budget_bytes'         => 0,
 		'request_safety_margin_bytes'  => 0,
 		'operation'                    => '',
+		'attempt'                      => 0,
+		'phase'                        => '',
+		'correlation_id'               => '',
+		'failure_status_code'          => 0,
+		'failure_class'                => '',
+		'failure_source'               => '',
 	);
 
 	/**
@@ -134,10 +146,25 @@ class ProviderTraceLogger {
 	 * @param string $journey_id                   Validated managed journey ID, if active.
 	 * @param string $idempotency_key              Stable logical-request UUID, if active.
 	 * @param string $operation                    Content-sensitive operation category, if any.
+	 * @param int    $attempt                      One-based provider attempt, if available.
+	 * @param string $job_id                       Active job UUID, if available.
+	 * @param string $phase                        Safe provider invocation phase, if available.
 	 */
-	public static function set_runtime_context( string $provider_id, string $model_id, int $session_id = 0, int $retry_baseline_request_bytes = 0, string $journey_id = '', string $idempotency_key = '', string $operation = '' ): void {
+	public static function set_runtime_context(
+		string $provider_id,
+		string $model_id,
+		int $session_id = 0,
+		int $retry_baseline_request_bytes = 0,
+		string $journey_id = '',
+		string $idempotency_key = '',
+		string $operation = '',
+		int $attempt = 0,
+		string $job_id = '',
+		string $phase = ''
+	): void {
 		$has_valid_managed_attribution = SuperdavManagedRequestIdentifiers::is_journey_id( $journey_id )
 			&& SuperdavManagedRequestIdentifiers::is_idempotency_key( $idempotency_key );
+		$allowed_phases                 = array( 'initial_provider_call', 'client_tool_resume', 'provider_followup_call' );
 		self::$runtimeContext          = array(
 			'provider_id'                  => sanitize_key( $provider_id ),
 			'model_id'                     => sanitize_text_field( $model_id ),
@@ -151,6 +178,12 @@ class ProviderTraceLogger {
 			'request_budget_bytes'         => 0,
 			'request_safety_margin_bytes'  => 0,
 			'operation'                    => 'speech' === $operation ? 'speech' : '',
+			'attempt'                      => min( 10, max( 0, $attempt ) ),
+			'phase'                        => in_array( $phase, $allowed_phases, true ) ? $phase : '',
+			'correlation_id'               => self::job_correlation_id( $job_id ),
+			'failure_status_code'          => 0,
+			'failure_class'                => '',
+			'failure_source'               => '',
 		);
 	}
 
@@ -186,6 +219,12 @@ class ProviderTraceLogger {
 			'request_budget_bytes'         => 0,
 			'request_safety_margin_bytes'  => 0,
 			'operation'                    => '',
+			'attempt'                      => 0,
+			'phase'                        => '',
+			'correlation_id'               => '',
+			'failure_status_code'          => 0,
+			'failure_class'                => '',
+			'failure_source'               => '',
 		);
 	}
 
@@ -215,6 +254,36 @@ class ProviderTraceLogger {
 	}
 
 	/**
+	 * Return safe metadata captured from a provider HTTP failure.
+	 *
+	 * Response bodies and provider messages are deliberately excluded. The
+	 * returned scalars can be copied onto the terminal error for the durable-job
+	 * diagnostic after the runtime context is cleared.
+	 *
+	 * @return array<string, int|string> Prompt-free failure metadata.
+	 */
+	public static function get_runtime_failure_metadata(): array {
+		$metadata = array();
+		if ( self::$runtimeContext['failure_status_code'] > 0 ) {
+			$metadata['status_code'] = self::$runtimeContext['failure_status_code'];
+		}
+		if ( '' !== self::$runtimeContext['failure_class'] ) {
+			$metadata['failure_class'] = self::$runtimeContext['failure_class'];
+		}
+		if ( '' !== self::$runtimeContext['failure_source'] ) {
+			$metadata['failure_source'] = self::$runtimeContext['failure_source'];
+		}
+		if ( self::$runtimeContext['attempt'] > 0 ) {
+			$metadata['attempts'] = self::$runtimeContext['attempt'];
+		}
+		if ( '' !== self::$runtimeContext['correlation_id'] ) {
+			$metadata['correlation_id'] = self::$runtimeContext['correlation_id'];
+		}
+
+		return $metadata;
+	}
+
+	/**
 	 * Hook: pre_http_request — capture outgoing request details.
 	 *
 	 * @param false|array<string, mixed>|\WP_Error $response    A preemptive return value of an HTTP request. Default false.
@@ -227,15 +296,16 @@ class ProviderTraceLogger {
 			return $response;
 		}
 
-		$request_body  = is_string( $parsed_args['body'] ?? null )
-			? $parsed_args['body']
-			: (string) wp_json_encode( $parsed_args['body'] ?? '' );
 		$trace_enabled = ProviderTrace::is_enabled();
 		$has_context   = '' !== self::$runtimeContext['provider_id'];
 
 		if ( ! $trace_enabled && ! $has_context ) {
 			return $response;
 		}
+
+		$request_body = is_string( $parsed_args['body'] ?? null )
+			? $parsed_args['body']
+			: (string) wp_json_encode( $parsed_args['body'] ?? '' );
 
 		// Runtime attribution is set only around the synchronous SDK provider
 		// invocation. Trust it for local enforcement so a trace callback cannot
@@ -358,6 +428,10 @@ class ProviderTraceLogger {
 		self::$inflight[ $url ] = [
 			'provider_id'     => $provider_id,
 			'model_id'        => $model_id,
+			'session_id'      => self::$runtimeContext['session_id'],
+			'attempt'         => self::$runtimeContext['attempt'],
+			'phase'           => self::$runtimeContext['phase'],
+			'correlation_id'  => self::$runtimeContext['correlation_id'],
 			'url'             => $url,
 			'method'          => strtoupper( $parsed_args['method'] ?? 'POST' ),
 			'request_headers' => self::extract_headers( $parsed_args['headers'] ?? [] ),
@@ -385,59 +459,81 @@ class ProviderTraceLogger {
 	 * @return array<string, mixed> Unchanged response.
 	 */
 	public static function on_http_response( array $response, array $parsed_args, string $url ): array {
+		$trace_enabled          = ProviderTrace::is_enabled();
+		$has_context            = '' !== self::$runtimeContext['provider_id'];
+		$canonical_provider_id  = self::match_provider( $url );
+		if ( ! $trace_enabled && ! $has_context && '' === $canonical_provider_id ) {
+			return $response;
+		}
+
 		$request_body = is_string( $parsed_args['body'] ?? null )
 			? $parsed_args['body']
 			: (string) wp_json_encode( $parsed_args['body'] ?? '' );
-		$has_context  = '' !== self::$runtimeContext['provider_id'];
+		$status_code  = (int) wp_remote_retrieve_response_code( $response );
+		$response_body_for_classification = $status_code >= 400
+			? (string) wp_remote_retrieve_body( $response )
+			: '';
+		$failure_class = $status_code >= 400 && ProviderErrorClassifier::is_gateway_rejection_response( $status_code, $response_body_for_classification )
+			? ProviderErrorClassifier::FAILURE_CLASS_GATEWAY_REJECTION
+			: '';
+
+		if ( $has_context && $status_code >= 400 ) {
+			self::$runtimeContext['failure_status_code'] = $status_code;
+			self::$runtimeContext['failure_class']       = $failure_class;
+			self::$runtimeContext['failure_source']      = 'http';
+		}
 
 		// Lightweight error-log path: emit a greppable line for 4xx/5xx
 		// responses from canonical AI providers regardless of debug mode.
 		// Uses the strict allowlist so unrelated 4xx responses (update
 		// checks, WP.org, etc.) never produce noise here.
-		$canonical_provider_id = self::match_provider( $url );
-		$request_provider_id   = $has_context ? self::$runtimeContext['provider_id'] : $canonical_provider_id;
-		if ( '' !== $request_provider_id ) {
-			$status_code_for_log = (int) wp_remote_retrieve_response_code( $response );
-			if ( $status_code_for_log >= 400 ) {
-				$model_id_for_log = self::$runtimeContext['model_id'];
-				if ( '' === $model_id_for_log ) {
-					$model_id_for_log = self::extract_model_id( $request_body );
-				}
-				$request_bytes = strlen( $request_body );
-				$byte_budget   = ConversationTrimmer::get_request_envelope_byte_budget( $request_provider_id, $model_id_for_log );
+		$request_provider_id = $has_context ? self::$runtimeContext['provider_id'] : $canonical_provider_id;
+		if ( '' !== $request_provider_id && $status_code >= 400 ) {
+			$model_id_for_log = self::$runtimeContext['model_id'];
+			if ( '' === $model_id_for_log ) {
+				$model_id_for_log = self::extract_model_id( $request_body );
+			}
+			$request_bytes = strlen( $request_body );
+			$byte_budget   = ConversationTrimmer::get_request_envelope_byte_budget( $request_provider_id, $model_id_for_log );
 
-				if ( 413 === $status_code_for_log ) {
-					self::record_payload_limit(
-						$request_provider_id,
-						$model_id_for_log,
-						$status_code_for_log,
-						$request_bytes,
-						(int) ceil( $request_bytes / 4 ),
-						$byte_budget,
-						false,
-						false,
-						false,
-						'upstream_413'
-					);
-				} else {
-					AgentEventLog::log(
-						'provider_http_error',
-						AgentEventLog::SEVERITY_ERROR,
-						array(
-							'provider_id'             => $request_provider_id,
-							'model_id'                => $model_id_for_log,
-							'status_code'             => $status_code_for_log,
-							'request_bytes'           => $request_bytes,
-							'request_tokens_estimate' => (int) ceil( $request_bytes / 4 ),
-							'request_size_class'      => self::classify_request_size( $request_bytes ),
-							'request_size_source'     => 'http_body',
-						)
-					);
+			if ( 413 === $status_code ) {
+				self::record_payload_limit(
+					$request_provider_id,
+					$model_id_for_log,
+					$status_code,
+					$request_bytes,
+					(int) ceil( $request_bytes / 4 ),
+					$byte_budget,
+					false,
+					false,
+					false,
+					'upstream_413'
+				);
+			} else {
+				$log_context = array(
+					'provider_id'             => $request_provider_id,
+					'model_id'                => $model_id_for_log,
+					'status_code'             => $status_code,
+					'request_bytes'           => $request_bytes,
+					'request_tokens_estimate' => (int) ceil( $request_bytes / 4 ),
+					'request_size_class'      => self::classify_request_size( $request_bytes ),
+					'request_size_source'     => 'http_body',
+				);
+				if ( $has_context && self::$runtimeContext['attempt'] > 0 ) {
+					$log_context['attempts'] = self::$runtimeContext['attempt'];
 				}
+				if ( $has_context && '' !== self::$runtimeContext['correlation_id'] ) {
+					$log_context['correlation_id'] = self::$runtimeContext['correlation_id'];
+				}
+				if ( '' !== $failure_class ) {
+					$log_context['reason'] = $failure_class;
+				}
+
+				AgentEventLog::log( 'provider_http_error', AgentEventLog::SEVERITY_ERROR, $log_context );
 			}
 		}
 
-		if ( ! ProviderTrace::is_enabled() ) {
+		if ( ! $trace_enabled ) {
 			return $response;
 		}
 
@@ -455,8 +551,9 @@ class ProviderTraceLogger {
 		$start_time  = (float) ( $inflight['start_time'] ?? microtime( true ) );
 		$duration_ms = (int) round( ( microtime( true ) - $start_time ) * 1000 );
 
-		$status_code      = (int) wp_remote_retrieve_response_code( $response );
-		$response_body    = wp_remote_retrieve_body( $response );
+		$response_body    = '' !== $response_body_for_classification
+			? $response_body_for_classification
+			: (string) wp_remote_retrieve_body( $response );
 		$response_headers = wp_remote_retrieve_headers( $response );
 
 		// Extract model_id from request body if possible.
@@ -523,7 +620,7 @@ class ProviderTraceLogger {
 		$trace_request_body     = $inflight['request_body'] ?? '';
 		$trace_response_headers = $response_headers_json;
 		$trace_response_body    = $response_body;
-		if ( 413 === $status_code ) {
+		if ( 413 === $status_code || ProviderErrorClassifier::FAILURE_CLASS_GATEWAY_REJECTION === $failure_class ) {
 			$request_bytes          = strlen( (string) $trace_request_body );
 			$trace_url              = self::safe_trace_url( (string) $trace_url );
 			$trace_request_headers  = '{}';
@@ -536,7 +633,29 @@ class ProviderTraceLogger {
 			);
 			$trace_response_headers = '{}';
 			$trace_response_body    = '';
-			$error                  = 'HTTP 413';
+
+			if ( ProviderErrorClassifier::FAILURE_CLASS_GATEWAY_REJECTION === $failure_class ) {
+				$gateway_diagnostic = array(
+					'event'           => 'provider_gateway_rejection',
+					'failure_class'   => $failure_class,
+					'failure_source'  => 'http',
+					'status_code'     => $status_code,
+					'session_id'      => max( 0, (int) ( $inflight['session_id'] ?? 0 ) ),
+				);
+				if ( (int) ( $inflight['attempt'] ?? 0 ) > 0 ) {
+					$gateway_diagnostic['attempts'] = min( 10, (int) $inflight['attempt'] );
+				}
+				if ( '' !== (string) ( $inflight['phase'] ?? '' ) ) {
+					$gateway_diagnostic['phase'] = (string) $inflight['phase'];
+				}
+				if ( '' !== (string) ( $inflight['correlation_id'] ?? '' ) ) {
+					$gateway_diagnostic['correlation_id'] = (string) $inflight['correlation_id'];
+				}
+				$trace_response_body = (string) wp_json_encode( $gateway_diagnostic );
+				$error               = 'provider_gateway_rejection';
+			} else {
+				$error = 'HTTP 413';
+			}
 		}
 
 		ProviderTrace::insert(
@@ -715,6 +834,7 @@ class ProviderTraceLogger {
 		$diagnostics = array(
 			'event'                  => 'provider_retry_exhausted',
 			'error_code'             => ProviderErrorClassifier::get_safe_error_code( $error, $status_code ),
+			'failure_source'         => $status_code >= 400 ? 'http' : 'transport',
 			'attempts'               => max( 1, $attempts ),
 			'elapsed_ms'             => max( 0, $elapsed_ms ),
 			'phase'                  => $phase,
@@ -724,8 +844,13 @@ class ProviderTraceLogger {
 		if ( null !== $retry_after_seconds ) {
 			$diagnostics['retry_after_seconds'] = min( 60, max( 0, $retry_after_seconds ) );
 		}
+		$failure_class = ProviderErrorClassifier::get_safe_failure_class( $error, $status_code );
+		if ( '' !== $failure_class ) {
+			$diagnostics['failure_class'] = $failure_class;
+		}
 		if ( '' !== $job_id ) {
 			$diagnostics['job_id'] = sanitize_text_field( $job_id );
+			$diagnostics['correlation_id'] = self::job_correlation_id( $job_id );
 		}
 
 		ProviderTrace::insert(
@@ -758,6 +883,13 @@ class ProviderTraceLogger {
 		}
 
 		return 'very_large';
+	}
+
+	/** Build a stable, non-reversible support correlation ID for an active job. */
+	private static function job_correlation_id( string $job_id ): string {
+		$job_id = sanitize_text_field( $job_id );
+
+		return '' === $job_id ? '' : 'job-' . substr( hash( 'sha256', $job_id ), 0, 12 );
 	}
 
 	/**

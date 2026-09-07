@@ -3053,13 +3053,18 @@ PROMPT;
 
 		for ( $attempt = 1; $attempt <= $this->provider_retry_max_attempts; ++$attempt ) {
 			$request_envelope = array();
+			$provider_phase   = $this->get_provider_trace_phase();
 			ProviderTraceLogger::set_runtime_context(
 				$provider_id,
 				$model_id,
 				$this->session_id,
 				$this->provider_retry_baseline_envelope_bytes,
 				$journey_id,
-				$idempotency_key
+				$idempotency_key,
+				'',
+				$attempt,
+				$this->active_job_id,
+				$provider_phase
 			);
 			try {
 				$result = $builder->generate_text_result();
@@ -3073,6 +3078,7 @@ PROMPT;
 				$last_error = $e;
 			} finally {
 				$request_envelope = ProviderTraceLogger::get_runtime_envelope_metrics();
+				$request_envelope = array_merge( $request_envelope, ProviderTraceLogger::get_runtime_failure_metadata() );
 				ProviderTraceLogger::clear_runtime_context();
 			}
 
@@ -3082,7 +3088,7 @@ PROMPT;
 
 			$status_code = $this->extract_provider_error_status( $last_error );
 			if ( ! $this->is_retryable_provider_error( $last_error, $status_code ) ) {
-				return $this->provider_error_to_wp_error( $last_error, $status_code, $provider_id );
+				return $this->provider_error_to_wp_error( $last_error, $status_code, $provider_id, $model_id, $attempt );
 			}
 
 			if ( $attempt >= $this->provider_retry_max_attempts ) {
@@ -3111,7 +3117,14 @@ PROMPT;
 			$this->active_job_id,
 			$request_envelope
 		);
-		return $this->build_provider_retry_failed_error( $last_error, $elapsed_seconds );
+		return $this->build_provider_retry_failed_error(
+			$last_error,
+			$elapsed_seconds,
+			$status_code,
+			$provider_id,
+			$model_id,
+			$this->provider_retry_max_attempts
+		);
 	}
 
 	/** Return the bounded provider invocation phase stored in terminal traces. */
@@ -3143,6 +3156,11 @@ PROMPT;
 			'request_safety_margin_bytes',
 			'request_size_class',
 			'request_size_source',
+			'status_code',
+			'failure_class',
+			'failure_source',
+			'attempts',
+			'correlation_id',
 		);
 		foreach ( $safe_keys as $key ) {
 			if ( isset( $metrics[ $key ] ) && is_scalar( $metrics[ $key ] ) ) {
@@ -3153,6 +3171,60 @@ PROMPT;
 		$error->add_data( $data );
 
 		return $error;
+	}
+
+	/**
+	 * Copy only bounded provider failure metadata onto a terminal error.
+	 *
+	 * @param WP_Error|\Throwable|null $error       Provider error.
+	 * @param int                      $status_code HTTP status code, or 0 when unavailable.
+	 * @param string                   $provider_id Runtime provider ID.
+	 * @param string                   $model_id    Runtime model ID.
+	 * @param int                      $attempts    Completed provider attempts.
+	 * @return array<string, int|string> Prompt-free terminal context.
+	 */
+	private function provider_failure_context( $error, int $status_code, string $provider_id, string $model_id, int $attempts ): array {
+		$error_data = $error instanceof WP_Error ? $error->get_error_data() : array();
+		$error_data = is_array( $error_data ) ? $error_data : array();
+		$source     = sanitize_key( (string) ( $error_data['failure_source'] ?? '' ) );
+		if ( ! in_array( $source, array( 'http', 'transport' ), true ) ) {
+			$source = $status_code >= 400 ? 'http' : 'transport';
+		}
+
+		$context = array(
+			'status_code'    => max( 0, $status_code ),
+			'provider_id'    => sanitize_key( $provider_id ),
+			'model_id'       => sanitize_text_field( $model_id ),
+			'failure_source' => $source,
+			'attempts'       => min( 10, max( 1, $attempts ) ),
+		);
+		$failure_class = ProviderErrorClassifier::get_safe_failure_class( $error, $status_code );
+		if ( '' !== $failure_class ) {
+			$context['failure_class'] = $failure_class;
+		}
+
+		foreach ( array( 'request_bytes', 'request_tokens_estimate', 'request_provider_limit_bytes', 'request_budget_bytes', 'request_safety_margin_bytes' ) as $key ) {
+			if ( isset( $error_data[ $key ] ) && is_numeric( $error_data[ $key ] ) ) {
+				$context[ $key ] = max( 0, (int) $error_data[ $key ] );
+			}
+		}
+		$request_size_class = sanitize_key( (string) ( $error_data['request_size_class'] ?? '' ) );
+		if ( in_array( $request_size_class, array( 'small', 'medium', 'large', 'very_large' ), true ) ) {
+			$context['request_size_class'] = $request_size_class;
+		}
+		$request_size_source = sanitize_key( (string) ( $error_data['request_size_source'] ?? '' ) );
+		if ( in_array( $request_size_source, array( 'complete_envelope', 'http_body', 'history_estimate' ), true ) ) {
+			$context['request_size_source'] = $request_size_source;
+		}
+		if (
+			isset( $error_data['correlation_id'] ) &&
+			is_string( $error_data['correlation_id'] ) &&
+			(bool) preg_match( '/^job-(?:[a-f0-9]{12}|unknown)$/', $error_data['correlation_id'] )
+		) {
+			$context['correlation_id'] = $error_data['correlation_id'];
+		}
+
+		return $context;
 	}
 
 	/**
@@ -3347,8 +3419,10 @@ PROMPT;
 	 * @param WP_Error|\Throwable|null $error       Last provider error.
 	 * @param int                      $status_code HTTP status code, or 0 when unknown.
 	 * @param string                   $provider_id Runtime-selected provider ID.
+	 * @param string                   $model_id    Runtime-selected model ID.
+	 * @param int                      $attempts    Completed provider attempts.
 	 */
-	private function provider_error_to_wp_error( $error, int $status_code, string $provider_id = '' ): WP_Error {
+	private function provider_error_to_wp_error( $error, int $status_code, string $provider_id = '', string $model_id = '', int $attempts = 1 ): WP_Error {
 		if ( 413 === $status_code ) {
 			$data = array( 'status_code' => $status_code );
 			if ( '' !== $provider_id ) {
@@ -3398,12 +3472,10 @@ PROMPT;
 			// without retaining that message.
 			$error_data = $error->get_error_data();
 			$error_data = is_array( $error_data ) ? $error_data : array();
-			if ( $status_code > 0 && empty( $error_data['status_code'] ) ) {
-				$error_data['status_code'] = $status_code;
-			}
-			if ( '' !== $provider_id && empty( $error_data['provider_id'] ) ) {
-				$error_data['provider_id'] = $provider_id;
-			}
+			$error_data = array_merge(
+				$error_data,
+				$this->provider_failure_context( $error, $status_code, $provider_id, $model_id, $attempts )
+			);
 			$error->add_data( $error_data );
 
 			return $error;
@@ -3414,10 +3486,7 @@ PROMPT;
 			$message = __( 'AI provider request failed.', 'superdav-ai-agent' );
 		}
 
-		$error_data = array( 'status_code' => $status_code );
-		if ( '' !== $provider_id ) {
-			$error_data['provider_id'] = $provider_id;
-		}
+		$error_data = $this->provider_failure_context( $error, $status_code, $provider_id, $model_id, $attempts );
 
 		return new WP_Error(
 			'sd_ai_agent_provider_error',
@@ -3431,8 +3500,24 @@ PROMPT;
 	 *
 	 * @param WP_Error|\Throwable|null $error           Last provider error.
 	 * @param int                      $elapsed_seconds Total elapsed seconds.
+	 * @param int                      $status_code     HTTP status code, or 0 when unavailable.
+	 * @param string                   $provider_id     Runtime provider ID.
+	 * @param string                   $model_id        Runtime model ID.
+	 * @param int                      $attempts        Completed provider attempts.
 	 */
-	private function build_provider_retry_failed_error( $error, int $elapsed_seconds ): WP_Error {
+	private function build_provider_retry_failed_error( $error, int $elapsed_seconds, int $status_code = 0, string $provider_id = '', string $model_id = '', int $attempts = 0 ): WP_Error {
+		if ( 0 === $status_code ) {
+			$status_code = $this->extract_provider_error_status( $error );
+		}
+		if ( '' === $provider_id ) {
+			$provider_id = $this->resolve_provider_id();
+		}
+		if ( '' === $model_id ) {
+			$model_id = $this->model_id;
+		}
+		if ( $attempts <= 0 ) {
+			$attempts = $this->provider_retry_max_attempts;
+		}
 		$serialized_history = is_array( $this->providerPersistenceHistory )
 			? ConversationSerializer::serialize( $this->providerPersistenceHistory )
 			: $this->serialize_history();
@@ -3474,14 +3559,16 @@ PROMPT;
 			'sd_ai_agent_provider_retry_failed',
 			$message,
 			$this->with_result_logs(
-				[
-					'tool_calls'      => $this->tool_call_log,
-					'token_usage'     => $this->token_usage,
-					'iterations_used' => $this->iterations_used,
-					'model_id'        => $this->model_id,
-					'history'         => $serialized_history,
-					'elapsed_seconds' => $elapsed_seconds,
-				]
+				array_merge(
+					[
+						'tool_calls'      => $this->tool_call_log,
+						'token_usage'     => $this->token_usage,
+						'iterations_used' => $this->iterations_used,
+						'history'         => $serialized_history,
+						'elapsed_seconds' => $elapsed_seconds,
+					],
+					$this->provider_failure_context( $error, $status_code, $provider_id, $model_id, $attempts )
+				)
 			)
 		);
 	}

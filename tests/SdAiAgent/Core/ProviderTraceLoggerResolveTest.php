@@ -16,6 +16,7 @@ declare(strict_types=1);
 
 namespace SdAiAgent\Tests\Core;
 
+use SdAiAgent\Bootstrap\HttpTraceHandler;
 use SdAiAgent\Core\ConversationTrimmer;
 use SdAiAgent\Core\ProviderTraceLogger;
 use SdAiAgent\Models\ProviderTrace;
@@ -387,6 +388,110 @@ class ProviderTraceLoggerResolveTest extends WP_UnitTestCase {
 			)
 		);
 		$this->assertNull( $body_seen, 'Disabled tracing must not pass 413 prompt bodies to trace resolution filters.' );
+	}
+
+	public function test_gateway_response_writes_only_bounded_terminal_trace_metadata(): void {
+		ProviderTrace::set_enabled( true );
+		ProviderTrace::clear();
+		$job_id       = '99999999-aaaa-bbbb-cccc-dddddddddddd';
+		$request_body = (string) wp_json_encode(
+			array(
+				'model'    => 'gpt-test',
+				'messages' => array( array( 'content' => 'PRIVATE_HTTP_PROMPT' ) ),
+			)
+		);
+		$url          = 'https://api.openai.com/v1/chat/completions';
+		$response     = array(
+			'headers'  => array( 'server' => 'imunify360', 'x-private-token' => 'PRIVATE_HEADER_TOKEN' ),
+			'body'     => '<html><title>Imunify360</title>Security gateway blocked PRIVATE_PROVIDER_RESPONSE Authorization: Bearer PRIVATE_TOKEN</html>',
+			'response' => array( 'code' => 403, 'message' => 'Forbidden' ),
+			'cookies'  => array(),
+			'filename' => '',
+		);
+
+		ProviderTraceLogger::set_runtime_context(
+			'openai',
+			'gpt-test',
+			73,
+			0,
+			'',
+			'',
+			'',
+			1,
+			$job_id,
+			'initial_provider_call'
+		);
+		ProviderTraceLogger::on_pre_http_request( false, array( 'body' => $request_body ), $url );
+		ProviderTraceLogger::on_http_response( $response, array( 'body' => $request_body ), $url );
+
+		$metadata = ProviderTraceLogger::get_runtime_failure_metadata();
+		$this->assertSame( 403, $metadata['status_code'] );
+		$this->assertSame( 'gateway_rejection', $metadata['failure_class'] );
+		$this->assertSame( 'http', $metadata['failure_source'] );
+		$this->assertSame( 1, $metadata['attempts'] );
+		$this->assertMatchesRegularExpression( '/^job-[a-f0-9]{12}$/', $metadata['correlation_id'] );
+
+		$rows = ProviderTrace::list( array( 'limit' => 1 ) );
+		$this->assertCount( 1, $rows );
+		$this->assertSame( 403, $rows[0]->status_code );
+		$this->assertSame( 'provider_gateway_rejection', $rows[0]->error );
+		$trace = ProviderTrace::get( $rows[0]->id );
+		$this->assertNotNull( $trace );
+		$this->assertSame( '{}', $trace->request_headers );
+		$this->assertSame( '{}', $trace->response_headers );
+		$terminal_metadata = json_decode( $trace->response_body, true );
+		$this->assertIsArray( $terminal_metadata );
+		$this->assertSame( 'provider_gateway_rejection', $terminal_metadata['event'] );
+		$this->assertSame( 'gateway_rejection', $terminal_metadata['failure_class'] );
+		$this->assertSame( 'http', $terminal_metadata['failure_source'] );
+		$this->assertSame( 1, $terminal_metadata['attempts'] );
+		$this->assertMatchesRegularExpression( '/^job-[a-f0-9]{12}$/', $terminal_metadata['correlation_id'] );
+		$persisted_trace = (string) wp_json_encode( $trace );
+		$this->assertStringNotContainsString( 'PRIVATE_HTTP_PROMPT', $persisted_trace );
+		$this->assertStringNotContainsString( 'PRIVATE_PROVIDER_RESPONSE', $persisted_trace );
+		$this->assertStringNotContainsString( 'PRIVATE_HEADER_TOKEN', $persisted_trace );
+		$this->assertStringNotContainsString( 'PRIVATE_TOKEN', $persisted_trace );
+	}
+
+	public function test_http_trace_handler_captures_gateway_metadata_without_debug_tracing(): void {
+		ProviderTrace::set_enabled( false );
+		ProviderTraceLogger::set_runtime_context(
+			'openai',
+			'gpt-test',
+			73,
+			0,
+			'',
+			'',
+			'',
+			2,
+			'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee',
+			'provider_followup_call'
+		);
+
+		$handler = new HttpTraceHandler();
+		$handler->on_http_response(
+			array(
+				'headers'  => array(),
+				'body'     => 'Imunify360 rejected PRIVATE_PROVIDER_RESPONSE.',
+				'response' => array( 'code' => 403, 'message' => 'Forbidden' ),
+				'cookies'  => array(),
+				'filename' => '',
+			),
+			array( 'body' => '{"model":"gpt-test"}' ),
+			'https://api.openai.com/v1/chat/completions'
+		);
+
+		$this->assertSame(
+			array(
+				'status_code'    => 403,
+				'failure_class'  => 'gateway_rejection',
+				'failure_source' => 'http',
+				'attempts'       => 2,
+				'correlation_id' => 'job-' . substr( hash( 'sha256', 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee' ), 0, 12 ),
+			),
+			ProviderTraceLogger::get_runtime_failure_metadata()
+		);
+		$this->assertCount( 0, ProviderTrace::list( array( 'limit' => 1 ) ) );
 	}
 
 	/** Retry exhaustion has one prompt-free terminal trace even when transport callbacks never run. */

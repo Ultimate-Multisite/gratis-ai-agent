@@ -99,6 +99,14 @@ class ActiveJobFailureDiagnosticTest extends WP_UnitTestCase {
 				),
 				ActiveJobFailureDiagnostic::REASON_PROVIDER_TIMEOUT,
 			),
+			'gateway rejection'         => array(
+				new \WP_Error(
+					'provider_http_error',
+					'<html><title>Imunify360</title>Request blocked. PRIVATE_PROMPT_CONTENT Authorization: Bearer PRIVATE_TOKEN</html>',
+					array( 'status_code' => 403 )
+				),
+				ActiveJobFailureDiagnostic::REASON_GATEWAY_REJECTION,
+			),
 			'unknown provider error'    => array(
 				new \WP_Error(
 					'provider_unexpected_error',
@@ -106,6 +114,65 @@ class ActiveJobFailureDiagnosticTest extends WP_UnitTestCase {
 				),
 				ActiveJobFailureDiagnostic::REASON_UNKNOWN,
 			),
+		);
+	}
+
+	public function test_gateway_rejection_diagnostic_keeps_only_allowlisted_metadata(): void {
+		$job_id = '88888888-9999-0000-1111-222222222222';
+		$error  = new \WP_Error(
+			'provider_http_error',
+			'<html><title>Imunify360</title>Blocked PRIVATE_PROMPT_CONTENT Authorization: Bearer PRIVATE_TOKEN</html>',
+			array(
+				'status_code'     => 403,
+				'failure_class'   => 'gateway_rejection',
+				'failure_source'  => 'http',
+				'attempts'        => 1,
+				'provider_id'     => 'sd-ai-agent-cloud',
+				'model_id'        => 'managed-model',
+				'response_body'   => 'PRIVATE_PROVIDER_RESPONSE',
+				'prompt'          => 'PRIVATE_PROMPT_CONTENT',
+				'authorization'   => 'Bearer PRIVATE_TOKEN',
+				'exception_trace' => '/private/path.php:99',
+			)
+		);
+		$context = ActiveJobFailureDiagnostic::context_from_error_data( (array) $error->get_error_data() );
+		$context['last_safe_phase'] = 'before_provider_call';
+		$diagnostic                  = ActiveJobFailureDiagnostic::create(
+			$job_id,
+			ActiveJobFailureDiagnostic::reason_from_error( $error, 'sd-ai-agent-cloud' ),
+			$context
+		);
+		$encoded                     = ActiveJobFailureDiagnostic::encode( $job_id, $diagnostic );
+		$rest                        = ActiveJobFailureDiagnostic::to_rest( $diagnostic );
+
+		$this->assertSame( ActiveJobFailureDiagnostic::REASON_GATEWAY_REJECTION, $rest['reason'] );
+		$this->assertSame( 403, $rest['status_code'] );
+		$this->assertSame( 'gateway_rejection', $rest['failure_class'] );
+		$this->assertSame( 'http', $rest['failure_source'] );
+		$this->assertSame( 1, $rest['attempts'] );
+		$this->assertFalse( $rest['retryable'] );
+		$this->assertSame( 'contact_support', $rest['next_action'] );
+		$this->assertStringNotContainsString( 'PRIVATE_PROVIDER_RESPONSE', $encoded );
+		$this->assertStringNotContainsString( 'PRIVATE_PROMPT_CONTENT', $encoded );
+		$this->assertStringNotContainsString( 'PRIVATE_TOKEN', $encoded );
+		$this->assertStringNotContainsString( '/private/path.php', $encoded );
+		$this->assertSame(
+			array(
+				'reason',
+				'status_code',
+				'failure_class',
+				'failure_source',
+				'last_safe_phase',
+				'attempts',
+				'resume_count',
+				'provider_id',
+				'model_id',
+				'request_size_class',
+				'retryable',
+				'next_action',
+				'correlation_id',
+			),
+			array_keys( $rest )
 		);
 	}
 
@@ -131,6 +198,7 @@ class ActiveJobFailureDiagnosticTest extends WP_UnitTestCase {
 			ActiveJobFailureDiagnostic::REASON_LOCAL_PAYLOAD_GUARD        => array( 'compact', false ),
 			ActiveJobFailureDiagnostic::REASON_UPSTREAM_PAYLOAD_REJECTION => array( 'compact', false ),
 			ActiveJobFailureDiagnostic::REASON_PROVIDER_TIMEOUT           => array( 'retry', true ),
+			ActiveJobFailureDiagnostic::REASON_GATEWAY_REJECTION          => array( 'contact_support', false ),
 			ActiveJobFailureDiagnostic::REASON_CREDIT_EXHAUSTED           => array( 'purchase_credits', false ),
 			ActiveJobFailureDiagnostic::REASON_WORKER_TERMINATED          => array( 'retry', true ),
 			ActiveJobFailureDiagnostic::REASON_APPROVAL_WAIT              => array( 'approve_review', true ),
