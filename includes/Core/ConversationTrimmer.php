@@ -43,6 +43,9 @@ class ConversationTrimmer {
 	/** Maximum characters copied from any single message into compact context. */
 	private const COMPACT_MAX_MESSAGE_CHARS = 2000;
 
+	/** Maximum serialized bytes held for one streamed source message. */
+	private const STREAMED_MESSAGE_MAX_BYTES = 1048576;
+
 	/** Maximum JSON characters retained for callable ability-search schemas. */
 	private const COMPACT_MAX_ABILITY_SCHEMA_RECEIPT_CHARS = 1600;
 
@@ -290,6 +293,376 @@ class ConversationTrimmer {
 				'tool_payloads_omitted'  => true,
 			),
 		);
+	}
+
+	/**
+	 * Build a bounded compact seed from JSON-array chunks without materializing the
+	 * full persisted history in PHP memory.
+	 *
+	 * Complete serialized tool call/result cycles are retained together or omitted
+	 * together. A malformed or incomplete stream is reported in meta so callers
+	 * can fail closed instead of compacting a partial conversation.
+	 *
+	 * @param iterable<int, string> $chunks     Serialized JSON-array slices.
+	 * @param int                   $max_bytes  Maximum serialized seed-message bytes.
+	 * @param int                   $max_tokens Maximum estimated seed-message tokens.
+	 * @return array{messages:list<array<string,mixed>>,meta:array<string,int|bool>}
+	 */
+	public static function compact_serialized_history_chunks( iterable $chunks, int $max_bytes = self::COMPACT_MAX_BYTES, int $max_tokens = self::COMPACT_MAX_TOKENS ): array {
+		$stream_complete = false;
+		$stream_valid    = true;
+		$result          = self::compact_serialized_history_iterable(
+			self::decode_serialized_history_chunks( $chunks, $stream_complete, $stream_valid ),
+			$max_bytes,
+			$max_tokens
+		);
+
+		$result['meta']['stream_complete'] = $stream_complete;
+		$result['meta']['stream_valid']    = $stream_valid;
+
+		return $result;
+	}
+
+	/**
+	 * Build bounded compact context from a streamed serialized-message iterable.
+	 *
+	 * @param iterable<int, array<string,mixed>> $messages   Serialized messages.
+	 * @param int                                $max_bytes  Maximum serialized seed-message bytes.
+	 * @param int                                $max_tokens Maximum estimated seed-message tokens.
+	 * @return array{messages:list<array<string,mixed>>,meta:array<string,int|bool>}
+	 */
+	private static function compact_serialized_history_iterable( iterable $messages, int $max_bytes, int $max_tokens ): array {
+		$max_bytes             = max( 1024, $max_bytes );
+		$max_tokens            = max( 256, $max_tokens );
+		$per_message_chars     = max( 160, min( self::COMPACT_MAX_MESSAGE_CHARS, (int) floor( $max_bytes / 4 ) ) );
+		$source_count          = 0;
+		$retained_groups       = array();
+		$pending_tool_call_lines = null;
+
+		foreach ( $messages as $message ) {
+			if ( ! is_array( $message ) ) {
+				continue;
+			}
+
+			$expanded     = self::serialized_message_to_compact_excerpts( $message, $per_message_chars );
+			$source_count += $expanded['source_count'];
+			$has_call     = self::serialized_message_has_function_call( $message );
+			$has_response = self::serialized_message_has_function_response( $message );
+
+			if ( null !== $pending_tool_call_lines ) {
+				if ( $has_response ) {
+					self::retain_compact_group(
+						$retained_groups,
+						array_merge( $pending_tool_call_lines, $expanded['lines'] ),
+						$source_count,
+						$max_bytes,
+						$max_tokens
+					);
+					$pending_tool_call_lines = null;
+					continue;
+				}
+
+				// Do not retain a lone call when its result is absent from the stream.
+				$pending_tool_call_lines = null;
+				self::trim_compact_groups( $retained_groups, $source_count, $max_bytes, $max_tokens );
+			}
+
+			if ( $has_call ) {
+				$pending_tool_call_lines = $expanded['lines'];
+				self::trim_compact_groups( $retained_groups, $source_count, $max_bytes, $max_tokens );
+				continue;
+			}
+
+			if ( $has_response ) {
+				// A result without a preceding call cannot form a complete tool cycle.
+				self::trim_compact_groups( $retained_groups, $source_count, $max_bytes, $max_tokens );
+				continue;
+			}
+
+			self::retain_compact_group( $retained_groups, $expanded['lines'], $source_count, $max_bytes, $max_tokens );
+		}
+
+		if ( null !== $pending_tool_call_lines ) {
+			self::trim_compact_groups( $retained_groups, $source_count, $max_bytes, $max_tokens );
+		}
+
+		$lines          = self::flatten_compact_groups( $retained_groups );
+		$retained_count = count( $lines );
+		if ( empty( $lines ) ) {
+			$lines          = array( '[No individual message excerpt fit within the compact budget.]' );
+			$retained_count = 0;
+		}
+
+		$text       = self::build_compact_context_text( $source_count, $retained_count, $lines );
+		$message    = self::compact_text_to_message( $text );
+		$line_count = count( $lines );
+
+		while ( ! self::fits_budget( array( $message ), $max_bytes, $max_tokens ) && $line_count > 1 ) {
+			array_shift( $lines );
+			$retained_count = count( $lines );
+			$line_count     = $retained_count;
+			$text           = self::build_compact_context_text( $source_count, $retained_count, $lines );
+			$message        = self::compact_text_to_message( $text );
+		}
+
+		if ( ! self::fits_budget( array( $message ), $max_bytes, $max_tokens ) ) {
+			$retained_count = 0;
+			$text           = self::build_compact_context_text(
+				$source_count,
+				$retained_count,
+				array( '[Conversation details were omitted because the compact budget is smaller than the required metadata.]' )
+			);
+			$message        = self::compact_text_to_message( $text );
+		}
+
+		return array(
+			'messages' => array( $message->toArray() ),
+			'meta'     => array(
+				'source_message_count'   => $source_count,
+				'retained_excerpt_count' => $retained_count,
+				'boundary_omitted_count' => max( 0, $source_count - $retained_count ),
+				'estimated_bytes'        => self::estimate_bytes( $message ),
+				'estimated_tokens'       => self::estimate_tokens( $message ),
+				'max_bytes'              => $max_bytes,
+				'max_tokens'             => $max_tokens,
+				'attachments_omitted'    => true,
+				'tool_payloads_omitted'  => true,
+			),
+		);
+	}
+
+	/**
+	 * Incrementally decode an array of serialized message objects.
+	 *
+	 * @param iterable<int, string> $chunks   Serialized JSON-array slices.
+	 * @param bool                  $complete Receives whether the closing array token was read.
+	 * @param bool                  $valid    Receives whether every decoded element was valid.
+	 * @return \Generator<int, array<string,mixed>>
+	 */
+	private static function decode_serialized_history_chunks( iterable $chunks, bool &$complete, bool &$valid ): \Generator {
+		$complete      = false;
+		$valid         = true;
+		$started       = false;
+		$depth         = 0;
+		$element       = '';
+		$element_bytes = 0;
+		$in_string     = false;
+		$escaped       = false;
+		$discarding    = false;
+
+		foreach ( $chunks as $chunk ) {
+			if ( ! is_string( $chunk ) ) {
+				$valid = false;
+				continue;
+			}
+
+			for ( $index = 0, $length = strlen( $chunk ); $index < $length; ++$index ) {
+				$character = $chunk[ $index ];
+
+				if ( ! $started ) {
+					if ( ' ' === $character || "\n" === $character || "\r" === $character || "\t" === $character ) {
+						continue;
+					}
+					if ( '[' !== $character ) {
+						$valid = false;
+						return;
+					}
+
+					$started = true;
+					continue;
+				}
+
+				if ( 0 === $depth ) {
+					if ( ' ' === $character || "\n" === $character || "\r" === $character || "\t" === $character || ',' === $character ) {
+						continue;
+					}
+					if ( ']' === $character ) {
+						$complete = true;
+						return;
+					}
+					if ( '{' !== $character ) {
+						$valid = false;
+						return;
+					}
+
+					$depth         = 1;
+					$element       = '{';
+					$element_bytes = 1;
+					$in_string     = false;
+					$escaped       = false;
+					$discarding    = false;
+					continue;
+				}
+
+				++$element_bytes;
+				if ( ! $discarding ) {
+					if ( $element_bytes > self::STREAMED_MESSAGE_MAX_BYTES ) {
+						$discarding = true;
+						$element    = '';
+					} else {
+						$element .= $character;
+					}
+				}
+
+				if ( $in_string ) {
+					if ( $escaped ) {
+						$escaped = false;
+						continue;
+					}
+					if ( '\\' === $character ) {
+						$escaped = true;
+						continue;
+					}
+					if ( '"' === $character ) {
+						$in_string = false;
+					}
+					continue;
+				}
+
+				if ( '"' === $character ) {
+					$in_string = true;
+					continue;
+				}
+				if ( '{' === $character || '[' === $character ) {
+					++$depth;
+					continue;
+				}
+				if ( '}' !== $character && ']' !== $character ) {
+					continue;
+				}
+
+				--$depth;
+				if ( $depth < 0 ) {
+					$valid = false;
+					return;
+				}
+				if ( 0 !== $depth ) {
+					continue;
+				}
+
+				if ( $discarding ) {
+					yield self::oversized_streamed_message_placeholder( $element_bytes );
+				} else {
+					$decoded = json_decode( $element, true );
+					if ( ! is_array( $decoded ) ) {
+						$valid = false;
+					} else {
+						yield $decoded;
+					}
+				}
+
+				$element       = '';
+				$element_bytes = 0;
+				$in_string     = false;
+				$escaped       = false;
+				$discarding    = false;
+			}
+		}
+
+		$valid = false;
+	}
+
+	/**
+	 * Build a bounded marker for one pathological serialized message.
+	 *
+	 * @param int $bytes Source message size.
+	 * @return array<string,mixed>
+	 */
+	private static function oversized_streamed_message_placeholder( int $bytes ): array {
+		return array(
+			'role'  => 'user',
+			'parts' => array(
+				array(
+					'text' => sprintf( '[A persisted message of %d bytes was omitted during maintenance compaction.]', $bytes ),
+				),
+			),
+		);
+	}
+
+	/**
+	 * Check whether a serialized message contains a function call.
+	 *
+	 * @param array<string,mixed> $message Serialized message.
+	 */
+	private static function serialized_message_has_function_call( array $message ): bool {
+		$parts = isset( $message['parts'] ) && is_array( $message['parts'] ) ? $message['parts'] : array();
+		foreach ( $parts as $part ) {
+			if ( is_array( $part ) && ( isset( $part['functionCall'] ) || isset( $part['function_call'] ) ) ) {
+				return true;
+			}
+		}
+
+		return false;
+	}
+
+	/**
+	 * Check whether a serialized message contains a function response.
+	 *
+	 * @param array<string,mixed> $message Serialized message.
+	 */
+	private static function serialized_message_has_function_response( array $message ): bool {
+		$parts = isset( $message['parts'] ) && is_array( $message['parts'] ) ? $message['parts'] : array();
+		foreach ( $parts as $part ) {
+			if ( is_array( $part ) && ( isset( $part['functionResponse'] ) || isset( $part['function_response'] ) ) ) {
+				return true;
+			}
+		}
+
+		return false;
+	}
+
+	/**
+	 * Retain a complete compact group only while it fits the bounded seed budget.
+	 *
+	 * @param list<list<string>> $groups      Retained chronological compact groups.
+	 * @param list<string>       $lines       One logical group of excerpts.
+	 * @param int                $source_count Original source message count.
+	 * @param int                $max_bytes    Maximum serialized seed-message bytes.
+	 * @param int                $max_tokens   Maximum estimated seed-message tokens.
+	 */
+	private static function retain_compact_group( array &$groups, array $lines, int $source_count, int $max_bytes, int $max_tokens ): void {
+		$group = array();
+		foreach ( $lines as $line ) {
+			if ( is_string( $line ) && '' !== $line ) {
+				$group[] = $line;
+			}
+		}
+		if ( ! empty( $group ) ) {
+			$groups[] = $group;
+		}
+
+		self::trim_compact_groups( $groups, $source_count, $max_bytes, $max_tokens );
+	}
+
+	/**
+	 * Drop oldest whole groups until the candidate seed fits the current budget.
+	 *
+	 * @param list<list<string>> $groups       Retained chronological compact groups.
+	 * @param int                $source_count Original source message count.
+	 * @param int                $max_bytes    Maximum serialized seed-message bytes.
+	 * @param int                $max_tokens   Maximum estimated seed-message tokens.
+	 */
+	private static function trim_compact_groups( array &$groups, int $source_count, int $max_bytes, int $max_tokens ): void {
+		while ( ! empty( $groups ) && ! self::compact_lines_fit_budget( self::flatten_compact_groups( $groups ), $source_count, $max_bytes, $max_tokens ) ) {
+			array_shift( $groups );
+		}
+	}
+
+	/**
+	 * Flatten chronological compact groups without splitting their ordering.
+	 *
+	 * @param list<list<string>> $groups Retained compact groups.
+	 * @return list<string>
+	 */
+	private static function flatten_compact_groups( array $groups ): array {
+		$lines = array();
+		foreach ( $groups as $group ) {
+			foreach ( $group as $line ) {
+				$lines[] = $line;
+			}
+		}
+
+		return $lines;
 	}
 
 	/**

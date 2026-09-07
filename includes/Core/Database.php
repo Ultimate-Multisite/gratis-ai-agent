@@ -1325,6 +1325,48 @@ class Database {
 	}
 
 	/**
+	 * Return the soft thresholds used to identify session storage maintenance.
+	 *
+	 * @return array{bytes:int,messages:int}
+	 */
+	public static function get_session_storage_maintenance_limits(): array {
+		return SessionRepository::get_storage_maintenance_limits();
+	}
+
+	/**
+	 * List oversized session metadata without selecting conversation contents.
+	 *
+	 * @param int $min_bytes    Minimum combined persisted bytes. 0 uses the configured threshold.
+	 * @param int $min_messages Minimum message count. 0 uses the configured threshold.
+	 * @param int $limit        Maximum rows to return.
+	 * @return list<object>
+	 */
+	public static function list_oversized_sessions( int $min_bytes = 0, int $min_messages = 0, int $limit = 100 ): array {
+		return SessionRepository::list_oversized( $min_bytes, $min_messages, $limit );
+	}
+
+	/**
+	 * Return maintenance metadata without loading persisted conversation JSON.
+	 *
+	 * @param int $session_id Session ID.
+	 * @return object|null Metadata row, or null when not found.
+	 */
+	public static function get_session_maintenance_metadata( int $session_id ): ?object {
+		return SessionRepository::get_maintenance_metadata( $session_id );
+	}
+
+	/**
+	 * Yield a persisted message payload in bounded slices for maintenance compaction.
+	 *
+	 * @param int $session_id Session ID.
+	 * @param int $chunk_bytes Maximum bytes per slice.
+	 * @return \Generator<int, string>
+	 */
+	public static function stream_session_messages( int $session_id, int $chunk_bytes = SessionRepository::STREAM_CHUNK_BYTES ): \Generator {
+		return SessionRepository::stream_messages( $session_id, $chunk_bytes );
+	}
+
+	/**
 	 * List sessions for a user (lightweight — no messages/tool_calls).
 	 *
 	 * @param int                  $user_id WordPress user ID.

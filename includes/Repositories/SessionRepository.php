@@ -24,6 +24,15 @@ if ( ! defined( 'ABSPATH' ) ) {
  */
 class SessionRepository {
 
+	/** Soft maintenance threshold for the total persisted session payload (8 MiB). */
+	public const STORAGE_MAINTENANCE_BYTES = 8388608;
+
+	/** Soft maintenance threshold for persisted conversation messages. */
+	public const STORAGE_MAINTENANCE_MESSAGES = 10000;
+
+	/** Maximum database slice read while compacting a historical session. */
+	public const STREAM_CHUNK_BYTES = 65536;
+
 	/**
 	 * Create a new session.
 	 *
@@ -72,6 +81,150 @@ class SessionRepository {
 				$session_id
 			)
 		);
+	}
+
+	/**
+	 * Return the configurable thresholds that trigger a storage-maintenance notice.
+	 *
+	 * These are deliberately soft limits: normal persistence remains non-destructive
+	 * while an administrator chooses whether to export, compact, archive, or remove
+	 * a session that crosses the threshold.
+	 *
+	 * @return array{bytes:int,messages:int}
+	 */
+	public static function get_storage_maintenance_limits(): array {
+		$bytes = (int) apply_filters( 'sd_ai_agent_session_storage_maintenance_bytes', self::STORAGE_MAINTENANCE_BYTES );
+		$messages = (int) apply_filters( 'sd_ai_agent_session_storage_maintenance_messages', self::STORAGE_MAINTENANCE_MESSAGES );
+
+		return array(
+			'bytes'    => max( 1024, $bytes ),
+			'messages' => max( 1, $messages ),
+		);
+	}
+
+	/**
+	 * List session-storage candidates without reading their conversation payloads.
+	 *
+	 * @param int $min_bytes    Minimum combined messages, tool calls, and pause-state bytes. 0 uses the maintenance threshold.
+	 * @param int $min_messages Minimum message count. 0 uses the maintenance threshold.
+	 * @param int $limit        Maximum candidates to return.
+	 * @return list<object>
+	 */
+	public static function list_oversized( int $min_bytes = 0, int $min_messages = 0, int $limit = 100 ): array {
+		global $wpdb;
+		/** @var \wpdb $wpdb */
+
+		$limits       = self::get_storage_maintenance_limits();
+		$min_bytes    = max( 1024, $min_bytes > 0 ? $min_bytes : $limits['bytes'] );
+		$min_messages = max( 1, $min_messages > 0 ? $min_messages : $limits['messages'] );
+		$limit        = min( 500, max( 1, $limit ) );
+
+		// phpcs:disable WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Custom table inspection returns metadata only; caching cannot safely represent live maintenance candidates.
+		$rows = $wpdb->get_results(
+			$wpdb->prepare(
+				"SELECT id, status, message_count, messages_bytes, tool_calls_bytes, paused_state_bytes, total_bytes
+				FROM (
+					SELECT id, status,
+						COALESCE(JSON_LENGTH(messages), 0) AS message_count,
+						COALESCE(OCTET_LENGTH(messages), 0) AS messages_bytes,
+						COALESCE(OCTET_LENGTH(tool_calls), 0) AS tool_calls_bytes,
+						COALESCE(OCTET_LENGTH(paused_state), 0) AS paused_state_bytes,
+						COALESCE(OCTET_LENGTH(messages), 0) + COALESCE(OCTET_LENGTH(tool_calls), 0) + COALESCE(OCTET_LENGTH(paused_state), 0) AS total_bytes
+					FROM %i
+				) AS sd_ai_agent_session_sizes
+				WHERE total_bytes >= %d OR message_count >= %d
+				ORDER BY total_bytes DESC, id ASC
+				LIMIT %d",
+				Database::table_name(),
+				$min_bytes,
+				$min_messages,
+				$limit
+			)
+		);
+		// phpcs:enable WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+
+		return is_array( $rows ) ? $rows : array();
+	}
+
+	/**
+	 * Return only fields needed to safely maintain a historical session.
+	 *
+	 * Deliberately omits messages, tool_calls, and paused_state so a maintenance
+	 * request does not create a full in-memory copy before chunked compaction.
+	 *
+	 * @param int $session_id Session ID.
+	 * @return object|null Metadata row, or null when not found.
+	 */
+	public static function get_maintenance_metadata( int $session_id ): ?object {
+		global $wpdb;
+		/** @var \wpdb $wpdb */
+
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Custom table metadata query; caching not applicable.
+		$row = $wpdb->get_row(
+			$wpdb->prepare(
+				"SELECT id, user_id, title, provider_id, model_id, status,
+					COALESCE(JSON_LENGTH(messages), 0) AS message_count,
+					COALESCE(OCTET_LENGTH(messages), 0) AS messages_bytes,
+					COALESCE(OCTET_LENGTH(tool_calls), 0) AS tool_calls_bytes,
+					COALESCE(OCTET_LENGTH(paused_state), 0) AS paused_state_bytes,
+					CASE WHEN paused_state IS NULL OR paused_state = '' THEN 0 ELSE 1 END AS has_paused_state
+				FROM %i WHERE id = %d",
+				Database::table_name(),
+				$session_id
+			)
+		);
+
+		return is_object( $row ) ? $row : null;
+	}
+
+	/**
+	 * Yield a session's serialized message JSON in bounded database slices.
+	 *
+	 * @param int $session_id Session ID.
+	 * @param int $chunk_bytes Maximum bytes per yielded slice.
+	 * @return \Generator<int, string>
+	 */
+	public static function stream_messages( int $session_id, int $chunk_bytes = self::STREAM_CHUNK_BYTES ): \Generator {
+		global $wpdb;
+		/** @var \wpdb $wpdb */
+
+		$session_id = absint( $session_id );
+		if ( $session_id <= 0 ) {
+			return;
+		}
+
+		$chunk_bytes = min( self::STREAM_CHUNK_BYTES, max( 1024, $chunk_bytes ) );
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Reads only a scalar length before bounded custom-table slices.
+		$total_bytes = $wpdb->get_var(
+			$wpdb->prepare(
+				'SELECT OCTET_LENGTH(messages) FROM %i WHERE id = %d',
+				Database::table_name(),
+				$session_id
+			)
+		);
+
+		if ( ! is_numeric( $total_bytes ) || (int) $total_bytes <= 0 ) {
+			return;
+		}
+
+		for ( $offset = 1; $offset <= (int) $total_bytes; $offset += $chunk_bytes ) {
+			// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Bounded custom-table slice for maintenance compaction.
+			$chunk = $wpdb->get_var(
+				$wpdb->prepare(
+					'SELECT SUBSTRING(messages, %d, %d) FROM %i WHERE id = %d',
+					$offset,
+					$chunk_bytes,
+					Database::table_name(),
+					$session_id
+				)
+			);
+
+			if ( ! is_string( $chunk ) || '' === $chunk ) {
+				return;
+			}
+
+			yield $chunk;
+		}
 	}
 
 	/**
@@ -513,13 +666,46 @@ class SessionRepository {
 		// @phpstan-ignore-next-line
 		$merged_tool_calls = array_merge( $existing_tool_calls, $tool_calls );
 
-		return self::update(
+		$encoded_messages   = wp_json_encode( $merged_messages );
+		$encoded_tool_calls = wp_json_encode( $merged_tool_calls );
+		if ( ! is_string( $encoded_messages ) || ! is_string( $encoded_tool_calls ) ) {
+			return false;
+		}
+
+		$updated = self::update(
 			$session_id,
 			[
-				'messages'   => wp_json_encode( $merged_messages ),
-				'tool_calls' => wp_json_encode( $merged_tool_calls ),
+				'messages'   => $encoded_messages,
+				'tool_calls' => $encoded_tool_calls,
 			]
 		);
+
+		if ( ! $updated ) {
+			return false;
+		}
+
+		$limits             = self::get_storage_maintenance_limits();
+		$paused_state_bytes = isset( $session->paused_state ) && is_string( $session->paused_state ) ? strlen( $session->paused_state ) : 0;
+		$total_bytes        = strlen( $encoded_messages ) + strlen( $encoded_tool_calls ) + $paused_state_bytes;
+		$message_count      = count( $merged_messages );
+		if ( $total_bytes >= $limits['bytes'] || $message_count >= $limits['messages'] ) {
+			/**
+			 * Fires after a session crosses the non-destructive storage-maintenance threshold.
+			 *
+			 * @param int                                    $session_id Session ID.
+			 * @param array{message_count:int,total_bytes:int} $metrics    Safe size metadata only.
+			 */
+			do_action(
+				'sd_ai_agent_session_storage_maintenance_required',
+				$session_id,
+				array(
+					'message_count' => $message_count,
+					'total_bytes'   => $total_bytes,
+				)
+			);
+		}
+
+		return true;
 	}
 
 	// ─── Shared Sessions ─────────────────────────────────────────────────────
