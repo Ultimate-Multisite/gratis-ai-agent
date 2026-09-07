@@ -1993,11 +1993,27 @@ class RestControllerTest extends WP_UnitTestCase {
 			},
 			$recovery_history
 		);
-		$tool_calls        = [
-			[ 'id' => 'create-post', 'name' => 'create_post' ],
-			[ 'id' => 'inspect-post', 'name' => 'get_post' ],
-		];
-		Database::append_to_session( $session_id, $persisted_history, $tool_calls );
+		$tool_calls = [];
+		for ( $index = 1; $index <= 46; ++$index ) {
+			$call_id = sprintf( 'recovery-call-%02d', $index );
+			$tool_calls[] = [
+				'type'     => 'call',
+				'id'       => $call_id,
+				'name'     => 'wpab__sd-ai-agent__site-info',
+				'args'     => [ 'site_url' => 'https://example.test' ],
+				'sequence' => ( $index * 2 ) - 1,
+			];
+			$tool_calls[] = [
+				'type'     => 'response',
+				'id'       => $call_id,
+				'name'     => 'wpab__sd-ai-agent__site-info',
+				'response' => [ 'name' => 'Example Site' ],
+				'sequence' => $index * 2,
+			];
+		}
+		$persisted_tool_calls = array_slice( $tool_calls, 0, 58 );
+		$replayed_tool_calls  = array_merge( $tool_calls, array_slice( $tool_calls, 58 ) );
+		Database::append_to_session( $session_id, $persisted_history, $persisted_tool_calls );
 
 		// A second identical user turn is a legitimate new turn, not a replay.
 		$recovery_history[] = [ 'role' => 'user', 'parts' => [ [ 'text' => "But I don't, check it yourself." ] ] ];
@@ -2006,7 +2022,7 @@ class RestControllerTest extends WP_UnitTestCase {
 			'The provider rejected the prompt.',
 			[
 				'history'    => $recovery_history,
-				'tool_calls' => $tool_calls,
+				'tool_calls' => $replayed_tool_calls,
 				'messages'   => [],
 				'token_usage' => [ 'prompt' => 1, 'completion' => 0 ],
 			]
@@ -2032,11 +2048,17 @@ class RestControllerTest extends WP_UnitTestCase {
 		$this->assertSame( $persisted_history, array_slice( $messages, 0, 10 ) );
 		$this->assertCount( 11, $messages );
 		$this->assertSame( $recovery_history[10], $messages[10] );
-		$this->assertSame( 'create-post', $messages[1]['parts'][0]['function_call']['id'] );
-		$this->assertSame( 'create-post', $messages[2]['parts'][0]['function_response']['id'] );
-		$this->assertSame( 'inspect-post', $messages[5]['parts'][0]['function_call']['id'] );
-		$this->assertSame( 'inspect-post', $messages[6]['parts'][0]['function_response']['id'] );
 		$this->assertSame( $tool_calls, $stored_calls );
+		$this->assertCount( 92, $stored_calls );
+		$this->assertSame( $stored_calls[0]['name'], $stored_calls[2]['name'] );
+		$this->assertSame( $stored_calls[0]['args'], $stored_calls[2]['args'] );
+		$this->assertNotSame( $stored_calls[0]['id'], $stored_calls[2]['id'] );
+		for ( $index = 0; $index < 46; ++$index ) {
+			$call_offset = $index * 2;
+			$this->assertSame( 'call', $stored_calls[ $call_offset ]['type'] );
+			$this->assertSame( 'response', $stored_calls[ $call_offset + 1 ]['type'] );
+			$this->assertSame( $stored_calls[ $call_offset ]['id'], $stored_calls[ $call_offset + 1 ]['id'] );
+		}
 		$this->assertSame( $session_id, $job['session_id'] );
 		$this->assertTrue( $job['recoverable'] );
 	}
