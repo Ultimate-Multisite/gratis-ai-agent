@@ -509,9 +509,8 @@ class SessionRepository {
 		$existing_tool_calls = json_decode( $session->tool_calls, true ) ?: [];
 
 		// @phpstan-ignore-next-line
-		$merged_messages = array_merge( $existing_messages, $messages );
-		// @phpstan-ignore-next-line
-		$merged_tool_calls = array_merge( $existing_tool_calls, $tool_calls );
+		$merged_messages   = array_merge( $existing_messages, $messages );
+		$merged_tool_calls = self::append_unique_tool_call_events( $existing_tool_calls, $tool_calls );
 
 		return self::update(
 			$session_id,
@@ -520,6 +519,85 @@ class SessionRepository {
 				'tool_calls' => wp_json_encode( $merged_tool_calls ),
 			]
 		);
+	}
+
+	/**
+	 * Append only incoming tool-call events that do not already have a stable
+	 * ledger identity.
+	 *
+	 * This protects continuation and recovery paths that can submit a complete
+	 * activity log more than once. Existing sessions are never rewritten; only
+	 * repeated incoming events are skipped. Rows without a complete identity
+	 * remain append-only for backward compatibility.
+	 *
+	 * @param array<mixed>               $existing_tool_calls Existing stored tool-call rows.
+	 * @param list<array<string, mixed>> $tool_calls          Incoming tool-call rows.
+	 * @return array<mixed> Ordered stored and newly accepted rows.
+	 */
+	private static function append_unique_tool_call_events( array $existing_tool_calls, array $tool_calls ): array {
+		$merged_events = $existing_tool_calls;
+		$seen_events   = array();
+
+		foreach ( $existing_tool_calls as $event ) {
+			if ( ! is_array( $event ) ) {
+				continue;
+			}
+
+			$identity = self::get_tool_call_event_identity( $event );
+			if ( null !== $identity ) {
+				$seen_events[ $identity ] = true;
+			}
+		}
+
+		foreach ( $tool_calls as $event ) {
+			$identity = self::get_tool_call_event_identity( $event );
+			if ( null !== $identity && isset( $seen_events[ $identity ] ) ) {
+				continue;
+			}
+
+			$merged_events[] = $event;
+			if ( null !== $identity ) {
+				$seen_events[ $identity ] = true;
+			}
+		}
+
+		return $merged_events;
+	}
+
+	/**
+	 * Return the stable identity for one ordered tool-call ledger event.
+	 *
+	 * A call and its response intentionally share an ID but have distinct types
+	 * and sequences. A later identical ability invocation receives a new call ID
+	 * and is therefore preserved.
+	 *
+	 * @param array<string, mixed> $event Tool-call ledger row.
+	 * @return string|null Stable event identity, or null for legacy rows.
+	 */
+	private static function get_tool_call_event_identity( array $event ): ?string {
+		$type     = $event['type'] ?? null;
+		$id       = $event['id'] ?? null;
+		$sequence = $event['sequence'] ?? null;
+
+		if (
+			! is_scalar( $type )
+			|| '' === (string) $type
+			|| ! is_scalar( $id )
+			|| '' === (string) $id
+			|| ! is_numeric( $sequence )
+		) {
+			return null;
+		}
+
+		$identity = wp_json_encode(
+			array(
+				'type'     => (string) $type,
+				'id'       => (string) $id,
+				'sequence' => (int) $sequence,
+			)
+		);
+
+		return is_string( $identity ) ? $identity : null;
 	}
 
 	// ─── Shared Sessions ─────────────────────────────────────────────────────

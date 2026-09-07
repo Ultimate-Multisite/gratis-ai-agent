@@ -325,6 +325,64 @@ class DatabaseTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * Tool-call events with the same type, ID, and sequence are persisted once.
+	 */
+	public function test_append_to_session_deduplicates_replayed_tool_call_events(): void {
+		$user_id = self::factory()->user->create();
+
+		$session_id = Database::create_session( [
+			'user_id' => $user_id,
+			'title'   => 'Tool-call event replay',
+		] );
+		$first_call = [
+			'type'     => 'call',
+			'id'       => 'call-001',
+			'name'     => 'wpab__sd-ai-agent__site-info',
+			'args'     => [ 'site_url' => 'https://example.test' ],
+			'sequence' => 1,
+		];
+		$first_response = [
+			'type'     => 'response',
+			'id'       => 'call-001',
+			'name'     => 'wpab__sd-ai-agent__site-info',
+			'response' => [ 'name' => 'Example Site' ],
+			'sequence' => 2,
+		];
+		$second_call = [
+			'type'     => 'call',
+			'id'       => 'call-002',
+			'name'     => 'wpab__sd-ai-agent__site-info',
+			'args'     => [ 'site_url' => 'https://example.test' ],
+			'sequence' => 3,
+		];
+		$second_response = [
+			'type'     => 'response',
+			'id'       => 'call-002',
+			'name'     => 'wpab__sd-ai-agent__site-info',
+			'response' => [ 'name' => 'Example Site' ],
+			'sequence' => 4,
+		];
+
+		$result = Database::append_to_session(
+			$session_id,
+			[],
+			[ $first_call, $first_response, $first_call, $first_response, $second_call, $second_response ]
+		);
+
+		$this->assertTrue( $result );
+
+		$session      = Database::get_session( $session_id );
+		$stored_calls = json_decode( (string) $session->tool_calls, true );
+
+		$this->assertSame( [ $first_call, $first_response, $second_call, $second_response ], $stored_calls );
+		$this->assertSame( $stored_calls[0]['name'], $stored_calls[2]['name'] );
+		$this->assertSame( $stored_calls[0]['args'], $stored_calls[2]['args'] );
+		$this->assertNotSame( $stored_calls[0]['id'], $stored_calls[2]['id'] );
+		$this->assertSame( $stored_calls[0]['id'], $stored_calls[1]['id'] );
+		$this->assertSame( $stored_calls[2]['id'], $stored_calls[3]['id'] );
+	}
+
+	/**
 	 * Test bulk_update_sessions updates multiple sessions.
 	 */
 	public function test_bulk_update_sessions() {

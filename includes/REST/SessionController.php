@@ -2846,8 +2846,9 @@ final class SessionController {
 	 * Return recovery rows that have not already been persisted.
 	 *
 	 * Tool-call entries are a separate append-only log from history. Filtering
-	 * against the persisted log makes a replay of the same recovery payload
-	 * idempotent without globally deduplicating conversation messages.
+	 * against the persisted log and rows already accepted from this payload
+	 * makes a replay of the same recovery event idempotent without globally
+	 * deduplicating conversation messages.
 	 *
 	 * @param list<array<string, mixed>> $recovery_rows Recovery rows to append.
 	 * @param array<mixed>               $persisted_rows Existing stored rows.
@@ -2855,10 +2856,14 @@ final class SessionController {
 	 */
 	private function get_unpersisted_recovery_rows( array $recovery_rows, array $persisted_rows ): array {
 		$unpersisted = array();
+		$known_rows  = $persisted_rows;
 		foreach ( $recovery_rows as $row ) {
-			if ( ! $this->recovery_row_exists( $row, $persisted_rows ) ) {
-				$unpersisted[] = $row;
+			if ( $this->recovery_row_exists( $row, $known_rows ) ) {
+				continue;
 			}
+
+			$unpersisted[] = $row;
+			$known_rows[]  = $row;
 		}
 
 		return $unpersisted;
