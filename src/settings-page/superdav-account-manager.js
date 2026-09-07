@@ -597,7 +597,7 @@ export default function SuperdavAccountManager() {
 	}
 	const advancedStatusMessage = {
 		incompatible: __(
-			'Advanced is incompatible with this core version. Update it from the Plugins screen before using Advanced tools.',
+			'Advanced is incompatible with this core version. Update SD AI Agent and Advanced to matching versions from the Plugins screen before using Advanced tools.',
 			'superdav-ai-agent'
 		),
 		metadata_unavailable: __(

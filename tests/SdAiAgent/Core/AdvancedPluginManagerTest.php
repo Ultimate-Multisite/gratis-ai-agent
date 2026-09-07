@@ -50,10 +50,19 @@ final class AdvancedPluginManagerTest extends WP_UnitTestCase {
 	}
 
 	public function test_status_reports_unavailable_update_metadata(): void {
+		$this->write_plugin( (string) SD_AI_AGENT_VERSION );
+
 		$status = ( new AdvancedPluginManager() )->get_status();
 
 		$this->assertSame( 'metadata_unavailable', $status['status'] );
 		$this->assertNull( $status['latest_version'] );
+	}
+
+	public function test_status_reports_incompatible_without_update_metadata(): void {
+		$status = ( new AdvancedPluginManager() )->get_status();
+
+		$this->assertFalse( $status['compatible'] );
+		$this->assertSame( 'incompatible', $status['status'] );
 	}
 
 	public function test_status_reports_a_previous_automatic_update_failure(): void {

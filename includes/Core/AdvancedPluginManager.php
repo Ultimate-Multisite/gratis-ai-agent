@@ -127,11 +127,11 @@ final class AdvancedPluginManager {
 		if ( null !== $diagnostic ) {
 			return self::STATUS_UPDATE_FAILED;
 		}
-		if ( ! $metadata_available ) {
-			return self::STATUS_METADATA_UNAVAILABLE;
-		}
 		if ( false === $compatible ) {
 			return self::STATUS_INCOMPATIBLE;
+		}
+		if ( ! $metadata_available ) {
+			return self::STATUS_METADATA_UNAVAILABLE;
 		}
 		if ( $update_available ) {
 			return self::STATUS_UPDATE_AVAILABLE;
