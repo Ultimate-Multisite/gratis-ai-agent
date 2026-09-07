@@ -19,6 +19,7 @@ declare(strict_types=1);
 
 namespace SdAiAgent\Tests\PluginBuilder;
 
+use SdAiAgent\Core\Settings;
 use SdAiAgent\PluginBuilder\PluginGenerator;
 use WP_UnitTestCase;
 
@@ -275,6 +276,101 @@ RAW;
 
 		$this->assertInstanceOf( \WP_Error::class, $result );
 		$this->assertSame( 'ai_client_unavailable', $result->get_error_code() );
+	}
+
+	// ─── nested generation route ─────────────────────────────────────────────
+
+	/**
+	 * Nested plugin prompts retain the parent AgentLoop provider/model pair.
+	 */
+	public function test_resolve_generation_route_preserves_parent_provider_model(): void {
+		$models_filter = static function (): array {
+			return array(
+				'sd-ai-agent-cloud' => array( 'superdav-chat-strong' ),
+			);
+		};
+		add_filter( 'sd_ai_agent_registered_models_for_validation', $models_filter );
+
+		try {
+			$result = PluginGenerator::resolve_generation_route(
+				array(
+					'provider_id' => 'sd-ai-agent-cloud',
+					'model_id'    => 'superdav-chat-strong',
+				)
+			);
+
+			$this->assertIsArray( $result );
+			$this->assertSame( 'sd-ai-agent-cloud', $result['provider_id'] );
+			$this->assertSame( 'superdav-chat-strong', $result['model_id'] );
+		} finally {
+			remove_filter( 'sd_ai_agent_registered_models_for_validation', $models_filter );
+		}
+	}
+
+	/**
+	 * An unavailable parent model is rejected instead of silently changing route.
+	 */
+	public function test_resolve_generation_route_rejects_unavailable_parent_model(): void {
+		$models_filter = static function (): array {
+			return array(
+				'sd-ai-agent-cloud' => array( 'superdav-chat-strong' ),
+			);
+		};
+		add_filter( 'sd_ai_agent_registered_models_for_validation', $models_filter );
+
+		try {
+			if ( Settings::is_model_advertised( 'sd-ai-agent-cloud', 'unavailable-model' ) ) {
+				$this->markTestSkipped( 'The SDK registry is unavailable, so model compatibility cannot be validated.' );
+			}
+
+			$result = PluginGenerator::resolve_generation_route(
+				array(
+					'provider_id' => 'sd-ai-agent-cloud',
+					'model_id'    => 'unavailable-model',
+				)
+			);
+
+			$this->assertWPError( $result );
+			$this->assertSame( 'sd_ai_agent_plugin_generation_model_unavailable', $result->get_error_code() );
+		} finally {
+			remove_filter( 'sd_ai_agent_registered_models_for_validation', $models_filter );
+		}
+	}
+
+	/**
+	 * Direct callers fall back to the validated configured provider/model pair.
+	 */
+	public function test_resolve_generation_route_uses_configured_default_without_parent_context(): void {
+		$original_settings = get_option( Settings::OPTION_NAME, null );
+		$models_filter     = static function (): array {
+			return array(
+				'sd-ai-agent-cloud' => array( 'superdav-chat-strong' ),
+			);
+		};
+		add_filter( 'sd_ai_agent_registered_models_for_validation', $models_filter );
+		update_option(
+			Settings::OPTION_NAME,
+			array(
+				'default_provider' => 'sd-ai-agent-cloud',
+				'default_model'    => 'superdav-chat-strong',
+			),
+			false
+		);
+
+		try {
+			$result = PluginGenerator::resolve_generation_route();
+
+			$this->assertIsArray( $result );
+			$this->assertSame( 'sd-ai-agent-cloud', $result['provider_id'] );
+			$this->assertSame( 'superdav-chat-strong', $result['model_id'] );
+		} finally {
+			remove_filter( 'sd_ai_agent_registered_models_for_validation', $models_filter );
+			if ( null === $original_settings ) {
+				delete_option( Settings::OPTION_NAME );
+			} else {
+				update_option( Settings::OPTION_NAME, $original_settings, false );
+			}
+		}
 	}
 
 	// ─── review_code — SDK-unavailable path ──────────────────────────────────

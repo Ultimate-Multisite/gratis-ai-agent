@@ -60,6 +60,33 @@ class PluginBuilderAbilitiesTest extends WP_UnitTestCase {
 		$this->assertSame( 'object', $schema['properties']['plan']['type'] );
 	}
 
+	/**
+	 * Provider/model context is scoped to one resolver dispatch and can be cleared.
+	 */
+	public function test_generate_plugin_provider_model_context_is_clearable(): void {
+		$ability  = new GeneratePluginAbility( 'sd-ai-agent/generate-plugin' );
+		$property = new \ReflectionProperty( GeneratePluginAbility::class, 'provider_model_context' );
+		$property->setAccessible( true );
+
+		$ability->set_provider_model_context( 'sd-ai-agent-cloud', 'superdav-chat-strong' );
+		$this->assertSame(
+			array(
+				'provider_id' => 'sd-ai-agent-cloud',
+				'model_id'    => 'superdav-chat-strong',
+			),
+			$property->getValue( $ability )
+		);
+
+		$ability->clear_provider_model_context();
+		$this->assertSame(
+			array(
+				'provider_id' => '',
+				'model_id'    => '',
+			),
+			$property->getValue( $ability )
+		);
+	}
+
 	// ── SandboxTestPluginAbility ───────────────────────────────────────────
 
 	/**

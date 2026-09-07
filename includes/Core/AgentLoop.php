@@ -224,8 +224,7 @@ PROMPT;
 	/** @var array<int|string, mixed> Page context from the widget. */
 	private $page_context = array();
 
-	/** @var WP_AI_Client_Ability_Function_Resolver|null */
-	private $ability_resolver = null;
+	private ?AbilityFunctionResolver $ability_resolver = null;
 
 	/** @var Settings Injected settings dependency. */
 	private $settings_service;
