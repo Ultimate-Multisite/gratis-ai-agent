@@ -3,6 +3,8 @@ import { executeClientAbility } from '../../abilities/registry';
 
 const SCREENSHOT_URL_ABILITY = 'sd-ai-agent-js/screenshot-url';
 const SCREENSHOT_URL_CONCURRENCY = 1;
+// This covers the 60-second iframe navigation window, render settling, and capture.
+const SCREENSHOT_URL_TIMEOUT = 120000;
 
 /**
  * Reject a promise after a bounded interval and clear the timer on settlement.
@@ -56,6 +58,9 @@ function createConcurrencyLimiter( concurrency ) {
 		} );
 }
 
+// The limiter is module-scoped so concurrent polling batches share one slot.
+const runScreenshotUrl = createConcurrencyLimiter( SCREENSHOT_URL_CONCURRENCY );
+
 /**
  * Run a server-approved batch of browser abilities with bounded readiness and
  * per-ability execution windows.
@@ -75,9 +80,6 @@ export async function runClientTools( pendingClientToolCalls ) {
 		  )
 		: null;
 
-	const runScreenshotUrl = createConcurrencyLimiter(
-		SCREENSHOT_URL_CONCURRENCY
-	);
 	const runClientTool = async ( {
 		id,
 		name,
@@ -87,10 +89,12 @@ export async function runClientTools( pendingClientToolCalls ) {
 		user_confirmed: userConfirmed,
 	} ) => {
 		const abilityName = clientName || name;
-		const timeoutMs =
-			abilityName === 'sd-ai-agent-js/validate-page-quality'
-				? 120000
-				: 30000;
+		let timeoutMs = 30000;
+		if ( abilityName === SCREENSHOT_URL_ABILITY ) {
+			timeoutMs = SCREENSHOT_URL_TIMEOUT;
+		} else if ( abilityName === 'sd-ai-agent-js/validate-page-quality' ) {
+			timeoutMs = 120000;
+		}
 
 		if ( annotations?.readonly !== true && userConfirmed !== true ) {
 			return {
