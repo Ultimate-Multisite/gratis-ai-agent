@@ -68,7 +68,7 @@ final class AdvancedPluginManager {
 		$bundled     = $this->is_bundled_copy();
 		$plugin_data = $installed ? $this->plugin_data() : array();
 		$version     = isset( $plugin_data['Version'] ) && is_string( $plugin_data['Version'] ) ? $plugin_data['Version'] : null;
-		$update      = $this->update_information();
+		$update      = $this->update_information( $version );
 		$compatible  = is_string( $version ) ? $this->is_compatible_version( $version ) : null;
 		$diagnostic  = $this->diagnostic_code();
 		$status      = $this->status_state( $installed, $bundled, $compatible, $update['available'], $update['metadata_available'], $diagnostic );
@@ -86,14 +86,16 @@ final class AdvancedPluginManager {
 		);
 	}
 
-	/** @return array{available:bool,metadata_available:bool,version:string|null} */
-	private function update_information(): array {
+	/**
+	 * @param string|null $current Installed Advanced version.
+	 * @return array{available:bool,metadata_available:bool,version:string|null}
+	 */
+	private function update_information( ?string $current ): array {
 		$updates            = get_site_transient( 'update_plugins' );
 		$metadata_available = is_object( $updates ) && isset( $updates->last_checked );
 		$response           = $metadata_available && isset( $updates->response ) && is_array( $updates->response ) ? $updates->response : array();
 		$item               = $response[ self::PLUGIN_BASENAME ] ?? null;
 		$version            = is_object( $item ) && isset( $item->new_version ) && is_string( $item->new_version ) ? $item->new_version : null;
-		$current            = $this->plugin_data()['Version'] ?? null;
 
 		return array(
 			'available'          => is_string( $current ) && is_string( $version ) && version_compare( $version, $current, '>' ),
