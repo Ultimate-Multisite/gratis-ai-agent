@@ -34,8 +34,14 @@ const MAX_IMAGE_WIDTH = 768;
 /** JPEG quality (0-1). Keeps parallel vision evidence within provider envelopes. */
 const JPEG_QUALITY = 0.72;
 
-/** How long to wait (ms) for an iframe page to fully load before capture. */
-const IFRAME_LOAD_TIMEOUT = 15000;
+/** Start probing an iframe document after this initial navigation window. */
+const IFRAME_LOAD_SOFT_TIMEOUT = 15000;
+
+/** Never wait longer than this for an iframe navigation to become ready. */
+const IFRAME_LOAD_MAX_TIMEOUT = 60000;
+
+/** How often to probe a same-origin document after the initial window. */
+const IFRAME_READY_PROBE_INTERVAL = 1000;
 
 /** Extra settle time (ms) after iframe load event for async renders. */
 const IFRAME_SETTLE_DELAY = 1500;
@@ -240,6 +246,80 @@ async function scrollToRevealLazyContent( win, doc, maxHeight ) {
 	await new Promise( ( r ) => setTimeout( r, 300 ) );
 }
 
+/**
+ * Wait for an iframe navigation while allowing a same-origin document that is
+ * still finishing heavy dashboard work to reach a bounded readiness state.
+ *
+ * @param {HTMLIFrameElement} iframe      Iframe being navigated.
+ * @param {string}            expectedUrl Same-origin destination URL.
+ * @return {Promise<void>} Resolves when the iframe is ready to capture.
+ */
+function waitForIframeNavigation( iframe, expectedUrl ) {
+	return new Promise( ( resolveLoad, rejectLoad ) => {
+		let probeTimeout;
+		let settled = false;
+
+		const onLoad = () => settle( resolveLoad );
+		const onError = () =>
+			settle( rejectLoad, new Error( 'Iframe failed to load.' ) );
+		const cleanup = () => {
+			clearTimeout( softTimeout );
+			clearTimeout( hardTimeout );
+			clearTimeout( probeTimeout );
+			iframe.removeEventListener( 'load', onLoad );
+			iframe.removeEventListener( 'error', onError );
+		};
+		const settle = ( callback, value ) => {
+			if ( settled ) {
+				return;
+			}
+			settled = true;
+			cleanup();
+			callback( value );
+		};
+		const documentIsReady = () => {
+			try {
+				const iframeDoc =
+					iframe.contentDocument || iframe.contentWindow?.document;
+				return (
+					iframe.contentWindow?.location.href === expectedUrl &&
+					iframeDoc?.readyState === 'complete' &&
+					!! iframeDoc.body
+				);
+			} catch ( _err ) {
+				return false;
+			}
+		};
+		const probeForReadyDocument = () => {
+			if ( documentIsReady() ) {
+				settle( resolveLoad );
+				return;
+			}
+			probeTimeout = setTimeout(
+				probeForReadyDocument,
+				IFRAME_READY_PROBE_INTERVAL
+			);
+		};
+
+		iframe.addEventListener( 'load', onLoad );
+		iframe.addEventListener( 'error', onError );
+		const softTimeout = setTimeout(
+			probeForReadyDocument,
+			IFRAME_LOAD_SOFT_TIMEOUT
+		);
+		const hardTimeout = setTimeout( () => {
+			settle(
+				rejectLoad,
+				new Error(
+					`Iframe navigation timed out after ${
+						IFRAME_LOAD_MAX_TIMEOUT / 1000
+					} seconds.`
+				)
+			);
+		}, IFRAME_LOAD_MAX_TIMEOUT );
+	} );
+}
+
 /* ── Ability 1: capture-screenshot ─────────────────────────────────────── */
 
 /**
@@ -361,7 +441,7 @@ async function executeCaptureScreenshot( args ) {
  * @param {boolean} [args.fullPage] Capture the full scrollable height.
  * @return {Promise<Object>} Screenshot result.
  */
-async function executeScreenshotUrl( args ) {
+export async function executeScreenshotUrl( args ) {
 	const rawUrl = args?.url || '';
 	const viewportWidth = args?.width || 1280;
 	const viewportHeight = args?.height || 800;
@@ -412,22 +492,7 @@ async function executeScreenshotUrl( args ) {
 		iframe.setAttribute( 'aria-hidden', 'true' );
 		iframe.setAttribute( 'tabindex', '-1' );
 
-		// Wait for load.
-		const loadPromise = new Promise( ( resolveLoad, rejectLoad ) => {
-			const timer = setTimeout( () => {
-				rejectLoad( new Error( 'Iframe load timed out.' ) );
-			}, IFRAME_LOAD_TIMEOUT );
-
-			iframe.addEventListener( 'load', () => {
-				clearTimeout( timer );
-				resolveLoad();
-			} );
-
-			iframe.addEventListener( 'error', () => {
-				clearTimeout( timer );
-				rejectLoad( new Error( 'Iframe failed to load.' ) );
-			} );
-		} );
+		const loadPromise = waitForIframeNavigation( iframe, targetUrl.href );
 
 		iframe.src = targetUrl.href;
 		document.body.appendChild( iframe );

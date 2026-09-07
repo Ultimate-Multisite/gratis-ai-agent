@@ -2,6 +2,14 @@
  * Unit tests for screenshot URL validation.
  */
 
+jest.mock( 'html2canvas', () =>
+	jest.fn( async () => ( {
+		width: 700,
+		height: 438,
+		toDataURL: () => 'data:image/jpeg;base64,c2NyZWVuc2hvdA==',
+	} ) )
+);
+
 /**
  * Load an isolated screenshot module instance.
  *
@@ -130,5 +138,76 @@ describe( 'full-page screenshot safety', () => {
 				expect( descriptor.input_schema.required ).toEqual( [ 'url' ] );
 			}
 		}
+	} );
+} );
+
+describe( 'screenshot-url iframe navigation', () => {
+	beforeEach( () => {
+		jest.useFakeTimers();
+		document.body.innerHTML = '';
+		window.sdAiAgentData = {
+			screenshotOrigins: [ window.location.origin ],
+		};
+	} );
+
+	afterEach( () => {
+		jest.clearAllTimers();
+		jest.useRealTimers();
+		delete window.sdAiAgentData;
+		delete window.__sdAiAgentClientAbilityRegistry;
+		document.body.innerHTML = '';
+	} );
+
+	test( 'captures a same-origin iframe that loads after the initial window', async () => {
+		const { executeScreenshotUrl } = loadScreenshotModule();
+		const resultPromise = executeScreenshotUrl( { url: '/wp-admin/' } );
+		const iframe = document.querySelector( 'iframe' );
+
+		expect( iframe ).not.toBeNull();
+		Object.defineProperty( iframe, 'contentDocument', {
+			configurable: true,
+			value: document.implementation.createHTMLDocument(),
+		} );
+		await jest.advanceTimersByTimeAsync( 16000 );
+		iframe.dispatchEvent( new Event( 'load' ) );
+		await jest.advanceTimersByTimeAsync( 1500 );
+
+		await expect( resultPromise ).resolves.toMatchObject( {
+			success: true,
+			url: `${ window.location.origin }/wp-admin/`,
+			error: '',
+		} );
+		expect( document.querySelector( 'iframe' ) ).toBeNull();
+		expect( jest.getTimerCount() ).toBe( 0 );
+	} );
+
+	test( 'returns a bounded navigation error and cleans up a never-loading iframe', async () => {
+		const { executeScreenshotUrl } = loadScreenshotModule();
+		const resultPromise = executeScreenshotUrl( { url: '/wp-admin/' } );
+
+		expect( document.querySelector( 'iframe' ) ).not.toBeNull();
+		await jest.advanceTimersByTimeAsync( 60000 );
+
+		await expect( resultPromise ).resolves.toMatchObject( {
+			success: false,
+			error: 'Screenshot failed: Iframe navigation timed out after 60 seconds.',
+		} );
+		expect( document.querySelector( 'iframe' ) ).toBeNull();
+		expect( jest.getTimerCount() ).toBe( 0 );
+	} );
+
+	test( 'returns a distinct navigation failure and cleans up the iframe', async () => {
+		const { executeScreenshotUrl } = loadScreenshotModule();
+		const resultPromise = executeScreenshotUrl( { url: '/wp-admin/' } );
+		const iframe = document.querySelector( 'iframe' );
+
+		iframe.dispatchEvent( new Event( 'error' ) );
+
+		await expect( resultPromise ).resolves.toMatchObject( {
+			success: false,
+			error: 'Screenshot failed: Iframe failed to load.',
+		} );
+		expect( document.querySelector( 'iframe' ) ).toBeNull();
+		expect( jest.getTimerCount() ).toBe( 0 );
 	} );
 } );

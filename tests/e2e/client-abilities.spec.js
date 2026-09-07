@@ -470,6 +470,49 @@ test.describe( 'client-abilities — public schema validation', () => {
 } );
 
 // ---------------------------------------------------------------------------
+// Test suite 3b: screenshot-url execution
+// ---------------------------------------------------------------------------
+
+test.describe( 'client-abilities — screenshot-url execution', () => {
+	test.beforeEach( async ( { page } ) => {
+		await loginToWordPress( page );
+		await goToDashboard( page );
+		await requireAbilitiesApi( page );
+	} );
+
+	test( 'captures a same-origin page whose iframe load exceeds the initial window', async ( {
+		page,
+	} ) => {
+		const delayedPath = '/sd-ai-agent-e2e-delayed-screenshot/';
+		await page.route( `**${ delayedPath }`, async ( route ) => {
+			await new Promise( ( resolve ) => setTimeout( resolve, 16000 ) );
+			await route.fulfill( {
+				contentType: 'text/html',
+				body: '<!doctype html><html><head><title>Delayed screenshot</title></head><body><main>Delayed screenshot page</main></body></html>',
+			} );
+		} );
+
+		try {
+			await waitForAbilitiesRegistered( page );
+			const result = await page.evaluate( async ( url ) => {
+				return wp.abilities.executeAbility(
+					'sd-ai-agent-js/screenshot-url',
+					{ url }
+				);
+			}, delayedPath );
+
+			expect( result ).toMatchObject( {
+				success: true,
+				error: '',
+			} );
+			expect( result.url ).toContain( delayedPath );
+		} finally {
+			await page.unroute( `**${ delayedPath }` );
+		}
+	} );
+} );
+
+// ---------------------------------------------------------------------------
 // Test suite 4: navigate-to execution
 // ---------------------------------------------------------------------------
 
