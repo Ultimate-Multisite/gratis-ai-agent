@@ -528,10 +528,10 @@ class SessionRepository {
 	 * This protects continuation and recovery paths that can submit a complete
 	 * activity log more than once. Existing sessions are never rewritten; only
 	 * repeated incoming events are skipped. Rows without a complete identity
-	 * remain append-only for backward compatibility.
+	 * and legacy non-array rows remain append-only for backward compatibility.
 	 *
-	 * @param array<mixed>               $existing_tool_calls Existing stored tool-call rows.
-	 * @param list<array<string, mixed>> $tool_calls          Incoming tool-call rows.
+	 * @param array<mixed> $existing_tool_calls Existing stored tool-call rows.
+	 * @param array<mixed> $tool_calls          Incoming tool-call rows.
 	 * @return array<mixed> Ordered stored and newly accepted rows.
 	 */
 	private static function append_unique_tool_call_events( array $existing_tool_calls, array $tool_calls ): array {
@@ -550,6 +550,11 @@ class SessionRepository {
 		}
 
 		foreach ( $tool_calls as $event ) {
+			if ( ! is_array( $event ) ) {
+				$merged_events[] = $event;
+				continue;
+			}
+
 			$identity = self::get_tool_call_event_identity( $event );
 			if ( null !== $identity && isset( $seen_events[ $identity ] ) ) {
 				continue;

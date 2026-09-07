@@ -362,11 +362,15 @@ class DatabaseTest extends WP_UnitTestCase {
 			'response' => [ 'name' => 'Example Site' ],
 			'sequence' => 4,
 		];
+		$legacy_event = 'legacy tool-call row';
+		/** @var array<mixed> $incoming_tool_calls */
+		$incoming_tool_calls = [ $legacy_event, $first_call, $first_response, $first_call, $first_response, $second_call, $second_response ];
 
+		// @phpstan-ignore-next-line Legacy rows remain append-only at the repository boundary.
 		$result = Database::append_to_session(
 			$session_id,
 			[],
-			[ $first_call, $first_response, $first_call, $first_response, $second_call, $second_response ]
+			$incoming_tool_calls
 		);
 
 		$this->assertTrue( $result );
@@ -374,12 +378,12 @@ class DatabaseTest extends WP_UnitTestCase {
 		$session      = Database::get_session( $session_id );
 		$stored_calls = json_decode( (string) $session->tool_calls, true );
 
-		$this->assertSame( [ $first_call, $first_response, $second_call, $second_response ], $stored_calls );
-		$this->assertSame( $stored_calls[0]['name'], $stored_calls[2]['name'] );
-		$this->assertSame( $stored_calls[0]['args'], $stored_calls[2]['args'] );
-		$this->assertNotSame( $stored_calls[0]['id'], $stored_calls[2]['id'] );
-		$this->assertSame( $stored_calls[0]['id'], $stored_calls[1]['id'] );
-		$this->assertSame( $stored_calls[2]['id'], $stored_calls[3]['id'] );
+		$this->assertSame( [ $legacy_event, $first_call, $first_response, $second_call, $second_response ], $stored_calls );
+		$this->assertSame( $stored_calls[1]['name'], $stored_calls[3]['name'] );
+		$this->assertSame( $stored_calls[1]['args'], $stored_calls[3]['args'] );
+		$this->assertNotSame( $stored_calls[1]['id'], $stored_calls[3]['id'] );
+		$this->assertSame( $stored_calls[1]['id'], $stored_calls[2]['id'] );
+		$this->assertSame( $stored_calls[3]['id'], $stored_calls[4]['id'] );
 	}
 
 	/**
