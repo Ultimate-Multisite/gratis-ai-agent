@@ -28,6 +28,38 @@ if ( ! defined( 'ABSPATH' ) ) {
  */
 class GeneratePluginAbility extends AbstractAbility {
 
+	/**
+	 * Provider/model selected by the parent AgentLoop for this one ability call.
+	 *
+	 * @var array{provider_id:string,model_id:string}
+	 */
+	private array $provider_model_context = array(
+		'provider_id' => '',
+		'model_id'    => '',
+	);
+
+	/**
+	 * Bind the parent run's provider/model for one resolver dispatch.
+	 *
+	 * The resolver clears this immediately after execution. Keeping the context
+	 * on the registered ability instance avoids cross-request globals while
+	 * allowing nested prompt calls to inherit the successful parent route.
+	 */
+	public function set_provider_model_context( string $provider_id, string $model_id ): void {
+		$this->provider_model_context = array(
+			'provider_id' => substr( trim( $provider_id ), 0, 191 ),
+			'model_id'    => substr( trim( $model_id ), 0, 191 ),
+		);
+	}
+
+	/** Clear parent provider/model context after one resolver dispatch. */
+	public function clear_provider_model_context(): void {
+		$this->provider_model_context = array(
+			'provider_id' => '',
+			'model_id'    => '',
+		);
+	}
+
 	protected function label(): string {
 		return __( 'Generate Plugin', 'superdav-ai-agent' );
 	}
@@ -84,7 +116,7 @@ class GeneratePluginAbility extends AbstractAbility {
 		}
 
 		// Step 1: Generate structured plan (returns an array, not text).
-		$plan = PluginGenerator::generate_plan( $description );
+		$plan = PluginGenerator::generate_plan( $description, $this->provider_model_context );
 		if ( is_wp_error( $plan ) ) {
 			return $plan;
 		}
@@ -95,7 +127,7 @@ class GeneratePluginAbility extends AbstractAbility {
 		}
 
 		// Step 2: Generate code file-by-file respecting dependency order.
-		$code_result = PluginGenerator::generate_code( $plan );
+		$code_result = PluginGenerator::generate_code( $plan, $this->provider_model_context );
 		if ( is_wp_error( $code_result ) ) {
 			return $code_result;
 		}

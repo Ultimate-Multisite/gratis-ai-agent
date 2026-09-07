@@ -16,6 +16,7 @@ declare(strict_types=1);
 namespace SdAiAgent\PluginBuilder;
 
 use SdAiAgent\Core\ProviderCredentialLoader;
+use SdAiAgent\Core\Settings;
 use WP_Error;
 
 if ( ! defined( 'ABSPATH' ) ) {
@@ -41,6 +42,8 @@ class PluginGenerator {
 	 *   @type array  $hooks          Hooks from HookScanner for extension plugins.
 	 *   @type array  $existing_files Existing plugin file paths for extensions.
 	 *   @type string $error_context  Error message from a previous failed attempt.
+	 *   @type string $provider_id    Parent run provider selected by AgentLoop.
+	 *   @type string $model_id       Parent run model selected by AgentLoop.
 	 * }
 	 * @return array<string,mixed>|\WP_Error Plan array or WP_Error on failure.
 	 */
@@ -51,8 +54,6 @@ class PluginGenerator {
 				__( 'wp_ai_client_prompt() is not available.', 'superdav-ai-agent' )
 			);
 		}
-
-		ProviderCredentialLoader::load();
 
 		if ( empty( trim( $description ) ) ) {
 			return new WP_Error(
@@ -105,7 +106,12 @@ INSTRUCTION;
 			$prompt .= "\n\nPrevious attempt failed with this error (adjust the plan accordingly):\n" . (string) $context['error_context'];
 		}
 
-		$raw = wp_ai_client_prompt( $prompt )
+		$builder = self::create_prompt_builder( $prompt, $context );
+		if ( is_wp_error( $builder ) ) {
+			return $builder;
+		}
+
+		$raw = $builder
 			->using_system_instruction( $system_instruction )
 			->generate_text();
 
@@ -136,10 +142,11 @@ INSTRUCTION;
 	 * Files are generated in dependency order. Each previously generated file
 	 * is passed as context to subsequent file generation calls.
 	 *
-	 * @param array<string,mixed> $plan Plan array from generate_plan().
+	 * @param array<string,mixed> $plan    Plan array from generate_plan().
+	 * @param array<string,mixed> $context Parent provider/model routing context.
 	 * @return array{files: array<string,string>, plan: array<string,mixed>}|\WP_Error
 	 */
-	public static function generate_code( array $plan ): array|\WP_Error {
+	public static function generate_code( array $plan, array $context = [] ): array|\WP_Error {
 		if ( ! function_exists( 'wp_ai_client_prompt' ) ) {
 			return new WP_Error(
 				'ai_client_unavailable',
@@ -182,13 +189,13 @@ INSTRUCTION;
 			}
 			$file_spec['path'] = $normalised;
 
-			$code = self::generate_file( $plan, $file_spec, $generated_files );
+			$code = self::generate_file( $plan, $file_spec, $generated_files, $context );
 
 			if ( is_wp_error( $code ) ) {
 				return $code;
 			}
 
-			$code = self::prepare_generated_php( (string) $code, $plan, $file_spec, $generated_files );
+			$code = self::prepare_generated_php( (string) $code, $plan, $file_spec, $generated_files, $context );
 			if ( is_wp_error( $code ) ) {
 				return $code;
 			}
@@ -221,17 +228,16 @@ INSTRUCTION;
 	 * @param array<string,mixed>  $plan        Plan array from generate_plan().
 	 * @param array<string,mixed>  $file_spec   File spec: path, purpose, dependencies.
 	 * @param array<string,string> $prior_files Already-generated files keyed by relative path.
+	 * @param array<string,mixed>  $context     Parent provider/model routing context.
 	 * @return string|\WP_Error Generated PHP source code or WP_Error.
 	 */
-	public static function generate_file( array $plan, array $file_spec, array $prior_files = [] ): string|\WP_Error {
+	public static function generate_file( array $plan, array $file_spec, array $prior_files = [], array $context = [] ): string|\WP_Error {
 		if ( ! function_exists( 'wp_ai_client_prompt' ) ) {
 			return new WP_Error(
 				'ai_client_unavailable',
 				__( 'wp_ai_client_prompt() is not available.', 'superdav-ai-agent' )
 			);
 		}
-
-		ProviderCredentialLoader::load();
 
 		$slug    = isset( $plan['slug'] ) ? (string) $plan['slug'] : 'generated-plugin';
 		$name    = isset( $plan['name'] ) ? (string) $plan['name'] : $slug;
@@ -288,7 +294,12 @@ INSTRUCTION;
 
 		$prompt .= "\nGenerate the complete PHP source code for {$path}. Output only PHP code, no markdown.";
 
-		$raw = wp_ai_client_prompt( $prompt )
+		$builder = self::create_prompt_builder( $prompt, $context );
+		if ( is_wp_error( $builder ) ) {
+			return $builder;
+		}
+
+		$raw = $builder
 			->using_system_instruction( $system_instruction )
 			->generate_text();
 
@@ -302,19 +313,18 @@ INSTRUCTION;
 	/**
 	 * Post-generation review pass for security, WP standards, and potential fatals.
 	 *
-	 * @param array<string,string> $files Map of relative path → source code.
-	 * @param array<string,mixed>  $plan  Plan array from generate_plan().
+	 * @param array<string,string> $files   Map of relative path → source code.
+	 * @param array<string,mixed>  $plan    Plan array from generate_plan().
+	 * @param array<string,mixed>  $context Parent provider/model routing context.
 	 * @return array{approved: bool, issues: array<int,array<string,mixed>>, suggested_fixes: array<int,array<string,mixed>>}|\WP_Error
 	 */
-	public static function review_code( array $files, array $plan ): array|\WP_Error {
+	public static function review_code( array $files, array $plan, array $context = [] ): array|\WP_Error {
 		if ( ! function_exists( 'wp_ai_client_prompt' ) ) {
 			return new WP_Error(
 				'ai_client_unavailable',
 				__( 'wp_ai_client_prompt() is not available.', 'superdav-ai-agent' )
 			);
 		}
-
-		ProviderCredentialLoader::load();
 
 		if ( empty( $files ) ) {
 			return new WP_Error(
@@ -362,7 +372,12 @@ INSTRUCTION;
 		$prompt .= "Plugin: {$plugin_name}\n";
 		$prompt .= $files_text;
 
-		$raw = wp_ai_client_prompt( $prompt )
+		$builder = self::create_prompt_builder( $prompt, $context );
+		if ( is_wp_error( $builder ) ) {
+			return $builder;
+		}
+
+		$raw = $builder
 			->using_system_instruction( $system_instruction )
 			->generate_text();
 
@@ -526,7 +541,103 @@ INSTRUCTION;
 		return $slug . '/' . $normalised;
 	}
 
+	/**
+	 * Resolve the provider/model pair for a nested plugin-generation request.
+	 *
+	 * Parent context wins because it represents the provider that successfully
+	 * produced the ability call. Direct callers fall back to Settings' validated
+	 * authenticated pair instead of allowing the SDK to choose an arbitrary
+	 * connector.
+	 *
+	 * @param array<string,mixed> $context Parent execution context.
+	 * @return array{provider_id:string,model_id:string}|WP_Error
+	 */
+	public static function resolve_generation_route( array $context = [] ): array|WP_Error {
+		$provider_id = trim( (string) ( $context['provider_id'] ?? '' ) );
+		$model_id    = trim( (string) ( $context['model_id'] ?? '' ) );
+
+		if ( '' !== $provider_id ) {
+			if ( '' !== $model_id && ! Settings::is_model_advertised( $provider_id, $model_id ) ) {
+				return new WP_Error(
+					'sd_ai_agent_plugin_generation_model_unavailable',
+					__( 'The AI model selected for this run is unavailable for plugin generation. Configure a compatible text model and retry.', 'superdav-ai-agent' )
+				);
+			}
+
+			return array(
+				'provider_id' => $provider_id,
+				'model_id'    => $model_id,
+			);
+		}
+
+		$settings    = Settings::instance();
+		$provider_id = trim( $settings->get_default_provider() );
+		$model_id    = trim( $settings->get_default_model() );
+
+		if ( '' === $provider_id ) {
+			return new WP_Error(
+				'sd_ai_agent_plugin_generation_provider_unavailable',
+				__( 'No authenticated AI provider is configured for plugin generation. Configure a text-capable provider and retry.', 'superdav-ai-agent' )
+			);
+		}
+
+		return array(
+			'provider_id' => $provider_id,
+			'model_id'    => $model_id,
+		);
+	}
+
 	// ─── Private helpers ──────────────────────────────────────────────────────
+
+	/**
+	 * Create one provider-bound prompt builder for every nested generation stage.
+	 *
+	 * @param string              $prompt  Prompt text.
+	 * @param array<string,mixed> $context Parent provider/model routing context.
+	 * @return \WP_AI_Client_Prompt_Builder|WP_Error
+	 */
+	private static function create_prompt_builder( string $prompt, array $context = [] ) {
+		if ( ! function_exists( 'wp_ai_client_prompt' ) ) {
+			return new WP_Error(
+				'ai_client_unavailable',
+				__( 'wp_ai_client_prompt() is not available.', 'superdav-ai-agent' )
+			);
+		}
+
+		ProviderCredentialLoader::load();
+		$route = self::resolve_generation_route( $context );
+		if ( is_wp_error( $route ) ) {
+			return $route;
+		}
+
+		$provider_id = $route['provider_id'];
+		$model_id    = $route['model_id'];
+
+		try {
+			$registry = \WordPress\AiClient\AiClient::defaultRegistry();
+			if ( ! $registry->hasProvider( $provider_id ) || null === $registry->getProviderRequestAuthentication( $provider_id ) ) {
+				return new WP_Error(
+					'sd_ai_agent_plugin_generation_provider_unavailable',
+					__( 'The AI provider selected for plugin generation is unavailable. Configure an authenticated text-capable provider and retry.', 'superdav-ai-agent' )
+				);
+			}
+
+			$builder = wp_ai_client_prompt( $prompt );
+			if ( '' !== $model_id ) {
+				$model = $registry->getProviderModel( $provider_id, $model_id );
+				$builder->using_model( $model );
+			} else {
+				$builder->using_provider( $provider_id );
+			}
+
+			return $builder;
+		} catch ( \Throwable $e ) {
+			return new WP_Error(
+				'sd_ai_agent_plugin_generation_provider_unavailable',
+				__( 'The AI provider selected for plugin generation is unavailable. Configure an authenticated text-capable provider and retry.', 'superdav-ai-agent' )
+			);
+		}
+	}
 
 	/**
 	 * Strip wrappers, lint generated PHP, and attempt one bounded repair.
@@ -535,9 +646,10 @@ INSTRUCTION;
 	 * @param array<string,mixed>  $plan        Plan array.
 	 * @param array<string,mixed>  $file_spec   File spec.
 	 * @param array<string,string> $prior_files Prior generated files.
+	 * @param array<string,mixed>  $context     Parent provider/model routing context.
 	 * @return string|\WP_Error Prepared PHP source or validation error with source data.
 	 */
-	private static function prepare_generated_php( string $code, array $plan, array $file_spec, array $prior_files ): string|\WP_Error {
+	private static function prepare_generated_php( string $code, array $plan, array $file_spec, array $prior_files, array $context = [] ): string|\WP_Error {
 		$path = isset( $file_spec['path'] ) ? (string) $file_spec['path'] : '';
 		$code = self::extract_php_source( $code );
 		$lint = self::lint_php_source( $code );
@@ -545,7 +657,7 @@ INSTRUCTION;
 			return $code;
 		}
 
-		$repaired = self::repair_file( $plan, $file_spec, $code, $lint, $prior_files, true );
+		$repaired = self::repair_file( $plan, $file_spec, $code, $lint, $prior_files, true, $context );
 		if ( is_wp_error( $repaired ) ) {
 			return $repaired;
 		}
@@ -556,7 +668,7 @@ INSTRUCTION;
 			return $repaired;
 		}
 
-		$regenerated = self::repair_file( $plan, $file_spec, $repaired, $lint, $prior_files, false );
+		$regenerated = self::repair_file( $plan, $file_spec, $repaired, $lint, $prior_files, false, $context );
 		if ( is_wp_error( $regenerated ) ) {
 			return $regenerated;
 		}
@@ -587,15 +699,16 @@ INSTRUCTION;
 	/**
 	 * Request one syntax repair from the AI client.
 	 *
-	 * @param array<string,mixed>  $plan        Plan array.
-	 * @param array<string,mixed>  $file_spec   File spec.
-	 * @param string               $code        Invalid source.
-	 * @param array<string,mixed>  $lint        Lint result.
-	 * @param array<string,string> $prior_files Prior generated files.
+	 * @param array<string,mixed>  $plan           Plan array.
+	 * @param array<string,mixed>  $file_spec      File spec.
+	 * @param string               $code           Invalid source.
+	 * @param array<string,mixed>  $lint           Lint result.
+	 * @param array<string,string> $prior_files    Prior generated files.
 	 * @param bool                 $include_source Whether to include invalid source in the repair prompt.
+	 * @param array<string,mixed>  $context        Parent provider/model routing context.
 	 * @return string|\WP_Error
 	 */
-	private static function repair_file( array $plan, array $file_spec, string $code, array $lint, array $prior_files, bool $include_source ): string|\WP_Error {
+	private static function repair_file( array $plan, array $file_spec, string $code, array $lint, array $prior_files, bool $include_source, array $context = [] ): string|\WP_Error {
 		$path = isset( $file_spec['path'] ) ? (string) $file_spec['path'] : 'plugin.php';
 
 		$system_instruction = <<<'INSTRUCTION'
@@ -617,7 +730,12 @@ INSTRUCTION;
 			$prompt .= "\nInvalid source:\n" . $code;
 		}
 
-		$raw = wp_ai_client_prompt( $prompt )
+		$builder = self::create_prompt_builder( $prompt, $context );
+		if ( is_wp_error( $builder ) ) {
+			return $builder;
+		}
+
+		$raw = $builder
 			->using_system_instruction( $system_instruction )
 			->generate_text();
 
