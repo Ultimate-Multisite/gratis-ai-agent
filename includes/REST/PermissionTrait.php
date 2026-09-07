@@ -12,7 +12,6 @@ namespace SdAiAgent\REST;
 
 use SdAiAgent\Core\Database;
 use SdAiAgent\Core\RolePermissions;
-use SdAiAgent\Models\ActiveJobRepository;
 use WP_Error;
 use WP_REST_Request;
 
@@ -61,77 +60,6 @@ trait PermissionTrait {
 	}
 
 	/**
-	 * Permission check for starting an authenticated chat run.
-	 *
-	 * A chat-enabled user may start a new session. Continuing an existing
-	 * session additionally requires ownership; administrators may continue a
-	 * session that was explicitly shared with administrators. Non-admin users
-	 * cannot start durable plans through the general chat route.
-	 *
-	 * @param WP_REST_Request $request The request object.
-	 * @return bool|WP_Error
-	 */
-	public function check_chat_run_permission( WP_REST_Request $request ): bool|WP_Error {
-		$chat_permission = $this->check_chat_permission();
-		if ( true !== $chat_permission ) {
-			return $chat_permission;
-		}
-
-		if ( ! current_user_can( 'manage_options' ) && true === $request->get_param( 'durable_plan' ) ) {
-			return new WP_Error(
-				'rest_forbidden',
-				__( 'Your user role does not have permission to create durable plans.', 'superdav-ai-agent' ),
-				array( 'status' => 403 )
-			);
-		}
-
-		$session_id = self::get_int_param( $request, 'session_id' );
-		if ( 0 === $session_id ) {
-			return true;
-		}
-
-		return $this->current_user_can_access_session( $session_id );
-	}
-
-	/**
-	 * Permission check for authenticated job status and control routes.
-	 *
-	 * Job UUIDs are bearer-like identifiers and are not authorization. Resolve
-	 * the persisted owner from the transient first and the active-job table as a
-	 * durable fallback, then require the real current user to match it.
-	 *
-	 * @param WP_REST_Request $request The request object.
-	 * @return bool|WP_Error
-	 */
-	public function check_chat_job_permission( WP_REST_Request $request ): bool|WP_Error {
-		$chat_permission = $this->check_chat_permission();
-		if ( true !== $chat_permission ) {
-			return $chat_permission;
-		}
-
-		// Preserve the existing administrator support/debugging contract while
-		// requiring every non-admin chat user to own the requested job.
-		if ( current_user_can( 'manage_options' ) ) {
-			return true;
-		}
-
-		$job_id = self::get_string_param( $request, 'id' );
-		if ( '' === $job_id ) {
-			return false;
-		}
-
-		$job      = get_transient( RestController::JOB_PREFIX . $job_id );
-		$owner_id = is_array( $job ) ? absint( $job['user_id'] ?? 0 ) : 0;
-
-		if ( 0 === $owner_id ) {
-			$row      = ActiveJobRepository::get_by_job_id( $job_id );
-			$owner_id = $row->user_id ?? 0;
-		}
-
-		return $owner_id > 0 && $owner_id === get_current_user_id();
-	}
-
-	/**
 	 * Permission check for the browser tool-result callback endpoint.
 	 *
 	 * The endpoint mutates session state by consuming paused_state and appending
@@ -165,7 +93,12 @@ trait PermissionTrait {
 			);
 		}
 
-		if ( $this->current_user_can_access_session( $session_id ) ) {
+		$is_owner = (int) $session->user_id === get_current_user_id();
+		if ( $is_owner ) {
+			return true;
+		}
+
+		if ( Database::get_shared_session( $session_id ) ) {
 			return true;
 		}
 
@@ -200,14 +133,7 @@ trait PermissionTrait {
 			return true;
 		}
 
-		// Shared sessions are an administrator collaboration feature. A globally
-		// shared row must never expose one vendor's conversation to another vendor.
-		if ( ! current_user_can( 'manage_options' ) ) {
-			return false;
-		}
-
-		// Non-owner administrators may access shared sessions (read + continue),
-		// but not delete/trash/archive.
+		// Non-owners may access shared sessions (read + continue), but not delete/trash/archive.
 		$method = $request->get_method();
 		if ( 'DELETE' === $method ) {
 			return false;
@@ -243,25 +169,6 @@ trait PermissionTrait {
 		}
 
 		return (int) $session->user_id === get_current_user_id();
-	}
-
-	/**
-	 * Check whether the current user owns a session or is an administrator with
-	 * access to a session explicitly shared for administrator collaboration.
-	 *
-	 * @param int $session_id Session ID.
-	 */
-	private function current_user_can_access_session( int $session_id ): bool {
-		$session = Database::get_session( $session_id );
-		if ( ! $session ) {
-			return false;
-		}
-
-		if ( (int) $session->user_id === get_current_user_id() ) {
-			return true;
-		}
-
-		return current_user_can( 'manage_options' ) && null !== Database::get_shared_session( $session_id );
 	}
 
 	/**

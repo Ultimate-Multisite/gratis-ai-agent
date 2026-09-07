@@ -52,7 +52,6 @@ function FloatingWidget() {
 
 	const frontendOnboardingEnabled =
 		!! window.sdAiAgentData?.frontendOnboarding;
-	const embedded = window.sdAiAgentData?.displayMode === 'embedded';
 	const [ frontendOnboardingMode, setFrontendOnboardingMode ] = useState(
 		frontendOnboardingEnabled ? 'intro' : null
 	);
@@ -131,15 +130,6 @@ function FloatingWidget() {
 		setFloatingOpen( true );
 		setFloatingMinimized( false );
 	}, [ frontendOnboardingEnabled, setFloatingOpen, setFloatingMinimized ] );
-
-	useEffect( () => {
-		if ( ! embedded ) {
-			return;
-		}
-
-		setFloatingOpen( true );
-		setFloatingMinimized( false );
-	}, [ embedded, setFloatingOpen, setFloatingMinimized ] );
 
 	// Keep the public widget attached to the same active/latest conversation as
 	// the dedicated chat page after reloads or frontend navigation. Invalidate
@@ -315,12 +305,7 @@ function FloatingWidget() {
 		return null;
 	}
 
-	return (
-		<ChatWidget
-			frontendOnboardingMode={ frontendOnboardingMode }
-			embedded={ embedded }
-		/>
-	);
+	return <ChatWidget frontendOnboardingMode={ frontendOnboardingMode } />;
 }
 
 /**
@@ -411,12 +396,9 @@ function gatherPageContext() {
 // Admin shell plugins can load WordPress screens in an iframe. The parent
 // screen owns the floating widget, so avoid rendering a duplicate in the frame.
 if ( window.self === window.top ) {
-	let wrapper = document.getElementById( 'sdaa-floating-root' );
-	if ( ! wrapper ) {
-		wrapper = document.createElement( 'div' );
-		wrapper.id = 'sdaa-floating-root';
-		document.body.appendChild( wrapper );
-	}
+	const wrapper = document.createElement( 'div' );
+	wrapper.id = 'sdaa-floating-root';
+	document.body.appendChild( wrapper );
 
 	const root = createRoot( wrapper );
 	root.render(

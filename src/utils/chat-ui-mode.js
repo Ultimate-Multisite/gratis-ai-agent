@@ -14,7 +14,6 @@ const SIMPLE_MODE_ALIASES = new Set( [
 	'public_chat',
 	'customer',
 	'simple',
-	'vendor_simple',
 ] );
 
 /**

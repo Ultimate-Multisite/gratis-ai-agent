@@ -20,7 +20,6 @@ describe( 'chat UI mode helpers', () => {
 		expect( isCustomerSimpleMode( { embed: { uiMode: 'simple' } } ) ).toBe(
 			true
 		);
-		expect( isCustomerSimpleMode( 'vendor-simple' ) ).toBe( true );
 	} );
 
 	test( 'supports localized window data and public chat boolean flags', () => {

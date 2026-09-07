@@ -29,23 +29,6 @@
 	animation: sdaa-w-panel-in 180ms ease;
 }
 
-.sdaa-w-panel.is-embedded {
-	position: relative;
-	top: auto;
-	right: auto;
-	bottom: auto;
-	left: auto;
-	width: 100%;
-	height: min(760px, calc(100vh - 180px));
-	min-height: 520px;
-	max-width: none;
-	margin: 0;
-}
-
-.sd-ai-agent-dokan-chat {
-	width: 100%;
-}
-
 .sdaa-w-panel.is-minimized {
 	width: 320px;
 	height: auto;

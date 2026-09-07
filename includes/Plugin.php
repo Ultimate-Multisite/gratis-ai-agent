@@ -35,7 +35,6 @@ use SdAiAgent\Bootstrap\AutomationsHandler;
 use SdAiAgent\Bootstrap\ChangeLoggingHandler;
 use SdAiAgent\Bootstrap\CliHandler;
 use SdAiAgent\Bootstrap\CustomerAgentRuntimeHandler;
-use SdAiAgent\Bootstrap\DokanVendorDashboardHandler;
 use SdAiAgent\Bootstrap\FrontendAssetsHandler;
 use SdAiAgent\Bootstrap\HealthEndpointHandler;
 use SdAiAgent\Bootstrap\HttpTraceHandler;
@@ -123,7 +122,6 @@ use XWP\DI\Decorators\Module;
 		CustomerAgentRuntimeHandler::class,
 		CachePolicy::class,
 		FrontendAssetsHandler::class,
-		DokanVendorDashboardHandler::class,
 		PublicSpeechCorsHandler::class,
 		MemoryController::class,
 		SkillController::class,
