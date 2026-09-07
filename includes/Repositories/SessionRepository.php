@@ -506,7 +506,10 @@ class SessionRepository {
 		}
 
 		$existing_messages   = json_decode( $session->messages, true ) ?: [];
-		$existing_tool_calls = json_decode( $session->tool_calls, true ) ?: [];
+		$existing_tool_calls = json_decode( $session->tool_calls, true );
+		if ( ! is_array( $existing_tool_calls ) ) {
+			$existing_tool_calls = [];
+		}
 
 		// @phpstan-ignore-next-line
 		$merged_messages   = array_merge( $existing_messages, $messages );
