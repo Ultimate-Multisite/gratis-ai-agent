@@ -60,6 +60,9 @@ jobs:
       - name: Install Node dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Install Composer dependencies
+        run: composer install --prefer-dist --no-progress
+
       - name: Verify version matches
         run: |
           CORE_HEADER_VERSION="$(grep -m 1 ' \* Version:' superdav-ai-agent.php | sed 's/.*Version:[[:space:]]*//' | tr -d '[:space:]')"
