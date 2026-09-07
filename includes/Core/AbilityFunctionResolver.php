@@ -38,6 +38,13 @@ class AbilityFunctionResolver extends \WP_AI_Client_Ability_Function_Resolver {
 	private array $allowed = array();
 
 	/**
+	 * Provider/model routing inherited from the parent AgentLoop for one batch.
+	 *
+	 * @var array{provider_id:string,model_id:string}|null
+	 */
+	private ?array $provider_model_context = null;
+
+	/**
 	 * @param \WP_Ability|string ...$abilities Allowed abilities (objects or names).
 	 */
 	public function __construct( ...$abilities ) {
@@ -50,6 +57,24 @@ class AbilityFunctionResolver extends \WP_AI_Client_Ability_Function_Resolver {
 				$this->allowed[ $ability ] = true;
 			}
 		}
+	}
+
+	/**
+	 * Bind the selected parent provider/model for the current ability batch.
+	 *
+	 * @param string $provider_id Provider selected by AgentLoop.
+	 * @param string $model_id    Model selected by AgentLoop.
+	 */
+	public function set_provider_model_context( string $provider_id, string $model_id ): void {
+		$this->provider_model_context = array(
+			'provider_id' => substr( trim( $provider_id ), 0, 191 ),
+			'model_id'    => substr( trim( $model_id ), 0, 191 ),
+		);
+	}
+
+	/** Clear parent provider/model context after the current ability batch. */
+	public function clear_provider_model_context(): void {
+		$this->provider_model_context = null;
 	}
 
 	/**
@@ -184,6 +209,7 @@ class AbilityFunctionResolver extends \WP_AI_Client_Ability_Function_Resolver {
 		// or validate_output(). Our AbstractAbility::do_execute() override
 		// handles errors inside the callback itself.
 		try {
+			$this->set_ability_provider_model_context( $ability );
 			// @phpstan-ignore-next-line — execute() exists at runtime in WP 7.0.
 			$result = $ability->execute( $args );
 		} catch ( \Throwable $e ) {
@@ -238,6 +264,8 @@ class AbilityFunctionResolver extends \WP_AI_Client_Ability_Function_Resolver {
 				$function_name,
 				$response_data
 			);
+		} finally {
+			$this->clear_ability_provider_model_context( $ability );
 		}
 
 		if ( is_wp_error( $result ) ) {
@@ -312,6 +340,36 @@ class AbilityFunctionResolver extends \WP_AI_Client_Ability_Function_Resolver {
 		ModelHealthTracker::record_success();
 
 		return new FunctionResponse( $function_id, $function_name, $result );
+	}
+
+	/**
+	 * Pass the bounded parent route to abilities that opt into nested AI routing.
+	 *
+	 * @param \WP_Ability $ability Ability about to execute.
+	 */
+	private function set_ability_provider_model_context( \WP_Ability $ability ): void {
+		$setter = array( $ability, 'set_provider_model_context' );
+		if ( ! is_callable( $setter ) ) {
+			return;
+		}
+
+		$context = $this->provider_model_context ?? array(
+			'provider_id' => '',
+			'model_id'    => '',
+		);
+		$setter( $context['provider_id'], $context['model_id'] );
+	}
+
+	/**
+	 * Remove the parent route from an opted-in ability after every execution.
+	 *
+	 * @param \WP_Ability $ability Ability that has finished executing.
+	 */
+	private function clear_ability_provider_model_context( \WP_Ability $ability ): void {
+		$clearer = array( $ability, 'clear_provider_model_context' );
+		if ( is_callable( $clearer ) ) {
+			$clearer();
+		}
 	}
 
 	/**

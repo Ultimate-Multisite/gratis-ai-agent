@@ -224,8 +224,7 @@ PROMPT;
 	/** @var array<int|string, mixed> Page context from the widget. */
 	private $page_context = array();
 
-	/** @var WP_AI_Client_Ability_Function_Resolver|null */
-	private $ability_resolver = null;
+	private ?AbilityFunctionResolver $ability_resolver = null;
 
 	/** @var Settings Injected settings dependency. */
 	private $settings_service;
@@ -4355,9 +4354,9 @@ PROMPT;
 	/**
 	 * Get or create the ability function resolver instance.
 	 *
-	 * @return WP_AI_Client_Ability_Function_Resolver
+	 * @return AbilityFunctionResolver
 	 */
-	private function get_ability_resolver(): WP_AI_Client_Ability_Function_Resolver {
+	private function get_ability_resolver(): AbilityFunctionResolver {
 		if ( null === $this->ability_resolver ) {
 			$abilities              = $this->resolve_abilities();
 			$this->ability_resolver = new AbilityFunctionResolver( ...$abilities );
@@ -4375,7 +4374,16 @@ PROMPT;
 	 * @return Message Tool-response message.
 	 */
 	protected function execute_abilities( Message $message ): Message {
-		return $this->get_ability_resolver()->execute_abilities( $message );
+		$resolver    = $this->get_ability_resolver();
+		$provider_id = $this->resolve_provider_id();
+		$model_id    = $this->resolve_effective_model_id( $provider_id );
+
+		$resolver->set_provider_model_context( $provider_id, $model_id );
+		try {
+			return $resolver->execute_abilities( $message );
+		} finally {
+			$resolver->clear_provider_model_context();
+		}
 	}
 
 	// ── Tool call logging ─────────────────────────────────────────────────
