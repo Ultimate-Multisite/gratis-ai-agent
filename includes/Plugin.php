@@ -35,7 +35,6 @@ use SdAiAgent\Bootstrap\AutomationsHandler;
 use SdAiAgent\Bootstrap\ChangeLoggingHandler;
 use SdAiAgent\Bootstrap\CliHandler;
 use SdAiAgent\Bootstrap\CustomerAgentRuntimeHandler;
-use SdAiAgent\Bootstrap\DokanVendorDashboardHandler;
 use SdAiAgent\Bootstrap\FrontendAssetsHandler;
 use SdAiAgent\Bootstrap\HealthEndpointHandler;
 use SdAiAgent\Bootstrap\HttpTraceHandler;
@@ -45,7 +44,6 @@ use SdAiAgent\Bootstrap\OnboardingHandler;
 use SdAiAgent\Bootstrap\PublicSpeechCorsHandler;
 use SdAiAgent\Bootstrap\SuperdavAiProviderHandler;
 use SdAiAgent\Bootstrap\ToolDiscoveryHandler;
-use SdAiAgent\Core\AdvancedPluginManager;
 use SdAiAgent\Contracts\BudgetCheckerInterface;
 use SdAiAgent\Contracts\SessionRepositoryInterface;
 use SdAiAgent\Contracts\SettingsProviderInterface;
@@ -103,7 +101,6 @@ use XWP\DI\Decorators\Module;
 		UsageInstructionsFilter::class,
 		RequestTimeoutFilter::class,
 		SuperdavAiProviderHandler::class,
-		AdvancedPluginManager::class,
 		CliHandler::class,
 		AbilitiesHandler::class,
 		WooCommerceIntegrationHandler::class,
@@ -125,7 +122,6 @@ use XWP\DI\Decorators\Module;
 		CustomerAgentRuntimeHandler::class,
 		CachePolicy::class,
 		FrontendAssetsHandler::class,
-		DokanVendorDashboardHandler::class,
 		PublicSpeechCorsHandler::class,
 		MemoryController::class,
 		SkillController::class,

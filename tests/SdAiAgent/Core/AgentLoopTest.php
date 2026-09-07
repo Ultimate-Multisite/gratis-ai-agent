@@ -40,7 +40,6 @@ use SdAiAgent\Core\ConversationTrimmer;
 use SdAiAgent\Core\Database;
 use SdAiAgent\Core\ProviderCredentialLoader;
 use SdAiAgent\Core\ProviderTraceLogger;
-use SdAiAgent\Core\RolePermissions;
 use SdAiAgent\Core\Settings;
 use SdAiAgent\Core\SuperdavJourneyBudgetContext;
 use SdAiAgent\Core\SystemInstructionBuilder;
@@ -197,8 +196,6 @@ class AgentLoopTest extends WP_UnitTestCase {
 		delete_option( 'openai_compat_api_key' );
 		delete_option( SuperdavAiProvider::CREDENTIAL_OPTION );
 		delete_option( Settings::OPTION_NAME );
-		delete_option( RolePermissions::OPTION_NAME );
-		remove_role( 'seller' );
 		SuperdavJourneyBudgetContext::deactivate();
 		ProviderTraceLogger::clear_runtime_context();
 		remove_all_filters( 'sd_ai_agent_cloud_base_url' );
@@ -3005,19 +3002,19 @@ class AgentLoopTest extends WP_UnitTestCase {
 	}
 
 	/**
-	 * Test the Advanced companion guidance gives administrators the account-settings path.
+	 * Test the Advanced companion guidance gives administrators the manual installation path.
 	 */
-	public function test_advanced_companion_guidance_links_to_account_settings(): void {
+	public function test_advanced_companion_guidance_explains_manual_installation(): void {
 		$builder     = new SystemInstructionBuilder();
 		$guidance    = SystemInstructionBuilder::build_advanced_companion_section();
 		$instruction = $builder->build( array() );
 
 		$this->assertStringContainsString( 'sd_ai_agent_advanced_plugin_required', $guidance );
-		$this->assertStringContainsString( 'SD AI account settings', $guidance );
-		$this->assertStringContainsString( 'Install and activate', $guidance );
+		$this->assertStringContainsString( 'latest SD AI Agent GitHub release', $guidance );
+		$this->assertStringContainsString( 'Upload Plugin', $guidance );
 		$this->assertStringContainsString( 'Do not attempt to download, install, activate, or update', $guidance );
 		$this->assertStringContainsString( 'sd_ai_agent_advanced_plugin_required', $instruction );
-		$this->assertStringContainsString( 'SD AI account settings', $instruction );
+		$this->assertStringContainsString( 'latest SD AI Agent GitHub release', $instruction );
 	}
 
 	/**
@@ -3584,13 +3581,12 @@ class AgentLoopTest extends WP_UnitTestCase {
 	}
 
 	/**
-	 * System runs without a logged-in user retain explicitly approved abilities.
+	 * Test one-time confirmed abilities are merged into the resolver tool set.
 	 */
 	public function test_resolve_abilities_includes_approved_once_abilities(): void {
 		if ( ! function_exists( 'wp_get_abilities' ) ) {
 			$this->markTestSkipped( 'Abilities API not available.' );
 		}
-		wp_set_current_user( 0 );
 
 		$loop = new AgentLoop(
 			'Test prompt',
@@ -3616,45 +3612,6 @@ class AgentLoopTest extends WP_UnitTestCase {
 
 		$this->assertContains( 'sd-ai-agent/memory-list', $names );
 		$this->assertContains( 'sd-ai-agent/memory-save', $names );
-	}
-
-	/** Explicit run abilities remain constrained by a seller's role allowlist. */
-	public function test_resolve_abilities_filters_explicit_tools_for_seller(): void {
-		if ( ! function_exists( 'wp_get_abilities' ) ) {
-			$this->markTestSkipped( 'Abilities API not available.' );
-		}
-
-		add_role( 'seller', 'Seller', array( 'read' => true ) );
-		$seller_id = self::factory()->user->create( array( 'role' => 'seller' ) );
-		RolePermissions::update(
-			array(
-				'seller' => array(
-					'chat_access'       => true,
-					'allowed_abilities' => array( 'sd-ai-agent/memory-list' ),
-				),
-			)
-		);
-		wp_set_current_user( $seller_id );
-		$catalog = JsAbilityCatalog::get_descriptors_by_name();
-
-		$loop = new AgentLoop(
-			'Test prompt',
-			array( 'sd-ai-agent/memory-list', 'sd-ai-agent/memory-save' ),
-			array(),
-			array( 'client_abilities' => array( $catalog['sd-ai-agent-js/navigate-to'] ) )
-		);
-		$method = new \ReflectionMethod( AgentLoop::class, 'resolve_abilities' );
-		$method->setAccessible( true );
-
-		$resolved = $method->invoke( $loop );
-		$names    = array_map(
-			static fn( $ability ): string => $ability instanceof \WP_Ability ? $ability->get_name() : '',
-			is_array( $resolved ) ? $resolved : array()
-		);
-
-		$this->assertContains( 'sd-ai-agent/memory-list', $names );
-		$this->assertNotContains( 'sd-ai-agent/memory-save', $names );
-		$this->assertNotContains( 'sd-ai-agent-js/navigate-to', $names );
 	}
 
 	// -------------------------------------------------------------------------

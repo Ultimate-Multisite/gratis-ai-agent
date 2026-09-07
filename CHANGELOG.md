@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.23.0] - 2026-09-06
+
+### Added
+
+- Managed two-way voice conversations with speech recognition, text-to-speech, and permission-gated public embed speech.
+- WhatsApp and Telegram notification integrations for automations.
+- Opt-in Monitor automations with event-driven wakes and privacy-safe customer conversation review.
+- Moved Advanced companion update checks and package verification into the separately distributed Advanced plugin.
+- Prompts that help users report completed jobs that did not achieve their requested outcome.
+
+### Changed
+
+- Conversation Trash management is clearer, and reversible block edits require fewer unnecessary confirmations.
+- Scheduled automations, notification delivery, multisite jobs, restored client tools, and long-running provider retries recover more reliably.
+- Stock-image and generated-site workflows preserve attribution, dimensions, quality findings, subsite context, and safer mutation boundaries.
+
+### Fixed
+
+- Voice state, public speech errors, Setup Assistant progress, Gutenberg nesting, editor history, image imports, contact-form mail, and provider tool cycles now handle their edge cases correctly.
+
 ## [1.22.0] - 2026-08-15
 
 ### Added
@@ -354,5 +374,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - wp-env override JSON passed via env var to avoid shell quote stripping
 - PHPUnit (WP trunk) fatal resolved — `ClientWithOptionsInterface` namespace mismatch
 
+[Unreleased]: https://github.com/Ultimate-Multisite/superdav-ai-agent/compare/v1.23.0...HEAD
+[1.23.0]: https://github.com/Ultimate-Multisite/superdav-ai-agent/compare/v1.22.4...v1.23.0
 [1.3.0]: https://github.com/Ultimate-Multisite/sd-ai-agent/compare/v1.2.0...v1.3.0
 [1.2.0]: https://github.com/Ultimate-Multisite/sd-ai-agent/compare/v1.1.0...v1.2.0

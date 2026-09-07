@@ -111,7 +111,7 @@ final class SessionController {
 				array(
 					'methods'             => WP_REST_Server::READABLE,
 					'callback'            => array( $this, 'handle_list_sessions' ),
-					'permission_callback' => array( $this, 'check_chat_permission' ),
+					'permission_callback' => array( $this, 'check_permission' ),
 					'args'                => array(
 						'status' => array(
 							'required'          => false,
@@ -138,7 +138,7 @@ final class SessionController {
 				array(
 					'methods'             => WP_REST_Server::CREATABLE,
 					'callback'            => array( $this, 'handle_create_session' ),
-					'permission_callback' => array( $this, 'check_chat_permission' ),
+					'permission_callback' => array( $this, 'check_permission' ),
 					'args'                => array(
 						'title'       => array(
 							'required'          => false,
@@ -175,7 +175,7 @@ final class SessionController {
 			array(
 				'methods'             => WP_REST_Server::READABLE,
 				'callback'            => array( $this, 'handle_list_folders' ),
-				'permission_callback' => array( $this, 'check_chat_permission' ),
+				'permission_callback' => array( $this, 'check_permission' ),
 			)
 		);
 
@@ -185,7 +185,7 @@ final class SessionController {
 			array(
 				'methods'             => WP_REST_Server::CREATABLE,
 				'callback'            => array( $this, 'handle_bulk_sessions' ),
-				'permission_callback' => array( $this, 'check_chat_permission' ),
+				'permission_callback' => array( $this, 'check_permission' ),
 				'args'                => array(
 					'ids'    => array(
 						'required' => true,
@@ -211,7 +211,7 @@ final class SessionController {
 			array(
 				'methods'             => WP_REST_Server::DELETABLE,
 				'callback'            => array( $this, 'handle_empty_trash' ),
-				'permission_callback' => array( $this, 'check_chat_permission' ),
+				'permission_callback' => array( $this, 'check_permission' ),
 			)
 		);
 
@@ -335,7 +335,7 @@ final class SessionController {
 			array(
 				'methods'             => WP_REST_Server::CREATABLE,
 				'callback'            => array( $this, 'handle_import_session' ),
-				'permission_callback' => array( $this, 'check_chat_permission' ),
+				'permission_callback' => array( $this, 'check_permission' ),
 			)
 		);
 
@@ -389,7 +389,7 @@ final class SessionController {
 			array(
 				'methods'             => WP_REST_Server::READABLE,
 				'callback'            => array( $this, 'handle_job_status' ),
-				'permission_callback' => array( $this, 'check_chat_job_permission' ),
+				'permission_callback' => array( $this, 'check_permission' ),
 				'args'                => array(
 					'id' => array(
 						'required'          => true,
@@ -430,7 +430,7 @@ final class SessionController {
 			array(
 				'methods'             => WP_REST_Server::CREATABLE,
 				'callback'            => array( $this, 'handle_run' ),
-				'permission_callback' => array( $this, 'check_chat_run_permission' ),
+				'permission_callback' => array( $this, 'check_permission' ),
 				'args'                => array(
 					'message'            => array(
 						'required'          => true,
@@ -585,7 +585,7 @@ final class SessionController {
 			array(
 				'methods'             => WP_REST_Server::CREATABLE,
 				'callback'            => array( $this, 'handle_confirm_tool' ),
-				'permission_callback' => array( $this, 'check_chat_job_permission' ),
+				'permission_callback' => array( $this, 'check_permission' ),
 				'args'                => array(
 					'id'           => array(
 						'required'          => true,
@@ -607,7 +607,7 @@ final class SessionController {
 			array(
 				'methods'             => WP_REST_Server::CREATABLE,
 				'callback'            => array( $this, 'handle_reject_tool' ),
-				'permission_callback' => array( $this, 'check_chat_job_permission' ),
+				'permission_callback' => array( $this, 'check_permission' ),
 				'args'                => array(
 					'id' => array(
 						'required'          => true,
@@ -625,7 +625,7 @@ final class SessionController {
 			array(
 				'methods'             => WP_REST_Server::CREATABLE,
 				'callback'            => array( $this, 'handle_interrupt' ),
-				'permission_callback' => array( $this, 'check_chat_job_permission' ),
+				'permission_callback' => array( $this, 'check_permission' ),
 				'args'                => array(
 					'id'      => array(
 						'required'          => true,
@@ -666,7 +666,7 @@ final class SessionController {
 			array(
 				'methods'             => WP_REST_Server::READABLE,
 				'callback'            => array( $this, 'handle_list_active_jobs' ),
-				'permission_callback' => array( $this, 'check_chat_permission' ),
+				'permission_callback' => array( $this, 'check_permission' ),
 			)
 		);
 
@@ -3030,20 +3030,11 @@ final class SessionController {
 			return new WP_Error( 'sd_ai_agent_forbidden', __( 'Not authorized.', 'superdav-ai-agent' ), array( 'status' => 403 ) );
 		}
 
-		$always_allow = true === $request->get_param( 'always_allow' );
-		if ( $always_allow && ! current_user_can( 'manage_options' ) ) {
-			return new WP_Error(
-				'sd_ai_agent_always_allow_forbidden',
-				__( 'Only administrators can persist tool approval settings.', 'superdav-ai-agent' ),
-				array( 'status' => 403 )
-			);
-		}
-
 		// "Always allow" — persist permission so this tool auto-executes in future.
 		// For sd-ai-agent/ability-call confirmations, `ability` is the nested
 		// target ability whose policy triggered the pause; `name` remains the
 		// executable meta-tool function name so the confirmed resume can run.
-		if ( $always_allow && ! empty( $job['pending_tools'] ) ) {
+		if ( $request->get_param( 'always_allow' ) && ! empty( $job['pending_tools'] ) ) {
 			// @phpstan-ignore-next-line
 			foreach ( $job['pending_tools'] as $tool ) {
 				/** @var array<string, mixed> $tool */

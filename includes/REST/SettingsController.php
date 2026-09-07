@@ -87,7 +87,7 @@ final class SettingsController {
 			array(
 				'methods'             => WP_REST_Server::READABLE,
 				'callback'            => array( $this, 'handle_providers' ),
-				'permission_callback' => array( $this, 'check_chat_permission' ),
+				'permission_callback' => array( $this, 'check_permission' ),
 			)
 		);
 
@@ -121,7 +121,7 @@ final class SettingsController {
 				array(
 					'methods'             => WP_REST_Server::READABLE,
 					'callback'            => array( $this, 'handle_get_settings' ),
-					'permission_callback' => array( $this, 'check_chat_permission' ),
+					'permission_callback' => array( $this, 'check_permission' ),
 				),
 				array(
 					'methods'             => WP_REST_Server::CREATABLE,
@@ -178,32 +178,6 @@ final class SettingsController {
 						'required'          => true,
 						'type'              => 'string',
 						'validate_callback' => static fn( mixed $value ): bool => is_string( $value ) && '' !== trim( $value ),
-					),
-				),
-			)
-		);
-
-		register_rest_route(
-			RestController::NAMESPACE,
-			'/superdav-account/advanced-plugin/install',
-			array(
-				'methods'             => WP_REST_Server::CREATABLE,
-				'callback'            => array( $this, 'handle_install_advanced_plugin' ),
-				'permission_callback' => array( AdvancedPluginManager::class, 'current_user_can_manage' ),
-			)
-		);
-
-		register_rest_route(
-			RestController::NAMESPACE,
-			'/superdav-account/advanced-plugin/auto-updates',
-			array(
-				'methods'             => WP_REST_Server::CREATABLE,
-				'callback'            => array( $this, 'handle_advanced_plugin_auto_updates' ),
-				'permission_callback' => array( AdvancedPluginManager::class, 'current_user_can_manage' ),
-				'args'                => array(
-					'enabled' => array(
-						'required' => true,
-						'type'     => 'boolean',
 					),
 				),
 			)
@@ -564,13 +538,6 @@ final class SettingsController {
 	 */
 	public function handle_get_settings(): WP_REST_Response {
 		$settings = $this->settings->get();
-		if ( ! is_array( $settings ) ) {
-			$settings = array();
-		}
-
-		if ( ! current_user_can( 'manage_options' ) ) {
-			return new WP_REST_Response( $this->chat_settings( $settings ), 200 );
-		}
 
 		// Include built-in defaults so the UI can show them as placeholders.
 		// @phpstan-ignore-next-line
@@ -620,31 +587,6 @@ final class SettingsController {
 	}
 
 	/**
-	 * Return only presentation settings needed by authenticated chat clients.
-	 *
-	 * @param array<string, mixed> $settings Full plugin settings.
-	 * @return array<string, mixed>
-	 */
-	private function chat_settings( array $settings ): array {
-		$allowed_keys  = array_flip(
-			array(
-				'keyboard_shortcut',
-				'greeting_message',
-				'show_token_costs',
-				'show_tool_call_details',
-				'context_window_default',
-			)
-		);
-		$chat_settings = array_intersect_key( $settings, $allowed_keys );
-
-		$chat_settings['_defaults'] = array(
-			'greeting_message' => __( 'Send a message to start a conversation.', 'superdav-ai-agent' ),
-		);
-
-		return $chat_settings;
-	}
-
-	/**
 	 * Handle POST /settings — partial update.
 	 *
 	 * @param WP_REST_Request $request The request object.
@@ -686,31 +628,6 @@ final class SettingsController {
 		$status['advanced_plugin'] = $this->advanced_plugin_manager()->get_status();
 
 		return new WP_REST_Response( $this->add_local_chat_session_details( $status ), 200 );
-	}
-
-	/** Install and activate the public Advanced package. */
-	public function handle_install_advanced_plugin(): WP_REST_Response|WP_Error {
-		$status = $this->advanced_plugin_manager()->install_and_activate();
-		if ( $status instanceof WP_Error ) {
-			return $status;
-		}
-
-		return new WP_REST_Response( $status, 200 );
-	}
-
-	/** Persist the Advanced automatic-update preference. */
-	public function handle_advanced_plugin_auto_updates( WP_REST_Request $request ): WP_REST_Response|WP_Error {
-		$enabled = $request->get_param( 'enabled' );
-		if ( ! is_bool( $enabled ) && ! is_int( $enabled ) && ! is_string( $enabled ) ) {
-			return new WP_Error( 'sd_ai_agent_advanced_auto_updates_invalid', __( 'Choose whether automatic updates should be enabled.', 'superdav-ai-agent' ), array( 'status' => 400 ) );
-		}
-
-		$status = $this->advanced_plugin_manager()->set_auto_updates_enabled( rest_sanitize_boolean( $enabled ) );
-		if ( $status instanceof WP_Error ) {
-			return $status;
-		}
-
-		return new WP_REST_Response( $status, 200 );
 	}
 
 	/**
@@ -800,9 +717,9 @@ final class SettingsController {
 		return $status;
 	}
 
-	/** Build the package manager outside DI so existing controller tests remain stable. */
+	/** Build the local status reader outside DI so existing controller tests remain stable. */
 	private function advanced_plugin_manager(): AdvancedPluginManager {
-		return new AdvancedPluginManager( new SuperdavSiteConnectionService() );
+		return new AdvancedPluginManager();
 	}
 
 	/**
@@ -1630,11 +1547,7 @@ final class SettingsController {
 			return new WP_REST_Response( $providers, 200 );
 		}
 
-		// Provisioning mutates site credentials and remains administrator-only.
-		// Chat-enabled non-admins may discover already configured providers.
-		if ( current_user_can( 'manage_options' ) ) {
-			$this->maybe_auto_provision_superdav_provider();
-		}
+		$this->maybe_auto_provision_superdav_provider();
 		ProviderCredentialLoader::load();
 
 		foreach ( $provider_ids as $provider_id ) {
@@ -1695,9 +1608,7 @@ final class SettingsController {
 
 				if ( SuperdavAiProvider::PROVIDER_ID === $provider_id ) {
 					$provider_response['default_model'] = SuperdavAiProvider::default_model_id();
-					if ( current_user_can( 'manage_options' ) ) {
-						$provider_response['status'] = ( new SuperdavSiteConnectionService() )->get_status();
-					}
+					$provider_response['status']        = ( new SuperdavSiteConnectionService() )->get_status();
 				}
 
 				$providers[] = $provider_response;

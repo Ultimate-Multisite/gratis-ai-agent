@@ -119,8 +119,6 @@ final class SettingsControllerTest extends WP_UnitTestCase {
 			$this->markTestSkipped( 'WordPress AI Client SDK is unavailable.' );
 		}
 
-		wp_set_current_user( self::factory()->user->create( array( 'role' => 'administrator' ) ) );
-
 		$base_url         = 'https://service.example/v1';
 		$registration_url = $base_url . '/site/installations';
 		$models_url       = $base_url . '/models';
@@ -226,47 +224,6 @@ final class SettingsControllerTest extends WP_UnitTestCase {
 		$second_response = $controller->handle_providers();
 		$this->assertSame( 200, $second_response->get_status() );
 		$this->assertSame( 1, $registration_hits );
-	}
-
-	/** Non-admin provider discovery never provisions or rotates site credentials. */
-	public function test_handle_providers_does_not_auto_provision_for_non_admin(): void {
-		if ( ! class_exists( AiClient::class ) ) {
-			$this->markTestSkipped( 'WordPress AI Client SDK is unavailable.' );
-		}
-
-		$base_url          = 'https://service.example/v1';
-		$registration_url  = $base_url . '/site/installations';
-		$registration_hits = 0;
-		add_filter( 'sd_ai_agent_cloud_base_url', static fn(): string => $base_url );
-		add_filter(
-			'pre_http_request',
-			static function ( mixed $preempt, array $parsed_args, string $url ) use ( $registration_url, &$registration_hits ): mixed {
-				unset( $parsed_args );
-				if ( $registration_url !== $url ) {
-					return $preempt;
-				}
-
-				++$registration_hits;
-				return array(
-					'response' => array( 'code' => 201, 'message' => 'Created' ),
-					'body'     => wp_json_encode(
-						array(
-							'installation_id' => 'unexpected-installation',
-							'site_token'      => 'unexpected-token',
-						)
-					),
-				);
-			},
-			10,
-			3
-		);
-		wp_set_current_user( self::factory()->user->create( array( 'role' => 'subscriber' ) ) );
-
-		$response = ( new SettingsController( new Settings(), new Database() ) )->handle_providers();
-
-		$this->assertSame( 200, $response->get_status() );
-		$this->assertSame( 0, $registration_hits );
-		$this->assertSame( '', get_option( SuperdavAiProvider::CREDENTIAL_OPTION, '' ) );
 	}
 
 	/**
@@ -1173,15 +1130,11 @@ final class SettingsControllerTest extends WP_UnitTestCase {
 
 		$this->assertSame( 200, $whatsapp_response->get_status() );
 		$this->assertSame( 200, $telegram_response->get_status() );
-		$whatsapp_data = $whatsapp_response->get_data();
-		$telegram_data = $telegram_response->get_data();
-		$this->assertIsArray( $whatsapp_data );
-		$this->assertIsArray( $telegram_data );
-		$encoded = wp_json_encode( [ $whatsapp_data, $telegram_data ] ) ?: '';
+		$encoded = wp_json_encode( [ $whatsapp_response->get_data(), $telegram_response->get_data() ] ) ?: '';
 		$this->assertStringNotContainsString( 'meta-secret-token', $encoded );
 		$this->assertStringNotContainsString( 'telegram-secret', $encoded );
-		$this->assertSame( '********7890', $whatsapp_data['phone_number_id_redacted'] ?? '' );
-		$this->assertTrue( $telegram_data['has_bot_token'] ?? false );
+		$this->assertSame( '********7890', $whatsapp_response->get_data()['phone_number_id_redacted'] ?? '' );
+		$this->assertTrue( $telegram_response->get_data()['has_bot_token'] ?? false );
 
 		$whatsapp_update = $controller->handle_set_whatsapp_provider(
 			$this->json_request(

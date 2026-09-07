@@ -140,6 +140,7 @@ jobs:
         with:
           files: |
             build/superdav-ai-agent-${{ env.VERSION }}.zip
+            build/superdav-ai-agent-advanced-${{ env.VERSION }}.zip
           name: Superdav AI Agent v${{ env.VERSION }}
           draft: false
           prerelease: ${{ env.IS_PRERELEASE == 'true' }}
@@ -149,7 +150,7 @@ jobs:
             ## Downloads
 
             - `superdav-ai-agent-${{ env.VERSION }}.zip` — core plugin. This is the WordPress.org package and is also attached here for direct GitHub installs.
-            - SD AI Agent Advanced — stable packages are published as free downloads through the SD AI WordPress update server. Install it from the SD AI account settings.
+            - `superdav-ai-agent-advanced-${{ env.VERSION }}.zip` — Advanced companion. Install it manually; once active, it checks the SD AI WordPress update server for verified updates.
 
             ## WordPress.org
 

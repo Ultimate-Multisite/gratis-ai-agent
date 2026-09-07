@@ -32,10 +32,9 @@ import './widget-launcher.css';
  * @param {Object}      root0                        Component props.
  * @param {string|null} root0.frontendOnboardingMode Frontend onboarding layout mode.
  * @param {string}      root0.uiMode                 Chat UI mode.
- * @param {boolean}     root0.embedded               Whether the panel is embedded in a page.
  * @return {JSX.Element|null} Loaded panel, retry launcher, or loading fallback.
  */
-function DeferredWidgetPanel( { frontendOnboardingMode, uiMode, embedded } ) {
+function DeferredWidgetPanel( { frontendOnboardingMode, uiMode } ) {
 	const [ WidgetPanel, setWidgetPanel ] = useState( null );
 	const [ failed, setFailed ] = useState( false );
 	const [ attempt, setAttempt ] = useState( 0 );
@@ -78,7 +77,6 @@ function DeferredWidgetPanel( { frontendOnboardingMode, uiMode, embedded } ) {
 		<WidgetPanel
 			frontendOnboardingMode={ frontendOnboardingMode }
 			uiMode={ uiMode }
-			embedded={ embedded }
 		/>
 	);
 }
@@ -86,19 +84,15 @@ function DeferredWidgetPanel( { frontendOnboardingMode, uiMode, embedded } ) {
 /**
  * @param {Object}      root0                        Component props.
  * @param {string|null} root0.frontendOnboardingMode Frontend onboarding layout mode.
- * @param {boolean}     root0.embedded               Whether the panel is embedded in a page.
  */
-export default function ChatWidget( {
-	frontendOnboardingMode = null,
-	embedded = false,
-} ) {
+export default function ChatWidget( { frontendOnboardingMode = null } ) {
 	const uiMode = getChatUiMode();
 	const isOpen = useSelect(
 		( sel ) => sel( STORE_NAME ).isFloatingOpen(),
 		[]
 	);
 
-	if ( ! isOpen && ! embedded ) {
+	if ( ! isOpen ) {
 		return <WidgetLauncher />;
 	}
 
@@ -106,7 +100,6 @@ export default function ChatWidget( {
 		<DeferredWidgetPanel
 			frontendOnboardingMode={ frontendOnboardingMode }
 			uiMode={ uiMode }
-			embedded={ embedded }
 		/>
 	);
 }

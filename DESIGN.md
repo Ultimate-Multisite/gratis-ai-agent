@@ -97,13 +97,6 @@ Never set a custom font family. The plugin must feel native to the admin environ
 ### General rule
 Use `@wordpress/components` for every interactive element. Do not reach for raw `<button>` or `<input>` elements unless unavoidable (e.g. hidden file inputs). Using WordPress components ensures keyboard accessibility, focus management, and visual consistency come for free.
 
-### Embedded marketplace assistant
-- Place vendor chat inside the marketplace dashboard content column rather than floating over navigation or store controls.
-- Use the same chat panel, message, input, and branding components as the main product; embedding changes layout, not visual identity.
-- Embedded panels fill the available content width, use a bounded viewport-relative height, and retain a usable minimum height on short screens.
-- Hide admin-oriented session, agent, model, proposal, change-log, resize, minimize, and dismiss controls in vendor-simple mode. The vendor surface should present only assistant status, conversation content, voice controls when available, and message composition.
-- Never expose a dashboard link when the current vendor lacks an explicit non-empty ability allowlist. Permission errors replace the mount rather than rendering a disabled or misleading assistant shell.
-
 ### Privacy review screens
 - Use a compact filterable summary list with an explicit detail selection; never place transcript text, profile identifiers, tokens, hashes, tool data, or raw provider payloads in list rows.
 - Keep transcript detail text-only, bounded, and visibly separate from its summary. Use pagination to load earlier retained messages instead of rendering an unbounded conversation at once.

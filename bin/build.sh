@@ -388,6 +388,7 @@ build_core() {
 		"${PLUGIN_DIR}/" "$dest/"
 
 	prune_dev_metadata "$dest"
+	composer --working-dir="$dest" remove yahnis-elsts/plugin-update-checker --dev --no-update --no-interaction --quiet
 	composer --working-dir="$dest" dump-autoload --no-dev --optimize --quiet
 	compile_di_cache "$dest"
 	zip_dir "$build_dir" "superdav-ai-agent" "superdav-ai-agent-${VERSION}.zip"
@@ -399,9 +400,14 @@ build_core() {
 build_advanced() {
 	local build_dir=""
 	local dest=""
+	local updater_source="${PLUGIN_DIR}/vendor/yahnis-elsts/plugin-update-checker"
 
 	if [ ! -f "${PLUGIN_DIR}/advanced-plugin/superdav-ai-agent-advanced.php" ]; then
 		echo "ERROR: advanced-plugin/superdav-ai-agent-advanced.php is missing." >&2
+		return 1
+	fi
+	if [ ! -f "${updater_source}/plugin-update-checker.php" ]; then
+		echo "ERROR: Advanced updater dependency is missing; run composer install before building." >&2
 		return 1
 	fi
 
@@ -418,6 +424,8 @@ build_advanced() {
 		--exclude='composer.json' \
 		--exclude='composer.lock' \
 		"${PLUGIN_DIR}/advanced-plugin/" "$dest/"
+	mkdir -p "${dest}/vendor/plugin-update-checker"
+	rsync -a --delete "${updater_source}/" "${dest}/vendor/plugin-update-checker/"
 
 	prune_dev_metadata "$dest"
 	zip_dir "$build_dir" "superdav-ai-agent-advanced" "superdav-ai-agent-advanced-${VERSION}.zip"
@@ -440,9 +448,9 @@ main() {
 		build_advanced
 		;;
 	both)
+		build_advanced
 		build_assets_and_vendor
 		build_core
-		build_advanced
 		;;
 	esac
 

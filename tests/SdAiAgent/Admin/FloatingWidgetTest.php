@@ -222,22 +222,6 @@ class FloatingWidgetTest extends WP_UnitTestCase {
 		$this->assertSame( '', $data['settingsPageUrl'] );
 	}
 
-	/** Forced dashboard embedding localizes a fixed vendor-simple panel. */
-	public function test_enqueue_assets_frontend_supports_forced_embedded_mode(): void {
-		wp_set_current_user( $this->editor_id );
-		Settings::instance()->update( [ 'show_on_frontend' => false ] );
-		$fixture_dir = dirname( __DIR__, 2 ) . '/fixtures/assets';
-		add_filter( 'sd_ai_agent_build_dir', static fn() => $fixture_dir );
-
-		FloatingWidget::enqueue_assets_frontend( true, 'embedded', 'vendor_simple' );
-		remove_all_filters( 'sd_ai_agent_build_dir' );
-
-		$this->assertTrue( wp_script_is( 'sd-ai-agent-floating-widget', 'enqueued' ) );
-		$data = $this->get_localized_widget_data();
-		$this->assertSame( 'embedded', $data['displayMode'] );
-		$this->assertSame( 'vendor_simple', $data['chatUiMode'] );
-	}
-
 	/** The widget receives separate normalized user and site speech hints. */
 	public function test_enqueue_assets_frontend_localizes_speech_locale_hints(): void {
 		wp_set_current_user( $this->editor_id );

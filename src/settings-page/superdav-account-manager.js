@@ -8,7 +8,6 @@ import {
 	Notice,
 	Spinner,
 	TextControl,
-	ToggleControl,
 } from '@wordpress/components';
 import { __, sprintf } from '@wordpress/i18n';
 import apiFetch from '@wordpress/api-fetch';
@@ -405,8 +404,6 @@ export default function SuperdavAccountManager() {
 	const [ redemptionNotice, setRedemptionNotice ] = useState( null );
 	const [ actionNotice, setActionNotice ] = useState( null );
 	const [ openingAction, setOpeningAction ] = useState( '' );
-	const [ advancedNotice, setAdvancedNotice ] = useState( null );
-	const [ advancedAction, setAdvancedAction ] = useState( '' );
 	const [ error, setError ] = useState( '' );
 	const [ hasLoadedAccount, setHasLoadedAccount ] = useState( false );
 
@@ -561,91 +558,6 @@ export default function SuperdavAccountManager() {
 		[ couponCode, redeeming ]
 	);
 
-	const installAdvanced = useCallback( async () => {
-		if ( advancedAction ) {
-			return;
-		}
-
-		setAdvancedAction( 'install' );
-		setAdvancedNotice( null );
-		try {
-			const result = await apiFetch( {
-				path: '/sd-ai-agent/v1/superdav-account/advanced-plugin/install',
-				method: 'POST',
-			} );
-			setAccount( ( current ) => ( {
-				...current,
-				advanced_plugin: result,
-			} ) );
-			setAdvancedNotice( {
-				status: 'success',
-				message: __(
-					'SD AI Agent Advanced is installed, active, and set to update automatically.',
-					'superdav-ai-agent'
-				),
-			} );
-		} catch ( err ) {
-			setAdvancedNotice( {
-				status: 'error',
-				message:
-					err?.message ||
-					__(
-						'SD AI Agent Advanced could not be installed.',
-						'superdav-ai-agent'
-					),
-			} );
-		} finally {
-			setAdvancedAction( '' );
-		}
-	}, [ advancedAction ] );
-
-	const setAdvancedAutoUpdates = useCallback(
-		async ( enabled ) => {
-			if ( advancedAction ) {
-				return;
-			}
-
-			setAdvancedAction( 'auto-updates' );
-			setAdvancedNotice( null );
-			try {
-				const result = await apiFetch( {
-					path: '/sd-ai-agent/v1/superdav-account/advanced-plugin/auto-updates',
-					method: 'POST',
-					data: { enabled },
-				} );
-				setAccount( ( current ) => ( {
-					...current,
-					advanced_plugin: result,
-				} ) );
-				setAdvancedNotice( {
-					status: 'success',
-					message: enabled
-						? __(
-								'Automatic updates are enabled for Advanced.',
-								'superdav-ai-agent'
-						  )
-						: __(
-								'Automatic updates are disabled for Advanced.',
-								'superdav-ai-agent'
-						  ),
-				} );
-			} catch ( err ) {
-				setAdvancedNotice( {
-					status: 'error',
-					message:
-						err?.message ||
-						__(
-							'Unable to change automatic updates for Advanced.',
-							'superdav-ai-agent'
-						),
-				} );
-			} finally {
-				setAdvancedAction( '' );
-			}
-		},
-		[ advancedAction ]
-	);
-
 	useEffect( () => {
 		loadAccount();
 	}, [ loadAccount ] );
@@ -683,9 +595,6 @@ export default function SuperdavAccountManager() {
 			'superdav-ai-agent'
 		);
 	}
-	const advancedActionLabel = advancedPlugin.installed
-		? __( 'Activate Advanced', 'superdav-ai-agent' )
-		: __( 'Install and activate', 'superdav-ai-agent' );
 	const hasAccountActions =
 		purchaseCreditsAvailable ||
 		paymentMethodsAvailable ||
@@ -866,15 +775,6 @@ export default function SuperdavAccountManager() {
 					{ actionNotice.message }
 				</Notice>
 			) }
-			{ advancedNotice && (
-				<Notice
-					status={ advancedNotice.status }
-					isDismissible={ false }
-				>
-					{ advancedNotice.message }
-				</Notice>
-			) }
-
 			{ hasLoadedAccount &&
 				( ! configured ? (
 					<Notice status="warning" isDismissible={ false }>
@@ -951,51 +851,23 @@ export default function SuperdavAccountManager() {
 								<strong className="sd-ai-agent-superdav-advanced-status">
 									{ advancedStatusLabel }
 								</strong>
-								{ ! advancedPlugin.file_mods_allowed &&
-									! advancedPlugin.bundled && (
+								{ ! advancedPlugin.bundled &&
+									! advancedPlugin.installed && (
 										<p className="description">
 											{ __(
-												'Plugin installation is disabled by this site configuration.',
+												'Download the Advanced ZIP from the latest SD AI Agent GitHub release, then install it from Plugins > Add New Plugin > Upload Plugin.',
 												'superdav-ai-agent'
 											) }
 										</p>
 									) }
-							</div>
-							<div className="sd-ai-agent-superdav-advanced-actions">
-								{ advancedPlugin.active &&
-									! advancedPlugin.bundled && (
-										<ToggleControl
-											label={ __(
-												'Automatic updates',
+								{ advancedPlugin.installed &&
+									! advancedPlugin.active && (
+										<p className="description">
+											{ __(
+												'Activate Advanced from the Plugins screen. After activation, Advanced checks and verifies its own updates.',
 												'superdav-ai-agent'
 											) }
-											checked={
-												!! advancedPlugin.auto_updates_enabled
-											}
-											onChange={ setAdvancedAutoUpdates }
-											disabled={
-												!! advancedAction ||
-												! advancedPlugin.can_manage
-											}
-											__nextHasNoMarginBottom
-										/>
-									) }
-								{ ! advancedPlugin.active &&
-									! advancedPlugin.bundled && (
-										<Button
-											variant="primary"
-											onClick={ installAdvanced }
-											isBusy={
-												advancedAction === 'install'
-											}
-											disabled={
-												!! advancedAction ||
-												! advancedPlugin.can_manage ||
-												! advancedPlugin.file_mods_allowed
-											}
-										>
-											{ advancedActionLabel }
-										</Button>
+										</p>
 									) }
 							</div>
 						</section>
